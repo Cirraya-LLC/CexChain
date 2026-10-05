@@ -1,0 +1,17 @@
+# Build outputs
+/build/
+/out/
+/cmake-build-*/
+/Testing/
+compile_commands.json
+
+# Dependency managers
+/vcpkg_installed/
+CMakeUserPresets.json
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+.cache/
