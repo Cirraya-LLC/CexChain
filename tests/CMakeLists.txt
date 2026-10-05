@@ -3,12 +3,16 @@
 
 add_executable(cexchain_tests
     core/cbor_test.cpp
-    core/hex_test.cpp)
+    core/crypto_test.cpp
+    core/hex_test.cpp
+    crypto/openssl_test.cpp)
 
 target_link_libraries(cexchain_tests PRIVATE
     cexchain::core
+    cexchain::crypto_openssl
     Catch2::Catch2WithMain
     nlohmann_json::nlohmann_json)
+target_include_directories(cexchain_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(cexchain_tests PRIVATE
     CEXCHAIN_TESTVECTORS_DIR="${PROJECT_SOURCE_DIR}/testvectors")
 target_compile_features(cexchain_tests PRIVATE cxx_std_23)

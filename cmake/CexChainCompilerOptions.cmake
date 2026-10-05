@@ -7,6 +7,12 @@ if(NOT CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$")
     message(FATAL_ERROR "CexChain currently supports GCC and Clang only (found ${CMAKE_CXX_COMPILER_ID}).")
 endif()
 
+# Apple's linker warns when a static library reaches a target through more than
+# one dependency path, which is normal in a layered build.
+if(APPLE)
+    add_link_options(LINKER:-no_warn_duplicate_libraries)
+endif()
+
 # Sanitizers apply to every target, including third-party code, so that
 # instrumented and uninstrumented code never mix.
 if(CEXCHAIN_SANITIZERS)
