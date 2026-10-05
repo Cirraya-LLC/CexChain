@@ -1,0 +1,62 @@
+{
+  "description": "Unencrypted PKCS #8 private keys: valid keys with their expected public keys, and invalid inputs that must be rejected. These are throwaway test keys.",
+  "vectors": [
+    {
+      "name": "Ed25519 from the RFC 8032 test 1 seed",
+      "der": "302e020100300506032b6570042204209d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+      "valid": true,
+      "algorithm": -19,
+      "public_key": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
+    },
+    {
+      "name": "ESP256",
+      "der": "308187020100301306072a8648ce3d020106082a8648ce3d030107046d306b02010104200aa94d6a144ccbdff78dbe4e2e951673081cdef2c213917ff78ccbb6f9ba5d7ca144034200042cd91aff0763a79de0aa82368f2bff111a7c9214482b988ecb5c9d5e4c36639ba9c448e00beb6020ac3053877c4d019bc05e85309547265b843a69a15a53de78",
+      "valid": true,
+      "algorithm": -9,
+      "public_key": "042cd91aff0763a79de0aa82368f2bff111a7c9214482b988ecb5c9d5e4c36639ba9c448e00beb6020ac3053877c4d019bc05e85309547265b843a69a15a53de78"
+    },
+    {
+      "name": "ESP256 private key with another key's public key",
+      "der": "308187020100301306072a8648ce3d020106082a8648ce3d030107046d306b02010104200aa94d6a144ccbdff78dbe4e2e951673081cdef2c213917ff78ccbb6f9ba5d7ca144034200049f38e02bd93593c74295d4beae1fe05b34c1fe36a4346f56ee9e2807bdc95b3f75ae0fbfb8319a81217e37324630741ac5a88b938d801658972450011e77e685",
+      "valid": false,
+      "expected_error": "invalid_argument"
+    },
+    {
+      "name": "ESP256 as SEC 1 ECPrivateKey instead of PKCS #8",
+      "der": "307702010104200aa94d6a144ccbdff78dbe4e2e951673081cdef2c213917ff78ccbb6f9ba5d7ca00a06082a8648ce3d030107a144034200042cd91aff0763a79de0aa82368f2bff111a7c9214482b988ecb5c9d5e4c36639ba9c448e00beb6020ac3053877c4d019bc05e85309547265b843a69a15a53de78",
+      "valid": false,
+      "expected_error": "invalid_argument"
+    },
+    {
+      "name": "ESP256 PKCS #8 with a trailing byte",
+      "der": "308187020100301306072a8648ce3d020106082a8648ce3d030107046d306b02010104200aa94d6a144ccbdff78dbe4e2e951673081cdef2c213917ff78ccbb6f9ba5d7ca144034200042cd91aff0763a79de0aa82368f2bff111a7c9214482b988ecb5c9d5e4c36639ba9c448e00beb6020ac3053877c4d019bc05e85309547265b843a69a15a53de7800",
+      "valid": false,
+      "expected_error": "invalid_argument"
+    },
+    {
+      "name": "ESP256 PKCS #8 truncated",
+      "der": "308187020100301306072a8648ce3d020106082a8648ce3d030107046d306b02010104200aa94d6a144ccbdff78dbe4e2e951673081cdef2c213917ff78ccbb6f9ba5d7ca144034200042cd91aff0763a79de0aa82368f2bff111a7c9214482b988ecb5c9d5e4c36639ba9c448e00beb6020ac3053877c4d019bc05e85309547265b843a69a15a53de",
+      "valid": false,
+      "expected_error": "invalid_argument"
+    },
+    {
+      "name": "SM2",
+      "der": "308187020100301306072a8648ce3d020106082a811ccf5501822d046d306b0201010420968473f46f36e0e1a4752ecef19d06df91ecaeb7546f3615896cc07b69d75353a1440342000431534148d36ff797d1334956106a20f94108da134025d787ea654f8906194e60b44c0b2455c6ba2c066af7adf47f3093eb63125ceb64af7250e483da5d85f331",
+      "valid": true,
+      "algorithm": -65537,
+      "public_key": "0431534148d36ff797d1334956106a20f94108da134025d787ea654f8906194e60b44c0b2455c6ba2c066af7adf47f3093eb63125ceb64af7250e483da5d85f331"
+    },
+    {
+      "name": "SM2 private key with another key's public key",
+      "der": "308187020100301306072a8648ce3d020106082a811ccf5501822d046d306b0201010420968473f46f36e0e1a4752ecef19d06df91ecaeb7546f3615896cc07b69d75353a14403420004958fa646e9e2ed05e8d0ea3fcbaf676c8d5f9473347b41c6038eeee03609bc26f2fedfdc8184207b4e41830362c5d2c4642d69ffb894eae1cf8919fda4c90791",
+      "valid": false,
+      "expected_error": "invalid_argument"
+    },
+    {
+      "name": "SM2 as SEC 1 ECPrivateKey instead of PKCS #8",
+      "der": "30770201010420968473f46f36e0e1a4752ecef19d06df91ecaeb7546f3615896cc07b69d75353a00a06082a811ccf5501822da1440342000431534148d36ff797d1334956106a20f94108da134025d787ea654f8906194e60b44c0b2455c6ba2c066af7adf47f3093eb63125ceb64af7250e483da5d85f331",
+      "valid": false,
+      "expected_error": "invalid_argument"
+    }
+  ]
+}

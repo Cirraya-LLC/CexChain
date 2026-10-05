@@ -74,6 +74,24 @@ inline constexpr std::array all_sig_algs{SigAlg::esp256,    SigAlg::ed25519,   S
 [[nodiscard]] std::size_t public_key_size(SigAlg alg) noexcept;
 [[nodiscard]] std::size_t signature_size(SigAlg alg) noexcept;
 
+/// True if `key` is a public key CexChain refuses even though it decodes:
+/// an Ed25519 point of small order (for which a single signature can verify
+/// every message) or a non-canonical Ed25519 encoding (y >= p), which would
+/// give one key two identities. Expects a key of the correct size.
+[[nodiscard]] bool is_weak_public_key(SigAlg alg, ByteView key) noexcept;
+
+/// True if `signature` is in the one encoding CexChain accepts for `alg`:
+///   - ESP256: low-S (s <= n/2). ECDSA accepts both (r, s) and (r, n - s);
+///     admitting only one makes signatures non-malleable.
+///   - Ed25519: the scalar S is reduced (S < L), as RFC 8032 requires.
+/// Other algorithms already have a single valid encoding. Expects a signature
+/// of the correct size.
+[[nodiscard]] bool is_canonical_signature(SigAlg alg, ByteView signature) noexcept;
+
+/// Rewrites an ESP256 signature into low-S form and leaves other algorithms
+/// unchanged. Every Signer implementation must apply it before returning.
+void canonicalize_signature(SigAlg alg, std::span<std::uint8_t> signature) noexcept;
+
 /// A hash output of up to 64 bytes, stored inline.
 class Digest {
 public:
@@ -141,9 +159,10 @@ public:
 
     /// Verifies `signature` over `message`.
     ///
-    /// Returns `Errc::invalid_argument` if the key is malformed,
+    /// Returns `Errc::invalid_argument` if the key is malformed or weak,
     /// `Errc::unsupported` if the algorithm is unavailable, and
-    /// `Errc::verification_failed` if the signature is not valid.
+    /// `Errc::verification_failed` if the signature is not valid or not in
+    /// canonical form.
     [[nodiscard]] Status verify(const PublicKey& key, ByteView message, ByteView signature) const;
 
 protected:

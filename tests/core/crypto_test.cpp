@@ -52,3 +52,79 @@ TEST_CASE("Digest holds 1 to 64 bytes", "[core][crypto]") {
     CHECK(a->size() == 32);
     CHECK(crypto::Digest{}.empty());
 }
+
+TEST_CASE("ESP256 low-S boundary and canonicalization", "[core][crypto]") {
+    // n/2 and n for P-256, big-endian (see tools/crypto/derive_constants.py).
+    const auto half =
+        *cexchain::from_hex("7fffffff800000007fffffffffffffffde737d56d38bcf4279dce5617e3192a8");
+    const auto order =
+        *cexchain::from_hex("ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551");
+
+    Bytes at_half(32, 0x11);
+    at_half.insert(at_half.end(), half.begin(), half.end());
+    CHECK(crypto::is_canonical_signature(crypto::SigAlg::esp256, at_half));
+
+    Bytes above_half = at_half;
+    above_half.back() = 0xa9; // n/2 + 1
+    CHECK_FALSE(crypto::is_canonical_signature(crypto::SigAlg::esp256, above_half));
+
+    // Canonicalizing s = n/2 + 1 gives n - (n/2 + 1) = n/2 (n is odd).
+    Bytes normalized = above_half;
+    crypto::canonicalize_signature(crypto::SigAlg::esp256, normalized);
+    CHECK(normalized == at_half);
+    crypto::canonicalize_signature(crypto::SigAlg::esp256, normalized);
+    CHECK(normalized == at_half); // idempotent
+
+    // s = n - 1 becomes 1.
+    Bytes near_order(32, 0x22);
+    near_order.insert(near_order.end(), order.begin(), order.end());
+    near_order.back() = 0x50;
+    crypto::canonicalize_signature(crypto::SigAlg::esp256, near_order);
+    Bytes one(31, 0);
+    one.push_back(1);
+    CHECK(Bytes(near_order.begin() + 32, near_order.end()) == one);
+
+    // Other algorithms are left alone.
+    Bytes sm2 = above_half;
+    crypto::canonicalize_signature(crypto::SigAlg::sm2_sm3, sm2);
+    CHECK(sm2 == above_half);
+    CHECK(crypto::is_canonical_signature(crypto::SigAlg::sm2_sm3, above_half));
+    CHECK(crypto::is_canonical_signature(crypto::SigAlg::ml_dsa_65, Bytes(3309, 0xff)));
+}
+
+TEST_CASE("Ed25519 signature scalar must be reduced", "[core][crypto]") {
+    const auto order =
+        *cexchain::from_hex("edd3f55c1a631258d69cf7a2def9de1400000000000000000000000000000010");
+    Bytes signature(32, 0x33);
+    signature.insert(signature.end(), order.begin(), order.end()); // S = L
+    CHECK_FALSE(crypto::is_canonical_signature(crypto::SigAlg::ed25519, signature));
+    signature[32] = 0xec; // S = L - 1
+    CHECK(crypto::is_canonical_signature(crypto::SigAlg::ed25519, signature));
+}
+
+TEST_CASE("weak Ed25519 public keys are recognized", "[core][crypto]") {
+    for (const char* weak : {
+             "0000000000000000000000000000000000000000000000000000000000000000",
+             "0000000000000000000000000000000000000000000000000000000000000080",
+             "0100000000000000000000000000000000000000000000000000000000000000",
+             "0100000000000000000000000000000000000000000000000000000000000080",
+             "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85",
+             "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+             "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+             "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+             "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+         }) {
+        INFO(weak);
+        CHECK(crypto::is_weak_public_key(crypto::SigAlg::ed25519, *cexchain::from_hex(weak)));
+    }
+    // The RFC 8032 test 1 key and the largest canonical y (p - 1 with high bits
+    // varied) are fine.
+    CHECK_FALSE(crypto::is_weak_public_key(
+        crypto::SigAlg::ed25519,
+        *cexchain::from_hex("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")));
+    CHECK_FALSE(crypto::is_weak_public_key(
+        crypto::SigAlg::ed25519,
+        *cexchain::from_hex("ebffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")));
+    // Only Ed25519 has this notion.
+    CHECK_FALSE(crypto::is_weak_public_key(crypto::SigAlg::esp256, Bytes(65, 0)));
+}

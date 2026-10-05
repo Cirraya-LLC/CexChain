@@ -18,6 +18,7 @@
 #include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/params.h>
+#include <openssl/x509.h>
 
 #include <cexchain/crypto/openssl.hpp>
 
@@ -43,6 +44,7 @@ using EcdsaSigPtr = std::unique_ptr<ECDSA_SIG, Deleter<&ECDSA_SIG_free>>;
 using BignumPtr = std::unique_ptr<BIGNUM, Deleter<&BN_free>>;
 using EncoderCtxPtr = std::unique_ptr<OSSL_ENCODER_CTX, Deleter<&OSSL_ENCODER_CTX_free>>;
 using DecoderCtxPtr = std::unique_ptr<OSSL_DECODER_CTX, Deleter<&OSSL_DECODER_CTX_free>>;
+using Pkcs8InfoPtr = std::unique_ptr<PKCS8_PRIV_KEY_INFO, Deleter<&PKCS8_PRIV_KEY_INFO_free>>;
 
 constexpr std::size_t ec_scalar_size = 32;
 constexpr std::uint8_t sec1_uncompressed_prefix = 0x04;
@@ -265,6 +267,83 @@ Result<Bytes> export_public_key(EVP_PKEY* pkey, SigAlg alg) {
     return out;
 }
 
+Status verify_with(const PublicKey& key, ByteView message, ByteView signature) {
+    auto pkey = import_public_key(key);
+    if (!pkey) {
+        return std::unexpected(pkey.error());
+    }
+
+    Bytes der;
+    ByteView encoded = signature;
+    if (is_ec(key.algorithm)) {
+        auto converted = raw_to_der(signature);
+        if (!converted) {
+            return std::unexpected(converted.error());
+        }
+        der = std::move(*converted);
+        encoded = der;
+    }
+
+    const SignatureParams params(key.algorithm);
+    MdCtxPtr ctx(EVP_MD_CTX_new());
+    if (!ctx || EVP_DigestVerifyInit_ex(ctx.get(), nullptr, spec(key.algorithm).digest, nullptr,
+                                        nullptr, pkey->get(), params.get()) != 1) {
+        return openssl_fail(Errc::crypto_failure, "could not initialize signature verification");
+    }
+    if (EVP_DigestVerify(ctx.get(), encoded.data(), encoded.size(), data_or_empty(message),
+                         message.size()) != 1) {
+        return openssl_fail(Errc::verification_failed, "signature does not verify");
+    }
+    return {};
+}
+
+Result<Bytes> sign_with(EVP_PKEY* pkey, SigAlg alg, ByteView message) {
+    const SignatureParams params(alg);
+    MdCtxPtr ctx(EVP_MD_CTX_new());
+    if (!ctx || EVP_DigestSignInit_ex(ctx.get(), nullptr, spec(alg).digest, nullptr, nullptr, pkey,
+                                      params.get()) != 1) {
+        return openssl_fail(Errc::crypto_failure, "could not initialize signing");
+    }
+    const int max_size = EVP_PKEY_get_size(pkey);
+    if (max_size <= 0) {
+        return openssl_fail(Errc::crypto_failure, "could not determine the signature size");
+    }
+    Bytes signature(static_cast<std::size_t>(max_size));
+    std::size_t length = signature.size();
+    if (EVP_DigestSign(ctx.get(), signature.data(), &length, data_or_empty(message),
+                       message.size()) != 1) {
+        return openssl_fail(Errc::crypto_failure, "signing failed");
+    }
+    signature.resize(length);
+    if (is_ec(alg)) {
+        auto raw = der_to_raw(signature);
+        if (raw) {
+            canonicalize_signature(alg, *raw);
+        }
+        return raw;
+    }
+    if (signature.size() != signature_size(alg)) {
+        return openssl_fail(Errc::crypto_failure,
+                            "backend produced a signature of unexpected size");
+    }
+    return signature;
+}
+
+/// Confirms that the private key produces signatures that the advertised
+/// public key verifies. Catches imported key files whose embedded public key
+/// does not belong to the private key.
+Status check_key_pair(EVP_PKEY* pkey, const PublicKey& public_key) {
+    static constexpr std::string_view probe = "CexChain key pair consistency check";
+    const auto signature = sign_with(pkey, public_key.algorithm, as_bytes(probe));
+    if (!signature) {
+        return std::unexpected(signature.error());
+    }
+    if (!verify_with(public_key, as_bytes(probe), *signature)) {
+        return openssl_fail(Errc::invalid_argument, "private key does not match its public key");
+    }
+    return {};
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -326,33 +405,7 @@ Result<Digest> Provider::do_digest(HashAlg alg, std::span<const ByteView> parts)
 }
 
 Status Provider::do_verify(const PublicKey& key, ByteView message, ByteView signature) const {
-    auto pkey = import_public_key(key);
-    if (!pkey) {
-        return std::unexpected(pkey.error());
-    }
-
-    Bytes der;
-    ByteView encoded = signature;
-    if (is_ec(key.algorithm)) {
-        auto converted = raw_to_der(signature);
-        if (!converted) {
-            return std::unexpected(converted.error());
-        }
-        der = std::move(*converted);
-        encoded = der;
-    }
-
-    const SignatureParams params(key.algorithm);
-    MdCtxPtr ctx(EVP_MD_CTX_new());
-    if (!ctx || EVP_DigestVerifyInit_ex(ctx.get(), nullptr, spec(key.algorithm).digest, nullptr,
-                                        nullptr, pkey->get(), params.get()) != 1) {
-        return openssl_fail(Errc::crypto_failure, "could not initialize signature verification");
-    }
-    if (EVP_DigestVerify(ctx.get(), encoded.data(), encoded.size(), data_or_empty(message),
-                         message.size()) != 1) {
-        return openssl_fail(Errc::verification_failed, "signature does not verify");
-    }
-    return {};
+    return verify_with(key, message, signature);
 }
 
 // ---------------------------------------------------------------------------
@@ -401,6 +454,18 @@ Result<KeyPair> KeyPair::generate(SigAlg alg) {
 }
 
 Result<KeyPair> KeyPair::from_pkcs8(ByteView der) {
+    // The decoder below also accepts other private key formats (such as SEC 1),
+    // so first require the outer structure to be exactly one PrivateKeyInfo.
+    {
+        const unsigned char* begin = data_or_empty(der);
+        const unsigned char* cursor = begin;
+        const Pkcs8InfoPtr info(
+            d2i_PKCS8_PRIV_KEY_INFO(nullptr, &cursor, static_cast<long>(der.size())));
+        if (!info || cursor != begin + der.size()) {
+            return openssl_fail(Errc::invalid_argument, "input is not a PKCS #8 PrivateKeyInfo");
+        }
+    }
+
     EVP_PKEY* raw = nullptr;
     DecoderCtxPtr decoder(OSSL_DECODER_CTX_new_for_pkey(&raw, "DER", "PrivateKeyInfo", nullptr,
                                                         EVP_PKEY_KEYPAIR, nullptr, nullptr));
@@ -425,8 +490,11 @@ Result<KeyPair> KeyPair::from_pkcs8(ByteView der) {
     if (!public_key) {
         return std::unexpected(public_key.error());
     }
-    return KeyPair(
-        std::make_unique<Impl>(Impl{std::move(pkey), PublicKey{*alg, std::move(*public_key)}}));
+    PublicKey advertised{*alg, std::move(*public_key)};
+    if (auto s = check_key_pair(pkey.get(), advertised); !s) {
+        return std::unexpected(s.error());
+    }
+    return KeyPair(std::make_unique<Impl>(Impl{std::move(pkey), std::move(advertised)}));
 }
 
 Result<KeyPair> KeyPair::from_ed25519_seed(ByteView seed) {
@@ -447,43 +515,25 @@ Result<KeyPair> KeyPair::from_ed25519_seed(ByteView seed) {
 }
 
 SigAlg KeyPair::algorithm() const noexcept {
-    return impl_->public_key.algorithm;
+    return public_key().algorithm;
 }
 
 const PublicKey& KeyPair::public_key() const noexcept {
-    return impl_->public_key;
+    static const PublicKey moved_from{SigAlg::ed25519, {}};
+    return impl_ ? impl_->public_key : moved_from;
 }
 
 Result<Bytes> KeyPair::sign(ByteView message) const {
-    const SigAlg alg = algorithm();
-    const SignatureParams params(alg);
-    MdCtxPtr ctx(EVP_MD_CTX_new());
-    if (!ctx || EVP_DigestSignInit_ex(ctx.get(), nullptr, spec(alg).digest, nullptr, nullptr,
-                                      impl_->pkey.get(), params.get()) != 1) {
-        return openssl_fail(Errc::crypto_failure, "could not initialize signing");
+    if (!impl_) {
+        return fail(Errc::invalid_argument, "key pair has been moved from");
     }
-    const int max_size = EVP_PKEY_get_size(impl_->pkey.get());
-    if (max_size <= 0) {
-        return openssl_fail(Errc::crypto_failure, "could not determine the signature size");
-    }
-    Bytes signature(static_cast<std::size_t>(max_size));
-    std::size_t length = signature.size();
-    if (EVP_DigestSign(ctx.get(), signature.data(), &length, data_or_empty(message),
-                       message.size()) != 1) {
-        return openssl_fail(Errc::crypto_failure, "signing failed");
-    }
-    signature.resize(length);
-    if (is_ec(alg)) {
-        return der_to_raw(signature);
-    }
-    if (signature.size() != signature_size(alg)) {
-        return openssl_fail(Errc::crypto_failure,
-                            "backend produced a signature of unexpected size");
-    }
-    return signature;
+    return sign_with(impl_->pkey.get(), algorithm(), message);
 }
 
 Result<SecureBytes> KeyPair::to_pkcs8() const {
+    if (!impl_) {
+        return fail(Errc::invalid_argument, "key pair has been moved from");
+    }
     EncoderCtxPtr encoder(OSSL_ENCODER_CTX_new_for_pkey(impl_->pkey.get(), EVP_PKEY_KEYPAIR, "DER",
                                                         "PrivateKeyInfo", nullptr));
     unsigned char* data = nullptr;

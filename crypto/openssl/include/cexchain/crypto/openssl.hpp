@@ -40,13 +40,17 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-/// A software key pair held in OpenSSL.
+/// A software key pair held in OpenSSL. ESP256 signatures are returned in
+/// low-S form. A moved-from KeyPair reports an empty public key and refuses to
+/// sign or export.
 class KeyPair final : public crypto::Signer {
 public:
     /// Generates a new key pair.
     [[nodiscard]] static Result<KeyPair> generate(SigAlg alg);
 
-    /// Loads an unencrypted PKCS #8 PrivateKeyInfo (DER).
+    /// Loads an unencrypted PKCS #8 PrivateKeyInfo (DER). Other formats are
+    /// rejected, as is a key whose embedded public key does not match its
+    /// private key.
     [[nodiscard]] static Result<KeyPair> from_pkcs8(ByteView der);
 
     /// Imports an Ed25519 private key from its 32-byte seed (RFC 8032).

@@ -67,9 +67,106 @@ def flip_first_bit(data: bytes) -> bytes:
     return bytes([data[0] ^ 0x01]) + data[1:]
 
 
-def raw_rs(der: bytes) -> bytes:
+# ---------------------------------------------------------------------------
+# Pure-Python verifiers. ECDSA and SM2 vectors are produced through OpenSSL
+# (Python cryptography bundles it; SM2 uses the CLI), so each one is also
+# checked here with textbook arithmetic that shares no code with OpenSSL.
+# Curve parameters: FIPS 186 / SEC 2 (P-256) and GB/T 32918.5 (SM2).
+# ---------------------------------------------------------------------------
+
+
+class Curve:
+    def __init__(self, p, a, b, gx, gy, n):
+        self.p, self.a, self.b, self.g, self.n = p, a, b, (gx, gy), n
+
+    def add(self, p1, p2):
+        if p1 is None:
+            return p2
+        if p2 is None:
+            return p1
+        if p1[0] == p2[0] and (p1[1] + p2[1]) % self.p == 0:
+            return None
+        if p1 == p2:
+            slope = (3 * p1[0] * p1[0] + self.a) * pow(2 * p1[1], -1, self.p) % self.p
+        else:
+            slope = (p2[1] - p1[1]) * pow(p2[0] - p1[0], -1, self.p) % self.p
+        x = (slope * slope - p1[0] - p2[0]) % self.p
+        return (x, (slope * (p1[0] - x) - p1[1]) % self.p)
+
+    def mul(self, k, point):
+        result = None
+        while k:
+            if k & 1:
+                result = self.add(result, point)
+            point = self.add(point, point)
+            k >>= 1
+        return result
+
+    def point(self, sec1: bytes):
+        assert len(sec1) == 65 and sec1[0] == 4
+        x, y = int.from_bytes(sec1[1:33], "big"), int.from_bytes(sec1[33:], "big")
+        assert (y * y - x * x * x - self.a * x - self.b) % self.p == 0, "point not on curve"
+        return (x, y)
+
+
+P256 = Curve(
+    0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF,
+    0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFC,
+    0x5AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604B,
+    0x6B17D1F2E12C4247F8BCE6E563A440F277037D812DEB33A0F4A13945D898C296,
+    0x4FE342E2FE1A7F9B8EE7EB4A7C0F9E162BCE33576B315ECECBB6406837BF51F5,
+    0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551,
+)
+SM2_CURVE = Curve(
+    0xFFFFFFFEFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF00000000FFFFFFFFFFFFFFFF,
+    0xFFFFFFFEFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF00000000FFFFFFFFFFFFFFFC,
+    0x28E9FA9E9D9F5E344D5A9E4BCF6509A7F39789F515AB8F92DDBCBD414D940E93,
+    0x32C4AE2C1F1981195F9904466A39C9948FE30BBFF2660BE1715A4589334C74C7,
+    0xBC3736A2F4F6779C59BDCEE36B692153D0A9877CC62A474002DF32E52139F0A0,
+    0xFFFFFFFEFFFFFFFFFFFFFFFFFFFFFFFF7203DF6B21C6052B53BBF40939D54123,
+)
+
+
+def ecdsa_p256_verify(public: bytes, message: bytes, signature: bytes) -> bool:
+    c = P256
+    q = c.point(public)
+    r, s = int.from_bytes(signature[:32], "big"), int.from_bytes(signature[32:], "big")
+    if not (0 < r < c.n and 0 < s < c.n):
+        return False
+    e = int.from_bytes(hashlib.sha256(message).digest(), "big")
+    w = pow(s, -1, c.n)
+    point = c.add(c.mul(e * w % c.n, c.g), c.mul(r * w % c.n, q))
+    return point is not None and point[0] % c.n == r
+
+
+def sm2_verify(public: bytes, message: bytes, signature: bytes, distinguishing_id: bytes) -> bool:
+    c = SM2_CURVE
+    q = c.point(public)
+    r, s = int.from_bytes(signature[:32], "big"), int.from_bytes(signature[32:], "big")
+    if not (0 < r < c.n and 0 < s < c.n):
+        return False
+    be = lambda v: v.to_bytes(32, "big")
+    z = hashlib.new("sm3", (len(distinguishing_id) * 8).to_bytes(2, "big") + distinguishing_id
+                    + be(c.a) + be(c.b) + be(c.g[0]) + be(c.g[1]) + be(q[0]) + be(q[1])).digest()
+    e = int.from_bytes(hashlib.new("sm3", z + message).digest(), "big")
+    t = (r + s) % c.n
+    if t == 0:
+        return False
+    point = c.add(c.mul(s, c.g), c.mul(t, q))
+    return point is not None and (e + point[0]) % c.n == r
+
+
+def raw_rs(der: bytes, low_s: bool = False) -> bytes:
+    """Converts a DER signature to r || s. With low_s, normalizes s <= n/2 (ESP256)."""
     r, s = decode_dss_signature(der)
+    if low_s and s > P256.n // 2:
+        s = P256.n - s
     return r.to_bytes(32, "big") + s.to_bytes(32, "big")
+
+
+def high_s(signature: bytes) -> bytes:
+    s = int.from_bytes(signature[32:], "big")
+    return signature[:32] + (P256.n - s).to_bytes(32, "big")
 
 
 # ---------------------------------------------------------------------------
@@ -128,6 +225,31 @@ def signature_vector(alg: str, public_key: bytes, message: bytes, signature: byt
     ]
 
 
+def invalid_vector(alg: str, public_key: bytes, message: bytes, signature: bytes, reason: str,
+                   expected_error: str = "verification_failed") -> dict:
+    return {"algorithm": COSE[alg], "name": alg, "public_key": public_key.hex(), "message": message.hex(),
+            "signature": signature.hex(), "valid": False, "expected_error": expected_error, "source": reason}
+
+
+ED25519_L = 2**252 + 27742317777372353535851937790883648493
+
+# Small-order and non-canonical Ed25519 public keys (see tools/crypto/derive_constants.py).
+# Lenient verifiers accept the signature R = identity, S = 0 under the identity key for
+# every message.
+ED25519_WEAK_KEYS = [
+    "0000000000000000000000000000000000000000000000000000000000000000",
+    "0000000000000000000000000000000000000000000000000000000000000080",
+    "0100000000000000000000000000000000000000000000000000000000000000",
+    "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+    "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85",
+    "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+    "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa",
+    "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",  # y = p
+    "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",  # y = p + 1
+]
+
+
 def ed25519_vectors() -> list[dict]:
     vectors = []
     for seed_hex, public_hex, message_hex, signature_hex in RFC8032:
@@ -138,6 +260,13 @@ def ed25519_vectors() -> list[dict]:
         assert public.hex() == public_hex, "RFC 8032 public key mismatch"
         assert signature.hex() == signature_hex, "RFC 8032 signature mismatch"
         vectors += signature_vector("Ed25519", public, message, signature, "RFC 8032 section 7.1")
+        # The same signature with S + L: still a group-equivalent scalar, but not reduced.
+        unreduced = signature[:32] + (int.from_bytes(signature[32:], "little") + ED25519_L).to_bytes(32, "little")
+        vectors.append(invalid_vector("Ed25519", public, message, unreduced, "S >= L (not reduced)"))
+    identity_signature = bytes([1]) + bytes(63)
+    for key in ED25519_WEAK_KEYS:
+        vectors.append(invalid_vector("Ed25519", bytes.fromhex(key), b"any message", identity_signature,
+                                      "small-order or non-canonical public key", "invalid_argument"))
     return vectors
 
 
@@ -146,8 +275,11 @@ def esp256_vectors() -> list[dict]:
     public = key.public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
     vectors = []
     for message in MESSAGES:
-        signature = raw_rs(key.sign(message, ec.ECDSA(hashes.SHA256())))
-        vectors += signature_vector("ESP256", public, message, signature, "Python cryptography")
+        signature = raw_rs(key.sign(message, ec.ECDSA(hashes.SHA256())), low_s=True)
+        assert ecdsa_p256_verify(public, message, signature), "pure-Python ECDSA check failed"
+        assert ecdsa_p256_verify(public, message, high_s(signature)), "high-S form must also be mathematically valid"
+        vectors += signature_vector("ESP256", public, message, signature, "Python cryptography, low-S")
+        vectors.append(invalid_vector("ESP256", public, message, high_s(signature), "high-S form of a valid signature"))
     return vectors
 
 
@@ -185,7 +317,10 @@ def sm2_vectors(openssl: str) -> list[dict]:
                  "-in", str(message_file), "-pkeyopt", f"distid:{SM2_DISTINGUISHING_ID}"],
                 check=True, capture_output=True,
             ).stdout
-            vectors += signature_vector("SM2-SM3", public, message, raw_rs(der), "OpenSSL command-line tool")
+            signature = raw_rs(der)
+            assert sm2_verify(public, message, signature, SM2_DISTINGUISHING_ID.encode()), "pure-Python SM2 check failed"
+            assert not sm2_verify(public, message, signature, b""), "SM2 must bind the distinguishing ID"
+            vectors += signature_vector("SM2-SM3", public, message, signature, "OpenSSL command-line tool")
     return vectors
 
 
@@ -193,8 +328,10 @@ def generate_signatures(openssl: str) -> None:
     vectors = ed25519_vectors() + esp256_vectors() + sm2_vectors(openssl) + mldsa_vectors()
     write(
         "signatures.json",
-        "Signatures in CexChain wire encoding (ECDSA and SM2 as r||s). Each valid vector is "
-        "followed by variants with a modified message and a modified signature.",
+        "Signatures in CexChain wire encoding (ECDSA and SM2 as r||s; ESP256 in low-S form). Each "
+        "valid vector is followed by variants with a modified message and a modified signature. "
+        "ESP256 and SM2 vectors are also checked by pure-Python verifiers. Invalid vectors may carry "
+        "expected_error (default verification_failed).",
         vectors,
     )
 
@@ -337,7 +474,12 @@ def generate_cose(openssl: str) -> None:
 
     p256 = ec.generate_private_key(ec.SECP256R1())
     p256_public = p256.public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
-    add("ESP256", p256_public, lambda m: raw_rs(p256.sign(m, ec.ECDSA(hashes.SHA256()))), b"p256-key", b"CexChain statement")
+    def esp256_sign(message: bytes) -> bytes:
+        signature = raw_rs(p256.sign(message, ec.ECDSA(hashes.SHA256())), low_s=True)
+        assert ecdsa_p256_verify(p256_public, message, signature)
+        return signature
+
+    add("ESP256", p256_public, esp256_sign, b"p256-key", b"CexChain statement")
 
     ml = mldsa.MLDSA65PrivateKey.generate()
     add("ML-DSA-65", ml.public_key().public_bytes_raw(), ml.sign, b"mldsa-key", b"CexChain statement")
@@ -355,7 +497,9 @@ def generate_cose(openssl: str) -> None:
                 [openssl, "pkeyutl", "-sign", "-rawin", "-digest", "sm3", "-inkey", str(key),
                  "-in", str(work / "tbs.bin"), "-pkeyopt", f"distid:{SM2_DISTINGUISHING_ID}"],
                 check=True, capture_output=True).stdout
-            return raw_rs(der)
+            signature = raw_rs(der)
+            assert sm2_verify(spki[-65:], message, signature, SM2_DISTINGUISHING_ID.encode())
+            return signature
 
         add("SM2-SM3", spki[-65:], sm2_sign, b"sm2-key", b"CexChain statement")
 
@@ -363,6 +507,73 @@ def generate_cose(openssl: str) -> None:
           "Tagged COSE_Sign1 messages built with cbor2 and independent signers. Protected header "
           "is {1: alg, 4: kid}; unprotected header is empty. Ed25519 messages are deterministic "
           "and must be reproduced byte for byte.",
+          vectors)
+
+
+# ---------------------------------------------------------------------------
+# PKCS #8 private keys (throwaway test keys; never use them for anything else)
+# ---------------------------------------------------------------------------
+
+
+def swap_public_point(der: bytes, own: bytes, other: bytes) -> bytes:
+    """Replaces the public point embedded in a PKCS #8 EC key with another key's point."""
+    assert der.count(own) == 1, "embedded public key not found exactly once"
+    return der.replace(own, other)
+
+
+def generate_pkcs8(openssl: str) -> None:
+    pkcs8 = dict(encoding=serialization.Encoding.DER, format=serialization.PrivateFormat.PKCS8,
+                 encryption_algorithm=serialization.NoEncryption())
+    point = dict(encoding=serialization.Encoding.X962, format=serialization.PublicFormat.UncompressedPoint)
+    vectors = []
+
+    def add(name, der, valid, alg=None, public=b"", expected_error=None):
+        vector = {"name": name, "der": der.hex(), "valid": valid}
+        if valid:
+            vector.update(algorithm=COSE[alg], public_key=public.hex())
+        else:
+            vector["expected_error"] = expected_error
+        vectors.append(vector)
+
+    ed = ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(RFC8032[0][0]))
+    add("Ed25519 from the RFC 8032 test 1 seed", ed.private_bytes(**pkcs8), True, "Ed25519",
+        ed.public_key().public_bytes_raw())
+
+    a, b = ec.generate_private_key(ec.SECP256R1()), ec.generate_private_key(ec.SECP256R1())
+    a_der, a_point, b_point = a.private_bytes(**pkcs8), a.public_key().public_bytes(**point), b.public_key().public_bytes(**point)
+    add("ESP256", a_der, True, "ESP256", a_point)
+    add("ESP256 private key with another key's public key", swap_public_point(a_der, a_point, b_point),
+        False, expected_error="invalid_argument")
+    add("ESP256 as SEC 1 ECPrivateKey instead of PKCS #8",
+        a.private_bytes(serialization.Encoding.DER, serialization.PrivateFormat.TraditionalOpenSSL,
+                        serialization.NoEncryption()), False, expected_error="invalid_argument")
+    add("ESP256 PKCS #8 with a trailing byte", a_der + b"\x00", False, expected_error="invalid_argument")
+    add("ESP256 PKCS #8 truncated", a_der[:-1], False, expected_error="invalid_argument")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        work = pathlib.Path(tmp)
+        keys = []
+        for name in ("a", "b"):
+            sec1 = work / f"{name}.sec1.der"
+            path = work / f"{name}.der"
+            # genpkey writes SM2 keys in DER as SEC 1 ECPrivateKey; convert explicitly.
+            subprocess.run([openssl, "genpkey", "-algorithm", "SM2", "-outform", "DER", "-out", str(sec1)],
+                           check=True, capture_output=True)
+            subprocess.run([openssl, "pkcs8", "-topk8", "-nocrypt", "-inform", "DER", "-in", str(sec1),
+                            "-outform", "DER", "-out", str(path)], check=True, capture_output=True)
+            spki = subprocess.run([openssl, "pkey", "-inform", "DER", "-in", str(path), "-pubout", "-outform", "DER"],
+                                  check=True, capture_output=True).stdout
+            keys.append((path.read_bytes(), spki[-65:], sec1.read_bytes()))
+        (sm2_a, sm2_a_point, sm2_a_sec1), (_, sm2_b_point, _) = keys
+        assert sm2_a[:3] == bytes([0x30, 0x81, sm2_a[2]]) and sm2_a[3:6] == bytes([0x02, 0x01, 0x00]), "not PKCS #8"
+        add("SM2", sm2_a, True, "SM2-SM3", sm2_a_point)
+        add("SM2 private key with another key's public key", swap_public_point(sm2_a, sm2_a_point, sm2_b_point),
+            False, expected_error="invalid_argument")
+        add("SM2 as SEC 1 ECPrivateKey instead of PKCS #8", sm2_a_sec1, False, expected_error="invalid_argument")
+
+    write("pkcs8.json",
+          "Unencrypted PKCS #8 private keys: valid keys with their expected public keys, and invalid inputs "
+          "that must be rejected. These are throwaway test keys.",
           vectors)
 
 
@@ -375,6 +586,7 @@ def main() -> None:
     generate_merkle("SHA-256", "sha256", "merkle-sha256.json")
     generate_merkle("SM3", "sm3", "merkle-sm3.json")
     generate_cose(args.openssl)
+    generate_pkcs8(args.openssl)
 
 
 if __name__ == "__main__":

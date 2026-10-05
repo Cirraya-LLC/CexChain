@@ -31,6 +31,15 @@ const crypto::Provider& provider() {
     return instance;
 }
 
+Errc expected_error(const nlohmann::json& vector) {
+    const std::string name = vector.value("expected_error", "verification_failed");
+    if (name == "invalid_argument") {
+        return Errc::invalid_argument;
+    }
+    REQUIRE(name == "verification_failed");
+    return Errc::verification_failed;
+}
+
 } // namespace
 
 TEST_CASE("OpenSSL provider supports every CexChain algorithm", "[crypto][openssl]") {
@@ -83,12 +92,54 @@ TEST_CASE("signatures from independent implementations verify", "[crypto][openss
             ++valid;
         } else {
             REQUIRE_FALSE(status);
-            CHECK(status.error().code == Errc::verification_failed);
+            CHECK(status.error().code == expected_error(vector));
             ++invalid;
         }
     }
     CHECK(valid == 16);
-    CHECK(invalid == 32);
+    CHECK(invalid == 48);
+}
+
+TEST_CASE("PKCS #8 vectors: valid keys load, malformed and mismatched keys do not",
+          "[crypto][openssl][vectors]") {
+    const auto document = load_vectors("pkcs8.json");
+    for (const auto& vector : document["vectors"]) {
+        INFO(vector["name"].get<std::string>());
+        const auto key = KeyPair::from_pkcs8(hex_field(vector["der"]));
+        if (vector["valid"].get<bool>()) {
+            REQUIRE(key);
+            CHECK(crypto::cose_id(key->algorithm()) == vector["algorithm"].get<std::int64_t>());
+            CHECK(key->public_key().bytes == hex_field(vector["public_key"]));
+        } else {
+            REQUIRE_FALSE(key);
+            CHECK(key.error().code == expected_error(vector));
+        }
+    }
+}
+
+TEST_CASE("ESP256 signatures are always produced in low-S form", "[crypto][openssl]") {
+    const auto key = KeyPair::generate(SigAlg::esp256);
+    REQUIRE(key);
+    // Each signature has a one-in-two chance of being high-S before
+    // normalization, so 64 signatures exercise both paths.
+    for (int i = 0; i < 64; ++i) {
+        const std::string message = "message " + std::to_string(i);
+        const auto signature = key->sign(as_bytes(message));
+        REQUIRE(signature);
+        CHECK(crypto::is_canonical_signature(SigAlg::esp256, *signature));
+        CHECK(provider().verify(key->public_key(), as_bytes(message), *signature));
+    }
+}
+
+TEST_CASE("a moved-from key pair refuses to sign", "[crypto][openssl]") {
+    auto key = KeyPair::generate(SigAlg::ed25519);
+    REQUIRE(key);
+    const KeyPair moved = std::move(*key);
+    CHECK(moved.sign(as_bytes("x")));
+    // NOLINTNEXTLINE(bugprone-use-after-move): the moved-from state is under test.
+    CHECK(key->sign(as_bytes("x")).error().code == Errc::invalid_argument);
+    CHECK(key->to_pkcs8().error().code == Errc::invalid_argument);
+    CHECK(key->public_key().bytes.empty());
 }
 
 TEST_CASE("generated keys sign and verify", "[crypto][openssl]") {
