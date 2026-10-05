@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cirraya
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**.md", "LICENSE"]
+  pull_request:
+    paths-ignore: ["**.md", "LICENSE"]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux (GCC 16; Clang 23 with sanitizers)
+    runs-on: ubuntu-latest
+    # Debian trixie: OpenSSL 3.5, CMake 3.31.
+    container: gcc:16-trixie
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install tools
+        run: .github/scripts/install-linux-tools.sh
+
+      - name: GCC 16
+        run: |
+          cmake --preset gcc-debug -DCMAKE_CXX_COMPILER=g++
+          cmake --build --preset gcc-debug
+          ctest --preset gcc-debug
+
+      - name: Clang 23 with AddressSanitizer and UndefinedBehaviorSanitizer
+        run: |
+          cmake --preset clang-asan -DCMAKE_CXX_COMPILER=clang++-23
+          cmake --build --preset clang-asan
+          ctest --preset clang-asan
+
+      - name: Formatting
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git ls-files '*.cpp' '*.hpp' | xargs clang-format-23 --dry-run --Werror

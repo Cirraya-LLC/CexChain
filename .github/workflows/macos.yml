@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cirraya
+
+# macOS runners cost ten times as many Actions minutes as Linux, so this
+# workflow runs only on demand.
+name: macOS
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    name: macOS (GCC 16, Homebrew Clang)
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install tools
+        run: brew install gcc llvm ninja openssl@3
+
+      - name: GCC 16
+        run: |
+          cmake --preset gcc-debug -DCMAKE_CXX_COMPILER=g++-16
+          cmake --build --preset gcc-debug
+          ctest --preset gcc-debug
+
+      - name: Clang with AddressSanitizer and UndefinedBehaviorSanitizer
+        run: |
+          cmake --preset clang-asan -DCMAKE_CXX_COMPILER="$(brew --prefix llvm)/bin/clang++"
+          cmake --build --preset clang-asan
+          ctest --preset clang-asan
