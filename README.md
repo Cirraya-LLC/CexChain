@@ -45,7 +45,21 @@ CexChain is a ledger protocol and node for trust between organizations. Every do
 
 ## Building
 
-Not available yet. Planned requirements: GCC 16 or a recent Clang, CMake, Ninja, and OpenSSL 3.5 or later.
+Requirements:
+
+- GCC 16 (primary) or a recent Clang (tested with Clang 23)
+- CMake 3.28+ and Ninja
+- OpenSSL 3.5+
+
+```sh
+cmake --preset gcc-debug
+cmake --build --preset gcc-debug
+ctest --preset gcc-debug
+```
+
+Other presets: `gcc-release`, `clang-debug`, `clang-asan` (AddressSanitizer + UndefinedBehaviorSanitizer), and `clang-fuzz` (libFuzzer targets).
+
+On macOS, Homebrew's LLVM is keg-only. To use it with the Clang presets, add a `CMakeUserPresets.json` that inherits a Clang preset and sets `CMAKE_CXX_COMPILER` to `/opt/homebrew/opt/llvm/bin/clang++`. Homebrew's `openssl@3` is detected automatically.
 
 ## License
 

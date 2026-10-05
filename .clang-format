@@ -1,0 +1,25 @@
+---
+BasedOnStyle: LLVM
+IndentWidth: 4
+ColumnLimit: 100
+PointerAlignment: Left
+AccessModifierOffset: -4
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortLambdasOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AlwaysBreakTemplateDeclarations: Yes
+BreakBeforeBraces: Attach
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^<cexchain/'
+    Priority: 3
+  - Regex: '^<(openssl|catch2|nlohmann)/'
+    Priority: 2
+  - Regex: '^<'
+    Priority: 1
+  - Regex: '.*'
+    Priority: 4
+InsertNewlineAtEOF: true
+NamespaceIndentation: None
+FixNamespaceComments: true
+SortIncludes: CaseSensitive

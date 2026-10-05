@@ -1,0 +1,82 @@
+{
+    "version": 6,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 28,
+        "patch": 0
+    },
+    "configurePresets": [
+        {
+            "name": "base",
+            "hidden": true,
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "cacheVariables": {
+                "CEXCHAIN_WARNINGS_AS_ERRORS": "ON"
+            }
+        },
+        {
+            "name": "gcc-debug",
+            "displayName": "GCC 16, Debug",
+            "inherits": "base",
+            "cacheVariables": {
+                "CMAKE_CXX_COMPILER": "g++-16",
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "gcc-release",
+            "displayName": "GCC 16, RelWithDebInfo",
+            "inherits": "base",
+            "cacheVariables": {
+                "CMAKE_CXX_COMPILER": "g++-16",
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+            }
+        },
+        {
+            "name": "clang-debug",
+            "displayName": "Clang, Debug",
+            "inherits": "base",
+            "cacheVariables": {
+                "CMAKE_CXX_COMPILER": "clang++",
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "clang-asan",
+            "displayName": "Clang, Debug, AddressSanitizer + UndefinedBehaviorSanitizer",
+            "inherits": "clang-debug",
+            "cacheVariables": {
+                "CEXCHAIN_SANITIZERS": "address;undefined"
+            }
+        },
+        {
+            "name": "clang-fuzz",
+            "displayName": "Clang, libFuzzer targets",
+            "inherits": "clang-asan",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "CEXCHAIN_BUILD_FUZZERS": "ON"
+            }
+        }
+    ],
+    "buildPresets": [
+        { "name": "gcc-debug", "configurePreset": "gcc-debug" },
+        { "name": "gcc-release", "configurePreset": "gcc-release" },
+        { "name": "clang-debug", "configurePreset": "clang-debug" },
+        { "name": "clang-asan", "configurePreset": "clang-asan" },
+        { "name": "clang-fuzz", "configurePreset": "clang-fuzz" }
+    ],
+    "testPresets": [
+        {
+            "name": "base",
+            "hidden": true,
+            "output": { "outputOnFailure": true },
+            "execution": { "noTestsAction": "error" }
+        },
+        { "name": "gcc-debug", "inherits": "base", "configurePreset": "gcc-debug" },
+        { "name": "gcc-release", "inherits": "base", "configurePreset": "gcc-release" },
+        { "name": "clang-debug", "inherits": "base", "configurePreset": "clang-debug" },
+        { "name": "clang-asan", "inherits": "base", "configurePreset": "clang-asan" }
+    ]
+}

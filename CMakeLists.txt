@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cirraya
+
+cmake_minimum_required(VERSION 3.28)
+
+project(CexChain
+    VERSION 0.0.1
+    DESCRIPTION "Verifiable records for business, built for the age of AI agents"
+    LANGUAGES CXX)
+
+if(PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
+    message(FATAL_ERROR "In-source builds are not allowed. Use a preset, e.g. `cmake --preset gcc-debug`.")
+endif()
+
+list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
+
+option(CEXCHAIN_BUILD_TESTS "Build unit tests" ${PROJECT_IS_TOP_LEVEL})
+option(CEXCHAIN_BUILD_FUZZERS "Build libFuzzer targets (Clang only)" OFF)
+option(CEXCHAIN_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
+set(CEXCHAIN_SANITIZERS "" CACHE STRING "Sanitizers to enable, e.g. \"address;undefined\"")
+
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+include(CexChainCompilerOptions)
+include(CexChainDependencies)
+
+add_subdirectory(core)
+add_subdirectory(crypto/openssl)
+
+if(CEXCHAIN_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
+
+if(CEXCHAIN_BUILD_FUZZERS)
+    add_subdirectory(fuzz)
+endif()
