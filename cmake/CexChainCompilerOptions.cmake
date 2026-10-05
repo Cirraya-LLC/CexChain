@@ -21,6 +21,12 @@ if(CEXCHAIN_SANITIZERS)
     add_link_options(-fsanitize=${_cexchain_sanitizers})
 endif()
 
+# Fuzzing instruments all code for coverage feedback; only the fuzz targets
+# themselves link the libFuzzer driver.
+if(CEXCHAIN_BUILD_FUZZERS)
+    add_compile_options(-fsanitize=fuzzer-no-link)
+endif()
+
 # Applies the project's warning policy to a first-party target.
 function(cexchain_target_defaults target)
     set(warnings

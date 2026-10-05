@@ -59,6 +59,15 @@ ctest --preset gcc-debug
 
 Other presets: `gcc-release`, `clang-debug`, `clang-asan` (AddressSanitizer + UndefinedBehaviorSanitizer), and `clang-fuzz` (libFuzzer targets).
 
+Fuzz targets cover every parser of untrusted input:
+
+```sh
+cmake --preset clang-fuzz && cmake --build --preset clang-fuzz
+./build/clang-fuzz/fuzz/cbor_decode_fuzz -max_total_time=300
+```
+
+Test vectors in `testvectors/` come from implementations independent of CexChain. `tools/testvectors/generate.py` regenerates them.
+
 On macOS, Homebrew's LLVM is keg-only. To use it with the Clang presets, add a `CMakeUserPresets.json` that inherits a Clang preset and sets `CMAKE_CXX_COMPILER` to `/opt/homebrew/opt/llvm/bin/clang++`. Homebrew's `openssl@3` is detected automatically.
 
 ## License
