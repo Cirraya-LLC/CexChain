@@ -23,6 +23,8 @@ import pathlib
 import subprocess
 import tempfile
 
+import cbor2
+
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519, mldsa
 from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
@@ -297,6 +299,73 @@ def generate_merkle(alg: str, hashlib_name: str, file_name: str) -> None:
     print(f"wrote {len(inclusion)} inclusion and {len(consistency)} consistency proofs to testvectors/{file_name}")
 
 
+# ---------------------------------------------------------------------------
+# COSE_Sign1 (RFC 9052 section 4.2)
+# ---------------------------------------------------------------------------
+
+COSE_ED25519_SEED = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60"
+
+
+def cose_sign1(alg: str, sign, kid: bytes, payload: bytes, aad: bytes, detached: bool) -> bytes:
+    """Builds a tagged COSE_Sign1 with cbor2. Integer-keyed maps of this size encode
+    identically under RFC 7049 and RFC 8949 canonical ordering."""
+    protected = cbor2.dumps({1: COSE[alg], 4: kid}, canonical=True)
+    to_be_signed = cbor2.dumps(["Signature1", protected, aad, payload])
+    signature = sign(to_be_signed)
+    body = [protected, {}, None if detached else payload, signature]
+    return cbor2.dumps(cbor2.CBORTag(18, body), canonical=True)
+
+
+def generate_cose(openssl: str) -> None:
+    vectors = []
+
+    def add(alg, public, sign, kid, payload, aad=b"", detached=False, **extra):
+        message = cose_sign1(alg, sign, kid, payload, aad, detached)
+        vectors.append({
+            "algorithm": COSE[alg], "name": alg, "public_key": public.hex(), "kid": kid.hex(),
+            "payload": payload.hex(), "external_aad": aad.hex(), "detached": detached,
+            "message": message.hex(), **extra,
+        })
+
+    ed = ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(COSE_ED25519_SEED))
+    ed_public = ed.public_key().public_bytes_raw()
+    for payload, aad, detached in [(b"CexChain statement", b"", False),
+                                   (b"", b"", False),
+                                   (b"CexChain statement", b"context", False),
+                                   (b"detached document", b"", True)]:
+        add("Ed25519", ed_public, ed.sign, b"ed-key", payload, aad, detached, seed=COSE_ED25519_SEED)
+
+    p256 = ec.generate_private_key(ec.SECP256R1())
+    p256_public = p256.public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+    add("ESP256", p256_public, lambda m: raw_rs(p256.sign(m, ec.ECDSA(hashes.SHA256()))), b"p256-key", b"CexChain statement")
+
+    ml = mldsa.MLDSA65PrivateKey.generate()
+    add("ML-DSA-65", ml.public_key().public_bytes_raw(), ml.sign, b"mldsa-key", b"CexChain statement")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        work = pathlib.Path(tmp)
+        key = work / "sm2.pem"
+        subprocess.run([openssl, "genpkey", "-algorithm", "SM2", "-out", str(key)], check=True, capture_output=True)
+        spki = subprocess.run([openssl, "pkey", "-in", str(key), "-pubout", "-outform", "DER"],
+                              check=True, capture_output=True).stdout
+
+        def sm2_sign(message: bytes) -> bytes:
+            (work / "tbs.bin").write_bytes(message)
+            der = subprocess.run(
+                [openssl, "pkeyutl", "-sign", "-rawin", "-digest", "sm3", "-inkey", str(key),
+                 "-in", str(work / "tbs.bin"), "-pkeyopt", f"distid:{SM2_DISTINGUISHING_ID}"],
+                check=True, capture_output=True).stdout
+            return raw_rs(der)
+
+        add("SM2-SM3", spki[-65:], sm2_sign, b"sm2-key", b"CexChain statement")
+
+    write("cose-sign1.json",
+          "Tagged COSE_Sign1 messages built with cbor2 and independent signers. Protected header "
+          "is {1: alg, 4: kid}; unprotected header is empty. Ed25519 messages are deterministic "
+          "and must be reproduced byte for byte.",
+          vectors)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--openssl", default="openssl", help="OpenSSL 3.5+ command-line tool")
@@ -305,6 +374,7 @@ def main() -> None:
     generate_signatures(args.openssl)
     generate_merkle("SHA-256", "sha256", "merkle-sha256.json")
     generate_merkle("SM3", "sm3", "merkle-sm3.json")
+    generate_cose(args.openssl)
 
 
 if __name__ == "__main__":

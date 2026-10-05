@@ -3,6 +3,7 @@
 
 add_executable(cexchain_tests
     core/cbor_test.cpp
+    core/cose_test.cpp
     core/crypto_test.cpp
     core/hex_test.cpp
     core/merkle_test.cpp
