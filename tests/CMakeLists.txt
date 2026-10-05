@@ -2,6 +2,7 @@
 # Copyright 2026 Cirraya
 
 add_executable(cexchain_tests
+    core/cbor_test.cpp
     core/hex_test.cpp)
 
 target_link_libraries(cexchain_tests PRIVATE

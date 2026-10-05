@@ -3,13 +3,13 @@
 
 #pragma once
 
-#include <cexchain/core/error.hpp>
-
 #include <cstdint>
 #include <span>
 #include <string>
 #include <string_view>
 #include <vector>
+
+#include <cexchain/core/error.hpp>
 
 namespace cexchain {
 

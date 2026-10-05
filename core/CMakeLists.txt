@@ -5,6 +5,7 @@
 # dependency-free, portable C++23 so it can be built for WebAssembly and with any
 # mainstream compiler. Do not raise its language standard.
 add_library(cexchain_core
+    src/cbor.cpp
     src/error.cpp
     src/hex.cpp)
 add_library(cexchain::core ALIAS cexchain_core)

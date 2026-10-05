@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-#include <cexchain/core/bytes.hpp>
-
 #include <optional>
+
+#include <cexchain/core/bytes.hpp>
 
 namespace cexchain {
 
