@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 
@@ -20,11 +21,17 @@
 ///   - the protected header must carry the algorithm (label 1), and the
 ///     unprotected header must not;
 ///   - no parameter may appear in both headers;
+///   - labels are integers or text strings, at most `max_header_parameters`
+///     per header;
 ///   - the critical-parameters header (label 2) is rejected, since this
 ///     implementation defines no critical extensions.
 namespace cexchain::cose {
 
 inline constexpr std::uint64_t tag_sign1 = 18;
+
+/// Maximum number of parameters in each header. This bounds parsing cost;
+/// real headers carry only a handful of parameters.
+inline constexpr std::size_t max_header_parameters = 64;
 
 /// Common header parameter labels (RFC 9052 §3.1).
 inline constexpr std::int64_t label_alg = 1;

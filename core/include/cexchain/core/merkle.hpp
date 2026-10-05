@@ -19,8 +19,11 @@ namespace cexchain::merkle {
 using crypto::Digest;
 using crypto::HashAlg;
 
-/// Proofs longer than this cannot belong to a tree with at most 2^64 leaves.
-inline constexpr std::size_t max_proof_length = 64;
+/// The longest possible proofs for trees of at most 2^64 - 1 leaves. An
+/// inclusion path has at most one element per level (64). A consistency proof
+/// can need one more, for the old tree's own root (65).
+inline constexpr std::size_t max_inclusion_proof_length = 64;
+inline constexpr std::size_t max_consistency_proof_length = 65;
 
 /// Leaf hash: HASH(0x00 || entry).
 [[nodiscard]] Result<Digest> leaf_hash(const crypto::Provider& provider, HashAlg alg,

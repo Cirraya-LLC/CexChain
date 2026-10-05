@@ -59,7 +59,8 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     }
     std::vector<cexchain::crypto::Digest> proof;
     cexchain::crypto::Digest element;
-    while (proof.size() <= cexchain::merkle::max_proof_length && reader.digest(element)) {
+    while (proof.size() <= cexchain::merkle::max_consistency_proof_length &&
+           reader.digest(element)) {
         proof.push_back(element);
     }
 

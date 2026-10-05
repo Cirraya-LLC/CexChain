@@ -96,6 +96,12 @@ class Value {
 public:
     /// Constructs null.
     Value() noexcept = default;
+    Value(const Value&) = default;
+    Value& operator=(const Value&) = default;
+    /// Moving leaves `other` null.
+    Value(Value&& other) noexcept;
+    Value& operator=(Value&& other) noexcept;
+    ~Value() = default;
 
     [[nodiscard]] static Value unsigned_integer(std::uint64_t value) noexcept;
     [[nodiscard]] static Value integer(std::int64_t value) noexcept;
@@ -164,14 +170,24 @@ struct Tagged {
     friend bool operator==(const Tagged&, const Tagged&) = default;
 };
 
+/// Hard limit on the nesting of arrays, maps, and tags, for both encoding and
+/// decoding. It bounds recursion depth and keeps encode and decode symmetric.
+inline constexpr std::size_t max_nesting_depth = 64;
+
 /// Encodes a value in deterministic form. Fails if a map has duplicate keys,
 /// a text string is not valid UTF-8, a bignum tag is used, or nesting exceeds
-/// `max_depth`.
+/// `max_nesting_depth`.
 [[nodiscard]] Result<Bytes> encode(const Value& value);
 
 struct DecodeOptions {
-    /// Maximum nesting of arrays, maps, and tags.
+    /// Maximum nesting of arrays, maps, and tags. Values above
+    /// `max_nesting_depth` are treated as `max_nesting_depth`.
     std::size_t max_depth = 32;
+    /// Maximum number of data items (every integer, string, container, tag,
+    /// and simple value counts as one). Each decoded item costs about 40 bytes
+    /// of memory however small its encoding, so this bounds memory use on
+    /// hostile input. The default allows about 5 MB.
+    std::size_t max_items = std::size_t{1} << 17;
 };
 
 /// Decodes exactly one data item spanning the whole input.

@@ -276,3 +276,37 @@ TEST_CASE("sign rejects reserved header parameters", "[core][cose]") {
     CHECK(parsed->unprotected_header.find(cose::label_kid) != nullptr);
     CHECK(cose::verify(provider(), *parsed, key.public_key()));
 }
+
+TEST_CASE("header labels must be integers or text, and headers are bounded", "[core][cose]") {
+    const Value payload = Value::bytes(as_bytes("p"));
+    const Value empty = Value::map({});
+
+    CHECK(parse_error(raw_sign1(Value::map({{Value::integer(cose::label_alg), Value::integer(-19)},
+                                            {Value::bytes(as_bytes("k")), Value::null()}}),
+                                empty, payload)) == Errc::malformed);
+    CHECK(parse_error(raw_sign1(alg_header(-19),
+                                Value::map({{Value::boolean(true), Value::null()}}), payload)) ==
+          Errc::malformed);
+    CHECK(parse_error(raw_sign1(alg_header(-19),
+                                Value::map({{Value::tagged(1, Value::integer(4)), Value::null()}}),
+                                payload)) == Errc::malformed);
+    CHECK(cose::parse(
+        raw_sign1(alg_header(-19), Value::map({{Value::text("custom"), Value::null()}}), payload)));
+
+    cbor::Map many;
+    for (std::int64_t i = 0; i <= static_cast<std::int64_t>(cose::max_header_parameters); ++i) {
+        many.push_back({Value::integer(1000 + i), Value::null()});
+    }
+    CHECK(parse_error(raw_sign1(alg_header(-19), Value::map(many), payload)) ==
+          Errc::limit_exceeded);
+
+    cose::SignOptions too_many;
+    too_many.unprotected_header = many;
+    CHECK(cose::sign(ed25519_key(), as_bytes("p"), too_many).error().code == Errc::limit_exceeded);
+
+    cose::SignOptions map_label;
+    map_label.protected_header = {
+        {Value::map({{Value::integer(1), Value::null()}}), Value::null()}};
+    CHECK(cose::sign(ed25519_key(), as_bytes("p"), map_label).error().code ==
+          Errc::invalid_argument);
+}

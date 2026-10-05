@@ -337,3 +337,72 @@ TEST_CASE("random values round-trip through canonical form", "[core][cbor][prope
         CHECK(*reencoded == *encoded);
     }
 }
+
+TEST_CASE("nesting limit is symmetric and capped", "[core][cbor]") {
+    const auto nested = [](std::size_t levels) {
+        Value value = Value::unsigned_integer(0);
+        for (std::size_t i = 0; i < levels; ++i) {
+            value = Value::array({value});
+        }
+        return value;
+    };
+    cbor::DecodeOptions generous;
+    generous.max_depth = 1000; // clamped to max_nesting_depth
+
+    const auto at_limit = cbor::encode(nested(cbor::max_nesting_depth));
+    REQUIRE(at_limit);
+    CHECK(cbor::decode(*at_limit, generous));
+
+    CHECK(cbor::encode(nested(cbor::max_nesting_depth + 1)).error().code == Errc::limit_exceeded);
+    Bytes beyond = *at_limit;
+    beyond.insert(beyond.begin(), 0x81);
+    CHECK(cbor::decode(beyond, generous).error().code == Errc::limit_exceeded);
+
+    // An empty container at the deepest level follows the same rule both ways.
+    Value deepest_empty = Value::array({});
+    for (std::size_t i = 0; i < cbor::max_nesting_depth; ++i) {
+        deepest_empty = Value::array({deepest_empty});
+    }
+    CHECK(cbor::encode(deepest_empty).error().code == Errc::limit_exceeded);
+}
+
+TEST_CASE("a moved-from value is null", "[core][cbor]") {
+    Value tagged = Value::tagged(42, Value::text("x"));
+    const Value moved = std::move(tagged);
+    REQUIRE(moved.as_tagged() != nullptr);
+    // NOLINTNEXTLINE(bugprone-use-after-move): the moved-from state is under test.
+    CHECK(tagged.is_null());
+    CHECK(to_hex(*cbor::encode(tagged)) == "f6");
+
+    Value target = Value::text("old");
+    Value source = Value::tagged(7, Value::null());
+    target = std::move(source);
+    CHECK(target.as_tagged()->tag == 7);
+    CHECK(source.is_null()); // NOLINT(bugprone-use-after-move)
+}
+
+TEST_CASE("huge claimed counts at every level stay cheap", "[core][cbor]") {
+    // 32 nested arrays, each claiming as many items as bytes remain.
+    Bytes input;
+    for (int i = 0; i < 32; ++i) {
+        input.push_back(0x9a); // array, 4-byte count
+        input.insert(input.end(), {0x00, 0x00, 0x10, 0x00});
+    }
+    input.resize(input.size() + 4096, 0x00);
+    // Rejected (the counts are not satisfied) without reserving gigabytes.
+    CHECK_FALSE(cbor::decode(input));
+}
+
+TEST_CASE("decoding is bounded by an item budget", "[core][cbor]") {
+    // An array of 200,000 single-byte items.
+    Bytes input{0x1a, 0x00, 0x03, 0x0d, 0x40};
+    input[0] = 0x9a;
+    input.resize(input.size() + 200'000, 0x00);
+    CHECK(cbor::decode(input).error().code == Errc::limit_exceeded);
+
+    cbor::DecodeOptions larger;
+    larger.max_items = 300'000;
+    const auto decoded = cbor::decode(input, larger);
+    REQUIRE(decoded);
+    CHECK(decoded->as_array()->size() == 200'000);
+}

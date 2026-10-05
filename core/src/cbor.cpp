@@ -31,9 +31,10 @@ constexpr std::uint8_t simple_null = 22;
 constexpr std::uint64_t tag_positive_bignum = 2;
 constexpr std::uint64_t tag_negative_bignum = 3;
 
-/// Nesting limit for encoding in-memory values. Decoding has its own,
-/// caller-configurable limit.
-constexpr std::size_t max_encode_depth = 64;
+/// Upper bound on capacity reserved from an untrusted item count. Larger
+/// containers grow as items actually arrive, so memory stays proportional to
+/// the input rather than to claimed counts at every nesting level.
+constexpr std::size_t max_reserved_items = 256;
 
 bool is_bignum_tag(std::uint64_t tag) noexcept {
     return tag == tag_positive_bignum || tag == tag_negative_bignum;
@@ -107,9 +108,14 @@ Status encode_map(Bytes& out, const Map& map, std::size_t depth) {
     return {};
 }
 
+bool is_container(Type type) noexcept {
+    return type == Type::array || type == Type::map || type == Type::tag;
+}
+
 Status encode_into(Bytes& out, const Value& value, std::size_t depth) {
-    if (depth > max_encode_depth) {
-        return fail(Errc::limit_exceeded, "value nesting exceeds the encoding limit");
+    // Mirrors the decoder: a container at `depth` holds items at `depth + 1`.
+    if (is_container(value.type()) && depth + 1 > max_nesting_depth) {
+        return fail(Errc::limit_exceeded, "value nesting exceeds the limit");
     }
     switch (value.type()) {
     case Type::unsigned_integer:
@@ -236,6 +242,9 @@ private:
     }
 
     Result<Value> decode_item(std::size_t depth) {
+        if (++items_ > options_.max_items) {
+            return fail(Errc::limit_exceeded, "input has too many data items");
+        }
         auto head = read_head();
         if (!head) {
             return std::unexpected(head.error());
@@ -277,7 +286,7 @@ private:
     }
 
     Status enter(std::size_t depth) const {
-        if (depth + 1 > options_.max_depth) {
+        if (depth + 1 > std::min(options_.max_depth, max_nesting_depth)) {
             return fail(Errc::limit_exceeded, "nesting depth exceeds the decoding limit");
         }
         return {};
@@ -293,7 +302,7 @@ private:
             return fail(Errc::truncated, "array count exceeds the remaining input");
         }
         Array items;
-        items.reserve(static_cast<std::size_t>(head.argument));
+        items.reserve(std::min(static_cast<std::size_t>(head.argument), max_reserved_items));
         for (std::uint64_t i = 0; i < head.argument; ++i) {
             auto item = decode_item(depth + 1);
             if (!item) {
@@ -312,7 +321,7 @@ private:
             return fail(Errc::truncated, "map count exceeds the remaining input");
         }
         Map entries;
-        entries.reserve(static_cast<std::size_t>(head.argument));
+        entries.reserve(std::min(static_cast<std::size_t>(head.argument), max_reserved_items));
         ByteView previous_key;
         for (std::uint64_t i = 0; i < head.argument; ++i) {
             const std::size_t key_start = pos_;
@@ -384,6 +393,7 @@ private:
     ByteView input_;
     const DecodeOptions& options_;
     std::size_t pos_ = 0;
+    std::size_t items_ = 0;
 };
 
 // ---------------------------------------------------------------------------
@@ -478,6 +488,18 @@ void append_diagnostic(std::string& out, const Value& value) {
 // ---------------------------------------------------------------------------
 // Value
 // ---------------------------------------------------------------------------
+
+Value::Value(Value&& other) noexcept : storage_(std::move(other.storage_)) {
+    other.storage_.emplace<Null>();
+}
+
+Value& Value::operator=(Value&& other) noexcept {
+    if (this != &other) {
+        storage_ = std::move(other.storage_);
+        other.storage_.emplace<Null>();
+    }
+    return *this;
+}
 
 Value Value::unsigned_integer(std::uint64_t value) noexcept {
     return Value(std::in_place_type<std::uint64_t>, std::move(value));

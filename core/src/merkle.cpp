@@ -23,8 +23,8 @@ constexpr bool lsb(std::uint64_t x) noexcept {
     return (x & 1U) != 0;
 }
 
-Status check_proof_shape(HashAlg alg, std::span<const Digest> proof) {
-    if (proof.size() > max_proof_length) {
+Status check_proof_shape(HashAlg alg, std::span<const Digest> proof, std::size_t max_length) {
+    if (proof.size() > max_length) {
         return fail(Errc::verification_failed, "proof is longer than any valid proof");
     }
     const std::size_t expected = crypto::digest_size(alg);
@@ -232,7 +232,7 @@ Status verify_inclusion(const crypto::Provider& provider, HashAlg alg, const Dig
     if (index >= tree_size) {
         return fail(Errc::verification_failed, "leaf index is outside the tree");
     }
-    if (auto s = check_proof_shape(alg, proof); !s) {
+    if (auto s = check_proof_shape(alg, proof, max_inclusion_proof_length); !s) {
         return s;
     }
 
@@ -277,7 +277,7 @@ Status verify_consistency(const crypto::Provider& provider, HashAlg alg, std::ui
     if (old_size > new_size) {
         return fail(Errc::verification_failed, "old tree is larger than the new tree");
     }
-    if (auto s = check_proof_shape(alg, proof); !s) {
+    if (auto s = check_proof_shape(alg, proof, max_consistency_proof_length); !s) {
         return s;
     }
     if (old_size == 0) {

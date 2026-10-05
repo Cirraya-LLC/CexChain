@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
+#include <algorithm>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include <cexchain/core/cose.hpp>
 
@@ -31,13 +33,59 @@ Status check_caller_header(const cbor::Map& header) {
     return {};
 }
 
-/// Fails if any key appears in both maps.
+/// Checks the shape of a header map: at most `max_header_parameters` entries,
+/// and every label an integer or text string (RFC 9052 §3).
+Status check_labels(const cbor::Map& header, Errc code) {
+    if (header.size() > max_header_parameters) {
+        return fail(Errc::limit_exceeded, "header has too many parameters");
+    }
+    for (const cbor::MapEntry& entry : header) {
+        const cbor::Type type = entry.key.type();
+        if (type != cbor::Type::unsigned_integer && type != cbor::Type::negative_integer &&
+            type != cbor::Type::text) {
+            return fail(code, "header label must be an integer or a text string");
+        }
+    }
+    return {};
+}
+
+/// The deterministic encodings of a map's keys, sorted.
+Result<std::vector<Bytes>> encoded_keys(const cbor::Map& map) {
+    std::vector<Bytes> keys;
+    keys.reserve(map.size());
+    for (const cbor::MapEntry& entry : map) {
+        auto key = cbor::encode(entry.key);
+        if (!key) {
+            return std::unexpected(key.error());
+        }
+        keys.push_back(std::move(*key));
+    }
+    std::ranges::sort(keys);
+    return keys;
+}
+
+/// Fails if any key appears in both maps. Keys are compared by their
+/// deterministic encodings, so in-memory ordering cannot hide a duplicate.
+/// Runs in O(n log n).
 Status check_disjoint(const cbor::Map& a, const cbor::Map& b, Errc code) {
-    for (const cbor::MapEntry& x : a) {
-        for (const cbor::MapEntry& y : b) {
-            if (x.key == y.key) {
-                return fail(code, "a header parameter appears in both protected and unprotected");
-            }
+    auto keys_a = encoded_keys(a);
+    if (!keys_a) {
+        return fail(code, "header label cannot be encoded");
+    }
+    auto keys_b = encoded_keys(b);
+    if (!keys_b) {
+        return fail(code, "header label cannot be encoded");
+    }
+    auto it_a = keys_a->begin();
+    auto it_b = keys_b->begin();
+    while (it_a != keys_a->end() && it_b != keys_b->end()) {
+        if (*it_a == *it_b) {
+            return fail(code, "a header parameter appears in both protected and unprotected");
+        }
+        if (*it_a < *it_b) {
+            ++it_a;
+        } else {
+            ++it_b;
         }
     }
     return {};
@@ -55,6 +103,16 @@ Result<Bytes> sig_structure(ByteView protected_bytes, ByteView external_aad, Byt
 }
 
 Result<Bytes> sign(const crypto::Signer& signer, ByteView payload, const SignOptions& options) {
+    // One slot of the protected header is reserved for alg.
+    if (options.protected_header.size() + 1 > max_header_parameters) {
+        return fail(Errc::limit_exceeded, "header has too many parameters");
+    }
+    if (auto s = check_labels(options.protected_header, Errc::invalid_argument); !s) {
+        return std::unexpected(s.error());
+    }
+    if (auto s = check_labels(options.unprotected_header, Errc::invalid_argument); !s) {
+        return std::unexpected(s.error());
+    }
     if (auto s = check_caller_header(options.protected_header); !s) {
         return std::unexpected(s.error());
     }
@@ -126,6 +184,12 @@ Result<Sign1> parse(ByteView message) {
     const cbor::Map* protected_map = protected_header->as_map();
     if (protected_map == nullptr) {
         return fail(Errc::malformed, "protected header is not a map");
+    }
+    if (auto s = check_labels(*protected_map, Errc::malformed); !s) {
+        return std::unexpected(s.error());
+    }
+    if (auto s = check_labels(*unprotected, Errc::malformed); !s) {
+        return std::unexpected(s.error());
     }
     if (protected_header->find(label_crit) != nullptr || (*fields)[1].find(label_crit) != nullptr) {
         return fail(Errc::unsupported, "critical header parameters are not supported");
