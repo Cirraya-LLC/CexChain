@@ -197,12 +197,114 @@ def generate_signatures(openssl: str) -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# Merkle trees (RFC 9162 section 2.1)
+# ---------------------------------------------------------------------------
+
+# Leaves and roots from the Certificate Transparency / Trillian reference data.
+REFERENCE_LEAVES = [
+    "", "00", "10", "2021", "3031", "40414243", "5051525354555657",
+    "606162636465666768696a6b6c6d6e6f",
+]
+REFERENCE_SHA256_ROOTS = [
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+    "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+    "aeb6bcfe274b70a14fb067a5e5578264db0fa9b51af5e0ba159158f329e06e77",
+    "d37ee418976dd95753c1c73862b9398fa2a2cf9b4ff0fdfe8b30cd95209614b7",
+    "4e3bbb1f7b478dcfe71fb631631519a3bca12c9aefca1612bfce4c13a86264d4",
+    "76e67dadbcdf1e10e1b74ddc608abd2f98dfb16fbce75277b5232a127f2087ef",
+    "ddb89be403809e325750d3d263cd78929c2942b7942a34b77e122c9594a74c8c",
+    "5dc9da79a70659a9ad559cb701ded9a2ab9d823aad2f4960cfe370eff4604328",
+]
+
+
+def split_point(n: int) -> int:
+    k = 1
+    while k * 2 < n:
+        k *= 2
+    return k
+
+
+class MerkleOracle:
+    """A direct transcription of the RFC 9162 recursive definitions."""
+
+    def __init__(self, hashlib_name: str):
+        self.name = hashlib_name
+
+    def h(self, data: bytes) -> bytes:
+        return hashlib.new(self.name, data).digest()
+
+    def mth(self, d: list[bytes]) -> bytes:
+        n = len(d)
+        if n == 0:
+            return self.h(b"")
+        if n == 1:
+            return self.h(b"\x00" + d[0])
+        k = split_point(n)
+        return self.h(b"\x01" + self.mth(d[:k]) + self.mth(d[k:]))
+
+    def path(self, m: int, d: list[bytes]) -> list[bytes]:
+        n = len(d)
+        if n == 1:
+            return []
+        k = split_point(n)
+        if m < k:
+            return self.path(m, d[:k]) + [self.mth(d[k:])]
+        return self.path(m - k, d[k:]) + [self.mth(d[:k])]
+
+    def subproof(self, m: int, d: list[bytes], complete: bool) -> list[bytes]:
+        n = len(d)
+        if m == n:
+            return [] if complete else [self.mth(d)]
+        k = split_point(n)
+        if m <= k:
+            return self.subproof(m, d[:k], complete) + [self.mth(d[k:])]
+        return self.subproof(m - k, d[k:], False) + [self.mth(d[:k])]
+
+
+def generate_merkle(alg: str, hashlib_name: str, file_name: str) -> None:
+    oracle = MerkleOracle(hashlib_name)
+    entries = [bytes.fromhex(x) for x in REFERENCE_LEAVES]
+    entries += [f"CexChain entry {i}".encode() for i in range(len(entries), 13)]
+
+    roots = [oracle.mth(entries[:n]).hex() for n in range(len(entries) + 1)]
+    if alg == "SHA-256":
+        assert roots[: len(REFERENCE_SHA256_ROOTS)] == REFERENCE_SHA256_ROOTS, "reference roots mismatch"
+
+    inclusion = []
+    consistency = []
+    for n in range(1, len(entries) + 1):
+        for m in range(n):
+            inclusion.append({"index": m, "tree_size": n, "proof": [p.hex() for p in oracle.path(m, entries[:n])]})
+        for m in range(1, n + 1):
+            proof = [] if m == n else oracle.subproof(m, entries[:n], True)
+            consistency.append({"old_size": m, "new_size": n, "proof": [p.hex() for p in proof]})
+
+    document = {
+        "description": f"RFC 9162 Merkle tree vectors with {alg}, from a direct Python transcription "
+        "of the RFC's recursive definitions. The first eight entries are the Certificate "
+        "Transparency reference leaves.",
+        "algorithm": COSE[alg],
+        "name": alg,
+        "entries": [e.hex() for e in entries],
+        "roots": roots,
+        "inclusion": inclusion,
+        "consistency": consistency,
+    }
+    OUT.mkdir(exist_ok=True)
+    (OUT / file_name).write_text(json.dumps(document, indent=2) + "\n")
+    print(f"wrote {len(inclusion)} inclusion and {len(consistency)} consistency proofs to testvectors/{file_name}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--openssl", default="openssl", help="OpenSSL 3.5+ command-line tool")
     args = parser.parse_args()
     generate_hashes()
     generate_signatures(args.openssl)
+    generate_merkle("SHA-256", "sha256", "merkle-sha256.json")
+    generate_merkle("SM3", "sm3", "merkle-sm3.json")
 
 
 if __name__ == "__main__":

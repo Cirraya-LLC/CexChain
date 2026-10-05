@@ -5,6 +5,7 @@ add_executable(cexchain_tests
     core/cbor_test.cpp
     core/crypto_test.cpp
     core/hex_test.cpp
+    core/merkle_test.cpp
     crypto/openssl_test.cpp)
 
 target_link_libraries(cexchain_tests PRIVATE

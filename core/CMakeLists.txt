@@ -9,7 +9,8 @@ add_library(cexchain_core
     src/cbor.cpp
     src/crypto.cpp
     src/error.cpp
-    src/hex.cpp)
+    src/hex.cpp
+    src/merkle.cpp)
 add_library(cexchain::core ALIAS cexchain_core)
 
 target_include_directories(cexchain_core PUBLIC

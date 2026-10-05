@@ -1,0 +1,113 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Cirraya
+
+#pragma once
+
+#include <cstdint>
+#include <span>
+#include <vector>
+
+#include <cexchain/core/bytes.hpp>
+#include <cexchain/core/crypto.hpp>
+#include <cexchain/core/error.hpp>
+
+/// Merkle trees as defined by RFC 9162 §2.1 (the Certificate Transparency v2
+/// tree), parameterized by hash algorithm. With SHA-256 this is the COSE
+/// verifiable data structure RFC9162_SHA256.
+namespace cexchain::merkle {
+
+using crypto::Digest;
+using crypto::HashAlg;
+
+/// Proofs longer than this cannot belong to a tree with at most 2^64 leaves.
+inline constexpr std::size_t max_proof_length = 64;
+
+/// Leaf hash: HASH(0x00 || entry).
+[[nodiscard]] Result<Digest> leaf_hash(const crypto::Provider& provider, HashAlg alg,
+                                       ByteView entry);
+
+/// Interior node hash: HASH(0x01 || left || right).
+[[nodiscard]] Result<Digest> node_hash(const crypto::Provider& provider, HashAlg alg,
+                                       const Digest& left, const Digest& right);
+
+/// Root of the empty tree: HASH() of the empty string.
+[[nodiscard]] Result<Digest> empty_root(const crypto::Provider& provider, HashAlg alg);
+
+/// An append-only Merkle tree held in memory.
+///
+/// The tree stores the root of every complete, aligned subtree. Roots and
+/// proofs for any current or past tree size therefore cost O(log n) lookups
+/// plus at most O(log n) hash operations.
+///
+/// The provider must outlive the tree.
+class Tree {
+public:
+    Tree(const crypto::Provider& provider, HashAlg alg) noexcept;
+
+    [[nodiscard]] HashAlg hash_algorithm() const noexcept { return alg_; }
+    [[nodiscard]] std::uint64_t size() const noexcept;
+
+    /// Appends an entry and returns its index.
+    [[nodiscard]] Result<std::uint64_t> append(ByteView entry);
+
+    /// Appends a precomputed leaf hash and returns its index.
+    [[nodiscard]] Result<std::uint64_t> append_leaf_hash(const Digest& leaf);
+
+    /// The leaf hash at `index`.
+    [[nodiscard]] Result<Digest> leaf(std::uint64_t index) const;
+
+    /// The root of the tree formed by the first `tree_size` entries.
+    [[nodiscard]] Result<Digest> root(std::uint64_t tree_size) const;
+
+    /// The root of the current tree.
+    [[nodiscard]] Result<Digest> root() const { return root(size()); }
+
+    /// Inclusion proof (RFC 9162 §2.1.3.1) for the leaf at `index` within the
+    /// tree of size `tree_size`, ordered from the leaf toward the root.
+    [[nodiscard]] Result<std::vector<Digest>> inclusion_proof(std::uint64_t index,
+                                                              std::uint64_t tree_size) const;
+
+    /// Consistency proof (RFC 9162 §2.1.4.1) that the tree of size `new_size`
+    /// extends the tree of size `old_size`. Empty when `old_size` is 0 or
+    /// equal to `new_size`.
+    [[nodiscard]] Result<std::vector<Digest>> consistency_proof(std::uint64_t old_size,
+                                                                std::uint64_t new_size) const;
+
+private:
+    [[nodiscard]] Result<Digest> subtree_root(std::uint64_t begin, std::uint64_t end) const;
+    [[nodiscard]] Status inclusion_path(std::uint64_t index, std::uint64_t begin, std::uint64_t end,
+                                        std::vector<Digest>& out) const;
+    [[nodiscard]] Status consistency_subproof(std::uint64_t old_size, std::uint64_t begin,
+                                              std::uint64_t end, bool complete,
+                                              std::vector<Digest>& out) const;
+
+    const crypto::Provider* provider_;
+    HashAlg alg_;
+    /// levels_[h][i] is the root of the complete subtree covering leaves
+    /// [i * 2^h, (i + 1) * 2^h).
+    std::vector<std::vector<Digest>> levels_;
+};
+
+/// Verifies an inclusion proof (RFC 9162 §2.1.3.2).
+///
+/// The proof authenticates the leaf against `root`; it does not authenticate
+/// `tree_size`, which only determines the proof's shape. Trees of different
+/// sizes can share that shape for a given leaf, so `tree_size` and `root` must
+/// come from the same signed checkpoint.
+[[nodiscard]] Status verify_inclusion(const crypto::Provider& provider, HashAlg alg,
+                                      const Digest& leaf, std::uint64_t index,
+                                      std::uint64_t tree_size, std::span<const Digest> proof,
+                                      const Digest& root);
+
+/// Verifies a consistency proof (RFC 9162 §2.1.4.2). When `old_size` is 0 the
+/// proof must be empty and `old_root` must be the empty-tree root. When the
+/// sizes are equal the proof must be empty and the roots identical.
+///
+/// As with inclusion proofs, each size must come from the same signed
+/// checkpoint as its root; the proof alone does not authenticate the sizes.
+[[nodiscard]] Status verify_consistency(const crypto::Provider& provider, HashAlg alg,
+                                        std::uint64_t old_size, std::uint64_t new_size,
+                                        const Digest& old_root, const Digest& new_root,
+                                        std::span<const Digest> proof);
+
+} // namespace cexchain::merkle
