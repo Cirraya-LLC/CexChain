@@ -5,6 +5,7 @@
 #include <asio.hpp>
 #include <asio/ssl.hpp>
 #include <charconv>
+#include <tuple>
 #include <utility>
 
 #include <openssl/ssl.h>
@@ -166,16 +167,29 @@ Result<http::ClientResponse> Client::request(std::string_view method, std::strin
         tls->set_verify_mode(asio::ssl::verify_peer);
     }
 
+    asio::error_code not_an_address;
+    const asio::ip::address address = asio::ip::make_address(base_.host, not_an_address);
+
     auto run = [&]() -> asio::awaitable<void> {
-        tcp::resolver resolver(io);
-        auto [rec, endpoints] =
-            co_await resolver.async_resolve(base_.host, std::to_string(base_.port), use_tuple);
-        if (rec) {
-            outcome.error = Error{Errc::unavailable, "cannot resolve the server's host name"};
-            co_return;
-        }
         tcp::socket socket(io);
-        if (auto [ec, endpoint] = co_await asio::async_connect(socket, endpoints, use_tuple); ec) {
+        asio::error_code connected;
+        if (!not_an_address) {
+            // An address needs no resolver, whose thread costs more than
+            // the request.
+            std::tie(connected) =
+                co_await socket.async_connect(tcp::endpoint(address, base_.port), use_tuple);
+        } else {
+            tcp::resolver resolver(io);
+            auto [rec, endpoints] =
+                co_await resolver.async_resolve(base_.host, std::to_string(base_.port), use_tuple);
+            if (rec) {
+                outcome.error = Error{Errc::unavailable, "cannot resolve the server's host name"};
+                co_return;
+            }
+            std::tie(connected, std::ignore) =
+                co_await asio::async_connect(socket, endpoints, use_tuple);
+        }
+        if (connected) {
             outcome.error = Error{Errc::unavailable, "cannot connect to the server"};
             co_return;
         }
@@ -186,8 +200,6 @@ Result<http::ClientResponse> Client::request(std::string_view method, std::strin
         asio::ssl::stream<tcp::socket> stream(std::move(socket), *tls);
         // SNI for host names (not addresses), and the certificate must name
         // the host.
-        asio::error_code not_an_address;
-        asio::ip::make_address(base_.host, not_an_address);
         if (not_an_address) {
             std::string sni = base_.host;
             SSL_ctrl(stream.native_handle(), SSL_CTRL_SET_TLSEXT_HOSTNAME,

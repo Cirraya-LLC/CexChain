@@ -52,6 +52,8 @@ struct Response {
     Bytes body;
     /// Further header fields, e.g. {"retry-after", "1"}.
     std::vector<std::pair<std::string, std::string>> headers;
+    /// Who asked (e.g. a token's name), for the access log; never sent.
+    std::string principal;
 };
 
 /// Why a request could not be parsed, with the status to answer it with.

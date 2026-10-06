@@ -655,7 +655,8 @@ std::vector<CommandSpec> build() {
                {"read-only", "", "Refuse every write"},
                {"public-read", "",
                 "Serve read routes without a token (a public verification portal)"},
-               {"max-connections", "N", "Concurrent connections (default: 256)"},
+               {"threads", "N", "I/O threads (default: one per core)"},
+               {"max-connections", "N", "Concurrent connections (default: 1024)"},
                {"max-body", "BYTES", "Largest request body (default: 1048576)"},
                {"quiet", "", "No access log on stderr"},
                {"witness-dir", "DIR", "Also witness peers' ledgers: this witness state directory"},
@@ -672,8 +673,10 @@ std::vector<CommandSpec> build() {
          "  admin:   POST /v1/checkpoint, POST /v1/cosignatures ([cosignature, witness key])\n"
          "  peer:    POST /v1/access/requests, GET /v1/access/deliveries/REQUEST,\n"
          "           POST /v1/access/receipts, POST /v1/witness/cosign\n"
-         "Requests send \"Authorization: Bearer TOKEN\" (cexchain token create). The server holds\n"
-         "the ledger's lock only while writing, so other cexchain commands keep working on it.\n"
+         "Requests send \"Authorization: Bearer TOKEN\" (cexchain token create). Reads run on all\n"
+         "I/O threads at once; writes queue for one writer, which commits whatever has queued\n"
+         "as a group with one sync. The server holds the ledger's lock only while writing, so\n"
+         "other cexchain commands keep working on it.\n"
          "SIGINT or SIGTERM stops it gracefully."},
         {{"token", "create"},
          "Create an API token for the server",

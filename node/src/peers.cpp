@@ -112,11 +112,17 @@ std::filesystem::path access_path(const std::filesystem::path& ledger_directory,
 
 Result<cbor::Value> record_metadata(const crypto::Provider& provider, const ledger::Ledger& ledger,
                                     const protocol::Id& record) {
-    const protocol::RecordState* state = ledger.state().record(record);
-    if (state == nullptr || state->history.empty()) {
+    std::optional<std::uint64_t> first;
+    ledger.read_state([&](const protocol::LedgerState& state) {
+        const protocol::RecordState* found = state.record(record);
+        if (found != nullptr && !found->history.empty()) {
+            first = found->history.front();
+        }
+    });
+    if (!first) {
         return fail(Errc::not_found, "no such record");
     }
-    auto bytes = ledger.entry(state->history.front());
+    auto bytes = ledger.entry(*first);
     if (!bytes) {
         return std::unexpected(bytes.error());
     }

@@ -3,8 +3,10 @@
 
 #include "files.hpp"
 
+#include <atomic>
 #include <cstdio>
 #include <fcntl.h>
+#include <format>
 #include <fstream>
 #include <iterator>
 #include <system_error>
@@ -29,7 +31,11 @@ Result<Bytes> read_file(const std::filesystem::path& path) {
 }
 
 Status write_file(const std::filesystem::path& path, ByteView data, bool private_file) {
-    const std::filesystem::path temporary = path.string() + ".tmp";
+    // Unique, so that threads (or processes) writing the same file at once
+    // do not write into each other's temporary file.
+    static std::atomic<std::uint64_t> counter = 0;
+    const std::filesystem::path temporary =
+        std::format("{}.{}.{}.tmp", path.string(), ::getpid(), counter.fetch_add(1));
     const int fd = ::open(temporary.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC,
                           private_file ? 0600 : 0644);
     if (fd < 0) {
@@ -40,6 +46,7 @@ Status write_file(const std::filesystem::path& path, ByteView data, bool private
         const ssize_t n = ::write(fd, data.data() + done, data.size() - done);
         if (n <= 0) {
             ::close(fd);
+            ::unlink(temporary.c_str());
             return fail(Errc::unavailable, "cannot write a file");
         }
         done += static_cast<std::size_t>(n);
@@ -47,6 +54,7 @@ Status write_file(const std::filesystem::path& path, ByteView data, bool private
     const bool synced = ::fsync(fd) == 0;
     ::close(fd);
     if (!synced || std::rename(temporary.c_str(), path.c_str()) != 0) {
+        ::unlink(temporary.c_str());
         return fail(Errc::unavailable, "cannot write a file");
     }
     const std::filesystem::path parent = path.parent_path().empty() ? "." : path.parent_path();

@@ -142,6 +142,11 @@ public:
     /// it then also cuts off what a crashed writer left half-written.
     [[nodiscard]] Result<RefreshReport> refresh(FileSystem& fs, bool recover);
 
+    /// Whether another process has made entries, checkpoints, or
+    /// cosignatures durable since this ledger last wrote or refreshed, so
+    /// that `refresh` would pick something up. Costs three fstat calls.
+    [[nodiscard]] bool outdated() const;
+
     /// The encoded log entry at `index` (the bytes the tree commits to).
     [[nodiscard]] Result<Bytes> entry(std::uint64_t index) const;
 

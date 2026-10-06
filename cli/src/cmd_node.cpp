@@ -12,6 +12,7 @@
 #include <fstream>
 #include <iostream>
 #include <print>
+#include <sys/resource.h>
 #include <thread>
 
 #include <cexchain/ledger/backup.hpp>
@@ -134,6 +135,21 @@ extern "C" void request_stop(int) {
 // serve
 // ---------------------------------------------------------------------------
 
+namespace {
+
+/// Each connection takes a file descriptor: lift the soft limit (often 256
+/// or 1024) toward what the connections need, as far as the hard limit lets.
+void raise_descriptor_limit(std::uint64_t wanted) {
+    rlimit limit{};
+    if (::getrlimit(RLIMIT_NOFILE, &limit) != 0 || limit.rlim_cur >= wanted) {
+        return;
+    }
+    limit.rlim_cur = std::min<rlim_t>(limit.rlim_max, static_cast<rlim_t>(wanted));
+    static_cast<void>(::setrlimit(RLIMIT_NOFILE, &limit));
+}
+
+} // namespace
+
 int cmd_serve(const Args& args) {
     const std::filesystem::path dir = args.ledger();
     require_ledger_directory(dir);
@@ -181,9 +197,16 @@ int cmd_serve(const Args& args) {
     if (const auto key = args.get("tls-key")) {
         server_options.tls_private_key = *key;
     }
+    if (const auto n = args.get("threads")) {
+        server_options.threads = parse_number(*n, "threads");
+        if (server_options.threads == 0 || server_options.threads > 1024) {
+            throw UsageError{"--threads is 1 to 1024"};
+        }
+    }
     if (const auto n = args.get("max-connections")) {
         server_options.max_connections = parse_number(*n, "connections");
     }
+    raise_descriptor_limit(server_options.max_connections + 64);
     if (const auto n = args.get("max-body")) {
         server_options.limits.max_body = parse_number(*n, "body size");
     }

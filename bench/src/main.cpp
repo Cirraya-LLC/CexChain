@@ -60,7 +60,10 @@ int main(int argc, char** argv) {
     using namespace cexchain::bench;
     const std::string usage =
         "usage: cexchain-bench ledger [--entries N] [--checkpoint-every K] [--batch B]\n"
-        "                             [--disk DIR] [--json]\n";
+        "                             [--disk DIR] [--json]\n"
+        "       cexchain-bench http [--mode read|submit|health] [--connections C]\n"
+        "                           [--server-threads T] [--client-threads T] [--seconds S]\n"
+        "                           [--requests N] [--prefill N] [--dir DIR] [--keep] [--json]\n";
     if (argc < 2) {
         std::print(stderr, "{}", usage);
         return 1;
@@ -70,6 +73,9 @@ int main(int argc, char** argv) {
         const Options options(argc, argv, 2);
         if (scenario == "ledger") {
             return ledger_bench(options);
+        }
+        if (scenario == "http") {
+            return http_bench(options);
         }
     } catch (const std::exception& e) {
         std::println(stderr, "error: {}", e.what());

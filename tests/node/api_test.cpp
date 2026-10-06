@@ -3,10 +3,17 @@
 
 // The HTTP API over real sockets, and replicas that copy from it.
 
+#include <algorithm>
+#include <arpa/inet.h>
+#include <atomic>
 #include <filesystem>
+#include <format>
 #include <memory>
+#include <netinet/in.h>
 #include <optional>
+#include <set>
 #include <string>
+#include <sys/socket.h>
 #include <thread>
 #include <unistd.h>
 
@@ -75,6 +82,8 @@ public:
                                               std::to_string(server_.port())),
                             o);
     }
+
+    [[nodiscard]] std::uint16_t port() const { return server_.port(); }
 
     static node::ServerOptions options() {
         node::ServerOptions o;
@@ -213,22 +222,33 @@ class Tampering final : public node::Application {
 public:
     Tampering(node::Application& inner, std::uint64_t index) : inner_(&inner), index_(index) {}
 
-    node::http::Response handle(const node::http::Request& r, std::string_view peer) override {
-        auto response = inner_->handle(r, peer);
-        if (r.path != "/v1/entries" || response.status != 200) {
-            return response;
-        }
+    void handle(node::http::Request r, std::string peer, Respond respond) override {
+        const bool entries = r.path == "/v1/entries";
+        const std::uint64_t start = entries ? std::stoull(r.query.at("start")) : 0;
+        inner_->handle(std::move(r), std::move(peer),
+                       [this, entries, start,
+                        respond = std::move(respond)](node::http::Response response) mutable {
+                           if (entries && response.status == 200) {
+                               tamper(response, start);
+                           }
+                           respond(std::move(response));
+                       });
+    }
+
+private:
+    /// On a server thread: no test assertions here.
+    void tamper(node::http::Response& response, std::uint64_t start) const {
         auto value = cbor::decode(response.body, {.max_depth = 32, .max_items = 1u << 20});
-        REQUIRE(value);
+        if (!value || value->as_array() == nullptr) {
+            return;
+        }
         cbor::Array entries = *value->as_array();
-        const std::uint64_t start = std::stoull(r.query.at("start"));
         if (index_ >= start && index_ < start + entries.size()) {
             Bytes altered = *entries[index_ - start].as_bytes();
             altered[altered.size() - 3] ^= 1;
             entries[index_ - start] = cbor::Value::bytes(altered);
         }
         response.body = *cbor::encode(cbor::Value::array(std::move(entries)));
-        return response;
     }
 
 private:
@@ -353,13 +373,179 @@ TEST_CASE("the server sees what other processes write", "[node][api]") {
         REQUIRE(other);
         REQUIRE(other->submit(p.register_person("bob")));
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    // At once: a read finds the ledger behind the files and waits for it.
     CHECK(parse_json(get(reader, "/v1/status"))["size"] == 2);
     // And writes after it, without losing its entry.
     CHECK(
         post(server.client(p.submit_token), "/v1/statements", p.register_person("carol")).status ==
         201);
     CHECK(parse_json(get(reader, "/v1/status"))["size"] == 3);
+}
+
+TEST_CASE("many clients at once: writes commit in groups, reads run alongside",
+          "[node][api][concurrency]") {
+    Primary p;
+    auto api = p.api();
+    auto options = Running::options();
+    options.threads = 4;
+    Running server(*api, options);
+    constexpr std::size_t writers = 8;
+    constexpr std::size_t each = 16;
+    std::vector<std::vector<Bytes>> statements(writers);
+    std::vector<node::Client> clients;
+    for (std::size_t w = 0; w < writers; ++w) {
+        for (std::size_t i = 0; i < each; ++i) {
+            statements[w].push_back(p.register_person(std::format("person-{}-{}", w, i)));
+        }
+        clients.push_back(server.client(p.submit_token));
+    }
+    const auto reader = server.client(p.read_token);
+
+    // No test assertions off the main thread: results are checked after.
+    std::vector<std::vector<int>> codes(writers);
+    std::vector<std::vector<std::uint64_t>> indices(writers);
+    std::atomic<bool> finished = false;
+    std::uint64_t reads = 0;
+    std::uint64_t bad_reads = 0;
+    std::thread reading([&] {
+        std::uint64_t last = 0;
+        while (!finished) {
+            auto r = reader.request("GET", "/v1/status");
+            ++reads;
+            if (!r || r->status != 200) {
+                ++bad_reads;
+                continue;
+            }
+            const auto size =
+                json::parse(r->body.begin(), r->body.end())["size"].get<std::uint64_t>();
+            bad_reads += size < last ? 1 : 0; // never backwards
+            last = size;
+        }
+    });
+    std::vector<std::thread> writing;
+    for (std::size_t w = 0; w < writers; ++w) {
+        writing.emplace_back([&, w] {
+            for (const Bytes& s : statements[w]) {
+                auto r = clients[w].request("POST", "/v1/statements", s, "application/cose");
+                codes[w].push_back(r ? r->status : 0);
+                if (r && r->status == 201) {
+                    indices[w].push_back(json::parse(r->body.begin(), r->body.end())["index"]);
+                }
+            }
+        });
+    }
+    for (std::thread& t : writing) {
+        t.join();
+    }
+    finished = true;
+    reading.join();
+
+    std::set<std::uint64_t> all;
+    for (std::size_t w = 0; w < writers; ++w) {
+        CHECK(std::ranges::all_of(codes[w], [](int c) { return c == 201; }));
+        all.insert(indices[w].begin(), indices[w].end());
+    }
+    CHECK(all.size() == writers * each);
+    CHECK(*all.begin() == 1);
+    CHECK(*all.rbegin() == writers * each);
+    CHECK(reads > 0);
+    CHECK(bad_reads == 0);
+    CHECK(parse_json(get(reader, "/v1/status"))["size"] == writers * each + 1);
+    const auto metrics = get(reader, "/metrics");
+    const std::string text(metrics.body.begin(), metrics.body.end());
+    CHECK(text.find(std::format(R"(cexchain_statements_total{{result="registered"}} {})",
+                                writers * each)) != std::string::npos);
+
+    // Everything is durable: a fresh open sees it all.
+    auto fs = ledger::PosixFileSystem::open_directory(p.dir);
+    REQUIRE(fs);
+    auto reopened = ledger::Ledger::open(*fs, p.clock, provider());
+    REQUIRE(reopened);
+    CHECK(reopened->size() == writers * each + 1);
+}
+
+/// A plain TCP connection, to drive the server byte by byte.
+class Socket {
+public:
+    explicit Socket(std::uint16_t port) : fd_(::socket(AF_INET, SOCK_STREAM, 0)) {
+        REQUIRE(fd_ >= 0);
+        sockaddr_in address{};
+        address.sin_family = AF_INET;
+        address.sin_port = htons(port);
+        REQUIRE(::inet_pton(AF_INET, "127.0.0.1", &address.sin_addr) == 1);
+        REQUIRE(::connect(fd_, reinterpret_cast<const sockaddr*>(&address), sizeof address) == 0);
+        const timeval wait{5, 0};
+        ::setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &wait, sizeof wait);
+    }
+    Socket(const Socket&) = delete;
+    Socket& operator=(const Socket&) = delete;
+    ~Socket() { ::close(fd_); }
+
+    void send(std::string_view text) const {
+        REQUIRE(::send(fd_, text.data(), text.size(), 0) == static_cast<ssize_t>(text.size()));
+    }
+    /// Reads until `text` ends what was read; false if the server closed or
+    /// went quiet first.
+    [[nodiscard]] bool read_until(std::string_view text) const {
+        std::string got;
+        std::array<char, 4096> chunk{};
+        while (!got.ends_with(text)) {
+            const ssize_t n = ::recv(fd_, chunk.data(), chunk.size(), 0);
+            if (n <= 0) {
+                return false;
+            }
+            got.append(chunk.data(), static_cast<std::size_t>(n));
+        }
+        return true;
+    }
+    /// Whether the server closes the connection (rather than the read timing
+    /// out).
+    [[nodiscard]] bool closed_by_server() const {
+        std::array<char, 4096> chunk{};
+        ssize_t n = 0;
+        while ((n = ::recv(fd_, chunk.data(), chunk.size(), 0)) > 0) {
+        }
+        return n == 0;
+    }
+
+private:
+    int fd_;
+};
+
+TEST_CASE("the server closes stalled and idle connections, never busy ones", "[node][server]") {
+    Primary p;
+    auto api = p.api();
+    auto options = Running::options();
+    options.threads = 2;
+    options.request_timeout = std::chrono::seconds(1);
+    options.idle_timeout = std::chrono::seconds(1);
+    Running server(*api, options);
+    using steady = std::chrono::steady_clock;
+
+    // A request that never finishes arriving.
+    {
+        const Socket stalled(server.port());
+        const auto start = steady::now();
+        stalled.send("GET /healthz HTTP/1.1\r\nHost: x\r\n");
+        CHECK(stalled.closed_by_server());
+        const auto waited = steady::now() - start;
+        CHECK(waited >= std::chrono::milliseconds(800));
+        CHECK(waited < std::chrono::seconds(4));
+    }
+    // A kept-alive connection in use for longer than the timeouts stays open,
+    // then closes once idle.
+    const Socket busy(server.port());
+    const auto start = steady::now();
+    int answered = 0;
+    while (steady::now() - start < std::chrono::milliseconds(2500)) {
+        busy.send("GET /healthz HTTP/1.1\r\nHost: x\r\n\r\n");
+        answered += busy.read_until("ok\n") ? 1 : 0;
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    }
+    CHECK(answered >= 8);
+    const auto idle = steady::now();
+    CHECK(busy.closed_by_server());
+    CHECK(steady::now() - idle < std::chrono::seconds(4));
 }
 
 TEST_CASE("a replica copies over HTTP and refuses a forged history", "[node][replica]") {

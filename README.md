@@ -215,6 +215,12 @@ statements are the authorization: the server only checks API tokens, which gate 
 statements reveal business metadata. The server holds the ledger's lock only while it writes, so
 every other command keeps working on the same ledger.
 
+The server is built for many clients at once. Connections are spread over a pool of I/O threads
+(`--threads`, one per core by default), and reads run on all of them in parallel. Writes queue for a
+single writer, which commits everything that queued during the previous sync as one group: one
+lock, one sync, and signatures checked on every core. Readers only ever see durable entries.
+`cexchain-bench http` measures it.
+
 ```sh
 cexchain token create app --scope submit,read --out app.token   # shown once; only its hash is kept
 cexchain token create replica --scope read --out replica.token

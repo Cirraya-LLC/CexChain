@@ -47,5 +47,6 @@ private:
 };
 
 int ledger_bench(const Options& options);
+int http_bench(const Options& options);
 
 } // namespace cexchain::bench

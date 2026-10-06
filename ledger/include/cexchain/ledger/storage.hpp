@@ -28,6 +28,10 @@ public:
     virtual ~AppendFile() = default;
 
     [[nodiscard]] virtual std::uint64_t size() const = 0;
+    /// The size as the file system has it now, including what other
+    /// processes have appended since this handle was opened (which `size`
+    /// does not count).
+    [[nodiscard]] virtual Result<std::uint64_t> current_size() const { return size(); }
     [[nodiscard]] virtual Result<Bytes> read(std::uint64_t offset, std::size_t length) const = 0;
     /// Appends `data`. It is not durable until `sync` returns successfully.
     [[nodiscard]] virtual Status append(ByteView data) = 0;

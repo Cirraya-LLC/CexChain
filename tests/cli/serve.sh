@@ -104,7 +104,9 @@ OPS_TOKEN="$(cat ops.token)"
 
 # --- The API -------------------------------------------------------------------
 run serve --help | contains 'POST /v1/statements'
-start_server primary.json --log-key log.key --checkpoint-interval 1
+expect_exit 1 serve --threads 0
+contains 'threads' out.txt
+start_server primary.json --log-key log.key --checkpoint-interval 1 --threads 4
 URL="$(url_of primary.json)"
 json 'd["role"]' < primary.json | contains -x primary
 [ "$(status_of GET "$URL/healthz")" = 200 ]

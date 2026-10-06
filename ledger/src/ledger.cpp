@@ -809,6 +809,12 @@ Result<RefreshReport> Ledger::refresh(FileSystem& fs, bool recover) {
     return report;
 }
 
+bool Ledger::outdated() const {
+    // A refresh swaps the logs' file handles under this lock.
+    const std::shared_lock lock(impl_->log_mutex);
+    return impl_->log.outdated() || impl_->checkpoints.outdated() || impl_->cosignatures.outdated();
+}
+
 Result<Bytes> Ledger::entry(std::uint64_t index) const {
     const std::shared_lock lock(impl_->log_mutex);
     if (index >= impl_->tree.size()) {

@@ -81,6 +81,10 @@ public:
     [[nodiscard]] Result<std::uint64_t> refresh(FileSystem& fs, std::string_view name,
                                                 bool recover);
 
+    /// Whether another process has synced records since this log last
+    /// wrote or refreshed (one fstat), so that `refresh` would find more.
+    [[nodiscard]] bool outdated() const;
+
 private:
     RecordLog(std::unique_ptr<AppendFile> log, std::unique_ptr<AppendFile> synced,
               std::vector<std::uint64_t> offsets, std::uint64_t end);

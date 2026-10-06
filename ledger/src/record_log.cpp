@@ -283,6 +283,11 @@ Result<RecordLog::Pending> RecordLog::write(std::span<const ByteView> payloads) 
     return pending;
 }
 
+bool RecordLog::outdated() const {
+    const auto current = synced_->current_size();
+    return !current || *current != synced_->size();
+}
+
 void RecordLog::publish(const Pending& pending) {
     offsets_.insert(offsets_.end(), pending.offsets.begin(), pending.offsets.end());
     end_ = pending.end;

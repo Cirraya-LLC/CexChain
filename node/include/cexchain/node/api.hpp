@@ -66,10 +66,12 @@ public:
     LedgerApi& operator=(const LedgerApi&) = delete;
     ~LedgerApi() override;
 
-    [[nodiscard]] http::Response handle(const http::Request& request,
-                                        std::string_view peer) override;
+    /// Reads run on the calling thread; writes queue for the API's writer
+    /// thread, which commits whatever has queued as one group.
+    void handle(http::Request request, std::string peer, Respond respond) override;
     void tick() override;
-    [[nodiscard]] std::string principal() const override;
+    /// Waits until every queued write is done.
+    void stop() override;
 
     [[nodiscard]] bool is_replica() const noexcept;
     [[nodiscard]] const ledger::Ledger& ledger() const noexcept;

@@ -3,11 +3,16 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <charconv>
+#include <condition_variable>
+#include <deque>
 #include <format>
-#include <map>
+#include <mutex>
 #include <optional>
+#include <thread>
 #include <utility>
+#include <variant>
 
 #include <nlohmann/json.hpp>
 
@@ -16,6 +21,7 @@
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/statement.hpp>
 #include <cexchain/core/protocol/witness.hpp>
+#include <cexchain/ledger/parallel.hpp>
 #include <cexchain/node/api.hpp>
 #include <cexchain/node/peers.hpp>
 #include <cexchain/node/tokens.hpp>
@@ -156,28 +162,293 @@ cbor::Value digests_value(const std::vector<crypto::Digest>& digests) {
 
 enum class Access { open, read, submit, admin, peer };
 
+enum class Endpoint {
+    metrics,
+    status,
+    get_checkpoint,
+    make_checkpoint,
+    consistency,
+    entries,
+    checkpoints,
+    cosignatures,
+    add_cosignature,
+    inclusion,
+    submit,
+    statement,
+    receipt,
+    state,
+    evidence,
+    vault_public_key,
+    vault_record,
+    access_request,
+    access_delivery,
+    access_receipt,
+    witness_cosign,
+};
+
+/// Where a request goes. `rest` is where the path's last segment (an id or
+/// an index) starts, an offset since the request may move.
+struct Routed {
+    Endpoint endpoint;
+    Access access;
+    std::size_t rest = 0;
+};
+
+/// Statements one group commit takes at most.
+constexpr std::size_t max_group = 4096;
+constexpr std::size_t max_group_bytes = 32 * 1024 * 1024;
+
 } // namespace
 
+/// Requests run on the server's I/O threads, all at once. Reads go straight
+/// to the ledger, which lets them run alongside its writer. Writes queue for
+/// the one writer thread, which takes everything queued as one group: one
+/// lock of the directory, one catch-up, one sync for all the statements.
 struct LedgerApi::State {
+    using Done = Application::Respond;
+
     ApiOptions options;
     const crypto::Provider* provider = nullptr;
     ledger::SystemClock clock;
+    /// The writer thread's (and open's) only.
     std::optional<ledger::PosixFileSystem> fs;
     std::optional<ledger::Ledger> ledger;
     bool replica = false;
+
     /// Set once the ledger's files hold something that does not validate:
     /// every route but /healthz then answers 503.
-    std::optional<std::string> failure;
+    std::atomic<bool> failed = false;
+    mutable std::mutex failure_mutex;
+    std::string failure_text;
 
-    std::vector<ApiToken> tokens;
+    mutable std::mutex tokens_mutex;
+    std::shared_ptr<const std::vector<ApiToken>> tokens =
+        std::make_shared<const std::vector<ApiToken>>();
+    /// Held by tick(); open() runs before any.
+    std::mutex tick_mutex;
     std::optional<std::filesystem::file_time_type> tokens_time;
-    steady::time_point tokens_checked{};
     steady::time_point last_auto_checkpoint = steady::now();
-    std::string principal;
 
-    std::map<int, std::uint64_t> responses;
-    std::map<std::string, std::uint64_t, std::less<>> statements;
-    std::uint64_t auto_checkpoints = 0;
+    std::array<std::atomic<std::uint64_t>, 600> responses{};
+    std::atomic<std::uint64_t> registered = 0;
+    std::atomic<std::uint64_t> duplicates = 0;
+    std::atomic<std::uint64_t> refused = 0;
+    std::atomic<std::uint64_t> auto_checkpoints = 0;
+
+    mutable std::mutex event_mutex;
+    /// The witness keeps state of its own (what it last cosigned).
+    std::mutex witness_mutex;
+
+    // ---- the writer ----------------------------------------------------
+
+    struct Submission {
+        Bytes statement;
+        std::string principal;
+        Done done;
+    };
+    /// Runs on the writer thread holding the ledger's lock, caught up; or,
+    /// if that could not be had, gets the answer to give instead.
+    using Locked = std::function<void(const http::Response* refusal)>;
+    using Job = std::function<void()>;
+
+    std::mutex queue_mutex;
+    std::condition_variable queue_ready;
+    std::condition_variable queue_idle;
+    std::deque<Submission> submissions;
+    std::vector<Locked> locked;
+    /// Reads that found another process had written: they run once the
+    /// writer has caught up.
+    std::vector<Job> after_refresh;
+    bool writing = false;
+    bool stopping = false;
+    std::thread writer;
+
+    State() = default;
+    State(const State&) = delete;
+    State& operator=(const State&) = delete;
+    ~State() { stop(); }
+
+    void start() {
+        writer = std::thread([this] { run_writer(); });
+    }
+
+    /// Waits until everything queued so far is done.
+    void drain() {
+        std::unique_lock lock(queue_mutex);
+        queue_idle.wait(lock, [&] {
+            return !writing && submissions.empty() && locked.empty() && after_refresh.empty();
+        });
+    }
+
+    void stop() {
+        {
+            const std::lock_guard lock(queue_mutex);
+            if (stopping) {
+                return;
+            }
+            stopping = true;
+        }
+        queue_ready.notify_all();
+        if (writer.joinable()) {
+            writer.join();
+        }
+    }
+
+    void queue_submission(Submission submission) {
+        {
+            const std::lock_guard lock(queue_mutex);
+            submissions.push_back(std::move(submission));
+        }
+        queue_ready.notify_one();
+    }
+
+    void queue_locked(Locked job) {
+        {
+            const std::lock_guard lock(queue_mutex);
+            locked.push_back(std::move(job));
+        }
+        queue_ready.notify_one();
+    }
+
+    void queue_read(Job job) {
+        {
+            const std::lock_guard lock(queue_mutex);
+            after_refresh.push_back(std::move(job));
+        }
+        queue_ready.notify_one();
+    }
+
+    void run_writer() {
+        for (;;) {
+            std::vector<Submission> batch;
+            std::vector<Locked> jobs;
+            std::vector<Job> reads;
+            bool stopped = false;
+            {
+                std::unique_lock lock(queue_mutex);
+                writing = false;
+                queue_idle.notify_all();
+                queue_ready.wait(lock, [&] {
+                    return stopping || !submissions.empty() || !locked.empty() ||
+                           !after_refresh.empty();
+                });
+                stopped = stopping;
+                std::size_t bytes = 0;
+                while (!submissions.empty() &&
+                       (stopped || (batch.size() < max_group && bytes < max_group_bytes))) {
+                    bytes += submissions.front().statement.size();
+                    batch.push_back(std::move(submissions.front()));
+                    submissions.pop_front();
+                }
+                jobs.swap(locked);
+                reads.swap(after_refresh);
+                writing = true;
+            }
+            if (stopped) {
+                const auto refusal = error_response(503, "unavailable", "the server is stopping");
+                for (Submission& s : batch) {
+                    finish(s.done, s.principal, refusal);
+                }
+                for (Locked& job : jobs) {
+                    job(&refusal);
+                }
+                for (Job& read : reads) {
+                    read(); // the ledger is still there, and reads are quick
+                }
+                const std::lock_guard lock(queue_mutex);
+                writing = false;
+                queue_idle.notify_all();
+                return;
+            }
+            const bool caught_up = !batch.empty() || !jobs.empty();
+            if (caught_up) {
+                write_group(batch, jobs);
+            }
+            if (!reads.empty()) {
+                if (!caught_up) {
+                    static_cast<void>(refresh(false)); // a failure answers the reads
+                }
+                ledger::parallel_for(reads.size(), [&](std::size_t begin, std::size_t end) {
+                    for (std::size_t i = begin; i < end; ++i) {
+                        reads[i]();
+                    }
+                });
+            }
+        }
+    }
+
+    /// One group commit: the queued statements in one batch, then the other
+    /// writes, all under one lock of the directory.
+    void write_group(std::vector<Submission>& batch, std::vector<Locked>& jobs) {
+        std::optional<http::Response> refusal;
+        auto lock = ledger::DirectoryLock::acquire(options.directory, 2000);
+        if (failed) {
+            refusal = error_response(503, "unavailable", "the ledger is unusable");
+        } else if (!lock) {
+            refusal = error_response(503, "unavailable", "the ledger is busy; retry");
+            refusal->headers.emplace_back("Retry-After", "1");
+        } else if (auto s = refresh(true); !s) {
+            refusal = error_response(503, "unavailable", "the ledger is unusable");
+        }
+        if (refusal) {
+            for (Submission& s : batch) {
+                finish(s.done, s.principal, *refusal);
+            }
+            for (Locked& job : jobs) {
+                job(&*refusal);
+            }
+            return;
+        }
+        if (!batch.empty()) {
+            std::vector<ByteView> views;
+            views.reserve(batch.size());
+            for (const Submission& s : batch) {
+                views.emplace_back(s.statement);
+            }
+            auto results = ledger->submit_batch(views);
+            for (std::size_t i = 0; i < batch.size(); ++i) {
+                finish(batch[i].done, batch[i].principal, registration_response(results[i]));
+            }
+        }
+        for (Locked& job : jobs) {
+            job(nullptr);
+        }
+    }
+
+    http::Response registration_response(const Result<ledger::Registration>& registration) {
+        if (!registration) {
+            ++refused;
+            return error_response(registration.error());
+        }
+        ++(registration->newly_registered ? registered : duplicates);
+        return json_response(registration->newly_registered ? 201 : 200,
+                             {{"statement_id", hex(registration->statement_id)},
+                              {"index", registration->index},
+                              {"registered_at", registration->registered_at},
+                              {"newly_registered", registration->newly_registered}});
+    }
+
+    // ---- shared helpers ------------------------------------------------
+
+    /// Every answer leaves through here.
+    void finish(Done& done, std::string_view principal, http::Response response) {
+        const auto status = static_cast<std::size_t>(response.status);
+        if (status < responses.size()) {
+            responses[status].fetch_add(1, std::memory_order_relaxed);
+        }
+        response.headers.emplace_back("Cache-Control", "no-store");
+        response.headers.emplace_back("X-Content-Type-Options", "nosniff");
+        response.principal = principal;
+        done(std::move(response));
+    }
+
+    [[nodiscard]] std::optional<std::string> failure() const {
+        if (!failed.load(std::memory_order_acquire)) {
+            return std::nullopt;
+        }
+        const std::lock_guard lock(failure_mutex);
+        return failure_text;
+    }
 
     void event(std::string_view what, std::string_view detail = {}) const {
         if (options.event_log == nullptr) {
@@ -189,16 +460,14 @@ struct LedgerApi::State {
         if (!detail.empty()) {
             line["detail"] = detail;
         }
-        *options.event_log << line.dump() << "\n";
+        const std::string text = line.dump() + "\n";
+        const std::lock_guard lock(event_mutex);
+        *options.event_log << text;
         options.event_log->flush();
     }
 
+    /// From tick() (once a second) and open() only.
     void reload_tokens(bool force) {
-        const auto now = steady::now();
-        if (!force && now - tokens_checked < std::chrono::seconds(1)) {
-            return;
-        }
-        tokens_checked = now;
         std::error_code ec;
         const auto path = options.directory / tokens_file;
         const auto time = std::filesystem::last_write_time(path, ec);
@@ -208,56 +477,51 @@ struct LedgerApi::State {
             return;
         }
         auto loaded = load_tokens(options.directory);
+        auto next = std::make_shared<const std::vector<ApiToken>>(loaded ? std::move(*loaded)
+                                                                         : std::vector<ApiToken>{});
         if (!loaded) {
             // Keep serving with no tokens rather than with stale ones.
-            tokens.clear();
             event("tokens-unreadable", loaded.error().detail);
-        } else {
-            tokens = std::move(*loaded);
+        }
+        {
+            const std::lock_guard lock(tokens_mutex);
+            tokens = std::move(next);
         }
         tokens_time = current;
     }
 
     /// Picks up what other processes appended, so every request sees all
     /// that was durable when it arrived. Writers, under the lock, also
-    /// recover what a crashed writer left half-written.
+    /// recover what a crashed writer left half-written. The writer thread
+    /// only.
     Status refresh(bool for_write) {
         auto report = ledger->refresh(*fs, for_write);
         if (!report) {
-            failure = std::string(report.error().detail);
+            {
+                const std::lock_guard lock(failure_mutex);
+                if (!failed) {
+                    failure_text = std::string(report.error().detail);
+                }
+            }
+            failed.store(true, std::memory_order_release);
             event("ledger-unusable", report.error().detail);
             return std::unexpected(report.error());
         }
         return {};
     }
 
-    /// Runs `write` holding the ledger's lock, after catching up.
-    template <class F>
-    http::Response with_lock(F&& write) {
-        if (options.read_only || replica) {
-            return error_response(403, "read_only",
-                                  replica ? "this ledger is a replica; write to its primary"
-                                          : "this server is read-only");
-        }
-        auto lock = ledger::DirectoryLock::acquire(options.directory, 2000);
-        if (!lock) {
-            auto r = error_response(503, "unavailable", "the ledger is busy; retry");
-            r.headers.emplace_back("Retry-After", "1");
-            return r;
-        }
-        if (auto s = refresh(true); !s) {
-            return error_response(503, "unavailable", "the ledger is unusable");
-        }
-        return write();
-    }
-
-    /// Who is calling, and whether they may.
-    std::optional<http::Response> authorize(const http::Request& r, Access access) {
+    /// Who is calling (into `principal`), and whether they may.
+    std::optional<http::Response> authorize(const http::Request& r, Access access,
+                                            std::string& principal) const {
         if (access == Access::open || (access == Access::read && options.public_read)) {
             principal = "public";
             return std::nullopt;
         }
-        reload_tokens(false);
+        std::shared_ptr<const std::vector<ApiToken>> current;
+        {
+            const std::lock_guard lock(tokens_mutex);
+            current = tokens;
+        }
         const auto header = r.header("authorization");
         constexpr std::string_view bearer = "Bearer ";
         const ApiToken* token = nullptr;
@@ -265,7 +529,7 @@ struct LedgerApi::State {
             std::equal(bearer.begin(), bearer.end(), header->begin(), [](char a, char b) {
                 return a == b || (a >= 'A' && a <= 'Z' && b == a - 'A' + 'a');
             })) {
-            token = find_token(tokens, *provider, header->substr(bearer.size()));
+            token = find_token(*current, *provider, header->substr(bearer.size()));
         }
         if (token == nullptr) {
             auto response = error_response(401, "unauthorized", "a valid API token is required");
@@ -286,10 +550,13 @@ struct LedgerApi::State {
     // ---- routes --------------------------------------------------------
 
     http::Response status() const {
-        const auto& latest = ledger->latest_checkpoint();
+        const auto latest = ledger->latest_checkpoint();
+        std::string organization;
+        ledger->read_state(
+            [&](const protocol::LedgerState& s) { organization = s.organization(); });
         return json_response(
             200, {{"ledger_id", hex(ledger->id())},
-                  {"organization", ledger->state().organization()},
+                  {"organization", organization},
                   {"hash", crypto::name(ledger->hash())},
                   {"size", ledger->size()},
                   {"checkpoint", latest ? checkpoint_json(latest->checkpoint) : json(nullptr)},
@@ -313,10 +580,11 @@ struct LedgerApi::State {
             }
             return error_response(404, "not_found", "no checkpoint of this size");
         }
-        if (!ledger->latest_checkpoint()) {
+        auto latest = ledger->latest_checkpoint();
+        if (!latest) {
             return error_response(404, "not_found", "no checkpoint yet");
         }
-        return binary("application/cose", ledger->latest_checkpoint()->encoded);
+        return binary("application/cose", std::move(latest->encoded));
     }
 
     http::Response consistency(const http::Request& r) const {
@@ -411,7 +679,7 @@ struct LedgerApi::State {
         if (!id) {
             return error_response(400, "invalid_argument", "a statement id is 64 hex digits");
         }
-        const auto index = ledger->state().statement_index(*id);
+        const auto index = ledger->statement_index(*id);
         if (!index) {
             return error_response(404, "not_found", "no such statement");
         }
@@ -473,7 +741,10 @@ struct LedgerApi::State {
         if (!id) {
             return error_response(400, "invalid_argument", "a record id is 64 hex digits");
         }
-        if (ledger->state().record(*id) == nullptr) {
+        bool exists = false;
+        ledger->read_state(
+            [&](const protocol::LedgerState& s) { exists = s.record(*id) != nullptr; });
+        if (!exists) {
             return error_response(404, "not_found", "no such record");
         }
         auto bundle = ledger->export_evidence(*options.log_key, *id);
@@ -493,59 +764,6 @@ struct LedgerApi::State {
                        : error_response(bytes.error());
         }
         return binary("application/cbor", std::move(*bytes));
-    }
-
-    http::Response submit(const http::Request& r) {
-        const auto type = r.header("content-type");
-        if (type && !type->starts_with("application/cose") &&
-            !type->starts_with("application/cbor") &&
-            !type->starts_with("application/octet-stream")) {
-            return error_response(415, "unsupported",
-                                  "send the signed statement as application/cose");
-        }
-        if (r.body.empty()) {
-            return error_response(400, "invalid_argument", "send a signed statement");
-        }
-        return with_lock([&] {
-            auto registration = ledger->submit(r.body);
-            if (!registration) {
-                ++statements["refused"];
-                return error_response(registration.error());
-            }
-            ++statements[registration->newly_registered ? "registered" : "duplicate"];
-            return json_response(registration->newly_registered ? 201 : 200,
-                                 {{"statement_id", hex(registration->statement_id)},
-                                  {"index", registration->index},
-                                  {"registered_at", registration->registered_at},
-                                  {"newly_registered", registration->newly_registered}});
-        });
-    }
-
-    http::Response make_checkpoint() {
-        if (!options.log_key) {
-            return error_response(501, "unsupported", "this server has no log key");
-        }
-        return with_lock([&] {
-            auto made = ledger->checkpoint(*options.log_key);
-            return made ? binary("application/cose", made->encoded) : error_response(made.error());
-        });
-    }
-
-    http::Response add_cosignature(const http::Request& r) {
-        auto value = cbor::decode(r.body);
-        const cbor::Array* parts = value ? value->as_array() : nullptr;
-        if (parts == nullptr || parts->size() != 2 || (*parts)[0].as_bytes() == nullptr) {
-            return error_response(400, "malformed", "send [cosignature, witness public key]");
-        }
-        auto witness = protocol::decode_public_key((*parts)[1]);
-        if (!witness) {
-            return error_response(witness.error());
-        }
-        const Bytes cosignature = *(*parts)[0].as_bytes();
-        return with_lock([&] {
-            auto stored = ledger->add_cosignature(cosignature, *witness);
-            return stored ? json_response(200, {{"stored", true}}) : error_response(stored.error());
-        });
     }
 
     /// The peer whose ledger produced `bundle`, which must verify.
@@ -577,7 +795,8 @@ struct LedgerApi::State {
 
     /// Peer tokens are named after their peer: each peer sees and sends
     /// only its own exchanges.
-    std::optional<http::Response> require_peer_token(const Peer& peer) const {
+    static std::optional<http::Response> require_peer_token(const Peer& peer,
+                                                            const std::string& principal) {
         if (peer.name != principal) {
             return error_response(403, "forbidden",
                                   "this token is not the peer's (name it after the peer)");
@@ -585,12 +804,12 @@ struct LedgerApi::State {
         return std::nullopt;
     }
 
-    http::Response access_request(const http::Request& r) {
+    http::Response access_request(const http::Request& r, const std::string& principal) {
         auto peer = peer_of(r.body);
         if (!peer) {
             return error_response(peer.error());
         }
-        if (auto denied = require_peer_token(*peer)) {
+        if (auto denied = require_peer_token(*peer, principal)) {
             return std::move(*denied);
         }
         auto checked = protocol::check_access_request(*provider, r.body, peer->ledger_id,
@@ -610,7 +829,8 @@ struct LedgerApi::State {
                                    {"purpose", checked->value.purpose}});
     }
 
-    http::Response access_delivery(std::string_view request_text) const {
+    http::Response access_delivery(std::string_view request_text,
+                                   const std::string& principal) const {
         const auto request = id_from(request_text);
         if (!request) {
             return error_response(400, "invalid_argument", "a request id is 64 hex digits");
@@ -641,12 +861,12 @@ struct LedgerApi::State {
         return binary("application/cbor", std::move(*bytes));
     }
 
-    http::Response access_receipt(const http::Request& r) {
+    http::Response access_receipt(const http::Request& r, const std::string& principal) {
         auto peer = peer_of(r.body);
         if (!peer) {
             return error_response(peer.error());
         }
-        if (auto denied = require_peer_token(*peer)) {
+        if (auto denied = require_peer_token(*peer, principal)) {
             return std::move(*denied);
         }
         // Which grant: from the receipt's metadata, checked below.
@@ -685,54 +905,162 @@ struct LedgerApi::State {
         return json_response(202, {{"grant", hex(receipt->grant)}, {"peer", peer->name}});
     }
 
-    http::Response witness_cosign(const http::Request& r) const {
+    http::Response witness_cosign(const http::Request& r) {
         if (!options.witness) {
             return error_response(501, "unsupported", "this server is not a witness");
         }
-        auto cosignature = options.witness(r.body);
+        auto cosignature = [&] {
+            const std::lock_guard lock(witness_mutex);
+            return options.witness(r.body);
+        }();
         if (!cosignature) {
             return error_response(cosignature.error());
         }
         return binary("application/cose", std::move(*cosignature));
     }
 
+    // ---- writes, for the writer thread ---------------------------------
+
+    void submit(http::Request& r, std::string principal, Done& done) {
+        const auto type = r.header("content-type");
+        if (type && !type->starts_with("application/cose") &&
+            !type->starts_with("application/cbor") &&
+            !type->starts_with("application/octet-stream")) {
+            finish(done, principal,
+                   error_response(415, "unsupported",
+                                  "send the signed statement as application/cose"));
+            return;
+        }
+        if (r.body.empty()) {
+            finish(done, principal,
+                   error_response(400, "invalid_argument", "send a signed statement"));
+            return;
+        }
+        queue_submission({std::move(r.body), std::move(principal), std::move(done)});
+    }
+
+    void make_checkpoint(std::string principal, Done& done) {
+        if (!options.log_key) {
+            finish(done, principal,
+                   error_response(501, "unsupported", "this server has no log key"));
+            return;
+        }
+        queue_locked([this, principal = std::move(principal),
+                      done = std::move(done)](const http::Response* refusal) mutable {
+            if (refusal != nullptr) {
+                finish(done, principal, *refusal);
+                return;
+            }
+            auto made = ledger->checkpoint(*options.log_key);
+            finish(done, principal,
+                   made ? binary("application/cose", made->encoded) : error_response(made.error()));
+        });
+    }
+
+    void add_cosignature(const http::Request& r, std::string principal, Done& done) {
+        auto value = cbor::decode(r.body);
+        const cbor::Array* parts = value ? value->as_array() : nullptr;
+        if (parts == nullptr || parts->size() != 2 || (*parts)[0].as_bytes() == nullptr) {
+            finish(done, principal,
+                   error_response(400, "malformed", "send [cosignature, witness public key]"));
+            return;
+        }
+        auto witness = protocol::decode_public_key((*parts)[1]);
+        if (!witness) {
+            finish(done, principal, error_response(witness.error()));
+            return;
+        }
+        queue_locked([this, cosignature = Bytes(*(*parts)[0].as_bytes()), key = std::move(*witness),
+                      principal = std::move(principal),
+                      done = std::move(done)](const http::Response* refusal) mutable {
+            if (refusal != nullptr) {
+                finish(done, principal, *refusal);
+                return;
+            }
+            auto stored = ledger->add_cosignature(cosignature, key);
+            finish(done, principal,
+                   stored ? json_response(200, {{"stored", true}})
+                          : error_response(stored.error()));
+        });
+    }
+
+    /// From tick(): checkpoints when the interval has passed and the log has
+    /// grown.
+    void auto_checkpoint() {
+        if (failed || !options.log_key || replica || options.read_only ||
+            options.checkpoint_interval.count() == 0 ||
+            steady::now() - last_auto_checkpoint < options.checkpoint_interval) {
+            return;
+        }
+        last_auto_checkpoint = steady::now();
+        auto covered = [this] {
+            const auto latest = ledger->latest_checkpoint();
+            return latest && latest->checkpoint.tree_size >= ledger->size();
+        };
+        if (!ledger->outdated() && covered()) {
+            return;
+        }
+        queue_locked([this, covered](const http::Response* refusal) {
+            if (refusal != nullptr || covered()) {
+                return; // busy or unusable: next time
+            }
+            auto made = ledger->checkpoint(*options.log_key);
+            if (!made) {
+                event("checkpoint-failed", made.error().detail);
+                return;
+            }
+            ++auto_checkpoints;
+            event("checkpoint", std::format("tree size {}", made->checkpoint.tree_size));
+        });
+    }
+
+    // ---- routing -------------------------------------------------------
+
     http::Response metrics() const {
-        const auto& latest = ledger->latest_checkpoint();
+        const auto latest = ledger->latest_checkpoint();
+        const std::uint64_t size = ledger->size();
         const std::uint64_t checkpointed = latest ? latest->checkpoint.tree_size : 0;
         std::string out;
         auto gauge = [&](std::string_view name, std::string_view help, std::uint64_t value) {
             out += std::format("# HELP {0} {1}\n# TYPE {0} gauge\n{0} {2}\n", name, help, value);
         };
-        gauge("cexchain_ledger_usable", "1 while the ledger's files validate.", failure ? 0 : 1);
-        gauge("cexchain_log_entries", "Entries in the log.", ledger->size());
+        gauge("cexchain_ledger_usable", "1 while the ledger's files validate.", failed ? 0 : 1);
+        gauge("cexchain_log_entries", "Entries in the log.", size);
         gauge("cexchain_checkpoint_tree_size", "Entries the latest checkpoint covers.",
               checkpointed);
         gauge("cexchain_checkpoint_timestamp_seconds", "When the latest checkpoint was signed.",
               latest ? latest->checkpoint.timestamp / 1000 : 0);
         gauge("cexchain_unchecked_entries", "Entries no checkpoint covers yet.",
-              ledger->size() - checkpointed);
+              size - std::min(size, checkpointed));
         out += "# HELP cexchain_http_responses_total Responses by status code.\n"
                "# TYPE cexchain_http_responses_total counter\n";
-        for (const auto& [code, n] : responses) {
-            out += std::format("cexchain_http_responses_total{{code=\"{}\"}} {}\n", code, n);
+        for (std::size_t code = 0; code < responses.size(); ++code) {
+            if (const std::uint64_t n = responses[code].load(std::memory_order_relaxed); n > 0) {
+                out += std::format("cexchain_http_responses_total{{code=\"{}\"}} {}\n", code, n);
+            }
         }
         out += "# HELP cexchain_statements_total Submitted statements by outcome.\n"
                "# TYPE cexchain_statements_total counter\n";
-        for (const auto& [result, n] : statements) {
-            out += std::format("cexchain_statements_total{{result=\"{}\"}} {}\n", result, n);
+        const std::array<std::pair<std::string_view, const std::atomic<std::uint64_t>*>, 3>
+            outcomes{
+                {{"duplicate", &duplicates}, {"refused", &refused}, {"registered", &registered}}};
+        for (const auto& [result, counter] : outcomes) {
+            if (const std::uint64_t n = counter->load(std::memory_order_relaxed); n > 0) {
+                out += std::format("cexchain_statements_total{{result=\"{}\"}} {}\n", result, n);
+            }
         }
         out += std::format("# HELP cexchain_auto_checkpoints_total Automatic checkpoints.\n"
                            "# TYPE cexchain_auto_checkpoints_total counter\n"
                            "cexchain_auto_checkpoints_total {}\n",
-                           auto_checkpoints);
+                           auto_checkpoints.load(std::memory_order_relaxed));
         http::Response r;
         r.content_type = "text/plain; version=0.0.4";
         r.body.assign(out.begin(), out.end());
         return r;
     }
 
-    http::Response route(const http::Request& r) {
-        principal.clear();
+    /// The route for a request, or the answer if it has none.
+    static std::variant<Routed, http::Response> classify(const http::Request& r) {
         const std::string_view path = r.path;
         const bool get = r.method == "GET";
         const bool post = r.method == "POST";
@@ -741,186 +1069,214 @@ struct LedgerApi::State {
             response.headers.emplace_back("Allow", std::string(allow));
             return response;
         };
-
-        if (path == "/healthz") {
-            if (!get) {
-                return method_not_allowed("GET");
-            }
-            principal = "public";
-            http::Response h;
-            h.content_type = "text/plain";
-            h.status = failure ? 503 : 200;
-            const std::string text = failure ? "unusable: " + *failure + "\n" : "ok\n";
-            h.body.assign(text.begin(), text.end());
-            return h;
-        }
-        if (failure) {
-            return error_response(503, "unavailable",
-                                  "the ledger's files do not validate; run cexchain audit");
-        }
-
-        // (path, method) -> access, handler
-        struct Route {
-            Access access;
-            bool post;
-        };
-        std::optional<Route> found;
-        std::string_view rest;
+        std::size_t rest = 0;
         auto match = [&](std::string_view prefix) {
-            if (path.starts_with(prefix) && path.size() > prefix.size()) {
-                rest = path.substr(prefix.size());
-                return rest.find('/') == std::string_view::npos;
+            if (path.starts_with(prefix) && path.size() > prefix.size() &&
+                path.find('/', prefix.size()) == std::string_view::npos) {
+                rest = prefix.size();
+                return true;
             }
             return false;
         };
+        std::optional<Routed> found;
         if (path == "/v1/checkpoint" || path == "/v1/consistency") {
-            found = Route{post ? Access::admin : Access::open, post};
             if (post && path == "/v1/consistency") {
                 return method_not_allowed("GET");
             }
+            found = post ? Routed{Endpoint::make_checkpoint, Access::admin}
+                         : Routed{path == "/v1/checkpoint" ? Endpoint::get_checkpoint
+                                                           : Endpoint::consistency,
+                                  Access::open};
         } else if (path == "/v1/access/requests" || path == "/v1/access/receipts" ||
                    path == "/v1/witness/cosign") {
             if (!post) {
                 return method_not_allowed("POST");
             }
-            found = Route{Access::peer, true};
+            found = Routed{path == "/v1/access/requests"   ? Endpoint::access_request
+                           : path == "/v1/access/receipts" ? Endpoint::access_receipt
+                                                           : Endpoint::witness_cosign,
+                           Access::peer};
         } else if (match("/v1/access/deliveries/")) {
             if (!get) {
                 return method_not_allowed("GET");
             }
-            found = Route{Access::peer, false};
-        } else if (path == "/v1/statements" || path == "/v1/cosignatures") {
-            found = Route{post ? (path == "/v1/statements" ? Access::submit : Access::admin)
-                               : Access::read,
-                          post};
-            if (!post && path == "/v1/statements") {
+            found = Routed{Endpoint::access_delivery, Access::peer, rest};
+        } else if (path == "/v1/statements") {
+            if (!post) {
                 return method_not_allowed("POST");
             }
-        } else if (path == "/metrics" || path == "/v1/status" || path == "/v1/entries" ||
-                   path == "/v1/checkpoints" || path == "/v1/inclusion" ||
-                   path == "/v1/vault/public-key" || match("/v1/statements/") ||
-                   match("/v1/receipts/") || match("/v1/state/") || match("/v1/evidence/") ||
-                   match("/v1/vault/records/")) {
-            if (!get) {
+            found = Routed{Endpoint::submit, Access::submit};
+        } else if (path == "/v1/cosignatures") {
+            found = post ? Routed{Endpoint::add_cosignature, Access::admin}
+                         : Routed{Endpoint::cosignatures, Access::read};
+        } else {
+            static constexpr std::array<std::pair<std::string_view, Endpoint>, 6> fixed{{
+                {"/metrics", Endpoint::metrics},
+                {"/v1/status", Endpoint::status},
+                {"/v1/entries", Endpoint::entries},
+                {"/v1/checkpoints", Endpoint::checkpoints},
+                {"/v1/inclusion", Endpoint::inclusion},
+                {"/v1/vault/public-key", Endpoint::vault_public_key},
+            }};
+            static constexpr std::array<std::pair<std::string_view, Endpoint>, 5> prefixed{{
+                {"/v1/statements/", Endpoint::statement},
+                {"/v1/receipts/", Endpoint::receipt},
+                {"/v1/state/", Endpoint::state},
+                {"/v1/evidence/", Endpoint::evidence},
+                {"/v1/vault/records/", Endpoint::vault_record},
+            }};
+            for (const auto& [name, endpoint] : fixed) {
+                if (path == name) {
+                    found = Routed{endpoint, Access::read};
+                }
+            }
+            for (const auto& [prefix, endpoint] : prefixed) {
+                if (!found && match(prefix)) {
+                    found = Routed{endpoint, Access::read, rest};
+                }
+            }
+            if (found && !get) {
                 return method_not_allowed("GET");
             }
-            found = Route{Access::read, false};
         }
         if (!found) {
             return error_response(404, "not_found", "no such route");
         }
         if (!get && !post) {
-            return method_not_allowed(found->post ? "POST" : "GET");
+            const bool posts = found->endpoint == Endpoint::make_checkpoint ||
+                               found->endpoint == Endpoint::add_cosignature;
+            return method_not_allowed(posts ? "POST" : "GET");
         }
-        if (auto denied = authorize(r, found->access)) {
-            return std::move(*denied);
-        }
-        if (!found->post || found->access == Access::peer) {
-            if (auto s = refresh(false); !s) {
-                return error_response(503, "unavailable", "the ledger is unusable");
-            }
-        }
-
-        if (post && path == "/v1/access/requests") {
-            return access_request(r);
-        }
-        if (post && path == "/v1/access/receipts") {
-            return access_receipt(r);
-        }
-        if (post && path == "/v1/witness/cosign") {
-            return witness_cosign(r);
-        }
-        if (path.starts_with("/v1/access/deliveries/")) {
-            return access_delivery(rest);
-        }
-        if (post) {
-            if (options.read_only || replica) {
-                return error_response(403, "read_only",
-                                      replica ? "this ledger is a replica; write to its primary"
-                                              : "this server is read-only");
-            }
-            if (path == "/v1/statements") {
-                return submit(r);
-            }
-            if (path == "/v1/checkpoint") {
-                return make_checkpoint();
-            }
-            return add_cosignature(r);
-        }
-        if (path == "/metrics") {
-            return metrics();
-        }
-        if (path == "/v1/status") {
-            return status();
-        }
-        if (path == "/v1/checkpoint") {
-            return checkpoint(r);
-        }
-        if (path == "/v1/consistency") {
-            return consistency(r);
-        }
-        if (path == "/v1/entries") {
-            return entries(r);
-        }
-        if (path == "/v1/checkpoints") {
-            return checkpoints(r);
-        }
-        if (path == "/v1/cosignatures") {
-            return cosignatures(r);
-        }
-        if (path == "/v1/inclusion") {
-            return inclusion(r);
-        }
-        if (path == "/v1/vault/public-key") {
-            return vault_file("vault.pub");
-        }
-        if (path.starts_with("/v1/statements/")) {
-            return statement(rest);
-        }
-        if (path.starts_with("/v1/receipts/")) {
-            return receipt(rest);
-        }
-        if (path.starts_with("/v1/state/")) {
-            return state_proof(rest);
-        }
-        if (path.starts_with("/v1/evidence/")) {
-            return evidence(rest);
-        }
-        // /v1/vault/records/{record}
-        if (!id_from(rest)) {
-            return error_response(400, "invalid_argument", "a record id is 64 hex digits");
-        }
-        return vault_file(std::filesystem::path("records") / (std::string(rest) + ".cbor"));
+        return *found;
     }
 
-    void auto_checkpoint() {
-        if (failure || !options.log_key || replica || options.read_only ||
-            options.checkpoint_interval.count() == 0 ||
-            steady::now() - last_auto_checkpoint < options.checkpoint_interval) {
+    /// Everything but the writes: reads, and the peer routes (which read
+    /// the ledger and write files of their own).
+    http::Response answer(const http::Request& r, const Routed& routed,
+                          const std::string& principal) {
+        if (failed) {
+            return error_response(503, "unavailable",
+                                  "the ledger's files do not validate; run cexchain audit");
+        }
+        const std::string_view rest = std::string_view(r.path).substr(routed.rest);
+        switch (routed.endpoint) {
+        case Endpoint::metrics:
+            return metrics();
+        case Endpoint::status:
+            return status();
+        case Endpoint::get_checkpoint:
+            return checkpoint(r);
+        case Endpoint::consistency:
+            return consistency(r);
+        case Endpoint::entries:
+            return entries(r);
+        case Endpoint::checkpoints:
+            return checkpoints(r);
+        case Endpoint::cosignatures:
+            return cosignatures(r);
+        case Endpoint::inclusion:
+            return inclusion(r);
+        case Endpoint::statement:
+            return statement(rest);
+        case Endpoint::receipt:
+            return receipt(rest);
+        case Endpoint::state:
+            return state_proof(rest);
+        case Endpoint::evidence:
+            return evidence(rest);
+        case Endpoint::vault_public_key:
+            return vault_file("vault.pub");
+        case Endpoint::vault_record:
+            if (!id_from(rest)) {
+                return error_response(400, "invalid_argument", "a record id is 64 hex digits");
+            }
+            return vault_file(std::filesystem::path("records") / (std::string(rest) + ".cbor"));
+        case Endpoint::access_request:
+            return access_request(r, principal);
+        case Endpoint::access_delivery:
+            return access_delivery(rest, principal);
+        case Endpoint::access_receipt:
+            return access_receipt(r, principal);
+        case Endpoint::witness_cosign:
+            return witness_cosign(r);
+        case Endpoint::make_checkpoint:
+        case Endpoint::add_cosignature:
+        case Endpoint::submit:
+            break;
+        }
+        return error_response(500, "internal", "unrouted");
+    }
+
+    http::Response answer_safely(const http::Request& r, const Routed& routed,
+                                 const std::string& principal) {
+        try {
+            return answer(r, routed, principal);
+        } catch (const std::exception&) {
+            return error_response(500, "internal", "internal error");
+        }
+    }
+
+    void serve(http::Request r, Done done) {
+        if (r.path == "/healthz") {
+            if (r.method != "GET") {
+                auto response = error_response(405, "unsupported", "method not allowed");
+                response.headers.emplace_back("Allow", "GET");
+                finish(done, {}, std::move(response));
+                return;
+            }
+            const auto f = failure();
+            http::Response h;
+            h.content_type = "text/plain";
+            h.status = f ? 503 : 200;
+            const std::string text = f ? "unusable: " + *f + "\n" : "ok\n";
+            h.body.assign(text.begin(), text.end());
+            finish(done, "public", std::move(h));
             return;
         }
-        last_auto_checkpoint = steady::now();
-        if (auto s = refresh(false); !s) {
+        if (failed) {
+            finish(done, {},
+                   error_response(503, "unavailable",
+                                  "the ledger's files do not validate; run cexchain audit"));
             return;
         }
-        const auto& latest = ledger->latest_checkpoint();
-        if (latest && latest->checkpoint.tree_size >= ledger->size()) {
+        auto classified = classify(r);
+        if (auto* response = std::get_if<http::Response>(&classified)) {
+            finish(done, {}, std::move(*response));
             return;
         }
-        auto lock = ledger::DirectoryLock::acquire(options.directory, 1000);
-        if (!lock) {
-            return; // busy: next time
-        }
-        if (auto s = refresh(true); !s) {
+        const Routed routed = std::get<Routed>(classified);
+        std::string principal;
+        if (auto denied = authorize(r, routed.access, principal)) {
+            finish(done, principal, std::move(*denied));
             return;
         }
-        auto made = ledger->checkpoint(*options.log_key);
-        if (!made) {
-            event("checkpoint-failed", made.error().detail);
+        const bool writes = routed.endpoint == Endpoint::submit ||
+                            routed.endpoint == Endpoint::make_checkpoint ||
+                            routed.endpoint == Endpoint::add_cosignature;
+        if (writes) {
+            if (options.read_only || replica) {
+                finish(done, principal,
+                       error_response(403, "read_only",
+                                      replica ? "this ledger is a replica; write to its primary"
+                                              : "this server is read-only"));
+            } else if (routed.endpoint == Endpoint::submit) {
+                submit(r, std::move(principal), done);
+            } else if (routed.endpoint == Endpoint::make_checkpoint) {
+                make_checkpoint(std::move(principal), done);
+            } else {
+                add_cosignature(r, std::move(principal), done);
+            }
             return;
         }
-        ++auto_checkpoints;
-        event("checkpoint", std::format("tree size {}", made->checkpoint.tree_size));
+        if (ledger->outdated()) {
+            // Another process wrote: answer once the writer has caught up.
+            queue_read([this, r = std::move(r), routed, principal = std::move(principal),
+                        done = std::move(done)]() mutable {
+                finish(done, principal, answer_safely(r, routed, principal));
+            });
+            return;
+        }
+        finish(done, principal, answer_safely(r, routed, principal));
     }
 };
 
@@ -954,27 +1310,30 @@ Result<std::unique_ptr<LedgerApi>> LedgerApi::open(ApiOptions options,
     }
     state->options = std::move(options);
     state->reload_tokens(true);
+    state->start();
     return std::unique_ptr<LedgerApi>(new LedgerApi(std::move(state)));
 }
 
 LedgerApi::LedgerApi(std::unique_ptr<State> state) : state_(std::move(state)) {}
+
 LedgerApi::~LedgerApi() = default;
 
-http::Response LedgerApi::handle(const http::Request& request, std::string_view) {
-    http::Response response = state_->route(request);
-    ++state_->responses[response.status];
-    response.headers.emplace_back("Cache-Control", "no-store");
-    response.headers.emplace_back("X-Content-Type-Options", "nosniff");
-    return response;
+void LedgerApi::handle(http::Request request, std::string, Respond respond) {
+    state_->serve(std::move(request), std::move(respond));
 }
 
 void LedgerApi::tick() {
+    // Servers sharing this API tick on their own threads: one at a time.
+    const std::unique_lock lock(state_->tick_mutex, std::try_to_lock);
+    if (!lock) {
+        return;
+    }
     state_->reload_tokens(false);
     state_->auto_checkpoint();
 }
 
-std::string LedgerApi::principal() const {
-    return state_->principal;
+void LedgerApi::stop() {
+    state_->drain();
 }
 
 bool LedgerApi::is_replica() const noexcept {

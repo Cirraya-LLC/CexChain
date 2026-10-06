@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <ostream>
@@ -18,23 +19,26 @@
 
 namespace cexchain::node {
 
-/// What the server serves. Every call runs on one application thread, so an
-/// application needs no locking of its own.
+/// What the server serves. Requests arrive on the server's I/O threads,
+/// many at once: implementations must be thread-safe.
 class Application {
 public:
+    /// Delivers the response; call it exactly once, from any thread, now or
+    /// later.
+    using Respond = std::function<void(http::Response)>;
+
     virtual ~Application() = default;
 
-    /// Answers a request. `peer` is the client's address. Exceptions become
-    /// 500 responses.
-    [[nodiscard]] virtual http::Response handle(const http::Request& request,
-                                                std::string_view peer) = 0;
+    /// Answers a request from `peer` (the client's address). Exceptions
+    /// become 500 responses.
+    virtual void handle(http::Request request, std::string peer, Respond respond) = 0;
 
-    /// Called about once a second, for periodic work.
+    /// Called about once a second, from one thread at a time; must not block.
     virtual void tick() {}
 
-    /// Who made the last request handled, for the access log (e.g. a token
-    /// name), if known.
-    [[nodiscard]] virtual std::string principal() const { return {}; }
+    /// The server stops: answer whatever is still outstanding, and call no
+    /// `respond` after returning.
+    virtual void stop() {}
 
 protected:
     Application() = default;
@@ -43,6 +47,8 @@ protected:
 };
 
 struct ServerOptions {
+    /// I/O threads; 0 uses one per hardware thread.
+    std::size_t threads = 0;
     /// An IP address; "0.0.0.0" or "::" for every interface.
     std::string host = "127.0.0.1";
     /// 0 picks a free port (see Server::port).
@@ -51,7 +57,7 @@ struct ServerOptions {
     /// the server speaks plain HTTP (put it behind a TLS proxy).
     std::optional<std::filesystem::path> tls_certificate;
     std::optional<std::filesystem::path> tls_private_key;
-    std::size_t max_connections = 256;
+    std::size_t max_connections = 1024;
     http::Limits limits;
     /// To receive a whole request once it has started, and to send a
     /// response.
@@ -62,8 +68,10 @@ struct ServerOptions {
     std::ostream* access_log = nullptr;
 };
 
-/// An HTTP/1.1 server on Asio: connections on an I/O thread, application
-/// work on its own thread.
+/// An HTTP/1.1 server on Asio with C++20 coroutines. Each I/O thread runs
+/// its own event loop, and connections are dealt to them in turn: requests
+/// on different connections run in parallel, while each connection's
+/// handlers stay on one thread and never need locking.
 class Server {
 public:
     Server(Application& application, ServerOptions options);

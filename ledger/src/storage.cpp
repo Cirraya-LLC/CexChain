@@ -45,6 +45,14 @@ public:
         return size_.load(std::memory_order_acquire);
     }
 
+    [[nodiscard]] Result<std::uint64_t> current_size() const override {
+        struct stat info{};
+        if (::fstat(fd_, &info) != 0) {
+            return fail(Errc::unavailable, "file stat failed");
+        }
+        return static_cast<std::uint64_t>(info.st_size);
+    }
+
     [[nodiscard]] Result<Bytes> read(std::uint64_t offset, std::size_t length) const override {
         const std::uint64_t size = this->size();
         if (offset > size || length > size - offset) {
