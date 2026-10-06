@@ -6,7 +6,10 @@
 add_library(cexchain_ledger
     src/crc32c.cpp
     src/environment.cpp
+    src/ledger.cpp
     src/record_log.cpp
+    src/record_types.cpp
+    src/state.cpp
     src/storage.cpp)
 add_library(cexchain::ledger ALIAS cexchain_ledger)
 

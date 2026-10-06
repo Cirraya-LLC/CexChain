@@ -23,6 +23,10 @@ std::string_view to_string(Errc code) noexcept {
         return "verification failed";
     case Errc::crypto_failure:
         return "cryptographic backend failure";
+    case Errc::rejected:
+        return "rejected by ledger rules";
+    case Errc::not_found:
+        return "not found";
     }
     return "unknown error";
 }

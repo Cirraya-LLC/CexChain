@@ -14,6 +14,7 @@
 #include <cexchain/ledger/storage.hpp>
 
 #include "crc32c.hpp"
+#include "support/crashing_fs.hpp"
 
 namespace ledger = cexchain::ledger;
 using cexchain::as_bytes;
@@ -23,64 +24,6 @@ using cexchain::Errc;
 using cexchain::Status;
 
 namespace {
-
-/// Wraps a file system so that the process "dies" after a fixed number of
-/// appends and syncs: every later operation fails, as if nothing after that
-/// point ever reached the kernel.
-class CrashingFileSystem final : public ledger::FileSystem {
-public:
-    CrashingFileSystem(ledger::FileSystem& inner, std::uint64_t budget)
-        : inner_(inner), budget_(std::make_shared<std::uint64_t>(budget)) {}
-
-    cexchain::Result<std::unique_ptr<ledger::AppendFile>> open(std::string_view name) override {
-        auto file = inner_.open(name);
-        if (!file) {
-            return file;
-        }
-        return std::unique_ptr<ledger::AppendFile>(
-            std::make_unique<CrashingFile>(std::move(*file), budget_));
-    }
-    bool exists(std::string_view name) const override { return inner_.exists(name); }
-
-private:
-    class CrashingFile final : public ledger::AppendFile {
-    public:
-        CrashingFile(std::unique_ptr<ledger::AppendFile> inner,
-                     std::shared_ptr<std::uint64_t> budget)
-            : inner_(std::move(inner)), budget_(std::move(budget)) {}
-        std::uint64_t size() const override { return inner_->size(); }
-        cexchain::Result<Bytes> read(std::uint64_t offset, std::size_t length) const override {
-            return inner_->read(offset, length);
-        }
-        Status append(ByteView data) override {
-            if (!spend()) {
-                return cexchain::fail(Errc::invalid_argument, "crashed");
-            }
-            return inner_->append(data);
-        }
-        Status sync() override {
-            if (!spend()) {
-                return cexchain::fail(Errc::invalid_argument, "crashed");
-            }
-            return inner_->sync();
-        }
-        Status truncate(std::uint64_t size) override { return inner_->truncate(size); }
-
-    private:
-        bool spend() {
-            if (*budget_ == 0) {
-                return false;
-            }
-            --*budget_;
-            return true;
-        }
-        std::unique_ptr<ledger::AppendFile> inner_;
-        std::shared_ptr<std::uint64_t> budget_;
-    };
-
-    ledger::FileSystem& inner_;
-    std::shared_ptr<std::uint64_t> budget_;
-};
 
 Bytes record_bytes(std::uint64_t n, ledger::SeededEntropy& entropy) {
     Bytes out(static_cast<std::size_t>(entropy.below(64)) + 1);
@@ -142,7 +85,7 @@ TEST_CASE("crash at any point keeps every acknowledged record", "[ledger][storag
 
         // Run until the simulated process dies.
         {
-            CrashingFileSystem fs(memory, entropy.below(40));
+            cexchain::test::CrashingFileSystem fs(memory, entropy.below(40));
             auto log = ledger::RecordLog::open(fs, "log");
             REQUIRE(log);
             for (int round = 0; round < 20; ++round) {

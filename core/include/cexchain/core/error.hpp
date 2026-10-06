@@ -19,6 +19,8 @@ enum class Errc : std::uint8_t {
     limit_exceeded,       ///< A size or nesting limit was exceeded.
     verification_failed,  ///< A signature, proof, or digest did not verify.
     crypto_failure,       ///< The cryptographic backend reported an internal failure.
+    rejected,             ///< The ledger's rules do not allow this action.
+    not_found,            ///< A referenced object does not exist.
 };
 
 /// An error value. `detail` must refer to storage with static duration
