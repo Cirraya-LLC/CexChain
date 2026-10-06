@@ -28,6 +28,7 @@ include(CexChainDependencies)
 add_subdirectory(core)
 add_subdirectory(crypto/openssl)
 add_subdirectory(ledger)
+add_subdirectory(cli)
 
 if(CEXCHAIN_BUILD_TESTS)
     enable_testing()
