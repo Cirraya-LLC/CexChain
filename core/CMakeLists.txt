@@ -17,6 +17,8 @@ add_library(cexchain_core
     src/protocol/log.cpp
     src/protocol/reader.cpp
     src/protocol/record.cpp
+    src/protocol/record_types.cpp
+    src/protocol/state.cpp
     src/protocol/statement.cpp)
 add_library(cexchain::core ALIAS cexchain_core)
 

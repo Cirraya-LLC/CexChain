@@ -17,7 +17,7 @@ constexpr std::string_view checkpoints_file = "checkpoints";
 
 struct Ledger::Impl {
     Impl(Clock& clock_, const crypto::Provider& provider_, RecordLog log_, RecordLog checkpoints_,
-         LedgerState state_, merkle::Tree tree_)
+         protocol::LedgerState state_, merkle::Tree tree_)
         : clock(&clock_), provider(&provider_), log(std::move(log_)),
           checkpoints(std::move(checkpoints_)), state(std::move(state_)), tree(std::move(tree_)) {}
 
@@ -25,7 +25,7 @@ struct Ledger::Impl {
     const crypto::Provider* provider;
     RecordLog log;
     RecordLog checkpoints;
-    LedgerState state;
+    protocol::LedgerState state;
     merkle::Tree tree;
     std::optional<protocol::SignedCheckpoint> latest_checkpoint;
     protocol::Timestamp last_registered_at = 0;
@@ -56,7 +56,7 @@ Result<Ledger> Ledger::create(FileSystem& fs, Clock& clock, const crypto::Provid
         return std::unexpected(parsed.error());
     }
     // Validates the genesis signature and keys before anything is written.
-    auto state = LedgerState::from_genesis(provider, *parsed);
+    auto state = protocol::LedgerState::from_genesis(provider, *parsed);
     if (!state) {
         return std::unexpected(state.error());
     }
@@ -104,7 +104,7 @@ Result<Ledger> Ledger::open(FileSystem& fs, Clock& clock, const crypto::Provider
     if (genesis->id != first->statement_id) {
         return fail(Errc::malformed, "log entry 0 has the wrong statement id");
     }
-    auto state = LedgerState::from_genesis(provider, *genesis);
+    auto state = protocol::LedgerState::from_genesis(provider, *genesis);
     if (!state) {
         return std::unexpected(state.error());
     }
@@ -186,7 +186,7 @@ Result<Ledger> Ledger::open(FileSystem& fs, Clock& clock, const crypto::Provider
     return Ledger(std::move(impl));
 }
 
-const LedgerState& Ledger::state() const noexcept {
+const protocol::LedgerState& Ledger::state() const noexcept {
     return impl_->state;
 }
 

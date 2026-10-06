@@ -18,25 +18,25 @@
 /// The ledger's state: a pure function of its log. Every registered statement
 /// is validated against the state built from the statements before it, then
 /// applied. Replaying a log therefore re-validates all of it.
-namespace cexchain::ledger {
+namespace cexchain::protocol {
 
 /// Identifiers as map keys.
-using IdKey = std::array<std::uint8_t, protocol::id_size>;
-[[nodiscard]] IdKey key_of(const protocol::Id& id) noexcept;
+using IdKey = std::array<std::uint8_t, id_size>;
+[[nodiscard]] IdKey key_of(const Id& id) noexcept;
 
 /// Statements may claim an issue time at most this far ahead of the ledger
 /// clock.
-inline constexpr protocol::Timestamp max_clock_skew_ms = 5 * 60 * 1000;
+inline constexpr Timestamp max_clock_skew_ms = 5 * 60 * 1000;
 
 struct ActorState {
-    protocol::Id id;
+    Id id;
     /// nullopt for the organization actor created by genesis.
-    std::optional<protocol::ActorKind> kind;
+    std::optional<ActorKind> kind;
     std::string display_name;
     crypto::PublicKey key;
-    protocol::Id kid;
-    std::optional<protocol::Id> responsible;
-    std::optional<protocol::AgentProfile> agent;
+    Id kid;
+    std::optional<Id> responsible;
+    std::optional<AgentProfile> agent;
     bool revoked = false;
     std::uint64_t registered_at_index = 0;
 
@@ -44,26 +44,26 @@ struct ActorState {
 };
 
 struct DelegationState {
-    protocol::Id id;
-    protocol::Id grantor;
+    Id id;
+    Id grantor;
     /// The delegation the grantor acted under; nullopt if the organization
     /// granted it directly.
-    std::optional<protocol::Id> parent;
-    protocol::Id grantee;
-    protocol::Scope scope;
+    std::optional<Id> parent;
+    Id grantee;
+    Scope scope;
     bool revoked = false;
 };
 
 struct Endorsement {
     std::string role;
-    protocol::Id actor;
+    Id actor;
     std::uint64_t index = 0;
 };
 
 struct RecordState {
-    protocol::Id id;
+    Id id;
     std::string record_type;
-    protocol::Id registrant;
+    Id registrant;
     std::string state;
     Bytes field_root;
     std::uint64_t field_count = 0;
@@ -76,29 +76,28 @@ class LedgerState {
 public:
     /// Builds the initial state from a verified genesis statement.
     [[nodiscard]] static Result<LedgerState> from_genesis(const crypto::Provider& provider,
-                                                          const protocol::SignedStatement& genesis);
+                                                          const SignedStatement& genesis);
 
     /// Checks whether `statement` may be registered at ledger time `now`:
     /// identity, signature, authority, and type-specific rules.
     [[nodiscard]] Status validate(const crypto::Provider& provider,
-                                  const protocol::SignedStatement& statement,
-                                  protocol::Timestamp now) const;
+                                  const SignedStatement& statement, Timestamp now) const;
 
     /// Applies a statement that `validate` accepted. `index` is its log index.
-    [[nodiscard]] Status apply(const crypto::Provider& provider,
-                               const protocol::SignedStatement& statement, std::uint64_t index);
+    [[nodiscard]] Status apply(const crypto::Provider& provider, const SignedStatement& statement,
+                               std::uint64_t index);
 
-    [[nodiscard]] const protocol::Id& ledger_id() const noexcept { return ledger_id_; }
+    [[nodiscard]] const Id& ledger_id() const noexcept { return ledger_id_; }
     [[nodiscard]] crypto::HashAlg hash() const noexcept { return hash_; }
     [[nodiscard]] const std::string& organization() const noexcept { return organization_; }
     [[nodiscard]] const crypto::PublicKey& root_key() const noexcept { return root_key_; }
     [[nodiscard]] const crypto::PublicKey& log_key() const noexcept { return log_key_; }
 
-    [[nodiscard]] const ActorState* actor(const protocol::Id& id) const;
-    [[nodiscard]] const DelegationState* delegation(const protocol::Id& id) const;
-    [[nodiscard]] const RecordState* record(const protocol::Id& id) const;
+    [[nodiscard]] const ActorState* actor(const Id& id) const;
+    [[nodiscard]] const DelegationState* delegation(const Id& id) const;
+    [[nodiscard]] const RecordState* record(const Id& id) const;
     /// The log index of a registered statement.
-    [[nodiscard]] std::optional<std::uint64_t> statement_index(const protocol::Id& id) const;
+    [[nodiscard]] std::optional<std::uint64_t> statement_index(const Id& id) const;
 
     [[nodiscard]] const std::map<IdKey, ActorState>& actors() const noexcept { return actors_; }
     [[nodiscard]] const std::map<IdKey, DelegationState>& delegations() const noexcept {
@@ -109,18 +108,16 @@ public:
 private:
     LedgerState() = default;
 
-    [[nodiscard]] Status check_authority(const protocol::Statement& statement,
-                                         const ActorState& signer, protocol::Timestamp now) const;
-    [[nodiscard]] Status check_rules(const crypto::Provider& provider,
-                                     const protocol::Statement& statement,
+    [[nodiscard]] Status check_authority(const Statement& statement, const ActorState& signer,
+                                         Timestamp now) const;
+    [[nodiscard]] Status check_rules(const crypto::Provider& provider, const Statement& statement,
                                      const ActorState& signer) const;
     [[nodiscard]] Status check_new_key(const crypto::Provider& provider,
                                        const crypto::PublicKey& key) const;
     /// The record type that a record statement acts on, if any.
-    [[nodiscard]] std::optional<std::string>
-    record_type_of(const protocol::Statement& statement) const;
+    [[nodiscard]] std::optional<std::string> record_type_of(const Statement& statement) const;
 
-    protocol::Id ledger_id_;
+    Id ledger_id_;
     crypto::HashAlg hash_ = crypto::HashAlg::sha256;
     std::string organization_;
     crypto::PublicKey root_key_;
@@ -133,4 +130,4 @@ private:
     std::map<IdKey, std::uint64_t> statements_;
 };
 
-} // namespace cexchain::ledger
+} // namespace cexchain::protocol

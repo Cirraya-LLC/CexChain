@@ -5,27 +5,25 @@
 #include <utility>
 #include <variant>
 
-#include <cexchain/ledger/record_types.hpp>
-#include <cexchain/ledger/state.hpp>
+#include <cexchain/core/protocol/record_types.hpp>
+#include <cexchain/core/protocol/state.hpp>
 
-namespace cexchain::ledger {
+namespace cexchain::protocol {
 
 namespace {
-
-using protocol::StatementType;
 
 template <class... Ts>
 struct Overloaded : Ts... {
     using Ts::operator()...;
 };
 
-bool in_window(const protocol::Scope& scope, protocol::Timestamp now) {
+bool in_window(const Scope& scope, Timestamp now) {
     return (!scope.not_before || *scope.not_before <= now) &&
            (!scope.not_after || now <= *scope.not_after);
 }
 
 /// A delegated scope may only narrow the scope it was delegated under.
-Status check_narrowing(const protocol::Scope& parent, const protocol::Scope& child) {
+Status check_narrowing(const Scope& parent, const Scope& child) {
     if (!parent.may_delegate) {
         return fail(Errc::rejected, "the grantor's delegation does not allow further delegation");
     }
@@ -55,7 +53,7 @@ Status check_narrowing(const protocol::Scope& parent, const protocol::Scope& chi
 
 } // namespace
 
-IdKey key_of(const protocol::Id& id) noexcept {
+IdKey key_of(const Id& id) noexcept {
     IdKey key{};
     const ByteView bytes = id.bytes();
     std::copy_n(bytes.begin(), std::min(bytes.size(), key.size()), key.begin());
@@ -63,8 +61,8 @@ IdKey key_of(const protocol::Id& id) noexcept {
 }
 
 Result<LedgerState> LedgerState::from_genesis(const crypto::Provider& provider,
-                                              const protocol::SignedStatement& genesis) {
-    const auto* body = std::get_if<protocol::GenesisBody>(&genesis.statement.body);
+                                              const SignedStatement& genesis) {
+    const auto* body = std::get_if<GenesisBody>(&genesis.statement.body);
     if (body == nullptr) {
         return fail(Errc::invalid_argument, "the first statement must be genesis");
     }
@@ -72,10 +70,10 @@ Result<LedgerState> LedgerState::from_genesis(const crypto::Provider& provider,
         crypto::is_weak_public_key(body->log_key.algorithm, body->log_key.bytes)) {
         return fail(Errc::rejected, "genesis uses a weak key");
     }
-    if (auto s = protocol::verify_statement(provider, genesis, body->root_key); !s) {
+    if (auto s = verify_statement(provider, genesis, body->root_key); !s) {
         return std::unexpected(s.error());
     }
-    auto kid = protocol::key_id(provider, genesis.hash_alg, body->root_key);
+    auto kid = key_id(provider, genesis.hash_alg, body->root_key);
     if (!kid) {
         return std::unexpected(kid.error());
     }
@@ -98,41 +96,39 @@ Result<LedgerState> LedgerState::from_genesis(const crypto::Provider& provider,
     return state;
 }
 
-const ActorState* LedgerState::actor(const protocol::Id& id) const {
+const ActorState* LedgerState::actor(const Id& id) const {
     const auto it = actors_.find(key_of(id));
     return it == actors_.end() ? nullptr : &it->second;
 }
 
-const DelegationState* LedgerState::delegation(const protocol::Id& id) const {
+const DelegationState* LedgerState::delegation(const Id& id) const {
     const auto it = delegations_.find(key_of(id));
     return it == delegations_.end() ? nullptr : &it->second;
 }
 
-const RecordState* LedgerState::record(const protocol::Id& id) const {
+const RecordState* LedgerState::record(const Id& id) const {
     const auto it = records_.find(key_of(id));
     return it == records_.end() ? nullptr : &it->second;
 }
 
-std::optional<std::uint64_t> LedgerState::statement_index(const protocol::Id& id) const {
+std::optional<std::uint64_t> LedgerState::statement_index(const Id& id) const {
     const auto it = statements_.find(key_of(id));
     return it == statements_.end() ? std::nullopt : std::optional(it->second);
 }
 
-std::optional<std::string> LedgerState::record_type_of(const protocol::Statement& statement) const {
+std::optional<std::string> LedgerState::record_type_of(const Statement& statement) const {
     return std::visit(
         Overloaded{
-            [](const protocol::RecordRegisterBody& b) -> std::optional<std::string> {
-                return b.record_type;
-            },
-            [this](const protocol::RecordEndorseBody& b) -> std::optional<std::string> {
+            [](const RecordRegisterBody& b) -> std::optional<std::string> { return b.record_type; },
+            [this](const RecordEndorseBody& b) -> std::optional<std::string> {
                 const RecordState* r = record(b.record);
                 return r == nullptr ? std::nullopt : std::optional(r->record_type);
             },
-            [this](const protocol::RecordTransitionBody& b) -> std::optional<std::string> {
+            [this](const RecordTransitionBody& b) -> std::optional<std::string> {
                 const RecordState* r = record(b.record);
                 return r == nullptr ? std::nullopt : std::optional(r->record_type);
             },
-            [this](const protocol::RecordRevokeBody& b) -> std::optional<std::string> {
+            [this](const RecordRevokeBody& b) -> std::optional<std::string> {
                 const RecordState* r = record(b.record);
                 return r == nullptr ? std::nullopt : std::optional(r->record_type);
             },
@@ -142,9 +138,8 @@ std::optional<std::string> LedgerState::record_type_of(const protocol::Statement
 }
 
 Status LedgerState::validate(const crypto::Provider& provider,
-                             const protocol::SignedStatement& signed_statement,
-                             protocol::Timestamp now) const {
-    const protocol::Statement& statement = signed_statement.statement;
+                             const SignedStatement& signed_statement, Timestamp now) const {
+    const Statement& statement = signed_statement.statement;
     if (statement.type() == StatementType::genesis) {
         return fail(Errc::rejected, "the ledger already has a genesis statement");
     }
@@ -169,10 +164,10 @@ Status LedgerState::validate(const crypto::Provider& provider,
     if (signed_statement.kid != signer->kid) {
         return fail(Errc::rejected, "the statement is not signed with the actor's current key");
     }
-    if (auto s = protocol::verify_statement(provider, signed_statement, signer->key); !s) {
+    if (auto s = verify_statement(provider, signed_statement, signer->key); !s) {
         return s;
     }
-    if (signer->kind == protocol::ActorKind::agent &&
+    if (signer->kind == ActorKind::agent &&
         (!statement.provenance || !statement.provenance->model)) {
         return fail(Errc::rejected, "statements by agents must name their model in provenance");
     }
@@ -182,8 +177,8 @@ Status LedgerState::validate(const crypto::Provider& provider,
     return check_rules(provider, statement, *signer);
 }
 
-Status LedgerState::check_authority(const protocol::Statement& statement, const ActorState& signer,
-                                    protocol::Timestamp now) const {
+Status LedgerState::check_authority(const Statement& statement, const ActorState& signer,
+                                    Timestamp now) const {
     if (signer.is_organization()) {
         if (statement.delegation_id) {
             return fail(Errc::rejected, "the organization acts without a delegation");
@@ -191,7 +186,7 @@ Status LedgerState::check_authority(const protocol::Statement& statement, const 
         return {};
     }
     // An actor may always rotate its own key.
-    if (const auto* rotate = std::get_if<protocol::ActorRotateKeyBody>(&statement.body);
+    if (const auto* rotate = std::get_if<ActorRotateKeyBody>(&statement.body);
         rotate != nullptr && rotate->actor == signer.id && !statement.delegation_id) {
         return {};
     }
@@ -234,7 +229,7 @@ Status LedgerState::check_new_key(const crypto::Provider& provider,
     if (crypto::is_weak_public_key(key.algorithm, key.bytes)) {
         return fail(Errc::rejected, "the key is weak");
     }
-    auto kid = protocol::key_id(provider, hash_, key);
+    auto kid = key_id(provider, hash_, key);
     if (!kid) {
         return std::unexpected(kid.error());
     }
@@ -244,10 +239,9 @@ Status LedgerState::check_new_key(const crypto::Provider& provider,
     return {};
 }
 
-Status LedgerState::check_rules(const crypto::Provider& provider,
-                                const protocol::Statement& statement,
+Status LedgerState::check_rules(const crypto::Provider& provider, const Statement& statement,
                                 const ActorState& signer) const {
-    auto active_record = [this](const protocol::Id& id) -> Result<const RecordState*> {
+    auto active_record = [this](const Id& id) -> Result<const RecordState*> {
         const RecordState* r = record(id);
         if (r == nullptr) {
             return fail(Errc::not_found, "the record does not exist");
@@ -257,7 +251,7 @@ Status LedgerState::check_rules(const crypto::Provider& provider,
         }
         return r;
     };
-    auto active_actor = [this](const protocol::Id& id) -> Result<const ActorState*> {
+    auto active_actor = [this](const Id& id) -> Result<const ActorState*> {
         const ActorState* a = actor(id);
         if (a == nullptr) {
             return fail(Errc::not_found, "the actor does not exist");
@@ -270,10 +264,10 @@ Status LedgerState::check_rules(const crypto::Provider& provider,
 
     return std::visit(
         Overloaded{
-            [](const protocol::GenesisBody&) -> Status {
+            [](const GenesisBody&) -> Status {
                 return fail(Errc::rejected, "the ledger already has a genesis statement");
             },
-            [&](const protocol::ActorRegisterBody& b) -> Status {
+            [&](const ActorRegisterBody& b) -> Status {
                 if (auto s = check_new_key(provider, b.key); !s) {
                     return s;
                 }
@@ -282,13 +276,13 @@ Status LedgerState::check_rules(const crypto::Provider& provider,
                     if (!responsible) {
                         return std::unexpected(responsible.error());
                     }
-                    if ((*responsible)->kind != protocol::ActorKind::person) {
+                    if ((*responsible)->kind != ActorKind::person) {
                         return fail(Errc::rejected, "the responsible actor must be a person");
                     }
                 }
                 return {};
             },
-            [&](const protocol::ActorRotateKeyBody& b) -> Status {
+            [&](const ActorRotateKeyBody& b) -> Status {
                 auto target = active_actor(b.actor);
                 if (!target) {
                     return std::unexpected(target.error());
@@ -299,7 +293,7 @@ Status LedgerState::check_rules(const crypto::Provider& provider,
                 }
                 return check_new_key(provider, b.key);
             },
-            [&](const protocol::ActorRevokeBody& b) -> Status {
+            [&](const ActorRevokeBody& b) -> Status {
                 auto target = active_actor(b.actor);
                 if (!target) {
                     return std::unexpected(target.error());
@@ -309,7 +303,7 @@ Status LedgerState::check_rules(const crypto::Provider& provider,
                 }
                 return {};
             },
-            [&](const protocol::DelegationGrantBody& b) -> Status {
+            [&](const DelegationGrantBody& b) -> Status {
                 auto grantee = active_actor(b.grantee);
                 if (!grantee) {
                     return std::unexpected(grantee.error());
@@ -322,7 +316,7 @@ Status LedgerState::check_rules(const crypto::Provider& provider,
                 }
                 return check_narrowing(delegation(*statement.delegation_id)->scope, b.scope);
             },
-            [&](const protocol::DelegationRevokeBody& b) -> Status {
+            [&](const DelegationRevokeBody& b) -> Status {
                 const DelegationState* target = delegation(b.delegation);
                 if (target == nullptr) {
                     return fail(Errc::not_found, "the delegation does not exist");
@@ -336,8 +330,8 @@ Status LedgerState::check_rules(const crypto::Provider& provider,
                 }
                 return {};
             },
-            [&](const protocol::RecordRegisterBody&) -> Status { return {}; },
-            [&](const protocol::RecordEndorseBody& b) -> Status {
+            [&](const RecordRegisterBody&) -> Status { return {}; },
+            [&](const RecordEndorseBody& b) -> Status {
                 auto target = active_record(b.record);
                 if (!target) {
                     return std::unexpected(target.error());
@@ -356,7 +350,7 @@ Status LedgerState::check_rules(const crypto::Provider& provider,
                 }
                 return {};
             },
-            [&](const protocol::RecordTransitionBody& b) -> Status {
+            [&](const RecordTransitionBody& b) -> Status {
                 auto target = active_record(b.record);
                 if (!target) {
                     return std::unexpected(target.error());
@@ -370,7 +364,7 @@ Status LedgerState::check_rules(const crypto::Provider& provider,
                 }
                 return {};
             },
-            [&](const protocol::RecordRevokeBody& b) -> Status {
+            [&](const RecordRevokeBody& b) -> Status {
                 auto target = active_record(b.record);
                 if (!target) {
                     return std::unexpected(target.error());
@@ -381,19 +375,19 @@ Status LedgerState::check_rules(const crypto::Provider& provider,
         statement.body);
 }
 
-Status LedgerState::apply(const crypto::Provider& provider,
-                          const protocol::SignedStatement& signed_statement, std::uint64_t index) {
-    const protocol::Statement& statement = signed_statement.statement;
-    const protocol::Id& id = signed_statement.id;
+Status LedgerState::apply(const crypto::Provider& provider, const SignedStatement& signed_statement,
+                          std::uint64_t index) {
+    const Statement& statement = signed_statement.statement;
+    const Id& id = signed_statement.id;
     statements_[key_of(id)] = index;
 
     return std::visit(
         Overloaded{
-            [](const protocol::GenesisBody&) -> Status {
+            [](const GenesisBody&) -> Status {
                 return fail(Errc::rejected, "the ledger already has a genesis statement");
             },
-            [&](const protocol::ActorRegisterBody& b) -> Status {
-                auto kid = protocol::key_id(provider, hash_, b.key);
+            [&](const ActorRegisterBody& b) -> Status {
+                auto kid = key_id(provider, hash_, b.key);
                 if (!kid) {
                     return std::unexpected(kid.error());
                 }
@@ -410,8 +404,8 @@ Status LedgerState::apply(const crypto::Provider& provider,
                 actors_[key_of(id)] = std::move(actor);
                 return {};
             },
-            [&](const protocol::ActorRotateKeyBody& b) -> Status {
-                auto kid = protocol::key_id(provider, hash_, b.key);
+            [&](const ActorRotateKeyBody& b) -> Status {
+                auto kid = key_id(provider, hash_, b.key);
                 if (!kid) {
                     return std::unexpected(kid.error());
                 }
@@ -422,11 +416,11 @@ Status LedgerState::apply(const crypto::Provider& provider,
                 actors_by_kid_[key_of(*kid)] = key_of(b.actor);
                 return {};
             },
-            [&](const protocol::ActorRevokeBody& b) -> Status {
+            [&](const ActorRevokeBody& b) -> Status {
                 actors_.at(key_of(b.actor)).revoked = true;
                 return {};
             },
-            [&](const protocol::DelegationGrantBody& b) -> Status {
+            [&](const DelegationGrantBody& b) -> Status {
                 DelegationState delegation;
                 delegation.id = id;
                 delegation.grantor = *statement.actor_id;
@@ -436,11 +430,11 @@ Status LedgerState::apply(const crypto::Provider& provider,
                 delegations_[key_of(id)] = std::move(delegation);
                 return {};
             },
-            [&](const protocol::DelegationRevokeBody& b) -> Status {
+            [&](const DelegationRevokeBody& b) -> Status {
                 delegations_.at(key_of(b.delegation)).revoked = true;
                 return {};
             },
-            [&](const protocol::RecordRegisterBody& b) -> Status {
+            [&](const RecordRegisterBody& b) -> Status {
                 const RecordType* type = find_record_type(b.record_type);
                 RecordState record;
                 record.id = id;
@@ -454,16 +448,16 @@ Status LedgerState::apply(const crypto::Provider& provider,
                 records_[key_of(id)] = std::move(record);
                 return {};
             },
-            [&](const protocol::RecordEndorseBody& b) -> Status {
+            [&](const RecordEndorseBody& b) -> Status {
                 records_.at(key_of(b.record))
                     .endorsements.push_back(Endorsement{b.role, *statement.actor_id, index});
                 return {};
             },
-            [&](const protocol::RecordTransitionBody& b) -> Status {
+            [&](const RecordTransitionBody& b) -> Status {
                 records_.at(key_of(b.record)).state = b.to_state;
                 return {};
             },
-            [&](const protocol::RecordRevokeBody& b) -> Status {
+            [&](const RecordRevokeBody& b) -> Status {
                 records_.at(key_of(b.record)).revoked = true;
                 return {};
             },
@@ -471,4 +465,4 @@ Status LedgerState::apply(const crypto::Provider& provider,
         statement.body);
 }
 
-} // namespace cexchain::ledger
+} // namespace cexchain::protocol

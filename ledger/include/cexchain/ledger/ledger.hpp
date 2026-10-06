@@ -13,10 +13,10 @@
 #include <cexchain/core/error.hpp>
 #include <cexchain/core/merkle.hpp>
 #include <cexchain/core/protocol/log.hpp>
+#include <cexchain/core/protocol/state.hpp>
 #include <cexchain/core/protocol/statement.hpp>
 #include <cexchain/ledger/environment.hpp>
 #include <cexchain/ledger/record_log.hpp>
-#include <cexchain/ledger/state.hpp>
 #include <cexchain/ledger/storage.hpp>
 
 /// A single-organization ledger: registers signed statements, keeps the log
@@ -56,7 +56,7 @@ public:
     Ledger& operator=(Ledger&&) noexcept;
     ~Ledger();
 
-    [[nodiscard]] const LedgerState& state() const noexcept;
+    [[nodiscard]] const protocol::LedgerState& state() const noexcept;
     [[nodiscard]] const protocol::Id& id() const noexcept;
     [[nodiscard]] crypto::HashAlg hash() const noexcept;
     [[nodiscard]] std::uint64_t size() const noexcept;

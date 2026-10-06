@@ -214,7 +214,7 @@ TEST_CASE("a full record lifecycle, checkpoint, receipts, and replay", "[ledger]
     Cast c = build_cast(w);
 
     const protocol::Id record = w.ok(c.agent, agent_record(w, c, certificate));
-    const ledger::RecordState* state = w.ledger().state().record(record);
+    const protocol::RecordState* state = w.ledger().state().record(record);
     REQUIRE(state != nullptr);
     CHECK(state->state == "issued");
     CHECK(state->registrant == c.agent_id);
@@ -428,7 +428,7 @@ TEST_CASE("keys, ledgers, time, and resubmission", "[ledger][engine]") {
         s.ledger_id = c.alice_id;
         CHECK(w.rejected(w.org(), s) == Errc::rejected);
         auto future = w.statement(w.org_id(), std::nullopt, w.record_body(certificate));
-        future.issued_at = w.clock().now() + ledger::max_clock_skew_ms + 1;
+        future.issued_at = w.clock().now() + protocol::max_clock_skew_ms + 1;
         CHECK(w.rejected(w.org(), future) == Errc::rejected);
     }
     SECTION("resubmission is idempotent") {

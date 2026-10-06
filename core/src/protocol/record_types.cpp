@@ -4,9 +4,9 @@
 #include <algorithm>
 #include <array>
 
-#include <cexchain/ledger/record_types.hpp>
+#include <cexchain/core/protocol/record_types.hpp>
 
-namespace cexchain::ledger {
+namespace cexchain::protocol {
 
 namespace {
 
@@ -60,4 +60,4 @@ std::span<const RecordType> builtin_record_types() noexcept {
     return types;
 }
 
-} // namespace cexchain::ledger
+} // namespace cexchain::protocol

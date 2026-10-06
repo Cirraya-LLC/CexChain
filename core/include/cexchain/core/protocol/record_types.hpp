@@ -13,7 +13,7 @@
 ///
 /// Records of other types are accepted with a generic lifecycle: initial state
 /// "registered", no transitions, and any endorsement role.
-namespace cexchain::ledger {
+namespace cexchain::protocol {
 
 struct Transition {
     std::string_view from;
@@ -38,4 +38,4 @@ struct RecordType {
 
 inline constexpr std::string_view generic_initial_state = "registered";
 
-} // namespace cexchain::ledger
+} // namespace cexchain::protocol
