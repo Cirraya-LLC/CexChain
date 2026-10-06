@@ -41,6 +41,7 @@ else()
     add_subdirectory(ledger)
     add_subdirectory(node)
     add_subdirectory(cli)
+    add_subdirectory(bench)
 endif()
 
 if(CEXCHAIN_BUILD_TESTS)
