@@ -107,6 +107,22 @@ Bytes vault_aad(const protocol::Id& ledger, const protocol::Id& record) {
 
 } // namespace
 
+/// Private data is only good if it matches what the record committed to on
+/// the ledger: anyone who can write the vault directory could otherwise
+/// change what is shown and disclosed.
+Vault checked(const Session& session, const protocol::Id& record, Vault vault) {
+    const protocol::RecordState* state = session.state().record(record);
+    const auto commitment =
+        protocol::commit_fields(session.provider(), session.state().hash(), vault.fields);
+    if (state == nullptr || !commitment || commitment->leaves.size() != state->field_count ||
+        !std::ranges::equal(commitment->root.bytes(), state->field_root)) {
+        throw CommandError{
+            "the private data for record " + short_id(record) +
+            " does not match the record's commitment on the ledger; it may have been altered"};
+    }
+    return vault;
+}
+
 Bytes encode_vault_public_key(ByteView key) {
     return unwrap(cbor::encode(cbor::Value::map(
                       {{cbor::Value::integer(1),
@@ -130,12 +146,16 @@ std::optional<Bytes> decode_vault_public_key(ByteView file) {
     return *key->as_bytes();
 }
 
+std::filesystem::path vault_directory(const Session& session) {
+    return session.directory() / "vault";
+}
+
 std::filesystem::path vault_public_key_path(const Session& session) {
-    return session.directory() / "vault.pub";
+    return vault_directory(session) / "vault.pub";
 }
 
 std::filesystem::path default_vault_key_path(const Session& session) {
-    return session.directory() / "vault.key";
+    return vault_directory(session) / "vault.key";
 }
 
 Bytes vault_public_key(const Session& session) {
@@ -221,7 +241,7 @@ Vault load_vault(const Session& session, const protocol::Id& record,
     }
     const auto value = unwrap(cbor::decode(read_file(path)), "reading the vault");
     if (!is_sealed(value)) {
-        return decode_vault_content(value);
+        return checked(session, record, decode_vault_content(value));
     }
     if (key == nullptr) {
         throw CommandError{"reading private record data needs the vault key"};
@@ -244,7 +264,8 @@ Vault load_vault(const Session& session, const protocol::Id& record,
         unwrap(key->open({*enc->as_bytes(), *ciphertext->as_bytes()}, as_bytes(vault_info),
                          vault_aad(session.state().ledger_id(), record)),
                "opening the vault for " + short_id(record));
-    return decode_vault_content(unwrap(cbor::decode(plain.view()), "reading the vault"));
+    return checked(session, record,
+                   decode_vault_content(unwrap(cbor::decode(plain.view()), "reading the vault")));
 }
 
 Vault read_vault(const Session& session, const protocol::Id& record, const Args& args) {
@@ -252,6 +273,11 @@ Vault read_vault(const Session& session, const protocol::Id& record, const Args&
     if (std::filesystem::exists(path) && is_sealed_vault(read_file(path))) {
         const auto key = load_vault_key(session, args);
         return load_vault(session, record, &key);
+    }
+    if (std::filesystem::exists(path) && std::filesystem::exists(vault_public_key_path(session))) {
+        throw CommandError{
+            "the record's private data is not sealed, though this ledger has a vault key; "
+            "seal it with: cexchain vault rekey"};
     }
     return load_vault(session, record, nullptr);
 }

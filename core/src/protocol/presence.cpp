@@ -204,17 +204,20 @@ bool origin_matches_rp_id(std::string_view origin, std::string_view rp_id) {
 }
 
 Result<Bytes> presence_challenge(const crypto::Provider& provider, crypto::HashAlg ledger_hash,
-                                 const Statement& statement) {
+                                 const Statement& statement, const Id& kid) {
+    if (kid.size() != id_size) {
+        return fail(Errc::invalid_argument, "a key id is 32 bytes");
+    }
     Statement bare = statement;
     bare.presence.reset();
     CEXCHAIN_TRY(Bytes payload, encode_payload(bare));
     CEXCHAIN_TRY(crypto::Digest digest,
-                 provider.digest(ledger_hash, {as_bytes(presence_context), payload}));
+                 provider.digest(ledger_hash, {as_bytes(presence_context), kid.bytes(), payload}));
     return Bytes(digest.bytes().begin(), digest.bytes().end());
 }
 
 Result<PresenceCheck> verify_presence(const crypto::Provider& provider, crypto::HashAlg ledger_hash,
-                                      const Statement& statement,
+                                      const Statement& statement, const Id& kid,
                                       std::span<const PresenceCredential> credentials) {
     if (!statement.presence) {
         return fail(Errc::invalid_argument, "the statement carries no proof of presence");
@@ -235,7 +238,7 @@ Result<PresenceCheck> verify_presence(const crypto::Provider& provider, crypto::
         return fail(Errc::verification_failed,
                     "the authenticator did not confirm that a person was present");
     }
-    CEXCHAIN_TRY(Bytes challenge, presence_challenge(provider, ledger_hash, statement));
+    CEXCHAIN_TRY(Bytes challenge, presence_challenge(provider, ledger_hash, statement, kid));
     CEXCHAIN_TRY(std::string origin, check_client_data(proof.client_data_json, "webauthn.get",
                                                        challenge, credential->rp_id));
     CEXCHAIN_TRY(crypto::Digest client_hash,

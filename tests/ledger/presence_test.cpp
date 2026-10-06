@@ -115,6 +115,12 @@ protocol::Scope scope_of(std::vector<StatementType> types) {
     return scope;
 }
 
+/// The challenge a passkey signs for `s`, signed by `signer`.
+Bytes challenge_for(World& w, const protocol::Statement& s, const KeyPair& signer) {
+    return *protocol::presence_challenge(
+        provider(), w.hash(), s, *protocol::key_id(provider(), w.hash(), signer.public_key()));
+}
+
 Authenticator authenticator(crypto::SigAlg alg, std::uint8_t id) {
     auto key = KeyPair::generate(alg);
     REQUIRE(key);
@@ -149,7 +155,7 @@ struct Fixture {
                                  const Authenticator* with = nullptr) {
         auto s = w.statement(alice, delegation, std::move(body));
         if (with != nullptr) {
-            s.presence = with->sign(*protocol::presence_challenge(provider(), w.hash(), s));
+            s.presence = with->sign(challenge_for(w, s, alice_key));
         }
         return s;
     }
@@ -191,14 +197,13 @@ TEST_CASE("forged or misused passkey responses are refused", "[presence]") {
     SECTION("a cross-origin frame") {
         auto a = f.passkey;
         auto s = f.by_alice(delegation, endorse);
-        s.presence = a.sign(*protocol::presence_challenge(provider(), f.w.hash(), s),
-                            "webauthn.get", ",\"crossOrigin\":true}");
+        s.presence =
+            a.sign(challenge_for(f.w, s, f.alice_key), "webauthn.get", ",\"crossOrigin\":true}");
         CHECK(f.w.rejected(f.alice_key, s) == Errc::verification_failed);
     }
     SECTION("a registration response instead of an assertion") {
         auto s = f.by_alice(delegation, endorse);
-        s.presence = f.passkey.sign(*protocol::presence_challenge(provider(), f.w.hash(), s),
-                                    "webauthn.create");
+        s.presence = f.passkey.sign(challenge_for(f.w, s, f.alice_key), "webauthn.create");
         CHECK(f.w.rejected(f.alice_key, s) == Errc::verification_failed);
     }
     SECTION("another relying party") {
@@ -238,12 +243,11 @@ TEST_CASE("what real authenticators send is accepted", "[presence]") {
     }
     SECTION("no crossOrigin member, and extra members after it") {
         auto s = f.by_alice(delegation, protocol::RecordEndorseBody{f.record, "inspector"});
-        s.presence = f.passkey.sign(*protocol::presence_challenge(provider(), f.w.hash(), s),
-                                    "webauthn.get", "}");
+        s.presence = f.passkey.sign(challenge_for(f.w, s, f.alice_key), "webauthn.get", "}");
         f.w.ok(f.alice_key, s);
         auto t = f.by_alice(delegation, protocol::RecordEndorseBody{f.record, "approver"});
         t.presence =
-            f.passkey.sign(*protocol::presence_challenge(provider(), f.w.hash(), t), "webauthn.get",
+            f.passkey.sign(challenge_for(f.w, t, f.alice_key), "webauthn.get",
                            ",\"crossOrigin\":false,\"other_keys_can_be_added_here\":\"x\"}");
         f.w.ok(f.alice_key, t);
     }
@@ -251,8 +255,10 @@ TEST_CASE("what real authenticators send is accepted", "[presence]") {
         auto a = f.passkey;
         a.flags = 0x01;
         auto s = f.by_alice(delegation, protocol::RecordEndorseBody{f.record, "inspector"}, &a);
-        const auto check =
-            protocol::verify_presence(provider(), f.w.hash(), s, std::vector{a.credential()});
+        const auto check = protocol::verify_presence(
+            provider(), f.w.hash(), s,
+            *protocol::key_id(provider(), f.w.hash(), f.alice_key.public_key()),
+            std::vector{a.credential()});
         REQUIRE(check);
         CHECK_FALSE(check->user_verified);
         CHECK(check->origin == "http://localhost:43210");
@@ -278,7 +284,7 @@ TEST_CASE("who may register passkeys, and for whom", "[presence]") {
     CHECK(f.w.rejected(f.alice_key, f.w.statement(f.alice, std::nullopt, both)) == Errc::rejected);
     // ...but Alice, proving presence with her registered passkey, can add one.
     auto self = f.w.statement(f.alice, std::nullopt, both);
-    self.presence = f.passkey.sign(*protocol::presence_challenge(provider(), f.w.hash(), self));
+    self.presence = f.passkey.sign(challenge_for(f.w, self, f.alice_key));
     f.w.ok(f.alice_key, self);
     CHECK(f.w.ledger().state().actor(f.alice)->presence.size() == 2);
 
@@ -294,8 +300,7 @@ TEST_CASE("who may register passkeys, and for whom", "[presence]") {
     const auto delegation = f.w.grant(f.w.org(), f.w.org_id(), std::nullopt, agent, scope);
     auto by_agent = f.w.statement(agent, delegation, f.w.record_body(certificate));
     by_agent.provenance = provenance();
-    by_agent.presence =
-        f.passkey.sign(*protocol::presence_challenge(provider(), f.w.hash(), by_agent));
+    by_agent.presence = f.passkey.sign(challenge_for(f.w, by_agent, agent_key));
     CHECK(f.w.rejected(agent_key, by_agent) == Errc::rejected);
 }
 
@@ -438,7 +443,7 @@ TEST_CASE("presence material round-trips through the codec", "[presence]") {
     World w;
     auto s = w.statement(w.org_id(), std::nullopt,
                          protocol::ActorSetPresenceBody{w.org_id(), {a.credential()}});
-    s.presence = a.sign(*protocol::presence_challenge(provider(), w.hash(), s));
+    s.presence = a.sign(challenge_for(w, s, w.org()));
     const auto payload = protocol::encode_payload(s);
     REQUIRE(payload);
     CHECK(*protocol::decode_payload(*payload) == s);
@@ -455,4 +460,33 @@ TEST_CASE("presence material round-trips through the codec", "[presence]") {
     CHECK_FALSE(cexchain::from_base64url("-_9")); // nonzero trailing bits
     CHECK_FALSE(cexchain::from_base64url("abc="));
     CHECK_FALSE(cexchain::from_base64url("a"));
+}
+
+TEST_CASE("a proof of presence cannot be replayed under a rotated key", "[presence][security]") {
+    // A thief has Alice's signing key but not her passkey. Alice once added a
+    // second passkey herself; the organization later removed it.
+    Fixture f;
+    auto second = authenticator(crypto::SigAlg::esp256, 2);
+    const protocol::ActorSetPresenceBody both{f.alice,
+                                              {f.passkey.credential(), second.credential()}};
+    auto added = f.w.statement(f.alice, std::nullopt, both);
+    added.presence = f.passkey.sign(*protocol::presence_challenge(
+        provider(), f.w.hash(), added,
+        *protocol::key_id(provider(), f.w.hash(), f.alice_key.public_key())));
+    f.w.ok(f.alice_key, added);
+    f.w.ok(f.w.org(),
+           f.w.statement(f.w.org_id(), std::nullopt,
+                         protocol::ActorSetPresenceBody{f.alice, {f.passkey.credential()}}));
+
+    // Self-rotation needs presence once Alice has passkeys...
+    const auto thief_key = key("thief");
+    const auto rotate = f.w.statement(
+        f.alice, std::nullopt, protocol::ActorRotateKeyBody{f.alice, thief_key.public_key()});
+    CHECK(f.w.rejected(f.alice_key, rotate) == Errc::rejected);
+    // ...and even after an organization-approved rotation to a key the thief
+    // holds, re-signing Alice's old statement does not bring the passkey back.
+    f.w.ok(f.w.org(), f.w.statement(f.w.org_id(), std::nullopt,
+                                    protocol::ActorRotateKeyBody{f.alice, thief_key.public_key()}));
+    CHECK(f.w.rejected(thief_key, added) != Errc{});
+    CHECK(f.w.ledger().state().actor(f.alice)->presence.size() == 1);
 }

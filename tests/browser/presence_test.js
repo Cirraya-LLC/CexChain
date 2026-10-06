@@ -57,6 +57,29 @@ function withPasskey(page, ...args) {
   run("delegation", "grant", "--as", "root.key", "--to", alice, "--allow", "record-register,record-endorse",
       "--days", "30", "--require-presence");
 
+  // The ceremony page is served once, and only that page can deliver the
+  // result: another local process that learns the address gets nothing.
+  {
+    const child = spawn(cexchain, ["presence", "enroll", "--out", "nope.passkey", "--name", "X", "--no-browser"],
+                        { cwd: work, env });
+    const url = await new Promise((resolve) => {
+      let text = "";
+      child.stderr.on("data", (d) => {
+        text += d;
+        const m = text.match(/http:\/\/localhost:\d+\/[0-9a-f]+/);
+        if (m) resolve(m[0]);
+      });
+    });
+    const first = await fetch(url);
+    assert.equal(first.status, 200);
+    assert.equal((await fetch(url)).status, 410);
+    const forged = await fetch(url + "/result", { method: "POST", headers: { Origin: new URL(url).origin },
+                                                   body: JSON.stringify({ id: "AAAA" }) });
+    assert.equal(forged.status, 403);
+    child.kill();
+    assert.ok(!fs.existsSync(path.join(work, "nope.passkey")));
+  }
+
   const browser = await chromium.launch();
   const context = await browser.newContext();
   const page = await context.newPage();

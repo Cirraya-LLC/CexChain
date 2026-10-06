@@ -308,8 +308,10 @@ std::string report_text(const protocol::EvidenceReport& r, bool ledger_checked) 
     line("  and included in the checkpointed log.");
     if (r.complete) {
         line("  Complete: the record's whole history, and that of everyone involved, is proven");
-        line("  against the checkpoint's state commitment. Nothing, such as a revocation, was left "
-             "out.");
+        line(
+            "  against the state commitment the ledger signed. Nothing, such as a revocation, was");
+        line("  left out. (Witnesses refuse two states for one history; an audit of the full log");
+        line("  confirms the commitment itself.)");
     } else {
         line("  Not provable from this bundle: that nothing, such as a revocation, was left out");
         line("  (its checkpoint predates state commitments).");

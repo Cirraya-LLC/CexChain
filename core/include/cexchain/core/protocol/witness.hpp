@@ -47,6 +47,8 @@ struct WitnessedLog {
     /// The last cosigned tree size and root; 0 and empty before the first.
     std::uint64_t size = 0;
     crypto::Digest root;
+    /// The state root of the last cosigned checkpoint, if it had one.
+    std::optional<crypto::Digest> state_root = std::nullopt;
 };
 
 /// Checks a cosign request against what the witness knows. Returns the
@@ -56,7 +58,10 @@ struct WitnessedLog {
 ///                              from `log.size` instead);
 ///   Errc::verification_failed  if the checkpoint is not the ledger's, is not
 ///                              signed by its log key, or does not extend the
-///                              history the witness has seen.
+///                              history the witness has seen; or if it
+///                              commits to a different state than the one
+///                              cosigned at the same size, or stops
+///                              committing to the state at all.
 [[nodiscard]] Result<SignedCheckpoint> check_cosign_request(const crypto::Provider& provider,
                                                             const WitnessedLog& log,
                                                             const CosignRequest& request);

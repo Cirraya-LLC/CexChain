@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
+#include <chrono>
 #include <print>
 
 #include "commands.hpp"
@@ -140,6 +141,13 @@ int cmd_vault_rekey(const Args& args) {
         vaults.push_back(load_vault(session, id, current ? &*current : nullptr));
     }
 
+    // Build a complete new vault directory, then swap it in with two renames.
+    // COMPLETE is written last; a session that finds vault/ missing finishes
+    // the swap (see recover_vault_swap). The old vault, with its key, is kept.
+    const std::filesystem::path next = dir / "vault.next";
+    std::filesystem::remove_all(next);
+    std::filesystem::create_directories(next / "records");
+
     std::optional<crypto::openssl::HpkeKey> generated;
     Bytes new_public;
     if (const auto file = args.get("new-public-key")) {
@@ -154,51 +162,44 @@ int cmd_vault_rekey(const Args& args) {
                                               "new-passphrase-file", "CEXCHAIN_NEW_PASSPHRASE");
         generated.emplace(unwrap(crypto::openssl::HpkeKey::generate(), "generating the vault key"));
         new_public.assign(generated->public_key().begin(), generated->public_key().end());
-        save_hpke_key(dir / "vault.key.next", *generated, secret);
+        save_hpke_key(next / "vault.key", *generated, secret);
     }
-
-    // Seal into a new directory, then swap it in.
-    const std::filesystem::path next = dir / "vault.next";
-    std::filesystem::remove_all(next);
-    std::filesystem::create_directories(next);
     for (std::size_t i = 0; i < ids.size(); ++i) {
-        write_file(next / session.vault_path(ids[i]).filename(),
+        write_file(next / "records" / session.vault_path(ids[i]).filename(),
                    seal_vault(session.state().ledger_id(), ids[i], vaults[i], new_public), true);
     }
-    write_file(dir / "vault.pub.next", encode_vault_public_key(new_public), false);
+    write_file(next / "vault.pub", encode_vault_public_key(new_public), false);
+    write_file(next / "COMPLETE", as_bytes("complete\n"), false);
 
-    const std::filesystem::path old = dir / "vault.old";
-    std::filesystem::remove_all(old);
-    if (std::filesystem::exists(dir / "vault")) {
-        std::filesystem::rename(dir / "vault", old);
+    std::optional<std::filesystem::path> previous;
+    if (std::filesystem::exists(vault_directory(session))) {
+        const auto now = std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now());
+        previous = dir / std::format("vault.old-{:%Y%m%dT%H%M%SZ}", now);
+        for (int n = 2; std::filesystem::exists(*previous); ++n) {
+            previous = dir / std::format("vault.old-{:%Y%m%dT%H%M%SZ}-{}", now, n);
+        }
+        std::filesystem::rename(vault_directory(session), *previous);
     }
-    std::filesystem::rename(next, dir / "vault");
-    std::filesystem::rename(dir / "vault.pub.next", dir / "vault.pub");
-    const bool kept_old_key = std::filesystem::exists(dir / "vault.key");
-    if (kept_old_key) {
-        std::filesystem::rename(dir / "vault.key", dir / "vault.key.old");
-    }
-    if (generated) {
-        std::filesystem::rename(dir / "vault.key.next", dir / "vault.key");
-    }
-    std::filesystem::remove_all(old);
+    std::filesystem::rename(next, vault_directory(session));
+    std::filesystem::remove(vault_directory(session) / "COMPLETE");
 
     if (args.json()) {
         print_json({{"records", ids.size()},
                     {"public_key", to_hex(new_public)},
                     {"fingerprint", fingerprint(new_public)},
-                    {"private_key", generated ? Json((dir / "vault.key").string()) : Json(nullptr)},
-                    {"previous_private_key",
-                     kept_old_key ? Json((dir / "vault.key.old").string()) : Json(nullptr)}});
+                    {"private_key",
+                     generated ? Json(default_vault_key_path(session).string()) : Json(nullptr)},
+                    {"previous_vault", previous ? Json(previous->string()) : Json(nullptr)}});
         return exit_ok;
     }
     std::println("re-sealed {} records to vault key {}", ids.size(), fingerprint(new_public));
     if (generated) {
-        std::println("new vault key: {} (encrypted)", (dir / "vault.key").string());
+        std::println("new vault key: {} (encrypted)", default_vault_key_path(session).string());
     }
-    if (kept_old_key) {
-        std::println("The previous vault key was kept as {}; delete it once no backup needs it.",
-                     (dir / "vault.key.old").string());
+    if (previous) {
+        std::println(
+            "The previous vault, with its key, was kept in {}; delete it once no backup needs it.",
+            previous->string());
     }
     return exit_ok;
 }

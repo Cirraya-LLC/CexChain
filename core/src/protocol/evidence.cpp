@@ -378,7 +378,8 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
         }
         if (const Statement& s = item.statement.statement; s.presence && s.actor_id) {
             if (const ActorState* signer = state->actor(*s.actor_id)) {
-                if (auto check = verify_presence(provider, state->hash(), s, signer->presence)) {
+                if (auto check = verify_presence(provider, state->hash(), s, item.statement.kid,
+                                                 signer->presence)) {
                     presence[item.index] = std::move(*check);
                 }
             }

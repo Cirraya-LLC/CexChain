@@ -98,6 +98,7 @@ Result<LedgerState> LedgerState::from_genesis(const crypto::Provider& provider,
     state.actors_by_kid_[key_of(*kid)] = key_of(genesis.id);
     state.actors_[key_of(genesis.id)] = std::move(organization);
     state.statements_[key_of(genesis.id)] = 0;
+    state.nonces_.insert({key_of(genesis.id), genesis.statement.nonce});
     return state;
 }
 
@@ -155,6 +156,9 @@ Status LedgerState::validate(const crypto::Provider& provider,
     if (statements_.contains(key_of(signed_statement.id))) {
         return fail(Errc::rejected, "the statement is already registered");
     }
+    if (nonces_.contains({key_of(*statement.actor_id), statement.nonce})) {
+        return fail(Errc::rejected, "the statement repeats an earlier one (same signer and nonce)");
+    }
     if (statement.issued_at > now + max_clock_skew_ms) {
         return fail(Errc::rejected, "the statement claims to be issued in the future");
     }
@@ -183,7 +187,9 @@ Status LedgerState::validate(const crypto::Provider& provider,
         if (signer->kind != ActorKind::person) {
             return fail(Errc::rejected, "only people prove presence");
         }
-        if (auto check = verify_presence(provider, hash_, statement, signer->presence); !check) {
+        if (auto check =
+                verify_presence(provider, hash_, statement, signed_statement.kid, signer->presence);
+            !check) {
             return std::unexpected(check.error());
         }
     }
@@ -198,9 +204,15 @@ Status LedgerState::check_authority(const Statement& statement, const ActorState
         }
         return {};
     }
-    // An actor may always rotate its own key.
+    // An actor may always rotate its own key; a person with passkeys must
+    // prove presence to do it (checked in validate), so a stolen signing key
+    // alone cannot take the identity over.
     if (const auto* rotate = std::get_if<ActorRotateKeyBody>(&statement.body);
         rotate != nullptr && rotate->actor == signer.id && !statement.delegation_id) {
+        if (!signer.presence.empty() && !statement.presence) {
+            return fail(Errc::rejected,
+                        "rotating your own key needs proof of presence with a passkey");
+        }
         return {};
     }
     // A person may manage their own presence credentials, proving presence
@@ -338,6 +350,14 @@ Status LedgerState::check_rules(const crypto::Provider& provider, const Statemen
                 if (signer.is_organization()) {
                     return {};
                 }
+                std::size_t depth = 0;
+                for (const DelegationState* link = delegation(*statement.delegation_id);
+                     link != nullptr; link = link->parent ? delegation(*link->parent) : nullptr) {
+                    ++depth;
+                }
+                if (depth >= max_delegation_depth) {
+                    return fail(Errc::rejected, "delegation chains are at most 16 links long");
+                }
                 return check_narrowing(delegation(*statement.delegation_id)->scope, b.scope);
             },
             [&](const DelegationRevokeBody& b) -> Status {
@@ -419,6 +439,9 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
     const Statement& statement = signed_statement.statement;
     const Id& id = signed_statement.id;
     statements_[key_of(id)] = index;
+    if (statement.actor_id) {
+        nonces_.insert({key_of(*statement.actor_id), statement.nonce});
+    }
 
     return std::visit(
         Overloaded{

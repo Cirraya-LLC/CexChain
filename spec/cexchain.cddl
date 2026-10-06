@@ -53,7 +53,9 @@ statement-payload = {
   ? 3 => id,                   ; actor_id of the signer: absent only in genesis
   ? 4 => id,                   ; delegation_id authorizing this statement
   5 => timestamp,              ; issued_at, as claimed by the signer
-  6 => bstr .size 16,          ; nonce
+  6 => bstr .size 16,          ; nonce; a ledger accepts each (actor, nonce)
+                               ; once, so a payload cannot be replayed even
+                               ; re-signed with a rotated key
   7 => statement-body,
   ? 8 => presence-proof,       ; a person's proof of presence (see below)
   ? 9 => provenance,           ; for AI agents
@@ -103,6 +105,8 @@ agent-profile = {
   ? 3 => tstr,                 ; runtime
 }
 
+; An actor may rotate its own key without a delegation; a person with
+; presence credentials must then prove presence.
 actor-rotate-key-body = {
   1 => id,                     ; actor
   2 => public-key,             ; new signing key
@@ -117,7 +121,8 @@ delegation-grant-body = {
   1 => id,                     ; grantee actor
   2 => scope,
 }
-; A delegation may only narrow the grantor's own scope.
+; A delegation may only narrow the grantor's own scope. A chain from the
+; organization to an actor has at most 16 delegations.
 scope = {
   1 => [+ statement-type],     ; statement types the grantee may submit
   ? 2 => [+ tstr],             ; record types; absent means any
@@ -148,10 +153,13 @@ presence-credential = {
   ? 4 => tstr,                 ; label
 }
 
-; A WebAuthn assertion that approves exactly one statement. Its challenge is
-;   HASH("CexChain presence v1" || P)
-; where HASH is the ledger hash and P is the statement payload encoded
-; without key 8. Verifiers check, for the signer's credential with this id:
+; A WebAuthn assertion that approves exactly one statement, signed with
+; exactly one key. Its challenge is
+;   HASH("CexChain presence v1" || kid || P)
+; where HASH is the ledger hash, kid is the statement's COSE kid (32 bytes),
+; and P is the statement payload encoded without key 8. (Binding the kid
+; stops a proof being reused by re-signing the payload with a rotated key.)
+; Verifiers check, for the signer's credential with this id:
 ;   1. authenticatorData begins with SHA-256(rp id) and has the user-present
 ;      flag (0x01); the user-verified flag (0x04) is reported, not required;
 ;   2. clientDataJSON begins with
@@ -238,7 +246,7 @@ log-entry = {
 checkpoint-payload = {
   1 => id,                     ; ledger_id
   2 => -16 / -65538,           ; tree hash algorithm
-  3 => uint,                   ; tree size
+  3 => uint .ge 1,             ; tree size (genesis is always in the log)
   4 => bstr,                   ; root hash
   5 => timestamp,
   ? 6 => bstr,                 ; state root (see state-proof); always present
@@ -255,7 +263,12 @@ checkpoint-payload = {
 ;   4. the tree size is not smaller than old size; and
 ;   5. the RFC 9162 consistency proof shows that the new tree extends the
 ;      tree the witness last cosigned (empty from size 0; equal sizes need
-;      equal roots).
+;      equal roots); and
+;   6. it commits to a state root if the last cosigned checkpoint did, and
+;      to the same state root if the tree size is the same: a witness
+;      cannot check a state root without the whole log, but it refuses
+;      equivocation (two states for one history). Whether a state root
+;      matches the log is checked by auditing the full log.
 cosign-request = {
   1 => bstr,                   ; the signed checkpoint (COSE_Sign1)
   2 => uint,                   ; old size

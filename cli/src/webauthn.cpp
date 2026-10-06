@@ -3,12 +3,16 @@
 
 #include "webauthn.hpp"
 
+#include <algorithm>
 #include <arpa/inet.h>
 #include <array>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
+#include <map>
 #include <netinet/in.h>
+#include <optional>
 #include <poll.h>
 #include <print>
 #include <spawn.h>
@@ -67,7 +71,8 @@ const enc = (buffer) => btoa(String.fromCharCode(...new Uint8Array(buffer))).rep
 const dec = (text) => Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
 const status = (text, kind) => { const s = document.getElementById("status"); s.textContent = text; s.className = kind || ""; };
 async function post(body) {
-  await fetch(location.pathname + "/result", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  await fetch(location.pathname + "/result", { method: "POST", body: JSON.stringify(body),
+    headers: { "Content-Type": "application/json", "X-CexChain-Secret": req.secret } });
 }
 async function run() {
   document.getElementById("actions").hidden = true;
@@ -127,6 +132,14 @@ private:
     int fd_;
 };
 
+using Clock = std::chrono::steady_clock;
+
+int remaining_ms(Clock::time_point deadline) {
+    const auto left =
+        std::chrono::duration_cast<std::chrono::milliseconds>(deadline - Clock::now()).count();
+    return left <= 0 ? 0 : static_cast<int>(left);
+}
+
 bool wait_readable(int fd, int timeout_ms) {
     pollfd p{fd, POLLIN, 0};
     return ::poll(&p, 1, timeout_ms) == 1;
@@ -157,20 +170,28 @@ void respond(int fd, std::string_view status, std::string_view type, std::string
 struct HttpRequest {
     std::string method;
     std::string path;
+    /// Header names in lowercase.
+    std::map<std::string, std::string> headers;
     std::string body;
 };
 
-/// Reads one HTTP/1.1 request, or nothing if it is malformed or too slow.
-std::optional<HttpRequest> read_request(int fd) {
+std::string lowercase(std::string text) {
+    for (char& c : text) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    return text;
+}
+
+/// Reads one HTTP/1.1 request, or nothing if it is malformed, too large, or
+/// not complete by `deadline`.
+std::optional<HttpRequest> read_request(int fd, Clock::time_point deadline) {
     std::string data;
     std::array<char, 4096> buffer{};
     std::size_t header_end = std::string::npos;
     std::size_t content_length = 0;
-    while (true) {
-        if (header_end != std::string::npos && data.size() >= header_end + 4 + content_length) {
-            break;
-        }
-        if (data.size() > max_request || !wait_readable(fd, read_timeout_ms)) {
+    while (header_end == std::string::npos || data.size() < header_end + 4 + content_length) {
+        const int left = remaining_ms(deadline);
+        if (data.size() > max_request || left == 0 || !wait_readable(fd, left)) {
             return std::nullopt;
         }
         const ssize_t n = ::recv(fd, buffer.data(), buffer.size(), 0);
@@ -181,10 +202,7 @@ std::optional<HttpRequest> read_request(int fd) {
         if (header_end == std::string::npos) {
             header_end = data.find("\r\n\r\n");
             if (header_end != std::string::npos) {
-                std::string headers = data.substr(0, header_end);
-                for (char& c : headers) {
-                    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-                }
+                const std::string headers = lowercase(data.substr(0, header_end));
                 if (const auto at = headers.find("\r\ncontent-length:"); at != std::string::npos) {
                     content_length = std::strtoul(headers.c_str() + at + 17, nullptr, 10);
                     if (content_length > max_request) {
@@ -194,24 +212,76 @@ std::optional<HttpRequest> read_request(int fd) {
             }
         }
     }
-    const std::size_t line_end = data.find("\r\n");
+    HttpRequest request;
+    std::size_t line_end = data.find("\r\n");
     const std::string line = data.substr(0, line_end);
     const std::size_t first = line.find(' ');
     const std::size_t second = line.find(' ', first + 1);
     if (first == std::string::npos || second == std::string::npos) {
         return std::nullopt;
     }
-    return HttpRequest{line.substr(0, first), line.substr(first + 1, second - first - 1),
-                       data.substr(header_end + 4, content_length)};
+    request.method = line.substr(0, first);
+    request.path = line.substr(first + 1, second - first - 1);
+    while (line_end < header_end) {
+        const std::size_t next = data.find("\r\n", line_end + 2);
+        const std::string field = data.substr(line_end + 2, next - line_end - 2);
+        if (const std::size_t colon = field.find(':'); colon != std::string::npos) {
+            std::string value = field.substr(colon + 1);
+            value.erase(0, value.find_first_not_of(' '));
+            request.headers[lowercase(field.substr(0, colon))] = value;
+        }
+        line_end = next;
+    }
+    request.body = data.substr(header_end + 4, content_length);
+    return request;
 }
 
-void open_in_browser(const std::string& url) {
+std::string header(const HttpRequest& request, const std::string& name) {
+    const auto it = request.headers.find(name);
+    return it == request.headers.end() ? std::string() : it->second;
+}
+
+/// A private directory with a page that redirects to the ceremony, so the
+/// address, with its token, never appears in another process's arguments.
+class RedirectFile {
+public:
+    explicit RedirectFile(const std::string& url) {
+        const char* base = std::getenv("TMPDIR");
+        std::string pattern =
+            std::string(base != nullptr && *base != '\0' ? base : "/tmp") + "/cexchain-XXXXXX";
+        if (::mkdtemp(pattern.data()) == nullptr) {
+            return;
+        }
+        dir_ = pattern;
+        path_ = dir_ + "/passkey.html";
+        const std::string page =
+            "<!doctype html><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"0;url=" +
+            url + "\"><title>CexChain</title><a href=\"" + url + "\">Continue</a>";
+        write_file(path_, as_bytes(page), true);
+    }
+    RedirectFile(const RedirectFile&) = delete;
+    RedirectFile& operator=(const RedirectFile&) = delete;
+    ~RedirectFile() {
+        if (!dir_.empty()) {
+            std::error_code ignored;
+            std::filesystem::remove_all(dir_, ignored);
+        }
+    }
+    [[nodiscard]] const std::string& path() const { return path_; }
+
+private:
+    std::string dir_;
+    std::string path_;
+};
+
+void open_in_browser(const std::string& target) {
 #ifdef __APPLE__
     const char* opener = "open";
 #else
     const char* opener = "xdg-open";
 #endif
-    std::array<char*, 3> argv{const_cast<char*>(opener), const_cast<char*>(url.c_str()), nullptr};
+    std::array<char*, 3> argv{const_cast<char*>(opener), const_cast<char*>(target.c_str()),
+                              nullptr};
     pid_t pid = 0;
     static_cast<void>(::posix_spawnp(&pid, opener, nullptr, nullptr, argv.data(), environ));
 }
@@ -234,15 +304,21 @@ nlohmann::json run_webauthn_ceremony(const nlohmann::json& request, bool open_br
         throw CommandError{"cannot listen on localhost for the passkey page"};
     }
     std::array<std::uint8_t, 16> token_bytes{};
+    std::array<std::uint8_t, 16> secret_bytes{};
     unwrap(crypto::openssl::random_bytes(token_bytes), "generating a token");
+    unwrap(crypto::openssl::random_bytes(secret_bytes), "generating a secret");
     const std::string token = "/" + to_hex(token_bytes);
-    const std::string url = std::format("http://localhost:{}{}", ntohs(address.sin_port), token);
+    const std::string secret = to_hex(secret_bytes);
+    const std::string host = std::format("localhost:{}", ntohs(address.sin_port));
+    const std::string url = "http://" + host + token;
 
-    // The request is embedded in the page as JSON; "<" is escaped so the data
-    // can never close the script element.
-    std::string embedded = request.dump();
+    // The page is served once, carrying a secret that the result must echo,
+    // from the page's own origin. "<" is escaped so the embedded data can
+    // never close the script element.
+    nlohmann::json embedded = request;
+    embedded["secret"] = secret;
     std::string safe;
-    for (const char c : embedded) {
+    for (const char c : embedded.dump()) {
         safe += c == '<' ? std::string("\\u003c") : std::string(1, c);
     }
     std::string page(page_template);
@@ -250,31 +326,51 @@ nlohmann::json run_webauthn_ceremony(const nlohmann::json& request, bool open_br
 
     std::println(stderr, "Confirm with your passkey in the browser: {}", url);
     const char* no_browser = std::getenv("CEXCHAIN_NO_BROWSER");
+    std::optional<RedirectFile> redirect;
     if (open_browser && (no_browser == nullptr || *no_browser == '\0')) {
-        open_in_browser(url);
+        redirect.emplace(url);
+        if (!redirect->path().empty()) {
+            open_in_browser(redirect->path());
+        }
     }
 
-    const auto deadline =
-        std::chrono::steady_clock::now() + std::chrono::milliseconds(ceremony_timeout_ms);
+    const auto deadline = Clock::now() + std::chrono::milliseconds(ceremony_timeout_ms);
+    bool served = false;
     while (true) {
-        const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
-            deadline - std::chrono::steady_clock::now());
-        if (left.count() <= 0 || !wait_readable(listener.fd(), static_cast<int>(left.count()))) {
+        const int left = remaining_ms(deadline);
+        if (left == 0 || !wait_readable(listener.fd(), left)) {
             throw CommandError{"no passkey response within three minutes"};
         }
         Socket client(::accept(listener.fd(), nullptr, nullptr));
         if (client.fd() < 0) {
             continue;
         }
-        const auto http = read_request(client.fd());
+        const auto http = read_request(
+            client.fd(),
+            std::min(deadline, Clock::now() + std::chrono::milliseconds(read_timeout_ms)));
         if (!http) {
             continue;
         }
+        if (header(*http, "host") != host) {
+            respond(client.fd(), "421 Misdirected Request", "text/plain", "wrong host");
+            continue;
+        }
         if (http->method == "GET" && http->path == token) {
+            if (served) {
+                respond(client.fd(), "410 Gone", "text/plain",
+                        "This page was already opened once. Run the command again.");
+                continue;
+            }
+            served = true;
             respond(client.fd(), "200 OK", "text/html; charset=utf-8", page);
             continue;
         }
         if (http->method == "POST" && http->path == token + "/result") {
+            if (header(*http, "origin") != "http://" + host ||
+                header(*http, "x-cexchain-secret") != secret) {
+                respond(client.fd(), "403 Forbidden", "text/plain", "forbidden");
+                continue;
+            }
             auto result = nlohmann::json::parse(http->body, nullptr, false);
             if (result.is_discarded() || !result.is_object()) {
                 respond(client.fd(), "400 Bad Request", "text/plain", "bad request");

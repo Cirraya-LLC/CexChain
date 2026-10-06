@@ -49,8 +49,10 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
                 statement->presence->credential_id,
                 {cexchain::crypto::SigAlg::esp256, cexchain::Bytes(65, 0x04)},
                 std::nullopt};
+            const auto kid = *cexchain::crypto::Digest::from_bytes(cexchain::Bytes(32, 0x22));
             static_cast<void>(protocol::verify_presence(provider, cexchain::crypto::HashAlg::sha256,
-                                                        *statement, std::span(&credential, 1)));
+                                                        *statement, kid,
+                                                        std::span(&credential, 1)));
         }
     }
     if (const auto credential = protocol::decode_presence_credential(input)) {

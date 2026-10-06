@@ -77,14 +77,20 @@ TEST_CASE("v0.2 objects from an independent encoder", "[protocol][vectors]") {
 
         // Proof of presence.
         const auto& presence = ledger["presence"];
-        const protocol::Statement& endorsement =
-            statements[presence["statement_index"].get<std::size_t>()].statement;
+        const protocol::SignedStatement& signed_endorsement =
+            statements[presence["statement_index"].get<std::size_t>()];
+        const protocol::Statement& endorsement = signed_endorsement.statement;
         REQUIRE(endorsement.presence);
-        CHECK(to_hex(*protocol::presence_challenge(provider(), hash, endorsement)) == text(presence["challenge"]));
-        const auto credential = protocol::decode_presence_credential(hex(text(presence["credential"])));
+        CHECK(to_hex(*protocol::presence_challenge(provider(), hash, endorsement,
+                                                   signed_endorsement.kid)) ==
+              text(presence["challenge"]));
+        const auto credential =
+            protocol::decode_presence_credential(hex(text(presence["credential"])));
         REQUIRE(credential);
-        CHECK(*protocol::encode_presence_credential(*credential) == hex(text(presence["credential"])));
-        const auto check = protocol::verify_presence(provider(), hash, endorsement, std::vector{*credential});
+        CHECK(*protocol::encode_presence_credential(*credential) ==
+              hex(text(presence["credential"])));
+        const auto check = protocol::verify_presence(
+            provider(), hash, endorsement, signed_endorsement.kid, std::vector{*credential});
         REQUIRE(check);
         CHECK(check->user_verified);
         CHECK(check->origin == "http://localhost:43210");
@@ -115,7 +121,8 @@ TEST_CASE("v0.2 objects from an independent encoder", "[protocol][vectors]") {
         CHECK(protocol::verify_checkpoint(provider(), *checkpoint, state->log_key()));
         REQUIRE(checkpoint->checkpoint.state_root);
         CHECK(*checkpoint->checkpoint.state_root == *root);
-        CHECK(*protocol::encode_checkpoint(checkpoint->checkpoint) == *checkpoint->envelope.payload);
+        CHECK(*protocol::encode_checkpoint(checkpoint->checkpoint) ==
+              *checkpoint->envelope.payload);
         cexchain::merkle::Tree tree(provider(), hash);
         for (const auto& entry : ledger["log_entries"]) {
             REQUIRE(tree.append(hex(text(entry))));
@@ -127,7 +134,8 @@ TEST_CASE("v0.2 objects from an independent encoder", "[protocol][vectors]") {
         const auto request = protocol::decode_cosign_request(encoded_request);
         REQUIRE(request);
         CHECK(*protocol::encode_cosign_request(*request) == encoded_request);
-        const protocol::WitnessedLog witness{state->ledger_id(), state->log_key(), hash, 4, *tree.root(4)};
+        const protocol::WitnessedLog witness{state->ledger_id(), state->log_key(), hash, 4,
+                                             *tree.root(4)};
         CHECK(protocol::check_cosign_request(provider(), witness, *request));
     }
 }

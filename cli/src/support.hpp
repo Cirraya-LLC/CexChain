@@ -146,7 +146,7 @@ public:
 
 private:
     void prove_presence(const protocol::ActorState& actor, protocol::Statement& statement,
-                        bool open_browser) const;
+                        const crypto::PublicKey& signing_key, bool open_browser) const;
 
     [[nodiscard]] std::optional<protocol::Id>
     choose_delegation(const protocol::ActorState& actor, protocol::StatementType type,
@@ -160,6 +160,10 @@ private:
     std::optional<ledger::PosixFileSystem> fs_;
     std::optional<ledger::Ledger> ledger_;
 };
+
+/// Finishes or discards an interrupted `vault rekey` (call with the ledger
+/// locked).
+void recover_vault_swap(const std::filesystem::path& directory);
 
 /// Creates a ledger in `directory`.
 void create_ledger(const std::filesystem::path& directory, const crypto::Signer& root_key,

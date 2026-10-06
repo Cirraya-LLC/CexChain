@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -27,6 +28,10 @@ using IdKey = std::array<std::uint8_t, id_size>;
 /// Statements may claim an issue time at most this far ahead of the ledger
 /// clock.
 inline constexpr Timestamp max_clock_skew_ms = 5 * 60 * 1000;
+
+/// A delegation chain (organization -> ... -> actor) has at most this many
+/// links.
+inline constexpr std::size_t max_delegation_depth = 16;
 
 struct ActorState {
     Id id;
@@ -139,6 +144,9 @@ private:
     std::map<IdKey, DelegationState> delegations_;
     std::map<IdKey, RecordState> records_;
     std::map<IdKey, std::uint64_t> statements_;
+    /// (signer, nonce) of every statement: a payload is never accepted twice,
+    /// even re-signed with a rotated key.
+    std::set<std::pair<IdKey, Nonce>> nonces_;
 };
 
 } // namespace cexchain::protocol

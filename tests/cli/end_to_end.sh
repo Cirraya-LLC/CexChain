@@ -165,10 +165,10 @@ run record history "$RECORD" --json | json 'len(d)' | contains -x 4
 
 # --- Vault ---------------------------------------------------------------------
 # Private field values are sealed to the vault key: nothing readable on disk.
-[ -f ledger/vault.key ] && [ -f ledger/vault.pub ] || fail "init creates the vault key"
+[ -f ledger/vault/vault.key ] && [ -f ledger/vault/vault.pub ] || fail "init creates the vault key"
 if contains -r 'B-2026-1006' ledger; then fail "field values must not be stored in the clear"; fi
-run inspect "ledger/vault/$RECORD.cbor" --json | json 'd["kind"]' | contains -x sealed-vault
-run inspect ledger/vault.pub --json | json 'd["kind"]' | contains -x vault-public-key
+run inspect "ledger/vault/records/$RECORD.cbor" --json | json 'd["kind"]' | contains -x sealed-vault
+run inspect ledger/vault/vault.pub --json | json 'd["kind"]' | contains -x vault-public-key
 run vault status --json | json 'd["sealed_records"]' | contains -x 1
 CEXCHAIN_PASSPHRASE=wrong expect_exit 2 record fields "$RECORD"
 contains 'wrong passphrase' out.txt
@@ -178,21 +178,26 @@ run vault keygen --out offhost.key > /dev/null
 [ -f offhost.key.pub ] || fail "vault keygen writes the public half"
 expect_exit 2 vault keygen --out offhost.key
 run vault rekey --new-public-key offhost.key.pub | contains 're-sealed 1 records'
-[ -f ledger/vault.key.old ] && [ ! -f ledger/vault.key ] || fail "rekey keeps the previous key aside"
+OLD_VAULT="$(ls -d ledger/vault.old-* | sed -n 1p)"
+[ -f "$OLD_VAULT/vault.key" ] && [ ! -f ledger/vault/vault.key ] || fail "rekey keeps the previous vault aside"
 expect_exit 2 record fields "$RECORD"
 contains 'no vault key' out.txt
-expect_exit 2 record fields "$RECORD" --vault-key ledger/vault.key.old
+expect_exit 2 record fields "$RECORD" --vault-key "$OLD_VAULT/vault.key"
 contains "not this ledger's vault key" out.txt
 run record fields "$RECORD" --vault-key offhost.key | contains -x 'result = pass'
 CEXCHAIN_NEW_PASSPHRASE="$CEXCHAIN_PASSPHRASE" run vault rekey --vault-key offhost.key --json \
     | json 'd["records"]' | contains -x 1
 run record fields "$RECORD" | contains -x 'batch = B-2026-1006'
 run vault status | contains 'sealed:        1 records'
+# A crash between the two renames of a rekey is finished by the next command.
+mv ledger/vault ledger/vault.next && touch ledger/vault.next/COMPLETE
+run record fields "$RECORD" | contains -x 'result = pass'
+[ -d ledger/vault ] && [ ! -e ledger/vault.next ] || fail "an interrupted rekey is recovered"
 
 # A ledger whose vault private key never touches the ledger host.
 run init --ledger ledger2 --org "Second Site" --root-key root.key --log-key log.key \
     --vault-public-key offhost.key.pub | contains 'kept elsewhere'
-[ ! -f ledger2/vault.key ] || fail "an external vault key is not copied to the host"
+[ ! -f ledger2/vault/vault.key ] || fail "an external vault key is not copied to the host"
 
 # --- Checkpoints, proofs, receipts, and the log --------------------------------------
 expect_exit 2 export "$RECORD" --log-key log.key --out bundle.cbor

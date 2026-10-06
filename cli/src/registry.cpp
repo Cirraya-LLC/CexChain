@@ -570,7 +570,8 @@ std::vector<CommandSpec> build() {
                 "Passphrase for a generated key (default: $CEXCHAIN_NEW_PASSPHRASE or a prompt)"}}),
          cmd_vault_rekey,
          "Use after a vault key may have leaked, when its holders change, or to seal data\n"
-         "written before vaults were encrypted. The previous key is kept as vault.key.old."},
+         "written before vaults were encrypted. The previous vault, with its key, is kept in\n"
+         "<ledger>/vault.old-<time>."},
 
         // ------------------------------------------------------------------
         {{"witness", "add-log"},

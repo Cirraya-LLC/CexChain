@@ -64,6 +64,9 @@ inline constexpr std::string_view vault_info = "CexChain record vault v1";
 [[nodiscard]] Bytes encode_vault_public_key(ByteView key);
 /// The X25519 key in a vault public key file, if it is one.
 [[nodiscard]] std::optional<Bytes> decode_vault_public_key(ByteView file);
+/// <ledger>/vault: vault.pub, vault.key (unless kept elsewhere), and
+/// records/<record id>.cbor. Rekeying swaps in a whole new directory.
+[[nodiscard]] std::filesystem::path vault_directory(const Session& session);
 [[nodiscard]] std::filesystem::path vault_public_key_path(const Session& session);
 [[nodiscard]] std::filesystem::path default_vault_key_path(const Session& session);
 /// The ledger's vault public key; throws if the ledger has none.

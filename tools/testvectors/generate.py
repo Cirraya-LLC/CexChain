@@ -842,7 +842,8 @@ def generate_protocol_v02() -> None:
         # The person endorses with a WebAuthn assertion over the presence challenge.
         endorse = {0: 1, 1: 17, 2: ledger_id, 3: person, 4: delegation, 5: t0 + 5, 6: nonce(6), 7: {
             1: record, 2: "inspector"}}
-        challenge = lg.h(b"CexChain presence v1" + dcbor(endorse))
+        # Bound to the signing key's id, so a rotated key cannot reuse the proof.
+        challenge = lg.h(b"CexChain presence v1" + lg.kid(keys["person"]) + dcbor(endorse))
         authenticator_data = hashlib.sha256(b"localhost").digest() + b"\x05" + (7).to_bytes(4, "big")
         client_data = ('{"type":"webauthn.get","challenge":"' + b64url(challenge) +
                        '","origin":"http://localhost:43210","crossOrigin":false}').encode()

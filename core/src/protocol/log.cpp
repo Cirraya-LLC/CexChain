@@ -93,6 +93,9 @@ Result<Bytes> encode_checkpoint(const Checkpoint& checkpoint) {
     if (!is_ledger_hash(checkpoint.tree_hash)) {
         return fail(Errc::unsupported, "tree hash must be SHA-256 or SM3");
     }
+    if (checkpoint.tree_size == 0) {
+        return fail(Errc::invalid_argument, "a checkpoint covers at least the genesis entry");
+    }
     if (checkpoint.ledger_id.size() != id_size ||
         checkpoint.root.size() != crypto::digest_size(checkpoint.tree_hash) ||
         (checkpoint.state_root &&
@@ -120,6 +123,9 @@ Result<Checkpoint> decode_checkpoint(ByteView encoded) {
     CEXCHAIN_TRY(std::int64_t hash_id, reader.need_int(2));
     CEXCHAIN_TRY(checkpoint.tree_hash, decode_ledger_hash(hash_id));
     CEXCHAIN_TRY(checkpoint.tree_size, reader.need_uint(3));
+    if (checkpoint.tree_size == 0) {
+        return fail(Errc::malformed, "a checkpoint covers at least the genesis entry");
+    }
     CEXCHAIN_TRY(Bytes root, reader.need_bytes(4));
     if (root.size() != crypto::digest_size(checkpoint.tree_hash)) {
         return fail(Errc::malformed, "checkpoint root has the wrong size");

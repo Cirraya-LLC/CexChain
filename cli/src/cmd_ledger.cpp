@@ -69,6 +69,7 @@ int cmd_init(const Args& args) {
     create_ledger(directory, root, log.public_key(),
                   parse_hash(args.get("hash").value_or("sha256")), args.need("org"));
     Session session(directory);
+    std::filesystem::create_directories(vault_directory(session) / "records");
     if (vault_key) {
         save_hpke_key(default_vault_key_path(session), *vault_key, vault_secret);
     }

@@ -329,11 +329,28 @@ protocol::ActorKind parse_actor_kind(std::string_view name) {
 // Session
 // ---------------------------------------------------------------------------
 
+void recover_vault_swap(const std::filesystem::path& directory) {
+    // `vault rekey` builds vault.next/ completely (COMPLETE is written last),
+    // then renames vault -> vault.old-<time> and vault.next -> vault. After a
+    // crash between the two renames, finish the swap; after a crash before
+    // COMPLETE, the old vault is untouched and vault.next is discarded.
+    const std::filesystem::path vault = directory / "vault";
+    const std::filesystem::path next = directory / "vault.next";
+    if (!std::filesystem::exists(vault) && std::filesystem::exists(next / "COMPLETE")) {
+        std::filesystem::rename(next, vault);
+        std::filesystem::remove(vault / "COMPLETE");
+    }
+    if (std::filesystem::exists(next)) {
+        std::filesystem::remove_all(next);
+    }
+}
+
 Session::Session(const std::filesystem::path& directory) : directory_(directory) {
     if (!std::filesystem::is_directory(directory)) {
         throw CommandError{"no ledger directory at " + directory.string()};
     }
     lock_.emplace(unwrap(ledger::DirectoryLock::acquire(directory), "locking the ledger"));
+    recover_vault_swap(directory);
     fs_.emplace(unwrap(ledger::PosixFileSystem::open_directory(directory), "opening the ledger"));
     ledger_.emplace(unwrap(ledger::Ledger::open(*fs_, clock_, provider_), "opening the ledger"));
 }
@@ -430,7 +447,7 @@ protocol::Id Session::submit(const crypto::Signer& signer, protocol::Body body,
     statement.provenance = std::move(provenance);
     statement.body = std::move(body);
     if (presence) {
-        prove_presence(actor, statement, *presence);
+        prove_presence(actor, statement, signer.public_key(), *presence);
     }
 
     const auto signed_statement =
@@ -458,7 +475,7 @@ protocol::Id Session::submit(const Args& args, protocol::Body body) {
 }
 
 void Session::prove_presence(const protocol::ActorState& actor, protocol::Statement& statement,
-                             bool open_browser) const {
+                             const crypto::PublicKey& signing_key, bool open_browser) const {
     if (actor.kind != protocol::ActorKind::person) {
         throw UsageError{"only people prove presence; \"" + actor.display_name + "\" is " +
                          (actor.is_organization() ? std::string("the organization")
@@ -469,8 +486,10 @@ void Session::prove_presence(const protocol::ActorState& actor, protocol::Statem
                            "\" has no passkey registered (cexchain presence enroll, then cexchain "
                            "actor set-presence)"};
     }
+    const auto kid =
+        unwrap(protocol::key_id(provider_, state().hash(), signing_key), "computing the key id");
     const auto challenge =
-        unwrap(protocol::presence_challenge(provider_, state().hash(), statement),
+        unwrap(protocol::presence_challenge(provider_, state().hash(), statement, kid),
                "computing the challenge");
     const std::string rp_id = actor.presence.front().rp_id;
     nlohmann::json allow = nlohmann::json::array();
@@ -497,7 +516,7 @@ void Session::prove_presence(const protocol::ActorState& actor, protocol::Statem
     };
     statement.presence = protocol::PresenceProof{field("id"), field("authenticatorData"),
                                                  field("clientDataJSON"), field("signature")};
-    unwrap(protocol::verify_presence(provider_, state().hash(), statement, actor.presence),
+    unwrap(protocol::verify_presence(provider_, state().hash(), statement, kid, actor.presence),
            "checking the passkey response");
 }
 
@@ -546,7 +565,7 @@ std::string Session::actor_name(const protocol::Id& id) const {
 }
 
 std::filesystem::path Session::vault_path(const protocol::Id& record) const {
-    return directory_ / "vault" / (hex_id(record) + ".cbor");
+    return directory_ / "vault" / "records" / (hex_id(record) + ".cbor");
 }
 
 void create_ledger(const std::filesystem::path& directory, const crypto::Signer& root_key,

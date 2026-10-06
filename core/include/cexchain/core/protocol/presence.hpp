@@ -16,8 +16,9 @@
 /// Proof of human presence with WebAuthn (passkeys and security keys).
 ///
 /// A person's statement may carry a WebAuthn assertion whose challenge is
-///   HASH(ledger)("CexChain presence v1" || payload without its presence proof)
-/// so the assertion approves exactly that statement. Verification follows
+///   HASH(ledger)("CexChain presence v1" || kid || payload without its presence proof)
+/// so the assertion approves exactly that statement, signed with exactly that
+/// key: re-signing the payload with a rotated key does not reuse the proof. Verification follows
 /// WebAuthn Level 3: the relying party id hash, the user-present flag, the
 /// client data (checked with the limited verification algorithm of section
 /// 5.8.1.2), and the signature over authenticatorData || SHA-256(clientDataJSON).
@@ -25,11 +26,12 @@ namespace cexchain::protocol {
 
 inline constexpr std::string_view presence_context = "CexChain presence v1";
 
-/// The WebAuthn challenge that a presence proof for `statement` must sign.
-/// Any presence proof already in `statement` is ignored.
+/// The WebAuthn challenge that a presence proof for `statement`, signed with
+/// the key whose id is `kid`, must sign. Any presence proof already in
+/// `statement` is ignored.
 [[nodiscard]] Result<Bytes> presence_challenge(const crypto::Provider& provider,
                                                crypto::HashAlg ledger_hash,
-                                               const Statement& statement);
+                                               const Statement& statement, const Id& kid);
 
 /// What a verified presence proof establishes.
 struct PresenceCheck {
@@ -44,12 +46,14 @@ struct PresenceCheck {
     friend bool operator==(const PresenceCheck&, const PresenceCheck&) = default;
 };
 
-/// Verifies `statement`'s presence proof against the signer's registered
-/// credentials. Fails with Errc::verification_failed if it does not prove
-/// presence for this statement.
+/// Verifies `statement`'s presence proof, for the statement signed with the
+/// key whose id is `kid`, against the signer's registered credentials. Fails
+/// with Errc::verification_failed if it does not prove presence for this
+/// statement and key.
 [[nodiscard]] Result<PresenceCheck>
 verify_presence(const crypto::Provider& provider, crypto::HashAlg ledger_hash,
-                const Statement& statement, std::span<const PresenceCredential> credentials);
+                const Statement& statement, const Id& kid,
+                std::span<const PresenceCredential> credentials);
 
 /// Turns a WebAuthn registration (the attestation object and client data
 /// returned by navigator.credentials.create) into a credential, after

@@ -202,3 +202,73 @@ TEST_CASE("the ledger keeps witness cosignatures", "[witness][ledger]") {
     REQUIRE(audit);
     CHECK(audit->cosignatures == 2);
 }
+
+TEST_CASE("a witness refuses two states for one history", "[witness][security]") {
+    World w;
+    grow(w, 2);
+    const auto log = cosign(fresh(w), request(w, 0));
+    REQUIRE(log.state_root);
+
+    // The operator signs another checkpoint of the same history with a
+    // different state root (one leaving out a revocation, say).
+    auto other = w.ledger().latest_checkpoint()->checkpoint;
+    other.timestamp += 1;
+    other.state_root = *w.ledger().root(1);
+    protocol::CosignRequest r{
+        protocol::sign_checkpoint(w.log_key(), provider(), other)->encoded, log.size, {}};
+    CHECK(refusal(log, r) == Errc::verification_failed);
+    other.state_root.reset();
+    r.checkpoint = protocol::sign_checkpoint(w.log_key(), provider(), other)->encoded;
+    CHECK(refusal(log, r) == Errc::verification_failed);
+    // The same state again is fine.
+    other.state_root = log.state_root;
+    r.checkpoint = protocol::sign_checkpoint(w.log_key(), provider(), other)->encoded;
+    CHECK(cosign(log, r).size == log.size);
+}
+
+TEST_CASE("checkpoints cover at least genesis", "[witness]") {
+    World w;
+    auto c = w.ledger().checkpoint(w.log_key())->checkpoint;
+    c.tree_size = 0;
+    CHECK(protocol::encode_checkpoint(c).error().code == Errc::invalid_argument);
+    auto payload =
+        *cbor::decode(*protocol::encode_checkpoint(w.ledger().latest_checkpoint()->checkpoint));
+    auto map = *payload.as_map();
+    for (auto& entry : map) {
+        if (entry.key.as_int64() == 3) {
+            entry.value = cbor::Value::unsigned_integer(0);
+        }
+    }
+    CHECK(protocol::decode_checkpoint(*cbor::encode(cbor::Value::map(map))).error().code ==
+          Errc::malformed);
+}
+
+TEST_CASE("a statement payload is accepted once per signer", "[rules][security]") {
+    World w;
+    auto first = w.statement(w.org_id(), std::nullopt, w.record_body("a/1"));
+    w.ok(w.org(), first);
+    auto second = w.statement(w.org_id(), std::nullopt, w.record_body("b/1"));
+    second.nonce = first.nonce;
+    CHECK(w.rejected(w.org(), second) == Errc::rejected);
+}
+
+TEST_CASE("delegation chains are at most 16 links long", "[rules][security]") {
+    World w;
+    protocol::Scope scope;
+    scope.statement_types = {StatementType::delegation_grant, StatementType::record_register};
+    scope.may_delegate = true;
+    std::vector<KeyPair> keys;
+    std::vector<protocol::Id> actors;
+    for (int i = 0; i < 17; ++i) {
+        keys.push_back(key("link " + std::to_string(i)));
+        actors.push_back(w.register_actor(w.org(), w.org_id(), std::nullopt,
+                                          protocol::ActorKind::person, keys.back()));
+    }
+    auto delegation = w.grant(w.org(), w.org_id(), std::nullopt, actors[0], scope);
+    for (std::size_t i = 1; i < 16; ++i) {
+        delegation = w.grant(keys[i - 1], actors[i - 1], delegation, actors[i], scope);
+    }
+    CHECK(w.rejected(keys[15], w.statement(actors[15], delegation,
+                                           protocol::DelegationGrantBody{actors[16], scope})) ==
+          Errc::rejected);
+}
