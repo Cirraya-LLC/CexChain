@@ -85,7 +85,7 @@ The `cexchain` tool controls every part of a ledger:
 |---|---|
 | Keys | `key generate`, `key show`, `key public`, `key passphrase` |
 | Ledger | `init`, `status`, `audit`, `log list`, `log show`, `log export` |
-| Actors | `actor add`, `actor list`, `actor show`, `actor revoke`, `actor rotate-key` |
+| Actors | `actor add`, `actor list`, `actor show`, `actor revoke`, `actor rotate-key`, `actor set-presence`, `presence enroll` |
 | Delegations | `delegation grant`, `delegation list`, `delegation show`, `delegation revoke` |
 | Records | `record issue`, `record list`, `record show`, `record history`, `record fields`, `record endorse`, `record transition`, `record revoke`, `record types` |
 | Proofs | `checkpoint create`, `checkpoint list`, `checkpoint show`, `checkpoint cosign-request`, `checkpoint add-cosignature`, `proof inclusion`, `proof consistency`, `receipt` |
@@ -105,6 +105,27 @@ HKDF-SHA256, AES-256-GCM) to the ledger's vault key, and each sealed file is bou
 record. Anyone who may issue records, AI agents included, can add to the vault, but only holders of
 the vault private key can read it. The vault private key can be kept off the ledger host
 (`vault keygen`, `init --vault-public-key`) and rotated at any time (`vault rekey`).
+
+## Proof of presence
+
+A signature shows that a key was used, not that a person was there. CexChain therefore attributes
+actions to machines by default, and treats an action as a person's only when it carries proof of
+presence: a WebAuthn assertion from the person's passkey (Touch ID, Windows Hello, a phone, or a
+security key) that approves exactly that statement.
+
+```sh
+# The person: create a passkey; only its public data goes into the file.
+cexchain presence enroll --out alice.passkey --name "Alice"
+# The organization: register it. (A stolen signing key cannot enroll a thief's passkey.)
+cexchain actor set-presence <alice-id> --as root.key --credential alice.passkey
+# Require presence for what matters...
+cexchain delegation grant --as root.key --to <alice-id> --allow record-endorse --require-presence
+# ...and confirm with the passkey when acting.
+cexchain record endorse <record-id> --as alice.key --role inspector --presence
+```
+
+Every verification report shows, for each step a person took, whether they proved presence. The
+browser verifier shows it too.
 
 ## Witnesses
 
@@ -181,8 +202,8 @@ report to match `cexchain verify --json` exactly, and a Chromium test drives the
 
 ```sh
 tools/wasm/build.sh
-(cd tests/wasm && npm ci && npx playwright install chromium)
-tests/wasm/run.sh build/gcc-debug/cli/cexchain build/wasm
+(cd tests/browser && npm ci && npx playwright install chromium)
+tests/browser/run.sh build/gcc-debug/cli/cexchain build/wasm
 ```
 
 Fuzz targets cover every parser of untrusted input:

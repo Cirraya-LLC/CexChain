@@ -41,6 +41,7 @@ int cmd_actor_list(const Args& args);
 int cmd_actor_show(const Args& args);
 int cmd_actor_revoke(const Args& args);
 int cmd_actor_rotate_key(const Args& args);
+int cmd_actor_set_presence(const Args& args);
 int cmd_delegation_grant(const Args& args);
 int cmd_delegation_list(const Args& args);
 int cmd_delegation_show(const Args& args);
@@ -70,6 +71,9 @@ int cmd_export(const Args& args);
 int cmd_verify(const Args& args);
 int cmd_inspect(const Args& args);
 int cmd_qr(const Args& args);
+
+// Presence
+int cmd_presence_enroll(const Args& args);
 
 // Vault
 int cmd_vault_status(const Args& args);

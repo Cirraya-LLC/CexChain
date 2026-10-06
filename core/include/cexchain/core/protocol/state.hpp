@@ -41,6 +41,10 @@ struct ActorState {
     std::uint64_t registered_at_index = 0;
     /// Log indices of the statements that rotated this actor's key.
     std::vector<std::uint64_t> rotations;
+    /// People only: the WebAuthn credentials that prove their presence.
+    std::vector<PresenceCredential> presence;
+    /// Log indices of the statements that set those credentials.
+    std::vector<std::uint64_t> presence_updates;
 
     [[nodiscard]] bool is_organization() const noexcept { return !kind.has_value(); }
 };

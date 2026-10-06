@@ -15,6 +15,7 @@
 #include <cexchain/core/error.hpp>
 #include <cexchain/core/protocol/common.hpp>
 #include <cexchain/core/protocol/log.hpp>
+#include <cexchain/core/protocol/presence.hpp>
 #include <cexchain/core/protocol/record.hpp>
 #include <cexchain/core/protocol/statement.hpp>
 
@@ -90,6 +91,9 @@ struct RecordEvent {
     /// organization acted itself.
     std::vector<ActorSummary> authority;
     std::optional<Provenance> provenance;
+    /// Set if a person proved presence for this event (machine by default:
+    /// an event without it was signed with a key, nothing more).
+    std::optional<PresenceCheck> presence;
     /// Endorsement role, or "from -> to" for a transition, or the revocation
     /// reason.
     std::string detail;

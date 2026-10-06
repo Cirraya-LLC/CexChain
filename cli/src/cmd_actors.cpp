@@ -62,7 +62,9 @@ int cmd_actor_add(const Args& args) {
     // For an agent, --model describes the new agent, not the signer.
     const protocol::Id id =
         body.kind == protocol::ActorKind::agent
-            ? session.submit(load_key(args.need("as"), args), body, args.get("delegation"))
+            ? session.submit(
+                  load_key(args.need("as"), args), body, args.get("delegation"), std::nullopt,
+                  args.has("presence") ? std::optional(!args.has("no-browser")) : std::nullopt)
             : session.submit(args, body);
     return report_submitted(args, session, id,
                             {{"actor", actor_json(session, *session.state().actor(id))}},
@@ -154,6 +156,16 @@ int cmd_actor_show(const Args& args) {
         }
         std::println("key rotations: {}", list);
     }
+    if (actor.kind == protocol::ActorKind::person) {
+        if (actor.presence.empty()) {
+            std::println("passkeys:      none (cannot prove presence)");
+        }
+        for (const protocol::PresenceCredential& c : actor.presence) {
+            std::println("passkey:       {} {} for {}{}", crypto::name(c.key.algorithm),
+                         to_base64url(c.credential_id).substr(0, 16), c.rp_id,
+                         c.label ? " (" + *c.label + ")" : "");
+        }
+    }
     std::println("records:       {} issued", records);
     if (!granted_to.empty()) {
         std::println("\ndelegations received:");
@@ -218,6 +230,7 @@ int cmd_delegation_grant(const Args& args) {
                           parse_number(*days, "--days") * day_ms;
     }
     scope.may_delegate = args.has("may-delegate");
+    scope.require_presence = args.has("require-presence");
     const protocol::DelegationGrantBody body{session.actor_id(args.need("to")), scope};
     const protocol::Id id = session.submit(args, body);
     return report_submitted(
@@ -284,6 +297,8 @@ int cmd_delegation_show(const Args& args) {
     std::println("valid until:   {}",
                  d.scope.not_after ? format_time(*d.scope.not_after) : "until revoked");
     std::println("may delegate:  {}", d.scope.may_delegate ? "yes (only narrower)" : "no");
+    std::println("presence:      {}",
+                 d.scope.require_presence ? "required (passkey)" : "not required");
     std::println("granted:       entry #{}", d.granted_at_index);
     std::string chain;
     for (const protocol::Id& id : authority_chain(session, d.id)) {

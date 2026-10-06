@@ -75,11 +75,11 @@ jobs:
       - name: Test in Node.js and Chromium
         run: |
           . /opt/emsdk/emsdk_env.sh
-          cd tests/wasm
+          cd tests/browser
           npm ci --no-audit --no-fund
           npx playwright install --with-deps chromium
           cd ../..
-          REQUIRE_BROWSER=1 tests/wasm/run.sh build/gcc-debug/cli/cexchain build/wasm
+          REQUIRE_BROWSER=1 tests/browser/run.sh build/gcc-debug/cli/cexchain build/wasm
 
       - name: Keep the verifier page
         uses: actions/upload-artifact@v4

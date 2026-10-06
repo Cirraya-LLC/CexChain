@@ -48,9 +48,9 @@ statement-payload = {
   5 => timestamp,              ; issued_at, as claimed by the signer
   6 => bstr .size 16,          ; nonce
   7 => statement-body,
+  ? 8 => presence-proof,       ; a person's proof of presence (see below)
   ? 9 => provenance,           ; for AI agents
 }
-; Key 8 is reserved for proof of human presence (v0.2) and is rejected in v0.1.
 
 statement-type = &(
   genesis: 1,
@@ -59,6 +59,7 @@ statement-type = &(
   actor-revoke: 4,
   delegation-grant: 5,
   delegation-revoke: 6,
+  actor-set-presence: 7,
   record-register: 16,
   record-endorse: 17,
   record-transition: 18,
@@ -67,8 +68,8 @@ statement-type = &(
 
 statement-body = genesis-body / actor-register-body / actor-rotate-key-body /
                  actor-revoke-body / delegation-grant-body / delegation-revoke-body /
-                 record-register-body / record-endorse-body / record-transition-body /
-                 record-revoke-body
+                 actor-set-presence-body / record-register-body / record-endorse-body /
+                 record-transition-body / record-revoke-body
 
 ; Genesis creates the ledger. It is signed by the organization root key, and
 ;   ledger_id = statement_id of the genesis statement.
@@ -115,7 +116,50 @@ scope = {
   ? 2 => [+ tstr],             ; record types; absent means any
   ? 3 => timestamp,            ; not before
   ? 4 => timestamp,            ; not after
-  ? 5 => bool,                 ; may delegate further; default false
+  ? 5 => bool,                 ; may delegate further; encoded only when true
+  ? 6 => bool,                 ; statements under it must carry proof of
+                               ; presence; encoded only when true. A
+                               ; delegation granted under one that requires
+                               ; presence must require it too.
+}
+
+; Proof of human presence (machine by default: a statement without it shows
+; only that the signer's key was used). A person registers WebAuthn
+; credentials (passkeys or security keys); actor-set-presence replaces them.
+; It may be submitted by the organization, by an actor whose delegation
+; covers it, or by the person themselves only if the statement carries proof
+; of presence with a credential already registered, so that a stolen signing
+; key alone cannot enroll a thief's passkey. Only people have credentials.
+actor-set-presence-body = {
+  1 => id,                     ; actor (a person)
+  2 => [* presence-credential], ; at most 16, unique credential ids
+}
+presence-credential = {
+  1 => tstr,                   ; WebAuthn relying party id, 1-253 chars
+  2 => bstr,                   ; credential id, 1-1023 bytes
+  3 => public-key,             ; ESP256 (WebAuthn ES256) or Ed25519 (EdDSA)
+  ? 4 => tstr,                 ; label
+}
+
+; A WebAuthn assertion that approves exactly one statement. Its challenge is
+;   HASH("CexChain presence v1" || P)
+; where HASH is the ledger hash and P is the statement payload encoded
+; without key 8. Verifiers check, for the signer's credential with this id:
+;   1. authenticatorData begins with SHA-256(rp id) and has the user-present
+;      flag (0x01); the user-verified flag (0x04) is reported, not required;
+;   2. clientDataJSON begins with
+;        {"type":"webauthn.get","challenge":"<base64url challenge>","origin":"
+;      followed by an origin without quotes or backslashes that belongs to
+;      the rp id (https and the id or a subdomain; http or https for
+;      "localhost"), then '"' and either "}" or ',"crossOrigin":false'
+;      (WebAuthn Level 3, limited verification algorithm), and ends with "}";
+;   3. the signature verifies over authenticatorData || SHA-256(clientDataJSON):
+;      DER ECDSA for ES256 (either S), raw for Ed25519.
+presence-proof = {
+  1 => bstr,                   ; credential id
+  2 => bstr,                   ; authenticatorData, 37-4096 bytes
+  3 => bstr,                   ; clientDataJSON, 1-4096 bytes
+  4 => bstr,                   ; signature as the authenticator produced it
 }
 
 delegation-revoke-body = {

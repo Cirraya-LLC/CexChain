@@ -34,6 +34,13 @@ constexpr std::int64_t key_body = 7;
 constexpr std::int64_t key_presence = 8;
 constexpr std::int64_t key_provenance = 9;
 
+// Limits on WebAuthn material, generous for real authenticators.
+constexpr std::size_t max_presence_credentials = 16;
+constexpr std::size_t max_credential_id = 1023; // WebAuthn's own limit
+constexpr std::size_t max_rp_id = 253;          // a DNS name
+constexpr std::size_t min_authenticator_data = 37;
+constexpr std::size_t max_presence_field = 4096;
+
 cbor::Value id_value(const Id& id) {
     return cbor::Value::bytes(id.bytes());
 }
@@ -78,6 +85,39 @@ Status check_scope(const Scope& scope) {
     return {};
 }
 
+Status check_presence_credential(const PresenceCredential& c) {
+    if (c.rp_id.empty() || c.rp_id.size() > max_rp_id) {
+        return fail(Errc::malformed, "relying party id must be 1 to 253 characters");
+    }
+    if (c.credential_id.empty() || c.credential_id.size() > max_credential_id) {
+        return fail(Errc::malformed, "credential id must be 1 to 1023 bytes");
+    }
+    if (c.key.algorithm != crypto::SigAlg::esp256 && c.key.algorithm != crypto::SigAlg::ed25519) {
+        return fail(Errc::unsupported, "presence keys must be ESP256 or Ed25519");
+    }
+    if (c.label && c.label->empty()) {
+        return fail(Errc::malformed, "a credential label must not be empty when present");
+    }
+    return {};
+}
+
+Status check_presence_proof(const PresenceProof& p) {
+    if (p.credential_id.empty() || p.credential_id.size() > max_credential_id) {
+        return fail(Errc::malformed, "credential id must be 1 to 1023 bytes");
+    }
+    if (p.authenticator_data.size() < min_authenticator_data ||
+        p.authenticator_data.size() > max_presence_field) {
+        return fail(Errc::malformed, "authenticator data has an impossible size");
+    }
+    if (p.client_data_json.empty() || p.client_data_json.size() > max_presence_field) {
+        return fail(Errc::malformed, "client data has an impossible size");
+    }
+    if (p.signature.empty() || p.signature.size() > max_presence_field) {
+        return fail(Errc::malformed, "presence signature has an impossible size");
+    }
+    return {};
+}
+
 Status check_metadata(const cbor::Value& metadata) {
     const cbor::Map* map = metadata.as_map();
     if (map == nullptr || map->empty()) {
@@ -114,6 +154,20 @@ Status check_body(const Body& body) {
             [](const ActorRevokeBody&) -> Status { return {}; },
             [](const DelegationGrantBody& b) -> Status { return check_scope(b.scope); },
             [](const DelegationRevokeBody&) -> Status { return {}; },
+            [](const ActorSetPresenceBody& b) -> Status {
+                if (b.credentials.size() > max_presence_credentials) {
+                    return fail(Errc::malformed, "at most 16 presence credentials");
+                }
+                for (std::size_t i = 0; i < b.credentials.size(); ++i) {
+                    CEXCHAIN_CHECK(check_presence_credential(b.credentials[i]));
+                    for (std::size_t j = i + 1; j < b.credentials.size(); ++j) {
+                        if (b.credentials[i].credential_id == b.credentials[j].credential_id) {
+                            return fail(Errc::malformed, "presence credential ids must be unique");
+                        }
+                    }
+                }
+                return {};
+            },
             [](const RecordRegisterBody& b) -> Status {
                 CEXCHAIN_CHECK(require_text(b.record_type, "record type must not be empty"));
                 if (b.field_root.size() != id_size) {
@@ -162,6 +216,12 @@ Status check_statement(const Statement& statement) {
     } else if (!statement.ledger_id || !statement.actor_id) {
         return fail(Errc::malformed, "statement must name its ledger and actor");
     }
+    if (statement.presence) {
+        if (statement.type() == StatementType::genesis) {
+            return fail(Errc::malformed, "genesis carries no proof of presence");
+        }
+        CEXCHAIN_CHECK(check_presence_proof(*statement.presence));
+    }
     if (statement.provenance) {
         for (const ToolPin& tool : statement.provenance->tools) {
             CEXCHAIN_CHECK(require_text(tool.name, "tool name must not be empty"));
@@ -209,7 +269,35 @@ Result<cbor::Value> encode_scope(const Scope& scope) {
     if (scope.may_delegate) {
         map.push_back(entry(5, cbor::Value::boolean(true)));
     }
+    if (scope.require_presence) {
+        map.push_back(entry(6, cbor::Value::boolean(true)));
+    }
     return cbor::Value::map(std::move(map));
+}
+
+cbor::Value presence_credential_value(const PresenceCredential& c) {
+    cbor::Map map{
+        entry(1, text_value(c.rp_id)),
+        entry(2, cbor::Value::bytes(c.credential_id)),
+        entry(3, encode_public_key(c.key)),
+    };
+    if (c.label) {
+        map.push_back(entry(4, text_value(*c.label)));
+    }
+    return cbor::Value::map(std::move(map));
+}
+
+Result<PresenceCredential> presence_credential_from(const cbor::Value& value) {
+    CEXCHAIN_TRY(MapReader reader, MapReader::open(value));
+    PresenceCredential c;
+    CEXCHAIN_TRY(c.rp_id, reader.need_text(1));
+    CEXCHAIN_TRY(c.credential_id, reader.need_bytes(2));
+    CEXCHAIN_TRY(const cbor::Value* key, reader.need(3));
+    CEXCHAIN_TRY(c.key, decode_public_key(*key));
+    CEXCHAIN_TRY(c.label, reader.opt_text(4));
+    CEXCHAIN_CHECK(reader.finish());
+    CEXCHAIN_CHECK(check_presence_credential(c));
+    return c;
 }
 
 Result<cbor::Value> encode_body(const Body& body) {
@@ -269,6 +357,14 @@ Result<cbor::Value> encode_body(const Body& body) {
                     map.push_back(entry(2, text_value(*b.reason)));
                 }
                 return cbor::Value::map(std::move(map));
+            },
+            [](const ActorSetPresenceBody& b) -> Result<cbor::Value> {
+                cbor::Array credentials;
+                for (const PresenceCredential& c : b.credentials) {
+                    credentials.push_back(presence_credential_value(c));
+                }
+                return cbor::Value::map({entry(1, id_value(b.actor)),
+                                         entry(2, cbor::Value::array(std::move(credentials)))});
             },
             [](const RecordRegisterBody& b) -> Result<cbor::Value> {
                 cbor::Map map{
@@ -382,6 +478,11 @@ Result<Scope> decode_scope(const cbor::Value& value) {
         return fail(Errc::non_canonical, "may-delegate is encoded only when true");
     }
     scope.may_delegate = may_delegate.value_or(false);
+    CEXCHAIN_TRY(std::optional<bool> require_presence, reader.opt_bool(6));
+    if (require_presence && !*require_presence) {
+        return fail(Errc::non_canonical, "require-presence is encoded only when true");
+    }
+    scope.require_presence = require_presence.value_or(false);
     CEXCHAIN_CHECK(reader.finish());
     return scope;
 }
@@ -463,6 +564,21 @@ Result<Body> decode_body(StatementType type, const cbor::Value& value) {
         body = std::move(b);
         break;
     }
+    case StatementType::actor_set_presence: {
+        ActorSetPresenceBody b;
+        CEXCHAIN_TRY(b.actor, reader.need_id(1));
+        CEXCHAIN_TRY(const cbor::Value* list_value, reader.need(2));
+        CEXCHAIN_TRY(const cbor::Array* list, detail::as_array(*list_value));
+        if (list->size() > max_presence_credentials) {
+            return fail(Errc::malformed, "at most 16 presence credentials");
+        }
+        for (const cbor::Value& item : *list) {
+            CEXCHAIN_TRY(PresenceCredential c, presence_credential_from(item));
+            b.credentials.push_back(std::move(c));
+        }
+        body = std::move(b);
+        break;
+    }
     case StatementType::record_register: {
         RecordRegisterBody b;
         CEXCHAIN_TRY(b.record_type, reader.need_text(1));
@@ -520,6 +636,26 @@ Result<Body> decode_body(StatementType type, const cbor::Value& value) {
     return body;
 }
 
+cbor::Value encode_presence_proof(const PresenceProof& p) {
+    return cbor::Value::map({
+        entry(1, cbor::Value::bytes(p.credential_id)),
+        entry(2, cbor::Value::bytes(p.authenticator_data)),
+        entry(3, cbor::Value::bytes(p.client_data_json)),
+        entry(4, cbor::Value::bytes(p.signature)),
+    });
+}
+
+Result<PresenceProof> decode_presence_proof(const cbor::Value& value) {
+    CEXCHAIN_TRY(MapReader reader, MapReader::open(value));
+    PresenceProof p;
+    CEXCHAIN_TRY(p.credential_id, reader.need_bytes(1));
+    CEXCHAIN_TRY(p.authenticator_data, reader.need_bytes(2));
+    CEXCHAIN_TRY(p.client_data_json, reader.need_bytes(3));
+    CEXCHAIN_TRY(p.signature, reader.need_bytes(4));
+    CEXCHAIN_CHECK(reader.finish());
+    return p;
+}
+
 Result<Provenance> decode_provenance(const cbor::Value& value) {
     CEXCHAIN_TRY(MapReader reader, MapReader::open(value));
     Provenance provenance;
@@ -556,6 +692,7 @@ std::optional<StatementType> statement_type_from(std::uint64_t value) noexcept {
     case 4:
     case 5:
     case 6:
+    case 7:
     case 16:
     case 17:
     case 18:
@@ -580,6 +717,8 @@ std::string_view name(StatementType type) noexcept {
         return "delegation-grant";
     case StatementType::delegation_revoke:
         return "delegation-revoke";
+    case StatementType::actor_set_presence:
+        return "actor-set-presence";
     case StatementType::record_register:
         return "record-register";
     case StatementType::record_endorse:
@@ -601,6 +740,7 @@ StatementType type_of(const Body& body) noexcept {
             [](const ActorRevokeBody&) { return StatementType::actor_revoke; },
             [](const DelegationGrantBody&) { return StatementType::delegation_grant; },
             [](const DelegationRevokeBody&) { return StatementType::delegation_revoke; },
+            [](const ActorSetPresenceBody&) { return StatementType::actor_set_presence; },
             [](const RecordRegisterBody&) { return StatementType::record_register; },
             [](const RecordEndorseBody&) { return StatementType::record_endorse; },
             [](const RecordTransitionBody&) { return StatementType::record_transition; },
@@ -629,6 +769,9 @@ Result<Bytes> encode_payload(const Statement& statement) {
     }
     if (statement.delegation_id) {
         map.push_back(entry(key_delegation, id_value(*statement.delegation_id)));
+    }
+    if (statement.presence) {
+        map.push_back(entry(key_presence, encode_presence_proof(*statement.presence)));
     }
     if (statement.provenance) {
         map.push_back(entry(key_provenance, encode_provenance(*statement.provenance)));
@@ -661,8 +804,8 @@ Result<Statement> decode_payload(ByteView payload) {
     std::ranges::copy(nonce, statement.nonce.begin());
     CEXCHAIN_TRY(const cbor::Value* body, reader.need(key_body));
     CEXCHAIN_TRY(statement.body, decode_body(*type, *body));
-    if (reader.get(key_presence) != nullptr) {
-        return fail(Errc::unsupported, "proof of presence is not supported in protocol v0.1");
+    if (const cbor::Value* presence = reader.get(key_presence)) {
+        CEXCHAIN_TRY(statement.presence, decode_presence_proof(*presence));
     }
     if (const cbor::Value* provenance = reader.get(key_provenance)) {
         CEXCHAIN_TRY(statement.provenance, decode_provenance(*provenance));
@@ -670,6 +813,18 @@ Result<Statement> decode_payload(ByteView payload) {
     CEXCHAIN_CHECK(reader.finish());
     CEXCHAIN_CHECK(check_statement(statement));
     return statement;
+}
+
+Result<Bytes> encode_presence_credential(const PresenceCredential& credential) {
+    if (auto s = check_presence_credential(credential); !s) {
+        return std::unexpected(Error{Errc::invalid_argument, s.error().detail});
+    }
+    return cbor::encode(presence_credential_value(credential));
+}
+
+Result<PresenceCredential> decode_presence_credential(ByteView encoded) {
+    CEXCHAIN_TRY(cbor::Value value, cbor::decode(encoded));
+    return presence_credential_from(value);
 }
 
 Result<SignedStatement> sign_statement(const crypto::Signer& signer,

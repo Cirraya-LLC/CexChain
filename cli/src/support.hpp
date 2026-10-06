@@ -117,12 +117,16 @@ public:
     /// Builds, signs, and submits a statement by the holder of `signer`,
     /// choosing a delegation that covers it unless `delegation` is given, and
     /// filling in provenance for agents. Returns the statement's id.
+    /// With `presence` set, the signer (a person) first proves presence with
+    /// a passkey in the browser; the value says whether to open the browser.
     protocol::Id submit(const crypto::Signer& signer, protocol::Body body,
                         const std::optional<std::string>& delegation,
-                        std::optional<protocol::Provenance> provenance = std::nullopt);
+                        std::optional<protocol::Provenance> provenance = std::nullopt,
+                        std::optional<bool> presence = std::nullopt);
 
     /// Signs and submits as the holder of --as, with --delegation, --model,
-    /// --model-version, and --inputs taken from `args`.
+    /// --model-version, --inputs, --presence, and --no-browser taken from
+    /// `args`.
     protocol::Id submit(const Args& args, protocol::Body body);
 
     /// AI provenance from --model, --model-version, and --inputs (hashed).
@@ -141,6 +145,9 @@ public:
     [[nodiscard]] std::filesystem::path vault_path(const protocol::Id& record) const;
 
 private:
+    void prove_presence(const protocol::ActorState& actor, protocol::Statement& statement,
+                        bool open_browser) const;
+
     [[nodiscard]] std::optional<protocol::Id>
     choose_delegation(const protocol::ActorState& actor, protocol::StatementType type,
                       const std::optional<std::string>& record_type) const;

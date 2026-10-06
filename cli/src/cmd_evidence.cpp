@@ -65,6 +65,11 @@ Json inspect_json(const crypto::Provider& provider, const Bytes& content) {
                 {"kind", "public-key"}, {"public_key", public_key_json(*key)}, {"key_ids", ids}};
         }
     }
+    if (const auto credential = protocol::decode_presence_credential(content)) {
+        Json out = presence_credential_json(*credential);
+        out["kind"] = "passkey-credential";
+        return out;
+    }
     if (const auto key = decode_vault_public_key(content)) {
         return {{"kind", "vault-public-key"},
                 {"algorithm", "X25519 (HPKE)"},

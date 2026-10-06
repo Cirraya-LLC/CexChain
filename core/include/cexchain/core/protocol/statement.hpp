@@ -28,6 +28,7 @@ enum class StatementType : std::uint8_t {
     actor_revoke = 4,
     delegation_grant = 5,
     delegation_revoke = 6,
+    actor_set_presence = 7,
     record_register = 16,
     record_endorse = 17,
     record_transition = 18,
@@ -86,6 +87,27 @@ struct ActorRevokeBody {
     friend bool operator==(const ActorRevokeBody&, const ActorRevokeBody&) = default;
 };
 
+/// A WebAuthn credential (a passkey or security key) with which a person
+/// proves presence. Its key is ESP256 (WebAuthn ES256) or Ed25519 (EdDSA).
+struct PresenceCredential {
+    /// The WebAuthn relying party id, e.g. "example.com" or "localhost".
+    std::string rp_id;
+    Bytes credential_id;
+    crypto::PublicKey key;
+    std::optional<std::string> label;
+
+    friend bool operator==(const PresenceCredential&, const PresenceCredential&) = default;
+};
+
+/// Sets a person's presence credentials, replacing any before.
+struct ActorSetPresenceBody {
+    Id actor;
+    /// At most 16; empty removes them all.
+    std::vector<PresenceCredential> credentials;
+
+    friend bool operator==(const ActorSetPresenceBody&, const ActorSetPresenceBody&) = default;
+};
+
 struct Scope {
     /// Statement types the grantee may submit. Non-empty, no duplicates.
     std::vector<StatementType> statement_types;
@@ -94,6 +116,8 @@ struct Scope {
     std::optional<Timestamp> not_before;
     std::optional<Timestamp> not_after;
     bool may_delegate = false;
+    /// Statements under this delegation must carry proof of presence.
+    bool require_presence = false;
 
     friend bool operator==(const Scope&, const Scope&) = default;
 };
@@ -154,9 +178,10 @@ struct RecordRevokeBody {
     friend bool operator==(const RecordRevokeBody&, const RecordRevokeBody&) = default;
 };
 
-using Body = std::variant<GenesisBody, ActorRegisterBody, ActorRotateKeyBody, ActorRevokeBody,
-                          DelegationGrantBody, DelegationRevokeBody, RecordRegisterBody,
-                          RecordEndorseBody, RecordTransitionBody, RecordRevokeBody>;
+using Body =
+    std::variant<GenesisBody, ActorRegisterBody, ActorRotateKeyBody, ActorRevokeBody,
+                 DelegationGrantBody, DelegationRevokeBody, ActorSetPresenceBody,
+                 RecordRegisterBody, RecordEndorseBody, RecordTransitionBody, RecordRevokeBody>;
 
 [[nodiscard]] StatementType type_of(const Body& body) noexcept;
 
@@ -177,6 +202,18 @@ struct Provenance {
     friend bool operator==(const Provenance&, const Provenance&) = default;
 };
 
+/// A person's proof of presence: a WebAuthn assertion whose challenge is the
+/// statement's presence challenge (see presence.hpp).
+struct PresenceProof {
+    Bytes credential_id;
+    Bytes authenticator_data;
+    Bytes client_data_json;
+    /// As the authenticator produced it: DER for ES256, raw for EdDSA.
+    Bytes signature;
+
+    friend bool operator==(const PresenceProof&, const PresenceProof&) = default;
+};
+
 struct Statement {
     /// Absent only in genesis.
     std::optional<Id> ledger_id;
@@ -188,6 +225,8 @@ struct Statement {
     Timestamp issued_at = 0;
     Nonce nonce{};
     Body body;
+    /// A person's proof of presence.
+    std::optional<PresenceProof> presence;
     std::optional<Provenance> provenance;
 
     [[nodiscard]] StatementType type() const noexcept { return type_of(body); }
@@ -199,8 +238,12 @@ struct Statement {
 /// structural rules of the specification.
 [[nodiscard]] Result<Bytes> encode_payload(const Statement& statement);
 
-/// Decodes and checks a statement payload. Rejects unknown keys and the key
-/// reserved for proof of presence (v0.2).
+/// Presence credentials as they are encoded in statements; credential files
+/// use the same encoding.
+[[nodiscard]] Result<Bytes> encode_presence_credential(const PresenceCredential& credential);
+[[nodiscard]] Result<PresenceCredential> decode_presence_credential(ByteView encoded);
+
+/// Decodes and checks a statement payload. Rejects unknown keys.
 [[nodiscard]] Result<Statement> decode_payload(ByteView payload);
 
 /// A signed statement as it travels and is stored.

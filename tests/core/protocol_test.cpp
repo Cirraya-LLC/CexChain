@@ -296,20 +296,20 @@ TEST_CASE("record field commitments and disclosure match the vectors", "[protoco
 }
 
 TEST_CASE("statement payloads enforce the specification", "[protocol]") {
-    SECTION("unknown keys and the reserved presence key") {
+    SECTION("unknown keys and an incomplete presence proof") {
         auto map = sample_payload_map();
         set_key(map, 99, Value::null());
         CHECK(payload_error(map) == Errc::malformed);
         map = sample_payload_map();
         set_key(map, 8, Value::map({}));
-        CHECK(payload_error(map) == Errc::unsupported);
+        CHECK(payload_error(map) == Errc::malformed);
     }
     SECTION("version and type") {
         auto map = sample_payload_map();
         set_key(map, 0, Value::unsigned_integer(2));
         CHECK(payload_error(map) == Errc::unsupported);
         map = sample_payload_map();
-        set_key(map, 1, Value::unsigned_integer(7));
+        set_key(map, 1, Value::unsigned_integer(8));
         CHECK(payload_error(map) == Errc::unsupported);
     }
     SECTION("ledger and actor are required outside genesis") {

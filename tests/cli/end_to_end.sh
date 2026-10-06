@@ -127,6 +127,24 @@ run record show "$RECORD" --json | json 'd["next_states"]' | contains suspended
 run record fields "$RECORD" | contains -x 'result = pass'
 run record fields "$RECORD" --json | json 'd["fields"]["batch"]' | contains -x B-2026-1006
 
+# Proof of presence. (Passkey ceremonies themselves run in tests/browser.)
+expect_exit 2 record endorse "$RECORD" --as alice.key --role approver --presence --no-browser
+contains 'has no passkey registered' out.txt
+expect_exit 1 record issue --as agent.key --type cexchain.certificate/1 --field result=pass --presence --no-browser
+contains 'only people prove presence' out.txt
+run key generate --out carol.key > /dev/null
+CAROL="$(run actor add --as root.key --kind person --name "Carol Approver" --key carol.key | id_from)"
+CAROL_GRANT="$(run delegation grant --as root.key --to "$CAROL" --allow record-endorse --days 1 --require-presence | id_from)"
+run delegation show "$CAROL_GRANT" | contains 'presence:      required'
+expect_exit 2 record endorse "$RECORD" --as carol.key --role approver
+contains 'requires proof of presence' out.txt
+run actor set-presence "$CAROL" --as root.key --clear > /dev/null
+run actor show "$CAROL" | contains 'passkeys:      none'
+expect_exit 2 actor set-presence "$AGENT" --as root.key --clear
+contains 'only people have presence credentials' out.txt
+expect_exit 1 actor set-presence "$CAROL" --as root.key
+run presence enroll --help | contains 'Touch ID'
+
 # Out of scope: the agent may not endorse, Bob has no delegation, and a
 # delivery is outside the agent's record types.
 expect_exit 2 record endorse "$RECORD" --as agent.key --role inspector

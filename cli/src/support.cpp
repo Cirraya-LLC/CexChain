@@ -18,6 +18,10 @@
 #include <variant>
 
 #include <cexchain/core/cbor.hpp>
+#include <cexchain/core/protocol/presence.hpp>
+
+#include "output.hpp"
+#include "webauthn.hpp"
 
 namespace cexchain::cli {
 
@@ -383,7 +387,8 @@ Session::choose_delegation(const protocol::ActorState& actor, protocol::Statemen
 
 protocol::Id Session::submit(const crypto::Signer& signer, protocol::Body body,
                              const std::optional<std::string>& delegation,
-                             std::optional<protocol::Provenance> provenance) {
+                             std::optional<protocol::Provenance> provenance,
+                             std::optional<bool> presence) {
     const protocol::ActorState& actor = actor_for(signer);
     protocol::Statement statement;
     statement.ledger_id = state().ledger_id();
@@ -391,11 +396,16 @@ protocol::Id Session::submit(const crypto::Signer& signer, protocol::Body body,
     statement.issued_at = clock_.now();
     statement.nonce = entropy_.bytes<16>();
     if (!actor.is_organization()) {
+        // Own key rotations, and own passkey changes proven with a passkey,
+        // need no delegation.
         const bool self_rotation = std::holds_alternative<protocol::ActorRotateKeyBody>(body) &&
                                    std::get<protocol::ActorRotateKeyBody>(body).actor == actor.id;
+        const bool self_presence = presence &&
+                                   std::holds_alternative<protocol::ActorSetPresenceBody>(body) &&
+                                   std::get<protocol::ActorSetPresenceBody>(body).actor == actor.id;
         if (delegation) {
             statement.delegation_id = delegation_id(*delegation);
-        } else if (!self_rotation) {
+        } else if (!self_rotation && !self_presence) {
             statement.delegation_id =
                 choose_delegation(actor, protocol::type_of(body), record_type_for(state(), body));
             if (!statement.delegation_id) {
@@ -419,6 +429,9 @@ protocol::Id Session::submit(const crypto::Signer& signer, protocol::Body body,
     }
     statement.provenance = std::move(provenance);
     statement.body = std::move(body);
+    if (presence) {
+        prove_presence(actor, statement, *presence);
+    }
 
     const auto signed_statement =
         unwrap(protocol::sign_statement(signer, provider_, state().hash(), statement), "signing");
@@ -440,7 +453,52 @@ std::optional<protocol::Provenance> Session::provenance(const Args& args) const 
 
 protocol::Id Session::submit(const Args& args, protocol::Body body) {
     const auto signer = load_key(args.need("as"), args);
-    return submit(signer, std::move(body), args.get("delegation"), provenance(args));
+    return submit(signer, std::move(body), args.get("delegation"), provenance(args),
+                  args.has("presence") ? std::optional(!args.has("no-browser")) : std::nullopt);
+}
+
+void Session::prove_presence(const protocol::ActorState& actor, protocol::Statement& statement,
+                             bool open_browser) const {
+    if (actor.kind != protocol::ActorKind::person) {
+        throw UsageError{"only people prove presence; \"" + actor.display_name + "\" is " +
+                         (actor.is_organization() ? std::string("the organization")
+                                                  : "an " + kind_label(actor.kind))};
+    }
+    if (actor.presence.empty()) {
+        throw CommandError{"\"" + actor.display_name +
+                           "\" has no passkey registered (cexchain presence enroll, then cexchain "
+                           "actor set-presence)"};
+    }
+    const auto challenge =
+        unwrap(protocol::presence_challenge(provider_, state().hash(), statement),
+               "computing the challenge");
+    const std::string rp_id = actor.presence.front().rp_id;
+    nlohmann::json allow = nlohmann::json::array();
+    for (const protocol::PresenceCredential& c : actor.presence) {
+        if (c.rp_id == rp_id) {
+            allow.push_back(to_base64url(c.credential_id));
+        }
+    }
+    const nlohmann::json request{
+        {"mode", "get"},
+        {"rpId", rp_id},
+        {"challenge", to_base64url(challenge)},
+        {"allow", allow},
+        {"title", "Confirm as " + actor.display_name},
+        {"summary", "On the ledger of \"" + state().organization() + "\":\n" +
+                        body_summary(*this, statement.body, std::nullopt)}};
+    const nlohmann::json response = run_webauthn_ceremony(request, open_browser);
+    auto field = [&](const char* name) {
+        if (!response.contains(name) || !response[name].is_string()) {
+            throw CommandError{"the browser's passkey response is incomplete"};
+        }
+        return unwrap(from_base64url(response[name].get<std::string>()),
+                      "reading the passkey response");
+    };
+    statement.presence = protocol::PresenceProof{field("id"), field("authenticatorData"),
+                                                 field("clientDataJSON"), field("signature")};
+    unwrap(protocol::verify_presence(provider_, state().hash(), statement, actor.presence),
+           "checking the passkey response");
 }
 
 std::uint64_t Session::entry_index(std::string_view text) const {

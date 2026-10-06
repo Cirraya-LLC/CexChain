@@ -42,6 +42,9 @@ int cmd_record_issue(const Args& args) {
     }
     request.delegation = args.get("delegation");
     request.provenance = session.provenance(args);
+    if (args.has("presence")) {
+        request.presence = !args.has("no-browser");
+    }
     const protocol::Id id = issue_record(session, load_key(args.need("as"), args), request);
     const protocol::RecordState& record = *session.state().record(id);
     return report_submitted(
@@ -143,6 +146,10 @@ int cmd_record_history(const Args& args) {
                 line += ", inputs committed";
             }
             std::println("       AI provenance: {}", line);
+        }
+        if (actor != nullptr && actor->kind == protocol::ActorKind::person) {
+            std::println("       {}",
+                         s.presence ? "presence proven with a passkey" : "presence not proven");
         }
         if (actor != nullptr && actor->responsible) {
             std::println("       responsible: {}", session.actor_name(*actor->responsible));

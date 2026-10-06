@@ -240,6 +240,13 @@ int cmd_log_show(const Args& args) {
                          to_hex(tool.digest).substr(0, 16));
         }
     }
+    if (s.presence) {
+        const bool verified = s.presence->authenticator_data.size() > 32 &&
+                              (s.presence->authenticator_data[32] & 0x04U) != 0;
+        std::println("presence:      proven with passkey {}{}",
+                     to_base64url(s.presence->credential_id).substr(0, 16),
+                     verified ? " (user verified)" : "");
+    }
     std::println("body:\n{}", body_json(s.body).dump(2));
     if (args.has("raw")) {
         std::println("raw COSE_Sign1:\n{}",

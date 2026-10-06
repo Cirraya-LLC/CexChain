@@ -34,6 +34,10 @@ const OptionSpec passphrase_file_option{
     "Read key passphrases from FILE (default: $CEXCHAIN_PASSPHRASE or a prompt)"};
 const OptionSpec vault_key_option{"vault-key", "FILE",
                                   "The vault private key (default: <ledger>/vault.key)"};
+const OptionSpec presence_option{"presence", "",
+                                 "Prove you are present: confirm with your passkey in the browser"};
+const OptionSpec no_browser_option{"no-browser", "",
+                                   "Do not open the browser; open the printed address yourself"};
 const OptionSpec json_option{"json", "", "Print machine-readable JSON"};
 const OptionSpec help_option{"help", "", "Show help for this command"};
 
@@ -43,8 +47,9 @@ std::vector<OptionSpec> with(std::vector<OptionSpec> options) {
 
 std::vector<OptionSpec> signing(std::vector<OptionSpec> extra) {
     std::vector<OptionSpec> options{
-        ledger_option,        as_option,     delegation_option,     model_option,
-        model_version_option, inputs_option, passphrase_file_option};
+        ledger_option,        as_option,     delegation_option,      model_option,
+        model_version_option, inputs_option, passphrase_file_option, presence_option,
+        no_browser_option};
     options.insert(options.end(), extra.begin(), extra.end());
     return options;
 }
@@ -232,6 +237,36 @@ std::vector<CommandSpec> build() {
          "An actor may rotate its own key with --as its current key; otherwise a delegation\n"
          "covering actor-rotate-key is needed."},
 
+        {{"actor", "set-presence"},
+         "Register a person's passkeys for proof of presence",
+         "Actors",
+         "ACTOR",
+         1,
+         1,
+         signing({{"credential", "FILE",
+                   "A passkey credential file (from cexchain presence enroll)", false, true},
+                  {"add", "", "Keep the passkeys already registered"},
+                  {"clear", "", "Remove every passkey"}}),
+         cmd_actor_set_presence,
+         "Replaces the person's passkeys unless --add is given. The organization, or an actor "
+         "with\n"
+         "a delegation covering actor-set-presence, may do this; a person may change their own\n"
+         "passkeys only with --presence, proving presence with a passkey already registered."},
+        {{"presence", "enroll"},
+         "Create a passkey to prove your presence",
+         "Actors",
+         "",
+         0,
+         0,
+         with({{"out", "FILE", "Write the passkey's credential file (public data) here", true},
+               {"name", "NAME", "Your name, as the passkey will show it", true},
+               {"label", "TEXT", "A label for this passkey, e.g. \"MacBook Touch ID\""},
+               no_browser_option}),
+         cmd_presence_enroll,
+         "Opens the browser to create a passkey (Touch ID, Windows Hello, a phone, or a security\n"
+         "key) for the site \"localhost\". Only public data is written to FILE; give it to your\n"
+         "administrator to register with cexchain actor set-presence."},
+
         // ------------------------------------------------------------------
         {{"delegation", "grant"},
          "Grant a delegation",
@@ -246,10 +281,12 @@ std::vector<CommandSpec> build() {
               {"from-date", "DATE", "Valid from (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ)"},
               {"until", "DATE", "Valid until"},
               {"days", "N", "Valid for N days from now"},
-              {"may-delegate", "", "The grantee may delegate further (only narrower)"}}),
+              {"may-delegate", "", "The grantee may delegate further (only narrower)"},
+              {"require-presence", "", "Everything done under it must carry proof of presence"}}),
          cmd_delegation_grant,
-         "Statement types: actor-register, actor-rotate-key, actor-revoke, delegation-grant,\n"
-         "delegation-revoke, record-register, record-endorse, record-transition, record-revoke."},
+         "Statement types: actor-register, actor-rotate-key, actor-revoke, actor-set-presence,\n"
+         "delegation-grant, delegation-revoke, record-register, record-endorse,\n"
+         "record-transition, record-revoke."},
         {{"delegation", "list"},
          "List delegations",
          "Delegations",

@@ -1,8 +1,8 @@
 {
-  "name": "cexchain-browser-verifier-tests",
+  "name": "cexchain-browser-tests",
   "private": true,
   "license": "Apache-2.0",
-  "description": "Browser tests for the CexChain verifier page",
+  "description": "Browser tests: the verifier page and passkey presence",
   "scripts": {
     "test": "node page_test.js"
   },

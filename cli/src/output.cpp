@@ -13,6 +13,10 @@ namespace cexchain::cli {
 
 namespace {
 
+bool presence_user_verified(const protocol::PresenceProof& proof) {
+    return proof.authenticator_data.size() > 32 && (proof.authenticator_data[32] & 0x04U) != 0;
+}
+
 template <class... Fs>
 struct Overloaded : Fs... {
     using Fs::operator()...;
@@ -23,6 +27,13 @@ Json optional_text(const std::optional<std::string>& text) {
 }
 
 } // namespace
+
+Json presence_credential_json(const protocol::PresenceCredential& c) {
+    return {{"rp_id", c.rp_id},
+            {"credential_id", to_base64url(c.credential_id)},
+            {"key", public_key_json(c.key)},
+            {"label", optional_text(c.label)}};
+}
 
 void print_json(const Json& value) {
     std::println("{}", value.dump(2));
@@ -61,6 +72,13 @@ Json actor_json(const Session& session, const protocol::ActorState& actor) {
                         {"model_version", optional_text(actor.agent->model_version)},
                         {"runtime", optional_text(actor.agent->runtime)}};
     }
+    if (actor.kind == protocol::ActorKind::person) {
+        Json credentials = Json::array();
+        for (const protocol::PresenceCredential& c : actor.presence) {
+            credentials.push_back(presence_credential_json(c));
+        }
+        out["presence_credentials"] = std::move(credentials);
+    }
     return out;
 }
 
@@ -73,7 +91,8 @@ Json scope_json(const protocol::Scope& scope) {
              {"record_types", scope.record_types ? Json(*scope.record_types) : Json(nullptr)},
              {"valid_from", scope.not_before ? Json(iso_time(*scope.not_before)) : Json(nullptr)},
              {"valid_until", scope.not_after ? Json(iso_time(*scope.not_after)) : Json(nullptr)},
-             {"may_delegate", scope.may_delegate}};
+             {"may_delegate", scope.may_delegate},
+             {"require_presence", scope.require_presence}};
     return out;
 }
 
@@ -97,6 +116,9 @@ std::string scope_text(const protocol::Scope& scope) {
     }
     if (scope.may_delegate) {
         out += " (may delegate)";
+    }
+    if (scope.require_presence) {
+        out += " (presence required)";
     }
     return out;
 }
@@ -214,6 +236,13 @@ Json body_json(const protocol::Body& body) {
             [](const protocol::DelegationRevokeBody& b) -> Json {
                 return {{"delegation", id_json(b.delegation)}, {"reason", optional_text(b.reason)}};
             },
+            [](const protocol::ActorSetPresenceBody& b) -> Json {
+                Json credentials = Json::array();
+                for (const protocol::PresenceCredential& c : b.credentials) {
+                    credentials.push_back(presence_credential_json(c));
+                }
+                return {{"actor", id_json(b.actor)}, {"credentials", std::move(credentials)}};
+            },
             [](const protocol::RecordRegisterBody& b) -> Json {
                 Json attachments = Json::array();
                 for (const protocol::Attachment& a : b.attachments) {
@@ -249,6 +278,10 @@ Json statement_json(const protocol::Statement& s) {
             {"issued_at", iso_time(s.issued_at)},
             {"nonce", hex_json(s.nonce)},
             {"provenance", s.provenance ? provenance_json(*s.provenance) : Json(nullptr)},
+            {"presence", s.presence
+                             ? Json{{"credential_id", to_base64url(s.presence->credential_id)},
+                                    {"user_verified", presence_user_verified(*s.presence)}}
+                             : Json(nullptr)},
             {"body", body_json(s.body)}};
 }
 
@@ -270,11 +303,11 @@ Json entry_json(const Session& session, std::uint64_t index) {
     return out;
 }
 
-std::string statement_summary(const Session& session,
-                              const protocol::SignedStatement& signed_statement) {
-    const protocol::Statement& s = signed_statement.statement;
-    auto name_of = [&](const protocol::Id& id) {
-        return "\"" + session.actor_name(id) + "\"";
+std::string body_summary(const Session& session, const protocol::Body& body,
+                         const std::optional<protocol::Id>& statement_id) {
+    const std::string id = statement_id ? " " + short_id(*statement_id) : "";
+    auto name_of = [&](const protocol::Id& actor) {
+        return "\"" + session.actor_name(actor) + "\"";
     };
     return std::visit(
         Overloaded{
@@ -283,8 +316,8 @@ std::string statement_summary(const Session& session,
                        std::string(crypto::name(b.hash_alg)) + ")";
             },
             [&](const protocol::ActorRegisterBody& b) {
-                std::string out = "register " + kind_text(b.kind) + " \"" + b.display_name + "\" " +
-                                  short_id(signed_statement.id);
+                std::string out =
+                    "register " + kind_text(b.kind) + " \"" + b.display_name + "\"" + id;
                 if (b.agent && b.agent->model) {
                     out += " (model " + *b.agent->model + ")";
                 }
@@ -298,16 +331,18 @@ std::string statement_summary(const Session& session,
                        (b.reason ? " (" + *b.reason + ")" : "");
             },
             [&](const protocol::DelegationGrantBody& b) {
-                return "delegate to " + name_of(b.grantee) + ": " + scope_text(b.scope) + " " +
-                       short_id(signed_statement.id);
+                return "delegate to " + name_of(b.grantee) + ": " + scope_text(b.scope) + id;
             },
             [&](const protocol::DelegationRevokeBody& b) {
                 return "revoke delegation " + short_id(b.delegation) +
                        (b.reason ? " (" + *b.reason + ")" : "");
             },
-            [&](const protocol::RecordRegisterBody& b) {
-                return "issue " + b.record_type + " " + short_id(signed_statement.id);
+            [&](const protocol::ActorSetPresenceBody& b) {
+                return b.credentials.empty() ? "remove the passkeys of " + name_of(b.actor)
+                                             : "set " + std::to_string(b.credentials.size()) +
+                                                   " passkey(s) for " + name_of(b.actor);
             },
+            [&](const protocol::RecordRegisterBody& b) { return "issue " + b.record_type + id; },
             [&](const protocol::RecordEndorseBody& b) {
                 return "endorse " + short_id(b.record) + " as " + b.role;
             },
@@ -319,7 +354,12 @@ std::string statement_summary(const Session& session,
                        (b.reason ? " (" + *b.reason + ")" : "");
             },
         },
-        s.body);
+        body);
+}
+
+std::string statement_summary(const Session& session,
+                              const protocol::SignedStatement& signed_statement) {
+    return body_summary(session, signed_statement.statement.body, signed_statement.id);
 }
 
 int report_submitted(const Args& args, const Session& session, const protocol::Id& statement,

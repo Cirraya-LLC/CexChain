@@ -293,7 +293,8 @@ protocol::Id issue_record(Session& session, const crypto::Signer& signer,
         }
         body.metadata = cbor::Value::map(std::move(metadata));
     }
-    const protocol::Id id = session.submit(signer, body, request.delegation, request.provenance);
+    const protocol::Id id =
+        session.submit(signer, body, request.delegation, request.provenance, request.presence);
     save_vault(session, id, vault);
     return id;
 }

@@ -2,6 +2,7 @@
 // Copyright 2026 Cirraya
 
 #include <algorithm>
+#include <map>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -282,10 +283,19 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
         included.push_back(std::move(item));
     }
 
-    // Replay the included statements under the ledger rules.
+    // Replay the included statements under the ledger rules, noting each
+    // proof of presence against the credentials of the moment.
+    std::map<std::uint64_t, PresenceCheck> presence;
     for (const Included& item : included) {
         if (item.index == 0) {
             continue;
+        }
+        if (const Statement& s = item.statement.statement; s.presence && s.actor_id) {
+            if (const ActorState* signer = state->actor(*s.actor_id)) {
+                if (auto check = verify_presence(provider, state->hash(), s, signer->presence)) {
+                    presence[item.index] = std::move(*check);
+                }
+            }
         }
         if (!state->validate(provider, item.statement, item.log_entry.registered_at)) {
             return verification_failure(
@@ -325,6 +335,7 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
             .actor = summarize(*state, *statement.actor_id),
             .authority = authority_chain(*state, statement.delegation_id),
             .provenance = statement.provenance,
+            .presence = presence.contains(index) ? std::optional(presence.at(index)) : std::nullopt,
             .detail = event_detail(statement),
         });
     }

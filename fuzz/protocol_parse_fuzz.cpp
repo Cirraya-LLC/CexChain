@@ -12,6 +12,7 @@
 
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/log.hpp>
+#include <cexchain/core/protocol/presence.hpp>
 #include <cexchain/core/protocol/record.hpp>
 #include <cexchain/core/protocol/statement.hpp>
 #include <cexchain/core/protocol/witness.hpp>
@@ -40,6 +41,20 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
 
     if (const auto statement = protocol::decode_payload(input)) {
         require_same(protocol::encode_payload(*statement), input);
+        // Run any proof of presence through the WebAuthn checks (DER, client
+        // data, flags) against a credential with the same id.
+        if (statement->presence) {
+            const protocol::PresenceCredential credential{
+                "localhost",
+                statement->presence->credential_id,
+                {cexchain::crypto::SigAlg::esp256, cexchain::Bytes(65, 0x04)},
+                std::nullopt};
+            static_cast<void>(protocol::verify_presence(provider, cexchain::crypto::HashAlg::sha256,
+                                                        *statement, std::span(&credential, 1)));
+        }
+    }
+    if (const auto credential = protocol::decode_presence_credential(input)) {
+        require_same(protocol::encode_presence_credential(*credential), input);
     }
     if (const auto entry = protocol::decode_log_entry(input)) {
         require_same(protocol::encode_log_entry(*entry), input);

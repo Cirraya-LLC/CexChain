@@ -504,6 +504,11 @@ Result<protocol::EvidenceBundle> Ledger::export_evidence(const crypto::Signer& l
                 need(rotation);
             }
         }
+        for (const std::uint64_t update : actor->presence_updates) {
+            if (update < before) {
+                need(update);
+            }
+        }
     };
     auto need_delegation = [&](const protocol::Id& id) {
         if (const protocol::DelegationState* d = state.delegation(id)) {
@@ -544,7 +549,8 @@ Result<protocol::EvidenceBundle> Ledger::export_evidence(const crypto::Signer& l
                         need_actor(*body.responsible, index);
                     }
                 } else if constexpr (std::is_same_v<Body, protocol::ActorRotateKeyBody> ||
-                                     std::is_same_v<Body, protocol::ActorRevokeBody>) {
+                                     std::is_same_v<Body, protocol::ActorRevokeBody> ||
+                                     std::is_same_v<Body, protocol::ActorSetPresenceBody>) {
                     need_actor(body.actor, index);
                 } else if constexpr (std::is_same_v<Body, protocol::DelegationGrantBody>) {
                     need_actor(body.grantee, index);

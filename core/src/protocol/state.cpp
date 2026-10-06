@@ -5,6 +5,7 @@
 #include <utility>
 #include <variant>
 
+#include <cexchain/core/protocol/presence.hpp>
 #include <cexchain/core/protocol/record_types.hpp>
 #include <cexchain/core/protocol/state.hpp>
 
@@ -47,6 +48,10 @@ Status check_narrowing(const Scope& parent, const Scope& child) {
     }
     if (parent.not_after && (!child.not_after || *child.not_after > *parent.not_after)) {
         return fail(Errc::rejected, "delegated validity ends after the grantor's");
+    }
+    if (parent.require_presence && !child.require_presence) {
+        return fail(Errc::rejected,
+                    "the grantor's delegation requires proof of presence, so must this one");
     }
     return {};
 }
@@ -174,6 +179,14 @@ Status LedgerState::validate(const crypto::Provider& provider,
     if (auto s = check_authority(statement, *signer, now); !s) {
         return s;
     }
+    if (statement.presence) {
+        if (signer->kind != ActorKind::person) {
+            return fail(Errc::rejected, "only people prove presence");
+        }
+        if (auto check = verify_presence(provider, hash_, statement, signer->presence); !check) {
+            return std::unexpected(check.error());
+        }
+    }
     return check_rules(provider, statement, *signer);
 }
 
@@ -188,6 +201,14 @@ Status LedgerState::check_authority(const Statement& statement, const ActorState
     // An actor may always rotate its own key.
     if (const auto* rotate = std::get_if<ActorRotateKeyBody>(&statement.body);
         rotate != nullptr && rotate->actor == signer.id && !statement.delegation_id) {
+        return {};
+    }
+    // A person may manage their own presence credentials, proving presence
+    // with one already registered (checked in validate). A stolen signing
+    // key alone therefore cannot enroll the thief's passkey.
+    if (const auto* set = std::get_if<ActorSetPresenceBody>(&statement.body);
+        set != nullptr && set->actor == signer.id && statement.presence &&
+        !statement.delegation_id) {
         return {};
     }
     if (!statement.delegation_id) {
@@ -219,6 +240,9 @@ Status LedgerState::check_authority(const Statement& statement, const ActorState
         }
         if (!in_window(link->scope, now)) {
             return fail(Errc::rejected, "a delegation in the chain is not valid at this time");
+        }
+        if (link->scope.require_presence && !statement.presence) {
+            return fail(Errc::rejected, "the delegation requires proof of presence");
         }
     }
     return {};
@@ -330,6 +354,21 @@ Status LedgerState::check_rules(const crypto::Provider& provider, const Statemen
                 }
                 return {};
             },
+            [&](const ActorSetPresenceBody& b) -> Status {
+                auto target = active_actor(b.actor);
+                if (!target) {
+                    return std::unexpected(target.error());
+                }
+                if ((*target)->kind != ActorKind::person) {
+                    return fail(Errc::rejected, "only people have presence credentials");
+                }
+                for (const PresenceCredential& c : b.credentials) {
+                    if (crypto::is_weak_public_key(c.key.algorithm, c.key.bytes)) {
+                        return fail(Errc::rejected, "a presence key is weak");
+                    }
+                }
+                return {};
+            },
             [&](const RecordRegisterBody&) -> Status { return {}; },
             [&](const RecordEndorseBody& b) -> Status {
                 auto target = active_record(b.record);
@@ -434,6 +473,12 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
             },
             [&](const DelegationRevokeBody& b) -> Status {
                 delegations_.at(key_of(b.delegation)).revoked = true;
+                return {};
+            },
+            [&](const ActorSetPresenceBody& b) -> Status {
+                ActorState& actor = actors_.at(key_of(b.actor));
+                actor.presence = b.credentials;
+                actor.presence_updates.push_back(index);
                 return {};
             },
             [&](const RecordRegisterBody& b) -> Status {

@@ -68,6 +68,7 @@ th { color: var(--muted); font-weight: 500; }
 .timeline .meta { font-size: 13px; color: var(--muted); margin-top: 2px; }
 .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--chip); margin-right: 6px; }
 .chip.agent { background: #efe7ff; color: #5b2bbf; }
+.chip.present { background: var(--ok-bg); color: var(--ok); }
 @media (prefers-color-scheme: dark) { .chip.agent { background: #2a2040; color: #c9b3ff; } }
 .status-verified { color: var(--ok); font-weight: 600; }
 .status-mismatch { color: var(--bad); font-weight: 600; }
@@ -220,7 +221,13 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
       li.append(el("div", actions[e.type] || e.type, "what"));
       const who = el("div");
       who.append(el("span", "by "), actorLine(e.actor));
+      if (e.actor.kind === "person" && e.presence) {
+        who.append(el("span", e.presence.user_verified ? "✓ present (passkey, verified)" : "✓ present (passkey)", "chip present"));
+      }
       li.append(who);
+      if (e.actor.kind === "person" && !e.presence) {
+        li.append(el("div", "signed with their key; presence not proven", "meta"));
+      }
       li.append(el("div", when(e.registered_at) + " · entry #" + e.index, "when"));
       if (e.actor.kind === "agent") {
         const parts = [];

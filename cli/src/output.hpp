@@ -47,6 +47,11 @@ void print_json(const Json& value);
 [[nodiscard]] Json entry_json(const Session& session, std::uint64_t index);
 
 [[nodiscard]] std::string scope_text(const protocol::Scope& scope);
+[[nodiscard]] Json presence_credential_json(const protocol::PresenceCredential& credential);
+/// A one-line description of a statement body; `statement_id` is appended
+/// for bodies that create something (records, actors, delegations).
+[[nodiscard]] std::string body_summary(const Session& session, const protocol::Body& body,
+                                       const std::optional<protocol::Id>& statement_id);
 /// A one-line description of a statement, e.g. "endorse 3fa2c19be0d1 as inspector".
 [[nodiscard]] std::string statement_summary(const Session& session,
                                             const protocol::SignedStatement& statement);

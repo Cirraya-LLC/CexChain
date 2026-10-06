@@ -29,6 +29,14 @@ using ByteView = std::span<const std::uint8_t>;
 /// Decodes hexadecimal (either case). Fails on odd length or non-hex characters.
 [[nodiscard]] Result<Bytes> from_hex(std::string_view hex);
 
+/// Encodes bytes as base64url without padding (RFC 4648 section 5), as
+/// WebAuthn does.
+[[nodiscard]] std::string to_base64url(ByteView bytes);
+
+/// Decodes unpadded base64url. Fails on padding, other characters, an
+/// impossible length, or nonzero trailing bits.
+[[nodiscard]] Result<Bytes> from_base64url(std::string_view text);
+
 /// Overwrites `bytes` with zeros in a way the compiler cannot optimize away.
 void secure_wipe(std::span<std::uint8_t> bytes) noexcept;
 
