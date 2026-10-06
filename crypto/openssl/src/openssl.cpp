@@ -19,6 +19,7 @@
 #include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/params.h>
+#include <openssl/pkcs12.h>
 #include <openssl/rand.h>
 #include <openssl/x509.h>
 
@@ -47,6 +48,8 @@ using BignumPtr = std::unique_ptr<BIGNUM, Deleter<&BN_free>>;
 using EncoderCtxPtr = std::unique_ptr<OSSL_ENCODER_CTX, Deleter<&OSSL_ENCODER_CTX_free>>;
 using DecoderCtxPtr = std::unique_ptr<OSSL_DECODER_CTX, Deleter<&OSSL_DECODER_CTX_free>>;
 using Pkcs8InfoPtr = std::unique_ptr<PKCS8_PRIV_KEY_INFO, Deleter<&PKCS8_PRIV_KEY_INFO_free>>;
+using X509SigPtr = std::unique_ptr<X509_SIG, Deleter<&X509_SIG_free>>;
+using X509AlgorPtr = std::unique_ptr<X509_ALGOR, Deleter<&X509_ALGOR_free>>;
 
 constexpr std::size_t ec_scalar_size = 32;
 constexpr std::uint8_t sec1_uncompressed_prefix = 0x04;
@@ -542,6 +545,77 @@ Result<Bytes> KeyPair::sign(ByteView message) const {
         return fail(Errc::invalid_argument, "key pair has been moved from");
     }
     return sign_with(impl_->pkey.get(), algorithm(), message);
+}
+
+std::string_view library_version() noexcept {
+    return OpenSSL_version(OPENSSL_VERSION);
+}
+
+bool is_encrypted_pkcs8(ByteView der) {
+    const unsigned char* begin = data_or_empty(der);
+    const unsigned char* cursor = begin;
+    const X509SigPtr sig(d2i_X509_SIG(nullptr, &cursor, static_cast<long>(der.size())));
+    ERR_clear_error();
+    return sig && cursor == begin + der.size();
+}
+
+Result<KeyPair> KeyPair::from_encrypted_pkcs8(ByteView der, std::string_view passphrase) {
+    const unsigned char* begin = data_or_empty(der);
+    const unsigned char* cursor = begin;
+    const X509SigPtr sig(d2i_X509_SIG(nullptr, &cursor, static_cast<long>(der.size())));
+    if (!sig || cursor != begin + der.size()) {
+        return openssl_fail(Errc::invalid_argument, "input is not an encrypted PKCS #8 key");
+    }
+    const Pkcs8InfoPtr info(
+        PKCS8_decrypt(sig.get(), passphrase.data(), static_cast<int>(passphrase.size())));
+    if (!info) {
+        return openssl_fail(Errc::verification_failed, "wrong passphrase, or the key is damaged");
+    }
+    const int length = i2d_PKCS8_PRIV_KEY_INFO(info.get(), nullptr);
+    if (length <= 0) {
+        return openssl_fail(Errc::crypto_failure, "could not re-encode the decrypted key");
+    }
+    SecureBytes plain(Bytes(static_cast<std::size_t>(length)));
+    unsigned char* out = const_cast<unsigned char*>(plain.view().data());
+    if (i2d_PKCS8_PRIV_KEY_INFO(info.get(), &out) != length) {
+        return openssl_fail(Errc::crypto_failure, "could not re-encode the decrypted key");
+    }
+    return from_pkcs8(plain.view());
+}
+
+Result<Bytes> KeyPair::to_encrypted_pkcs8(std::string_view passphrase) const {
+    if (!impl_) {
+        return fail(Errc::invalid_argument, "key pair has been moved from");
+    }
+    if (passphrase.empty()) {
+        return fail(Errc::invalid_argument, "the passphrase must not be empty");
+    }
+    Pkcs8InfoPtr info(EVP_PKEY2PKCS8(impl_->pkey.get()));
+    if (!info) {
+        return openssl_fail(Errc::crypto_failure, "could not encode the private key");
+    }
+    X509AlgorPtr pbe(
+        PKCS5_pbe2_set_scrypt(EVP_aes_256_cbc(), nullptr, 0, nullptr, 1U << 14U, 8, 1));
+    if (!pbe) {
+        return openssl_fail(Errc::crypto_failure, "could not set up key encryption");
+    }
+    // PKCS8_set0_pbe takes ownership of the algorithm on success.
+    X509SigPtr sig(PKCS8_set0_pbe(passphrase.data(), static_cast<int>(passphrase.size()),
+                                  info.get(), pbe.get()));
+    if (!sig) {
+        return openssl_fail(Errc::crypto_failure, "could not encrypt the private key");
+    }
+    static_cast<void>(pbe.release());
+    const int length = i2d_X509_SIG(sig.get(), nullptr);
+    if (length <= 0) {
+        return openssl_fail(Errc::crypto_failure, "could not encode the encrypted key");
+    }
+    Bytes der(static_cast<std::size_t>(length));
+    unsigned char* out = der.data();
+    if (i2d_X509_SIG(sig.get(), &out) != length) {
+        return openssl_fail(Errc::crypto_failure, "could not encode the encrypted key");
+    }
+    return der;
 }
 
 Result<SecureBytes> KeyPair::to_pkcs8() const {

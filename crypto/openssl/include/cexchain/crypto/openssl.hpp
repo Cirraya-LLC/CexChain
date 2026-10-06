@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <string_view>
 
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/crypto.hpp>
@@ -42,6 +43,12 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
+/// The loaded libcrypto's version, e.g. "OpenSSL 3.6.0 1 Oct 2025".
+[[nodiscard]] std::string_view library_version() noexcept;
+
+/// True if `der` is a PKCS #8 EncryptedPrivateKeyInfo.
+[[nodiscard]] bool is_encrypted_pkcs8(ByteView der);
+
 /// Fills `out` from OpenSSL's CSPRNG (seeded by the operating system).
 [[nodiscard]] Status random_bytes(std::span<std::uint8_t> out);
 
@@ -58,6 +65,11 @@ public:
     /// private key.
     [[nodiscard]] static Result<KeyPair> from_pkcs8(ByteView der);
 
+    /// Loads a passphrase-protected PKCS #8 EncryptedPrivateKeyInfo (DER).
+    /// Fails with `Errc::verification_failed` if the passphrase is wrong.
+    [[nodiscard]] static Result<KeyPair> from_encrypted_pkcs8(ByteView der,
+                                                              std::string_view passphrase);
+
     /// Imports an Ed25519 private key from its 32-byte seed (RFC 8032).
     [[nodiscard]] static Result<KeyPair> from_ed25519_seed(ByteView seed);
 
@@ -73,6 +85,11 @@ public:
 
     /// Exports the private key as an unencrypted PKCS #8 PrivateKeyInfo (DER).
     [[nodiscard]] Result<SecureBytes> to_pkcs8() const;
+
+    /// Exports the private key as a PKCS #8 EncryptedPrivateKeyInfo (DER):
+    /// PBES2 with scrypt (N = 2^14, r = 8, p = 1, the OpenSSL CLI default,
+    /// within OpenSSL's default scrypt memory limit) and AES-256-CBC.
+    [[nodiscard]] Result<Bytes> to_encrypted_pkcs8(std::string_view passphrase) const;
 
 private:
     struct Impl;

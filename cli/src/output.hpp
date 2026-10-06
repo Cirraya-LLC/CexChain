@@ -1,0 +1,71 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Cirraya
+
+#pragma once
+
+#include <optional>
+#include <string>
+#include <vector>
+
+#include <nlohmann/json.hpp>
+
+#include <cexchain/core/cbor.hpp>
+#include <cexchain/core/protocol/evidence.hpp>
+#include <cexchain/core/protocol/log.hpp>
+#include <cexchain/core/protocol/state.hpp>
+#include <cexchain/core/protocol/statement.hpp>
+
+#include "support.hpp"
+
+/// Rendering of ledger objects for people (text) and scripts (--json).
+/// JSON uses lowercase hex for identifiers and bytes, and RFC 3339 UTC for
+/// times; keys keep a stable order.
+namespace cexchain::cli {
+
+using Json = nlohmann::ordered_json;
+
+void print_json(const Json& value);
+
+[[nodiscard]] Json hex_json(ByteView bytes);
+[[nodiscard]] Json id_json(const protocol::Id& id);
+[[nodiscard]] Json public_key_json(const crypto::PublicKey& key);
+/// A CBOR value as JSON: text, integers, booleans, and null map directly;
+/// anything else becomes its diagnostic notation.
+[[nodiscard]] Json cbor_json(const cbor::Value& value);
+
+[[nodiscard]] Json actor_ref(const Session& session, const protocol::Id& id);
+[[nodiscard]] Json actor_json(const Session& session, const protocol::ActorState& actor);
+[[nodiscard]] Json scope_json(const protocol::Scope& scope);
+[[nodiscard]] Json delegation_json(const Session& session,
+                                   const protocol::DelegationState& delegation);
+[[nodiscard]] Json record_json(const Session& session, const protocol::RecordState& record);
+[[nodiscard]] Json provenance_json(const protocol::Provenance& provenance);
+[[nodiscard]] Json body_json(const protocol::Body& body);
+[[nodiscard]] Json statement_json(const protocol::Statement& statement);
+/// A log entry with its statement decoded, and actor names resolved.
+[[nodiscard]] Json entry_json(const Session& session, std::uint64_t index);
+[[nodiscard]] Json checkpoint_json(const protocol::Checkpoint& checkpoint);
+[[nodiscard]] Json report_json(const protocol::EvidenceReport& report, bool ledger_checked);
+
+[[nodiscard]] std::string kind_text(const std::optional<protocol::ActorKind>& kind);
+[[nodiscard]] std::string scope_text(const protocol::Scope& scope);
+/// A one-line description of a statement, e.g. "endorse 3fa2c19be0d1 as inspector".
+[[nodiscard]] std::string statement_summary(const Session& session,
+                                            const protocol::SignedStatement& statement);
+
+/// Prints the result of a statement just registered: its id and log index
+/// plus `extra` as JSON, or `text`.
+int report_submitted(const Args& args, const Session& session, const protocol::Id& statement,
+                     const Json& extra, const std::string& text);
+
+/// True if the delegation is not revoked and `now` is within its validity.
+[[nodiscard]] bool delegation_active(const protocol::DelegationState& delegation,
+                                     protocol::Timestamp now);
+/// The grantors behind a delegation, nearest first, ending with the
+/// organization.
+[[nodiscard]] std::vector<protocol::Id>
+authority_chain(const Session& session, const std::optional<protocol::Id>& delegation);
+/// States reachable from the record's current state.
+[[nodiscard]] std::vector<std::string> next_states(const protocol::RecordState& record);
+
+} // namespace cexchain::cli

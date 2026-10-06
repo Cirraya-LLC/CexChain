@@ -6,6 +6,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators_all.hpp>
+#include <openssl/decoder.h>
+#include <openssl/encoder.h>
+#include <openssl/evp.h>
 
 #include <cexchain/core/crypto.hpp>
 #include <cexchain/crypto/openssl.hpp>
@@ -237,4 +240,64 @@ TEST_CASE("from_pkcs8 rejects input that is not a private key", "[crypto][openss
     CHECK(KeyPair::from_pkcs8(Bytes{}).error().code == Errc::invalid_argument);
     CHECK(KeyPair::from_pkcs8(hex("3000")).error().code == Errc::invalid_argument);
     CHECK(KeyPair::from_pkcs8(Bytes(100, 0x30)).error().code == Errc::invalid_argument);
+}
+
+TEST_CASE("passphrase-protected PKCS #8 round trip", "[crypto][openssl]") {
+    const SigAlg alg = GENERATE(SigAlg::ed25519, SigAlg::sm2_sm3, SigAlg::ml_dsa_44);
+    INFO(crypto::name(alg));
+    const auto key = KeyPair::generate(alg);
+    REQUIRE(key);
+    const auto encrypted = key->to_encrypted_pkcs8("correct horse battery staple");
+    REQUIRE(encrypted);
+    CHECK(crypto::openssl::is_encrypted_pkcs8(*encrypted));
+    CHECK_FALSE(crypto::openssl::is_encrypted_pkcs8(key->to_pkcs8()->view()));
+
+    const auto loaded = KeyPair::from_encrypted_pkcs8(*encrypted, "correct horse battery staple");
+    REQUIRE(loaded);
+    CHECK(loaded->public_key() == key->public_key());
+    CHECK(KeyPair::from_encrypted_pkcs8(*encrypted, "wrong").error().code ==
+          Errc::verification_failed);
+    CHECK(KeyPair::from_pkcs8(*encrypted).error().code == Errc::invalid_argument);
+    CHECK(key->to_encrypted_pkcs8("").error().code == Errc::invalid_argument);
+}
+
+TEST_CASE("encrypted keys decode through OpenSSL's generic decoder", "[crypto][openssl]") {
+    // The path other tools take (the openssl command line among them): format
+    // detection, then decryption with the passphrase. The key files are
+    // standard PKCS #8, not readable only by CexChain.
+    const SigAlg alg =
+        GENERATE(SigAlg::ed25519, SigAlg::esp256, SigAlg::sm2_sm3, SigAlg::ml_dsa_65);
+    INFO(crypto::name(alg));
+    const auto key = KeyPair::generate(alg);
+    REQUIRE(key);
+    const std::string secret = "correct horse battery staple";
+    const auto encrypted = key->to_encrypted_pkcs8(secret);
+    REQUIRE(encrypted);
+
+    EVP_PKEY* pkey = nullptr;
+    OSSL_DECODER_CTX* decoder = OSSL_DECODER_CTX_new_for_pkey(&pkey, "DER", nullptr, nullptr,
+                                                              EVP_PKEY_KEYPAIR, nullptr, nullptr);
+    REQUIRE(decoder != nullptr);
+    CHECK(OSSL_DECODER_CTX_set_passphrase(
+              decoder, reinterpret_cast<const unsigned char*>(secret.data()), secret.size()) == 1);
+    const unsigned char* data = encrypted->data();
+    std::size_t length = encrypted->size();
+    const int decoded = OSSL_DECODER_from_data(decoder, &data, &length);
+    OSSL_DECODER_CTX_free(decoder);
+    REQUIRE(decoded == 1);
+    REQUIRE(pkey != nullptr);
+
+    OSSL_ENCODER_CTX* encoder =
+        OSSL_ENCODER_CTX_new_for_pkey(pkey, EVP_PKEY_KEYPAIR, "DER", "PrivateKeyInfo", nullptr);
+    unsigned char* plain = nullptr;
+    std::size_t plain_length = 0;
+    const int encoded =
+        encoder != nullptr ? OSSL_ENCODER_to_data(encoder, &plain, &plain_length) : 0;
+    OSSL_ENCODER_CTX_free(encoder);
+    EVP_PKEY_free(pkey);
+    REQUIRE(encoded == 1);
+    const auto reloaded = KeyPair::from_pkcs8(cexchain::ByteView(plain, plain_length));
+    OPENSSL_free(plain);
+    REQUIRE(reloaded);
+    CHECK(reloaded->public_key() == key->public_key());
 }

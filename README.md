@@ -40,36 +40,62 @@ CexChain is a ledger protocol and node for trust between organizations. Every do
 | `core` | Deterministic CBOR, COSE, Merkle proofs, protocol objects, ledger rules, and the offline evidence verifier. Portable C++23 that can be built to WebAssembly. |
 | `crypto/openssl` | Cryptographic backend: SHA-2, SM3, Ed25519, ESP256, SM2, ML-DSA |
 | `ledger` | Ledger node: crash-safe storage, rule engine, checkpoints, receipts, evidence export (C++26) |
-| `cli` | `cexchain` command-line tool: keys, ledger, actors, delegation, records, evidence |
+| `cli` | `cexchain` command-line tool: full control of keys, ledgers, actors, delegations, records, proofs, and evidence |
 | `cexchain mcp` | MCP server through which an AI agent acts under its own key and delegation |
 
 ## Quick start
 
 ```sh
+# Private keys are encrypted (PKCS #8, scrypt + AES-256). Passphrases come from
+# a prompt, --passphrase-file, or $CEXCHAIN_PASSPHRASE.
 cexchain key generate --out root.key
 cexchain key generate --out log.key
-cexchain key generate --out alice.key
-cexchain init --ledger ./ledger --org "Example Factory" --root-key root.key --log-key log.key
+export CEXCHAIN_LEDGER=./ledger
+cexchain init --org "Example Factory" --root-key root.key --log-key log.key
 
-# Register an inspector and let her issue certificates.
-cexchain actor add --ledger ./ledger --as root.key --kind person --name "Alice" --key alice.key
-cexchain delegate --ledger ./ledger --as root.key --to <alice-id> \
+# Alice generates her own key and sends only its public half.
+cexchain key generate --out alice.key && cexchain key public alice.key --out alice.pub
+
+# Register her as an inspector and let her issue certificates.
+cexchain actor add --as root.key --kind person --name "Alice" --key alice.pub
+cexchain delegation grant --as root.key --to <alice-id> \
     --allow record-register,record-endorse --record-types cexchain.certificate/1 --days 30
 
 # Issue a certificate; field values stay private until disclosed.
-cexchain issue --ledger ./ledger --as alice.key --type cexchain.certificate/1 \
+cexchain record issue --as alice.key --type cexchain.certificate/1 \
     --field product="Flange DN50" --field result=pass --attach report.pdf
+cexchain record history <record-id>
 
 # Checkpoint, export evidence with one field disclosed, and verify it anywhere.
-cexchain checkpoint --ledger ./ledger --log-key log.key
-cexchain export --ledger ./ledger --log-key log.key --record <record-id> \
-    --disclose result --with-attachments --out evidence.cbor
+cexchain checkpoint create --log-key log.key
+cexchain export <record-id> --log-key log.key --disclose result --with-attachments --out evidence.cbor
 cexchain verify evidence.cbor --ledger-id <ledger-id> --attachment report.pdf=report.pdf
 ```
 
 The verification report shows every event in the record's history, who performed it (person or
 AI agent, with the agent's model and accountable person), under whose delegation, which fields
-were disclosed, and whether attachments match. Run `cexchain --help` for every command.
+were disclosed, and whether attachments match.
+
+## Command line
+
+The `cexchain` tool controls every part of a ledger:
+
+| Area | Commands |
+|---|---|
+| Keys | `key generate`, `key show`, `key public`, `key passphrase` |
+| Ledger | `init`, `status`, `audit`, `log list`, `log show`, `log export` |
+| Actors | `actor add`, `actor list`, `actor show`, `actor revoke`, `actor rotate-key` |
+| Delegations | `delegation grant`, `delegation list`, `delegation show`, `delegation revoke` |
+| Records | `record issue`, `record list`, `record show`, `record history`, `record fields`, `record endorse`, `record transition`, `record revoke`, `record types` |
+| Proofs | `checkpoint create`, `checkpoint list`, `checkpoint show`, `proof inclusion`, `proof consistency`, `receipt` |
+| Evidence | `export`, `verify`, `inspect` |
+| AI agents | `mcp` |
+
+- Every command takes `--help`, and `--json` for scripting.
+- `cexchain help --json` describes every command and option in machine-readable form.
+- `source <(cexchain completion bash)` (or `zsh`) enables tab completion.
+- IDs can be shortened to any unique prefix of 8 or more hex digits.
+- Exit codes: 0 for success, 1 for a usage error, 2 for a failure, and 3 when evidence or a ledger fails verification.
 
 ## AI agents (MCP)
 
@@ -78,7 +104,9 @@ were disclosed, and whether attachments match. Run `cexchain --help` for every c
 delegations, query and issue records, endorse, move records through their lifecycle, and verify
 evidence from others. Every action is signed with the agent's own key, refused by the ledger if
 its delegation does not cover it, and recorded with provenance: its model, a hash of the inputs it
-acted on, and the digest of the tool it used. Verification reports show all of this.
+acted on, and the digest of the tool it used. Verification reports show all of this. MCP clients
+start the server without a terminal, so give it the agent key's passphrase with
+`--passphrase-file` or `CEXCHAIN_PASSPHRASE`.
 
 ## Building
 

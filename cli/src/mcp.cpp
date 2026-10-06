@@ -124,8 +124,8 @@ json scope_json(const protocol::Scope& scope) {
 
 class Server {
 public:
-    Server(std::filesystem::path ledger, std::filesystem::path key_path)
-        : ledger_(std::move(ledger)), key_(load_key(key_path)) {
+    Server(std::filesystem::path ledger, crypto::openssl::KeyPair key)
+        : ledger_(std::move(ledger)), key_(std::move(key)) {
         define_tools();
         Session session(ledger_);
         const protocol::ActorState& me = session.actor_for(key_);
@@ -538,8 +538,8 @@ private:
 
 } // namespace
 
-int mcp(const Args& args) {
-    Server server(args.need("ledger"), args.need("as"));
+int cmd_mcp(const Args& args) {
+    Server server(args.ledger(), load_key(args.need("as"), args));
     std::println(stderr, "cexchain MCP server ready (stdio)");
     return server.run();
 }

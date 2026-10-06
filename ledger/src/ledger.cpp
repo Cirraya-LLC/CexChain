@@ -254,6 +254,64 @@ Result<crypto::Digest> Ledger::root(std::uint64_t tree_size) const {
     return impl_->tree.root(tree_size);
 }
 
+Result<std::vector<crypto::Digest>> Ledger::inclusion_proof(std::uint64_t index,
+                                                            std::uint64_t tree_size) const {
+    return impl_->tree.inclusion_proof(index, tree_size);
+}
+
+Result<std::vector<protocol::SignedCheckpoint>> Ledger::checkpoints() const {
+    std::vector<protocol::SignedCheckpoint> out;
+    for (std::uint64_t i = 0; i < impl_->checkpoints.count(); ++i) {
+        auto bytes = impl_->checkpoints.read(i);
+        if (!bytes) {
+            return std::unexpected(bytes.error());
+        }
+        auto checkpoint = protocol::parse_checkpoint(*bytes);
+        if (!checkpoint) {
+            return std::unexpected(checkpoint.error());
+        }
+        out.push_back(std::move(*checkpoint));
+    }
+    return out;
+}
+
+Result<AuditReport> Ledger::audit() const {
+    auto all = checkpoints();
+    if (!all) {
+        return std::unexpected(all.error());
+    }
+    std::uint64_t previous_size = 0;
+    for (const protocol::SignedCheckpoint& checkpoint : *all) {
+        if (!protocol::verify_checkpoint(*impl_->provider, checkpoint, impl_->state.log_key())) {
+            return fail(Errc::verification_failed,
+                        "a stored checkpoint is not signed by the log key");
+        }
+        const protocol::Checkpoint& c = checkpoint.checkpoint;
+        if (c.ledger_id != id() || c.tree_hash != hash()) {
+            return fail(Errc::verification_failed, "a stored checkpoint belongs to another ledger");
+        }
+        if (c.tree_size < previous_size || c.tree_size > size()) {
+            return fail(Errc::verification_failed, "stored checkpoints are out of order");
+        }
+        auto root = impl_->tree.root(c.tree_size);
+        if (!root) {
+            return std::unexpected(root.error());
+        }
+        if (*root != c.root) {
+            return fail(Errc::verification_failed, "a stored checkpoint disagrees with the log");
+        }
+        previous_size = c.tree_size;
+    }
+    return AuditReport{
+        .entries = size(),
+        .checkpoints = all->size(),
+        .actors = impl_->state.actors().size(),
+        .delegations = impl_->state.delegations().size(),
+        .records = impl_->state.records().size(),
+        .unchecked_entries = size() - previous_size,
+    };
+}
+
 Result<std::vector<crypto::Digest>> Ledger::consistency_proof(std::uint64_t old_size,
                                                               std::uint64_t new_size) const {
     return impl_->tree.consistency_proof(old_size, new_size);

@@ -16,14 +16,15 @@ run() { "$CEXCHAIN" "$@"; }
 id_from() { grep -oE '[0-9a-f]{64}' | head -1; }
 fail() { echo "FAIL: $1"; echo "--- responses:"; cat responses.txt; exit 1; }
 
+export CEXCHAIN_PASSPHRASE="mcp test passphrase"
 for k in root log alice agent; do run key generate --out "$k.key" > /dev/null; done
 LEDGER_ID="$(run init --ledger ledger --org "Cirraya Test Factory" --root-key root.key --log-key log.key | id_from)"
 ALICE="$(run actor add --ledger ledger --as root.key --kind person --name "Alice Inspector" --key alice.key | id_from)"
-run delegate --ledger ledger --as root.key --to "$ALICE" --allow actor-register,delegation-grant,record-register \
+run delegation grant --ledger ledger --as root.key --to "$ALICE" --allow actor-register,delegation-grant,record-register \
     --record-types cexchain.certificate/1 --days 30 --may-delegate > /dev/null
 AGENT="$(run actor add --ledger ledger --as alice.key --kind agent --name "Drafting Agent" --key agent.key \
     --responsible "$ALICE" --model claude-opus-5-5 --model-version 2026-09 | id_from)"
-run delegate --ledger ledger --as alice.key --to "$AGENT" --allow record-register \
+run delegation grant --ledger ledger --as alice.key --to "$AGENT" --allow record-register \
     --record-types cexchain.certificate/1 --days 7 > /dev/null
 
 META='"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"test","version":"1"}}'
@@ -66,8 +67,8 @@ line 12 | grep -q '"isError":true' || fail "missing arguments"
 [ "$(wc -l < responses.txt)" -eq 12 ] || fail "one response per request, none for notifications"
 
 # The agent's record carries its accountability, visible to any verifier.
-run checkpoint --ledger ledger --log-key log.key > /dev/null
-run export --ledger ledger --log-key log.key --record "$RECORD" --disclose result --out bundle.cbor > /dev/null
+run checkpoint create --ledger ledger --log-key log.key > /dev/null
+run export "$RECORD" --ledger ledger --log-key log.key --disclose result --out bundle.cbor > /dev/null
 run verify bundle.cbor --ledger-id "$LEDGER_ID" > report.txt
 grep -q 'AI agent: claude-opus-5-5; responsible: Alice Inspector; via mcp:cexchain_issue_record' report.txt \
     || { cat report.txt; fail "report"; }

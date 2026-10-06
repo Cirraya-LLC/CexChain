@@ -18,7 +18,8 @@ target_link_libraries(cexchain_tests PRIVATE
     cexchain::crypto_openssl
     cexchain::ledger
     Catch2::Catch2WithMain
-    nlohmann_json::nlohmann_json)
+    nlohmann_json::nlohmann_json
+    OpenSSL::Crypto)
 # Tests may reach into internal headers (e.g. ledger/src/crc32c.hpp).
 target_include_directories(cexchain_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}

@@ -41,6 +41,16 @@ struct Registration {
     bool newly_registered = false;
 };
 
+struct AuditReport {
+    std::uint64_t entries = 0;
+    std::uint64_t checkpoints = 0;
+    std::uint64_t actors = 0;
+    std::uint64_t delegations = 0;
+    std::uint64_t records = 0;
+    /// Entries registered after the latest checkpoint.
+    std::uint64_t unchecked_entries = 0;
+};
+
 class Ledger {
 public:
     /// Creates a new ledger whose first entry is `genesis`, a statement
@@ -70,11 +80,22 @@ public:
 
     [[nodiscard]] Result<crypto::Digest> root(std::uint64_t tree_size) const;
     [[nodiscard]] Result<std::vector<crypto::Digest>>
+    inclusion_proof(std::uint64_t index, std::uint64_t tree_size) const;
+    [[nodiscard]] Result<std::vector<crypto::Digest>>
     consistency_proof(std::uint64_t old_size, std::uint64_t new_size) const;
 
     /// Signs and stores a checkpoint of the current tree. `log_key` must be the
     /// key named in genesis.
     [[nodiscard]] Result<protocol::SignedCheckpoint> checkpoint(const crypto::Signer& log_key);
+
+    /// Every stored checkpoint, oldest first.
+    [[nodiscard]] Result<std::vector<protocol::SignedCheckpoint>> checkpoints() const;
+
+    /// Re-checks every stored checkpoint against the log: signed by the log
+    /// key, for this ledger, sizes never decreasing, and each root equal to
+    /// the tree's root at that size. (Opening the ledger has already replayed
+    /// and re-validated every statement.)
+    [[nodiscard]] Result<AuditReport> audit() const;
 
     /// The latest stored checkpoint, if any.
     [[nodiscard]] const std::optional<protocol::SignedCheckpoint>&

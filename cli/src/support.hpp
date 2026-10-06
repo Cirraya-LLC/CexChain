@@ -8,9 +8,12 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/error.hpp>
+#include <cexchain/core/protocol/log.hpp>
 #include <cexchain/core/protocol/state.hpp>
 #include <cexchain/core/protocol/statement.hpp>
 #include <cexchain/crypto/openssl.hpp>
@@ -47,10 +50,44 @@ void write_file(const std::filesystem::path& path, ByteView data, bool private_f
 [[nodiscard]] std::string hex_id(const protocol::Id& id);
 [[nodiscard]] std::string short_id(const protocol::Id& id);
 [[nodiscard]] std::string format_time(protocol::Timestamp ms);
+/// RFC 3339 with milliseconds, e.g. 2026-10-06T08:00:00.000Z.
+[[nodiscard]] std::string iso_time(protocol::Timestamp ms);
 /// Parses "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM:SSZ" (UTC).
 [[nodiscard]] protocol::Timestamp parse_time(std::string_view text);
 
-[[nodiscard]] crypto::openssl::KeyPair load_key(const std::filesystem::path& path);
+/// A key passphrase, for the key file named `purpose`: read from the
+/// `file_option` file if given, else from the `env` variable, else asked for
+/// on the terminal (twice if `confirm`).
+[[nodiscard]] std::string passphrase(const Args& args, const std::string& purpose,
+                                     bool confirm = false,
+                                     std::string_view file_option = "passphrase-file",
+                                     const char* env = "CEXCHAIN_PASSPHRASE");
+
+/// Loads a private key file, asking for its passphrase if it is encrypted.
+[[nodiscard]] crypto::openssl::KeyPair load_key(const std::filesystem::path& path,
+                                                const Args& args);
+
+/// Writes a private key file (owner-only permissions), encrypted with
+/// `secret` if given.
+void save_key(const std::filesystem::path& path, const crypto::openssl::KeyPair& key,
+              const std::optional<std::string>& secret);
+
+/// A public key file holds the deterministic CBOR encoding of [alg, key].
+[[nodiscard]] Bytes encode_public_key_file(const crypto::PublicKey& key);
+/// Loads a public key file. Private key files are refused, so that verifiers
+/// never need anyone's private key.
+[[nodiscard]] crypto::PublicKey load_public_key(const std::filesystem::path& path);
+/// The public key in a public key file, or in a private key file (asking for
+/// its passphrase if needed).
+[[nodiscard]] crypto::PublicKey public_key_of(const std::filesystem::path& path, const Args& args);
+
+[[nodiscard]] Bytes hash_text(const crypto::Provider& provider, crypto::HashAlg hash,
+                              std::string_view text);
+[[nodiscard]] std::vector<std::string> split(const std::string& text, char separator);
+/// Splits NAME=VALUE.
+[[nodiscard]] std::pair<std::string, std::string> split_pair(const std::string& text,
+                                                             std::string_view what);
+[[nodiscard]] std::uint64_t parse_number(std::string_view text, std::string_view what);
 [[nodiscard]] crypto::SigAlg parse_algorithm(std::string_view name);
 [[nodiscard]] crypto::HashAlg parse_hash(std::string_view name);
 [[nodiscard]] protocol::StatementType parse_statement_type(std::string_view name);
@@ -82,6 +119,23 @@ public:
     protocol::Id submit(const crypto::Signer& signer, protocol::Body body,
                         const std::optional<std::string>& delegation,
                         std::optional<protocol::Provenance> provenance = std::nullopt);
+
+    /// Signs and submits as the holder of --as, with --delegation, --model,
+    /// --model-version, and --inputs taken from `args`.
+    protocol::Id submit(const Args& args, protocol::Body body);
+
+    /// AI provenance from --model, --model-version, and --inputs (hashed).
+    [[nodiscard]] std::optional<protocol::Provenance> provenance(const Args& args) const;
+
+    /// Resolves an index or (abbreviated) statement id to a log index.
+    [[nodiscard]] std::uint64_t entry_index(std::string_view text) const;
+
+    /// The log entry at `index` and its statement, parsed.
+    [[nodiscard]] protocol::LogEntry log_entry(std::uint64_t index) const;
+    [[nodiscard]] protocol::SignedStatement statement(std::uint64_t index) const;
+
+    /// The actor's display name, or "unknown" for an unknown id.
+    [[nodiscard]] std::string actor_name(const protocol::Id& id) const;
 
     [[nodiscard]] std::filesystem::path vault_path(const protocol::Id& record) const;
 
