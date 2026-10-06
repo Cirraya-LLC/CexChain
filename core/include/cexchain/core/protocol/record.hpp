@@ -15,7 +15,7 @@
 #include <cexchain/core/protocol/common.hpp>
 
 /// Field-level commitments for records, enabling selective disclosure.
-/// See `record-field` in spec/cexchain-v0.1.cddl.
+/// See `record-field` in spec/cexchain.cddl.
 namespace cexchain::protocol {
 
 /// One field of a record. The salt keeps undisclosed fields from being

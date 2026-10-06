@@ -18,7 +18,7 @@
 /// cosigns a new one only if a consistency proof shows that the new history
 /// extends the old. A ledger that rewrites its past, or shows different
 /// histories to different parties, cannot get both histories cosigned.
-/// See `cosign-request` in spec/cexchain-v0.1.cddl.
+/// See `cosign-request` in spec/cexchain.cddl.
 namespace cexchain::protocol {
 
 /// What a ledger operator sends a witness: a signed checkpoint and a

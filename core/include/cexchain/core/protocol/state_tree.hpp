@@ -23,7 +23,7 @@
 /// subtree holding one object to its leaf hash, and any other subtree to
 /// HASH(0x01 || left || right), where
 ///   leaf hash = HASH(0x00 || deterministic-CBOR([kind, id, [* index]])).
-/// HASH is the ledger hash. See `state-proof` in spec/cexchain-v0.1.cddl.
+/// HASH is the ledger hash. See `state-proof` in spec/cexchain.cddl.
 namespace cexchain::protocol {
 
 enum class ObjectKind : std::uint8_t {

@@ -578,7 +578,7 @@ def generate_pkcs8(openssl: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Protocol v0.1 objects (spec/cexchain-v0.1.cddl)
+# Protocol v0.1 objects (spec/cexchain.cddl)
 # ---------------------------------------------------------------------------
 #
 # A deterministic CBOR encoder written here from RFC 8949 section 4.2.1 rather
@@ -752,7 +752,7 @@ def generate_protocol() -> None:
 
     document = {
         "description": "CexChain protocol v0.1 objects built by an independent Python encoder from "
-                       "spec/cexchain-v0.1.cddl. All signatures are Ed25519 (deterministic), so every "
+                       "spec/cexchain.cddl. All signatures are Ed25519 (deterministic), so every "
                        "object must be reproduced byte for byte. Keys are throwaway test keys: "
                        "seed = SHA-256(\"CexChain test key: <name>\").",
         "seeds": seeds,

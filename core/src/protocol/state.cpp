@@ -313,7 +313,7 @@ Status LedgerState::check_rules(const crypto::Provider& provider, const Statemen
                 }
                 if ((*target)->is_organization()) {
                     return fail(Errc::rejected,
-                                "the organization key cannot be rotated in protocol v0.1");
+                                "the organization key cannot be rotated in this protocol version");
                 }
                 return check_new_key(provider, b.key);
             },

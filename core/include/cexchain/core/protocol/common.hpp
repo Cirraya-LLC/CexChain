@@ -13,14 +13,14 @@
 #include <cexchain/core/crypto.hpp>
 #include <cexchain/core/error.hpp>
 
-/// Types shared by the CexChain v0.1 protocol objects. The normative
-/// definition of every structure is spec/cexchain-v0.1.cddl.
+/// Types shared by the CexChain protocol objects. The normative
+/// definition of every structure is spec/cexchain.cddl.
 namespace cexchain::protocol {
 
 inline constexpr std::uint64_t protocol_version = 1;
 
 /// Identifiers (statement, ledger, actor, key) are digests under the ledger's
-/// hash algorithm. v0.1 ledgers use SHA-256 or SM3, so identifiers are 32
+/// hash algorithm. Ledgers use SHA-256 or SM3, so identifiers are 32
 /// bytes.
 inline constexpr std::size_t id_size = 32;
 using Id = crypto::Digest;
@@ -35,7 +35,7 @@ inline constexpr std::string_view checkpoint_content_type = "application/cexchai
 inline constexpr std::string_view cosignature_content_type =
     "application/cexchain-cosignature+cbor";
 
-/// True for the hash algorithms a v0.1 ledger may use: SHA-256 and SM3.
+/// True for the hash algorithms a ledger may use: SHA-256 and SM3.
 [[nodiscard]] bool is_ledger_hash(crypto::HashAlg alg) noexcept;
 
 /// Encodes a public key as [alg, key].

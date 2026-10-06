@@ -18,7 +18,7 @@
 #include <cexchain/core/protocol/common.hpp>
 
 /// Statements: the signed objects that actors submit to a ledger.
-/// See `statement-payload` in spec/cexchain-v0.1.cddl.
+/// See `statement-payload` in spec/cexchain.cddl.
 namespace cexchain::protocol {
 
 enum class StatementType : std::uint8_t {

@@ -22,7 +22,7 @@
 
 /// Evidence bundles: everything needed to verify a record offline, without
 /// contacting or trusting the ledger's database. See `evidence-bundle` in
-/// spec/cexchain-v0.1.cddl.
+/// spec/cexchain.cddl.
 namespace cexchain::protocol {
 
 inline constexpr std::uint64_t evidence_bundle_version = 1;

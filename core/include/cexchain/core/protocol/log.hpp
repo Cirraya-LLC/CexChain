@@ -14,7 +14,7 @@
 #include <cexchain/core/protocol/common.hpp>
 
 /// Log entries, checkpoints, witness cosignatures, and receipts.
-/// See spec/cexchain-v0.1.cddl.
+/// See spec/cexchain.cddl.
 namespace cexchain::protocol {
 
 /// One registered statement, as committed by the ledger's Merkle tree.

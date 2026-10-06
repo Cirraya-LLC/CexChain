@@ -1,7 +1,14 @@
 ; SPDX-License-Identifier: Apache-2.0
 ; Copyright 2026 Cirraya
 ;
-; CexChain protocol v0.1 (RFC 8610 CDDL).
+; The CexChain protocol (RFC 8610 CDDL). Specification revision v0.2; the
+; wire protocol version (statement key 0) is 1.
+;
+; Revision history:
+;   v0.1  statements, the log, checkpoints, receipts, evidence bundles
+;   v0.2  cosign requests for witnesses; proof of presence (statement key 8,
+;         actor-set-presence, scope key 6); the state commitment (checkpoint
+;         key 6, bundle key 7). v0.1 objects remain valid.
 ;
 ; Every structure is encoded as deterministic CBOR (RFC 8949 section 4.2.1) in
 ; the CexChain profile: no floats, no indefinite lengths, no duplicate keys.
@@ -12,7 +19,7 @@
 ; Common types
 ; ---------------------------------------------------------------------------
 
-; A digest under the ledger's hash algorithm. v0.1 ledgers use SHA-256 (-16)
+; A digest under the ledger's hash algorithm. Ledgers use SHA-256 (-16)
 ; or SM3 (-65538), so identifiers are 32 bytes.
 id = bstr .size 32
 
