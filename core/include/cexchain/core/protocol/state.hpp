@@ -121,6 +121,10 @@ public:
     }
     [[nodiscard]] const std::map<IdKey, RecordState>& records() const noexcept { return records_; }
 
+    /// The objects created or changed since the last call (possibly
+    /// repeated), in order: what an incremental state tree must update.
+    [[nodiscard]] std::vector<Id> take_changes();
+
 private:
     LedgerState() = default;
 
@@ -147,6 +151,7 @@ private:
     /// (signer, nonce) of every statement: a payload is never accepted twice,
     /// even re-signed with a rotated key.
     std::set<std::pair<IdKey, Nonce>> nonces_;
+    std::vector<IdKey> changes_;
 };
 
 } // namespace cexchain::protocol

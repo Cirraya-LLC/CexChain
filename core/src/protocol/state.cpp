@@ -97,6 +97,7 @@ Result<LedgerState> LedgerState::from_genesis(const crypto::Provider& provider,
     organization.kid = *kid;
     state.actors_by_kid_[key_of(*kid)] = key_of(genesis.id);
     state.actors_[key_of(genesis.id)] = std::move(organization);
+    state.changes_.push_back(key_of(genesis.id));
     state.statements_[key_of(genesis.id)] = 0;
     state.nonces_.insert({key_of(genesis.id), genesis.statement.nonce});
     return state;
@@ -464,6 +465,7 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
                 actor.registered_at_index = index;
                 actors_by_kid_[key_of(*kid)] = key_of(id);
                 actors_[key_of(id)] = std::move(actor);
+                changes_.push_back(key_of(id));
                 return {};
             },
             [&](const ActorRotateKeyBody& b) -> Status {
@@ -477,12 +479,14 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
                 actor.key = b.key;
                 actor.kid = *kid;
                 actors_by_kid_[key_of(*kid)] = key_of(b.actor);
+                changes_.push_back(key_of(b.actor));
                 return {};
             },
             [&](const ActorRevokeBody& b) -> Status {
                 ActorState& actor = actors_.at(key_of(b.actor));
                 actor.revoked = true;
                 actor.revoked_at_index = index;
+                changes_.push_back(key_of(b.actor));
                 return {};
             },
             [&](const DelegationGrantBody& b) -> Status {
@@ -494,18 +498,21 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
                 delegation.scope = b.scope;
                 delegation.granted_at_index = index;
                 delegations_[key_of(id)] = std::move(delegation);
+                changes_.push_back(key_of(id));
                 return {};
             },
             [&](const DelegationRevokeBody& b) -> Status {
                 DelegationState& delegation = delegations_.at(key_of(b.delegation));
                 delegation.revoked = true;
                 delegation.revoked_at_index = index;
+                changes_.push_back(key_of(b.delegation));
                 return {};
             },
             [&](const ActorSetPresenceBody& b) -> Status {
                 ActorState& actor = actors_.at(key_of(b.actor));
                 actor.presence = b.credentials;
                 actor.presence_updates.push_back(index);
+                changes_.push_back(key_of(b.actor));
                 return {};
             },
             [&](const RecordRegisterBody& b) -> Status {
@@ -521,28 +528,44 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
                 record.registered_at_index = index;
                 record.history.push_back(index);
                 records_[key_of(id)] = std::move(record);
+                changes_.push_back(key_of(id));
                 return {};
             },
             [&](const RecordEndorseBody& b) -> Status {
                 RecordState& record = records_.at(key_of(b.record));
                 record.endorsements.push_back(Endorsement{b.role, *statement.actor_id, index});
                 record.history.push_back(index);
+                changes_.push_back(key_of(b.record));
                 return {};
             },
             [&](const RecordTransitionBody& b) -> Status {
                 RecordState& record = records_.at(key_of(b.record));
                 record.state = b.to_state;
                 record.history.push_back(index);
+                changes_.push_back(key_of(b.record));
                 return {};
             },
             [&](const RecordRevokeBody& b) -> Status {
                 RecordState& record = records_.at(key_of(b.record));
                 record.revoked = true;
                 record.history.push_back(index);
+                changes_.push_back(key_of(b.record));
                 return {};
             },
         },
         statement.body);
+}
+
+std::vector<Id> LedgerState::take_changes() {
+    std::vector<Id> out;
+    out.reserve(changes_.size());
+    for (const IdKey& key : changes_) {
+        if (auto id = to_id(key)) {
+            out.push_back(*id);
+        }
+    }
+    changes_.clear();
+    return out;
 }
 
 } // namespace cexchain::protocol

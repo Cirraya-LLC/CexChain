@@ -2,11 +2,14 @@
 // Copyright 2026 Cirraya
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
+#include <map>
 #include <random>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 
 #include <cexchain/core/merkle.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
@@ -213,4 +216,123 @@ TEST_CASE("bundles prove that nothing was left out", "[state][evidence]") {
     SECTION("proofs round-trip through the bundle encoding") {
         CHECK(*protocol::decode_bundle(*protocol::encode_bundle(*bundle)) == *bundle);
     }
+}
+
+namespace {
+
+/// The reference: the whole tree recomputed from the sorted leaves.
+struct Reference {
+    std::map<std::vector<std::uint8_t>, protocol::StateLeaf> leaves;
+
+    std::vector<protocol::StateLeaf> sorted() const {
+        std::vector<protocol::StateLeaf> out;
+        for (const auto& [key, leaf] : leaves) {
+            out.push_back(leaf);
+        }
+        return out;
+    }
+};
+
+protocol::Id id_from(std::array<std::uint8_t, 32> bytes) {
+    return *protocol::to_id(bytes);
+}
+
+void check_against(const protocol::StateTree& tree, const Reference& reference) {
+    const auto sorted = reference.sorted();
+    const auto expected = protocol::state_root(provider(), crypto::HashAlg::sha256, sorted);
+    REQUIRE(expected);
+    REQUIRE(tree.root());
+    CHECK(*tree.root() == *expected);
+    for (const auto& leaf : sorted) {
+        const auto proof =
+            protocol::prove_state(provider(), crypto::HashAlg::sha256, sorted, leaf.id);
+        REQUIRE(proof);
+        const auto siblings = tree.siblings(leaf.id);
+        REQUIRE(siblings);
+        CHECK(*siblings == proof->siblings);
+    }
+}
+
+} // namespace
+
+TEST_CASE("the incremental state tree matches the reference", "[state][tree]") {
+    auto tree = protocol::StateTree::create(provider(), crypto::HashAlg::sha256);
+    REQUIRE(tree);
+    Reference reference;
+    REQUIRE(tree->commit());
+    CHECK(*tree->root() == *protocol::state_root(provider(), crypto::HashAlg::sha256, {}));
+
+    std::mt19937_64 random(GENERATE(1U, 2U, 3U, 4U));
+    // Ids drawn so that many share long prefixes: random bytes, then copies
+    // of earlier ids with one late bit flipped.
+    std::vector<std::array<std::uint8_t, 32>> ids;
+    for (int round = 0; round < 12; ++round) {
+        const int changes = 1 + static_cast<int>(random() % 40);
+        for (int c = 0; c < changes; ++c) {
+            std::array<std::uint8_t, 32> key{};
+            const auto choice = random() % 4;
+            if (ids.empty() || choice == 0) {
+                for (auto& b : key) {
+                    b = static_cast<std::uint8_t>(random());
+                }
+            } else if (choice == 1) {
+                key = ids[random() % ids.size()];
+                const auto bit = 128 + random() % 128;
+                key[bit / 8] ^= static_cast<std::uint8_t>(0x80U >> (bit % 8));
+            } else {
+                key = ids[random() % ids.size()]; // an update
+            }
+            ids.push_back(key);
+            const protocol::StateLeaf leaf{static_cast<protocol::ObjectKind>(1 + random() % 3),
+                                           id_from(key),
+                                           {random() % 1000, 1000 + random() % 1000}};
+            REQUIRE(tree->set(leaf));
+            reference.leaves[std::vector<std::uint8_t>(key.begin(), key.end())] = leaf;
+        }
+        // Reads need a commit first.
+        CHECK_FALSE(tree->root());
+        REQUIRE(tree->commit());
+        CHECK(tree->size() == reference.leaves.size());
+        check_against(*tree, reference);
+    }
+
+    // Proofs from the tree verify; absent ids have none.
+    const auto sorted = reference.sorted();
+    const auto root = *tree->root();
+    for (const auto& leaf : sorted) {
+        const protocol::StateProof proof{leaf, *tree->siblings(leaf.id)};
+        CHECK(protocol::verify_state_proof(provider(), crypto::HashAlg::sha256, proof, root));
+        CHECK(*tree->leaf_hash(leaf.id) != root);
+    }
+    std::array<std::uint8_t, 32> absent{};
+    absent.fill(0xa5);
+    CHECK(tree->siblings(id_from(absent)).error().code == Errc::not_found);
+    CHECK_FALSE(tree->leaf_hash(id_from(absent)));
+}
+
+TEST_CASE("the incremental state tree at the edges of the key space", "[state][tree]") {
+    auto tree = protocol::StateTree::create(provider(), crypto::HashAlg::sm3);
+    REQUIRE(tree);
+    CHECK_FALSE(protocol::StateTree::create(provider(), crypto::HashAlg::sha512));
+    // Keys that differ only in their very last bit, and in their first.
+    std::array<std::uint8_t, 32> zero{};
+    std::array<std::uint8_t, 32> last = zero;
+    last[31] = 1;
+    std::array<std::uint8_t, 32> first = zero;
+    first[0] = 0x80;
+    std::vector<protocol::StateLeaf> leaves;
+    for (const auto& key : {zero, last, first}) {
+        leaves.push_back({protocol::ObjectKind::record, id_from(key), {7}});
+        REQUIRE(tree->set(leaves.back()));
+    }
+    REQUIRE(tree->commit());
+    std::ranges::sort(leaves, [](const auto& a, const auto& b) {
+        return std::ranges::lexicographical_compare(a.id.bytes(), b.id.bytes());
+    });
+    CHECK(*tree->root() == *protocol::state_root(provider(), crypto::HashAlg::sm3, leaves));
+    const auto deep = tree->siblings(id_from(last));
+    REQUIRE(deep);
+    CHECK(deep->size() == 256);
+    CHECK(*deep ==
+          protocol::prove_state(provider(), crypto::HashAlg::sm3, leaves, id_from(last))->siblings);
 }
