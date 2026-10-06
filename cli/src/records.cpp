@@ -312,7 +312,9 @@ protocol::Id issue_record(Session& session, const crypto::Signer& signer,
                                     Bytes(digest.bytes().begin(), digest.bytes().end())});
         vault.attachments.push_back(attachment);
     }
-    if (!request.metadata.empty()) {
+    if (request.metadata_value) {
+        body.metadata = request.metadata_value;
+    } else if (!request.metadata.empty()) {
         cbor::Map metadata;
         for (const auto& [name, value] : request.metadata) {
             metadata.push_back({cbor::Value::text(name), cbor::Value::text(value)});

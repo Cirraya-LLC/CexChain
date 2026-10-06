@@ -116,14 +116,17 @@ body_of GET "$URL/metrics" "$REPLICA_TOKEN" | contains '^cexchain_log_entries '
 
 # The command line keeps working on the served ledger; the server sees it,
 # and checkpoints on its own.
+# (Measured before writing: a checkpoint may land at any moment. The next
+# one after the write covers it and its own state commitment.)
+BEFORE="$(run status --json | json 'd["entries"]')"
 run record issue --as root.key --type cexchain.certificate/1 --field result=fail > /dev/null
-SIZE="$(run status --json | json 'd["entries"]')"
+WANT=$((BEFORE + 2))
 for _ in $(seq 1 150); do
     CHECKPOINTED="$(body_of GET "$URL/v1/status" "$REPLICA_TOKEN" | json '(d["checkpoint"] or {}).get("tree_size", 0)')"
-    [ "$CHECKPOINTED" -gt "$SIZE" ] && break
+    [ "$CHECKPOINTED" -ge "$WANT" ] && break
     sleep 0.1
 done
-[ "$CHECKPOINTED" -gt "$SIZE" ] || fail "no automatic checkpoint"
+[ "$CHECKPOINTED" -ge "$WANT" ] || fail "no automatic checkpoint"
 contains '"event":"checkpoint"' primary.json.log
 contains '"principal":"replica"' primary.json.log
 run audit | contains 'audit passed'
@@ -145,7 +148,7 @@ expect_exit 2 checkpoint create --ledger "$REPLICA" --log-key log.key
 run record issue --as root.key --type cexchain.certificate/1 --field result=again > /dev/null
 # (The primary checkpoints every second, so compare with what it had at the sync.)
 run replica sync --ledger "$REPLICA" --token-file replica.token --json > sync.json
-json 'd["entries"] >= 1 and d["size"] == d["primary_size"]' < sync.json | contains -x True
+json 'd["entries"] >= 1 and d["size"] >= d["primary_size"]' < sync.json | contains -x True
 ls "$REPLICA/vault/records" | contains -c '\.cbor$'
 
 # A replica serves reads, never writes. (Tokens are each server's own.)

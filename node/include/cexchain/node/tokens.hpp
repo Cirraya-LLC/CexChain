@@ -23,6 +23,8 @@ enum class Scope : std::uint8_t {
     read = 1,   ///< The log, proofs, receipts, evidence, sealed vault data, metrics.
     submit = 2, ///< Submitting signed statements.
     admin = 4,  ///< Checkpoints and witness cosignatures.
+    peer = 8,   ///< For another organization: access requests and receipts, deliveries, and
+                ///< cosigning as this ledger's witness.
 };
 using Scopes = std::uint8_t;
 

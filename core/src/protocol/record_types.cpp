@@ -34,10 +34,21 @@ constexpr std::array agreement_transitions{
 };
 constexpr std::array<std::string_view, 2> agreement_roles{"party", "witness"};
 
+// Access across organizations (D-046): a request on the asker's ledger, a
+// grant on the granter's (ended by revoking it), a receipt on the asker's.
+constexpr std::array access_request_transitions{
+    Transition{"requested", "withdrawn"},
+};
+constexpr std::array<Transition, 0> no_transitions{};
+constexpr std::array<std::string_view, 0> no_roles{};
+
 constexpr std::array types{
     RecordType{"cexchain.certificate/1", "issued", certificate_transitions, certificate_roles},
     RecordType{"cexchain.delivery/1", "dispatched", delivery_transitions, delivery_roles},
     RecordType{"cexchain.agreement/1", "proposed", agreement_transitions, agreement_roles},
+    RecordType{"cexchain.access-request/1", "requested", access_request_transitions, no_roles},
+    RecordType{"cexchain.access-grant/1", "granted", no_transitions, no_roles},
+    RecordType{"cexchain.access-receipt/1", "received", no_transitions, no_roles},
 };
 
 } // namespace

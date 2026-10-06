@@ -12,6 +12,7 @@ add_library(cexchain_core
     src/error.cpp
     src/hex.cpp
     src/merkle.cpp
+    src/protocol/access.cpp
     src/protocol/common.cpp
     src/protocol/envelope.cpp
     src/protocol/evidence.cpp

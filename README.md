@@ -105,6 +105,7 @@ The `cexchain` tool controls every part of a ledger:
 | Server | `serve`, `token create`, `token list`, `token show`, `token revoke` |
 | Replicas | `replica init`, `replica sync`, `replica status`, `replica promote` |
 | Backups | `backup create`, `backup verify`, `backup restore` |
+| Other organizations | `peer add`, `peer list`, `peer show`, `peer remove`, `access request`, `access send`, `access inbox`, `access grant`, `access fetch`, `access accept`, `access receipt`, `access list` |
 
 - Every command takes `--help`, and `--json` for scripting.
 - `cexchain help --json` describes every command and option in machine-readable form.
@@ -236,6 +237,44 @@ stop it for good and run `cexchain replica promote`; witnesses would detect two 
 Operations: `GET /healthz`, Prometheus metrics at `GET /metrics`, an access log in JSON lines on
 stderr, automatic checkpoints (`--checkpoint-interval`), and graceful shutdown on SIGTERM. The
 `Dockerfile` builds a small image that runs as a non-root user with the ledger in `/data`.
+
+## Working with other organizations
+
+Two organizations, each with its own ledger, can share records without a platform between them.
+A bank that asks a factory for a quality certificate, for example:
+
+```sh
+# Each side pins the other's ledger by its id, learned through a channel they trust.
+cexchain peer add bank --ledger-id <bank-ledger-id> --url https://ledger.bank.example --token-file bank.token
+cexchain peer add factory --ledger-id <factory-ledger-id> --url https://ledger.factory.example ...
+
+# The bank asks (a request record on its own ledger, with a key made for this request).
+cexchain access request --peer factory --record <id> --purpose "loan collateral check" \
+    --fields result --attachments report.pdf --as officer.key --log-key log.key --send
+
+# The factory sees who asked and under whose authority, and grants (a grant record on its ledger).
+cexchain access inbox
+cexchain access grant <request> --as approver.key --log-key log.key --attach report.pdf=report.pdf
+
+# The bank fetches and checks everything against the factory's ledger, then acknowledges
+# (a receipt record on its ledger, sent back).
+cexchain access fetch --peer factory --request <request> --out delivery.cbor
+cexchain access accept delivery.cbor --as officer.key --log-key log.key --save-dir received --send
+```
+
+Each step is a record on the acting organization's own ledger, so delegations decide who may
+request, grant, or acknowledge, and proof of presence shows when a person approved. Each side
+checks the other's step with the offline evidence verifier, pinned to the peer's ledger id. The
+delivery holds the grant's evidence and the record's, with only the granted fields and attachments,
+sealed with HPKE to the request's key. The recipient checks every field and file against the
+record's commitments. Revoking a grant (`record revoke`) stops future deliveries, and receipts make
+access accountable. The same exchange works with files instead of the API (`--out`, then
+`access grant FILE`, `access accept FILE`, `access receipt FILE`).
+
+Two organizations can also witness each other's ledgers. `cexchain serve --witness-dir DIR
+--witness-key KEY` cosigns a peer's checkpoints online, and the peer runs
+`cexchain checkpoint cosign-request --peer NAME --send`. No third party is needed for neither side
+to be able to rewrite its history unseen.
 
 ## AI agents (MCP)
 

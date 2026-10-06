@@ -9,6 +9,7 @@ add_library(cexchain_node
     src/client.cpp
     src/files.cpp
     src/http.cpp
+    src/peers.cpp
     src/replica.cpp
     src/server.cpp
     src/tokens.cpp)

@@ -15,6 +15,16 @@
 
 #include "commands.hpp"
 #include "output.hpp"
+#include "peers.hpp"
+#include "witness.hpp"
+
+// Like CEXCHAIN_TRY, for the non-throwing witness path.
+#define CEXCHAIN_CLI_TRY(name, expr)                                                               \
+    auto name##_result = (expr);                                                                   \
+    if (!name##_result) {                                                                          \
+        return std::unexpected(name##_result.error());                                             \
+    }                                                                                              \
+    auto name = std::move(*name##_result)
 
 namespace cexchain::cli {
 
@@ -130,7 +140,24 @@ int cmd_checkpoint_cosign_request(const Args& args) {
     if (!latest) {
         throw CommandError{"the ledger has no checkpoint yet (cexchain checkpoint create)"};
     }
-    const crypto::PublicKey witness = load_public_key(args.need("witness"));
+    std::optional<node::Peer> peer;
+    if (const auto name = args.get("peer")) {
+        peer = peer_named(session.directory(), *name);
+        if (!peer->witness_key) {
+            throw CommandError{"peer " + *name +
+                               " has no witness key (cexchain peer add --witness-key)"};
+        }
+    } else if (!args.has("witness")) {
+        throw UsageError{"name the witness: --witness PUBKEY or --peer NAME"};
+    }
+    if (args.has("send") && !peer) {
+        throw UsageError{"--send needs --peer: the request goes to the peer's API"};
+    }
+    if (!args.has("send") && !args.has("out")) {
+        throw UsageError{"--out FILE, or --send to a peer"};
+    }
+    const crypto::PublicKey witness =
+        peer ? *peer->witness_key : load_public_key(args.need("witness"));
     std::uint64_t old_size = 0;
     if (const auto from = args.get("from")) {
         old_size = parse_number(*from, "--from");
@@ -145,14 +172,43 @@ int cmd_checkpoint_cosign_request(const Args& args) {
     const protocol::CosignRequest request{
         latest->encoded, old_size,
         unwrap(session.ledger().consistency_proof(old_size, new_size), "building the proof")};
-    const std::filesystem::path out = args.need("out");
-    write_file(out, unwrap(protocol::encode_cosign_request(request), "encoding the request"),
-               false);
+    const Bytes encoded = unwrap(protocol::encode_cosign_request(request), "encoding the request");
+    if (const auto out = args.get("out")) {
+        write_file(*out, encoded, false);
+    }
+    if (!args.has("send")) {
+        if (args.json()) {
+            print_json(
+                {{"file", *args.get("out")}, {"old_size", old_size}, {"new_size", new_size}});
+        } else {
+            std::println("wrote a cosign request for size {} (consistency from size {}) to {}",
+                         new_size, old_size, *args.get("out"));
+        }
+        return exit_ok;
+    }
+    // Online: the peer cosigns as our witness, and we keep the cosignature.
+    session.require_primary();
+    const auto response = unwrap(
+        peer_client(*peer).request("POST", "/v1/witness/cosign", encoded, "application/cbor"),
+        "reaching peer " + peer->name);
+    if (response.status != 200) {
+        const Json answer = Json::parse(response.body.begin(), response.body.end(), nullptr, false);
+        const std::string message = answer.is_object() && answer.contains("error")
+                                        ? answer["error"].value("message", std::string())
+                                        : "status " + std::to_string(response.status);
+        if (args.json()) {
+            print_json({{"cosigned", false}, {"error", message}, {"status", response.status}});
+        } else {
+            std::println("REFUSED by {}: {}", peer->name, message);
+        }
+        return response.status == 422 ? exit_not_verified : exit_failure;
+    }
+    unwrap(session.ledger().add_cosignature(response.body, witness), "storing the cosignature");
     if (args.json()) {
-        print_json({{"file", out.string()}, {"old_size", old_size}, {"new_size", new_size}});
+        print_json({{"cosigned", true}, {"peer", peer->name}, {"tree_size", new_size}});
     } else {
-        std::println("wrote a cosign request for size {} (consistency from size {}) to {}",
-                     new_size, old_size, out.string());
+        std::println("{} cosigned the checkpoint at size {} (consistent since size {}); stored",
+                     peer->name, new_size, old_size);
     }
     return exit_ok;
 }
@@ -203,15 +259,59 @@ int cmd_witness_add_log(const Args& args) {
     return exit_ok;
 }
 
+Result<Bytes> witness_cosign(const std::filesystem::path& dir, const crypto::Signer& key,
+                             ByteView request_bytes) {
+    if (!std::filesystem::is_directory(dir)) {
+        return fail(Errc::not_found, "no witness directory");
+    }
+    auto lock = ledger::DirectoryLock::acquire(dir);
+    if (!lock) {
+        return std::unexpected(lock.error());
+    }
+    CEXCHAIN_CLI_TRY(request, protocol::decode_cosign_request(request_bytes));
+    CEXCHAIN_CLI_TRY(checkpoint, protocol::parse_checkpoint(request.checkpoint));
+    const std::filesystem::path path = state_path(dir, checkpoint.checkpoint.ledger_id);
+    if (!std::filesystem::exists(path)) {
+        return fail(Errc::not_found, "this witness does not follow the ledger");
+    }
+    WitnessState state;
+    try {
+        state = decode_state(path);
+    } catch (const CommandError&) {
+        return fail(Errc::malformed, "the witness state is corrupted");
+    }
+    if (key.public_key() == state.log.log_key) {
+        return fail(Errc::invalid_argument, "a ledger's log key cannot witness the ledger");
+    }
+    const auto& provider = shared_provider();
+    // The checkpoint cosigned last, asked for again: cosign it again.
+    if (state.log.size > 0 && checkpoint.checkpoint.tree_size == state.log.size &&
+        checkpoint.checkpoint.root == state.log.root &&
+        checkpoint.checkpoint.ledger_id == state.log.ledger_id &&
+        protocol::verify_checkpoint(provider, checkpoint, state.log.log_key)) {
+        CEXCHAIN_CLI_TRY(again, protocol::cosign_checkpoint(key, provider, checkpoint.checkpoint));
+        return again.encoded;
+    }
+    CEXCHAIN_CLI_TRY(checked, protocol::check_cosign_request(provider, state.log, request));
+    CEXCHAIN_CLI_TRY(cosigned, protocol::cosign_checkpoint(key, provider, checked.checkpoint));
+    state.log = protocol::advance(state.log, checked.checkpoint);
+    state.cosigned_at = ledger::SystemClock{}.now();
+    try {
+        write_file(path, encode_state(state), false);
+    } catch (const CommandError&) {
+        return fail(Errc::unavailable, "cannot write the witness state");
+    }
+    return cosigned.encoded;
+}
+
 int cmd_witness_cosign(const Args& args) {
     const std::filesystem::path dir = args.need("dir");
     if (!std::filesystem::is_directory(dir)) {
         throw CommandError{"no witness directory at " + dir.string()};
     }
-    const auto lock = unwrap(ledger::DirectoryLock::acquire(dir), "locking the witness directory");
+    const Bytes request_bytes = read_file(args.positional().front());
     const auto request =
-        unwrap(protocol::decode_cosign_request(read_file(args.positional().front())),
-               "reading the request");
+        unwrap(protocol::decode_cosign_request(request_bytes), "reading the request");
     const auto checkpoint =
         unwrap(protocol::parse_checkpoint(request.checkpoint), "reading the checkpoint");
     const std::filesystem::path path = state_path(dir, checkpoint.checkpoint.ledger_id);
@@ -219,35 +319,30 @@ int cmd_witness_cosign(const Args& args) {
         throw CommandError{"this witness does not follow ledger " +
                            hex_id(checkpoint.checkpoint.ledger_id) + " (cexchain witness add-log)"};
     }
-    WitnessState state = decode_state(path);
+    const std::uint64_t before = decode_state(path).log.size;
     const auto key = load_signer(args.need("key"), args);
-    if (key->public_key() == state.log.log_key) {
-        throw UsageError{"a ledger's log key cannot witness the ledger"};
-    }
-    const crypto::openssl::Provider provider;
-    const auto checked = protocol::check_cosign_request(provider, state.log, request);
-    if (!checked) {
+    const auto cosignature = witness_cosign(dir, *key, request_bytes);
+    if (!cosignature) {
+        const Error& e = cosignature.error();
+        if (e.code == Errc::invalid_argument) {
+            throw UsageError{std::string(e.detail)};
+        }
+        if (e.code != Errc::rejected && e.code != Errc::verification_failed) {
+            throw CommandError{"cosigning: " + std::string(e.detail)};
+        }
         if (args.json()) {
             print_json({{"cosigned", false},
-                        {"error", checked.error().detail},
-                        {"witness_size", state.log.size},
-                        {"conflict", checked.error().code == Errc::rejected}});
+                        {"error", e.detail},
+                        {"witness_size", before},
+                        {"conflict", e.code == Errc::rejected}});
         } else {
-            std::println("REFUSED: {} (this witness last cosigned size {})", checked.error().detail,
-                         state.log.size);
+            std::println("REFUSED: {} (this witness last cosigned size {})", e.detail, before);
         }
-        return checked.error().code == Errc::rejected ? exit_failure : exit_not_verified;
+        return e.code == Errc::rejected ? exit_failure : exit_not_verified;
     }
-    const Bytes cosignature =
-        unwrap(protocol::cosign_checkpoint(*key, provider, checked->checkpoint), "cosigning")
-            .encoded;
-    // Write the cosignature before advancing: a crash in between leaves the
-    // witness able to cosign the same checkpoint again.
+    const WitnessState state = decode_state(path);
     const std::filesystem::path out = args.need("out");
-    write_file(out, cosignature, false);
-    state.log = protocol::advance(state.log, checked->checkpoint);
-    state.cosigned_at = ledger::SystemClock{}.now();
-    write_file(path, encode_state(state), false);
+    write_file(out, *cosignature, false);
     if (args.json()) {
         print_json({{"cosigned", true},
                     {"file", out.string()},

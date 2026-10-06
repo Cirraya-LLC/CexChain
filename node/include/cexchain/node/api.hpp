@@ -5,6 +5,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -27,6 +28,8 @@
 ///         /v1/vault/records/{record}
 /// submit: POST /v1/statements (a signed statement)
 /// admin:  POST /v1/checkpoint, POST /v1/cosignatures ([cosignature, witness key])
+/// peer:   POST /v1/access/requests (a request's evidence), GET /v1/access/deliveries/{request},
+///         POST /v1/access/receipts (a receipt's evidence), POST /v1/witness/cosign
 namespace cexchain::node {
 
 /// A ledger directory that is a replica holds this file (JSON).
@@ -47,6 +50,9 @@ struct ApiOptions {
     std::string version;
     /// Notable events (automatic checkpoints, failures), one JSON line each.
     std::ostream* event_log = nullptr;
+    /// Cosigns a cosign request as this organization's witness of a peer's
+    /// ledger; without it, POST /v1/witness/cosign answers 501.
+    std::function<Result<Bytes>(ByteView)> witness;
 };
 
 class LedgerApi final : public Application {

@@ -298,7 +298,13 @@ run checkpoint cosign-request --ledger forked --witness witness.pub --from "$SEC
 expect_exit 3 witness cosign forged.cbor --dir witness --key witness.key --out nope.cbor
 contains 'INCONSISTENT HISTORY' out.txt
 [ ! -f nope.cbor ] || fail "a refused request must not produce a cosignature"
-# A request from a size the witness has moved past is a conflict, not an attack.
+# Asking again for the checkpoint cosigned last (an answer was lost) is fine.
+run witness cosign request2.cbor --dir witness --key witness.key --out again.cbor | contains 'cosigned'
+# A request whose proof starts at a size the witness has moved past is a
+# conflict, not an attack: the operator asks again from the witness's size.
+run record transition "$RECORD" --as alice.key --to suspended > /dev/null
+run record transition "$RECORD" --as alice.key --to issued > /dev/null
+run checkpoint create --log-key log.key > /dev/null
 run checkpoint cosign-request --witness witness.pub --from 1 --out stale.cbor > /dev/null
 expect_exit 2 witness cosign stale.cbor --dir witness --key witness.key --out nope.cbor
 contains "last cosigned size $SECOND" out.txt
@@ -342,7 +348,7 @@ contains 'Complete: the record' final.txt
 contains 'REVOKED' final.txt
 run verify final.cbor --json | json 'd["complete"] and d["limits"] is None' | contains -x True
 run audit | contains 'audit passed'
-run audit --json | json 'd["ok"] and d["checkpoints"] == 3 and d["cosignatures"] == 2' | contains -x True
+run audit --json | json 'd["ok"] and d["checkpoints"] == 4 and d["cosignatures"] == 2' | contains -x True
 
 # A ledger altered on disk refuses to open.
 cp -R ledger altered

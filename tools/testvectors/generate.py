@@ -927,6 +927,119 @@ def generate_protocol_v02() -> None:
     print(f"wrote protocol vectors for {len(ledgers)} ledgers to testvectors/protocol-v0.2.json")
 
 
+# ---------------------------------------------------------------------------
+# Protocol v0.3 additions: access across organizations (spec/cexchain.cddl,
+# revision v0.3), with HPKE (RFC 9180) implemented here from the RFC
+# ---------------------------------------------------------------------------
+
+def hkdf_extract(salt: bytes, ikm: bytes) -> bytes:
+    import hmac
+    return hmac.new(salt or bytes(32), ikm, hashlib.sha256).digest()
+
+
+def hkdf_expand(prk: bytes, info: bytes, length: int) -> bytes:
+    import hmac
+    out, block, counter = b"", b"", 1
+    while len(out) < length:
+        block = hmac.new(prk, block + info + bytes([counter]), hashlib.sha256).digest()
+        out += block
+        counter += 1
+    return out[:length]
+
+
+def hpke_seal_base(pk_r: bytes, sk_e: bytes, info: bytes, aad: bytes, plaintext: bytes) -> tuple[bytes, bytes]:
+    """RFC 9180 base mode: DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, AES-256-GCM,
+    with the ephemeral key given (as the RFC's own test vectors do)."""
+    from cryptography.hazmat.primitives.asymmetric import x25519
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    def labeled_extract(salt, label, ikm, suite):
+        return hkdf_extract(salt, b"HPKE-v1" + suite + label + ikm)
+
+    def labeled_expand(prk, label, info_, length, suite):
+        return hkdf_expand(prk, length.to_bytes(2, "big") + b"HPKE-v1" + suite + label + info_, length)
+
+    eph = x25519.X25519PrivateKey.from_private_bytes(sk_e)
+    enc = eph.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    dh = eph.exchange(x25519.X25519PublicKey.from_public_bytes(pk_r))
+    kem_suite = b"KEM" + (0x0020).to_bytes(2, "big")
+    eae_prk = labeled_extract(b"", b"eae_prk", dh, kem_suite)
+    shared_secret = labeled_expand(eae_prk, b"shared_secret", enc + pk_r, 32, kem_suite)
+    suite = b"HPKE" + (0x0020).to_bytes(2, "big") + (0x0001).to_bytes(2, "big") + (0x0002).to_bytes(2, "big")
+    context = b"\x00" + labeled_extract(b"", b"psk_id_hash", b"", suite) + \
+        labeled_extract(b"", b"info_hash", info, suite)
+    secret = labeled_extract(shared_secret, b"secret", b"", suite)
+    key = labeled_expand(secret, b"key", context, 32, suite)
+    nonce = labeled_expand(secret, b"base_nonce", context, 12, suite)
+    return enc, AESGCM(key).encrypt(nonce, plaintext, aad)
+
+
+def generate_protocol_v03() -> None:
+    from cryptography.hazmat.primitives.asymmetric import x25519
+
+    def seed(name: str) -> bytes:
+        return hashlib.sha256(f"CexChain test key: {name}".encode()).digest()
+
+    factory_ledger = hashlib.sha256(b"factory ledger").digest()
+    bank_ledger = hashlib.sha256(b"bank ledger").digest()
+    record = hashlib.sha256(b"certificate").digest()
+    request_id = hashlib.sha256(b"request").digest()
+    grant_id = hashlib.sha256(b"grant").digest()
+    recipient = x25519.X25519PrivateKey.from_private_bytes(seed("recipient"))
+    recipient_public = recipient.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    recipient_pkcs8 = recipient.private_bytes(serialization.Encoding.DER, serialization.PrivateFormat.PKCS8,
+                                              serialization.NoEncryption())
+
+    request = {"ledger": factory_ledger, "record": record, "purpose": "loan collateral check",
+               "until": 1_792_108_800_000, "recipient": recipient_public,
+               "fields": ["product", "result"], "attachments": ["report.pdf"]}
+    grant = {"ledger": bank_ledger, "request": request_id, "record": record, "fields": ["result"],
+             "attachments": ["report.pdf"], "until": 1_791_676_800_000, "recipient": recipient_public}
+    receipt = {"ledger": factory_ledger, "grant": grant_id,
+               "delivery": hashlib.sha256(b"delivery").digest()}
+
+    # The delivery's bundles are opaque here: their own format has its own vectors.
+    record_bundle = b"record evidence bundle"
+    grant_bundle = b"grant evidence bundle"
+    contents = dcbor({1: record_bundle, 2: {"report.pdf": b"%PDF-1.7 test report"}})
+    enc, ciphertext = hpke_seal_base(recipient_public, seed("ephemeral"), b"CexChain delivery v1",
+                                     grant_id, contents)
+    delivery = dcbor({1: 1, 2: grant_bundle, 3: {1: enc, 2: ciphertext}})
+
+    def hexed(value):
+        if isinstance(value, bytes):
+            return value.hex()
+        if isinstance(value, list):
+            return value
+        return value
+
+    document = {
+        "description": "CexChain protocol objects added in specification revision v0.3 (access across "
+                       "organizations), built by an independent Python encoder from spec/cexchain.cddl: the "
+                       "metadata of access requests, grants, and receipts, and a delivery whose contents are "
+                       "sealed with HPKE (RFC 9180, implemented here from the RFC; base mode, X25519, "
+                       "HKDF-SHA256, AES-256-GCM) using a fixed ephemeral key. Keys are throwaway test keys: "
+                       "seed = SHA-256(\"CexChain test key: <name>\").",
+        "access_request": {"metadata": dcbor(request).hex(), "values": {k: hexed(v) for k, v in request.items()}},
+        "access_grant": {"metadata": dcbor(grant).hex(), "values": {k: hexed(v) for k, v in grant.items()}},
+        "access_receipt": {"metadata": dcbor(receipt).hex(), "values": {k: hexed(v) for k, v in receipt.items()}},
+        "delivery": {
+            "encoded": delivery.hex(),
+            "grant_bundle": grant_bundle.hex(),
+            "contents": contents.hex(),
+            "record_bundle": record_bundle.hex(),
+            "attachments": {"report.pdf": b"%PDF-1.7 test report".hex()},
+            "grant_id": grant_id.hex(),
+            "info": "CexChain delivery v1",
+            "recipient_pkcs8": recipient_pkcs8.hex(),
+            "recipient_public_key": recipient_public.hex(),
+            "encapsulated_key": enc.hex(),
+        },
+    }
+    (OUT / "protocol-v0.3.json").write_text(json.dumps(document, indent=2) + "\n")
+    print("wrote protocol vectors to testvectors/protocol-v0.3.json")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--openssl", default="openssl", help="OpenSSL 3.5+ command-line tool")
@@ -939,6 +1052,7 @@ def main() -> None:
     generate_pkcs8(args.openssl)
     generate_protocol()
     generate_protocol_v02()
+    generate_protocol_v03()
 
 
 if __name__ == "__main__":

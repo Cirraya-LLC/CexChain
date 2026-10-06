@@ -1,7 +1,7 @@
 ; SPDX-License-Identifier: Apache-2.0
 ; Copyright 2026 Cirraya
 ;
-; The CexChain protocol (RFC 8610 CDDL). Specification revision v0.2; the
+; The CexChain protocol (RFC 8610 CDDL). Specification revision v0.3; the
 ; wire protocol version (statement key 0) is 1.
 ;
 ; Revision history:
@@ -10,6 +10,9 @@
 ;         actor-set-presence, scope key 6) with passkeys or hardware keys;
 ;         state commitments in the log (log entry key 4, bundle key 7). v0.1
 ;         objects remain valid.
+;   v0.3  access across organizations: the access-request, access-grant, and
+;         access-receipt record types and their metadata, and deliveries.
+;         Earlier objects remain valid.
 ;
 ; Every structure is encoded as deterministic CBOR (RFC 8949 section 4.2.1) in
 ; the CexChain profile: no floats, no indefinite lengths, no duplicate keys.
@@ -392,3 +395,72 @@ attachment-opening = [
   name: tstr,
   salt: bstr .size 16,         ; the content travels alongside the bundle
 ]
+
+; ---------------------------------------------------------------------------
+; Access across organizations (v0.3)
+; ---------------------------------------------------------------------------
+
+; Each step is a record (record-register-body) on the acting organization's
+; own ledger, with these built-in types and public metadata (key 5). The
+; other organization checks it with an evidence bundle, verified against the
+; peer's ledger id, which it learned out of band. Delegations decide who may
+; act, through record types; presence shows when a person approved.
+;
+;   cexchain.access-request/1  on the requester's ledger; initial state
+;                              "requested", which may become "withdrawn"
+;   cexchain.access-grant/1    on the granter's ledger; initial state
+;                              "granted"; revoking the record ends it
+;   cexchain.access-receipt/1  on the requester's ledger; state "received"
+;
+; Parties refuse metadata with other keys. Requests, grants, and receipts
+; must be live (in their initial state, not revoked) and their evidence
+; complete (proven against the state commitment).
+access-request = {
+  "ledger" => bstr .size 32,      ; the ledger asked
+  "record" => bstr .size 32,      ; the record wanted there
+  "purpose" => tstr,              ; non-empty
+  "until" => uint,                ; access wanted until (ms), > 0
+  "recipient" => bstr .size 32,   ; X25519 key deliveries are sealed to; one
+                                  ; per request
+  ? "fields" => [* tstr],         ; wanted fields; absent: all (unique names)
+  ? "attachments" => [* tstr],    ; wanted attachments; absent: all
+}
+access-grant = {
+  "ledger" => bstr .size 32,      ; the requester's ledger
+  "request" => bstr .size 32,     ; the request record there
+  "record" => bstr .size 32,      ; the record granted, on this ledger
+  "fields" => [* tstr],           ; granted fields (unique names)
+  "attachments" => [* tstr],      ; granted attachments
+  "until" => uint,                ; > 0; the requester refuses it afterwards
+  "recipient" => bstr .size 32,   ; the request's recipient key
+}
+access-receipt = {
+  "ledger" => bstr .size 32,      ; the granter's ledger
+  "grant" => bstr .size 32,       ; the grant record there
+  "delivery" => bstr .size 32,    ; SHA-256 of the delivery received
+}
+
+; What the granter sends. The contents are sealed with HPKE (RFC 9180, base
+; mode: DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, AES-256-GCM) to the
+; grant's recipient key, with info "CexChain delivery v1" and the grant
+; record's id as additional authenticated data.
+delivery = {
+  1 => 1,                         ; version
+  2 => bstr,                      ; the grant's evidence bundle
+  3 => {
+    1 => bstr,                    ; HPKE encapsulated key
+    2 => bstr,                    ; ciphertext of delivery-contents
+  },
+}
+delivery-contents = {
+  1 => bstr,                      ; the granted record's evidence bundle, with
+                                  ; the granted field disclosures and
+                                  ; attachment openings only
+  ? 2 => { + tstr => bstr },      ; granted attachments' contents, by name
+}
+; The recipient accepts a delivery only if: the grant verifies for the
+; granter's ledger and names the recipient's ledger, its request, and its
+; key; the contents open with that key; the record bundle verifies for the
+; granter's ledger, is the granted record, and discloses nothing beyond the
+; grant; and every attachment content matches its commitment.
+

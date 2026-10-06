@@ -3,6 +3,7 @@
 
 add_executable(cexchain
     src/args.cpp
+    src/cmd_access.cpp
     src/cmd_actors.cpp
     src/cmd_evidence.cpp
     src/cmd_general.cpp

@@ -9,7 +9,9 @@ add_executable(cexchain_tests
     core/merkle_test.cpp
     core/protocol_test.cpp
     core/protocol_v02_test.cpp
+    core/protocol_v03_test.cpp
     crypto/openssl_test.cpp
+    ledger/access_test.cpp
     ledger/backup_test.cpp
     ledger/evidence_test.cpp
     ledger/ledger_test.cpp
@@ -49,6 +51,8 @@ add_test(NAME mcp_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/mcp.sh $<TARGET_FILE:cexchain>)
 add_test(NAME serve_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/serve.sh $<TARGET_FILE:cexchain>)
+add_test(NAME access_end_to_end
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/access.sh $<TARGET_FILE:cexchain>)
 
 # Keys on tokens (HSMs, USB keys), when SoftHSM is installed to stand in.
 if(TARGET cexchain_crypto_pkcs11)

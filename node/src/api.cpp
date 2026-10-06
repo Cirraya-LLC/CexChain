@@ -11,10 +11,12 @@
 #include <nlohmann/json.hpp>
 
 #include <cexchain/core/cbor.hpp>
+#include <cexchain/core/protocol/access.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/statement.hpp>
 #include <cexchain/core/protocol/witness.hpp>
 #include <cexchain/node/api.hpp>
+#include <cexchain/node/peers.hpp>
 #include <cexchain/node/tokens.hpp>
 
 #include "files.hpp"
@@ -151,7 +153,7 @@ cbor::Value digests_value(const std::vector<crypto::Digest>& digests) {
     return cbor::Value::array(std::move(out));
 }
 
-enum class Access { open, read, submit, admin };
+enum class Access { open, read, submit, admin, peer };
 
 } // namespace
 
@@ -277,6 +279,7 @@ struct LedgerApi::State {
         principal = token->name;
         const Scope needed = access == Access::read     ? Scope::read
                              : access == Access::submit ? Scope::submit
+                             : access == Access::peer   ? Scope::peer
                                                         : Scope::admin;
         if (!has_scope(token->scopes, needed)) {
             return error_response(403, "forbidden", "the API token lacks the scope for this");
@@ -548,6 +551,121 @@ struct LedgerApi::State {
         });
     }
 
+    /// The peer whose ledger produced `bundle`, which must verify.
+    Result<Peer> peer_of(ByteView bundle) const {
+        auto report = protocol::verify_bundle(*provider, bundle, {});
+        if (!report) {
+            return std::unexpected(report.error());
+        }
+        auto peers = load_peers(options.directory);
+        if (!peers) {
+            return std::unexpected(peers.error());
+        }
+        for (const Peer& p : *peers) {
+            if (p.ledger_id == report->ledger_id) {
+                return p;
+            }
+        }
+        return fail(Errc::rejected, "the evidence comes from a ledger that is not a peer");
+    }
+
+    Status store(const std::filesystem::path& path, ByteView bytes) const {
+        std::error_code ec;
+        std::filesystem::create_directories(path.parent_path(), ec);
+        if (ec) {
+            return fail(Errc::unavailable, "cannot create the access directory");
+        }
+        return detail::write_file(path, bytes, true);
+    }
+
+    http::Response access_request(const http::Request& r) {
+        auto peer = peer_of(r.body);
+        if (!peer) {
+            return error_response(peer.error());
+        }
+        auto checked = protocol::check_access_request(*provider, r.body, peer->ledger_id,
+                                                      ledger->id(), clock.now());
+        if (!checked) {
+            return error_response(checked.error());
+        }
+        if (auto s = store(access_path(options.directory, AccessBox::inbox, checked->report.record),
+                           r.body);
+            !s) {
+            return error_response(s.error());
+        }
+        event("access-request", peer->name + " " + hex(checked->report.record));
+        return json_response(202, {{"request", hex(checked->report.record)},
+                                   {"peer", peer->name},
+                                   {"record", hex(checked->value.record)},
+                                   {"purpose", checked->value.purpose}});
+    }
+
+    http::Response access_delivery(std::string_view request_text) const {
+        const auto request = id_from(request_text);
+        if (!request) {
+            return error_response(400, "invalid_argument", "a request id is 64 hex digits");
+        }
+        auto bytes = detail::read_file(access_path(options.directory, AccessBox::outbox, *request));
+        if (!bytes) {
+            return bytes.error().code == Errc::not_found
+                       ? error_response(404, "not_found", "not granted (yet)")
+                       : error_response(bytes.error());
+        }
+        return binary("application/cbor", std::move(*bytes));
+    }
+
+    http::Response access_receipt(const http::Request& r) {
+        auto peer = peer_of(r.body);
+        if (!peer) {
+            return error_response(peer.error());
+        }
+        // Which grant: from the receipt's metadata, checked below.
+        auto report = protocol::verify_bundle(*provider, r.body, {});
+        auto receipt =
+            report && report->metadata
+                ? protocol::decode_access_receipt(*report->metadata)
+                : Result<protocol::AccessReceipt>(fail(Errc::malformed, "not an access receipt"));
+        if (!receipt) {
+            return error_response(receipt.error());
+        }
+        auto grant = record_metadata(*provider, *ledger, receipt->grant);
+        auto decoded = grant ? protocol::decode_access_grant(*grant)
+                             : Result<protocol::AccessGrant>(std::unexpected(grant.error()));
+        if (!decoded) {
+            return error_response(404, "not_found", "no such grant on this ledger");
+        }
+        auto delivery =
+            detail::read_file(access_path(options.directory, AccessBox::outbox, decoded->request));
+        auto digest = delivery ? provider->digest(crypto::HashAlg::sha256, *delivery)
+                               : Result<crypto::Digest>(std::unexpected(delivery.error()));
+        if (!digest) {
+            return error_response(404, "not_found", "nothing was delivered for this grant");
+        }
+        auto checked = protocol::check_access_receipt(
+            *provider, r.body, peer->ledger_id, ledger->id(), receipt->grant, digest->bytes());
+        if (!checked) {
+            return error_response(checked.error());
+        }
+        if (auto s =
+                store(access_path(options.directory, AccessBox::receipts, receipt->grant), r.body);
+            !s) {
+            return error_response(s.error());
+        }
+        event("access-receipt", peer->name + " " + hex(receipt->grant));
+        return json_response(202, {{"grant", hex(receipt->grant)}, {"peer", peer->name}});
+    }
+
+    http::Response witness_cosign(const http::Request& r) const {
+        if (!options.witness) {
+            return error_response(501, "unsupported", "this server is not a witness");
+        }
+        auto cosignature = options.witness(r.body);
+        if (!cosignature) {
+            return error_response(cosignature.error());
+        }
+        return binary("application/cose", std::move(*cosignature));
+    }
+
     http::Response metrics() const {
         const auto& latest = ledger->latest_checkpoint();
         const std::uint64_t checkpointed = latest ? latest->checkpoint.tree_size : 0;
@@ -630,6 +748,17 @@ struct LedgerApi::State {
             if (post && path == "/v1/consistency") {
                 return method_not_allowed("GET");
             }
+        } else if (path == "/v1/access/requests" || path == "/v1/access/receipts" ||
+                   path == "/v1/witness/cosign") {
+            if (!post) {
+                return method_not_allowed("POST");
+            }
+            found = Route{Access::peer, true};
+        } else if (match("/v1/access/deliveries/")) {
+            if (!get) {
+                return method_not_allowed("GET");
+            }
+            found = Route{Access::peer, false};
         } else if (path == "/v1/statements" || path == "/v1/cosignatures") {
             found = Route{post ? (path == "/v1/statements" ? Access::submit : Access::admin)
                                : Access::read,
@@ -656,12 +785,24 @@ struct LedgerApi::State {
         if (auto denied = authorize(r, found->access)) {
             return std::move(*denied);
         }
-        if (!found->post) {
+        if (!found->post || found->access == Access::peer) {
             if (auto s = refresh(false); !s) {
                 return error_response(503, "unavailable", "the ledger is unusable");
             }
         }
 
+        if (post && path == "/v1/access/requests") {
+            return access_request(r);
+        }
+        if (post && path == "/v1/access/receipts") {
+            return access_receipt(r);
+        }
+        if (post && path == "/v1/witness/cosign") {
+            return witness_cosign(r);
+        }
+        if (path.starts_with("/v1/access/deliveries/")) {
+            return access_delivery(rest);
+        }
         if (post) {
             if (options.read_only || replica) {
                 return error_response(403, "read_only",

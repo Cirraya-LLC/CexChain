@@ -23,6 +23,7 @@
 
 #include "commands.hpp"
 #include "output.hpp"
+#include "witness.hpp"
 
 namespace cexchain::cli {
 
@@ -153,6 +154,21 @@ int cmd_serve(const Args& args) {
     options.checkpoint_interval = std::chrono::seconds(interval);
     options.version = CEXCHAIN_VERSION;
     options.event_log = &std::cerr;
+    if (args.has("witness-dir") != args.has("witness-key")) {
+        throw UsageError{"--witness-dir and --witness-key go together"};
+    }
+    if (const auto witness_dir = args.get("witness-dir")) {
+        if (!std::filesystem::is_directory(*witness_dir)) {
+            throw CommandError{"no witness directory at " + *witness_dir +
+                               " (cexchain witness add-log)"};
+        }
+        std::shared_ptr<const crypto::Signer> witness_key =
+            load_signer(args.need("witness-key"), args);
+        options.witness = [dir = std::filesystem::path(*witness_dir),
+                           witness_key](ByteView request) {
+            return witness_cosign(dir, *witness_key, request);
+        };
+    }
     auto api = unwrap(node::LedgerApi::open(options, shared_provider()), "opening the ledger");
 
     node::ServerOptions server_options;

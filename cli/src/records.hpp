@@ -23,6 +23,9 @@ struct IssueRequest {
     std::string record_type;
     std::vector<std::pair<std::string, std::string>> fields;
     std::vector<std::pair<std::string, std::string>> metadata;
+    /// Metadata as a CBOR map, for values that are not text; replaces
+    /// `metadata`.
+    std::optional<cbor::Value> metadata_value;
     std::vector<std::filesystem::path> attachments;
     std::optional<std::string> delegation;
     std::optional<protocol::Provenance> provenance;
