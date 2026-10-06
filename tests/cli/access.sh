@@ -150,6 +150,18 @@ f access grant "${ONLINE:0:12}" --fields product --attachments '' \
     --as f-root.key --log-key f-log.key > /dev/null
 f access inbox --json | json 'd[0]["granted"]' | contains -x True
 b access fetch --peer factory --request "$ONLINE" --out d2.cbor | contains 'fetched'
+# Another peer's token does not even see that the delivery exists.
+f token create someone --scope peer --out someone.token > /dev/null
+sleep 2 # servers reread tokens within a second
+python3 - "$F_URL/v1/access/deliveries/$ONLINE" "$(cat someone.token)" << 'PY'
+import sys, urllib.request, urllib.error
+request = urllib.request.Request(sys.argv[1], headers={"Authorization": "Bearer " + sys.argv[2]})
+try:
+    urllib.request.urlopen(request, timeout=10)
+    sys.exit("another peer's token fetched the delivery")
+except urllib.error.HTTPError as error:
+    assert error.code == 404, error.code
+PY
 b access accept d2.cbor --as b-root.key --log-key b-log.key --send --json > accepted2.json
 json 'd["fields"]["product"]' < accepted2.json | contains Flange
 for _ in $(seq 1 50); do

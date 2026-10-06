@@ -33,7 +33,11 @@ if(NOT EMSCRIPTEN)
     find_package(Threads REQUIRED)
     add_library(cexchain_asio INTERFACE)
     target_include_directories(cexchain_asio SYSTEM INTERFACE "${asio_SOURCE_DIR}/include")
-    target_compile_definitions(cexchain_asio INTERFACE ASIO_STANDALONE ASIO_NO_DEPRECATED)
+    # Frame recycling pairs aligned_alloc with operator delete in a way GCC's
+    # optimized builds flag (-Wmismatched-new-delete); plain allocation costs
+    # nothing that matters here.
+    target_compile_definitions(cexchain_asio INTERFACE ASIO_STANDALONE ASIO_NO_DEPRECATED
+        ASIO_DISABLE_AWAITABLE_FRAME_RECYCLING)
     target_link_libraries(cexchain_asio INTERFACE Threads::Threads)
 endif()
 

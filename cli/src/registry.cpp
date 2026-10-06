@@ -687,8 +687,11 @@ std::vector<CommandSpec> build() {
          cmd_token_create,
          "The token is shown once; the ledger keeps only its SHA-256. Scopes: read (the log,\n"
          "proofs, receipts, evidence, sealed vault data, metrics), submit (signed statements),\n"
-         "admin (checkpoints, witness cosignatures). A token only gates access: what a\n"
-         "statement may do is still decided by its signature and the ledger's rules."},
+         "admin (checkpoints, witness cosignatures), peer (another organization's access\n"
+         "requests, deliveries, receipts, and witnessing). Name a peer's token after the peer\n"
+         "(cexchain peer add NAME): it then reaches only that peer's own exchanges. A token\n"
+         "only gates access: what a statement may do is still decided by its signature and\n"
+         "the ledger's rules."},
         {{"token", "list"},
          "List API tokens",
          "Server",

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <format>
@@ -578,10 +579,23 @@ struct LedgerApi::State {
         return detail::write_file(path, bytes, true);
     }
 
+    /// Peer tokens are named after their peer: each peer sees and sends
+    /// only its own exchanges.
+    std::optional<http::Response> require_peer_token(const Peer& peer) const {
+        if (peer.name != principal) {
+            return error_response(403, "forbidden",
+                                  "this token is not the peer's (name it after the peer)");
+        }
+        return std::nullopt;
+    }
+
     http::Response access_request(const http::Request& r) {
         auto peer = peer_of(r.body);
         if (!peer) {
             return error_response(peer.error());
+        }
+        if (auto denied = require_peer_token(*peer)) {
+            return std::move(*denied);
         }
         auto checked = protocol::check_access_request(*provider, r.body, peer->ledger_id,
                                                       ledger->id(), clock.now());
@@ -611,6 +625,23 @@ struct LedgerApi::State {
                        ? error_response(404, "not_found", "not granted (yet)")
                        : error_response(bytes.error());
         }
+        // Only to the peer it was granted to; to anyone else it does not exist.
+        auto delivery = protocol::decode_delivery(*bytes);
+        protocol::VerifyOptions own;
+        own.expected_ledger = ledger->id();
+        auto report = delivery
+                          ? protocol::verify_bundle(*provider, delivery->grant_bundle, own)
+                          : Result<protocol::EvidenceReport>(std::unexpected(delivery.error()));
+        auto grant = report && report->metadata
+                         ? protocol::decode_access_grant(*report->metadata)
+                         : Result<protocol::AccessGrant>(fail(Errc::malformed, "no grant"));
+        auto peers = load_peers(options.directory);
+        const bool theirs = grant && peers && std::ranges::any_of(*peers, [&](const Peer& p) {
+                                return p.ledger_id == grant->ledger && p.name == principal;
+                            });
+        if (!theirs) {
+            return error_response(404, "not_found", "not granted (yet)");
+        }
         return binary("application/cbor", std::move(*bytes));
     }
 
@@ -618,6 +649,9 @@ struct LedgerApi::State {
         auto peer = peer_of(r.body);
         if (!peer) {
             return error_response(peer.error());
+        }
+        if (auto denied = require_peer_token(*peer)) {
+            return std::move(*denied);
         }
         // Which grant: from the receipt's metadata, checked below.
         auto report = protocol::verify_bundle(*provider, r.body, {});
