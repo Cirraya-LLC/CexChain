@@ -1,0 +1,4 @@
+# SoftHSM leaks ASN.1 objects it decodes in C_SignInit for EdDSA keys
+# (Debian's softhsm2 2.6). Not CexChain's memory; suppressed for the token
+# test only.
+leak:libsofthsm2.so

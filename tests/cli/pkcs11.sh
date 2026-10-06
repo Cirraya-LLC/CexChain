@@ -11,6 +11,10 @@ trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
 CEXCHAIN="$1"
 MODULE="$2"
+# Leaks inside SoftHSM itself are not ours to fix. Matching them needs full
+# stacks: the fast unwinder stops in libcrypto, which has no frame pointers.
+export LSAN_OPTIONS="suppressions=$(cd "$(dirname "$0")" && pwd)/lsan-softhsm.supp${LSAN_OPTIONS:+:$LSAN_OPTIONS}"
+export ASAN_OPTIONS="fast_unwind_on_malloc=0${ASAN_OPTIONS:+:$ASAN_OPTIONS}"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 cd "$WORK"
