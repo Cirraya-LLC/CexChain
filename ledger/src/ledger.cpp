@@ -2,8 +2,11 @@
 // Copyright 2026 Cirraya
 
 #include <algorithm>
+#include <atomic>
 #include <map>
+#include <mutex>
 #include <set>
+#include <shared_mutex>
 #include <utility>
 #include <variant>
 
@@ -57,6 +60,15 @@ struct Ledger::Impl {
 
     Clock* clock;
     const crypto::Provider* provider;
+    /// Concurrency (D-048): any number of threads may read while one thread
+    /// writes. `state_mutex` guards the state, the state tree, and the
+    /// commitment it reflects; `log_mutex` guards the logs' indexes, the
+    /// Merkle tree, and the latest checkpoint. Lock order: state, then log.
+    /// The writer holds them exclusively only to change memory, never while
+    /// it waits for the disk, and readers only see what is durable: the
+    /// Merkle tree's size is the durable watermark.
+    mutable std::shared_mutex state_mutex;
+    mutable std::shared_mutex log_mutex;
     RecordLog log;
     RecordLog checkpoints;
     RecordLog cosignatures;
@@ -75,7 +87,7 @@ struct Ledger::Impl {
     protocol::Timestamp last_registered_at = 0;
     /// Set when a write failed after the in-memory views moved ahead of the
     /// files; the ledger must be reopened.
-    bool failed = false;
+    std::atomic<bool> failed = false;
 
     /// Checks that `bytes` may be the log entry at `index`, the next one:
     /// registered no earlier than the entry before it, and either a statement
@@ -236,8 +248,9 @@ struct Ledger::Impl {
         return {};
     }
 
-    /// Applies a checked entry at `index` to the state and the tree.
-    Status apply(const Decoded& d, ByteView bytes, std::uint64_t index) {
+    /// Applies a checked entry at `index` to the state. (The Merkle tree
+    /// takes it when it is durable: see append_merkle.)
+    Status apply(const Decoded& d, std::uint64_t index) {
         if (d.statement) {
             if (auto s = state.apply(*provider, *d.statement, index); !s) {
                 return s;
@@ -247,10 +260,19 @@ struct Ledger::Impl {
             tree_commitment = d.commitment->commitment;
             tree_commitment_index = index;
         }
-        if (auto s = tree.append(bytes); !s) {
-            return std::unexpected(s.error());
-        }
         last_registered_at = d.entry->registered_at;
+        return {};
+    }
+
+    /// Adds durable entries to the Merkle tree, which readers take as the
+    /// durable size.
+    Status append_merkle(std::span<const ByteView> entries) {
+        for (const ByteView entry : entries) {
+            if (auto s = tree.append(entry); !s) {
+                failed = true;
+                return std::unexpected(s.error());
+            }
+        }
         return {};
     }
 
@@ -272,7 +294,7 @@ struct Ledger::Impl {
                 out.error = s.error();
                 return out;
             }
-            if (auto s = apply(decoded[i], entries[i], first + i); !s) {
+            if (auto s = apply(decoded[i], first + i); !s) {
                 out.error = s.error();
                 out.fatal = true;
                 return out;
@@ -300,6 +322,12 @@ struct Ledger::Impl {
             }
             const std::vector<ByteView> views(bytes.begin(), bytes.end());
             const Replayed part = replay(views, begin);
+            // These are already durable: the tree takes them at once.
+            if (auto s = append_merkle(std::span(views).first(part.applied)); !s) {
+                total.error = s.error();
+                total.fatal = true;
+                return total;
+            }
             total.applied += part.applied;
             if (part.error) {
                 total.error = part.error;
@@ -350,7 +378,7 @@ struct Ledger::Impl {
     }
 
     Status require_usable() const {
-        if (failed) {
+        if (failed.load()) {
             return fail(Errc::invalid_argument, "a write failed earlier; reopen the ledger");
         }
         return {};
@@ -539,15 +567,29 @@ const protocol::LedgerState& Ledger::state() const noexcept {
 }
 
 const protocol::Id& Ledger::id() const noexcept {
-    return impl_->state.ledger_id();
+    return impl_->state.ledger_id(); // fixed at genesis
 }
 
 crypto::HashAlg Ledger::hash() const noexcept {
-    return impl_->state.hash();
+    return impl_->state.hash(); // fixed at genesis
 }
 
 std::uint64_t Ledger::size() const noexcept {
+    const std::shared_lock lock(impl_->log_mutex);
     return impl_->tree.size();
+}
+
+std::optional<std::uint64_t> Ledger::statement_index(const protocol::Id& id) const {
+    const std::shared_lock state(impl_->state_mutex);
+    const std::shared_lock log(impl_->log_mutex);
+    const auto index = impl_->state.statement_index(id);
+    // Not until it is durable.
+    return index && *index < impl_->tree.size() ? index : std::nullopt;
+}
+
+void Ledger::read_state(const std::function<void(const protocol::LedgerState&)>& read) const {
+    const std::shared_lock lock(impl_->state_mutex);
+    read(impl_->state);
 }
 
 Result<Registration> Ledger::submit(ByteView signed_statement) {
@@ -565,7 +607,8 @@ Ledger::submit_batch(std::span<const ByteView> signed_statements) {
         }
         return results;
     }
-    // Parse and check signatures on all cores.
+    // Parse and check signatures on all cores. (Only this thread changes the
+    // ledger, so reading the state here needs no lock.)
     std::vector<std::optional<protocol::SignedStatement>> parsed(n);
     std::vector<std::optional<Error>> errors(n);
     parallel_for(n, [&](std::size_t begin, std::size_t end) {
@@ -588,63 +631,69 @@ Ledger::submit_batch(std::span<const ByteView> signed_statements) {
     impl_->pre_verify(pointers, verified);
 
     // Validate and apply in order, each statement against the state the ones
-    // before it left; then make the whole batch durable with one sync.
+    // before it left.
     const protocol::Timestamp now = impl_->next_time();
-    const std::uint64_t first = size();
+    const std::uint64_t first = impl_->tree.size();
     std::vector<Bytes> entries;
-    for (std::size_t i = 0; i < n; ++i) {
-        if (errors[i]) {
-            results.emplace_back(std::unexpected(*errors[i]));
-            continue;
-        }
-        const protocol::SignedStatement& statement = *parsed[i];
-        if (const auto index = impl_->state.statement_index(statement.id)) {
-            // Already registered: before this batch, or earlier in it.
-            protocol::Timestamp at = now;
-            if (*index < first) {
-                auto bytes = impl_->log.read(*index);
-                auto entry = bytes ? protocol::decode_log_entry(*bytes)
-                                   : Result<protocol::LogEntry>(std::unexpected(bytes.error()));
-                if (!entry) {
-                    results.emplace_back(std::unexpected(entry.error()));
-                    continue;
-                }
-                at = entry->registered_at;
+    {
+        const std::unique_lock lock(impl_->state_mutex);
+        for (std::size_t i = 0; i < n; ++i) {
+            if (errors[i]) {
+                results.emplace_back(std::unexpected(*errors[i]));
+                continue;
             }
-            results.emplace_back(Registration{statement.id, *index, at, false});
-            continue;
+            const protocol::SignedStatement& statement = *parsed[i];
+            if (const auto index = impl_->state.statement_index(statement.id)) {
+                // Already registered: before this batch, or earlier in it.
+                protocol::Timestamp at = now;
+                if (*index < first) {
+                    auto bytes = impl_->log.read(*index);
+                    auto entry = bytes ? protocol::decode_log_entry(*bytes)
+                                       : Result<protocol::LogEntry>(std::unexpected(bytes.error()));
+                    if (!entry) {
+                        results.emplace_back(std::unexpected(entry.error()));
+                        continue;
+                    }
+                    at = entry->registered_at;
+                }
+                results.emplace_back(Registration{statement.id, *index, at, false});
+                continue;
+            }
+            if (auto s = impl_->state.validate(*impl_->provider, statement, now,
+                                               verified[i] ? &*verified[i] : nullptr);
+                !s) {
+                results.emplace_back(std::unexpected(s.error()));
+                continue;
+            }
+            auto encoded = protocol::encode_log_entry({statement.id, now, statement.encoded});
+            if (!encoded) {
+                results.emplace_back(std::unexpected(encoded.error()));
+                continue;
+            }
+            const std::uint64_t index = first + entries.size();
+            if (auto s = impl_->state.apply(*impl_->provider, statement, index); !s) {
+                impl_->failed = true;
+                results.emplace_back(std::unexpected(s.error()));
+                continue;
+            }
+            entries.push_back(std::move(*encoded));
+            results.emplace_back(Registration{statement.id, index, now, true});
         }
-        if (auto s = impl_->state.validate(*impl_->provider, statement, now,
-                                           verified[i] ? &*verified[i] : nullptr);
-            !s) {
-            results.emplace_back(std::unexpected(s.error()));
-            continue;
-        }
-        auto encoded = protocol::encode_log_entry({statement.id, now, statement.encoded});
-        if (!encoded) {
-            results.emplace_back(std::unexpected(encoded.error()));
-            continue;
-        }
-        const std::uint64_t index = first + entries.size();
-        if (auto s = impl_->state.apply(*impl_->provider, statement, index); !s) {
-            impl_->failed = true;
-            results.emplace_back(std::unexpected(s.error()));
-            continue;
-        }
-        entries.push_back(std::move(*encoded));
-        results.emplace_back(Registration{statement.id, index, now, true});
     }
     if (entries.empty()) {
         return results;
     }
-    // The state moved ahead of the files; if they cannot catch up, the
-    // ledger must be reopened.
+    // One sync for the batch, with no lock held: readers carry on, and see
+    // the entries once they are durable. If the files cannot catch up with
+    // the state, the ledger must be reopened.
     const std::vector<ByteView> views(entries.begin(), entries.end());
-    Status written = impl_->log.append(views);
-    for (std::size_t i = 0; written && i < entries.size(); ++i) {
-        if (auto s = impl_->tree.append(entries[i]); !s) {
-            written = std::unexpected(s.error());
-        }
+    Status written;
+    if (auto pending = impl_->log.write(views)) {
+        const std::unique_lock lock(impl_->log_mutex);
+        impl_->log.publish(*pending);
+        written = impl_->append_merkle(views);
+    } else {
+        written = std::unexpected(pending.error());
     }
     if (!written) {
         impl_->failed = true;
@@ -666,14 +715,25 @@ Status Ledger::append_entries(std::span<const Bytes> entries) {
     // Check and apply in memory (signatures on all cores), then write the
     // valid prefix at once: one sync. Entries before a bad one are kept.
     const std::vector<ByteView> views(entries.begin(), entries.end());
-    const auto replayed = impl_->replay(views, size());
+    Impl::Replayed replayed;
+    {
+        const std::unique_lock lock(impl_->state_mutex);
+        replayed = impl_->replay(views, impl_->tree.size());
+    }
     if (replayed.fatal) {
         impl_->failed = true;
         return std::unexpected(*replayed.error);
     }
     if (replayed.applied > 0) {
-        if (auto s = impl_->log.append(std::span(views).first(replayed.applied)); !s) {
+        const auto applied = std::span(views).first(replayed.applied);
+        auto pending = impl_->log.write(applied);
+        if (!pending) {
             impl_->failed = true;
+            return std::unexpected(pending.error());
+        }
+        const std::unique_lock lock(impl_->log_mutex);
+        impl_->log.publish(*pending);
+        if (auto s = impl_->append_merkle(applied); !s) {
             return s;
         }
     }
@@ -694,9 +754,12 @@ Status Ledger::store_checkpoint(ByteView encoded) {
     if (impl_->latest_checkpoint && impl_->latest_checkpoint->encoded == checkpoint->encoded) {
         return {};
     }
-    if (auto s = impl_->checkpoints.append(checkpoint->encoded); !s) {
-        return s;
+    auto pending = impl_->checkpoints.write(std::span(&encoded, 1));
+    if (!pending) {
+        return std::unexpected(pending.error());
     }
+    const std::unique_lock lock(impl_->log_mutex);
+    impl_->checkpoints.publish(*pending);
     impl_->adopt_checkpoint(std::move(*checkpoint));
     return {};
 }
@@ -705,6 +768,9 @@ Result<RefreshReport> Ledger::refresh(FileSystem& fs, bool recover) {
     if (auto s = impl_->require_usable(); !s) {
         return std::unexpected(s.error());
     }
+    // Rare (another process wrote): readers wait while it catches up.
+    const std::unique_lock state_lock(impl_->state_mutex);
+    const std::unique_lock log_lock(impl_->log_mutex);
     RefreshReport report;
     const std::uint64_t old_size = impl_->log.count();
     auto added = impl_->log.refresh(fs, statements_file, recover);
@@ -744,22 +810,36 @@ Result<RefreshReport> Ledger::refresh(FileSystem& fs, bool recover) {
 }
 
 Result<Bytes> Ledger::entry(std::uint64_t index) const {
+    const std::shared_lock lock(impl_->log_mutex);
+    if (index >= impl_->tree.size()) {
+        return fail(Errc::invalid_argument, "record index is out of range");
+    }
     return impl_->log.read(index);
 }
 
 Result<crypto::Digest> Ledger::root(std::uint64_t tree_size) const {
+    const std::shared_lock lock(impl_->log_mutex);
     return impl_->tree.root(tree_size);
 }
 
 Result<std::vector<crypto::Digest>> Ledger::inclusion_proof(std::uint64_t index,
                                                             std::uint64_t tree_size) const {
+    const std::shared_lock lock(impl_->log_mutex);
     return impl_->tree.inclusion_proof(index, tree_size);
 }
 
-Result<std::vector<protocol::SignedCheckpoint>> Ledger::checkpoints() const {
+Result<std::vector<crypto::Digest>> Ledger::consistency_proof(std::uint64_t old_size,
+                                                              std::uint64_t new_size) const {
+    const std::shared_lock lock(impl_->log_mutex);
+    return impl_->tree.consistency_proof(old_size, new_size);
+}
+
+namespace {
+
+Result<std::vector<protocol::SignedCheckpoint>> read_checkpoints(const RecordLog& log) {
     std::vector<protocol::SignedCheckpoint> out;
-    for (std::uint64_t i = 0; i < impl_->checkpoints.count(); ++i) {
-        auto bytes = impl_->checkpoints.read(i);
+    for (std::uint64_t i = 0; i < log.count(); ++i) {
+        auto bytes = log.read(i);
         if (!bytes) {
             return std::unexpected(bytes.error());
         }
@@ -770,6 +850,29 @@ Result<std::vector<protocol::SignedCheckpoint>> Ledger::checkpoints() const {
         out.push_back(std::move(*checkpoint));
     }
     return out;
+}
+
+Result<std::vector<StoredCosignature>> read_cosignatures(const RecordLog& log) {
+    std::vector<StoredCosignature> out;
+    for (std::uint64_t i = 0; i < log.count(); ++i) {
+        auto bytes = log.read(i);
+        if (!bytes) {
+            return std::unexpected(bytes.error());
+        }
+        auto stored = decode_stored_cosignature(*bytes);
+        if (!stored) {
+            return std::unexpected(stored.error());
+        }
+        out.push_back(std::move(*stored));
+    }
+    return out;
+}
+
+} // namespace
+
+Result<std::vector<protocol::SignedCheckpoint>> Ledger::checkpoints() const {
+    const std::shared_lock lock(impl_->log_mutex);
+    return read_checkpoints(impl_->checkpoints);
 }
 
 Status Ledger::add_cosignature(ByteView encoded, const crypto::PublicKey& witness) {
@@ -783,7 +886,8 @@ Status Ledger::add_cosignature(ByteView encoded, const crypto::PublicKey& witnes
     if (!protocol::verify_cosignature(*impl_->provider, *cosignature, witness)) {
         return fail(Errc::verification_failed, "the cosignature is not by this witness's key");
     }
-    auto all = checkpoints();
+    // Only this thread changes the logs: reading them needs no lock.
+    auto all = read_checkpoints(impl_->checkpoints);
     if (!all) {
         return std::unexpected(all.error());
     }
@@ -792,7 +896,7 @@ Status Ledger::add_cosignature(ByteView encoded, const crypto::PublicKey& witnes
         })) {
         return fail(Errc::not_found, "the cosignature is not of a checkpoint of this ledger");
     }
-    auto stored = cosignatures();
+    auto stored = read_cosignatures(impl_->cosignatures);
     if (!stored) {
         return std::unexpected(stored.error());
     }
@@ -805,23 +909,19 @@ Status Ledger::add_cosignature(ByteView encoded, const crypto::PublicKey& witnes
     if (!record) {
         return std::unexpected(record.error());
     }
-    return impl_->cosignatures.append(*record);
+    const ByteView view = *record;
+    auto pending = impl_->cosignatures.write(std::span(&view, 1));
+    if (!pending) {
+        return std::unexpected(pending.error());
+    }
+    const std::unique_lock lock(impl_->log_mutex);
+    impl_->cosignatures.publish(*pending);
+    return {};
 }
 
 Result<std::vector<StoredCosignature>> Ledger::cosignatures() const {
-    std::vector<StoredCosignature> out;
-    for (std::uint64_t i = 0; i < impl_->cosignatures.count(); ++i) {
-        auto bytes = impl_->cosignatures.read(i);
-        if (!bytes) {
-            return std::unexpected(bytes.error());
-        }
-        auto stored = decode_stored_cosignature(*bytes);
-        if (!stored) {
-            return std::unexpected(stored.error());
-        }
-        out.push_back(std::move(*stored));
-    }
-    return out;
+    const std::shared_lock lock(impl_->log_mutex);
+    return read_cosignatures(impl_->cosignatures);
 }
 
 Result<std::optional<protocol::Checkpoint>>
@@ -841,10 +941,13 @@ Ledger::last_cosigned(const crypto::PublicKey& witness) const {
 }
 
 Result<AuditReport> Ledger::audit() const {
-    auto all = checkpoints();
+    const std::shared_lock state_lock(impl_->state_mutex);
+    const std::shared_lock log_lock(impl_->log_mutex);
+    auto all = read_checkpoints(impl_->checkpoints);
     if (!all) {
         return std::unexpected(all.error());
     }
+    const std::uint64_t size = impl_->tree.size();
     std::uint64_t previous_size = 0;
     for (const protocol::SignedCheckpoint& checkpoint : *all) {
         if (!protocol::verify_checkpoint(*impl_->provider, checkpoint, impl_->state.log_key())) {
@@ -855,7 +958,7 @@ Result<AuditReport> Ledger::audit() const {
         if (c.ledger_id != id() || c.tree_hash != hash()) {
             return fail(Errc::verification_failed, "a stored checkpoint belongs to another ledger");
         }
-        if (c.tree_size < previous_size || c.tree_size > size()) {
+        if (c.tree_size < previous_size || c.tree_size > size) {
             return fail(Errc::verification_failed, "stored checkpoints are out of order");
         }
         auto root = impl_->tree.root(c.tree_size);
@@ -867,7 +970,7 @@ Result<AuditReport> Ledger::audit() const {
         }
         previous_size = c.tree_size;
     }
-    auto stored = cosignatures();
+    auto stored = read_cosignatures(impl_->cosignatures);
     if (!stored) {
         return std::unexpected(stored.error());
     }
@@ -883,19 +986,14 @@ Result<AuditReport> Ledger::audit() const {
         }
     }
     return AuditReport{
-        .entries = size(),
+        .entries = size,
         .checkpoints = all->size(),
         .cosignatures = stored->size(),
         .actors = impl_->state.actors().size(),
         .delegations = impl_->state.delegations().size(),
         .records = impl_->state.records().size(),
-        .unchecked_entries = size() - previous_size,
+        .unchecked_entries = size - previous_size,
     };
-}
-
-Result<std::vector<crypto::Digest>> Ledger::consistency_proof(std::uint64_t old_size,
-                                                              std::uint64_t new_size) const {
-    return impl_->tree.consistency_proof(old_size, new_size);
 }
 
 Result<protocol::SignedCheckpoint> Ledger::checkpoint(const crypto::Signer& log_key) {
@@ -905,9 +1003,17 @@ Result<protocol::SignedCheckpoint> Ledger::checkpoint(const crypto::Signer& log_
     if (auto s = impl_->require_log_key(log_key); !s) {
         return std::unexpected(s.error());
     }
+    // The state tree moves to the new commitment here: until the checkpoint
+    // that ends with it is published, readers of the state wait (readers of
+    // the log do not).
+    const std::unique_lock state_lock(impl_->state_mutex);
     // First commit to the state in the log itself, unless the last entry
     // already is such a commitment (nothing has changed since).
-    auto last = protocol::decode_log_entry(*impl_->log.read(size() - 1));
+    auto last_bytes = impl_->log.read(impl_->tree.size() - 1);
+    if (!last_bytes) {
+        return std::unexpected(last_bytes.error());
+    }
+    auto last = protocol::decode_log_entry(*last_bytes);
     if (!last) {
         return std::unexpected(last.error());
     }
@@ -917,9 +1023,10 @@ Result<protocol::SignedCheckpoint> Ledger::checkpoint(const crypto::Signer& log_
             return std::unexpected(state_root.error());
         }
         const protocol::Timestamp now = impl_->next_time();
+        const std::uint64_t index = impl_->tree.size();
         auto commitment = protocol::sign_state_commitment(
             log_key, *impl_->provider,
-            protocol::StateCommitment{id(), hash(), size(), *state_root, now});
+            protocol::StateCommitment{id(), hash(), index, *state_root, now});
         if (!commitment) {
             return std::unexpected(commitment.error());
         }
@@ -928,12 +1035,18 @@ Result<protocol::SignedCheckpoint> Ledger::checkpoint(const crypto::Signer& log_
         if (!encoded) {
             return std::unexpected(encoded.error());
         }
-        if (auto s = impl_->log.append(*encoded); !s) {
-            return std::unexpected(s.error());
+        const ByteView view = *encoded;
+        auto pending = impl_->log.write(std::span(&view, 1));
+        if (!pending) {
+            impl_->failed = true; // the state tree moved ahead
+            return std::unexpected(pending.error());
         }
-        const std::uint64_t index = size();
-        if (auto s = impl_->tree.append(*encoded); !s) {
-            return std::unexpected(s.error());
+        {
+            const std::unique_lock log_lock(impl_->log_mutex);
+            impl_->log.publish(*pending);
+            if (auto s = impl_->append_merkle(std::span(&view, 1)); !s) {
+                return std::unexpected(s.error());
+            }
         }
         impl_->last_registered_at = now;
         impl_->tree_commitment = commitment->commitment;
@@ -943,63 +1056,97 @@ Result<protocol::SignedCheckpoint> Ledger::checkpoint(const crypto::Signer& log_
     if (!root) {
         return std::unexpected(root.error());
     }
-    const protocol::Checkpoint checkpoint{id(), hash(), size(), *root, impl_->next_time()};
+    const protocol::Checkpoint checkpoint{id(), hash(), impl_->tree.size(), *root,
+                                          impl_->next_time()};
     auto signed_checkpoint = protocol::sign_checkpoint(log_key, *impl_->provider, checkpoint);
     if (!signed_checkpoint) {
         return std::unexpected(signed_checkpoint.error());
     }
-    if (auto s = impl_->checkpoints.append(signed_checkpoint->encoded); !s) {
-        return std::unexpected(s.error());
+    const ByteView view = signed_checkpoint->encoded;
+    auto pending = impl_->checkpoints.write(std::span(&view, 1));
+    if (!pending) {
+        return std::unexpected(pending.error());
     }
+    const std::unique_lock log_lock(impl_->log_mutex);
+    impl_->checkpoints.publish(*pending);
     impl_->adopt_checkpoint(*signed_checkpoint);
     return signed_checkpoint;
 }
 
-const std::optional<protocol::SignedCheckpoint>& Ledger::latest_checkpoint() const noexcept {
+std::optional<protocol::SignedCheckpoint> Ledger::latest_checkpoint() const {
+    const std::shared_lock lock(impl_->log_mutex);
     return impl_->latest_checkpoint;
 }
 
-const std::optional<protocol::StateCommitment>& Ledger::state_commitment() const noexcept {
+std::optional<protocol::StateCommitment> Ledger::state_commitment() const {
+    const std::shared_lock lock(impl_->log_mutex);
     return impl_->checkpoint_commitment;
 }
 
-Result<protocol::StateProof> Ledger::state_proof(const protocol::Id& id) const {
-    if (!impl_->latest_checkpoint || !impl_->checkpoint_commitment) {
+namespace {
+
+/// state_proof, for callers holding the state and log locks.
+Result<protocol::StateProof> prove(const Ledger::Impl& impl, const protocol::Id& id) {
+    if (!impl.latest_checkpoint || !impl.checkpoint_commitment) {
         return fail(Errc::not_found, "no checkpoint commits to the ledger state yet");
     }
     // The object as the commitment saw it: its history before that entry.
-    auto leaf = protocol::state_leaf(impl_->state, id, impl_->tree_commitment_index);
+    auto leaf = protocol::state_leaf(impl.state, id, impl.tree_commitment_index);
     if (!leaf) {
         return fail(Errc::not_found, "the state has no object with this id");
     }
-    auto siblings = impl_->state_tree.siblings(id);
+    auto siblings = impl.state_tree.siblings(id);
     if (!siblings) {
         return std::unexpected(siblings.error());
     }
     protocol::StateProof proof{std::move(*leaf), std::move(*siblings)};
     // Cheap, and catches any drift between the tree and the state.
-    if (auto s = protocol::verify_state_proof(*impl_->provider, hash(), proof,
-                                              impl_->checkpoint_commitment->state_root);
+    if (auto s = protocol::verify_state_proof(*impl.provider, impl.state.hash(), proof,
+                                              impl.checkpoint_commitment->state_root);
         !s) {
         return fail(Errc::malformed, "the state tree disagrees with the state");
     }
     return proof;
 }
 
+/// receipt, for callers holding the log lock.
+Result<Bytes> issue(const Ledger::Impl& impl, const crypto::Signer& log_key, std::uint64_t index) {
+    if (!impl.latest_checkpoint || index >= impl.latest_checkpoint->checkpoint.tree_size) {
+        return fail(Errc::not_found, "no checkpoint covers this entry yet");
+    }
+    const protocol::Checkpoint& checkpoint = impl.latest_checkpoint->checkpoint;
+    auto path = impl.tree.inclusion_proof(index, checkpoint.tree_size);
+    if (!path) {
+        return std::unexpected(path.error());
+    }
+    return protocol::issue_receipt(log_key, *impl.provider, impl.state.hash(), checkpoint.root,
+                                   protocol::InclusionProof{checkpoint.tree_size, index, *path});
+}
+
+} // namespace
+
+Result<protocol::StateProof> Ledger::state_proof(const protocol::Id& id) const {
+    const std::shared_lock state_lock(impl_->state_mutex);
+    const std::shared_lock log_lock(impl_->log_mutex);
+    return prove(*impl_, id);
+}
+
+Result<Ledger::CommittedProof> Ledger::committed_state_proof(const protocol::Id& id) const {
+    const std::shared_lock state_lock(impl_->state_mutex);
+    const std::shared_lock log_lock(impl_->log_mutex);
+    auto proof = prove(*impl_, id);
+    if (!proof) {
+        return std::unexpected(proof.error());
+    }
+    return CommittedProof{std::move(*proof), *impl_->checkpoint_commitment};
+}
+
 Result<Bytes> Ledger::receipt(const crypto::Signer& log_key, std::uint64_t index) const {
     if (auto s = impl_->require_log_key(log_key); !s) {
         return std::unexpected(s.error());
     }
-    if (!impl_->latest_checkpoint || index >= impl_->latest_checkpoint->checkpoint.tree_size) {
-        return fail(Errc::not_found, "no checkpoint covers this entry yet");
-    }
-    const protocol::Checkpoint& checkpoint = impl_->latest_checkpoint->checkpoint;
-    auto path = impl_->tree.inclusion_proof(index, checkpoint.tree_size);
-    if (!path) {
-        return std::unexpected(path.error());
-    }
-    return protocol::issue_receipt(log_key, *impl_->provider, hash(), checkpoint.root,
-                                   protocol::InclusionProof{checkpoint.tree_size, index, *path});
+    const std::shared_lock lock(impl_->log_mutex);
+    return issue(*impl_, log_key, index);
 }
 
 Result<protocol::EvidenceBundle> Ledger::export_evidence(const crypto::Signer& log_key,
@@ -1007,10 +1154,21 @@ Result<protocol::EvidenceBundle> Ledger::export_evidence(const crypto::Signer& l
     if (auto s = impl_->require_log_key(log_key); !s) {
         return std::unexpected(s.error());
     }
+    // One consistent view of the state and the log throughout.
+    const std::shared_lock state_lock(impl_->state_mutex);
+    const std::shared_lock log_lock(impl_->log_mutex);
     const protocol::LedgerState& state = impl_->state;
     const protocol::RecordState* record = state.record(record_id);
     if (record == nullptr) {
         return fail(Errc::not_found, "no record with this id");
+    }
+    // Everything about it must be covered by the latest checkpoint (which
+    // also rules out what is not durable yet).
+    const auto& checkpoint = impl_->latest_checkpoint;
+    if (!checkpoint || std::ranges::any_of(record->history, [&](std::uint64_t index) {
+            return index >= checkpoint->checkpoint.tree_size;
+        })) {
+        return fail(Errc::not_found, "no checkpoint covers the record's statements yet");
     }
 
     std::set<std::uint64_t> needed{0};
@@ -1048,7 +1206,6 @@ Result<protocol::EvidenceBundle> Ledger::export_evidence(const crypto::Signer& l
 
     // Under a checkpoint that commits to the state, prove the complete history
     // of everything involved, and include all of it.
-    const auto& checkpoint = impl_->latest_checkpoint;
     std::vector<protocol::StateProof> proofs;
     const bool committed = checkpoint && impl_->checkpoint_commitment;
     if (committed) {
@@ -1069,7 +1226,7 @@ Result<protocol::EvidenceBundle> Ledger::export_evidence(const crypto::Signer& l
             events.push_back(std::move(parsed->statement));
         }
         for (const protocol::Id& id : protocol::involved_objects(state, record_id, events)) {
-            auto proof = state_proof(id);
+            auto proof = prove(*impl_, id);
             if (!proof) {
                 return fail(Errc::not_found, "no checkpoint covers the record's statements yet");
             }
@@ -1143,13 +1300,13 @@ Result<protocol::EvidenceBundle> Ledger::export_evidence(const crypto::Signer& l
         if (!bytes) {
             return std::unexpected(bytes.error());
         }
-        auto receipt = this->receipt(log_key, index);
+        auto receipt = issue(*impl_, log_key, index);
         if (!receipt) {
             return std::unexpected(receipt.error());
         }
         bundle.entries.push_back(protocol::EvidenceEntry{std::move(*bytes), std::move(*receipt)});
     }
-    auto stored = cosignatures();
+    auto stored = read_cosignatures(impl_->cosignatures);
     if (!stored) {
         return std::unexpected(stored.error());
     }

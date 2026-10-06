@@ -59,6 +59,19 @@ public:
     [[nodiscard]] Status append(std::span<const ByteView> payloads);
     [[nodiscard]] Status append(ByteView payload) { return append(std::span(&payload, 1)); }
 
+    /// Records written and durable but not yet visible to `read` and `count`.
+    struct Pending {
+        std::vector<std::uint64_t> offsets;
+        std::uint64_t end = 0;
+    };
+    /// `append` in two steps, so that readers on other threads need not wait
+    /// for the disk: `write` makes the records durable without touching what
+    /// readers see (call it from the one writing thread), and `publish` makes
+    /// them visible (call it while holding whatever lock readers take). A
+    /// write must be published before the next one.
+    [[nodiscard]] Result<Pending> write(std::span<const ByteView> payloads);
+    void publish(const Pending& pending);
+
     /// Picks up records that another process appended since this log was
     /// opened or last refreshed, up to their durable size, so that a reader
     /// never sees an unacknowledged record. With `recover`, which requires

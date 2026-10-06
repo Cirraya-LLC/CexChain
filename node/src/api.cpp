@@ -446,19 +446,20 @@ struct LedgerApi::State {
         if (!id) {
             return error_response(400, "invalid_argument", "an id is 64 hex digits");
         }
-        auto proof = ledger->state_proof(*id);
-        if (!proof) {
-            return error_response(proof.error());
+        auto committed = ledger->committed_state_proof(*id);
+        if (!committed) {
+            return error_response(committed.error());
         }
+        const auto& proof = committed->proof;
+        const auto& commitment = committed->commitment;
         static constexpr std::array kinds{"", "actor", "delegation", "record"};
-        const auto& commitment = *ledger->state_commitment();
         json siblings = json::array();
-        for (const auto& s : proof->siblings) {
+        for (const auto& s : proof.siblings) {
             siblings.push_back(to_hex(s.bytes()));
         }
-        return json_response(200, {{"kind", kinds[static_cast<std::size_t>(proof->leaf.kind)]},
-                                   {"id", hex(proof->leaf.id)},
-                                   {"history", proof->leaf.history},
+        return json_response(200, {{"kind", kinds[static_cast<std::size_t>(proof.leaf.kind)]},
+                                   {"id", hex(proof.leaf.id)},
+                                   {"history", proof.leaf.history},
                                    {"commitment_index", commitment.tree_size},
                                    {"state_root", to_hex(commitment.state_root.bytes())},
                                    {"siblings", siblings}});

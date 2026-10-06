@@ -391,7 +391,8 @@ int cmd_proof_state(const Args& args) {
                 ? "it is not in the latest checkpoint's state yet (cexchain checkpoint create)"
                 : std::string(proof.error().detail)};
     }
-    const protocol::StateCommitment& commitment = *session.ledger().state_commitment();
+    const auto state_commitment = session.ledger().state_commitment();
+    const protocol::StateCommitment& commitment = *state_commitment;
     unwrap(protocol::verify_state_proof(session.provider(), session.state().hash(), *proof,
                                         commitment.state_root),
            "self-check of the proof");

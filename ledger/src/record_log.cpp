@@ -231,6 +231,15 @@ Result<Bytes> RecordLog::read(std::uint64_t index) const {
 }
 
 Status RecordLog::append(std::span<const ByteView> payloads) {
+    auto pending = write(payloads);
+    if (!pending) {
+        return std::unexpected(pending.error());
+    }
+    publish(*pending);
+    return {};
+}
+
+Result<RecordLog::Pending> RecordLog::write(std::span<const ByteView> payloads) {
     if (failed_) {
         return fail(Errc::invalid_argument, "the log failed earlier and must be reopened");
     }
@@ -239,36 +248,44 @@ Status RecordLog::append(std::span<const ByteView> payloads) {
             return fail(Errc::invalid_argument, "record is too large");
         }
     }
-    std::vector<std::uint64_t> new_offsets;
-    std::uint64_t offset = log_->size();
+    Pending pending;
+    pending.offsets.reserve(payloads.size());
+    std::uint64_t offset = end_;
+    // One write for the whole batch.
+    Bytes framed;
     for (const ByteView payload : payloads) {
-        const Bytes framed = frame(payload);
-        if (auto s = log_->append(framed); !s) {
-            failed_ = true;
-            return s;
-        }
-        new_offsets.push_back(offset);
-        offset += framed.size();
+        pending.offsets.push_back(offset);
+        const Bytes one = frame(payload);
+        framed.insert(framed.end(), one.begin(), one.end());
+        offset += one.size();
+    }
+    pending.end = offset;
+    if (auto s = log_->append(framed); !s) {
+        failed_ = true;
+        return std::unexpected(s.error());
     }
     // Make the records durable, then record the new durable size. A record
     // is acknowledged only once both are durable.
     Bytes size_record;
-    put_u64(size_record, log_->size());
+    put_u64(size_record, pending.end);
     if (auto s = log_->sync(); !s) {
         failed_ = true;
-        return s;
+        return std::unexpected(s.error());
     }
     if (auto s = synced_->append(frame(size_record)); !s) {
         failed_ = true;
-        return s;
+        return std::unexpected(s.error());
     }
     if (auto s = synced_->sync(); !s) {
         failed_ = true;
-        return s;
+        return std::unexpected(s.error());
     }
-    offsets_.insert(offsets_.end(), new_offsets.begin(), new_offsets.end());
-    end_ = log_->size();
-    return {};
+    return pending;
+}
+
+void RecordLog::publish(const Pending& pending) {
+    offsets_.insert(offsets_.end(), pending.offsets.begin(), pending.offsets.end());
+    end_ = pending.end;
 }
 
 Result<std::uint64_t> RecordLog::refresh(FileSystem& fs, std::string_view name, bool recover) {

@@ -4,6 +4,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <span>
@@ -32,6 +33,13 @@
 /// Opening a ledger replays and re-validates the whole log, then checks the
 /// result against the latest signed checkpoint, so a log that was rolled back
 /// or altered on disk is refused.
+///
+/// Threads: any number may call the const methods at once, alongside one
+/// thread that calls the rest (submitting, checkpointing, refreshing, ...).
+/// Readers never wait for the disk and only ever see durable entries: a
+/// statement counts once it is synced. `state()` is the exception: it hands
+/// out the state itself, for code that is single-threaded or is the writer;
+/// concurrent readers use `read_state` and `statement_index`.
 namespace cexchain::ledger {
 
 struct Registration {
@@ -95,6 +103,11 @@ public:
     [[nodiscard]] const protocol::Id& id() const noexcept;
     [[nodiscard]] crypto::HashAlg hash() const noexcept;
     [[nodiscard]] std::uint64_t size() const noexcept;
+
+    /// The log index of a durable statement.
+    [[nodiscard]] std::optional<std::uint64_t> statement_index(const protocol::Id& id) const;
+    /// Calls `read` with the state, safe alongside the writer.
+    void read_state(const std::function<void(const protocol::LedgerState&)>& read) const;
 
     /// Validates and registers a signed statement.
     [[nodiscard]] Result<Registration> submit(ByteView signed_statement);
@@ -166,8 +179,7 @@ public:
     [[nodiscard]] Result<AuditReport> audit() const;
 
     /// The latest stored checkpoint, if any.
-    [[nodiscard]] const std::optional<protocol::SignedCheckpoint>&
-    latest_checkpoint() const noexcept;
+    [[nodiscard]] std::optional<protocol::SignedCheckpoint> latest_checkpoint() const;
 
     /// Builds an evidence bundle for `record`: genesis, the record's
     /// statements, and every statement they depend on (signers'
@@ -180,18 +192,27 @@ public:
     export_evidence(const crypto::Signer& log_key, const protocol::Id& record) const;
 
     /// The state commitment the latest checkpoint ends with, if it has one.
-    [[nodiscard]] const std::optional<protocol::StateCommitment>& state_commitment() const noexcept;
+    [[nodiscard]] std::optional<protocol::StateCommitment> state_commitment() const;
 
     /// A proof of the complete history of an actor, delegation, or record, as
     /// of the latest checkpoint, against its state commitment.
     [[nodiscard]] Result<protocol::StateProof> state_proof(const protocol::Id& id) const;
 
+    /// A state proof together with the commitment it is against, read at
+    /// once: with a writer running, a checkpoint may come between two calls.
+    struct CommittedProof {
+        protocol::StateProof proof;
+        protocol::StateCommitment commitment;
+    };
+    [[nodiscard]] Result<CommittedProof> committed_state_proof(const protocol::Id& id) const;
+
     /// An RFC 9942 receipt for the entry at `index`, anchored to the latest
     /// checkpoint. Fails if no checkpoint covers the entry yet.
     [[nodiscard]] Result<Bytes> receipt(const crypto::Signer& log_key, std::uint64_t index) const;
 
+    struct Impl; // opaque
+
 private:
-    struct Impl;
     explicit Ledger(std::unique_ptr<Impl> impl) noexcept;
     std::unique_ptr<Impl> impl_;
 };

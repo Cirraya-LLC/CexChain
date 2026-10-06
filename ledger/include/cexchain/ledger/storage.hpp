@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
 
@@ -20,6 +21,8 @@
 /// the in-memory one, which can lose unsynced data the way a crash does.
 namespace cexchain::ledger {
 
+/// Reads may run on many threads at once, alongside one thread that
+/// appends; offsets a reader asks for must already be written.
 class AppendFile {
 public:
     virtual ~AppendFile() = default;
@@ -116,6 +119,8 @@ public:
     void corrupt(std::string_view name, std::uint64_t offset);
 
     struct FileData {
+        /// Guards the rest: handles share it, possibly across threads.
+        mutable std::mutex mutex;
         Bytes bytes;
         std::uint64_t durable = 0;
     };

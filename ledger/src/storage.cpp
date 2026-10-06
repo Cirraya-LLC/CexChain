@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
+#include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <fcntl.h>
@@ -40,10 +41,13 @@ public:
     PosixFile(const PosixFile&) = delete;
     PosixFile& operator=(const PosixFile&) = delete;
 
-    [[nodiscard]] std::uint64_t size() const override { return size_; }
+    [[nodiscard]] std::uint64_t size() const override {
+        return size_.load(std::memory_order_acquire);
+    }
 
     [[nodiscard]] Result<Bytes> read(std::uint64_t offset, std::size_t length) const override {
-        if (offset > size_ || length > size_ - offset) {
+        const std::uint64_t size = this->size();
+        if (offset > size || length > size - offset) {
             return fail(Errc::invalid_argument, "read beyond the end of the file");
         }
         Bytes out(length);
@@ -74,7 +78,7 @@ public:
             }
             done += static_cast<std::size_t>(n);
         }
-        size_ += data.size();
+        size_.fetch_add(data.size(), std::memory_order_acq_rel);
         return {};
     }
 
@@ -86,19 +90,21 @@ public:
     }
 
     [[nodiscard]] Status truncate(std::uint64_t size) override {
-        if (size > size_) {
+        if (size > this->size()) {
             return fail(Errc::invalid_argument, "cannot truncate beyond the end of the file");
         }
         if (::ftruncate(fd_, static_cast<off_t>(size)) != 0) {
             return fail(Errc::invalid_argument, "file truncate failed");
         }
-        size_ = size;
+        size_.store(size, std::memory_order_release);
         return sync();
     }
 
 private:
     int fd_;
-    std::uint64_t size_;
+    /// Appends run on one thread while reads, which check bounds, run on
+    /// others (pread itself is safe to share).
+    std::atomic<std::uint64_t> size_;
 };
 
 Status sync_directory(const std::filesystem::path& directory) {
@@ -127,10 +133,15 @@ public:
     explicit MemoryFile(std::shared_ptr<MemoryFileSystem::FileData> data)
         : data_(std::move(data)) {}
 
-    [[nodiscard]] std::uint64_t size() const override { return data_->bytes.size(); }
+    [[nodiscard]] std::uint64_t size() const override {
+        const std::lock_guard lock(data_->mutex);
+        return data_->bytes.size();
+    }
 
     [[nodiscard]] Result<Bytes> read(std::uint64_t offset, std::size_t length) const override {
-        if (offset > size() || length > size() - offset) {
+        const std::lock_guard lock(data_->mutex);
+        const std::uint64_t size = data_->bytes.size();
+        if (offset > size || length > size - offset) {
             return fail(Errc::invalid_argument, "read beyond the end of the file");
         }
         const auto begin = data_->bytes.begin() + static_cast<std::ptrdiff_t>(offset);
@@ -138,17 +149,20 @@ public:
     }
 
     [[nodiscard]] Status append(ByteView data) override {
+        const std::lock_guard lock(data_->mutex);
         data_->bytes.insert(data_->bytes.end(), data.begin(), data.end());
         return {};
     }
 
     [[nodiscard]] Status sync() override {
+        const std::lock_guard lock(data_->mutex);
         data_->durable = data_->bytes.size();
         return {};
     }
 
     [[nodiscard]] Status truncate(std::uint64_t size) override {
-        if (size > this->size()) {
+        const std::lock_guard lock(data_->mutex);
+        if (size > data_->bytes.size()) {
             return fail(Errc::invalid_argument, "cannot truncate beyond the end of the file");
         }
         data_->bytes.resize(static_cast<std::size_t>(size));
@@ -272,7 +286,12 @@ bool MemoryFileSystem::exists(std::string_view name) const {
 void MemoryFileSystem::crash(SeededEntropy& entropy) {
     for (auto& [name, file] : files_) {
         // Detach from any open handle: after a crash, old handles are gone.
-        auto survivor = std::make_shared<FileData>(*file);
+        auto survivor = std::make_shared<FileData>();
+        {
+            const std::lock_guard lock(file->mutex);
+            survivor->bytes = file->bytes;
+            survivor->durable = file->durable;
+        }
         const std::uint64_t unsynced = survivor->bytes.size() - survivor->durable;
         const std::uint64_t kept = unsynced == 0 ? 0 : entropy.below(unsynced + 1);
         survivor->bytes.resize(static_cast<std::size_t>(survivor->durable + kept));
@@ -288,12 +307,20 @@ void MemoryFileSystem::crash(SeededEntropy& entropy) {
 
 Bytes MemoryFileSystem::contents(std::string_view name) const {
     const auto it = files_.find(name);
-    return it == files_.end() ? Bytes{} : it->second->bytes;
+    if (it == files_.end()) {
+        return {};
+    }
+    const std::lock_guard lock(it->second->mutex);
+    return it->second->bytes;
 }
 
 void MemoryFileSystem::corrupt(std::string_view name, std::uint64_t offset) {
     const auto it = files_.find(name);
-    if (it != files_.end() && offset < it->second->bytes.size()) {
+    if (it == files_.end()) {
+        return;
+    }
+    const std::lock_guard lock(it->second->mutex);
+    if (offset < it->second->bytes.size()) {
         it->second->bytes[static_cast<std::size_t>(offset)] ^= 0x01;
     }
 }

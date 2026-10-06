@@ -13,6 +13,7 @@ add_executable(cexchain_tests
     crypto/openssl_test.cpp
     ledger/access_test.cpp
     ledger/backup_test.cpp
+    ledger/concurrency_test.cpp
     ledger/evidence_test.cpp
     ledger/ledger_test.cpp
     ledger/presence_test.cpp
