@@ -1,0 +1,206 @@
+; SPDX-License-Identifier: Apache-2.0
+; Copyright 2026 Cirraya
+;
+; CexChain protocol v0.1 (RFC 8610 CDDL).
+;
+; Every structure is encoded as deterministic CBOR (RFC 8949 section 4.2.1) in
+; the CexChain profile: no floats, no indefinite lengths, no duplicate keys.
+; Signed objects are tagged COSE_Sign1 messages (RFC 9052) in the strict
+; CexChain profile. Unknown map keys are rejected.
+
+; ---------------------------------------------------------------------------
+; Common types
+; ---------------------------------------------------------------------------
+
+; A digest under the ledger's hash algorithm. v0.1 ledgers use SHA-256 (-16)
+; or SM3 (-65538), so identifiers are 32 bytes.
+id = bstr .size 32
+
+; Unix time in milliseconds.
+timestamp = uint
+
+; A public key: COSE algorithm identifier and the key in its wire encoding
+; (Ed25519: 32 bytes; ESP256 and SM2: uncompressed SEC 1 point; ML-DSA: FIPS 204).
+public-key = [alg: int, key: bstr]
+
+; Key identifier, used as the COSE kid (label 4) of anything the key signs:
+;   kid = HASH(deterministic-CBOR(public-key)) under the ledger's hash algorithm.
+kid = id
+
+; ---------------------------------------------------------------------------
+; Statements: what actors submit to a ledger
+; ---------------------------------------------------------------------------
+;
+; A signed statement is a COSE_Sign1 with protected header
+;   { 1: alg, 3: "application/cexchain-statement+cbor", 4: kid }
+; and an empty unprotected header. Its payload is a statement-payload.
+;
+; statement_id = HASH(Sig_structure), the hash of exactly the bytes that were
+; signed (RFC 9052 section 4.4, with empty external_aad). It never depends on
+; signature bytes.
+
+statement-payload = {
+  0 => 1,                      ; protocol version
+  1 => statement-type,
+  ? 2 => id,                   ; ledger_id: absent only in genesis
+  ? 3 => id,                   ; actor_id of the signer: absent only in genesis
+  ? 4 => id,                   ; delegation_id authorizing this statement
+  5 => timestamp,              ; issued_at, as claimed by the signer
+  6 => bstr .size 16,          ; nonce
+  7 => statement-body,
+  ? 9 => provenance,           ; for AI agents
+}
+; Key 8 is reserved for proof of human presence (v0.2) and is rejected in v0.1.
+
+statement-type = &(
+  genesis: 1,
+  actor-register: 2,
+  actor-rotate-key: 3,
+  actor-revoke: 4,
+  delegation-grant: 5,
+  delegation-revoke: 6,
+  record-register: 16,
+  record-endorse: 17,
+  record-transition: 18,
+  record-revoke: 19,
+)
+
+statement-body = genesis-body / actor-register-body / actor-rotate-key-body /
+                 actor-revoke-body / delegation-grant-body / delegation-revoke-body /
+                 record-register-body / record-endorse-body / record-transition-body /
+                 record-revoke-body
+
+; Genesis creates the ledger. It is signed by the organization root key, and
+;   ledger_id = statement_id of the genesis statement.
+; The genesis statement also registers the organization actor, whose
+; actor_id is the ledger_id.
+genesis-body = {
+  1 => -16 / -65538,           ; the ledger's hash algorithm: SHA-256 or SM3
+  2 => tstr,                   ; organization name
+  3 => public-key,             ; organization root key
+  4 => public-key,             ; log key: signs checkpoints and receipts
+}
+
+actor-register-body = {
+  1 => actor-kind,
+  2 => tstr,                   ; display name
+  3 => public-key,             ; signing key
+  ? 4 => id,                   ; responsible person: required for agents
+  ? 5 => agent-profile,        ; agents only
+}
+actor-kind = &(person: 1, agent: 2, device: 3)
+agent-profile = {
+  ? 1 => tstr,                 ; model
+  ? 2 => tstr,                 ; model version
+  ? 3 => tstr,                 ; runtime
+}
+
+actor-rotate-key-body = {
+  1 => id,                     ; actor
+  2 => public-key,             ; new signing key
+}
+
+actor-revoke-body = {
+  1 => id,                     ; actor
+  ? 2 => tstr,                 ; reason
+}
+
+delegation-grant-body = {
+  1 => id,                     ; grantee actor
+  2 => scope,
+}
+; A delegation may only narrow the grantor's own scope.
+scope = {
+  1 => [+ statement-type],     ; statement types the grantee may submit
+  ? 2 => [+ tstr],             ; record types; absent means any
+  ? 3 => timestamp,            ; not before
+  ? 4 => timestamp,            ; not after
+  ? 5 => bool,                 ; may delegate further; default false
+}
+
+delegation-revoke-body = {
+  1 => id,                     ; delegation (statement_id of its grant)
+  ? 2 => tstr,                 ; reason
+}
+
+record-register-body = {
+  1 => tstr,                   ; record type, e.g. "cexchain.certificate/1"
+  2 => bstr,                   ; field commitment root (see record-field)
+  3 => uint,                   ; number of fields
+  ? 4 => [+ attachment],
+  ? 5 => { + tstr => any },    ; public metadata, disclosed in the clear
+}
+; Fields are committed individually so they can be disclosed selectively:
+;   leaf = deterministic-CBOR(record-field), leaves sorted by field name,
+;   root = RFC 9162 Merkle tree hash over the leaves (the ledger's hash).
+record-field = [name: tstr, salt: bstr .size 16, value: any]
+attachment = [
+  name: tstr,
+  media-type: tstr,
+  size: uint,
+  commitment: bstr,            ; HASH(salt || content), salt 16 bytes
+]
+
+record-endorse-body = {
+  1 => id,                     ; record (statement_id of its registration)
+  2 => tstr,                   ; role, e.g. "inspector", "receiver"
+}
+
+record-transition-body = {
+  1 => id,                     ; record
+  2 => tstr,                   ; from state
+  3 => tstr,                   ; to state
+}
+
+record-revoke-body = {
+  1 => id,                     ; record
+  ? 2 => tstr,                 ; reason
+}
+
+provenance = {
+  ? 1 => tstr,                 ; model
+  ? 2 => tstr,                 ; model version
+  ? 3 => bstr,                 ; commitment to the inputs the agent acted on
+  ? 4 => [+ tool-pin],         ; tools and skills used, pinned by digest
+}
+tool-pin = [name: tstr, digest: bstr]
+
+; ---------------------------------------------------------------------------
+; Log
+; ---------------------------------------------------------------------------
+;
+; Each registered statement becomes one log entry. The ledger's Merkle tree
+; (RFC 9162, ledger hash) commits to the encoded log entries in order.
+
+log-entry = {
+  1 => id,                     ; statement_id
+  2 => timestamp,              ; registered_at, by the ledger clock
+  3 => bstr,                   ; the signed statement (COSE_Sign1) as submitted
+}
+
+; A checkpoint is a COSE_Sign1 by the log key with protected header
+;   { 1: alg, 3: "application/cexchain-checkpoint+cbor", 4: kid }
+; over a checkpoint-payload. It binds the tree size and root together.
+; A witness cosignature is a COSE_Sign1 by the witness key over the same
+; payload bytes, with content type "application/cexchain-cosignature+cbor",
+; so the two can never be confused.
+checkpoint-payload = {
+  1 => id,                     ; ledger_id
+  2 => -16 / -65538,           ; tree hash algorithm
+  3 => uint,                   ; tree size
+  4 => bstr,                   ; root hash
+  5 => timestamp,
+}
+
+; A receipt is an RFC 9942 inclusion receipt:
+;   protected   { 1: alg, 4: kid, 395: vds }
+;   unprotected { 396: { -1: [ bstr .cbor inclusion-proof ] } }
+;   payload     nil (detached; it is the Merkle root at tree-size)
+; vds is 1 (RFC9162_SHA256) for SHA-256 ledgers and -65537 (CexChain private
+; use: RFC 9162 tree with SM3) for SM3 ledgers. The candidate entry is the
+; encoded log-entry.
+inclusion-proof = [
+  tree-size: uint,
+  leaf-index: uint,
+  inclusion-path: [* bstr],    ; RFC 9942 says [+ bstr]; empty for a one-entry tree
+]

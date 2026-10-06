@@ -1,0 +1,61 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Cirraya
+
+// Feeds arbitrary bytes to every protocol object parser. Whatever a decoder
+// accepts, the matching encoder must reproduce byte for byte, so decoding and
+// encoding can never disagree about what a structure means.
+
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <cstdlib>
+
+#include <cexchain/core/protocol/log.hpp>
+#include <cexchain/core/protocol/record.hpp>
+#include <cexchain/core/protocol/statement.hpp>
+#include <cexchain/crypto/openssl.hpp>
+
+namespace protocol = cexchain::protocol;
+
+namespace {
+
+void require(bool condition) {
+    if (!condition) {
+        std::abort();
+    }
+}
+
+template <class Encoded>
+void require_same(const Encoded& encoded, cexchain::ByteView input) {
+    require(encoded.has_value() && std::ranges::equal(*encoded, input));
+}
+
+} // namespace
+
+extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
+    static const cexchain::crypto::openssl::Provider provider;
+    const cexchain::ByteView input(data, size);
+
+    if (const auto statement = protocol::decode_payload(input)) {
+        require_same(protocol::encode_payload(*statement), input);
+    }
+    if (const auto entry = protocol::decode_log_entry(input)) {
+        require_same(protocol::encode_log_entry(*entry), input);
+    }
+    if (const auto checkpoint = protocol::decode_checkpoint(input)) {
+        require_same(protocol::encode_checkpoint(*checkpoint), input);
+    }
+    if (const auto field = protocol::decode_field(input)) {
+        require_same(protocol::encode_field(*field), input);
+    }
+    for (const auto hash : {cexchain::crypto::HashAlg::sha256, cexchain::crypto::HashAlg::sm3}) {
+        if (const auto statement = protocol::parse_statement(provider, input, hash)) {
+            require_same(protocol::encode_payload(statement->statement),
+                         *statement->envelope.payload);
+        }
+    }
+    static_cast<void>(protocol::parse_checkpoint(input));
+    static_cast<void>(protocol::parse_cosignature(input));
+    static_cast<void>(protocol::parse_receipt(input));
+    return 0;
+}

@@ -226,14 +226,17 @@ Result<std::vector<Digest>> Tree::consistency_proof(std::uint64_t old_size,
 // Verification
 // ---------------------------------------------------------------------------
 
-Status verify_inclusion(const crypto::Provider& provider, HashAlg alg, const Digest& leaf,
-                        std::uint64_t index, std::uint64_t tree_size, std::span<const Digest> proof,
-                        const Digest& root) {
+Result<Digest> root_from_inclusion_proof(const crypto::Provider& provider, HashAlg alg,
+                                         const Digest& leaf, std::uint64_t index,
+                                         std::uint64_t tree_size, std::span<const Digest> proof) {
     if (index >= tree_size) {
         return fail(Errc::verification_failed, "leaf index is outside the tree");
     }
+    if (leaf.size() != crypto::digest_size(alg)) {
+        return fail(Errc::verification_failed, "leaf hash has the wrong digest size");
+    }
     if (auto s = check_proof_shape(alg, proof, max_inclusion_proof_length); !s) {
-        return s;
+        return std::unexpected(s.error());
     }
 
     std::uint64_t fn = index;
@@ -265,7 +268,17 @@ Status verify_inclusion(const crypto::Provider& provider, HashAlg alg, const Dig
     if (sn != 0) {
         return fail(Errc::verification_failed, "inclusion proof is too short");
     }
-    if (r != root) {
+    return r;
+}
+
+Status verify_inclusion(const crypto::Provider& provider, HashAlg alg, const Digest& leaf,
+                        std::uint64_t index, std::uint64_t tree_size, std::span<const Digest> proof,
+                        const Digest& root) {
+    auto computed = root_from_inclusion_proof(provider, alg, leaf, index, tree_size, proof);
+    if (!computed) {
+        return std::unexpected(computed.error());
+    }
+    if (*computed != root) {
         return fail(Errc::verification_failed, "inclusion proof does not lead to the root");
     }
     return {};

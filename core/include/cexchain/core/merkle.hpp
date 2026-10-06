@@ -91,6 +91,15 @@ private:
     std::vector<std::vector<Digest>> levels_;
 };
 
+/// Computes the root that an inclusion proof leads to (RFC 9162 §2.1.3.2,
+/// without the final comparison). Use this when the root is signed over
+/// rather than supplied, as in RFC 9942 receipts. The same caveat as
+/// `verify_inclusion` applies: the proof does not authenticate `tree_size`.
+[[nodiscard]] Result<Digest> root_from_inclusion_proof(const crypto::Provider& provider,
+                                                       HashAlg alg, const Digest& leaf,
+                                                       std::uint64_t index, std::uint64_t tree_size,
+                                                       std::span<const Digest> proof);
+
 /// Verifies an inclusion proof (RFC 9162 §2.1.3.2).
 ///
 /// The proof authenticates the leaf against `root`; it does not authenticate

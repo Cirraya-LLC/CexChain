@@ -11,7 +11,13 @@ add_library(cexchain_core
     src/crypto.cpp
     src/error.cpp
     src/hex.cpp
-    src/merkle.cpp)
+    src/merkle.cpp
+    src/protocol/common.cpp
+    src/protocol/envelope.cpp
+    src/protocol/log.cpp
+    src/protocol/reader.cpp
+    src/protocol/record.cpp
+    src/protocol/statement.cpp)
 add_library(cexchain::core ALIAS cexchain_core)
 
 target_include_directories(cexchain_core PUBLIC

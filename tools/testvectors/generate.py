@@ -577,6 +577,191 @@ def generate_pkcs8(openssl: str) -> None:
           vectors)
 
 
+# ---------------------------------------------------------------------------
+# Protocol v0.1 objects (spec/cexchain-v0.1.cddl)
+# ---------------------------------------------------------------------------
+#
+# A deterministic CBOR encoder written here from RFC 8949 section 4.2.1 rather
+# than relying on cbor2's canonical mode, which sorts map keys length-first
+# (RFC 7049) instead of bytewise.
+
+
+def _head(major: int, n: int) -> bytes:
+    if n < 24:
+        return bytes([(major << 5) | n])
+    for info, width in ((24, 1), (25, 2), (26, 4), (27, 8)):
+        if n < 1 << (8 * width):
+            return bytes([(major << 5) | info]) + n.to_bytes(width, "big")
+    raise ValueError("integer too large")
+
+
+def dcbor(value) -> bytes:
+    if isinstance(value, bool) or value is None:
+        return {False: b"\xf4", True: b"\xf5", None: b"\xf6"}[value]
+    if isinstance(value, int):
+        return _head(0, value) if value >= 0 else _head(1, -1 - value)
+    if isinstance(value, (bytes, bytearray)):
+        return _head(2, len(value)) + bytes(value)
+    if isinstance(value, str):
+        data = value.encode("utf-8")
+        return _head(3, len(data)) + data
+    if isinstance(value, list):
+        return _head(4, len(value)) + b"".join(dcbor(v) for v in value)
+    if isinstance(value, dict):
+        items = sorted((dcbor(k), dcbor(v)) for k, v in value.items())
+        assert len({k for k, _ in items}) == len(items), "duplicate key"
+        return _head(5, len(items)) + b"".join(k + v for k, v in items)
+    if isinstance(value, cbor2.CBORTag):
+        return _head(6, value.tag) + dcbor(value.value)
+    raise TypeError(type(value))
+
+
+STATEMENT_TYPE = "application/cexchain-statement+cbor"
+CHECKPOINT_TYPE = "application/cexchain-checkpoint+cbor"
+COSIGNATURE_TYPE = "application/cexchain-cosignature+cbor"
+HASHES = {-16: "sha256", -65538: "sm3"}
+VDS = {-16: 1, -65538: -65537}
+
+
+class Ledger:
+    def __init__(self, hash_id: int):
+        self.hash_id = hash_id
+
+    def h(self, data: bytes) -> bytes:
+        return hashlib.new(HASHES[self.hash_id], data).digest()
+
+    def kid(self, key) -> bytes:
+        return self.h(dcbor([COSE["Ed25519"], key.public_key().public_bytes_raw()]))
+
+    def sign(self, key, protected: dict, payload: bytes, unprotected=None, detached=False) -> bytes:
+        protected_bytes = dcbor({1: COSE["Ed25519"], **protected})
+        signature = key.sign(dcbor(["Signature1", protected_bytes, b"", payload]))
+        body = [protected_bytes, unprotected or {}, None if detached else payload, signature]
+        return dcbor(cbor2.CBORTag(18, body))
+
+    def statement(self, key, payload: dict):
+        payload_bytes = dcbor(payload)
+        protected = {3: STATEMENT_TYPE, 4: self.kid(key)}
+        protected_bytes = dcbor({1: COSE["Ed25519"], **protected})
+        statement_id = self.h(dcbor(["Signature1", protected_bytes, b"", payload_bytes]))
+        return self.sign(key, protected, payload_bytes), statement_id
+
+    def merkle(self) -> MerkleOracle:
+        return MerkleOracle(HASHES[self.hash_id])
+
+
+def ed_public(key) -> list:
+    return [COSE["Ed25519"], key.public_key().public_bytes_raw()]
+
+
+def generate_protocol() -> None:
+    seeds = {name: hashlib.sha256(f"CexChain test key: {name}".encode()).hexdigest()
+             for name in ("org_root", "log", "witness", "person", "agent")}
+    keys = {name: ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(seed)) for name, seed in seeds.items()}
+    t0 = 1_791_244_800_000  # 2026-10-06T00:00:00Z
+
+    def nonce(i: int) -> bytes:
+        return bytes([i]) * 16
+
+    ledgers = []
+    for hash_id in (-16, -65538):
+        lg = Ledger(hash_id)
+        statements = []
+
+        def add(name, signer, payload):
+            encoded, statement_id = lg.statement(keys[signer], payload)
+            statements.append({"name": name, "signer": signer, "encoded": encoded.hex(),
+                               "payload": dcbor(payload).hex(), "statement_id": statement_id.hex()})
+            return statement_id
+
+        genesis = {0: 1, 1: 1, 5: t0, 6: nonce(1), 7: {
+            1: hash_id, 2: "Cirraya Test Org", 3: ed_public(keys["org_root"]), 4: ed_public(keys["log"])}}
+        ledger_id = add("genesis", "org_root", genesis)
+        org = ledger_id
+
+        person = add("register person", "org_root", {0: 1, 1: 2, 2: ledger_id, 3: org, 5: t0 + 1, 6: nonce(2), 7: {
+            1: 1, 2: "Quality Inspector", 3: ed_public(keys["person"])}})
+        delegation = add("delegate to person", "org_root", {0: 1, 1: 5, 2: ledger_id, 3: org, 5: t0 + 2, 6: nonce(3), 7: {
+            1: person, 2: {1: [2, 16, 17, 18, 19], 2: ["cexchain.certificate/1", "cexchain.delivery/1"],
+                           4: t0 + 86_400_000, 5: True}}})
+        agent = add("register agent", "person", {0: 1, 1: 2, 2: ledger_id, 3: person, 4: delegation, 5: t0 + 3, 6: nonce(4), 7: {
+            1: 2, 2: "Drafting Agent", 3: ed_public(keys["agent"]), 4: person,
+            5: {1: "claude-opus-5-5", 2: "2026-09", 3: "cexchain-mcp/0.1"}}})
+
+        salt = lambda i: bytes([0xA0 + i]) * 16
+        fields = [
+            ["product", salt(1), "Stainless steel flange DN50"],
+            ["batch", salt(2), "B-2026-1006-07"],
+            ["standard", salt(3), "GB/T 9119-2010"],
+            ["result", salt(4), "pass"],
+            ["tested_units", salt(5), 120],
+        ]
+        ordered = sorted(fields, key=lambda f: f[0].encode())
+        leaves = [dcbor(f) for f in ordered]
+        oracle = lg.merkle()
+        field_root = oracle.mth(leaves)
+        attachment_salt = bytes([0x5A]) * 16
+        attachment_content = b"%PDF-1.7 test report"
+        record = add("register record", "agent", {0: 1, 1: 16, 2: ledger_id, 3: agent, 5: t0 + 4, 6: nonce(5), 7: {
+            1: "cexchain.certificate/1", 2: field_root, 3: len(leaves),
+            4: [["report.pdf", "application/pdf", len(attachment_content), lg.h(attachment_salt + attachment_content)]],
+            5: {"issuer": "Cirraya Test Org", "product": "Stainless steel flange DN50"}},
+            9: {1: "claude-opus-5-5", 2: "2026-09", 3: lg.h(b"inspection data"), 4: [["cexchain_issue", lg.h(b"tool v1")]]}})
+        add("endorse record", "person", {0: 1, 1: 17, 2: ledger_id, 3: person, 4: delegation, 5: t0 + 5, 6: nonce(6), 7: {
+            1: record, 2: "inspector"}})
+        add("transition record", "person", {0: 1, 1: 18, 2: ledger_id, 3: person, 4: delegation, 5: t0 + 6, 6: nonce(7), 7: {
+            1: record, 2: "issued", 3: "confirmed"}})
+        add("revoke record", "org_root", {0: 1, 1: 19, 2: ledger_id, 3: org, 5: t0 + 7, 6: nonce(8), 7: {
+            1: record, 2: "superseded"}})
+
+        entries = []
+        for i, st in enumerate(statements):
+            entries.append(dcbor({1: bytes.fromhex(st["statement_id"]), 2: t0 + 1000 + i, 3: bytes.fromhex(st["encoded"])}))
+        tree = lg.merkle()
+        root = tree.mth(entries)
+        checkpoint_payload = dcbor({1: ledger_id, 2: hash_id, 3: len(entries), 4: root, 5: t0 + 5000})
+        checkpoint = lg.sign(keys["log"], {3: CHECKPOINT_TYPE, 4: lg.kid(keys["log"])}, checkpoint_payload)
+        cosignature = lg.sign(keys["witness"], {3: COSIGNATURE_TYPE, 4: lg.kid(keys["witness"])}, checkpoint_payload)
+
+        receipts = []
+        for index in (0, 4, len(entries) - 1):
+            path = tree.path(index, entries)
+            proof = dcbor([len(entries), index, path])
+            receipt = lg.sign(keys["log"], {4: lg.kid(keys["log"]), 395: VDS[hash_id]}, root,
+                              unprotected={396: {-1: [proof]}}, detached=True)
+            receipts.append({"index": index, "encoded": receipt.hex()})
+
+        disclosed = "result"
+        disclosed_index = [f[0] for f in ordered].index(disclosed)
+        ledgers.append({
+            "hash": hash_id,
+            "ledger_id": ledger_id.hex(),
+            "statements": statements,
+            "log_entries": [e.hex() for e in entries],
+            "root": root.hex(),
+            "checkpoint": checkpoint.hex(),
+            "cosignature": cosignature.hex(),
+            "receipts": receipts,
+            "record_fields": [{"name": f[0], "salt": f[1].hex(), "value": f[2]} for f in fields],
+            "field_root": field_root.hex(),
+            "disclosure": {"name": disclosed, "leaf": leaves[disclosed_index].hex(), "index": disclosed_index,
+                           "path": [p.hex() for p in oracle.path(disclosed_index, leaves)]},
+            "attachment": {"salt": attachment_salt.hex(), "content": attachment_content.hex(),
+                           "commitment": lg.h(attachment_salt + attachment_content).hex()},
+        })
+
+    document = {
+        "description": "CexChain protocol v0.1 objects built by an independent Python encoder from "
+                       "spec/cexchain-v0.1.cddl. All signatures are Ed25519 (deterministic), so every "
+                       "object must be reproduced byte for byte. Keys are throwaway test keys: "
+                       "seed = SHA-256(\"CexChain test key: <name>\").",
+        "seeds": seeds,
+        "ledgers": ledgers,
+    }
+    (OUT / "protocol-v0.1.json").write_text(json.dumps(document, indent=2) + "\n")
+    print(f"wrote protocol vectors for {len(ledgers)} ledgers to testvectors/protocol-v0.1.json")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--openssl", default="openssl", help="OpenSSL 3.5+ command-line tool")
@@ -587,6 +772,7 @@ def main() -> None:
     generate_merkle("SM3", "sm3", "merkle-sm3.json")
     generate_cose(args.openssl)
     generate_pkcs8(args.openssl)
+    generate_protocol()
 
 
 if __name__ == "__main__":
