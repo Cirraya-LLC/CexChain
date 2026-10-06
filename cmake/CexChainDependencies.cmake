@@ -22,6 +22,18 @@ FetchContent_Declare(nlohmann_json
     SYSTEM)
 FetchContent_MakeAvailable(nlohmann_json)
 
+# Nayuki's QR Code generator (MIT): QR codes that open the browser verifier.
+if(NOT EMSCRIPTEN)
+    FetchContent_Declare(qrcodegen
+        URL https://github.com/nayuki/QR-Code-generator/archive/refs/tags/v1.8.0.tar.gz
+        URL_HASH SHA256=2ec0a4d33d6f521c942eeaf473d42d5fe139abcfa57d2beffe10c5cf7d34ae60
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    FetchContent_MakeAvailable(qrcodegen)
+    add_library(cexchain_qrcodegen STATIC "${qrcodegen_SOURCE_DIR}/cpp/qrcodegen.cpp")
+    target_include_directories(cexchain_qrcodegen SYSTEM PUBLIC "${qrcodegen_SOURCE_DIR}/cpp")
+    target_compile_features(cexchain_qrcodegen PUBLIC cxx_std_11)
+endif()
+
 if(CEXCHAIN_BUILD_TESTS)
     FetchContent_Declare(Catch2
         URL https://github.com/catchorg/Catch2/archive/refs/tags/v3.16.0.tar.gz

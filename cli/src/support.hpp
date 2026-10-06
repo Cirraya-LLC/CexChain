@@ -20,10 +20,15 @@
 #include <cexchain/ledger/environment.hpp>
 #include <cexchain/ledger/ledger.hpp>
 #include <cexchain/ledger/storage.hpp>
+#include <cexchain/verifier/report.hpp>
 
 #include "args.hpp"
 
 namespace cexchain::cli {
+
+using verifier::format_time;
+using verifier::iso_time;
+using verifier::kind_label;
 
 /// Unwraps a result or throws a CommandError that names what failed.
 template <class T>
@@ -49,9 +54,6 @@ void write_file(const std::filesystem::path& path, ByteView data, bool private_f
 
 [[nodiscard]] std::string hex_id(const protocol::Id& id);
 [[nodiscard]] std::string short_id(const protocol::Id& id);
-[[nodiscard]] std::string format_time(protocol::Timestamp ms);
-/// RFC 3339 with milliseconds, e.g. 2026-10-06T08:00:00.000Z.
-[[nodiscard]] std::string iso_time(protocol::Timestamp ms);
 /// Parses "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM:SSZ" (UTC).
 [[nodiscard]] protocol::Timestamp parse_time(std::string_view text);
 
@@ -92,7 +94,6 @@ void save_key(const std::filesystem::path& path, const crypto::openssl::KeyPair&
 [[nodiscard]] crypto::HashAlg parse_hash(std::string_view name);
 [[nodiscard]] protocol::StatementType parse_statement_type(std::string_view name);
 [[nodiscard]] protocol::ActorKind parse_actor_kind(std::string_view name);
-[[nodiscard]] std::string_view kind_name(const std::optional<protocol::ActorKind>& kind);
 
 /// An open ledger directory with the environment needed to act on it.
 class Session {

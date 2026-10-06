@@ -47,3 +47,38 @@ jobs:
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git ls-files '*.cpp' '*.hpp' | xargs clang-format-23 --dry-run --Werror
+
+  browser-verifier:
+    name: Browser verifier (WebAssembly)
+    runs-on: ubuntu-latest
+    container: gcc:16-trixie
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install tools
+        run: |
+          .github/scripts/install-linux-tools.sh
+          .github/scripts/install-emscripten.sh
+
+      - name: Build the native tool and the WebAssembly verifier
+        run: |
+          cmake --preset gcc-debug -DCMAKE_CXX_COMPILER=g++ -DCEXCHAIN_BUILD_TESTS=OFF
+          cmake --build --preset gcc-debug --target cexchain
+          . /opt/emsdk/emsdk_env.sh
+          tools/wasm/build.sh build/wasm
+
+      - name: Test in Node.js and Chromium
+        run: |
+          . /opt/emsdk/emsdk_env.sh
+          cd tests/wasm
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+          cd ../..
+          REQUIRE_BROWSER=1 tests/wasm/run.sh build/gcc-debug/cli/cexchain build/wasm
+
+      - name: Keep the verifier page
+        uses: actions/upload-artifact@v4
+        with:
+          name: cexchain-verify
+          path: build/wasm/cexchain-verify.html

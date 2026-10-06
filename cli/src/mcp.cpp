@@ -135,7 +135,7 @@ public:
         }
         instructions_ =
             "You act on the CexChain ledger of " + session.state().organization() + " as \"" +
-            me.display_name + "\" (" + std::string(kind_name(me.kind)) +
+            me.display_name + "\" (" + kind_label(me.kind) +
             "). Every action you take is signed with your own key, recorded as performed by "
             "you, and attributed to " +
             responsible +
@@ -350,7 +350,7 @@ private:
                 }
                 json out = {{"actor_id", hex_id(me.id)},
                             {"name", me.display_name},
-                            {"kind", std::string(kind_name(me.kind))},
+                            {"kind", kind_label(me.kind)},
                             {"organization", session.state().organization()},
                             {"delegations", delegations}};
                 if (me.responsible) {
@@ -521,12 +521,12 @@ private:
                 if (!report) {
                     throw ToolError{"VERIFICATION FAILED: " + std::string(report.error().detail)};
                 }
-                return json{
-                    {"verified", true},
-                    {"record_type", report->record_type},
-                    {"state", report->state},
-                    {"revoked", report->revoked},
-                    {"report", format_report(*report, options.expected_ledger.has_value())}};
+                return json{{"verified", true},
+                            {"record_type", report->record_type},
+                            {"state", report->state},
+                            {"revoked", report->revoked},
+                            {"report",
+                             verifier::report_text(*report, options.expected_ledger.has_value())}};
             });
     }
 

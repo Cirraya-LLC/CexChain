@@ -17,6 +17,8 @@
 /// Record operations shared by the command line and the MCP server.
 namespace cexchain::cli {
 
+using verifier::display_value;
+
 struct IssueRequest {
     std::string record_type;
     std::vector<std::pair<std::string, std::string>> fields;
@@ -87,11 +89,5 @@ void save_vault(const Session& session, const protocol::Id& record, const Vault&
 /// the file is sealed.
 [[nodiscard]] Vault read_vault(const Session& session, const protocol::Id& record,
                                const Args& args);
-
-[[nodiscard]] std::string display_value(const cbor::Value& value);
-
-/// The human-readable verification report.
-[[nodiscard]] std::string format_report(const protocol::EvidenceReport& report,
-                                        bool ledger_checked);
 
 } // namespace cexchain::cli

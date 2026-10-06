@@ -223,6 +223,17 @@ python3 -c 'import sys; p="corrupted.cbor"; d=bytearray(open(p,"rb").read()); d[
 expect_exit 3 verify corrupted.cbor
 [ "$("$CEXCHAIN" verify corrupted.cbor --json | json 'd["verified"]' || true)" = "False" ] || fail "json failure report"
 
+# QR codes that open the browser verifier.
+run qr "$RECORD" --bundle-url "https://example.com/e 1.cbor" --verifier-url https://verify.example.com/ --json \
+    > qr.json
+json 'd["url"]' < qr.json | contains -x "https://verify.example.com/#l=$LEDGER_ID&r=$RECORD&b=https://example.com/e%201.cbor"
+run qr "$RECORD" --bundle-url https://example.com/e.cbor --verifier-url https://verify.example.com/ --out qr.svg \
+    | contains 'QR code written to qr.svg'
+contains '<svg' qr.svg
+run qr "$RECORD" --bundle-url https://example.com/e.cbor --verifier-url https://verify.example.com/ | contains '█'
+expect_exit 1 qr "$RECORD" --bundle-url file:///etc/passwd --verifier-url https://verify.example.com/
+expect_exit 1 qr "$RECORD" --bundle-url https://example.com/e.cbor --verifier-url https://v.example.com/#x
+
 # --- Key rotation and revocation -------------------------------------------------------
 run key generate --out alice2.key > /dev/null
 run actor rotate-key "$ALICE" --as alice.key --new-key alice2.key > /dev/null

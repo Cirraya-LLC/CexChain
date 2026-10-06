@@ -22,16 +22,18 @@
 /// times; keys keep a stable order.
 namespace cexchain::cli {
 
-using Json = nlohmann::ordered_json;
+using verifier::cbor_json;
+using verifier::checkpoint_json;
+using verifier::Json;
+using verifier::kind_text;
+using verifier::provenance_json;
+using verifier::report_json;
 
 void print_json(const Json& value);
 
 [[nodiscard]] Json hex_json(ByteView bytes);
 [[nodiscard]] Json id_json(const protocol::Id& id);
 [[nodiscard]] Json public_key_json(const crypto::PublicKey& key);
-/// A CBOR value as JSON: text, integers, booleans, and null map directly;
-/// anything else becomes its diagnostic notation.
-[[nodiscard]] Json cbor_json(const cbor::Value& value);
 
 [[nodiscard]] Json actor_ref(const Session& session, const protocol::Id& id);
 [[nodiscard]] Json actor_json(const Session& session, const protocol::ActorState& actor);
@@ -39,15 +41,11 @@ void print_json(const Json& value);
 [[nodiscard]] Json delegation_json(const Session& session,
                                    const protocol::DelegationState& delegation);
 [[nodiscard]] Json record_json(const Session& session, const protocol::RecordState& record);
-[[nodiscard]] Json provenance_json(const protocol::Provenance& provenance);
 [[nodiscard]] Json body_json(const protocol::Body& body);
 [[nodiscard]] Json statement_json(const protocol::Statement& statement);
 /// A log entry with its statement decoded, and actor names resolved.
 [[nodiscard]] Json entry_json(const Session& session, std::uint64_t index);
-[[nodiscard]] Json checkpoint_json(const protocol::Checkpoint& checkpoint);
-[[nodiscard]] Json report_json(const protocol::EvidenceReport& report, bool ledger_checked);
 
-[[nodiscard]] std::string kind_text(const std::optional<protocol::ActorKind>& kind);
 [[nodiscard]] std::string scope_text(const protocol::Scope& scope);
 /// A one-line description of a statement, e.g. "endorse 3fa2c19be0d1 as inspector".
 [[nodiscard]] std::string statement_summary(const Session& session,

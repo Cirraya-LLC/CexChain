@@ -1,0 +1,74 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Cirraya
+//
+// The WebAssembly verifier must reach exactly the conclusions of the native
+// one. Usage: node verifier_node.js MODULE_JS API_JS EVIDENCE_DIR
+"use strict";
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+
+const [moduleJs, apiJs, dir] = process.argv.slice(2);
+const factory = require(path.resolve(moduleJs));
+const { createCexChainVerifier } = require(path.resolve(apiJs));
+const read = (name) => new Uint8Array(fs.readFileSync(path.join(dir, name)));
+const text = (name) => fs.readFileSync(path.join(dir, name), "utf8").trim();
+
+(async () => {
+  const verifier = await createCexChainVerifier(factory);
+  const bundle = read("bundle.cbor");
+  const ledgerId = text("ledger-id");
+
+  // Same report as `cexchain verify --json`, field for field.
+  const report = verifier.verify(bundle, { ledgerId, attachments: { "report.pdf": read("report.pdf") } });
+  assert.equal(report.verified, true, report.error);
+  assert.equal(typeof report.text, "string");
+  assert.match(report.text, /AI agent: claude-opus-5-5; responsible: Alice Inspector/);
+  delete report.text;
+  assert.deepEqual(report, JSON.parse(text("native-report.json")));
+  assert.equal(report.record.id, text("record-id"));
+  assert.equal(report.disclosed_fields.result, "pass");
+  assert.equal(report.disclosed_fields.note, "中文 ✓ <script>alert(1)</script>");
+  assert.equal(report.attachments[0].status, "verified");
+  assert.equal(report.events[0].actor.kind, "agent");
+  assert.equal(report.events[0].actor.responsible, "Alice Inspector");
+
+  // Without an expected ledger id the report says it was not checked.
+  const unchecked = verifier.verify(bundle);
+  assert.equal(unchecked.verified, true);
+  assert.equal(unchecked.ledger.id_checked, false);
+  assert.equal(unchecked.attachments[0].status, "not-provided");
+
+  // A forged attachment, another ledger, a bad id, and damaged bytes all fail.
+  const forged = verifier.verify(bundle, { attachments: { "report.pdf": new TextEncoder().encode("forged") } });
+  assert.equal(forged.verified, false);
+  assert.equal(forged.attachments[0].status, "mismatch");
+  const otherLedger = verifier.verify(bundle, { ledgerId: "00".repeat(32) });
+  assert.equal(otherLedger.verified, false);
+  assert.match(otherLedger.error, /ledger/);
+  assert.equal(verifier.verify(bundle, { ledgerId: "xyz" }).verified, false);
+  // Every byte matters. (The bundle ends with the attachment's salt, which can
+  // only be checked against the attachment's content, so supply it.)
+  const attachments = { "report.pdf": read("report.pdf") };
+  for (let offset = 0; offset < bundle.length; offset += 7) {
+    const damaged = bundle.slice();
+    damaged[offset] ^= 1;
+    assert.equal(verifier.verify(damaged, { ledgerId, attachments }).verified, false, "flipped byte at " + offset);
+  }
+  const lastByte = bundle.slice();
+  lastByte[lastByte.length - 1] ^= 1;
+  assert.equal(verifier.verify(lastByte, { ledgerId, attachments }).verified, false);
+  assert.equal(verifier.verify(new Uint8Array(0)).verified, false);
+
+  // Witness keys: a public key file is accepted, anything else refused.
+  assert.equal(verifier.verify(bundle, { witnesses: [read("witness.pub")] }).verified, true);
+  assert.equal(verifier.verify(bundle, { witnesses: [read("witness.key")] }).verified, false);
+
+  // Options do not leak from one call into the next.
+  assert.equal(verifier.verify(bundle).attachments[0].status, "not-provided");
+
+  console.log("wasm verifier (node): ok, version " + verifier.version);
+})().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

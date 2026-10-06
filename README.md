@@ -37,7 +37,8 @@ CexChain is a ledger protocol and node for trust between organizations. Every do
 
 | Component | Description |
 |---|---|
-| `core` | Deterministic CBOR, COSE, Merkle proofs, protocol objects, ledger rules, and the offline evidence verifier. Portable C++23 that can be built to WebAssembly. |
+| `core` | Deterministic CBOR, COSE, Merkle proofs, protocol objects, ledger rules, and the offline evidence verifier. Portable C++23 that builds to WebAssembly. |
+| `verifier` | Verification reports (text and JSON) shared by the command line and the browser verifier; `verifier/wasm` is the browser page |
 | `crypto/openssl` | Cryptographic backend: SHA-2, SM3, Ed25519, ESP256, SM2, ML-DSA |
 | `ledger` | Ledger node: crash-safe storage, rule engine, checkpoints, receipts, evidence export (C++26) |
 | `cli` | `cexchain` command-line tool: full control of keys, ledgers, actors, delegations, records, proofs, and evidence |
@@ -88,7 +89,7 @@ The `cexchain` tool controls every part of a ledger:
 | Delegations | `delegation grant`, `delegation list`, `delegation show`, `delegation revoke` |
 | Records | `record issue`, `record list`, `record show`, `record history`, `record fields`, `record endorse`, `record transition`, `record revoke`, `record types` |
 | Proofs | `checkpoint create`, `checkpoint list`, `checkpoint show`, `proof inclusion`, `proof consistency`, `receipt` |
-| Evidence | `export`, `verify`, `inspect` |
+| Evidence | `export`, `verify`, `inspect`, `qr` |
 | Vault | `vault status`, `vault keygen`, `vault rekey` |
 | AI agents | `mcp` |
 
@@ -103,6 +104,28 @@ HKDF-SHA256, AES-256-GCM) to the ledger's vault key, and each sealed file is bou
 record. Anyone who may issue records, AI agents included, can add to the vault, but only holders of
 the vault private key can read it. The vault private key can be kept off the ledger host
 (`vault keygen`, `init --vault-public-key`) and rotated at any time (`vault rekey`).
+
+## Browser verifier
+
+Anyone can check evidence without installing anything. `cexchain-verify.html` is one self-contained
+page: the same verification code as `cexchain verify`, compiled to WebAssembly together with
+OpenSSL. It runs entirely in the browser and uploads nothing. It works offline, even opened from
+disk, and it can be hosted on any static web server.
+
+```sh
+tools/wasm/build.sh            # needs Emscripten; writes build/wasm/cexchain-verify.html
+```
+
+Publish a record's evidence bundle, then print a QR code on the document:
+
+```sh
+cexchain qr <record-id> --bundle-url https://example.com/evidence/cert-1006.cbor \
+    --verifier-url https://example.com/verify.html --out cert-1006-qr.svg
+```
+
+Scanning the code opens the verifier with the ledger id, the record id, and the bundle's location.
+The page refuses evidence about another record or from another ledger, and shows who did what,
+person or AI agent, under whose authority.
 
 ## AI agents (MCP)
 
@@ -130,6 +153,15 @@ ctest --preset gcc-debug
 ```
 
 Other presets: `gcc-release`, `clang-debug`, `clang-asan` (AddressSanitizer + UndefinedBehaviorSanitizer), and `clang-fuzz` (libFuzzer targets).
+
+The browser verifier is tested against evidence from the native tool. A Node.js test requires its
+report to match `cexchain verify --json` exactly, and a Chromium test drives the page:
+
+```sh
+tools/wasm/build.sh
+(cd tests/wasm && npm ci && npx playwright install chromium)
+tests/wasm/run.sh build/gcc-debug/cli/cexchain build/wasm
+```
 
 Fuzz targets cover every parser of untrusted input:
 

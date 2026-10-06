@@ -22,30 +22,6 @@ Json optional_text(const std::optional<std::string>& text) {
     return text ? Json(*text) : Json(nullptr);
 }
 
-Json actor_summary_json(const protocol::ActorSummary& actor) {
-    Json out{{"id", id_json(actor.id)}, {"kind", kind_text(actor.kind)}, {"name", actor.name}};
-    if (actor.agent) {
-        out["model"] = optional_text(actor.agent->model);
-        out["model_version"] = optional_text(actor.agent->model_version);
-    }
-    if (actor.responsible) {
-        out["responsible"] = *actor.responsible;
-    }
-    return out;
-}
-
-std::string_view attachment_status(protocol::AttachmentStatus status) {
-    switch (status) {
-    case protocol::AttachmentStatus::verified:
-        return "verified";
-    case protocol::AttachmentStatus::mismatch:
-        return "mismatch";
-    case protocol::AttachmentStatus::not_provided:
-        return "not-provided";
-    }
-    return "unknown";
-}
-
 } // namespace
 
 void print_json(const Json& value) {
@@ -62,56 +38,6 @@ Json id_json(const protocol::Id& id) {
 
 Json public_key_json(const crypto::PublicKey& key) {
     return {{"algorithm", crypto::name(key.algorithm)}, {"key", to_hex(key.bytes)}};
-}
-
-Json cbor_json(const cbor::Value& value) {
-    if (const std::string* text = value.as_text()) {
-        return *text;
-    }
-    if (const auto number = value.as_int64()) {
-        return *number;
-    }
-    if (const auto number = value.as_uint64()) {
-        return *number;
-    }
-    if (const auto flag = value.as_bool()) {
-        return *flag;
-    }
-    if (value.is_null()) {
-        return nullptr;
-    }
-    if (const cbor::Map* map = value.as_map();
-        map != nullptr &&
-        std::ranges::all_of(*map, [](const cbor::MapEntry& e) { return e.key.as_text(); })) {
-        Json out = Json::object();
-        for (const cbor::MapEntry& entry : *map) {
-            out[*entry.key.as_text()] = cbor_json(entry.value);
-        }
-        return out;
-    }
-    if (const cbor::Array* array = value.as_array()) {
-        Json out = Json::array();
-        for (const cbor::Value& item : *array) {
-            out.push_back(cbor_json(item));
-        }
-        return out;
-    }
-    return cbor::diagnostic(value);
-}
-
-std::string kind_text(const std::optional<protocol::ActorKind>& kind) {
-    if (!kind) {
-        return "organization";
-    }
-    switch (*kind) {
-    case protocol::ActorKind::person:
-        return "person";
-    case protocol::ActorKind::agent:
-        return "agent";
-    case protocol::ActorKind::device:
-        return "device";
-    }
-    return "unknown";
 }
 
 Json actor_ref(const Session& session, const protocol::Id& id) {
@@ -253,18 +179,6 @@ Json record_json(const Session& session, const protocol::RecordState& record) {
     }
     out["attachments"] = std::move(attachments);
     return out;
-}
-
-Json provenance_json(const protocol::Provenance& p) {
-    Json tools = Json::array();
-    for (const protocol::ToolPin& tool : p.tools) {
-        tools.push_back({{"name", tool.name}, {"digest", to_hex(tool.digest)}});
-    }
-    return {
-        {"model", optional_text(p.model)},
-        {"model_version", optional_text(p.model_version)},
-        {"input_commitment", p.input_commitment ? hex_json(*p.input_commitment) : Json(nullptr)},
-        {"tools", std::move(tools)}};
 }
 
 Json body_json(const protocol::Body& body) {
@@ -421,65 +335,6 @@ int report_submitted(const Args& args, const Session& session, const protocol::I
         std::println("{}", text);
     }
     return 0;
-}
-
-Json checkpoint_json(const protocol::Checkpoint& c) {
-    return {{"ledger_id", id_json(c.ledger_id)},
-            {"tree_hash", crypto::name(c.tree_hash)},
-            {"tree_size", c.tree_size},
-            {"root", hex_json(c.root.bytes())},
-            {"timestamp", iso_time(c.timestamp)}};
-}
-
-Json report_json(const protocol::EvidenceReport& r, bool ledger_checked) {
-    Json events = Json::array();
-    for (const protocol::RecordEvent& e : r.events) {
-        Json authority = Json::array();
-        for (const protocol::ActorSummary& a : e.authority) {
-            authority.push_back(actor_summary_json(a));
-        }
-        events.push_back(
-            {{"index", e.index},
-             {"registered_at", iso_time(e.registered_at)},
-             {"issued_at", iso_time(e.issued_at)},
-             {"type", protocol::name(e.type)},
-             {"actor", actor_summary_json(e.actor)},
-             {"authority", std::move(authority)},
-             {"provenance", e.provenance ? provenance_json(*e.provenance) : Json(nullptr)},
-             {"detail", e.detail}});
-    }
-    Json fields = Json::object();
-    for (const protocol::RecordField& f : r.disclosed_fields) {
-        fields[f.name] = cbor_json(f.value);
-    }
-    Json attachments = Json::array();
-    for (const protocol::AttachmentCheck& a : r.attachments) {
-        attachments.push_back({{"name", a.name},
-                               {"media_type", a.media_type},
-                               {"size", a.size},
-                               {"status", attachment_status(a.status)}});
-    }
-    return {
-        {"verified", true},
-        {"ledger",
-         {{"id", id_json(r.ledger_id)},
-          {"organization", r.organization},
-          {"hash", crypto::name(r.hash)},
-          {"id_checked", ledger_checked}}},
-        {"checkpoint", checkpoint_json(r.checkpoint)},
-        {"witnesses",
-         {{"trusted", r.trusted_cosignatures}, {"untrusted", r.untrusted_cosignatures}}},
-        {"record",
-         {{"id", id_json(r.record)},
-          {"type", r.record_type},
-          {"state", r.state},
-          {"revoked", r.revoked},
-          {"metadata", r.metadata ? cbor_json(*r.metadata) : Json(nullptr)}}},
-        {"events", std::move(events)},
-        {"disclosed_fields", std::move(fields)},
-        {"attachments", std::move(attachments)},
-        {"limits",
-         "A bundle cannot prove that no revocation was left out; that needs a full-log audit."}};
 }
 
 } // namespace cexchain::cli

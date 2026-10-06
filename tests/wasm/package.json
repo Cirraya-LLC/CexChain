@@ -1,0 +1,12 @@
+{
+  "name": "cexchain-browser-verifier-tests",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "Browser tests for the CexChain verifier page",
+  "scripts": {
+    "test": "node page_test.js"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}

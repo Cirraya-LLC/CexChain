@@ -423,7 +423,7 @@ int cmd_verify(const Args& args) {
         out["verified"] = !mismatch;
         print_json(out);
     } else {
-        std::print("{}", format_report(*report, options.expected_ledger.has_value()));
+        std::print("{}", verifier::report_text(*report, options.expected_ledger.has_value()));
         if (mismatch) {
             std::println("\nVERIFICATION FAILED: an attachment does not match its commitment");
         }

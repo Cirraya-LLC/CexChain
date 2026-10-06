@@ -436,6 +436,22 @@ std::vector<CommandSpec> build() {
                {"witness", "PUBKEY", "Trust this witness's public key file", false, true},
                {"attachment", "NAME=FILE", "Check an attachment's content", false, true}}),
          cmd_verify},
+        {{"qr"},
+         "Make a QR code that opens a record's evidence in the browser verifier",
+         "Evidence",
+         "RECORD",
+         1,
+         1,
+         with({ledger_option,
+               {"bundle-url", "URL",
+                "Where you publish the record's evidence bundle (from cexchain export)", true},
+               {"verifier-url", "URL", "Where you host cexchain-verify.html", true},
+               {"out", "FILE", "Write an SVG image (default: draw the code in the terminal)"}}),
+         cmd_qr,
+         "The code links to the verifier page with the ledger id, the record id, and the bundle's\n"
+         "URL. Scanning it verifies the evidence on the scanner's own device; the page refuses\n"
+         "evidence about another record or from another ledger. The server that hosts the bundle\n"
+         "must allow cross-origin requests from the verifier's origin."},
         {{"inspect"},
          "Decode any CexChain file",
          "Evidence",

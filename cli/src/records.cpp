@@ -14,38 +14,6 @@ namespace cexchain::cli {
 
 namespace {
 
-std::string event_line(const protocol::RecordEvent& event) {
-    std::string actor = "\"" + event.actor.name + "\" [" + std::string(kind_name(event.actor.kind));
-    if (event.actor.kind == protocol::ActorKind::agent) {
-        if (event.provenance && event.provenance->model) {
-            actor += ": " + *event.provenance->model;
-        }
-        if (event.actor.responsible) {
-            actor += "; responsible: " + *event.actor.responsible;
-        }
-        if (event.provenance && !event.provenance->tools.empty()) {
-            std::string tools;
-            for (const protocol::ToolPin& tool : event.provenance->tools) {
-                tools += (tools.empty() ? "" : ", ") + tool.name;
-            }
-            actor += "; via " + tools;
-        }
-    }
-    actor += "]";
-    switch (event.type) {
-    case protocol::StatementType::record_register:
-        return "registered by " + actor;
-    case protocol::StatementType::record_endorse:
-        return "endorsed as " + event.detail + " by " + actor;
-    case protocol::StatementType::record_transition:
-        return "moved " + event.detail + " by " + actor;
-    case protocol::StatementType::record_revoke:
-        return "revoked by " + actor + (event.detail.empty() ? "" : " (" + event.detail + ")");
-    default:
-        return std::string(protocol::name(event.type)) + " by " + actor;
-    }
-}
-
 std::string media_type_for(const std::filesystem::path& path) {
     const std::string extension = path.extension().string();
     if (extension == ".pdf") {
@@ -67,13 +35,6 @@ std::string media_type_for(const std::filesystem::path& path) {
 }
 
 } // namespace
-
-std::string display_value(const cbor::Value& value) {
-    if (const std::string* text = value.as_text()) {
-        return *text;
-    }
-    return cbor::diagnostic(value);
-}
 
 namespace {
 
@@ -335,63 +296,6 @@ protocol::Id issue_record(Session& session, const crypto::Signer& signer,
     const protocol::Id id = session.submit(signer, body, request.delegation, request.provenance);
     save_vault(session, id, vault);
     return id;
-}
-
-std::string format_report(const protocol::EvidenceReport& r, bool ledger_checked) {
-    std::string out;
-    auto line = [&out](const std::string& text) {
-        out += text + "\n";
-    };
-    line("CexChain evidence report\n");
-    line(std::format("  Ledger       {} (id {}, {})", r.organization, short_id(r.ledger_id),
-                     crypto::name(r.hash)));
-    if (!ledger_checked) {
-        line("               ! not compared with an expected ledger id");
-    }
-    line(std::format("  Checkpoint   size {}, signed {} by the ledger's log key",
-                     r.checkpoint.tree_size, format_time(r.checkpoint.timestamp)));
-    line(std::format("  Witnesses    {} trusted, {} other", r.trusted_cosignatures,
-                     r.untrusted_cosignatures));
-    line(std::format("  Record       {} (id {})", r.record_type, short_id(r.record)));
-    line(std::format("  State        {}{}", r.state, r.revoked ? " - REVOKED" : ""));
-    if (r.metadata) {
-        for (const cbor::MapEntry& m : *r.metadata->as_map()) {
-            line(std::format("  Metadata     {} = {}", display_value(m.key),
-                             display_value(m.value)));
-        }
-    }
-    line("\n  History");
-    for (const protocol::RecordEvent& event : r.events) {
-        line(std::format("    #{:<4} {}  {}", event.index, format_time(event.registered_at),
-                         event_line(event)));
-        if (!event.authority.empty()) {
-            std::string chain;
-            for (const protocol::ActorSummary& link : event.authority) {
-                chain += (chain.empty() ? "" : " <- ") + link.name;
-            }
-            line("           authorized by " + chain);
-        }
-    }
-    if (!r.disclosed_fields.empty()) {
-        line("\n  Disclosed fields (each proven against the record's commitment)");
-        for (const protocol::RecordField& f : r.disclosed_fields) {
-            line(std::format("    {} = {}", f.name, display_value(f.value)));
-        }
-    }
-    if (!r.attachments.empty()) {
-        line("\n  Attachments");
-        for (const protocol::AttachmentCheck& a : r.attachments) {
-            const char* status = a.status == protocol::AttachmentStatus::verified ? "matches"
-                                 : a.status == protocol::AttachmentStatus::mismatch
-                                     ? "DOES NOT MATCH"
-                                     : "not checked (attachment content not provided)";
-            line(std::format("    {} ({}, {} bytes): {}", a.name, a.media_type, a.size, status));
-        }
-    }
-    line("\n  Verified: every statement above is signed, authorized under the ledger's rules,");
-    line("  and included in the checkpointed log.");
-    line("  Not provable from a bundle: that no revocation was left out (needs a full-log audit).");
-    return out;
 }
 
 } // namespace cexchain::cli

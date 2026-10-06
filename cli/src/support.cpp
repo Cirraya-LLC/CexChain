@@ -134,18 +134,6 @@ std::string short_id(const protocol::Id& id) {
     return hex_id(id).substr(0, 12);
 }
 
-std::string iso_time(protocol::Timestamp ms) {
-    using namespace std::chrono;
-    const sys_time<milliseconds> time{milliseconds{static_cast<std::int64_t>(ms)}};
-    return std::format("{:%Y-%m-%dT%H:%M:%S}Z", time);
-}
-
-std::string format_time(protocol::Timestamp ms) {
-    using namespace std::chrono;
-    const sys_time<milliseconds> time{milliseconds{static_cast<std::int64_t>(ms)}};
-    return std::format("{:%Y-%m-%d %H:%M:%S} UTC", floor<seconds>(time));
-}
-
 protocol::Timestamp parse_time(std::string_view text) {
     int y = 0;
     unsigned mo = 0;
@@ -331,21 +319,6 @@ protocol::ActorKind parse_actor_kind(std::string_view name) {
         return protocol::ActorKind::device;
     }
     throw UsageError{"actor kind must be person, agent, or device"};
-}
-
-std::string_view kind_name(const std::optional<protocol::ActorKind>& kind) {
-    if (!kind) {
-        return "organization";
-    }
-    switch (*kind) {
-    case protocol::ActorKind::person:
-        return "person";
-    case protocol::ActorKind::agent:
-        return "AI agent";
-    case protocol::ActorKind::device:
-        return "device";
-    }
-    return "unknown";
 }
 
 // ---------------------------------------------------------------------------
