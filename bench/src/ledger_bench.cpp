@@ -16,6 +16,7 @@
 #include <cexchain/core/protocol/statement.hpp>
 #include <cexchain/crypto/openssl.hpp>
 #include <cexchain/ledger/ledger.hpp>
+#include <cexchain/ledger/parallel.hpp>
 
 #include "bench.hpp"
 
@@ -102,8 +103,15 @@ int ledger_bench(const Options& options) {
     for (std::uint64_t i = 0; i < n; i += batch) {
         const std::uint64_t end = std::min(n, i + batch);
         t = Clock::now();
-        for (std::uint64_t j = i; j < end; ++j) {
-            must(ledger.submit(statements[j]), "submit");
+        if (batch == 1) {
+            must(ledger.submit(statements[i]), "submit");
+        } else {
+            const std::vector<ByteView> views(statements.begin() + static_cast<std::ptrdiff_t>(i),
+                                              statements.begin() +
+                                                  static_cast<std::ptrdiff_t>(end));
+            for (auto& result : ledger.submit_batch(views)) {
+                must(std::move(result), "submit");
+            }
         }
         submit_ms += elapsed_ms(t);
         clock.advance(1);
@@ -115,6 +123,7 @@ int ledger_bench(const Options& options) {
             ++checkpoints;
         }
     }
+    results.add("threads", static_cast<double>(ledger::parallelism()), "");
     results.add(disk.empty() ? "submit (memory)" : "submit (disk)",
                 submit_ms * 1000 / static_cast<double>(n), "us/statement");
     results.add("submit throughput", static_cast<double>(n) / submit_ms * 1000, "statements/s");

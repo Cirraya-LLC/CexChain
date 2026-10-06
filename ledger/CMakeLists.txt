@@ -8,12 +8,15 @@ add_library(cexchain_ledger
     src/crc32c.cpp
     src/environment.cpp
     src/ledger.cpp
+    src/parallel.cpp
     src/record_log.cpp
     src/storage.cpp)
 add_library(cexchain::ledger ALIAS cexchain_ledger)
 
 target_include_directories(cexchain_ledger PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
-target_link_libraries(cexchain_ledger PUBLIC cexchain::core cexchain::crypto_openssl)
+find_package(Threads REQUIRED)
+target_link_libraries(cexchain_ledger PUBLIC cexchain::core cexchain::crypto_openssl
+    PRIVATE Threads::Threads)
 target_compile_features(cexchain_ledger PUBLIC cxx_std_26)
 cexchain_target_defaults(cexchain_ledger)

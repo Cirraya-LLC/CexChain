@@ -370,3 +370,109 @@ TEST_CASE("the ledger survives crashes at any point", "[ledger][engine][simulati
         CHECK(recovered->checkpoint(w.log_key()));
     }
 }
+
+TEST_CASE("a batch is validated in order and made durable at once", "[ledger][engine][batch]") {
+    World w;
+    Cast c = build_cast(w);
+    const Bytes first = w.sign(c.agent, agent_record(w, c, certificate));
+    REQUIRE(w.ledger().submit(first));
+    const std::uint64_t size_before = w.ledger().size();
+
+    // A new actor and its first statement, a key rotation and statements on
+    // either side of it, a repeat, a forgery, and garbage, in one batch.
+    const KeyPair dana = key("dana");
+    const KeyPair dana2 = key("dana2");
+    protocol::Statement add_dana =
+        w.statement(w.org_id(), std::nullopt,
+                    protocol::ActorRegisterBody{protocol::ActorKind::device, "Dana",
+                                                dana.public_key(), std::nullopt, std::nullopt});
+    const Bytes add = w.sign(w.org(), add_dana);
+    const protocol::Id dana_id = protocol::parse_statement(provider(), add, w.hash())->id;
+    const Bytes rotate =
+        w.sign(dana, w.statement(dana_id, std::nullopt,
+                                 protocol::ActorRotateKeyBody{dana_id, dana2.public_key()}));
+    const Bytes record = w.sign(c.agent, agent_record(w, c, certificate));
+    Bytes forged = w.sign(c.agent, agent_record(w, c, certificate));
+    forged[forged.size() - 3] ^= 1;
+    // Signed with the new key before the rotation applies: refused.
+    const Bytes too_early = w.sign(
+        dana2, w.statement(dana_id, std::nullopt,
+                           protocol::ActorRotateKeyBody{dana_id, key("dana3").public_key()}));
+    // Signed with the new key after the rotation: accepted.
+    const Bytes after_rotation = w.sign(
+        dana2, w.statement(dana_id, std::nullopt,
+                           protocol::ActorRotateKeyBody{dana_id, key("dana4").public_key()}));
+    const Bytes garbage{1, 2, 3};
+    const std::vector<cexchain::ByteView> batch{add,    too_early,      rotate, record, record,
+                                                forged, after_rotation, first,  garbage};
+    const auto results = w.ledger().submit_batch(batch);
+    REQUIRE(results.size() == batch.size());
+    CHECK(results[0]);
+    CHECK(results[0]->newly_registered);
+    CHECK_FALSE(results[1]); // the old key is still current
+    CHECK(results[2]);
+    CHECK(results[3]);
+    CHECK(results[4]); // the same statement again: registered once
+    CHECK_FALSE(results[4]->newly_registered);
+    CHECK(results[4]->index == results[3]->index);
+    CHECK(results[5].error().code == Errc::verification_failed);
+    CHECK(results[6]);
+    CHECK(results[7]);
+    CHECK_FALSE(results[7]->newly_registered);
+    CHECK_FALSE(results[8]);
+    // Four new entries, in order, all at one registration time.
+    CHECK(w.ledger().size() == size_before + 4);
+    CHECK(results[0]->index == size_before);
+    CHECK(results[6]->index == size_before + 3);
+    CHECK(results[0]->registered_at == results[6]->registered_at);
+
+    // The same history replays the same way.
+    auto reopened = ledger::Ledger::open(w.fs(), w.clock(), provider());
+    REQUIRE(reopened);
+    CHECK(*reopened->root(reopened->size()) == *w.ledger().root(w.ledger().size()));
+    CHECK(reopened->state().actor(dana_id)->key == key("dana4").public_key());
+}
+
+TEST_CASE("batches survive crashes at any point", "[ledger][engine][simulation][batch]") {
+    for (std::uint64_t seed = 1; seed <= 60; ++seed) {
+        INFO("seed " << seed);
+        World w;
+        Cast c = build_cast(w);
+        ledger::SeededEntropy entropy(seed);
+        std::vector<protocol::Id> acknowledged;
+        {
+            cexchain::test::CrashingFileSystem fs(w.fs(), entropy.below(30));
+            auto crashing = ledger::Ledger::open(fs, w.clock(), provider());
+            REQUIRE(crashing);
+            for (int round = 0; round < 6; ++round) {
+                std::vector<Bytes> signed_statements;
+                for (std::uint64_t i = 0; i < 1 + entropy.below(12); ++i) {
+                    signed_statements.push_back(w.sign(c.agent, agent_record(w, c, certificate)));
+                }
+                const std::vector<cexchain::ByteView> views(signed_statements.begin(),
+                                                            signed_statements.end());
+                const auto results = crashing->submit_batch(views);
+                bool ok = true;
+                for (const auto& r : results) {
+                    if (r) {
+                        acknowledged.push_back(r->statement_id);
+                    } else {
+                        ok = false;
+                    }
+                }
+                w.clock().advance(10);
+                if (!ok || (entropy.below(3) == 0 && !crashing->checkpoint(w.log_key()))) {
+                    break;
+                }
+            }
+        }
+        w.fs().crash(entropy);
+        auto recovered = ledger::Ledger::open(w.fs(), w.clock(), provider());
+        INFO((recovered.has_value() ? std::string() : std::string(recovered.error().detail)));
+        REQUIRE(recovered);
+        for (const protocol::Id& id : acknowledged) {
+            CHECK(recovered->state().record(id) != nullptr);
+        }
+        CHECK(recovered->submit(w.sign(c.agent, agent_record(w, c, certificate))));
+    }
+}

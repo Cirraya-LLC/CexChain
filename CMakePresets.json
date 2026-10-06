@@ -51,6 +51,14 @@
             }
         },
         {
+            "name": "clang-tsan",
+            "displayName": "Clang, Debug, ThreadSanitizer",
+            "inherits": "clang-debug",
+            "cacheVariables": {
+                "CEXCHAIN_SANITIZERS": "thread"
+            }
+        },
+        {
             "name": "clang-fuzz",
             "displayName": "Clang, libFuzzer targets",
             "inherits": "clang-asan",
@@ -65,6 +73,7 @@
         { "name": "gcc-release", "configurePreset": "gcc-release" },
         { "name": "clang-debug", "configurePreset": "clang-debug" },
         { "name": "clang-asan", "configurePreset": "clang-asan" },
+        { "name": "clang-tsan", "configurePreset": "clang-tsan" },
         { "name": "clang-fuzz", "configurePreset": "clang-fuzz" }
     ],
     "testPresets": [
@@ -77,6 +86,7 @@
         { "name": "gcc-debug", "inherits": "base", "configurePreset": "gcc-debug" },
         { "name": "gcc-release", "inherits": "base", "configurePreset": "gcc-release" },
         { "name": "clang-debug", "inherits": "base", "configurePreset": "clang-debug" },
-        { "name": "clang-asan", "inherits": "base", "configurePreset": "clang-asan" }
+        { "name": "clang-asan", "inherits": "base", "configurePreset": "clang-asan" },
+        { "name": "clang-tsan", "inherits": "base", "configurePreset": "clang-tsan" }
     ]
 }

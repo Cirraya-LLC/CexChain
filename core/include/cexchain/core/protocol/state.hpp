@@ -95,9 +95,12 @@ public:
                                                           const SignedStatement& genesis);
 
     /// Checks whether `statement` may be registered at ledger time `now`:
-    /// identity, signature, authority, and type-specific rules.
+    /// identity, signature, authority, and type-specific rules. If the caller
+    /// already verified the signature with `verified_key`, the check is
+    /// skipped when that is the signer's current key (and done otherwise).
     [[nodiscard]] Status validate(const crypto::Provider& provider,
-                                  const SignedStatement& statement, Timestamp now) const;
+                                  const SignedStatement& statement, Timestamp now,
+                                  const crypto::PublicKey* verified_key = nullptr) const;
 
     /// Applies a statement that `validate` accepted. `index` is its log index.
     [[nodiscard]] Status apply(const crypto::Provider& provider, const SignedStatement& statement,
@@ -110,6 +113,8 @@ public:
     [[nodiscard]] const crypto::PublicKey& log_key() const noexcept { return log_key_; }
 
     [[nodiscard]] const ActorState* actor(const Id& id) const;
+    /// The actor whose current key has this kid, if any.
+    [[nodiscard]] const ActorState* actor_by_kid(const Id& kid) const;
     [[nodiscard]] const DelegationState* delegation(const Id& id) const;
     [[nodiscard]] const RecordState* record(const Id& id) const;
     /// The log index of a registered statement.

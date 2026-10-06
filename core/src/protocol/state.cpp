@@ -145,7 +145,8 @@ std::optional<std::string> LedgerState::record_type_of(const Statement& statemen
 }
 
 Status LedgerState::validate(const crypto::Provider& provider,
-                             const SignedStatement& signed_statement, Timestamp now) const {
+                             const SignedStatement& signed_statement, Timestamp now,
+                             const crypto::PublicKey* verified_key) const {
     const Statement& statement = signed_statement.statement;
     if (statement.type() == StatementType::genesis) {
         return fail(Errc::rejected, "the ledger already has a genesis statement");
@@ -174,8 +175,12 @@ Status LedgerState::validate(const crypto::Provider& provider,
     if (signed_statement.kid != signer->kid) {
         return fail(Errc::rejected, "the statement is not signed with the actor's current key");
     }
-    if (auto s = verify_statement(provider, signed_statement, signer->key); !s) {
-        return s;
+    // A signature checked ahead of time (say, on another thread) counts only
+    // if it was checked with exactly the signer's current key.
+    if (verified_key == nullptr || *verified_key != signer->key) {
+        if (auto s = verify_statement(provider, signed_statement, signer->key); !s) {
+            return s;
+        }
     }
     if (signer->kind == ActorKind::agent &&
         (!statement.provenance || !statement.provenance->model)) {
@@ -566,6 +571,15 @@ std::vector<Id> LedgerState::take_changes() {
     }
     changes_.clear();
     return out;
+}
+
+const ActorState* LedgerState::actor_by_kid(const Id& kid) const {
+    const auto it = actors_by_kid_.find(key_of(kid));
+    if (it == actors_by_kid_.end()) {
+        return nullptr;
+    }
+    const auto actor = actors_.find(it->second);
+    return actor == actors_.end() ? nullptr : &actor->second;
 }
 
 } // namespace cexchain::protocol

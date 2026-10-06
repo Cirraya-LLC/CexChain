@@ -99,6 +99,15 @@ public:
     /// Validates and registers a signed statement.
     [[nodiscard]] Result<Registration> submit(ByteView signed_statement);
 
+    /// Registers many signed statements with one sync (group commit):
+    /// signatures are checked on all cores, then each statement is validated
+    /// in order against the state the ones before it left. One result per
+    /// statement, in order; refused ones do not stop the rest. If writing
+    /// fails, every newly registered one fails and the ledger must be
+    /// reopened.
+    [[nodiscard]] std::vector<Result<Registration>>
+    submit_batch(std::span<const ByteView> signed_statements);
+
     /// Appends log entries copied from the original ledger, in order from
     /// index `size()`. Each must pass the checks a replay applies: time
     /// order, statements valid under the ledger's rules when they were

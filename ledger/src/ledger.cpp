@@ -2,12 +2,14 @@
 // Copyright 2026 Cirraya
 
 #include <algorithm>
+#include <map>
 #include <set>
 #include <utility>
 #include <variant>
 
 #include <cexchain/core/protocol/state_tree.hpp>
 #include <cexchain/ledger/ledger.hpp>
+#include <cexchain/ledger/parallel.hpp>
 
 namespace cexchain::ledger {
 
@@ -75,13 +77,6 @@ struct Ledger::Impl {
     /// files; the ledger must be reopened.
     bool failed = false;
 
-    /// A log entry checked against the current state, ready to apply.
-    struct CheckedEntry {
-        protocol::LogEntry entry;
-        std::optional<protocol::SignedStatement> statement;
-        std::optional<protocol::SignedStateCommitment> commitment;
-    };
-
     /// Checks that `bytes` may be the log entry at `index`, the next one:
     /// registered no earlier than the entry before it, and either a statement
     /// that passes validation at its registration time or a state commitment,
@@ -109,57 +104,210 @@ struct Ledger::Impl {
         return state_tree.root();
     }
 
-    Result<CheckedEntry> check_entry(ByteView bytes, std::uint64_t index) {
-        auto entry = protocol::decode_log_entry(bytes);
-        if (!entry) {
-            return std::unexpected(entry.error());
+    /// What can be worked out about a log entry without the state: decoded,
+    /// parsed, and its statement's signature checked with the key its kid
+    /// names. Done for many entries at once, in parallel.
+    struct Decoded {
+        std::optional<protocol::LogEntry> entry;
+        std::optional<protocol::SignedStatement> statement;
+        std::optional<protocol::SignedStateCommitment> commitment;
+        std::optional<Error> error;
+        /// The key the signature verified with (a copy: the state's keys
+        /// change as statements apply).
+        std::optional<crypto::PublicKey> verified_key;
+    };
+
+    /// Checks signatures in parallel, each with the key its kid names: an
+    /// actor's current key, or one that an earlier statement of the same
+    /// batch introduces. `verified[i]` gets the key on success; the rest are
+    /// left to the sequential check, which verifies again and reports.
+    void pre_verify(std::span<const protocol::SignedStatement* const> statements,
+                    std::span<std::optional<crypto::PublicKey>> verified) const {
+        std::map<protocol::IdKey, crypto::PublicKey> introduced;
+        for (const protocol::SignedStatement* s : statements) {
+            if (s == nullptr) {
+                continue;
+            }
+            const crypto::PublicKey* key = nullptr;
+            if (const auto* b = std::get_if<protocol::ActorRegisterBody>(&s->statement.body)) {
+                key = &b->key;
+            } else if (const auto* r =
+                           std::get_if<protocol::ActorRotateKeyBody>(&s->statement.body)) {
+                key = &r->key;
+            }
+            if (key != nullptr) {
+                if (auto kid = protocol::key_id(*provider, state.hash(), *key)) {
+                    introduced.emplace(protocol::key_of(*kid), *key);
+                }
+            }
         }
-        if (entry->registered_at < last_registered_at) {
+        parallel_for(statements.size(), [&](std::size_t begin, std::size_t end) {
+            for (std::size_t i = begin; i < end; ++i) {
+                const protocol::SignedStatement* s = statements[i];
+                if (s == nullptr) {
+                    continue;
+                }
+                const crypto::PublicKey* key = nullptr;
+                if (const auto it = introduced.find(protocol::key_of(s->kid));
+                    it != introduced.end()) {
+                    key = &it->second;
+                } else if (const protocol::ActorState* actor = state.actor_by_kid(s->kid)) {
+                    key = &actor->key;
+                }
+                if (key != nullptr && protocol::verify_statement(*provider, *s, *key)) {
+                    verified[i] = *key;
+                }
+            }
+        });
+    }
+
+    /// Decodes log entries and pre-verifies their signatures, in parallel.
+    std::vector<Decoded> decode(std::span<const ByteView> entries) const {
+        std::vector<Decoded> out(entries.size());
+        parallel_for(entries.size(), [&](std::size_t begin, std::size_t end) {
+            for (std::size_t i = begin; i < end; ++i) {
+                auto entry = protocol::decode_log_entry(entries[i]);
+                if (!entry) {
+                    out[i].error = entry.error();
+                    continue;
+                }
+                if (entry->is_state_commitment()) {
+                    if (auto c =
+                            protocol::parse_state_commitment(*provider, entry->state_commitment)) {
+                        out[i].commitment = std::move(*c);
+                    }
+                } else if (auto st = protocol::parse_statement(*provider, entry->statement,
+                                                               state.hash())) {
+                    out[i].statement = std::move(*st);
+                } else {
+                    out[i].error = st.error();
+                    continue;
+                }
+                out[i].entry = std::move(*entry);
+            }
+        });
+        std::vector<const protocol::SignedStatement*> statements(out.size(), nullptr);
+        std::vector<std::optional<crypto::PublicKey>> verified(out.size());
+        for (std::size_t i = 0; i < out.size(); ++i) {
+            if (out[i].statement) {
+                statements[i] = &*out[i].statement;
+            }
+        }
+        pre_verify(statements, verified);
+        for (std::size_t i = 0; i < out.size(); ++i) {
+            out[i].verified_key = std::move(verified[i]);
+        }
+        return out;
+    }
+
+    /// Checks that a decoded entry may be the log entry at `index`, the next
+    /// one: registered no earlier than the entry before it, and either a
+    /// statement that passes validation at its registration time or a state
+    /// commitment, signed by the log key, of exactly the current state.
+    Status check(const Decoded& d, std::uint64_t index) {
+        if (d.error) {
+            return std::unexpected(*d.error);
+        }
+        const protocol::LogEntry& entry = *d.entry;
+        if (entry.registered_at < last_registered_at) {
             return fail(Errc::verification_failed, "log entries go back in time");
         }
-        if (entry->is_state_commitment()) {
-            auto commitment = protocol::parse_state_commitment(*provider, entry->state_commitment);
+        if (entry.is_state_commitment()) {
             auto root = sync_state_tree();
             if (!root) {
                 return std::unexpected(root.error());
             }
-            if (!commitment || commitment->id != entry->statement_id ||
-                !protocol::check_state_commitment(*provider, state, *commitment, index, *root)) {
+            if (!d.commitment || d.commitment->id != entry.statement_id ||
+                !protocol::check_state_commitment(*provider, state, *d.commitment, index, *root)) {
                 return fail(Errc::verification_failed,
                             "a state commitment in the log does not match the log");
             }
-            return CheckedEntry{std::move(*entry), std::nullopt, std::move(*commitment)};
+            return {};
         }
-        auto statement = protocol::parse_statement(*provider, entry->statement, state.hash());
-        if (!statement) {
-            return std::unexpected(statement.error());
-        }
-        if (statement->id != entry->statement_id) {
+        if (d.statement->id != entry.statement_id) {
             return fail(Errc::verification_failed, "a log entry has the wrong statement id");
         }
-        if (auto s = state.validate(*provider, *statement, entry->registered_at); !s) {
+        if (auto s = state.validate(*provider, *d.statement, entry.registered_at,
+                                    d.verified_key ? &*d.verified_key : nullptr);
+            !s) {
             return fail(Errc::verification_failed,
                         "a logged statement does not pass validation on replay");
         }
-        return CheckedEntry{std::move(*entry), std::move(*statement), std::nullopt};
+        return {};
     }
 
     /// Applies a checked entry at `index` to the state and the tree.
-    Status apply_entry(const CheckedEntry& checked, ByteView bytes, std::uint64_t index) {
-        if (checked.statement) {
-            if (auto s = state.apply(*provider, *checked.statement, index); !s) {
+    Status apply(const Decoded& d, ByteView bytes, std::uint64_t index) {
+        if (d.statement) {
+            if (auto s = state.apply(*provider, *d.statement, index); !s) {
                 return s;
             }
         } else {
-            // check_entry synced the state tree to this commitment.
-            tree_commitment = checked.commitment->commitment;
+            // check() synced the state tree to this commitment.
+            tree_commitment = d.commitment->commitment;
             tree_commitment_index = index;
         }
         if (auto s = tree.append(bytes); !s) {
             return std::unexpected(s.error());
         }
-        last_registered_at = checked.entry.registered_at;
+        last_registered_at = d.entry->registered_at;
         return {};
+    }
+
+    struct Replayed {
+        std::size_t applied = 0;
+        std::optional<Error> error;
+        /// The state may have changed partway: the ledger must be reopened.
+        bool fatal = false;
+    };
+
+    /// Checks and applies entries that follow the log's current end (index
+    /// `first`), decoding and verifying them in parallel. Stops at the first
+    /// that fails.
+    Replayed replay(std::span<const ByteView> entries, std::uint64_t first) {
+        Replayed out;
+        const auto decoded = decode(entries);
+        for (std::size_t i = 0; i < decoded.size(); ++i) {
+            if (auto s = check(decoded[i], first + i); !s) {
+                out.error = s.error();
+                return out;
+            }
+            if (auto s = apply(decoded[i], entries[i], first + i); !s) {
+                out.error = s.error();
+                out.fatal = true;
+                return out;
+            }
+            ++out.applied;
+        }
+        return out;
+    }
+
+    /// Replays log entries [from, to) of this ledger's own log, in chunks.
+    Replayed replay_log(std::uint64_t from, std::uint64_t to) {
+        constexpr std::uint64_t chunk = 4096;
+        Replayed total;
+        for (std::uint64_t begin = from; begin < to; begin += chunk) {
+            const std::uint64_t end = std::min(to, begin + chunk);
+            std::vector<Bytes> bytes;
+            bytes.reserve(end - begin);
+            for (std::uint64_t i = begin; i < end; ++i) {
+                auto b = log.read(i);
+                if (!b) {
+                    total.error = b.error();
+                    return total;
+                }
+                bytes.push_back(std::move(*b));
+            }
+            const std::vector<ByteView> views(bytes.begin(), bytes.end());
+            const Replayed part = replay(views, begin);
+            total.applied += part.applied;
+            if (part.error) {
+                total.error = part.error;
+                total.fatal = part.fatal;
+                return total;
+            }
+        }
+        return total;
     }
 
     /// Makes `checkpoint` the latest, with the state commitment it ends
@@ -328,21 +476,12 @@ Result<Ledger> Ledger::open(FileSystem& fs, Clock& clock, const crypto::Provider
     // Replay: every later entry must pass validation against the state
     // before it, at the time it was registered, and every state commitment
     // must match the state (kept in an incremental tree).
-    for (std::uint64_t index = 1; index < impl->log.count(); ++index) {
-        auto bytes = impl->log.read(index);
-        if (!bytes) {
-            return std::unexpected(bytes.error());
+    // Signatures are checked on all cores; the state moves in log order.
+    if (const auto replayed = impl->replay_log(1, impl->log.count()); replayed.error) {
+        if (replayed.error->code == Errc::verification_failed) {
+            return fail(Errc::malformed, replayed.error->detail);
         }
-        auto checked = impl->check_entry(*bytes, index);
-        if (!checked) {
-            if (checked.error().code == Errc::verification_failed) {
-                return fail(Errc::malformed, checked.error().detail);
-            }
-            return std::unexpected(checked.error());
-        }
-        if (auto s = impl->apply_entry(*checked, *bytes, index); !s) {
-            return std::unexpected(s.error());
-        }
+        return std::unexpected(*replayed.error);
     }
 
     // The log must contain everything the latest signed checkpoint attests.
@@ -412,78 +551,136 @@ std::uint64_t Ledger::size() const noexcept {
 }
 
 Result<Registration> Ledger::submit(ByteView signed_statement) {
-    if (auto s = impl_->require_usable(); !s) {
-        return std::unexpected(s.error());
-    }
-    auto statement = protocol::parse_statement(*impl_->provider, signed_statement, hash());
-    if (!statement) {
-        return std::unexpected(statement.error());
-    }
-    if (const auto index = impl_->state.statement_index(statement->id)) {
-        auto bytes = impl_->log.read(*index);
-        if (!bytes) {
-            return std::unexpected(bytes.error());
-        }
-        auto entry = protocol::decode_log_entry(*bytes);
-        if (!entry) {
-            return std::unexpected(entry.error());
-        }
-        return Registration{statement->id, *index, entry->registered_at, false};
-    }
+    return std::move(submit_batch(std::span(&signed_statement, 1)).front());
+}
 
+std::vector<Result<Registration>>
+Ledger::submit_batch(std::span<const ByteView> signed_statements) {
+    const std::size_t n = signed_statements.size();
+    std::vector<Result<Registration>> results;
+    results.reserve(n);
+    if (auto s = impl_->require_usable(); !s) {
+        for (std::size_t i = 0; i < n; ++i) {
+            results.emplace_back(std::unexpected(s.error()));
+        }
+        return results;
+    }
+    // Parse and check signatures on all cores.
+    std::vector<std::optional<protocol::SignedStatement>> parsed(n);
+    std::vector<std::optional<Error>> errors(n);
+    parallel_for(n, [&](std::size_t begin, std::size_t end) {
+        for (std::size_t i = begin; i < end; ++i) {
+            if (auto st =
+                    protocol::parse_statement(*impl_->provider, signed_statements[i], hash())) {
+                parsed[i] = std::move(*st);
+            } else {
+                errors[i] = st.error();
+            }
+        }
+    });
+    std::vector<const protocol::SignedStatement*> pointers(n, nullptr);
+    for (std::size_t i = 0; i < n; ++i) {
+        if (parsed[i]) {
+            pointers[i] = &*parsed[i];
+        }
+    }
+    std::vector<std::optional<crypto::PublicKey>> verified(n);
+    impl_->pre_verify(pointers, verified);
+
+    // Validate and apply in order, each statement against the state the ones
+    // before it left; then make the whole batch durable with one sync.
     const protocol::Timestamp now = impl_->next_time();
-    if (auto s = impl_->state.validate(*impl_->provider, *statement, now); !s) {
-        return std::unexpected(s.error());
+    const std::uint64_t first = size();
+    std::vector<Bytes> entries;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (errors[i]) {
+            results.emplace_back(std::unexpected(*errors[i]));
+            continue;
+        }
+        const protocol::SignedStatement& statement = *parsed[i];
+        if (const auto index = impl_->state.statement_index(statement.id)) {
+            // Already registered: before this batch, or earlier in it.
+            protocol::Timestamp at = now;
+            if (*index < first) {
+                auto bytes = impl_->log.read(*index);
+                auto entry = bytes ? protocol::decode_log_entry(*bytes)
+                                   : Result<protocol::LogEntry>(std::unexpected(bytes.error()));
+                if (!entry) {
+                    results.emplace_back(std::unexpected(entry.error()));
+                    continue;
+                }
+                at = entry->registered_at;
+            }
+            results.emplace_back(Registration{statement.id, *index, at, false});
+            continue;
+        }
+        if (auto s = impl_->state.validate(*impl_->provider, statement, now,
+                                           verified[i] ? &*verified[i] : nullptr);
+            !s) {
+            results.emplace_back(std::unexpected(s.error()));
+            continue;
+        }
+        auto encoded = protocol::encode_log_entry({statement.id, now, statement.encoded});
+        if (!encoded) {
+            results.emplace_back(std::unexpected(encoded.error()));
+            continue;
+        }
+        const std::uint64_t index = first + entries.size();
+        if (auto s = impl_->state.apply(*impl_->provider, statement, index); !s) {
+            impl_->failed = true;
+            results.emplace_back(std::unexpected(s.error()));
+            continue;
+        }
+        entries.push_back(std::move(*encoded));
+        results.emplace_back(Registration{statement.id, index, now, true});
     }
-    const protocol::LogEntry entry{statement->id, now, statement->encoded};
-    auto encoded = protocol::encode_log_entry(entry);
-    if (!encoded) {
-        return std::unexpected(encoded.error());
+    if (entries.empty()) {
+        return results;
     }
-    const std::uint64_t index = size();
-    if (auto s = impl_->log.append(*encoded); !s) {
-        return std::unexpected(s.error());
+    // The state moved ahead of the files; if they cannot catch up, the
+    // ledger must be reopened.
+    const std::vector<ByteView> views(entries.begin(), entries.end());
+    Status written = impl_->log.append(views);
+    for (std::size_t i = 0; written && i < entries.size(); ++i) {
+        if (auto s = impl_->tree.append(entries[i]); !s) {
+            written = std::unexpected(s.error());
+        }
     }
-    // The entry is durable. Update the in-memory views; these cannot fail for
-    // a statement that passed validation unless the process is out of memory.
-    if (auto s = impl_->tree.append(*encoded); !s) {
-        return std::unexpected(s.error());
-    }
-    if (auto s = impl_->state.apply(*impl_->provider, *statement, index); !s) {
-        return std::unexpected(s.error());
+    if (!written) {
+        impl_->failed = true;
+        for (auto& r : results) {
+            if (r && r->newly_registered) {
+                r = std::unexpected(written.error());
+            }
+        }
+        return results;
     }
     impl_->last_registered_at = now;
-    return Registration{statement->id, index, now, true};
+    return results;
 }
 
 Status Ledger::append_entries(std::span<const Bytes> entries) {
     if (auto s = impl_->require_usable(); !s) {
         return s;
     }
-    // Check and apply in memory, then write the whole batch at once: one
-    // sync instead of one per entry. Entries before a bad one are kept.
-    std::vector<ByteView> batch;
-    Status outcome;
-    for (const Bytes& bytes : entries) {
-        const std::uint64_t index = size();
-        auto checked = impl_->check_entry(bytes, index);
-        if (!checked) {
-            outcome = std::unexpected(checked.error());
-            break;
-        }
-        if (auto s = impl_->apply_entry(*checked, bytes, index); !s) {
-            impl_->failed = true;
-            return s;
-        }
-        batch.push_back(bytes);
+    // Check and apply in memory (signatures on all cores), then write the
+    // valid prefix at once: one sync. Entries before a bad one are kept.
+    const std::vector<ByteView> views(entries.begin(), entries.end());
+    const auto replayed = impl_->replay(views, size());
+    if (replayed.fatal) {
+        impl_->failed = true;
+        return std::unexpected(*replayed.error);
     }
-    if (!batch.empty()) {
-        if (auto s = impl_->log.append(batch); !s) {
+    if (replayed.applied > 0) {
+        if (auto s = impl_->log.append(std::span(views).first(replayed.applied)); !s) {
             impl_->failed = true;
             return s;
         }
     }
-    return outcome;
+    if (replayed.error) {
+        return std::unexpected(*replayed.error);
+    }
+    return {};
 }
 
 Status Ledger::store_checkpoint(ByteView encoded) {
@@ -514,22 +711,12 @@ Result<RefreshReport> Ledger::refresh(FileSystem& fs, bool recover) {
     if (!added) {
         return std::unexpected(added.error());
     }
-    for (std::uint64_t index = old_size; index < impl_->log.count(); ++index) {
-        auto bytes = impl_->log.read(index);
-        if (!bytes) {
-            return std::unexpected(bytes.error());
-        }
-        auto checked = impl_->check_entry(*bytes, index);
-        if (!checked) {
-            // Another process wrote an entry that does not validate.
-            impl_->failed = true;
-            return fail(Errc::malformed, checked.error().detail);
-        }
-        if (auto s = impl_->apply_entry(*checked, *bytes, index); !s) {
-            impl_->failed = true;
-            return std::unexpected(s.error());
-        }
-        ++report.entries;
+    const auto replayed = impl_->replay_log(old_size, impl_->log.count());
+    report.entries = replayed.applied;
+    if (replayed.error) {
+        // Another process wrote an entry that does not validate.
+        impl_->failed = true;
+        return fail(Errc::malformed, replayed.error->detail);
     }
     const std::uint64_t old_checkpoints = impl_->checkpoints.count();
     if (auto s = impl_->checkpoints.refresh(fs, checkpoints_file, recover); !s) {

@@ -55,6 +55,23 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git ls-files '*.cpp' '*.hpp' | xargs clang-format-23 --dry-run --Werror
 
+  thread-sanitizer:
+    name: Linux (Clang 23 with ThreadSanitizer)
+    runs-on: ubuntu-latest
+    container: gcc:16-trixie
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install tools
+        run: .github/scripts/install-linux-tools.sh
+
+      - name: Clang 23 with ThreadSanitizer
+        run: |
+          cmake --preset clang-tsan -DCMAKE_CXX_COMPILER=clang++-23
+          cmake --build --preset clang-tsan
+          ctest --preset clang-tsan
+
   browser-verifier:
     name: Browser verifier (WebAssembly)
     runs-on: ubuntu-latest
