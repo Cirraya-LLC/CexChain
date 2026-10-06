@@ -209,6 +209,30 @@ TEST_CASE("evidence verification catches tampering and omissions", "[evidence]")
         CHECK(report->trusted_cosignatures == 0);
         CHECK(report->untrusted_cosignatures == 1);
     }
+    SECTION("a witness counts once, however many cosignatures it gave") {
+        auto repeated = good;
+        repeated.cosignatures.push_back(good.cosignatures.front());
+        const auto checkpoint = protocol::parse_checkpoint(good.checkpoint);
+        // Ed25519 is deterministic, so a second distinct cosignature needs a
+        // randomized scheme: re-key the witness with ECDSA.
+        const auto ecdsa = crypto::openssl::KeyPair::generate(crypto::SigAlg::esp256);
+        REQUIRE(ecdsa);
+        auto twice = good;
+        twice.cosignatures = {
+            protocol::cosign_checkpoint(*ecdsa, provider(), checkpoint->checkpoint)->encoded,
+            protocol::cosign_checkpoint(*ecdsa, provider(), checkpoint->checkpoint)->encoded};
+        REQUIRE(twice.cosignatures[0] != twice.cosignatures[1]);
+        auto with_ecdsa = options;
+        with_ecdsa.trusted_witnesses = {ecdsa->public_key(), ecdsa->public_key()};
+
+        const auto report = protocol::verify_bundle(provider(), encode(repeated), options);
+        REQUIRE(report);
+        CHECK(report->trusted_cosignatures == 1);
+        const auto twice_report = protocol::verify_bundle(provider(), encode(twice), with_ecdsa);
+        REQUIRE(twice_report);
+        CHECK(twice_report->trusted_cosignatures == 1);
+        CHECK(twice_report->untrusted_cosignatures == 0);
+    }
     SECTION("a checkpoint that does not match the receipts") {
         // A newer checkpoint than the one the receipts were issued against.
         s.w.ok(s.w.org(), s.w.statement(s.w.org_id(), std::nullopt, s.w.record_body("other/1")));

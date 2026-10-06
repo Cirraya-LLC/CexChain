@@ -41,9 +41,17 @@ struct Registration {
     bool newly_registered = false;
 };
 
+/// A witness cosignature held by the ledger, with the witness's key.
+struct StoredCosignature {
+    Bytes encoded;
+    protocol::SignedCheckpoint cosignature;
+    crypto::PublicKey witness;
+};
+
 struct AuditReport {
     std::uint64_t entries = 0;
     std::uint64_t checkpoints = 0;
+    std::uint64_t cosignatures = 0;
     std::uint64_t actors = 0;
     std::uint64_t delegations = 0;
     std::uint64_t records = 0;
@@ -91,10 +99,23 @@ public:
     /// Every stored checkpoint, oldest first.
     [[nodiscard]] Result<std::vector<protocol::SignedCheckpoint>> checkpoints() const;
 
+    /// Stores a witness's cosignature of one of the ledger's checkpoints,
+    /// after verifying it with the witness's key. Storing the same
+    /// cosignature again changes nothing.
+    [[nodiscard]] Status add_cosignature(ByteView cosignature, const crypto::PublicKey& witness);
+
+    /// Every stored cosignature, oldest first.
+    [[nodiscard]] Result<std::vector<StoredCosignature>> cosignatures() const;
+
+    /// The newest checkpoint `witness` has cosigned, if any.
+    [[nodiscard]] Result<std::optional<protocol::Checkpoint>>
+    last_cosigned(const crypto::PublicKey& witness) const;
+
     /// Re-checks every stored checkpoint against the log: signed by the log
     /// key, for this ledger, sizes never decreasing, and each root equal to
-    /// the tree's root at that size. (Opening the ledger has already replayed
-    /// and re-validated every statement.)
+    /// the tree's root at that size; and every stored cosignature against its
+    /// witness's key and a stored checkpoint. (Opening the ledger has already
+    /// replayed and re-validated every statement.)
     [[nodiscard]] Result<AuditReport> audit() const;
 
     /// The latest stored checkpoint, if any.
@@ -105,8 +126,9 @@ public:
     /// statements, and every statement they depend on (signers'
     /// registrations and key rotations, delegation chains, referenced
     /// actors), each with a receipt anchored to the latest checkpoint, which
-    /// must cover them all. The caller adds field disclosures and attachment
-    /// openings, since only it holds the record's private data.
+    /// must cover them all, plus the stored witness cosignatures of that
+    /// checkpoint. The caller adds field disclosures and attachment openings,
+    /// since only it holds the record's private data.
     [[nodiscard]] Result<protocol::EvidenceBundle>
     export_evidence(const crypto::Signer& log_key, const protocol::Id& record) const;
 

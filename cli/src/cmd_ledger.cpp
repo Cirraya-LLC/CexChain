@@ -138,6 +138,7 @@ int cmd_audit(const Args& args) {
         print_json({{"ok", true},
                     {"entries", report->entries},
                     {"checkpoints", report->checkpoints},
+                    {"cosignatures", report->cosignatures},
                     {"actors", report->actors},
                     {"delegations", report->delegations},
                     {"records", report->records},
@@ -147,6 +148,7 @@ int cmd_audit(const Args& args) {
     std::println("audit passed");
     std::println("  {} entries replayed and re-validated under the ledger rules", report->entries);
     std::println("  {} checkpoints verified against the log", report->checkpoints);
+    std::println("  {} witness cosignatures verified", report->cosignatures);
     std::println("  {} actors, {} delegations, {} records", report->actors, report->delegations,
                  report->records);
     if (report->unchecked_entries > 0) {

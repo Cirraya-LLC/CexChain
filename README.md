@@ -88,7 +88,8 @@ The `cexchain` tool controls every part of a ledger:
 | Actors | `actor add`, `actor list`, `actor show`, `actor revoke`, `actor rotate-key` |
 | Delegations | `delegation grant`, `delegation list`, `delegation show`, `delegation revoke` |
 | Records | `record issue`, `record list`, `record show`, `record history`, `record fields`, `record endorse`, `record transition`, `record revoke`, `record types` |
-| Proofs | `checkpoint create`, `checkpoint list`, `checkpoint show`, `proof inclusion`, `proof consistency`, `receipt` |
+| Proofs | `checkpoint create`, `checkpoint list`, `checkpoint show`, `checkpoint cosign-request`, `checkpoint add-cosignature`, `proof inclusion`, `proof consistency`, `receipt` |
+| Witnesses | `witness add-log`, `witness cosign`, `witness status`, `witness remove-log` |
 | Evidence | `export`, `verify`, `inspect`, `qr` |
 | Vault | `vault status`, `vault keygen`, `vault rekey` |
 | AI agents | `mcp` |
@@ -104,6 +105,27 @@ HKDF-SHA256, AES-256-GCM) to the ledger's vault key, and each sealed file is bou
 record. Anyone who may issue records, AI agents included, can add to the vault, but only holders of
 the vault private key can read it. The vault private key can be kept off the ledger host
 (`vault keygen`, `init --vault-public-key`) and rotated at any time (`vault rekey`).
+
+## Witnesses
+
+A ledger's operator could, in principle, rewrite its history or show different histories to
+different parties. Witnesses make that detectable. A witness is an independent party, such as a
+customer, an auditor, or a regulator. It remembers the last checkpoint it cosigned for each
+ledger, and it cosigns a new one only if a consistency proof shows the new history extends the
+old (the C2SP witness model).
+
+```sh
+# The witness, once: follow the ledger (its id and log key come from the operator).
+cexchain witness add-log --dir witness --ledger-id <ledger-id> --log-key log.pub
+# The operator, after each checkpoint:
+cexchain checkpoint cosign-request --witness witness.pub --out request.cbor
+# The witness: check consistency, then cosign. A forked or rewritten ledger is refused.
+cexchain witness cosign request.cbor --dir witness --key witness.key --out cosignature.cbor
+# The operator: store it. Exported evidence now carries it.
+cexchain checkpoint add-cosignature cosignature.cbor --witness witness.pub
+# Anyone: require witnesses they trust.
+cexchain verify evidence.cbor --witness witness.pub --min-witnesses 1
+```
 
 ## Browser verifier
 

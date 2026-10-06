@@ -11,6 +11,7 @@ add_executable(cexchain
     src/cmd_qr.cpp
     src/cmd_records.cpp
     src/cmd_vault.cpp
+    src/cmd_witness.cpp
     src/main.cpp
     src/mcp.cpp
     src/output.cpp

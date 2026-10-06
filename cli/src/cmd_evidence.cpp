@@ -8,6 +8,7 @@
 #include <cexchain/core/merkle.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/record.hpp>
+#include <cexchain/core/protocol/witness.hpp>
 
 #include "commands.hpp"
 #include "output.hpp"
@@ -102,6 +103,15 @@ Json inspect_json(const crypto::Provider& provider, const Bytes& content) {
         out["note"] = "decoded only; run cexchain verify to check it";
         return out;
     }
+    if (const auto request = protocol::decode_cosign_request(content)) {
+        Json out{{"kind", "cosign-request"},
+                 {"old_size", request->old_size},
+                 {"proof", digests_json(request->proof)}};
+        if (const auto checkpoint = protocol::parse_checkpoint(request->checkpoint)) {
+            out["checkpoint"] = checkpoint_json(checkpoint->checkpoint);
+        }
+        return out;
+    }
     if (const auto receipt = protocol::parse_receipt(content)) {
         return {{"kind", "receipt"},
                 {"tree_hash", crypto::name(receipt->tree_hash)},
@@ -192,12 +202,26 @@ int cmd_checkpoint_list(const Args& args) {
     Session session(args.ledger());
     const auto checkpoints = unwrap(session.ledger().checkpoints(), "reading checkpoints");
     Json out = Json::array();
+    const auto cosignatures = unwrap(session.ledger().cosignatures(), "reading cosignatures");
+    auto witnesses_of = [&](const protocol::Checkpoint& checkpoint) {
+        Json kids = Json::array();
+        for (const ledger::StoredCosignature& c : cosignatures) {
+            if (c.cosignature.checkpoint == checkpoint) {
+                kids.push_back(id_json(c.cosignature.kid));
+            }
+        }
+        return kids;
+    };
     for (const protocol::SignedCheckpoint& c : checkpoints) {
         if (args.json()) {
-            out.push_back(checkpoint_json(c.checkpoint));
+            Json item = checkpoint_json(c.checkpoint);
+            item["witnesses"] = witnesses_of(c.checkpoint);
+            out.push_back(std::move(item));
         } else {
-            std::println("size {:<8} {}  root {}", c.checkpoint.tree_size,
-                         format_time(c.checkpoint.timestamp), to_hex(c.checkpoint.root.bytes()));
+            const std::size_t witnesses = witnesses_of(c.checkpoint).size();
+            std::println("size {:<8} {}  root {}{}", c.checkpoint.tree_size,
+                         format_time(c.checkpoint.timestamp), to_hex(c.checkpoint.root.bytes()),
+                         witnesses == 0 ? "" : std::format("  ({} witnesses)", witnesses));
         }
     }
     if (args.json()) {
@@ -228,14 +252,27 @@ int cmd_checkpoint_show(const Args& args) {
     if (const auto out = args.get("out")) {
         write_file(*out, chosen->encoded, false);
     }
+    Json witnesses = Json::array();
+    for (const ledger::StoredCosignature& c :
+         unwrap(session.ledger().cosignatures(), "reading cosignatures")) {
+        if (c.cosignature.checkpoint == chosen->checkpoint) {
+            witnesses.push_back(
+                {{"kid", id_json(c.cosignature.kid)}, {"key", public_key_json(c.witness)}});
+        }
+    }
     if (args.json()) {
         Json out = checkpoint_json(chosen->checkpoint);
         out["kid"] = id_json(chosen->kid);
+        out["witnesses"] = witnesses;
         out["signed_checkpoint"] = to_hex(chosen->encoded);
         print_json(out);
         return exit_ok;
     }
     print_checkpoint(*chosen);
+    for (const auto& w : witnesses) {
+        std::println("witness:    {} key {}", w["key"]["algorithm"].get<std::string>(),
+                     w["key"]["key"].get<std::string>());
+    }
     if (const auto out = args.get("out")) {
         std::println("written to: {}", *out);
     }
@@ -414,21 +451,30 @@ int cmd_verify(const Args& args) {
         }
         return exit_not_verified;
     }
-    const bool mismatch =
-        std::ranges::any_of(report->attachments, [](const protocol::AttachmentCheck& a) {
-            return a.status == protocol::AttachmentStatus::mismatch;
-        });
+    const bool mismatch = verifier::has_attachment_mismatch(*report);
+    const std::uint64_t min_witnesses =
+        args.has("min-witnesses") ? parse_number(*args.get("min-witnesses"), "--min-witnesses") : 0;
+    const bool too_few_witnesses = report->trusted_cosignatures < min_witnesses;
+    const bool verified = !mismatch && !too_few_witnesses;
     if (args.json()) {
         Json out = report_json(*report, options.expected_ledger.has_value());
-        out["verified"] = !mismatch;
+        out["verified"] = verified;
+        if (too_few_witnesses) {
+            out["error"] = std::format("{} trusted witness cosignatures, {} required",
+                                       report->trusted_cosignatures, min_witnesses);
+        }
         print_json(out);
     } else {
         std::print("{}", verifier::report_text(*report, options.expected_ledger.has_value()));
         if (mismatch) {
             std::println("\nVERIFICATION FAILED: an attachment does not match its commitment");
         }
+        if (too_few_witnesses) {
+            std::println("\nVERIFICATION FAILED: {} trusted witness cosignatures, {} required",
+                         report->trusted_cosignatures, min_witnesses);
+        }
     }
-    return mismatch ? exit_not_verified : exit_ok;
+    return verified ? exit_ok : exit_not_verified;
 }
 
 int cmd_inspect(const Args& args) {

@@ -61,6 +61,8 @@ int cmd_record_types(const Args& args);
 int cmd_checkpoint_create(const Args& args);
 int cmd_checkpoint_list(const Args& args);
 int cmd_checkpoint_show(const Args& args);
+int cmd_checkpoint_cosign_request(const Args& args);
+int cmd_checkpoint_add_cosignature(const Args& args);
 int cmd_proof_inclusion(const Args& args);
 int cmd_proof_consistency(const Args& args);
 int cmd_receipt(const Args& args);
@@ -73,6 +75,12 @@ int cmd_qr(const Args& args);
 int cmd_vault_status(const Args& args);
 int cmd_vault_keygen(const Args& args);
 int cmd_vault_rekey(const Args& args);
+
+// Witnesses
+int cmd_witness_add_log(const Args& args);
+int cmd_witness_cosign(const Args& args);
+int cmd_witness_status(const Args& args);
+int cmd_witness_remove_log(const Args& args);
 
 // AI agents
 int cmd_mcp(const Args& args);

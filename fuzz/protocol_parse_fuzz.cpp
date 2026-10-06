@@ -14,6 +14,7 @@
 #include <cexchain/core/protocol/log.hpp>
 #include <cexchain/core/protocol/record.hpp>
 #include <cexchain/core/protocol/statement.hpp>
+#include <cexchain/core/protocol/witness.hpp>
 #include <cexchain/crypto/openssl.hpp>
 
 namespace protocol = cexchain::protocol;
@@ -58,6 +59,17 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     if (const auto bundle = protocol::decode_bundle(input)) {
         require_same(protocol::encode_bundle(*bundle), input);
         static_cast<void>(protocol::verify_bundle(provider, input));
+    }
+    if (const auto request = protocol::decode_cosign_request(input)) {
+        require_same(protocol::encode_cosign_request(*request), input);
+        // A witness that has seen nothing yet, for whichever ledger the
+        // request names, checks the request without crashing.
+        protocol::WitnessedLog log;
+        if (const auto checkpoint = protocol::parse_checkpoint(request->checkpoint)) {
+            log.ledger_id = checkpoint->checkpoint.ledger_id;
+        }
+        log.log_key = {cexchain::crypto::SigAlg::ed25519, cexchain::Bytes(32, 0x11)};
+        static_cast<void>(protocol::check_cosign_request(provider, log, *request));
     }
     static_cast<void>(protocol::parse_checkpoint(input));
     static_cast<void>(protocol::parse_cosignature(input));

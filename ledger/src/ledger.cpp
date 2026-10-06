@@ -14,19 +14,48 @@ namespace {
 
 constexpr std::string_view statements_file = "statements";
 constexpr std::string_view checkpoints_file = "checkpoints";
+constexpr std::string_view cosignatures_file = "cosignatures";
+
+// A stored cosignature: [cosignature (COSE_Sign1), witness public key].
+Result<Bytes> encode_stored_cosignature(ByteView cosignature, const crypto::PublicKey& witness) {
+    return cbor::encode(cbor::Value::array(
+        {cbor::Value::bytes(cosignature), protocol::encode_public_key(witness)}));
+}
+
+Result<StoredCosignature> decode_stored_cosignature(ByteView bytes) {
+    auto value = cbor::decode(bytes);
+    if (!value) {
+        return std::unexpected(value.error());
+    }
+    const cbor::Array* parts = value->as_array();
+    if (parts == nullptr || parts->size() != 2 || (*parts)[0].as_bytes() == nullptr) {
+        return fail(Errc::malformed, "a stored cosignature is malformed");
+    }
+    auto witness = protocol::decode_public_key((*parts)[1]);
+    if (!witness) {
+        return std::unexpected(witness.error());
+    }
+    auto cosignature = protocol::parse_cosignature(*(*parts)[0].as_bytes());
+    if (!cosignature) {
+        return std::unexpected(cosignature.error());
+    }
+    return StoredCosignature{*(*parts)[0].as_bytes(), std::move(*cosignature), std::move(*witness)};
+}
 
 } // namespace
 
 struct Ledger::Impl {
     Impl(Clock& clock_, const crypto::Provider& provider_, RecordLog log_, RecordLog checkpoints_,
-         protocol::LedgerState state_, merkle::Tree tree_)
+         RecordLog cosignatures_, protocol::LedgerState state_, merkle::Tree tree_)
         : clock(&clock_), provider(&provider_), log(std::move(log_)),
-          checkpoints(std::move(checkpoints_)), state(std::move(state_)), tree(std::move(tree_)) {}
+          checkpoints(std::move(checkpoints_)), cosignatures(std::move(cosignatures_)),
+          state(std::move(state_)), tree(std::move(tree_)) {}
 
     Clock* clock;
     const crypto::Provider* provider;
     RecordLog log;
     RecordLog checkpoints;
+    RecordLog cosignatures;
     protocol::LedgerState state;
     merkle::Tree tree;
     std::optional<protocol::SignedCheckpoint> latest_checkpoint;
@@ -154,8 +183,13 @@ Result<Ledger> Ledger::open(FileSystem& fs, Clock& clock, const crypto::Provider
     if (!checkpoints) {
         return std::unexpected(checkpoints.error());
     }
-    auto impl = std::make_unique<Impl>(clock, provider, std::move(*log), std::move(*checkpoints),
-                                       std::move(*state), std::move(tree));
+    auto cosignatures = RecordLog::open(fs, cosignatures_file);
+    if (!cosignatures) {
+        return std::unexpected(cosignatures.error());
+    }
+    auto impl =
+        std::make_unique<Impl>(clock, provider, std::move(*log), std::move(*checkpoints),
+                               std::move(*cosignatures), std::move(*state), std::move(tree));
     impl->last_registered_at = last_time;
 
     // The log must contain everything the latest signed checkpoint attests.
@@ -275,6 +309,74 @@ Result<std::vector<protocol::SignedCheckpoint>> Ledger::checkpoints() const {
     return out;
 }
 
+Status Ledger::add_cosignature(ByteView encoded, const crypto::PublicKey& witness) {
+    if (witness == impl_->state.log_key()) {
+        return fail(Errc::rejected, "the log key cannot witness its own checkpoints");
+    }
+    auto cosignature = protocol::parse_cosignature(encoded);
+    if (!cosignature) {
+        return std::unexpected(cosignature.error());
+    }
+    if (!protocol::verify_cosignature(*impl_->provider, *cosignature, witness)) {
+        return fail(Errc::verification_failed, "the cosignature is not by this witness's key");
+    }
+    auto all = checkpoints();
+    if (!all) {
+        return std::unexpected(all.error());
+    }
+    if (std::ranges::none_of(*all, [&](const protocol::SignedCheckpoint& c) {
+            return c.checkpoint == cosignature->checkpoint;
+        })) {
+        return fail(Errc::not_found, "the cosignature is not of a checkpoint of this ledger");
+    }
+    auto stored = cosignatures();
+    if (!stored) {
+        return std::unexpected(stored.error());
+    }
+    if (std::ranges::any_of(*stored, [&](const StoredCosignature& s) {
+            return s.witness == witness && s.cosignature.checkpoint == cosignature->checkpoint;
+        })) {
+        return {};
+    }
+    auto record = encode_stored_cosignature(encoded, witness);
+    if (!record) {
+        return std::unexpected(record.error());
+    }
+    return impl_->cosignatures.append(*record);
+}
+
+Result<std::vector<StoredCosignature>> Ledger::cosignatures() const {
+    std::vector<StoredCosignature> out;
+    for (std::uint64_t i = 0; i < impl_->cosignatures.count(); ++i) {
+        auto bytes = impl_->cosignatures.read(i);
+        if (!bytes) {
+            return std::unexpected(bytes.error());
+        }
+        auto stored = decode_stored_cosignature(*bytes);
+        if (!stored) {
+            return std::unexpected(stored.error());
+        }
+        out.push_back(std::move(*stored));
+    }
+    return out;
+}
+
+Result<std::optional<protocol::Checkpoint>>
+Ledger::last_cosigned(const crypto::PublicKey& witness) const {
+    auto stored = cosignatures();
+    if (!stored) {
+        return std::unexpected(stored.error());
+    }
+    std::optional<protocol::Checkpoint> newest;
+    for (const StoredCosignature& s : *stored) {
+        if (s.witness == witness &&
+            (!newest || s.cosignature.checkpoint.tree_size >= newest->tree_size)) {
+            newest = s.cosignature.checkpoint;
+        }
+    }
+    return newest;
+}
+
 Result<AuditReport> Ledger::audit() const {
     auto all = checkpoints();
     if (!all) {
@@ -302,9 +404,25 @@ Result<AuditReport> Ledger::audit() const {
         }
         previous_size = c.tree_size;
     }
+    auto stored = cosignatures();
+    if (!stored) {
+        return std::unexpected(stored.error());
+    }
+    for (const StoredCosignature& s : *stored) {
+        if (!protocol::verify_cosignature(*impl_->provider, s.cosignature, s.witness)) {
+            return fail(Errc::verification_failed, "a stored cosignature does not verify");
+        }
+        if (std::ranges::none_of(*all, [&](const protocol::SignedCheckpoint& c) {
+                return c.checkpoint == s.cosignature.checkpoint;
+            })) {
+            return fail(Errc::verification_failed,
+                        "a stored cosignature is of an unknown checkpoint");
+        }
+    }
     return AuditReport{
         .entries = size(),
         .checkpoints = all->size(),
+        .cosignatures = stored->size(),
         .actors = impl_->state.actors().size(),
         .delegations = impl_->state.delegations().size(),
         .records = impl_->state.records().size(),
@@ -460,6 +578,15 @@ Result<protocol::EvidenceBundle> Ledger::export_evidence(const crypto::Signer& l
             return std::unexpected(receipt.error());
         }
         bundle.entries.push_back(protocol::EvidenceEntry{std::move(*bytes), std::move(*receipt)});
+    }
+    auto stored = cosignatures();
+    if (!stored) {
+        return std::unexpected(stored.error());
+    }
+    for (const StoredCosignature& s : *stored) {
+        if (s.cosignature.checkpoint == checkpoint->checkpoint) {
+            bundle.cosignatures.push_back(s.encoded);
+        }
     }
     return bundle;
 }

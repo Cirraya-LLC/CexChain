@@ -234,6 +234,54 @@ run qr "$RECORD" --bundle-url https://example.com/e.cbor --verifier-url https://
 expect_exit 1 qr "$RECORD" --bundle-url file:///etc/passwd --verifier-url https://verify.example.com/
 expect_exit 1 qr "$RECORD" --bundle-url https://example.com/e.cbor --verifier-url https://v.example.com/#x
 
+# --- Witnesses -----------------------------------------------------------------
+run key generate --out witness.key > /dev/null
+run key public witness.key --out witness.pub > /dev/null
+run key public log.key --out log.pub > /dev/null
+run witness add-log --dir witness --ledger-id "$LEDGER_ID" --log-key log.pub --name "Test Factory" \
+    | contains 'now witnessing "Test Factory"'
+expect_exit 2 witness add-log --dir witness --ledger-id "$LEDGER_ID" --log-key log.pub
+run witness status --dir witness | contains 'never cosigned'
+run checkpoint cosign-request --witness witness.pub --out request.cbor | contains 'from size 0'
+run inspect request.cbor --json | json 'd["kind"]' | contains -x cosign-request
+expect_exit 1 witness cosign request.cbor --dir witness --key log.key --out nope.cbor
+run witness cosign request.cbor --dir witness --key witness.key --out cosig.cbor | contains 'cosigned "Test Factory"'
+expect_exit 2 checkpoint add-cosignature cosig.cbor --witness alice.pub
+run checkpoint add-cosignature cosig.cbor --witness witness.pub > /dev/null
+run checkpoint list | contains '(1 witnesses)'
+FIRST="$(run checkpoint show --json | json 'd["tree_size"]')"
+
+# The ledger grows; the witness follows. A copy taken now will fork below.
+cp -R ledger forked
+run record endorse "$RECORD" --as alice.key --role approver > /dev/null
+run checkpoint create --log-key log.key > /dev/null
+run checkpoint cosign-request --witness witness.pub --out request2.cbor | contains "from size $FIRST"
+run witness cosign request2.cbor --dir witness --key witness.key --out cosig2.cbor > /dev/null
+run checkpoint add-cosignature cosig2.cbor --witness witness.pub > /dev/null
+SECOND="$(run checkpoint show --json | json 'd["tree_size"]')"
+run witness status --dir witness --json | json 'd[0]["size"]' | contains -x "$SECOND"
+
+# Exports carry the cosignatures; verifiers can require witnesses they trust.
+run export "$RECORD" --log-key log.key --out witnessed.cbor > /dev/null
+run verify witnessed.cbor --ledger-id "$LEDGER_ID" --witness witness.pub --min-witnesses 1 \
+    | contains 'Witnesses    1 trusted, 0 other'
+expect_exit 3 verify witnessed.cbor --witness witness.pub --min-witnesses 2
+expect_exit 3 verify witnessed.cbor --min-witnesses 1
+
+# The fork: same ledger id and keys, different history. The witness refuses it.
+run record endorse "$RECORD" --ledger forked --as alice.key --role approver > /dev/null
+run checkpoint create --ledger forked --log-key log.key > /dev/null
+run checkpoint cosign-request --ledger forked --witness witness.pub --from "$SECOND" --out forged.cbor > /dev/null
+expect_exit 3 witness cosign forged.cbor --dir witness --key witness.key --out nope.cbor
+contains 'INCONSISTENT HISTORY' out.txt
+[ ! -f nope.cbor ] || fail "a refused request must not produce a cosignature"
+# A request from a size the witness has moved past is a conflict, not an attack.
+run checkpoint cosign-request --witness witness.pub --from 1 --out stale.cbor > /dev/null
+expect_exit 2 witness cosign stale.cbor --dir witness --key witness.key --out nope.cbor
+contains "last cosigned size $SECOND" out.txt
+run audit --json | json 'd["cosignatures"]' | contains -x 2
+run witness remove-log "Test Factory" --dir witness | contains 'stopped witnessing'
+
 # --- Key rotation and revocation -------------------------------------------------------
 run key generate --out alice2.key > /dev/null
 run actor rotate-key "$ALICE" --as alice.key --new-key alice2.key > /dev/null
@@ -257,7 +305,7 @@ run record show "$RECORD" | contains 'REVOKED'
 # --- Audit -----------------------------------------------------------------------------
 run checkpoint create --log-key log.key --json | json 'd["tree_size"]' > /dev/null
 run audit | contains 'audit passed'
-run audit --json | json 'd["ok"] and d["checkpoints"] == 2' | contains -x True
+run audit --json | json 'd["ok"] and d["checkpoints"] == 3 and d["cosignatures"] == 2' | contains -x True
 
 # A ledger altered on disk refuses to open.
 cp -R ledger altered

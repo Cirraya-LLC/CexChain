@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <utility>
 #include <variant>
+#include <vector>
 
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/state.hpp>
@@ -364,11 +365,18 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
         report.attachments.push_back(std::move(check));
     }
 
+    // Count witnesses, not cosignatures: a witness that signed twice (or a
+    // bundle that repeats its cosignature) is still one witness.
+    std::vector<Id> counted;
     for (const Bytes& encoded_cosignature : bundle.cosignatures) {
         auto cosignature = parse_cosignature(encoded_cosignature);
         if (!cosignature || cosignature->checkpoint != checkpoint.checkpoint) {
             return verification_failure("a cosignature does not cover the bundle's checkpoint");
         }
+        if (std::ranges::contains(counted, cosignature->kid)) {
+            continue;
+        }
+        counted.push_back(cosignature->kid);
         bool trusted = false;
         for (const crypto::PublicKey& witness : options.trusted_witnesses) {
             auto kid = key_id(provider, state->hash(), witness);

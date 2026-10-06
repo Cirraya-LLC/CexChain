@@ -192,6 +192,23 @@ checkpoint-payload = {
   5 => timestamp,
 }
 
+; What a ledger operator sends a witness. The witness keeps, per ledger, the
+; ledger id, the log key (learned out of band), and the size and root it last
+; cosigned. It cosigns only if:
+;   1. the checkpoint is for that ledger and signed by its log key;
+;   2. its tree hash equals the one in earlier checkpoints;
+;   3. old size equals the size the witness last cosigned (otherwise it
+;      refuses, and the operator retries from that size);
+;   4. the tree size is not smaller than old size; and
+;   5. the RFC 9162 consistency proof shows that the new tree extends the
+;      tree the witness last cosigned (empty from size 0; equal sizes need
+;      equal roots).
+cosign-request = {
+  1 => bstr,                   ; the signed checkpoint (COSE_Sign1)
+  2 => uint,                   ; old size
+  3 => [* bstr],               ; consistency proof, at most 65 hashes
+}
+
 ; A receipt is an RFC 9942 inclusion receipt:
 ;   protected   { 1: alg, 4: kid, 395: vds }
 ;   unprotected { 396: { -1: [ bstr .cbor inclusion-proof ] } }

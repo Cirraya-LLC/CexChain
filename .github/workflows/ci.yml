@@ -53,6 +53,10 @@ jobs:
     runs-on: ubuntu-latest
     container: gcc:16-trixie
     timeout-minutes: 40
+    defaults:
+      run:
+        # emsdk_env.sh finds its own directory only when sourced from bash.
+        shell: bash
     steps:
       - uses: actions/checkout@v7
 
