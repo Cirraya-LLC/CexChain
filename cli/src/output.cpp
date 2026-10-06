@@ -29,7 +29,9 @@ Json optional_text(const std::optional<std::string>& text) {
 } // namespace
 
 Json presence_credential_json(const protocol::PresenceCredential& c) {
-    return {{"rp_id", c.rp_id},
+    return {{"method",
+             c.method == protocol::PresenceMethod::hardware_key ? "hardware-key" : "webauthn"},
+            {"rp_id", c.rp_id.empty() ? Json(nullptr) : Json(c.rp_id)},
             {"credential_id", to_base64url(c.credential_id)},
             {"key", public_key_json(c.key)},
             {"label", optional_text(c.label)}};

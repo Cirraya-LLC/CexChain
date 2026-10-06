@@ -7,8 +7,9 @@
 ; Revision history:
 ;   v0.1  statements, the log, checkpoints, receipts, evidence bundles
 ;   v0.2  cosign requests for witnesses; proof of presence (statement key 8,
-;         actor-set-presence, scope key 6); state commitments in the log
-;         (log entry key 4, bundle key 7). v0.1 objects remain valid.
+;         actor-set-presence, scope key 6) with passkeys or hardware keys;
+;         state commitments in the log (log entry key 4, bundle key 7). v0.1
+;         objects remain valid.
 ;
 ; Every structure is encoded as deterministic CBOR (RFC 8949 section 4.2.1) in
 ; the CexChain profile: no floats, no indefinite lengths, no duplicate keys.
@@ -136,8 +137,10 @@ scope = {
 }
 
 ; Proof of human presence (machine by default: a statement without it shows
-; only that the signer's key was used). A person registers WebAuthn
-; credentials (passkeys or security keys); actor-set-presence replaces them.
+; only that the signer's key was used). A person registers credentials:
+; WebAuthn passkeys and security keys, or hardware keys such as USB keys
+; (UKey) and smart cards, which sign with a key that never leaves the device
+; and only after the person enters its PIN. actor-set-presence replaces them.
 ; It may be submitted by the organization, by an actor whose delegation
 ; covers it, or by the person themselves only if the statement carries proof
 ; of presence with a credential already registered, so that a stolen signing
@@ -146,19 +149,30 @@ actor-set-presence-body = {
   1 => id,                     ; actor (a person)
   2 => [* presence-credential], ; at most 16, unique credential ids
 }
-presence-credential = {
+presence-credential = webauthn-credential / hardware-key-credential
+webauthn-credential = {
   1 => tstr,                   ; WebAuthn relying party id, 1-253 chars
   2 => bstr,                   ; credential id, 1-1023 bytes
   3 => public-key,             ; ESP256 (WebAuthn ES256) or Ed25519 (EdDSA)
   ? 4 => tstr,                 ; label
 }
+hardware-key-credential = {
+  2 => bstr,                   ; credential id, 1-1023 bytes; CexChain's CLI
+                               ; uses SHA-256 of the encoded public key
+  3 => public-key,             ; any algorithm, SM2 among them
+  ? 4 => tstr,                 ; label
+  5 => 2,                      ; presence method: hardware key (absent, and
+                               ; never encoded, for WebAuthn)
+}
 
-; A WebAuthn assertion that approves exactly one statement, signed with
-; exactly one key. Its challenge is
+; A proof of presence approves exactly one statement, signed with exactly one
+; key. Its challenge is
 ;   HASH("CexChain presence v1" || kid || P)
 ; where HASH is the ledger hash, kid is the statement's COSE kid (32 bytes),
 ; and P is the statement payload encoded without key 8. (Binding the kid
 ; stops a proof being reused by re-signing the payload with a rotated key.)
+;
+; With a WebAuthn credential, the proof is an assertion over the challenge.
 ; Verifiers check, for the signer's credential with this id:
 ;   1. authenticatorData begins with SHA-256(rp id) and has the user-present
 ;      flag (0x01); the user-verified flag (0x04) is reported, not required;
@@ -170,11 +184,17 @@ presence-credential = {
 ;      (WebAuthn Level 3, limited verification algorithm), and ends with "}";
 ;   3. the signature verifies over authenticatorData || SHA-256(clientDataJSON):
 ;      DER ECDSA for ES256 (either S), raw for Ed25519.
+;
+; With a hardware-key credential, the proof has no keys 2 and 3, and the
+; signature is the credential key's signature over the challenge itself, in
+; CexChain's format for the key's algorithm (as in COSE_Sign1).
 presence-proof = {
   1 => bstr,                   ; credential id
-  2 => bstr,                   ; authenticatorData, 37-4096 bytes
-  3 => bstr,                   ; clientDataJSON, 1-4096 bytes
-  4 => bstr,                   ; signature as the authenticator produced it
+  ? (
+    2 => bstr,                 ; authenticatorData, 37-4096 bytes
+    3 => bstr,                 ; clientDataJSON, 1-4096 bytes
+  ),                           ; both for WebAuthn, neither for hardware keys
+  4 => bstr,                   ; signature, 1-8192 bytes
 }
 
 delegation-revoke-body = {

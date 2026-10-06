@@ -228,6 +228,21 @@ Result<PresenceCheck> verify_presence(const crypto::Provider& provider, crypto::
     if (credential == credentials.end()) {
         return fail(Errc::verification_failed, "the passkey is not registered for the signer");
     }
+    if (credential->method == PresenceMethod::hardware_key) {
+        // The token signs the challenge itself, after its PIN was entered.
+        if (!proof.authenticator_data.empty() || !proof.client_data_json.empty()) {
+            return fail(Errc::verification_failed,
+                        "a hardware key's proof carries no WebAuthn data");
+        }
+        CEXCHAIN_TRY(Bytes challenge, presence_challenge(provider, ledger_hash, statement, kid));
+        if (auto s = provider.verify(credential->key, challenge, proof.signature); !s) {
+            return fail(Errc::verification_failed, "the hardware key's signature does not verify");
+        }
+        return PresenceCheck{false, {}, {}, credential->label, PresenceMethod::hardware_key};
+    }
+    if (proof.authenticator_data.empty()) {
+        return fail(Errc::verification_failed, "a passkey's proof needs its WebAuthn data");
+    }
     const ByteView data = proof.authenticator_data;
     if (data.size() < authenticator_data_header) {
         return fail(Errc::malformed, "the WebAuthn authenticator data is too short");
@@ -255,7 +270,7 @@ Result<PresenceCheck> verify_presence(const crypto::Provider& provider, crypto::
         return fail(Errc::verification_failed, "the passkey signature does not verify");
     }
     return PresenceCheck{(flags & flag_user_verified) != 0, std::move(origin), credential->rp_id,
-                         credential->label};
+                         credential->label, PresenceMethod::webauthn};
 }
 
 Result<PresenceCredential> credential_from_registration(const crypto::Provider& provider,

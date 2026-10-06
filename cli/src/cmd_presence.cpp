@@ -22,6 +22,43 @@ int cmd_presence_enroll(const Args& args) {
     if (std::filesystem::exists(out)) {
         throw CommandError{out.string() + " already exists"};
     }
+    if (const auto uri = args.get("pkcs11")) {
+        // A hardware key: the token proves presence by signing, after its PIN.
+        if (!uri->starts_with("pkcs11:")) {
+            throw UsageError{"--pkcs11 takes a pkcs11: URI naming the key on the token"};
+        }
+        const auto key = load_signer(*uri, args);
+        const Bytes encoded_key = encode_public_key_file(key->public_key());
+        const auto digest =
+            unwrap(shared_provider().digest(crypto::HashAlg::sha256, encoded_key), "hashing");
+        const protocol::PresenceCredential credential{
+            {},
+            Bytes(digest.bytes().begin(), digest.bytes().end()),
+            key->public_key(),
+            args.get("label"),
+            protocol::PresenceMethod::hardware_key};
+        write_file(
+            out,
+            unwrap(protocol::encode_presence_credential(credential), "encoding the credential"),
+            false);
+        if (args.json()) {
+            Json result = presence_credential_json(credential);
+            result["file"] = out.string();
+            print_json(result);
+            return exit_ok;
+        }
+        std::println("hardware key enrolled: {} key on the token",
+                     crypto::name(credential.key.algorithm));
+        std::println("Give {} to your administrator, who registers it with:", out.string());
+        std::println(
+            "  cexchain actor set-presence <your actor id> --credential {} --as <their key>",
+            out.string());
+        std::println("then prove presence with: --presence-key \"{}\"", *uri);
+        return exit_ok;
+    }
+    if (!args.has("name")) {
+        throw UsageError{"a passkey needs --name (or give --pkcs11 for a hardware key)"};
+    }
     const std::string name = args.need("name");
     std::array<std::uint8_t, 32> challenge{};
     std::array<std::uint8_t, 16> user_id{};

@@ -490,3 +490,136 @@ TEST_CASE("a proof of presence cannot be replayed under a rotated key", "[presen
     CHECK(f.w.rejected(thief_key, added) != Errc{});
     CHECK(f.w.ledger().state().actor(f.alice)->presence.size() == 1);
 }
+
+namespace {
+
+/// A software stand-in for a USB key (UKey) or other token key: it signs the
+/// presence challenge itself, after the person unlocks it with a PIN.
+struct HardwareKey {
+    std::shared_ptr<const KeyPair> key;
+    Bytes credential_id;
+
+    protocol::PresenceCredential credential() const {
+        return {"", credential_id, key->public_key(), std::string("bank UKey"),
+                protocol::PresenceMethod::hardware_key};
+    }
+
+    protocol::PresenceProof sign(ByteView challenge) const {
+        return {credential_id, {}, {}, *key->sign(challenge)};
+    }
+};
+
+HardwareKey hardware_key(crypto::SigAlg alg, std::uint8_t id) {
+    auto key = KeyPair::generate(alg);
+    REQUIRE(key);
+    return HardwareKey{std::make_shared<const KeyPair>(std::move(*key)), Bytes(32, id)};
+}
+
+} // namespace
+
+TEST_CASE("a hardware key proves presence", "[presence][hardware]") {
+    Fixture f;
+    const auto ukey = hardware_key(crypto::SigAlg::sm2_sm3, 7);
+    f.w.ok(f.w.org(), f.w.statement(f.w.org_id(), std::nullopt,
+                                    protocol::ActorSetPresenceBody{
+                                        f.alice, {f.passkey.credential(), ukey.credential()}}));
+    const auto delegation = f.grant(true);
+
+    auto s = f.w.statement(f.alice, delegation, protocol::RecordEndorseBody{f.record, "inspector"});
+    CHECK(f.w.rejected(f.alice_key, s) == Errc::rejected);
+    const auto challenge = challenge_for(f.w, s, f.alice_key);
+    s.presence = ukey.sign(challenge);
+    const auto kid = *protocol::key_id(provider(), f.w.hash(), f.alice_key.public_key());
+    const auto check = protocol::verify_presence(provider(), f.w.hash(), s, kid,
+                                                 f.w.ledger().state().actor(f.alice)->presence);
+    REQUIRE(check);
+    CHECK(check->method == protocol::PresenceMethod::hardware_key);
+    CHECK_FALSE(check->user_verified);
+    CHECK(check->rp_id.empty());
+    CHECK(check->label == "bank UKey");
+    f.w.ok(f.alice_key, s);
+
+    SECTION("a proof binds one statement") {
+        auto other =
+            f.w.statement(f.alice, delegation, protocol::RecordEndorseBody{f.record, "approver"});
+        other.presence = s.presence;
+        CHECK(f.w.rejected(f.alice_key, other) == Errc::verification_failed);
+    }
+    SECTION("WebAuthn fields have no place in a hardware proof") {
+        auto other =
+            f.w.statement(f.alice, delegation, protocol::RecordEndorseBody{f.record, "approver"});
+        other.presence = ukey.sign(challenge_for(f.w, other, f.alice_key));
+        other.presence->authenticator_data = f.passkey.authenticator_data();
+        other.presence->client_data_json = bytes_of("{}");
+        CHECK(f.w.rejected(f.alice_key, other) == Errc::verification_failed);
+    }
+    SECTION("a signature from another key is refused") {
+        const auto stolen = hardware_key(crypto::SigAlg::sm2_sm3, 7);
+        auto other =
+            f.w.statement(f.alice, delegation, protocol::RecordEndorseBody{f.record, "approver"});
+        other.presence = stolen.sign(challenge_for(f.w, other, f.alice_key));
+        CHECK(f.w.rejected(f.alice_key, other) == Errc::verification_failed);
+    }
+    SECTION("a hardware signature does not pass as a passkey") {
+        auto other =
+            f.w.statement(f.alice, delegation, protocol::RecordEndorseBody{f.record, "approver"});
+        const auto as_passkey = f.passkey.sign(challenge_for(f.w, other, f.alice_key));
+        other.presence =
+            protocol::PresenceProof{f.passkey.credential_id, {}, {}, as_passkey.signature};
+        CHECK(f.w.rejected(f.alice_key, other) != Errc{});
+    }
+}
+
+TEST_CASE("hardware keys in evidence and the codec", "[presence][hardware][evidence]") {
+    Fixture f;
+    const auto ukey = hardware_key(crypto::SigAlg::esp256, 8);
+    f.w.ok(f.w.org(), f.w.statement(f.w.org_id(), std::nullopt,
+                                    protocol::ActorSetPresenceBody{f.alice, {ukey.credential()}}));
+    const auto delegation = f.grant(true);
+    auto s = f.w.statement(f.alice, delegation, protocol::RecordEndorseBody{f.record, "inspector"});
+    s.presence = ukey.sign(challenge_for(f.w, s, f.alice_key));
+    f.w.ok(f.alice_key, s);
+    CHECK(*protocol::decode_payload(*protocol::encode_payload(s)) == s);
+
+    const auto encoded = protocol::encode_presence_credential(ukey.credential());
+    REQUIRE(encoded);
+    CHECK(*protocol::decode_presence_credential(*encoded) == ukey.credential());
+
+    REQUIRE(f.w.ledger().checkpoint(f.w.log_key()));
+    const auto bundle = f.w.ledger().export_evidence(f.w.log_key(), f.record);
+    REQUIRE(bundle);
+    const auto report = protocol::verify_bundle(provider(), *protocol::encode_bundle(*bundle));
+    REQUIRE(report);
+    REQUIRE(report->events.size() == 2);
+    REQUIRE(report->events[1].presence);
+    CHECK(report->events[1].presence->method == protocol::PresenceMethod::hardware_key);
+    CHECK(report->events[1].presence->label == "bank UKey");
+}
+
+TEST_CASE("hardware and passkey credentials are checked for their kind", "[presence][hardware]") {
+    // Any signature algorithm on a token, post-quantum included...
+    const auto ukey = hardware_key(crypto::SigAlg::ml_dsa_44, 9);
+    CHECK(protocol::encode_presence_credential(ukey.credential()));
+    // ...but no relying party: that belongs to passkeys.
+    auto with_rp = ukey.credential();
+    with_rp.rp_id = "localhost";
+    CHECK(protocol::encode_presence_credential(with_rp).error().code == Errc::invalid_argument);
+
+    const auto passkey = authenticator(crypto::SigAlg::esp256, 10);
+    auto without_rp = passkey.credential();
+    without_rp.rp_id.clear();
+    CHECK(protocol::encode_presence_credential(without_rp).error().code == Errc::invalid_argument);
+    auto pq_passkey = passkey.credential();
+    pq_passkey.key = ukey.key->public_key();
+    CHECK_FALSE(protocol::encode_presence_credential(pq_passkey));
+
+    // A registered hardware key, from the organization, through the ledger.
+    World w;
+    const auto bob_key = key("bob");
+    const auto bob =
+        w.register_actor(w.org(), w.org_id(), std::nullopt, protocol::ActorKind::person, bob_key);
+    w.ok(w.org(), w.statement(w.org_id(), std::nullopt,
+                              protocol::ActorSetPresenceBody{bob, {ukey.credential()}}));
+    CHECK(w.ledger().state().actor(bob)->presence ==
+          std::vector<protocol::PresenceCredential>{ukey.credential()});
+}

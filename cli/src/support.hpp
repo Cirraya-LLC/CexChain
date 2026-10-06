@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -65,6 +66,29 @@ void write_file(const std::filesystem::path& path, ByteView data, bool private_f
                                      std::string_view file_option = "passphrase-file",
                                      const char* env = "CEXCHAIN_PASSPHRASE");
 
+/// The provider every key and token in this process uses.
+[[nodiscard]] const crypto::openssl::Provider& shared_provider();
+
+/// A key that signs: a private key file, or a key on a token (USB key, smart
+/// card, HSM) named by a pkcs11: URI, whose PIN comes from the URI,
+/// $CEXCHAIN_PKCS11_PIN, or a prompt.
+[[nodiscard]] std::unique_ptr<crypto::Signer> load_signer(const std::string& source,
+                                                          const Args& args);
+
+/// Generates a key pair on the token a pkcs11: URI names (ESP256 or Ed25519).
+[[nodiscard]] std::unique_ptr<crypto::Signer> generate_on_token(const std::string& uri,
+                                                                crypto::SigAlg alg);
+
+/// How the signer proves presence, from --presence, --presence-key, and
+/// --no-browser.
+struct PresenceRequest {
+    /// For a passkey: open the browser (otherwise just print the address).
+    bool open_browser = true;
+    /// For a hardware key: the opened token key.
+    std::shared_ptr<crypto::Signer> hardware_key = nullptr;
+};
+[[nodiscard]] std::optional<PresenceRequest> presence_request(const Args& args);
+
 /// Loads a private key file, asking for its passphrase if it is encrypted.
 [[nodiscard]] crypto::openssl::KeyPair load_key(const std::filesystem::path& path,
                                                 const Args& args);
@@ -117,12 +141,12 @@ public:
     /// Builds, signs, and submits a statement by the holder of `signer`,
     /// choosing a delegation that covers it unless `delegation` is given, and
     /// filling in provenance for agents. Returns the statement's id.
-    /// With `presence` set, the signer (a person) first proves presence with
-    /// a passkey in the browser; the value says whether to open the browser.
+    /// With `presence` set, the signer (a person) first proves presence, with
+    /// a passkey in the browser or with a hardware key.
     protocol::Id submit(const crypto::Signer& signer, protocol::Body body,
                         const std::optional<std::string>& delegation,
                         std::optional<protocol::Provenance> provenance = std::nullopt,
-                        std::optional<bool> presence = std::nullopt);
+                        const std::optional<PresenceRequest>& presence = std::nullopt);
 
     /// Signs and submits as the holder of --as, with --delegation, --model,
     /// --model-version, --inputs, --presence, and --no-browser taken from
@@ -148,7 +172,7 @@ public:
 
 private:
     void prove_presence(const protocol::ActorState& actor, protocol::Statement& statement,
-                        const crypto::PublicKey& signing_key, bool open_browser) const;
+                        const crypto::PublicKey& signing_key, const PresenceRequest& request) const;
 
     [[nodiscard]] std::optional<protocol::Id>
     choose_delegation(const protocol::ActorState& actor, protocol::StatementType type,

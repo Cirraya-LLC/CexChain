@@ -37,6 +37,7 @@ if(EMSCRIPTEN)
     # The browser verifier needs no ledger node and no command line.
     add_subdirectory(verifier/wasm)
 else()
+    add_subdirectory(crypto/pkcs11)
     add_subdirectory(ledger)
     add_subdirectory(cli)
 endif()

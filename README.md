@@ -40,6 +40,7 @@ CexChain is a ledger protocol and node for trust between organizations. Every do
 | `core` | Deterministic CBOR, COSE, Merkle proofs, protocol objects, ledger rules, and the offline evidence verifier. Portable C++23 that builds to WebAssembly. |
 | `verifier` | Verification reports (text and JSON) shared by the command line and the browser verifier; `verifier/wasm` is the browser page |
 | `crypto/openssl` | Cryptographic backend: SHA-2, SM3, Ed25519, ESP256, SM2, ML-DSA |
+| `crypto/pkcs11` | Keys on PKCS #11 tokens: USB keys (UKey), smart cards, and HSMs, loaded at run time |
 | `ledger` | Ledger node: crash-safe storage, rule engine, checkpoints, receipts, evidence export (C++26) |
 | `cli` | `cexchain` command-line tool: full control of keys, ledgers, actors, delegations, records, proofs, and evidence |
 | `cexchain mcp` | MCP server through which an AI agent acts under its own key and delegation |
@@ -131,8 +132,33 @@ cexchain delegation grant --as root.key --to <alice-id> --allow record-endorse -
 cexchain record endorse <record-id> --as alice.key --role inspector --presence
 ```
 
-Every verification report shows, for each step a person took, whether they proved presence. The
-browser verifier shows it too.
+USB keys (UKey) and smart cards work too, through PKCS #11: the token's key signs the statement's
+presence challenge after the person enters the PIN. Hardware keys may use any signature algorithm
+CexChain supports, SM2 included.
+
+```sh
+# Generate a key on the token and enroll it (or enroll a key the vendor's tools created).
+cexchain key generate --pkcs11 "pkcs11:token=UKey;object=alice-presence?module-path=/path/to/vendor.so" \
+    --alg esp256 --out alice-ukey.pub
+cexchain presence enroll --pkcs11 "pkcs11:token=UKey;object=alice-presence?module-path=/path/to/vendor.so" \
+    --label "Alice's UKey" --out alice.ukey
+cexchain actor set-presence <alice-id> --as root.key --credential alice.ukey
+# Confirm with the token when acting; the PIN comes from a prompt or $CEXCHAIN_PKCS11_PIN.
+cexchain record endorse <record-id> --as alice.key --role inspector \
+    --presence-key "pkcs11:token=UKey;object=alice-presence?module-path=/path/to/vendor.so"
+```
+
+Every verification report shows, for each step a person took, whether they proved presence and
+how (a passkey or a hardware key). The browser verifier shows it too.
+
+## Keys on tokens and HSMs
+
+Wherever a command takes a key file, it also takes an RFC 7512 PKCS #11 URI, so an organization's
+root key can stay in an HSM and a person's signing key on a USB key. Keys generated with
+`key generate --pkcs11` are marked sensitive and never leave the token. ESP256 and Ed25519 work
+with any PKCS #11 module; SM2 needs the vendor's mechanism number in the URI
+(`?x-sm2-mechanism=<hex>`), since SM2 is not part of the PKCS #11 standard. Every signature a
+token returns is checked before it is used.
 
 ## Witnesses
 
@@ -195,6 +221,7 @@ Requirements:
 - GCC 16 (primary) or a recent Clang (tested with Clang 23)
 - CMake 3.28+ and Ninja
 - OpenSSL 3.5+
+- Optional: the p11-kit headers, for keys on tokens (PKCS #11), and SoftHSM to test them
 
 ```sh
 cmake --preset gcc-debug

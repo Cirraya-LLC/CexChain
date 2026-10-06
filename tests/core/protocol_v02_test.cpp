@@ -95,6 +95,28 @@ TEST_CASE("v0.2 objects from an independent encoder", "[protocol][vectors]") {
         CHECK(check->user_verified);
         CHECK(check->origin == "http://localhost:43210");
 
+        // Proof of presence with a hardware key (a UKey): no WebAuthn wrapping.
+        const auto& hardware = ledger["hardware_presence"];
+        const protocol::SignedStatement& signed_approval =
+            statements[hardware["statement_index"].get<std::size_t>()];
+        REQUIRE(signed_approval.statement.presence);
+        CHECK(to_hex(*protocol::presence_challenge(provider(), hash, signed_approval.statement,
+                                                   signed_approval.kid)) ==
+              text(hardware["challenge"]));
+        const auto ukey = protocol::decode_presence_credential(hex(text(hardware["credential"])));
+        REQUIRE(ukey);
+        CHECK(ukey->method == protocol::PresenceMethod::hardware_key);
+        CHECK(ukey->rp_id.empty());
+        CHECK(*protocol::encode_presence_credential(*ukey) == hex(text(hardware["credential"])));
+        const auto ukey_check =
+            protocol::verify_presence(provider(), hash, signed_approval.statement,
+                                      signed_approval.kid, std::vector{*credential, *ukey});
+        REQUIRE(ukey_check);
+        CHECK(ukey_check->method == protocol::PresenceMethod::hardware_key);
+        CHECK(ukey_check->label == "test UKey");
+        CHECK_FALSE(protocol::verify_presence(provider(), hash, signed_approval.statement,
+                                              signed_approval.kid, std::vector{*credential}));
+
         // The state commitment: the same root and the same proofs.
         const auto leaves = protocol::state_leaves(*state);
         REQUIRE(leaves.size() == ledger["state_proofs"].size());

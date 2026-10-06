@@ -26,8 +26,8 @@ struct IssueRequest {
     std::vector<std::filesystem::path> attachments;
     std::optional<std::string> delegation;
     std::optional<protocol::Provenance> provenance;
-    /// Prove presence first; the value says whether to open the browser.
-    std::optional<bool> presence;
+    /// Prove presence first, if set.
+    std::optional<PresenceRequest> presence;
 };
 
 /// Commits to the fields and attachments, registers the record, and keeps

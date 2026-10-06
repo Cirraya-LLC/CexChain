@@ -62,9 +62,8 @@ int cmd_actor_add(const Args& args) {
     // For an agent, --model describes the new agent, not the signer.
     const protocol::Id id =
         body.kind == protocol::ActorKind::agent
-            ? session.submit(
-                  load_key(args.need("as"), args), body, args.get("delegation"), std::nullopt,
-                  args.has("presence") ? std::optional(!args.has("no-browser")) : std::nullopt)
+            ? session.submit(*load_signer(args.need("as"), args), body, args.get("delegation"),
+                             std::nullopt, presence_request(args))
             : session.submit(args, body);
     return report_submitted(args, session, id,
                             {{"actor", actor_json(session, *session.state().actor(id))}},
@@ -158,12 +157,17 @@ int cmd_actor_show(const Args& args) {
     }
     if (actor.kind == protocol::ActorKind::person) {
         if (actor.presence.empty()) {
-            std::println("passkeys:      none (cannot prove presence)");
+            std::println("presence:      none registered (cannot prove presence)");
         }
         for (const protocol::PresenceCredential& c : actor.presence) {
-            std::println("passkey:       {} {} for {}{}", crypto::name(c.key.algorithm),
-                         to_base64url(c.credential_id).substr(0, 16), c.rp_id,
-                         c.label ? " (" + *c.label + ")" : "");
+            const std::string label = c.label ? " (" + *c.label + ")" : "";
+            const std::string id = to_base64url(c.credential_id).substr(0, 16);
+            if (c.method == protocol::PresenceMethod::hardware_key) {
+                std::println("hardware key:  {} {}{}", crypto::name(c.key.algorithm), id, label);
+            } else {
+                std::println("passkey:       {} {} for {}{}", crypto::name(c.key.algorithm), id,
+                             c.rp_id, label);
+            }
         }
     }
     std::println("records:       {} issued", records);

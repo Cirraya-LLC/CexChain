@@ -40,6 +40,7 @@ constexpr std::size_t max_credential_id = 1023; // WebAuthn's own limit
 constexpr std::size_t max_rp_id = 253;          // a DNS name
 constexpr std::size_t min_authenticator_data = 37;
 constexpr std::size_t max_presence_field = 4096;
+constexpr std::size_t max_presence_signature = 8192; // ML-DSA-87 on a token: 4627
 
 cbor::Value id_value(const Id& id) {
     return cbor::Value::bytes(id.bytes());
@@ -86,14 +87,23 @@ Status check_scope(const Scope& scope) {
 }
 
 Status check_presence_credential(const PresenceCredential& c) {
-    if (c.rp_id.empty() || c.rp_id.size() > max_rp_id) {
-        return fail(Errc::malformed, "relying party id must be 1 to 253 characters");
+    if (c.method == PresenceMethod::hardware_key) {
+        if (!c.rp_id.empty()) {
+            return fail(Errc::malformed, "a hardware key has no relying party");
+        }
+    } else if (c.method != PresenceMethod::webauthn) {
+        return fail(Errc::unsupported, "unknown way of proving presence");
+    } else {
+        if (c.rp_id.empty() || c.rp_id.size() > max_rp_id) {
+            return fail(Errc::malformed, "relying party id must be 1 to 253 characters");
+        }
+        if (c.key.algorithm != crypto::SigAlg::esp256 &&
+            c.key.algorithm != crypto::SigAlg::ed25519) {
+            return fail(Errc::unsupported, "passkeys must be ESP256 or Ed25519");
+        }
     }
     if (c.credential_id.empty() || c.credential_id.size() > max_credential_id) {
         return fail(Errc::malformed, "credential id must be 1 to 1023 bytes");
-    }
-    if (c.key.algorithm != crypto::SigAlg::esp256 && c.key.algorithm != crypto::SigAlg::ed25519) {
-        return fail(Errc::unsupported, "presence keys must be ESP256 or Ed25519");
     }
     if (c.label && c.label->empty()) {
         return fail(Errc::malformed, "a credential label must not be empty when present");
@@ -105,14 +115,18 @@ Status check_presence_proof(const PresenceProof& p) {
     if (p.credential_id.empty() || p.credential_id.size() > max_credential_id) {
         return fail(Errc::malformed, "credential id must be 1 to 1023 bytes");
     }
-    if (p.authenticator_data.size() < min_authenticator_data ||
-        p.authenticator_data.size() > max_presence_field) {
+    // Hardware keys carry neither authenticator data nor client data.
+    if (p.authenticator_data.empty() != p.client_data_json.empty()) {
+        return fail(Errc::malformed, "authenticator data and client data come together");
+    }
+    if (!p.authenticator_data.empty() && (p.authenticator_data.size() < min_authenticator_data ||
+                                          p.authenticator_data.size() > max_presence_field)) {
         return fail(Errc::malformed, "authenticator data has an impossible size");
     }
-    if (p.client_data_json.empty() || p.client_data_json.size() > max_presence_field) {
+    if (p.client_data_json.size() > max_presence_field) {
         return fail(Errc::malformed, "client data has an impossible size");
     }
-    if (p.signature.empty() || p.signature.size() > max_presence_field) {
+    if (p.signature.empty() || p.signature.size() > max_presence_signature) {
         return fail(Errc::malformed, "presence signature has an impossible size");
     }
     return {};
@@ -277,10 +291,14 @@ Result<cbor::Value> encode_scope(const Scope& scope) {
 
 cbor::Value presence_credential_value(const PresenceCredential& c) {
     cbor::Map map{
-        entry(1, text_value(c.rp_id)),
         entry(2, cbor::Value::bytes(c.credential_id)),
         entry(3, encode_public_key(c.key)),
     };
+    if (c.method == PresenceMethod::webauthn) {
+        map.push_back(entry(1, text_value(c.rp_id)));
+    } else {
+        map.push_back(entry(5, uint_value(static_cast<std::uint64_t>(c.method))));
+    }
     if (c.label) {
         map.push_back(entry(4, text_value(*c.label)));
     }
@@ -290,7 +308,17 @@ cbor::Value presence_credential_value(const PresenceCredential& c) {
 Result<PresenceCredential> presence_credential_from(const cbor::Value& value) {
     CEXCHAIN_TRY(MapReader reader, MapReader::open(value));
     PresenceCredential c;
-    CEXCHAIN_TRY(c.rp_id, reader.need_text(1));
+    CEXCHAIN_TRY(std::optional<std::uint64_t> method, reader.opt_uint(5));
+    if (method && *method != static_cast<std::uint64_t>(PresenceMethod::hardware_key)) {
+        return fail(method == static_cast<std::uint64_t>(PresenceMethod::webauthn)
+                        ? Errc::non_canonical
+                        : Errc::unsupported,
+                    "the presence method is encoded only for hardware keys");
+    }
+    c.method = method ? PresenceMethod::hardware_key : PresenceMethod::webauthn;
+    if (c.method == PresenceMethod::webauthn) {
+        CEXCHAIN_TRY(c.rp_id, reader.need_text(1));
+    }
     CEXCHAIN_TRY(c.credential_id, reader.need_bytes(2));
     CEXCHAIN_TRY(const cbor::Value* key, reader.need(3));
     CEXCHAIN_TRY(c.key, decode_public_key(*key));
@@ -637,20 +665,28 @@ Result<Body> decode_body(StatementType type, const cbor::Value& value) {
 }
 
 cbor::Value encode_presence_proof(const PresenceProof& p) {
-    return cbor::Value::map({
-        entry(1, cbor::Value::bytes(p.credential_id)),
-        entry(2, cbor::Value::bytes(p.authenticator_data)),
-        entry(3, cbor::Value::bytes(p.client_data_json)),
-        entry(4, cbor::Value::bytes(p.signature)),
-    });
+    cbor::Map map{entry(1, cbor::Value::bytes(p.credential_id)),
+                  entry(4, cbor::Value::bytes(p.signature))};
+    if (!p.authenticator_data.empty()) {
+        map.push_back(entry(2, cbor::Value::bytes(p.authenticator_data)));
+        map.push_back(entry(3, cbor::Value::bytes(p.client_data_json)));
+    }
+    return cbor::Value::map(std::move(map));
 }
 
 Result<PresenceProof> decode_presence_proof(const cbor::Value& value) {
     CEXCHAIN_TRY(MapReader reader, MapReader::open(value));
     PresenceProof p;
     CEXCHAIN_TRY(p.credential_id, reader.need_bytes(1));
-    CEXCHAIN_TRY(p.authenticator_data, reader.need_bytes(2));
-    CEXCHAIN_TRY(p.client_data_json, reader.need_bytes(3));
+    CEXCHAIN_TRY(std::optional<Bytes> authenticator_data, reader.opt_bytes(2));
+    CEXCHAIN_TRY(std::optional<Bytes> client_data_json, reader.opt_bytes(3));
+    if (authenticator_data.has_value() != client_data_json.has_value() ||
+        (authenticator_data && (authenticator_data->empty() || client_data_json->empty()))) {
+        return fail(Errc::malformed,
+                    "authenticator data and client data come together, and are not empty");
+    }
+    p.authenticator_data = authenticator_data.value_or(Bytes{});
+    p.client_data_json = client_data_json.value_or(Bytes{});
     CEXCHAIN_TRY(p.signature, reader.need_bytes(4));
     CEXCHAIN_CHECK(reader.finish());
     return p;

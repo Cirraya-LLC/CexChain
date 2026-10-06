@@ -68,10 +68,11 @@ std::string event_line(const protocol::RecordEvent& event) {
     }
     if (event.actor.kind == protocol::ActorKind::person) {
         // Machine by default: only a proof of presence shows a person acted.
-        actor += event.presence
-                     ? (event.presence->user_verified ? "; present: passkey, user verified"
-                                                      : "; present: passkey")
-                     : "; presence not proven";
+        actor += !event.presence ? "; presence not proven"
+                 : event.presence->method == protocol::PresenceMethod::hardware_key
+                     ? "; present: hardware key"
+                     : (event.presence->user_verified ? "; present: passkey, user verified"
+                                                      : "; present: passkey");
     }
     actor += "]";
     switch (event.type) {
@@ -206,12 +207,16 @@ Json report_json(const protocol::EvidenceReport& r, bool ledger_checked) {
              {"actor", actor_json(e.actor)},
              {"authority", std::move(authority)},
              {"provenance", e.provenance ? provenance_json(*e.provenance) : Json(nullptr)},
-             {"presence", e.presence ? Json{{"user_verified", e.presence->user_verified},
-                                            {"origin", e.presence->origin},
-                                            {"rp_id", e.presence->rp_id},
-                                            {"label", e.presence->label ? Json(*e.presence->label)
-                                                                        : Json(nullptr)}}
-                                     : Json(nullptr)},
+             {"presence",
+              e.presence
+                  ? Json{{"method", e.presence->method == protocol::PresenceMethod::hardware_key
+                                        ? "hardware-key"
+                                        : "webauthn"},
+                         {"user_verified", e.presence->user_verified},
+                         {"origin", e.presence->origin},
+                         {"rp_id", e.presence->rp_id},
+                         {"label", e.presence->label ? Json(*e.presence->label) : Json(nullptr)}}
+                  : Json(nullptr)},
              {"detail", e.detail}});
     }
     Json fields = Json::object();

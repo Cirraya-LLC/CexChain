@@ -42,3 +42,19 @@ add_test(NAME cli_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/end_to_end.sh $<TARGET_FILE:cexchain>)
 add_test(NAME mcp_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/mcp.sh $<TARGET_FILE:cexchain>)
+
+# Keys on tokens (HSMs, USB keys), when SoftHSM is installed to stand in.
+if(TARGET cexchain_crypto_pkcs11)
+    find_program(CEXCHAIN_SOFTHSM_UTIL softhsm2-util)
+    find_file(CEXCHAIN_SOFTHSM_MODULE libsofthsm2.so
+        PATHS /usr/lib/softhsm /usr/local/lib/softhsm /opt/homebrew/lib/softhsm
+              /usr/lib/x86_64-linux-gnu/softhsm /usr/lib/aarch64-linux-gnu/softhsm
+        NO_DEFAULT_PATH)
+    if(CEXCHAIN_SOFTHSM_UTIL AND CEXCHAIN_SOFTHSM_MODULE)
+        add_test(NAME cli_pkcs11
+            COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/pkcs11.sh $<TARGET_FILE:cexchain>
+                    ${CEXCHAIN_SOFTHSM_MODULE})
+    else()
+        message(STATUS "SoftHSM not found: skipping the token tests")
+    endif()
+endif()

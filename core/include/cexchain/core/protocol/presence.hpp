@@ -13,7 +13,9 @@
 #include <cexchain/core/error.hpp>
 #include <cexchain/core/protocol/statement.hpp>
 
-/// Proof of human presence with WebAuthn (passkeys and security keys).
+/// Proof of human presence: with WebAuthn (passkeys and security keys), or
+/// with a hardware key on a token (a USB key or smart card) that signs the
+/// challenge after its PIN is entered.
 ///
 /// A person's statement may carry a WebAuthn assertion whose challenge is
 ///   HASH(ledger)("CexChain presence v1" || kid || payload without its presence proof)
@@ -42,6 +44,7 @@ struct PresenceCheck {
     std::string origin;
     std::string rp_id;
     std::optional<std::string> label;
+    PresenceMethod method = PresenceMethod::webauthn;
 
     friend bool operator==(const PresenceCheck&, const PresenceCheck&) = default;
 };

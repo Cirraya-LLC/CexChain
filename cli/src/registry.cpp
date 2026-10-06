@@ -19,7 +19,8 @@ namespace {
 
 // Options shared by many commands.
 const OptionSpec ledger_option{"ledger", "DIR", "Ledger directory (default: $CEXCHAIN_LEDGER)"};
-const OptionSpec as_option{"as", "KEY", "Key file of the actor who signs", true};
+const OptionSpec as_option{"as", "KEY",
+                           "The signer's key file, or a pkcs11: URI for a key on a token", true};
 const OptionSpec delegation_option{"delegation", "ID",
                                    "Delegation to act under (default: chosen automatically)"};
 const OptionSpec model_option{"model", "NAME",
@@ -36,6 +37,8 @@ const OptionSpec vault_key_option{"vault-key", "FILE",
                                   "The vault private key (default: <ledger>/vault.key)"};
 const OptionSpec presence_option{"presence", "",
                                  "Prove you are present: confirm with your passkey in the browser"};
+const OptionSpec presence_key_option{"presence-key", "URI",
+                                     "Prove presence with a hardware key on a token (pkcs11: URI)"};
 const OptionSpec no_browser_option{"no-browser", "",
                                    "Do not open the browser; open the printed address yourself"};
 const OptionSpec json_option{"json", "", "Print machine-readable JSON"};
@@ -47,9 +50,9 @@ std::vector<OptionSpec> with(std::vector<OptionSpec> options) {
 
 std::vector<OptionSpec> signing(std::vector<OptionSpec> extra) {
     std::vector<OptionSpec> options{
-        ledger_option,        as_option,     delegation_option,      model_option,
-        model_version_option, inputs_option, passphrase_file_option, presence_option,
-        no_browser_option};
+        ledger_option,        as_option,        delegation_option,      model_option,
+        model_version_option, inputs_option,    passphrase_file_option, presence_option,
+        presence_key_option,  no_browser_option};
     options.insert(options.end(), extra.begin(), extra.end());
     return options;
 }
@@ -80,8 +83,13 @@ std::vector<CommandSpec> build() {
              {{"out", "FILE", "Where to write the private key", true},
               {"alg", "ALG", "ed25519 (default), esp256, sm2-sm3, ml-dsa-44, ml-dsa-65, ml-dsa-87"},
               {"no-passphrase", "", "Store the key unencrypted (not recommended)"},
+              {"pkcs11", "URI", "Generate the key on a token instead; --out gets its public half"},
               passphrase_file_option}),
-         cmd_key_generate},
+         cmd_key_generate,
+         "A token key (USB key, smart card, HSM) is named by an RFC 7512 URI, e.g.\n"
+         "  pkcs11:token=CexChain;object=alice?module-path=/usr/lib/softhsm/libsofthsm2.so\n"
+         "Its PIN comes from pin-value= or pin-source= in the URI, $CEXCHAIN_PKCS11_PIN, or a\n"
+         "prompt. Commands that take a key file also take such a URI."},
         {{"key", "show"},
          "Show a key's algorithm, public key, and key ids",
          "Keys",
@@ -254,19 +262,22 @@ std::vector<CommandSpec> build() {
          "a delegation covering actor-set-presence, may do this; a person may change their own\n"
          "passkeys only with --presence, proving presence with a passkey already registered."},
         {{"presence", "enroll"},
-         "Create a passkey to prove your presence",
+         "Create a passkey, or enroll a hardware key, to prove your presence",
          "Actors",
          "",
          0,
          0,
-         with({{"out", "FILE", "Write the passkey's credential file (public data) here", true},
-               {"name", "NAME", "Your name, as the passkey will show it", true},
-               {"label", "TEXT", "A label for this passkey, e.g. \"MacBook Touch ID\""},
+         with({{"out", "FILE", "Write the credential file (public data) here", true},
+               {"name", "NAME", "Your name, as the passkey will show it (passkeys only)"},
+               {"label", "TEXT", "A label, e.g. \"MacBook Touch ID\" or \"Bank UKey\""},
+               {"pkcs11", "URI", "Enroll this hardware key (a key on a USB key or smart card)"},
                no_browser_option}),
          cmd_presence_enroll,
          "Opens the browser to create a passkey (Touch ID, Windows Hello, a phone, or a security\n"
-         "key) for the site \"localhost\". Only public data is written to FILE; give it to your\n"
-         "administrator to register with cexchain actor set-presence."},
+         "key) for the site \"localhost\"; or, with --pkcs11, enrolls a key on a token (a UKey or\n"
+         "smart card), which proves presence by signing after its PIN is entered. Only public\n"
+         "data is written to FILE; give it to your administrator to register with\n"
+         "cexchain actor set-presence."},
 
         // ------------------------------------------------------------------
         {{"delegation", "grant"},

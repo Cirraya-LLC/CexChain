@@ -49,9 +49,9 @@ int cmd_init(const Args& args) {
     if (std::filesystem::exists(directory) && !std::filesystem::is_empty(directory)) {
         throw CommandError{directory.string() + " exists and is not empty"};
     }
-    const auto root = load_key(args.need("root-key"), args);
-    const auto log = load_key(args.need("log-key"), args);
-    if (root.public_key() == log.public_key()) {
+    const auto root = load_signer(args.need("root-key"), args);
+    const crypto::PublicKey log = public_key_of(args.need("log-key"), args);
+    if (root->public_key() == log) {
         throw UsageError{"the root key and the log key must differ"};
     }
     // The vault key is settled before anything is written.
@@ -69,8 +69,8 @@ int cmd_init(const Args& args) {
         vault_key.emplace(unwrap(crypto::openssl::HpkeKey::generate(), "generating the vault key"));
         vault_public.emplace(vault_key->public_key().begin(), vault_key->public_key().end());
     }
-    create_ledger(directory, root, log.public_key(),
-                  parse_hash(args.get("hash").value_or("sha256")), args.need("org"));
+    create_ledger(directory, *root, log, parse_hash(args.get("hash").value_or("sha256")),
+                  args.need("org"));
     Session session(directory);
     std::filesystem::create_directories(vault_directory(session) / "records");
     if (vault_key) {

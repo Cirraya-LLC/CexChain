@@ -87,14 +87,27 @@ struct ActorRevokeBody {
     friend bool operator==(const ActorRevokeBody&, const ActorRevokeBody&) = default;
 };
 
-/// A WebAuthn credential (a passkey or security key) with which a person
-/// proves presence. Its key is ESP256 (WebAuthn ES256) or Ed25519 (EdDSA).
+/// How a person proves presence.
+enum class PresenceMethod : std::uint8_t {
+    /// A WebAuthn passkey or security key, through a browser.
+    webauthn = 1,
+    /// A hardware key held on a token (a USB key, smart card, or HSM),
+    /// unlocked with its PIN, that signs the presence challenge directly.
+    hardware_key = 2,
+};
+
+/// A credential with which a person proves presence. WebAuthn credentials
+/// have a relying party id and an ESP256 (ES256) or Ed25519 (EdDSA) key;
+/// hardware keys have no relying party and may use any signature algorithm,
+/// SM2 among them.
 struct PresenceCredential {
-    /// The WebAuthn relying party id, e.g. "example.com" or "localhost".
+    /// The WebAuthn relying party id, e.g. "example.com" or "localhost";
+    /// empty for a hardware key.
     std::string rp_id;
     Bytes credential_id;
     crypto::PublicKey key;
     std::optional<std::string> label;
+    PresenceMethod method = PresenceMethod::webauthn;
 
     friend bool operator==(const PresenceCredential&, const PresenceCredential&) = default;
 };
@@ -202,13 +215,15 @@ struct Provenance {
     friend bool operator==(const Provenance&, const Provenance&) = default;
 };
 
-/// A person's proof of presence: a WebAuthn assertion whose challenge is the
-/// statement's presence challenge (see presence.hpp).
+/// A person's proof of presence for the statement's presence challenge (see
+/// presence.hpp): a WebAuthn assertion, or for a hardware key just its
+/// signature over the challenge (authenticator data and client data empty).
 struct PresenceProof {
     Bytes credential_id;
     Bytes authenticator_data;
     Bytes client_data_json;
-    /// As the authenticator produced it: DER for ES256, raw for EdDSA.
+    /// WebAuthn: as the authenticator produced it (DER for ES256, raw for
+    /// EdDSA). Hardware key: in CexChain's wire format for the key.
     Bytes signature;
 
     friend bool operator==(const PresenceProof&, const PresenceProof&) = default;

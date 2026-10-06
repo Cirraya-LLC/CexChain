@@ -42,10 +42,8 @@ int cmd_record_issue(const Args& args) {
     }
     request.delegation = args.get("delegation");
     request.provenance = session.provenance(args);
-    if (args.has("presence")) {
-        request.presence = !args.has("no-browser");
-    }
-    const protocol::Id id = issue_record(session, load_key(args.need("as"), args), request);
+    request.presence = presence_request(args);
+    const protocol::Id id = issue_record(session, *load_signer(args.need("as"), args), request);
     const protocol::RecordState& record = *session.state().record(id);
     return report_submitted(
         args, session, id, {{"record", record_json(session, record)}},

@@ -139,7 +139,7 @@ run delegation show "$CAROL_GRANT" | contains 'presence:      required'
 expect_exit 2 record endorse "$RECORD" --as carol.key --role approver
 contains 'requires proof of presence' out.txt
 run actor set-presence "$CAROL" --as root.key --clear > /dev/null
-run actor show "$CAROL" | contains 'passkeys:      none'
+run actor show "$CAROL" | contains 'presence:      none registered'
 expect_exit 2 actor set-presence "$AGENT" --as root.key --clear
 contains 'only people have presence credentials' out.txt
 expect_exit 1 actor set-presence "$CAROL" --as root.key

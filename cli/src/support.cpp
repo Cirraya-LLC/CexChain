@@ -19,6 +19,9 @@
 
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/presence.hpp>
+#ifdef CEXCHAIN_HAVE_PKCS11
+#include <cexchain/crypto/pkcs11.hpp>
+#endif
 
 #include "output.hpp"
 #include "webauthn.hpp"
@@ -234,7 +237,88 @@ crypto::PublicKey load_public_key(const std::filesystem::path& path) {
     throw CommandError{path.string() + " is not a CexChain public key file"};
 }
 
+const crypto::openssl::Provider& shared_provider() {
+    static const crypto::openssl::Provider provider;
+    return provider;
+}
+
+#ifdef CEXCHAIN_HAVE_PKCS11
+namespace {
+
+std::string token_pin(const crypto::pkcs11::KeyUri& uri) {
+    if (uri.pin_value) {
+        return *uri.pin_value;
+    }
+    if (uri.pin_source) {
+        const Bytes content = read_file(*uri.pin_source);
+        std::string pin(content.begin(), content.end());
+        while (!pin.empty() && (pin.back() == '\n' || pin.back() == '\r')) {
+            pin.pop_back();
+        }
+        return pin;
+    }
+    if (const char* env = std::getenv("CEXCHAIN_PKCS11_PIN"); env != nullptr && *env != '\0') {
+        return env;
+    }
+    return prompt_hidden("PIN for token " + uri.token.value_or(uri.serial.value_or("")) + ": ");
+}
+
+std::unique_ptr<crypto::Signer> token_key(Result<crypto::pkcs11::Key> key) {
+    if (!key && key.error().code == Errc::verification_failed) {
+        throw CommandError{"wrong PIN for the token"};
+    }
+    return std::make_unique<crypto::pkcs11::Key>(
+        unwrap(std::move(key), "using the key on the token"));
+}
+
+} // namespace
+#endif
+
+std::unique_ptr<crypto::Signer> load_signer(const std::string& source, const Args& args) {
+    if (source.starts_with("pkcs11:")) {
+#ifdef CEXCHAIN_HAVE_PKCS11
+        const auto uri = unwrap(crypto::pkcs11::parse_uri(source), "reading the PKCS #11 URI");
+        return token_key(crypto::pkcs11::Key::open(uri, token_pin(uri), shared_provider()));
+#else
+        throw CommandError{
+            "this build of cexchain has no PKCS #11 support (it needs p11-kit at build time)"};
+#endif
+    }
+    return std::make_unique<crypto::openssl::KeyPair>(load_key(source, args));
+}
+
+std::unique_ptr<crypto::Signer> generate_on_token([[maybe_unused]] const std::string& source,
+                                                  [[maybe_unused]] crypto::SigAlg alg) {
+#ifdef CEXCHAIN_HAVE_PKCS11
+    const auto uri = unwrap(crypto::pkcs11::parse_uri(source), "reading the PKCS #11 URI");
+    return token_key(crypto::pkcs11::Key::generate(uri, token_pin(uri), alg, shared_provider()));
+#else
+    throw CommandError{
+        "this build of cexchain has no PKCS #11 support (it needs p11-kit at build time)"};
+#endif
+}
+
+std::optional<PresenceRequest> presence_request(const Args& args) {
+    if (args.has("presence") && args.has("presence-key")) {
+        throw UsageError{
+            "give --presence (a passkey) or --presence-key (a hardware key), not both"};
+    }
+    if (const auto uri = args.get("presence-key")) {
+        if (!uri->starts_with("pkcs11:")) {
+            throw UsageError{"--presence-key takes a pkcs11: URI naming the hardware key"};
+        }
+        return PresenceRequest{false, std::shared_ptr<crypto::Signer>(load_signer(*uri, args))};
+    }
+    if (args.has("presence")) {
+        return PresenceRequest{!args.has("no-browser"), nullptr};
+    }
+    return std::nullopt;
+}
+
 crypto::PublicKey public_key_of(const std::filesystem::path& path, const Args& args) {
+    if (path.string().starts_with("pkcs11:")) {
+        return load_signer(path.string(), args)->public_key();
+    }
     if (const auto value = cbor::decode(read_file(path))) {
         if (auto key = protocol::decode_public_key(*value)) {
             return *key;
@@ -405,7 +489,7 @@ Session::choose_delegation(const protocol::ActorState& actor, protocol::Statemen
 protocol::Id Session::submit(const crypto::Signer& signer, protocol::Body body,
                              const std::optional<std::string>& delegation,
                              std::optional<protocol::Provenance> provenance,
-                             std::optional<bool> presence) {
+                             const std::optional<PresenceRequest>& presence) {
     const protocol::ActorState& actor = actor_for(signer);
     protocol::Statement statement;
     statement.ledger_id = state().ledger_id();
@@ -469,13 +553,14 @@ std::optional<protocol::Provenance> Session::provenance(const Args& args) const 
 }
 
 protocol::Id Session::submit(const Args& args, protocol::Body body) {
-    const auto signer = load_key(args.need("as"), args);
-    return submit(signer, std::move(body), args.get("delegation"), provenance(args),
-                  args.has("presence") ? std::optional(!args.has("no-browser")) : std::nullopt);
+    const auto signer = load_signer(args.need("as"), args);
+    return submit(*signer, std::move(body), args.get("delegation"), provenance(args),
+                  presence_request(args));
 }
 
 void Session::prove_presence(const protocol::ActorState& actor, protocol::Statement& statement,
-                             const crypto::PublicKey& signing_key, bool open_browser) const {
+                             const crypto::PublicKey& signing_key,
+                             const PresenceRequest& request) const {
     if (actor.kind != protocol::ActorKind::person) {
         throw UsageError{"only people prove presence; \"" + actor.display_name + "\" is " +
                          (actor.is_organization() ? std::string("the organization")
@@ -491,14 +576,41 @@ void Session::prove_presence(const protocol::ActorState& actor, protocol::Statem
     const auto challenge =
         unwrap(protocol::presence_challenge(provider_, state().hash(), statement, kid),
                "computing the challenge");
-    const std::string rp_id = actor.presence.front().rp_id;
+    if (request.hardware_key) {
+        // The token signs the challenge; it must be one registered for the person.
+        const auto credential =
+            std::ranges::find_if(actor.presence, [&](const protocol::PresenceCredential& c) {
+                return c.method == protocol::PresenceMethod::hardware_key &&
+                       c.key == request.hardware_key->public_key();
+            });
+        if (credential == actor.presence.end()) {
+            throw CommandError{
+                "this hardware key is not registered for \"" + actor.display_name +
+                "\" (cexchain presence enroll --pkcs11, then cexchain actor set-presence)"};
+        }
+        statement.presence = protocol::PresenceProof{
+            credential->credential_id,
+            {},
+            {},
+            unwrap(request.hardware_key->sign(challenge), "signing on the token")};
+        unwrap(protocol::verify_presence(provider_, state().hash(), statement, kid, actor.presence),
+               "checking the hardware key's proof");
+        return;
+    }
+    const auto passkey = std::ranges::find(actor.presence, protocol::PresenceMethod::webauthn,
+                                           &protocol::PresenceCredential::method);
+    if (passkey == actor.presence.end()) {
+        throw CommandError{"\"" + actor.display_name +
+                           "\" has only hardware keys; prove presence with --presence-key"};
+    }
+    const std::string rp_id = passkey->rp_id;
     nlohmann::json allow = nlohmann::json::array();
     for (const protocol::PresenceCredential& c : actor.presence) {
-        if (c.rp_id == rp_id) {
+        if (c.method == protocol::PresenceMethod::webauthn && c.rp_id == rp_id) {
             allow.push_back(to_base64url(c.credential_id));
         }
     }
-    const nlohmann::json request{
+    const nlohmann::json ceremony{
         {"mode", "get"},
         {"rpId", rp_id},
         {"challenge", to_base64url(challenge)},
@@ -506,7 +618,7 @@ void Session::prove_presence(const protocol::ActorState& actor, protocol::Statem
         {"title", "Confirm as " + actor.display_name},
         {"summary", "On the ledger of \"" + state().organization() + "\":\n" +
                         body_summary(*this, statement.body, std::nullopt)}};
-    const nlohmann::json response = run_webauthn_ceremony(request, open_browser);
+    const nlohmann::json response = run_webauthn_ceremony(ceremony, request.open_browser);
     auto field = [&](const char* name) {
         if (!response.contains(name) || !response[name].is_string()) {
             throw CommandError{"the browser's passkey response is incomplete"};

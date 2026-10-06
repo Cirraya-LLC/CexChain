@@ -124,11 +124,11 @@ json scope_json(const protocol::Scope& scope) {
 
 class Server {
 public:
-    Server(std::filesystem::path ledger, crypto::openssl::KeyPair key)
+    Server(std::filesystem::path ledger, std::unique_ptr<crypto::Signer> key)
         : ledger_(std::move(ledger)), key_(std::move(key)) {
         define_tools();
         Session session(ledger_);
-        const protocol::ActorState& me = session.actor_for(key_);
+        const protocol::ActorState& me = session.actor_for(*key_);
         std::string responsible = "your organization";
         if (me.responsible) {
             responsible = session.state().actor(*me.responsible)->display_name;
@@ -338,7 +338,7 @@ private:
             "that define what you may do.",
             json::object(), json::array(), read_only, [this](const Tool&, const json&) {
                 Session session(ledger_);
-                const protocol::ActorState& me = session.actor_for(key_);
+                const protocol::ActorState& me = session.actor_for(*key_);
                 json delegations = json::array();
                 for (const auto& [k, d] : session.state().delegations()) {
                     if (d.grantee == me.id && !d.revoked) {
@@ -460,7 +460,7 @@ private:
                     }
                 }
                 request.provenance = provenance(tool, arguments, session);
-                const protocol::Id id = issue_record(session, key_, request);
+                const protocol::Id id = issue_record(session, *key_, request);
                 return json{{"record_id", hex_id(id)},
                             {"state", session.state().record(id)->state}};
             });
@@ -475,7 +475,7 @@ private:
                 const protocol::RecordEndorseBody body{
                     session.record_id(text_arg(arguments, "record")), text_arg(arguments, "role")};
                 const protocol::Id id =
-                    session.submit(key_, body, std::nullopt, provenance(tool, arguments, session));
+                    session.submit(*key_, body, std::nullopt, provenance(tool, arguments, session));
                 return json{{"statement_id", hex_id(id)},
                             {"record_id", hex_id(body.record)},
                             {"role", body.role}};
@@ -492,7 +492,7 @@ private:
                 const std::string from = session.state().record(record)->state;
                 const protocol::RecordTransitionBody body{record, from,
                                                           text_arg(arguments, "to_state")};
-                session.submit(key_, body, std::nullopt, provenance(tool, arguments, session));
+                session.submit(*key_, body, std::nullopt, provenance(tool, arguments, session));
                 return json{{"record_id", hex_id(record)}, {"from", from}, {"to", body.to_state}};
             });
 
@@ -531,7 +531,7 @@ private:
     }
 
     std::filesystem::path ledger_;
-    crypto::openssl::KeyPair key_;
+    std::unique_ptr<crypto::Signer> key_;
     std::vector<Tool> tools_;
     std::string instructions_;
 };
@@ -539,7 +539,7 @@ private:
 } // namespace
 
 int cmd_mcp(const Args& args) {
-    Server server(args.ledger(), load_key(args.need("as"), args));
+    Server server(args.ledger(), load_signer(args.need("as"), args));
     std::println(stderr, "cexchain MCP server ready (stdio)");
     return server.run();
 }

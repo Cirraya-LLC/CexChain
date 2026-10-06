@@ -4,10 +4,12 @@
 #
 # Installs the build tools on Debian trixie (the gcc:16-trixie image), plus
 # Clang 23 and its sanitizer and libFuzzer runtimes from apt.llvm.org.
+# SoftHSM stands in for hardware tokens (USB keys, HSMs) in the tests.
 set -eu
 
 apt-get update
-apt-get install -y --no-install-recommends ca-certificates cmake gnupg libssl-dev ninja-build wget
+apt-get install -y --no-install-recommends ca-certificates cmake gnupg libp11-kit-dev libssl-dev ninja-build \
+    softhsm2 wget
 
 install -d -m 0755 /etc/apt/keyrings
 wget -qO /etc/apt/keyrings/apt.llvm.org.asc https://apt.llvm.org/llvm-snapshot.gpg.key
@@ -20,3 +22,4 @@ cmake --version | head -1
 g++ --version | head -1
 clang++-23 --version | head -1
 dpkg-query -W -f 'libssl-dev ${Version}\n' libssl-dev
+softhsm2-util --version

@@ -219,8 +219,8 @@ int cmd_witness_cosign(const Args& args) {
                            hex_id(checkpoint.checkpoint.ledger_id) + " (cexchain witness add-log)"};
     }
     WitnessState state = decode_state(path);
-    const auto key = load_key(args.need("key"), args);
-    if (key.public_key() == state.log.log_key) {
+    const auto key = load_signer(args.need("key"), args);
+    if (key->public_key() == state.log.log_key) {
         throw UsageError{"a ledger's log key cannot witness the ledger"};
     }
     const crypto::openssl::Provider provider;
@@ -238,7 +238,7 @@ int cmd_witness_cosign(const Args& args) {
         return checked.error().code == Errc::rejected ? exit_failure : exit_not_verified;
     }
     const Bytes cosignature =
-        unwrap(protocol::cosign_checkpoint(key, provider, checked->checkpoint), "cosigning")
+        unwrap(protocol::cosign_checkpoint(*key, provider, checked->checkpoint), "cosigning")
             .encoded;
     // Write the cosignature before advancing: a crash in between leaves the
     // witness able to cosign the same checkpoint again.

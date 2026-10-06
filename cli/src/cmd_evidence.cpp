@@ -208,8 +208,8 @@ Json inspect_json(const crypto::Provider& provider, const Bytes& content) {
 
 int cmd_checkpoint_create(const Args& args) {
     Session session(args.ledger());
-    const auto log_key = load_key(args.need("log-key"), args);
-    const auto c = unwrap(session.ledger().checkpoint(log_key), "checkpointing");
+    const auto log_key = load_signer(args.need("log-key"), args);
+    const auto c = unwrap(session.ledger().checkpoint(*log_key), "checkpointing");
     if (args.json()) {
         print_json(checkpoint_json(c.checkpoint));
     } else {
@@ -420,8 +420,8 @@ int cmd_proof_state(const Args& args) {
 int cmd_receipt(const Args& args) {
     Session session(args.ledger());
     const std::uint64_t index = index_argument(session, args.positional().front());
-    const auto log_key = load_key(args.need("log-key"), args);
-    const Bytes receipt = unwrap(session.ledger().receipt(log_key, index), "issuing the receipt");
+    const auto log_key = load_signer(args.need("log-key"), args);
+    const Bytes receipt = unwrap(session.ledger().receipt(*log_key, index), "issuing the receipt");
     const std::filesystem::path out = args.need("out");
     write_file(out, receipt, false);
     const auto parsed = unwrap(protocol::parse_receipt(receipt), "parsing the receipt");
@@ -442,8 +442,8 @@ int cmd_receipt(const Args& args) {
 int cmd_export(const Args& args) {
     Session session(args.ledger());
     const protocol::Id record = session.record_id(args.positional().front());
-    const auto log_key = load_key(args.need("log-key"), args);
-    auto bundle = unwrap(session.ledger().export_evidence(log_key, record), "exporting evidence");
+    const auto log_key = load_signer(args.need("log-key"), args);
+    auto bundle = unwrap(session.ledger().export_evidence(*log_key, record), "exporting evidence");
 
     const auto disclose = split(args.get("disclose").value_or(""), ',');
     if (!disclose.empty() || args.has("with-attachments")) {

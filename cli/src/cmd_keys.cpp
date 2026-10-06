@@ -17,19 +17,23 @@ struct KeyFile {
     crypto::PublicKey public_key;
     bool is_private = false;
     bool encrypted = false;
+    bool on_token = false;
 };
 
 /// Reads a private key file (asking for its passphrase if needed) or a
 /// public key file.
 KeyFile read_key_file(const std::filesystem::path& path, const Args& args) {
+    if (path.string().starts_with("pkcs11:")) {
+        return {load_signer(path.string(), args)->public_key(), true, false, true};
+    }
     const Bytes content = read_file(path);
     if (const auto value = cbor::decode(content)) {
         if (auto key = protocol::decode_public_key(*value)) {
-            return {*key, false, false};
+            return {*key, false, false, false};
         }
     }
     const bool encrypted = crypto::openssl::is_encrypted_pkcs8(content);
-    return {load_key(path, args).public_key(), true, encrypted};
+    return {load_key(path, args).public_key(), true, encrypted, false};
 }
 
 Json key_ids_json(const crypto::Provider& provider, const crypto::PublicKey& key) {
@@ -49,6 +53,24 @@ int cmd_key_generate(const Args& args) {
     const std::filesystem::path out = args.need("out");
     if (std::filesystem::exists(out)) {
         throw CommandError{out.string() + " already exists; keys are never overwritten"};
+    }
+    if (const auto uri = args.get("pkcs11")) {
+        // The private key stays on the token; --out gets the public half.
+        if (args.has("no-passphrase") || args.has("passphrase-file")) {
+            throw UsageError{"a key on a token is protected by the token's PIN, not a passphrase"};
+        }
+        const auto key = generate_on_token(*uri, alg);
+        write_file(out, encode_public_key_file(key->public_key()), false);
+        if (args.json()) {
+            print_json({{"token_key", *uri},
+                        {"public_file", out.string()},
+                        {"public_key", public_key_json(key->public_key())}});
+            return exit_ok;
+        }
+        std::println("{} key generated on the token; it never leaves it", crypto::name(alg));
+        std::println("public half written to {}", out.string());
+        std::println("sign with: --as \"{}\"", *uri);
+        return exit_ok;
     }
     const bool encrypt = !args.has("no-passphrase");
     if (!encrypt && args.has("passphrase-file")) {
@@ -77,16 +99,20 @@ int cmd_key_show(const Args& args) {
     const Json ids = key_ids_json(provider, key.public_key);
     if (args.json()) {
         print_json({{"file", path.string()},
-                    {"type", key.is_private ? "private" : "public"},
+                    {"type", key.on_token     ? "token"
+                             : key.is_private ? "private"
+                                              : "public"},
                     {"encrypted", key.encrypted},
                     {"public_key", public_key_json(key.public_key)},
                     {"key_ids", ids}});
         return exit_ok;
     }
     std::println("file:        {}", path.string());
-    std::println("type:        {}", key.is_private ? (key.encrypted ? "private key (encrypted)"
-                                                                    : "private key (NOT encrypted)")
-                                                   : "public key");
+    std::println("type:        {}",
+                 key.on_token ? "key on a token (the private key never leaves it)"
+                 : key.is_private
+                     ? (key.encrypted ? "private key (encrypted)" : "private key (NOT encrypted)")
+                     : "public key");
     std::println("algorithm:   {}", crypto::name(key.public_key.algorithm));
     std::println("public key:  {}", to_hex(key.public_key.bytes));
     for (const auto& [hash, id] : ids.items()) {

@@ -805,7 +805,7 @@ def smt_proof(lg: Ledger, leaves: list, identifier: bytes) -> list[bytes]:
 
 def generate_protocol_v02() -> None:
     seeds = {name: hashlib.sha256(f"CexChain test key: {name}".encode()).hexdigest()
-             for name in ("org_root", "log", "witness", "person", "agent", "passkey")}
+             for name in ("org_root", "log", "witness", "person", "agent", "passkey", "ukey")}
     keys = {name: ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(seed)) for name, seed in seeds.items()}
     t0 = 1_791_244_800_000
 
@@ -834,11 +834,14 @@ def generate_protocol_v02() -> None:
         record = add("register record", "org_root", {0: 1, 1: 16, 2: ledger_id, 3: org, 5: t0 + 3, 6: nonce(4), 7: {
             1: "cexchain.certificate/1", 2: lg.h(b"fields"), 3: 1}})
 
-        # The organization registers the person's passkey (an Ed25519 credential).
+        # The organization registers the person's passkey (an Ed25519 credential)
+        # and USB key (a hardware key: no relying party, presence method 2).
         credential_id = bytes(range(16))
         credential = {1: "localhost", 2: credential_id, 3: ed_public(keys["passkey"]), 4: "test passkey"}
-        add("register passkey", "org_root", {0: 1, 1: 7, 2: ledger_id, 3: org, 5: t0 + 4, 6: nonce(5), 7: {
-            1: person, 2: [credential]}})
+        ukey_id = hashlib.sha256(dcbor(ed_public(keys["ukey"]))).digest()
+        ukey_credential = {2: ukey_id, 3: ed_public(keys["ukey"]), 4: "test UKey", 5: 2}
+        add("register passkey and UKey", "org_root", {0: 1, 1: 7, 2: ledger_id, 3: org, 5: t0 + 4, 6: nonce(5),
+                                                      7: {1: person, 2: [credential, ukey_credential]}})
 
         # The person endorses with a WebAuthn assertion over the presence challenge.
         endorse = {0: 1, 1: 17, 2: ledger_id, 3: person, 4: delegation, 5: t0 + 5, 6: nonce(6), 7: {
@@ -851,7 +854,14 @@ def generate_protocol_v02() -> None:
         signature = keys["passkey"].sign(authenticator_data + hashlib.sha256(client_data).digest())
         endorse[8] = {1: credential_id, 2: authenticator_data, 3: client_data, 4: signature}
         add("endorse with proof of presence", "person", endorse)
-        add("revoke person", "org_root", {0: 1, 1: 4, 2: ledger_id, 3: org, 5: t0 + 6, 6: nonce(7), 7: {
+
+        # The person approves with the UKey: its key signs the challenge itself.
+        approve = {0: 1, 1: 17, 2: ledger_id, 3: person, 4: delegation, 5: t0 + 6, 6: nonce(8), 7: {
+            1: record, 2: "approver"}}
+        ukey_challenge = lg.h(b"CexChain presence v1" + lg.kid(keys["person"]) + dcbor(approve))
+        approve[8] = {1: ukey_id, 4: keys["ukey"].sign(ukey_challenge)}
+        add("approve with a hardware key", "person", approve)
+        add("revoke person", "org_root", {0: 1, 1: 4, 2: ledger_id, 3: org, 5: t0 + 7, 6: nonce(7), 7: {
             1: person, 2: "left"}})
 
         entries = [dcbor({1: bytes.fromhex(st["statement_id"]), 2: t0 + 1000 + i, 3: bytes.fromhex(st["encoded"])})
@@ -860,9 +870,9 @@ def generate_protocol_v02() -> None:
         # The state after every statement: [kind, id, history].
         leaves = sorted([
             [1, org, [0]],
-            [1, person, [1, 4, 6]],
+            [1, person, [1, 4, 7]],
             [2, delegation, [2]],
-            [3, record, [3, 5]],
+            [3, record, [3, 5, 6]],
         ], key=lambda leaf: leaf[1])
         state_root = smt_root(lg, leaves)
         proofs = [{"kind": leaf[0], "id": leaf[1].hex(), "history": leaf[2],
@@ -893,6 +903,8 @@ def generate_protocol_v02() -> None:
             "log_entries": [e.hex() for e in entries],
             "presence": {"challenge": challenge.hex(), "credential": dcbor(credential).hex(),
                          "statement_index": 5, "user_verified": True},
+            "hardware_presence": {"challenge": ukey_challenge.hex(), "credential": dcbor(ukey_credential).hex(),
+                                  "statement_index": 6},
             "state_root": state_root.hex(),
             "state_commitment": {"index": commitment_index, "id": commitment_id.hex(), "encoded": commitment.hex()},
             "state_proofs": proofs,
@@ -902,9 +914,9 @@ def generate_protocol_v02() -> None:
 
     document = {
         "description": "CexChain protocol objects added in specification revision v0.2, built by an "
-                       "independent Python encoder from spec/cexchain.cddl: a passkey registration "
-                       "(actor-set-presence), a statement with proof of presence (an Ed25519 WebAuthn "
-                       "assertion), a delegation that requires presence, the state commitment (root, "
+                       "independent Python encoder from spec/cexchain.cddl: a passkey and hardware key "
+                       "registration (actor-set-presence), statements with proof of presence (an Ed25519 "
+                       "WebAuthn assertion; a hardware key's signature over the challenge), a delegation that requires presence, the state commitment (root, "
                        "proofs, and the log entry that carries it), and a cosign request. All signatures are "
                        "Ed25519 (deterministic), so every object must be reproduced byte for byte. Keys "
                        "are throwaway test keys: seed = SHA-256(\"CexChain test key: <name>\").",

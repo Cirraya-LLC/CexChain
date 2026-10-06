@@ -225,7 +225,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
       const who = el("div");
       who.append(el("span", "by "), actorLine(e.actor));
       if (e.actor.kind === "person" && e.presence) {
-        who.append(el("span", e.presence.user_verified ? "\u2713 present (passkey, verified)" : "\u2713 present (passkey)", "chip present"));
+        const how = e.presence.method === "hardware-key" ? "hardware key" : e.presence.user_verified ? "passkey, verified" : "passkey";
+        who.append(el("span", "\u2713 present (" + how + ")", "chip present"));
       }
       li.append(who);
       if (e.actor.kind === "person" && !e.presence) {

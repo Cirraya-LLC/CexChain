@@ -24,3 +24,9 @@ target_link_libraries(cexchain PRIVATE cexchain::ledger cexchain::verifier cexch
 target_compile_definitions(cexchain PRIVATE CEXCHAIN_VERSION="${PROJECT_VERSION}")
 target_compile_features(cexchain PRIVATE cxx_std_26)
 cexchain_target_defaults(cexchain)
+
+# Keys on PKCS #11 tokens, when the build has them.
+if(TARGET cexchain_crypto_pkcs11)
+    target_link_libraries(cexchain PRIVATE cexchain::crypto_pkcs11)
+    target_compile_definitions(cexchain PRIVATE CEXCHAIN_HAVE_PKCS11=1)
+endif()
