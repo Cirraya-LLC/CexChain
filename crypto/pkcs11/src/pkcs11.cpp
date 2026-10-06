@@ -72,31 +72,22 @@ std::string trimmed(const unsigned char* data, std::size_t size) {
     return text;
 }
 
-/// A loaded PKCS #11 module, shared by every key that uses it.
+/// A loaded PKCS #11 module, shared by every key that uses it. Modules stay
+/// loaded, and initialized, for the life of the process: unloading one that
+/// started threads or registered handlers is unsafe, and a module's own
+/// allocations stay reachable through its globals.
 struct Module {
     void* handle = nullptr;
     CK_FUNCTION_LIST_PTR functions = nullptr;
-    bool finalize = false;
-
-    Module() = default;
-    Module(const Module&) = delete;
-    Module& operator=(const Module&) = delete;
-    ~Module() {
-        if (finalize) {
-            functions->C_Finalize(nullptr);
-        }
-        if (handle != nullptr) {
-            ::dlclose(handle);
-        }
-    }
 };
 
 Result<std::shared_ptr<Module>> load_module(const std::string& path) {
     static std::mutex mutex;
-    static std::map<std::string, std::weak_ptr<Module>> loaded;
+    // Never destroyed (see Module).
+    static auto* loaded = new std::map<std::string, std::shared_ptr<Module>>();
     const std::lock_guard lock(mutex);
-    if (auto existing = loaded[path].lock()) {
-        return existing;
+    if (auto existing = loaded->find(path); existing != loaded->end()) {
+        return existing->second;
     }
     auto module = std::make_shared<Module>();
     module->handle = ::dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
@@ -106,6 +97,7 @@ Result<std::shared_ptr<Module>> load_module(const std::string& path) {
     auto* get_function_list =
         reinterpret_cast<CK_C_GetFunctionList>(::dlsym(module->handle, "C_GetFunctionList"));
     if (get_function_list == nullptr || get_function_list(&module->functions) != CKR_OK) {
+        ::dlclose(module->handle);
         return token_fail("the library is not a PKCS #11 module");
     }
     CK_C_INITIALIZE_ARGS args{};
@@ -114,8 +106,7 @@ Result<std::shared_ptr<Module>> load_module(const std::string& path) {
     if (rv != CKR_OK && rv != CKR_CRYPTOKI_ALREADY_INITIALIZED) {
         return token_fail("the PKCS #11 module failed to initialize");
     }
-    module->finalize = rv == CKR_OK;
-    loaded[path] = module;
+    loaded->emplace(path, module);
     return module;
 }
 
