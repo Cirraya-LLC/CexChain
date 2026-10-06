@@ -16,6 +16,7 @@ add_library(cexchain_core
     src/protocol/common.cpp
     src/protocol/envelope.cpp
     src/protocol/evidence.cpp
+    src/protocol/id_map.cpp
     src/protocol/log.cpp
     src/protocol/presence.cpp
     src/protocol/reader.cpp

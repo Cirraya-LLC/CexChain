@@ -193,7 +193,7 @@ Json record_json(const Session& session, const protocol::RecordState& record) {
         {"field_root", hex_json(record.field_root)},
         {"endorsements", std::move(endorsements)},
         {"next_states", next_states(record)},
-        {"history", record.history}};
+        {"history", record.history.to_vector()}};
     const protocol::SignedStatement registration = session.statement(record.registered_at_index);
     const auto& body = std::get<protocol::RecordRegisterBody>(registration.statement.body);
     out["metadata"] = body.metadata ? cbor_json(*body.metadata) : Json(nullptr);

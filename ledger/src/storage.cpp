@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
+#include <array>
 #include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <fcntl.h>
 #include <sys/file.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <system_error>
 #include <thread>
@@ -37,7 +39,16 @@ bool full_sync(int fd) noexcept {
 class PosixFile final : public AppendFile {
 public:
     PosixFile(int fd, std::uint64_t size) noexcept : fd_(fd), size_(size) {}
-    ~PosixFile() override { ::close(fd_); }
+    ~PosixFile() override {
+        if (segments_) {
+            for (const auto& segment : segments_->base) {
+                if (const std::uint8_t* base = segment.load()) {
+                    ::munmap(const_cast<std::uint8_t*>(base), segment_size);
+                }
+            }
+        }
+        ::close(fd_);
+    }
     PosixFile(const PosixFile&) = delete;
     PosixFile& operator=(const PosixFile&) = delete;
 
@@ -72,6 +83,30 @@ public:
             done += static_cast<std::size_t>(n);
         }
         return out;
+    }
+
+    /// Reads come from read-only shared mappings of the file, in segments
+    /// mapped once and kept until the handle closes. A segment may extend
+    /// past the end of the file (it grows into it), but only bytes below
+    /// `size()` are ever touched, so no access faults.
+    [[nodiscard]] std::optional<ByteView> view(std::uint64_t offset,
+                                               std::size_t length) const override {
+        const std::uint64_t size = this->size();
+        if (offset > size || length > size - offset) {
+            return std::nullopt;
+        }
+        if (length == 0) {
+            return ByteView{};
+        }
+        const std::uint64_t segment = offset / segment_size;
+        if (segment != (offset + length - 1) / segment_size || segment >= max_segments) {
+            return std::nullopt; // straddles two segments: rare, so read() it
+        }
+        const std::uint8_t* base = mapped(static_cast<std::size_t>(segment));
+        if (base == nullptr) {
+            return std::nullopt;
+        }
+        return ByteView(base + (offset - segment * segment_size), length);
     }
 
     [[nodiscard]] Status append(ByteView data) override {
@@ -109,10 +144,40 @@ public:
     }
 
 private:
+    static constexpr std::uint64_t segment_size = std::uint64_t{1} << 28; // 256 MiB
+    static constexpr std::size_t max_segments = 4096;                     // 1 TiB
+    struct Segments {
+        std::array<std::atomic<const std::uint8_t*>, max_segments> base{};
+    };
+
+    /// The mapping of `segment`, made on first use by whichever reader gets
+    /// there first.
+    [[nodiscard]] const std::uint8_t* mapped(std::size_t segment) const {
+        std::call_once(segments_once_, [this] { segments_ = std::make_unique<Segments>(); });
+        std::atomic<const std::uint8_t*>& slot = segments_->base[segment];
+        if (const std::uint8_t* base = slot.load(std::memory_order_acquire)) {
+            return base;
+        }
+        void* mapping = ::mmap(nullptr, segment_size, PROT_READ, MAP_SHARED, fd_,
+                               static_cast<off_t>(segment * segment_size));
+        if (mapping == MAP_FAILED) {
+            return nullptr;
+        }
+        const std::uint8_t* expected = nullptr;
+        if (!slot.compare_exchange_strong(expected, static_cast<const std::uint8_t*>(mapping),
+                                          std::memory_order_acq_rel)) {
+            ::munmap(mapping, segment_size); // another reader mapped it first
+            return expected;
+        }
+        return static_cast<const std::uint8_t*>(mapping);
+    }
+
     int fd_;
     /// Appends run on one thread while reads, which check bounds, run on
     /// others (pread itself is safe to share).
     std::atomic<std::uint64_t> size_;
+    mutable std::once_flag segments_once_;
+    mutable std::unique_ptr<Segments> segments_;
 };
 
 Status sync_directory(const std::filesystem::path& directory) {

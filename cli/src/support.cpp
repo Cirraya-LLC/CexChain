@@ -40,16 +40,16 @@ protocol::Id resolve(const Map& map, std::string_view text, std::string_view wha
     if (lower.size() < min_prefix) {
         throw UsageError{std::string(what) + " id must have at least 8 hex digits"};
     }
-    const protocol::Id* found = nullptr;
+    std::optional<protocol::Id> found;
     for (const auto& [key, value] : map) {
         if (hex_id(value.id).starts_with(lower)) {
-            if (found != nullptr) {
+            if (found) {
                 throw UsageError{"ambiguous " + std::string(what) + " id " + std::string(text)};
             }
-            found = &value.id;
+            found = value.id;
         }
     }
-    if (found == nullptr) {
+    if (!found) {
         throw CommandError{"no " + std::string(what) + " with id " + std::string(text)};
     }
     return *found;

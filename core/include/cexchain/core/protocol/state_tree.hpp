@@ -82,7 +82,7 @@ struct StateProof {
 /// O(log n), where `state_root` and `prove_state` recompute everything,
 /// O(n log n). It produces exactly their roots and proofs.
 ///
-/// Nodes live in two contiguous arenas and refer to each other by 32-bit
+/// Nodes live in two chunked arenas and refer to each other by 32-bit
 /// index, not by pointer: compact, cache-friendly, and trivially movable.
 /// Changes are staged with `set` and hashed by `commit`; `root`, `siblings`,
 /// and `leaf_hash` are const and safe to call from many threads at once
@@ -138,8 +138,9 @@ private:
     const crypto::Provider* provider_;
     crypto::HashAlg hash_;
     Hash empty_;
-    std::vector<Leaf> leaves_;
-    std::vector<Inner> inners_;
+    // Stable chunks: no doubling slack, and no pause to copy a large arena.
+    StableVector<Leaf> leaves_;
+    StableVector<Inner> inners_;
     Ref root_ = none;
     bool dirty_ = false;
 };

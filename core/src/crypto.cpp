@@ -212,7 +212,7 @@ Result<Digest> Digest::from_bytes(ByteView bytes) noexcept {
     }
     Digest digest;
     std::ranges::copy(bytes, digest.data_.begin());
-    digest.size_ = bytes.size();
+    digest.size_ = static_cast<std::uint8_t>(bytes.size());
     return digest;
 }
 

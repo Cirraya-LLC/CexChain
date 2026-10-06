@@ -2,6 +2,7 @@
 // Copyright 2026 Cirraya
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cstddef>
 
@@ -49,6 +50,16 @@ Result<Digest> node_hash(const crypto::Provider& provider, HashAlg alg, const Di
     return provider.digest(alg, {ByteView(&prefix, 1), left.bytes(), right.bytes()});
 }
 
+namespace {
+
+Result<Digest> node_hash(const crypto::Provider& provider, HashAlg alg, ByteView left,
+                         ByteView right) {
+    const std::uint8_t prefix = node_prefix;
+    return provider.digest(alg, {ByteView(&prefix, 1), left, right});
+}
+
+} // namespace
+
 Result<Digest> empty_root(const crypto::Provider& provider, HashAlg alg) {
     return provider.digest(alg, ByteView{});
 }
@@ -57,11 +68,29 @@ Result<Digest> empty_root(const crypto::Provider& provider, HashAlg alg) {
 // Tree
 // ---------------------------------------------------------------------------
 
+void HashArray::push_back(ByteView hash) {
+    if (chunks_.empty() || chunks_.back().size() == per_chunk * stride_) {
+        chunks_.emplace_back();
+        // The first chunk grows as needed (small trees stay small); the
+        // rest are allocated whole.
+        if (chunks_.size() > 1) {
+            chunks_.back().reserve(per_chunk * stride_);
+        }
+    }
+    chunks_.back().insert(chunks_.back().end(), hash.begin(), hash.end());
+    ++size_;
+}
+
 Tree::Tree(const crypto::Provider& provider, HashAlg alg) noexcept
-    : provider_(&provider), alg_(alg), levels_(1) {}
+    : provider_(&provider), alg_(alg), levels_(1, HashArray(crypto::digest_size(alg))) {}
 
 std::uint64_t Tree::size() const noexcept {
     return levels_.front().size();
+}
+
+Digest Tree::stored(std::size_t level, std::uint64_t index) const {
+    // Stored hashes have the algorithm's size, so this cannot fail.
+    return *Digest::from_bytes(levels_[level][index]);
 }
 
 Result<std::uint64_t> Tree::append(ByteView entry) {
@@ -79,24 +108,25 @@ Result<std::uint64_t> Tree::append_leaf_hash(const Digest& leaf) {
     }
     // Compute every subtree root this leaf completes before mutating, so a
     // hashing failure leaves the tree unchanged.
-    std::vector<Digest> completed;
+    std::array<Digest, 64> completed;
+    std::size_t count = 0;
     Digest carry = leaf;
     const std::uint64_t index = size();
     for (std::size_t h = 0; lsb(index >> h); ++h) {
-        auto parent = node_hash(*provider_, alg_, levels_[h].back(), carry);
+        auto parent = node_hash(*provider_, alg_, levels_[h].back(), carry.bytes());
         if (!parent) {
             return std::unexpected(parent.error());
         }
         carry = *parent;
-        completed.push_back(carry);
+        completed[count++] = carry;
     }
 
-    levels_.front().push_back(leaf);
-    for (std::size_t h = 0; h < completed.size(); ++h) {
+    levels_.front().push_back(leaf.bytes());
+    for (std::size_t h = 0; h < count; ++h) {
         if (levels_.size() <= h + 1) {
-            levels_.emplace_back();
+            levels_.emplace_back(crypto::digest_size(alg_));
         }
-        levels_[h + 1].push_back(completed[h]);
+        levels_[h + 1].push_back(completed[h].bytes());
     }
     return index;
 }
@@ -105,14 +135,14 @@ Result<Digest> Tree::leaf(std::uint64_t index) const {
     if (index >= size()) {
         return fail(Errc::invalid_argument, "leaf index is out of range");
     }
-    return levels_.front()[static_cast<std::size_t>(index)];
+    return stored(0, index);
 }
 
 Result<Digest> Tree::subtree_root(std::uint64_t begin, std::uint64_t end) const {
     const std::uint64_t n = end - begin;
     if (std::has_single_bit(n) && begin % n == 0) {
         const auto h = static_cast<std::size_t>(std::countr_zero(n));
-        return levels_[h][static_cast<std::size_t>(begin >> h)];
+        return stored(h, begin >> h);
     }
     const std::uint64_t k = split_point(n);
     auto left = subtree_root(begin, begin + k);

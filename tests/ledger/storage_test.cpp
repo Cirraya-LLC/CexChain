@@ -165,6 +165,52 @@ TEST_CASE("record log works on a POSIX directory", "[ledger][storage]") {
     std::filesystem::remove_all(directory);
 }
 
+TEST_CASE("POSIX files lend mapped views that see later appends", "[ledger][storage]") {
+    const auto directory = std::filesystem::temp_directory_path() /
+                           ("cexchain-view-test-" + std::to_string(ledger::SystemClock{}.now()));
+    {
+        auto fs = ledger::PosixFileSystem::open_directory(directory);
+        REQUIRE(fs);
+        auto file = fs->open("data");
+        REQUIRE(file);
+        REQUIRE((*file)->append(as_bytes("first")));
+        // Mapping the segment now: the file is 5 bytes long.
+        const auto first = (*file)->view(0, 5);
+        REQUIRE(first);
+        CHECK(Bytes(first->begin(), first->end()) == Bytes{'f', 'i', 'r', 's', 't'});
+        // The mapping grows with the file: no remapping, no copy.
+        Bytes more(10000, 0x5a);
+        REQUIRE((*file)->append(more));
+        const auto later = (*file)->view(5, more.size());
+        REQUIRE(later);
+        CHECK(Bytes(later->begin(), later->end()) == more);
+        CHECK(first->data() + 5 == later->data());
+        // Nothing past what this handle knows of.
+        CHECK(!(*file)->view(5, more.size() + 1));
+        CHECK(!(*file)->view((*file)->size() + 1, 0));
+        CHECK((*file)->view((*file)->size(), 0));
+
+        // The record log reads through views, and still checks every CRC.
+        auto log = ledger::RecordLog::open(*fs, "log");
+        REQUIRE(log);
+        ledger::SeededEntropy entropy(9);
+        std::vector<Bytes> written;
+        for (std::uint64_t i = 0; i < 200; ++i) {
+            written.push_back(record_bytes(i, entropy));
+            REQUIRE(log->append(written.back()));
+            Bytes scratch;
+            const auto view = log->view(i, scratch);
+            REQUIRE(view);
+            CHECK(scratch.empty()); // lent, not copied
+            CHECK(Bytes(view->begin(), view->end()) == written.back());
+        }
+        for (std::uint64_t i = 0; i < written.size(); ++i) {
+            CHECK(*log->read(i) == written[i]);
+        }
+    }
+    std::filesystem::remove_all(directory);
+}
+
 TEST_CASE("only one process at a time holds a ledger directory", "[ledger][storage]") {
     const auto directory = std::filesystem::temp_directory_path() /
                            ("cexchain-lock-" + std::to_string(ledger::SystemClock{}.now()));

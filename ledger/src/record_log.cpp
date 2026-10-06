@@ -49,22 +49,40 @@ struct ScanResult {
     std::uint64_t payload_size = 0;
 };
 
+/// The bytes [offset, offset + length) of `file`: a view of its mapping if
+/// it lends one, else a copy in `scratch`.
+Result<ByteView> bytes_at(const AppendFile& file, std::uint64_t offset, std::size_t length,
+                          Bytes& scratch) {
+    if (const auto view = file.view(offset, length)) {
+        return *view;
+    }
+    auto copy = file.read(offset, length);
+    if (!copy) {
+        return std::unexpected(copy.error());
+    }
+    scratch = std::move(*copy);
+    return ByteView(scratch);
+}
+
 /// Examines the framed record at `offset`.
 Result<ScanResult> scan_record(const AppendFile& file, std::uint64_t offset) {
     const std::uint64_t remaining = file.size() - offset;
     if (remaining < header_size) {
         return ScanResult{Scan::damaged};
     }
-    auto header = file.read(offset, header_size);
+    Bytes header_scratch;
+    auto header = bytes_at(file, offset, header_size, header_scratch);
     if (!header) {
         return std::unexpected(header.error());
     }
-    const std::uint64_t length = get_be(ByteView(*header).first(4));
-    const auto crc = static_cast<std::uint32_t>(get_be(ByteView(*header).subspan(4)));
+    const std::uint64_t length = get_be(header->first(4));
+    const auto crc = static_cast<std::uint32_t>(get_be(header->subspan(4)));
     if (length > max_record_size || length > remaining - header_size) {
         return ScanResult{Scan::damaged};
     }
-    auto payload = file.read(offset + header_size, static_cast<std::size_t>(length));
+    Bytes payload_scratch;
+    auto payload =
+        bytes_at(file, offset + header_size, static_cast<std::size_t>(length), payload_scratch);
     if (!payload) {
         return std::unexpected(payload.error());
     }
@@ -149,7 +167,11 @@ Result<std::uint64_t> read_last_synced_size(AppendFile& file, bool recover) {
 
 RecordLog::RecordLog(std::unique_ptr<AppendFile> log, std::unique_ptr<AppendFile> synced,
                      std::vector<std::uint64_t> offsets, std::uint64_t end)
-    : log_(std::move(log)), synced_(std::move(synced)), offsets_(std::move(offsets)), end_(end) {}
+    : log_(std::move(log)), synced_(std::move(synced)), end_(end) {
+    for (const std::uint64_t offset : offsets) {
+        offsets_.push_back(offset);
+    }
+}
 
 RecordLog::RecordLog(RecordLog&&) noexcept = default;
 RecordLog& RecordLog::operator=(RecordLog&&) noexcept = default;
@@ -209,25 +231,38 @@ Result<RecordLog> RecordLog::open(FileSystem& fs, std::string_view name, Recover
     return RecordLog(std::move(*log), std::move(*synced_file), std::move(offsets), offset);
 }
 
-Result<Bytes> RecordLog::read(std::uint64_t index) const {
+Result<ByteView> RecordLog::view(std::uint64_t index, Bytes& scratch) const {
     if (index >= offsets_.size()) {
         return fail(Errc::invalid_argument, "record index is out of range");
     }
     const std::uint64_t offset = offsets_[static_cast<std::size_t>(index)];
-    auto header = log_->read(offset, header_size);
+    Bytes header_scratch;
+    auto header = bytes_at(*log_, offset, header_size, header_scratch);
     if (!header) {
         return std::unexpected(header.error());
     }
-    const std::uint64_t length = get_be(ByteView(*header).first(4));
-    auto payload = log_->read(offset + header_size, static_cast<std::size_t>(length));
+    const std::uint64_t length = get_be(header->first(4));
+    const auto crc = static_cast<std::uint32_t>(get_be(header->subspan(4)));
+    auto payload = bytes_at(*log_, offset + header_size, static_cast<std::size_t>(length), scratch);
     if (!payload) {
         return std::unexpected(payload.error());
     }
-    if (detail::crc32c(*payload) !=
-        static_cast<std::uint32_t>(get_be(ByteView(*header).subspan(4)))) {
+    if (detail::crc32c(*payload) != crc) {
         return fail(Errc::malformed, "a log record is corrupted");
     }
     return payload;
+}
+
+Result<Bytes> RecordLog::read(std::uint64_t index) const {
+    Bytes scratch;
+    auto payload = view(index, scratch);
+    if (!payload) {
+        return std::unexpected(payload.error());
+    }
+    if (payload->data() == scratch.data()) {
+        return scratch; // read() already copied it
+    }
+    return Bytes(payload->begin(), payload->end());
 }
 
 Status RecordLog::append(std::span<const ByteView> payloads) {
@@ -289,7 +324,9 @@ bool RecordLog::outdated() const {
 }
 
 void RecordLog::publish(const Pending& pending) {
-    offsets_.insert(offsets_.end(), pending.offsets.begin(), pending.offsets.end());
+    for (const std::uint64_t offset : pending.offsets) {
+        offsets_.push_back(offset);
+    }
     end_ = pending.end;
 }
 
@@ -331,7 +368,9 @@ Result<std::uint64_t> RecordLog::refresh(FileSystem& fs, std::string_view name, 
     }
     log_ = std::move(*log);
     synced_ = std::move(*synced_file);
-    offsets_.insert(offsets_.end(), added.begin(), added.end());
+    for (const std::uint64_t at : added) {
+        offsets_.push_back(at);
+    }
     end_ = offset;
     failed_ = false;
     return added.size();

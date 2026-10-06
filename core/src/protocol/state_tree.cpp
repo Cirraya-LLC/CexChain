@@ -85,7 +85,7 @@ StateLeaf delegation_leaf(const DelegationState& d) {
 }
 
 StateLeaf record_leaf(const RecordState& r) {
-    return {ObjectKind::record, r.id, r.history};
+    return {ObjectKind::record, r.id, r.history.to_vector()};
 }
 
 } // namespace

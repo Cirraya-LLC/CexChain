@@ -7,23 +7,19 @@
 #include <cstdint>
 #include <map>
 #include <optional>
-#include <set>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include <cexchain/core/crypto.hpp>
 #include <cexchain/core/error.hpp>
+#include <cexchain/core/protocol/id_map.hpp>
 #include <cexchain/core/protocol/statement.hpp>
 
 /// The ledger's state: a pure function of its log. Every registered statement
 /// is validated against the state built from the statements before it, then
 /// applied. Replaying a log therefore re-validates all of it.
 namespace cexchain::protocol {
-
-/// Identifiers as map keys.
-using IdKey = std::array<std::uint8_t, id_size>;
-[[nodiscard]] IdKey key_of(const Id& id) noexcept;
 
 /// Statements may claim an issue time at most this far ahead of the ledger
 /// clock.
@@ -33,14 +29,15 @@ inline constexpr Timestamp max_clock_skew_ms = 5 * 60 * 1000;
 /// links.
 inline constexpr std::size_t max_delegation_depth = 16;
 
+// Ids in state objects are CompactIds: millions of objects (D-048).
 struct ActorState {
-    Id id;
+    CompactId id;
     /// nullopt for the organization actor created by genesis.
     std::optional<ActorKind> kind;
     std::string display_name;
     crypto::PublicKey key;
-    Id kid;
-    std::optional<Id> responsible;
+    CompactId kid;
+    std::optional<CompactId> responsible;
     std::optional<AgentProfile> agent;
     bool revoked = false;
     std::uint64_t registered_at_index = 0;
@@ -56,12 +53,12 @@ struct ActorState {
 };
 
 struct DelegationState {
-    Id id;
-    Id grantor;
+    CompactId id;
+    CompactId grantor;
     /// The delegation the grantor acted under; nullopt if the organization
     /// granted it directly.
-    std::optional<Id> parent;
-    Id grantee;
+    std::optional<CompactId> parent;
+    CompactId grantee;
     Scope scope;
     bool revoked = false;
     std::uint64_t granted_at_index = 0;
@@ -70,22 +67,23 @@ struct DelegationState {
 
 struct Endorsement {
     std::string role;
-    Id actor;
+    CompactId actor;
     std::uint64_t index = 0;
 };
 
 struct RecordState {
-    Id id;
+    CompactId id;
     std::string record_type;
-    Id registrant;
+    CompactId registrant;
     std::string state;
-    Bytes field_root;
+    /// A digest under the ledger hash (id-sized).
+    std::array<std::uint8_t, id_size> field_root{};
     std::uint64_t field_count = 0;
     std::vector<Endorsement> endorsements;
     bool revoked = false;
     std::uint64_t registered_at_index = 0;
     /// Log indices of every statement about this record, in order.
-    std::vector<std::uint64_t> history;
+    IndexList history;
 };
 
 class LedgerState {
@@ -120,11 +118,13 @@ public:
     /// The log index of a registered statement.
     [[nodiscard]] std::optional<std::uint64_t> statement_index(const Id& id) const;
 
-    [[nodiscard]] const std::map<IdKey, ActorState>& actors() const noexcept { return actors_; }
-    [[nodiscard]] const std::map<IdKey, DelegationState>& delegations() const noexcept {
+    /// Every actor, delegation, and record, in the order the log created
+    /// them; each element is {key, value}.
+    [[nodiscard]] const IdMap<ActorState>& actors() const noexcept { return actors_; }
+    [[nodiscard]] const IdMap<DelegationState>& delegations() const noexcept {
         return delegations_;
     }
-    [[nodiscard]] const std::map<IdKey, RecordState>& records() const noexcept { return records_; }
+    [[nodiscard]] const IdMap<RecordState>& records() const noexcept { return records_; }
 
     /// The objects created or changed since the last call (possibly
     /// repeated), in order: what an incremental state tree must update.
@@ -148,14 +148,16 @@ private:
     crypto::PublicKey root_key_;
     crypto::PublicKey log_key_;
 
-    std::map<IdKey, ActorState> actors_;
+    IdMap<ActorState> actors_;
+    /// Kids change with key rotations, and a rotated-away kid is free again:
+    /// actors are few, so a plain map.
     std::map<IdKey, IdKey> actors_by_kid_;
-    std::map<IdKey, DelegationState> delegations_;
-    std::map<IdKey, RecordState> records_;
-    std::map<IdKey, std::uint64_t> statements_;
+    IdMap<DelegationState> delegations_;
+    IdMap<RecordState> records_;
+    IdMap<std::uint64_t> statements_;
     /// (signer, nonce) of every statement: a payload is never accepted twice,
     /// even re-signed with a rotated key.
-    std::set<std::pair<IdKey, Nonce>> nonces_;
+    NonceSet nonces_;
     std::vector<IdKey> changes_;
 };
 

@@ -58,13 +58,6 @@ Status check_narrowing(const Scope& parent, const Scope& child) {
 
 } // namespace
 
-IdKey key_of(const Id& id) noexcept {
-    IdKey key{};
-    const ByteView bytes = id.bytes();
-    std::copy_n(bytes.begin(), std::min(bytes.size(), key.size()), key.begin());
-    return key;
-}
-
 Result<LedgerState> LedgerState::from_genesis(const crypto::Provider& provider,
                                               const SignedStatement& genesis) {
     const auto* body = std::get_if<GenesisBody>(&genesis.statement.body);
@@ -96,31 +89,28 @@ Result<LedgerState> LedgerState::from_genesis(const crypto::Provider& provider,
     organization.key = body->root_key;
     organization.kid = *kid;
     state.actors_by_kid_[key_of(*kid)] = key_of(genesis.id);
-    state.actors_[key_of(genesis.id)] = std::move(organization);
+    state.actors_.insert_or_assign(key_of(genesis.id), std::move(organization));
     state.changes_.push_back(key_of(genesis.id));
-    state.statements_[key_of(genesis.id)] = 0;
-    state.nonces_.insert({key_of(genesis.id), genesis.statement.nonce});
+    state.statements_.insert_or_assign(key_of(genesis.id), 0);
+    state.nonces_.insert(*state.actors_.position(key_of(genesis.id)), genesis.statement.nonce);
     return state;
 }
 
 const ActorState* LedgerState::actor(const Id& id) const {
-    const auto it = actors_.find(key_of(id));
-    return it == actors_.end() ? nullptr : &it->second;
+    return actors_.find(key_of(id));
 }
 
 const DelegationState* LedgerState::delegation(const Id& id) const {
-    const auto it = delegations_.find(key_of(id));
-    return it == delegations_.end() ? nullptr : &it->second;
+    return delegations_.find(key_of(id));
 }
 
 const RecordState* LedgerState::record(const Id& id) const {
-    const auto it = records_.find(key_of(id));
-    return it == records_.end() ? nullptr : &it->second;
+    return records_.find(key_of(id));
 }
 
 std::optional<std::uint64_t> LedgerState::statement_index(const Id& id) const {
-    const auto it = statements_.find(key_of(id));
-    return it == statements_.end() ? std::nullopt : std::optional(it->second);
+    const std::uint64_t* index = statements_.find(key_of(id));
+    return index == nullptr ? std::nullopt : std::optional(*index);
 }
 
 std::optional<std::string> LedgerState::record_type_of(const Statement& statement) const {
@@ -158,7 +148,9 @@ Status LedgerState::validate(const crypto::Provider& provider,
     if (statements_.contains(key_of(signed_statement.id))) {
         return fail(Errc::rejected, "the statement is already registered");
     }
-    if (nonces_.contains({key_of(*statement.actor_id), statement.nonce})) {
+    // Only registered actors have used nonces.
+    if (const auto signer_at = actors_.position(key_of(*statement.actor_id));
+        signer_at && nonces_.contains(*signer_at, statement.nonce)) {
         return fail(Errc::rejected, "the statement repeats an earlier one (same signer and nonce)");
     }
     if (statement.issued_at > now + max_clock_skew_ms) {
@@ -444,9 +436,12 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
                           std::uint64_t index) {
     const Statement& statement = signed_statement.statement;
     const Id& id = signed_statement.id;
-    statements_[key_of(id)] = index;
+    statements_.insert_or_assign(key_of(id), index);
     if (statement.actor_id) {
-        nonces_.insert({key_of(*statement.actor_id), statement.nonce});
+        // validate() found the signer.
+        if (const auto signer_at = actors_.position(key_of(*statement.actor_id))) {
+            nonces_.insert(*signer_at, statement.nonce);
+        }
     }
 
     return std::visit(
@@ -469,7 +464,7 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
                 actor.agent = b.agent;
                 actor.registered_at_index = index;
                 actors_by_kid_[key_of(*kid)] = key_of(id);
-                actors_[key_of(id)] = std::move(actor);
+                actors_.insert_or_assign(key_of(id), std::move(actor));
                 changes_.push_back(key_of(id));
                 return {};
             },
@@ -502,7 +497,7 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
                 delegation.grantee = b.grantee;
                 delegation.scope = b.scope;
                 delegation.granted_at_index = index;
-                delegations_[key_of(id)] = std::move(delegation);
+                delegations_.insert_or_assign(key_of(id), std::move(delegation));
                 changes_.push_back(key_of(id));
                 return {};
             },
@@ -528,11 +523,15 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
                 record.registrant = *statement.actor_id;
                 record.state =
                     std::string(type != nullptr ? type->initial_state : generic_initial_state);
-                record.field_root = b.field_root;
+                // parse_statement holds it to the id size.
+                std::ranges::copy_n(b.field_root.begin(),
+                                    static_cast<std::ptrdiff_t>(
+                                        std::min(b.field_root.size(), record.field_root.size())),
+                                    record.field_root.begin());
                 record.field_count = b.field_count;
                 record.registered_at_index = index;
                 record.history.push_back(index);
-                records_[key_of(id)] = std::move(record);
+                records_.insert_or_assign(key_of(id), std::move(record));
                 changes_.push_back(key_of(id));
                 return {};
             },
@@ -578,8 +577,7 @@ const ActorState* LedgerState::actor_by_kid(const Id& kid) const {
     if (it == actors_by_kid_.end()) {
         return nullptr;
     }
-    const auto actor = actors_.find(it->second);
-    return actor == actors_.end() ? nullptr : &actor->second;
+    return actors_.find(it->second);
 }
 
 } // namespace cexchain::protocol

@@ -149,6 +149,11 @@ public:
 
     /// The encoded log entry at `index` (the bytes the tree commits to).
     [[nodiscard]] Result<Bytes> entry(std::uint64_t index) const;
+    /// The same without copying it: `visit` sees the bytes in place, under
+    /// the readers' lock, and must not keep the view or call back into the
+    /// ledger's writing methods.
+    [[nodiscard]] Status visit_entry(std::uint64_t index,
+                                     const std::function<void(ByteView)>& visit) const;
 
     [[nodiscard]] Result<crypto::Digest> root(std::uint64_t tree_size) const;
     [[nodiscard]] Result<std::vector<crypto::Digest>>

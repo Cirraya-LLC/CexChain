@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <vector>
@@ -36,11 +37,36 @@ inline constexpr std::size_t max_consistency_proof_length = 65;
 /// Root of the empty tree: HASH() of the empty string.
 [[nodiscard]] Result<Digest> empty_root(const crypto::Provider& provider, HashAlg alg);
 
+/// Hashes of one size, back to back in fixed-size chunks: no per-hash
+/// overhead, and growing never moves what is stored (so no pause to copy
+/// a large array).
+class HashArray {
+public:
+    explicit HashArray(std::size_t stride) noexcept : stride_(stride) {}
+
+    [[nodiscard]] std::uint64_t size() const noexcept { return size_; }
+    /// Appends `hash`, which must be `stride` bytes.
+    void push_back(ByteView hash);
+    [[nodiscard]] ByteView operator[](std::uint64_t index) const noexcept {
+        const auto& chunk = chunks_[static_cast<std::size_t>(index / per_chunk)];
+        return {chunk.data() + static_cast<std::size_t>(index % per_chunk) * stride_, stride_};
+    }
+    [[nodiscard]] ByteView back() const noexcept { return (*this)[size_ - 1]; }
+
+private:
+    static constexpr std::uint64_t per_chunk = 1024;
+
+    std::size_t stride_;
+    std::uint64_t size_ = 0;
+    std::vector<std::vector<std::uint8_t>> chunks_;
+};
+
 /// An append-only Merkle tree held in memory.
 ///
 /// The tree stores the root of every complete, aligned subtree. Roots and
 /// proofs for any current or past tree size therefore cost O(log n) lookups
-/// plus at most O(log n) hash operations.
+/// plus at most O(log n) hash operations. About two hashes per entry, with
+/// no overhead beyond them.
 ///
 /// The provider must outlive the tree.
 class Tree {
@@ -78,6 +104,7 @@ public:
 
 private:
     [[nodiscard]] Result<Digest> subtree_root(std::uint64_t begin, std::uint64_t end) const;
+    [[nodiscard]] Digest stored(std::size_t level, std::uint64_t index) const;
     [[nodiscard]] Status inclusion_path(std::uint64_t index, std::uint64_t begin, std::uint64_t end,
                                         std::vector<Digest>& out) const;
     [[nodiscard]] Status consistency_subproof(std::uint64_t old_size, std::uint64_t begin,
@@ -88,7 +115,7 @@ private:
     HashAlg alg_;
     /// levels_[h][i] is the root of the complete subtree covering leaves
     /// [i * 2^h, (i + 1) * 2^h).
-    std::vector<std::vector<Digest>> levels_;
+    std::vector<HashArray> levels_;
 };
 
 /// Computes the root that an inclusion proof leads to (RFC 9162 §2.1.3.2,

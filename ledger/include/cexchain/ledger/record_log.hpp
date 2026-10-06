@@ -12,6 +12,7 @@
 
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/error.hpp>
+#include <cexchain/core/protocol/id_map.hpp>
 #include <cexchain/ledger/storage.hpp>
 
 /// A durable, append-only sequence of records.
@@ -52,6 +53,10 @@ public:
 
     /// The payload of record `index`.
     [[nodiscard]] Result<Bytes> read(std::uint64_t index) const;
+    /// The same without a copy where the file lends its bytes (see
+    /// AppendFile::view), else copied into `scratch`: valid until this log
+    /// is refreshed, reopened, or destroyed, or `scratch` changes.
+    [[nodiscard]] Result<ByteView> view(std::uint64_t index, Bytes& scratch) const;
 
     /// Appends records and makes them durable. On success every record is
     /// acknowledged; on failure none may be relied on, and the log must be
@@ -91,7 +96,9 @@ private:
 
     std::unique_ptr<AppendFile> log_;
     std::unique_ptr<AppendFile> synced_;
-    std::vector<std::uint64_t> offsets_;
+    /// Chunked: appending never copies (it happens under the readers'
+    /// lock) and leaves no doubling slack.
+    protocol::StableVector<std::uint64_t> offsets_;
     /// The offset just past the last record.
     std::uint64_t end_ = 0;
     bool failed_ = false;

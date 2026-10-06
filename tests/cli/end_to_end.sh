@@ -124,6 +124,8 @@ contains 'state:      issued' record.txt
 contains 'metadata:   product = Flange DN50' record.txt
 contains 'attachment: report.pdf (application/pdf, 26 bytes)' record.txt
 run record show "$RECORD" --json | json 'd["next_states"]' | contains suspended
+run record show "$RECORD" --json | json 'all(isinstance(i, int) for i in d["history"]) and len(d["history"]) >= 1' | contains -x True
+run record show "$RECORD" --json | json 'len(d["field_root"]) == 64' | contains -x True
 run record fields "$RECORD" | contains -x 'result = pass'
 run record fields "$RECORD" --json | json 'd["fields"]["batch"]' | contains -x B-2026-1006
 

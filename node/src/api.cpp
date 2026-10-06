@@ -620,12 +620,14 @@ struct LedgerApi::State {
         cbor::Array out;
         std::size_t bytes = 0;
         for (std::uint64_t i = span->first; i < span->second && bytes < max_batch_bytes; ++i) {
-            auto entry = ledger->entry(i);
-            if (!entry) {
-                return error_response(entry.error());
+            if (auto read = ledger->visit_entry(i,
+                                                [&](ByteView entry) {
+                                                    bytes += entry.size();
+                                                    out.push_back(cbor::Value::bytes(entry));
+                                                });
+                !read) {
+                return error_response(read.error());
             }
-            bytes += entry->size();
-            out.push_back(cbor::Value::bytes(*entry));
         }
         return cbor_response(cbor::Value::array(std::move(out)));
     }
@@ -683,9 +685,13 @@ struct LedgerApi::State {
         if (!index) {
             return error_response(404, "not_found", "no such statement");
         }
-        auto bytes = ledger->entry(*index);
-        auto entry = bytes ? protocol::decode_log_entry(*bytes)
-                           : Result<protocol::LogEntry>(std::unexpected(bytes.error()));
+        // Decoded in place: no copy of the entry.
+        Result<protocol::LogEntry> entry = fail(Errc::not_found, "no such entry");
+        if (auto read = ledger->visit_entry(
+                *index, [&](ByteView bytes) { entry = protocol::decode_log_entry(bytes); });
+            !read) {
+            return error_response(read.error());
+        }
         if (!entry) {
             return error_response(entry.error());
         }

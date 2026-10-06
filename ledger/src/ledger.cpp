@@ -310,17 +310,18 @@ struct Ledger::Impl {
         Replayed total;
         for (std::uint64_t begin = from; begin < to; begin += chunk) {
             const std::uint64_t end = std::min(to, begin + chunk);
-            std::vector<Bytes> bytes;
-            bytes.reserve(end - begin);
+            // Straight from the file's mapping where it lends one.
+            std::vector<Bytes> scratch(end - begin);
+            std::vector<ByteView> views;
+            views.reserve(end - begin);
             for (std::uint64_t i = begin; i < end; ++i) {
-                auto b = log.read(i);
-                if (!b) {
-                    total.error = b.error();
+                auto view = log.view(i, scratch[i - begin]);
+                if (!view) {
+                    total.error = view.error();
                     return total;
                 }
-                bytes.push_back(std::move(*b));
+                views.push_back(*view);
             }
-            const std::vector<ByteView> views(bytes.begin(), bytes.end());
             const Replayed part = replay(views, begin);
             // These are already durable: the tree takes them at once.
             if (auto s = append_merkle(std::span(views).first(part.applied)); !s) {
@@ -821,6 +822,20 @@ Result<Bytes> Ledger::entry(std::uint64_t index) const {
         return fail(Errc::invalid_argument, "record index is out of range");
     }
     return impl_->log.read(index);
+}
+
+Status Ledger::visit_entry(std::uint64_t index, const std::function<void(ByteView)>& visit) const {
+    const std::shared_lock lock(impl_->log_mutex);
+    if (index >= impl_->tree.size()) {
+        return fail(Errc::invalid_argument, "record index is out of range");
+    }
+    Bytes scratch;
+    auto view = impl_->log.view(index, scratch);
+    if (!view) {
+        return std::unexpected(view.error());
+    }
+    visit(*view);
+    return {};
 }
 
 Result<crypto::Digest> Ledger::root(std::uint64_t tree_size) const {

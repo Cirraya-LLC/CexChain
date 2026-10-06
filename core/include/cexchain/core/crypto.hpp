@@ -110,8 +110,10 @@ public:
 
 private:
     std::array<std::uint8_t, max_size> data_{};
-    std::size_t size_ = 0;
+    std::uint8_t size_ = 0;
 };
+// Ids and hashes fill the ledger's memory: no padding (D-048).
+static_assert(sizeof(Digest) == Digest::max_size + 1);
 
 struct PublicKey {
     SigAlg algorithm;

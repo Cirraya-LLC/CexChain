@@ -9,6 +9,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -33,6 +34,13 @@ public:
     /// does not count).
     [[nodiscard]] virtual Result<std::uint64_t> current_size() const { return size(); }
     [[nodiscard]] virtual Result<Bytes> read(std::uint64_t offset, std::size_t length) const = 0;
+    /// The bytes [offset, offset + length), within `size()`, without copying
+    /// them: valid for as long as this handle exists. Nothing if this file
+    /// cannot lend them (then `read` copies them).
+    [[nodiscard]] virtual std::optional<ByteView> view(std::uint64_t /*offset*/,
+                                                       std::size_t /*length*/) const {
+        return std::nullopt;
+    }
     /// Appends `data`. It is not durable until `sync` returns successfully.
     [[nodiscard]] virtual Status append(ByteView data) = 0;
     /// Makes every appended byte durable.
