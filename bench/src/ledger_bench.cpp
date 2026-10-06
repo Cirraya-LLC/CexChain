@@ -10,6 +10,12 @@
 #include <stdexcept>
 #include <sys/resource.h>
 #include <vector>
+#ifdef __APPLE__
+#include <mach/mach.h>
+#else
+#include <fstream>
+#include <unistd.h>
+#endif
 
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/state_tree.hpp>
@@ -39,6 +45,26 @@ double peak_rss_mb() {
     return static_cast<double>(usage.ru_maxrss) / (1024.0 * 1024.0);
 #else
     return static_cast<double>(usage.ru_maxrss) / 1024.0;
+#endif
+}
+
+/// Resident memory now (peak_rss_mb() never goes down).
+double current_rss_mb() {
+#ifdef __APPLE__
+    mach_task_basic_info info{};
+    mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
+    if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, reinterpret_cast<task_info_t>(&info),
+                  &count) != KERN_SUCCESS) {
+        return 0;
+    }
+    return static_cast<double>(info.resident_size) / (1024.0 * 1024.0);
+#else
+    std::ifstream statm("/proc/self/statm");
+    std::uint64_t size = 0;
+    std::uint64_t resident = 0;
+    statm >> size >> resident;
+    return static_cast<double>(resident * static_cast<std::uint64_t>(::sysconf(_SC_PAGESIZE))) /
+           (1024.0 * 1024.0);
 #endif
 }
 
@@ -137,9 +163,16 @@ int ledger_bench(const Options& options) {
     must(protocol::state_root(provider, crypto::HashAlg::sha256, leaves), "state root");
     results.add("state root from scratch (reference)", elapsed_ms(t), "ms");
 
+    const double before_open = current_rss_mb();
     t = Clock::now();
     auto reopened = must(ledger::Ledger::open(fs, clock, provider), "open");
     const double open_ms = elapsed_ms(t);
+    // What one more ledger costs: the reopened one, with every structure
+    // rebuilt from the log (an upper bound: it includes allocator slack).
+    results.add("ledger memory per entry",
+                (current_rss_mb() - before_open) * 1024 * 1024 /
+                    static_cast<double>(reopened.size()),
+                "bytes/entry");
     results.add("open (full replay)", open_ms, "ms");
     results.add("open per entry", open_ms * 1000 / static_cast<double>(reopened.size()),
                 "us/entry");

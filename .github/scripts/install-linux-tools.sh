@@ -16,10 +16,14 @@ wget -qO /etc/apt/keyrings/apt.llvm.org.asc https://apt.llvm.org/llvm-snapshot.g
 echo "deb [signed-by=/etc/apt/keyrings/apt.llvm.org.asc] https://apt.llvm.org/trixie/ llvm-toolchain-trixie-23 main" \
     > /etc/apt/sources.list.d/llvm.list
 apt-get update
-apt-get install -y --no-install-recommends clang-23 clang-format-23 libclang-rt-23-dev
+apt-get install -y --no-install-recommends clang-23 clang-format-23 libclang-rt-23-dev llvm-23
+# Sanitizers look for llvm-symbolizer on PATH; without it, reports have no
+# function names or lines.
+ln -sf /usr/lib/llvm-23/bin/llvm-symbolizer /usr/local/bin/llvm-symbolizer
 
 cmake --version | head -1
 g++ --version | head -1
 clang++-23 --version | head -1
 dpkg-query -W -f 'libssl-dev ${Version}\n' libssl-dev
 softhsm2-util --version
+llvm-symbolizer --version | head -1
