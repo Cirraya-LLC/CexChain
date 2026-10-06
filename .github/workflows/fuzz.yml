@@ -35,11 +35,16 @@ jobs:
       - name: Run fuzz targets
         env:
           SECONDS_PER_TARGET: ${{ inputs.seconds || '300' }}
+          # Long runs otherwise grow RSS through allocator retention alone (live
+          # heap stays small), which libFuzzer misreports as out-of-memory.
+          # A single allocation over 256 MB still fails the run.
+          ASAN_OPTIONS: allocator_release_to_os_interval_ms=1000:quarantine_size_mb=64
         run: |
           for target in build/clang-fuzz/fuzz/*_fuzz; do
             echo "::group::$(basename "$target")"
             mkdir -p "corpus/$(basename "$target")"
-            "$target" "corpus/$(basename "$target")" -max_total_time="$SECONDS_PER_TARGET" -rss_limit_mb=2048
+            "$target" "corpus/$(basename "$target")" -max_total_time="$SECONDS_PER_TARGET" \
+              -rss_limit_mb=4096 -malloc_limit_mb=256
             echo "::endgroup::"
           done
 
