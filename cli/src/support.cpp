@@ -559,6 +559,11 @@ protocol::SignedStatement Session::statement(std::uint64_t index) const {
                   "parsing statement " + std::to_string(index));
 }
 
+protocol::SignedStateCommitment Session::state_commitment(std::uint64_t index) const {
+    return unwrap(protocol::parse_state_commitment(provider_, log_entry(index).state_commitment),
+                  "parsing state commitment " + std::to_string(index));
+}
+
 std::string Session::actor_name(const protocol::Id& id) const {
     const protocol::ActorState* actor = state().actor(id);
     return actor == nullptr ? "unknown" : actor->display_name;

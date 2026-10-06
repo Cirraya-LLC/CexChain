@@ -197,4 +197,29 @@ Status verify_state_proof(const crypto::Provider& provider, crypto::HashAlg hash
     return {};
 }
 
+Status check_state_commitment(const crypto::Provider& provider, const LedgerState& state,
+                              const SignedStateCommitment& commitment, std::uint64_t index) {
+    const StateCommitment& c = commitment.commitment;
+    if (!verify_state_commitment(provider, commitment, state.log_key())) {
+        return fail(Errc::verification_failed, "a state commitment is not signed by the log key");
+    }
+    if (c.ledger_id != state.ledger_id() || c.tree_hash != state.hash()) {
+        return fail(Errc::verification_failed, "a state commitment belongs to another ledger");
+    }
+    if (c.tree_size != index) {
+        return fail(Errc::verification_failed,
+                    "a state commitment is not at the position it claims");
+    }
+    const auto leaves = state_leaves(state);
+    auto root = state_root(provider, state.hash(), leaves);
+    if (!root) {
+        return std::unexpected(root.error());
+    }
+    if (*root != c.state_root) {
+        return fail(Errc::verification_failed,
+                    "a state commitment does not match the state of the log");
+    }
+    return {};
+}
+
 } // namespace cexchain::protocol

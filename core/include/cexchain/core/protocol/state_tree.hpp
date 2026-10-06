@@ -11,12 +11,14 @@
 #include <cexchain/core/crypto.hpp>
 #include <cexchain/core/error.hpp>
 #include <cexchain/core/protocol/common.hpp>
+#include <cexchain/core/protocol/log.hpp>
 #include <cexchain/core/protocol/state.hpp>
 
-/// The state commitment: every checkpoint signs the root of a tree over the
-/// complete history of every actor, delegation, and record, as of that
-/// checkpoint. With a proof from this tree, a verifier knows that the history
-/// it was shown is all of it: a later revocation cannot be left out.
+/// The state commitment: when it checkpoints, the ledger appends to its log a
+/// signed commitment to the root of a tree over the complete history of every
+/// actor, delegation, and record (see StateCommitment in log.hpp). With a
+/// proof from this tree, a verifier knows that the history it was shown is all
+/// of it: a later revocation cannot be left out.
 ///
 /// The tree is a compact sparse Merkle tree keyed by object id (256 bits,
 /// most significant bit first). An empty subtree hashes to HASH(""), a
@@ -73,5 +75,14 @@ struct StateProof {
                                         const StateProof& proof, const crypto::Digest& root);
 
 [[nodiscard]] Result<Bytes> encode_state_leaf(const StateLeaf& leaf);
+
+/// Checks a state commitment found at log index `index` against `state`, the
+/// ledger state replayed from every entry before it: signed by the log key,
+/// for this ledger and tree hash, at its own index, and committing to the
+/// state's actual root.
+[[nodiscard]] Status check_state_commitment(const crypto::Provider& provider,
+                                            const LedgerState& state,
+                                            const SignedStateCommitment& commitment,
+                                            std::uint64_t index);
 
 } // namespace cexchain::protocol

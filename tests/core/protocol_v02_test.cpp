@@ -115,12 +115,32 @@ TEST_CASE("v0.2 objects from an independent encoder", "[protocol][vectors]") {
             CHECK(protocol::verify_state_proof(provider(), hash, *proof, *root));
         }
 
-        // A checkpoint carrying the state root.
+        // The state commitment, logged right after the statements: signed by the
+        // log key, at its own index, committing to the replayed state.
+        const auto& logged = ledger["state_commitment"];
+        const std::size_t commitment_index = logged["index"].get<std::size_t>();
+        CHECK(commitment_index == statements.size());
+        const auto logged_entry =
+            protocol::decode_log_entry(hex(text(ledger["log_entries"][commitment_index])));
+        REQUIRE(logged_entry);
+        REQUIRE(logged_entry->is_state_commitment());
+        CHECK(*protocol::encode_log_entry(*logged_entry) ==
+              hex(text(ledger["log_entries"][commitment_index])));
+        const auto commitment =
+            protocol::parse_state_commitment(provider(), logged_entry->state_commitment);
+        REQUIRE(commitment);
+        CHECK(to_hex(commitment->id.bytes()) == text(logged["id"]));
+        CHECK(commitment->id == logged_entry->statement_id);
+        CHECK(*protocol::encode_state_commitment(commitment->commitment) ==
+              *commitment->envelope.payload);
+        CHECK(commitment->commitment.state_root == *root);
+        CHECK(protocol::check_state_commitment(provider(), *state, *commitment, commitment_index));
+
+        // The checkpoint covers the statements and the commitment.
         const auto checkpoint = protocol::parse_checkpoint(hex(text(ledger["checkpoint"])));
         REQUIRE(checkpoint);
         CHECK(protocol::verify_checkpoint(provider(), *checkpoint, state->log_key()));
-        REQUIRE(checkpoint->checkpoint.state_root);
-        CHECK(*checkpoint->checkpoint.state_root == *root);
+        CHECK(checkpoint->checkpoint.tree_size == commitment_index + 1);
         CHECK(*protocol::encode_checkpoint(checkpoint->checkpoint) ==
               *checkpoint->envelope.payload);
         cexchain::merkle::Tree tree(provider(), hash);

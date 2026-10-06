@@ -81,16 +81,6 @@ Result<SignedCheckpoint> check_cosign_request(const crypto::Provider& provider,
             "INCONSISTENT HISTORY: the checkpoint does not extend what this witness cosigned; "
             "the ledger may have been rewritten or forked");
     }
-    // A witness cannot check a state root without the whole log, but it can
-    // refuse equivocation: two states for one history.
-    if (log.state_root && !c.state_root) {
-        return fail(Errc::verification_failed, "the ledger stopped committing to its state");
-    }
-    if (log.size > 0 && c.tree_size == log.size && log.state_root &&
-        c.state_root != log.state_root) {
-        return fail(Errc::verification_failed, "EQUIVOCATION: the ledger signed a different state "
-                                               "for the history this witness cosigned");
-    }
     return signed_checkpoint;
 }
 
@@ -98,7 +88,6 @@ WitnessedLog advance(WitnessedLog log, const Checkpoint& checkpoint) {
     log.tree_hash = checkpoint.tree_hash;
     log.size = checkpoint.tree_size;
     log.root = checkpoint.root;
-    log.state_root = checkpoint.state_root;
     return log;
 }
 

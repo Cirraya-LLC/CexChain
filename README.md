@@ -77,10 +77,12 @@ The verification report shows every event in the record's history, who performed
 AI agent, with the agent's model and accountable person), under whose delegation, which fields
 were disclosed, and whether attachments match.
 
-The report also proves that it shows everything. Each checkpoint commits to the complete history of
-every actor, delegation, and record, in a sparse Merkle tree. A bundle proves the history of the
-record and of everyone involved against that commitment. So nobody can hand over evidence that
-quietly leaves out a later revocation, of the record or of the person who signed it.
+The report also proves that it shows everything. Before each checkpoint, the ledger appends to its
+own log a signed commitment (a sparse Merkle root) to the complete history of every actor,
+delegation, and record. A bundle proves the history of the record and of everyone involved against
+that commitment. So nobody can hand over evidence that quietly leaves out a later revocation, of the
+record or of the person who signed it. Because the commitment lives in the witnessed, append-only
+log, a false one could never be withdrawn, and replaying the log exposes it.
 
 ## Command line
 

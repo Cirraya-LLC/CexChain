@@ -93,7 +93,8 @@ public:
     [[nodiscard]] Result<std::vector<crypto::Digest>>
     consistency_proof(std::uint64_t old_size, std::uint64_t new_size) const;
 
-    /// Signs and stores a checkpoint of the current tree. `log_key` must be the
+    /// Appends a state commitment to the log (unless the last entry is one),
+    /// then signs and stores a checkpoint of the tree. `log_key` must be the
     /// key named in genesis.
     [[nodiscard]] Result<protocol::SignedCheckpoint> checkpoint(const crypto::Signer& log_key);
 
@@ -133,8 +134,11 @@ public:
     [[nodiscard]] Result<protocol::EvidenceBundle>
     export_evidence(const crypto::Signer& log_key, const protocol::Id& record) const;
 
+    /// The state commitment the latest checkpoint ends with, if it has one.
+    [[nodiscard]] const std::optional<protocol::StateCommitment>& state_commitment() const noexcept;
+
     /// A proof of the complete history of an actor, delegation, or record, as
-    /// of the latest checkpoint, against its state root.
+    /// of the latest checkpoint, against its state commitment.
     [[nodiscard]] Result<protocol::StateProof> state_proof(const protocol::Id& id) const;
 
     /// An RFC 9942 receipt for the entry at `index`, anchored to the latest

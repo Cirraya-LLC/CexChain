@@ -328,7 +328,11 @@ run record show "$RECORD" | contains 'REVOKED'
 # --- Audit -----------------------------------------------------------------------------
 run checkpoint create --log-key log.key --json | json 'd["tree_size"]' > /dev/null
 # The state commitment: complete histories, revocations included.
-run proof state "$RECORD" | contains 'complete as of checkpoint size'
+run proof state "$RECORD" | contains 'complete as of the state commitment at entry #'
+run log list --type state-commitment --json | json 'len(d) >= 1 and d[0]["type"] == "state-commitment"' | contains -x True
+COMMITMENT="$(run log list --type state-commitment --json | json 'd[-1]["index"]')"
+run log show "$COMMITMENT" | contains 'state commitment, signed by the log key'
+run status | contains "state:         committed at entry #$COMMITMENT"
 run proof state "$ALICE" --json | json 'd["kind"] == "actor" and len(d["history"]) >= 2' | contains -x True
 expect_exit 2 proof state 00000000000000000000
 run export "$RECORD" --log-key log.key --out final.cbor > /dev/null

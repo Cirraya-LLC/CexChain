@@ -64,6 +64,10 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     if (const auto checkpoint = protocol::decode_checkpoint(input)) {
         require_same(protocol::encode_checkpoint(*checkpoint), input);
     }
+    if (const auto commitment = protocol::decode_state_commitment(input)) {
+        require_same(protocol::encode_state_commitment(*commitment), input);
+    }
+    static_cast<void>(protocol::parse_state_commitment(provider, input));
     if (const auto field = protocol::decode_field(input)) {
         require_same(protocol::encode_field(*field), input);
     }

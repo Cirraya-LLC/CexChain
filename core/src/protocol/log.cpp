@@ -4,6 +4,7 @@
 #include <string>
 #include <utility>
 
+#include <cexchain/core/cose.hpp>
 #include <cexchain/core/merkle.hpp>
 #include <cexchain/core/protocol/log.hpp>
 
@@ -64,13 +65,17 @@ Result<SignedCheckpoint> sign_checkpoint_as(const crypto::Signer& signer,
 // ---------------------------------------------------------------------------
 
 Result<Bytes> encode_log_entry(const LogEntry& log_entry) {
+    if (log_entry.statement.empty() == log_entry.state_commitment.empty()) {
+        return fail(Errc::invalid_argument, "a log entry holds a statement or a state commitment");
+    }
     if (log_entry.statement_id.size() != id_size) {
-        return fail(Errc::invalid_argument, "statement id must be 32 bytes");
+        return fail(Errc::invalid_argument, "log entry ids are 32 bytes");
     }
     return cbor::encode(cbor::Value::map({
         entry(1, cbor::Value::bytes(log_entry.statement_id.bytes())),
         entry(2, cbor::Value::unsigned_integer(log_entry.registered_at)),
-        entry(3, cbor::Value::bytes(log_entry.statement)),
+        log_entry.is_state_commitment() ? entry(4, cbor::Value::bytes(log_entry.state_commitment))
+                                        : entry(3, cbor::Value::bytes(log_entry.statement)),
     }));
 }
 
@@ -80,7 +85,14 @@ Result<LogEntry> decode_log_entry(ByteView encoded) {
     LogEntry log_entry;
     CEXCHAIN_TRY(log_entry.statement_id, reader.need_id(1));
     CEXCHAIN_TRY(log_entry.registered_at, reader.need_uint(2));
-    CEXCHAIN_TRY(log_entry.statement, reader.need_bytes(3));
+    CEXCHAIN_TRY(std::optional<Bytes> statement, reader.opt_bytes(3));
+    CEXCHAIN_TRY(std::optional<Bytes> commitment, reader.opt_bytes(4));
+    if (statement.has_value() == commitment.has_value() || (statement && statement->empty()) ||
+        (commitment && commitment->empty())) {
+        return fail(Errc::malformed, "a log entry holds exactly one statement or state commitment");
+    }
+    log_entry.statement = statement.value_or(Bytes{});
+    log_entry.state_commitment = commitment.value_or(Bytes{});
     CEXCHAIN_CHECK(reader.finish());
     return log_entry;
 }
@@ -97,9 +109,7 @@ Result<Bytes> encode_checkpoint(const Checkpoint& checkpoint) {
         return fail(Errc::invalid_argument, "a checkpoint covers at least the genesis entry");
     }
     if (checkpoint.ledger_id.size() != id_size ||
-        checkpoint.root.size() != crypto::digest_size(checkpoint.tree_hash) ||
-        (checkpoint.state_root &&
-         checkpoint.state_root->size() != crypto::digest_size(checkpoint.tree_hash))) {
+        checkpoint.root.size() != crypto::digest_size(checkpoint.tree_hash)) {
         return fail(Errc::invalid_argument, "checkpoint identifiers have the wrong size");
     }
     cbor::Map map{
@@ -109,9 +119,6 @@ Result<Bytes> encode_checkpoint(const Checkpoint& checkpoint) {
         entry(4, cbor::Value::bytes(checkpoint.root.bytes())),
         entry(5, cbor::Value::unsigned_integer(checkpoint.timestamp)),
     };
-    if (checkpoint.state_root) {
-        map.push_back(entry(6, cbor::Value::bytes(checkpoint.state_root->bytes())));
-    }
     return cbor::encode(cbor::Value::map(std::move(map)));
 }
 
@@ -132,13 +139,6 @@ Result<Checkpoint> decode_checkpoint(ByteView encoded) {
     }
     CEXCHAIN_TRY(checkpoint.root, crypto::Digest::from_bytes(root));
     CEXCHAIN_TRY(checkpoint.timestamp, reader.need_uint(5));
-    CEXCHAIN_TRY(std::optional<Bytes> state_root, reader.opt_bytes(6));
-    if (state_root) {
-        if (state_root->size() != crypto::digest_size(checkpoint.tree_hash)) {
-            return fail(Errc::malformed, "checkpoint state root has the wrong size");
-        }
-        CEXCHAIN_TRY(checkpoint.state_root, crypto::Digest::from_bytes(*state_root));
-    }
     CEXCHAIN_CHECK(reader.finish());
     return checkpoint;
 }
@@ -178,6 +178,84 @@ Status verify_cosignature(const crypto::Provider& provider, const SignedCheckpoi
     return detail::verify_envelope(provider, cosignature.checkpoint.tree_hash,
                                    detail::Envelope{cosignature.envelope, cosignature.kid},
                                    witness_key);
+}
+
+// ---------------------------------------------------------------------------
+// State commitments
+// ---------------------------------------------------------------------------
+
+Result<Bytes> encode_state_commitment(const StateCommitment& c) {
+    if (!is_ledger_hash(c.tree_hash)) {
+        return fail(Errc::unsupported, "tree hash must be SHA-256 or SM3");
+    }
+    if (c.ledger_id.size() != id_size || c.state_root.size() != crypto::digest_size(c.tree_hash)) {
+        return fail(Errc::invalid_argument, "state commitment identifiers have the wrong size");
+    }
+    if (c.tree_size == 0) {
+        return fail(Errc::invalid_argument,
+                    "a state commitment follows at least the genesis entry");
+    }
+    return cbor::encode(cbor::Value::map({
+        entry(1, cbor::Value::bytes(c.ledger_id.bytes())),
+        entry(2, cbor::Value::integer(crypto::cose_id(c.tree_hash))),
+        entry(3, cbor::Value::unsigned_integer(c.tree_size)),
+        entry(4, cbor::Value::bytes(c.state_root.bytes())),
+        entry(5, cbor::Value::unsigned_integer(c.timestamp)),
+    }));
+}
+
+Result<StateCommitment> decode_state_commitment(ByteView encoded) {
+    CEXCHAIN_TRY(cbor::Value value, cbor::decode(encoded));
+    CEXCHAIN_TRY(MapReader reader, MapReader::open(value));
+    StateCommitment c;
+    CEXCHAIN_TRY(c.ledger_id, reader.need_id(1));
+    CEXCHAIN_TRY(std::int64_t hash_id, reader.need_int(2));
+    CEXCHAIN_TRY(c.tree_hash, decode_ledger_hash(hash_id));
+    CEXCHAIN_TRY(c.tree_size, reader.need_uint(3));
+    if (c.tree_size == 0) {
+        return fail(Errc::malformed, "a state commitment follows at least the genesis entry");
+    }
+    CEXCHAIN_TRY(Bytes root, reader.need_bytes(4));
+    if (root.size() != crypto::digest_size(c.tree_hash)) {
+        return fail(Errc::malformed, "state root has the wrong size");
+    }
+    CEXCHAIN_TRY(c.state_root, crypto::Digest::from_bytes(root));
+    CEXCHAIN_TRY(c.timestamp, reader.need_uint(5));
+    CEXCHAIN_CHECK(reader.finish());
+    return c;
+}
+
+Result<SignedStateCommitment> parse_state_commitment(const crypto::Provider& provider,
+                                                     ByteView encoded) {
+    CEXCHAIN_TRY(detail::Envelope envelope,
+                 detail::parse_envelope(encoded, state_commitment_content_type));
+    CEXCHAIN_TRY(StateCommitment commitment, decode_state_commitment(*envelope.message.payload));
+    CEXCHAIN_TRY(Bytes to_be_signed, cose::sig_structure(envelope.message.protected_bytes, {},
+                                                         *envelope.message.payload));
+    CEXCHAIN_TRY(Id id, provider.digest(commitment.tree_hash, to_be_signed));
+    return SignedStateCommitment{
+        .encoded = Bytes(encoded.begin(), encoded.end()),
+        .envelope = std::move(envelope.message),
+        .commitment = std::move(commitment),
+        .id = id,
+        .kid = envelope.kid,
+    };
+}
+
+Result<SignedStateCommitment> sign_state_commitment(const crypto::Signer& log_key,
+                                                    const crypto::Provider& provider,
+                                                    const StateCommitment& commitment) {
+    CEXCHAIN_TRY(Bytes payload, encode_state_commitment(commitment));
+    CEXCHAIN_TRY(Bytes encoded, detail::sign_envelope(log_key, provider, commitment.tree_hash,
+                                                      payload, state_commitment_content_type));
+    return parse_state_commitment(provider, encoded);
+}
+
+Status verify_state_commitment(const crypto::Provider& provider,
+                               const SignedStateCommitment& commitment,
+                               const crypto::PublicKey& log_key) {
+    return detail::verify_envelope(provider, commitment.commitment.tree_hash,
+                                   detail::Envelope{commitment.envelope, commitment.kid}, log_key);
 }
 
 // ---------------------------------------------------------------------------

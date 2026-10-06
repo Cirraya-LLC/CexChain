@@ -285,8 +285,29 @@ Json statement_json(const protocol::Statement& s) {
             {"body", body_json(s.body)}};
 }
 
+Json commitment_json(const protocol::StateCommitment& c) {
+    return {{"ledger_id", id_json(c.ledger_id)},
+            {"tree_hash", crypto::name(c.tree_hash)},
+            {"index", c.tree_size},
+            {"state_root", to_hex(c.state_root.bytes())},
+            {"timestamp", iso_time(c.timestamp)}};
+}
+
 Json entry_json(const Session& session, std::uint64_t index) {
     const protocol::LogEntry entry = session.log_entry(index);
+    if (entry.is_state_commitment()) {
+        const auto commitment = session.state_commitment(index);
+        return {{"index", index},
+                {"statement_id", id_json(entry.statement_id)},
+                {"registered_at", iso_time(entry.registered_at)},
+                {"type", "state-commitment"},
+                {"summary", "state commitment " +
+                                to_hex(commitment.commitment.state_root.bytes()).substr(0, 12)},
+                {"signer", {{"id", nullptr}, {"name", "the ledger's log key"}}},
+                {"algorithm", crypto::name(commitment.envelope.algorithm)},
+                {"kid", id_json(commitment.kid)},
+                {"commitment", commitment_json(commitment.commitment)}};
+    }
     const protocol::SignedStatement statement = session.statement(index);
     Json out{{"index", index},
              {"statement_id", id_json(entry.statement_id)},

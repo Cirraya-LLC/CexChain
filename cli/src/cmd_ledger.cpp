@@ -29,6 +29,9 @@ Json status_json(Session& session) {
              {"actors", state.actors().size()},
              {"delegations", state.delegations().size()},
              {"records", state.records().size()}};
+    out["state_commitment"] = session.ledger().state_commitment()
+                                  ? commitment_json(*session.ledger().state_commitment())
+                                  : Json(nullptr);
     if (const auto& checkpoint = session.ledger().latest_checkpoint()) {
         out["checkpoint"] = checkpoint_json(checkpoint->checkpoint);
         out["unchecked_entries"] = size - checkpoint->checkpoint.tree_size;
@@ -117,6 +120,10 @@ int cmd_status(const Args& args) {
     } else {
         std::println("checkpoint:    none yet (cexchain checkpoint create)");
     }
+    if (const auto& c = session.ledger().state_commitment()) {
+        std::println("state:         committed at entry #{} (root {})", c->tree_size,
+                     to_hex(c->state_root.bytes()).substr(0, 16));
+    }
     std::println("actors:        {}", s["actors"].get<std::size_t>());
     std::println("delegations:   {}", s["delegations"].get<std::size_t>());
     std::println("records:       {}", s["records"].get<std::size_t>());
@@ -165,13 +172,32 @@ int cmd_log_list(const Args& args) {
     const std::uint64_t from = args.has("from") ? parse_number(*args.get("from"), "--from") : 0;
     const std::uint64_t limit =
         args.has("limit") ? parse_number(*args.get("limit"), "--limit") : default_list_limit;
-    const std::optional<protocol::StatementType> type =
-        args.has("type") ? std::optional(parse_statement_type(*args.get("type"))) : std::nullopt;
+    const std::optional<std::string> type = args.get("type");
+    if (type && *type != "state-commitment") {
+        static_cast<void>(parse_statement_type(*type));
+    }
     Json out = Json::array();
     std::uint64_t shown = 0;
     for (std::uint64_t i = from; i < size && shown < limit; ++i) {
+        const protocol::LogEntry entry = session.log_entry(i);
+        if (entry.is_state_commitment()) {
+            if (type && *type != "state-commitment") {
+                continue;
+            }
+            ++shown;
+            if (args.json()) {
+                out.push_back(entry_json(session, i));
+            } else {
+                const auto c = session.state_commitment(i).commitment;
+                std::println("#{:<5} {}  {:<20} state commitment {}", i,
+                             format_time(entry.registered_at), "(log key)",
+                             to_hex(c.state_root.bytes()).substr(0, 12));
+            }
+            continue;
+        }
         const protocol::SignedStatement statement = session.statement(i);
-        if (type && statement.statement.type() != *type) {
+        if (type &&
+            (*type == "state-commitment" || protocol::name(statement.statement.type()) != *type)) {
             continue;
         }
         ++shown;
@@ -179,7 +205,6 @@ int cmd_log_list(const Args& args) {
             out.push_back(entry_json(session, i));
             continue;
         }
-        const protocol::LogEntry entry = session.log_entry(i);
         const std::string signer = statement.statement.actor_id
                                        ? session.actor_name(*statement.statement.actor_id)
                                        : session.state().organization();
@@ -195,8 +220,32 @@ int cmd_log_list(const Args& args) {
 int cmd_log_show(const Args& args) {
     Session session(args.ledger());
     const std::uint64_t index = session.entry_index(args.positional().front());
-    const protocol::SignedStatement statement = session.statement(index);
     const protocol::LogEntry entry = session.log_entry(index);
+    if (entry.is_state_commitment()) {
+        const auto commitment = session.state_commitment(index);
+        if (args.json()) {
+            Json out = entry_json(session, index);
+            if (args.has("raw")) {
+                out["raw"] =
+                    cbor::diagnostic(unwrap(cbor::decode(entry.state_commitment), "decoding"));
+            }
+            print_json(out);
+            return exit_ok;
+        }
+        std::println("entry:         #{}", index);
+        std::println("entry id:      {}", hex_id(entry.statement_id));
+        std::println("type:          state commitment, signed by the log key");
+        std::println("registered:    {}", format_time(entry.registered_at));
+        std::println("covers:        entries #0 to #{}", index == 0 ? 0 : index - 1);
+        std::println("state root:    {}", to_hex(commitment.commitment.state_root.bytes()));
+        if (args.has("raw")) {
+            std::println(
+                "raw COSE_Sign1:\n{}",
+                cbor::diagnostic(unwrap(cbor::decode(entry.state_commitment), "decoding")));
+        }
+        return exit_ok;
+    }
+    const protocol::SignedStatement statement = session.statement(index);
     if (args.json()) {
         Json out = entry_json(session, index);
         if (args.has("raw")) {

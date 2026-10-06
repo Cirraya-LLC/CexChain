@@ -139,6 +139,21 @@ Json inspect_json(const crypto::Provider& provider, const Bytes& content) {
                 {"witness_kid", id_json(cosignature->kid)},
                 {"algorithm", crypto::name(cosignature->envelope.algorithm)}};
     }
+    if (const auto entry = protocol::decode_log_entry(content);
+        entry && entry->is_state_commitment()) {
+        Json out{{"kind", "log-entry"},
+                 {"statement_id", id_json(entry->statement_id)},
+                 {"registered_at", iso_time(entry->registered_at)}};
+        if (const auto c = protocol::parse_state_commitment(provider, entry->state_commitment)) {
+            out["state_commitment"] = commitment_json(c->commitment);
+        }
+        return out;
+    }
+    if (const auto commitment = protocol::parse_state_commitment(provider, content)) {
+        return {{"kind", "state-commitment"},
+                {"commitment", commitment_json(commitment->commitment)},
+                {"kid", id_json(commitment->kid)}};
+    }
     if (const auto entry = protocol::decode_log_entry(content)) {
         Json out{{"kind", "log-entry"},
                  {"statement_id", id_json(entry->statement_id)},
@@ -375,9 +390,9 @@ int cmd_proof_state(const Args& args) {
                 ? "it is not in the latest checkpoint's state yet (cexchain checkpoint create)"
                 : std::string(proof.error().detail)};
     }
-    const auto& checkpoint = session.ledger().latest_checkpoint()->checkpoint;
+    const protocol::StateCommitment& commitment = *session.ledger().state_commitment();
     unwrap(protocol::verify_state_proof(session.provider(), session.state().hash(), *proof,
-                                        *checkpoint.state_root),
+                                        commitment.state_root),
            "self-check of the proof");
     static constexpr std::array kinds{"", "actor", "delegation", "record"};
     const std::string kind = kinds[static_cast<std::size_t>(proof->leaf.kind)];
@@ -385,8 +400,8 @@ int cmd_proof_state(const Args& args) {
         print_json({{"kind", kind},
                     {"id", id_json(proof->leaf.id)},
                     {"history", proof->leaf.history},
-                    {"tree_size", checkpoint.tree_size},
-                    {"state_root", to_hex(checkpoint.state_root->bytes())},
+                    {"commitment_index", commitment.tree_size},
+                    {"state_root", to_hex(commitment.state_root.bytes())},
                     {"siblings", digests_json(proof->siblings)}});
         return exit_ok;
     }
@@ -395,9 +410,9 @@ int cmd_proof_state(const Args& args) {
         history += (history.empty() ? "#" : ", #") + std::to_string(index);
     }
     std::println("{}:      {}", kind, hex_id(proof->leaf.id));
-    std::println("history:    {} (complete as of checkpoint size {})", history,
-                 checkpoint.tree_size);
-    std::println("state root: {}", to_hex(checkpoint.state_root->bytes()));
+    std::println("history:    {} (complete as of the state commitment at entry #{})", history,
+                 commitment.tree_size);
+    std::println("state root: {}", to_hex(commitment.state_root.bytes()));
     std::println("proof:      {} hashes", proof->siblings.size());
     return exit_ok;
 }

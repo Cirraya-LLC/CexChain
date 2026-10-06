@@ -43,6 +43,7 @@ void print_json(const Json& value);
 [[nodiscard]] Json record_json(const Session& session, const protocol::RecordState& record);
 [[nodiscard]] Json body_json(const protocol::Body& body);
 [[nodiscard]] Json statement_json(const protocol::Statement& statement);
+[[nodiscard]] Json commitment_json(const protocol::StateCommitment& commitment);
 /// A log entry with its statement decoded, and actor names resolved.
 [[nodiscard]] Json entry_json(const Session& session, std::uint64_t index);
 

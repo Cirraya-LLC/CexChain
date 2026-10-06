@@ -7,8 +7,7 @@
 //
 // A witness directory holds one state file per ledger, <ledger id>.cbor:
 //   {1: ledger id, 2: log key [alg, key], 3: name, 4: size,
-//    ? 5: root, ? 6: tree hash (COSE id), ? 7: last cosigned at (ms),
-//    ? 8: state root of the last cosigned checkpoint}
+//    ? 5: root, ? 6: tree hash (COSE id), ? 7: last cosigned at (ms)}
 
 #include <print>
 
@@ -45,9 +44,6 @@ Bytes encode_state(const WitnessState& s) {
     }
     if (s.cosigned_at) {
         map.push_back({cbor::Value::integer(7), cbor::Value::unsigned_integer(*s.cosigned_at)});
-    }
-    if (s.log.state_root) {
-        map.push_back({cbor::Value::integer(8), cbor::Value::bytes(s.log.state_root->bytes())});
     }
     return unwrap(cbor::encode(cbor::Value::map(std::move(map))), "encoding the witness state");
 }
@@ -87,13 +83,6 @@ WitnessState decode_state(const std::filesystem::path& path) {
     if (const cbor::Value* at = value.find(7); at != nullptr && at->as_uint64()) {
         s.cosigned_at = *at->as_uint64();
     }
-    if (const cbor::Value* state_root = value.find(8)) {
-        if (state_root->as_bytes() == nullptr) {
-            throw corrupted();
-        }
-        s.log.state_root =
-            unwrap(crypto::Digest::from_bytes(*state_root->as_bytes()), "witness state");
-    }
     if ((s.log.size > 0) == s.log.root.empty()) {
         throw corrupted();
     }
@@ -120,15 +109,13 @@ std::vector<WitnessState> all_states(const std::filesystem::path& dir) {
 }
 
 Json state_json(const WitnessState& s) {
-    return {
-        {"ledger_id", id_json(s.log.ledger_id)},
-        {"name", s.name},
-        {"log_key", public_key_json(s.log.log_key)},
-        {"tree_hash", s.log.tree_hash ? Json(crypto::name(*s.log.tree_hash)) : Json(nullptr)},
-        {"size", s.log.size},
-        {"root", s.log.size > 0 ? Json(to_hex(s.log.root.bytes())) : Json(nullptr)},
-        {"cosigned_at", s.cosigned_at ? Json(iso_time(*s.cosigned_at)) : Json(nullptr)},
-        {"state_root", s.log.state_root ? Json(to_hex(s.log.state_root->bytes())) : Json(nullptr)}};
+    return {{"ledger_id", id_json(s.log.ledger_id)},
+            {"name", s.name},
+            {"log_key", public_key_json(s.log.log_key)},
+            {"tree_hash", s.log.tree_hash ? Json(crypto::name(*s.log.tree_hash)) : Json(nullptr)},
+            {"size", s.log.size},
+            {"root", s.log.size > 0 ? Json(to_hex(s.log.root.bytes())) : Json(nullptr)},
+            {"cosigned_at", s.cosigned_at ? Json(iso_time(*s.cosigned_at)) : Json(nullptr)}};
 }
 
 } // namespace

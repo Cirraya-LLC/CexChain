@@ -138,6 +138,8 @@ public:
     /// The log entry at `index` and its statement, parsed.
     [[nodiscard]] protocol::LogEntry log_entry(std::uint64_t index) const;
     [[nodiscard]] protocol::SignedStatement statement(std::uint64_t index) const;
+    /// The state commitment at `index` (which must be one).
+    [[nodiscard]] protocol::SignedStateCommitment state_commitment(std::uint64_t index) const;
 
     /// The actor's display name, or "unknown" for an unknown id.
     [[nodiscard]] std::string actor_name(const protocol::Id& id) const;

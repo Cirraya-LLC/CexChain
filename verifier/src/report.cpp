@@ -181,8 +181,7 @@ Json checkpoint_json(const protocol::Checkpoint& c) {
             {"tree_hash", crypto::name(c.tree_hash)},
             {"tree_size", c.tree_size},
             {"root", to_hex(c.root.bytes())},
-            {"timestamp", iso_time(c.timestamp)},
-            {"state_root", c.state_root ? Json(to_hex(c.state_root->bytes())) : Json(nullptr)}};
+            {"timestamp", iso_time(c.timestamp)}};
 }
 
 bool has_attachment_mismatch(const protocol::EvidenceReport& report) {
@@ -226,31 +225,35 @@ Json report_json(const protocol::EvidenceReport& r, bool ledger_checked) {
                                {"size", a.size},
                                {"status", attachment_status(a.status)}});
     }
-    return {
-        {"verified", !has_attachment_mismatch(r)},
-        {"ledger",
-         {{"id", hex_id(r.ledger_id)},
-          {"organization", r.organization},
-          {"hash", crypto::name(r.hash)},
-          {"id_checked", ledger_checked}}},
-        {"checkpoint", checkpoint_json(r.checkpoint)},
-        {"witnesses",
-         {{"trusted", r.trusted_cosignatures}, {"untrusted", r.untrusted_cosignatures}}},
-        {"record",
-         {{"id", hex_id(r.record)},
-          {"type", r.record_type},
-          {"state", r.state},
-          {"revoked", r.revoked},
-          {"metadata", r.metadata ? cbor_json(*r.metadata) : Json(nullptr)}}},
-        {"events", std::move(events)},
-        {"disclosed_fields", std::move(fields)},
-        {"attachments", std::move(attachments)},
-        {"complete", r.complete},
-        {"limits",
-         r.complete
-             ? Json(nullptr)
-             : Json("This checkpoint predates state commitments, so the bundle cannot prove that "
-                    "nothing, such as a later revocation, was left out.")}};
+    return {{"verified", !has_attachment_mismatch(r)},
+            {"ledger",
+             {{"id", hex_id(r.ledger_id)},
+              {"organization", r.organization},
+              {"hash", crypto::name(r.hash)},
+              {"id_checked", ledger_checked}}},
+            {"checkpoint", checkpoint_json(r.checkpoint)},
+            {"witnesses",
+             {{"trusted", r.trusted_cosignatures}, {"untrusted", r.untrusted_cosignatures}}},
+            {"record",
+             {{"id", hex_id(r.record)},
+              {"type", r.record_type},
+              {"state", r.state},
+              {"revoked", r.revoked},
+              {"metadata", r.metadata ? cbor_json(*r.metadata) : Json(nullptr)}}},
+            {"events", std::move(events)},
+            {"disclosed_fields", std::move(fields)},
+            {"attachments", std::move(attachments)},
+            {"complete", r.complete},
+            {"state_commitment",
+             r.state_commitment
+                 ? Json{{"index", r.state_commitment->tree_size},
+                        {"state_root", to_hex(r.state_commitment->state_root.bytes())},
+                        {"timestamp", iso_time(r.state_commitment->timestamp)}}
+                 : Json(nullptr)},
+            {"limits", r.complete ? Json(nullptr)
+                                  : Json("The checkpoint does not end with a state commitment, so "
+                                         "the bundle cannot prove that "
+                                         "nothing, such as a later revocation, was left out.")}};
 }
 
 std::string report_text(const protocol::EvidenceReport& r, bool ledger_checked) {
@@ -308,13 +311,14 @@ std::string report_text(const protocol::EvidenceReport& r, bool ledger_checked) 
     line("  and included in the checkpointed log.");
     if (r.complete) {
         line("  Complete: the record's whole history, and that of everyone involved, is proven");
-        line(
-            "  against the state commitment the ledger signed. Nothing, such as a revocation, was");
-        line("  left out. (Witnesses refuse two states for one history; an audit of the full log");
-        line("  confirms the commitment itself.)");
+        line("  against the state commitment in the ledger's log. Nothing, such as a revocation, "
+             "was");
+        line("  left out. (The commitment is part of the witnessed log, so a false one would be "
+             "there");
+        line("  for good; replaying the log checks it.)");
     } else {
         line("  Not provable from this bundle: that nothing, such as a revocation, was left out");
-        line("  (its checkpoint predates state commitments).");
+        line("  (its checkpoint does not end with a state commitment).");
     }
     return out;
 }

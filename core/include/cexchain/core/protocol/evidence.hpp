@@ -135,10 +135,12 @@ struct EvidenceReport {
     std::vector<RecordEvent> events;
     std::vector<RecordField> disclosed_fields;
     std::vector<AttachmentCheck> attachments;
-    /// The bundle proved, against the checkpoint's state root, that it holds
-    /// the complete history of the record and of everyone involved: nothing,
-    /// such as a later revocation, was left out.
+    /// The bundle proved, against the state commitment in the log, that it
+    /// holds the complete history of the record and of everyone involved:
+    /// nothing, such as a later revocation, was left out.
     bool complete = false;
+    /// That state commitment (the last entry the checkpoint covers).
+    std::optional<StateCommitment> state_commitment;
 };
 
 /// The objects whose complete history a bundle about `record` must prove:
@@ -152,10 +154,10 @@ struct EvidenceReport {
 /// every included statement replayed under the ledger rules, every disclosed
 /// field and provided attachment against the record's commitments.
 ///
-/// If the checkpoint commits to the ledger state, the bundle must also prove
-/// the complete history of every involved object, so nothing can have been
-/// left out; the report then says it is complete. Older checkpoints carry no
-/// such commitment, and their reports cannot rule out omissions.
+/// If the checkpoint's last entry is a state commitment, the bundle must also
+/// prove the complete history of every involved object against it, so nothing
+/// can have been left out; the report then says it is complete. Without one
+/// (ledgers from before state commitments), omissions cannot be ruled out.
 [[nodiscard]] Result<EvidenceReport>
 verify_bundle(const crypto::Provider& provider, ByteView bundle, const VerifyOptions& options = {});
 

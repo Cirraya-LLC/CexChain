@@ -54,18 +54,19 @@ Errc refusal(const protocol::WitnessedLog& log, const protocol::CosignRequest& r
 TEST_CASE("a witness follows a growing ledger", "[witness]") {
     World w;
     grow(w, 2);
+    // Genesis, two records, and the state commitment the checkpoint adds.
     auto log = cosign(fresh(w), request(w, 0));
-    CHECK(log.size == 3);
+    CHECK(log.size == 4);
     CHECK(log.tree_hash == crypto::HashAlg::sha256);
 
     grow(w, 5);
     log = cosign(log, request(w, log.size));
-    CHECK(log.size == 8);
-    CHECK(log.root == *w.ledger().root(8));
+    CHECK(log.size == 10);
+    CHECK(log.root == *w.ledger().root(10));
 
     // The same size again (a newer checkpoint of an unchanged log) is fine.
     log = cosign(log, request(w, log.size));
-    CHECK(log.size == 8);
+    CHECK(log.size == 10);
 }
 
 TEST_CASE("a witness refuses what does not extend what it saw", "[witness]") {
@@ -201,29 +202,6 @@ TEST_CASE("the ledger keeps witness cosignatures", "[witness][ledger]") {
     const auto audit = reopened->audit();
     REQUIRE(audit);
     CHECK(audit->cosignatures == 2);
-}
-
-TEST_CASE("a witness refuses two states for one history", "[witness][security]") {
-    World w;
-    grow(w, 2);
-    const auto log = cosign(fresh(w), request(w, 0));
-    REQUIRE(log.state_root);
-
-    // The operator signs another checkpoint of the same history with a
-    // different state root (one leaving out a revocation, say).
-    auto other = w.ledger().latest_checkpoint()->checkpoint;
-    other.timestamp += 1;
-    other.state_root = *w.ledger().root(1);
-    protocol::CosignRequest r{
-        protocol::sign_checkpoint(w.log_key(), provider(), other)->encoded, log.size, {}};
-    CHECK(refusal(log, r) == Errc::verification_failed);
-    other.state_root.reset();
-    r.checkpoint = protocol::sign_checkpoint(w.log_key(), provider(), other)->encoded;
-    CHECK(refusal(log, r) == Errc::verification_failed);
-    // The same state again is fine.
-    other.state_root = log.state_root;
-    r.checkpoint = protocol::sign_checkpoint(w.log_key(), provider(), other)->encoded;
-    CHECK(cosign(log, r).size == log.size);
 }
 
 TEST_CASE("checkpoints cover at least genesis", "[witness]") {

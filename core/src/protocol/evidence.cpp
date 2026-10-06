@@ -23,6 +23,8 @@ struct Included {
     std::uint64_t index = 0;
     LogEntry log_entry;
     SignedStatement statement;
+    /// Set for a state commitment entry, which carries no statement.
+    std::optional<SignedStateCommitment> commitment;
 };
 
 std::unexpected<Error> verification_failure(std::string_view detail) {
@@ -354,8 +356,18 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
         if (log_entry.registered_at < previous_time) {
             return verification_failure("entries go back in time");
         }
-        Included item{index, log_entry, genesis};
-        if (index != 0) {
+        Included item{index, log_entry, genesis, std::nullopt};
+        if (index != 0 && log_entry.is_state_commitment()) {
+            auto commitment = parse_state_commitment(provider, log_entry.state_commitment);
+            if (!commitment || commitment->id != log_entry.statement_id ||
+                !verify_state_commitment(provider, *commitment, state->log_key()) ||
+                commitment->commitment.ledger_id != state->ledger_id() ||
+                commitment->commitment.tree_hash != state->hash() ||
+                commitment->commitment.tree_size != index) {
+                return verification_failure("a state commitment in the bundle does not verify");
+            }
+            item.commitment = std::move(*commitment);
+        } else if (index != 0) {
             CEXCHAIN_TRY(item.statement,
                          parse_statement(provider, log_entry.statement, state->hash()));
             if (item.statement.id != log_entry.statement_id) {
@@ -373,7 +385,7 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
     // proof of presence against the credentials of the moment.
     std::map<std::uint64_t, PresenceCheck> presence;
     for (const Included& item : included) {
-        if (item.index == 0) {
+        if (item.index == 0 || item.commitment) {
             continue;
         }
         if (const Statement& s = item.statement.statement; s.presence && s.actor_id) {
@@ -430,7 +442,14 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
     // Completeness: every involved object's history, as replayed from the
     // bundle, must be exactly the history the checkpoint's state root commits
     // to. A left-out statement (a later revocation, say) shows as a mismatch.
-    if (const auto& state_root = checkpoint.checkpoint.state_root) {
+    // The state commitment the ledger appended just before signing the
+    // checkpoint: the last entry the checkpoint covers.
+    const auto last = std::ranges::find_if(included, [&](const Included& i) {
+        return i.commitment && i.index + 1 == checkpoint.checkpoint.tree_size;
+    });
+    if (last != included.end()) {
+        const crypto::Digest* state_root = &last->commitment->commitment.state_root;
+        report.state_commitment = last->commitment->commitment;
         std::vector<Statement> events;
         for (const std::uint64_t index : record->history) {
             events.push_back(
@@ -443,7 +462,7 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
             }
             if (!verify_state_proof(provider, state->hash(), proof, *state_root)) {
                 return verification_failure(
-                    "a state proof does not match the checkpoint's state root");
+                    "a state proof does not match the ledger's state commitment");
             }
             proven.push_back(proof.leaf.id);
         }
@@ -463,7 +482,7 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
         report.complete = true;
     } else if (!bundle.state_proofs.empty()) {
         return verification_failure(
-            "state proofs need a checkpoint that commits to the ledger state");
+            "state proofs need the state commitment the checkpoint ends with");
     }
 
     for (const FieldDisclosure& disclosure : bundle.disclosures) {

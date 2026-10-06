@@ -17,13 +17,20 @@
 /// See spec/cexchain.cddl.
 namespace cexchain::protocol {
 
-/// One registered statement, as committed by the ledger's Merkle tree.
+/// One log entry, as committed by the ledger's Merkle tree: a registered
+/// statement, or a state commitment the ledger made when checkpointing.
 struct LogEntry {
+    /// HASH(Sig_structure) of the statement or of the state commitment.
     Id statement_id;
     /// Ledger clock at registration.
     Timestamp registered_at = 0;
-    /// The signed statement (COSE_Sign1) as submitted.
-    Bytes statement;
+    /// The signed statement (COSE_Sign1) as submitted; empty for a state
+    /// commitment.
+    Bytes statement = {};
+    /// The signed state commitment; empty for a statement.
+    Bytes state_commitment = {};
+
+    [[nodiscard]] bool is_state_commitment() const noexcept { return !state_commitment.empty(); }
 
     friend bool operator==(const LogEntry&, const LogEntry&) = default;
 };
@@ -43,9 +50,6 @@ struct Checkpoint {
     std::uint64_t tree_size = 0;
     crypto::Digest root;
     Timestamp timestamp = 0;
-    /// The state commitment at this size (see state_tree.hpp). Absent only in
-    /// checkpoints written before it existed.
-    std::optional<crypto::Digest> state_root;
 
     friend bool operator==(const Checkpoint&, const Checkpoint&) = default;
 };
@@ -80,6 +84,48 @@ struct SignedCheckpoint {
 [[nodiscard]] Status verify_cosignature(const crypto::Provider& provider,
                                         const SignedCheckpoint& cosignature,
                                         const crypto::PublicKey& witness_key);
+
+// ---------------------------------------------------------------------------
+// State commitments
+// ---------------------------------------------------------------------------
+
+inline constexpr std::string_view state_commitment_content_type = "application/cexchain-state+cbor";
+
+/// The ledger's commitment, signed with the log key and appended to the log
+/// when it checkpoints, to the state after the entries before it (see
+/// state_tree.hpp). Being in the log, it is covered by every later checkpoint
+/// and witnessed like any entry: a false commitment cannot be withdrawn, and
+/// anyone replaying the log finds it.
+struct StateCommitment {
+    Id ledger_id;
+    crypto::HashAlg tree_hash = crypto::HashAlg::sha256;
+    /// The number of entries before the commitment: its own log index.
+    std::uint64_t tree_size = 0;
+    crypto::Digest state_root;
+    Timestamp timestamp = 0;
+
+    friend bool operator==(const StateCommitment&, const StateCommitment&) = default;
+};
+
+struct SignedStateCommitment {
+    Bytes encoded;
+    cose::Sign1 envelope;
+    StateCommitment commitment;
+    /// HASH(Sig_structure) under the tree hash: the log entry's id.
+    Id id;
+    Id kid;
+};
+
+[[nodiscard]] Result<Bytes> encode_state_commitment(const StateCommitment& commitment);
+[[nodiscard]] Result<StateCommitment> decode_state_commitment(ByteView encoded);
+[[nodiscard]] Result<SignedStateCommitment>
+sign_state_commitment(const crypto::Signer& log_key, const crypto::Provider& provider,
+                      const StateCommitment& commitment);
+[[nodiscard]] Result<SignedStateCommitment> parse_state_commitment(const crypto::Provider& provider,
+                                                                   ByteView encoded);
+[[nodiscard]] Status verify_state_commitment(const crypto::Provider& provider,
+                                             const SignedStateCommitment& commitment,
+                                             const crypto::PublicKey& log_key);
 
 // ---------------------------------------------------------------------------
 // Receipts (RFC 9942)

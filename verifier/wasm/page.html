@@ -248,8 +248,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
     }));
     $("limits").textContent = "Every statement above is signed, authorized under the ledger's rules, and included in the signed log. " +
       (report.complete
-        ? "The history is complete: it is proven against the state commitment the ledger signed, so nothing (such as a revocation) was left out. An audit of the full log confirms the commitment itself."
-        : "This evidence predates state commitments, so it cannot prove that nothing (such as a later revocation) was left out.");
+        ? "The history is complete: it is proven against the state commitment in the ledger's witnessed log, so nothing (such as a revocation) was left out."
+        : "This evidence has no state commitment, so it cannot prove that nothing (such as a later revocation) was left out.");
     $("details").hidden = false;
   }
 

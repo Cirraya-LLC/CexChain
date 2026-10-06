@@ -94,47 +94,55 @@ TEST_CASE("the state tree commits to every object exactly once", "[state]") {
     CHECK(*sm3_root != *root);
 }
 
-TEST_CASE("checkpoints commit to the ledger state", "[state][ledger]") {
+TEST_CASE("checkpoints end with a state commitment in the log", "[state][ledger]") {
     World w;
     const auto alice_key = key("alice");
     const auto alice =
         w.register_actor(w.org(), w.org_id(), std::nullopt, protocol::ActorKind::person, alice_key);
     auto checkpoint = w.ledger().checkpoint(w.log_key());
     REQUIRE(checkpoint);
-    REQUIRE(checkpoint->checkpoint.state_root);
-    CHECK(*checkpoint->checkpoint.state_root ==
+    // Genesis, Alice, and the commitment to the state after them.
+    CHECK(checkpoint->checkpoint.tree_size == 3);
+    const auto entry = protocol::decode_log_entry(*w.ledger().entry(2));
+    REQUIRE(entry);
+    REQUIRE(entry->is_state_commitment());
+    const auto commitment = protocol::parse_state_commitment(provider(), entry->state_commitment);
+    REQUIRE(commitment);
+    CHECK(commitment->commitment.tree_size == 2);
+    CHECK(commitment->commitment.state_root ==
           *protocol::state_root(provider(), w.hash(), protocol::state_leaves(w.ledger().state())));
-    const auto leaf = protocol::state_leaf(w.ledger().state(), alice);
-    REQUIRE(leaf);
-    CHECK(leaf->history == std::vector<std::uint64_t>{1});
+    CHECK(protocol::verify_state_commitment(provider(), *commitment, w.log_key().public_key()));
+    CHECK(w.ledger().state_commitment() == commitment->commitment);
 
+    // Nothing changed: checkpointing again adds no commitment.
+    REQUIRE(w.ledger().checkpoint(w.log_key()));
+    CHECK(w.ledger().size() == 3);
+
+    CHECK(protocol::state_leaf(w.ledger().state(), alice)->history ==
+          std::vector<std::uint64_t>{1});
     w.ok(w.org(), w.statement(w.org_id(), std::nullopt, protocol::ActorRevokeBody{alice, "left"}));
     CHECK(protocol::state_leaf(w.ledger().state(), alice)->history ==
-          std::vector<std::uint64_t>{1, 2});
+          std::vector<std::uint64_t>{1, 3});
     REQUIRE(w.ledger().checkpoint(w.log_key()));
+    CHECK(w.ledger().size() == 5);
     REQUIRE(ledger::Ledger::open(w.fs(), w.clock(), provider()));
     CHECK(w.ledger().audit());
 
-    // An operator that signs a checkpoint over a state the log does not have
-    // (one where Alice was never revoked, say) is caught on opening and by
-    // audit.
-    auto lie = w.ledger().latest_checkpoint()->checkpoint;
-    lie.timestamp += 1;
-    lie.state_root = *checkpoint->checkpoint.state_root;
-    const auto signed_lie = protocol::sign_checkpoint(w.log_key(), provider(), lie);
+    // An operator that appends a commitment to a state the log does not have
+    // (one where Alice was never revoked) has a log that no longer opens:
+    // replay checks every commitment, and the false one stays in the log.
+    auto lie = commitment->commitment;
+    lie.tree_size = 5;
+    lie.timestamp += 10'000;
+    const auto signed_lie = protocol::sign_state_commitment(w.log_key(), provider(), lie);
     REQUIRE(signed_lie);
-    auto file = ledger::RecordLog::open(w.fs(), "checkpoints");
-    REQUIRE(file);
-    REQUIRE(file->append(signed_lie->encoded));
-    CHECK_FALSE(ledger::Ledger::open(w.fs(), w.clock(), provider()));
-    // Followed by an honest checkpoint, the lie passes opening (which checks
-    // the latest) but not the audit (which checks them all).
-    auto honest = w.ledger().latest_checkpoint()->checkpoint;
-    honest.timestamp += 2;
-    REQUIRE(file->append(protocol::sign_checkpoint(w.log_key(), provider(), honest)->encoded));
-    auto reopened = ledger::Ledger::open(w.fs(), w.clock(), provider());
-    REQUIRE(reopened);
-    CHECK(reopened->audit().error().code == Errc::verification_failed);
+    auto log = ledger::RecordLog::open(w.fs(), "statements");
+    REQUIRE(log);
+    REQUIRE(log->append(
+        *protocol::encode_log_entry({signed_lie->id, lie.timestamp, {}, signed_lie->encoded})));
+    const auto reopened = ledger::Ledger::open(w.fs(), w.clock(), provider());
+    REQUIRE_FALSE(reopened);
+    CHECK(reopened.error().code == Errc::malformed);
 }
 
 TEST_CASE("bundles prove that nothing was left out", "[state][evidence]") {

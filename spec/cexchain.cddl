@@ -7,8 +7,8 @@
 ; Revision history:
 ;   v0.1  statements, the log, checkpoints, receipts, evidence bundles
 ;   v0.2  cosign requests for witnesses; proof of presence (statement key 8,
-;         actor-set-presence, scope key 6); the state commitment (checkpoint
-;         key 6, bundle key 7). v0.1 objects remain valid.
+;         actor-set-presence, scope key 6); state commitments in the log
+;         (log entry key 4, bundle key 7). v0.1 objects remain valid.
 ;
 ; Every structure is encoded as deterministic CBOR (RFC 8949 section 4.2.1) in
 ; the CexChain profile: no floats, no indefinite lengths, no duplicate keys.
@@ -231,10 +231,31 @@ tool-pin = [name: tstr, digest: bstr]
 ; Each registered statement becomes one log entry. The ledger's Merkle tree
 ; (RFC 9162, ledger hash) commits to the encoded log entries in order.
 
+; A log entry holds a statement, or (key 4 instead of 3) a state commitment
+; the ledger appended when checkpointing. Exactly one of 3 and 4 is present.
 log-entry = {
-  1 => id,                     ; statement_id
+  1 => id,                     ; statement_id: HASH(Sig_structure) of the
+                               ; statement or of the state commitment
   2 => timestamp,              ; registered_at, by the ledger clock
-  3 => bstr,                   ; the signed statement (COSE_Sign1) as submitted
+  ? 3 => bstr,                 ; the signed statement (COSE_Sign1) as submitted
+  ? 4 => bstr,                 ; a signed state commitment (COSE_Sign1)
+}
+
+; A state commitment is a COSE_Sign1 by the log key with protected header
+;   { 1: alg, 3: "application/cexchain-state+cbor", 4: kid }
+; over a state-commitment-payload. When it checkpoints, the ledger first
+; appends a commitment to the state after every entry so far (unless the last
+; entry already is one), then signs a checkpoint that covers it. Being in the
+; log, a commitment is witnessed like any entry and can never be withdrawn.
+; Replaying the log checks every commitment: signed by the log key, for this
+; ledger and tree hash, tree size equal to its own index, and state root equal
+; to the root of the replayed state (see state-leaf).
+state-commitment-payload = {
+  1 => id,                     ; ledger_id
+  2 => -16 / -65538,           ; tree hash algorithm
+  3 => uint .ge 1,             ; tree size: the entries before it (its index)
+  4 => bstr,                   ; state root
+  5 => timestamp,
 }
 
 ; A checkpoint is a COSE_Sign1 by the log key with protected header
@@ -249,8 +270,6 @@ checkpoint-payload = {
   3 => uint .ge 1,             ; tree size (genesis is always in the log)
   4 => bstr,                   ; root hash
   5 => timestamp,
-  ? 6 => bstr,                 ; state root (see state-proof); always present
-                               ; in checkpoints written since v0.2
 }
 
 ; What a ledger operator sends a witness. The witness keeps, per ledger, the
@@ -263,12 +282,9 @@ checkpoint-payload = {
 ;   4. the tree size is not smaller than old size; and
 ;   5. the RFC 9162 consistency proof shows that the new tree extends the
 ;      tree the witness last cosigned (empty from size 0; equal sizes need
-;      equal roots); and
-;   6. it commits to a state root if the last cosigned checkpoint did, and
-;      to the same state root if the tree size is the same: a witness
-;      cannot check a state root without the whole log, but it refuses
-;      equivocation (two states for one history). Whether a state root
-;      matches the log is checked by auditing the full log.
+;      equal roots).
+; Since state commitments are log entries, consistency also covers them: a
+; ledger cannot show two states for one history.
 cosign-request = {
   1 => bstr,                   ; the signed checkpoint (COSE_Sign1)
   2 => uint,                   ; old size
@@ -302,13 +318,16 @@ inclusion-proof = [
 ;   5. checks field disclosures against the record's field root and count,
 ;      and attachment contents against their commitments;
 ;   6. verifies cosignatures by witnesses it trusts;
-;   7. if the checkpoint has a state root: verifies every state proof against
-;      it (at most one per object), and for the record and each object
-;      involved in its events (the signer, an agent signer's accountable
-;      person, and every delegation in the chain with its grantor) requires
-;      a proof whose leaf equals that object's leaf in the replayed state.
-;      Then nothing was omitted: the report is complete. Without a state
-;      root, a bundle cannot rule out omissions (such as a later revocation).
+;   7. if the last entry the checkpoint covers is a state commitment (and
+;      the bundle includes it, with its receipt): checks it as replay would
+;      (log key, ledger, tree hash, its own index), verifies every state
+;      proof against its state root (at most one per object), and for the
+;      record and each object involved in its events (the signer, an agent
+;      signer's accountable person, and every delegation in the chain with
+;      its grantor) requires a proof whose leaf equals that object's leaf in
+;      the replayed state. Then nothing was omitted: the report is complete.
+;      Without that commitment, a bundle cannot rule out omissions (such as
+;      a later revocation).
 
 ; The state commitment: a compact sparse Merkle tree over every actor,
 ; delegation, and record, keyed by object id (its 256 bits, most significant
@@ -317,7 +336,7 @@ inclusion-proof = [
 ;   subtree of one object   HASH(0x00 || state-leaf)
 ;   any other subtree       HASH(0x01 || left || right)
 ; A leaf lists every log index that created or changed the object, as of the
-; checkpoint: for actors registration, key rotations, passkey changes, and
+; commitment: for actors registration, key rotations, passkey changes, and
 ; revocation; for delegations grant and revocation; for records every
 ; statement about them. The organization's leaf is [1, ledger_id, [0]].
 state-leaf = [
@@ -337,7 +356,8 @@ evidence-bundle = {
   ? 4 => [+ bstr],             ; witness cosignatures on that checkpoint
   ? 5 => [+ field-disclosure],
   ? 6 => [+ attachment-opening],
-  ? 7 => [+ state-proof],      ; required when the checkpoint has a state root
+  ? 7 => [+ state-proof],      ; required when the bundle includes the state
+                               ; commitment its checkpoint ends with
 }
 evidence-entry = [
   entry: bstr,                 ; encoded log-entry

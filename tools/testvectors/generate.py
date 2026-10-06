@@ -619,6 +619,7 @@ def dcbor(value) -> bytes:
 STATEMENT_TYPE = "application/cexchain-statement+cbor"
 CHECKPOINT_TYPE = "application/cexchain-checkpoint+cbor"
 COSIGNATURE_TYPE = "application/cexchain-cosignature+cbor"
+STATE_TYPE = "application/cexchain-state+cbor"
 HASHES = {-16: "sha256", -65538: "sm3"}
 VDS = {-16: 1, -65538: -65537}
 
@@ -855,8 +856,6 @@ def generate_protocol_v02() -> None:
 
         entries = [dcbor({1: bytes.fromhex(st["statement_id"]), 2: t0 + 1000 + i, 3: bytes.fromhex(st["encoded"])})
                    for i, st in enumerate(statements)]
-        oracle = lg.merkle()
-        root = oracle.mth(entries)
 
         # The state after every statement: [kind, id, history].
         leaves = sorted([
@@ -869,7 +868,19 @@ def generate_protocol_v02() -> None:
         proofs = [{"kind": leaf[0], "id": leaf[1].hex(), "history": leaf[2],
                    "siblings": [s.hex() for s in smt_proof(lg, leaves, leaf[1])]} for leaf in leaves]
 
-        checkpoint_payload = dcbor({1: ledger_id, 2: hash_id, 3: len(entries), 4: root, 5: t0 + 5000, 6: state_root})
+        # When checkpointing, the ledger appends its state commitment, signed
+        # with the log key, as the next log entry.
+        commitment_index = len(entries)
+        commitment_payload = dcbor({1: ledger_id, 2: hash_id, 3: commitment_index, 4: state_root, 5: t0 + 4000})
+        commitment_protected = {3: STATE_TYPE, 4: lg.kid(keys["log"])}
+        commitment = lg.sign(keys["log"], commitment_protected, commitment_payload)
+        commitment_id = lg.h(dcbor(["Signature1", dcbor({1: COSE["Ed25519"], **commitment_protected}), b"",
+                                    commitment_payload]))
+        entries.append(dcbor({1: commitment_id, 2: t0 + 1000 + commitment_index, 4: commitment}))
+        oracle = lg.merkle()
+        root = oracle.mth(entries)
+
+        checkpoint_payload = dcbor({1: ledger_id, 2: hash_id, 3: len(entries), 4: root, 5: t0 + 5000})
         checkpoint = lg.sign(keys["log"], {3: CHECKPOINT_TYPE, 4: lg.kid(keys["log"])}, checkpoint_payload)
         old_size = 4
         consistency = oracle.subproof(old_size, entries, True)
@@ -883,6 +894,7 @@ def generate_protocol_v02() -> None:
             "presence": {"challenge": challenge.hex(), "credential": dcbor(credential).hex(),
                          "statement_index": 5, "user_verified": True},
             "state_root": state_root.hex(),
+            "state_commitment": {"index": commitment_index, "id": commitment_id.hex(), "encoded": commitment.hex()},
             "state_proofs": proofs,
             "checkpoint": checkpoint.hex(),
             "cosign_request": cosign_request.hex(),
@@ -893,7 +905,7 @@ def generate_protocol_v02() -> None:
                        "independent Python encoder from spec/cexchain.cddl: a passkey registration "
                        "(actor-set-presence), a statement with proof of presence (an Ed25519 WebAuthn "
                        "assertion), a delegation that requires presence, the state commitment (root, "
-                       "proofs, and a checkpoint carrying it), and a cosign request. All signatures are "
+                       "proofs, and the log entry that carries it), and a cosign request. All signatures are "
                        "Ed25519 (deterministic), so every object must be reproduced byte for byte. Keys "
                        "are throwaway test keys: seed = SHA-256(\"CexChain test key: <name>\").",
         "seeds": seeds,
