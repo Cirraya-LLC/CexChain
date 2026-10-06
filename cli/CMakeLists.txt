@@ -9,6 +9,7 @@ add_executable(cexchain
     src/cmd_keys.cpp
     src/cmd_ledger.cpp
     src/cmd_records.cpp
+    src/cmd_vault.cpp
     src/main.cpp
     src/mcp.cpp
     src/output.cpp

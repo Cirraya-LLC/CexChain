@@ -32,6 +32,8 @@ const OptionSpec reason_option{"reason", "TEXT", "Reason, recorded on the ledger
 const OptionSpec passphrase_file_option{
     "passphrase-file", "FILE",
     "Read key passphrases from FILE (default: $CEXCHAIN_PASSPHRASE or a prompt)"};
+const OptionSpec vault_key_option{"vault-key", "FILE",
+                                  "The vault private key (default: <ledger>/vault.key)"};
 const OptionSpec json_option{"json", "", "Print machine-readable JSON"};
 const OptionSpec help_option{"help", "", "Show help for this command"};
 
@@ -117,8 +119,14 @@ std::vector<CommandSpec> build() {
                {"root-key", "KEY", "Organization root key file", true},
                {"log-key", "KEY", "Log key file (signs checkpoints and receipts)", true},
                {"hash", "HASH", "sha256 (default) or sm3"},
+               {"vault-public-key", "FILE",
+                "Seal private record data to this key (from cexchain vault keygen) instead of "
+                "creating <ledger>/vault.key"},
                passphrase_file_option}),
-         cmd_init},
+         cmd_init,
+         "Creates the ledger and its vault key: private record data (field values and salts)\n"
+         "is sealed to <ledger>/vault.pub; reading it needs <ledger>/vault.key, encrypted with\n"
+         "your passphrase. Back the vault key up: without it, private data cannot be disclosed."},
         {{"status"},
          "Show the ledger's identity, size, and latest checkpoint",
          "Ledger",
@@ -314,7 +322,7 @@ std::vector<CommandSpec> build() {
          "RECORD",
          1,
          1,
-         with({ledger_option, passphrase_file_option}),
+         with({ledger_option, vault_key_option, passphrase_file_option}),
          cmd_record_fields},
         {{"record", "endorse"},
          "Endorse a record in a role",
@@ -415,6 +423,7 @@ std::vector<CommandSpec> build() {
                {"disclose", "FIELDS", "Comma-separated fields to disclose"},
                {"with-attachments", "", "Include attachment openings"},
                {"cosignature", "FILE", "Include a witness cosignature", false, true},
+               vault_key_option,
                passphrase_file_option}),
          cmd_export},
         {{"verify"},
@@ -437,6 +446,43 @@ std::vector<CommandSpec> build() {
          cmd_inspect,
          "Recognizes signed statements, log entries, checkpoints, cosignatures, receipts, and\n"
          "evidence bundles."},
+
+        // ------------------------------------------------------------------
+        {{"vault", "status"},
+         "Show the vault key and how many records it seals",
+         "Vault",
+         "",
+         0,
+         0,
+         with({ledger_option}),
+         cmd_vault_status},
+        {{"vault", "keygen"},
+         "Generate a vault key pair to keep off the ledger host",
+         "Vault",
+         "",
+         0,
+         0,
+         with(
+             {{"out", "FILE", "Write the private key to FILE and the public key to FILE.pub", true},
+              {"no-passphrase", "", "Store the private key unencrypted (not recommended)"},
+              passphrase_file_option}),
+         cmd_vault_keygen},
+        {{"vault", "rekey"},
+         "Re-seal all private record data to a new vault key",
+         "Vault",
+         "",
+         0,
+         0,
+         with({ledger_option,
+               vault_key_option,
+               {"new-public-key", "FILE",
+                "Re-seal to this public key (default: generate <ledger>/vault.key)"},
+               passphrase_file_option,
+               {"new-passphrase-file", "FILE",
+                "Passphrase for a generated key (default: $CEXCHAIN_NEW_PASSPHRASE or a prompt)"}}),
+         cmd_vault_rekey,
+         "Use after a vault key may have leaked, when its holders change, or to seal data\n"
+         "written before vaults were encrypted. The previous key is kept as vault.key.old."},
 
         // ------------------------------------------------------------------
         {{"mcp"},

@@ -18,6 +18,7 @@
 #include <openssl/encoder.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
+#include <openssl/hpke.h>
 #include <openssl/params.h>
 #include <openssl/pkcs12.h>
 #include <openssl/rand.h>
@@ -50,6 +51,7 @@ using DecoderCtxPtr = std::unique_ptr<OSSL_DECODER_CTX, Deleter<&OSSL_DECODER_CT
 using Pkcs8InfoPtr = std::unique_ptr<PKCS8_PRIV_KEY_INFO, Deleter<&PKCS8_PRIV_KEY_INFO_free>>;
 using X509SigPtr = std::unique_ptr<X509_SIG, Deleter<&X509_SIG_free>>;
 using X509AlgorPtr = std::unique_ptr<X509_ALGOR, Deleter<&X509_ALGOR_free>>;
+using HpkeCtxPtr = std::unique_ptr<OSSL_HPKE_CTX, Deleter<&OSSL_HPKE_CTX_free>>;
 
 constexpr std::size_t ec_scalar_size = 32;
 constexpr std::uint8_t sec1_uncompressed_prefix = 0x04;
@@ -349,6 +351,109 @@ Status check_key_pair(EVP_PKEY* pkey, const PublicKey& public_key) {
     return {};
 }
 
+/// Decodes exactly one PKCS #8 PrivateKeyInfo. The generic decoder also
+/// accepts other private key formats (such as SEC 1), so the outer structure
+/// is checked first.
+Result<PkeyPtr> decode_private_key_info(ByteView der) {
+    {
+        const unsigned char* begin = data_or_empty(der);
+        const unsigned char* cursor = begin;
+        const Pkcs8InfoPtr info(
+            d2i_PKCS8_PRIV_KEY_INFO(nullptr, &cursor, static_cast<long>(der.size())));
+        if (!info || cursor != begin + der.size()) {
+            return openssl_fail(Errc::invalid_argument, "input is not a PKCS #8 PrivateKeyInfo");
+        }
+    }
+    EVP_PKEY* raw = nullptr;
+    DecoderCtxPtr decoder(OSSL_DECODER_CTX_new_for_pkey(&raw, "DER", "PrivateKeyInfo", nullptr,
+                                                        EVP_PKEY_KEYPAIR, nullptr, nullptr));
+    if (!decoder) {
+        return openssl_fail(Errc::crypto_failure, "could not create a PKCS #8 decoder");
+    }
+    const unsigned char* in = data_or_empty(der);
+    std::size_t remaining = der.size();
+    const int decoded = OSSL_DECODER_from_data(decoder.get(), &in, &remaining);
+    PkeyPtr pkey(raw);
+    if (decoded != 1 || !pkey) {
+        return openssl_fail(Errc::invalid_argument, "input is not a PKCS #8 private key");
+    }
+    if (remaining != 0) {
+        return openssl_fail(Errc::malformed, "trailing bytes after the PKCS #8 private key");
+    }
+    return pkey;
+}
+
+/// Decrypts a PKCS #8 EncryptedPrivateKeyInfo to the PrivateKeyInfo inside.
+Result<SecureBytes> decrypt_pkcs8(ByteView der, std::string_view passphrase) {
+    const unsigned char* begin = data_or_empty(der);
+    const unsigned char* cursor = begin;
+    const X509SigPtr sig(d2i_X509_SIG(nullptr, &cursor, static_cast<long>(der.size())));
+    if (!sig || cursor != begin + der.size()) {
+        return openssl_fail(Errc::invalid_argument, "input is not an encrypted PKCS #8 key");
+    }
+    const Pkcs8InfoPtr info(
+        PKCS8_decrypt(sig.get(), passphrase.data(), static_cast<int>(passphrase.size())));
+    if (!info) {
+        return openssl_fail(Errc::verification_failed, "wrong passphrase, or the key is damaged");
+    }
+    const int length = i2d_PKCS8_PRIV_KEY_INFO(info.get(), nullptr);
+    if (length <= 0) {
+        return openssl_fail(Errc::crypto_failure, "could not re-encode the decrypted key");
+    }
+    SecureBytes plain(Bytes(static_cast<std::size_t>(length)));
+    unsigned char* out = const_cast<unsigned char*>(plain.view().data());
+    if (i2d_PKCS8_PRIV_KEY_INFO(info.get(), &out) != length) {
+        return openssl_fail(Errc::crypto_failure, "could not re-encode the decrypted key");
+    }
+    return plain;
+}
+
+/// PBES2 with scrypt (N = 2^14, r = 8, p = 1) and AES-256-CBC.
+Result<Bytes> encrypt_pkcs8(EVP_PKEY* pkey, std::string_view passphrase) {
+    if (passphrase.empty()) {
+        return fail(Errc::invalid_argument, "the passphrase must not be empty");
+    }
+    Pkcs8InfoPtr info(EVP_PKEY2PKCS8(pkey));
+    if (!info) {
+        return openssl_fail(Errc::crypto_failure, "could not encode the private key");
+    }
+    X509AlgorPtr pbe(
+        PKCS5_pbe2_set_scrypt(EVP_aes_256_cbc(), nullptr, 0, nullptr, 1U << 14U, 8, 1));
+    if (!pbe) {
+        return openssl_fail(Errc::crypto_failure, "could not set up key encryption");
+    }
+    // PKCS8_set0_pbe takes ownership of the algorithm on success.
+    X509SigPtr sig(PKCS8_set0_pbe(passphrase.data(), static_cast<int>(passphrase.size()),
+                                  info.get(), pbe.get()));
+    if (!sig) {
+        return openssl_fail(Errc::crypto_failure, "could not encrypt the private key");
+    }
+    static_cast<void>(pbe.release());
+    const int length = i2d_X509_SIG(sig.get(), nullptr);
+    if (length <= 0) {
+        return openssl_fail(Errc::crypto_failure, "could not encode the encrypted key");
+    }
+    Bytes der(static_cast<std::size_t>(length));
+    unsigned char* out = der.data();
+    if (i2d_X509_SIG(sig.get(), &out) != length) {
+        return openssl_fail(Errc::crypto_failure, "could not encode the encrypted key");
+    }
+    return der;
+}
+
+Result<SecureBytes> encode_pkcs8(EVP_PKEY* pkey) {
+    EncoderCtxPtr encoder(
+        OSSL_ENCODER_CTX_new_for_pkey(pkey, EVP_PKEY_KEYPAIR, "DER", "PrivateKeyInfo", nullptr));
+    unsigned char* data = nullptr;
+    std::size_t length = 0;
+    if (!encoder || OSSL_ENCODER_to_data(encoder.get(), &data, &length) != 1) {
+        return openssl_fail(Errc::crypto_failure, "could not encode the private key");
+    }
+    SecureBytes out(Bytes(data, data + length));
+    OPENSSL_clear_free(data, length);
+    return out;
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -471,34 +576,11 @@ Result<KeyPair> KeyPair::generate(SigAlg alg) {
 }
 
 Result<KeyPair> KeyPair::from_pkcs8(ByteView der) {
-    // The decoder below also accepts other private key formats (such as SEC 1),
-    // so first require the outer structure to be exactly one PrivateKeyInfo.
-    {
-        const unsigned char* begin = data_or_empty(der);
-        const unsigned char* cursor = begin;
-        const Pkcs8InfoPtr info(
-            d2i_PKCS8_PRIV_KEY_INFO(nullptr, &cursor, static_cast<long>(der.size())));
-        if (!info || cursor != begin + der.size()) {
-            return openssl_fail(Errc::invalid_argument, "input is not a PKCS #8 PrivateKeyInfo");
-        }
+    auto decoded = decode_private_key_info(der);
+    if (!decoded) {
+        return std::unexpected(decoded.error());
     }
-
-    EVP_PKEY* raw = nullptr;
-    DecoderCtxPtr decoder(OSSL_DECODER_CTX_new_for_pkey(&raw, "DER", "PrivateKeyInfo", nullptr,
-                                                        EVP_PKEY_KEYPAIR, nullptr, nullptr));
-    if (!decoder) {
-        return openssl_fail(Errc::crypto_failure, "could not create a PKCS #8 decoder");
-    }
-    const unsigned char* in = data_or_empty(der);
-    std::size_t remaining = der.size();
-    const int decoded = OSSL_DECODER_from_data(decoder.get(), &in, &remaining);
-    PkeyPtr pkey(raw);
-    if (decoded != 1 || !pkey) {
-        return openssl_fail(Errc::invalid_argument, "input is not a PKCS #8 private key");
-    }
-    if (remaining != 0) {
-        return openssl_fail(Errc::malformed, "trailing bytes after the PKCS #8 private key");
-    }
+    PkeyPtr pkey = std::move(*decoded);
     const auto alg = identify(pkey.get());
     if (!alg) {
         return openssl_fail(Errc::unsupported, "private key uses an unsupported algorithm");
@@ -560,78 +642,166 @@ bool is_encrypted_pkcs8(ByteView der) {
 }
 
 Result<KeyPair> KeyPair::from_encrypted_pkcs8(ByteView der, std::string_view passphrase) {
-    const unsigned char* begin = data_or_empty(der);
-    const unsigned char* cursor = begin;
-    const X509SigPtr sig(d2i_X509_SIG(nullptr, &cursor, static_cast<long>(der.size())));
-    if (!sig || cursor != begin + der.size()) {
-        return openssl_fail(Errc::invalid_argument, "input is not an encrypted PKCS #8 key");
+    const auto plain = decrypt_pkcs8(der, passphrase);
+    if (!plain) {
+        return std::unexpected(plain.error());
     }
-    const Pkcs8InfoPtr info(
-        PKCS8_decrypt(sig.get(), passphrase.data(), static_cast<int>(passphrase.size())));
-    if (!info) {
-        return openssl_fail(Errc::verification_failed, "wrong passphrase, or the key is damaged");
-    }
-    const int length = i2d_PKCS8_PRIV_KEY_INFO(info.get(), nullptr);
-    if (length <= 0) {
-        return openssl_fail(Errc::crypto_failure, "could not re-encode the decrypted key");
-    }
-    SecureBytes plain(Bytes(static_cast<std::size_t>(length)));
-    unsigned char* out = const_cast<unsigned char*>(plain.view().data());
-    if (i2d_PKCS8_PRIV_KEY_INFO(info.get(), &out) != length) {
-        return openssl_fail(Errc::crypto_failure, "could not re-encode the decrypted key");
-    }
-    return from_pkcs8(plain.view());
+    return from_pkcs8(plain->view());
 }
 
 Result<Bytes> KeyPair::to_encrypted_pkcs8(std::string_view passphrase) const {
     if (!impl_) {
         return fail(Errc::invalid_argument, "key pair has been moved from");
     }
-    if (passphrase.empty()) {
-        return fail(Errc::invalid_argument, "the passphrase must not be empty");
-    }
-    Pkcs8InfoPtr info(EVP_PKEY2PKCS8(impl_->pkey.get()));
-    if (!info) {
-        return openssl_fail(Errc::crypto_failure, "could not encode the private key");
-    }
-    X509AlgorPtr pbe(
-        PKCS5_pbe2_set_scrypt(EVP_aes_256_cbc(), nullptr, 0, nullptr, 1U << 14U, 8, 1));
-    if (!pbe) {
-        return openssl_fail(Errc::crypto_failure, "could not set up key encryption");
-    }
-    // PKCS8_set0_pbe takes ownership of the algorithm on success.
-    X509SigPtr sig(PKCS8_set0_pbe(passphrase.data(), static_cast<int>(passphrase.size()),
-                                  info.get(), pbe.get()));
-    if (!sig) {
-        return openssl_fail(Errc::crypto_failure, "could not encrypt the private key");
-    }
-    static_cast<void>(pbe.release());
-    const int length = i2d_X509_SIG(sig.get(), nullptr);
-    if (length <= 0) {
-        return openssl_fail(Errc::crypto_failure, "could not encode the encrypted key");
-    }
-    Bytes der(static_cast<std::size_t>(length));
-    unsigned char* out = der.data();
-    if (i2d_X509_SIG(sig.get(), &out) != length) {
-        return openssl_fail(Errc::crypto_failure, "could not encode the encrypted key");
-    }
-    return der;
+    return encrypt_pkcs8(impl_->pkey.get(), passphrase);
 }
 
 Result<SecureBytes> KeyPair::to_pkcs8() const {
     if (!impl_) {
         return fail(Errc::invalid_argument, "key pair has been moved from");
     }
-    EncoderCtxPtr encoder(OSSL_ENCODER_CTX_new_for_pkey(impl_->pkey.get(), EVP_PKEY_KEYPAIR, "DER",
-                                                        "PrivateKeyInfo", nullptr));
-    unsigned char* data = nullptr;
-    std::size_t length = 0;
-    if (!encoder || OSSL_ENCODER_to_data(encoder.get(), &data, &length) != 1) {
-        return openssl_fail(Errc::crypto_failure, "could not encode the private key");
+    return encode_pkcs8(impl_->pkey.get());
+}
+
+// ---------------------------------------------------------------------------
+// HPKE
+// ---------------------------------------------------------------------------
+
+namespace {
+
+constexpr OSSL_HPKE_SUITE openssl_suite{OSSL_HPKE_KEM_ID_X25519, OSSL_HPKE_KDF_ID_HKDF_SHA256,
+                                        OSSL_HPKE_AEAD_ID_AES_GCM_256};
+static_assert(hpke_suite.kem == OSSL_HPKE_KEM_ID_X25519 &&
+              hpke_suite.kdf == OSSL_HPKE_KDF_ID_HKDF_SHA256 &&
+              hpke_suite.aead == OSSL_HPKE_AEAD_ID_AES_GCM_256);
+
+Result<Bytes> x25519_public_key(EVP_PKEY* pkey) {
+    if (EVP_PKEY_is_a(pkey, "X25519") != 1) {
+        return openssl_fail(Errc::unsupported, "an HPKE key must be an X25519 key");
     }
-    SecureBytes out(Bytes(data, data + length));
-    OPENSSL_clear_free(data, length);
+    Bytes out(hpke_public_key_size);
+    std::size_t length = out.size();
+    if (EVP_PKEY_get_raw_public_key(pkey, out.data(), &length) != 1 ||
+        length != hpke_public_key_size) {
+        return openssl_fail(Errc::crypto_failure, "could not export the X25519 public key");
+    }
     return out;
+}
+
+} // namespace
+
+Result<HpkeSealed> hpke_seal(ByteView recipient, ByteView info, ByteView aad, ByteView plaintext) {
+    if (recipient.size() != hpke_public_key_size) {
+        return fail(Errc::invalid_argument, "an X25519 public key is 32 bytes");
+    }
+    HpkeCtxPtr ctx(OSSL_HPKE_CTX_new(OSSL_HPKE_MODE_BASE, openssl_suite, OSSL_HPKE_ROLE_SENDER,
+                                     nullptr, nullptr));
+    if (!ctx) {
+        return openssl_fail(Errc::unsupported, "HPKE is not available");
+    }
+    HpkeSealed sealed;
+    sealed.encapsulated_key.resize(OSSL_HPKE_get_public_encap_size(openssl_suite));
+    std::size_t enc_length = sealed.encapsulated_key.size();
+    if (OSSL_HPKE_encap(ctx.get(), sealed.encapsulated_key.data(), &enc_length, recipient.data(),
+                        recipient.size(), data_or_empty(info), info.size()) != 1) {
+        return openssl_fail(Errc::invalid_argument, "could not encapsulate to the recipient's key");
+    }
+    sealed.encapsulated_key.resize(enc_length);
+    sealed.ciphertext.resize(OSSL_HPKE_get_ciphertext_size(openssl_suite, plaintext.size()));
+    std::size_t ct_length = sealed.ciphertext.size();
+    if (OSSL_HPKE_seal(ctx.get(), sealed.ciphertext.data(), &ct_length, data_or_empty(aad),
+                       aad.size(), data_or_empty(plaintext), plaintext.size()) != 1) {
+        return openssl_fail(Errc::crypto_failure, "HPKE encryption failed");
+    }
+    sealed.ciphertext.resize(ct_length);
+    return sealed;
+}
+
+struct HpkeKey::Impl {
+    PkeyPtr pkey;
+    Bytes public_key;
+};
+
+HpkeKey::HpkeKey(std::unique_ptr<Impl> impl) noexcept : impl_(std::move(impl)) {}
+HpkeKey::HpkeKey(HpkeKey&&) noexcept = default;
+HpkeKey& HpkeKey::operator=(HpkeKey&&) noexcept = default;
+HpkeKey::~HpkeKey() = default;
+
+Result<HpkeKey> HpkeKey::generate() {
+    PkeyPtr pkey(EVP_PKEY_Q_keygen(nullptr, nullptr, "X25519"));
+    if (!pkey) {
+        return openssl_fail(Errc::crypto_failure, "X25519 key generation failed");
+    }
+    auto public_key = x25519_public_key(pkey.get());
+    if (!public_key) {
+        return std::unexpected(public_key.error());
+    }
+    return HpkeKey(std::make_unique<Impl>(Impl{std::move(pkey), std::move(*public_key)}));
+}
+
+Result<HpkeKey> HpkeKey::from_pkcs8(ByteView der) {
+    auto pkey = decode_private_key_info(der);
+    if (!pkey) {
+        return std::unexpected(pkey.error());
+    }
+    auto public_key = x25519_public_key(pkey->get());
+    if (!public_key) {
+        return std::unexpected(public_key.error());
+    }
+    return HpkeKey(std::make_unique<Impl>(Impl{std::move(*pkey), std::move(*public_key)}));
+}
+
+Result<HpkeKey> HpkeKey::from_encrypted_pkcs8(ByteView der, std::string_view passphrase) {
+    const auto plain = decrypt_pkcs8(der, passphrase);
+    if (!plain) {
+        return std::unexpected(plain.error());
+    }
+    return from_pkcs8(plain->view());
+}
+
+ByteView HpkeKey::public_key() const noexcept {
+    return impl_ ? ByteView(impl_->public_key) : ByteView{};
+}
+
+Result<SecureBytes> HpkeKey::open(const HpkeSealed& sealed, ByteView info, ByteView aad) const {
+    if (!impl_) {
+        return fail(Errc::invalid_argument, "key has been moved from");
+    }
+    HpkeCtxPtr ctx(OSSL_HPKE_CTX_new(OSSL_HPKE_MODE_BASE, openssl_suite, OSSL_HPKE_ROLE_RECEIVER,
+                                     nullptr, nullptr));
+    if (!ctx) {
+        return openssl_fail(Errc::unsupported, "HPKE is not available");
+    }
+    if (OSSL_HPKE_decap(ctx.get(), data_or_empty(sealed.encapsulated_key),
+                        sealed.encapsulated_key.size(), impl_->pkey.get(), data_or_empty(info),
+                        info.size()) != 1) {
+        return openssl_fail(Errc::verification_failed, "the encapsulated key is invalid");
+    }
+    // AES-GCM never yields more plaintext than ciphertext.
+    Bytes plain(sealed.ciphertext.size());
+    std::size_t length = plain.size();
+    if (OSSL_HPKE_open(ctx.get(), plain.data(), &length, data_or_empty(aad), aad.size(),
+                       data_or_empty(sealed.ciphertext), sealed.ciphertext.size()) != 1) {
+        secure_wipe(plain);
+        return openssl_fail(Errc::verification_failed,
+                            "decryption failed: wrong key, or the data was altered");
+    }
+    plain.resize(length);
+    return SecureBytes(std::move(plain));
+}
+
+Result<SecureBytes> HpkeKey::to_pkcs8() const {
+    if (!impl_) {
+        return fail(Errc::invalid_argument, "key has been moved from");
+    }
+    return encode_pkcs8(impl_->pkey.get());
+}
+
+Result<Bytes> HpkeKey::to_encrypted_pkcs8(std::string_view passphrase) const {
+    if (!impl_) {
+        return fail(Errc::invalid_argument, "key has been moved from");
+    }
+    return encrypt_pkcs8(impl_->pkey.get(), passphrase);
 }
 
 } // namespace cexchain::crypto::openssl

@@ -97,4 +97,71 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
+// ---------------------------------------------------------------------------
+// Public-key encryption (HPKE, RFC 9180)
+// ---------------------------------------------------------------------------
+
+/// The one HPKE suite CexChain uses, in base mode: DHKEM(X25519, HKDF-SHA256),
+/// HKDF-SHA256, and AES-256-GCM. The identifiers are those of RFC 9180 and
+/// are stored with sealed data, so other suites can be added later.
+struct HpkeSuite {
+    std::uint16_t kem = 0x0020;
+    std::uint16_t kdf = 0x0001;
+    std::uint16_t aead = 0x0002;
+
+    friend bool operator==(const HpkeSuite&, const HpkeSuite&) = default;
+};
+
+inline constexpr HpkeSuite hpke_suite{};
+inline constexpr std::size_t hpke_public_key_size = 32;
+
+/// Data sealed to a recipient's public key.
+struct HpkeSealed {
+    /// The encapsulated (ephemeral) key.
+    Bytes encapsulated_key;
+    Bytes ciphertext;
+};
+
+/// Encrypts `plaintext` to `recipient`, an X25519 public key. `info` binds
+/// the key schedule to an application context and `aad` is authenticated
+/// with the ciphertext; the recipient must supply both unchanged.
+[[nodiscard]] Result<HpkeSealed> hpke_seal(ByteView recipient, ByteView info, ByteView aad,
+                                           ByteView plaintext);
+
+/// An X25519 private key for HPKE. Stored as PKCS #8, like signing keys.
+class HpkeKey {
+public:
+    [[nodiscard]] static Result<HpkeKey> generate();
+    /// Loads an X25519 PKCS #8 PrivateKeyInfo (DER).
+    [[nodiscard]] static Result<HpkeKey> from_pkcs8(ByteView der);
+    /// Loads a passphrase-protected X25519 PKCS #8 key. Fails with
+    /// `Errc::verification_failed` if the passphrase is wrong.
+    [[nodiscard]] static Result<HpkeKey> from_encrypted_pkcs8(ByteView der,
+                                                              std::string_view passphrase);
+
+    HpkeKey(HpkeKey&&) noexcept;
+    HpkeKey& operator=(HpkeKey&&) noexcept;
+    HpkeKey(const HpkeKey&) = delete;
+    HpkeKey& operator=(const HpkeKey&) = delete;
+    ~HpkeKey();
+
+    /// The 32-byte X25519 public key; empty if moved from.
+    [[nodiscard]] ByteView public_key() const noexcept;
+
+    /// Decrypts data sealed to this key. Fails with
+    /// `Errc::verification_failed` if it was sealed to another key, or if the
+    /// ciphertext, `info`, or `aad` differ from what was sealed.
+    [[nodiscard]] Result<SecureBytes> open(const HpkeSealed& sealed, ByteView info,
+                                           ByteView aad) const;
+
+    [[nodiscard]] Result<SecureBytes> to_pkcs8() const;
+    /// Same scheme as KeyPair::to_encrypted_pkcs8.
+    [[nodiscard]] Result<Bytes> to_encrypted_pkcs8(std::string_view passphrase) const;
+
+private:
+    struct Impl;
+    explicit HpkeKey(std::unique_ptr<Impl> impl) noexcept;
+    std::unique_ptr<Impl> impl_;
+};
+
 } // namespace cexchain::crypto::openssl

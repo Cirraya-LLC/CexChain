@@ -7,6 +7,7 @@
 
 #include "commands.hpp"
 #include "output.hpp"
+#include "records.hpp"
 
 namespace cexchain::cli {
 
@@ -50,17 +51,45 @@ int cmd_init(const Args& args) {
     if (root.public_key() == log.public_key()) {
         throw UsageError{"the root key and the log key must differ"};
     }
+    // The vault key is settled before anything is written.
+    std::optional<Bytes> vault_public;
+    std::optional<crypto::openssl::HpkeKey> vault_key;
+    std::optional<std::string> vault_secret;
+    if (const auto file = args.get("vault-public-key")) {
+        vault_public = decode_vault_public_key(read_file(*file));
+        if (!vault_public) {
+            throw CommandError{
+                *file + " is not a vault public key (create one with cexchain vault keygen)"};
+        }
+    } else {
+        vault_secret = passphrase(args, (directory / "vault.key").string(), true);
+        vault_key.emplace(unwrap(crypto::openssl::HpkeKey::generate(), "generating the vault key"));
+        vault_public.emplace(vault_key->public_key().begin(), vault_key->public_key().end());
+    }
     create_ledger(directory, root, log.public_key(),
                   parse_hash(args.get("hash").value_or("sha256")), args.need("org"));
     Session session(directory);
+    if (vault_key) {
+        save_hpke_key(default_vault_key_path(session), *vault_key, vault_secret);
+    }
+    write_file(vault_public_key_path(session), encode_vault_public_key(*vault_public), false);
     if (args.json()) {
-        print_json(status_json(session));
+        Json out = status_json(session);
+        out["vault_key"] =
+            vault_key ? Json(default_vault_key_path(session).string()) : Json(nullptr);
+        print_json(out);
         return exit_ok;
     }
     std::println("created ledger {}", hex_id(session.state().ledger_id()));
     std::println("organization:  {}", session.state().organization());
     std::println("hash:          {}", crypto::name(session.state().hash()));
     std::println("directory:     {}", directory.string());
+    if (vault_key) {
+        std::println("vault key:     {} (encrypted; back it up)",
+                     default_vault_key_path(session).string());
+    } else {
+        std::println("vault key:     kept elsewhere; pass --vault-key to read private record data");
+    }
     std::println("\nShare the ledger id with the parties who will verify your evidence.");
     return exit_ok;
 }

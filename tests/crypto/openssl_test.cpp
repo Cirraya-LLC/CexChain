@@ -25,6 +25,13 @@ using cexchain::test::hex_field;
 using cexchain::test::load_vectors;
 using crypto::HashAlg;
 using crypto::SigAlg;
+
+namespace {
+Bytes to_bytes(std::string_view text) {
+    const auto view = as_bytes(text);
+    return Bytes(view.begin(), view.end());
+}
+} // namespace
 using crypto::openssl::KeyPair;
 
 namespace {
@@ -300,4 +307,76 @@ TEST_CASE("encrypted keys decode through OpenSSL's generic decoder", "[crypto][o
     OPENSSL_free(plain);
     REQUIRE(reloaded);
     CHECK(reloaded->public_key() == key->public_key());
+}
+
+TEST_CASE("HPKE seals to a public key and opens only with its private key",
+          "[crypto][openssl][hpke]") {
+    using crypto::openssl::HpkeKey;
+    const auto key = HpkeKey::generate();
+    REQUIRE(key);
+    REQUIRE(key->public_key().size() == crypto::openssl::hpke_public_key_size);
+    const Bytes info = to_bytes("CexChain test");
+    const Bytes aad = to_bytes("record 1");
+    const Bytes message = to_bytes("result = pass");
+
+    const auto sealed = crypto::openssl::hpke_seal(key->public_key(), info, aad, message);
+    REQUIRE(sealed);
+    CHECK(sealed->encapsulated_key.size() == 32);
+    CHECK(sealed->ciphertext.size() == message.size() + 16);
+
+    const auto opened = key->open(*sealed, info, aad);
+    REQUIRE(opened);
+    CHECK(Bytes(opened->view().begin(), opened->view().end()) == message);
+
+    // Each seal uses a fresh ephemeral key.
+    const auto again = crypto::openssl::hpke_seal(key->public_key(), info, aad, message);
+    REQUIRE(again);
+    CHECK(again->encapsulated_key != sealed->encapsulated_key);
+
+    // Wrong key, context, associated data, or altered ciphertext all fail.
+    const auto other = HpkeKey::generate();
+    REQUIRE(other);
+    CHECK(other->open(*sealed, info, aad).error().code == Errc::verification_failed);
+    CHECK(key->open(*sealed, to_bytes("other"), aad).error().code == Errc::verification_failed);
+    CHECK(key->open(*sealed, info, to_bytes("record 2")).error().code == Errc::verification_failed);
+    auto altered = *sealed;
+    altered.ciphertext[0] ^= 1;
+    CHECK(key->open(altered, info, aad).error().code == Errc::verification_failed);
+    altered = *sealed;
+    altered.ciphertext.pop_back();
+    CHECK(key->open(altered, info, aad).error().code == Errc::verification_failed);
+
+    CHECK(crypto::openssl::hpke_seal(Bytes(31, 1), info, aad, message).error().code ==
+          Errc::invalid_argument);
+    // A low-order point gives an all-zero shared secret, which must be refused.
+    CHECK_FALSE(crypto::openssl::hpke_seal(Bytes(32, 0), info, aad, message));
+}
+
+TEST_CASE("HPKE keys round-trip through plain and encrypted PKCS #8", "[crypto][openssl][hpke]") {
+    using crypto::openssl::HpkeKey;
+    const auto key = HpkeKey::generate();
+    REQUIRE(key);
+    const auto plain = key->to_pkcs8();
+    REQUIRE(plain);
+    const auto reloaded = HpkeKey::from_pkcs8(plain->view());
+    REQUIRE(reloaded);
+    CHECK(Bytes(reloaded->public_key().begin(), reloaded->public_key().end()) ==
+          Bytes(key->public_key().begin(), key->public_key().end()));
+
+    const auto encrypted = key->to_encrypted_pkcs8("vault passphrase");
+    REQUIRE(encrypted);
+    CHECK(crypto::openssl::is_encrypted_pkcs8(*encrypted));
+    const auto decrypted = HpkeKey::from_encrypted_pkcs8(*encrypted, "vault passphrase");
+    REQUIRE(decrypted);
+    const auto sealed = crypto::openssl::hpke_seal(key->public_key(), {}, {}, to_bytes("x"));
+    REQUIRE(sealed);
+    CHECK(decrypted->open(*sealed, {}, {}));
+    CHECK(HpkeKey::from_encrypted_pkcs8(*encrypted, "wrong").error().code ==
+          Errc::verification_failed);
+
+    // Signing keys are not HPKE keys, and vice versa.
+    const auto signing = KeyPair::generate(SigAlg::ed25519);
+    REQUIRE(signing);
+    CHECK(HpkeKey::from_pkcs8(signing->to_pkcs8()->view()).error().code == Errc::unsupported);
+    CHECK_FALSE(KeyPair::from_pkcs8(plain->view()));
 }

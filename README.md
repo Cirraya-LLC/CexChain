@@ -89,6 +89,7 @@ The `cexchain` tool controls every part of a ledger:
 | Records | `record issue`, `record list`, `record show`, `record history`, `record fields`, `record endorse`, `record transition`, `record revoke`, `record types` |
 | Proofs | `checkpoint create`, `checkpoint list`, `checkpoint show`, `proof inclusion`, `proof consistency`, `receipt` |
 | Evidence | `export`, `verify`, `inspect` |
+| Vault | `vault status`, `vault keygen`, `vault rekey` |
 | AI agents | `mcp` |
 
 - Every command takes `--help`, and `--json` for scripting.
@@ -96,6 +97,12 @@ The `cexchain` tool controls every part of a ledger:
 - `source <(cexchain completion bash)` (or `zsh`) enables tab completion.
 - IDs can be shortened to any unique prefix of 8 or more hex digits.
 - Exit codes: 0 for success, 1 for a usage error, 2 for a failure, and 3 when evidence or a ledger fails verification.
+
+Private field values never sit on disk in the clear. They are sealed with HPKE (RFC 9180: X25519,
+HKDF-SHA256, AES-256-GCM) to the ledger's vault key, and each sealed file is bound to its ledger and
+record. Anyone who may issue records, AI agents included, can add to the vault, but only holders of
+the vault private key can read it. The vault private key can be kept off the ledger host
+(`vault keygen`, `init --vault-public-key`) and rotated at any time (`vault rekey`).
 
 ## AI agents (MCP)
 

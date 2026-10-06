@@ -164,11 +164,7 @@ int cmd_record_history(const Args& args) {
 int cmd_record_fields(const Args& args) {
     Session session(args.ledger());
     const protocol::RecordState& record = find_record(session, args);
-    if (!std::filesystem::exists(session.vault_path(record.id))) {
-        throw CommandError{
-            "this ledger holds no private data for the record (it was issued elsewhere)"};
-    }
-    const Vault vault = load_vault(session, record.id);
+    const Vault vault = read_vault(session, record.id, args);
     if (args.json()) {
         Json fields = Json::object();
         for (const protocol::RecordField& f : vault.fields) {

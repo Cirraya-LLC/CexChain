@@ -6,6 +6,7 @@
 # legacy protocol revisions, every tool, an out-of-scope refusal, and the
 # resulting evidence verified offline.
 set -euo pipefail
+trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
 CEXCHAIN="$1"
 WORK="$(mktemp -d)"
@@ -13,7 +14,10 @@ trap 'rm -rf "$WORK"' EXIT
 cd "$WORK"
 
 run() { "$CEXCHAIN" "$@"; }
-id_from() { grep -oE '[0-9a-f]{64}' | head -1; }
+# Readers in pipelines consume all input: with pipefail, a reader that exits
+# early (grep -q, head) can kill the writer with SIGPIPE and fail the test.
+contains() { grep "$@" > /dev/null; }
+id_from() { grep -oE '[0-9a-f]{64}' | sed -n 1p; }
 fail() { echo "FAIL: $1"; echo "--- responses:"; cat responses.txt; exit 1; }
 
 export CEXCHAIN_PASSPHRASE="mcp test passphrase"
@@ -46,36 +50,37 @@ JSON
 run mcp --ledger ledger --as agent.key < requests.jsonl > responses.txt 2> stderr.txt
 
 line() { sed -n "$1p" responses.txt; }
-line 1 | grep -q '"supportedVersions":\["2026-07-28"' || fail "discover"
-line 1 | grep -q '"resultType":"complete"' || fail "discover resultType"
-line 2 | grep -q '"name":"cexchain_issue_record"' || fail "tools/list"
-line 2 | grep -q '"cacheScope":"private"' || fail "tools/list caching"
-line 3 | grep -q '"responsible":"Alice Inspector"' || fail "whoami responsible"
-line 3 | grep -q 'record-register' || fail "whoami delegations"
-line 4 | grep -q '"isError":false' || fail "issue"
+line 1 | contains '"supportedVersions":\["2026-07-28"' || fail "discover"
+line 1 | contains '"resultType":"complete"' || fail "discover resultType"
+line 2 | contains '"name":"cexchain_issue_record"' || fail "tools/list"
+line 2 | contains '"cacheScope":"private"' || fail "tools/list caching"
+line 3 | contains '"responsible":"Alice Inspector"' || fail "whoami responsible"
+line 3 | contains 'record-register' || fail "whoami delegations"
+line 4 | contains '"isError":false' || fail "issue"
 RECORD="$(line 4 | grep -oE '"record_id":"[0-9a-f]{64}"' | id_from)"
 [ -n "$RECORD" ] || fail "issue record id"
-line 5 | grep -q '"isError":true' || fail "out-of-scope issue must be refused"
-line 5 | grep -q 'no valid delegation' || fail "refusal reason"
-line 6 | grep -q 'cexchain.delivery/1' || fail "record types"
-line 7 | grep -q '"code":-32022' || fail "unsupported version"
-line 8 | grep -q '"protocolVersion":"2025-06-18"' || fail "legacy initialize"
-line 9 | grep -q '"result":{}' || fail "legacy ping"
-line 10 | grep -q '"code":-32601' || fail "unknown method"
-line 11 | grep -q '"code":-32700' || fail "parse error"
-line 12 | grep -q '"isError":true' || fail "missing arguments"
+line 5 | contains '"isError":true' || fail "out-of-scope issue must be refused"
+line 5 | contains 'no valid delegation' || fail "refusal reason"
+line 6 | contains 'cexchain.delivery/1' || fail "record types"
+line 7 | contains '"code":-32022' || fail "unsupported version"
+line 8 | contains '"protocolVersion":"2025-06-18"' || fail "legacy initialize"
+line 9 | contains '"result":{}' || fail "legacy ping"
+line 10 | contains '"code":-32601' || fail "unknown method"
+line 11 | contains '"code":-32700' || fail "parse error"
+line 12 | contains '"isError":true' || fail "missing arguments"
 [ "$(wc -l < responses.txt)" -eq 12 ] || fail "one response per request, none for notifications"
 
 # The agent's record carries its accountability, visible to any verifier.
 run checkpoint create --ledger ledger --log-key log.key > /dev/null
 run export "$RECORD" --ledger ledger --log-key log.key --disclose result --out bundle.cbor > /dev/null
 run verify bundle.cbor --ledger-id "$LEDGER_ID" > report.txt
-grep -q 'AI agent: claude-opus-5-5; responsible: Alice Inspector; via mcp:cexchain_issue_record' report.txt \
+contains 'AI agent: claude-opus-5-5; responsible: Alice Inspector; via mcp:cexchain_issue_record' report.txt \
     || { cat report.txt; fail "report"; }
-grep -q 'result = pass' report.txt || fail "disclosure"
+contains 'result = pass' report.txt || fail "disclosure"
+if contains -r 'Flange DN50' ledger/vault; then fail "agent-issued field values must be sealed"; fi
 
 # The agent can verify evidence through MCP too.
 printf '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{%s,"name":"cexchain_verify_evidence","arguments":{"bundle_path":"bundle.cbor","expected_ledger_id":"%s"}}}\n' \
     "$META" "$LEDGER_ID" | run mcp --ledger ledger --as agent.key > responses.txt 2> /dev/null
-grep -q '"verified":true' responses.txt || fail "verify through MCP"
+contains '"verified":true' responses.txt || fail "verify through MCP"
 echo "mcp end-to-end: ok"

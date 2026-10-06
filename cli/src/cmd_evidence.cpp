@@ -64,8 +64,22 @@ Json inspect_json(const crypto::Provider& provider, const Bytes& content) {
                 {"kind", "public-key"}, {"public_key", public_key_json(*key)}, {"key_ids", ids}};
         }
     }
+    if (const auto key = decode_vault_public_key(content)) {
+        return {{"kind", "vault-public-key"},
+                {"algorithm", "X25519 (HPKE)"},
+                {"public_key", to_hex(*key)}};
+    }
+    if (is_sealed_vault(content)) {
+        return {{"kind", "sealed-vault"},
+                {"note", "private record data, readable only with the vault private key"}};
+    }
     if (crypto::openssl::is_encrypted_pkcs8(content)) {
         return {{"kind", "private-key"}, {"encrypted", true}};
+    }
+    if (const auto key = crypto::openssl::HpkeKey::from_pkcs8(content)) {
+        return {{"kind", "vault-private-key"},
+                {"encrypted", false},
+                {"public_key", to_hex(key->public_key())}};
     }
     if (const auto key = crypto::openssl::KeyPair::from_pkcs8(content)) {
         return {{"kind", "private-key"},
@@ -327,11 +341,7 @@ int cmd_export(const Args& args) {
 
     const auto disclose = split(args.get("disclose").value_or(""), ',');
     if (!disclose.empty() || args.has("with-attachments")) {
-        if (!std::filesystem::exists(session.vault_path(record))) {
-            throw CommandError{
-                "this ledger holds no private data for the record, so nothing can be disclosed"};
-        }
-        const Vault vault = load_vault(session, record);
+        const Vault vault = read_vault(session, record, args);
         const auto commitment = unwrap(
             protocol::commit_fields(session.provider(), session.state().hash(), vault.fields),
             "fields");
