@@ -9,6 +9,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 BUILD="${1:-$ROOT/build/wasm}"
+# CMake resolves relative paths against the source tree, so use absolute ones.
+mkdir -p "$BUILD"
+BUILD="$(cd "$BUILD" && pwd)"
 OPENSSL="$BUILD/openssl"
 
 "$ROOT/tools/wasm/build-openssl.sh" "$OPENSSL"
