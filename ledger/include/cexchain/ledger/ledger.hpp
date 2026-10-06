@@ -15,6 +15,7 @@
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/log.hpp>
 #include <cexchain/core/protocol/state.hpp>
+#include <cexchain/core/protocol/state_tree.hpp>
 #include <cexchain/core/protocol/statement.hpp>
 #include <cexchain/ledger/environment.hpp>
 #include <cexchain/ledger/record_log.hpp>
@@ -131,6 +132,10 @@ public:
     /// since only it holds the record's private data.
     [[nodiscard]] Result<protocol::EvidenceBundle>
     export_evidence(const crypto::Signer& log_key, const protocol::Id& record) const;
+
+    /// A proof of the complete history of an actor, delegation, or record, as
+    /// of the latest checkpoint, against its state root.
+    [[nodiscard]] Result<protocol::StateProof> state_proof(const protocol::Id& id) const;
 
     /// An RFC 9942 receipt for the entry at `index`, anchored to the latest
     /// checkpoint. Fails if no checkpoint covers the entry yet.

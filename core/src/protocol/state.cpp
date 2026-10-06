@@ -457,7 +457,9 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
                 return {};
             },
             [&](const ActorRevokeBody& b) -> Status {
-                actors_.at(key_of(b.actor)).revoked = true;
+                ActorState& actor = actors_.at(key_of(b.actor));
+                actor.revoked = true;
+                actor.revoked_at_index = index;
                 return {};
             },
             [&](const DelegationGrantBody& b) -> Status {
@@ -472,7 +474,9 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
                 return {};
             },
             [&](const DelegationRevokeBody& b) -> Status {
-                delegations_.at(key_of(b.delegation)).revoked = true;
+                DelegationState& delegation = delegations_.at(key_of(b.delegation));
+                delegation.revoked = true;
+                delegation.revoked_at_index = index;
                 return {};
             },
             [&](const ActorSetPresenceBody& b) -> Status {

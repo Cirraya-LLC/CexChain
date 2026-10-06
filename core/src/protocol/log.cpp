@@ -94,16 +94,22 @@ Result<Bytes> encode_checkpoint(const Checkpoint& checkpoint) {
         return fail(Errc::unsupported, "tree hash must be SHA-256 or SM3");
     }
     if (checkpoint.ledger_id.size() != id_size ||
-        checkpoint.root.size() != crypto::digest_size(checkpoint.tree_hash)) {
+        checkpoint.root.size() != crypto::digest_size(checkpoint.tree_hash) ||
+        (checkpoint.state_root &&
+         checkpoint.state_root->size() != crypto::digest_size(checkpoint.tree_hash))) {
         return fail(Errc::invalid_argument, "checkpoint identifiers have the wrong size");
     }
-    return cbor::encode(cbor::Value::map({
+    cbor::Map map{
         entry(1, cbor::Value::bytes(checkpoint.ledger_id.bytes())),
         entry(2, cbor::Value::integer(crypto::cose_id(checkpoint.tree_hash))),
         entry(3, cbor::Value::unsigned_integer(checkpoint.tree_size)),
         entry(4, cbor::Value::bytes(checkpoint.root.bytes())),
         entry(5, cbor::Value::unsigned_integer(checkpoint.timestamp)),
-    }));
+    };
+    if (checkpoint.state_root) {
+        map.push_back(entry(6, cbor::Value::bytes(checkpoint.state_root->bytes())));
+    }
+    return cbor::encode(cbor::Value::map(std::move(map)));
 }
 
 Result<Checkpoint> decode_checkpoint(ByteView encoded) {
@@ -120,6 +126,13 @@ Result<Checkpoint> decode_checkpoint(ByteView encoded) {
     }
     CEXCHAIN_TRY(checkpoint.root, crypto::Digest::from_bytes(root));
     CEXCHAIN_TRY(checkpoint.timestamp, reader.need_uint(5));
+    CEXCHAIN_TRY(std::optional<Bytes> state_root, reader.opt_bytes(6));
+    if (state_root) {
+        if (state_root->size() != crypto::digest_size(checkpoint.tree_hash)) {
+            return fail(Errc::malformed, "checkpoint state root has the wrong size");
+        }
+        CEXCHAIN_TRY(checkpoint.state_root, crypto::Digest::from_bytes(*state_root));
+    }
     CEXCHAIN_CHECK(reader.finish());
     return checkpoint;
 }

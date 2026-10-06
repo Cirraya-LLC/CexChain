@@ -101,7 +101,8 @@ Json inspect_json(const crypto::Provider& provider, const Bytes& content) {
                  {"entries", bundle->entries.size()},
                  {"cosignatures", bundle->cosignatures.size()},
                  {"disclosed_fields", bundle->disclosures.size()},
-                 {"attachment_openings", bundle->attachments.size()}};
+                 {"attachment_openings", bundle->attachments.size()},
+                 {"state_proofs", bundle->state_proofs.size()}};
         if (const auto checkpoint = protocol::parse_checkpoint(bundle->checkpoint)) {
             out["checkpoint"] = checkpoint_json(checkpoint->checkpoint);
         }
@@ -350,6 +351,54 @@ int cmd_proof_consistency(const Args& args) {
     for (const crypto::Digest& d : path) {
         std::println("  {}", to_hex(d.bytes()));
     }
+    return exit_ok;
+}
+
+int cmd_proof_state(const Args& args) {
+    Session session(args.ledger());
+    const std::string text = args.positional().front();
+    std::optional<protocol::Id> id;
+    for (const auto& resolve : {&Session::actor_id, &Session::delegation_id, &Session::record_id}) {
+        try {
+            id = (session.*resolve)(text);
+            break;
+        } catch (const CommandError&) {
+        }
+    }
+    if (!id) {
+        throw CommandError{"no actor, delegation, or record with id " + text};
+    }
+    const auto proof = session.ledger().state_proof(*id);
+    if (!proof) {
+        throw CommandError{
+            proof.error().code == Errc::not_found
+                ? "it is not in the latest checkpoint's state yet (cexchain checkpoint create)"
+                : std::string(proof.error().detail)};
+    }
+    const auto& checkpoint = session.ledger().latest_checkpoint()->checkpoint;
+    unwrap(protocol::verify_state_proof(session.provider(), session.state().hash(), *proof,
+                                        *checkpoint.state_root),
+           "self-check of the proof");
+    static constexpr std::array kinds{"", "actor", "delegation", "record"};
+    const std::string kind = kinds[static_cast<std::size_t>(proof->leaf.kind)];
+    if (args.json()) {
+        print_json({{"kind", kind},
+                    {"id", id_json(proof->leaf.id)},
+                    {"history", proof->leaf.history},
+                    {"tree_size", checkpoint.tree_size},
+                    {"state_root", to_hex(checkpoint.state_root->bytes())},
+                    {"siblings", digests_json(proof->siblings)}});
+        return exit_ok;
+    }
+    std::string history;
+    for (const std::uint64_t index : proof->leaf.history) {
+        history += (history.empty() ? "#" : ", #") + std::to_string(index);
+    }
+    std::println("{}:      {}", kind, hex_id(proof->leaf.id));
+    std::println("history:    {} (complete as of checkpoint size {})", history,
+                 checkpoint.tree_size);
+    std::println("state root: {}", to_hex(checkpoint.state_root->bytes()));
+    std::println("proof:      {} hashes", proof->siblings.size());
     return exit_ok;
 }
 

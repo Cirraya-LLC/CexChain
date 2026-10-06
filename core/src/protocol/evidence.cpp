@@ -36,6 +36,7 @@ ActorSummary summarize(const LedgerState& state, const Id& id) {
         summary.kind = actor->kind;
         summary.name = actor->display_name;
         summary.agent = actor->agent;
+        summary.revoked = actor->revoked;
         if (actor->responsible) {
             if (const ActorState* responsible = state.actor(*actor->responsible)) {
                 summary.responsible = responsible->display_name;
@@ -74,6 +75,38 @@ std::string event_detail(const Statement& statement) {
 }
 
 } // namespace
+
+std::vector<Id> involved_objects(const LedgerState& state, const Id& record,
+                                 std::span<const Statement> events) {
+    std::vector<Id> out;
+    auto add = [&](const Id& id) {
+        if (!std::ranges::contains(out, id)) {
+            out.push_back(id);
+        }
+    };
+    add(record);
+    for (const Statement& statement : events) {
+        if (!statement.actor_id) {
+            continue;
+        }
+        add(*statement.actor_id);
+        if (const ActorState* actor = state.actor(*statement.actor_id);
+            actor != nullptr && actor->kind == ActorKind::agent && actor->responsible) {
+            add(*actor->responsible);
+        }
+        std::optional<Id> next = statement.delegation_id;
+        for (std::size_t links = 0; next && links < 64; ++links) {
+            add(*next);
+            const DelegationState* delegation = state.delegation(*next);
+            if (delegation == nullptr) {
+                break;
+            }
+            add(delegation->grantor);
+            next = delegation->parent;
+        }
+    }
+    return out;
+}
 
 // ---------------------------------------------------------------------------
 // Encoding
@@ -121,6 +154,20 @@ Result<Bytes> encode_bundle(const EvidenceBundle& bundle) {
                 cbor::Value::array({cbor::Value::text(a.name), cbor::Value::bytes(a.salt)}));
         }
         map.push_back(entry(6, cbor::Value::array(std::move(attachments))));
+    }
+    if (!bundle.state_proofs.empty()) {
+        cbor::Array proofs;
+        for (const StateProof& p : bundle.state_proofs) {
+            CEXCHAIN_TRY(Bytes leaf, encode_state_leaf(p.leaf));
+            CEXCHAIN_TRY(cbor::Value leaf_value, cbor::decode(leaf));
+            cbor::Array siblings;
+            for (const crypto::Digest& s : p.siblings) {
+                siblings.push_back(cbor::Value::bytes(s.bytes()));
+            }
+            proofs.push_back(cbor::Value::array(
+                {std::move(leaf_value), cbor::Value::array(std::move(siblings))}));
+        }
+        map.push_back(entry(7, cbor::Value::array(std::move(proofs))));
     }
     return cbor::encode(cbor::Value::map(std::move(map)));
 }
@@ -207,6 +254,45 @@ Result<EvidenceBundle> decode_bundle(ByteView encoded) {
             }
             std::ranges::copy(salt, a.salt.begin());
             bundle.attachments.push_back(std::move(a));
+        }
+    }
+    if (const cbor::Value* list_value = reader.get(7)) {
+        CEXCHAIN_TRY(const cbor::Array* list, non_empty_list(*list_value));
+        for (const cbor::Value& item : *list) {
+            const cbor::Array* parts = item.as_array();
+            const cbor::Array* leaf =
+                parts == nullptr || parts->size() != 2 ? nullptr : (*parts)[0].as_array();
+            if (leaf == nullptr || leaf->size() != 3 || (*parts)[1].as_array() == nullptr) {
+                return fail(Errc::malformed,
+                            "a state proof must be [[kind, id, history], siblings]");
+            }
+            StateProof p;
+            CEXCHAIN_TRY(std::uint64_t kind, detail::as_uint((*leaf)[0]));
+            if (kind < 1 || kind > 3) {
+                return fail(Errc::malformed, "a state proof names an unknown kind of object");
+            }
+            p.leaf.kind = static_cast<ObjectKind>(kind);
+            CEXCHAIN_TRY(Bytes id, detail::as_bytes_value((*leaf)[1]));
+            CEXCHAIN_TRY(p.leaf.id, to_id(id));
+            CEXCHAIN_TRY(const cbor::Array* history, detail::as_array((*leaf)[2]));
+            for (const cbor::Value& index : *history) {
+                CEXCHAIN_TRY(std::uint64_t i, detail::as_uint(index));
+                p.leaf.history.push_back(i);
+            }
+            const cbor::Array& siblings = *(*parts)[1].as_array();
+            if (siblings.size() > id_size * 8) {
+                return fail(Errc::malformed, "a state proof is deeper than the tree");
+            }
+            for (const cbor::Value& node : siblings) {
+                CEXCHAIN_TRY(Bytes bytes, detail::as_bytes_value(node));
+                CEXCHAIN_TRY(crypto::Digest digest, crypto::Digest::from_bytes(bytes));
+                p.siblings.push_back(digest);
+            }
+            if (!encode_state_leaf(p.leaf)) {
+                return fail(Errc::malformed,
+                            "a state proof's history must be non-empty and ascending");
+            }
+            bundle.state_proofs.push_back(std::move(p));
         }
     }
     CEXCHAIN_CHECK(reader.finish());
@@ -338,6 +424,45 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
             .presence = presence.contains(index) ? std::optional(presence.at(index)) : std::nullopt,
             .detail = event_detail(statement),
         });
+    }
+
+    // Completeness: every involved object's history, as replayed from the
+    // bundle, must be exactly the history the checkpoint's state root commits
+    // to. A left-out statement (a later revocation, say) shows as a mismatch.
+    if (const auto& state_root = checkpoint.checkpoint.state_root) {
+        std::vector<Statement> events;
+        for (const std::uint64_t index : record->history) {
+            events.push_back(
+                std::ranges::find(included, index, &Included::index)->statement.statement);
+        }
+        std::vector<Id> proven;
+        for (const StateProof& proof : bundle.state_proofs) {
+            if (std::ranges::contains(proven, proof.leaf.id)) {
+                return verification_failure("a state proof is repeated");
+            }
+            if (!verify_state_proof(provider, state->hash(), proof, *state_root)) {
+                return verification_failure(
+                    "a state proof does not match the checkpoint's state root");
+            }
+            proven.push_back(proof.leaf.id);
+        }
+        for (const Id& id : involved_objects(*state, record->id, events)) {
+            const auto proof = std::ranges::find(bundle.state_proofs, id,
+                                                 [](const StateProof& p) { return p.leaf.id; });
+            if (proof == bundle.state_proofs.end()) {
+                return verification_failure(
+                    "the bundle does not prove the complete history of everyone involved");
+            }
+            const auto replayed = state_leaf(*state, id);
+            if (!replayed || *replayed != proof->leaf) {
+                return verification_failure("the bundle leaves out part of a history it must show "
+                                            "in full (for example a revocation)");
+            }
+        }
+        report.complete = true;
+    } else if (!bundle.state_proofs.empty()) {
+        return verification_failure(
+            "state proofs need a checkpoint that commits to the ledger state");
     }
 
     for (const FieldDisclosure& disclosure : bundle.disclosures) {

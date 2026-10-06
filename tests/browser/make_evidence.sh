@@ -6,7 +6,7 @@
 # tests. Usage: make_evidence.sh CEXCHAIN DIR
 # Writes into DIR: bundle.cbor, report.pdf, ledger-id, record-id, and
 # native-report.json (what `cexchain verify --json` reports).
-set -euo pipefail
+set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
 CEXCHAIN="$1"

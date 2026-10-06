@@ -234,6 +234,8 @@ checkpoint-payload = {
   3 => uint,                   ; tree size
   4 => bstr,                   ; root hash
   5 => timestamp,
+  ? 6 => bstr,                 ; state root (see state-proof); always present
+                               ; in checkpoints written since v0.2
 }
 
 ; What a ledger operator sends a witness. The witness keeps, per ledger, the
@@ -279,9 +281,33 @@ inclusion-proof = [
 ;   4. replays the included statements under the ledger rules;
 ;   5. checks field disclosures against the record's field root and count,
 ;      and attachment contents against their commitments;
-;   6. verifies cosignatures by witnesses it trusts.
-; A bundle cannot prove that nothing was omitted (for example a revocation
-; before an event); that requires an audit of the full log.
+;   6. verifies cosignatures by witnesses it trusts;
+;   7. if the checkpoint has a state root: verifies every state proof against
+;      it (at most one per object), and for the record and each object
+;      involved in its events (the signer, an agent signer's accountable
+;      person, and every delegation in the chain with its grantor) requires
+;      a proof whose leaf equals that object's leaf in the replayed state.
+;      Then nothing was omitted: the report is complete. Without a state
+;      root, a bundle cannot rule out omissions (such as a later revocation).
+
+; The state commitment: a compact sparse Merkle tree over every actor,
+; delegation, and record, keyed by object id (its 256 bits, most significant
+; first), with HASH the ledger hash:
+;   empty subtree           HASH("")
+;   subtree of one object   HASH(0x00 || state-leaf)
+;   any other subtree       HASH(0x01 || left || right)
+; A leaf lists every log index that created or changed the object, as of the
+; checkpoint: for actors registration, key rotations, passkey changes, and
+; revocation; for delegations grant and revocation; for records every
+; statement about them. The organization's leaf is [1, ledger_id, [0]].
+state-leaf = [
+  kind: 1 / 2 / 3,             ; actor, delegation, record
+  id,
+  history: [+ uint],           ; strictly ascending
+]
+; A proof lists the sibling hashes from the root down to the leaf; the
+; verifier folds them bottom-up, taking the leaf's position from the id bits.
+state-proof = [state-leaf, siblings: [* bstr]]   ; at most 256 siblings
 
 evidence-bundle = {
   0 => 1,                      ; bundle format version
@@ -291,6 +317,7 @@ evidence-bundle = {
   ? 4 => [+ bstr],             ; witness cosignatures on that checkpoint
   ? 5 => [+ field-disclosure],
   ? 6 => [+ attachment-opening],
+  ? 7 => [+ state-proof],      ; required when the checkpoint has a state root
 }
 evidence-entry = [
   entry: bstr,                 ; encoded log-entry

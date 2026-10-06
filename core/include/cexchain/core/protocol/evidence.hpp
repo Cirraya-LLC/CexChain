@@ -17,6 +17,7 @@
 #include <cexchain/core/protocol/log.hpp>
 #include <cexchain/core/protocol/presence.hpp>
 #include <cexchain/core/protocol/record.hpp>
+#include <cexchain/core/protocol/state_tree.hpp>
 #include <cexchain/core/protocol/statement.hpp>
 
 /// Evidence bundles: everything needed to verify a record offline, without
@@ -53,6 +54,9 @@ struct EvidenceBundle {
     std::vector<Bytes> cosignatures;
     std::vector<FieldDisclosure> disclosures;
     std::vector<AttachmentOpening> attachments;
+    /// Proofs against the checkpoint's state root of the complete history of
+    /// every object involved (see `involved_objects`).
+    std::vector<StateProof> state_proofs;
 
     friend bool operator==(const EvidenceBundle&, const EvidenceBundle&) = default;
 };
@@ -79,6 +83,9 @@ struct ActorSummary {
     std::optional<AgentProfile> agent;
     /// For agents: the accountable person's name.
     std::optional<std::string> responsible;
+    /// Revoked as of the checkpoint (known for certain only in a complete
+    /// report).
+    bool revoked = false;
 };
 
 struct RecordEvent {
@@ -128,15 +135,27 @@ struct EvidenceReport {
     std::vector<RecordEvent> events;
     std::vector<RecordField> disclosed_fields;
     std::vector<AttachmentCheck> attachments;
+    /// The bundle proved, against the checkpoint's state root, that it holds
+    /// the complete history of the record and of everyone involved: nothing,
+    /// such as a later revocation, was left out.
+    bool complete = false;
 };
+
+/// The objects whose complete history a bundle about `record` must prove:
+/// the record, and for each of its events (`events`, the statements in its
+/// history) the signer, an agent signer's accountable person, and every
+/// delegation in the chain with its grantor. In first-seen order.
+[[nodiscard]] std::vector<Id> involved_objects(const LedgerState& state, const Id& record,
+                                               std::span<const Statement> events);
 
 /// Verifies a bundle completely: every receipt against the signed checkpoint,
 /// every included statement replayed under the ledger rules, every disclosed
 /// field and provided attachment against the record's commitments.
 ///
-/// A bundle cannot prove that nothing was left out: a revocation registered
-/// before an event, if omitted, goes unnoticed. That needs an audit of the
-/// full log (or, in a later protocol version, a commitment to ledger state).
+/// If the checkpoint commits to the ledger state, the bundle must also prove
+/// the complete history of every involved object, so nothing can have been
+/// left out; the report then says it is complete. Older checkpoints carry no
+/// such commitment, and their reports cannot rule out omissions.
 [[nodiscard]] Result<EvidenceReport>
 verify_bundle(const crypto::Provider& provider, ByteView bundle, const VerifyOptions& options = {});
 

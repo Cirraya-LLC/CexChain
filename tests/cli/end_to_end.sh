@@ -6,7 +6,7 @@
 # delegates to an inspector, who runs an AI drafting agent; the agent issues a
 # quality certificate, the inspector endorses it, keys rotate, rights are
 # revoked, and a third party verifies the exported evidence offline.
-set -euo pipefail
+set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
 CEXCHAIN="$1"
@@ -322,6 +322,16 @@ run record show "$RECORD" | contains 'REVOKED'
 
 # --- Audit -----------------------------------------------------------------------------
 run checkpoint create --log-key log.key --json | json 'd["tree_size"]' > /dev/null
+# The state commitment: complete histories, revocations included.
+run proof state "$RECORD" | contains 'complete as of checkpoint size'
+run proof state "$ALICE" --json | json 'd["kind"] == "actor" and len(d["history"]) >= 2' | contains -x True
+expect_exit 2 proof state 00000000000000000000
+run export "$RECORD" --log-key log.key --out final.cbor > /dev/null
+run inspect final.cbor --json | json 'd["state_proofs"] > 0' | contains -x True
+run verify final.cbor --ledger-id "$LEDGER_ID" > final.txt
+contains 'Complete: the record' final.txt
+contains 'REVOKED' final.txt
+run verify final.cbor --json | json 'd["complete"] and d["limits"] is None' | contains -x True
 run audit | contains 'audit passed'
 run audit --json | json 'd["ok"] and d["checkpoints"] == 3 and d["cosignatures"] == 2' | contains -x True
 

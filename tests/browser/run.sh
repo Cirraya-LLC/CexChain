@@ -9,7 +9,7 @@
 #   WASM_BUILD_DIR  output of tools/wasm/build.sh
 # The browser test needs `npm ci` in tests/browser and a Playwright Chromium; set
 # REQUIRE_BROWSER=1 to fail instead of skipping it when they are missing.
-set -euo pipefail
+set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
 HERE="$(cd "$(dirname "$0")" && pwd)"

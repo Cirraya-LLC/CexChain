@@ -77,6 +77,11 @@ The verification report shows every event in the record's history, who performed
 AI agent, with the agent's model and accountable person), under whose delegation, which fields
 were disclosed, and whether attachments match.
 
+The report also proves that it shows everything. Each checkpoint commits to the complete history of
+every actor, delegation, and record, in a sparse Merkle tree. A bundle proves the history of the
+record and of everyone involved against that commitment. So nobody can hand over evidence that
+quietly leaves out a later revocation, of the record or of the person who signed it.
+
 ## Command line
 
 The `cexchain` tool controls every part of a ledger:
@@ -88,7 +93,7 @@ The `cexchain` tool controls every part of a ledger:
 | Actors | `actor add`, `actor list`, `actor show`, `actor revoke`, `actor rotate-key`, `actor set-presence`, `presence enroll` |
 | Delegations | `delegation grant`, `delegation list`, `delegation show`, `delegation revoke` |
 | Records | `record issue`, `record list`, `record show`, `record history`, `record fields`, `record endorse`, `record transition`, `record revoke`, `record types` |
-| Proofs | `checkpoint create`, `checkpoint list`, `checkpoint show`, `checkpoint cosign-request`, `checkpoint add-cosignature`, `proof inclusion`, `proof consistency`, `receipt` |
+| Proofs | `checkpoint create`, `checkpoint list`, `checkpoint show`, `checkpoint cosign-request`, `checkpoint add-cosignature`, `proof inclusion`, `proof consistency`, `proof state`, `receipt` |
 | Witnesses | `witness add-log`, `witness cosign`, `witness status`, `witness remove-log` |
 | Evidence | `export`, `verify`, `inspect`, `qr` |
 | Vault | `vault status`, `vault keygen`, `vault rekey` |

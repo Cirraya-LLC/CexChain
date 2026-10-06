@@ -39,6 +39,7 @@ struct ActorState {
     std::optional<AgentProfile> agent;
     bool revoked = false;
     std::uint64_t registered_at_index = 0;
+    std::optional<std::uint64_t> revoked_at_index;
     /// Log indices of the statements that rotated this actor's key.
     std::vector<std::uint64_t> rotations;
     /// People only: the WebAuthn credentials that prove their presence.
@@ -59,6 +60,7 @@ struct DelegationState {
     Scope scope;
     bool revoked = false;
     std::uint64_t granted_at_index = 0;
+    std::optional<std::uint64_t> revoked_at_index;
 };
 
 struct Endorsement {

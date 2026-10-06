@@ -69,6 +69,7 @@ th { color: var(--muted); font-weight: 500; }
 .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--chip); margin-right: 6px; }
 .chip.agent { background: #efe7ff; color: #5b2bbf; }
 .chip.present { background: var(--ok-bg); color: var(--ok); }
+.chip.revoked { background: var(--warn-bg); color: var(--warn); margin-left: 6px; }
 @media (prefers-color-scheme: dark) { .chip.agent { background: #2a2040; color: #c9b3ff; } }
 .status-verified { color: var(--ok); font-weight: 600; }
 .status-mismatch { color: var(--bad); font-weight: 600; }
@@ -169,10 +170,11 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
     $("result").hidden = false;
   }
 
-  function actorLine(actor, provenance) {
+  function actorLine(actor) {
     const span = el("span");
     span.append(el("span", actor.kind === "agent" ? "AI agent" : actor.kind, "chip" + (actor.kind === "agent" ? " agent" : "")));
     span.append(el("span", actor.name));
+    if (actor.revoked) span.append(el("span", " since revoked", "chip revoked"));
     return span;
   }
 
@@ -190,6 +192,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
     fact("State", report.record.revoked ? report.record.state + " (REVOKED)" : report.record.state);
     fact("Checkpoint", "log size " + report.checkpoint.tree_size + ", signed " + when(report.checkpoint.timestamp));
     fact("Witnesses", report.witnesses.trusted + " trusted, " + report.witnesses.untrusted + " other");
+    fact("History", report.complete ? "complete (proven against the state commitment)" : "may be incomplete (older checkpoint)");
 
     const metadata = report.record.metadata || {};
     $("metadata").replaceChildren(...Object.entries(metadata).map(([k, v]) => {
@@ -244,7 +247,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
       return li;
     }));
     $("limits").textContent = "Every statement above is signed, authorized under the ledger's rules, and included in the signed log. " +
-      "What a bundle cannot prove: that no later revocation was left out.";
+      (report.complete
+        ? "The history is complete: it is proven against the checkpoint's state commitment, so nothing (such as a revocation) was left out."
+        : "This evidence predates state commitments, so it cannot prove that nothing (such as a later revocation) was left out.");
     $("details").hidden = false;
   }
 

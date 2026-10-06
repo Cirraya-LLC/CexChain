@@ -4,6 +4,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 #include <cexchain/core/bytes.hpp>
@@ -42,6 +43,9 @@ struct Checkpoint {
     std::uint64_t tree_size = 0;
     crypto::Digest root;
     Timestamp timestamp = 0;
+    /// The state commitment at this size (see state_tree.hpp). Absent only in
+    /// checkpoints written before it existed.
+    std::optional<crypto::Digest> state_root;
 
     friend bool operator==(const Checkpoint&, const Checkpoint&) = default;
 };

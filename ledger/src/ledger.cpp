@@ -6,6 +6,7 @@
 #include <utility>
 #include <variant>
 
+#include <cexchain/core/protocol/state_tree.hpp>
 #include <cexchain/ledger/ledger.hpp>
 
 namespace cexchain::ledger {
@@ -59,6 +60,8 @@ struct Ledger::Impl {
     protocol::LedgerState state;
     merkle::Tree tree;
     std::optional<protocol::SignedCheckpoint> latest_checkpoint;
+    /// The state commitment's leaves as of the latest checkpoint.
+    std::vector<protocol::StateLeaf> checkpoint_leaves;
     protocol::Timestamp last_registered_at = 0;
 
     /// Ledger time for the next registration: never earlier than the last.
@@ -146,6 +149,35 @@ Result<Ledger> Ledger::open(FileSystem& fs, Clock& clock, const crypto::Provider
     }
     protocol::Timestamp last_time = first->registered_at;
 
+    // The latest signed checkpoint, whose state commitment is checked when
+    // the replay reaches its size.
+    auto checkpoints = RecordLog::open(fs, checkpoints_file);
+    if (!checkpoints) {
+        return std::unexpected(checkpoints.error());
+    }
+    std::optional<protocol::SignedCheckpoint> latest;
+    if (checkpoints->count() > 0) {
+        auto bytes = checkpoints->read(checkpoints->count() - 1);
+        if (!bytes) {
+            return std::unexpected(bytes.error());
+        }
+        auto checkpoint = protocol::parse_checkpoint(*bytes);
+        if (!checkpoint) {
+            return std::unexpected(checkpoint.error());
+        }
+        if (auto s = protocol::verify_checkpoint(provider, *checkpoint, state->log_key()); !s) {
+            return fail(Errc::malformed, "the latest checkpoint is not signed by the log key");
+        }
+        latest = std::move(*checkpoint);
+    }
+    std::vector<protocol::StateLeaf> snapshot;
+    auto take_snapshot = [&](std::uint64_t size) {
+        if (latest && latest->checkpoint.tree_size == size) {
+            snapshot = protocol::state_leaves(*state);
+        }
+    };
+    take_snapshot(1);
+
     // Replay: every later entry must pass validation against the state
     // before it, at the time it was registered.
     for (std::uint64_t index = 1; index < log->count(); ++index) {
@@ -177,12 +209,9 @@ Result<Ledger> Ledger::open(FileSystem& fs, Clock& clock, const crypto::Provider
             return std::unexpected(s.error());
         }
         last_time = entry->registered_at;
+        take_snapshot(index + 1);
     }
 
-    auto checkpoints = RecordLog::open(fs, checkpoints_file);
-    if (!checkpoints) {
-        return std::unexpected(checkpoints.error());
-    }
     auto cosignatures = RecordLog::open(fs, cosignatures_file);
     if (!cosignatures) {
         return std::unexpected(cosignatures.error());
@@ -192,21 +221,10 @@ Result<Ledger> Ledger::open(FileSystem& fs, Clock& clock, const crypto::Provider
                                std::move(*cosignatures), std::move(*state), std::move(tree));
     impl->last_registered_at = last_time;
 
-    // The log must contain everything the latest signed checkpoint attests.
-    if (impl->checkpoints.count() > 0) {
-        auto bytes = impl->checkpoints.read(impl->checkpoints.count() - 1);
-        if (!bytes) {
-            return std::unexpected(bytes.error());
-        }
-        auto checkpoint = protocol::parse_checkpoint(*bytes);
-        if (!checkpoint) {
-            return std::unexpected(checkpoint.error());
-        }
-        if (auto s = protocol::verify_checkpoint(provider, *checkpoint, impl->state.log_key());
-            !s) {
-            return fail(Errc::malformed, "the latest checkpoint is not signed by the log key");
-        }
-        const protocol::Checkpoint& c = checkpoint->checkpoint;
+    // The log must contain everything the latest signed checkpoint attests,
+    // and the state it commits to.
+    if (latest) {
+        const protocol::Checkpoint& c = latest->checkpoint;
         if (c.ledger_id != impl->state.ledger_id() || c.tree_size > impl->tree.size()) {
             return fail(Errc::malformed, "the log is behind its latest signed checkpoint");
         }
@@ -217,7 +235,18 @@ Result<Ledger> Ledger::open(FileSystem& fs, Clock& clock, const crypto::Provider
         if (*root != c.root) {
             return fail(Errc::malformed, "the log disagrees with its latest signed checkpoint");
         }
-        impl->latest_checkpoint = std::move(*checkpoint);
+        if (c.state_root) {
+            auto state_root = protocol::state_root(provider, impl->state.hash(), snapshot);
+            if (!state_root) {
+                return std::unexpected(state_root.error());
+            }
+            if (*state_root != *c.state_root) {
+                return fail(Errc::malformed,
+                            "the log disagrees with its latest checkpoint's state commitment");
+            }
+            impl->checkpoint_leaves = std::move(snapshot);
+        }
+        impl->latest_checkpoint = std::move(latest);
     }
     return Ledger(std::move(impl));
 }
@@ -404,6 +433,59 @@ Result<AuditReport> Ledger::audit() const {
         }
         previous_size = c.tree_size;
     }
+    // Every checkpoint's state commitment, by replaying the log to its size.
+    {
+        auto genesis_entry = protocol::decode_log_entry(*impl_->log.read(0));
+        if (!genesis_entry) {
+            return std::unexpected(genesis_entry.error());
+        }
+        auto genesis = protocol::parse_statement(*impl_->provider, genesis_entry->statement);
+        if (!genesis) {
+            return std::unexpected(genesis.error());
+        }
+        auto state = protocol::LedgerState::from_genesis(*impl_->provider, *genesis);
+        if (!state) {
+            return std::unexpected(state.error());
+        }
+        std::size_t next = 0;
+        auto check_at = [&](std::uint64_t tree_size) -> Status {
+            for (; next < all->size() && (*all)[next].checkpoint.tree_size == tree_size; ++next) {
+                const auto& committed = (*all)[next].checkpoint.state_root;
+                if (!committed) {
+                    continue;
+                }
+                const auto leaves = protocol::state_leaves(*state);
+                auto root = protocol::state_root(*impl_->provider, hash(), leaves);
+                if (!root) {
+                    return std::unexpected(root.error());
+                }
+                if (*root != *committed) {
+                    return fail(Errc::verification_failed,
+                                "a stored checkpoint commits to a state the log does not have");
+                }
+            }
+            return {};
+        };
+        if (auto s = check_at(1); !s) {
+            return std::unexpected(s.error());
+        }
+        for (std::uint64_t index = 1; index < size() && next < all->size(); ++index) {
+            auto entry = protocol::decode_log_entry(*impl_->log.read(index));
+            if (!entry) {
+                return std::unexpected(entry.error());
+            }
+            auto statement = protocol::parse_statement(*impl_->provider, entry->statement, hash());
+            if (!statement) {
+                return std::unexpected(statement.error());
+            }
+            if (auto s = state->apply(*impl_->provider, *statement, index); !s) {
+                return std::unexpected(s.error());
+            }
+            if (auto s = check_at(index + 1); !s) {
+                return std::unexpected(s.error());
+            }
+        }
+    }
     auto stored = cosignatures();
     if (!stored) {
         return std::unexpected(stored.error());
@@ -443,7 +525,13 @@ Result<protocol::SignedCheckpoint> Ledger::checkpoint(const crypto::Signer& log_
     if (!root) {
         return std::unexpected(root.error());
     }
-    const protocol::Checkpoint checkpoint{id(), hash(), size(), *root, impl_->next_time()};
+    auto leaves = protocol::state_leaves(impl_->state);
+    auto state_root = protocol::state_root(*impl_->provider, hash(), leaves);
+    if (!state_root) {
+        return std::unexpected(state_root.error());
+    }
+    const protocol::Checkpoint checkpoint{id(),       hash(), size(), *root, impl_->next_time(),
+                                          *state_root};
     auto signed_checkpoint = protocol::sign_checkpoint(log_key, *impl_->provider, checkpoint);
     if (!signed_checkpoint) {
         return std::unexpected(signed_checkpoint.error());
@@ -452,11 +540,19 @@ Result<protocol::SignedCheckpoint> Ledger::checkpoint(const crypto::Signer& log_
         return std::unexpected(s.error());
     }
     impl_->latest_checkpoint = *signed_checkpoint;
+    impl_->checkpoint_leaves = std::move(leaves);
     return signed_checkpoint;
 }
 
 const std::optional<protocol::SignedCheckpoint>& Ledger::latest_checkpoint() const noexcept {
     return impl_->latest_checkpoint;
+}
+
+Result<protocol::StateProof> Ledger::state_proof(const protocol::Id& id) const {
+    if (!impl_->latest_checkpoint || !impl_->latest_checkpoint->checkpoint.state_root) {
+        return fail(Errc::not_found, "no checkpoint commits to the ledger state yet");
+    }
+    return protocol::prove_state(*impl_->provider, hash(), impl_->checkpoint_leaves, id);
 }
 
 Result<Bytes> Ledger::receipt(const crypto::Signer& log_key, std::uint64_t index) const {
@@ -519,6 +615,40 @@ Result<protocol::EvidenceBundle> Ledger::export_evidence(const crypto::Signer& l
         need(index);
     }
 
+    // Under a checkpoint that commits to the state, prove the complete history
+    // of everything involved, and include all of it.
+    const auto& checkpoint = impl_->latest_checkpoint;
+    std::vector<protocol::StateProof> proofs;
+    if (checkpoint && checkpoint->checkpoint.state_root) {
+        std::vector<protocol::Statement> events;
+        for (const std::uint64_t index : record->history) {
+            auto bytes = impl_->log.read(index);
+            if (!bytes) {
+                return std::unexpected(bytes.error());
+            }
+            auto entry = protocol::decode_log_entry(*bytes);
+            if (!entry) {
+                return std::unexpected(entry.error());
+            }
+            auto parsed = protocol::parse_statement(*impl_->provider, entry->statement, hash());
+            if (!parsed) {
+                return std::unexpected(parsed.error());
+            }
+            events.push_back(std::move(parsed->statement));
+        }
+        for (const protocol::Id& id : protocol::involved_objects(state, record_id, events)) {
+            auto proof =
+                protocol::prove_state(*impl_->provider, hash(), impl_->checkpoint_leaves, id);
+            if (!proof) {
+                return fail(Errc::not_found, "no checkpoint covers the record's statements yet");
+            }
+            for (const std::uint64_t index : proof->leaf.history) {
+                need(index);
+            }
+            proofs.push_back(std::move(*proof));
+        }
+    }
+
     while (!work.empty()) {
         const std::uint64_t index = work.back();
         work.pop_back();
@@ -567,13 +697,13 @@ Result<protocol::EvidenceBundle> Ledger::export_evidence(const crypto::Signer& l
             statement.body);
     }
 
-    const auto& checkpoint = impl_->latest_checkpoint;
     if (!checkpoint || *needed.rbegin() >= checkpoint->checkpoint.tree_size) {
         return fail(Errc::not_found, "no checkpoint covers the record's statements yet");
     }
     protocol::EvidenceBundle bundle;
     bundle.record = record_id;
     bundle.checkpoint = checkpoint->encoded;
+    bundle.state_proofs = std::move(proofs);
     for (const std::uint64_t index : needed) {
         auto bytes = impl_->log.read(index);
         if (!bytes) {

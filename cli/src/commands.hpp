@@ -66,6 +66,7 @@ int cmd_checkpoint_cosign_request(const Args& args);
 int cmd_checkpoint_add_cosignature(const Args& args);
 int cmd_proof_inclusion(const Args& args);
 int cmd_proof_consistency(const Args& args);
+int cmd_proof_state(const Args& args);
 int cmd_receipt(const Args& args);
 int cmd_export(const Args& args);
 int cmd_verify(const Args& args);

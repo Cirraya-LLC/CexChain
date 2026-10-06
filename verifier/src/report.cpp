@@ -32,6 +32,7 @@ Json actor_json(const protocol::ActorSummary& actor) {
     if (actor.responsible) {
         out["responsible"] = *actor.responsible;
     }
+    out["revoked"] = actor.revoked;
     return out;
 }
 
@@ -48,7 +49,8 @@ std::string_view attachment_status(protocol::AttachmentStatus status) {
 }
 
 std::string event_line(const protocol::RecordEvent& event) {
-    std::string actor = "\"" + event.actor.name + "\" [" + kind_label(event.actor.kind);
+    std::string actor = "\"" + event.actor.name + "\" [" + kind_label(event.actor.kind) +
+                        (event.actor.revoked ? ", since revoked" : "");
     if (event.actor.kind == protocol::ActorKind::agent) {
         if (event.provenance && event.provenance->model) {
             actor += ": " + *event.provenance->model;
@@ -179,7 +181,8 @@ Json checkpoint_json(const protocol::Checkpoint& c) {
             {"tree_hash", crypto::name(c.tree_hash)},
             {"tree_size", c.tree_size},
             {"root", to_hex(c.root.bytes())},
-            {"timestamp", iso_time(c.timestamp)}};
+            {"timestamp", iso_time(c.timestamp)},
+            {"state_root", c.state_root ? Json(to_hex(c.state_root->bytes())) : Json(nullptr)}};
 }
 
 bool has_attachment_mismatch(const protocol::EvidenceReport& report) {
@@ -242,8 +245,12 @@ Json report_json(const protocol::EvidenceReport& r, bool ledger_checked) {
         {"events", std::move(events)},
         {"disclosed_fields", std::move(fields)},
         {"attachments", std::move(attachments)},
+        {"complete", r.complete},
         {"limits",
-         "A bundle cannot prove that no revocation was left out; that needs a full-log audit."}};
+         r.complete
+             ? Json(nullptr)
+             : Json("This checkpoint predates state commitments, so the bundle cannot prove that "
+                    "nothing, such as a later revocation, was left out.")}};
 }
 
 std::string report_text(const protocol::EvidenceReport& r, bool ledger_checked) {
@@ -299,7 +306,14 @@ std::string report_text(const protocol::EvidenceReport& r, bool ledger_checked) 
     }
     line("\n  Verified: every statement above is signed, authorized under the ledger's rules,");
     line("  and included in the checkpointed log.");
-    line("  Not provable from a bundle: that no revocation was left out (needs a full-log audit).");
+    if (r.complete) {
+        line("  Complete: the record's whole history, and that of everyone involved, is proven");
+        line("  against the checkpoint's state commitment. Nothing, such as a revocation, was left "
+             "out.");
+    } else {
+        line("  Not provable from this bundle: that nothing, such as a revocation, was left out");
+        line("  (its checkpoint predates state commitments).");
+    }
     return out;
 }
 

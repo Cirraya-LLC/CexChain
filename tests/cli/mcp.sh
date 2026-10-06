@@ -5,7 +5,7 @@
 # Drives `cexchain mcp` with raw JSON-RPC, as an AI client would: modern and
 # legacy protocol revisions, every tool, an out-of-scope refusal, and the
 # resulting evidence verified offline.
-set -euo pipefail
+set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
 CEXCHAIN="$1"

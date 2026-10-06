@@ -12,6 +12,7 @@ add_executable(cexchain_tests
     ledger/evidence_test.cpp
     ledger/ledger_test.cpp
     ledger/presence_test.cpp
+    ledger/state_tree_test.cpp
     ledger/storage_test.cpp
     ledger/witness_test.cpp)
 

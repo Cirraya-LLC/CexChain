@@ -450,6 +450,17 @@ std::vector<CommandSpec> build() {
          1,
          with({ledger_option, {"size", "N", "Tree size (default: the current size)"}}),
          cmd_proof_inclusion},
+        {{"proof", "state"},
+         "Prove an object's complete history against the latest checkpoint",
+         "Checkpoints and proofs",
+         "ID",
+         1,
+         1,
+         with({ledger_option}),
+         cmd_proof_state,
+         "ID is an actor, delegation, or record. The proof shows every log entry that created or\n"
+         "changed it, as of the latest checkpoint, against that checkpoint's state root: proof\n"
+         "that nothing about it, such as a revocation, is missing."},
         {{"proof", "consistency"},
          "Consistency proof between two tree sizes",
          "Checkpoints and proofs",
