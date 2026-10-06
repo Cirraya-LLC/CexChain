@@ -1,0 +1,238 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Cirraya
+
+#include <utility>
+
+#include <cexchain/ledger/record_log.hpp>
+
+#include "crc32c.hpp"
+
+namespace cexchain::ledger {
+
+namespace {
+
+constexpr std::size_t header_size = 8;
+
+void put_u32(Bytes& out, std::uint32_t value) {
+    for (int shift = 24; shift >= 0; shift -= 8) {
+        out.push_back(static_cast<std::uint8_t>(value >> shift));
+    }
+}
+
+void put_u64(Bytes& out, std::uint64_t value) {
+    for (int shift = 56; shift >= 0; shift -= 8) {
+        out.push_back(static_cast<std::uint8_t>(value >> shift));
+    }
+}
+
+std::uint64_t get_be(ByteView bytes) {
+    std::uint64_t value = 0;
+    for (const std::uint8_t b : bytes) {
+        value = (value << 8) | b;
+    }
+    return value;
+}
+
+Bytes frame(ByteView payload) {
+    Bytes out;
+    out.reserve(header_size + payload.size());
+    put_u32(out, static_cast<std::uint32_t>(payload.size()));
+    put_u32(out, detail::crc32c(payload));
+    out.insert(out.end(), payload.begin(), payload.end());
+    return out;
+}
+
+enum class Scan { record, damaged };
+
+struct ScanResult {
+    Scan kind;
+    std::uint64_t payload_size = 0;
+};
+
+/// Examines the framed record at `offset`.
+Result<ScanResult> scan_record(const AppendFile& file, std::uint64_t offset) {
+    const std::uint64_t remaining = file.size() - offset;
+    if (remaining < header_size) {
+        return ScanResult{Scan::damaged};
+    }
+    auto header = file.read(offset, header_size);
+    if (!header) {
+        return std::unexpected(header.error());
+    }
+    const std::uint64_t length = get_be(ByteView(*header).first(4));
+    const auto crc = static_cast<std::uint32_t>(get_be(ByteView(*header).subspan(4)));
+    if (length > max_record_size || length > remaining - header_size) {
+        return ScanResult{Scan::damaged};
+    }
+    auto payload = file.read(offset + header_size, static_cast<std::size_t>(length));
+    if (!payload) {
+        return std::unexpected(payload.error());
+    }
+    if (detail::crc32c(*payload) != crc) {
+        return ScanResult{Scan::damaged};
+    }
+    return ScanResult{Scan::record, length};
+}
+
+/// The durable log size recorded by the last intact entry of the sync file.
+/// A damaged tail of the sync file is ignored (that sync was never
+/// acknowledged); damage before the tail is corruption.
+Result<std::uint64_t> read_synced_size(AppendFile& file) {
+    std::uint64_t offset = 0;
+    std::uint64_t synced = 0;
+    while (offset < file.size()) {
+        auto scanned = scan_record(file, offset);
+        if (!scanned) {
+            return std::unexpected(scanned.error());
+        }
+        if (scanned->kind == Scan::damaged || scanned->payload_size != 8) {
+            // Only a damaged final entry is acceptable.
+            const std::uint64_t entry = header_size + 8;
+            if (file.size() - offset > entry) {
+                return fail(Errc::malformed, "the log's sync record file is corrupted");
+            }
+            if (auto s = file.truncate(offset); !s) {
+                return std::unexpected(s.error());
+            }
+            break;
+        }
+        auto payload = file.read(offset + header_size, 8);
+        if (!payload) {
+            return std::unexpected(payload.error());
+        }
+        const std::uint64_t size = get_be(*payload);
+        if (size < synced) {
+            return fail(Errc::malformed, "the log's sync record file goes backwards");
+        }
+        synced = size;
+        offset += header_size + 8;
+    }
+    return synced;
+}
+
+} // namespace
+
+RecordLog::RecordLog(std::unique_ptr<AppendFile> log, std::unique_ptr<AppendFile> synced,
+                     std::vector<std::uint64_t> offsets)
+    : log_(std::move(log)), synced_(std::move(synced)), offsets_(std::move(offsets)) {}
+
+RecordLog::RecordLog(RecordLog&&) noexcept = default;
+RecordLog& RecordLog::operator=(RecordLog&&) noexcept = default;
+RecordLog::~RecordLog() = default;
+
+Result<RecordLog> RecordLog::open(FileSystem& fs, std::string_view name, RecoveryReport* report) {
+    auto log = fs.open(name);
+    if (!log) {
+        return std::unexpected(log.error());
+    }
+    auto synced_file = fs.open(std::string(name) + ".synced");
+    if (!synced_file) {
+        return std::unexpected(synced_file.error());
+    }
+    auto synced = read_synced_size(**synced_file);
+    if (!synced) {
+        return std::unexpected(synced.error());
+    }
+    if (*synced > (*log)->size()) {
+        return fail(Errc::malformed, "the log is shorter than its acknowledged size");
+    }
+
+    std::vector<std::uint64_t> offsets;
+    std::uint64_t offset = 0;
+    while (offset < (*log)->size()) {
+        auto scanned = scan_record(**log, offset);
+        if (!scanned) {
+            return std::unexpected(scanned.error());
+        }
+        if (scanned->kind == Scan::damaged) {
+            if (offset < *synced) {
+                return fail(Errc::malformed, "an acknowledged log record is corrupted");
+            }
+            break;
+        }
+        const std::uint64_t next = offset + header_size + scanned->payload_size;
+        if (next > *synced && offset < *synced) {
+            // A record straddling the acknowledged boundary cannot occur.
+            return fail(Errc::malformed, "the log disagrees with its acknowledged size");
+        }
+        offsets.push_back(offset);
+        offset = next;
+    }
+    if (offset < *synced) {
+        return fail(Errc::malformed, "the log disagrees with its acknowledged size");
+    }
+
+    const std::uint64_t truncated = (*log)->size() - offset;
+    if (truncated > 0) {
+        if (auto s = (*log)->truncate(offset); !s) {
+            return std::unexpected(s.error());
+        }
+    }
+    if (report != nullptr) {
+        *report = RecoveryReport{offsets.size(), truncated};
+    }
+    return RecordLog(std::move(*log), std::move(*synced_file), std::move(offsets));
+}
+
+Result<Bytes> RecordLog::read(std::uint64_t index) const {
+    if (index >= offsets_.size()) {
+        return fail(Errc::invalid_argument, "record index is out of range");
+    }
+    const std::uint64_t offset = offsets_[static_cast<std::size_t>(index)];
+    auto header = log_->read(offset, header_size);
+    if (!header) {
+        return std::unexpected(header.error());
+    }
+    const std::uint64_t length = get_be(ByteView(*header).first(4));
+    auto payload = log_->read(offset + header_size, static_cast<std::size_t>(length));
+    if (!payload) {
+        return std::unexpected(payload.error());
+    }
+    if (detail::crc32c(*payload) !=
+        static_cast<std::uint32_t>(get_be(ByteView(*header).subspan(4)))) {
+        return fail(Errc::malformed, "a log record is corrupted");
+    }
+    return payload;
+}
+
+Status RecordLog::append(std::span<const ByteView> payloads) {
+    if (failed_) {
+        return fail(Errc::invalid_argument, "the log failed earlier and must be reopened");
+    }
+    for (const ByteView payload : payloads) {
+        if (payload.size() > max_record_size) {
+            return fail(Errc::invalid_argument, "record is too large");
+        }
+    }
+    std::vector<std::uint64_t> new_offsets;
+    std::uint64_t offset = log_->size();
+    for (const ByteView payload : payloads) {
+        const Bytes framed = frame(payload);
+        if (auto s = log_->append(framed); !s) {
+            failed_ = true;
+            return s;
+        }
+        new_offsets.push_back(offset);
+        offset += framed.size();
+    }
+    // Make the records durable, then record the new durable size. A record
+    // is acknowledged only once both are durable.
+    Bytes size_record;
+    put_u64(size_record, log_->size());
+    if (auto s = log_->sync(); !s) {
+        failed_ = true;
+        return s;
+    }
+    if (auto s = synced_->append(frame(size_record)); !s) {
+        failed_ = true;
+        return s;
+    }
+    if (auto s = synced_->sync(); !s) {
+        failed_ = true;
+        return s;
+    }
+    offsets_.insert(offsets_.end(), new_offsets.begin(), new_offsets.end());
+    return {};
+}
+
+} // namespace cexchain::ledger

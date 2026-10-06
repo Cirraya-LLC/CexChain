@@ -3,7 +3,9 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
+#include <span>
 
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/crypto.hpp>
@@ -39,6 +41,9 @@ private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
+
+/// Fills `out` from OpenSSL's CSPRNG (seeded by the operating system).
+[[nodiscard]] Status random_bytes(std::span<std::uint8_t> out);
 
 /// A software key pair held in OpenSSL. ESP256 signatures are returned in
 /// low-S form. A moved-from KeyPair reports an empty public key and refuses to

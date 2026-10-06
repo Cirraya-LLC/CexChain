@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -18,6 +19,7 @@
 #include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/params.h>
+#include <openssl/rand.h>
 #include <openssl/x509.h>
 
 #include <cexchain/crypto/openssl.hpp>
@@ -406,6 +408,18 @@ Result<Digest> Provider::do_digest(HashAlg alg, std::span<const ByteView> parts)
 
 Status Provider::do_verify(const PublicKey& key, ByteView message, ByteView signature) const {
     return verify_with(key, message, signature);
+}
+
+Status random_bytes(std::span<std::uint8_t> out) {
+    // RAND_bytes takes an int length; fill in bounded chunks.
+    constexpr std::size_t chunk = 1 << 20;
+    for (std::size_t offset = 0; offset < out.size(); offset += chunk) {
+        const std::size_t length = std::min(chunk, out.size() - offset);
+        if (RAND_bytes(out.data() + offset, static_cast<int>(length)) != 1) {
+            return openssl_fail(Errc::crypto_failure, "the random number generator failed");
+        }
+    }
+    return {};
 }
 
 // ---------------------------------------------------------------------------
