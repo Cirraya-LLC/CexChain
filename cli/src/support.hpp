@@ -91,6 +91,7 @@ private:
                       const std::optional<std::string>& record_type) const;
 
     std::filesystem::path directory_;
+    std::optional<ledger::DirectoryLock> lock_;
     crypto::openssl::Provider provider_;
     ledger::SystemClock clock_;
     ledger::SystemEntropy entropy_;

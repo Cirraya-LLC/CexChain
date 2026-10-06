@@ -204,6 +204,7 @@ Session::Session(const std::filesystem::path& directory) : directory_(directory)
     if (!std::filesystem::is_directory(directory)) {
         throw CommandError{"no ledger directory at " + directory.string()};
     }
+    lock_.emplace(unwrap(ledger::DirectoryLock::acquire(directory), "locking the ledger"));
     fs_.emplace(unwrap(ledger::PosixFileSystem::open_directory(directory), "opening the ledger"));
     ledger_.emplace(unwrap(ledger::Ledger::open(*fs_, clock_, provider_), "opening the ledger"));
 }
@@ -307,6 +308,7 @@ void create_ledger(const std::filesystem::path& directory, const crypto::Signer&
     ledger::SystemClock clock;
     ledger::SystemEntropy entropy;
     auto fs = unwrap(ledger::PosixFileSystem::open_directory(directory), "creating the directory");
+    const auto lock = unwrap(ledger::DirectoryLock::acquire(directory), "locking the ledger");
 
     protocol::Statement genesis;
     genesis.issued_at = clock.now();

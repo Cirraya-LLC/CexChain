@@ -70,6 +70,26 @@ private:
     std::filesystem::path directory_;
 };
 
+/// An exclusive, advisory lock on a ledger directory, so that only one
+/// process writes to a ledger at a time. Released on destruction (and by the
+/// operating system if the process dies).
+class DirectoryLock {
+public:
+    /// Waits up to `timeout_ms` for the lock on `directory`.
+    [[nodiscard]] static Result<DirectoryLock> acquire(const std::filesystem::path& directory,
+                                                       std::uint64_t timeout_ms = 5000);
+
+    DirectoryLock(DirectoryLock&& other) noexcept;
+    DirectoryLock& operator=(DirectoryLock&& other) noexcept;
+    DirectoryLock(const DirectoryLock&) = delete;
+    DirectoryLock& operator=(const DirectoryLock&) = delete;
+    ~DirectoryLock();
+
+private:
+    explicit DirectoryLock(int fd) noexcept : fd_(fd) {}
+    int fd_ = -1;
+};
+
 /// Files held in memory, for simulation. Each file keeps its durable bytes
 /// apart from bytes appended since the last sync, so `crash` can model what
 /// survives a power loss.

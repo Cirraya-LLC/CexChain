@@ -38,6 +38,7 @@ constexpr std::array commands{
     Command{"checkpoint", "", cexchain::cli::checkpoint},
     Command{"export", "", cexchain::cli::export_bundle},
     Command{"verify", "", cexchain::cli::verify},
+    Command{"mcp", "", cexchain::cli::mcp},
 };
 
 constexpr std::string_view usage = R"(cexchain: verifiable records for business
@@ -71,6 +72,9 @@ Evidence
   cexchain export     --ledger DIR --log-key FILE --record ID --out FILE
                       [--disclose FIELD[,FIELD...]] [--with-attachments]
   cexchain verify     BUNDLE [--ledger-id ID] [--witness KEY...] [--attachment NAME=FILE...]
+
+AI agents (Model Context Protocol, stdio)
+  cexchain mcp        --ledger DIR --as AGENT_KEY
 
 Statement types for --allow: actor-register, actor-rotate-key, actor-revoke, delegation-grant,
 delegation-revoke, record-register, record-endorse, record-transition, record-revoke.

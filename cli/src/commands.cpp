@@ -16,6 +16,7 @@
 #include <cexchain/core/protocol/record.hpp>
 #include <cexchain/core/protocol/record_types.hpp>
 
+#include "records.hpp"
 #include "support.hpp"
 
 namespace cexchain::cli {
@@ -52,95 +53,6 @@ std::optional<protocol::Provenance> provenance_from(const Args& args) {
         return std::nullopt;
     }
     return protocol::Provenance{model, version, std::nullopt, {}};
-}
-
-std::string display_value(const cbor::Value& value) {
-    if (const std::string* text = value.as_text()) {
-        return *text;
-    }
-    return cbor::diagnostic(value);
-}
-
-// ---------------------------------------------------------------------------
-// Record vault: the private data behind a record's commitments.
-// ---------------------------------------------------------------------------
-
-struct VaultAttachment {
-    std::string name;
-    protocol::Nonce salt{};
-};
-
-struct Vault {
-    std::vector<protocol::RecordField> fields;
-    std::vector<VaultAttachment> attachments;
-};
-
-void save_vault(const Session& session, const protocol::Id& record, const Vault& vault) {
-    cbor::Array fields;
-    for (const protocol::RecordField& f : vault.fields) {
-        fields.push_back(
-            cbor::Value::array({cbor::Value::text(f.name), cbor::Value::bytes(f.salt), f.value}));
-    }
-    cbor::Array attachments;
-    for (const VaultAttachment& a : vault.attachments) {
-        attachments.push_back(
-            cbor::Value::array({cbor::Value::text(a.name), cbor::Value::bytes(a.salt)}));
-    }
-    const auto bytes =
-        unwrap(cbor::encode(cbor::Value::map(
-                   {{cbor::Value::integer(1), cbor::Value::array(std::move(fields))},
-                    {cbor::Value::integer(2), cbor::Value::array(std::move(attachments))}})),
-               "encoding the vault");
-    std::filesystem::create_directories(session.vault_path(record).parent_path());
-    write_file(session.vault_path(record), bytes, true);
-}
-
-Vault load_vault(const Session& session, const protocol::Id& record) {
-    const auto value =
-        unwrap(cbor::decode(read_file(session.vault_path(record))), "reading the vault");
-    Vault vault;
-    auto salt_of = [](const cbor::Value& v) {
-        protocol::Nonce salt{};
-        if (const Bytes* bytes = v.as_bytes(); bytes != nullptr && bytes->size() == salt.size()) {
-            std::ranges::copy(*bytes, salt.begin());
-            return salt;
-        }
-        throw CommandError{"the record vault is corrupted"};
-    };
-    for (const cbor::Value& item : *value.find(1)->as_array()) {
-        const cbor::Array& parts = *item.as_array();
-        vault.fields.push_back({*parts[0].as_text(), salt_of(parts[1]), parts[2]});
-    }
-    for (const cbor::Value& item : *value.find(2)->as_array()) {
-        const cbor::Array& parts = *item.as_array();
-        vault.attachments.push_back({*parts[0].as_text(), salt_of(parts[1])});
-    }
-    return vault;
-}
-
-std::string event_line(const protocol::RecordEvent& event) {
-    std::string actor = "\"" + event.actor.name + "\" [" + std::string(kind_name(event.actor.kind));
-    if (event.actor.kind == protocol::ActorKind::agent) {
-        if (event.provenance && event.provenance->model) {
-            actor += ": " + *event.provenance->model;
-        }
-        if (event.actor.responsible) {
-            actor += "; responsible: " + *event.actor.responsible;
-        }
-    }
-    actor += "]";
-    switch (event.type) {
-    case protocol::StatementType::record_register:
-        return "registered by " + actor;
-    case protocol::StatementType::record_endorse:
-        return "endorsed as " + event.detail + " by " + actor;
-    case protocol::StatementType::record_transition:
-        return "moved " + event.detail + " by " + actor;
-    case protocol::StatementType::record_revoke:
-        return "revoked by " + actor + (event.detail.empty() ? "" : " (" + event.detail + ")");
-    default:
-        return std::string(protocol::name(event.type)) + " by " + actor;
-    }
 }
 
 } // namespace
@@ -287,63 +199,22 @@ int revoke_delegation(const Args& args) {
 int issue(const Args& args) {
     Session session(args.need("ledger"));
     const auto signer = load_key(args.need("as"));
-    ledger::SystemEntropy entropy;
-
-    Vault vault;
+    IssueRequest request;
+    request.record_type = args.need("type");
     for (const std::string& field : args.all("field")) {
-        auto [name, value] = split_pair(field, "--field");
-        vault.fields.push_back({name, entropy.bytes<16>(), cbor::Value::text(value)});
+        request.fields.push_back(split_pair(field, "--field"));
     }
-    if (vault.fields.empty()) {
-        throw UsageError{"a record needs at least one --field NAME=VALUE"};
-    }
-    const auto commitment =
-        unwrap(protocol::commit_fields(session.provider(), session.state().hash(), vault.fields),
-               "committing to the fields");
-    vault.fields = commitment.fields;
-
-    protocol::RecordRegisterBody body;
-    body.record_type = args.need("type");
-    body.field_root = Bytes(commitment.root.bytes().begin(), commitment.root.bytes().end());
-    body.field_count = commitment.leaves.size();
-    for (const std::string& path_text : args.all("attach")) {
-        const std::filesystem::path path = path_text;
-        const Bytes content = read_file(path);
-        const VaultAttachment attachment{path.filename().string(), entropy.bytes<16>()};
-        const auto digest =
-            unwrap(protocol::attachment_commitment(session.provider(), session.state().hash(),
-                                                   attachment.salt, content),
-                   "committing to an attachment");
-        std::string media_type = "application/octet-stream";
-        if (path.extension() == ".pdf") {
-            media_type = "application/pdf";
-        } else if (path.extension() == ".ofd") {
-            media_type = "application/ofd";
-        } else if (path.extension() == ".json") {
-            media_type = "application/json";
-        } else if (path.extension() == ".png") {
-            media_type = "image/png";
-        } else if (path.extension() == ".jpg" || path.extension() == ".jpeg") {
-            media_type = "image/jpeg";
-        }
-        body.attachments.push_back({attachment.name, media_type, content.size(),
-                                    Bytes(digest.bytes().begin(), digest.bytes().end())});
-        vault.attachments.push_back(attachment);
-    }
-    cbor::Map metadata;
     for (const std::string& item : args.all("meta")) {
-        auto [name, value] = split_pair(item, "--meta");
-        metadata.push_back({cbor::Value::text(name), cbor::Value::text(value)});
+        request.metadata.push_back(split_pair(item, "--meta"));
     }
-    if (!metadata.empty()) {
-        body.metadata = cbor::Value::map(std::move(metadata));
+    for (const std::string& path : args.all("attach")) {
+        request.attachments.emplace_back(path);
     }
-
-    const auto id = session.submit(signer, body, args.get("delegation"), provenance_from(args));
-    save_vault(session, id, vault);
-    const protocol::RecordState* record = session.state().record(id);
-    std::println("issued {} {}", body.record_type, hex_id(id));
-    std::println("state: {}", record->state);
+    request.delegation = args.get("delegation");
+    request.provenance = provenance_from(args);
+    const protocol::Id id = issue_record(session, signer, request);
+    std::println("issued {} {}", request.record_type, hex_id(id));
+    std::println("state: {}", session.state().record(id)->state);
     return 0;
 }
 
@@ -465,59 +336,9 @@ int verify(const Args& args) {
         std::println("VERIFICATION FAILED: {}", result.error().detail);
         return 2;
     }
-    const protocol::EvidenceReport& r = *result;
-    std::println("CexChain evidence report\n");
-    std::println("  Ledger       {} (id {}, {})", r.organization, short_id(r.ledger_id),
-                 crypto::name(r.hash));
-    if (!options.expected_ledger) {
-        std::println("               ! not compared with an expected ledger id (--ledger-id)");
-    }
-    std::println("  Checkpoint   size {}, signed {} by the ledger's log key",
-                 r.checkpoint.tree_size, format_time(r.checkpoint.timestamp));
-    std::println("  Witnesses    {} trusted, {} other", r.trusted_cosignatures,
-                 r.untrusted_cosignatures);
-    std::println("  Record       {} (id {})", r.record_type, short_id(r.record));
-    std::println("  State        {}{}", r.state, r.revoked ? " — REVOKED" : "");
-    if (r.metadata) {
-        for (const cbor::MapEntry& m : *r.metadata->as_map()) {
-            std::println("  Metadata     {} = {}", display_value(m.key), display_value(m.value));
-        }
-    }
-    std::println("\n  History");
-    for (const protocol::RecordEvent& event : r.events) {
-        std::println("    #{:<4} {}  {}", event.index, format_time(event.registered_at),
-                     event_line(event));
-        if (!event.authority.empty()) {
-            std::string chain;
-            for (const protocol::ActorSummary& link : event.authority) {
-                chain += (chain.empty() ? "" : " <- ") + link.name;
-            }
-            std::println("           authorized by {}", chain);
-        }
-    }
-    if (!r.disclosed_fields.empty()) {
-        std::println("\n  Disclosed fields (each proven against the record's commitment)");
-        for (const protocol::RecordField& f : r.disclosed_fields) {
-            std::println("    {} = {}", f.name, display_value(f.value));
-        }
-    }
-    if (!r.attachments.empty()) {
-        std::println("\n  Attachments");
-        for (const protocol::AttachmentCheck& a : r.attachments) {
-            const char* status = a.status == protocol::AttachmentStatus::verified ? "matches"
-                                 : a.status == protocol::AttachmentStatus::mismatch
-                                     ? "DOES NOT MATCH"
-                                     : "not checked (pass --attachment NAME=PATH)";
-            std::println("    {} ({}, {} bytes): {}", a.name, a.media_type, a.size, status);
-        }
-    }
-    std::println(
-        "\n  Verified: every statement above is signed, authorized under the ledger's rules,");
-    std::println("  and included in the checkpointed log.");
-    std::println(
-        "  Not provable from a bundle: that no revocation was left out (needs a full-log audit).");
+    std::print("{}", format_report(*result, options.expected_ledger.has_value()));
     const bool mismatch =
-        std::ranges::any_of(r.attachments, [](const protocol::AttachmentCheck& a) {
+        std::ranges::any_of(result->attachments, [](const protocol::AttachmentCheck& a) {
             return a.status == protocol::AttachmentStatus::mismatch;
         });
     return mismatch ? 2 : 0;

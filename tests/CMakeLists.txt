@@ -35,3 +35,5 @@ catch_discover_tests(cexchain_tests)
 # The command-line tool, end to end, as a user would run it.
 add_test(NAME cli_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/end_to_end.sh $<TARGET_FILE:cexchain>)
+add_test(NAME mcp_end_to_end
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/mcp.sh $<TARGET_FILE:cexchain>)

@@ -41,7 +41,7 @@ CexChain is a ledger protocol and node for trust between organizations. Every do
 | `crypto/openssl` | Cryptographic backend: SHA-2, SM3, Ed25519, ESP256, SM2, ML-DSA |
 | `ledger` | Ledger node: crash-safe storage, rule engine, checkpoints, receipts, evidence export (C++26) |
 | `cli` | `cexchain` command-line tool: keys, ledger, actors, delegation, records, evidence |
-| `mcp` | MCP server and gateway for AI agents (planned) |
+| `cexchain mcp` | MCP server through which an AI agent acts under its own key and delegation |
 
 ## Quick start
 
@@ -70,6 +70,15 @@ cexchain verify evidence.cbor --ledger-id <ledger-id> --attachment report.pdf=re
 The verification report shows every event in the record's history, who performed it (person or
 AI agent, with the agent's model and accountable person), under whose delegation, which fields
 were disclosed, and whether attachments match. Run `cexchain --help` for every command.
+
+## AI agents (MCP)
+
+`cexchain mcp --ledger DIR --as AGENT_KEY` runs a Model Context Protocol server over stdio
+(revision 2026-07-28, with fallback to earlier revisions). The agent can look up its identity and
+delegations, query and issue records, endorse, move records through their lifecycle, and verify
+evidence from others. Every action is signed with the agent's own key, refused by the ledger if
+its delegation does not cover it, and recorded with provenance: its model, a hash of the inputs it
+acted on, and the digest of the tool it used. Verification reports show all of this.
 
 ## Building
 

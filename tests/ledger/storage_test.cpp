@@ -164,3 +164,20 @@ TEST_CASE("record log works on a POSIX directory", "[ledger][storage]") {
     }
     std::filesystem::remove_all(directory);
 }
+
+TEST_CASE("only one process at a time holds a ledger directory", "[ledger][storage]") {
+    const auto directory = std::filesystem::temp_directory_path() /
+                           ("cexchain-lock-" + std::to_string(ledger::SystemClock{}.now()));
+    std::filesystem::create_directories(directory);
+    {
+        auto first = ledger::DirectoryLock::acquire(directory);
+        REQUIRE(first);
+        // flock locks belong to open file descriptions, so a second
+        // acquisition, even in the same process, must wait and then fail.
+        CHECK(ledger::DirectoryLock::acquire(directory, 100).error().code == Errc::rejected);
+        auto moved = std::move(*first);
+        CHECK(ledger::DirectoryLock::acquire(directory, 100).error().code == Errc::rejected);
+    }
+    CHECK(ledger::DirectoryLock::acquire(directory, 100));
+    std::filesystem::remove_all(directory);
+}

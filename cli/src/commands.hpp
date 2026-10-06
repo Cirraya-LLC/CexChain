@@ -23,5 +23,6 @@ int record_show(const Args& args);
 int checkpoint(const Args& args);
 int export_bundle(const Args& args);
 int verify(const Args& args);
+int mcp(const Args& args);
 
 } // namespace cexchain::cli

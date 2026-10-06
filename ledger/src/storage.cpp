@@ -2,9 +2,12 @@
 // Copyright 2026 Cirraya
 
 #include <cerrno>
+#include <chrono>
 #include <fcntl.h>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <system_error>
+#include <thread>
 #include <unistd.h>
 #include <utility>
 
@@ -198,6 +201,50 @@ Result<std::unique_ptr<AppendFile>> PosixFileSystem::open(std::string_view name)
 
 bool PosixFileSystem::exists(std::string_view name) const {
     return valid_name(name) && std::filesystem::exists(directory_ / std::string(name));
+}
+
+// ---------------------------------------------------------------------------
+// DirectoryLock
+// ---------------------------------------------------------------------------
+
+Result<DirectoryLock> DirectoryLock::acquire(const std::filesystem::path& directory,
+                                             std::uint64_t timeout_ms) {
+    const std::filesystem::path path = directory / "lock";
+    const int fd = ::open(path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+    if (fd < 0) {
+        return fail(Errc::invalid_argument, "could not open the ledger lock file");
+    }
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    while (::flock(fd, LOCK_EX | LOCK_NB) != 0) {
+        if (errno != EWOULDBLOCK && errno != EINTR) {
+            ::close(fd);
+            return fail(Errc::invalid_argument, "could not lock the ledger");
+        }
+        if (std::chrono::steady_clock::now() >= deadline) {
+            ::close(fd);
+            return fail(Errc::rejected, "the ledger is in use by another process");
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    return DirectoryLock(fd);
+}
+
+DirectoryLock::DirectoryLock(DirectoryLock&& other) noexcept : fd_(std::exchange(other.fd_, -1)) {}
+
+DirectoryLock& DirectoryLock::operator=(DirectoryLock&& other) noexcept {
+    if (this != &other) {
+        if (fd_ >= 0) {
+            ::close(fd_);
+        }
+        fd_ = std::exchange(other.fd_, -1);
+    }
+    return *this;
+}
+
+DirectoryLock::~DirectoryLock() {
+    if (fd_ >= 0) {
+        ::close(fd_); // closing releases the flock
+    }
 }
 
 // ---------------------------------------------------------------------------
