@@ -4,7 +4,7 @@
 
 CexChain is a ledger protocol and node for trust between organizations. Every document, asset, and action can be independently verified by anyone, without relying on a platform operator. The action can come from a person or an AI agent.
 
-> **Status:** early development (specification v0.2, [`spec/cexchain.cddl`](spec/cexchain.cddl)). Interfaces and formats may still change.
+> **Status:** early development (specification v0.3: [the protocol in prose](spec/README.md), [`spec/cexchain.cddl`](spec/cexchain.cddl)). Interfaces and formats may still change.
 
 ## Why
 
