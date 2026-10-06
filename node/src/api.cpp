@@ -172,7 +172,6 @@ struct LedgerApi::State {
     std::vector<ApiToken> tokens;
     std::optional<std::filesystem::file_time_type> tokens_time;
     steady::time_point tokens_checked{};
-    steady::time_point refreshed{};
     steady::time_point last_auto_checkpoint = steady::now();
     std::string principal;
 
@@ -219,14 +218,10 @@ struct LedgerApi::State {
         tokens_time = current;
     }
 
-    /// Picks up what other processes appended. Readers look at most every
-    /// 200 ms; writers always, under the lock, with recovery.
+    /// Picks up what other processes appended, so every request sees all
+    /// that was durable when it arrived. Writers, under the lock, also
+    /// recover what a crashed writer left half-written.
     Status refresh(bool for_write) {
-        const auto now = steady::now();
-        if (!for_write && now - refreshed < std::chrono::milliseconds(200)) {
-            return {};
-        }
-        refreshed = now;
         auto report = ledger->refresh(*fs, for_write);
         if (!report) {
             failure = std::string(report.error().detail);
@@ -958,7 +953,6 @@ Result<std::unique_ptr<LedgerApi>> LedgerApi::open(ApiOptions options,
     }
     state->options = std::move(options);
     state->reload_tokens(true);
-    state->refreshed = steady::now();
     return std::unique_ptr<LedgerApi>(new LedgerApi(std::move(state)));
 }
 

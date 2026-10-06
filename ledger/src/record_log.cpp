@@ -113,6 +113,38 @@ Result<std::uint64_t> read_synced_size(AppendFile& file, bool recover = true) {
     return synced;
 }
 
+/// The durable log size, from the last entry of the sync file only, so a
+/// refresh costs the same however long the log is. Entries are all the same
+/// size; if the last whole one is damaged (a sync that was never
+/// acknowledged), the one before it holds. Anything else falls back to the
+/// full scan.
+Result<std::uint64_t> read_last_synced_size(AppendFile& file, bool recover) {
+    constexpr std::uint64_t entry = header_size + 8;
+    const std::uint64_t size = file.size();
+    const std::uint64_t whole = size - size % entry;
+    for (std::uint64_t back = 1; back <= 2 && whole >= back * entry; ++back) {
+        const std::uint64_t offset = whole - back * entry;
+        auto scanned = scan_record(file, offset);
+        if (!scanned) {
+            return std::unexpected(scanned.error());
+        }
+        if (scanned->kind != Scan::record || scanned->payload_size != 8) {
+            continue;
+        }
+        auto payload = file.read(offset + header_size, 8);
+        if (!payload) {
+            return std::unexpected(payload.error());
+        }
+        if (recover && offset + entry < size) {
+            if (auto s = file.truncate(offset + entry); !s) {
+                return std::unexpected(s.error());
+            }
+        }
+        return get_be(*payload);
+    }
+    return read_synced_size(file, recover);
+}
+
 } // namespace
 
 RecordLog::RecordLog(std::unique_ptr<AppendFile> log, std::unique_ptr<AppendFile> synced,
@@ -249,7 +281,7 @@ Result<std::uint64_t> RecordLog::refresh(FileSystem& fs, std::string_view name, 
     if (!synced_file) {
         return std::unexpected(synced_file.error());
     }
-    auto synced = read_synced_size(**synced_file, recover);
+    auto synced = read_last_synced_size(**synced_file, recover);
     if (!synced) {
         return std::unexpected(synced.error());
     }

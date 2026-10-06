@@ -150,6 +150,33 @@ TEST_CASE("a refresh sees only what was acknowledged", "[ledger][refresh]") {
     CHECK(open(w).size() == reader.size());
 }
 
+TEST_CASE("a refresh reads the durable size from the sync file's tail", "[ledger][refresh]") {
+    World w;
+    Cast c = build_cast(w);
+    auto reader = open(w);
+    w.ok(c.agent, agent_record(w, c, certificate));
+    // A writer died while recording a sync: a torn entry at the end, then
+    // a whole but damaged one.
+    {
+        auto synced = w.fs().open("statements.synced");
+        REQUIRE(synced);
+        REQUIRE((*synced)->append(Bytes{0, 0, 0, 8, 1}));
+    }
+    auto report = reader.refresh(w.fs(), false);
+    REQUIRE(report);
+    CHECK(report->entries == 1);
+    CHECK(reader.size() == w.ledger().size());
+    {
+        auto synced = w.fs().open("statements.synced");
+        REQUIRE(synced);
+        REQUIRE((*synced)->append(Bytes(11, 0xee)));
+    }
+    REQUIRE(reader.refresh(w.fs(), true)); // recovering cuts the damage off
+    CHECK(w.fs().contents("statements.synced").size() % 16 == 0);
+    REQUIRE(reader.checkpoint(w.log_key()));
+    CHECK(open(w).size() == reader.size());
+}
+
 TEST_CASE("a refresh refuses entries that do not validate", "[ledger][refresh]") {
     World w;
     Cast c = build_cast(w);
