@@ -49,7 +49,13 @@ async function verdict(page) {
     page.on("console", (m) => { if (m.type() === "error") problems.push("console error: " + m.text()); });
     page.on("pageerror", (e) => problems.push("page error: " + e.message));
     await page.goto(url);
-    await page.waitForFunction(() => window.verifierReady === true);
+    try {
+      await page.waitForFunction(() => window.verifierReady === true);
+    } catch (e) {
+      const verdict = await page.evaluate(() => document.getElementById("verdict-title").textContent + ": " +
+                                                document.getElementById("verdict-detail").textContent);
+      throw new Error(`the page did not get ready (${verdict}); problems: ${problems.join(" | ")}`);
+    }
     return page;
   };
   try {
