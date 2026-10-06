@@ -39,6 +39,7 @@ if(EMSCRIPTEN)
 else()
     add_subdirectory(crypto/pkcs11)
     add_subdirectory(ledger)
+    add_subdirectory(node)
     add_subdirectory(cli)
 endif()
 

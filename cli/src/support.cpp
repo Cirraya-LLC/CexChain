@@ -19,6 +19,7 @@
 
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/presence.hpp>
+#include <cexchain/node/api.hpp>
 #ifdef CEXCHAIN_HAVE_PKCS11
 #include <cexchain/crypto/pkcs11.hpp>
 #endif
@@ -530,6 +531,7 @@ protocol::Id Session::submit(const crypto::Signer& signer, protocol::Body body,
     }
     statement.provenance = std::move(provenance);
     statement.body = std::move(body);
+    require_primary();
     if (presence) {
         prove_presence(actor, statement, signer.public_key(), *presence);
     }
@@ -679,6 +681,13 @@ protocol::SignedStateCommitment Session::state_commitment(std::uint64_t index) c
 std::string Session::actor_name(const protocol::Id& id) const {
     const protocol::ActorState* actor = state().actor(id);
     return actor == nullptr ? "unknown" : actor->display_name;
+}
+
+void Session::require_primary() const {
+    if (std::filesystem::exists(directory_ / node::replica_file)) {
+        throw CommandError{"this ledger is a replica: write to its primary, or promote it first "
+                           "(cexchain replica promote)"};
+    }
 }
 
 std::filesystem::path Session::vault_path(const protocol::Id& record) const {

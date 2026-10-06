@@ -90,4 +90,18 @@ int cmd_witness_remove_log(const Args& args);
 // AI agents
 int cmd_mcp(const Args& args);
 
+// Serving, replicas, and backups
+int cmd_serve(const Args& args);
+int cmd_token_create(const Args& args);
+int cmd_token_list(const Args& args);
+int cmd_token_show(const Args& args);
+int cmd_token_revoke(const Args& args);
+int cmd_replica_init(const Args& args);
+int cmd_replica_sync(const Args& args);
+int cmd_replica_status(const Args& args);
+int cmd_replica_promote(const Args& args);
+int cmd_backup_create(const Args& args);
+int cmd_backup_verify(const Args& args);
+int cmd_backup_restore(const Args& args);
+
 } // namespace cexchain::cli

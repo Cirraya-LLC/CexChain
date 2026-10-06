@@ -119,6 +119,7 @@ int cmd_vault_keygen(const Args& args) {
 
 int cmd_vault_rekey(const Args& args) {
     Session session(args.ledger());
+    session.require_primary();
     const std::filesystem::path dir = session.directory();
 
     // Read every record's private data first, so nothing is written unless

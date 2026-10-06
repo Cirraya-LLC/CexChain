@@ -208,6 +208,7 @@ Json inspect_json(const crypto::Provider& provider, const Bytes& content) {
 
 int cmd_checkpoint_create(const Args& args) {
     Session session(args.ledger());
+    session.require_primary();
     const auto log_key = load_signer(args.need("log-key"), args);
     const auto c = unwrap(session.ledger().checkpoint(*log_key), "checkpointing");
     if (args.json()) {

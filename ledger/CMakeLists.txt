@@ -4,6 +4,7 @@
 # The ledger node: storage, state, and the registration engine. It may use
 # C++26; code that verifiers need belongs in core instead.
 add_library(cexchain_ledger
+    src/backup.cpp
     src/crc32c.cpp
     src/environment.cpp
     src/ledger.cpp

@@ -41,7 +41,8 @@ CexChain is a ledger protocol and node for trust between organizations. Every do
 | `verifier` | Verification reports (text and JSON) shared by the command line and the browser verifier; `verifier/wasm` is the browser page |
 | `crypto/openssl` | Cryptographic backend: SHA-2, SM3, Ed25519, ESP256, SM2, ML-DSA |
 | `crypto/pkcs11` | Keys on PKCS #11 tokens: USB keys (UKey), smart cards, and HSMs, loaded at run time |
-| `ledger` | Ledger node: crash-safe storage, rule engine, checkpoints, receipts, evidence export (C++26) |
+| `ledger` | Ledger node: crash-safe storage, rule engine, checkpoints, receipts, evidence export, backups (C++26) |
+| `node` | HTTP API server and client (Asio), API tokens, and replicas (C++26) |
 | `cli` | `cexchain` command-line tool: full control of keys, ledgers, actors, delegations, records, proofs, and evidence |
 | `cexchain mcp` | MCP server through which an AI agent acts under its own key and delegation |
 
@@ -101,6 +102,9 @@ The `cexchain` tool controls every part of a ledger:
 | Evidence | `export`, `verify`, `inspect`, `qr` |
 | Vault | `vault status`, `vault keygen`, `vault rekey` |
 | AI agents | `mcp` |
+| Server | `serve`, `token create`, `token list`, `token show`, `token revoke` |
+| Replicas | `replica init`, `replica sync`, `replica status`, `replica promote` |
+| Backups | `backup create`, `backup verify`, `backup restore` |
 
 - Every command takes `--help`, and `--json` for scripting.
 - `cexchain help --json` describes every command and option in machine-readable form.
@@ -203,6 +207,36 @@ Scanning the code opens the verifier with the ledger id, the record id, and the 
 The page refuses evidence about another record or from another ledger, and shows who did what,
 person or AI agent, under whose authority.
 
+## Running a ledger as a service
+
+`cexchain serve` exposes a ledger over HTTP (API v1, described by `cexchain serve --help`). Signed
+statements are the authorization: the server only checks API tokens, which gate access because
+statements reveal business metadata. The server holds the ledger's lock only while it writes, so
+every other command keeps working on the same ledger.
+
+```sh
+cexchain token create app --scope submit,read --out app.token   # shown once; only its hash is kept
+cexchain token create replica --scope read --out replica.token
+cexchain serve --listen 0.0.0.0:8080 --log-key log.key --tls-cert cert.pem --tls-key key.pem
+
+# Elsewhere: a replica copies the ledger and re-validates every entry and checkpoint it copies.
+CEXCHAIN_TOKEN=$(cat replica.token) cexchain replica init --from https://ledger.example.com --ledger ./replica
+cexchain replica sync --ledger ./replica --follow
+cexchain serve --ledger ./replica --listen 0.0.0.0:8080       # read-only, for verifiers and reports
+
+# Backups: one file, re-validated on restore. Take them from a replica.
+cexchain backup create --ledger ./replica --out ledger.cxb
+cexchain backup verify ledger.cxb
+cexchain backup restore ledger.cxb --ledger ./restored
+```
+
+A replica stops (exit 3) at the first entry that does not validate, and refuses histories that
+were rolled back, so a compromised primary cannot rewrite a replica's copy. If the primary is lost,
+stop it for good and run `cexchain replica promote`; witnesses would detect two primaries signing.
+Operations: `GET /healthz`, Prometheus metrics at `GET /metrics`, an access log in JSON lines on
+stderr, automatic checkpoints (`--checkpoint-interval`), and graceful shutdown on SIGTERM. The
+`Dockerfile` builds a small image that runs as a non-root user with the ledger in `/data`.
+
 ## AI agents (MCP)
 
 `cexchain mcp --ledger DIR --as AGENT_KEY` runs a Model Context Protocol server over stdio
@@ -239,6 +273,9 @@ tools/wasm/build.sh
 (cd tests/browser && npm ci && npx playwright install chromium)
 tests/browser/run.sh build/gcc-debug/cli/cexchain build/wasm
 ```
+
+`tests/cli/serve.sh` runs a server, a replica, and backups end to end; `tests/node/` covers the
+HTTP parser and the API over real sockets, including a primary that serves a forged history.
 
 Fuzz targets cover every parser of untrusted input:
 

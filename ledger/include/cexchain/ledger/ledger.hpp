@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <vector>
 
 #include <cexchain/core/bytes.hpp>
@@ -49,6 +50,13 @@ struct StoredCosignature {
     crypto::PublicKey witness;
 };
 
+/// What a refresh picked up.
+struct RefreshReport {
+    std::uint64_t entries = 0;
+    std::uint64_t checkpoints = 0;
+    std::uint64_t cosignatures = 0;
+};
+
 struct AuditReport {
     std::uint64_t entries = 0;
     std::uint64_t checkpoints = 0;
@@ -72,6 +80,13 @@ public:
     [[nodiscard]] static Result<Ledger> open(FileSystem& fs, Clock& clock,
                                              const crypto::Provider& provider);
 
+    /// Creates a copy of another ledger (a replica, or a restore from a
+    /// backup) from its first log entry, kept exactly as the original logged
+    /// it. Later entries come through `append_entries`.
+    [[nodiscard]] static Result<Ledger> create_replica(FileSystem& fs, Clock& clock,
+                                                       const crypto::Provider& provider,
+                                                       ByteView genesis_entry);
+
     Ledger(Ledger&&) noexcept;
     Ledger& operator=(Ledger&&) noexcept;
     ~Ledger();
@@ -83,6 +98,27 @@ public:
 
     /// Validates and registers a signed statement.
     [[nodiscard]] Result<Registration> submit(ByteView signed_statement);
+
+    /// Appends log entries copied from the original ledger, in order from
+    /// index `size()`. Each must pass the checks a replay applies: time
+    /// order, statements valid under the ledger's rules when they were
+    /// registered, state commitments signed by the log key and true. Fails
+    /// with Errc::verification_failed on the first entry that does not; the
+    /// ones before it are kept. If writing fails, the ledger must be
+    /// reopened.
+    [[nodiscard]] Status append_entries(std::span<const Bytes> entries);
+
+    /// Stores a checkpoint copied from the original ledger, after checking
+    /// that the log key signed it and that it agrees with this log. Storing
+    /// the latest checkpoint again changes nothing.
+    [[nodiscard]] Status store_checkpoint(ByteView signed_checkpoint);
+
+    /// Picks up entries, checkpoints, and cosignatures that another process
+    /// appended to `fs` (the file system this ledger was opened from), up to
+    /// what that process made durable, re-validating every new entry. Call it
+    /// with `recover` only while holding the ledger's lock, before writing:
+    /// it then also cuts off what a crashed writer left half-written.
+    [[nodiscard]] Result<RefreshReport> refresh(FileSystem& fs, bool recover);
 
     /// The encoded log entry at `index` (the bytes the tree commits to).
     [[nodiscard]] Result<Bytes> entry(std::uint64_t index) const;

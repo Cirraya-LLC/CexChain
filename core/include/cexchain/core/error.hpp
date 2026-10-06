@@ -21,6 +21,7 @@ enum class Errc : std::uint8_t {
     crypto_failure,       ///< The cryptographic backend reported an internal failure.
     rejected,             ///< The ledger's rules do not allow this action.
     not_found,            ///< A referenced object does not exist.
+    unavailable,          ///< A server, device, or resource cannot be reached or is busy.
 };
 
 /// An error value. `detail` must refer to storage with static duration

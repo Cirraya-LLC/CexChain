@@ -27,6 +27,8 @@ std::string_view to_string(Errc code) noexcept {
         return "rejected by ledger rules";
     case Errc::not_found:
         return "not found";
+    case Errc::unavailable:
+        return "unavailable";
     }
     return "unknown error";
 }

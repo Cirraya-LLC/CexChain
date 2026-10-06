@@ -22,6 +22,21 @@ FetchContent_Declare(nlohmann_json
     SYSTEM)
 FetchContent_MakeAvailable(nlohmann_json)
 
+# Asio (standalone, header-only, Boost Software License): networking for the
+# ledger node's HTTP API and replicas.
+if(NOT EMSCRIPTEN)
+    FetchContent_Declare(asio
+        URL https://github.com/chriskohlhoff/asio/archive/refs/tags/asio-1-38-2.tar.gz
+        URL_HASH SHA256=9f2648fa483e58a6bf848d970ee0ea650ca19ed7769dfa520ed4f7b8d27af1db
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    FetchContent_MakeAvailable(asio)
+    find_package(Threads REQUIRED)
+    add_library(cexchain_asio INTERFACE)
+    target_include_directories(cexchain_asio SYSTEM INTERFACE "${asio_SOURCE_DIR}/include")
+    target_compile_definitions(cexchain_asio INTERFACE ASIO_STANDALONE ASIO_NO_DEPRECATED)
+    target_link_libraries(cexchain_asio INTERFACE Threads::Threads)
+endif()
+
 # Nayuki's QR Code generator (MIT): QR codes that open the browser verifier.
 if(NOT EMSCRIPTEN)
     FetchContent_Declare(qrcodegen

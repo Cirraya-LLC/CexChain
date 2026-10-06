@@ -1,0 +1,12 @@
+build/
+out/
+cmake-build-*/
+.git/
+.github/
+node_modules/
+__pycache__/
+CMakeUserPresets.json
+.DS_Store
+.idea/
+.vscode/
+.cache/

@@ -633,6 +633,166 @@ std::vector<CommandSpec> build() {
          cmd_witness_remove_log},
 
         // ------------------------------------------------------------------
+        {{"serve"},
+         "Serve the ledger's HTTP API",
+         "Server",
+         "",
+         0,
+         0,
+         with({ledger_option,
+               {"listen", "HOST:PORT",
+                "Address to listen on (default: 127.0.0.1:8080; port 0 picks one)"},
+               {"log-key", "KEY",
+                "The log key (file or pkcs11: URI): enables checkpoints, receipts, and evidence"},
+               {"checkpoint-interval", "SECONDS",
+                "Checkpoint when the log grew, this often (default: 60 with --log-key; 0: never)"},
+               {"tls-cert", "FILE", "TLS certificate chain (PEM); without it, use a TLS proxy"},
+               {"tls-key", "FILE", "TLS private key (PEM)"},
+               {"read-only", "", "Refuse every write"},
+               {"public-read", "",
+                "Serve read routes without a token (a public verification portal)"},
+               {"max-connections", "N", "Concurrent connections (default: 256)"},
+               {"max-body", "BYTES", "Largest request body (default: 1048576)"},
+               {"quiet", "", "No access log on stderr"},
+               passphrase_file_option}),
+         cmd_serve,
+         "Routes (API v1; binary objects are CBOR or COSE, everything else JSON):\n"
+         "  open:    GET /healthz, /v1/checkpoint[?size=N], /v1/consistency?old=&new=\n"
+         "  read:    GET /metrics, /v1/status, /v1/entries?start=&count=, /v1/checkpoints,\n"
+         "           /v1/cosignatures, /v1/inclusion?index=&size=, /v1/statements/ID,\n"
+         "           /v1/receipts/INDEX, /v1/state/ID, /v1/evidence/RECORD,\n"
+         "           /v1/vault/public-key, /v1/vault/records/RECORD\n"
+         "  submit:  POST /v1/statements (a signed statement, application/cose)\n"
+         "  admin:   POST /v1/checkpoint, POST /v1/cosignatures ([cosignature, witness key])\n"
+         "Requests send \"Authorization: Bearer TOKEN\" (cexchain token create). The server holds\n"
+         "the ledger's lock only while writing, so other cexchain commands keep working on it.\n"
+         "SIGINT or SIGTERM stops it gracefully."},
+        {{"token", "create"},
+         "Create an API token for the server",
+         "Server",
+         "NAME",
+         1,
+         1,
+         with({ledger_option,
+               {"scope", "SCOPES", "read, submit, admin, comma-separated (default: read)"},
+               {"out", "FILE", "Write the token to FILE (owner-only) instead of printing it"}}),
+         cmd_token_create,
+         "The token is shown once; the ledger keeps only its SHA-256. Scopes: read (the log,\n"
+         "proofs, receipts, evidence, sealed vault data, metrics), submit (signed statements),\n"
+         "admin (checkpoints, witness cosignatures). A token only gates access: what a\n"
+         "statement may do is still decided by its signature and the ledger's rules."},
+        {{"token", "list"},
+         "List API tokens",
+         "Server",
+         "",
+         0,
+         0,
+         with({ledger_option}),
+         cmd_token_list},
+        {{"token", "show"},
+         "Show an API token's scopes and hash",
+         "Server",
+         "NAME",
+         1,
+         1,
+         with({ledger_option}),
+         cmd_token_show},
+        {{"token", "revoke"},
+         "Revoke an API token",
+         "Server",
+         "NAME",
+         1,
+         1,
+         with({ledger_option}),
+         cmd_token_revoke},
+
+        // ------------------------------------------------------------------
+        {{"replica", "init"},
+         "Start a replica of a ledger served elsewhere",
+         "Replicas",
+         "",
+         0,
+         0,
+         with({ledger_option,
+               {"from", "URL", "The primary's API, e.g. https://ledger.example.com", true},
+               {"token-file", "FILE", "A read token for the primary (default: $CEXCHAIN_TOKEN)"},
+               {"ca", "FILE", "Trust these CA certificates (PEM) for the primary"}}),
+         cmd_replica_init,
+         "A replica copies the primary's log, checkpoints, witness cosignatures, and sealed\n"
+         "vault data, re-validating every entry with the ledger's rules and checking every\n"
+         "checkpoint against the tree it rebuilds. A primary cannot hand it a history that is\n"
+         "not the ledger's: copying stops (exit 3) at the first entry that fails. Replicas\n"
+         "refuse writes; serve one with cexchain serve for reads, back it up, or promote it."},
+        {{"replica", "sync"},
+         "Copy what is new on the primary",
+         "Replicas",
+         "",
+         0,
+         0,
+         with({ledger_option,
+               {"follow", "", "Keep syncing until interrupted"},
+               {"interval", "SECONDS", "With --follow, how often (default: 10)"},
+               {"token-file", "FILE", "A read token for the primary (default: $CEXCHAIN_TOKEN)"}}),
+         cmd_replica_sync,
+         "Exit 3 if the primary's history does not verify or was rolled back. With --follow,\n"
+         "network failures are retried with backoff; a failed verification stops it."},
+        {{"replica", "status"},
+         "Show a replica's source and how far behind it is",
+         "Replicas",
+         "",
+         0,
+         0,
+         with({ledger_option,
+               {"token-file", "FILE", "A read token for the primary (default: $CEXCHAIN_TOKEN)"}}),
+         cmd_replica_status},
+        {{"replica", "promote"},
+         "Make a replica the primary (after the old primary has stopped)",
+         "Replicas",
+         "",
+         0,
+         0,
+         with({ledger_option}),
+         cmd_replica_promote,
+         "Stop the old primary first, for good: two primaries would fork the ledger. The new\n"
+         "primary needs the log key (keep it in an HSM, reachable from both)."},
+
+        // ------------------------------------------------------------------
+        {{"backup", "create"},
+         "Back up a ledger to one file",
+         "Backups",
+         "",
+         0,
+         0,
+         with({ledger_option,
+               {"out", "FILE", "Write the backup here", true},
+               {"no-vault", "", "Leave out the vault (sealed record data and vault keys)"}}),
+         cmd_backup_create,
+         "The backup holds the log, checkpoints, witness cosignatures, API token hashes, and\n"
+         "the vault: sealed record data, the vault public key, and the vault private key if it\n"
+         "is kept in the ledger directory (encrypted, if it was). Take backups from a replica\n"
+         "to avoid pausing writes on the primary."},
+        {{"backup", "verify"},
+         "Check that a backup is complete and restores to a valid ledger",
+         "Backups",
+         "FILE",
+         1,
+         1,
+         with({}),
+         cmd_backup_verify,
+         "Restores in memory, re-validating every entry and checkpoint, then audits the\n"
+         "result. Exit 3 if anything fails."},
+        {{"backup", "restore"},
+         "Restore a backup into a new ledger directory",
+         "Backups",
+         "FILE",
+         1,
+         1,
+         with({ledger_option}),
+         cmd_backup_restore,
+         "Every entry and checkpoint is re-validated as it is restored, and the ledger is\n"
+         "audited at the end. The directory must not hold a ledger already."},
+
+        // ------------------------------------------------------------------
         {{"mcp"},
          "Run an MCP server (stdio) for an AI agent",
          "AI agents",

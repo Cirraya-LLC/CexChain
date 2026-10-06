@@ -59,13 +59,24 @@ public:
     [[nodiscard]] Status append(std::span<const ByteView> payloads);
     [[nodiscard]] Status append(ByteView payload) { return append(std::span(&payload, 1)); }
 
+    /// Picks up records that another process appended since this log was
+    /// opened or last refreshed, up to their durable size, so that a reader
+    /// never sees an unacknowledged record. With `recover`, which requires
+    /// holding the ledger's lock, an unacknowledged tail left by a writer
+    /// that crashed is cut off, as on open, so this log can append again.
+    /// Returns the number of new records.
+    [[nodiscard]] Result<std::uint64_t> refresh(FileSystem& fs, std::string_view name,
+                                                bool recover);
+
 private:
     RecordLog(std::unique_ptr<AppendFile> log, std::unique_ptr<AppendFile> synced,
-              std::vector<std::uint64_t> offsets);
+              std::vector<std::uint64_t> offsets, std::uint64_t end);
 
     std::unique_ptr<AppendFile> log_;
     std::unique_ptr<AppendFile> synced_;
     std::vector<std::uint64_t> offsets_;
+    /// The offset just past the last record.
+    std::uint64_t end_ = 0;
     bool failed_ = false;
 };
 

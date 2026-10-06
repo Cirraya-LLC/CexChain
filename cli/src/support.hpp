@@ -170,6 +170,10 @@ public:
 
     [[nodiscard]] std::filesystem::path vault_path(const protocol::Id& record) const;
 
+    /// Throws unless this ledger is a primary: a replica only copies its
+    /// primary, and writing to it would fork the ledger.
+    void require_primary() const;
+
 private:
     void prove_presence(const protocol::ActorState& actor, protocol::Statement& statement,
                         const crypto::PublicKey& signing_key, const PresenceRequest& request) const;

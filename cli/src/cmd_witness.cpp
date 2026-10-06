@@ -159,6 +159,7 @@ int cmd_checkpoint_cosign_request(const Args& args) {
 
 int cmd_checkpoint_add_cosignature(const Args& args) {
     Session session(args.ledger());
+    session.require_primary();
     const crypto::PublicKey witness = load_public_key(args.need("witness"));
     const Bytes cosignature = read_file(args.positional().front());
     unwrap(session.ledger().add_cosignature(cosignature, witness), "storing the cosignature");

@@ -10,17 +10,22 @@ add_executable(cexchain_tests
     core/protocol_test.cpp
     core/protocol_v02_test.cpp
     crypto/openssl_test.cpp
+    ledger/backup_test.cpp
     ledger/evidence_test.cpp
     ledger/ledger_test.cpp
     ledger/presence_test.cpp
+    ledger/replica_test.cpp
     ledger/state_tree_test.cpp
     ledger/storage_test.cpp
-    ledger/witness_test.cpp)
+    ledger/witness_test.cpp
+    node/api_test.cpp
+    node/http_test.cpp)
 
 target_link_libraries(cexchain_tests PRIVATE
     cexchain::core
     cexchain::crypto_openssl
     cexchain::ledger
+    cexchain::node
     Catch2::Catch2WithMain
     nlohmann_json::nlohmann_json
     OpenSSL::Crypto)
@@ -42,6 +47,8 @@ add_test(NAME cli_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/end_to_end.sh $<TARGET_FILE:cexchain>)
 add_test(NAME mcp_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/mcp.sh $<TARGET_FILE:cexchain>)
+add_test(NAME serve_end_to_end
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/serve.sh $<TARGET_FILE:cexchain>)
 
 # Keys on tokens (HSMs, USB keys), when SoftHSM is installed to stand in.
 if(TARGET cexchain_crypto_pkcs11)

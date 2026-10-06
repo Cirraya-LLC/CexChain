@@ -76,8 +76,9 @@ Result<ScanResult> scan_record(const AppendFile& file, std::uint64_t offset) {
 
 /// The durable log size recorded by the last intact entry of the sync file.
 /// A damaged tail of the sync file is ignored (that sync was never
-/// acknowledged); damage before the tail is corruption.
-Result<std::uint64_t> read_synced_size(AppendFile& file) {
+/// acknowledged) and, with `recover`, cut off; damage before the tail is
+/// corruption.
+Result<std::uint64_t> read_synced_size(AppendFile& file, bool recover = true) {
     std::uint64_t offset = 0;
     std::uint64_t synced = 0;
     while (offset < file.size()) {
@@ -91,8 +92,10 @@ Result<std::uint64_t> read_synced_size(AppendFile& file) {
             if (file.size() - offset > entry) {
                 return fail(Errc::malformed, "the log's sync record file is corrupted");
             }
-            if (auto s = file.truncate(offset); !s) {
-                return std::unexpected(s.error());
+            if (recover) {
+                if (auto s = file.truncate(offset); !s) {
+                    return std::unexpected(s.error());
+                }
             }
             break;
         }
@@ -113,8 +116,8 @@ Result<std::uint64_t> read_synced_size(AppendFile& file) {
 } // namespace
 
 RecordLog::RecordLog(std::unique_ptr<AppendFile> log, std::unique_ptr<AppendFile> synced,
-                     std::vector<std::uint64_t> offsets)
-    : log_(std::move(log)), synced_(std::move(synced)), offsets_(std::move(offsets)) {}
+                     std::vector<std::uint64_t> offsets, std::uint64_t end)
+    : log_(std::move(log)), synced_(std::move(synced)), offsets_(std::move(offsets)), end_(end) {}
 
 RecordLog::RecordLog(RecordLog&&) noexcept = default;
 RecordLog& RecordLog::operator=(RecordLog&&) noexcept = default;
@@ -171,7 +174,7 @@ Result<RecordLog> RecordLog::open(FileSystem& fs, std::string_view name, Recover
     if (report != nullptr) {
         *report = RecoveryReport{offsets.size(), truncated};
     }
-    return RecordLog(std::move(*log), std::move(*synced_file), std::move(offsets));
+    return RecordLog(std::move(*log), std::move(*synced_file), std::move(offsets), offset);
 }
 
 Result<Bytes> RecordLog::read(std::uint64_t index) const {
@@ -232,7 +235,52 @@ Status RecordLog::append(std::span<const ByteView> payloads) {
         return s;
     }
     offsets_.insert(offsets_.end(), new_offsets.begin(), new_offsets.end());
+    end_ = log_->size();
     return {};
+}
+
+Result<std::uint64_t> RecordLog::refresh(FileSystem& fs, std::string_view name, bool recover) {
+    // Fresh handles see what other processes appended.
+    auto log = fs.open(name);
+    if (!log) {
+        return std::unexpected(log.error());
+    }
+    auto synced_file = fs.open(std::string(name) + ".synced");
+    if (!synced_file) {
+        return std::unexpected(synced_file.error());
+    }
+    auto synced = read_synced_size(**synced_file, recover);
+    if (!synced) {
+        return std::unexpected(synced.error());
+    }
+    if (*synced < end_ || *synced > (*log)->size()) {
+        return fail(Errc::malformed, "the log shrank or disagrees with its acknowledged size");
+    }
+    std::vector<std::uint64_t> added;
+    std::uint64_t offset = end_;
+    while (offset < *synced) {
+        auto scanned = scan_record(**log, offset);
+        if (!scanned) {
+            return std::unexpected(scanned.error());
+        }
+        const std::uint64_t next = offset + header_size + scanned->payload_size;
+        if (scanned->kind == Scan::damaged || next > *synced) {
+            return fail(Errc::malformed, "an acknowledged log record is corrupted");
+        }
+        added.push_back(offset);
+        offset = next;
+    }
+    if (recover && (*log)->size() > offset) {
+        if (auto s = (*log)->truncate(offset); !s) {
+            return std::unexpected(s.error());
+        }
+    }
+    log_ = std::move(*log);
+    synced_ = std::move(*synced_file);
+    offsets_.insert(offsets_.end(), added.begin(), added.end());
+    end_ = offset;
+    failed_ = false;
+    return added.size();
 }
 
 } // namespace cexchain::ledger
