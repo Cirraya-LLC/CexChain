@@ -7,6 +7,7 @@ compile_commands.json
 
 # Dependency managers
 node_modules/
+__pycache__/
 /vcpkg_installed/
 CMakeUserPresets.json
 
