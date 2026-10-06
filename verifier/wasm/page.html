@@ -99,13 +99,13 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
     <div class="row">
       <div>
         <label>Attachments to check <span class="hint">(optional)</span></label>
-        <button class="link" id="add-attachments">Choose files…</button>
+        <button class="link" id="add-attachments">Choose files&hellip;</button>
         <input type="file" id="attachment-files" multiple hidden>
         <div class="files" id="attachment-names"></div>
       </div>
       <div>
         <label>Trusted witness keys <span class="hint">(optional)</span></label>
-        <button class="link" id="add-witnesses">Choose public key files…</button>
+        <button class="link" id="add-witnesses">Choose public key files&hellip;</button>
         <input type="file" id="witness-files" multiple hidden>
         <div class="files" id="witness-names"></div>
       </div>
@@ -164,7 +164,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
   function setVerdict(kind, title, detail) {
     const verdict = $("verdict");
     verdict.className = "verdict " + kind;
-    $("verdict-icon").textContent = kind === "ok" ? "✓" : kind === "warn" ? "!" : "✗";
+    $("verdict-icon").textContent = kind === "ok" ? "\u2713" : kind === "warn" ? "!" : "\u2717";
     $("verdict-title").textContent = title;
     $("verdict-detail").textContent = detail;
     $("result").hidden = false;
@@ -225,13 +225,13 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
       const who = el("div");
       who.append(el("span", "by "), actorLine(e.actor));
       if (e.actor.kind === "person" && e.presence) {
-        who.append(el("span", e.presence.user_verified ? "✓ present (passkey, verified)" : "✓ present (passkey)", "chip present"));
+        who.append(el("span", e.presence.user_verified ? "\u2713 present (passkey, verified)" : "\u2713 present (passkey)", "chip present"));
       }
       li.append(who);
       if (e.actor.kind === "person" && !e.presence) {
         li.append(el("div", "signed with their key; presence not proven", "meta"));
       }
-      li.append(el("div", when(e.registered_at) + " · entry #" + e.index, "when"));
+      li.append(el("div", when(e.registered_at) + " \u00b7 entry #" + e.index, "when"));
       if (e.actor.kind === "agent") {
         const parts = [];
         const model = (e.provenance && e.provenance.model) || e.actor.model;
@@ -239,10 +239,10 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
         if (e.actor.responsible) parts.push("accountable person: " + e.actor.responsible);
         if (e.provenance && e.provenance.tools && e.provenance.tools.length) parts.push("via " + e.provenance.tools.map((t) => t.name).join(", "));
         if (e.provenance && e.provenance.input_commitment) parts.push("inputs committed");
-        li.append(el("div", parts.join(" · "), "meta"));
+        li.append(el("div", parts.join(" \u00b7 "), "meta"));
       }
       if (e.authority && e.authority.length) {
-        li.append(el("div", "authorized by " + e.authority.map((a) => a.name).join(" ← "), "meta"));
+        li.append(el("div", "authorized by " + e.authority.map((a) => a.name).join(" \u2190 "), "meta"));
       }
       return li;
     }));
@@ -283,7 +283,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
 
   async function loadBundle(bytes, name) {
     state.bundle = bytes;
-    $("bundle-name").textContent = name + " · " + humanSize(bytes.length);
+    $("bundle-name").textContent = name + " \u00b7 " + humanSize(bytes.length);
     verify();
   }
 

@@ -762,6 +762,146 @@ def generate_protocol() -> None:
     print(f"wrote protocol vectors for {len(ledgers)} ledgers to testvectors/protocol-v0.1.json")
 
 
+# ---------------------------------------------------------------------------
+# Protocol v0.2 additions: proof of presence, the state commitment, cosign
+# requests (spec/cexchain.cddl, revision v0.2)
+# ---------------------------------------------------------------------------
+
+def b64url(data: bytes) -> str:
+    import base64
+    return base64.urlsafe_b64encode(data).decode().rstrip("=")
+
+
+def id_bit(identifier: bytes, depth: int) -> int:
+    return (identifier[depth // 8] >> (7 - depth % 8)) & 1
+
+
+def smt_root(lg: Ledger, leaves: list, depth: int = 0) -> bytes:
+    """Compact sparse Merkle tree; leaves are [kind, id, history] sorted by id."""
+    if not leaves:
+        return lg.h(b"")
+    if len(leaves) == 1:
+        return lg.h(b"\x00" + dcbor(leaves[0]))
+    left = [leaf for leaf in leaves if id_bit(leaf[1], depth) == 0]
+    right = [leaf for leaf in leaves if id_bit(leaf[1], depth) == 1]
+    return lg.h(b"\x01" + smt_root(lg, left, depth + 1) + smt_root(lg, right, depth + 1))
+
+
+def smt_proof(lg: Ledger, leaves: list, identifier: bytes) -> list[bytes]:
+    siblings, current, depth = [], leaves, 0
+    while len(current) > 1:
+        left = [leaf for leaf in current if id_bit(leaf[1], depth) == 0]
+        right = [leaf for leaf in current if id_bit(leaf[1], depth) == 1]
+        if id_bit(identifier, depth):
+            siblings.append(smt_root(lg, left, depth + 1))
+            current = right
+        else:
+            siblings.append(smt_root(lg, right, depth + 1))
+            current = left
+        depth += 1
+    return siblings
+
+
+def generate_protocol_v02() -> None:
+    seeds = {name: hashlib.sha256(f"CexChain test key: {name}".encode()).hexdigest()
+             for name in ("org_root", "log", "witness", "person", "agent", "passkey")}
+    keys = {name: ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(seed)) for name, seed in seeds.items()}
+    t0 = 1_791_244_800_000
+
+    def nonce(i: int) -> bytes:
+        return bytes([i]) * 16
+
+    ledgers = []
+    for hash_id in (-16, -65538):
+        lg = Ledger(hash_id)
+        statements = []
+
+        def add(name, signer, payload):
+            encoded, statement_id = lg.statement(keys[signer], payload)
+            statements.append({"name": name, "signer": signer, "encoded": encoded.hex(),
+                               "payload": dcbor(payload).hex(), "statement_id": statement_id.hex()})
+            return statement_id
+
+        ledger_id = add("genesis", "org_root", {0: 1, 1: 1, 5: t0, 6: nonce(1), 7: {
+            1: hash_id, 2: "Cirraya Test Org", 3: ed_public(keys["org_root"]), 4: ed_public(keys["log"])}})
+        org = ledger_id
+        person = add("register person", "org_root", {0: 1, 1: 2, 2: ledger_id, 3: org, 5: t0 + 1, 6: nonce(2), 7: {
+            1: 1, 2: "Quality Inspector", 3: ed_public(keys["person"])}})
+        delegation = add("delegate to person, presence required", "org_root",
+                         {0: 1, 1: 5, 2: ledger_id, 3: org, 5: t0 + 2, 6: nonce(3), 7: {
+                             1: person, 2: {1: [17], 4: t0 + 86_400_000, 6: True}}})
+        record = add("register record", "org_root", {0: 1, 1: 16, 2: ledger_id, 3: org, 5: t0 + 3, 6: nonce(4), 7: {
+            1: "cexchain.certificate/1", 2: lg.h(b"fields"), 3: 1}})
+
+        # The organization registers the person's passkey (an Ed25519 credential).
+        credential_id = bytes(range(16))
+        credential = {1: "localhost", 2: credential_id, 3: ed_public(keys["passkey"]), 4: "test passkey"}
+        add("register passkey", "org_root", {0: 1, 1: 7, 2: ledger_id, 3: org, 5: t0 + 4, 6: nonce(5), 7: {
+            1: person, 2: [credential]}})
+
+        # The person endorses with a WebAuthn assertion over the presence challenge.
+        endorse = {0: 1, 1: 17, 2: ledger_id, 3: person, 4: delegation, 5: t0 + 5, 6: nonce(6), 7: {
+            1: record, 2: "inspector"}}
+        challenge = lg.h(b"CexChain presence v1" + dcbor(endorse))
+        authenticator_data = hashlib.sha256(b"localhost").digest() + b"\x05" + (7).to_bytes(4, "big")
+        client_data = ('{"type":"webauthn.get","challenge":"' + b64url(challenge) +
+                       '","origin":"http://localhost:43210","crossOrigin":false}').encode()
+        signature = keys["passkey"].sign(authenticator_data + hashlib.sha256(client_data).digest())
+        endorse[8] = {1: credential_id, 2: authenticator_data, 3: client_data, 4: signature}
+        add("endorse with proof of presence", "person", endorse)
+        add("revoke person", "org_root", {0: 1, 1: 4, 2: ledger_id, 3: org, 5: t0 + 6, 6: nonce(7), 7: {
+            1: person, 2: "left"}})
+
+        entries = [dcbor({1: bytes.fromhex(st["statement_id"]), 2: t0 + 1000 + i, 3: bytes.fromhex(st["encoded"])})
+                   for i, st in enumerate(statements)]
+        oracle = lg.merkle()
+        root = oracle.mth(entries)
+
+        # The state after every statement: [kind, id, history].
+        leaves = sorted([
+            [1, org, [0]],
+            [1, person, [1, 4, 6]],
+            [2, delegation, [2]],
+            [3, record, [3, 5]],
+        ], key=lambda leaf: leaf[1])
+        state_root = smt_root(lg, leaves)
+        proofs = [{"kind": leaf[0], "id": leaf[1].hex(), "history": leaf[2],
+                   "siblings": [s.hex() for s in smt_proof(lg, leaves, leaf[1])]} for leaf in leaves]
+
+        checkpoint_payload = dcbor({1: ledger_id, 2: hash_id, 3: len(entries), 4: root, 5: t0 + 5000, 6: state_root})
+        checkpoint = lg.sign(keys["log"], {3: CHECKPOINT_TYPE, 4: lg.kid(keys["log"])}, checkpoint_payload)
+        old_size = 4
+        consistency = oracle.subproof(old_size, entries, True)
+        cosign_request = dcbor({1: checkpoint, 2: old_size, 3: consistency})
+
+        ledgers.append({
+            "hash": hash_id,
+            "ledger_id": ledger_id.hex(),
+            "statements": statements,
+            "log_entries": [e.hex() for e in entries],
+            "presence": {"challenge": challenge.hex(), "credential": dcbor(credential).hex(),
+                         "statement_index": 5, "user_verified": True},
+            "state_root": state_root.hex(),
+            "state_proofs": proofs,
+            "checkpoint": checkpoint.hex(),
+            "cosign_request": cosign_request.hex(),
+        })
+
+    document = {
+        "description": "CexChain protocol objects added in specification revision v0.2, built by an "
+                       "independent Python encoder from spec/cexchain.cddl: a passkey registration "
+                       "(actor-set-presence), a statement with proof of presence (an Ed25519 WebAuthn "
+                       "assertion), a delegation that requires presence, the state commitment (root, "
+                       "proofs, and a checkpoint carrying it), and a cosign request. All signatures are "
+                       "Ed25519 (deterministic), so every object must be reproduced byte for byte. Keys "
+                       "are throwaway test keys: seed = SHA-256(\"CexChain test key: <name>\").",
+        "seeds": seeds,
+        "ledgers": ledgers,
+    }
+    (OUT / "protocol-v0.2.json").write_text(json.dumps(document, indent=2) + "\n")
+    print(f"wrote protocol vectors for {len(ledgers)} ledgers to testvectors/protocol-v0.2.json")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--openssl", default="openssl", help="OpenSSL 3.5+ command-line tool")
@@ -773,6 +913,7 @@ def main() -> None:
     generate_cose(args.openssl)
     generate_pkcs8(args.openssl)
     generate_protocol()
+    generate_protocol_v02()
 
 
 if __name__ == "__main__":

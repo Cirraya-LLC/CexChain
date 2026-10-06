@@ -39,6 +39,9 @@ async function verdict(page) {
 }
 
 (async () => {
+  // Pure ASCII, so the page survives email, re-encoding, and servers that
+  // send no charset.
+  assert.ok(/^[\x00-\x7f]*$/.test(fs.readFileSync(pagePath, "latin1")), "the page must be pure ASCII");
   const server = await serve();
   const base = "http://127.0.0.1:" + server.address().port;
   const browser = await chromium.launch();

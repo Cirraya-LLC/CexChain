@@ -13,6 +13,9 @@ target_link_options(cexchain_verifier_wasm PRIVATE
     -sMODULARIZE=1
     -sEXPORT_NAME=CexChainVerifier
     -sSINGLE_FILE=1
+    # Base64, not the default binary-in-UTF-8 string: the page must stay pure
+    # ASCII to survive being emailed, re-encoded, or served without a charset.
+    -sSINGLE_FILE_BINARY_ENCODE=0
     -sENVIRONMENT=web,node
     -sALLOW_MEMORY_GROWTH=1
     -sDYNAMIC_EXECUTION=0
