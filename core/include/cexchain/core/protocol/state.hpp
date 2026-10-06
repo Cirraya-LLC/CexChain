@@ -39,6 +39,8 @@ struct ActorState {
     std::optional<AgentProfile> agent;
     bool revoked = false;
     std::uint64_t registered_at_index = 0;
+    /// Log indices of the statements that rotated this actor's key.
+    std::vector<std::uint64_t> rotations;
 
     [[nodiscard]] bool is_organization() const noexcept { return !kind.has_value(); }
 };
@@ -52,6 +54,7 @@ struct DelegationState {
     Id grantee;
     Scope scope;
     bool revoked = false;
+    std::uint64_t granted_at_index = 0;
 };
 
 struct Endorsement {
@@ -70,6 +73,8 @@ struct RecordState {
     std::vector<Endorsement> endorsements;
     bool revoked = false;
     std::uint64_t registered_at_index = 0;
+    /// Log indices of every statement about this record, in order.
+    std::vector<std::uint64_t> history;
 };
 
 class LedgerState {

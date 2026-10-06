@@ -2,7 +2,9 @@
 // Copyright 2026 Cirraya
 
 #include <algorithm>
+#include <set>
 #include <utility>
+#include <variant>
 
 #include <cexchain/ledger/ledger.hpp>
 
@@ -295,6 +297,113 @@ Result<Bytes> Ledger::receipt(const crypto::Signer& log_key, std::uint64_t index
     }
     return protocol::issue_receipt(log_key, *impl_->provider, hash(), checkpoint.root,
                                    protocol::InclusionProof{checkpoint.tree_size, index, *path});
+}
+
+Result<protocol::EvidenceBundle> Ledger::export_evidence(const crypto::Signer& log_key,
+                                                         const protocol::Id& record_id) const {
+    if (auto s = impl_->require_log_key(log_key); !s) {
+        return std::unexpected(s.error());
+    }
+    const protocol::LedgerState& state = impl_->state;
+    const protocol::RecordState* record = state.record(record_id);
+    if (record == nullptr) {
+        return fail(Errc::not_found, "no record with this id");
+    }
+
+    std::set<std::uint64_t> needed{0};
+    std::vector<std::uint64_t> work;
+    auto need = [&](std::uint64_t index) {
+        if (needed.insert(index).second) {
+            work.push_back(index);
+        }
+    };
+    auto need_actor = [&](const protocol::Id& id, std::uint64_t before) {
+        const protocol::ActorState* actor = state.actor(id);
+        if (actor == nullptr || actor->is_organization()) {
+            return;
+        }
+        need(actor->registered_at_index);
+        for (const std::uint64_t rotation : actor->rotations) {
+            if (rotation < before) {
+                need(rotation);
+            }
+        }
+    };
+    auto need_delegation = [&](const protocol::Id& id) {
+        if (const protocol::DelegationState* d = state.delegation(id)) {
+            need(d->granted_at_index);
+        }
+    };
+    for (const std::uint64_t index : record->history) {
+        need(index);
+    }
+
+    while (!work.empty()) {
+        const std::uint64_t index = work.back();
+        work.pop_back();
+        auto bytes = impl_->log.read(index);
+        if (!bytes) {
+            return std::unexpected(bytes.error());
+        }
+        auto entry = protocol::decode_log_entry(*bytes);
+        if (!entry) {
+            return std::unexpected(entry.error());
+        }
+        auto parsed = protocol::parse_statement(*impl_->provider, entry->statement, hash());
+        if (!parsed) {
+            return std::unexpected(parsed.error());
+        }
+        const protocol::Statement& statement = parsed->statement;
+        if (statement.actor_id) {
+            need_actor(*statement.actor_id, index);
+        }
+        if (statement.delegation_id) {
+            need_delegation(*statement.delegation_id);
+        }
+        std::visit(
+            [&](const auto& body) {
+                using Body = std::decay_t<decltype(body)>;
+                if constexpr (std::is_same_v<Body, protocol::ActorRegisterBody>) {
+                    if (body.responsible) {
+                        need_actor(*body.responsible, index);
+                    }
+                } else if constexpr (std::is_same_v<Body, protocol::ActorRotateKeyBody> ||
+                                     std::is_same_v<Body, protocol::ActorRevokeBody>) {
+                    need_actor(body.actor, index);
+                } else if constexpr (std::is_same_v<Body, protocol::DelegationGrantBody>) {
+                    need_actor(body.grantee, index);
+                } else if constexpr (std::is_same_v<Body, protocol::DelegationRevokeBody>) {
+                    need_delegation(body.delegation);
+                } else if constexpr (std::is_same_v<Body, protocol::RecordEndorseBody> ||
+                                     std::is_same_v<Body, protocol::RecordTransitionBody> ||
+                                     std::is_same_v<Body, protocol::RecordRevokeBody>) {
+                    if (const protocol::RecordState* r = state.record(body.record)) {
+                        need(r->registered_at_index);
+                    }
+                }
+            },
+            statement.body);
+    }
+
+    const auto& checkpoint = impl_->latest_checkpoint;
+    if (!checkpoint || *needed.rbegin() >= checkpoint->checkpoint.tree_size) {
+        return fail(Errc::not_found, "no checkpoint covers the record's statements yet");
+    }
+    protocol::EvidenceBundle bundle;
+    bundle.record = record_id;
+    bundle.checkpoint = checkpoint->encoded;
+    for (const std::uint64_t index : needed) {
+        auto bytes = impl_->log.read(index);
+        if (!bytes) {
+            return std::unexpected(bytes.error());
+        }
+        auto receipt = this->receipt(log_key, index);
+        if (!receipt) {
+            return std::unexpected(receipt.error());
+        }
+        bundle.entries.push_back(protocol::EvidenceEntry{std::move(*bytes), std::move(*receipt)});
+    }
+    return bundle;
 }
 
 } // namespace cexchain::ledger

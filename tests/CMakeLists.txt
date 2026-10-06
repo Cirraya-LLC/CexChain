@@ -9,6 +9,7 @@ add_executable(cexchain_tests
     core/merkle_test.cpp
     core/protocol_test.cpp
     crypto/openssl_test.cpp
+    ledger/evidence_test.cpp
     ledger/ledger_test.cpp
     ledger/storage_test.cpp)
 

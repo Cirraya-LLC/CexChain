@@ -12,6 +12,7 @@
 #include <cexchain/core/crypto.hpp>
 #include <cexchain/core/error.hpp>
 #include <cexchain/core/merkle.hpp>
+#include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/log.hpp>
 #include <cexchain/core/protocol/state.hpp>
 #include <cexchain/core/protocol/statement.hpp>
@@ -78,6 +79,15 @@ public:
     /// The latest stored checkpoint, if any.
     [[nodiscard]] const std::optional<protocol::SignedCheckpoint>&
     latest_checkpoint() const noexcept;
+
+    /// Builds an evidence bundle for `record`: genesis, the record's
+    /// statements, and every statement they depend on (signers'
+    /// registrations and key rotations, delegation chains, referenced
+    /// actors), each with a receipt anchored to the latest checkpoint, which
+    /// must cover them all. The caller adds field disclosures and attachment
+    /// openings, since only it holds the record's private data.
+    [[nodiscard]] Result<protocol::EvidenceBundle>
+    export_evidence(const crypto::Signer& log_key, const protocol::Id& record) const;
 
     /// An RFC 9942 receipt for the entry at `index`, anchored to the latest
     /// checkpoint. Fails if no checkpoint covers the entry yet.

@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstdlib>
 
+#include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/log.hpp>
 #include <cexchain/core/protocol/record.hpp>
 #include <cexchain/core/protocol/statement.hpp>
@@ -53,6 +54,10 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
             require_same(protocol::encode_payload(statement->statement),
                          *statement->envelope.payload);
         }
+    }
+    if (const auto bundle = protocol::decode_bundle(input)) {
+        require_same(protocol::encode_bundle(*bundle), input);
+        static_cast<void>(protocol::verify_bundle(provider, input));
     }
     static_cast<void>(protocol::parse_checkpoint(input));
     static_cast<void>(protocol::parse_cosignature(input));

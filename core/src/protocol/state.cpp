@@ -410,6 +410,7 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
                     return std::unexpected(kid.error());
                 }
                 ActorState& actor = actors_.at(key_of(b.actor));
+                actor.rotations.push_back(index);
                 actors_by_kid_.erase(key_of(actor.kid));
                 actor.key = b.key;
                 actor.kid = *kid;
@@ -427,6 +428,7 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
                 delegation.parent = statement.delegation_id;
                 delegation.grantee = b.grantee;
                 delegation.scope = b.scope;
+                delegation.granted_at_index = index;
                 delegations_[key_of(id)] = std::move(delegation);
                 return {};
             },
@@ -445,20 +447,26 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
                 record.field_root = b.field_root;
                 record.field_count = b.field_count;
                 record.registered_at_index = index;
+                record.history.push_back(index);
                 records_[key_of(id)] = std::move(record);
                 return {};
             },
             [&](const RecordEndorseBody& b) -> Status {
-                records_.at(key_of(b.record))
-                    .endorsements.push_back(Endorsement{b.role, *statement.actor_id, index});
+                RecordState& record = records_.at(key_of(b.record));
+                record.endorsements.push_back(Endorsement{b.role, *statement.actor_id, index});
+                record.history.push_back(index);
                 return {};
             },
             [&](const RecordTransitionBody& b) -> Status {
-                records_.at(key_of(b.record)).state = b.to_state;
+                RecordState& record = records_.at(key_of(b.record));
+                record.state = b.to_state;
+                record.history.push_back(index);
                 return {};
             },
             [&](const RecordRevokeBody& b) -> Status {
-                records_.at(key_of(b.record)).revoked = true;
+                RecordState& record = records_.at(key_of(b.record));
+                record.revoked = true;
+                record.history.push_back(index);
                 return {};
             },
         },

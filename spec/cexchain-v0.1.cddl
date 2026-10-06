@@ -204,3 +204,43 @@ inclusion-proof = [
   leaf-index: uint,
   inclusion-path: [* bstr],    ; RFC 9942 says [+ bstr]; empty for a one-entry tree
 ]
+
+; ---------------------------------------------------------------------------
+; Evidence bundles
+; ---------------------------------------------------------------------------
+;
+; Everything needed to verify a record offline, without contacting or
+; trusting the ledger's database. A verifier:
+;   1. takes the ledger's identity, hash, and keys from the genesis entry;
+;   2. verifies the checkpoint with the log key;
+;   3. verifies each entry's receipt against the checkpoint (same tree size
+;      and root), with entries strictly ascending from index 0;
+;   4. replays the included statements under the ledger rules;
+;   5. checks field disclosures against the record's field root and count,
+;      and attachment contents against their commitments;
+;   6. verifies cosignatures by witnesses it trusts.
+; A bundle cannot prove that nothing was omitted (for example a revocation
+; before an event); that requires an audit of the full log.
+
+evidence-bundle = {
+  0 => 1,                      ; bundle format version
+  1 => id,                     ; the record (statement_id of its registration)
+  2 => [+ evidence-entry],     ; ascending log index, starting with genesis
+  3 => bstr,                   ; the signed checkpoint the receipts lead to
+  ? 4 => [+ bstr],             ; witness cosignatures on that checkpoint
+  ? 5 => [+ field-disclosure],
+  ? 6 => [+ attachment-opening],
+}
+evidence-entry = [
+  entry: bstr,                 ; encoded log-entry
+  receipt: bstr,               ; its RFC 9942 receipt
+]
+field-disclosure = [
+  leaf: bstr,                  ; encoded record-field
+  index: uint,                 ; its position among the sorted fields
+  path: [* bstr],              ; RFC 9162 inclusion path
+]
+attachment-opening = [
+  name: tstr,
+  salt: bstr .size 16,         ; the content travels alongside the bundle
+]

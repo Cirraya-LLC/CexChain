@@ -14,6 +14,7 @@ add_library(cexchain_core
     src/merkle.cpp
     src/protocol/common.cpp
     src/protocol/envelope.cpp
+    src/protocol/evidence.cpp
     src/protocol/log.cpp
     src/protocol/reader.cpp
     src/protocol/record.cpp
