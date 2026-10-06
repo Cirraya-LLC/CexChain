@@ -18,6 +18,8 @@
 namespace cexchain::protocol {
 
 inline constexpr std::uint64_t protocol_version = 1;
+/// The specification revision this implementation follows (spec/README.md).
+inline constexpr std::string_view spec_revision = "v0.3";
 
 /// Identifiers (statement, ledger, actor, key) are digests under the ledger's
 /// hash algorithm. Ledgers use SHA-256 or SM3, so identifiers are 32

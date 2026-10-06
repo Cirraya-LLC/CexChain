@@ -59,13 +59,15 @@ int cmd_version(const Args& args) {
     if (args.json()) {
         print_json({{"version", CEXCHAIN_VERSION},
                     {"protocol_version", protocol::protocol_version},
+                    {"spec_revision", protocol::spec_revision},
                     {"crypto_library", crypto::openssl::library_version()},
                     {"signature_algorithms", algorithms},
                     {"ledger_hashes", hashes}});
         return exit_ok;
     }
     std::println("cexchain {}", CEXCHAIN_VERSION);
-    std::println("protocol:    CexChain v0.{}", protocol::protocol_version);
+    std::println("protocol:    CexChain spec {} (wire version {})", protocol::spec_revision,
+                 protocol::protocol_version);
     std::println("crypto:      {}", crypto::openssl::library_version());
     std::string list;
     for (const auto& a : algorithms) {
