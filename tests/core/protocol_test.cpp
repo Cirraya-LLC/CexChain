@@ -309,7 +309,7 @@ TEST_CASE("statement payloads enforce the specification", "[protocol]") {
         set_key(map, 0, Value::unsigned_integer(2));
         CHECK(payload_error(map) == Errc::unsupported);
         map = sample_payload_map();
-        set_key(map, 1, Value::unsigned_integer(8));
+        set_key(map, 1, Value::unsigned_integer(9));
         CHECK(payload_error(map) == Errc::unsupported);
     }
     SECTION("ledger and actor are required outside genesis") {

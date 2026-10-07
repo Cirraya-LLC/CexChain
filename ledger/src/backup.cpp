@@ -305,8 +305,10 @@ Result<BackupSummary> restore_backup(std::istream& in, FileSystem& fs, Clock& cl
         return fail(Errc::verification_failed, "the backup's header is not its ledger's");
     }
 
-    // The checkpoints first, each checked on its own and in order: they say
-    // how far the log is signed.
+    // The checkpoints first, in order: they say how far the log is signed.
+    // Each one's signature is checked when it is stored, once the entries it
+    // covers are in, so with the log key in effect at its size (a rotation
+    // among them changes it). A restore that fails leaves nothing behind.
     std::vector<Bytes> signed_checkpoints;
     std::optional<protocol::Checkpoint> last;
     for (std::uint64_t i = 0; i < *checkpoints; ++i) {
@@ -314,11 +316,15 @@ Result<BackupSummary> restore_backup(std::istream& in, FileSystem& fs, Clock& cl
         if (!bytes) {
             return std::unexpected(bytes.error());
         }
-        auto checked = ledger->verify_checkpoint(*bytes);
+        auto checked = protocol::parse_checkpoint(*bytes);
         if (!checked) {
             return std::unexpected(checked.error());
         }
         const protocol::Checkpoint& c = checked->checkpoint;
+        if (c.ledger_id != ledger->id() || c.tree_hash != ledger->hash()) {
+            return fail(Errc::verification_failed,
+                        "a checkpoint in the backup is another ledger's");
+        }
         if (last && (c.tree_size < last->tree_size || c.timestamp < last->timestamp)) {
             return fail(Errc::verification_failed, "the backup's checkpoints go back");
         }
@@ -418,9 +424,16 @@ Result<BackupSummary> restore_backup(std::istream& in, FileSystem& fs, Clock& cl
     }
     const cbor::Value* signature = value_at(*trailer_map, 2);
     if (signature != nullptr) {
+        // Signed with the newest log key: follow any rotation in the tail.
+        protocol::LedgerKeys keys = ledger->keys();
+        for (std::size_t k = 0; k < tail.size(); ++k) {
+            if (!protocol::follow_key_rotation(provider, keys, ledger->size() + k, tail[k])) {
+                return fail(Errc::verification_failed,
+                            "a key rotation after the last checkpoint does not verify");
+            }
+        }
         if (signature->as_bytes() == nullptr ||
-            !provider.verify(ledger->state().log_key(), signed_message(expected),
-                             *signature->as_bytes())) {
+            !provider.verify(keys.log_key(), signed_message(expected), *signature->as_bytes())) {
             return fail(Errc::verification_failed, "the backup's signature does not verify");
         }
     }

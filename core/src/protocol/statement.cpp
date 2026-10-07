@@ -72,6 +72,9 @@ Status check_scope(const Scope& scope) {
     if (std::ranges::contains(scope.statement_types, StatementType::genesis)) {
         return fail(Errc::malformed, "genesis cannot be delegated");
     }
+    if (std::ranges::contains(scope.statement_types, StatementType::ledger_rotate_log_key)) {
+        return fail(Errc::malformed, "rotating the log key cannot be delegated");
+    }
     if (scope.record_types) {
         if (scope.record_types->empty()) {
             return fail(Errc::malformed, "record type list must not be empty when present");
@@ -182,6 +185,7 @@ Status check_body(const Body& body) {
                 }
                 return {};
             },
+            [](const LedgerRotateLogKeyBody&) -> Status { return {}; },
             [](const RecordRegisterBody& b) -> Status {
                 CEXCHAIN_CHECK(require_text(b.record_type, "record type must not be empty"));
                 if (b.field_root.size() != id_size) {
@@ -393,6 +397,9 @@ Result<cbor::Value> encode_body(const Body& body) {
                 }
                 return cbor::Value::map({entry(1, id_value(b.actor)),
                                          entry(2, cbor::Value::array(std::move(credentials)))});
+            },
+            [](const LedgerRotateLogKeyBody& b) -> Result<cbor::Value> {
+                return cbor::Value::map({entry(1, encode_public_key(b.key))});
             },
             [](const RecordRegisterBody& b) -> Result<cbor::Value> {
                 cbor::Map map{
@@ -607,6 +614,13 @@ Result<Body> decode_body(StatementType type, const cbor::Value& value) {
         body = std::move(b);
         break;
     }
+    case StatementType::ledger_rotate_log_key: {
+        LedgerRotateLogKeyBody b;
+        CEXCHAIN_TRY(const cbor::Value* key, reader.need(1));
+        CEXCHAIN_TRY(b.key, decode_public_key(*key));
+        body = std::move(b);
+        break;
+    }
     case StatementType::record_register: {
         RecordRegisterBody b;
         CEXCHAIN_TRY(b.record_type, reader.need_text(1));
@@ -729,6 +743,7 @@ std::optional<StatementType> statement_type_from(std::uint64_t value) noexcept {
     case 5:
     case 6:
     case 7:
+    case 8:
     case 16:
     case 17:
     case 18:
@@ -755,6 +770,8 @@ std::string_view name(StatementType type) noexcept {
         return "delegation-revoke";
     case StatementType::actor_set_presence:
         return "actor-set-presence";
+    case StatementType::ledger_rotate_log_key:
+        return "ledger-rotate-log-key";
     case StatementType::record_register:
         return "record-register";
     case StatementType::record_endorse:
@@ -777,6 +794,7 @@ StatementType type_of(const Body& body) noexcept {
             [](const DelegationGrantBody&) { return StatementType::delegation_grant; },
             [](const DelegationRevokeBody&) { return StatementType::delegation_revoke; },
             [](const ActorSetPresenceBody&) { return StatementType::actor_set_presence; },
+            [](const LedgerRotateLogKeyBody&) { return StatementType::ledger_rotate_log_key; },
             [](const RecordRegisterBody&) { return StatementType::record_register; },
             [](const RecordEndorseBody&) { return StatementType::record_endorse; },
             [](const RecordTransitionBody&) { return StatementType::record_transition; },

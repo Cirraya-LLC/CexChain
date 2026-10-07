@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -14,6 +15,7 @@
 #include <cexchain/core/crypto.hpp>
 #include <cexchain/core/error.hpp>
 #include <cexchain/core/protocol/id_map.hpp>
+#include <cexchain/core/protocol/keys.hpp>
 #include <cexchain/core/protocol/statement.hpp>
 
 /// The ledger's state: a pure function of its log. Every registered statement
@@ -42,7 +44,8 @@ struct ActorState {
     bool revoked = false;
     std::uint64_t registered_at_index = 0;
     std::optional<std::uint64_t> revoked_at_index;
-    /// Log indices of the statements that rotated this actor's key.
+    /// Log indices of the statements that rotated this actor's key; for the
+    /// organization, its root key and the ledger's log key.
     std::vector<std::uint64_t> rotations;
     /// People only: the WebAuthn credentials that prove their presence.
     std::vector<PresenceCredential> presence;
@@ -116,8 +119,24 @@ public:
     [[nodiscard]] const Id& ledger_id() const noexcept { return ledger_id_; }
     [[nodiscard]] crypto::HashAlg hash() const noexcept { return hash_; }
     [[nodiscard]] const std::string& organization() const noexcept { return organization_; }
-    [[nodiscard]] const crypto::PublicKey& root_key() const noexcept { return root_key_; }
-    [[nodiscard]] const crypto::PublicKey& log_key() const noexcept { return log_key_; }
+    /// The organization's current root key, and every root key with the
+    /// index of the statement that set it.
+    [[nodiscard]] const crypto::PublicKey& root_key() const noexcept {
+        return root_keys_.back().key;
+    }
+    [[nodiscard]] std::span<const KeyEpoch> root_keys() const noexcept { return root_keys_; }
+    /// The newest log key: it signs the next state commitment and checkpoint.
+    [[nodiscard]] const crypto::PublicKey& log_key() const noexcept { return log_keys_.back().key; }
+    /// Every log key, oldest first, with the index of the statement that set
+    /// it (0: genesis).
+    [[nodiscard]] std::span<const KeyEpoch> log_keys() const noexcept { return log_keys_; }
+    /// The log key in effect for a tree of `tree_size` entries.
+    [[nodiscard]] const crypto::PublicKey& log_key_for(std::uint64_t tree_size) const {
+        return key_in_effect(log_keys_, tree_size);
+    }
+    /// The keys, as a party that follows rotations without the state keeps
+    /// them.
+    [[nodiscard]] LedgerKeys keys() const;
 
     [[nodiscard]] const ActorState* actor(const Id& id) const;
     /// The actor whose current key has this kid, if any.
@@ -148,14 +167,15 @@ private:
                                      const ActorState& signer) const;
     [[nodiscard]] Status check_new_key(const crypto::Provider& provider,
                                        const crypto::PublicKey& key) const;
+    [[nodiscard]] bool is_log_key(const crypto::PublicKey& key) const;
     /// The record type that a record statement acts on, if any.
     [[nodiscard]] std::optional<std::string> record_type_of(const Statement& statement) const;
 
     Id ledger_id_;
     crypto::HashAlg hash_ = crypto::HashAlg::sha256;
     std::string organization_;
-    crypto::PublicKey root_key_;
-    crypto::PublicKey log_key_;
+    std::vector<KeyEpoch> root_keys_;
+    std::vector<KeyEpoch> log_keys_;
 
     IdMap<ActorState> actors_;
     /// Kids change with key rotations, and a rotated-away kid is free again:

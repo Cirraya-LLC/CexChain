@@ -1,7 +1,7 @@
 ; SPDX-License-Identifier: Apache-2.0
 ; Copyright 2026 Cirraya
 ;
-; The CexChain protocol (RFC 8610 CDDL). Specification revision v0.3; the
+; The CexChain protocol (RFC 8610 CDDL). Specification revision v0.4; the
 ; wire protocol version (statement key 0) is 1.
 ;
 ; Revision history:
@@ -13,6 +13,13 @@
 ;   v0.3  access across organizations: the access-request, access-grant, and
 ;         access-receipt record types and their metadata, and deliveries.
 ;         Earlier objects remain valid.
+;   v0.4  key rotation: ledger-rotate-log-key (statement type 8), the
+;         organization's root key rotated with actor-rotate-key, the log key
+;         in effect by tree size, and key rotations in cosign requests (key
+;         4). Tightened rules: presence keys are second keys, and changing
+;         your own key or credentials needs a user-verified proof. Earlier
+;         objects remain valid; a log that breaks the tightened rules does
+;         not.
 ;
 ; Every structure is encoded as deterministic CBOR (RFC 8949 section 4.2.1) in
 ; the CexChain profile: no floats, no indefinite lengths, no duplicate keys.
@@ -73,6 +80,7 @@ statement-type = &(
   delegation-grant: 5,
   delegation-revoke: 6,
   actor-set-presence: 7,
+  ledger-rotate-log-key: 8,
   record-register: 16,
   record-endorse: 17,
   record-transition: 18,
@@ -81,8 +89,9 @@ statement-type = &(
 
 statement-body = genesis-body / actor-register-body / actor-rotate-key-body /
                  actor-revoke-body / delegation-grant-body / delegation-revoke-body /
-                 actor-set-presence-body / record-register-body / record-endorse-body /
-                 record-transition-body / record-revoke-body
+                 actor-set-presence-body / ledger-rotate-log-key-body /
+                 record-register-body / record-endorse-body / record-transition-body /
+                 record-revoke-body
 
 ; Genesis creates the ledger. It is signed by the organization root key, and
 ;   ledger_id = statement_id of the genesis statement.
@@ -110,10 +119,27 @@ agent-profile = {
 }
 
 ; An actor may rotate its own key without a delegation; a person with
-; presence credentials must then prove presence.
+; presence credentials must then prove presence, user-verified. The
+; organization rotates its root key this way (actor = ledger_id), signed
+; with its current root key; no one else may. A new key must not be weak,
+; another actor's key, one of the actor's presence keys, or a log key of
+; this ledger (current or past).
 actor-rotate-key-body = {
   1 => id,                     ; actor
   2 => public-key,             ; new signing key
+}
+
+; Replaces the log key (v0.4). Only the organization signs it, with its root
+; key and without a delegation (no scope may name type 8). The new key must
+; not be weak, an actor's key, or a log key this ledger ever had.
+;
+; The log key in effect for a tree of N entries is the one set by the last
+; rotation at an index below N (or genesis). Checkpoints of size N, receipts
+; against them, and the state commitment at index i (tree size i) are signed
+; with the key in effect for that size: a rotation takes over from the first
+; commitment or checkpoint after it, and older ones stay valid under theirs.
+ledger-rotate-log-key-body = {
+  1 => public-key,             ; the new log key
 }
 
 actor-revoke-body = {
@@ -128,7 +154,8 @@ delegation-grant-body = {
 ; A delegation may only narrow the grantor's own scope. A chain from the
 ; organization to an actor has at most 16 delegations.
 scope = {
-  1 => [+ statement-type],     ; statement types the grantee may submit
+  1 => [+ statement-type],     ; statement types the grantee may submit; never
+                               ; genesis or ledger-rotate-log-key
   ? 2 => [+ tstr],             ; record types; absent means any
   ? 3 => timestamp,            ; not before
   ? 4 => timestamp,            ; not after
@@ -148,6 +175,8 @@ scope = {
 ; covers it, or by the person themselves only if the statement carries proof
 ; of presence with a credential already registered, so that a stolen signing
 ; key alone cannot enroll a thief's passkey. Only people have credentials.
+; A credential's key is a second key: never the person's signing key, any
+; actor's key, or a log key (v0.4).
 actor-set-presence-body = {
   1 => id,                     ; actor (a person)
   2 => [* presence-credential], ; at most 16, unique credential ids
@@ -178,7 +207,9 @@ hardware-key-credential = {
 ; With a WebAuthn credential, the proof is an assertion over the challenge.
 ; Verifiers check, for the signer's credential with this id:
 ;   1. authenticatorData begins with SHA-256(rp id) and has the user-present
-;      flag (0x01); the user-verified flag (0x04) is reported, not required;
+;      flag (0x01); the user-verified flag (0x04) is reported, and required
+;      when people rotate their own key or replace their own credentials
+;      (v0.4; a hardware key, unlocked with its PIN, counts as verified);
 ;   2. clientDataJSON begins with
 ;        {"type":"webauthn.get","challenge":"<base64url challenge>","origin":"
 ;      followed by an origin without quotes or backslashes that belongs to
@@ -264,13 +295,14 @@ log-entry = {
   ? 4 => bstr,                 ; a signed state commitment (COSE_Sign1)
 }
 
-; A state commitment is a COSE_Sign1 by the log key with protected header
+; A state commitment is a COSE_Sign1 by the log key in effect at its index
+; (see ledger-rotate-log-key-body) with protected header
 ;   { 1: alg, 3: "application/cexchain-state+cbor", 4: kid }
 ; over a state-commitment-payload. When it checkpoints, the ledger first
 ; appends a commitment to the state after every entry so far (unless the last
 ; entry already is one), then signs a checkpoint that covers it. Being in the
 ; log, a commitment is witnessed like any entry and can never be withdrawn.
-; Replaying the log checks every commitment: signed by the log key, for this
+; Replaying the log checks every commitment: signed by that log key, for this
 ; ledger and tree hash, tree size equal to its own index, and state root equal
 ; to the root of the replayed state (see state-leaf).
 state-commitment-payload = {
@@ -281,7 +313,8 @@ state-commitment-payload = {
   5 => timestamp,
 }
 
-; A checkpoint is a COSE_Sign1 by the log key with protected header
+; A checkpoint is a COSE_Sign1 by the log key in effect at its tree size with
+; protected header
 ;   { 1: alg, 3: "application/cexchain-checkpoint+cbor", 4: kid }
 ; over a checkpoint-payload. It binds the tree size and root together.
 ; A witness cosignature is a COSE_Sign1 by the witness key over the same
@@ -296,9 +329,16 @@ checkpoint-payload = {
 }
 
 ; What a ledger operator sends a witness. The witness keeps, per ledger, the
-; ledger id, the log key (learned out of band), and the size and root it last
-; cosigned. It cosigns only if:
-;   1. the checkpoint is for that ledger and signed by its log key;
+; ledger id, the root key and log key (from the genesis entry, or the log key
+; alone, learned out of band), the index of the last key rotation it
+; followed, and the size and root it last cosigned. It cosigns only if:
+;   0. every key rotation sent (key 4) is in the checkpoint's log (its
+;      inclusion proof leads to the checkpoint's root), the rotations ascend
+;      below the checkpoint's size, and each one after the last it followed
+;      rotates the root or log key, signed by the root key in effect; it then
+;      follows them (a witness without the root key refuses any);
+;   1. the checkpoint is for that ledger and signed by its log key (after
+;      following the rotations);
 ;   2. its tree hash equals the one in earlier checkpoints;
 ;   3. old size equals the size the witness last cosigned (otherwise it
 ;      refuses, and the operator retries from that size);
@@ -312,7 +352,15 @@ cosign-request = {
   1 => bstr,                   ; the signed checkpoint (COSE_Sign1)
   2 => uint,                   ; old size
   3 => [* bstr],               ; consistency proof, at most 65 hashes
+  ? 4 => [+ key-rotation-proof], ; v0.4: every key rotation below the
+                               ; checkpoint's size, ascending, at most 4096
 }
+key-rotation-proof = [
+  index: uint,                 ; its log index
+  entry: bstr,                 ; the encoded log-entry
+  path: [* bstr],              ; RFC 9162 inclusion path to the checkpoint's
+                               ; root, at most 65 hashes
+]
 
 ; A receipt is an RFC 9942 inclusion receipt:
 ;   protected   { 1: alg, 4: kid, 395: vds }
@@ -333,11 +381,16 @@ inclusion-proof = [
 ;
 ; Everything needed to verify a record offline, without contacting or
 ; trusting the ledger's database. A verifier:
-;   1. takes the ledger's identity, hash, and keys from the genesis entry;
-;   2. verifies the checkpoint with the log key;
-;   3. verifies each entry's receipt against the checkpoint (same tree size
-;      and root), with entries strictly ascending from index 0;
-;   4. replays the included statements under the ledger rules;
+;   1. takes the ledger's identity, hash, and first keys from the genesis
+;      entry;
+;   2. checks each entry's receipt proof against the checkpoint (same tree
+;      size and root), with entries strictly ascending from index 0;
+;   3. replays the included statements under the ledger rules, among them
+;      every rotation of the organization's keys below the checkpoint's size
+;      (the bundle must carry them all);
+;   4. verifies the checkpoint and every receipt's signature with the log key
+;      in effect at the checkpoint's size, and each state commitment with the
+;      one in effect at its index;
 ;   5. checks field disclosures against the record's field root and count,
 ;      and attachment contents against their commitments;
 ;   6. verifies cosignatures by witnesses it trusts;
@@ -361,7 +414,9 @@ inclusion-proof = [
 ; A leaf lists every log index that created or changed the object, as of the
 ; commitment: for actors registration, key rotations, passkey changes, and
 ; revocation; for delegations grant and revocation; for records every
-; statement about them. The organization's leaf is [1, ledger_id, [0]].
+; statement about them. The organization's leaf is [1, ledger_id, [0, ...]],
+; with every rotation of its root key and of the log key (v0.4), so a
+; complete bundle shows them all.
 state-leaf = [
   kind: 1 / 2 / 3,             ; actor, delegation, record
   id,

@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
+#include <format>
 #include <print>
+#include <span>
 
 #include <cexchain/core/cbor.hpp>
 
@@ -328,6 +330,112 @@ int cmd_log_export(const Args& args) {
                      out.string());
     }
     return exit_ok;
+}
+
+// ---------------------------------------------------------------------------
+// The organization's keys (spec v0.4)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+Json key_history_json(const Session& session, std::span<const protocol::KeyEpoch> epochs) {
+    Json out = Json::array();
+    for (std::size_t i = 0; i < epochs.size(); ++i) {
+        const auto kid = unwrap(
+            protocol::key_id(shared_provider(), session.state().hash(), epochs[i].key), "key id");
+        out.push_back({{"index", epochs[i].index},
+                       {"key", public_key_json(epochs[i].key)},
+                       {"kid", id_json(kid)},
+                       {"current", i + 1 == epochs.size()}});
+    }
+    return out;
+}
+
+void print_key_history(const Session& session, std::string_view title,
+                       std::span<const protocol::KeyEpoch> epochs, bool log) {
+    std::println("{}", title);
+    for (std::size_t i = 0; i < epochs.size(); ++i) {
+        const auto kid = unwrap(
+            protocol::key_id(shared_provider(), session.state().hash(), epochs[i].key), "key id");
+        std::string note =
+            epochs[i].index == 0 ? "genesis" : std::format("set at index {}", epochs[i].index);
+        if (log) {
+            note += i + 1 == epochs.size()
+                        ? std::format(", signs from tree size {}", epochs[i].index + 1)
+                        : std::format(", signed tree sizes {} to {}", epochs[i].index + 1,
+                                      epochs[i + 1].index);
+        }
+        std::println("  {:<10} kid {}  {}{}", crypto::name(epochs[i].key.algorithm), short_id(kid),
+                     note, i + 1 == epochs.size() ? "  (current)" : "");
+    }
+}
+
+/// Signs a rotation of the organization's keys: only the organization may.
+protocol::Id submit_rotation(const Args& args, Session& session, protocol::Body body) {
+    const auto signer = load_signer(args.need("as"), args);
+    if (signer->public_key() != session.state().root_key()) {
+        throw UsageError{"--as must be the organization's current root key"};
+    }
+    return session.submit(*signer, std::move(body), std::nullopt, std::nullopt, std::nullopt);
+}
+
+} // namespace
+
+int cmd_ledger_keys(const Args& args) {
+    Session session(args.ledger());
+    const auto& state = session.state();
+    if (args.json()) {
+        print_json({{"ledger_id", id_json(state.ledger_id())},
+                    {"root_keys", key_history_json(session, state.root_keys())},
+                    {"log_keys", key_history_json(session, state.log_keys())}});
+        return exit_ok;
+    }
+    print_key_history(session, "root keys (sign the organization's statements):", state.root_keys(),
+                      false);
+    print_key_history(session,
+                      "log keys (sign checkpoints, receipts, state commitments):", state.log_keys(),
+                      true);
+    return exit_ok;
+}
+
+int cmd_ledger_genesis(const Args& args) {
+    Session session(args.ledger());
+    const std::filesystem::path out = args.need("out");
+    write_file(out, unwrap(session.ledger().entry(0), "reading the genesis entry"), false);
+    if (args.json()) {
+        print_json({{"file", out.string()}, {"ledger_id", id_json(session.state().ledger_id())}});
+    } else {
+        std::println("wrote the genesis entry of ledger {} to {}",
+                     hex_id(session.state().ledger_id()), out.string());
+        std::println("A witness starts from it: cexchain witness add-log --genesis {}",
+                     out.string());
+    }
+    return exit_ok;
+}
+
+int cmd_ledger_rotate_log_key(const Args& args) {
+    Session session(args.ledger());
+    const crypto::PublicKey key = public_key_of(args.need("new-key"), args);
+    const protocol::Id id = submit_rotation(args, session, protocol::LedgerRotateLogKeyBody{key});
+    const std::uint64_t index = session.state().statement_index(id).value_or(0);
+    return report_submitted(
+        args, session, id, {{"log_key", public_key_json(key)}, {"signs_from_size", index + 1}},
+        std::format(
+            "rotated the log key at index {}: the new key signs every checkpoint, receipt, "
+            "and state commitment from now on.\nCheckpoint with it (cexchain checkpoint "
+            "create --log-key NEW), and give it to serve (--log-key may be repeated to hold "
+            "both across the switch).",
+            index));
+}
+
+int cmd_ledger_rotate_root_key(const Args& args) {
+    Session session(args.ledger());
+    const crypto::PublicKey key = public_key_of(args.need("new-key"), args);
+    const protocol::Id id = submit_rotation(
+        args, session, protocol::ActorRotateKeyBody{session.state().ledger_id(), key});
+    return report_submitted(args, session, id, {{"root_key", public_key_json(key)}},
+                            "rotated the organization's root key: sign as the organization with "
+                            "the new key from now on; the old one no longer does");
 }
 
 } // namespace cexchain::cli

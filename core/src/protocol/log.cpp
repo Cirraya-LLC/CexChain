@@ -392,18 +392,27 @@ Result<Receipt> parse_receipt(ByteView encoded) {
     };
 }
 
-Result<crypto::Digest> verify_receipt(const crypto::Provider& provider, const Receipt& receipt,
-                                      ByteView entry_bytes, const crypto::PublicKey& log_key) {
+Result<crypto::Digest> receipt_root(const crypto::Provider& provider, const Receipt& receipt,
+                                    ByteView entry_bytes) {
+    CEXCHAIN_TRY(crypto::Digest leaf, merkle::leaf_hash(provider, receipt.tree_hash, entry_bytes));
+    return merkle::root_from_inclusion_proof(provider, receipt.tree_hash, leaf,
+                                             receipt.proof.leaf_index, receipt.proof.tree_size,
+                                             receipt.proof.path);
+}
+
+Status verify_receipt_signature(const crypto::Provider& provider, const Receipt& receipt,
+                                const crypto::Digest& root, const crypto::PublicKey& log_key) {
     CEXCHAIN_TRY(Id expected_kid, key_id(provider, receipt.tree_hash, log_key));
     if (expected_kid != receipt.kid) {
         return fail(Errc::verification_failed, "key does not match the kid in the receipt");
     }
-    CEXCHAIN_TRY(crypto::Digest leaf, merkle::leaf_hash(provider, receipt.tree_hash, entry_bytes));
-    CEXCHAIN_TRY(crypto::Digest root,
-                 merkle::root_from_inclusion_proof(provider, receipt.tree_hash, leaf,
-                                                   receipt.proof.leaf_index,
-                                                   receipt.proof.tree_size, receipt.proof.path));
-    CEXCHAIN_CHECK(cose::verify(provider, receipt.envelope, log_key, {}, root.bytes()));
+    return cose::verify(provider, receipt.envelope, log_key, {}, root.bytes());
+}
+
+Result<crypto::Digest> verify_receipt(const crypto::Provider& provider, const Receipt& receipt,
+                                      ByteView entry_bytes, const crypto::PublicKey& log_key) {
+    CEXCHAIN_TRY(crypto::Digest root, receipt_root(provider, receipt, entry_bytes));
+    CEXCHAIN_CHECK(verify_receipt_signature(provider, receipt, root, log_key));
     return root;
 }
 

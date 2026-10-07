@@ -9,6 +9,7 @@
 #include <memory>
 #include <ostream>
 #include <string>
+#include <vector>
 
 #include <cexchain/core/crypto.hpp>
 #include <cexchain/core/error.hpp>
@@ -37,9 +38,10 @@ inline constexpr std::string_view replica_file = "replica";
 
 struct ApiOptions {
     std::filesystem::path directory;
-    /// The log key, for checkpoints, receipts, and evidence. Without it
-    /// those answer 501.
-    std::shared_ptr<const crypto::Signer> log_key;
+    /// The log keys, for checkpoints, receipts, and evidence: the server
+    /// signs with whichever is in effect, so across a rotation it can hold
+    /// the old key and the new one. Without any, those answer 501.
+    std::vector<std::shared_ptr<const crypto::Signer>> log_keys;
     /// Refuse every write. Replicas are always read-only.
     bool read_only = false;
     /// Serve read routes without a token (for a public verification portal).

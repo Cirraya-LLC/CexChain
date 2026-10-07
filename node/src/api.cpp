@@ -211,8 +211,12 @@ struct LedgerApi::State {
     using Done = Application::Respond;
 
     ApiOptions options;
+    /// options.log_keys as the ledger takes them.
+    std::vector<const crypto::Signer*> log_key_ring;
     const crypto::Provider* provider = nullptr;
     ledger::SystemClock clock;
+
+    [[nodiscard]] ledger::LogKeys log_keys() const { return log_key_ring; }
     /// The writer thread's (and open's) only.
     std::optional<ledger::PosixFileSystem> fs;
     std::optional<ledger::Ledger> ledger;
@@ -602,7 +606,7 @@ struct LedgerApi::State {
                   {"checkpoint", latest ? checkpoint_json(latest->checkpoint) : json(nullptr)},
                   {"role", replica ? "replica" : "primary"},
                   {"writable", !replica && !options.read_only},
-                  {"receipts", options.log_key != nullptr},
+                  {"receipts", !options.log_keys.empty()},
                   {"version", options.version}});
     }
 
@@ -743,7 +747,7 @@ struct LedgerApi::State {
     }
 
     http::Response receipt(std::string_view index_text) const {
-        if (!options.log_key) {
+        if (options.log_keys.empty()) {
             return error_response(501, "unsupported", "this server has no log key");
         }
         std::uint64_t index = 0;
@@ -752,7 +756,7 @@ struct LedgerApi::State {
         if (ec != std::errc{} || ptr != index_text.data() + index_text.size()) {
             return error_response(400, "invalid_argument", "an entry index is a number");
         }
-        auto receipt = ledger->receipt(*options.log_key, index);
+        auto receipt = ledger->receipt(log_keys(), index);
         return receipt ? binary("application/cose", std::move(*receipt))
                        : error_response(receipt.error());
     }
@@ -782,7 +786,7 @@ struct LedgerApi::State {
     }
 
     http::Response evidence(std::string_view id_text) const {
-        if (!options.log_key) {
+        if (options.log_keys.empty()) {
             return error_response(501, "unsupported", "this server has no log key");
         }
         const auto id = id_from(id_text);
@@ -795,7 +799,7 @@ struct LedgerApi::State {
         if (!exists) {
             return error_response(404, "not_found", "no such record");
         }
-        auto bundle = ledger->export_evidence(*options.log_key, *id);
+        auto bundle = ledger->export_evidence(log_keys(), *id);
         if (!bundle) {
             return error_response(bundle.error());
         }
@@ -1025,7 +1029,7 @@ struct LedgerApi::State {
     }
 
     void make_checkpoint(std::string principal, Done& done) {
-        if (!options.log_key) {
+        if (options.log_keys.empty()) {
             finish(done, principal,
                    error_response(501, "unsupported", "this server has no log key"));
             return;
@@ -1036,7 +1040,7 @@ struct LedgerApi::State {
                 finish(done, principal, *refusal);
                 return;
             }
-            auto made = ledger->checkpoint(*options.log_key);
+            auto made = ledger->checkpoint(log_keys());
             finish(done, principal,
                    made ? binary("application/cose", made->encoded) : error_response(made.error()));
         });
@@ -1072,7 +1076,7 @@ struct LedgerApi::State {
     /// From tick(): checkpoints when the interval has passed and the log has
     /// grown.
     void auto_checkpoint() {
-        if (failed || !options.log_key || replica || options.read_only ||
+        if (failed || options.log_keys.empty() || replica || options.read_only ||
             options.checkpoint_interval.count() == 0 ||
             steady::now() - last_auto_checkpoint < options.checkpoint_interval) {
             return;
@@ -1089,7 +1093,7 @@ struct LedgerApi::State {
             if (refusal != nullptr || covered()) {
                 return; // busy or unusable: next time
             }
-            auto made = ledger->checkpoint(*options.log_key);
+            auto made = ledger->checkpoint(log_keys());
             if (!made) {
                 event("checkpoint-failed", made.error().detail);
                 return;
@@ -1390,10 +1394,29 @@ Result<std::unique_ptr<LedgerApi>> LedgerApi::open(ApiOptions options,
         }
         state->ledger.emplace(std::move(*opened));
     }
-    if (options.log_key && options.log_key->public_key() != state->ledger->state().log_key()) {
-        return fail(Errc::invalid_argument, "the log key is not this ledger's");
+    if (!options.log_keys.empty()) {
+        // The newest log key must be among them; others may be past keys, or
+        // a next key held ahead of a rotation.
+        const protocol::LedgerState& ledger_state = state->ledger->state();
+        const bool newest = std::ranges::any_of(options.log_keys, [&](const auto& key) {
+            return key->public_key() == ledger_state.log_key();
+        });
+        if (!newest) {
+            const bool rotated = std::ranges::any_of(options.log_keys, [&](const auto& key) {
+                return std::ranges::any_of(ledger_state.log_keys(), [&](const auto& epoch) {
+                    return epoch.key == key->public_key();
+                });
+            });
+            return fail(Errc::invalid_argument,
+                        rotated ? "the log key was rotated: give the ledger's newest log key "
+                                  "(see `cexchain ledger keys`)"
+                                : "the log key is not this ledger's");
+        }
     }
     state->options = std::move(options);
+    for (const auto& key : state->options.log_keys) {
+        state->log_key_ring.push_back(key.get());
+    }
     state->reload_tokens(true);
     state->start();
     return std::unique_ptr<LedgerApi>(new LedgerApi(std::move(state)));

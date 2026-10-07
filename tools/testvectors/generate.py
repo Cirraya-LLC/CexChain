@@ -1040,6 +1040,119 @@ def generate_protocol_v03() -> None:
     print("wrote protocol vectors to testvectors/protocol-v0.3.json")
 
 
+# ---------------------------------------------------------------------------
+# Protocol v0.4 additions: rotating the log key and the organization's root
+# key (spec/cexchain.cddl, revision v0.4)
+# ---------------------------------------------------------------------------
+
+def generate_protocol_v04() -> None:
+    names = ("org_root", "log", "log_2", "root_2", "person")
+    seeds = {name: hashlib.sha256(f"CexChain test key: {name}".encode()).hexdigest() for name in names}
+    keys = {name: ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(seed)) for name, seed in seeds.items()}
+    t0 = 1_791_244_800_000
+
+    def nonce(i: int) -> bytes:
+        return bytes([0x40 + i]) * 16
+
+    ledgers = []
+    for hash_id in (-16, -65538):
+        lg = Ledger(hash_id)
+        statements = []
+
+        def add(name, signer, payload):
+            encoded, statement_id = lg.statement(keys[signer], payload)
+            statements.append({"name": name, "signer": signer, "encoded": encoded.hex(),
+                               "payload": dcbor(payload).hex(), "statement_id": statement_id.hex()})
+            return statement_id
+
+        ledger_id = add("genesis", "org_root", {0: 1, 1: 1, 5: t0, 6: nonce(1), 7: {
+            1: hash_id, 2: "Cirraya Rotation Org", 3: ed_public(keys["org_root"]), 4: ed_public(keys["log"])}})
+        org = ledger_id
+        person = add("register person", "org_root", {0: 1, 1: 2, 2: ledger_id, 3: org, 5: t0 + 1, 6: nonce(2), 7: {
+            1: 1, 2: "Quality Inspector", 3: ed_public(keys["person"])}})
+        # Type 8: the organization replaces the log key, signing with its root key.
+        add("rotate the log key", "org_root", {0: 1, 1: 8, 2: ledger_id, 3: org, 5: t0 + 2, 6: nonce(3), 7: {
+            1: ed_public(keys["log_2"])}})
+        # actor-rotate-key on the organization itself: the root key.
+        add("rotate the root key", "org_root", {0: 1, 1: 3, 2: ledger_id, 3: org, 5: t0 + 3, 6: nonce(4), 7: {
+            1: org, 2: ed_public(keys["root_2"])}})
+        record = add("register record with the new root key", "root_2",
+                     {0: 1, 1: 16, 2: ledger_id, 3: org, 5: t0 + 4, 6: nonce(5), 7: {
+                         1: "cexchain.certificate/1", 2: lg.h(b"fields"), 3: 1}})
+        log_rotation, root_rotation = 2, 3
+
+        entries = [dcbor({1: bytes.fromhex(st["statement_id"]), 2: t0 + 1000 + i, 3: bytes.fromhex(st["encoded"])})
+                   for i, st in enumerate(statements)]
+        oracle = lg.merkle()
+
+        # A checkpoint of the first two entries: the rotation at index 2 is not
+        # below size 2, so the genesis log key signs it.
+        before_payload = dcbor({1: ledger_id, 2: hash_id, 3: 2, 4: oracle.mth(entries[:2]), 5: t0 + 1500})
+        before = lg.sign(keys["log"], {3: CHECKPOINT_TYPE, 4: lg.kid(keys["log"])}, before_payload)
+
+        # The organization's leaf lists both rotations.
+        leaves = sorted([
+            [1, org, [0, log_rotation, root_rotation]],
+            [1, person, [1]],
+            [3, record, [4]],
+        ], key=lambda leaf: leaf[1])
+        state_root = smt_root(lg, leaves)
+        proofs = [{"kind": leaf[0], "id": leaf[1].hex(), "history": leaf[2],
+                   "siblings": [s.hex() for s in smt_proof(lg, leaves, leaf[1])]} for leaf in leaves]
+
+        # The state commitment at index 5 and the checkpoint of size 6: the new
+        # log key is in effect for both.
+        commitment_index = len(entries)
+        commitment_payload = dcbor({1: ledger_id, 2: hash_id, 3: commitment_index, 4: state_root, 5: t0 + 4000})
+        commitment_protected = {3: STATE_TYPE, 4: lg.kid(keys["log_2"])}
+        commitment = lg.sign(keys["log_2"], commitment_protected, commitment_payload)
+        commitment_id = lg.h(dcbor(["Signature1", dcbor({1: COSE["Ed25519"], **commitment_protected}), b"",
+                                    commitment_payload]))
+        entries.append(dcbor({1: commitment_id, 2: t0 + 1000 + commitment_index, 4: commitment}))
+        root = oracle.mth(entries)
+        checkpoint_payload = dcbor({1: ledger_id, 2: hash_id, 3: len(entries), 4: root, 5: t0 + 5000})
+        checkpoint = lg.sign(keys["log_2"], {3: CHECKPOINT_TYPE, 4: lg.kid(keys["log_2"])}, checkpoint_payload)
+
+        # A cosign request from size 2, with both rotations and their inclusion
+        # paths against the new checkpoint.
+        rotations = [[i, entries[i], oracle.path(i, entries)] for i in (log_rotation, root_rotation)]
+        cosign_request = dcbor({1: checkpoint, 2: 2, 3: oracle.subproof(2, entries, True), 4: rotations})
+
+        ledgers.append({
+            "hash": hash_id,
+            "ledger_id": ledger_id.hex(),
+            "statements": statements,
+            "log_entries": [e.hex() for e in entries],
+            "log_keys": [{"index": 0, "key": ed_public(keys["log"])[1].hex()},
+                         {"index": log_rotation, "key": ed_public(keys["log_2"])[1].hex()}],
+            "root_keys": [{"index": 0, "key": ed_public(keys["org_root"])[1].hex()},
+                          {"index": root_rotation, "key": ed_public(keys["root_2"])[1].hex()}],
+            "state_root": state_root.hex(),
+            "state_commitment": {"index": commitment_index, "id": commitment_id.hex(), "encoded": commitment.hex()},
+            "state_proofs": proofs,
+            "checkpoint_before": before.hex(),
+            "checkpoint": checkpoint.hex(),
+            "cosign_request": {"encoded": cosign_request.hex(), "old_size": 2,
+                               "old_root": oracle.mth(entries[:2]).hex()},
+        })
+
+    document = {
+        "description": "CexChain protocol objects added in specification revision v0.4 (key rotation), built "
+                       "by an independent Python encoder from spec/cexchain.cddl: the log key rotated with "
+                       "ledger-rotate-log-key (statement type 8) and the organization's root key with "
+                       "actor-rotate-key on itself, a statement under the new root key, the organization's "
+                       "state leaf with both rotations, the state commitment and checkpoint signed by the new "
+                       "log key, an earlier checkpoint signed by the first log key, and a cosign request "
+                       "carrying both rotations with inclusion paths (key 4). All signatures are Ed25519 "
+                       "(deterministic). Keys are throwaway test keys: seed = SHA-256(\"CexChain test key: "
+                       "<name>\").",
+        "seeds": seeds,
+        "ledgers": ledgers,
+    }
+    (OUT / "protocol-v0.4.json").write_text(json.dumps(document, indent=2) + "\n")
+    print(f"wrote protocol vectors for {len(ledgers)} ledgers to testvectors/protocol-v0.4.json")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--openssl", default="openssl", help="OpenSSL 3.5+ command-line tool")
@@ -1053,6 +1166,7 @@ def main() -> None:
     generate_protocol()
     generate_protocol_v02()
     generate_protocol_v03()
+    generate_protocol_v04()
 
 
 if __name__ == "__main__":

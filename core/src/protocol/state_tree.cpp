@@ -202,7 +202,9 @@ Status check_state_commitment(const crypto::Provider& provider, const LedgerStat
                               const SignedStateCommitment& commitment, std::uint64_t index,
                               const crypto::Digest& state_root) {
     const StateCommitment& c = commitment.commitment;
-    if (!verify_state_commitment(provider, commitment, state.log_key())) {
+    // The key in effect for the entries before it (a rotation among them
+    // takes over here).
+    if (!verify_state_commitment(provider, commitment, state.log_key_for(index))) {
         return fail(Errc::verification_failed, "a state commitment is not signed by the log key");
     }
     if (c.ledger_id != state.ledger_id() || c.tree_hash != state.hash()) {

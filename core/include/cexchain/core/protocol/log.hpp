@@ -191,4 +191,13 @@ struct ReceiptSeal {
                                                     const Receipt& receipt, ByteView entry,
                                                     const crypto::PublicKey& log_key);
 
+/// The two halves of verify_receipt, for a verifier that learns the log key
+/// in effect only later (from rotations among the entries): the root the
+/// receipt's proof leads to, and the log key's signature over that root.
+[[nodiscard]] Result<crypto::Digest> receipt_root(const crypto::Provider& provider,
+                                                  const Receipt& receipt, ByteView entry);
+[[nodiscard]] Status verify_receipt_signature(const crypto::Provider& provider,
+                                              const Receipt& receipt, const crypto::Digest& root,
+                                              const crypto::PublicKey& log_key);
+
 } // namespace cexchain::protocol

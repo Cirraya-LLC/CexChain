@@ -26,13 +26,16 @@ void grow(World& w, int records) {
 protocol::CosignRequest request(World& w, std::uint64_t old_size) {
     auto checkpoint = w.ledger().checkpoint(w.log_key());
     REQUIRE(checkpoint);
-    auto proof = w.ledger().consistency_proof(old_size, checkpoint->checkpoint.tree_size);
-    REQUIRE(proof);
-    return {checkpoint->encoded, old_size, *proof};
+    auto made = w.ledger().cosign_request(old_size);
+    REQUIRE(made);
+    return *made;
 }
 
 protocol::WitnessedLog fresh(World& w) {
-    return protocol::WitnessedLog{w.ledger().id(), w.log_key().public_key(), std::nullopt, 0, {}};
+    protocol::WitnessedLog log;
+    log.ledger_id = w.ledger().id();
+    log.log_key = w.log_key().public_key();
+    return log;
 }
 
 /// Cosigns, as a witness would, and returns the advanced state.
@@ -40,7 +43,8 @@ protocol::WitnessedLog cosign(const protocol::WitnessedLog& log, const protocol:
     auto checked = protocol::check_cosign_request(provider(), log, r);
     INFO((checked ? std::string() : std::string(checked.error().detail)));
     REQUIRE(checked);
-    return protocol::advance(log, checked->checkpoint);
+    CHECK(checked->log == protocol::advance(checked->log, checked->checkpoint.checkpoint));
+    return checked->log;
 }
 
 Errc refusal(const protocol::WitnessedLog& log, const protocol::CosignRequest& r) {

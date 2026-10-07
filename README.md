@@ -93,7 +93,7 @@ The `cexchain` tool controls every part of a ledger:
 | Area | Commands |
 |---|---|
 | Keys | `key generate`, `key show`, `key public`, `key passphrase` |
-| Ledger | `init`, `status`, `audit`, `log list`, `log show`, `log export` |
+| Ledger | `init`, `status`, `audit`, `log list`, `log show`, `log export`, `ledger keys`, `ledger genesis`, `ledger rotate-log-key`, `ledger rotate-root-key` |
 | Actors | `actor add`, `actor list`, `actor show`, `actor revoke`, `actor rotate-key`, `actor set-presence`, `presence enroll` |
 | Delegations | `delegation grant`, `delegation list`, `delegation show`, `delegation revoke` |
 | Records | `record issue`, `record list`, `record show`, `record history`, `record fields`, `record endorse`, `record transition`, `record revoke`, `record types` |
@@ -165,6 +165,23 @@ with any PKCS #11 module; SM2 needs the vendor's mechanism number in the URI
 (`?x-sm2-mechanism=<hex>`), since SM2 is not part of the PKCS #11 standard. Every signature a
 token returns is checked before it is used.
 
+## Rotating the organization's keys
+
+The organization can replace its root key and the ledger's log key, for instance when a key is
+retired or to move to post-quantum signatures (ML-DSA). Each rotation is a statement signed by
+the root key in effect. The new log key signs every checkpoint, receipt, and state commitment
+after the rotation; older checkpoints stay valid under the key that signed them. Evidence bundles
+carry the rotations, and verifiers, witnesses, and replicas follow them.
+
+```sh
+cexchain ledger keys                                         # both histories, with log indices
+cexchain ledger rotate-log-key --as root.key --new-key log2.key
+cexchain checkpoint create --log-key log2.key                # the old key no longer checkpoints
+cexchain ledger rotate-root-key --as root.key --new-key root2.key
+# A server can hold both log keys across the switch.
+cexchain serve --log-key log.key --log-key log2.key
+```
+
 ## Witnesses
 
 A ledger's operator could, in principle, rewrite its history or show different histories to
@@ -174,8 +191,11 @@ ledger, and it cosigns a new one only if a consistency proof shows the new histo
 old (the C2SP witness model).
 
 ```sh
-# The witness, once: follow the ledger (its id and log key come from the operator).
-cexchain witness add-log --dir witness --ledger-id <ledger-id> --log-key log.pub
+# The operator, once: the genesis entry, which fixes the ledger id and its first keys.
+cexchain ledger genesis --out genesis.entry
+# The witness, once: follow the ledger, checked against the id learned from the operator.
+# (From the genesis entry, the witness follows key rotations too.)
+cexchain witness add-log --dir witness --genesis genesis.entry --ledger-id <ledger-id>
 # The operator, after each checkpoint:
 cexchain checkpoint cosign-request --witness witness.pub --out request.cbor
 # The witness: check consistency, then cosign. A forked or rewritten ledger is refused.

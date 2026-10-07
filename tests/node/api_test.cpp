@@ -181,7 +181,7 @@ struct Primary {
     std::unique_ptr<node::LedgerApi> api(bool read_only = false, bool public_read = false) const {
         node::ApiOptions o;
         o.directory = dir;
-        o.log_key = log_key;
+        o.log_keys = {log_key};
         o.read_only = read_only;
         o.public_read = public_read;
         auto opened = node::LedgerApi::open(o, provider());

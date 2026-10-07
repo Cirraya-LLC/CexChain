@@ -7,7 +7,10 @@
 //
 // A witness directory holds one state file per ledger, <ledger id>.cbor:
 //   {1: ledger id, 2: log key [alg, key], 3: name, 4: size,
-//    ? 5: root, ? 6: tree hash (COSE id), ? 7: last cosigned at (ms)}
+//    ? 5: root, ? 6: tree hash (COSE id), ? 7: last cosigned at (ms),
+//    ? 8: root key [alg, key], ? 9: index of the last key rotation followed}
+// Without a root key (a log added by its log key alone) the witness cannot
+// follow key rotations.
 
 #include <print>
 
@@ -55,6 +58,13 @@ Bytes encode_state(const WitnessState& s) {
     if (s.cosigned_at) {
         map.push_back({cbor::Value::integer(7), cbor::Value::unsigned_integer(*s.cosigned_at)});
     }
+    if (s.log.root_key) {
+        map.push_back({cbor::Value::integer(8), protocol::encode_public_key(*s.log.root_key)});
+    }
+    if (s.log.last_rotation > 0) {
+        map.push_back(
+            {cbor::Value::integer(9), cbor::Value::unsigned_integer(s.log.last_rotation)});
+    }
     return unwrap(cbor::encode(cbor::Value::map(std::move(map))), "encoding the witness state");
 }
 
@@ -93,6 +103,15 @@ WitnessState decode_state(const std::filesystem::path& path) {
     if (const cbor::Value* at = value.find(7); at != nullptr && at->as_uint64()) {
         s.cosigned_at = *at->as_uint64();
     }
+    if (const cbor::Value* root_key = value.find(8)) {
+        s.log.root_key = unwrap(protocol::decode_public_key(*root_key), "witness state");
+    }
+    if (const cbor::Value* rotation = value.find(9)) {
+        if (!rotation->as_uint64()) {
+            throw corrupted();
+        }
+        s.log.last_rotation = *rotation->as_uint64();
+    }
     if ((s.log.size > 0) == s.log.root.empty()) {
         throw corrupted();
     }
@@ -122,6 +141,9 @@ Json state_json(const WitnessState& s) {
     return {{"ledger_id", id_json(s.log.ledger_id)},
             {"name", s.name},
             {"log_key", public_key_json(s.log.log_key)},
+            {"root_key", s.log.root_key ? public_key_json(*s.log.root_key) : Json(nullptr)},
+            {"follows_rotations", s.log.root_key.has_value()},
+            {"last_rotation", s.log.last_rotation},
             {"tree_hash", s.log.tree_hash ? Json(crypto::name(*s.log.tree_hash)) : Json(nullptr)},
             {"size", s.log.size},
             {"root", s.log.size > 0 ? Json(to_hex(s.log.root.bytes())) : Json(nullptr)},
@@ -169,17 +191,19 @@ int cmd_checkpoint_cosign_request(const Args& args) {
     if (old_size > new_size) {
         throw UsageError{std::format("--from must be at most the checkpoint size {}", new_size)};
     }
-    const protocol::CosignRequest request{
-        latest->encoded, old_size,
-        unwrap(session.ledger().consistency_proof(old_size, new_size), "building the proof")};
+    // With every key rotation below the checkpoint, for the witness to follow.
+    const protocol::CosignRequest request =
+        unwrap(session.ledger().cosign_request(old_size), "building the request");
     const Bytes encoded = unwrap(protocol::encode_cosign_request(request), "encoding the request");
     if (const auto out = args.get("out")) {
         write_file(*out, encoded, false);
     }
     if (!args.has("send")) {
         if (args.json()) {
-            print_json(
-                {{"file", *args.get("out")}, {"old_size", old_size}, {"new_size", new_size}});
+            print_json({{"file", *args.get("out")},
+                        {"old_size", old_size},
+                        {"new_size", new_size},
+                        {"key_rotations", request.rotations.size()}});
         } else {
             std::println("wrote a cosign request for size {} (consistency from size {}) to {}",
                          new_size, old_size, *args.get("out"));
@@ -236,15 +260,40 @@ int cmd_checkpoint_add_cosignature(const Args& args) {
 
 int cmd_witness_add_log(const Args& args) {
     const std::filesystem::path dir = args.need("dir");
-    std::filesystem::create_directories(dir);
-    const auto lock = unwrap(ledger::DirectoryLock::acquire(dir), "locking the witness directory");
-    const auto id_bytes = from_hex(args.need("ledger-id"));
-    if (!id_bytes) {
-        throw UsageError{"--ledger-id must be the full hex ledger id"};
+    if (args.has("genesis") == args.has("log-key")) {
+        throw UsageError{"give --genesis FILE (to follow key rotations), or --ledger-id with "
+                         "--log-key"};
+    }
+    std::optional<protocol::Id> pinned;
+    if (const auto id_text = args.get("ledger-id")) {
+        const auto id_bytes = from_hex(*id_text);
+        if (!id_bytes) {
+            throw UsageError{"--ledger-id must be the full hex ledger id"};
+        }
+        pinned = unwrap(protocol::to_id(*id_bytes), "ledger id");
+    } else if (args.has("log-key")) {
+        throw UsageError{"--log-key needs --ledger-id"};
     }
     WitnessState state;
-    state.log.ledger_id = unwrap(protocol::to_id(*id_bytes), "ledger id");
-    state.log.log_key = load_public_key(args.need("log-key"));
+    if (const auto genesis = args.get("genesis")) {
+        // The genesis entry fixes the ledger id, hash, root key, and first
+        // log key: from it the witness follows every rotation.
+        const auto keys =
+            unwrap(protocol::keys_from_genesis(shared_provider(), read_file(*genesis)),
+                   "reading the genesis entry");
+        if (pinned && *pinned != keys.ledger_id) {
+            throw CommandError{"the genesis entry is not ledger " + hex_id(*pinned) + "'s"};
+        }
+        state.log.ledger_id = keys.ledger_id;
+        state.log.log_key = keys.log_key();
+        state.log.root_key = keys.root_key;
+        state.log.tree_hash = keys.hash;
+    } else {
+        state.log.ledger_id = *pinned;
+        state.log.log_key = load_public_key(args.need("log-key"));
+    }
+    std::filesystem::create_directories(dir);
+    const auto lock = unwrap(ledger::DirectoryLock::acquire(dir), "locking the witness directory");
     state.name = args.get("name").value_or(hex_id(state.log.ledger_id).substr(0, 12));
     const std::filesystem::path path = state_path(dir, state.log.ledger_id);
     if (std::filesystem::exists(path)) {
@@ -292,9 +341,13 @@ Result<Bytes> witness_cosign(const std::filesystem::path& dir, const crypto::Sig
         CEXCHAIN_CLI_TRY(again, protocol::cosign_checkpoint(key, provider, checkpoint.checkpoint));
         return again.encoded;
     }
-    CEXCHAIN_CLI_TRY(checked, protocol::check_cosign_request(provider, state.log, request));
-    CEXCHAIN_CLI_TRY(cosigned, protocol::cosign_checkpoint(key, provider, checked.checkpoint));
-    state.log = protocol::advance(state.log, checked.checkpoint);
+    CEXCHAIN_CLI_TRY(approved, protocol::check_cosign_request(provider, state.log, request));
+    if (key.public_key() == approved.log.log_key) {
+        return fail(Errc::invalid_argument, "a ledger's log key cannot witness the ledger");
+    }
+    CEXCHAIN_CLI_TRY(cosigned,
+                     protocol::cosign_checkpoint(key, provider, approved.checkpoint.checkpoint));
+    state.log = std::move(approved.log);
     state.cosigned_at = ledger::SystemClock{}.now();
     try {
         write_file(path, encode_state(state), false);

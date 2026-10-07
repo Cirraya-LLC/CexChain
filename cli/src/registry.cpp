@@ -190,6 +190,59 @@ std::vector<CommandSpec> build() {
                {"to", "INDEX", "Last entry (default: the end)"}}),
          cmd_log_export},
 
+        {{"ledger", "keys"},
+         "Show the organization's root and log keys over time",
+         "Ledger",
+         "",
+         0,
+         0,
+         with({ledger_option}),
+         cmd_ledger_keys,
+         "Each key with the log index of the statement that set it. The log key in effect for a\n"
+         "tree of N entries is the one set before index N: it signs checkpoints of that size and\n"
+         "receipts against them."},
+        {{"ledger", "genesis"},
+         "Write the ledger's genesis entry, for witnesses",
+         "Ledger",
+         "",
+         0,
+         0,
+         with({ledger_option, {"out", "FILE", "Output file (the encoded log entry)", true}}),
+         cmd_ledger_genesis,
+         "The genesis entry fixes the ledger id, hash, root key, and first log key. A witness\n"
+         "added from it (cexchain witness add-log --genesis) can follow key rotations."},
+        {{"ledger", "rotate-log-key"},
+         "Replace the log key (signed by the organization's root key)",
+         "Ledger",
+         "",
+         0,
+         0,
+         with({ledger_option,
+               {"as", "KEY", "The organization's current root key (file or pkcs11: URI)", true},
+               {"new-key", "KEY",
+                "The new log key: its public key file, private key file, or pkcs11: URI", true},
+               passphrase_file_option}),
+         cmd_ledger_rotate_log_key,
+         "The new key signs every state commitment, checkpoint, and receipt after the rotation;\n"
+         "older checkpoints stay valid under the old key. A key used as a log key before cannot\n"
+         "come back. With serve running, start it with both keys (--log-key OLD --log-key NEW)\n"
+         "before rotating: it switches at the next checkpoint. Witnesses follow the rotation\n"
+         "from the cosign requests."},
+        {{"ledger", "rotate-root-key"},
+         "Replace the organization's root key (signed by the current one)",
+         "Ledger",
+         "",
+         0,
+         0,
+         with({ledger_option,
+               {"as", "KEY", "The organization's current root key (file or pkcs11: URI)", true},
+               {"new-key", "KEY",
+                "The new root key: its public key file, private key file, or pkcs11: URI", true},
+               passphrase_file_option}),
+         cmd_ledger_rotate_root_key,
+         "Only the organization rotates its root key, signing with the current one. Keep the new\n"
+         "key in an HSM if you can: whoever holds the root key can rotate both keys."},
+
         // ------------------------------------------------------------------
         {{"actor", "add"},
          "Register a person, AI agent, or device",
@@ -597,13 +650,21 @@ std::vector<CommandSpec> build() {
          0,
          0,
          with({{"dir", "DIR", "The witness's state directory", true},
-               {"ledger-id", "ID", "The ledger's id (full hex), from its operator", true},
-               {"log-key", "PUBKEY", "The ledger's log public key file, from its operator", true},
+               {"genesis", "FILE",
+                "The ledger's genesis entry (from cexchain ledger genesis): fixes the ledger id "
+                "and its keys, so the witness can follow key rotations"},
+               {"ledger-id", "ID",
+                "The ledger's id (full hex), from its operator: pins --genesis, or goes with "
+                "--log-key"},
+               {"log-key", "PUBKEY",
+                "Instead of --genesis: the ledger's log public key file (cannot follow a "
+                "rotation)"},
                {"name", "NAME", "A name for the ledger"}}),
          cmd_witness_add_log,
          "A witness is an independent party (another company, an auditor, a regulator) that\n"
          "cosigns a ledger's checkpoints only if each extends the history it cosigned before.\n"
-         "Learn the ledger id and log key from the operator through a channel you trust."},
+         "Learn the ledger id from the operator through a channel you trust, and check the\n"
+         "genesis entry against it with --ledger-id."},
         {{"witness", "cosign"},
          "Check a cosign request and cosign it if the history is consistent",
          "Witness",
@@ -647,7 +708,9 @@ std::vector<CommandSpec> build() {
                {"listen", "HOST:PORT",
                 "Address to listen on (default: 127.0.0.1:8080; port 0 picks one)"},
                {"log-key", "KEY",
-                "The log key (file or pkcs11: URI): enables checkpoints, receipts, and evidence"},
+                "The log key (file or pkcs11: URI): enables checkpoints, receipts, and evidence. "
+                "Repeat it to hold the old and new key across a rotation",
+                false, true},
                {"checkpoint-interval", "SECONDS",
                 "Checkpoint when the log grew, this often (default: 60 with --log-key; 0: never)"},
                {"tls-cert", "FILE", "TLS certificate chain (PEM); without it, use a TLS proxy"},

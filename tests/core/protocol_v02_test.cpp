@@ -176,8 +176,12 @@ TEST_CASE("v0.2 objects from an independent encoder", "[protocol][vectors]") {
         const auto request = protocol::decode_cosign_request(encoded_request);
         REQUIRE(request);
         CHECK(*protocol::encode_cosign_request(*request) == encoded_request);
-        const protocol::WitnessedLog witness{state->ledger_id(), state->log_key(), hash, 4,
-                                             *tree.root(4)};
+        protocol::WitnessedLog witness;
+        witness.ledger_id = state->ledger_id();
+        witness.log_key = state->log_key();
+        witness.tree_hash = hash;
+        witness.size = 4;
+        witness.root = *tree.root(4);
         CHECK(protocol::check_cosign_request(provider(), witness, *request));
     }
 }

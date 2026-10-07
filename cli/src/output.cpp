@@ -245,6 +245,9 @@ Json body_json(const protocol::Body& body) {
                 }
                 return {{"actor", id_json(b.actor)}, {"credentials", std::move(credentials)}};
             },
+            [](const protocol::LedgerRotateLogKeyBody& b) -> Json {
+                return {{"log_key", public_key_json(b.key)}};
+            },
             [](const protocol::RecordRegisterBody& b) -> Json {
                 Json attachments = Json::array();
                 for (const protocol::Attachment& a : b.attachments) {
@@ -347,7 +350,9 @@ std::string body_summary(const Session& session, const protocol::Body& body,
                 return out;
             },
             [&](const protocol::ActorRotateKeyBody& b) {
-                return "rotate the key of " + name_of(b.actor);
+                return b.actor == session.state().ledger_id()
+                           ? std::string("rotate the organization's root key")
+                           : "rotate the key of " + name_of(b.actor);
             },
             [&](const protocol::ActorRevokeBody& b) {
                 return "revoke actor " + name_of(b.actor) +
@@ -364,6 +369,10 @@ std::string body_summary(const Session& session, const protocol::Body& body,
                 return b.credentials.empty() ? "remove the passkeys of " + name_of(b.actor)
                                              : "set " + std::to_string(b.credentials.size()) +
                                                    " passkey(s) for " + name_of(b.actor);
+            },
+            [&](const protocol::LedgerRotateLogKeyBody& b) {
+                return "rotate the log key to a new " + std::string(crypto::name(b.key.algorithm)) +
+                       " key";
             },
             [&](const protocol::RecordRegisterBody& b) { return "issue " + b.record_type + id; },
             [&](const protocol::RecordEndorseBody& b) {

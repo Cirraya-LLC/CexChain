@@ -15,10 +15,12 @@
 #include <cexchain/core/error.hpp>
 #include <cexchain/core/merkle.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
+#include <cexchain/core/protocol/keys.hpp>
 #include <cexchain/core/protocol/log.hpp>
 #include <cexchain/core/protocol/state.hpp>
 #include <cexchain/core/protocol/state_tree.hpp>
 #include <cexchain/core/protocol/statement.hpp>
+#include <cexchain/core/protocol/witness.hpp>
 #include <cexchain/ledger/environment.hpp>
 #include <cexchain/ledger/record_log.hpp>
 #include <cexchain/ledger/storage.hpp>
@@ -64,6 +66,11 @@ struct RefreshReport {
     std::uint64_t checkpoints = 0;
     std::uint64_t cosignatures = 0;
 };
+
+/// The log keys an operator holds. Across a rotation an operator holds the
+/// old key and the new one, and the ledger signs with whichever is in effect
+/// for what it signs (spec v0.4).
+using LogKeys = std::span<const crypto::Signer* const>;
 
 struct AuditReport {
     std::uint64_t entries = 0;
@@ -142,9 +149,16 @@ public:
     /// Checks a checkpoint before the entries it covers are here: signed by
     /// the log key, for this ledger, and not before the latest stored (in
     /// size or time). With `compact_range`, a replica checks that entries
-    /// lead to its root before taking any of them.
+    /// lead to its root before taking any of them. The key is the one in
+    /// effect at the checkpoint's size as far as this log knows, or
+    /// `log_key`: what a replica that followed key rotations among entries it
+    /// has not taken yet learned (see protocol::follow_key_rotation).
     [[nodiscard]] Result<protocol::SignedCheckpoint>
-    verify_checkpoint(ByteView signed_checkpoint) const;
+    verify_checkpoint(ByteView signed_checkpoint, const crypto::PublicKey* log_key = nullptr) const;
+
+    /// The organization's keys as of the log's end, for following rotations
+    /// in entries beyond it.
+    [[nodiscard]] protocol::LedgerKeys keys() const;
 
     /// The right edge of the log's Merkle tree, to grow a copy of.
     [[nodiscard]] merkle::CompactRange compact_range() const;
@@ -176,9 +190,14 @@ public:
     consistency_proof(std::uint64_t old_size, std::uint64_t new_size) const;
 
     /// Appends a state commitment to the log (unless the last entry is one),
-    /// then signs and stores a checkpoint of the tree. `log_key` must be the
-    /// key named in genesis.
+    /// then signs and stores a checkpoint of the tree, with the newest log
+    /// key: `log_key` must be it, or `log_keys` must hold it.
     [[nodiscard]] Result<protocol::SignedCheckpoint> checkpoint(const crypto::Signer& log_key);
+    [[nodiscard]] Result<protocol::SignedCheckpoint> checkpoint(LogKeys log_keys);
+
+    /// A cosign request for the latest checkpoint, with a consistency proof
+    /// from `old_size` and every key rotation below its size.
+    [[nodiscard]] Result<protocol::CosignRequest> cosign_request(std::uint64_t old_size) const;
 
     /// Every stored checkpoint, oldest first (for backups and audits; the
     /// API pages through them).
@@ -225,8 +244,13 @@ public:
     /// must cover them all, plus the stored witness cosignatures of that
     /// checkpoint. The caller adds field disclosures and attachment openings,
     /// since only it holds the record's private data.
+    /// The receipts are signed with the log key in effect for the latest
+    /// checkpoint, which `log_key` must be, or `log_keys` must hold. Every
+    /// rotation of the organization's keys below its size is included.
     [[nodiscard]] Result<protocol::EvidenceBundle>
     export_evidence(const crypto::Signer& log_key, const protocol::Id& record) const;
+    [[nodiscard]] Result<protocol::EvidenceBundle>
+    export_evidence(LogKeys log_keys, const protocol::Id& record) const;
 
     /// The state commitment the latest checkpoint ends with, if it has one.
     [[nodiscard]] std::optional<protocol::StateCommitment> state_commitment() const;
@@ -244,8 +268,10 @@ public:
     [[nodiscard]] Result<CommittedProof> committed_state_proof(const protocol::Id& id) const;
 
     /// An RFC 9942 receipt for the entry at `index`, anchored to the latest
-    /// checkpoint. Fails if no checkpoint covers the entry yet.
+    /// checkpoint, signed with the log key in effect for it. Fails if no
+    /// checkpoint covers the entry yet.
     [[nodiscard]] Result<Bytes> receipt(const crypto::Signer& log_key, std::uint64_t index) const;
+    [[nodiscard]] Result<Bytes> receipt(LogKeys log_keys, std::uint64_t index) const;
 
     struct Impl; // opaque
 

@@ -623,3 +623,56 @@ TEST_CASE("hardware and passkey credentials are checked for their kind", "[prese
     CHECK(w.ledger().state().actor(bob)->presence ==
           std::vector<protocol::PresenceCredential>{ukey.credential()});
 }
+
+TEST_CASE("a presence key is a second key, and taking over needs the person verified",
+          "[presence][security]") {
+    Fixture f;
+    const KeyPair next = key("alice next");
+    auto rotate = f.w.statement(f.alice, std::nullopt,
+                                protocol::ActorRotateKeyBody{f.alice, next.public_key()});
+    auto second = authenticator(crypto::SigAlg::esp256, 2);
+    auto add = f.w.statement(
+        f.alice, std::nullopt,
+        protocol::ActorSetPresenceBody{f.alice, {f.passkey.credential(), second.credential()}});
+
+    // A touch alone (user present, not verified) does not change your own
+    // key or passkeys.
+    Authenticator touch = f.passkey;
+    touch.flags = 0x01;
+    rotate.presence = touch.sign(challenge_for(f.w, rotate, f.alice_key));
+    CHECK(f.w.rejected(f.alice_key, rotate) == Errc::rejected);
+    add.presence = touch.sign(challenge_for(f.w, add, f.alice_key));
+    CHECK(f.w.rejected(f.alice_key, add) == Errc::rejected);
+    // A verified one does.
+    add.presence = f.passkey.sign(challenge_for(f.w, add, f.alice_key));
+    f.w.ok(f.alice_key, add);
+    rotate.presence = f.passkey.sign(challenge_for(f.w, rotate, f.alice_key));
+    f.w.ok(f.alice_key, rotate);
+
+    // A presence key is never a signing key or a log key...
+    const KeyPair bob = key("bob");
+    f.w.register_actor(f.w.org(), f.w.org_id(), std::nullopt, protocol::ActorKind::person, bob);
+    for (const KeyPair* k : {&next, &bob, &f.w.org(), &f.w.log_key()}) {
+        const protocol::PresenceCredential token{"", Bytes(32, 9), k->public_key(),
+                                                 std::string("token"),
+                                                 protocol::PresenceMethod::hardware_key};
+        CHECK(f.w.rejected(f.w.org(), f.w.statement(f.w.org_id(), std::nullopt,
+                                                    protocol::ActorSetPresenceBody{
+                                                        f.alice, {token}})) == Errc::rejected);
+    }
+    // ...and never becomes one.
+    CHECK(f.w.rejected(f.w.org(), f.w.statement(f.w.org_id(), std::nullopt,
+                                                protocol::ActorRotateKeyBody{
+                                                    f.alice, second.key->public_key()})) ==
+          Errc::rejected);
+
+    // A hardware key, unlocked with its PIN, may change your own key.
+    const auto ukey = hardware_key(crypto::SigAlg::ed25519, 7);
+    f.w.ok(f.w.org(), f.w.statement(f.w.org_id(), std::nullopt,
+                                    protocol::ActorSetPresenceBody{f.alice, {ukey.credential()}}));
+    const KeyPair third = key("alice third");
+    auto again = f.w.statement(f.alice, std::nullopt,
+                               protocol::ActorRotateKeyBody{f.alice, third.public_key()});
+    again.presence = ukey.sign(challenge_for(f.w, again, next));
+    f.w.ok(next, again);
+}

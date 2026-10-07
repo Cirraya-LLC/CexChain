@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <map>
+#include <set>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -25,6 +26,7 @@ struct Included {
     SignedStatement statement;
     /// Set for a state commitment entry, which carries no statement.
     std::optional<SignedStateCommitment> commitment;
+    Receipt receipt;
 };
 
 std::unexpected<Error> verification_failure(std::string_view detail) {
@@ -335,17 +337,16 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
         return verification_failure("the bundle comes from a different ledger");
     }
 
-    // The checkpoint every receipt must lead to.
+    // The checkpoint every receipt must lead to. Its signature, and the
+    // receipts', are checked with the log key in effect at its size, which
+    // the replay below learns (the bundle carries every key rotation).
     CEXCHAIN_TRY(SignedCheckpoint checkpoint, parse_checkpoint(bundle.checkpoint));
-    if (!verify_checkpoint(provider, checkpoint, state->log_key())) {
-        return verification_failure("the checkpoint is not signed by the ledger's log key");
-    }
     if (checkpoint.checkpoint.ledger_id != state->ledger_id() ||
         checkpoint.checkpoint.tree_hash != state->hash()) {
         return verification_failure("the checkpoint belongs to a different ledger");
     }
 
-    // Every entry is proven to be in the checkpointed log, in order.
+    // Every entry is proven to lead to the checkpoint's root, in order.
     std::vector<Included> included;
     std::optional<std::uint64_t> previous_index;
     Timestamp previous_time = 0;
@@ -354,7 +355,7 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
         if (!receipt) {
             return verification_failure("a receipt is malformed");
         }
-        auto root = verify_receipt(provider, *receipt, e.entry, state->log_key());
+        auto root = receipt_root(provider, *receipt, e.entry);
         if (!root || receipt->tree_hash != state->hash() ||
             receipt->proof.tree_size != checkpoint.checkpoint.tree_size ||
             *root != checkpoint.checkpoint.root) {
@@ -368,11 +369,10 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
         if (log_entry.registered_at < previous_time) {
             return verification_failure("entries go back in time");
         }
-        Included item{index, log_entry, genesis, std::nullopt};
+        Included item{index, log_entry, genesis, std::nullopt, std::move(*receipt)};
         if (index != 0 && log_entry.is_state_commitment()) {
             auto commitment = parse_state_commitment(provider, log_entry.state_commitment);
             if (!commitment || commitment->id != log_entry.statement_id ||
-                !verify_state_commitment(provider, *commitment, state->log_key()) ||
                 commitment->commitment.ledger_id != state->ledger_id() ||
                 commitment->commitment.tree_hash != state->hash() ||
                 commitment->commitment.tree_size != index) {
@@ -415,6 +415,30 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
         CEXCHAIN_CHECK(state->apply(provider, item.statement, item.index));
     }
 
+    // Now the keys: the checkpoint and every receipt with the log key in
+    // effect at its size, each state commitment with the one at its index.
+    // (Receipts against one checkpoint usually share one signature.)
+    const crypto::PublicKey& log_key = state->log_key_for(checkpoint.checkpoint.tree_size);
+    if (!verify_checkpoint(provider, checkpoint, log_key)) {
+        return verification_failure("the checkpoint is not signed by the ledger's log key");
+    }
+    std::set<std::pair<Bytes, Bytes>> verified;
+    for (const Included& item : included) {
+        auto seal =
+            std::pair(item.receipt.envelope.protected_bytes, item.receipt.envelope.signature);
+        if (!verified.contains(seal)) {
+            if (!verify_receipt_signature(provider, item.receipt, checkpoint.checkpoint.root,
+                                          log_key)) {
+                return verification_failure("a receipt is not signed by the ledger's log key");
+            }
+            verified.insert(std::move(seal));
+        }
+        if (item.commitment &&
+            !verify_state_commitment(provider, *item.commitment, state->log_key_for(item.index))) {
+            return verification_failure("a state commitment in the bundle does not verify");
+        }
+    }
+
     const RecordState* record = state->record(bundle.record);
     if (record == nullptr) {
         return verification_failure("the bundle does not include the record's registration");
@@ -425,6 +449,9 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
     report.organization = state->organization();
     report.hash = state->hash();
     report.checkpoint = checkpoint.checkpoint;
+    report.log_key = log_key;
+    report.log_key_rotations = state->log_keys().size() - 1;
+    report.root_key_rotations = state->root_keys().size() - 1;
     report.record = record->id;
     report.record_type = record->record_type;
     report.state = record->state;

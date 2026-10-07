@@ -230,35 +230,40 @@ Json report_json(const protocol::EvidenceReport& r, bool ledger_checked) {
                                {"size", a.size},
                                {"status", attachment_status(a.status)}});
     }
-    return {{"verified", !has_attachment_mismatch(r)},
-            {"ledger",
-             {{"id", hex_id(r.ledger_id)},
-              {"organization", r.organization},
-              {"hash", crypto::name(r.hash)},
-              {"id_checked", ledger_checked}}},
-            {"checkpoint", checkpoint_json(r.checkpoint)},
-            {"witnesses",
-             {{"trusted", r.trusted_cosignatures}, {"untrusted", r.untrusted_cosignatures}}},
-            {"record",
-             {{"id", hex_id(r.record)},
-              {"type", r.record_type},
-              {"state", r.state},
-              {"revoked", r.revoked},
-              {"metadata", r.metadata ? cbor_json(*r.metadata) : Json(nullptr)}}},
-            {"events", std::move(events)},
-            {"disclosed_fields", std::move(fields)},
-            {"attachments", std::move(attachments)},
-            {"complete", r.complete},
-            {"state_commitment",
-             r.state_commitment
-                 ? Json{{"index", r.state_commitment->tree_size},
-                        {"state_root", to_hex(r.state_commitment->state_root.bytes())},
-                        {"timestamp", iso_time(r.state_commitment->timestamp)}}
-                 : Json(nullptr)},
-            {"limits", r.complete ? Json(nullptr)
-                                  : Json("The checkpoint does not end with a state commitment, so "
-                                         "the bundle cannot prove that "
-                                         "nothing, such as a later revocation, was left out.")}};
+    return {
+        {"verified", !has_attachment_mismatch(r)},
+        {"ledger",
+         {{"id", hex_id(r.ledger_id)},
+          {"organization", r.organization},
+          {"hash", crypto::name(r.hash)},
+          {"id_checked", ledger_checked}}},
+        {"checkpoint", checkpoint_json(r.checkpoint)},
+        {"keys",
+         {{"log_key",
+           {{"algorithm", crypto::name(r.log_key.algorithm)}, {"key", to_hex(r.log_key.bytes)}}},
+          {"log_key_rotations", r.log_key_rotations},
+          {"root_key_rotations", r.root_key_rotations}}},
+        {"witnesses",
+         {{"trusted", r.trusted_cosignatures}, {"untrusted", r.untrusted_cosignatures}}},
+        {"record",
+         {{"id", hex_id(r.record)},
+          {"type", r.record_type},
+          {"state", r.state},
+          {"revoked", r.revoked},
+          {"metadata", r.metadata ? cbor_json(*r.metadata) : Json(nullptr)}}},
+        {"events", std::move(events)},
+        {"disclosed_fields", std::move(fields)},
+        {"attachments", std::move(attachments)},
+        {"complete", r.complete},
+        {"state_commitment",
+         r.state_commitment ? Json{{"index", r.state_commitment->tree_size},
+                                   {"state_root", to_hex(r.state_commitment->state_root.bytes())},
+                                   {"timestamp", iso_time(r.state_commitment->timestamp)}}
+                            : Json(nullptr)},
+        {"limits", r.complete ? Json(nullptr)
+                              : Json("The checkpoint does not end with a state commitment, so "
+                                     "the bundle cannot prove that "
+                                     "nothing, such as a later revocation, was left out.")}};
 }
 
 std::string report_text(const protocol::EvidenceReport& r, bool ledger_checked) {
@@ -274,6 +279,11 @@ std::string report_text(const protocol::EvidenceReport& r, bool ledger_checked) 
     }
     line(std::format("  Checkpoint   size {}, signed {} by the ledger's log key",
                      r.checkpoint.tree_size, format_time(r.checkpoint.timestamp)));
+    if (r.log_key_rotations + r.root_key_rotations > 0) {
+        line(std::format("  Keys         log key rotated {} time(s), root key {} time(s); every "
+                         "rotation checked",
+                         r.log_key_rotations, r.root_key_rotations));
+    }
     line(std::format("  Witnesses    {} trusted{}", r.trusted_cosignatures,
                      r.untrusted_cosignatures == 0
                          ? std::string()

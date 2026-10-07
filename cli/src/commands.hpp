@@ -34,6 +34,10 @@ int cmd_audit(const Args& args);
 int cmd_log_list(const Args& args);
 int cmd_log_show(const Args& args);
 int cmd_log_export(const Args& args);
+int cmd_ledger_keys(const Args& args);
+int cmd_ledger_genesis(const Args& args);
+int cmd_ledger_rotate_log_key(const Args& args);
+int cmd_ledger_rotate_root_key(const Args& args);
 
 // Actors and delegations
 int cmd_actor_add(const Args& args);

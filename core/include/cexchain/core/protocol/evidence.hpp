@@ -131,6 +131,11 @@ struct EvidenceReport {
     std::string organization;
     crypto::HashAlg hash = crypto::HashAlg::sha256;
     Checkpoint checkpoint;
+    /// The log key that signed the checkpoint, and how many times the log
+    /// and root keys had been rotated before it.
+    crypto::PublicKey log_key;
+    std::size_t log_key_rotations = 0;
+    std::size_t root_key_rotations = 0;
     std::size_t trusted_cosignatures = 0;
     std::size_t untrusted_cosignatures = 0;
 

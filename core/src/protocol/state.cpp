@@ -80,8 +80,8 @@ Result<LedgerState> LedgerState::from_genesis(const crypto::Provider& provider,
     state.ledger_id_ = genesis.id;
     state.hash_ = genesis.hash_alg;
     state.organization_ = body->organization;
-    state.root_key_ = body->root_key;
-    state.log_key_ = body->log_key;
+    state.root_keys_ = {{0, body->root_key}};
+    state.log_keys_ = {{0, body->log_key}};
 
     ActorState organization;
     organization.id = genesis.id;
@@ -188,10 +188,22 @@ Status LedgerState::validate(const crypto::Provider& provider,
         if (signer->kind != ActorKind::person) {
             return fail(Errc::rejected, "only people prove presence");
         }
-        if (auto check =
-                verify_presence(provider, hash_, statement, signed_statement.kid, signer->presence);
-            !check) {
+        auto check =
+            verify_presence(provider, hash_, statement, signed_statement.kid, signer->presence);
+        if (!check) {
             return std::unexpected(check.error());
+        }
+        // Changing your own key or credentials takes the person verified (a
+        // PIN or biometric), not only present: a touch alone, perhaps
+        // tricked, must not hand the identity over (spec v0.4).
+        const auto* rotate = std::get_if<ActorRotateKeyBody>(&statement.body);
+        const auto* set = std::get_if<ActorSetPresenceBody>(&statement.body);
+        const bool own =
+            !statement.delegation_id && ((rotate != nullptr && rotate->actor == signer->id) ||
+                                         (set != nullptr && set->actor == signer->id));
+        if (own && !check->user_verified && check->method != PresenceMethod::hardware_key) {
+            return fail(Errc::rejected, "changing your own key or passkeys needs a passkey that "
+                                        "verifies you (PIN or biometric), not only a touch");
         }
     }
     return check_rules(provider, statement, *signer);
@@ -273,7 +285,23 @@ Status LedgerState::check_new_key(const crypto::Provider& provider,
     if (actors_by_kid_.contains(key_of(*kid))) {
         return fail(Errc::rejected, "the key already belongs to an actor");
     }
+    if (is_log_key(key)) {
+        return fail(Errc::rejected, "the key is (or was) the ledger's log key");
+    }
     return {};
+}
+
+bool LedgerState::is_log_key(const crypto::PublicKey& key) const {
+    return std::ranges::any_of(log_keys_, [&](const KeyEpoch& e) { return e.key == key; });
+}
+
+LedgerKeys LedgerState::keys() const {
+    LedgerKeys out{ledger_id_, hash_, root_key(), log_keys_, 0};
+    if (const ActorState* organization = actor(ledger_id_);
+        organization != nullptr && !organization->rotations.empty()) {
+        out.last_rotation = organization->rotations.back();
+    }
+    return out;
 }
 
 Status LedgerState::check_rules(const crypto::Provider& provider, const Statement& statement,
@@ -324,9 +352,19 @@ Status LedgerState::check_rules(const crypto::Provider& provider, const Statemen
                 if (!target) {
                     return std::unexpected(target.error());
                 }
-                if ((*target)->is_organization()) {
+                // The root key: only the organization itself replaces it.
+                if ((*target)->is_organization() && !signer.is_organization()) {
                     return fail(Errc::rejected,
-                                "the organization key cannot be rotated in this protocol version");
+                                "only the organization rotates its root key, with that key");
+                }
+                // A presence key is a second factor: it never becomes the
+                // signing key.
+                const bool presence_key =
+                    std::ranges::any_of((*target)->presence, [&](const PresenceCredential& c) {
+                        return c.key == b.key;
+                    });
+                if (presence_key) {
+                    return fail(Errc::rejected, "the new key is one of the actor's presence keys");
                 }
                 return check_new_key(provider, b.key);
             },
@@ -387,6 +425,37 @@ Status LedgerState::check_rules(const crypto::Provider& provider, const Statemen
                     if (crypto::is_weak_public_key(c.key.algorithm, c.key.bytes)) {
                         return fail(Errc::rejected, "a presence key is weak");
                     }
+                    // A second factor must be a second key: not the person's
+                    // signing key, nor any actor's, nor a log key.
+                    auto kid = key_id(provider, hash_, c.key);
+                    if (!kid) {
+                        return std::unexpected(kid.error());
+                    }
+                    if (c.key == (*target)->key || actors_by_kid_.contains(key_of(*kid)) ||
+                        is_log_key(c.key)) {
+                        return fail(Errc::rejected,
+                                    "a presence key must not be a signing key or a log key");
+                    }
+                }
+                return {};
+            },
+            [&](const LedgerRotateLogKeyBody& b) -> Status {
+                if (!signer.is_organization()) {
+                    return fail(Errc::rejected,
+                                "only the organization rotates the log key, with its root key");
+                }
+                if (crypto::is_weak_public_key(b.key.algorithm, b.key.bytes)) {
+                    return fail(Errc::rejected, "the key is weak");
+                }
+                if (is_log_key(b.key)) {
+                    return fail(Errc::rejected, "the key is (or was) the ledger's log key");
+                }
+                auto kid = key_id(provider, hash_, b.key);
+                if (!kid) {
+                    return std::unexpected(kid.error());
+                }
+                if (actors_by_kid_.contains(key_of(*kid))) {
+                    return fail(Errc::rejected, "the key belongs to an actor");
                 }
                 return {};
             },
@@ -482,6 +551,9 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
                 actor.key = b.key;
                 actor.kid = *kid;
                 actors_by_kid_[key_of(*kid)] = key_of(b.actor);
+                if (actor.is_organization()) {
+                    root_keys_.push_back({index, b.key});
+                }
                 changes_.push_back(key_of(b.actor));
                 return {};
             },
@@ -516,6 +588,14 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
                 actor.presence = b.credentials;
                 actor.presence_updates.push_back(index);
                 changes_.push_back(key_of(b.actor));
+                return {};
+            },
+            [&](const LedgerRotateLogKeyBody& b) -> Status {
+                log_keys_.push_back({index, b.key});
+                // In the organization's history, so a complete bundle shows
+                // every rotation.
+                actors_.at(key_of(ledger_id_)).rotations.push_back(index);
+                changes_.push_back(key_of(ledger_id_));
                 return {};
             },
             [&](const RecordRegisterBody& b) -> Status {

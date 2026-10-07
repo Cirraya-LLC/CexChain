@@ -29,6 +29,7 @@ enum class StatementType : std::uint8_t {
     delegation_grant = 5,
     delegation_revoke = 6,
     actor_set_presence = 7,
+    ledger_rotate_log_key = 8,
     record_register = 16,
     record_endorse = 17,
     record_transition = 18,
@@ -121,6 +122,15 @@ struct ActorSetPresenceBody {
     friend bool operator==(const ActorSetPresenceBody&, const ActorSetPresenceBody&) = default;
 };
 
+/// Replaces the ledger's log key (spec v0.4). Only the organization signs
+/// it, with its root key and without a delegation. The new key signs every
+/// state commitment and checkpoint after this entry.
+struct LedgerRotateLogKeyBody {
+    crypto::PublicKey key;
+
+    friend bool operator==(const LedgerRotateLogKeyBody&, const LedgerRotateLogKeyBody&) = default;
+};
+
 struct Scope {
     /// Statement types the grantee may submit. Non-empty, no duplicates.
     std::vector<StatementType> statement_types;
@@ -191,10 +201,10 @@ struct RecordRevokeBody {
     friend bool operator==(const RecordRevokeBody&, const RecordRevokeBody&) = default;
 };
 
-using Body =
-    std::variant<GenesisBody, ActorRegisterBody, ActorRotateKeyBody, ActorRevokeBody,
-                 DelegationGrantBody, DelegationRevokeBody, ActorSetPresenceBody,
-                 RecordRegisterBody, RecordEndorseBody, RecordTransitionBody, RecordRevokeBody>;
+using Body = std::variant<GenesisBody, ActorRegisterBody, ActorRotateKeyBody, ActorRevokeBody,
+                          DelegationGrantBody, DelegationRevokeBody, ActorSetPresenceBody,
+                          LedgerRotateLogKeyBody, RecordRegisterBody, RecordEndorseBody,
+                          RecordTransitionBody, RecordRevokeBody>;
 
 [[nodiscard]] StatementType type_of(const Body& body) noexcept;
 

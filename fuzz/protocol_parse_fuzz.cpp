@@ -12,6 +12,7 @@
 
 #include <cexchain/core/protocol/access.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
+#include <cexchain/core/protocol/keys.hpp>
 #include <cexchain/core/protocol/log.hpp>
 #include <cexchain/core/protocol/presence.hpp>
 #include <cexchain/core/protocol/record.hpp>
@@ -129,6 +130,21 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
         }
         log.log_key = {cexchain::crypto::SigAlg::ed25519, cexchain::Bytes(32, 0x11)};
         static_cast<void>(protocol::check_cosign_request(provider, log, *request));
+        // One that can follow key rotations (spec v0.4).
+        log.root_key = {cexchain::crypto::SigAlg::ed25519, cexchain::Bytes(32, 0x22)};
+        static_cast<void>(protocol::check_cosign_request(provider, log, *request));
+    }
+    // A log entry as a genesis, and as a key rotation to follow.
+    if (const auto keys = protocol::keys_from_genesis(provider, input)) {
+        require(keys->log_keys.size() == 1 && keys->last_rotation == 0);
+    }
+    protocol::LedgerKeys keys{*cexchain::crypto::Digest::from_bytes(cexchain::Bytes(32, 0x44)),
+                              cexchain::crypto::HashAlg::sha256,
+                              {cexchain::crypto::SigAlg::ed25519, cexchain::Bytes(32, 0x22)},
+                              {{0, {cexchain::crypto::SigAlg::ed25519, cexchain::Bytes(32, 0x11)}}},
+                              0};
+    if (protocol::follow_key_rotation(provider, keys, 1, input)) {
+        require(keys.log_keys.size() <= 2);
     }
     static_cast<void>(protocol::parse_checkpoint(input));
     static_cast<void>(protocol::parse_cosignature(input));

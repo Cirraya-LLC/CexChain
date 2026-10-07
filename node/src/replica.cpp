@@ -83,16 +83,24 @@ constexpr std::size_t max_held_bytes = std::size_t{64} << 20;
 /// Distinct witnesses whose cosignatures a replica keeps.
 constexpr std::size_t max_witnesses = 64;
 
-/// Takes the primary's entries up to `checkpoint` (already checked on its
-/// own) and then the checkpoint: but only once they lead to the signed
-/// root, so nothing the log key has not signed is ever written. Each entry
-/// is still re-validated as it is taken.
+/// Takes the primary's entries up to `checkpoint` and then the checkpoint:
+/// but only once they lead to its root and the checkpoint is signed by the
+/// log key in effect at its size (following any key rotation among them), so
+/// nothing the log key has not signed is ever written. Each entry is still
+/// re-validated as it is taken.
 Status take_checkpoint(const Client& primary, ledger::Ledger& replica, ByteView encoded,
                        const protocol::SignedCheckpoint& checkpoint, SyncReport& report,
                        const std::function<void(const SyncReport&)>& progress) {
     const std::uint64_t size = checkpoint.checkpoint.tree_size;
-    if (size > replica.size()) {
+    if (size <= replica.size()) {
+        if (auto checked = replica.verify_checkpoint(encoded); !checked) {
+            return fail(Errc::verification_failed,
+                        "the primary sent a checkpoint that is not signed by the log key or goes "
+                        "back");
+        }
+    } else {
         auto range = replica.compact_range();
+        protocol::LedgerKeys keys = replica.keys();
         std::vector<Bytes> held;
         std::size_t held_bytes = 0;
         bool holding = true;
@@ -113,6 +121,12 @@ Status take_checkpoint(const Client& primary, ledger::Ledger& replica, ByteView 
                 auto leaf = merkle::leaf_hash(replica.provider(), replica.hash(), entry);
                 if (!leaf) {
                     return std::unexpected(leaf.error());
+                }
+                const std::uint64_t index = replica.size() + leaves.size() / leaf->size();
+                if (auto s = protocol::follow_key_rotation(replica.provider(), keys, index, entry);
+                    !s) {
+                    return fail(Errc::verification_failed,
+                                "the primary sent a key rotation that does not verify");
                 }
                 if (auto s = range.append_leaf_hash(*leaf); !s) {
                     return s;
@@ -136,6 +150,11 @@ Status take_checkpoint(const Client& primary, ledger::Ledger& replica, ByteView 
         if (*root != checkpoint.checkpoint.root) {
             return fail(Errc::verification_failed,
                         "the primary's entries do not lead to its signed checkpoint");
+        }
+        if (auto checked = replica.verify_checkpoint(encoded, &keys.log_key()); !checked) {
+            return fail(Errc::verification_failed,
+                        "the primary sent a checkpoint that is not signed by the log key or goes "
+                        "back");
         }
         const std::size_t leaf_size = crypto::digest_size(replica.hash());
         const std::uint64_t first = replica.size();
@@ -370,11 +389,11 @@ Result<SyncReport> sync_replica(const Client& primary, ledger::Ledger& replica,
             if (latest && latest->encoded == (*remote)[i]) {
                 continue; // a copy of the latest: nothing new
             }
-            auto checked = replica.verify_checkpoint((*remote)[i]);
+            // Its signature is checked in take_checkpoint, with the log key in
+            // effect at its size.
+            auto checked = protocol::parse_checkpoint((*remote)[i]);
             if (!checked) {
-                return fail(Errc::verification_failed,
-                            "the primary sent a checkpoint that is not signed by the log key or "
-                            "goes back");
+                return fail(Errc::verification_failed, "the primary sent a malformed checkpoint");
             }
             if (auto s =
                     take_checkpoint(primary, replica, (*remote)[i], *checked, report, progress);

@@ -155,16 +155,16 @@ int cmd_serve(const Args& args) {
     require_ledger_directory(dir);
     node::ApiOptions options;
     options.directory = dir;
-    if (const auto key = args.get("log-key")) {
-        options.log_key = std::shared_ptr<const crypto::Signer>(load_signer(*key, args));
+    for (const std::string& key : args.all("log-key")) {
+        options.log_keys.push_back(std::shared_ptr<const crypto::Signer>(load_signer(key, args)));
     }
     options.read_only = args.has("read-only");
     options.public_read = args.has("public-read");
     const std::uint64_t interval = args.has("checkpoint-interval")
                                        ? parse_number(*args.get("checkpoint-interval"), "interval")
-                                   : options.log_key ? 60
-                                                     : 0;
-    if (interval > 0 && !options.log_key) {
+                                   : !options.log_keys.empty() ? 60
+                                                               : 0;
+    if (interval > 0 && options.log_keys.empty()) {
         throw UsageError{"--checkpoint-interval needs --log-key"};
     }
     options.checkpoint_interval = std::chrono::seconds(interval);
@@ -228,11 +228,11 @@ int cmd_serve(const Args& args) {
                     {"ledger_id", id_json(api->ledger().id())},
                     {"role", role},
                     {"read_only", options.read_only || api->is_replica()},
-                    {"log_key", options.log_key != nullptr},
+                    {"log_key", !options.log_keys.empty()},
                     {"checkpoint_interval", interval}});
     } else {
         std::println("serving ledger {} ({}) at {}", hex_id(api->ledger().id()), role, url);
-        if (!options.log_key) {
+        if (options.log_keys.empty()) {
             std::println("no --log-key: receipts, evidence, and checkpoints are not served");
         }
     }

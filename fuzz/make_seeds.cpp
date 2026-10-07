@@ -77,6 +77,7 @@ void ledger_seeds(const Seeds& seeds) {
         must(protocol::sign_statement(org, provider, hash, genesis), "sign");
     auto ledger =
         must(ledger::Ledger::create(fs, clock, provider, signed_genesis.encoded), "create");
+    const crypto::Signer* root = &org;
     auto submit = [&](protocol::Body body) {
         protocol::Statement s;
         s.ledger_id = ledger.id();
@@ -85,7 +86,7 @@ void ledger_seeds(const Seeds& seeds) {
         s.nonce = entropy.bytes<16>();
         s.body = std::move(body);
         const auto signed_statement =
-            must(protocol::sign_statement(org, provider, hash, s), "sign");
+            must(protocol::sign_statement(*root, provider, hash, s), "sign");
         seeds.write("protocol_parse_fuzz", "statement-" + std::to_string(ledger.size()),
                     signed_statement.encoded);
         return must(ledger.submit(signed_statement.encoded), "submit").statement_id;
@@ -172,12 +173,36 @@ void ledger_seeds(const Seeds& seeds) {
                 must(protocol::encode_delivery_contents({disclosed, {{"report.pdf", report}}}),
                      "contents"));
 
+    // Key rotations (spec v0.4): a bundle and a cosign request that carry
+    // them, and backups signed with the newest log key.
+    const auto log2 = must(crypto::openssl::KeyPair::generate(crypto::SigAlg::ed25519), "key");
+    const auto root2 = must(crypto::openssl::KeyPair::generate(crypto::SigAlg::ed25519), "key");
+    const std::uint64_t witnessed = ledger.latest_checkpoint()->checkpoint.tree_size;
+    submit(protocol::LedgerRotateLogKeyBody{log2.public_key()});
+    submit(protocol::ActorRotateKeyBody{ledger.id(), root2.public_key()});
+    root = &root2;
+    submit(protocol::RecordRegisterBody{
+        "other/1",
+        Bytes(commitment.root.bytes().begin(), commitment.root.bytes().end()),
+        commitment.leaves.size(),
+        {},
+        std::nullopt});
+    must(ledger.checkpoint(log2), "checkpoint");
+    seeds.write("protocol_parse_fuzz", "bundle-rotated",
+                must(protocol::encode_bundle(must(ledger.export_evidence(log2, certificate), "e")),
+                     "encode"));
+    seeds.write(
+        "protocol_parse_fuzz", "cosign-request-rotated",
+        must(protocol::encode_cosign_request(must(ledger.cosign_request(witnessed), "request")),
+             "encode"));
+
     // Backups, signed and not.
     for (const bool sign : {true, false}) {
         std::ostringstream out;
         const std::vector<ledger::BackupFile> files{{"api-tokens", Bytes{'{', '}'}}};
-        must(ledger::write_backup(ledger, provider, files, clock.now(), out, sign ? &log : nullptr),
-             "backup");
+        must(
+            ledger::write_backup(ledger, provider, files, clock.now(), out, sign ? &log2 : nullptr),
+            "backup");
         seeds.write("backup_restore_fuzz", sign ? "signed" : "unsigned", out.str());
     }
 }
