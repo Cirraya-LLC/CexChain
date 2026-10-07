@@ -60,4 +60,17 @@ enum class AccessBox { inbox, outbox, receipts, requests, deliveries };
 [[nodiscard]] std::filesystem::path access_path(const std::filesystem::path& ledger_directory,
                                                 AccessBox box, const protocol::Id& id);
 
+/// The delivery in the outbox for `request`, if it is the one made under
+/// `grant` (a later grant for the same request replaces it): Errc::not_found
+/// otherwise.
+[[nodiscard]] Result<Bytes> delivery_for_grant(const std::filesystem::path& ledger_directory,
+                                               const protocol::Id& request,
+                                               const protocol::Id& grant);
+
+/// Stores the receipt for `grant`, once: storing the same bytes again
+/// succeeds, different ones are refused (Errc::rejected), so a stored
+/// acknowledgement cannot be replaced.
+[[nodiscard]] Status store_receipt(const std::filesystem::path& ledger_directory,
+                                   const protocol::Id& grant, ByteView receipt);
+
 } // namespace cexchain::node

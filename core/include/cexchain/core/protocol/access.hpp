@@ -125,28 +125,34 @@ struct Checked {
 check_access_request(const crypto::Provider& provider, ByteView request_bundle,
                      const Id& requester_ledger, const Id& this_ledger, Timestamp now);
 
-/// Checks a grant, for the recipient: its evidence verifies for the
-/// granter's ledger; it is a live grant (not revoked) that names this
-/// ledger, `request` if given, and `recipient`, and has not expired.
+/// Checks a grant, for the requester, against its own request
+/// `request_id` (decoded from its own ledger): the grant's evidence verifies
+/// for the granter's ledger, which is the ledger the request asked; it is a
+/// live, complete grant that names this ledger and that request; it grants
+/// the record asked, sealed to the request's key, within the fields and
+/// attachments asked and no longer than asked; and it has not expired.
 [[nodiscard]] Result<Checked<AccessGrant>>
 check_access_grant(const crypto::Provider& provider, ByteView grant_bundle,
-                   const Id& granter_ledger, const Id& this_ledger,
-                   const std::optional<Id>& request, ByteView recipient, Timestamp now);
+                   const Id& granter_ledger, const Id& this_ledger, const Id& request_id,
+                   const AccessRequest& request, Timestamp now);
 
-/// Checks what a delivery opened to: the granted record's evidence verifies
-/// for the granter's ledger, with its attachment contents; it is the granted
-/// record; and it discloses nothing beyond the grant.
+/// Checks what a delivery opened to, against the checked grant: the
+/// record's evidence verifies for the granter's ledger at the grant's
+/// checkpoint, completely, and the record is not revoked; it is the granted
+/// record; it discloses exactly the granted fields; and it holds exactly the
+/// granted attachments, each opened and matching its commitment.
 [[nodiscard]] Result<EvidenceReport> check_delivered_record(const crypto::Provider& provider,
                                                             const DeliveryContents& contents,
                                                             const Id& granter_ledger,
-                                                            const AccessGrant& grant);
+                                                            const Checked<AccessGrant>& grant);
 
 /// Checks a receipt, for the granter: its evidence verifies for the
-/// recipient's ledger, and it acknowledges `grant`, on this ledger, with
-/// `delivery_hash`.
+/// recipient's ledger, which is the ledger `grant` (this ledger's grant
+/// `grant_id`) was made to; and it acknowledges that grant, on this ledger,
+/// with `delivery_hash`.
 [[nodiscard]] Result<Checked<AccessReceipt>>
 check_access_receipt(const crypto::Provider& provider, ByteView receipt_bundle,
-                     const Id& recipient_ledger, const Id& this_ledger, const Id& grant,
-                     ByteView delivery_hash);
+                     const Id& recipient_ledger, const Id& this_ledger, const Id& grant_id,
+                     const AccessGrant& grant, ByteView delivery_hash);
 
 } // namespace cexchain::protocol

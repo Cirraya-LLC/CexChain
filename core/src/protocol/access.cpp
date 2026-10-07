@@ -348,9 +348,11 @@ Result<Checked<AccessRequest>> check_access_request(const crypto::Provider& prov
 
 Result<Checked<AccessGrant>> check_access_grant(const crypto::Provider& provider,
                                                 ByteView grant_bundle, const Id& granter_ledger,
-                                                const Id& this_ledger,
-                                                const std::optional<Id>& request,
-                                                ByteView recipient, Timestamp now) {
+                                                const Id& this_ledger, const Id& request_id,
+                                                const AccessRequest& request, Timestamp now) {
+    if (request.ledger != granter_ledger) {
+        return fail(Errc::rejected, "the grant comes from another ledger than the one asked");
+    }
     VerifyOptions options;
     options.expected_ledger = granter_ledger;
     CEXCHAIN_TRY(EvidenceReport report, verify_bundle(provider, grant_bundle, options));
@@ -359,11 +361,27 @@ Result<Checked<AccessGrant>> check_access_grant(const crypto::Provider& provider
     if (!grant) {
         return fail(Errc::verification_failed, "the access grant's metadata is malformed");
     }
-    if (grant->ledger != this_ledger || (request && grant->request != *request)) {
+    if (grant->ledger != this_ledger || grant->request != request_id) {
         return fail(Errc::rejected, "the access grant is for another ledger or request");
     }
-    if (!std::ranges::equal(grant->recipient, recipient)) {
+    if (grant->record != request.record) {
+        return fail(Errc::rejected, "the access grant is for another record than requested");
+    }
+    if (!std::ranges::equal(grant->recipient, request.recipient)) {
         return fail(Errc::rejected, "the access grant is for another recipient key");
+    }
+    auto within = [](const std::vector<std::string>& granted,
+                     const std::optional<std::vector<std::string>>& asked) {
+        return !asked || std::ranges::all_of(granted, [&](const std::string& name) {
+            return std::ranges::contains(*asked, name);
+        });
+    };
+    if (!within(grant->fields, request.fields) ||
+        !within(grant->attachments, request.attachments)) {
+        return fail(Errc::rejected, "the access grant covers more than was requested");
+    }
+    if (grant->until > request.until) {
+        return fail(Errc::rejected, "the access grant lasts longer than was requested");
     }
     if (grant->until <= now) {
         return fail(Errc::rejected, "the access grant has expired");
@@ -373,7 +391,9 @@ Result<Checked<AccessGrant>> check_access_grant(const crypto::Provider& provider
 
 Result<EvidenceReport> check_delivered_record(const crypto::Provider& provider,
                                               const DeliveryContents& contents,
-                                              const Id& granter_ledger, const AccessGrant& grant) {
+                                              const Id& granter_ledger,
+                                              const Checked<AccessGrant>& checked) {
+    const AccessGrant& grant = checked.value;
     VerifyOptions options;
     options.expected_ledger = granter_ledger;
     options.attachment_contents = contents.attachments;
@@ -381,30 +401,62 @@ Result<EvidenceReport> check_delivered_record(const crypto::Provider& provider,
     if (report.record != grant.record) {
         return fail(Errc::verification_failed, "the delivery holds another record than granted");
     }
+    // As current as the grant, and nothing (such as a revocation) left out.
+    if (report.checkpoint != checked.report.checkpoint) {
+        return fail(Errc::verification_failed,
+                    "the delivered record is not proven at the grant's checkpoint");
+    }
+    if (!report.complete) {
+        return fail(Errc::verification_failed,
+                    "the delivered record's evidence does not prove its complete history");
+    }
+    if (report.revoked) {
+        return fail(Errc::rejected, "the delivered record has been revoked");
+    }
+    // Exactly the granted fields: nothing more, nothing withheld.
+    std::vector<std::string> disclosed;
     for (const RecordField& field : report.disclosed_fields) {
         if (!std::ranges::contains(grant.fields, field.name)) {
             return fail(Errc::verification_failed, "the delivery discloses a field not granted");
         }
+        if (std::ranges::contains(disclosed, field.name)) {
+            return fail(Errc::verification_failed, "the delivery discloses a field twice");
+        }
+        disclosed.push_back(field.name);
     }
+    if (disclosed.size() != grant.fields.size()) {
+        return fail(Errc::verification_failed, "the delivery withholds a granted field");
+    }
+    // Exactly the granted attachments, each one checked against the
+    // record's commitment.
     for (const auto& [name, content] : contents.attachments) {
         if (!std::ranges::contains(grant.attachments, name)) {
             return fail(Errc::verification_failed, "the delivery holds an attachment not granted");
         }
     }
-    for (const AttachmentCheck& a : report.attachments) {
-        if (a.status == AttachmentStatus::mismatch) {
+    for (const std::string& name : grant.attachments) {
+        const auto check = std::ranges::find(report.attachments, name, &AttachmentCheck::name);
+        if (check == report.attachments.end()) {
             return fail(Errc::verification_failed,
-                        "a delivered attachment does not match its commitment");
+                        "the grant names an attachment the record does not have");
+        }
+        if (check->status != AttachmentStatus::verified) {
+            return fail(Errc::verification_failed,
+                        check->status == AttachmentStatus::mismatch
+                            ? "a delivered attachment does not match its commitment"
+                            : "a granted attachment is missing or not opened");
         }
     }
     return report;
 }
 
-Result<Checked<AccessReceipt>> check_access_receipt(const crypto::Provider& provider,
-                                                    ByteView receipt_bundle,
-                                                    const Id& recipient_ledger,
-                                                    const Id& this_ledger, const Id& grant,
-                                                    ByteView delivery_hash) {
+Result<Checked<AccessReceipt>>
+check_access_receipt(const crypto::Provider& provider, ByteView receipt_bundle,
+                     const Id& recipient_ledger, const Id& this_ledger, const Id& grant_id,
+                     const AccessGrant& grant, ByteView delivery_hash) {
+    if (grant.ledger != recipient_ledger) {
+        return fail(Errc::rejected, "the receipt comes from another ledger than the grant's");
+    }
     VerifyOptions options;
     options.expected_ledger = recipient_ledger;
     CEXCHAIN_TRY(EvidenceReport report, verify_bundle(provider, receipt_bundle, options));
@@ -413,7 +465,7 @@ Result<Checked<AccessReceipt>> check_access_receipt(const crypto::Provider& prov
     if (!receipt) {
         return fail(Errc::verification_failed, "the access receipt's metadata is malformed");
     }
-    if (receipt->ledger != this_ledger || receipt->grant != grant) {
+    if (receipt->ledger != this_ledger || receipt->grant != grant_id) {
         return fail(Errc::rejected, "the access receipt is for another ledger or grant");
     }
     if (!std::ranges::equal(receipt->delivery, delivery_hash)) {

@@ -169,6 +169,11 @@ for _ in $(seq 1 50); do
     sleep 0.1
 done
 f access list --json | json 'sum(1 for i in d if i["kind"]=="grant" and i["acknowledged"])' | contains -x 2
+# A revoked grant's delivery is no longer handed out.
+GRANT2="$(f access list --json | json '[i["id"] for i in d if i["kind"]=="grant" and i["request"]=="'"$ONLINE"'"][0]')"
+f record revoke "$GRANT2" --as f-root.key --reason "review over" > /dev/null
+expect_exit 2 access fetch --peer factory --request "$ONLINE" --out d3.cbor --ledger "$B"
+contains 'withdrew its grant' out.txt
 
 # Mutual witnessing: the bank cosigns the factory's checkpoints online.
 f checkpoint create --log-key f-log.key > /dev/null

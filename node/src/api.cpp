@@ -36,6 +36,9 @@ using json = nlohmann::json;
 using steady = std::chrono::steady_clock;
 
 constexpr std::uint64_t max_batch = 1000;
+/// Peers' pending access requests: at most this many, this large each.
+constexpr std::size_t max_inbox = 4096;
+constexpr std::size_t max_access_request = 256 * 1024;
 constexpr std::size_t max_batch_bytes = 8 * 1024 * 1024;
 
 std::string_view errc_name(Errc code) {
@@ -772,22 +775,22 @@ struct LedgerApi::State {
         return binary("application/cbor", std::move(*bytes));
     }
 
-    /// The peer whose ledger produced `bundle`, which must verify.
-    Result<Peer> peer_of(ByteView bundle) const {
-        auto report = protocol::verify_bundle(*provider, bundle, {});
-        if (!report) {
-            return std::unexpected(report.error());
-        }
+    /// The peer a peer token belongs to: peer tokens are named after their
+    /// peer. Then the evidence must come from that peer's ledger. One answer
+    /// for every refusal, so a token cannot probe which ledgers are peers;
+    /// and nothing is verified before the token is placed.
+    Result<Peer> peer_of(const std::string& principal, ByteView bundle) const {
         auto peers = load_peers(options.directory);
         if (!peers) {
             return std::unexpected(peers.error());
         }
-        for (const Peer& p : *peers) {
-            if (p.ledger_id == report->ledger_id) {
-                return p;
-            }
+        const auto peer = std::ranges::find(*peers, principal, &Peer::name);
+        const auto ledger_id = protocol::bundle_ledger_id(bundle);
+        if (peer == peers->end() || !ledger_id || peer->ledger_id != *ledger_id) {
+            return fail(Errc::rejected,
+                        "this token is not the peer's whose ledger the evidence comes from");
         }
-        return fail(Errc::rejected, "the evidence comes from a ledger that is not a peer");
+        return *peer;
     }
 
     Status store(const std::filesystem::path& path, ByteView bytes) const {
@@ -799,33 +802,40 @@ struct LedgerApi::State {
         return detail::write_file(path, bytes, true);
     }
 
-    /// Peer tokens are named after their peer: each peer sees and sends
-    /// only its own exchanges.
-    static std::optional<http::Response> require_peer_token(const Peer& peer,
-                                                            const std::string& principal) {
-        if (peer.name != principal) {
-            return error_response(403, "forbidden",
-                                  "this token is not the peer's (name it after the peer)");
+    /// Peers write files here too: not on a read-only server or a replica,
+    /// whose operator would never see them.
+    std::optional<http::Response> refuse_peer_write() const {
+        if (options.read_only || replica) {
+            return error_response(403, "read_only",
+                                  replica ? "this ledger is a replica; send to its primary"
+                                          : "this server is read-only");
         }
         return std::nullopt;
     }
 
     http::Response access_request(const http::Request& r, const std::string& principal) {
-        auto peer = peer_of(r.body);
-        if (!peer) {
-            return error_response(peer.error());
-        }
-        if (auto denied = require_peer_token(*peer, principal)) {
+        if (auto denied = refuse_peer_write()) {
             return std::move(*denied);
+        }
+        if (r.body.size() > max_access_request) {
+            return error_response(413, "limit_exceeded", "an access request is at most 256 KiB");
+        }
+        auto peer = peer_of(principal, r.body);
+        if (!peer) {
+            return error_response(403, "forbidden", peer.error().detail);
         }
         auto checked = protocol::check_access_request(*provider, r.body, peer->ledger_id,
                                                       ledger->id(), clock.now());
         if (!checked) {
             return error_response(checked.error());
         }
-        if (auto s = store(access_path(options.directory, AccessBox::inbox, checked->report.record),
-                           r.body);
-            !s) {
+        const auto path = access_path(options.directory, AccessBox::inbox, checked->report.record);
+        std::error_code ec;
+        if (!std::filesystem::exists(path, ec) && inbox_full()) {
+            return error_response(503, "unavailable",
+                                  "the inbox is full; the operator must handle pending requests");
+        }
+        if (auto s = store(path, r.body); !s) {
             return error_response(s.error());
         }
         event("access-request", peer->name + " " + hex(checked->report.record));
@@ -833,6 +843,20 @@ struct LedgerApi::State {
                                    {"peer", peer->name},
                                    {"record", hex(checked->value.record)},
                                    {"purpose", checked->value.purpose}});
+    }
+
+    /// Peers cannot fill the disk: pending requests are capped.
+    bool inbox_full() const {
+        std::error_code ec;
+        std::size_t count = 0;
+        for (auto it =
+                 std::filesystem::directory_iterator(options.directory / "access" / "inbox", ec);
+             !ec && it != std::filesystem::directory_iterator(); it.increment(ec)) {
+            if (++count >= max_inbox) {
+                return true;
+            }
+        }
+        return false;
     }
 
     http::Response access_delivery(std::string_view request_text,
@@ -858,25 +882,38 @@ struct LedgerApi::State {
                          ? protocol::decode_access_grant(*report->metadata)
                          : Result<protocol::AccessGrant>(fail(Errc::malformed, "no grant"));
         auto peers = load_peers(options.directory);
-        const bool theirs = grant && peers && std::ranges::any_of(*peers, [&](const Peer& p) {
+        const bool theirs = grant && peers && grant->request == *request &&
+                            std::ranges::any_of(*peers, [&](const Peer& p) {
                                 return p.ledger_id == grant->ledger && p.name == principal;
                             });
         if (!theirs) {
             return error_response(404, "not_found", "not granted (yet)");
         }
+        // Only while the grant lives on this ledger: not once it is revoked
+        // or has expired (the file is a snapshot from when it was made).
+        bool live = false;
+        ledger->read_state([&](const protocol::LedgerState& state) {
+            const protocol::RecordState* g = state.record(report->record);
+            live = g != nullptr && !g->revoked && g->state == "granted";
+        });
+        if (!live || grant->until <= ledger::SystemClock{}.now()) {
+            return error_response(410, "gone", "the grant was revoked or has expired");
+        }
         return binary("application/cbor", std::move(*bytes));
     }
 
     http::Response access_receipt(const http::Request& r, const std::string& principal) {
-        auto peer = peer_of(r.body);
-        if (!peer) {
-            return error_response(peer.error());
-        }
-        if (auto denied = require_peer_token(*peer, principal)) {
+        if (auto denied = refuse_peer_write()) {
             return std::move(*denied);
         }
+        auto peer = peer_of(principal, r.body);
+        if (!peer) {
+            return error_response(403, "forbidden", peer.error().detail);
+        }
         // Which grant: from the receipt's metadata, checked below.
-        auto report = protocol::verify_bundle(*provider, r.body, {});
+        protocol::VerifyOptions pinned;
+        pinned.expected_ledger = peer->ledger_id;
+        auto report = protocol::verify_bundle(*provider, r.body, pinned);
         auto receipt =
             report && report->metadata
                 ? protocol::decode_access_receipt(*report->metadata)
@@ -890,21 +927,19 @@ struct LedgerApi::State {
         if (!decoded) {
             return error_response(404, "not_found", "no such grant on this ledger");
         }
-        auto delivery =
-            detail::read_file(access_path(options.directory, AccessBox::outbox, decoded->request));
+        auto delivery = delivery_for_grant(options.directory, decoded->request, receipt->grant);
         auto digest = delivery ? provider->digest(crypto::HashAlg::sha256, *delivery)
                                : Result<crypto::Digest>(std::unexpected(delivery.error()));
         if (!digest) {
             return error_response(404, "not_found", "nothing was delivered for this grant");
         }
-        auto checked = protocol::check_access_receipt(
-            *provider, r.body, peer->ledger_id, ledger->id(), receipt->grant, digest->bytes());
+        auto checked =
+            protocol::check_access_receipt(*provider, r.body, peer->ledger_id, ledger->id(),
+                                           receipt->grant, *decoded, digest->bytes());
         if (!checked) {
             return error_response(checked.error());
         }
-        if (auto s =
-                store(access_path(options.directory, AccessBox::receipts, receipt->grant), r.body);
-            !s) {
+        if (auto s = store_receipt(options.directory, receipt->grant, r.body); !s) {
             return error_response(s.error());
         }
         event("access-receipt", peer->name + " " + hex(receipt->grant));

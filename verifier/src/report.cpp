@@ -274,8 +274,11 @@ std::string report_text(const protocol::EvidenceReport& r, bool ledger_checked) 
     }
     line(std::format("  Checkpoint   size {}, signed {} by the ledger's log key",
                      r.checkpoint.tree_size, format_time(r.checkpoint.timestamp)));
-    line(std::format("  Witnesses    {} trusted, {} other", r.trusted_cosignatures,
-                     r.untrusted_cosignatures));
+    line(std::format("  Witnesses    {} trusted{}", r.trusted_cosignatures,
+                     r.untrusted_cosignatures == 0
+                         ? std::string()
+                         : std::format(" ({} more from witnesses you do not trust, not checked)",
+                                       r.untrusted_cosignatures)));
     line(std::format("  Record       {} (id {})", r.record_type, short_id(r.record)));
     line(std::format("  State        {}{}", r.state, r.revoked ? " - REVOKED" : ""));
     if (r.metadata) {

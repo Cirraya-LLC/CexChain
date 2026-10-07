@@ -62,20 +62,20 @@ std::vector<node::Peer> peers_of(const std::filesystem::path& dir) {
     return unwrap(node::load_peers(dir), "reading the peers");
 }
 
-/// The peer whose ledger `bundle` comes from (verifying it once to learn
-/// its ledger; the callers verify it again, pinned).
+/// The peer whose ledger `bundle` claims to come from. Nothing is verified
+/// here: the callers verify the bundle once, pinned to that peer's ledger.
 node::Peer peer_for_bundle(const std::filesystem::path& dir, ByteView bundle) {
-    const auto report = protocol::verify_bundle(shared_provider(), bundle, {});
-    if (!report) {
-        throw CommandError{"the evidence does not verify: " + std::string(report.error().detail)};
+    const auto ledger = protocol::bundle_ledger_id(bundle);
+    if (!ledger) {
+        throw CommandError{"the evidence is malformed: " + std::string(ledger.error().detail)};
     }
     for (node::Peer& p : peers_of(dir)) {
-        if (p.ledger_id == report->ledger_id) {
+        if (p.ledger_id == *ledger) {
             return p;
         }
     }
-    throw CommandError{"the evidence comes from ledger " + hex_id(report->ledger_id) + " (" +
-                       report->organization + "), which is not a peer (cexchain peer add)"};
+    throw CommandError{"the evidence comes from ledger " + hex_id(*ledger) +
+                       ", which is not a peer (cexchain peer add)"};
 }
 
 /// POSTs to the peer's API and returns the JSON answer.
@@ -428,6 +428,10 @@ int cmd_access_fetch(const Args& args) {
         throw CommandError{"peer " + peer.name + " has not granted request " + short_id(request) +
                            " (yet)"};
     }
+    if (response.status == 410) {
+        throw CommandError{"peer " + peer.name + " withdrew its grant for request " +
+                           short_id(request) + " (revoked or expired)"};
+    }
     if (response.status != 200) {
         throw CommandError{"peer " + peer.name + " answered with status " +
                            std::to_string(response.status)};
@@ -468,11 +472,18 @@ int cmd_access_accept(const Args& args) {
     if (ours->revoked || ours->state != "requested") {
         throw CommandError{"request " + short_id(claimed.request) + " was withdrawn"};
     }
+    // The grant is checked against what we asked, from our own ledger.
+    const auto request = unwrap(
+        protocol::decode_access_request(own_metadata(session, claimed.request)), "our request");
     const auto key = recipient_key(session, claimed.request, args);
+    if (!std::ranges::equal(key.public_key(), request.recipient)) {
+        throw CommandError{"the key in the vault for request " + short_id(claimed.request) +
+                           " is not the request's"};
+    }
     const protocol::Timestamp now = ledger::SystemClock{}.now();
     const auto grant =
         protocol::check_access_grant(shared_provider(), delivery.grant_bundle, peer.ledger_id,
-                                     session.ledger().id(), claimed.request, key.public_key(), now);
+                                     session.ledger().id(), claimed.request, request, now);
     if (!grant) {
         std::println("NOT ACCEPTED: {}", grant.error().detail);
         return grant.error().code == Errc::verification_failed ? exit_not_verified : exit_failure;
@@ -487,7 +498,7 @@ int cmd_access_accept(const Args& args) {
     const auto contents =
         unwrap(protocol::decode_delivery_contents(opened->view()), "the delivery's contents");
     const auto record =
-        protocol::check_delivered_record(shared_provider(), contents, peer.ledger_id, grant->value);
+        protocol::check_delivered_record(shared_provider(), contents, peer.ledger_id, *grant);
     if (!record) {
         std::println("NOT ACCEPTED: {}", record.error().detail);
         return exit_not_verified;
@@ -534,6 +545,7 @@ int cmd_access_accept(const Args& args) {
                 {{"name", a.name}, {"verified", a.status == protocol::AttachmentStatus::verified}});
         }
         print_json({{"accepted", true},
+                    {"request", id_json(claimed.request)},
                     {"grant", id_json(grant_id)},
                     {"record", id_json(record->record)},
                     {"record_type", record->record_type},
@@ -545,9 +557,9 @@ int cmd_access_accept(const Args& args) {
                     {"receipt", id_json(receipt_id)}});
         return exit_ok;
     }
-    std::println("ACCEPTED: {} {} from {}, granted by {} until {}", record->record_type,
-                 short_id(record->record), record->organization, who(grant->report),
-                 format_time(grant->value.until));
+    std::println("ACCEPTED: {} {} from {}, granted by {} until {} (request {})",
+                 record->record_type, short_id(record->record), record->organization,
+                 who(grant->report), format_time(grant->value.until), short_id(claimed.request));
     for (const auto& f : record->disclosed_fields) {
         std::println("  {} = {}", f.name, display_value(f.value));
     }
@@ -730,11 +742,17 @@ int cmd_access_grant(const Args& args) {
                             request.purpose, *log_key);
 
     // The delivery: the grant's evidence, and the record's sealed to the
-    // request's key.
+    // request's key, both at the checkpoint just made. Checked as the
+    // recipient will check it.
+    const Bytes grant_bundle = evidence_of(session, *log_key, grant_id, {}, {}, args);
+    protocol::VerifyOptions own;
+    own.expected_ledger = session.ledger().id();
+    const protocol::Checked<protocol::AccessGrant> checked_grant{
+        unwrap(protocol::verify_bundle(shared_provider(), grant_bundle, own), "the grant"), grant};
     contents.record_bundle =
         evidence_of(session, *log_key, request.record, fields, attachments, args);
-    const auto check =
-        protocol::check_delivered_record(shared_provider(), contents, session.ledger().id(), grant);
+    const auto check = protocol::check_delivered_record(shared_provider(), contents,
+                                                        session.ledger().id(), checked_grant);
     if (!check) {
         throw CommandError{"the delivery does not check out: " + std::string(check.error().detail)};
     }
@@ -743,10 +761,9 @@ int cmd_access_grant(const Args& args) {
                    request.recipient, as_bytes(protocol::delivery_info), grant_id.bytes(),
                    unwrap(protocol::encode_delivery_contents(contents), "contents")),
                "sealing the delivery");
-    const Bytes delivery =
-        unwrap(protocol::encode_delivery({evidence_of(session, *log_key, grant_id, {}, {}, args),
-                                          sealed.encapsulated_key, sealed.ciphertext}),
-               "encoding the delivery");
+    const Bytes delivery = unwrap(
+        protocol::encode_delivery({grant_bundle, sealed.encapsulated_key, sealed.ciphertext}),
+        "encoding the delivery");
     store(node::access_path(session.directory(), node::AccessBox::outbox, request_id), delivery);
     if (const auto out = args.get("out")) {
         write_file(*out, delivery, false);
@@ -785,17 +802,18 @@ int cmd_access_receipt(const Args& args) {
     const auto grant =
         unwrap(protocol::decode_access_grant(own_metadata(session, claimed.grant)), "the grant");
     const auto delivery =
-        read_file(node::access_path(session.directory(), node::AccessBox::outbox, grant.request));
+        unwrap(node::delivery_for_grant(session.directory(), grant.request, claimed.grant),
+               "the delivery");
     const auto digest =
         unwrap(shared_provider().digest(crypto::HashAlg::sha256, delivery), "hashing");
     const auto checked =
         protocol::check_access_receipt(shared_provider(), bundle, peer.ledger_id,
-                                       session.ledger().id(), claimed.grant, digest.bytes());
+                                       session.ledger().id(), claimed.grant, grant, digest.bytes());
     if (!checked) {
         std::println("NOT ACCEPTED: {}", checked.error().detail);
         return checked.error().code == Errc::verification_failed ? exit_not_verified : exit_failure;
     }
-    store(node::access_path(session.directory(), node::AccessBox::receipts, claimed.grant), bundle);
+    unwrap(node::store_receipt(session.directory(), claimed.grant, bundle), "storing the receipt");
     if (args.json()) {
         print_json({{"grant", id_json(claimed.grant)},
                     {"peer", peer.name},
@@ -852,6 +870,7 @@ int cmd_access_list(const Args& args) {
             }
             item["kind"] = "grant";
             item["peer"] = peer_name(g->ledger);
+            item["request"] = id_json(g->request);
             item["record"] = id_json(g->record);
             item["until"] = format_time(g->until);
             item["fields"] = g->fields;

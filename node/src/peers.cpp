@@ -6,6 +6,8 @@
 #include <nlohmann/json.hpp>
 
 #include <cexchain/core/cbor.hpp>
+#include <cexchain/core/protocol/access.hpp>
+#include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/log.hpp>
 #include <cexchain/core/protocol/statement.hpp>
 #include <cexchain/node/peers.hpp>
@@ -139,6 +141,46 @@ Result<cbor::Value> record_metadata(const crypto::Provider& provider, const ledg
         return fail(Errc::not_found, "the record has no metadata");
     }
     return *body->metadata;
+}
+
+Result<Bytes> delivery_for_grant(const std::filesystem::path& ledger_directory,
+                                 const protocol::Id& request, const protocol::Id& grant) {
+    auto bytes = detail::read_file(access_path(ledger_directory, AccessBox::outbox, request));
+    if (!bytes) {
+        return std::unexpected(bytes.error());
+    }
+    // Our own file: decoding is enough to tell which grant it was made under.
+    auto delivery = protocol::decode_delivery(*bytes);
+    if (!delivery) {
+        return std::unexpected(delivery.error());
+    }
+    auto bundle = protocol::decode_bundle(delivery->grant_bundle);
+    if (!bundle) {
+        return std::unexpected(bundle.error());
+    }
+    if (bundle->record != grant) {
+        return fail(Errc::not_found, "the delivery for this request was made under another grant");
+    }
+    return bytes;
+}
+
+Status store_receipt(const std::filesystem::path& ledger_directory, const protocol::Id& grant,
+                     ByteView receipt) {
+    const auto path = access_path(ledger_directory, AccessBox::receipts, grant);
+    if (auto existing = detail::read_file(path)) {
+        if (std::ranges::equal(*existing, receipt)) {
+            return {};
+        }
+        return fail(Errc::rejected, "a different receipt for this grant is already stored");
+    } else if (existing.error().code != Errc::not_found) {
+        return std::unexpected(existing.error());
+    }
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
+    if (ec) {
+        return fail(Errc::unavailable, "cannot create the access directory");
+    }
+    return detail::write_file(path, receipt, true);
 }
 
 } // namespace cexchain::node

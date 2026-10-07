@@ -174,7 +174,19 @@ Result<Bytes> encode_bundle(const EvidenceBundle& bundle) {
     return cbor::encode(cbor::Value::map(std::move(map)));
 }
 
+Result<Id> bundle_ledger_id(ByteView encoded) {
+    CEXCHAIN_TRY(EvidenceBundle bundle, decode_bundle(encoded));
+    if (bundle.entries.empty()) {
+        return fail(Errc::malformed, "the bundle has no genesis entry");
+    }
+    CEXCHAIN_TRY(LogEntry genesis, decode_log_entry(bundle.entries.front().entry));
+    return genesis.statement_id;
+}
+
 Result<EvidenceBundle> decode_bundle(ByteView encoded) {
+    if (encoded.size() > max_bundle_size) {
+        return fail(Errc::limit_exceeded, "the evidence bundle is too large");
+    }
     // Bundles hold many signed objects; allow more items than the default.
     cbor::DecodeOptions options;
     options.max_items = std::size_t{1} << 20;
@@ -418,9 +430,14 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
     report.state = record->state;
     report.revoked = record->revoked;
 
+    // Entries ascend by index (checked above): find them by binary search,
+    // so a long history costs O(h log n), not O(h n).
+    auto included_at = [&](std::uint64_t index) {
+        return std::ranges::lower_bound(included, index, {}, &Included::index);
+    };
     const RecordRegisterBody* registration = nullptr;
     for (const std::uint64_t index : record->history) {
-        const auto it = std::ranges::find(included, index, &Included::index);
+        const auto it = included_at(index);
         const Statement& statement = it->statement.statement;
         if (const auto* body = std::get_if<RecordRegisterBody>(&statement.body)) {
             registration = body;
@@ -452,29 +469,26 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
         report.state_commitment = last->commitment->commitment;
         std::vector<Statement> events;
         for (const std::uint64_t index : record->history) {
-            events.push_back(
-                std::ranges::find(included, index, &Included::index)->statement.statement);
+            events.push_back(included_at(index)->statement.statement);
         }
-        std::vector<Id> proven;
+        std::map<IdKey, const StateProof*> proven;
         for (const StateProof& proof : bundle.state_proofs) {
-            if (std::ranges::contains(proven, proof.leaf.id)) {
+            if (!proven.emplace(key_of(proof.leaf.id), &proof).second) {
                 return verification_failure("a state proof is repeated");
             }
             if (!verify_state_proof(provider, state->hash(), proof, *state_root)) {
                 return verification_failure(
                     "a state proof does not match the ledger's state commitment");
             }
-            proven.push_back(proof.leaf.id);
         }
         for (const Id& id : involved_objects(*state, record->id, events)) {
-            const auto proof = std::ranges::find(bundle.state_proofs, id,
-                                                 [](const StateProof& p) { return p.leaf.id; });
-            if (proof == bundle.state_proofs.end()) {
+            const auto proof = proven.find(key_of(id));
+            if (proof == proven.end()) {
                 return verification_failure(
                     "the bundle does not prove the complete history of everyone involved");
             }
             const auto replayed = state_leaf(*state, id);
-            if (!replayed || *replayed != proof->leaf) {
+            if (!replayed || *replayed != proof->second->leaf) {
                 return verification_failure("the bundle leaves out part of a history it must show "
                                             "in full (for example a revocation)");
             }
@@ -485,13 +499,26 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
             "state proofs need the state commitment the checkpoint ends with");
     }
 
+    // Leaves are sorted by name, one per name: disclosures must agree (a
+    // record committing two leaves of one name could otherwise show each
+    // party a different value).
+    std::map<std::uint64_t, std::string> disclosed_at;
     for (const FieldDisclosure& disclosure : bundle.disclosures) {
         auto field = verify_disclosure(provider, state->hash(), record->field_root,
                                        record->field_count, disclosure);
         if (!field) {
             return verification_failure("a disclosed field does not match the record's commitment");
         }
+        if (!disclosed_at.emplace(disclosure.index, field->name).second) {
+            return verification_failure("a field is disclosed twice");
+        }
         report.disclosed_fields.push_back(std::move(*field));
+    }
+    for (auto it = disclosed_at.begin(); it != disclosed_at.end(); ++it) {
+        if (const auto next = std::next(it);
+            next != disclosed_at.end() && !(it->second < next->second)) {
+            return verification_failure("disclosed fields are not in the record's name order");
+        }
     }
 
     if (registration == nullptr) {

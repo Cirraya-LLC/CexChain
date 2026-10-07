@@ -166,7 +166,7 @@ A ledger accepts a statement only if every rule below holds at its registration 
 
 ## 6. Records and private data
 
-**Field commitments.** A record's fields are `[name, salt, value]` triples with a fresh 16-byte salt each. The leaves are their deterministic-CBOR encodings, sorted by name. The record commits to the RFC 9162 Merkle root over the leaves, and to their count. To disclose a field, the owner gives the leaf and its inclusion path. Undisclosed fields stay hidden, and their salts stop dictionary attacks on small value spaces. Deleting a field's value and salt makes its commitment meaningless (crypto-shredding).
+**Field commitments.** A record's fields are `[name, salt, value]` triples with a fresh 16-byte salt each. The leaves are their deterministic-CBOR encodings, sorted by name, one per name. A verifier refuses a bundle that discloses one leaf twice, or discloses leaves whose names do not ascend with their indices. The record commits to the RFC 9162 Merkle root over the leaves, and to their count. To disclose a field, the owner gives the leaf and its inclusion path. Undisclosed fields stay hidden, and their salts stop dictionary attacks on small value spaces. Deleting a field's value and salt makes its commitment meaningless (crypto-shredding).
 
 **Attachments.** The record carries each attachment's name, media type, size, and commitment `HASH(salt || content)`, never the content.
 
@@ -314,14 +314,16 @@ Each side learns the other's **ledger id** out of band and pins every bundle it 
 - **Grant.** The factory records a grant for at most what was asked and until no later than the request's end.
 - **Delivery.** The factory builds `{1: 1, 2: grant bundle, 3: {1: enc, 2: ciphertext}}`. The ciphertext seals `delivery-contents` with HPKE to the request's key, with info `"CexChain delivery v1"` and the grant id as additional authenticated data. `delivery-contents` holds the record's bundle with only the granted disclosures and openings, and the granted attachments' contents.
 - **Acceptance.** The bank MUST check all of the following, and only then acknowledge:
-  1. the grant verifies for the factory's ledger and is complete;
+  1. the grant verifies for the factory's ledger, which is the ledger the request asked, and is complete;
   2. the grant is live, and names the bank's ledger, its request, and its key;
-  3. the grant has not expired;
-  4. the contents open with the request's key;
-  5. the record bundle verifies for the factory's ledger and is the granted record;
-  6. the record bundle discloses nothing beyond the grant;
-  7. every attachment matches its commitment.
-- **Receipt.** The bank records the receipt and sends its evidence. The factory checks that it names the factory's grant and the hash of the delivery it made.
+  3. the grant answers the request: the same record, fields and attachments the request asked for (or fewer), and an end no later than the request's;
+  4. the grant has not expired;
+  5. the contents open with the request's key;
+  6. the record bundle verifies for the factory's ledger at the grant bundle's checkpoint, is complete, and is the granted record, which is not revoked;
+  7. the record bundle discloses exactly the granted fields, each once;
+  8. the delivery holds exactly the granted attachments, each opened and matching its commitment.
+- **Receipt.** The bank records the receipt and sends its evidence. The factory checks that the receipt comes from the ledger the grant was made to, names the factory's grant, and gives the hash of the delivery made under that grant. A stored receipt is never replaced by a different one.
+- **Serving deliveries** (informative). A server hands out a delivery only to the peer it was granted to, and only while the grant is live and unexpired.
 
 Revoking a grant stops future deliveries. It cannot make a recipient forget, but the receipt makes access accountable.
 

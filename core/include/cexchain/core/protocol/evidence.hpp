@@ -62,7 +62,14 @@ struct EvidenceBundle {
 };
 
 [[nodiscard]] Result<Bytes> encode_bundle(const EvidenceBundle& bundle);
+/// Verifiers refuse larger bundles: verification costs grow with the size.
+inline constexpr std::size_t max_bundle_size = std::size_t{64} << 20;
+
 [[nodiscard]] Result<EvidenceBundle> decode_bundle(ByteView encoded);
+
+/// The ledger a bundle claims to come from (its genesis entry's id),
+/// without verifying anything: to pick the ledger to pin, then verify once.
+[[nodiscard]] Result<Id> bundle_ledger_id(ByteView encoded);
 
 struct VerifyOptions {
     /// If set, the bundle must come from this ledger. Verifiers learn the

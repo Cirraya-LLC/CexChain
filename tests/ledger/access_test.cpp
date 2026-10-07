@@ -176,17 +176,40 @@ TEST_CASE("a request, a grant, a delivery, a receipt", "[access]") {
     const Bytes grant_bundle = evidence(p.factory, grant_id);
     const auto grant =
         protocol::check_access_grant(provider(), grant_bundle, p.factory.ledger().id(),
-                                     p.bank.ledger().id(), request_id, p.recipient, p.now);
+                                     p.bank.ledger().id(), request_id, p.request(), p.now);
     REQUIRE(grant);
     CHECK(grant->value == p.grant(request_id));
+    // The grant must answer what was asked, as it was asked.
+    auto refused = [&](protocol::AccessRequest asked, const protocol::Id& id) {
+        const auto checked =
+            protocol::check_access_grant(provider(), grant_bundle, p.factory.ledger().id(),
+                                         p.bank.ledger().id(), id, asked, p.now);
+        return !checked && checked.error().code == Errc::rejected;
+    };
+    auto asked = p.request();
+    asked.recipient = Bytes(32, 1);
+    CHECK(refused(asked, request_id));
+    CHECK(refused(p.request(), p.cert.id)); // another request
+    asked = p.request();
+    asked.record = grant_id; // another record than the one granted
+    CHECK(refused(asked, request_id));
+    asked = p.request();
+    asked.ledger = p.bank.ledger().id(); // asked another ledger than the granter
+    CHECK(refused(asked, request_id));
+    asked = p.request();
+    asked.fields = std::vector<std::string>{"price"}; // granted more than asked
+    CHECK(refused(asked, request_id));
+    asked = p.request();
+    asked.attachments = std::vector<std::string>{};
+    CHECK(refused(asked, request_id));
+    asked = p.request();
+    asked.until = t0 + 2 * day; // granted for longer than asked
+    CHECK(refused(asked, request_id));
+    asked = p.request();
+    asked.fields.reset(); // asked for everything: any granted fields are within it
+    asked.attachments.reset();
     CHECK(protocol::check_access_grant(provider(), grant_bundle, p.factory.ledger().id(),
-                                       p.bank.ledger().id(), request_id, Bytes(32, 1), p.now)
-              .error()
-              .code == Errc::rejected);
-    CHECK(protocol::check_access_grant(provider(), grant_bundle, p.factory.ledger().id(),
-                                       p.bank.ledger().id(), p.cert.id, p.recipient, p.now)
-              .error()
-              .code == Errc::rejected);
+                                       p.bank.ledger().id(), request_id, asked, p.now));
 
     // What is delivered must be the granted record, within the grant.
     auto disclose = [&](std::string_view name) {
@@ -194,36 +217,67 @@ TEST_CASE("a request, a grant, a delivery, a receipt", "[access]") {
         REQUIRE(d);
         return *d;
     };
+    // Delivered bundles must be at the grant's checkpoint, as a granter
+    // exports them both after one checkpoint.
+    auto at_grant = [&](const protocol::Id& record,
+                        std::vector<protocol::FieldDisclosure> disclosures = {},
+                        std::vector<protocol::AttachmentOpening> openings = {}) {
+        auto bundle = p.factory.ledger().export_evidence(p.factory.log_key(), record);
+        REQUIRE(bundle);
+        REQUIRE(
+            bundle->checkpoint ==
+            *protocol::decode_bundle(grant_bundle).transform([](const protocol::EvidenceBundle& b) {
+                return b.checkpoint;
+            }));
+        bundle->disclosures = std::move(disclosures);
+        bundle->attachments = std::move(openings);
+        return *protocol::encode_bundle(*bundle);
+    };
     const protocol::DeliveryContents good{
-        evidence(p.factory, p.cert.id, {disclose("result")}, {{"report.pdf", salt_a}}),
+        at_grant(p.cert.id, {disclose("result")}, {{"report.pdf", salt_a}}),
         {{"report.pdf", report_content}}};
     const auto delivered =
-        protocol::check_delivered_record(provider(), good, p.factory.ledger().id(), grant->value);
+        protocol::check_delivered_record(provider(), good, p.factory.ledger().id(), *grant);
     REQUIRE(delivered);
     REQUIRE(delivered->disclosed_fields.size() == 1);
     CHECK(delivered->disclosed_fields[0].name == "result");
     CHECK(delivered->attachments[0].status == protocol::AttachmentStatus::verified);
 
+    auto not_verified = [&](const protocol::DeliveryContents& contents) {
+        const auto checked =
+            protocol::check_delivered_record(provider(), contents, p.factory.ledger().id(), *grant);
+        return !checked && checked.error().code == Errc::verification_failed;
+    };
     SECTION("more than granted") {
-        const protocol::DeliveryContents too_much{
-            evidence(p.factory, p.cert.id, {disclose("result"), disclose("price")}), {}};
-        CHECK(protocol::check_delivered_record(provider(), too_much, p.factory.ledger().id(),
-                                               grant->value)
-                  .error()
-                  .code == Errc::verification_failed);
+        CHECK(not_verified(
+            {at_grant(p.cert.id, {disclose("result"), disclose("price")}, {{"report.pdf", salt_a}}),
+             {{"report.pdf", report_content}}}));
     }
-    SECTION("a file that is not the record's") {
+    SECTION("less than granted") {
+        CHECK(not_verified(
+            {at_grant(p.cert.id, {}, {{"report.pdf", salt_a}}), {{"report.pdf", report_content}}}));
+        CHECK(not_verified({at_grant(p.cert.id, {disclose("result")}), {}}));
+        CHECK(not_verified({at_grant(p.cert.id, {disclose("result"), disclose("result")},
+                                     {{"report.pdf", salt_a}}),
+                            {{"report.pdf", report_content}}}));
+    }
+    SECTION("a file that is not the record's, or not checked against it") {
         protocol::DeliveryContents forged = good;
         forged.attachments["report.pdf"] = Bytes{'f', 'a', 'k', 'e'};
-        CHECK_FALSE(protocol::check_delivered_record(provider(), forged, p.factory.ledger().id(),
-                                                     grant->value));
+        CHECK(not_verified(forged));
+        // Content without the opening to check it by is not accepted either.
+        CHECK(not_verified({at_grant(p.cert.id, {disclose("result")}),
+                            {{"report.pdf", Bytes{'f', 'a', 'k', 'e'}}}}));
+        protocol::DeliveryContents extra = good;
+        extra.attachments["invoice.pdf"] = Bytes{'x'};
+        CHECK(not_verified(extra));
     }
-    SECTION("another record") {
-        const protocol::DeliveryContents other{evidence(p.factory, grant_id), {}};
-        CHECK(protocol::check_delivered_record(provider(), other, p.factory.ledger().id(),
-                                               grant->value)
-                  .error()
-                  .code == Errc::verification_failed);
+    SECTION("another record, or one proven at another checkpoint") {
+        CHECK(not_verified({at_grant(grant_id), {}}));
+        static_cast<void>(issue_certificate(p.factory)); // the log moves on
+        CHECK(not_verified(
+            {evidence(p.factory, p.cert.id, {disclose("result")}, {{"report.pdf", salt_a}}),
+             {{"report.pdf", report_content}}}));
     }
     SECTION("a revoked grant") {
         p.factory.ok(p.factory.org(),
@@ -231,7 +285,7 @@ TEST_CASE("a request, a grant, a delivery, a receipt", "[access]") {
                                          protocol::RecordRevokeBody{grant_id, "ended"}));
         CHECK(protocol::check_access_grant(provider(), evidence(p.factory, grant_id),
                                            p.factory.ledger().id(), p.bank.ledger().id(),
-                                           request_id, p.recipient, p.now)
+                                           request_id, p.request(), p.now)
                   .error()
                   .code == Errc::rejected);
     }
@@ -241,10 +295,20 @@ TEST_CASE("a request, a grant, a delivery, a receipt", "[access]") {
             p.bank, protocol::access_receipt_type,
             *protocol::encode_access_receipt({p.factory.ledger().id(), grant_id, delivery_hash}));
         const Bytes receipt_bundle = evidence(p.bank, receipt_id);
+        const auto made = p.grant(request_id);
         CHECK(protocol::check_access_receipt(provider(), receipt_bundle, p.bank.ledger().id(),
-                                             p.factory.ledger().id(), grant_id, delivery_hash));
+                                             p.factory.ledger().id(), grant_id, made,
+                                             delivery_hash));
         CHECK(protocol::check_access_receipt(provider(), receipt_bundle, p.bank.ledger().id(),
-                                             p.factory.ledger().id(), grant_id, Bytes(32, 0))
+                                             p.factory.ledger().id(), grant_id, made, Bytes(32, 0))
+                  .error()
+                  .code == Errc::rejected);
+        // Only the ledger the grant was made to may acknowledge it.
+        auto to_another = made;
+        to_another.ledger = p.cert.id;
+        CHECK(protocol::check_access_receipt(provider(), receipt_bundle, p.bank.ledger().id(),
+                                             p.factory.ledger().id(), grant_id, to_another,
+                                             delivery_hash)
                   .error()
                   .code == Errc::rejected);
         // A receipt is not a request.

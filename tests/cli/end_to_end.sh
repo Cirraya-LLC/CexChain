@@ -289,7 +289,7 @@ run witness status --dir witness --json | json 'd[0]["size"]' | contains -x "$SE
 # Exports carry the cosignatures; verifiers can require witnesses they trust.
 run export "$RECORD" --log-key log.key --out witnessed.cbor > /dev/null
 run verify witnessed.cbor --ledger-id "$LEDGER_ID" --witness witness.pub --min-witnesses 1 \
-    | contains 'Witnesses    1 trusted, 0 other'
+    | contains -x '  Witnesses    1 trusted'
 expect_exit 3 verify witnessed.cbor --witness witness.pub --min-witnesses 2
 expect_exit 3 verify witnessed.cbor --min-witnesses 1
 
