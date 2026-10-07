@@ -22,10 +22,11 @@
 /// File `<name>.synced` holds a framed record of the log's durable size after
 /// every successful sync.
 ///
-/// Recovery after a crash scans the log. A bad or incomplete record beyond the
-/// last durable size is the remains of an unacknowledged write and is cut
-/// off. A bad record within the durable size is corruption of acknowledged
-/// history, and opening fails rather than silently dropping entries.
+/// Recovery after a crash keeps exactly the acknowledged records: anything
+/// beyond the last durable size, whole or not, is the remains of an
+/// unacknowledged write and is cut off. A bad record within the durable size
+/// is corruption of acknowledged history, and opening fails rather than
+/// silently dropping entries.
 namespace cexchain::ledger {
 
 /// Records larger than this are rejected (the ledger stores statements, not
@@ -102,6 +103,9 @@ private:
     /// The offset just past the last record.
     std::uint64_t end_ = 0;
     bool failed_ = false;
+    /// The size of the `.synced` file as this log last read or wrote it
+    /// (the writer's own; another process's appends make the file larger).
+    std::uint64_t synced_seen_ = 0;
 };
 
 } // namespace cexchain::ledger

@@ -82,6 +82,9 @@ struct Ledger::Impl {
     std::optional<protocol::StateCommitment> tree_commitment;
     std::uint64_t tree_commitment_index = 0;
     std::optional<protocol::SignedCheckpoint> latest_checkpoint;
+    /// Stored checkpoints checked against the log: a refresh that failed
+    /// after reading new ones checks them next time.
+    std::uint64_t checked_checkpoints = 0;
     /// The state commitment the latest checkpoint ends with, if it does.
     std::optional<protocol::StateCommitment> checkpoint_commitment;
     protocol::Timestamp last_registered_at = 0;
@@ -124,17 +127,17 @@ struct Ledger::Impl {
         std::optional<protocol::SignedStatement> statement;
         std::optional<protocol::SignedStateCommitment> commitment;
         std::optional<Error> error;
-        /// The key the signature verified with (a copy: the state's keys
-        /// change as statements apply).
-        std::optional<crypto::PublicKey> verified_key;
+        /// The signature checked ahead, with the key its kid named (a copy:
+        /// the state's keys change as statements apply).
+        std::optional<protocol::SignatureCheck> signature;
     };
 
     /// Checks signatures in parallel, each with the key its kid names: an
     /// actor's current key, or one that an earlier statement of the same
-    /// batch introduces. `verified[i]` gets the key on success; the rest are
-    /// left to the sequential check, which verifies again and reports.
+    /// batch introduces. `checks[i]` gets the key and the outcome; statements
+    /// whose kid names no key are left to the sequential check.
     void pre_verify(std::span<const protocol::SignedStatement* const> statements,
-                    std::span<std::optional<crypto::PublicKey>> verified) const {
+                    std::span<std::optional<protocol::SignatureCheck>> checks) const {
         std::map<protocol::IdKey, crypto::PublicKey> introduced;
         for (const protocol::SignedStatement* s : statements) {
             if (s == nullptr) {
@@ -166,8 +169,9 @@ struct Ledger::Impl {
                 } else if (const protocol::ActorState* actor = state.actor_by_kid(s->kid)) {
                     key = &actor->key;
                 }
-                if (key != nullptr && protocol::verify_statement(*provider, *s, *key)) {
-                    verified[i] = *key;
+                if (key != nullptr) {
+                    checks[i] = protocol::SignatureCheck{
+                        *key, protocol::verify_statement(*provider, *s, *key)};
                 }
             }
         });
@@ -199,15 +203,15 @@ struct Ledger::Impl {
             }
         });
         std::vector<const protocol::SignedStatement*> statements(out.size(), nullptr);
-        std::vector<std::optional<crypto::PublicKey>> verified(out.size());
+        std::vector<std::optional<protocol::SignatureCheck>> checks(out.size());
         for (std::size_t i = 0; i < out.size(); ++i) {
             if (out[i].statement) {
                 statements[i] = &*out[i].statement;
             }
         }
-        pre_verify(statements, verified);
+        pre_verify(statements, checks);
         for (std::size_t i = 0; i < out.size(); ++i) {
-            out[i].verified_key = std::move(verified[i]);
+            out[i].signature = std::move(checks[i]);
         }
         return out;
     }
@@ -240,7 +244,7 @@ struct Ledger::Impl {
             return fail(Errc::verification_failed, "a log entry has the wrong statement id");
         }
         if (auto s = state.validate(*provider, *d.statement, entry.registered_at,
-                                    d.verified_key ? &*d.verified_key : nullptr);
+                                    d.signature ? &*d.signature : nullptr);
             !s) {
             return fail(Errc::verification_failed,
                         "a logged statement does not pass validation on replay");
@@ -342,6 +346,8 @@ struct Ledger::Impl {
     /// Makes `checkpoint` the latest, with the state commitment it ends
     /// with if that is the one the state tree holds.
     void adopt_checkpoint(protocol::SignedCheckpoint checkpoint) {
+        // Every stored checkpoint up to here has been checked.
+        checked_checkpoints = checkpoints.count();
         if (tree_commitment && tree_commitment_index + 1 == checkpoint.checkpoint.tree_size) {
             checkpoint_commitment = tree_commitment;
         } else {
@@ -575,6 +581,10 @@ crypto::HashAlg Ledger::hash() const noexcept {
     return impl_->state.hash(); // fixed at genesis
 }
 
+bool Ledger::usable() const noexcept {
+    return !impl_->failed.load();
+}
+
 std::uint64_t Ledger::size() const noexcept {
     const std::shared_lock lock(impl_->log_mutex);
     return impl_->tree.size();
@@ -628,8 +638,8 @@ Ledger::submit_batch(std::span<const ByteView> signed_statements) {
             pointers[i] = &*parsed[i];
         }
     }
-    std::vector<std::optional<crypto::PublicKey>> verified(n);
-    impl_->pre_verify(pointers, verified);
+    std::vector<std::optional<protocol::SignatureCheck>> checks(n);
+    impl_->pre_verify(pointers, checks);
 
     // Validate and apply in order, each statement against the state the ones
     // before it left.
@@ -661,7 +671,7 @@ Ledger::submit_batch(std::span<const ByteView> signed_statements) {
                 continue;
             }
             if (auto s = impl_->state.validate(*impl_->provider, statement, now,
-                                               verified[i] ? &*verified[i] : nullptr);
+                                               checks[i] ? &*checks[i] : nullptr);
                 !s) {
                 results.emplace_back(std::unexpected(s.error()));
                 continue;
@@ -673,9 +683,19 @@ Ledger::submit_batch(std::span<const ByteView> signed_statements) {
             }
             const std::uint64_t index = first + entries.size();
             if (auto s = impl_->state.apply(*impl_->provider, statement, index); !s) {
+                // The state moved partway: nothing of this batch may be
+                // written, and the ledger must be reopened.
                 impl_->failed = true;
                 results.emplace_back(std::unexpected(s.error()));
-                continue;
+                for (auto& r : results) {
+                    if (r && r->index >= first) {
+                        r = std::unexpected(s.error());
+                    }
+                }
+                while (results.size() < n) {
+                    results.emplace_back(std::unexpected(s.error()));
+                }
+                return results;
             }
             entries.push_back(std::move(*encoded));
             results.emplace_back(Registration{statement.id, index, now, true});
@@ -698,8 +718,10 @@ Ledger::submit_batch(std::span<const ByteView> signed_statements) {
     }
     if (!written) {
         impl_->failed = true;
+        // Every registration in this batch, including a repeat of one made
+        // earlier in it.
         for (auto& r : results) {
-            if (r && r->newly_registered) {
+            if (r && r->index >= first) {
                 r = std::unexpected(written.error());
             }
         }
@@ -773,6 +795,18 @@ Result<RefreshReport> Ledger::refresh(FileSystem& fs, bool recover) {
     const std::unique_lock state_lock(impl_->state_mutex);
     const std::unique_lock log_lock(impl_->log_mutex);
     RefreshReport report;
+    // Checkpoints and cosignatures first, then the log: a checkpoint is
+    // written only once the entries it covers are durable, so everything
+    // picked up here is covered by the log read after it. (The other order
+    // races a writer, and a checkpoint would seem to run ahead of the log.)
+    if (auto s = impl_->checkpoints.refresh(fs, checkpoints_file, recover); !s) {
+        return std::unexpected(s.error());
+    }
+    auto cosignatures = impl_->cosignatures.refresh(fs, cosignatures_file, recover);
+    if (!cosignatures) {
+        return std::unexpected(cosignatures.error());
+    }
+    report.cosignatures = *cosignatures;
     const std::uint64_t old_size = impl_->log.count();
     auto added = impl_->log.refresh(fs, statements_file, recover);
     if (!added) {
@@ -785,11 +819,7 @@ Result<RefreshReport> Ledger::refresh(FileSystem& fs, bool recover) {
         impl_->failed = true;
         return fail(Errc::malformed, replayed.error->detail);
     }
-    const std::uint64_t old_checkpoints = impl_->checkpoints.count();
-    if (auto s = impl_->checkpoints.refresh(fs, checkpoints_file, recover); !s) {
-        return std::unexpected(s.error());
-    }
-    for (std::uint64_t i = old_checkpoints; i < impl_->checkpoints.count(); ++i) {
+    for (std::uint64_t i = impl_->checked_checkpoints; i < impl_->checkpoints.count(); ++i) {
         auto bytes = impl_->checkpoints.read(i);
         if (!bytes) {
             return std::unexpected(bytes.error());
@@ -802,11 +832,6 @@ Result<RefreshReport> Ledger::refresh(FileSystem& fs, bool recover) {
         impl_->adopt_checkpoint(std::move(*checkpoint));
         ++report.checkpoints;
     }
-    auto cosignatures = impl_->cosignatures.refresh(fs, cosignatures_file, recover);
-    if (!cosignatures) {
-        return std::unexpected(cosignatures.error());
-    }
-    report.cosignatures = *cosignatures;
     return report;
 }
 
@@ -1110,6 +1135,12 @@ namespace {
 Result<protocol::StateProof> prove(const Ledger::Impl& impl, const protocol::Id& id) {
     if (!impl.latest_checkpoint || !impl.checkpoint_commitment) {
         return fail(Errc::not_found, "no checkpoint commits to the ledger state yet");
+    }
+    // The tree follows the latest commitment in the log, which may still
+    // await its checkpoint (written, or copied, a moment later).
+    if (impl.tree_commitment_index + 1 != impl.latest_checkpoint->checkpoint.tree_size) {
+        return fail(Errc::unavailable,
+                    "the latest state commitment awaits its checkpoint; retry shortly");
     }
     // The object as the commitment saw it: its history before that entry.
     auto leaf = protocol::state_leaf(impl.state, id, impl.tree_commitment_index);

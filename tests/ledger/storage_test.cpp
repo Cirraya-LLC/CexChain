@@ -120,6 +120,48 @@ TEST_CASE("crash at any point keeps every acknowledged record", "[ledger][storag
     }
 }
 
+TEST_CASE("a whole record never acknowledged is cut off, and refresh agrees", "[ledger][storage]") {
+    ledger::MemoryFileSystem memory;
+    {
+        auto log = ledger::RecordLog::open(memory, "log");
+        REQUIRE(log);
+        REQUIRE(log->append(as_bytes("acknowledged")));
+    }
+    // A writer that died after syncing a record but before recording the
+    // sync: the record is whole, and was never acknowledged.
+    {
+        auto raw = memory.open("log");
+        REQUIRE(raw);
+        const Bytes payload{'l', 'o', 's', 't'};
+        const std::uint32_t crc = cexchain::ledger::detail::crc32c(payload);
+        Bytes frame{0,
+                    0,
+                    0,
+                    4,
+                    static_cast<std::uint8_t>(crc >> 24),
+                    static_cast<std::uint8_t>(crc >> 16),
+                    static_cast<std::uint8_t>(crc >> 8),
+                    static_cast<std::uint8_t>(crc)};
+        frame.insert(frame.end(), payload.begin(), payload.end());
+        REQUIRE((*raw)->append(frame));
+        REQUIRE((*raw)->sync());
+    }
+    ledger::RecoveryReport report;
+    auto reopened = ledger::RecordLog::open(memory, "log", &report);
+    REQUIRE(reopened);
+    CHECK(reopened->count() == 1);
+    CHECK(report.truncated_bytes == 12);
+    // Once, open kept such a record and refresh(recover) called it a shrunk
+    // log: a server then refused every write until it was rebuilt.
+    REQUIRE(reopened->refresh(memory, "log", true));
+    CHECK(reopened->count() == 1);
+    REQUIRE(reopened->append(as_bytes("next")));
+    CHECK(*reopened->read(1) == Bytes{'n', 'e', 'x', 't'});
+    auto again = ledger::RecordLog::open(memory, "log");
+    REQUIRE(again);
+    CHECK(again->count() == 2);
+}
+
 TEST_CASE("damage to acknowledged records refuses to open", "[ledger][storage]") {
     ledger::MemoryFileSystem fs;
     {

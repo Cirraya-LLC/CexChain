@@ -103,6 +103,9 @@ public:
     [[nodiscard]] const protocol::Id& id() const noexcept;
     [[nodiscard]] crypto::HashAlg hash() const noexcept;
     [[nodiscard]] std::uint64_t size() const noexcept;
+    /// False once a write failed after memory moved ahead of the files, or
+    /// the files were found not to validate: the ledger must be reopened.
+    [[nodiscard]] bool usable() const noexcept;
 
     /// The log index of a durable statement.
     [[nodiscard]] std::optional<std::uint64_t> statement_index(const protocol::Id& id) const;

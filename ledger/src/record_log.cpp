@@ -167,7 +167,7 @@ Result<std::uint64_t> read_last_synced_size(AppendFile& file, bool recover) {
 
 RecordLog::RecordLog(std::unique_ptr<AppendFile> log, std::unique_ptr<AppendFile> synced,
                      std::vector<std::uint64_t> offsets, std::uint64_t end)
-    : log_(std::move(log)), synced_(std::move(synced)), end_(end) {
+    : log_(std::move(log)), synced_(std::move(synced)), end_(end), synced_seen_(synced_->size()) {
     for (const std::uint64_t offset : offsets) {
         offsets_.push_back(offset);
     }
@@ -194,29 +194,22 @@ Result<RecordLog> RecordLog::open(FileSystem& fs, std::string_view name, Recover
         return fail(Errc::malformed, "the log is shorter than its acknowledged size");
     }
 
+    // Exactly the acknowledged records: anything after them, whole or not,
+    // was never acknowledged (the writer died before recording the sync),
+    // and is cut off, as refresh(recover) does.
     std::vector<std::uint64_t> offsets;
     std::uint64_t offset = 0;
-    while (offset < (*log)->size()) {
+    while (offset < *synced) {
         auto scanned = scan_record(**log, offset);
         if (!scanned) {
             return std::unexpected(scanned.error());
         }
-        if (scanned->kind == Scan::damaged) {
-            if (offset < *synced) {
-                return fail(Errc::malformed, "an acknowledged log record is corrupted");
-            }
-            break;
-        }
         const std::uint64_t next = offset + header_size + scanned->payload_size;
-        if (next > *synced && offset < *synced) {
-            // A record straddling the acknowledged boundary cannot occur.
-            return fail(Errc::malformed, "the log disagrees with its acknowledged size");
+        if (scanned->kind == Scan::damaged || next > *synced) {
+            return fail(Errc::malformed, "an acknowledged log record is corrupted");
         }
         offsets.push_back(offset);
         offset = next;
-    }
-    if (offset < *synced) {
-        return fail(Errc::malformed, "the log disagrees with its acknowledged size");
     }
 
     const std::uint64_t truncated = (*log)->size() - offset;
@@ -315,6 +308,7 @@ Result<RecordLog::Pending> RecordLog::write(std::span<const ByteView> payloads) 
         failed_ = true;
         return std::unexpected(s.error());
     }
+    synced_seen_ += header_size + size_record.size();
     return pending;
 }
 
@@ -331,11 +325,19 @@ void RecordLog::publish(const Pending& pending) {
 }
 
 Result<std::uint64_t> RecordLog::refresh(FileSystem& fs, std::string_view name, bool recover) {
-    // Fresh handles see what other processes appended.
-    auto log = fs.open(name);
-    if (!log) {
-        return std::unexpected(log.error());
+    // Nothing new, and (when recovering) no tail left by a crashed writer:
+    // keep the handles and their mappings.
+    if (!failed_) {
+        const auto synced_now = synced_->current_size();
+        const auto log_now = log_->current_size();
+        if (synced_now && log_now && *synced_now == synced_seen_ &&
+            (!recover || *log_now == end_)) {
+            return 0;
+        }
     }
+    // Fresh handles see what other processes appended. The acknowledged
+    // size first: the log is synced before it is recorded, so the log
+    // opened after it is at least that long.
     auto synced_file = fs.open(std::string(name) + ".synced");
     if (!synced_file) {
         return std::unexpected(synced_file.error());
@@ -343,6 +345,11 @@ Result<std::uint64_t> RecordLog::refresh(FileSystem& fs, std::string_view name, 
     auto synced = read_last_synced_size(**synced_file, recover);
     if (!synced) {
         return std::unexpected(synced.error());
+    }
+    const std::uint64_t synced_size = (*synced_file)->size();
+    auto log = fs.open(name);
+    if (!log) {
+        return std::unexpected(log.error());
     }
     if (*synced < end_ || *synced > (*log)->size()) {
         return fail(Errc::malformed, "the log shrank or disagrees with its acknowledged size");
@@ -368,6 +375,7 @@ Result<std::uint64_t> RecordLog::refresh(FileSystem& fs, std::string_view name, 
     }
     log_ = std::move(*log);
     synced_ = std::move(*synced_file);
+    synced_seen_ = synced_size;
     for (const std::uint64_t at : added) {
         offsets_.push_back(at);
     }

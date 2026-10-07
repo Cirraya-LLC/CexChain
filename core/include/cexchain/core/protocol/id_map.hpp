@@ -85,8 +85,17 @@ template <class T>
 class StableVector {
 public:
     StableVector() = default;
-    StableVector(StableVector&&) noexcept = default;
-    StableVector& operator=(StableVector&&) noexcept = default;
+    // The moved-from vector is left empty, size included.
+    StableVector(StableVector&& other) noexcept
+        : chunks_(std::move(other.chunks_)), size_(std::exchange(other.size_, 0)) {
+        other.chunks_.clear();
+    }
+    StableVector& operator=(StableVector&& other) noexcept {
+        chunks_ = std::move(other.chunks_);
+        size_ = std::exchange(other.size_, 0);
+        other.chunks_.clear();
+        return *this;
+    }
     StableVector(const StableVector& other) {
         for (const T& value : other) {
             push_back(value);
@@ -234,9 +243,8 @@ public:
         if (index_.empty()) {
             return std::nullopt;
         }
-        const std::uint64_t h = hash(key);
-        const auto tag = static_cast<std::uint32_t>(h >> 32);
-        for (std::size_t i = static_cast<std::size_t>(h) & mask_;; i = (i + 1) & mask_) {
+        const auto tag = tag_of(key);
+        for (std::size_t i = tag & mask_;; i = (i + 1) & mask_) {
             const std::uint64_t slot = index_[i];
             if (slot == 0) {
                 return std::nullopt;
@@ -290,7 +298,7 @@ public:
         } else {
             stored = &entries_.push_back(Entry{key, std::move(value)}).value;
         }
-        place(hash(key), position);
+        place(tag_of(key), position);
         return *stored;
     }
 
@@ -303,24 +311,34 @@ private:
         }
     }
 
-    [[nodiscard]] static std::uint64_t hash(const IdKey& key) noexcept {
+    /// 32 bits of a keyed hash over the whole key: the slot's tag and its
+    /// home bucket, so growing rehashes from the index alone, without
+    /// touching (or missing the cache on) any entry. Tables stay far below
+    /// 2^32 slots.
+    [[nodiscard]] static std::uint32_t tag_of(const IdKey& key) noexcept {
         static const std::uint64_t seed = table_seed();
-        return mix64(mix64(load64(key.data()) ^ seed) ^ load64(key.data() + 8));
+        std::uint64_t h = mix64(load64(key.data()) ^ seed);
+        h = mix64(h ^ load64(key.data() + 8));
+        h = mix64(h ^ load64(key.data() + 16));
+        return static_cast<std::uint32_t>(mix64(h ^ load64(key.data() + 24)) >> 32);
     }
 
-    void place(std::uint64_t h, std::uint32_t position) noexcept {
-        std::size_t i = static_cast<std::size_t>(h) & mask_;
+    void place(std::uint32_t tag, std::uint32_t position) noexcept {
+        std::size_t i = tag & mask_;
         while (index_[i] != 0) {
             i = (i + 1) & mask_;
         }
-        index_[i] = (h >> 32 << 32) | (std::uint64_t{position} + 1);
+        index_[i] = (std::uint64_t{tag} << 32) | (std::uint64_t{position} + 1);
     }
 
     void grow() {
-        index_.assign(std::max<std::size_t>(16, index_.size() * 2), 0);
+        std::vector<std::uint64_t> old(std::max<std::size_t>(16, index_.size() * 2), 0);
+        old.swap(index_);
         mask_ = index_.size() - 1;
-        for (std::uint32_t at = 0; at < entries_.size(); ++at) {
-            place(hash(key_of_entry(entries_[at])), at);
+        for (const std::uint64_t slot : old) {
+            if (slot != 0) {
+                place(static_cast<std::uint32_t>(slot >> 32), static_cast<std::uint32_t>(slot) - 1);
+            }
         }
     }
 

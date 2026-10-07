@@ -449,6 +449,11 @@ TEST_CASE("batches survive crashes at any point", "[ledger][engine][simulation][
                 for (std::uint64_t i = 0; i < 1 + entropy.below(12); ++i) {
                     signed_statements.push_back(w.sign(c.agent, agent_record(w, c, certificate)));
                 }
+                // A repeat within the batch is acknowledged only if the
+                // batch was written.
+                if (entropy.below(2) == 0) {
+                    signed_statements.push_back(signed_statements.front());
+                }
                 const std::vector<cexchain::ByteView> views(signed_statements.begin(),
                                                             signed_statements.end());
                 const auto results = crashing->submit_batch(views);

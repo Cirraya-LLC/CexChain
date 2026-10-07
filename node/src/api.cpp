@@ -363,9 +363,19 @@ struct LedgerApi::State {
                 queue_idle.notify_all();
                 return;
             }
-            const bool caught_up = !batch.empty() || !jobs.empty();
-            if (caught_up) {
-                write_group(batch, jobs);
+            bool caught_up = false;
+            if (!batch.empty() || !jobs.empty()) {
+                // A throw must not end the writer: answer what is left with
+                // 500 (an answer given already stays given).
+                try {
+                    caught_up = write_group(batch, jobs);
+                } catch (const std::exception&) {
+                    const auto broken = error_response(500, "internal", "internal error");
+                    for (Submission& s : batch) {
+                        finish(s.done, s.principal, broken);
+                    }
+                    event("writer-error", "a write group failed with an exception");
+                }
             }
             if (!reads.empty()) {
                 if (!caught_up) {
@@ -381,8 +391,9 @@ struct LedgerApi::State {
     }
 
     /// One group commit: the queued statements in one batch, then the other
-    /// writes, all under one lock of the directory.
-    void write_group(std::vector<Submission>& batch, std::vector<Locked>& jobs) {
+    /// writes, all under one lock of the directory. True if it caught up
+    /// with the files.
+    bool write_group(std::vector<Submission>& batch, std::vector<Locked>& jobs) {
         std::optional<http::Response> refusal;
         auto lock = ledger::DirectoryLock::acquire(options.directory, 2000);
         if (failed) {
@@ -400,7 +411,7 @@ struct LedgerApi::State {
             for (Locked& job : jobs) {
                 job(&*refusal);
             }
-            return;
+            return false;
         }
         if (!batch.empty()) {
             std::vector<ByteView> views;
@@ -414,8 +425,13 @@ struct LedgerApi::State {
             }
         }
         for (Locked& job : jobs) {
-            job(nullptr);
+            try {
+                job(nullptr);
+            } catch (const std::exception&) {
+                event("writer-error", "a write job failed with an exception");
+            }
         }
+        return true;
     }
 
     http::Response registration_response(const Result<ledger::Registration>& registration) {
@@ -500,14 +516,22 @@ struct LedgerApi::State {
     Status refresh(bool for_write) {
         auto report = ledger->refresh(*fs, for_write);
         if (!report) {
-            {
-                const std::lock_guard lock(failure_mutex);
-                if (!failed) {
-                    failure_text = std::string(report.error().detail);
+            // Only files that do not validate, or a ledger that must be
+            // reopened, disable the server. Anything else (out of
+            // descriptors, say) fails this round only.
+            const Errc code = report.error().code;
+            if (!ledger->usable() || code == Errc::malformed || code == Errc::verification_failed) {
+                {
+                    const std::lock_guard lock(failure_mutex);
+                    if (!failed) {
+                        failure_text = std::string(report.error().detail);
+                    }
                 }
+                failed.store(true, std::memory_order_release);
+                event("ledger-unusable", report.error().detail);
+            } else {
+                event("refresh-failed", report.error().detail);
             }
-            failed.store(true, std::memory_order_release);
-            event("ledger-unusable", report.error().detail);
             return std::unexpected(report.error());
         }
         return {};
