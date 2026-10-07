@@ -3,12 +3,15 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <cstring>
 #include <dlfcn.h>
+#include <format>
 #include <fstream>
 #include <map>
 #include <mutex>
 #include <p11-kit/pkcs11.h>
+#include <set>
 #include <vector>
 
 #include <cexchain/crypto/pkcs11.hpp>
@@ -118,6 +121,10 @@ Result<Bytes> attribute(CK_FUNCTION_LIST_PTR f, CK_SESSION_HANDLE session, CK_OB
         query.ulValueLen == CK_UNAVAILABLE_INFORMATION) {
         return token_fail("the token does not show a key attribute");
     }
+    // Key attributes are small; a module claiming more is not believed.
+    if (query.ulValueLen > 4096) {
+        return token_fail("the token reports an implausible attribute length");
+    }
     Bytes value(query.ulValueLen);
     query.pValue = value.data();
     if (f->C_GetAttributeValue(session, object, &query, 1) != CKR_OK) {
@@ -201,7 +208,8 @@ Result<KeyUri> parse_uri(std::string_view text) {
     const std::string_view query =
         question == std::string_view::npos ? std::string_view() : text.substr(question + 1);
     KeyUri uri;
-    auto each = [](std::string_view list, char separator, auto&& handle) -> Status {
+    std::set<std::string, std::less<>> seen;
+    auto each = [&seen](std::string_view list, char separator, auto&& handle) -> Status {
         while (!list.empty()) {
             const std::size_t end = std::min(list.find(separator), list.size());
             const std::string_view item = list.substr(0, end);
@@ -212,6 +220,11 @@ Result<KeyUri> parse_uri(std::string_view text) {
             const std::size_t eq = item.find('=');
             if (eq == std::string_view::npos) {
                 return fail(Errc::malformed, "a PKCS #11 URI attribute has no value");
+            }
+            // RFC 7512: an attribute appears once. (A second module-path
+            // further along is easy to overlook.)
+            if (!seen.emplace(item.substr(0, eq)).second) {
+                return fail(Errc::malformed, "a PKCS #11 URI repeats an attribute");
             }
             auto value = percent_decode(item.substr(eq + 1));
             if (!value) {
@@ -232,9 +245,29 @@ Result<KeyUri> parse_uri(std::string_view text) {
             uri.object = std::move(value);
         } else if (name == "id") {
             uri.id = Bytes(value.begin(), value.end());
-        } else if (name != "type" && name != "manufacturer" && name != "model" &&
-                   name != "library-description" && name != "library-manufacturer" &&
-                   name != "library-version" && name != "slot-id") {
+        } else if (name == "type") {
+            // The key used is the private key; a URI naming another is wrong.
+            if (value != "private") {
+                return fail(Errc::invalid_argument, "a signing key's URI has type=private");
+            }
+        } else if (name == "manufacturer") {
+            uri.manufacturer = std::move(value);
+        } else if (name == "model") {
+            uri.model = std::move(value);
+        } else if (name == "library-description") {
+            uri.library_description = std::move(value);
+        } else if (name == "library-manufacturer") {
+            uri.library_manufacturer = std::move(value);
+        } else if (name == "library-version") {
+            uri.library_version = std::move(value);
+        } else if (name == "slot-id") {
+            unsigned long slot = 0;
+            const auto [ptr, ec] = std::from_chars(value.data(), value.data() + value.size(), slot);
+            if (ec != std::errc{} || ptr != value.data() + value.size() || value.empty()) {
+                return fail(Errc::malformed, "slot-id must be a number");
+            }
+            uri.slot_id = slot;
+        } else {
             return fail(Errc::unsupported, "a PKCS #11 URI has an unknown attribute");
         }
         return {};
@@ -274,6 +307,9 @@ Result<KeyUri> parse_uri(std::string_view text) {
     if (uri.module_path.empty()) {
         return fail(Errc::invalid_argument, "a PKCS #11 URI needs module-path=");
     }
+    if (!uri.module_path.starts_with('/')) {
+        return fail(Errc::invalid_argument, "module-path must be an absolute path");
+    }
     if (!uri.object && !uri.id) {
         return fail(Errc::invalid_argument, "a PKCS #11 URI needs object= or id= to name the key");
     }
@@ -288,6 +324,10 @@ struct Key::Impl {
     std::string token_label;
     std::optional<unsigned long> sm2_mechanism;
     const crypto::Provider* provider = nullptr;
+    bool hardware_bound = false;
+    /// PKCS #11 allows one operation at a time on a session: concurrent
+    /// signers (a server's threads) take turns.
+    std::mutex sign_mutex;
 
     Impl() = default;
     Impl(const Impl&) = delete;
@@ -310,15 +350,39 @@ struct Key::Impl {
         if (count > 0 && f()->C_GetSlotList(CK_TRUE, slots.data(), &count) != CKR_OK) {
             return token_fail("cannot list the PKCS #11 slots");
         }
+        slots.resize(count); // a token may have gone between the two calls
+        if (uri.library_description || uri.library_manufacturer || uri.library_version) {
+            CK_INFO library{};
+            if (f()->C_GetInfo(&library) != CKR_OK) {
+                return token_fail("the PKCS #11 module does not describe itself");
+            }
+            const std::string version =
+                std::format("{}.{}", library.libraryVersion.major, library.libraryVersion.minor);
+            if ((uri.library_description &&
+                 *uri.library_description !=
+                     trimmed(library.libraryDescription, sizeof library.libraryDescription)) ||
+                (uri.library_manufacturer &&
+                 *uri.library_manufacturer !=
+                     trimmed(library.manufacturerID, sizeof library.manufacturerID)) ||
+                (uri.library_version && *uri.library_version != version)) {
+                return fail(Errc::not_found, "the PKCS #11 module is not the one the URI names");
+            }
+        }
         std::optional<CK_SLOT_ID> chosen;
         for (const CK_SLOT_ID slot : slots) {
+            if (uri.slot_id && slot != *uri.slot_id) {
+                continue;
+            }
             CK_TOKEN_INFO info{};
             if (f()->C_GetTokenInfo(slot, &info) != CKR_OK) {
                 continue;
             }
             const std::string label = trimmed(info.label, sizeof info.label);
             const std::string serial = trimmed(info.serialNumber, sizeof info.serialNumber);
-            if ((uri.token && *uri.token != label) || (uri.serial && *uri.serial != serial)) {
+            if ((uri.token && *uri.token != label) || (uri.serial && *uri.serial != serial) ||
+                (uri.manufacturer &&
+                 *uri.manufacturer != trimmed(info.manufacturerID, sizeof info.manufacturerID)) ||
+                (uri.model && *uri.model != trimmed(info.model, sizeof info.model))) {
                 continue;
             }
             if (chosen) {
@@ -390,6 +454,11 @@ struct Key::Impl {
             return std::unexpected(priv.error());
         }
         private_key = *priv;
+        auto flag = [&](CK_ATTRIBUTE_TYPE type) {
+            auto value = attribute(f(), session, private_key, type);
+            return value && value->size() == sizeof(CK_BBOOL) && (*value)[0] == CK_TRUE;
+        };
+        hardware_bound = flag(CKA_SENSITIVE) && !flag(CKA_EXTRACTABLE);
         auto pub = find(uri, CKO_PUBLIC_KEY);
         if (!pub) {
             return fail(Errc::not_found, "the token shows no public key next to the private key");
@@ -531,6 +600,10 @@ const std::string& Key::token_label() const noexcept {
     return impl_ ? impl_->token_label : none;
 }
 
+bool Key::hardware_bound() const noexcept {
+    return impl_ && impl_->hardware_bound;
+}
+
 Result<Bytes> Key::sign(ByteView message) const {
     if (!impl_) {
         return fail(Errc::invalid_argument, "key has been moved from");
@@ -562,19 +635,27 @@ Result<Bytes> Key::sign(ByteView message) const {
         return fail(Errc::unsupported, "unsupported token key");
     }
     CK_FUNCTION_LIST_PTR f = impl_->f();
-    if (f->C_SignInit(impl_->session, &mechanism, impl_->private_key) != CKR_OK) {
-        return token_fail("the token refused to start signing");
+    Bytes signature;
+    {
+        const std::lock_guard lock(impl_->sign_mutex);
+        if (f->C_SignInit(impl_->session, &mechanism, impl_->private_key) != CKR_OK) {
+            return token_fail("the token refused to start signing");
+        }
+        CK_ULONG length = 0;
+        if (f->C_Sign(impl_->session, input.data(), input.size(), nullptr, &length) != CKR_OK) {
+            return token_fail("the token failed to sign");
+        }
+        // EC signatures, raw or DER, are well under this.
+        if (length > 1024) {
+            return token_fail("the token reports an implausible signature length");
+        }
+        signature.resize(length);
+        if (f->C_Sign(impl_->session, input.data(), input.size(), signature.data(), &length) !=
+            CKR_OK) {
+            return token_fail("the token failed to sign");
+        }
+        signature.resize(length);
     }
-    CK_ULONG length = 0;
-    if (f->C_Sign(impl_->session, input.data(), input.size(), nullptr, &length) != CKR_OK) {
-        return token_fail("the token failed to sign");
-    }
-    Bytes signature(length);
-    if (f->C_Sign(impl_->session, input.data(), input.size(), signature.data(), &length) !=
-        CKR_OK) {
-        return token_fail("the token failed to sign");
-    }
-    signature.resize(length);
     if (signature.size() != signature_size(algorithm())) {
         if (auto raw = der_to_raw(signature)) {
             signature = std::move(*raw);

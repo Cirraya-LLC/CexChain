@@ -52,6 +52,8 @@ inline void unwrap(Status status, std::string_view what) {
 /// Writes atomically (temporary file, fsync, rename). `private_file` sets
 /// permissions to owner-only.
 void write_file(const std::filesystem::path& path, ByteView data, bool private_file);
+/// A pkcs11: URI with any pin-value hidden, for printing.
+[[nodiscard]] std::string redact_pin(std::string_view uri);
 
 [[nodiscard]] std::string hex_id(const protocol::Id& id);
 [[nodiscard]] std::string short_id(const protocol::Id& id);

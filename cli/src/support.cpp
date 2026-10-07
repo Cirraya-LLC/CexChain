@@ -112,8 +112,13 @@ Bytes read_file(const std::filesystem::path& path) {
 }
 
 void write_file(const std::filesystem::path& path, ByteView data, bool private_file) {
-    const std::filesystem::path temporary = path.string() + ".tmp";
-    const int fd = ::open(temporary.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC,
+    // A fresh temporary file of our own: never one someone else created (or
+    // linked) beforehand in a shared directory, which would receive the
+    // data, private keys included, with its own permissions.
+    std::array<std::uint8_t, 8> random{};
+    ledger::SystemEntropy{}.fill(random);
+    const std::filesystem::path temporary = path.string() + "." + to_hex(random) + ".tmp";
+    const int fd = ::open(temporary.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
                           private_file ? 0600 : 0644);
     if (fd < 0) {
         throw CommandError{"cannot write " + path.string()};
@@ -123,6 +128,7 @@ void write_file(const std::filesystem::path& path, ByteView data, bool private_f
         const ssize_t n = ::write(fd, data.data() + done, data.size() - done);
         if (n <= 0) {
             ::close(fd);
+            ::unlink(temporary.c_str());
             throw CommandError{"cannot write " + path.string()};
         }
         done += static_cast<std::size_t>(n);
@@ -130,8 +136,21 @@ void write_file(const std::filesystem::path& path, ByteView data, bool private_f
     const bool synced = ::fsync(fd) == 0;
     ::close(fd);
     if (!synced || std::rename(temporary.c_str(), path.c_str()) != 0) {
+        ::unlink(temporary.c_str());
         throw CommandError{"cannot write " + path.string()};
     }
+}
+
+std::string redact_pin(std::string_view uri) {
+    std::string out(uri);
+    const std::size_t at = out.find("pin-value=");
+    if (at == std::string::npos) {
+        return out;
+    }
+    const std::size_t value = at + std::string_view("pin-value=").size();
+    const std::size_t end = std::min(out.find('&', value), out.size());
+    out.replace(value, end - value, "REDACTED");
+    return out;
 }
 
 std::string hex_id(const protocol::Id& id) {
@@ -308,7 +327,26 @@ std::optional<PresenceRequest> presence_request(const Args& args) {
         if (!uri->starts_with("pkcs11:")) {
             throw UsageError{"--presence-key takes a pkcs11: URI naming the hardware key"};
         }
-        return PresenceRequest{false, std::shared_ptr<crypto::Signer>(load_signer(*uri, args))};
+#ifdef CEXCHAIN_HAVE_PKCS11
+        // Presence means a person unlocked the key now: not a PIN written
+        // into the URI, and not a key that can live outside the token.
+        const auto parsed = unwrap(crypto::pkcs11::parse_uri(*uri), "reading the PKCS #11 URI");
+        if (parsed.pin_value) {
+            throw UsageError{"a presence key's PIN is entered, not written into its URI: remove "
+                             "pin-value="};
+        }
+        auto key = std::make_shared<crypto::pkcs11::Key>(
+            unwrap(crypto::pkcs11::Key::open(parsed, token_pin(parsed), shared_provider()),
+                   "using the key on the token"));
+        if (!key->hardware_bound()) {
+            throw CommandError{"the token lets this key leave it (not sensitive, or extractable): "
+                               "it cannot prove a person's presence"};
+        }
+        return PresenceRequest{false, std::move(key)};
+#else
+        throw CommandError{
+            "this build of cexchain has no PKCS #11 support (it needs p11-kit at build time)"};
+#endif
     }
     if (args.has("presence")) {
         return PresenceRequest{!args.has("no-browser"), nullptr};
@@ -579,6 +617,11 @@ void Session::prove_presence(const protocol::ActorState& actor, protocol::Statem
         unwrap(protocol::presence_challenge(provider_, state().hash(), statement, kid),
                "computing the challenge");
     if (request.hardware_key) {
+        // A second key, not the signing key itself: else whoever holds the
+        // signing key "proves" presence too.
+        if (request.hardware_key->public_key() == signing_key) {
+            throw UsageError{"the presence key must not be the signing key (--as)"};
+        }
         // The token signs the challenge; it must be one registered for the person.
         const auto credential =
             std::ranges::find_if(actor.presence, [&](const protocol::PresenceCredential& c) {

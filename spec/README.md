@@ -205,6 +205,10 @@ where `kid` is the statement's COSE kid and `P` is the payload encoded without k
 
 **Hardware keys** (USB keys or UKey, smart cards, HSMs). The credential has no relying party and may use any signature algorithm, SM2 included. The proof is the key's signature over the challenge itself. The key never leaves the device and signs only after the person enters its PIN.
 
+This is weaker evidence than a passkey's touch, and depends on how the token is set up:
+- **Implementations.** They MUST use a second key, not the signing key. They MUST refuse a key the token marks as extractable or not sensitive. They MUST NOT take the PIN from configuration (such as a PIN written into the key's URI).
+- **Tokens.** Tokens that need a touch or a PIN-pad entry for each signature give the strongest assurance.
+
 Verifiers report how presence was proven. A statement without proof of presence is attributed to a machine, whoever signed it.
 
 ## 8. The log

@@ -282,8 +282,20 @@ void open_in_browser(const std::string& target) {
 #endif
     std::array<char*, 3> argv{const_cast<char*>(opener), const_cast<char*>(target.c_str()),
                               nullptr};
+    // The browser gets no secrets this process was given.
+    std::vector<char*> environment;
+    for (char** e = environ; *e != nullptr; ++e) {
+        const std::string_view entry(*e);
+        if (!entry.starts_with("CEXCHAIN_PASSPHRASE=") &&
+            !entry.starts_with("CEXCHAIN_NEW_PASSPHRASE=") &&
+            !entry.starts_with("CEXCHAIN_PKCS11_PIN=") && !entry.starts_with("CEXCHAIN_TOKEN=")) {
+            environment.push_back(*e);
+        }
+    }
+    environment.push_back(nullptr);
     pid_t pid = 0;
-    static_cast<void>(::posix_spawnp(&pid, opener, nullptr, nullptr, argv.data(), environ));
+    static_cast<void>(
+        ::posix_spawnp(&pid, opener, nullptr, nullptr, argv.data(), environment.data()));
 }
 
 } // namespace

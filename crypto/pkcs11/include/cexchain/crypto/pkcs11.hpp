@@ -22,10 +22,19 @@ namespace cexchain::crypto::pkcs11 {
 /// bytes). Query attributes: module-path (required), pin-value, pin-source
 /// (a file, "file:PATH" or a path), and x-sm2-mechanism: the vendor's
 /// SM2-with-SM3 signing mechanism, in hex (SM2 is not in PKCS #11 itself).
+/// A pkcs11: URI (RFC 7512). Each attribute at most once; every attribute
+/// given is enforced. The module path must be absolute (a relative one
+/// would load whatever the working directory holds).
 struct KeyUri {
     std::string module_path;
     std::optional<std::string> token;
     std::optional<std::string> serial;
+    std::optional<std::string> manufacturer;
+    std::optional<std::string> model;
+    std::optional<unsigned long> slot_id;
+    std::optional<std::string> library_description;
+    std::optional<std::string> library_manufacturer;
+    std::optional<std::string> library_version;
     std::optional<std::string> object;
     std::optional<Bytes> id;
     std::optional<std::string> pin_value;
@@ -64,6 +73,9 @@ public:
 
     /// The token's label.
     [[nodiscard]] const std::string& token_label() const noexcept;
+    /// The token says the private key is sensitive and never leaves it
+    /// (CKA_SENSITIVE, not CKA_EXTRACTABLE).
+    [[nodiscard]] bool hardware_bound() const noexcept;
 
 private:
     struct Impl;

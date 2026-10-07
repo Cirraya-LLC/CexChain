@@ -53,7 +53,7 @@ int cmd_presence_enroll(const Args& args) {
         std::println(
             "  cexchain actor set-presence <your actor id> --credential {} --as <their key>",
             out.string());
-        std::println("then prove presence with: --presence-key \"{}\"", *uri);
+        std::println("then prove presence with: --presence-key \"{}\"", redact_pin(*uri));
         return exit_ok;
     }
     if (!args.has("name")) {

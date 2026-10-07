@@ -62,14 +62,14 @@ int cmd_key_generate(const Args& args) {
         const auto key = generate_on_token(*uri, alg);
         write_file(out, encode_public_key_file(key->public_key()), false);
         if (args.json()) {
-            print_json({{"token_key", *uri},
+            print_json({{"token_key", redact_pin(*uri)},
                         {"public_file", out.string()},
                         {"public_key", public_key_json(key->public_key())}});
             return exit_ok;
         }
         std::println("{} key generated on the token; it never leaves it", crypto::name(alg));
         std::println("public half written to {}", out.string());
-        std::println("sign with: --as \"{}\"", *uri);
+        std::println("sign with: --as \"{}\"", redact_pin(*uri));
         return exit_ok;
     }
     const bool encrypt = !args.has("no-passphrase");
