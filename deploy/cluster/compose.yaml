@@ -9,6 +9,14 @@
 #       --token-file /data/admin.token
 #   docker compose kill node1        # the others elect a new leader within seconds
 #
+# Writing needs the organization's root key, which the bootstrap left in
+# node1's volume; from a client container on the project's network:
+#
+#   docker run --rm --network cluster_default -v cluster_node1:/keys:ro \
+#       --entrypoint /bin/sh cexchain -c 'CEXCHAIN_TOKEN=$(cat /keys/admin.token) \
+#       cexchain record issue --server http://node2:8080 --ledger-id LEDGER_ID \
+#       --cache /tmp/c --as /keys/root.key --type cexchain.certificate/1 --field n=1'
+#
 # The bootstrap service creates the ledger, its keys (unencrypted, for the
 # demo only), and the members, once. For production, give each member its
 # own host and disks, keep the log key in an HSM, and serve TLS.

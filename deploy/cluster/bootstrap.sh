@@ -15,7 +15,7 @@ cexchain init --ledger ledger --org "Demo Org" --root-key root.key --log-key log
 cexchain checkpoint create --ledger ledger --log-key log.key
 cexchain token create admin --ledger ledger --scope read,submit,admin --out admin.token
 cexchain cluster init --ledger ledger --id 1 --raft node1:7001 --api http://node1:8080
-LEDGER_ID="$(cexchain status --ledger ledger --json | sed -n 's/.*"ledger_id": "\([0-9a-f]*\)".*/\1/p')"
+LEDGER_ID="$(cexchain status --ledger ledger --json | sed -n 's/^  "ledger_id": "\([0-9a-f]*\)".*/\1/p')"
 
 # The others copy the founder's ledger through its API, as on separate hosts.
 cexchain serve --ledger ledger --listen 127.0.0.1:8080 --read-only --quiet &
