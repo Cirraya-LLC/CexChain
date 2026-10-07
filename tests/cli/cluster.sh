@@ -7,7 +7,7 @@
 # seconds), the old leader back and caught up, and a hand-over.
 # Usage: cluster.sh CEXCHAIN
 set -Eeuo pipefail
-trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2; dump_logs >&2' ERR
+trap 'echo "FAILED at line $LINENO (from lines ${BASH_LINENO[*]}): $BASH_COMMAND" >&2; dump_logs >&2' ERR
 
 CEXCHAIN="$1"
 WORK="$(mktemp -d)"
@@ -59,6 +59,8 @@ PY
 }
 leader_of() { status "$1" | json 'd["cluster"]["leader"]'; }
 size_of() { status "$1" | json 'd["size"]'; }
+# has_size N SIZE: member N holds SIZE entries (evaluated on each call).
+has_size() { [ "$(size_of "$1")" = "$2" ]; }
 # digest N SIZE: a hash of member N's first SIZE log entries.
 digest() {
     python3 - "${API[$1]}" "$(cat ops.token)" "$2" << 'PY'
@@ -124,7 +126,7 @@ for i in 1 2 3; do
 done
 client checkpoint create > /dev/null
 WANT="$(size_of 1)"
-for n in 1 2 3; do eventually 60 test "$(size_of "$n")" = "$WANT"; done
+for n in 1 2 3; do eventually 60 has_size "$n" "$WANT"; done
 [ "$(digest 1 "$WANT")" = "$(digest 2 "$WANT")" ] || fail "members 1 and 2 differ"
 [ "$(digest 1 "$WANT")" = "$(digest 3 "$WANT")" ] || fail "members 1 and 3 differ"
 
@@ -152,14 +154,33 @@ done
 client checkpoint create > /dev/null
 client record list --json | json 'len(d)' | contains -x 6
 WANT="$(size_of "$NEW")"
-for n in "${OTHERS[@]}"; do eventually 60 test "$(size_of "$n")" = "$WANT"; done
+for n in "${OTHERS[@]}"; do eventually 60 has_size "$n" "$WANT"; done
 [ "$(digest "${OTHERS[0]}" "$WANT")" = "$(digest "${OTHERS[1]}" "$WANT")" ] || fail "survivors differ"
 
 # --- The old leader comes back and catches up --------------------------------------
 start_member "$LEADER"
-eventually 60 test "$(size_of "$LEADER")" = "$WANT"
+eventually 60 has_size "$LEADER" "$WANT"
 [ "$(digest "$LEADER" "$WANT")" = "$(digest "$NEW" "$WANT")" ] || fail "the old leader differs"
 [ "$(leader_of "$LEADER")" = "$NEW" ] || fail "the old leader should follow"
+
+# --- A frozen leader (as if cut off), then thawed: no fork --------------------------
+FROZEN="$(leader_of "$LEADER")"
+kill -STOP "${PIDS[$FROZEN]}"
+LIVE=(); for n in 1 2 3; do [ "$n" != "$FROZEN" ] && LIVE+=("$n"); done
+CLIENT_AT="${LIVE[0]}"
+for _ in $(seq 1 300); do
+    THAWED_LEADER="$(leader_of "${LIVE[0]}" 2> /dev/null || true)"
+    [ -n "$THAWED_LEADER" ] && [ "$THAWED_LEADER" != "None" ] && [ "$THAWED_LEADER" != "$FROZEN" ] && break
+    sleep 0.2
+done
+[ "$THAWED_LEADER" != "$FROZEN" ] || fail "no leader while the old one is frozen"
+eventually 60 client record issue --as root.key --type cexchain.certificate/1 --field n=frozen
+kill -CONT "${PIDS[$FROZEN]}"
+WANT="$(size_of "$THAWED_LEADER")"
+eventually 60 has_size "$FROZEN" "$WANT"
+[ "$(digest "$FROZEN" "$WANT")" = "$(digest "$THAWED_LEADER" "$WANT")" ] || fail "the thawed leader forked"
+NEW="$THAWED_LEADER"
+LEADER="$FROZEN"
 
 # --- A hand-over ---------------------------------------------------------------------
 run cluster step-down --server "${API[$NEW]}" | contains 'handing'
