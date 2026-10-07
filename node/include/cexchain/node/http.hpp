@@ -79,7 +79,10 @@ struct Parsed {
                                                   bool* wants_continue = nullptr);
 
 /// The status line, header fields, and body of `response`.
-[[nodiscard]] std::string serialize(const Response& response, bool keep_alive);
+/// The response's bytes; without the body (but with its Content-Length) to
+/// answer HEAD.
+[[nodiscard]] std::string serialize(const Response& response, bool keep_alive,
+                                    bool with_body = true);
 
 /// A response read by a client.
 struct ClientResponse {

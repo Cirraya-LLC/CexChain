@@ -178,11 +178,12 @@ struct Primary {
     Primary& operator=(const Primary&) = delete;
     ~Primary() { std::filesystem::remove_all(dir); }
 
-    std::unique_ptr<node::LedgerApi> api(bool read_only = false) const {
+    std::unique_ptr<node::LedgerApi> api(bool read_only = false, bool public_read = false) const {
         node::ApiOptions o;
         o.directory = dir;
         o.log_key = log_key;
         o.read_only = read_only;
+        o.public_read = public_read;
         auto opened = node::LedgerApi::open(o, provider());
         REQUIRE(opened);
         return std::move(*opened);
@@ -290,6 +291,14 @@ TEST_CASE("the API answers only those it should", "[node][api]") {
     auto read_only = p.api(true);
     Running second(*read_only);
     CHECK(post(second.client(p.submit_token), "/v1/statements", statement).status == 403);
+
+    // A public portal: the log without a token, never the vault or metrics.
+    auto portal = p.api(true, true);
+    Running third(*portal);
+    CHECK(get(third.client(), "/v1/status").status == 200);
+    CHECK(get(third.client(), "/metrics").status == 401);
+    CHECK(get(third.client(), "/v1/vault/public-key").status == 401);
+    CHECK(get(third.client(p.read_token), "/metrics").status == 200);
 }
 
 TEST_CASE("statements, checkpoints, proofs, and evidence over HTTP", "[node][api]") {
@@ -487,16 +496,21 @@ public:
     /// Reads until `text` ends what was read; false if the server closed or
     /// went quiet first.
     [[nodiscard]] bool read_until(std::string_view text) const {
+        return read_through(text).ends_with(text);
+    }
+    /// Everything read until `text` ends it (or the server closed or went
+    /// quiet).
+    [[nodiscard]] std::string read_through(std::string_view text) const {
         std::string got;
         std::array<char, 4096> chunk{};
         while (!got.ends_with(text)) {
             const ssize_t n = ::recv(fd_, chunk.data(), chunk.size(), 0);
             if (n <= 0) {
-                return false;
+                break;
             }
             got.append(chunk.data(), static_cast<std::size_t>(n));
         }
-        return true;
+        return got;
     }
     /// Whether the server closes the connection (rather than the read timing
     /// out).
@@ -546,6 +560,80 @@ TEST_CASE("the server closes stalled and idle connections, never busy ones", "[n
     const auto idle = steady::now();
     CHECK(busy.closed_by_server());
     CHECK(steady::now() - idle < std::chrono::seconds(4));
+}
+
+/// Answers /healthz, and drops every other request without answering.
+class Forgetful final : public node::Application {
+public:
+    void handle(node::http::Request r, std::string, Respond respond) override {
+        if (r.path == "/healthz") {
+            node::http::Response ok;
+            ok.content_type = "text/plain";
+            ok.body = Bytes{'o', 'k', '\n'};
+            respond(std::move(ok));
+        }
+        // Otherwise `respond` is dropped here, unanswered.
+    }
+};
+
+TEST_CASE("the server sheds idle connections and stays strict", "[node][server]") {
+    Forgetful app;
+    auto options = Running::options();
+    options.threads = 2;
+    options.max_connections = 2;
+    options.header_timeout = std::chrono::seconds(1);
+    Running server(app, options);
+
+    SECTION("a full server lets its longest-idle connection go") {
+        const Socket idle_a(server.port());
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        const Socket idle_b(server.port());
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        const Socket active(server.port());
+        active.send("GET /healthz HTTP/1.1\r\nHost: x\r\n\r\n");
+        CHECK(active.read_until("ok\n"));
+        CHECK(idle_a.closed_by_server());
+    }
+    SECTION("a new connection that says nothing is closed soon") {
+        const Socket silent(server.port());
+        const auto start = std::chrono::steady_clock::now();
+        CHECK(silent.closed_by_server());
+        CHECK(std::chrono::steady_clock::now() - start < std::chrono::seconds(4));
+    }
+    SECTION("HEAD has no body, so the next response is read right") {
+        const Socket s(server.port());
+        s.send("HEAD /healthz HTTP/1.1\r\nHost: x\r\n\r\n"
+               "GET /healthz HTTP/1.1\r\nHost: x\r\n\r\n");
+        const std::string got = s.read_through("\r\n\r\nok\n");
+        // The HEAD answer's headers, then at once the GET answer: no body
+        // between them.
+        CHECK(got.starts_with("HTTP/1.1 200 OK\r\n"));
+        CHECK(got.contains("Content-Length: 3\r\nConnection: keep-alive\r\n\r\nHTTP/1.1 200 OK"));
+        CHECK(got.ends_with("\r\n\r\nok\n"));
+    }
+    SECTION("an unanswered request gets a 500, not silence") {
+        const Socket s(server.port());
+        s.send("GET /forgotten HTTP/1.1\r\nHost: x\r\n\r\n");
+        CHECK(s.read_until("never answered\"}}"));
+    }
+    SECTION("two Connection fields are refused") {
+        const Socket s(server.port());
+        s.send("GET /healthz HTTP/1.1\r\nHost: x\r\nConnection: keep-alive\r\n"
+               "Connection: close\r\n\r\n");
+        CHECK(s.read_until("repeated Connection\"}}"));
+    }
+}
+
+TEST_CASE("connections can be capped per peer address", "[node][server]") {
+    Forgetful app;
+    auto options = Running::options();
+    options.max_connections_per_peer = 1;
+    Running server(app, options);
+    const Socket first(server.port());
+    first.send("GET /healthz HTTP/1.1\r\nHost: x\r\n\r\n");
+    REQUIRE(first.read_until("ok\n"));
+    const Socket second(server.port());
+    CHECK(second.read_until("too many connections\"}}"));
 }
 
 TEST_CASE("a replica copies over HTTP and refuses a forged history", "[node][replica]") {

@@ -229,7 +229,7 @@ struct LedgerApi::State {
         std::make_shared<const std::vector<ApiToken>>();
     /// Held by tick(); open() runs before any.
     std::mutex tick_mutex;
-    std::optional<std::filesystem::file_time_type> tokens_time;
+    std::optional<std::pair<std::filesystem::file_time_type, std::uintmax_t>> tokens_time;
     steady::time_point last_auto_checkpoint = steady::now();
 
     std::array<std::atomic<std::uint64_t>, 600> responses{};
@@ -489,13 +489,22 @@ struct LedgerApi::State {
     void reload_tokens(bool force) {
         std::error_code ec;
         const auto path = options.directory / tokens_file;
+        // Time and size: a rewrite within the clock's granularity changes
+        // the size (or is caught on the next change).
         const auto time = std::filesystem::last_write_time(path, ec);
-        const std::optional<std::filesystem::file_time_type> current =
-            ec ? std::nullopt : std::optional(time);
+        std::error_code size_error;
+        const auto size = std::filesystem::file_size(path, size_error);
+        const std::optional<std::pair<std::filesystem::file_time_type, std::uintmax_t>> current =
+            ec || size_error ? std::nullopt : std::optional(std::pair(time, size));
         if (!force && current == tokens_time) {
             return;
         }
-        auto loaded = load_tokens(options.directory);
+        Result<std::vector<ApiToken>> loaded = fail(Errc::malformed, "unreadable");
+        try {
+            loaded = load_tokens(options.directory);
+        } catch (const std::exception&) {
+            loaded = fail(Errc::malformed, "the API tokens file is malformed");
+        }
         auto next = std::make_shared<const std::vector<ApiToken>>(loaded ? std::move(*loaded)
                                                                          : std::vector<ApiToken>{});
         if (!loaded) {
@@ -540,7 +549,11 @@ struct LedgerApi::State {
     /// Who is calling (into `principal`), and whether they may.
     std::optional<http::Response> authorize(const http::Request& r, Access access,
                                             std::string& principal) const {
-        if (access == Access::open || (access == Access::read && options.public_read)) {
+        // A public portal shows the log and proofs, never the vault's sealed
+        // records or the server's metrics: those still need a read token.
+        const bool vault_or_metrics = r.path == "/metrics" || r.path.starts_with("/v1/vault/");
+        if (access == Access::open ||
+            (access == Access::read && options.public_read && !vault_or_metrics)) {
             principal = "public";
             return std::nullopt;
         }
@@ -596,16 +609,18 @@ struct LedgerApi::State {
     http::Response checkpoint(const http::Request& r) const {
         if (const auto it = r.query.find("size"); it != r.query.end()) {
             const auto size = number(r, "size");
-            auto all = ledger->checkpoints();
-            if (!size || !all) {
+            if (!size) {
                 return error_response(400, "invalid_argument", "size must be a number");
             }
-            for (const auto& c : *all) {
-                if (c.checkpoint.tree_size == *size) {
-                    return binary("application/cose", c.encoded);
-                }
+            // A binary search: open to anyone, so it must stay cheap.
+            auto found = ledger->checkpoints_of_size(*size);
+            if (!found) {
+                return error_response(found.error());
             }
-            return error_response(404, "not_found", "no checkpoint of this size");
+            if (found->empty()) {
+                return error_response(404, "not_found", "no checkpoint of this size");
+            }
+            return binary("application/cose", std::move(found->back().encoded));
         }
         auto latest = ledger->latest_checkpoint();
         if (!latest) {
@@ -660,33 +675,33 @@ struct LedgerApi::State {
     }
 
     http::Response checkpoints(const http::Request& r) const {
-        auto all = ledger->checkpoints();
-        if (!all) {
-            return error_response(all.error());
-        }
-        const auto span = range(r, all->size());
+        const auto span = range(r, ledger->checkpoint_count());
         if (!span) {
             return error_response(400, "invalid_argument", "start <= count and 0 < count");
         }
+        // Only the page asked for is read.
+        auto page = ledger->checkpoints(span->first, span->second - span->first);
+        if (!page) {
+            return error_response(page.error());
+        }
         cbor::Array out;
-        for (std::uint64_t i = span->first; i < span->second; ++i) {
-            out.push_back(cbor::Value::bytes((*all)[static_cast<std::size_t>(i)].encoded));
+        for (const auto& c : *page) {
+            out.push_back(cbor::Value::bytes(c.encoded));
         }
         return cbor_response(cbor::Value::array(std::move(out)));
     }
 
     http::Response cosignatures(const http::Request& r) const {
-        auto all = ledger->cosignatures();
-        if (!all) {
-            return error_response(all.error());
-        }
-        const auto span = range(r, all->size());
+        const auto span = range(r, ledger->cosignature_count());
         if (!span) {
             return error_response(400, "invalid_argument", "start <= count and 0 < count");
         }
+        auto page = ledger->cosignatures(span->first, span->second - span->first);
+        if (!page) {
+            return error_response(page.error());
+        }
         cbor::Array out;
-        for (std::uint64_t i = span->first; i < span->second; ++i) {
-            const auto& s = (*all)[static_cast<std::size_t>(i)];
+        for (const auto& s : *page) {
             out.push_back(cbor::Value::array(
                 {cbor::Value::bytes(s.encoded), protocol::encode_public_key(s.witness)}));
         }
@@ -974,10 +989,15 @@ struct LedgerApi::State {
         if (!options.witness) {
             return error_response(501, "unsupported", "this server is not a witness");
         }
-        auto cosignature = [&] {
-            const std::lock_guard lock(witness_mutex);
-            return options.witness(r.body);
-        }();
+        // One cosigning at a time (the witness keeps state), and no I/O
+        // thread waits for it: a busy witness answers 503.
+        const std::unique_lock lock(witness_mutex, std::try_to_lock);
+        if (!lock) {
+            auto busy = error_response(503, "unavailable", "the witness is busy; retry");
+            busy.headers.emplace_back("Retry-After", "1");
+            return busy;
+        }
+        auto cosignature = options.witness(r.body);
         if (!cosignature) {
             return error_response(cosignature.error());
         }

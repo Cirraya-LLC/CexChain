@@ -58,7 +58,16 @@ struct ServerOptions {
     std::optional<std::filesystem::path> tls_certificate;
     std::optional<std::filesystem::path> tls_private_key;
     std::size_t max_connections = 1024;
+    /// From one peer address; 0 for no limit (behind a proxy every
+    /// connection has the proxy's address). When the server is full, its
+    /// longest-idle connection gives way to a new one either way.
+    std::size_t max_connections_per_peer = 0;
     http::Limits limits;
+    /// Request bytes buffered across all connections at once.
+    std::size_t max_buffered_bytes = std::size_t{256} << 20;
+    /// For a new connection to send its first request's first bytes (and
+    /// finish the TLS handshake).
+    std::chrono::seconds header_timeout{10};
     /// To receive a whole request once it has started, and to send a
     /// response.
     std::chrono::seconds request_timeout{30};

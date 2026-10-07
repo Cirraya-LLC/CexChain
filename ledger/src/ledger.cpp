@@ -3,10 +3,14 @@
 
 #include <algorithm>
 #include <atomic>
+#include <limits>
 #include <map>
 #include <mutex>
 #include <set>
 #include <shared_mutex>
+#if defined(__GLIBC__)
+#include <pthread.h>
+#endif
 #include <utility>
 #include <variant>
 
@@ -18,7 +22,50 @@ namespace cexchain::ledger {
 
 namespace {
 
+/// A reader-writer lock under which a stream of readers cannot starve the
+/// writer. std::shared_mutex is glibc's pthread rwlock there, which prefers
+/// readers (libc++'s already prefers writers). Readers must not take it
+/// twice: a waiting writer would deadlock them.
+class SharedMutex {
+public:
+    SharedMutex(const SharedMutex&) = delete;
+    SharedMutex& operator=(const SharedMutex&) = delete;
+#if defined(__GLIBC__)
+    SharedMutex() noexcept {
+        pthread_rwlockattr_t attr;
+        pthread_rwlockattr_init(&attr);
+        pthread_rwlockattr_setkind_np(&attr, PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP);
+        pthread_rwlock_init(&lock_, &attr);
+        pthread_rwlockattr_destroy(&attr);
+    }
+    ~SharedMutex() { pthread_rwlock_destroy(&lock_); }
+    void lock() noexcept { pthread_rwlock_wrlock(&lock_); }
+    bool try_lock() noexcept { return pthread_rwlock_trywrlock(&lock_) == 0; }
+    void unlock() noexcept { pthread_rwlock_unlock(&lock_); }
+    void lock_shared() noexcept { pthread_rwlock_rdlock(&lock_); }
+    bool try_lock_shared() noexcept { return pthread_rwlock_tryrdlock(&lock_) == 0; }
+    void unlock_shared() noexcept { pthread_rwlock_unlock(&lock_); }
+
+private:
+    pthread_rwlock_t lock_{};
+#else
+    SharedMutex() = default;
+    ~SharedMutex() = default;
+    void lock() { lock_.lock(); }
+    bool try_lock() { return lock_.try_lock(); }
+    void unlock() { lock_.unlock(); }
+    void lock_shared() { lock_.lock_shared(); }
+    bool try_lock_shared() { return lock_.try_lock_shared(); }
+    void unlock_shared() { lock_.unlock_shared(); }
+
+private:
+    std::shared_mutex lock_;
+#endif
+};
+
 constexpr std::string_view statements_file = "statements";
+/// Paged reads return at most this many items.
+constexpr std::uint64_t max_page = 1000;
 constexpr std::string_view checkpoints_file = "checkpoints";
 constexpr std::string_view cosignatures_file = "cosignatures";
 
@@ -67,8 +114,8 @@ struct Ledger::Impl {
     /// The writer holds them exclusively only to change memory, never while
     /// it waits for the disk, and readers only see what is durable: the
     /// Merkle tree's size is the durable watermark.
-    mutable std::shared_mutex state_mutex;
-    mutable std::shared_mutex log_mutex;
+    mutable SharedMutex state_mutex;
+    mutable SharedMutex log_mutex;
     RecordLog log;
     RecordLog checkpoints;
     RecordLog cosignatures;
@@ -82,6 +129,18 @@ struct Ledger::Impl {
     std::optional<protocol::StateCommitment> tree_commitment;
     std::uint64_t tree_commitment_index = 0;
     std::optional<protocol::SignedCheckpoint> latest_checkpoint;
+    /// The receipt seal (the log key's one signature) for the latest
+    /// checkpoint: receipts against it need no signing of their own.
+    struct Seal {
+        protocol::Checkpoint checkpoint;
+        crypto::PublicKey key;
+        protocol::ReceiptSeal seal;
+    };
+    mutable std::mutex seal_mutex;
+    mutable std::shared_ptr<const Seal> seal;
+    /// (witness, checkpoint) of every stored cosignature, built on first
+    /// use: adding one need not read them all again. The writer's only.
+    std::optional<std::set<Bytes>> cosigned;
     /// Stored checkpoints checked against the log: a refresh that failed
     /// after reading new ones checks them next time.
     std::uint64_t checked_checkpoints = 0;
@@ -846,6 +905,9 @@ Result<RefreshReport> Ledger::refresh(FileSystem& fs, bool recover) {
         return std::unexpected(cosignatures.error());
     }
     report.cosignatures = *cosignatures;
+    if (*cosignatures > 0) {
+        impl_->cosigned.reset();
+    }
     const std::uint64_t old_size = impl_->log.count();
     auto added = impl_->log.refresh(fs, statements_file, recover);
     if (!added) {
@@ -931,9 +993,11 @@ Result<std::vector<crypto::Digest>> Ledger::consistency_proof(std::uint64_t old_
 
 namespace {
 
-Result<std::vector<protocol::SignedCheckpoint>> read_checkpoints(const RecordLog& log) {
+Result<std::vector<protocol::SignedCheckpoint>>
+read_checkpoints(const RecordLog& log, std::uint64_t begin = 0,
+                 std::uint64_t end = std::numeric_limits<std::uint64_t>::max()) {
     std::vector<protocol::SignedCheckpoint> out;
-    for (std::uint64_t i = 0; i < log.count(); ++i) {
+    for (std::uint64_t i = begin; i < std::min(end, log.count()); ++i) {
         auto bytes = log.read(i);
         if (!bytes) {
             return std::unexpected(bytes.error());
@@ -947,9 +1011,11 @@ Result<std::vector<protocol::SignedCheckpoint>> read_checkpoints(const RecordLog
     return out;
 }
 
-Result<std::vector<StoredCosignature>> read_cosignatures(const RecordLog& log) {
+Result<std::vector<StoredCosignature>>
+read_cosignatures(const RecordLog& log, std::uint64_t begin = 0,
+                  std::uint64_t end = std::numeric_limits<std::uint64_t>::max()) {
     std::vector<StoredCosignature> out;
-    for (std::uint64_t i = 0; i < log.count(); ++i) {
+    for (std::uint64_t i = begin; i < std::min(end, log.count()); ++i) {
         auto bytes = log.read(i);
         if (!bytes) {
             return std::unexpected(bytes.error());
@@ -970,6 +1036,80 @@ Result<std::vector<protocol::SignedCheckpoint>> Ledger::checkpoints() const {
     return read_checkpoints(impl_->checkpoints);
 }
 
+std::uint64_t Ledger::checkpoint_count() const {
+    const std::shared_lock lock(impl_->log_mutex);
+    return impl_->checkpoints.count();
+}
+
+Result<std::vector<protocol::SignedCheckpoint>> Ledger::checkpoints(std::uint64_t start,
+                                                                    std::uint64_t count) const {
+    const std::shared_lock lock(impl_->log_mutex);
+    return read_checkpoints(impl_->checkpoints, start, start + std::min(count, max_page));
+}
+
+namespace {
+
+/// The first stored checkpoint whose size is at least `size` (checkpoints
+/// are stored in order of size): O(log n) reads, not n.
+Result<std::uint64_t> first_checkpoint_at_least(const RecordLog& log, std::uint64_t size) {
+    std::uint64_t low = 0;
+    std::uint64_t high = log.count();
+    while (low < high) {
+        const std::uint64_t mid = low + (high - low) / 2;
+        auto bytes = log.read(mid);
+        if (!bytes) {
+            return std::unexpected(bytes.error());
+        }
+        auto checkpoint = protocol::parse_checkpoint(*bytes);
+        if (!checkpoint) {
+            return std::unexpected(checkpoint.error());
+        }
+        if (checkpoint->checkpoint.tree_size < size) {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+    return low;
+}
+
+} // namespace
+
+Result<std::vector<protocol::SignedCheckpoint>>
+Ledger::checkpoints_of_size(std::uint64_t size) const {
+    const std::shared_lock lock(impl_->log_mutex);
+    auto first = first_checkpoint_at_least(impl_->checkpoints, size);
+    if (!first) {
+        return std::unexpected(first.error());
+    }
+    std::vector<protocol::SignedCheckpoint> out;
+    for (std::uint64_t i = *first; i < impl_->checkpoints.count() && out.size() < max_page; ++i) {
+        auto bytes = impl_->checkpoints.read(i);
+        auto checkpoint = bytes
+                              ? protocol::parse_checkpoint(*bytes)
+                              : Result<protocol::SignedCheckpoint>(std::unexpected(bytes.error()));
+        if (!checkpoint) {
+            return std::unexpected(checkpoint.error());
+        }
+        if (checkpoint->checkpoint.tree_size != size) {
+            break;
+        }
+        out.push_back(std::move(*checkpoint));
+    }
+    return out;
+}
+
+std::uint64_t Ledger::cosignature_count() const {
+    const std::shared_lock lock(impl_->log_mutex);
+    return impl_->cosignatures.count();
+}
+
+Result<std::vector<StoredCosignature>> Ledger::cosignatures(std::uint64_t start,
+                                                            std::uint64_t count) const {
+    const std::shared_lock lock(impl_->log_mutex);
+    return read_cosignatures(impl_->cosignatures, start, start + std::min(count, max_page));
+}
+
 Status Ledger::add_cosignature(ByteView encoded, const crypto::PublicKey& witness) {
     if (witness == impl_->state.log_key()) {
         return fail(Errc::rejected, "the log key cannot witness its own checkpoints");
@@ -982,22 +1122,55 @@ Status Ledger::add_cosignature(ByteView encoded, const crypto::PublicKey& witnes
         return fail(Errc::verification_failed, "the cosignature is not by this witness's key");
     }
     // Only this thread changes the logs: reading them needs no lock.
-    auto all = read_checkpoints(impl_->checkpoints);
-    if (!all) {
-        return std::unexpected(all.error());
+    auto same_size = [&]() -> Result<bool> {
+        auto first =
+            first_checkpoint_at_least(impl_->checkpoints, cosignature->checkpoint.tree_size);
+        if (!first) {
+            return std::unexpected(first.error());
+        }
+        for (std::uint64_t i = *first; i < impl_->checkpoints.count(); ++i) {
+            auto bytes = impl_->checkpoints.read(i);
+            auto c = bytes ? protocol::parse_checkpoint(*bytes)
+                           : Result<protocol::SignedCheckpoint>(std::unexpected(bytes.error()));
+            if (!c) {
+                return std::unexpected(c.error());
+            }
+            if (c->checkpoint.tree_size != cosignature->checkpoint.tree_size) {
+                break;
+            }
+            if (c->checkpoint == cosignature->checkpoint) {
+                return true;
+            }
+        }
+        return false;
+    }();
+    if (!same_size) {
+        return std::unexpected(same_size.error());
     }
-    if (std::ranges::none_of(*all, [&](const protocol::SignedCheckpoint& c) {
-            return c.checkpoint == cosignature->checkpoint;
-        })) {
+    if (!*same_size) {
         return fail(Errc::not_found, "the cosignature is not of a checkpoint of this ledger");
     }
-    auto stored = read_cosignatures(impl_->cosignatures);
-    if (!stored) {
-        return std::unexpected(stored.error());
+    auto key_of = [](const crypto::PublicKey& w, const protocol::Checkpoint& c) {
+        Bytes key = w.bytes;
+        key.push_back(static_cast<std::uint8_t>(crypto::cose_id(w.algorithm)));
+        auto payload = protocol::encode_checkpoint(c);
+        if (payload) {
+            key.insert(key.end(), payload->begin(), payload->end());
+        }
+        return key;
+    };
+    if (!impl_->cosigned) {
+        auto stored = read_cosignatures(impl_->cosignatures);
+        if (!stored) {
+            return std::unexpected(stored.error());
+        }
+        impl_->cosigned.emplace();
+        for (const StoredCosignature& s : *stored) {
+            impl_->cosigned->insert(key_of(s.witness, s.cosignature.checkpoint));
+        }
     }
-    if (std::ranges::any_of(*stored, [&](const StoredCosignature& s) {
-            return s.witness == witness && s.cosignature.checkpoint == cosignature->checkpoint;
-        })) {
+    const Bytes key = key_of(witness, cosignature->checkpoint);
+    if (impl_->cosigned->contains(key)) {
         return {};
     }
     auto record = encode_stored_cosignature(encoded, witness);
@@ -1011,6 +1184,7 @@ Status Ledger::add_cosignature(ByteView encoded, const crypto::PublicKey& witnes
     }
     const std::unique_lock lock(impl_->log_mutex);
     impl_->cosignatures.publish(*pending);
+    impl_->cosigned->insert(key);
     return {};
 }
 
@@ -1228,7 +1402,23 @@ Result<Bytes> issue(const Ledger::Impl& impl, const crypto::Signer& log_key, std
     if (!path) {
         return std::unexpected(path.error());
     }
-    return protocol::issue_receipt(log_key, *impl.provider, impl.state.hash(), checkpoint.root,
+    // One signature per checkpoint: receipts differ only in their proofs.
+    std::shared_ptr<const Ledger::Impl::Seal> seal;
+    {
+        const std::lock_guard lock(impl.seal_mutex);
+        if (!impl.seal || impl.seal->checkpoint != checkpoint ||
+            impl.seal->key != log_key.public_key()) {
+            auto made = protocol::seal_receipts(log_key, *impl.provider, impl.state.hash(),
+                                                checkpoint.root);
+            if (!made) {
+                return std::unexpected(made.error());
+            }
+            impl.seal = std::make_shared<const Ledger::Impl::Seal>(
+                Ledger::Impl::Seal{checkpoint, log_key.public_key(), std::move(*made)});
+        }
+        seal = impl.seal;
+    }
+    return protocol::issue_receipt(seal->seal,
                                    protocol::InclusionProof{checkpoint.tree_size, index, *path});
 }
 

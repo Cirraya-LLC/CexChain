@@ -69,8 +69,12 @@ Result<std::vector<ApiToken>> load_tokens(const std::filesystem::path& ledger_di
         return std::unexpected(bytes.error());
     }
     const auto document = nlohmann::json::parse(bytes->begin(), bytes->end(), nullptr, false);
-    if (document.is_discarded() || !document.is_object() || document.value("version", 0) != 1 ||
-        !document.contains("tokens") || !document["tokens"].is_array()) {
+    // (value("version", 0) would throw on a version that is not a number:
+    // a reload must fail closed, not keep the old tokens.)
+    if (document.is_discarded() || !document.is_object() || !document.contains("version") ||
+        !document["version"].is_number_unsigned() ||
+        document["version"].get<std::uint64_t>() != 1 || !document.contains("tokens") ||
+        !document["tokens"].is_array()) {
         return fail(Errc::malformed, "the API tokens file is malformed");
     }
     std::vector<ApiToken> tokens;

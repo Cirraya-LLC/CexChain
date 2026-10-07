@@ -481,3 +481,45 @@ TEST_CASE("batches survive crashes at any point", "[ledger][engine][simulation][
         CHECK(recovered->submit(w.sign(c.agent, agent_record(w, c, certificate))));
     }
 }
+
+TEST_CASE("receipts share one signature per checkpoint; checkpoints are found by size",
+          "[ledger][receipts]") {
+    World w;
+    Cast c = build_cast(w);
+    REQUIRE(w.ledger().checkpoint(w.log_key()));
+    const auto first = *w.ledger().latest_checkpoint();
+    w.clock().advance(10);
+    static_cast<void>(w.ok(c.agent, agent_record(w, c, certificate)));
+    REQUIRE(w.ledger().checkpoint(w.log_key()));
+    const auto second = *w.ledger().latest_checkpoint();
+
+    // Every entry's receipt verifies, and all carry the same signature: the
+    // log key signed the root once.
+    std::optional<Bytes> signature;
+    for (std::uint64_t i = 0; i < second.checkpoint.tree_size; ++i) {
+        const auto encoded = w.ledger().receipt(w.log_key(), i);
+        REQUIRE(encoded);
+        const auto receipt = protocol::parse_receipt(*encoded);
+        REQUIRE(receipt);
+        const auto root = protocol::verify_receipt(provider(), *receipt, *w.ledger().entry(i),
+                                                   w.log_key().public_key());
+        REQUIRE(root);
+        CHECK(*root == second.checkpoint.root);
+        if (signature) {
+            CHECK(receipt->envelope.signature == *signature);
+        }
+        signature = receipt->envelope.signature;
+    }
+
+    const auto at_first = w.ledger().checkpoints_of_size(first.checkpoint.tree_size);
+    REQUIRE(at_first);
+    REQUIRE(at_first->size() == 1);
+    CHECK(at_first->front().encoded == first.encoded);
+    CHECK(w.ledger().checkpoints_of_size(first.checkpoint.tree_size + 1)->empty());
+    CHECK(w.ledger().checkpoint_count() == 2);
+    const auto page = w.ledger().checkpoints(1, 5);
+    REQUIRE(page);
+    REQUIRE(page->size() == 1);
+    CHECK(page->front().encoded == second.encoded);
+    CHECK(w.ledger().checkpoints(2, 5)->empty());
+}

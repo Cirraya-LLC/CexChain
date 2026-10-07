@@ -654,9 +654,12 @@ std::vector<CommandSpec> build() {
                {"tls-key", "FILE", "TLS private key (PEM)"},
                {"read-only", "", "Refuse every write"},
                {"public-read", "",
-                "Serve read routes without a token (a public verification portal)"},
+                "Serve read routes without a token (a public verification portal; the vault and "
+                "metrics still need one)"},
                {"threads", "N", "I/O threads (default: one per core)"},
                {"max-connections", "N", "Concurrent connections (default: 1024)"},
+               {"max-connections-per-ip", "N",
+                "From one client address (default: no limit; behind a proxy, leave it)"},
                {"max-body", "BYTES", "Largest request body (default: 1048576)"},
                {"quiet", "", "No access log on stderr"},
                {"witness-dir", "DIR", "Also witness peers' ledgers: this witness state directory"},

@@ -262,18 +262,29 @@ Status verify_state_commitment(const crypto::Provider& provider,
 // Receipts
 // ---------------------------------------------------------------------------
 
-Result<Bytes> issue_receipt(const crypto::Signer& log_key, const crypto::Provider& provider,
-                            crypto::HashAlg tree_hash, const crypto::Digest& root,
-                            const InclusionProof& proof) {
+Result<ReceiptSeal> seal_receipts(const crypto::Signer& log_key, const crypto::Provider& provider,
+                                  crypto::HashAlg tree_hash, const crypto::Digest& root) {
     const auto vds = vds_for(tree_hash);
     if (!vds) {
         return fail(Errc::unsupported, "tree hash must be SHA-256 or SM3");
     }
+    CEXCHAIN_TRY(Id kid, key_id(provider, tree_hash, log_key.public_key()));
+    CEXCHAIN_TRY(
+        Bytes protected_bytes,
+        cbor::encode(cbor::Value::map({
+            entry(cose::label_alg, cbor::Value::integer(crypto::cose_id(log_key.algorithm()))),
+            entry(cose::label_kid, cbor::Value::bytes(kid.bytes())),
+            entry(label_vds, cbor::Value::integer(*vds)),
+        })));
+    CEXCHAIN_TRY(Bytes to_be_signed, cose::sig_structure(protected_bytes, {}, root.bytes()));
+    CEXCHAIN_TRY(Bytes signature, log_key.sign(to_be_signed));
+    return ReceiptSeal{std::move(protected_bytes), std::move(signature)};
+}
+
+Result<Bytes> issue_receipt(const ReceiptSeal& seal, const InclusionProof& proof) {
     if (proof.leaf_index >= proof.tree_size) {
         return fail(Errc::invalid_argument, "leaf index is outside the tree");
     }
-    CEXCHAIN_TRY(Id kid, key_id(provider, tree_hash, log_key.public_key()));
-
     cbor::Array path;
     for (const crypto::Digest& node : proof.path) {
         path.push_back(cbor::Value::bytes(node.bytes()));
@@ -282,18 +293,28 @@ Result<Bytes> issue_receipt(const crypto::Signer& log_key, const crypto::Provide
                  cbor::encode(cbor::Value::array({cbor::Value::unsigned_integer(proof.tree_size),
                                                   cbor::Value::unsigned_integer(proof.leaf_index),
                                                   cbor::Value::array(std::move(path))})));
+    // As cose::sign lays out a detached COSE_Sign1.
+    return cbor::encode(cbor::Value::tagged(
+        cose::tag_sign1,
+        cbor::Value::array({
+            cbor::Value::bytes(seal.protected_bytes),
+            cbor::Value::map(
+                {entry(label_vdp, cbor::Value::map({entry(vdp_inclusion_proofs,
+                                                          cbor::Value::array({cbor::Value::bytes(
+                                                              std::move(proof_bytes))}))}))}),
+            cbor::Value::null(),
+            cbor::Value::bytes(seal.signature),
+        })));
+}
 
-    cose::SignOptions options;
-    options.protected_header = {
-        entry(cose::label_kid, cbor::Value::bytes(kid.bytes())),
-        entry(label_vds, cbor::Value::integer(*vds)),
-    };
-    options.unprotected_header = {entry(
-        label_vdp, cbor::Value::map(
-                       {entry(vdp_inclusion_proofs,
-                              cbor::Value::array({cbor::Value::bytes(std::move(proof_bytes))}))}))};
-    options.detached = true;
-    return cose::sign(log_key, root.bytes(), options);
+Result<Bytes> issue_receipt(const crypto::Signer& log_key, const crypto::Provider& provider,
+                            crypto::HashAlg tree_hash, const crypto::Digest& root,
+                            const InclusionProof& proof) {
+    if (proof.leaf_index >= proof.tree_size) {
+        return fail(Errc::invalid_argument, "leaf index is outside the tree");
+    }
+    CEXCHAIN_TRY(ReceiptSeal seal, seal_receipts(log_key, provider, tree_hash, root));
+    return issue_receipt(seal, proof);
 }
 
 Result<Receipt> parse_receipt(ByteView encoded) {

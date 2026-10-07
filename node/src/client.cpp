@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
+#include <algorithm>
 #include <array>
 #include <asio.hpp>
 #include <asio/ssl.hpp>
@@ -34,12 +35,19 @@ asio::awaitable<void> exchange(Stream& stream, const std::string& message, std::
     }
     std::string buffer;
     std::array<char, 64 * 1024> chunk{};
+    // Framing included, a response is never more than twice its body limit.
+    // (Re-parsing on each read is bounded by that and by the timeout.)
+    const std::size_t max_buffer = 2 * max_body + 64 * 1024;
     while (true) {
         auto [ec, n] = co_await stream.async_read_some(asio::buffer(chunk), use_tuple);
         buffer.append(chunk.data(), n);
         const bool at_end = static_cast<bool>(ec);
         if (ec && ec != asio::error::eof && ec != asio::ssl::error::stream_truncated) {
             outcome.error = Error{Errc::unavailable, "the connection to the server failed"};
+            co_return;
+        }
+        if (buffer.size() > max_buffer) {
+            outcome.error = Error{Errc::limit_exceeded, "the server's response is too large"};
             co_return;
         }
         auto parsed = http::parse_response(buffer, max_body, at_end);
@@ -65,6 +73,13 @@ Result<Url> Url::parse(std::string_view text) {
         text.remove_prefix(7);
     } else {
         return fail(Errc::invalid_argument, "a server URL starts with http:// or https://");
+    }
+    // Nothing that could break a request line or a header field.
+    if (std::ranges::any_of(text, [](char c) {
+            const auto u = static_cast<unsigned char>(c);
+            return u <= 0x20 || u >= 0x7f;
+        })) {
+        return fail(Errc::invalid_argument, "a server URL has no spaces or control characters");
     }
     const std::size_t slash = std::min(text.find('/'), text.size());
     std::string_view authority = text.substr(0, slash);

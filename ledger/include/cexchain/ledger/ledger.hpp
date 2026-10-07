@@ -165,7 +165,7 @@ public:
     [[nodiscard]] Result<Bytes> entry(std::uint64_t index) const;
     /// The same without copying it: `visit` sees the bytes in place, under
     /// the readers' lock, and must not keep the view or call back into the
-    /// ledger's writing methods.
+    /// ledger at all (the lock is not reentrant).
     [[nodiscard]] Status visit_entry(std::uint64_t index,
                                      const std::function<void(ByteView)>& visit) const;
 
@@ -180,8 +180,17 @@ public:
     /// key named in genesis.
     [[nodiscard]] Result<protocol::SignedCheckpoint> checkpoint(const crypto::Signer& log_key);
 
-    /// Every stored checkpoint, oldest first.
+    /// Every stored checkpoint, oldest first (for backups and audits; the
+    /// API pages through them).
     [[nodiscard]] Result<std::vector<protocol::SignedCheckpoint>> checkpoints() const;
+    [[nodiscard]] std::uint64_t checkpoint_count() const;
+    /// Checkpoints [start, start + count), at most 1000, read from disk.
+    [[nodiscard]] Result<std::vector<protocol::SignedCheckpoint>>
+    checkpoints(std::uint64_t start, std::uint64_t count) const;
+    /// The checkpoints of tree size `size`, oldest first (a binary search:
+    /// they are stored in order of size).
+    [[nodiscard]] Result<std::vector<protocol::SignedCheckpoint>>
+    checkpoints_of_size(std::uint64_t size) const;
 
     /// Stores a witness's cosignature of one of the ledger's checkpoints,
     /// after verifying it with the witness's key. Storing the same
@@ -190,6 +199,10 @@ public:
 
     /// Every stored cosignature, oldest first.
     [[nodiscard]] Result<std::vector<StoredCosignature>> cosignatures() const;
+    [[nodiscard]] std::uint64_t cosignature_count() const;
+    /// Cosignatures [start, start + count), at most 1000.
+    [[nodiscard]] Result<std::vector<StoredCosignature>> cosignatures(std::uint64_t start,
+                                                                      std::uint64_t count) const;
 
     /// The newest checkpoint `witness` has cosigned, if any.
     [[nodiscard]] Result<std::optional<protocol::Checkpoint>>

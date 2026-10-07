@@ -9,6 +9,7 @@
 #include <csignal>
 #include <exception>
 #include <format>
+#include <map>
 #include <mutex>
 #include <set>
 #include <thread>
@@ -53,8 +54,15 @@ http::Response plain_error(int status, std::string_view message) {
     return r;
 }
 
+std::int64_t steady_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
+
 /// What the server tracks of a connection, from any thread: whether a
-/// request is in progress, and a way to close it on its own thread.
+/// request is in progress, when it last did anything, and a way to close it
+/// on its own thread if it is idle by then.
 struct Tracked {
     Tracked() = default;
     Tracked(const Tracked&) = delete;
@@ -62,7 +70,89 @@ struct Tracked {
     virtual ~Tracked() = default;
 
     std::atomic<bool> busy = false;
-    virtual void close_soon() = 0;
+    std::atomic<std::int64_t> active_ms = steady_ms();
+    std::string peer;
+    virtual void close_if_idle_soon() = 0;
+};
+
+/// Every open connection, and how many each peer address has: slots are
+/// taken when a connection is accepted and given back when it is destroyed
+/// (however it ends), so the set never holds a connection that is gone.
+class Registry {
+public:
+    Registry(std::size_t max_total, std::size_t max_per_peer)
+        : max_total_(max_total), max_per_peer_(max_per_peer) {}
+
+    /// Takes a slot for a connection from `peer`, or says why not. When
+    /// full, the longest-idle connection is closed to make room: idle
+    /// connections, not new clients, give way.
+    bool take(const std::string& peer) {
+        const std::lock_guard lock(mutex_);
+        if (max_per_peer_ > 0 && per_peer_[peer] >= max_per_peer_) {
+            return false;
+        }
+        if (taken_ >= max_total_) {
+            Tracked* oldest = nullptr;
+            for (Tracked* c : connections_) {
+                if (!c->busy && !evicted_.contains(c) &&
+                    (oldest == nullptr || c->active_ms < oldest->active_ms)) {
+                    oldest = c;
+                }
+            }
+            // A bounded overshoot while evicted connections close.
+            if (oldest == nullptr || evicted_.size() > max_total_ / 16) {
+                return false;
+            }
+            evicted_.insert(oldest);
+            oldest->close_if_idle_soon();
+        }
+        ++taken_;
+        ++per_peer_[peer];
+        return true;
+    }
+    void add(Tracked* c) {
+        const std::lock_guard lock(mutex_);
+        connections_.insert(c);
+    }
+    /// From a connection's destructor.
+    void release(Tracked* c) {
+        const std::lock_guard lock(mutex_);
+        connections_.erase(c);
+        evicted_.erase(c);
+        --taken_;
+        if (const auto it = per_peer_.find(c->peer); it != per_peer_.end() && --it->second == 0) {
+            per_peer_.erase(it);
+        }
+    }
+    /// A slot taken for a connection that was then not made.
+    void give_back(const std::string& peer) {
+        const std::lock_guard lock(mutex_);
+        --taken_;
+        if (const auto it = per_peer_.find(peer); it != per_peer_.end() && --it->second == 0) {
+            per_peer_.erase(it);
+        }
+    }
+    [[nodiscard]] std::size_t open() {
+        const std::lock_guard lock(mutex_);
+        return taken_;
+    }
+    /// Closes every idle connection (busy ones finish their request).
+    void close_idle() {
+        const std::lock_guard lock(mutex_);
+        for (Tracked* c : connections_) {
+            c->close_if_idle_soon();
+        }
+    }
+
+private:
+    std::mutex mutex_;
+    std::set<Tracked*> connections_;
+    /// Asked to close to make room, and not gone yet.
+    std::set<Tracked*> evicted_;
+    std::map<std::string, std::size_t> per_peer_;
+    std::size_t taken_ = 0;
+    std::size_t max_total_;
+    std::size_t max_per_peer_;
 };
 
 template <class Stream>
@@ -76,10 +166,20 @@ struct Connection final : Tracked, std::enable_shared_from_this<Connection<Strea
     /// earlier than the timer re-arms the timer. Keep-alive requests thus
     /// cost no timer operations.
     Time deadline = Time::max();
-    std::string peer;
+    Registry* registry;
 
-    Connection(Stream s, std::string peer_)
-        : stream(std::move(s)), timer(stream.get_executor(), Time::max()), peer(std::move(peer_)) {}
+    Connection(Stream s, std::string peer_, Registry& registry_)
+        : stream(std::move(s)), timer(stream.get_executor(), Time::max()), registry(&registry_) {
+        peer = std::move(peer_);
+        registry->add(this);
+    }
+    Connection(const Connection&) = delete;
+    Connection& operator=(const Connection&) = delete;
+    ~Connection() override {
+        // First, while every member is alive: the registry may be looking at
+        // this connection right now (it holds its lock while it does).
+        registry->release(this);
+    }
 
     /// The rest: only on the connection's thread.
     void expire_after(std::chrono::steady_clock::duration timeout) {
@@ -95,8 +195,16 @@ struct Connection final : Tracked, std::enable_shared_from_this<Connection<Strea
         timer.cancel();
     }
 
-    void close_soon() override {
-        asio::post(stream.get_executor(), [self = this->shared_from_this()] { self->close(); });
+    void close_if_idle_soon() override {
+        // Not once it is being destroyed; and not if a request started
+        // meanwhile (it finishes, then sees the server stopping).
+        if (auto self = this->weak_from_this().lock()) {
+            asio::post(stream.get_executor(), [self = std::move(self)] {
+                if (!self->busy) {
+                    self->close();
+                }
+            });
+        }
     }
 };
 
@@ -151,24 +259,20 @@ struct Server::Impl {
     /// Set by listen(), before any thread runs.
     std::uint16_t bound_port = 0;
 
-    std::mutex connections_mutex;
-    std::set<Tracked*> connections;
+    Registry registry{options.max_connections, options.max_connections_per_peer};
+    /// Request bytes buffered across all connections, against
+    /// options.max_buffered_bytes: many large requests at once cannot
+    /// exhaust memory.
+    std::atomic<std::size_t> buffered = 0;
 
     std::mutex log_mutex;
     std::string log_buffer;
+    std::uint64_t log_dropped = 0;
+    /// Writing the log out, apart from appending to it: a slow reader of
+    /// the log stalls only the writer, never the threads appending.
+    std::mutex log_write_mutex;
 
-    void track(Tracked* c) {
-        const std::lock_guard lock(connections_mutex);
-        connections.insert(c);
-    }
-    void untrack(Tracked* c) {
-        const std::lock_guard lock(connections_mutex);
-        connections.erase(c);
-    }
-    std::size_t open_connections() {
-        const std::lock_guard lock(connections_mutex);
-        return connections.size();
-    }
+    std::size_t open_connections() { return registry.open(); }
 
     /// Lines are buffered and written out together: one lock, no flush per
     /// request.
@@ -187,22 +291,41 @@ struct Server::Impl {
             now, json_escape(peer), json_escape(method), json_escape(target), status, bytes, us,
             principal.empty() ? std::string()
                               : R"(,"principal":")" + json_escape(principal) + "\"");
-        const std::lock_guard lock(log_mutex);
-        log_buffer += line;
-        if (log_buffer.size() > 64 * 1024) {
-            flush_log_locked();
+        bool full = false;
+        {
+            const std::lock_guard lock(log_mutex);
+            if (log_buffer.size() > 1024 * 1024) {
+                ++log_dropped; // the log cannot keep up: drop, do not grow
+                return;
+            }
+            log_buffer += line;
+            full = log_buffer.size() > 64 * 1024;
         }
-    }
-    void flush_log_locked() {
-        if (options.access_log != nullptr && !log_buffer.empty()) {
-            *options.access_log << log_buffer;
-            options.access_log->flush();
-            log_buffer.clear();
+        if (full) {
+            flush_log();
         }
     }
     void flush_log() {
-        const std::lock_guard lock(log_mutex);
-        flush_log_locked();
+        if (options.access_log == nullptr) {
+            return;
+        }
+        const std::lock_guard writing(log_write_mutex);
+        std::string out;
+        std::uint64_t dropped = 0;
+        {
+            const std::lock_guard lock(log_mutex);
+            out.swap(log_buffer);
+            dropped = std::exchange(log_dropped, 0);
+        }
+        if (dropped > 0) {
+            out += std::format(R"({{"dropped_lines":{}}})"
+                               "\n",
+                               dropped);
+        }
+        if (!out.empty()) {
+            *options.access_log << out;
+            options.access_log->flush();
+        }
     }
 
     /// Hands the request to the application and waits, without holding a
@@ -215,23 +338,42 @@ struct Server::Impl {
                                                 void(http::Response)>(
             [&](auto handler) {
                 using Handler = decltype(handler);
+                using Executor = typename Stream::executor_type;
+                /// Resumes the connection with the first answer; if the
+                /// application drops every copy of `respond` without
+                /// answering, with a 500 (never leaving it waiting).
                 struct Pending {
+                    Pending(Handler h, Executor e) : resume(std::move(h)), executor(std::move(e)) {}
+                    Pending(const Pending&) = delete;
+                    Pending& operator=(const Pending&) = delete;
+                    ~Pending() {
+                        if (!answered.exchange(true)) {
+                            asio::post(executor, [resume = std::move(resume)]() mutable {
+                                resume(plain_error(500, "the request was never answered"));
+                            });
+                        }
+                    }
+                    void answer(http::Response response) {
+                        if (!answered.exchange(true)) {
+                            asio::post(executor, [this_resume = std::move(resume),
+                                                  response = std::move(response)]() mutable {
+                                this_resume(std::move(response));
+                            });
+                        }
+                    }
                     Handler resume;
+                    Executor executor;
                     std::atomic<bool> answered = false;
                 };
-                auto pending = std::make_shared<Pending>(std::move(handler));
-                auto deliver = [pending,
-                                executor = c->stream.get_executor()](http::Response response) {
-                    if (!pending->answered.exchange(true)) {
-                        asio::post(executor, [pending, response = std::move(response)]() mutable {
-                            pending->resume(std::move(response));
-                        });
-                    }
+                auto pending =
+                    std::make_shared<Pending>(std::move(handler), c->stream.get_executor());
+                auto deliver = [pending](http::Response response) {
+                    pending->answer(std::move(response));
                 };
                 Application::Respond fallback = deliver;
                 try {
                     app.handle(std::move(request), c->peer, std::move(deliver));
-                } catch (const std::exception&) {
+                } catch (...) {
                     fallback(plain_error(500, "internal error"));
                 }
             },
@@ -240,7 +382,6 @@ struct Server::Impl {
 
     template <class Stream>
     asio::awaitable<void> serve(std::shared_ptr<Connection<Stream>> c) {
-        track(c.get());
         asio::co_spawn(c->stream.get_executor(), watchdog(c), asio::detached);
         co_await serve_requests(c);
         if constexpr (std::is_same_v<Stream, TlsStream>) {
@@ -253,13 +394,14 @@ struct Server::Impl {
             c->stream.shutdown(tcp::socket::shutdown_send, ignored);
         }
         c->close();
-        untrack(c.get());
     }
 
     template <class Stream>
     asio::awaitable<void> serve_requests(std::shared_ptr<Connection<Stream>> c) {
+        // A new connection must get its first request in quickly: a client
+        // that only holds the connection open is gone in seconds.
+        c->expire_after(options.header_timeout);
         if constexpr (std::is_same_v<Stream, TlsStream>) {
-            c->expire_after(options.request_timeout);
             auto [ec] =
                 co_await c->stream.async_handshake(asio::ssl::stream_base::server, use_tuple);
             if (ec) {
@@ -267,15 +409,30 @@ struct Server::Impl {
             }
         }
         std::string buffer;
+        // This connection's share of the server-wide buffer budget.
+        struct Accounted {
+            std::atomic<std::size_t>& total;
+            std::size_t mine = 0;
+            void set(std::size_t bytes) {
+                total += bytes - mine; // wraps correctly when shrinking
+                mine = bytes;
+            }
+            ~Accounted() { total -= mine; }
+        } accounted{buffered};
         std::array<char, 16 * 1024> chunk{};
+        bool first = true;
         for (;;) {
             // In this order, against begin_stop(): either this sees
             // `stopping`, or begin_stop() sees the connection idle.
             c->busy = false;
+            c->active_ms = steady_ms();
             if (stopping) {
                 co_return;
             }
-            c->expire_after(buffer.empty() ? options.idle_timeout : options.request_timeout);
+            if (!first) {
+                c->expire_after(buffer.empty() ? options.idle_timeout : options.request_timeout);
+            }
+            first = false;
             std::optional<http::ParseError> error;
             std::optional<http::Parsed> parsed;
             bool wants_continue = false;
@@ -300,6 +457,14 @@ struct Server::Impl {
                     c->expire_after(options.request_timeout);
                 }
                 buffer.append(chunk.data(), n);
+                accounted.set(buffer.capacity());
+                c->active_ms = steady_ms();
+                if (buffered.load() > options.max_buffered_bytes) {
+                    const std::string out =
+                        http::serialize(plain_error(503, "the server is busy; retry"), false);
+                    co_await asio::async_write(c->stream, asio::buffer(out), use_tuple);
+                    co_return;
+                }
             }
             c->busy = true;
             const auto started = std::chrono::steady_clock::now();
@@ -311,13 +476,22 @@ struct Server::Impl {
                 response = plain_error(error->status, error->message);
             } else {
                 buffer.erase(0, parsed->consumed);
+                // A large request's buffer is not kept for the connection's
+                // life.
+                if (buffer.capacity() > 64 * 1024 && buffer.size() < 16 * 1024) {
+                    std::string(buffer).swap(buffer);
+                }
+                accounted.set(buffer.capacity());
                 method = parsed->request.method;
                 target = parsed->request.target;
                 keep_alive = parsed->request.keep_alive;
                 response = co_await answer(c, std::move(parsed->request));
             }
             keep_alive = keep_alive && !stopping;
-            const std::string out = http::serialize(response, keep_alive);
+            // A response to HEAD has the headers alone: a proxy reading no
+            // body after it would otherwise take the body for the next
+            // response.
+            const std::string out = http::serialize(response, keep_alive, method != "HEAD");
             c->expire_after(options.request_timeout);
             auto [ec, n] = co_await asio::async_write(c->stream, asio::buffer(out), use_tuple);
             log(c->peer, method, target, response.status, out.size(),
@@ -361,21 +535,26 @@ struct Server::Impl {
             socket.set_option(tcp::no_delay(true), ignored);
             const auto endpoint = socket.remote_endpoint(ignored);
             std::string peer = ignored ? std::string("-") : endpoint.address().to_string();
-            if (open_connections() >= options.max_connections) {
+            // The slot is taken here, at once: a burst cannot overshoot.
+            if (!registry.take(peer)) {
                 auto executor = socket.get_executor();
                 asio::co_spawn(executor, refuse(std::move(socket)), asio::detached);
                 continue;
             }
-            if (tls) {
-                auto c = std::make_shared<Connection<TlsStream>>(TlsStream(std::move(socket), *tls),
-                                                                 std::move(peer));
-                auto executor = c->stream.get_executor();
-                asio::co_spawn(executor, serve(std::move(c)), asio::detached);
-            } else {
-                auto c =
-                    std::make_shared<Connection<tcp::socket>>(std::move(socket), std::move(peer));
-                auto executor = c->stream.get_executor();
-                asio::co_spawn(executor, serve(std::move(c)), asio::detached);
+            try {
+                if (tls) {
+                    auto c = std::make_shared<Connection<TlsStream>>(
+                        TlsStream(std::move(socket), *tls), std::move(peer), registry);
+                    auto executor = c->stream.get_executor();
+                    asio::co_spawn(executor, serve(std::move(c)), asio::detached);
+                } else {
+                    auto c = std::make_shared<Connection<tcp::socket>>(std::move(socket),
+                                                                       std::move(peer), registry);
+                    auto executor = c->stream.get_executor();
+                    asio::co_spawn(executor, serve(std::move(c)), asio::detached);
+                }
+            } catch (...) {
+                registry.give_back(peer);
             }
         }
     }
@@ -406,14 +585,7 @@ struct Server::Impl {
         acceptor.close(ignored);
         signals.cancel(ignored);
         ticker.cancel();
-        {
-            const std::lock_guard lock(connections_mutex);
-            for (Tracked* c : connections) {
-                if (!c->busy) {
-                    c->close_soon();
-                }
-            }
-        }
+        registry.close_idle();
         asio::co_spawn(control, drain(), asio::detached);
     }
 
@@ -469,6 +641,7 @@ Status Server::listen() {
         SSL_CTX_set_min_proto_version(context.native_handle(), TLS1_2_VERSION);
         context.set_options(asio::ssl::context::default_workarounds |
                             asio::ssl::context::no_compression);
+        SSL_CTX_set_options(context.native_handle(), SSL_OP_NO_RENEGOTIATION);
         context.use_certificate_chain_file(s.options.tls_certificate->string(), ec);
         if (!ec) {
             context.use_private_key_file(s.options.tls_private_key->string(),

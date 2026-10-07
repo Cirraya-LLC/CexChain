@@ -266,6 +266,12 @@ std::optional<Parsed> parse_request(std::string_view buffer, const Limits& limit
         }
         expects_continue = true;
     }
+    // One Connection field: with two, a proxy and this server could disagree
+    // on whether the connection stays open.
+    if (count_field(request.headers, "connection") > 1) {
+        error = ParseError{400, "repeated Connection"};
+        return std::nullopt;
+    }
     const auto connection = request.header("connection");
     request.keep_alive = http11 ? !(connection && has_token(*connection, "close"))
                                 : (connection && has_token(*connection, "keep-alive"));
@@ -316,7 +322,7 @@ std::optional<Parsed> parse_request(std::string_view buffer, const Limits& limit
     return Parsed{std::move(request), body_start + static_cast<std::size_t>(length)};
 }
 
-std::string serialize(const Response& response, bool keep_alive) {
+std::string serialize(const Response& response, bool keep_alive, bool with_body) {
     std::string out = "HTTP/1.1 " + std::to_string(response.status) + " ";
     out += reason(response.status);
     out += "\r\n";
@@ -329,7 +335,9 @@ std::string serialize(const Response& response, bool keep_alive) {
         out += name + ": " + value + "\r\n";
     }
     out += "\r\n";
-    out.append(response.body.begin(), response.body.end());
+    if (with_body) {
+        out.append(response.body.begin(), response.body.end());
+    }
     return out;
 }
 
@@ -361,6 +369,11 @@ parse_response(std::string_view buffer, std::size_t max_body, bool at_end_of_str
     if (!parse_fields(std::span(*lines).subspan(1), response.headers)) {
         return fail(Errc::malformed, "the server sent a malformed header field");
     }
+    // Repeated framing fields would leave the length ambiguous.
+    if (count_field(response.headers, "transfer-encoding") > 1 ||
+        count_field(response.headers, "content-length") > 1) {
+        return fail(Errc::malformed, "the server repeated a framing header field");
+    }
     const std::size_t body_start = end + 4;
     std::string_view rest = buffer.substr(body_start);
     auto finish =
@@ -378,10 +391,20 @@ parse_response(std::string_view buffer, std::size_t max_body, bool at_end_of_str
         }
         std::string body;
         std::size_t pos = 0;
+        // Chunk-size lines and trailers are small: endless ones are refused,
+        // not buffered.
+        constexpr std::size_t max_chunk_line = 1024;
+        constexpr std::size_t max_trailers = 16 * 1024;
         while (true) {
             const std::size_t eol = rest.find("\r\n", pos);
             if (eol == std::string_view::npos) {
+                if (rest.size() - pos > max_chunk_line) {
+                    return fail(Errc::malformed, "the server sent an oversized chunk line");
+                }
                 break;
+            }
+            if (eol - pos > max_chunk_line) {
+                return fail(Errc::malformed, "the server sent an oversized chunk line");
             }
             std::string_view size_text = rest.substr(pos, eol - pos);
             size_text = size_text.substr(0, size_text.find(';'));
@@ -402,6 +425,9 @@ parse_response(std::string_view buffer, std::size_t max_body, bool at_end_of_str
                     return finish(body, body_start + eol + 4);
                 }
                 if (trailers_end == std::string_view::npos) {
+                    if (rest.size() - eol > max_trailers) {
+                        return fail(Errc::malformed, "the server sent oversized trailers");
+                    }
                     break;
                 }
                 return finish(body, body_start + trailers_end + 4);

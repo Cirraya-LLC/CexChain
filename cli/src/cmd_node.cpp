@@ -206,6 +206,9 @@ int cmd_serve(const Args& args) {
     if (const auto n = args.get("max-connections")) {
         server_options.max_connections = parse_number(*n, "connections");
     }
+    if (const auto n = args.get("max-connections-per-ip")) {
+        server_options.max_connections_per_peer = parse_number(*n, "connections per address");
+    }
     raise_descriptor_limit(server_options.max_connections + 64);
     if (const auto n = args.get("max-body")) {
         server_options.limits.max_body = parse_number(*n, "body size");

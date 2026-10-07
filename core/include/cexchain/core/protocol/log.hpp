@@ -165,6 +165,23 @@ struct Receipt {
                                           crypto::HashAlg tree_hash, const crypto::Digest& root,
                                           const InclusionProof& proof);
 
+/// What every receipt against one root shares: the protected header and the
+/// log key's signature over it and the root. The inclusion proof sits in
+/// the unprotected header, so one signature serves every entry the root
+/// covers.
+struct ReceiptSeal {
+    Bytes protected_bytes;
+    Bytes signature;
+};
+
+/// Signs `root` once, for any number of receipts.
+[[nodiscard]] Result<ReceiptSeal> seal_receipts(const crypto::Signer& log_key,
+                                                const crypto::Provider& provider,
+                                                crypto::HashAlg tree_hash,
+                                                const crypto::Digest& root);
+/// A receipt from a seal, without signing again.
+[[nodiscard]] Result<Bytes> issue_receipt(const ReceiptSeal& seal, const InclusionProof& proof);
+
 [[nodiscard]] Result<Receipt> parse_receipt(ByteView encoded);
 
 /// Applies the receipt's proof to `entry` (the encoded log entry), then
