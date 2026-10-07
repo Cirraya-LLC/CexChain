@@ -14,6 +14,7 @@
 #include <fstream>
 #include <iterator>
 #include <termios.h>
+#include <thread>
 #include <unistd.h>
 #include <variant>
 
@@ -23,6 +24,7 @@
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/presence.hpp>
 #include <cexchain/node/api.hpp>
+#include <cexchain/node/cluster.hpp>
 #include <cexchain/node/replica.hpp>
 #ifdef CEXCHAIN_HAVE_PKCS11
 #include <cexchain/crypto/pkcs11.hpp>
@@ -685,6 +687,28 @@ void Session::sync() {
     }
 }
 
+bool Session::has_checkpoint(ByteView encoded) const {
+    const auto parsed = protocol::parse_checkpoint(encoded);
+    if (!parsed) {
+        return false;
+    }
+    const auto stored = ledger_->checkpoints_of_size(parsed->checkpoint.tree_size);
+    return stored && std::ranges::any_of(*stored, [&](const protocol::SignedCheckpoint& c) {
+               return std::ranges::equal(c.encoded, encoded);
+           });
+}
+
+bool Session::sync_until(const std::function<bool()>& done) {
+    for (int attempt = 0; attempt < 100; ++attempt) {
+        sync();
+        if (done()) {
+            return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    return false;
+}
+
 Bytes Session::call(std::string_view method, std::string_view path, ByteView body,
                     std::string_view content_type) const {
     const auto response = unwrap(remote_->client.request(method, path, body, content_type),
@@ -816,8 +840,7 @@ protocol::Id Session::submit(const crypto::Signer& signer, protocol::Body body,
             static_cast<void>(
                 call("POST", "/v1/statements", signed_statement.encoded, "application/cose"));
         }
-        sync();
-        if (!state().statement_index(signed_statement.id)) {
+        if (!sync_until([&] { return state().statement_index(signed_statement.id).has_value(); })) {
             throw CommandError{"the server accepted the statement but does not show it"};
         }
         return signed_statement.id;
@@ -981,6 +1004,10 @@ void Session::require_primary() const {
         throw CommandError{"this works on the ledger's directory only: run it where the ledger "
                            "is, without --server"};
     }
+    if (node::is_cluster_member(directory_)) {
+        throw CommandError{"this ledger is a cluster member: write through the cluster (--server "
+                           "a member's API)"};
+    }
     if (std::filesystem::exists(directory_ / node::replica_file)) {
         throw CommandError{"this ledger is a replica: write to its primary, or promote it first "
                            "(cexchain replica promote)"};
@@ -1001,14 +1028,9 @@ protocol::SignedCheckpoint Session::checkpoint(const Args& args) {
         throw UsageError{"with --server the server signs: drop --log-key"};
     }
     const Bytes encoded = call("POST", "/v1/checkpoint");
-    sync();
     // The server's word counts once the mirror took it, checked.
     const auto checkpoint = unwrap(protocol::parse_checkpoint(encoded), "reading the checkpoint");
-    const auto stored = unwrap(ledger_->checkpoints_of_size(checkpoint.checkpoint.tree_size),
-                               "reading checkpoints");
-    if (std::ranges::none_of(stored, [&](const protocol::SignedCheckpoint& c) {
-            return c.encoded == checkpoint.encoded;
-        })) {
+    if (!sync_until([&] { return has_checkpoint(encoded); })) {
         throw CommandError{"the server's checkpoint is not in the history this client verified"};
     }
     return checkpoint;
@@ -1023,7 +1045,6 @@ protocol::EvidenceBundle Session::evidence(const Args& args, const protocol::Id&
         throw UsageError{"with --server the server signs: drop --log-key"};
     }
     const Bytes encoded = call("GET", "/v1/evidence/" + hex_id(record));
-    sync();
     // Verified here, against the ledger and the checkpoints this client
     // verified, before anything is built on it.
     protocol::VerifyOptions options;
@@ -1033,11 +1054,7 @@ protocol::EvidenceBundle Session::evidence(const Args& args, const protocol::Id&
         throw CommandError{"the server sent evidence that does not verify"};
     }
     auto bundle = unwrap(protocol::decode_bundle(encoded), "reading the evidence");
-    const auto stored =
-        unwrap(ledger_->checkpoints_of_size(report->checkpoint.tree_size), "reading checkpoints");
-    if (std::ranges::none_of(stored, [&](const protocol::SignedCheckpoint& c) {
-            return c.encoded == bundle.checkpoint;
-        })) {
+    if (!sync_until([&] { return has_checkpoint(bundle.checkpoint); })) {
         throw CommandError{"the server's evidence is anchored to a checkpoint this client has not "
                            "verified"};
     }
@@ -1053,8 +1070,8 @@ Bytes Session::receipt(const Args& args, std::uint64_t index) {
         throw UsageError{"with --server the server signs: drop --log-key"};
     }
     const Bytes encoded = call("GET", "/v1/receipts/" + std::to_string(index));
-    sync();
     const auto receipt = unwrap(protocol::parse_receipt(encoded), "reading the receipt");
+    sync_until([&] { return ledger_->size() >= receipt.proof.tree_size; });
     const std::uint64_t size = receipt.proof.tree_size;
     const auto root = protocol::verify_receipt(provider_, receipt,
                                                unwrap(ledger_->entry(index), "reading the entry"),

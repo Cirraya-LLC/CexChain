@@ -60,6 +60,10 @@ struct ApiOptions {
     /// Cosigns a cosign request as this organization's witness of a peer's
     /// ledger; without it, POST /v1/witness/cosign answers 501.
     std::function<Result<Bytes>(ByteView)> witness;
+    /// Serve as a member of the cluster configured in `directory`/cluster
+    /// (D-051): the node holds the ledger's lock for as long as it runs,
+    /// writes go through Raft, and followers send writers to the leader.
+    bool cluster = false;
 };
 
 class LedgerApi final : public Application {

@@ -1,0 +1,70 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cirraya
+#
+# A three-member cluster on one Docker host, to try failover:
+#
+#   docker build -t cexchain ../..
+#   docker compose up -d
+#   docker compose exec node2 cexchain cluster status --server http://node2:8080 \
+#       --token-file /data/admin.token
+#   docker compose kill node1        # the others elect a new leader within seconds
+#
+# The bootstrap service creates the ledger, its keys (unencrypted, for the
+# demo only), and the members, once. For production, give each member its
+# own host and disks, keep the log key in an HSM, and serve TLS.
+
+x-member: &member
+  image: cexchain
+  restart: unless-stopped
+  depends_on:
+    bootstrap:
+      condition: service_completed_successfully
+
+services:
+  bootstrap:
+    image: cexchain
+    user: "0"
+    entrypoint: ["/bin/sh", "/deploy/bootstrap.sh"]
+    environment:
+      CEXCHAIN_PASSPHRASE: demo
+    volumes:
+      - ./bootstrap.sh:/deploy/bootstrap.sh:ro
+      - node1:/members/node1
+      - node2:/members/node2
+      - node3:/members/node3
+
+  node1:
+    <<: *member
+    command: [serve, --cluster, --listen, "0.0.0.0:8080", --log-key, /data/log.key]
+    volumes: [node1:/data]
+    ports: ["8081:8080"]
+  node2:
+    <<: *member
+    command: [serve, --cluster, --listen, "0.0.0.0:8080", --log-key, /data/log.key]
+    volumes: [node2:/data]
+    ports: ["8082:8080"]
+  node3:
+    <<: *member
+    command: [serve, --cluster, --listen, "0.0.0.0:8080", --log-key, /data/log.key]
+    volumes: [node3:/data]
+    ports: ["8083:8080"]
+
+  # The founder adds the other two once they run.
+  members:
+    image: cexchain
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        export CEXCHAIN_TOKEN="$$(cat /data/admin.token)"
+        for n in 2 3; do
+          until out="$$(cexchain cluster add --server http://node1:8080 --id "$$n" \
+              --raft "node$$n:7001" --api "http://node$$n:8080" 2>&1)" ||
+              echo "$$out" | grep -q 'exists already'; do sleep 1; done
+        done
+    volumes: [node1:/data:ro]
+    depends_on: [node1, node2, node3]
+
+volumes:
+  node1:
+  node2:
+  node3:

@@ -48,7 +48,21 @@ const std::vector<OptionSpec> client_options{
 /// Commands that work on a ledger directory only: they administer the
 /// server's files and keys, or peers' exchanges with it.
 const std::set<std::string_view> local_only{"init",  "serve", "token",  "replica", "backup",
-                                            "vault", "peer",  "access", "mcp"};
+                                            "vault", "peer",  "access", "mcp",     "cluster"};
+/// The cluster commands that talk to a member's API.
+std::vector<OptionSpec> cluster_api(std::vector<OptionSpec> extra) {
+    std::vector<OptionSpec> options{
+        {"server", "URL", "A member's API (default: $CEXCHAIN_SERVER)"},
+        {"token-file", "FILE", "An admin API token (default: $CEXCHAIN_TOKEN)"},
+        {"ca-file", "FILE", "CA certificates (PEM) to trust for the member, if not the system's"}};
+    options.insert(options.end(), extra.begin(), extra.end());
+    return options;
+}
+const OptionSpec member_id_option{"id", "N", "The member's id (1 to 1000)", true};
+const OptionSpec raft_option{"raft", "HOST:PORT",
+                             "Where the other members reach the member's Raft port", true};
+const OptionSpec member_api_option{
+    "api", "URL", "The member's API, as clients and the other members reach it", true};
 const OptionSpec reason_option{"reason", "TEXT", "Reason, recorded on the ledger"};
 const OptionSpec passphrase_file_option{
     "passphrase-file", "FILE",
@@ -736,6 +750,8 @@ std::vector<CommandSpec> build() {
                {"tls-cert", "FILE", "TLS certificate chain (PEM); without it, use a TLS proxy"},
                {"tls-key", "FILE", "TLS private key (PEM)"},
                {"read-only", "", "Refuse every write"},
+               {"cluster", "",
+                "Serve as a member of this ledger's cluster (cexchain cluster init or join)"},
                {"public-read", "",
                 "Serve read routes without a token (a public verification portal; the vault and "
                 "metrics still need one)"},
@@ -766,6 +782,80 @@ std::vector<CommandSpec> build() {
          "as a group with one sync. The server holds the ledger's lock only while writing, so\n"
          "other cexchain commands keep working on it.\n"
          "SIGINT or SIGTERM stops it gracefully."},
+        {{"cluster", "init"},
+         "Make this ledger the first member of a cluster",
+         "Clusters",
+         "",
+         0,
+         0,
+         with({ledger_option,
+               member_id_option,
+               raft_option,
+               {"raft-port", "PORT", "The port Raft listens on (default: that of --raft)"},
+               member_api_option,
+               {"secret-file", "FILE", "The cluster's shared secret (default: a new one)"}}),
+         cmd_cluster_init,
+         "A cluster keeps one ledger on several nodes with Raft: the leader takes the writes,\n"
+         "a majority keeps each durably before it is acknowledged, and if the leader fails the\n"
+         "others elect a new one within seconds. Three members ride out the loss of one.\n"
+         "Each member holds the log key (its own HSM, or a key file) to sign checkpoints when\n"
+         "it leads. Every Raft message is authenticated with the cluster's shared secret\n"
+         "(<ledger>/cluster/secret): copy it to the other members privately. Members hold the\n"
+         "ledger's lock while they run: use the command line with --server.\n"
+         "API tokens, peers, and the access inbox are each member's own: copy api-tokens."},
+        {{"cluster", "join"},
+         "Copy a cluster's ledger here, ready to become a member",
+         "Clusters",
+         "",
+         0,
+         0,
+         with({ledger_option,
+               {"from", "URL", "A member's API", true},
+               {"ledger-id", "ID", "The cluster's ledger (full hex id; required for http://)"},
+               member_id_option,
+               raft_option,
+               {"raft-port", "PORT", "The port Raft listens on (default: that of --raft)"},
+               member_api_option,
+               {"secret-file", "FILE", "A copy of the cluster's shared secret", true},
+               {"token-file", "FILE", "A read token for the member (default: $CEXCHAIN_TOKEN)"},
+               {"ca-file", "FILE", "CA certificates (PEM) to trust for the member"}}),
+         cmd_cluster_join,
+         "Copies the ledger up to its latest checkpoint, re-validating it as a replica would.\n"
+         "Then run it (cexchain serve --cluster) and add it (cexchain cluster add); Raft\n"
+         "brings it the rest."},
+        {{"cluster", "add"},
+         "Add a running node as a member",
+         "Clusters",
+         "",
+         0,
+         0,
+         cluster_api({member_id_option, raft_option, member_api_option}),
+         cmd_cluster_add},
+        {{"cluster", "remove"},
+         "Remove a member",
+         "Clusters",
+         "",
+         0,
+         0,
+         cluster_api({member_id_option}),
+         cmd_cluster_remove,
+         "The leader cannot be removed: step it down first."},
+        {{"cluster", "step-down"},
+         "Hand leadership to another member",
+         "Clusters",
+         "",
+         0,
+         0,
+         cluster_api({}),
+         cmd_cluster_step_down},
+        {{"cluster", "status"},
+         "Show the members, the leader, and Raft's progress",
+         "Clusters",
+         "",
+         0,
+         0,
+         cluster_api({}),
+         cmd_cluster_status},
         {{"token", "create"},
          "Create an API token for the server",
          "Server",

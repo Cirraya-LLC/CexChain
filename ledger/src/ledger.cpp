@@ -149,6 +149,9 @@ struct Ledger::Impl {
     std::uint64_t checked_checkpoints = 0;
     /// The state commitment the latest checkpoint ends with, if it does.
     std::optional<protocol::StateCommitment> checkpoint_commitment;
+    /// The state tree moved past the latest commitment for one that is
+    /// prepared but not yet in the log: proofs wait for it.
+    bool tree_ahead = false;
     protocol::Timestamp last_registered_at = 0;
     /// Set when a write failed after the in-memory views moved ahead of the
     /// files; the ledger must be reopened.
@@ -326,6 +329,7 @@ struct Ledger::Impl {
             // check() synced the state tree to this commitment.
             tree_commitment = d.commitment->commitment;
             tree_commitment_index = index;
+            tree_ahead = false;
         }
         last_registered_at = d.entry->registered_at;
         return {};
@@ -731,8 +735,8 @@ Result<Registration> Ledger::submit(ByteView signed_statement) {
     return std::move(submit_batch(std::span(&signed_statement, 1)).front());
 }
 
-std::vector<Result<Registration>>
-Ledger::submit_batch(std::span<const ByteView> signed_statements) {
+std::vector<Result<Registration>> Ledger::submit_batch(std::span<const ByteView> signed_statements,
+                                                       std::optional<protocol::Timestamp> at) {
     const std::size_t n = signed_statements.size();
     std::vector<Result<Registration>> results;
     results.reserve(n);
@@ -767,7 +771,8 @@ Ledger::submit_batch(std::span<const ByteView> signed_statements) {
 
     // Validate and apply in order, each statement against the state the ones
     // before it left.
-    const protocol::Timestamp now = impl_->next_time();
+    const protocol::Timestamp now =
+        at ? std::max(*at, impl_->last_registered_at) : impl_->next_time();
     const std::uint64_t first = impl_->tree.size();
     std::vector<Bytes> entries;
     {
@@ -780,7 +785,7 @@ Ledger::submit_batch(std::span<const ByteView> signed_statements) {
             const protocol::SignedStatement& statement = *parsed[i];
             if (const auto index = impl_->state.statement_index(statement.id)) {
                 // Already registered: before this batch, or earlier in it.
-                protocol::Timestamp at = now;
+                protocol::Timestamp registered = now;
                 if (*index < first) {
                     auto bytes = impl_->log.read(*index);
                     auto entry = bytes ? protocol::decode_log_entry(*bytes)
@@ -789,9 +794,9 @@ Ledger::submit_batch(std::span<const ByteView> signed_statements) {
                         results.emplace_back(std::unexpected(entry.error()));
                         continue;
                     }
-                    at = entry->registered_at;
+                    registered = entry->registered_at;
                 }
-                results.emplace_back(Registration{statement.id, *index, at, false});
+                results.emplace_back(Registration{statement.id, *index, registered, false});
                 continue;
             }
             if (auto s = impl_->state.validate(*impl_->provider, statement, now,
@@ -1395,6 +1400,116 @@ Result<protocol::SignedCheckpoint> Ledger::checkpoint(LogKeys log_keys) {
     return signed_checkpoint;
 }
 
+Result<Ledger::PreparedCheckpoint> Ledger::prepare_checkpoint(LogKeys log_keys) {
+    if (auto s = impl_->require_usable(); !s) {
+        return std::unexpected(s.error());
+    }
+    auto picked = impl_->pick_log_key(log_keys, impl_->state.log_key());
+    if (!picked) {
+        return std::unexpected(picked.error());
+    }
+    const crypto::Signer& log_key = **picked;
+    // The tree moves to the new state here; until the commitment is in the
+    // log, proofs wait (tree_ahead).
+    const std::unique_lock state_lock(impl_->state_mutex);
+    auto last_bytes = impl_->log.read(impl_->tree.size() - 1);
+    if (!last_bytes) {
+        return std::unexpected(last_bytes.error());
+    }
+    auto last = protocol::decode_log_entry(*last_bytes);
+    if (!last) {
+        return std::unexpected(last.error());
+    }
+    PreparedCheckpoint prepared;
+    merkle::CompactRange range = impl_->tree.compact_range();
+    protocol::Timestamp last_at = impl_->last_registered_at;
+    if (!last->is_state_commitment()) {
+        auto state_root = impl_->sync_state_tree();
+        if (!state_root) {
+            return std::unexpected(state_root.error());
+        }
+        impl_->tree_ahead = true;
+        const protocol::Timestamp now = impl_->next_time();
+        auto commitment = protocol::sign_state_commitment(
+            log_key, *impl_->provider,
+            protocol::StateCommitment{id(), hash(), impl_->tree.size(), *state_root, now});
+        if (!commitment) {
+            return std::unexpected(commitment.error());
+        }
+        auto encoded = protocol::encode_log_entry({commitment->id, now, {}, commitment->encoded});
+        if (!encoded) {
+            return std::unexpected(encoded.error());
+        }
+        if (auto s = range.append(*encoded); !s) {
+            return std::unexpected(s.error());
+        }
+        prepared.commitment = std::move(*encoded);
+        last_at = now;
+    }
+    auto root = range.root();
+    if (!root) {
+        return std::unexpected(root.error());
+    }
+    protocol::Timestamp at = std::max(impl_->clock->now(), last_at);
+    if (impl_->latest_checkpoint) {
+        at = std::max(at, impl_->latest_checkpoint->checkpoint.timestamp);
+    }
+    const protocol::Checkpoint checkpoint{id(), hash(), range.size(), *root, at};
+    if (!prepared.commitment && impl_->latest_checkpoint &&
+        impl_->latest_checkpoint->checkpoint.tree_size == checkpoint.tree_size) {
+        prepared.checkpoint = *impl_->latest_checkpoint; // nothing new to sign
+        return prepared;
+    }
+    auto signed_checkpoint = protocol::sign_checkpoint(log_key, *impl_->provider, checkpoint);
+    if (!signed_checkpoint) {
+        return std::unexpected(signed_checkpoint.error());
+    }
+    prepared.checkpoint = std::move(*signed_checkpoint);
+    return prepared;
+}
+
+Status Ledger::apply_checkpoint(const std::optional<Bytes>& commitment, ByteView checkpoint) {
+    if (commitment) {
+        auto entry = protocol::decode_log_entry(*commitment);
+        auto signed_commitment =
+            entry && entry->is_state_commitment()
+                ? protocol::parse_state_commitment(*impl_->provider, entry->state_commitment)
+                : Result<protocol::SignedStateCommitment>(
+                      fail(Errc::malformed, "not a state commitment entry"));
+        if (!signed_commitment) {
+            return std::unexpected(signed_commitment.error());
+        }
+        const std::uint64_t index = signed_commitment->commitment.tree_size;
+        if (index < size()) {
+            auto held = this->entry(index);
+            if (!held || *held != *commitment) {
+                return fail(Errc::verification_failed,
+                            "the log holds another entry where the commitment belongs");
+            }
+        } else if (index == size()) {
+            if (auto s = append_entries(std::span(&*commitment, 1)); !s) {
+                return s;
+            }
+        } else {
+            return fail(Errc::verification_failed, "the commitment is beyond the log");
+        }
+    }
+    auto parsed = protocol::parse_checkpoint(checkpoint);
+    if (!parsed) {
+        return std::unexpected(parsed.error());
+    }
+    auto stored = checkpoints_of_size(parsed->checkpoint.tree_size);
+    if (!stored) {
+        return std::unexpected(stored.error());
+    }
+    if (std::ranges::any_of(*stored, [&](const protocol::SignedCheckpoint& c) {
+            return std::ranges::equal(c.encoded, checkpoint);
+        })) {
+        return {};
+    }
+    return store_checkpoint(checkpoint);
+}
+
 std::optional<protocol::SignedCheckpoint> Ledger::latest_checkpoint() const {
     const std::shared_lock lock(impl_->log_mutex);
     return impl_->latest_checkpoint;
@@ -1413,8 +1528,10 @@ Result<protocol::StateProof> prove(const Ledger::Impl& impl, const protocol::Id&
         return fail(Errc::not_found, "no checkpoint commits to the ledger state yet");
     }
     // The tree follows the latest commitment in the log, which may still
-    // await its checkpoint (written, or copied, a moment later).
-    if (impl.tree_commitment_index + 1 != impl.latest_checkpoint->checkpoint.tree_size) {
+    // await its checkpoint (written, or copied, a moment later), or the
+    // next one, prepared and not yet in the log.
+    if (impl.tree_ahead ||
+        impl.tree_commitment_index + 1 != impl.latest_checkpoint->checkpoint.tree_size) {
         return fail(Errc::unavailable,
                     "the latest state commitment awaits its checkpoint; retry shortly");
     }

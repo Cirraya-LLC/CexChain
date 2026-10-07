@@ -59,6 +59,10 @@ public:
     [[nodiscard]] const Url& base() const noexcept { return base_; }
 
 private:
+    [[nodiscard]] Result<http::ClientResponse> send(const Url& to, const std::string& target,
+                                                    std::string_view method, ByteView body,
+                                                    std::string_view content_type) const;
+
     Url base_;
     ClientOptions options_;
 };

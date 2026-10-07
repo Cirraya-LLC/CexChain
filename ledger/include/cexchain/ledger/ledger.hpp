@@ -129,8 +129,12 @@ public:
     /// statement, in order; refused ones do not stop the rest. If writing
     /// fails, every newly registered one fails and the ledger must be
     /// reopened.
+    /// With `at`, the batch is registered at max(`at`, the last registration
+    /// time) instead of the clock's time: a cluster's nodes apply one batch
+    /// at the time its leader chose, so they all keep the same entries.
     [[nodiscard]] std::vector<Result<Registration>>
-    submit_batch(std::span<const ByteView> signed_statements);
+    submit_batch(std::span<const ByteView> signed_statements,
+                 std::optional<protocol::Timestamp> at = std::nullopt);
 
     /// Appends log entries copied from the original ledger, in order from
     /// index `size()`. Each must pass the checks a replay applies: time
@@ -194,6 +198,21 @@ public:
     /// key: `log_key` must be it, or `log_keys` must hold it.
     [[nodiscard]] Result<protocol::SignedCheckpoint> checkpoint(const crypto::Signer& log_key);
     [[nodiscard]] Result<protocol::SignedCheckpoint> checkpoint(LogKeys log_keys);
+
+    /// What `checkpoint` appends and stores, signed but not written: for a
+    /// cluster's leader, which replicates it before any node applies it.
+    struct PreparedCheckpoint {
+        /// The state commitment log entry to append first, unless the log
+        /// already ends with one.
+        std::optional<Bytes> commitment;
+        protocol::SignedCheckpoint checkpoint;
+    };
+    [[nodiscard]] Result<PreparedCheckpoint> prepare_checkpoint(LogKeys log_keys);
+    /// Applies a prepared checkpoint: appends the commitment (re-validated)
+    /// unless the log holds it at its index already, then stores the
+    /// checkpoint unless it is stored. Applying it again changes nothing.
+    [[nodiscard]] Status apply_checkpoint(const std::optional<Bytes>& commitment,
+                                          ByteView checkpoint);
 
     /// A cosign request for the latest checkpoint, with a consistency proof
     /// from `old_size` and every key rotation below its size.

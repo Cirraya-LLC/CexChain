@@ -129,6 +129,7 @@ int cmd_serve(const Args& args) {
         options.log_keys.push_back(std::shared_ptr<const crypto::Signer>(load_signer(key, args)));
     }
     options.read_only = args.has("read-only");
+    options.cluster = args.has("cluster");
     options.public_read = args.has("public-read");
     const std::uint64_t interval = args.has("checkpoint-interval")
                                        ? parse_number(*args.get("checkpoint-interval"), "interval")

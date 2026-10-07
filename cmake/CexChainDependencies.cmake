@@ -41,6 +41,38 @@ if(NOT EMSCRIPTEN)
     target_link_libraries(cexchain_asio INTERFACE Threads::Threads)
 endif()
 
+# NuRaft (eBay, Apache-2.0): Raft for clustered nodes with automatic failover
+# (D-051). Built here from its sources, with the project's compiler, standard
+# library, and Asio, as a library apart: its own code is not held to the
+# project's warnings, and its headers are included as system headers.
+if(NOT EMSCRIPTEN)
+    FetchContent_Declare(nuraft
+        URL https://github.com/eBay/NuRaft/archive/refs/tags/v3.0.0.tar.gz
+        URL_HASH SHA256=073c3b321efec9ce6b2bc487c283e493a1b2dd41082c5e9ac0b8f00f9b73832d
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+        # Sources only: its own build would add examples, tests, and flags.
+        SOURCE_SUBDIR do-not-build)
+    FetchContent_MakeAvailable(nuraft)
+    find_package(OpenSSL 3.5 REQUIRED COMPONENTS SSL)
+    set(nuraft_sources
+        asio_service buffer buffer_serializer cluster_config crc32 error_code global_mgr
+        handle_append_entries handle_client_request handle_custom_notification handle_commit
+        handle_join_leave handle_priority handle_snapshot_sync handle_timeout handle_user_cmd
+        handle_vote launcher log_entry peer raft_server snapshot snapshot_sync_ctx
+        snapshot_sync_req srv_config stat_mgr)
+    list(TRANSFORM nuraft_sources PREPEND "${nuraft_SOURCE_DIR}/src/")
+    list(TRANSFORM nuraft_sources APPEND ".cxx")
+    add_library(cexchain_nuraft STATIC ${nuraft_sources})
+    target_include_directories(cexchain_nuraft SYSTEM PUBLIC
+        "${nuraft_SOURCE_DIR}/include" "${nuraft_SOURCE_DIR}/include/libnuraft")
+    target_include_directories(cexchain_nuraft PRIVATE "${nuraft_SOURCE_DIR}/src")
+    target_include_directories(cexchain_nuraft SYSTEM PRIVATE "${asio_SOURCE_DIR}/include")
+    target_compile_definitions(cexchain_nuraft PRIVATE ASIO_STANDALONE)
+    target_compile_options(cexchain_nuraft PRIVATE -w)
+    target_compile_features(cexchain_nuraft PUBLIC cxx_std_17)
+    target_link_libraries(cexchain_nuraft PUBLIC OpenSSL::SSL Threads::Threads)
+endif()
+
 # Nayuki's QR Code generator (MIT): QR codes that open the browser verifier.
 if(NOT EMSCRIPTEN)
     FetchContent_Declare(qrcodegen

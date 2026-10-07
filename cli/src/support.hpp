@@ -235,6 +235,11 @@ private:
     void open_remote(const Args& args, const std::string& url);
     /// Client mode: brings the mirror up to the server, tail included.
     void sync();
+    /// Client mode: syncs until `done`, for up to ten seconds: a cluster's
+    /// follower may apply what its leader did a moment later.
+    bool sync_until(const std::function<bool()>& done);
+    /// True if the mirror holds this signed checkpoint.
+    [[nodiscard]] bool has_checkpoint(ByteView encoded) const;
     /// Client mode: sends a request, and fails unless it succeeded.
     Bytes call(std::string_view method, std::string_view path, ByteView body = {},
                std::string_view content_type = {}) const;

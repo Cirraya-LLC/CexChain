@@ -103,6 +103,7 @@ The `cexchain` tool controls every part of a ledger:
 | Vault | `vault status`, `vault keygen`, `vault rekey` |
 | AI agents | `mcp` |
 | Server | `serve`, `token create`, `token list`, `token show`, `token revoke` |
+| Clusters | `cluster init`, `cluster join`, `cluster add`, `cluster status`, `cluster remove`, `cluster step-down` |
 | Replicas | `replica init`, `replica sync`, `replica status`, `replica promote` |
 | Backups | `backup create`, `backup verify`, `backup restore` |
 | Other organizations | `peer add`, `peer list`, `peer show`, `peer remove`, `access request`, `access send`, `access inbox`, `access grant`, `access fetch`, `access accept`, `access receipt`, `access list` |
@@ -289,6 +290,30 @@ cexchain export RECORD --disclose result --vault-key vault.key --out evidence.cb
 The ledger id must be given on first use of an `http://` URL. Commands that administer the server's
 own files and keys (`init`, `serve`, `token`, `replica`, `backup`, `vault`, `peer`, `access`, `mcp`)
 run where the ledger is.
+
+## Clusters and failover
+
+Three (or five) nodes can keep one ledger with Raft. The leader takes the writes; each group of
+statements is acknowledged only once a majority holds it durably, and every member applies it to
+its own ledger, so their files are identical. If the leader fails, the others elect a new one within
+seconds, and no acknowledged write is lost. Followers serve reads and send writers to the leader.
+
+```sh
+# The founder, from a fully checkpointed ledger:
+cexchain cluster init --ledger ./node1 --id 1 --raft node1:7001 --api https://node1:8443
+cexchain serve --cluster --ledger ./node1 --log-key log.key --listen 0.0.0.0:8443 ...
+# Each other member copies the ledger, runs, and is added by the leader:
+cexchain cluster join --ledger ./node2 --from https://node1:8443 --id 2 --raft node2:7001 \
+    --api https://node2:8443 --secret-file secret
+cexchain serve --cluster --ledger ./node2 --log-key log.key --listen 0.0.0.0:8443 ...
+cexchain cluster add --server https://node1:8443 --id 2 --raft node2:7001 --api https://node2:8443
+cexchain cluster status --server https://node2:8443
+```
+
+Members authenticate every Raft message with the cluster's shared secret. Each member holds the log
+key (in its own HSM, or a key file) to sign checkpoints while it leads. A member's files belong to
+it while it runs: use the command line with `--server`. `deploy/cluster/compose.yaml` runs a
+three-member cluster on one Docker host.
 
 ## Working with other organizations
 

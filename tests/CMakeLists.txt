@@ -24,6 +24,7 @@ add_executable(cexchain_tests
     ledger/storage_test.cpp
     ledger/witness_test.cpp
     node/api_test.cpp
+    node/cluster_test.cpp
     node/http_test.cpp)
 
 target_link_libraries(cexchain_tests PRIVATE
@@ -37,7 +38,10 @@ target_link_libraries(cexchain_tests PRIVATE
 # Tests may reach into internal headers (e.g. ledger/src/crc32c.hpp).
 target_include_directories(cexchain_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${PROJECT_SOURCE_DIR}/ledger/src)
+    ${PROJECT_SOURCE_DIR}/ledger/src
+    ${PROJECT_SOURCE_DIR}/node/src)
+# The cluster's internals (node/src/cluster_parts.hpp) use NuRaft's headers.
+target_link_libraries(cexchain_tests PRIVATE cexchain_nuraft)
 target_compile_definitions(cexchain_tests PRIVATE
     CEXCHAIN_TESTVECTORS_DIR="${PROJECT_SOURCE_DIR}/testvectors")
 target_compile_features(cexchain_tests PRIVATE cxx_std_26)
@@ -58,6 +62,8 @@ add_test(NAME access_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/access.sh $<TARGET_FILE:cexchain>)
 add_test(NAME client_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/client.sh $<TARGET_FILE:cexchain>)
+add_test(NAME cluster_end_to_end
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/cluster.sh $<TARGET_FILE:cexchain>)
 add_test(NAME rotation_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/rotation.sh $<TARGET_FILE:cexchain>)
 

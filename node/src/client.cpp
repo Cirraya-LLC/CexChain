@@ -144,13 +144,40 @@ Client::Client(Url base, ClientOptions options)
 
 Result<http::ClientResponse> Client::request(std::string_view method, std::string_view path,
                                              ByteView body, std::string_view content_type) const {
-    const bool ipv6 = base_.host.find(':') != std::string::npos;
-    std::string host_field = ipv6 ? "[" + base_.host + "]" : base_.host;
-    if (base_.port != (base_.tls ? 443 : 80)) {
-        host_field += ":" + std::to_string(base_.port);
+    Url at = base_;
+    std::string target = base_.base_path + std::string(path);
+    // A cluster's followers send writers to the leader (307), with the
+    // method and body kept; never from https to http.
+    for (int hops = 0;; ++hops) {
+        auto response = send(at, target, method, body, content_type);
+        if (!response || (response->status != 307 && response->status != 308) || hops == 3) {
+            return response;
+        }
+        const auto location = response->header("location");
+        const std::size_t scheme = location ? location->find("://") : std::string_view::npos;
+        if (scheme == std::string_view::npos) {
+            return response;
+        }
+        const std::size_t slash = location->find('/', scheme + 3);
+        auto next = Url::parse(location->substr(0, slash));
+        if (!next || (at.tls && !next->tls)) {
+            return response;
+        }
+        at = std::move(*next);
+        target = slash == std::string_view::npos ? std::string("/")
+                                                 : std::string(location->substr(slash));
     }
-    std::string message = std::string(method) + " " + base_.base_path + std::string(path) +
-                          " HTTP/1.1\r\nHost: " + host_field +
+}
+
+Result<http::ClientResponse> Client::send(const Url& to, const std::string& target,
+                                          std::string_view method, ByteView body,
+                                          std::string_view content_type) const {
+    const bool ipv6 = to.host.find(':') != std::string::npos;
+    std::string host_field = ipv6 ? "[" + to.host + "]" : to.host;
+    if (to.port != (to.tls ? 443 : 80)) {
+        host_field += ":" + std::to_string(to.port);
+    }
+    std::string message = std::string(method) + " " + target + " HTTP/1.1\r\nHost: " + host_field +
                           "\r\nConnection: close\r\nAccept: application/cbor, application/json\r\n";
     if (options_.bearer_token) {
         message += "Authorization: Bearer " + *options_.bearer_token + "\r\n";
@@ -167,7 +194,7 @@ Result<http::ClientResponse> Client::request(std::string_view method, std::strin
     asio::io_context io;
     Outcome outcome;
     std::optional<asio::ssl::context> tls;
-    if (base_.tls) {
+    if (to.tls) {
         tls.emplace(asio::ssl::context::tls_client);
         SSL_CTX_set_min_proto_version(tls->native_handle(), TLS1_2_VERSION);
         asio::error_code ec;
@@ -183,7 +210,7 @@ Result<http::ClientResponse> Client::request(std::string_view method, std::strin
     }
 
     asio::error_code not_an_address;
-    const asio::ip::address address = asio::ip::make_address(base_.host, not_an_address);
+    const asio::ip::address address = asio::ip::make_address(to.host, not_an_address);
 
     auto run = [&]() -> asio::awaitable<void> {
         tcp::socket socket(io);
@@ -192,11 +219,11 @@ Result<http::ClientResponse> Client::request(std::string_view method, std::strin
             // An address needs no resolver, whose thread costs more than
             // the request.
             std::tie(connected) =
-                co_await socket.async_connect(tcp::endpoint(address, base_.port), use_tuple);
+                co_await socket.async_connect(tcp::endpoint(address, to.port), use_tuple);
         } else {
             tcp::resolver resolver(io);
             auto [rec, endpoints] =
-                co_await resolver.async_resolve(base_.host, std::to_string(base_.port), use_tuple);
+                co_await resolver.async_resolve(to.host, std::to_string(to.port), use_tuple);
             if (rec) {
                 outcome.error = Error{Errc::unavailable, "cannot resolve the server's host name"};
                 co_return;
@@ -216,11 +243,11 @@ Result<http::ClientResponse> Client::request(std::string_view method, std::strin
         // SNI for host names (not addresses), and the certificate must name
         // the host.
         if (not_an_address) {
-            std::string sni = base_.host;
+            std::string sni = to.host;
             SSL_ctrl(stream.native_handle(), SSL_CTRL_SET_TLSEXT_HOSTNAME,
                      TLSEXT_NAMETYPE_host_name, sni.data());
         }
-        stream.set_verify_callback(asio::ssl::host_name_verification(base_.host));
+        stream.set_verify_callback(asio::ssl::host_name_verification(to.host));
         if (auto [ec] = co_await stream.async_handshake(asio::ssl::stream_base::client, use_tuple);
             ec) {
             const bool untrusted = ec.category() == asio::error::get_ssl_category();

@@ -25,6 +25,11 @@ endif()
 if(TARGET cexchain_node)
     cexchain_add_fuzzer(http_parse_fuzz cexchain::node)
     cexchain_add_fuzzer(backup_restore_fuzz cexchain::ledger)
+    # The cluster's internals (node/src/cluster_parts.hpp).
+    cexchain_add_fuzzer(cluster_entry_fuzz cexchain::node cexchain::crypto_openssl cexchain_nuraft)
+    target_include_directories(cluster_entry_fuzz PRIVATE
+        ${PROJECT_SOURCE_DIR}/node/src ${PROJECT_SOURCE_DIR}/ledger/src)
+    target_compile_features(cluster_entry_fuzz PRIVATE cxx_std_26)
 endif()
 
 # Valid inputs to start the corpora from (an ordinary program, not a fuzzer).

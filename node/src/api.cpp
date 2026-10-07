@@ -23,6 +23,7 @@
 #include <cexchain/core/protocol/witness.hpp>
 #include <cexchain/ledger/parallel.hpp>
 #include <cexchain/node/api.hpp>
+#include <cexchain/node/cluster.hpp>
 #include <cexchain/node/peers.hpp>
 #include <cexchain/node/tokens.hpp>
 
@@ -187,6 +188,10 @@ enum class Endpoint {
     access_delivery,
     access_receipt,
     witness_cosign,
+    cluster_status,
+    cluster_add,
+    cluster_remove,
+    cluster_step_down,
 };
 
 /// Where a request goes. `rest` is where the path's last segment (an id or
@@ -292,6 +297,11 @@ struct LedgerApi::State {
     bool writing = false;
     bool stopping = false;
     std::thread writer;
+
+    /// A cluster member's (D-051): the ledger's lock, held for life, and
+    /// Raft. Declared last, so they stop before anything they use.
+    std::optional<ledger::DirectoryLock> member_lock;
+    std::unique_ptr<Cluster> cluster;
 
     State() = default;
     State(const State&) = delete;
@@ -421,6 +431,10 @@ struct LedgerApi::State {
     /// writes, all under one lock of the directory. True if it caught up
     /// with the files.
     bool write_group(std::vector<Submission>& batch, std::vector<Locked>& jobs) {
+        if (cluster) {
+            write_cluster_group(batch, jobs);
+            return true;
+        }
         std::optional<http::Response> refusal;
         auto lock = ledger::DirectoryLock::acquire(options.directory, 2000);
         if (failed) {
@@ -464,6 +478,60 @@ struct LedgerApi::State {
             }
         }
         return true;
+    }
+
+    /// A cluster member's group: the statements as one Raft entry, applied
+    /// on every node; the other writes as entries of their own.
+    void write_cluster_group(std::vector<Submission>& batch, std::vector<Locked>& jobs) {
+        if (!batch.empty()) {
+            if (!cluster->leads()) {
+                for (Submission& s : batch) {
+                    finish(s.done, s.principal, not_leader("/v1/statements"));
+                }
+            } else {
+                std::vector<ByteView> views;
+                std::vector<std::optional<Bytes>> vaults;
+                for (const Submission& s : batch) {
+                    views.emplace_back(s.statement);
+                    vaults.push_back(s.vault);
+                }
+                auto results = cluster->submit(views, vaults, clock.now());
+                for (std::size_t i = 0; i < batch.size(); ++i) {
+                    http::Response response;
+                    if (!results) {
+                        response = error_response(results.error());
+                        response.headers.emplace_back("Retry-After", "1");
+                    } else {
+                        response = registration_response((*results)[i]);
+                    }
+                    finish(batch[i].done, batch[i].principal, std::move(response));
+                }
+            }
+        }
+        for (Locked& job : jobs) {
+            try {
+                job(nullptr);
+            } catch (const std::exception&) {
+                event("writer-error", "a write job failed with an exception");
+            }
+        }
+    }
+
+    /// For a write at a follower: where the leader is (307), or that there
+    /// is none yet (503).
+    http::Response not_leader(std::string_view target) const {
+        if (const auto url = cluster->leader_api_url(); url && !cluster->leads()) {
+            auto response = json_response(
+                307, {{"error",
+                       {{"code", "not_leader"},
+                        {"message", "this node does not lead: send writes to the leader"}}},
+                      {"leader", *url}});
+            response.headers.emplace_back("Location", *url + std::string(target));
+            return response;
+        }
+        auto response = error_response(503, "unavailable", "the cluster has no leader yet; retry");
+        response.headers.emplace_back("Retry-After", "1");
+        return response;
     }
 
     /// Keeps a record's sealed private data, once: the same data again is
@@ -662,7 +730,26 @@ struct LedgerApi::State {
                   {"role", replica ? "replica" : "primary"},
                   {"writable", !replica && !options.read_only},
                   {"receipts", !options.log_keys.empty()},
+                  {"cluster", cluster ? cluster_json() : json(nullptr)},
                   {"version", options.version}});
+    }
+
+    json cluster_json() const {
+        const ClusterStatus s = cluster->status();
+        json members = json::array();
+        for (const ClusterMember& m : s.members) {
+            members.push_back({{"id", m.id},
+                               {"raft", m.raft_endpoint},
+                               {"api", m.api_url},
+                               {"leader", s.leader == m.id}});
+        }
+        return {{"id", s.id},
+                {"leader", s.leader ? json(*s.leader) : json(nullptr)},
+                {"leads", s.leads},
+                {"term", s.term},
+                {"committed", s.committed},
+                {"applied", s.applied},
+                {"members", members}};
     }
 
     http::Response checkpoint(const http::Request& r) const {
@@ -1114,6 +1201,49 @@ struct LedgerApi::State {
             {*statement->as_bytes(), std::move(principal), std::move(done), *sealed->as_bytes()});
     }
 
+    /// Membership changes and stepping down, on the leader's writer.
+    void cluster_change(const http::Request& r, Endpoint endpoint, std::string principal,
+                        Done& done) {
+        const json body = json::parse(r.body.begin(), r.body.end(), nullptr, false);
+        ClusterMember member;
+        if (endpoint == Endpoint::cluster_add) {
+            if (!body.is_object() || !body.contains("id") || !body["id"].is_number_integer() ||
+                !body.contains("raft") || !body["raft"].is_string() || !body.contains("api") ||
+                !body["api"].is_string()) {
+                finish(done, principal,
+                       error_response(400, "malformed", "send {\"id\", \"raft\", \"api\"}"));
+                return;
+            }
+            member = {body["id"].get<int>(), body["raft"].get<std::string>(),
+                      body["api"].get<std::string>()};
+        } else if (endpoint == Endpoint::cluster_remove) {
+            if (!body.is_object() || !body.contains("id") || !body["id"].is_number_integer()) {
+                finish(done, principal, error_response(400, "malformed", "send {\"id\"}"));
+                return;
+            }
+            member.id = body["id"].get<int>();
+        }
+        queue_locked([this, endpoint, member, principal = std::move(principal),
+                      done = std::move(done)](const http::Response* refusal) mutable {
+            if (refusal != nullptr) {
+                finish(done, principal, *refusal);
+                return;
+            }
+            const Status changed = endpoint == Endpoint::cluster_add ? cluster->add_member(member)
+                                   : endpoint == Endpoint::cluster_remove
+                                       ? cluster->remove_member(member.id)
+                                       : cluster->step_down();
+            if (changed) {
+                event("cluster-change", endpoint == Endpoint::cluster_add      ? "member added"
+                                        : endpoint == Endpoint::cluster_remove ? "member removed"
+                                                                               : "stepped down");
+            }
+            finish(done, principal,
+                   changed ? json_response(200, {{"accepted", true}})
+                           : error_response(changed.error()));
+        });
+    }
+
     void make_checkpoint(std::string principal, Done& done) {
         if (options.log_keys.empty()) {
             finish(done, principal,
@@ -1126,7 +1256,7 @@ struct LedgerApi::State {
                 finish(done, principal, *refusal);
                 return;
             }
-            auto made = ledger->checkpoint(log_keys());
+            auto made = cluster ? cluster->checkpoint(log_keys()) : ledger->checkpoint(log_keys());
             finish(done, principal,
                    made ? binary("application/cose", made->encoded) : error_response(made.error()));
         });
@@ -1152,7 +1282,8 @@ struct LedgerApi::State {
                 finish(done, principal, *refusal);
                 return;
             }
-            auto stored = ledger->add_cosignature(cosignature, key);
+            auto stored = cluster ? cluster->add_cosignature(cosignature, key)
+                                  : ledger->add_cosignature(cosignature, key);
             finish(done, principal,
                    stored ? json_response(200, {{"stored", true}})
                           : error_response(stored.error()));
@@ -1163,7 +1294,7 @@ struct LedgerApi::State {
     /// grown.
     void auto_checkpoint() {
         if (failed || options.log_keys.empty() || replica || options.read_only ||
-            options.checkpoint_interval.count() == 0 ||
+            (cluster && !cluster->leads()) || options.checkpoint_interval.count() == 0 ||
             steady::now() - last_auto_checkpoint < options.checkpoint_interval) {
             return;
         }
@@ -1179,7 +1310,7 @@ struct LedgerApi::State {
             if (refusal != nullptr || covered()) {
                 return; // busy or unusable: next time
             }
-            auto made = ledger->checkpoint(log_keys());
+            auto made = cluster ? cluster->checkpoint(log_keys()) : ledger->checkpoint(log_keys());
             if (!made) {
                 event("checkpoint-failed", made.error().detail);
                 return;
@@ -1281,6 +1412,20 @@ struct LedgerApi::State {
                 return method_not_allowed("POST");
             }
             found = Routed{Endpoint::submit, Access::submit};
+        } else if (path == "/v1/cluster") {
+            if (!get) {
+                return method_not_allowed("GET");
+            }
+            found = Routed{Endpoint::cluster_status, Access::read};
+        } else if (path == "/v1/cluster/members" || path == "/v1/cluster/members/remove" ||
+                   path == "/v1/cluster/step-down") {
+            if (!post) {
+                return method_not_allowed("POST");
+            }
+            found = Routed{path == "/v1/cluster/members"          ? Endpoint::cluster_add
+                           : path == "/v1/cluster/members/remove" ? Endpoint::cluster_remove
+                                                                  : Endpoint::cluster_step_down,
+                           Access::admin};
         } else if (path == "/v1/cosignatures") {
             found = post ? Routed{Endpoint::add_cosignature, Access::admin}
                          : Routed{Endpoint::cosignatures, Access::read};
@@ -1319,7 +1464,10 @@ struct LedgerApi::State {
         }
         if (!get && !post) {
             const bool posts = found->endpoint == Endpoint::make_checkpoint ||
-                               found->endpoint == Endpoint::add_cosignature;
+                               found->endpoint == Endpoint::add_cosignature ||
+                               found->endpoint == Endpoint::cluster_add ||
+                               found->endpoint == Endpoint::cluster_remove ||
+                               found->endpoint == Endpoint::cluster_step_down;
             return method_not_allowed(posts ? "POST" : "GET");
         }
         return *found;
@@ -1339,6 +1487,9 @@ struct LedgerApi::State {
             return metrics();
         case Endpoint::status:
             return status();
+        case Endpoint::cluster_status:
+            return cluster ? json_response(200, cluster_json())
+                           : error_response(404, "not_found", "this node is not in a cluster");
         case Endpoint::get_checkpoint:
             return checkpoint(r);
         case Endpoint::consistency:
@@ -1377,6 +1528,9 @@ struct LedgerApi::State {
         case Endpoint::make_checkpoint:
         case Endpoint::add_cosignature:
         case Endpoint::submit:
+        case Endpoint::cluster_add:
+        case Endpoint::cluster_remove:
+        case Endpoint::cluster_step_down:
             break;
         }
         return error_response(500, "internal", "unrouted");
@@ -1425,9 +1579,25 @@ struct LedgerApi::State {
             finish(done, principal, std::move(*denied));
             return;
         }
+        const bool cluster_write = routed.endpoint == Endpoint::cluster_add ||
+                                   routed.endpoint == Endpoint::cluster_remove ||
+                                   routed.endpoint == Endpoint::cluster_step_down;
         const bool writes = routed.endpoint == Endpoint::submit ||
                             routed.endpoint == Endpoint::make_checkpoint ||
-                            routed.endpoint == Endpoint::add_cosignature;
+                            routed.endpoint == Endpoint::add_cosignature || cluster_write;
+        if (writes && cluster_write && !cluster) {
+            finish(done, principal,
+                   error_response(404, "not_found", "this node is not in a cluster"));
+            return;
+        }
+        if (writes && cluster && !cluster->leads()) {
+            finish(done, principal, not_leader(r.target));
+            return;
+        }
+        if (cluster_write) {
+            cluster_change(r, routed.endpoint, std::move(principal), done);
+            return;
+        }
         if (writes) {
             if (options.read_only || replica) {
                 finish(done, principal,
@@ -1464,10 +1634,23 @@ Result<std::unique_ptr<LedgerApi>> LedgerApi::open(ApiOptions options,
         return fail(Errc::not_found, "no ledger directory");
     }
     state->replica = std::filesystem::exists(options.directory / replica_file, ec);
+    if (options.cluster && (state->replica || !is_cluster_member(options.directory))) {
+        return fail(Errc::invalid_argument,
+                    "the ledger is not a cluster member (cexchain cluster init or join)");
+    }
+    if (!options.cluster && !options.read_only && is_cluster_member(options.directory)) {
+        // Writes outside Raft would fork the members.
+        return fail(Errc::invalid_argument,
+                    "the ledger is a cluster member: serve it with --cluster (or --read-only)");
+    }
     {
         auto lock = ledger::DirectoryLock::acquire(options.directory);
         if (!lock) {
             return std::unexpected(lock.error());
+        }
+        if (options.cluster) {
+            // No other process may write a member's files.
+            state->member_lock.emplace(std::move(*lock));
         }
         auto fs = ledger::PosixFileSystem::open_directory(options.directory);
         if (!fs) {
@@ -1504,6 +1687,16 @@ Result<std::unique_ptr<LedgerApi>> LedgerApi::open(ApiOptions options,
         state->log_key_ring.push_back(key.get());
     }
     state->reload_tokens(true);
+    if (state->options.cluster) {
+        State* raw = state.get();
+        auto started = Cluster::start(
+            state->options.directory, *state->ledger,
+            [raw](std::string_view what, std::string_view detail) { raw->event(what, detail); });
+        if (!started) {
+            return std::unexpected(started.error());
+        }
+        state->cluster = std::move(*started);
+    }
     state->start();
     return std::unique_ptr<LedgerApi>(new LedgerApi(std::move(state)));
 }

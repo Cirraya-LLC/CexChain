@@ -250,6 +250,33 @@ void webauthn_seed(const Seeds& seeds) {
     seeds.write("webauthn_registration_fuzz", "registration", input);
 }
 
+/// Raft entries and snapshot objects, as a cluster member receives them:
+/// [kind][CBOR] (see cluster_entry_fuzz).
+void cluster_seeds(const Seeds& seeds) {
+    using cbor::Value;
+    auto write = [&](const std::string& name, std::uint8_t kind, const Value& value) {
+        Bytes input{kind};
+        const Bytes encoded = must(cbor::encode(value), "encode");
+        input.insert(input.end(), encoded.begin(), encoded.end());
+        seeds.write("cluster_entry_fuzz", name, input);
+    };
+    write("batch", 0,
+          Value::array({Value::unsigned_integer(1), Value::unsigned_integer(1'791'244'800'000),
+                        Value::unsigned_integer(1), Value::array({Value::bytes(Bytes(40, 0xd2))}),
+                        Value::array({Value::array(
+                            {Value::unsigned_integer(0), Value::bytes(Bytes{0xa0})})})}));
+    write("checkpoint", 1,
+          Value::array({Value::unsigned_integer(2), Value::null(), Value::bytes(Bytes(60, 0xd2))}));
+    write("cosignature", 2,
+          Value::array({Value::unsigned_integer(3), Value::bytes(Bytes(60, 0xd2)),
+                        Value::array({Value::integer(-19), Value::bytes(Bytes(32, 7))})}));
+    write("snapshot-header", 3,
+          Value::array({Value::bytes(Bytes(32, 1)), Value::unsigned_integer(5),
+                        Value::unsigned_integer(1)}));
+    write("snapshot-entries", 4, Value::array({Value::bytes(Bytes(20, 3))}));
+    write("snapshot-extras", 5, Value::array({Value::array({}), Value::array({})}));
+}
+
 void text_seeds(const Seeds& seeds) {
     seeds.write("http_parse_fuzz", "get",
                 "GET /v1/entries?start=0&count=10 HTTP/1.1\r\nHost: ledger\r\n"
@@ -283,6 +310,7 @@ int main(int argc, char** argv) {
         const Seeds seeds(argv[1]);
         ledger_seeds(seeds);
         webauthn_seed(seeds);
+        cluster_seeds(seeds);
         text_seeds(seeds);
     } catch (const std::exception& e) {
         std::println(stderr, "error: {}", e.what());
