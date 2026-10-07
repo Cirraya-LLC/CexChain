@@ -20,7 +20,7 @@ jobs:
     name: libFuzzer
     runs-on: ubuntu-latest
     container: gcc:16-trixie
-    timeout-minutes: 60
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v7
 
@@ -40,6 +40,8 @@ jobs:
           # A single allocation over 256 MB still fails the run.
           ASAN_OPTIONS: allocator_release_to_os_interval_ms=1000:quarantine_size_mb=64
         run: |
+          # Valid objects to start from: random bytes rarely pass a signature.
+          build/clang-fuzz/fuzz/make_seeds corpus
           for target in build/clang-fuzz/fuzz/*_fuzz; do
             echo "::group::$(basename "$target")"
             mkdir -p "corpus/$(basename "$target")"

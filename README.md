@@ -326,11 +326,12 @@ tests/browser/run.sh build/gcc-debug/cli/cexchain build/wasm
 `tests/cli/serve.sh` runs a server, a replica, and backups end to end; `tests/node/` covers the
 HTTP parser and the API over real sockets, including a primary that serves a forged history.
 
-Fuzz targets cover every parser of untrusted input:
+Fuzz targets cover every parser of untrusted input. `make_seeds` writes valid objects (evidence bundles, access records, signed backups, passkey registrations, requests) to start each corpus from, so mutations reach the checks behind the signatures:
 
 ```sh
 cmake --preset clang-fuzz && cmake --build --preset clang-fuzz
-./build/clang-fuzz/fuzz/cbor_decode_fuzz -max_total_time=300
+./build/clang-fuzz/fuzz/make_seeds corpus
+./build/clang-fuzz/fuzz/protocol_parse_fuzz corpus/protocol_parse_fuzz -max_total_time=300
 ```
 
 Test vectors in `testvectors/` come from implementations independent of CexChain. `tools/testvectors/generate.py` regenerates them.

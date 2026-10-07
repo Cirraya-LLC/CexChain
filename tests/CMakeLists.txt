@@ -57,6 +57,8 @@ add_test(NAME access_end_to_end
 
 # Keys on tokens (HSMs, USB keys), when SoftHSM is installed to stand in.
 if(TARGET cexchain_crypto_pkcs11)
+    target_sources(cexchain_tests PRIVATE crypto/pkcs11_uri_test.cpp)
+    target_link_libraries(cexchain_tests PRIVATE cexchain::crypto_pkcs11)
     find_program(CEXCHAIN_SOFTHSM_UTIL softhsm2-util)
     find_file(CEXCHAIN_SOFTHSM_MODULE libsofthsm2.so
         PATHS /usr/lib/softhsm /usr/local/lib/softhsm /opt/homebrew/lib/softhsm

@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstdlib>
 
+#include <cexchain/core/protocol/access.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/log.hpp>
 #include <cexchain/core/protocol/presence.hpp>
@@ -80,6 +81,43 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     if (const auto bundle = protocol::decode_bundle(input)) {
         require_same(protocol::encode_bundle(*bundle), input);
         static_cast<void>(protocol::verify_bundle(provider, input));
+        // The option paths too: a pinned ledger, a trusted witness, and
+        // attachment contents to check.
+        const auto ledger = protocol::bundle_ledger_id(input);
+        protocol::VerifyOptions options;
+        if (ledger) {
+            options.expected_ledger = *ledger;
+        }
+        options.trusted_witnesses.push_back(
+            {cexchain::crypto::SigAlg::ed25519, cexchain::Bytes(32, 0x33)});
+        for (const auto& opening : bundle->attachments) {
+            options.attachment_contents.emplace(
+                opening.name, cexchain::Bytes(opening.name.begin(), opening.name.end()));
+        }
+        const auto report = protocol::verify_bundle(provider, input, options);
+        if (report) {
+            require(report->complete || !report->state_commitment);
+        }
+        // The access checks, as each side would run them.
+        if (ledger) {
+            const auto other = *cexchain::crypto::Digest::from_bytes(cexchain::Bytes(32, 0x44));
+            constexpr protocol::Timestamp now = 1'791'244'800'000;
+            static_cast<void>(protocol::check_access_request(provider, input, *ledger, other, now));
+            protocol::AccessRequest asked{
+                *ledger,      other,       "fuzz", now + 1, cexchain::Bytes(32, 7),
+                std::nullopt, std::nullopt};
+            if (const auto grant = protocol::check_access_grant(provider, input, *ledger, other,
+                                                                other, asked, now)) {
+                static_cast<void>(protocol::check_delivered_record(
+                    provider,
+                    protocol::DeliveryContents{cexchain::Bytes(input.begin(), input.end()), {}},
+                    *ledger, *grant));
+            }
+            static_cast<void>(protocol::check_access_receipt(
+                provider, input, *ledger, other, other,
+                protocol::AccessGrant{*ledger, other, other, {}, {}, now, {}},
+                cexchain::Bytes(32)));
+        }
     }
     if (const auto request = protocol::decode_cosign_request(input)) {
         require_same(protocol::encode_cosign_request(*request), input);

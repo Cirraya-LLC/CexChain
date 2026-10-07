@@ -207,6 +207,19 @@ Result<KeyUri> parse_uri(std::string_view text) {
     const std::string_view path = text.substr(0, question);
     const std::string_view query =
         question == std::string_view::npos ? std::string_view() : text.substr(question + 1);
+    // RFC 7512 characters: anything else (spaces, controls, a ';' in the
+    // query) must be percent-encoded, so a URI that reads one way to a person
+    // cannot parse another.
+    constexpr std::string_view shared = "-._~:[]@!$'()*+,=%";
+    auto plain = [&](std::string_view list, std::string_view extra) {
+        return std::ranges::all_of(list, [&](char c) {
+            return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+                   shared.contains(c) || extra.contains(c);
+        });
+    };
+    if (!plain(path, ";&") || !plain(query, "&/?|")) {
+        return fail(Errc::malformed, "a PKCS #11 URI has a character that must be percent-encoded");
+    }
     KeyUri uri;
     std::set<std::string, std::less<>> seen;
     auto each = [&seen](std::string_view list, char separator, auto&& handle) -> Status {
@@ -229,6 +242,11 @@ Result<KeyUri> parse_uri(std::string_view text) {
             auto value = percent_decode(item.substr(eq + 1));
             if (!value) {
                 return std::unexpected(value.error());
+            }
+            // Only an id is binary; a NUL in a path or label would cut it
+            // short where the C library reads it.
+            if (item.substr(0, eq) != "id" && value->contains('\0')) {
+                return fail(Errc::malformed, "a PKCS #11 URI attribute has a NUL");
             }
             if (auto s = handle(item.substr(0, eq), std::move(*value)); !s) {
                 return s;
