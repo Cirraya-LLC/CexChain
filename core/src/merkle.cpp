@@ -81,6 +81,66 @@ void HashArray::push_back(ByteView hash) {
     ++size_;
 }
 
+Status CompactRange::append(ByteView entry) {
+    auto leaf = leaf_hash(*provider_, alg_, entry);
+    if (!leaf) {
+        return std::unexpected(leaf.error());
+    }
+    return append_leaf_hash(*leaf);
+}
+
+Status CompactRange::append_leaf_hash(const Digest& leaf) {
+    if (leaf.size() != crypto::digest_size(alg_)) {
+        return fail(Errc::invalid_argument,
+                    "leaf hash has the wrong size for the tree's algorithm");
+    }
+    // As in Tree::append_leaf_hash: each completed subtree merges with the
+    // one to its left.
+    Digest carry = leaf;
+    for (std::size_t h = 0; lsb(size_ >> h); ++h) {
+        auto parent = node_hash(*provider_, alg_, roots_.back(), carry);
+        if (!parent) {
+            return std::unexpected(parent.error());
+        }
+        carry = *parent;
+        roots_.pop_back();
+    }
+    roots_.push_back(carry);
+    ++size_;
+    return {};
+}
+
+Result<Digest> CompactRange::root() const {
+    if (roots_.empty()) {
+        return empty_root(*provider_, alg_);
+    }
+    // RFC 9162: the largest complete subtree on the left, the rest folded
+    // from the right.
+    Digest r = roots_.back();
+    for (std::size_t i = roots_.size() - 1; i-- > 0;) {
+        auto next = node_hash(*provider_, alg_, roots_[i], r);
+        if (!next) {
+            return std::unexpected(next.error());
+        }
+        r = *next;
+    }
+    return r;
+}
+
+CompactRange Tree::compact_range() const {
+    CompactRange range(*provider_, alg_);
+    range.size_ = size();
+    // One complete subtree per set bit of the size, largest first.
+    std::uint64_t begin = 0;
+    for (std::size_t h = 64; h-- > 0;) {
+        if (lsb(range.size_ >> h)) {
+            range.roots_.push_back(stored(h, begin >> h));
+            begin += std::uint64_t{1} << h;
+        }
+    }
+    return range;
+}
+
 Tree::Tree(const crypto::Provider& provider, HashAlg alg) noexcept
     : provider_(&provider), alg_(alg), levels_(1, HashArray(crypto::digest_size(alg))) {}
 

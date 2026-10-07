@@ -135,10 +135,19 @@ run audit | contains 'audit passed'
 
 # --- A replica -----------------------------------------------------------------
 REPLICA="$WORK/replica"
-expect_exit 2 replica init --from "$URL" --ledger "$REPLICA"
+LEDGER_ID="$(run status --json | json 'd["ledger_id"]')"
+# Without TLS, the ledger must be pinned; and only that ledger is accepted.
+expect_exit 1 replica init --from "$URL" --ledger "$REPLICA"
+contains 'needs --ledger-id' out.txt
+expect_exit 2 replica init --from "$URL" --ledger-id "$LEDGER_ID" --ledger "$REPLICA"
 contains 'refused the API token' out.txt
 [ ! -e "$REPLICA" ] || fail "a failed replica init must not leave a directory behind"
-CEXCHAIN_TOKEN="$REPLICA_TOKEN" run replica init --from "$URL" --ledger "$REPLICA" | contains 'ready at'
+CEXCHAIN_TOKEN="$REPLICA_TOKEN" expect_exit 2 replica init --from "$URL" --ledger "$REPLICA" \
+    --ledger-id "$(printf '%064d' 7)"
+contains 'another ledger than the one expected' out.txt
+[ ! -e "$REPLICA" ] || fail "a refused replica init must not leave a directory behind"
+CEXCHAIN_TOKEN="$REPLICA_TOKEN" run replica init --from "$URL" --ledger-id "$LEDGER_ID" \
+    --ledger "$REPLICA" | contains "replica of ledger $LEDGER_ID"
 run replica status --ledger "$REPLICA" --token-file replica.token --json | json 'd["behind"]' | contains -x 0
 run replica status --json | json 'd["replica"]' | contains -x False
 run audit --ledger "$REPLICA" | contains 'audit passed'
@@ -148,9 +157,10 @@ contains 'this ledger is a replica' out.txt
 expect_exit 2 checkpoint create --ledger "$REPLICA" --log-key log.key
 
 run record issue --as root.key --type cexchain.certificate/1 --field result=again > /dev/null
-# (The primary checkpoints every second, so compare with what it had at the sync.)
+# A replica takes only what a checkpoint covers: checkpoint, then sync.
+run checkpoint create --log-key log.key > /dev/null
 run replica sync --ledger "$REPLICA" --token-file replica.token --json > sync.json
-json 'd["entries"] >= 1 and d["size"] >= d["primary_size"]' < sync.json | contains -x True
+json 'd["entries"] >= 2 and d["size"] == d["primary_size"]' < sync.json | contains -x True
 ls "$REPLICA/vault/records" | contains -c '\.cbor$'
 
 # A replica serves reads, never writes. (Tokens are each server's own.)
@@ -170,9 +180,13 @@ expect_exit 2 replica sync --ledger "$REPLICA" --token-file replica.token
 contains 'refused the API token' out.txt
 
 # --- Backups -------------------------------------------------------------------
-run backup create --ledger "$REPLICA" --out replica.cxb | contains 'backed up'
-run backup verify replica.cxb --json | json 'd["ok"]' | contains -x True
-run backup create --out primary.cxb --json | json 'd["files"] > 0' | contains -x True
+run backup create --ledger "$REPLICA" --out replica.cxb | contains 'unsigned'
+# Unsigned: the checkpointed log verifies, and the files would be left out.
+run backup verify replica.cxb --json | json 'd["ok"] and not d["signed"] and d["skipped_files"] > 0' | contains -x True
+run backup verify replica.cxb | contains 'compare it with a witness'
+run backup create --out primary.cxb --log-key log.key --json | json 'd["files"] > 0 and d["signed"]' | contains -x True
+expect_exit 2 backup create --out other.cxb --log-key root.key
+contains "not this ledger's log key" out.txt
 run backup restore primary.cxb --ledger "$WORK/restored" | contains 'audit passed'
 [ "$(run status --ledger "$WORK/restored" --json | json 'd["ledger_id"]')" = "$(run status --json | json 'd["ledger_id"]')" ]
 run record fields "$(run record list --json | json 'd[0]["id"]')" --ledger "$WORK/restored" | contains 'result'

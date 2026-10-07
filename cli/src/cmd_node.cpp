@@ -416,6 +416,17 @@ int cmd_replica_init(const Args& args) {
     const std::string url = args.need("from");
     const std::optional<std::string> ca = args.get("ca");
     const node::Client client = client_for(url, args, ca);
+    // Without TLS anyone in between could hand over another ledger entirely.
+    std::optional<protocol::Id> expected;
+    if (const auto text = args.get("ledger-id")) {
+        const auto bytes = from_hex(*text);
+        if (!bytes || bytes->size() != protocol::id_size) {
+            throw UsageError{"--ledger-id must be the full hex ledger id"};
+        }
+        expected = unwrap(protocol::to_id(*bytes), "ledger id");
+    } else if (!client.base().tls) {
+        throw UsageError{"an http:// source needs --ledger-id, to pin the ledger replicated"};
+    }
     const bool existed = std::filesystem::exists(dir);
     std::filesystem::create_directories(dir);
     std::filesystem::permissions(dir, std::filesystem::perms::owner_all,
@@ -425,7 +436,7 @@ int cmd_replica_init(const Args& args) {
         std::optional<ledger::DirectoryLock> lock;
         lock.emplace(unwrap(ledger::DirectoryLock::acquire(dir), "locking the ledger"));
         auto fs = unwrap(ledger::PosixFileSystem::open_directory(dir), "opening the directory");
-        const auto created = node::create_replica(client, fs, clock, shared_provider());
+        const auto created = node::create_replica(client, fs, clock, shared_provider(), expected);
         if (!created) {
             if (!existed) {
                 lock.reset();
@@ -444,9 +455,9 @@ int cmd_replica_init(const Args& args) {
         return *failed;
     }
     if (!args.json()) {
-        std::println("replica of {} ready at {}; keep it current with: cexchain replica sync "
-                     "--follow",
-                     client.base().to_string(), dir.string());
+        std::println("replica of ledger {} from {} ready at {}; keep it current with: cexchain "
+                     "replica sync --follow",
+                     hex_id(replica->id()), client.base().to_string(), dir.string());
     }
     return exit_ok;
 }
@@ -566,12 +577,41 @@ int cmd_replica_promote(const Args& args) {
 namespace {
 
 Json summary_json(const ledger::BackupSummary& s) {
-    return {{"ledger_id", id_json(s.ledger_id)},
-            {"created", format_time(s.created)},
-            {"entries", s.entries},
-            {"checkpoints", s.checkpoints},
-            {"cosignatures", s.cosignatures},
-            {"files", s.files}};
+    Json j = {{"ledger_id", id_json(s.ledger_id)},
+              {"created", format_time(s.created)},
+              {"signed", s.is_signed},
+              {"entries", s.entries},
+              {"checkpoints", s.checkpoints},
+              {"cosignatures", s.cosignatures},
+              {"files", s.files},
+              {"skipped_entries", s.skipped_entries},
+              {"skipped_files", s.skipped_files}};
+    if (s.root) {
+        j["head"] = {{"size", s.size},
+                     {"root", hex_json(s.root->bytes())},
+                     {"checkpoint", s.checkpoint
+                                        ? Json{{"size", s.checkpoint->tree_size},
+                                               {"root", hex_json(s.checkpoint->root.bytes())},
+                                               {"timestamp", format_time(s.checkpoint->timestamp)}}
+                                        : Json(nullptr)}};
+    }
+    return j;
+}
+
+/// What a restore took, and what it left out, in words.
+void print_restore_head(const ledger::BackupSummary& s) {
+    if (s.root) {
+        std::println("head: size {}, root {}", s.size, to_hex(s.root->bytes()));
+    }
+    if (s.checkpoint) {
+        std::println("latest checkpoint: size {}, signed {} (compare it with a witness)",
+                     s.checkpoint->tree_size, format_time(s.checkpoint->timestamp));
+    }
+    if (!s.is_signed && (s.skipped_entries > 0 || s.skipped_files > 0)) {
+        std::println("unsigned backup: left out {} entries after the last checkpoint and {} files "
+                     "(tokens, vault); sign backups with --log-key to keep them",
+                     s.skipped_entries, s.skipped_files);
+    }
 }
 
 int report_restore_failure(const Args& args, const Error& e, std::string_view what) {
@@ -625,17 +665,24 @@ int cmd_backup_create(const Args& args) {
         }
         std::filesystem::permissions(temporary, std::filesystem::perms::owner_read |
                                                     std::filesystem::perms::owner_write);
-        summary = unwrap(
-            ledger::write_backup(session.ledger(), session.provider(), files, clock.now(), stream),
-            "writing the backup");
+        std::shared_ptr<const crypto::Signer> log_key;
+        if (args.has("log-key")) {
+            log_key = load_signer(args.need("log-key"), args);
+        }
+        summary = unwrap(ledger::write_backup(session.ledger(), session.provider(), files,
+                                              clock.now(), stream, log_key.get()),
+                         "writing the backup");
     }
     std::filesystem::rename(temporary, out);
     if (args.json()) {
         print_json(summary_json(summary));
     } else {
-        std::println("backed up {} entries, {} checkpoints, {} cosignatures, {} files to {}",
+        std::println("backed up {} entries, {} checkpoints, {} cosignatures, {} files to {} ({})",
                      summary.entries, summary.checkpoints, summary.cosignatures, summary.files,
-                     out.string());
+                     out.string(),
+                     summary.is_signed
+                         ? "signed by the log key"
+                         : "unsigned: a restore takes only what checkpoints cover, and no files");
         if (std::ranges::any_of(files, [](const auto& f) { return f.path == "vault/vault.key"; })) {
             std::println("it includes the vault private key (encrypted if it was): keep it safe");
         }
@@ -674,10 +721,12 @@ int cmd_backup_verify(const Args& args) {
         j["unknown_files"] = refused;
         print_json(j);
     } else {
-        std::println("backup verified: ledger {}, {} entries, {} checkpoints, {} cosignatures, {} "
-                     "files, made {}",
+        std::println("backup verified ({}): ledger {}, {} entries, {} checkpoints, {} "
+                     "cosignatures, {} files, made {}",
+                     summary->is_signed ? "signed by the log key" : "unsigned",
                      hex_id(summary->ledger_id), summary->entries, summary->checkpoints,
                      summary->cosignatures, summary->files, format_time(summary->created));
+        print_restore_head(*summary);
         if (refused > 0) {
             std::println("{} files would not be restored (unknown paths)", refused);
         }
@@ -695,12 +744,15 @@ int cmd_backup_restore(const Args& args) {
     if (!in) {
         throw CommandError{"cannot read " + args.positional().front()};
     }
+    const bool existed = std::filesystem::exists(dir);
     std::filesystem::create_directories(dir);
     std::filesystem::permissions(dir, std::filesystem::perms::owner_all,
                                  std::filesystem::perm_options::replace);
     ledger::SystemClock clock;
+    std::optional<ledger::BackupSummary> restored;
     {
-        const auto lock = unwrap(ledger::DirectoryLock::acquire(dir), "locking the ledger");
+        std::optional<ledger::DirectoryLock> lock;
+        lock.emplace(unwrap(ledger::DirectoryLock::acquire(dir), "locking the ledger"));
         auto fs = unwrap(ledger::PosixFileSystem::open_directory(dir), "opening the directory");
         const auto summary = ledger::restore_backup(
             in, fs, clock, shared_provider(), [&](const ledger::BackupFile& f) -> Status {
@@ -717,8 +769,19 @@ int cmd_backup_restore(const Args& args) {
                 return {};
             });
         if (!summary) {
+            // Leave nothing half-restored behind (a partial ledger would
+            // open fine).
+            lock.reset();
+            if (!existed) {
+                std::filesystem::remove_all(dir);
+            } else {
+                for (const auto& e : std::filesystem::directory_iterator(dir)) {
+                    std::filesystem::remove_all(e.path());
+                }
+            }
             return report_restore_failure(args, summary.error(), "restoring the backup");
         }
+        restored = *summary;
     }
     // Open it as any command would (a full replay), and audit it.
     Session session(dir);
@@ -727,15 +790,17 @@ int cmd_backup_restore(const Args& args) {
         return report_restore_failure(args, audit.error(), "auditing the restored ledger");
     }
     if (args.json()) {
-        print_json({{"ok", true},
-                    {"ledger_id", id_json(session.ledger().id())},
-                    {"entries", audit->entries},
-                    {"checkpoints", audit->checkpoints},
-                    {"cosignatures", audit->cosignatures}});
+        Json j = summary_json(*restored);
+        j["ok"] = true;
+        j["entries"] = audit->entries;
+        j["checkpoints"] = audit->checkpoints;
+        j["cosignatures"] = audit->cosignatures;
+        print_json(j);
     } else {
         std::println("restored ledger {} to {}: {} entries, {} checkpoints, audit passed",
                      hex_id(session.ledger().id()), dir.string(), audit->entries,
                      audit->checkpoints);
+        print_restore_head(*restored);
     }
     return exit_ok;
 }

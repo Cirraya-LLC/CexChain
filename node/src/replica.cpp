@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
+#include <algorithm>
 #include <format>
+#include <span>
 #include <system_error>
 
 #include <nlohmann/json.hpp>
 
 #include <cexchain/core/cbor.hpp>
+#include <cexchain/core/merkle.hpp>
+#include <cexchain/core/protocol/log.hpp>
 #include <cexchain/core/protocol/statement.hpp>
 #include <cexchain/node/api.hpp>
 #include <cexchain/node/replica.hpp>
@@ -73,31 +77,117 @@ Result<std::vector<Bytes>> fetch_byte_strings(const Client& primary, const std::
     return out;
 }
 
-/// Appends the primary's entries until the replica has `size`.
-Status catch_up(const Client& primary, ledger::Ledger& replica, std::uint64_t size,
-                SyncReport& report, const std::function<void(const SyncReport&)>& progress) {
-    while (replica.size() < size) {
-        const std::uint64_t count = std::min(batch, size - replica.size());
-        auto entries = fetch_byte_strings(
-            primary, std::format("/v1/entries?start={}&count={}", replica.size(), count));
-        if (!entries) {
-            return std::unexpected(entries.error());
+/// Entries the replica holds in memory while checking them against a
+/// checkpoint; beyond this it fetches them again to take them.
+constexpr std::size_t max_held_bytes = std::size_t{64} << 20;
+/// Distinct witnesses whose cosignatures a replica keeps.
+constexpr std::size_t max_witnesses = 64;
+
+/// Takes the primary's entries up to `checkpoint` (already checked on its
+/// own) and then the checkpoint: but only once they lead to the signed
+/// root, so nothing the log key has not signed is ever written. Each entry
+/// is still re-validated as it is taken.
+Status take_checkpoint(const Client& primary, ledger::Ledger& replica, ByteView encoded,
+                       const protocol::SignedCheckpoint& checkpoint, SyncReport& report,
+                       const std::function<void(const SyncReport&)>& progress) {
+    const std::uint64_t size = checkpoint.checkpoint.tree_size;
+    if (size > replica.size()) {
+        auto range = replica.compact_range();
+        std::vector<Bytes> held;
+        std::size_t held_bytes = 0;
+        bool holding = true;
+        // Leaf hashes, so entries fetched again must be the ones checked.
+        Bytes leaves;
+        for (std::uint64_t at = replica.size(); at < size;) {
+            const std::uint64_t count = std::min(batch, size - at);
+            auto page = fetch_byte_strings(primary,
+                                           std::format("/v1/entries?start={}&count={}", at, count));
+            if (!page) {
+                return std::unexpected(page.error());
+            }
+            if (page->empty() || page->size() > count) {
+                return fail(Errc::verification_failed,
+                            "the primary does not have the entries its checkpoint covers");
+            }
+            for (Bytes& entry : *page) {
+                auto leaf = merkle::leaf_hash(replica.provider(), replica.hash(), entry);
+                if (!leaf) {
+                    return std::unexpected(leaf.error());
+                }
+                if (auto s = range.append_leaf_hash(*leaf); !s) {
+                    return s;
+                }
+                leaves.insert(leaves.end(), leaf->bytes().begin(), leaf->bytes().end());
+                if (holding) {
+                    held_bytes += entry.size();
+                    held.push_back(std::move(entry));
+                    if (held_bytes > max_held_bytes) {
+                        holding = false;
+                        held.clear();
+                    }
+                }
+            }
+            at += page->size();
         }
-        if (entries->empty()) {
+        auto root = range.root();
+        if (!root) {
+            return std::unexpected(root.error());
+        }
+        if (*root != checkpoint.checkpoint.root) {
             return fail(Errc::verification_failed,
-                        "the primary does not have the entries its checkpoint covers");
+                        "the primary's entries do not lead to its signed checkpoint");
         }
-        const std::uint64_t before = replica.size();
-        if (auto s = replica.append_entries(*entries); !s) {
+        const std::size_t leaf_size = crypto::digest_size(replica.hash());
+        const std::uint64_t first = replica.size();
+        auto take = [&](std::span<const Bytes> entries) -> Status {
+            const std::uint64_t before = replica.size();
+            auto s = replica.append_entries(entries);
             report.entries += replica.size() - before;
+            report.size = replica.size();
+            if (s && progress) {
+                progress(report);
+            }
             return s;
-        }
-        report.entries += replica.size() - before;
-        report.size = replica.size();
-        if (progress) {
-            progress(report);
+        };
+        if (holding) {
+            for (std::size_t at = 0; at < held.size(); at += batch) {
+                const std::size_t end = std::min<std::size_t>(held.size(), at + batch);
+                if (auto s = take(std::span(held).subspan(at, end - at)); !s) {
+                    return s;
+                }
+            }
+        } else {
+            while (replica.size() < size) {
+                const std::uint64_t at = replica.size();
+                const std::uint64_t count = std::min(batch, size - at);
+                auto page = fetch_byte_strings(
+                    primary, std::format("/v1/entries?start={}&count={}", at, count));
+                if (!page) {
+                    return std::unexpected(page.error());
+                }
+                if (page->empty() || page->size() > count) {
+                    return fail(Errc::verification_failed,
+                                "the primary does not have the entries its checkpoint covers");
+                }
+                for (std::size_t k = 0; k < page->size(); ++k) {
+                    auto leaf = merkle::leaf_hash(replica.provider(), replica.hash(), (*page)[k]);
+                    const std::size_t offset = static_cast<std::size_t>(at - first + k) * leaf_size;
+                    if (!leaf || !std::ranges::equal(leaf->bytes(),
+                                                     ByteView(leaves).subspan(offset, leaf_size))) {
+                        return fail(Errc::verification_failed,
+                                    "the primary sent other entries the second time");
+                    }
+                }
+                if (auto s = take(*page); !s) {
+                    return s;
+                }
+            }
         }
     }
+    if (auto s = replica.store_checkpoint(encoded); !s) {
+        return s;
+    }
+    ++report.checkpoints;
     return {};
 }
 
@@ -117,15 +207,11 @@ Status sync_vault(const Client& primary, const ledger::Ledger& replica,
     }
     std::filesystem::permissions(vault, std::filesystem::perms::owner_all,
                                  std::filesystem::perm_options::replace, ec);
-    // A new vault key (after `vault rekey`) re-seals every record.
+    // A new vault key (after `vault rekey`) re-seals every record. The key
+    // is written last: if copying stops halfway, the next sync sees the old
+    // key still and copies everything again.
     const auto local_key = detail::read_file(vault / "vault.pub");
     const bool rekeyed = !local_key || *local_key != *remote_key;
-    if (rekeyed) {
-        if (auto s = detail::write_file(vault / "vault.pub", *remote_key, false); !s) {
-            return s;
-        }
-        ++report.vault_files;
-    }
     for (const auto& [id, record] : replica.state().records()) {
         const std::string name = to_hex(id);
         const std::filesystem::path file = records / (name + ".cbor");
@@ -140,6 +226,12 @@ Status sync_vault(const Client& primary, const ledger::Ledger& replica,
             return std::unexpected(sealed.error());
         }
         if (auto s = detail::write_file(file, *sealed, true); !s) {
+            return s;
+        }
+        ++report.vault_files;
+    }
+    if (rekeyed) {
+        if (auto s = detail::write_file(vault / "vault.pub", *remote_key, false); !s) {
             return s;
         }
         ++report.vault_files;
@@ -206,13 +298,23 @@ Result<PrimaryStatus> primary_status(const Client& primary) {
 }
 
 Result<ledger::Ledger> create_replica(const Client& primary, ledger::FileSystem& fs,
-                                      ledger::Clock& clock, const crypto::Provider& provider) {
+                                      ledger::Clock& clock, const crypto::Provider& provider,
+                                      const std::optional<protocol::Id>& expected) {
     auto first = fetch_byte_strings(primary, "/v1/entries?start=0&count=1");
     if (!first) {
         return std::unexpected(first.error());
     }
     if (first->size() != 1) {
         return fail(Errc::malformed, "the primary sent no genesis entry");
+    }
+    // The ledger id is the genesis statement's: pinned before anything is
+    // written, so nobody in between can substitute a whole ledger.
+    if (expected) {
+        auto genesis = protocol::decode_log_entry(first->front());
+        if (!genesis || genesis->statement_id != *expected) {
+            return fail(Errc::verification_failed,
+                        "the primary serves another ledger than the one expected");
+        }
     }
     return ledger::Ledger::create_replica(fs, clock, provider, first->front());
 }
@@ -236,8 +338,10 @@ Result<SyncReport> sync_replica(const Client& primary, ledger::Ledger& replica,
                     "back");
     }
 
-    // Checkpoints, each after the entries it covers. The last one this
-    // replica already has must be the primary's too.
+    // Checkpoints, each with the entries it covers once they lead to its
+    // root. Entries no checkpoint covers yet are not copied: nothing the log
+    // key has not signed is ever written here. The last checkpoint this
+    // replica has must be the primary's too.
     auto local = replica.checkpoints();
     if (!local) {
         return std::unexpected(local.error());
@@ -260,52 +364,76 @@ Result<SyncReport> sync_replica(const Client& primary, ledger::Ledger& replica,
             overlap_checked = true;
             i = 1;
         }
+        bool advanced = false;
         for (; i < remote->size(); ++i) {
-            auto parsed = protocol::parse_checkpoint((*remote)[i]);
-            if (!parsed) {
-                return fail(Errc::verification_failed, "the primary sent a malformed checkpoint");
+            const auto latest = replica.latest_checkpoint();
+            if (latest && latest->encoded == (*remote)[i]) {
+                continue; // a copy of the latest: nothing new
             }
-            if (auto s = catch_up(primary, replica, parsed->checkpoint.tree_size, report, progress);
+            auto checked = replica.verify_checkpoint((*remote)[i]);
+            if (!checked) {
+                return fail(Errc::verification_failed,
+                            "the primary sent a checkpoint that is not signed by the log key or "
+                            "goes back");
+            }
+            if (auto s =
+                    take_checkpoint(primary, replica, (*remote)[i], *checked, report, progress);
                 !s) {
                 return std::unexpected(s.error());
             }
-            if (auto s = replica.store_checkpoint((*remote)[i]); !s) {
-                return std::unexpected(s.error());
-            }
-            ++report.checkpoints;
+            advanced = true;
         }
         next += remote->size();
         if (remote->size() < batch) {
             break;
         }
-    }
-    if (auto s = catch_up(primary, replica, status->size, report, progress); !s) {
-        return std::unexpected(s.error());
+        if (!advanced) {
+            return fail(Errc::verification_failed, "the primary repeats checkpoints without end");
+        }
     }
 
-    // Witness cosignatures, each checked against its witness's key.
+    // Witness cosignatures, each checked against its witness's key, from a
+    // bounded number of witnesses.
     auto have = replica.cosignatures();
     if (!have) {
         return std::unexpected(have.error());
     }
-    auto cosignatures = fetch_array(
-        primary, std::format("/v1/cosignatures?start={}&count={}", have->size(), batch));
-    if (!cosignatures) {
-        return std::unexpected(cosignatures.error());
+    std::vector<crypto::PublicKey> witnesses;
+    for (const auto& c : *have) {
+        if (!std::ranges::contains(witnesses, c.witness)) {
+            witnesses.push_back(c.witness);
+        }
     }
-    for (const cbor::Value& item : *cosignatures) {
-        const cbor::Array* parts = item.as_array();
-        if (parts == nullptr || parts->size() != 2 || (*parts)[0].as_bytes() == nullptr) {
-            return fail(Errc::verification_failed, "the primary sent a malformed cosignature");
+    for (std::uint64_t start = have->size();;) {
+        auto cosignatures =
+            fetch_array(primary, std::format("/v1/cosignatures?start={}&count={}", start, batch));
+        if (!cosignatures) {
+            return std::unexpected(cosignatures.error());
         }
-        auto witness = protocol::decode_public_key((*parts)[1]);
-        if (!witness) {
-            return fail(Errc::verification_failed, "the primary sent a malformed cosignature");
+        for (const cbor::Value& item : *cosignatures) {
+            const cbor::Array* parts = item.as_array();
+            if (parts == nullptr || parts->size() != 2 || (*parts)[0].as_bytes() == nullptr) {
+                return fail(Errc::verification_failed, "the primary sent a malformed cosignature");
+            }
+            auto witness = protocol::decode_public_key((*parts)[1]);
+            if (!witness) {
+                return fail(Errc::verification_failed, "the primary sent a malformed cosignature");
+            }
+            if (!std::ranges::contains(witnesses, *witness)) {
+                if (witnesses.size() >= max_witnesses) {
+                    continue;
+                }
+                witnesses.push_back(*witness);
+            }
+            if (auto s = replica.add_cosignature(*(*parts)[0].as_bytes(), *witness); !s) {
+                return fail(Errc::verification_failed, "the primary sent a cosignature that fails");
+            }
+            ++report.cosignatures;
         }
-        if (auto s = replica.add_cosignature(*(*parts)[0].as_bytes(), *witness); !s) {
-            return fail(Errc::verification_failed, "the primary sent a cosignature that fails");
+        start += cosignatures->size();
+        if (cosignatures->size() < batch) {
+            break;
         }
-        ++report.cosignatures;
     }
 
     if (auto s = sync_vault(primary, replica, directory, report); !s) {

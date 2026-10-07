@@ -227,18 +227,22 @@ cexchain token create replica --scope read --out replica.token
 cexchain serve --listen 0.0.0.0:8080 --log-key log.key --tls-cert cert.pem --tls-key key.pem
 
 # Elsewhere: a replica copies the ledger and re-validates every entry and checkpoint it copies.
-CEXCHAIN_TOKEN=$(cat replica.token) cexchain replica init --from https://ledger.example.com --ledger ./replica
+CEXCHAIN_TOKEN=$(cat replica.token) cexchain replica init --from https://ledger.example.com \
+    --ledger-id LEDGER_ID --ledger ./replica
 cexchain replica sync --ledger ./replica --follow
 cexchain serve --ledger ./replica --listen 0.0.0.0:8080       # read-only, for verifiers and reports
 
-# Backups: one file, re-validated on restore. Take them from a replica.
-cexchain backup create --ledger ./replica --out ledger.cxb
+# Backups: one file, re-validated on restore. Sign them with the log key: a restore takes what no
+# checkpoint covers (the newest entries, tokens, the vault) only from a signed backup.
+cexchain backup create --ledger ./replica --out ledger.cxb --log-key log.key
 cexchain backup verify ledger.cxb
 cexchain backup restore ledger.cxb --ledger ./restored
 ```
 
-A replica stops (exit 3) at the first entry that does not validate, and refuses histories that
-were rolled back, so a compromised primary cannot rewrite a replica's copy. If the primary is lost,
+A replica copies only what the log key signed: each checkpoint is checked first, and the entries
+it covers must lead to its root before any is taken, so a replica trails its primary by the
+checkpoint interval. It stops (exit 3) at the first entry that does not validate, and refuses
+histories that were rolled back, so a compromised primary cannot rewrite a replica's copy. If the primary is lost,
 stop it for good and run `cexchain replica promote`; witnesses would detect two primaries signing.
 Operations: `GET /healthz`, Prometheus metrics at `GET /metrics`, an access log in JSON lines on
 stderr, automatic checkpoints (`--checkpoint-interval`), and graceful shutdown on SIGTERM. The

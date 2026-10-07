@@ -148,6 +148,24 @@ TEST_CASE("every proof in trees up to 70 entries verifies", "[core][merkle][prop
     }
 }
 
+TEST_CASE("a compact range grows to the same roots as the tree", "[core][merkle][property]") {
+    for (std::uint64_t start = 0; start <= 40; ++start) {
+        merkle::Tree tree(provider(), HashAlg::sha256);
+        for (std::uint64_t i = 0; i < start; ++i) {
+            REQUIRE(tree.append(as_bytes("entry " + std::to_string(i))));
+        }
+        auto range = tree.compact_range();
+        CHECK(range.size() == start);
+        CHECK(*range.root() == *tree.root());
+        for (std::uint64_t i = start; i < start + 20; ++i) {
+            const std::string entry = "entry " + std::to_string(i);
+            REQUIRE(range.append(as_bytes(entry)));
+            REQUIRE(tree.append(as_bytes(entry)));
+            REQUIRE(*range.root() == *tree.root());
+        }
+    }
+}
+
 TEST_CASE("inclusion verification rejects every tampering", "[core][merkle]") {
     const auto tree = build_tree(HashAlg::sm3, 37);
     const std::uint64_t size = 37;

@@ -729,14 +729,19 @@ std::vector<CommandSpec> build() {
          0,
          with({ledger_option,
                {"from", "URL", "The primary's API, e.g. https://ledger.example.com", true},
+               {"ledger-id", "ID",
+                "Replicate only this ledger (full hex id; required for http:// sources)"},
                {"token-file", "FILE", "A read token for the primary (default: $CEXCHAIN_TOKEN)"},
                {"ca", "FILE", "Trust these CA certificates (PEM) for the primary"}}),
          cmd_replica_init,
-         "A replica copies the primary's log, checkpoints, witness cosignatures, and sealed\n"
-         "vault data, re-validating every entry with the ledger's rules and checking every\n"
-         "checkpoint against the tree it rebuilds. A primary cannot hand it a history that is\n"
-         "not the ledger's: copying stops (exit 3) at the first entry that fails. Replicas\n"
-         "refuse writes; serve one with cexchain serve for reads, back it up, or promote it."},
+         "A replica copies the primary's log up to its latest checkpoint, the checkpoints,\n"
+         "witness cosignatures, and sealed vault data. Each checkpoint is checked against the\n"
+         "log key first, and the entries it covers must lead to its root before any is taken;\n"
+         "every entry is re-validated with the ledger's rules. So a replica holds only what the\n"
+         "log key signed, and trails the primary by its checkpoint interval. A primary cannot\n"
+         "hand it a history that is not the ledger's: copying stops (exit 3) at the first\n"
+         "entry that fails. Without TLS, pin the ledger with --ledger-id. Replicas refuse\n"
+         "writes; serve one with cexchain serve for reads, back it up, or promote it."},
         {{"replica", "sync"},
          "Copy what is new on the primary",
          "Replicas",
@@ -777,14 +782,20 @@ std::vector<CommandSpec> build() {
          "",
          0,
          0,
-         with({ledger_option,
-               {"out", "FILE", "Write the backup here", true},
-               {"no-vault", "", "Leave out the vault (sealed record data and vault keys)"}}),
+         with(
+             {ledger_option,
+              {"out", "FILE", "Write the backup here", true},
+              {"log-key", "KEY", "Sign the backup with the ledger's log key (file or pkcs11: URI)"},
+              {"no-vault", "", "Leave out the vault (sealed record data and vault keys)"},
+              passphrase_file_option}),
          cmd_backup_create,
          "The backup holds the log, checkpoints, witness cosignatures, API token hashes, and\n"
          "the vault: sealed record data, the vault public key, and the vault private key if it\n"
-         "is kept in the ledger directory (encrypted, if it was). Take backups from a replica\n"
-         "to avoid pausing writes on the primary."},
+         "is kept in the ledger directory (encrypted, if it was).\n"
+         "Checkpoints vouch for the log they cover. For the rest (entries after the last\n"
+         "checkpoint, the tokens, the vault), sign with --log-key: a restore takes them only\n"
+         "from a backup the log key signed, and from an unsigned one restores the signed log\n"
+         "alone. Take backups from a replica to avoid pausing writes on the primary."},
         {{"backup", "verify"},
          "Check that a backup is complete and restores to a valid ledger",
          "Backups",

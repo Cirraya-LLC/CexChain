@@ -234,6 +234,7 @@ struct Ledger::Impl {
                 return std::unexpected(root.error());
             }
             if (!d.commitment || d.commitment->id != entry.statement_id ||
+                d.commitment->commitment.timestamp != entry.registered_at ||
                 !protocol::check_state_commitment(*provider, state, *d.commitment, index, *root)) {
                 return fail(Errc::verification_failed,
                             "a state commitment in the log does not match the log");
@@ -358,7 +359,11 @@ struct Ledger::Impl {
 
     /// Checks a signed checkpoint against the log key and this log: for this
     /// ledger, no smaller than the latest, and with the tree's root.
-    Result<protocol::SignedCheckpoint> check_checkpoint(ByteView encoded) const {
+    /// Checks a signed checkpoint on its own: signed by the log key, for
+    /// this ledger and hash, and not before the latest. Checkpoints never go
+    /// back in size or time, and two of one size and moment must say the
+    /// same (so old ones cannot be replayed, or two genuine ones alternated).
+    Result<protocol::SignedCheckpoint> check_signed_checkpoint(ByteView encoded) const {
         auto checkpoint = protocol::parse_checkpoint(encoded);
         if (!checkpoint) {
             return std::unexpected(checkpoint.error());
@@ -370,8 +375,27 @@ struct Ledger::Impl {
         if (c.ledger_id != state.ledger_id() || c.tree_hash != state.hash()) {
             return fail(Errc::verification_failed, "a checkpoint belongs to another ledger");
         }
-        if (c.tree_size > tree.size() ||
-            (latest_checkpoint && c.tree_size < latest_checkpoint->checkpoint.tree_size)) {
+        if (latest_checkpoint) {
+            const protocol::Checkpoint& last = latest_checkpoint->checkpoint;
+            if (c.tree_size < last.tree_size || c.timestamp < last.timestamp ||
+                (c.tree_size == last.tree_size && c.timestamp == last.timestamp && c != last)) {
+                return fail(Errc::verification_failed,
+                            "a checkpoint is out of order with the ones before it");
+            }
+        }
+        return checkpoint;
+    }
+
+    /// Checks a signed checkpoint against this log as well: it covers no
+    /// more than the log holds, with the log's root, and is no older than
+    /// the last entry it covers.
+    Result<protocol::SignedCheckpoint> check_checkpoint(ByteView encoded) const {
+        auto checkpoint = check_signed_checkpoint(encoded);
+        if (!checkpoint) {
+            return checkpoint;
+        }
+        const protocol::Checkpoint& c = checkpoint->checkpoint;
+        if (c.tree_size > tree.size()) {
             return fail(Errc::verification_failed, "a checkpoint is out of order with the log");
         }
         auto root = tree.root(c.tree_size);
@@ -380,6 +404,17 @@ struct Ledger::Impl {
         }
         if (*root != c.root) {
             return fail(Errc::verification_failed, "a checkpoint disagrees with the log");
+        }
+        auto last_covered = log.read(c.tree_size - 1);
+        auto entry = last_covered
+                         ? protocol::decode_log_entry(*last_covered)
+                         : Result<protocol::LogEntry>(std::unexpected(last_covered.error()));
+        if (!entry) {
+            return std::unexpected(entry.error());
+        }
+        if (c.timestamp < entry->registered_at) {
+            return fail(Errc::verification_failed,
+                        "a checkpoint is older than the entries it covers");
         }
         return checkpoint;
     }
@@ -579,6 +614,10 @@ const protocol::Id& Ledger::id() const noexcept {
 
 crypto::HashAlg Ledger::hash() const noexcept {
     return impl_->state.hash(); // fixed at genesis
+}
+
+const crypto::Provider& Ledger::provider() const noexcept {
+    return *impl_->provider;
 }
 
 bool Ledger::usable() const noexcept {
@@ -833,6 +872,16 @@ Result<RefreshReport> Ledger::refresh(FileSystem& fs, bool recover) {
         ++report.checkpoints;
     }
     return report;
+}
+
+merkle::CompactRange Ledger::compact_range() const {
+    const std::shared_lock lock(impl_->log_mutex);
+    return impl_->tree.compact_range();
+}
+
+Result<protocol::SignedCheckpoint> Ledger::verify_checkpoint(ByteView signed_checkpoint) const {
+    const std::shared_lock lock(impl_->log_mutex);
+    return impl_->check_signed_checkpoint(signed_checkpoint);
 }
 
 bool Ledger::outdated() const {
@@ -1102,8 +1151,16 @@ Result<protocol::SignedCheckpoint> Ledger::checkpoint(const crypto::Signer& log_
     if (!root) {
         return std::unexpected(root.error());
     }
-    const protocol::Checkpoint checkpoint{id(), hash(), impl_->tree.size(), *root,
-                                          impl_->next_time()};
+    // Never before the latest checkpoint (the clock may have stepped back),
+    // and nothing new to sign if the latest already says it all.
+    protocol::Timestamp at = impl_->next_time();
+    if (impl_->latest_checkpoint) {
+        at = std::max(at, impl_->latest_checkpoint->checkpoint.timestamp);
+    }
+    const protocol::Checkpoint checkpoint{id(), hash(), impl_->tree.size(), *root, at};
+    if (impl_->latest_checkpoint && impl_->latest_checkpoint->checkpoint == checkpoint) {
+        return *impl_->latest_checkpoint;
+    }
     auto signed_checkpoint = protocol::sign_checkpoint(log_key, *impl_->provider, checkpoint);
     if (!signed_checkpoint) {
         return std::unexpected(signed_checkpoint.error());

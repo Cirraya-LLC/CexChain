@@ -568,15 +568,19 @@ TEST_CASE("a replica copies over HTTP and refuses a forged history", "[node][rep
         auto report = node::sync_replica(reader, *replica, replica_dir);
         REQUIRE(report);
         CHECK(report->checkpoints == 1);
-        CHECK(replica->size() == api->ledger().size());
-        CHECK(*replica->root(replica->size()) == *api->ledger().root(api->ledger().size()));
+        // Up to the checkpoint (genesis, alice, its state commitment): bob,
+        // whom no checkpoint covers yet, waits.
+        CHECK(replica->size() == 3);
+        CHECK(api->ledger().size() == 4);
+        CHECK(*replica->root(3) == *api->ledger().root(3));
 
-        // More on the primary; the next sync takes just that.
+        // A checkpoint on the primary; the next sync takes just what it adds.
         REQUIRE(post(ops, "/v1/checkpoint", {}).status == 200);
         report = node::sync_replica(reader, *replica, replica_dir);
         REQUIRE(report);
-        CHECK(report->entries == 1);
+        CHECK(report->entries == 2); // bob and the new state commitment
         CHECK(report->checkpoints == 1);
+        CHECK(replica->size() == api->ledger().size());
         CHECK(replica->latest_checkpoint()->encoded == api->ledger().latest_checkpoint()->encoded);
 
         // A token that was revoked, or never was.
@@ -584,7 +588,8 @@ TEST_CASE("a replica copies over HTTP and refuses a forged history", "[node][rep
         CHECK(node::sync_replica(stranger, *replica, replica_dir).error().code == Errc::rejected);
     }
     {
-        // Through a primary that alters entry 2: copying stops before it.
+        // Through a primary that alters entry 2: the entries no longer lead
+        // to the signed root, so none of them is taken.
         Tampering tampering(*api, 2);
         Running forged(tampering);
         const auto reader = forged.client(p.read_token);
@@ -594,7 +599,8 @@ TEST_CASE("a replica copies over HTTP and refuses a forged history", "[node][rep
         REQUIRE(replica);
         const auto report = node::sync_replica(reader, *replica, replica_dir);
         REQUIRE_FALSE(report);
-        CHECK(replica->size() == 2);
+        CHECK(report.error().code == Errc::verification_failed);
+        CHECK(replica->size() == 1);
     }
     {
         // A replica of another ledger is refused outright.
@@ -606,6 +612,12 @@ TEST_CASE("a replica copies over HTTP and refuses a forged history", "[node][rep
         auto replica = node::create_replica(server.client(p.read_token), fs, clock, provider());
         REQUIRE(replica);
         CHECK(node::sync_replica(elsewhere.client(other.read_token), *replica, replica_dir)
+                  .error()
+                  .code == Errc::verification_failed);
+        // And pinned at creation, it is never started.
+        ledger::MemoryFileSystem pinned;
+        CHECK(node::create_replica(elsewhere.client(other.read_token), pinned, clock, provider(),
+                                   p.ledger_id)
                   .error()
                   .code == Errc::verification_failed);
     }

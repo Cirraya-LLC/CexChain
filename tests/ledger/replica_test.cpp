@@ -281,3 +281,32 @@ TEST_CASE("a replica refuses a forged history", "[ledger][replica][security]") {
               Errc::verification_failed);
     }
 }
+
+TEST_CASE("checkpoints never go back, so old ones cannot be replayed",
+          "[ledger][replica][security]") {
+    Source s;
+    // Two genuine checkpoints of one size, a moment apart.
+    REQUIRE(s.w.ledger().checkpoint(s.w.log_key()));
+    const auto first = *s.w.ledger().latest_checkpoint();
+    s.w.clock().advance(1000);
+    REQUIRE(s.w.ledger().checkpoint(s.w.log_key()));
+    const auto second = *s.w.ledger().latest_checkpoint();
+    REQUIRE(first.checkpoint.tree_size == second.checkpoint.tree_size);
+    REQUIRE(first.checkpoint.timestamp < second.checkpoint.timestamp);
+    // Signing again with nothing new and no time passed adds nothing.
+    const std::size_t stored = s.w.ledger().checkpoints()->size();
+    REQUIRE(s.w.ledger().checkpoint(s.w.log_key()));
+    CHECK(s.w.ledger().checkpoints()->size() == stored);
+    CHECK(s.w.ledger().latest_checkpoint()->encoded == second.encoded);
+
+    ledger::MemoryFileSystem fs;
+    ledger::ManualClock clock(t0);
+    auto replica = replicate(s.w.ledger(), fs, clock);
+    CHECK(replica.latest_checkpoint()->encoded == second.encoded);
+    // The older one again, after the newer: refused, as checked ahead and
+    // when stored. The newer again changes nothing.
+    CHECK(replica.verify_checkpoint(first.encoded).error().code == Errc::verification_failed);
+    CHECK(replica.store_checkpoint(first.encoded).error().code == Errc::verification_failed);
+    CHECK(replica.store_checkpoint(second.encoded));
+    CHECK(replica.checkpoints()->size() == s.w.ledger().checkpoints()->size());
+}

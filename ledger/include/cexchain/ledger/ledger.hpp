@@ -102,6 +102,7 @@ public:
     [[nodiscard]] const protocol::LedgerState& state() const noexcept;
     [[nodiscard]] const protocol::Id& id() const noexcept;
     [[nodiscard]] crypto::HashAlg hash() const noexcept;
+    [[nodiscard]] const crypto::Provider& provider() const noexcept;
     [[nodiscard]] std::uint64_t size() const noexcept;
     /// False once a write failed after memory moved ahead of the files, or
     /// the files were found not to validate: the ledger must be reopened.
@@ -137,6 +138,16 @@ public:
     /// that the log key signed it and that it agrees with this log. Storing
     /// the latest checkpoint again changes nothing.
     [[nodiscard]] Status store_checkpoint(ByteView signed_checkpoint);
+
+    /// Checks a checkpoint before the entries it covers are here: signed by
+    /// the log key, for this ledger, and not before the latest stored (in
+    /// size or time). With `compact_range`, a replica checks that entries
+    /// lead to its root before taking any of them.
+    [[nodiscard]] Result<protocol::SignedCheckpoint>
+    verify_checkpoint(ByteView signed_checkpoint) const;
+
+    /// The right edge of the log's Merkle tree, to grow a copy of.
+    [[nodiscard]] merkle::CompactRange compact_range() const;
 
     /// Picks up entries, checkpoints, and cosignatures that another process
     /// appended to `fs` (the file system this ledger was opened from), up to

@@ -61,6 +61,29 @@ private:
     std::vector<std::vector<std::uint8_t>> chunks_;
 };
 
+/// The right edge of a tree: the roots of its complete subtrees, largest
+/// first (one per set bit of its size). Enough to append leaves and compute
+/// roots of the grown tree in O(log n) memory, without the tree itself: to
+/// check that entries lead to a signed root before taking them.
+class CompactRange {
+public:
+    CompactRange(const crypto::Provider& provider, HashAlg alg) noexcept
+        : provider_(&provider), alg_(alg) {}
+
+    [[nodiscard]] std::uint64_t size() const noexcept { return size_; }
+    [[nodiscard]] Status append(ByteView entry);
+    [[nodiscard]] Status append_leaf_hash(const Digest& leaf);
+    /// The root of the tree of the leaves so far (the empty root if none).
+    [[nodiscard]] Result<Digest> root() const;
+
+private:
+    friend class Tree;
+    const crypto::Provider* provider_;
+    HashAlg alg_;
+    std::uint64_t size_ = 0;
+    std::vector<Digest> roots_;
+};
+
 /// An append-only Merkle tree held in memory.
 ///
 /// The tree stores the root of every complete, aligned subtree. Roots and
@@ -90,6 +113,9 @@ public:
 
     /// The root of the current tree.
     [[nodiscard]] Result<Digest> root() const { return root(size()); }
+
+    /// The right edge of the current tree, to grow a copy of it.
+    [[nodiscard]] CompactRange compact_range() const;
 
     /// Inclusion proof (RFC 9162 §2.1.3.1) for the leaf at `index` within the
     /// tree of size `tree_size`, ordered from the leaf toward the root.

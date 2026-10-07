@@ -46,17 +46,24 @@ struct SyncReport {
 };
 
 /// Creates a replica in `fs`, which must hold no ledger, from the
-/// primary's first log entry.
-[[nodiscard]] Result<ledger::Ledger> create_replica(const Client& primary, ledger::FileSystem& fs,
-                                                    ledger::Clock& clock,
-                                                    const crypto::Provider& provider);
+/// primary's first log entry; with `expected`, only of that ledger
+/// (Errc::verification_failed otherwise).
+[[nodiscard]] Result<ledger::Ledger>
+create_replica(const Client& primary, ledger::FileSystem& fs, ledger::Clock& clock,
+               const crypto::Provider& provider,
+               const std::optional<protocol::Id>& expected = std::nullopt);
 
-/// Brings `replica` up to date: entries up to each new checkpoint, the
-/// checkpoint, the remaining entries, witness cosignatures, and the sealed
-/// vault data (written under `directory`/vault). Everything copied so far
-/// stays if it fails. Fails with Errc::verification_failed if the primary's
-/// history is not this ledger's, or was rolled back; Errc::rejected if the
-/// primary refuses the token; Errc::unavailable if it cannot be reached.
+/// Brings `replica` up to the primary's latest checkpoint: each new
+/// checkpoint is checked on its own (log key, order), then the entries it
+/// covers are fetched and must lead to its root before any is taken (and
+/// each is re-validated as it is). Entries no checkpoint covers yet are not
+/// copied, so a replica holds only what the log key signed, and trails the
+/// primary by its checkpoint interval. Then witness cosignatures (from at
+/// most 64 witnesses) and the sealed vault data (written under
+/// `directory`/vault, the key last). Everything taken so far stays if it
+/// fails. Fails with Errc::verification_failed if the primary's history is
+/// not this ledger's, or was rolled back; Errc::rejected if the primary
+/// refuses the token; Errc::unavailable if it cannot be reached.
 [[nodiscard]] Result<SyncReport>
 sync_replica(const Client& primary, ledger::Ledger& replica, const std::filesystem::path& directory,
              const std::function<void(const SyncReport&)>& progress = {});

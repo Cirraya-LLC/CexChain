@@ -342,7 +342,7 @@ This section is informative. The reference implementation serves a ledger over H
 | admin | `POST /v1/checkpoint`, `POST /v1/cosignatures` |
 | peer | `POST /v1/access/requests`, `GET /v1/access/deliveries/{request}`, `POST /v1/access/receipts`, `POST /v1/witness/cosign` |
 
-**Replicas.** A replica copies a ledger through the read routes. It re-validates every entry under the rules, rebuilds the tree, and checks every checkpoint against it. It MUST stop at the first entry that fails, and MUST refuse a primary whose log is shorter than its own (a rollback).
+**Replicas.** A replica copies a ledger through the read routes. It checks each checkpoint against the log key first (checkpoints never go back in size or time), and takes the entries a checkpoint covers only once they lead to its root. It re-validates every entry under the rules, rebuilds the tree, and never copies entries that no checkpoint covers. It MUST stop at the first entry that fails, and MUST refuse a primary whose log is shorter than its own (a rollback).
 
 ## 14. Security considerations
 

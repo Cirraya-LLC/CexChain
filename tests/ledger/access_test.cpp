@@ -181,10 +181,10 @@ TEST_CASE("a request, a grant, a delivery, a receipt", "[access]") {
     CHECK(grant->value == p.grant(request_id));
     // The grant must answer what was asked, as it was asked.
     auto refused = [&](protocol::AccessRequest asked, const protocol::Id& id) {
-        const auto checked =
+        const auto outcome =
             protocol::check_access_grant(provider(), grant_bundle, p.factory.ledger().id(),
                                          p.bank.ledger().id(), id, asked, p.now);
-        return !checked && checked.error().code == Errc::rejected;
+        return !outcome && outcome.error().code == Errc::rejected;
     };
     auto asked = p.request();
     asked.recipient = Bytes(32, 1);
@@ -244,9 +244,9 @@ TEST_CASE("a request, a grant, a delivery, a receipt", "[access]") {
     CHECK(delivered->attachments[0].status == protocol::AttachmentStatus::verified);
 
     auto not_verified = [&](const protocol::DeliveryContents& contents) {
-        const auto checked =
+        const auto outcome =
             protocol::check_delivered_record(provider(), contents, p.factory.ledger().id(), *grant);
-        return !checked && checked.error().code == Errc::verification_failed;
+        return !outcome && outcome.error().code == Errc::verification_failed;
     };
     SECTION("more than granted") {
         CHECK(not_verified(
