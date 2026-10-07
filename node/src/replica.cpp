@@ -2,6 +2,7 @@
 // Copyright 2026 Cirraya
 
 #include <algorithm>
+#include <charconv>
 #include <format>
 #include <span>
 #include <system_error>
@@ -231,7 +232,19 @@ Status sync_vault(const Client& primary, const ledger::Ledger& replica,
     // key still and copies everything again.
     const auto local_key = detail::read_file(vault / "vault.pub");
     const bool rekeyed = !local_key || *local_key != *remote_key;
+    // Records before `synced` were fetched (or found to have no vault data)
+    // by an earlier sync; asking again for each would cost a request per
+    // record every time.
+    std::uint64_t synced = 0;
+    if (const auto marker = detail::read_file(vault / "synced"); marker && !rekeyed) {
+        const std::string_view text(reinterpret_cast<const char*>(marker->data()), marker->size());
+        std::from_chars(text.data(), text.data() + text.size(), synced);
+    }
+    const std::uint64_t size = replica.size();
     for (const auto& [id, record] : replica.state().records()) {
+        if (record.registered_at_index < synced || record.registered_at_index >= size) {
+            continue;
+        }
         const std::string name = to_hex(id);
         const std::filesystem::path file = records / (name + ".cbor");
         if (!rekeyed && std::filesystem::exists(file, ec)) {
@@ -255,7 +268,8 @@ Status sync_vault(const Client& primary, const ledger::Ledger& replica,
         }
         ++report.vault_files;
     }
-    return {};
+    const std::string marker = std::to_string(size);
+    return detail::write_file(vault / "synced", as_bytes(marker), false);
 }
 
 } // namespace
@@ -340,7 +354,8 @@ Result<ledger::Ledger> create_replica(const Client& primary, ledger::FileSystem&
 
 Result<SyncReport> sync_replica(const Client& primary, ledger::Ledger& replica,
                                 const std::filesystem::path& directory,
-                                const std::function<void(const SyncReport&)>& progress) {
+                                const std::function<void(const SyncReport&)>& progress,
+                                const SyncOptions& options) {
     SyncReport report;
     report.size = replica.size();
     auto status = primary_status(primary);
@@ -455,8 +470,29 @@ Result<SyncReport> sync_replica(const Client& primary, ledger::Ledger& replica,
         }
     }
 
-    if (auto s = sync_vault(primary, replica, directory, report); !s) {
-        return std::unexpected(s.error());
+    // The entries past the last checkpoint, for a client's mirror.
+    while (options.tail && replica.size() < report.primary_size) {
+        const std::uint64_t at = replica.size();
+        const std::uint64_t count = std::min(batch, report.primary_size - at);
+        auto page =
+            fetch_byte_strings(primary, std::format("/v1/entries?start={}&count={}", at, count));
+        if (!page) {
+            return std::unexpected(page.error());
+        }
+        if (page->empty() || page->size() > count) {
+            break; // the primary's log is what it is
+        }
+        if (auto s = replica.append_entries(*page); !s) {
+            return fail(Errc::verification_failed,
+                        "the primary sent an entry that does not validate");
+        }
+        report.entries += page->size();
+    }
+
+    if (options.vault) {
+        if (auto s = sync_vault(primary, replica, directory, report); !s) {
+            return std::unexpected(s.error());
+        }
     }
     report.size = replica.size();
     return report;

@@ -28,7 +28,7 @@ std::string join(const std::vector<std::string>& items, std::string_view separat
 } // namespace
 
 int cmd_record_issue(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     IssueRequest request;
     request.record_type = args.need("type");
     for (const std::string& field : args.all("field")) {
@@ -51,7 +51,7 @@ int cmd_record_issue(const Args& args) {
 }
 
 int cmd_record_list(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const auto type = args.get("type");
     const auto state = args.get("state");
     Json out = Json::array();
@@ -76,7 +76,7 @@ int cmd_record_list(const Args& args) {
 }
 
 int cmd_record_show(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const protocol::RecordState& record = find_record(session, args);
     const Json r = record_json(session, record);
     if (args.json()) {
@@ -114,7 +114,7 @@ int cmd_record_show(const Args& args) {
 }
 
 int cmd_record_history(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const protocol::RecordState& record = find_record(session, args);
     Json out = Json::array();
     for (const std::uint64_t index : record.history) {
@@ -167,7 +167,7 @@ int cmd_record_history(const Args& args) {
 }
 
 int cmd_record_fields(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const protocol::RecordState& record = find_record(session, args);
     const Vault vault = read_vault(session, record.id, args);
     if (args.json()) {
@@ -190,7 +190,7 @@ int cmd_record_fields(const Args& args) {
 }
 
 int cmd_record_endorse(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const protocol::RecordEndorseBody body{session.record_id(args.positional().front()),
                                            args.need("role")};
     const protocol::Id id = session.submit(args, body);
@@ -200,7 +200,7 @@ int cmd_record_endorse(const Args& args) {
 }
 
 int cmd_record_transition(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const protocol::Id record = session.record_id(args.positional().front());
     const std::string from = session.state().record(record)->state;
     const protocol::RecordTransitionBody body{record, from, args.need("to")};
@@ -211,7 +211,7 @@ int cmd_record_transition(const Args& args) {
 }
 
 int cmd_record_revoke(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const protocol::RecordRevokeBody body{session.record_id(args.positional().front()),
                                           args.get("reason")};
     const protocol::Id id = session.submit(args, body);

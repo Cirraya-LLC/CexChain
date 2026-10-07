@@ -17,14 +17,19 @@
 #include <unistd.h>
 #include <variant>
 
+#include <nlohmann/json.hpp>
+
 #include <cexchain/core/cbor.hpp>
+#include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/presence.hpp>
 #include <cexchain/node/api.hpp>
+#include <cexchain/node/replica.hpp>
 #ifdef CEXCHAIN_HAVE_PKCS11
 #include <cexchain/crypto/pkcs11.hpp>
 #endif
 
 #include "output.hpp"
+#include "registry.hpp"
 #include "webauthn.hpp"
 
 namespace cexchain::cli {
@@ -468,7 +473,111 @@ void recover_vault_swap(const std::filesystem::path& directory) {
     }
 }
 
-Session::Session(const std::filesystem::path& directory) : directory_(directory) {
+std::optional<std::string> api_token(const Args& args) {
+    if (const auto file = args.get("token-file")) {
+        const Bytes bytes = read_file(*file);
+        std::string text(bytes.begin(), bytes.end());
+        while (!text.empty() &&
+               (text.back() == '\n' || text.back() == '\r' || text.back() == ' ')) {
+            text.pop_back();
+        }
+        return text;
+    }
+    if (const char* env = std::getenv("CEXCHAIN_TOKEN"); env != nullptr && *env != '\0') {
+        return std::string(env);
+    }
+    return std::nullopt;
+}
+
+node::Client client_for(const std::string& url, const Args& args,
+                        const std::optional<std::string>& ca_file) {
+    node::ClientOptions options;
+    options.bearer_token = api_token(args);
+    if (ca_file) {
+        options.ca_file = *ca_file;
+    }
+    return node::Client(unwrap(node::Url::parse(url), "reading the URL"), std::move(options));
+}
+
+namespace {
+
+/// The server URL if this command runs in client mode.
+std::optional<std::string> server_url(const Args& args) {
+    const bool takes_server = std::ranges::any_of(
+        args.spec().options, [](const OptionSpec& o) { return o.name == "server"; });
+    if (!takes_server) {
+        return std::nullopt;
+    }
+    const auto flag = args.get("server");
+    if (flag && args.has("ledger")) {
+        throw UsageError{"--server and --ledger exclude each other: a ledger is either here or "
+                         "on a server"};
+    }
+    if (flag) {
+        return *flag;
+    }
+    if (args.has("ledger")) {
+        return std::nullopt;
+    }
+    if (const char* env = std::getenv("CEXCHAIN_SERVER"); env != nullptr && *env != '\0') {
+        if (const char* local = std::getenv("CEXCHAIN_LEDGER");
+            local != nullptr && *local != '\0') {
+            throw UsageError{"both CEXCHAIN_LEDGER and CEXCHAIN_SERVER are set: pass --ledger or "
+                             "--server"};
+        }
+        return std::string(env);
+    }
+    return std::nullopt;
+}
+
+std::filesystem::path cache_root(const Args& args) {
+    if (const auto cache = args.get("cache")) {
+        return *cache;
+    }
+    if (const char* xdg = std::getenv("XDG_CACHE_HOME"); xdg != nullptr && *xdg != '\0') {
+        return std::filesystem::path(xdg) / "cexchain";
+    }
+    if (const char* home = std::getenv("HOME"); home != nullptr && *home != '\0') {
+        return std::filesystem::path(home) / ".cache" / "cexchain";
+    }
+    throw UsageError{"no cache directory for the server's mirror: pass --cache DIR"};
+}
+
+protocol::Id parse_ledger_id(std::string_view text, std::string_view what) {
+    const auto bytes = from_hex(text);
+    if (!bytes || bytes->size() != protocol::id_size) {
+        throw UsageError{std::string(what) + " must be a full hex ledger id"};
+    }
+    return unwrap(protocol::to_id(*bytes), "ledger id");
+}
+
+/// The message of an API error answer.
+std::string error_message(const node::http::ClientResponse& response) {
+    const auto answer =
+        nlohmann::json::parse(response.body.begin(), response.body.end(), nullptr, false);
+    if (answer.is_object() && answer.contains("error") && answer["error"].is_object()) {
+        return answer["error"].value("message", std::string()) + " (HTTP " +
+               std::to_string(response.status) + ")";
+    }
+    return "HTTP " + std::to_string(response.status);
+}
+
+} // namespace
+
+Session::Session(const std::filesystem::path& directory) {
+    open(directory);
+}
+
+Session::Session(const Args& args) {
+    if (const auto url = server_url(args)) {
+        open_remote(args, *url);
+    } else {
+        open(args.ledger());
+    }
+}
+
+void Session::open(const std::filesystem::path& directory) {
+    directory_ = directory;
     if (!std::filesystem::is_directory(directory)) {
         throw CommandError{"no ledger directory at " + directory.string()};
     }
@@ -476,6 +585,115 @@ Session::Session(const std::filesystem::path& directory) : directory_(directory)
     recover_vault_swap(directory);
     fs_.emplace(unwrap(ledger::PosixFileSystem::open_directory(directory), "opening the ledger"));
     ledger_.emplace(unwrap(ledger::Ledger::open(*fs_, clock_, provider_), "opening the ledger"));
+}
+
+void Session::open_remote(const Args& args, const std::string& url) {
+    const std::optional<std::string> ca = args.get("ca-file");
+    remote_.emplace(Remote{client_for(url, args, ca), {}, false});
+    const node::Client& client = remote_->client;
+    remote_->url = client.base().to_string();
+    const auto status = unwrap(node::primary_status(client), "reaching " + remote_->url);
+    const protocol::Id served = parse_ledger_id(status.ledger_id, "the server's ledger id");
+    std::optional<protocol::Id> expected;
+    if (const auto text = args.get("ledger-id")) {
+        expected = parse_ledger_id(*text, "--ledger-id");
+    }
+
+    // The ledger each URL serves is pinned on first use; the mirror of each
+    // ledger is shared by every URL that serves it.
+    const std::filesystem::path root = cache_root(args);
+    std::filesystem::create_directories(root);
+    std::filesystem::permissions(root, std::filesystem::perms::owner_all,
+                                 std::filesystem::perm_options::replace);
+    {
+        const auto cache_lock =
+            unwrap(ledger::DirectoryLock::acquire(root), "locking the cache " + root.string());
+        const std::filesystem::path pins_file = root / "servers.json";
+        nlohmann::json pins = nlohmann::json::object();
+        if (std::filesystem::exists(pins_file)) {
+            const Bytes bytes = read_file(pins_file);
+            pins = nlohmann::json::parse(bytes.begin(), bytes.end(), nullptr, false);
+            if (!pins.is_object()) {
+                throw CommandError{pins_file.string() + " is corrupted"};
+            }
+        }
+        if (pins.contains(remote_->url)) {
+            if (pins[remote_->url] != hex_id(served)) {
+                throw CommandError{"the server at " + remote_->url + " now serves ledger " +
+                                   hex_id(served) + ", not " +
+                                   pins[remote_->url].get<std::string>() +
+                                   " as before: refused (if the change is genuine, remove its "
+                                   "line from " +
+                                   pins_file.string() + ")"};
+            }
+        } else if (!expected && !client.base().tls) {
+            throw UsageError{"the first use of an http:// server needs --ledger-id, to pin the "
+                             "ledger it serves (its operator tells you the id)"};
+        }
+        if (expected && *expected != served) {
+            throw CommandError{"the server at " + remote_->url + " serves ledger " +
+                               hex_id(served) + ", not the one expected"};
+        }
+        directory_ = root / hex_id(served);
+        if (!std::filesystem::exists(directory_ / "statements")) {
+            std::filesystem::create_directories(directory_);
+            std::filesystem::permissions(directory_, std::filesystem::perms::owner_all,
+                                         std::filesystem::perm_options::replace);
+            auto created = [&]() -> Status {
+                const auto lock = ledger::DirectoryLock::acquire(directory_);
+                if (!lock) {
+                    return std::unexpected(lock.error());
+                }
+                auto fs = ledger::PosixFileSystem::open_directory(directory_);
+                if (!fs) {
+                    return std::unexpected(fs.error());
+                }
+                if (auto mirror = node::create_replica(client, *fs, clock_, provider_, served);
+                    !mirror) {
+                    return std::unexpected(mirror.error());
+                }
+                return node::write_replica_info(directory_,
+                                                {remote_->url, ca, clock_.now(), std::nullopt});
+            }();
+            if (!created) {
+                std::filesystem::remove_all(directory_);
+                unwrap(created, "starting a mirror of " + remote_->url);
+            }
+        }
+        pins[remote_->url] = hex_id(served);
+        const std::string text = pins.dump(2) + "\n";
+        write_file(pins_file, as_bytes(text), true);
+    }
+    lock_.emplace(unwrap(ledger::DirectoryLock::acquire(directory_), "locking the mirror"));
+    fs_.emplace(unwrap(ledger::PosixFileSystem::open_directory(directory_), "opening the mirror"));
+    ledger_.emplace(unwrap(ledger::Ledger::open(*fs_, clock_, provider_), "opening the mirror"));
+    sync();
+}
+
+void Session::sync() {
+    const auto report = node::sync_replica(remote_->client, *ledger_, directory_, {},
+                                           node::SyncOptions{.tail = true, .vault = false});
+    if (!report) {
+        const Error& e = report.error();
+        if (e.code == Errc::verification_failed) {
+            throw CommandError{"the server at " + remote_->url + " does not show the history " +
+                               "this client verified before: " + std::string(e.detail) +
+                               " (the mirror is " + directory_.string() + ")"};
+        }
+        throw CommandError{"syncing with " + remote_->url + ": " + std::string(e.detail) + " (" +
+                           std::string(to_string(e.code)) + ")"};
+    }
+}
+
+Bytes Session::call(std::string_view method, std::string_view path, ByteView body,
+                    std::string_view content_type) const {
+    const auto response = unwrap(remote_->client.request(method, path, body, content_type),
+                                 "reaching " + remote_->url);
+    if (response.status < 200 || response.status > 299) {
+        throw CommandError{"the server at " + remote_->url +
+                           " refused: " + error_message(response)};
+    }
+    return response.body;
 }
 
 protocol::Id Session::actor_id(std::string_view text) const {
@@ -528,7 +746,8 @@ Session::choose_delegation(const protocol::ActorState& actor, protocol::Statemen
 protocol::Id Session::submit(const crypto::Signer& signer, protocol::Body body,
                              const std::optional<std::string>& delegation,
                              std::optional<protocol::Provenance> provenance,
-                             const std::optional<PresenceRequest>& presence) {
+                             const std::optional<PresenceRequest>& presence,
+                             const SealVault& seal_vault) {
     const protocol::ActorState& actor = actor_for(signer);
     protocol::Statement statement;
     statement.ledger_id = state().ledger_id();
@@ -569,15 +788,46 @@ protocol::Id Session::submit(const crypto::Signer& signer, protocol::Body body,
     }
     statement.provenance = std::move(provenance);
     statement.body = std::move(body);
-    require_primary();
+    if (!remote_) {
+        require_primary();
+    }
     if (presence) {
         prove_presence(actor, statement, signer.public_key(), *presence);
     }
 
     const auto signed_statement =
         unwrap(protocol::sign_statement(signer, provider_, state().hash(), statement), "signing");
+    std::optional<Bytes> sealed;
+    if (seal_vault) {
+        sealed = seal_vault(signed_statement.id);
+    }
+    if (remote_) {
+        // Signed here; the server registers it, with its private data if
+        // any, and the mirror shows it once it re-validated it.
+        if (sealed) {
+            const Bytes submission =
+                unwrap(cbor::encode(cbor::Value::map(
+                           {{cbor::Value::integer(1), cbor::Value::bytes(signed_statement.encoded)},
+                            {cbor::Value::integer(2), cbor::Value::bytes(*sealed)}})),
+                       "encoding the submission");
+            static_cast<void>(
+                call("POST", "/v1/statements", submission, node::submission_content_type));
+        } else {
+            static_cast<void>(
+                call("POST", "/v1/statements", signed_statement.encoded, "application/cose"));
+        }
+        sync();
+        if (!state().statement_index(signed_statement.id)) {
+            throw CommandError{"the server accepted the statement but does not show it"};
+        }
+        return signed_statement.id;
+    }
     const auto registration =
         unwrap(ledger_->submit(signed_statement.encoded), "the ledger refused the statement");
+    if (sealed) {
+        std::filesystem::create_directories(vault_path(registration.statement_id).parent_path());
+        write_file(vault_path(registration.statement_id), *sealed, true);
+    }
     return registration.statement_id;
 }
 
@@ -727,6 +977,10 @@ std::string Session::actor_name(const protocol::Id& id) const {
 }
 
 void Session::require_primary() const {
+    if (remote_) {
+        throw CommandError{"this works on the ledger's directory only: run it where the ledger "
+                           "is, without --server"};
+    }
     if (std::filesystem::exists(directory_ / node::replica_file)) {
         throw CommandError{"this ledger is a replica: write to its primary, or promote it first "
                            "(cexchain replica promote)"};
@@ -735,6 +989,132 @@ void Session::require_primary() const {
 
 std::filesystem::path Session::vault_path(const protocol::Id& record) const {
     return directory_ / "vault" / "records" / (hex_id(record) + ".cbor");
+}
+
+protocol::SignedCheckpoint Session::checkpoint(const Args& args) {
+    if (!remote_) {
+        require_primary();
+        const auto log_key = load_signer(args.need("log-key"), args);
+        return unwrap(ledger_->checkpoint(*log_key), "checkpointing");
+    }
+    if (args.has("log-key")) {
+        throw UsageError{"with --server the server signs: drop --log-key"};
+    }
+    const Bytes encoded = call("POST", "/v1/checkpoint");
+    sync();
+    // The server's word counts once the mirror took it, checked.
+    const auto checkpoint = unwrap(protocol::parse_checkpoint(encoded), "reading the checkpoint");
+    const auto stored = unwrap(ledger_->checkpoints_of_size(checkpoint.checkpoint.tree_size),
+                               "reading checkpoints");
+    if (std::ranges::none_of(stored, [&](const protocol::SignedCheckpoint& c) {
+            return c.encoded == checkpoint.encoded;
+        })) {
+        throw CommandError{"the server's checkpoint is not in the history this client verified"};
+    }
+    return checkpoint;
+}
+
+protocol::EvidenceBundle Session::evidence(const Args& args, const protocol::Id& record) {
+    if (!remote_) {
+        const auto log_key = load_signer(args.need("log-key"), args);
+        return unwrap(ledger_->export_evidence(*log_key, record), "exporting evidence");
+    }
+    if (args.has("log-key")) {
+        throw UsageError{"with --server the server signs: drop --log-key"};
+    }
+    const Bytes encoded = call("GET", "/v1/evidence/" + hex_id(record));
+    sync();
+    // Verified here, against the ledger and the checkpoints this client
+    // verified, before anything is built on it.
+    protocol::VerifyOptions options;
+    options.expected_ledger = state().ledger_id();
+    const auto report = protocol::verify_bundle(provider_, encoded, options);
+    if (!report || report->record != record) {
+        throw CommandError{"the server sent evidence that does not verify"};
+    }
+    auto bundle = unwrap(protocol::decode_bundle(encoded), "reading the evidence");
+    const auto stored =
+        unwrap(ledger_->checkpoints_of_size(report->checkpoint.tree_size), "reading checkpoints");
+    if (std::ranges::none_of(stored, [&](const protocol::SignedCheckpoint& c) {
+            return c.encoded == bundle.checkpoint;
+        })) {
+        throw CommandError{"the server's evidence is anchored to a checkpoint this client has not "
+                           "verified"};
+    }
+    return bundle;
+}
+
+Bytes Session::receipt(const Args& args, std::uint64_t index) {
+    if (!remote_) {
+        const auto log_key = load_signer(args.need("log-key"), args);
+        return unwrap(ledger_->receipt(*log_key, index), "issuing the receipt");
+    }
+    if (args.has("log-key")) {
+        throw UsageError{"with --server the server signs: drop --log-key"};
+    }
+    const Bytes encoded = call("GET", "/v1/receipts/" + std::to_string(index));
+    sync();
+    const auto receipt = unwrap(protocol::parse_receipt(encoded), "reading the receipt");
+    const std::uint64_t size = receipt.proof.tree_size;
+    const auto root = protocol::verify_receipt(provider_, receipt,
+                                               unwrap(ledger_->entry(index), "reading the entry"),
+                                               state().log_key_for(size));
+    const auto expected = size <= ledger_->size()
+                              ? ledger_->root(size)
+                              : Result<crypto::Digest>(fail(Errc::not_found, "beyond the mirror"));
+    if (!root || receipt.proof.leaf_index != index || !expected || *root != *expected) {
+        throw CommandError{"the server sent a receipt that does not verify"};
+    }
+    return encoded;
+}
+
+void Session::add_cosignature(ByteView cosignature, const crypto::PublicKey& witness) {
+    if (!remote_) {
+        require_primary();
+        unwrap(ledger_->add_cosignature(cosignature, witness), "storing the cosignature");
+        return;
+    }
+    const Bytes body =
+        unwrap(cbor::encode(cbor::Value::array(
+                   {cbor::Value::bytes(cosignature), protocol::encode_public_key(witness)})),
+               "encoding the cosignature");
+    static_cast<void>(call("POST", "/v1/cosignatures", body, "application/cbor"));
+    sync();
+}
+
+bool Session::fetch_vault(const protocol::Id& record) const {
+    if (!remote_ || std::filesystem::exists(vault_path(record))) {
+        return true;
+    }
+    const auto response =
+        unwrap(remote_->client.request("GET", "/v1/vault/records/" + hex_id(record)),
+               "reaching " + remote_->url);
+    if (response.status == 404) {
+        return false;
+    }
+    if (response.status != 200) {
+        throw CommandError{"the server at " + remote_->url +
+                           " refused: " + error_message(response)};
+    }
+    std::filesystem::create_directories(vault_path(record).parent_path());
+    write_file(vault_path(record), response.body, true);
+    return true;
+}
+
+void Session::fetch_vault_public_key() const {
+    if (!remote_ || remote_->vault_key_fetched) {
+        return;
+    }
+    const auto response =
+        unwrap(remote_->client.request("GET", "/v1/vault/public-key"), "reaching " + remote_->url);
+    if (response.status == 200) {
+        std::filesystem::create_directories(directory_ / "vault");
+        write_file(directory_ / "vault" / "vault.pub", response.body, false);
+    } else if (response.status != 404) {
+        throw CommandError{"the server at " + remote_->url +
+                           " refused: " + error_message(response)};
+    }
+    remote_->vault_key_fetched = true;
 }
 
 void create_ledger(const std::filesystem::path& directory, const crypto::Signer& root_key,

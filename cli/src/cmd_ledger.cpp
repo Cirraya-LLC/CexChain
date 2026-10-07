@@ -101,7 +101,7 @@ int cmd_init(const Args& args) {
 }
 
 int cmd_status(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const Json s = status_json(session);
     if (args.json()) {
         print_json(s);
@@ -134,7 +134,7 @@ int cmd_status(const Args& args) {
 
 int cmd_audit(const Args& args) {
     // Opening the session replays and re-validates every statement.
-    Session session(args.ledger());
+    Session session(args);
     const auto report = session.ledger().audit();
     if (!report) {
         if (args.json()) {
@@ -169,7 +169,7 @@ int cmd_audit(const Args& args) {
 }
 
 int cmd_log_list(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const std::uint64_t size = session.ledger().size();
     const std::uint64_t from = args.has("from") ? parse_number(*args.get("from"), "--from") : 0;
     const std::uint64_t limit =
@@ -220,7 +220,7 @@ int cmd_log_list(const Args& args) {
 }
 
 int cmd_log_show(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const std::uint64_t index = session.entry_index(args.positional().front());
     const protocol::LogEntry entry = session.log_entry(index);
     if (entry.is_state_commitment()) {
@@ -308,7 +308,7 @@ int cmd_log_show(const Args& args) {
 }
 
 int cmd_log_export(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const std::uint64_t size = session.ledger().size();
     const std::uint64_t from = args.has("from") ? parse_number(*args.get("from"), "--from") : 0;
     const std::uint64_t to = args.has("to") ? parse_number(*args.get("to"), "--to") : size - 1;
@@ -382,7 +382,7 @@ protocol::Id submit_rotation(const Args& args, Session& session, protocol::Body 
 } // namespace
 
 int cmd_ledger_keys(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const auto& state = session.state();
     if (args.json()) {
         print_json({{"ledger_id", id_json(state.ledger_id())},
@@ -399,7 +399,7 @@ int cmd_ledger_keys(const Args& args) {
 }
 
 int cmd_ledger_genesis(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const std::filesystem::path out = args.need("out");
     write_file(out, unwrap(session.ledger().entry(0), "reading the genesis entry"), false);
     if (args.json()) {
@@ -414,7 +414,7 @@ int cmd_ledger_genesis(const Args& args) {
 }
 
 int cmd_ledger_rotate_log_key(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const crypto::PublicKey key = public_key_of(args.need("new-key"), args);
     const protocol::Id id = submit_rotation(args, session, protocol::LedgerRotateLogKeyBody{key});
     const std::uint64_t index = session.state().statement_index(id).value_or(0);
@@ -429,7 +429,7 @@ int cmd_ledger_rotate_log_key(const Args& args) {
 }
 
 int cmd_ledger_rotate_root_key(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const crypto::PublicKey key = public_key_of(args.need("new-key"), args);
     const protocol::Id id = submit_rotation(
         args, session, protocol::ActorRotateKeyBody{session.state().ledger_id(), key});

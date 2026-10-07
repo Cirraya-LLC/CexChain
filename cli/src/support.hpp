@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -21,6 +22,7 @@
 #include <cexchain/ledger/environment.hpp>
 #include <cexchain/ledger/ledger.hpp>
 #include <cexchain/ledger/storage.hpp>
+#include <cexchain/node/client.hpp>
 #include <cexchain/verifier/report.hpp>
 
 #include "args.hpp"
@@ -121,10 +123,34 @@ void save_key(const std::filesystem::path& path, const crypto::openssl::KeyPair&
 [[nodiscard]] protocol::StatementType parse_statement_type(std::string_view name);
 [[nodiscard]] protocol::ActorKind parse_actor_kind(std::string_view name);
 
-/// An open ledger directory with the environment needed to act on it.
+/// The API token from --token-file or $CEXCHAIN_TOKEN, if any.
+[[nodiscard]] std::optional<std::string> api_token(const Args& args);
+/// A client for the API at `url`, with the API token and, if given, the CA
+/// certificates to trust.
+[[nodiscard]] node::Client client_for(const std::string& url, const Args& args,
+                                      const std::optional<std::string>& ca_file);
+
+/// Makes the sealed private data of the record `id` names (for record
+/// registrations, which keep it in the vault).
+using SealVault = std::function<Bytes(const protocol::Id& record)>;
+
+/// An open ledger with the environment needed to act on it: a ledger
+/// directory, or, in client mode (D-050), a verified mirror of the ledger a
+/// server serves.
+///
+/// Client mode, with --server URL (or $CEXCHAIN_SERVER), for commands that
+/// list --server among their options: the mirror lives in the cache
+/// (--cache, default $XDG_CACHE_HOME/cexchain or ~/.cache/cexchain), one
+/// directory per ledger id. Each session first syncs it with the replica
+/// code, so every entry and checkpoint it shows was re-validated here, and a
+/// server that rewrites or rolls back what this client saw is refused. The
+/// ledger a URL serves is pinned on first use (--ledger-id, required for
+/// http://). Statements are signed here and sent to the server; keys never
+/// leave this machine.
 class Session {
 public:
     explicit Session(const std::filesystem::path& directory);
+    explicit Session(const Args& args);
 
     [[nodiscard]] ledger::Ledger& ledger() { return *ledger_; }
     [[nodiscard]] const protocol::LedgerState& state() const { return ledger_->state(); }
@@ -145,10 +171,13 @@ public:
     /// filling in provenance for agents. Returns the statement's id.
     /// With `presence` set, the signer (a person) first proves presence, with
     /// a passkey in the browser or with a hardware key.
+    /// With `seal_vault`, the record's sealed private data is kept with it:
+    /// written to the vault here, or sent with the statement in client mode.
     protocol::Id submit(const crypto::Signer& signer, protocol::Body body,
                         const std::optional<std::string>& delegation,
                         std::optional<protocol::Provenance> provenance = std::nullopt,
-                        const std::optional<PresenceRequest>& presence = std::nullopt);
+                        const std::optional<PresenceRequest>& presence = std::nullopt,
+                        const SealVault& seal_vault = {});
 
     /// Signs and submits as the holder of --as, with --delegation, --model,
     /// --model-version, --inputs, --presence, and --no-browser taken from
@@ -173,8 +202,26 @@ public:
     [[nodiscard]] std::filesystem::path vault_path(const protocol::Id& record) const;
 
     /// Throws unless this ledger is a primary: a replica only copies its
-    /// primary, and writing to it would fork the ledger.
+    /// primary, and writing to it would fork the ledger. (In client mode
+    /// writes go to the server.)
     void require_primary() const;
+
+    /// True in client mode.
+    [[nodiscard]] bool remote() const noexcept { return remote_.has_value(); }
+
+    // What the log key signs: here with --log-key; in client mode by the
+    // server, and checked against the mirror before it is used.
+    [[nodiscard]] protocol::SignedCheckpoint checkpoint(const Args& args);
+    [[nodiscard]] protocol::EvidenceBundle evidence(const Args& args, const protocol::Id& record);
+    [[nodiscard]] Bytes receipt(const Args& args, std::uint64_t index);
+    void add_cosignature(ByteView cosignature, const crypto::PublicKey& witness);
+
+    /// Client mode: fetches a record's sealed private data into the mirror,
+    /// unless it is there. False if the server holds none.
+    bool fetch_vault(const protocol::Id& record) const;
+    /// Client mode: fetches the server's vault public key into the mirror
+    /// (once per session).
+    void fetch_vault_public_key() const;
 
 private:
     void prove_presence(const protocol::ActorState& actor, protocol::Statement& statement,
@@ -184,7 +231,22 @@ private:
     choose_delegation(const protocol::ActorState& actor, protocol::StatementType type,
                       const std::optional<std::string>& record_type) const;
 
+    void open(const std::filesystem::path& directory);
+    void open_remote(const Args& args, const std::string& url);
+    /// Client mode: brings the mirror up to the server, tail included.
+    void sync();
+    /// Client mode: sends a request, and fails unless it succeeded.
+    Bytes call(std::string_view method, std::string_view path, ByteView body = {},
+               std::string_view content_type = {}) const;
+
+    struct Remote {
+        node::Client client;
+        std::string url;
+        mutable bool vault_key_fetched = false;
+    };
+
     std::filesystem::path directory_;
+    std::optional<Remote> remote_;
     std::optional<ledger::DirectoryLock> lock_;
     crypto::openssl::Provider provider_;
     ledger::SystemClock clock_;

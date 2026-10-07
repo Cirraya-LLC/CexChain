@@ -38,36 +38,6 @@ void require_ledger_directory(const std::filesystem::path& dir) {
     }
 }
 
-std::string trimmed_text(const std::filesystem::path& path) {
-    const Bytes bytes = read_file(path);
-    std::string text(bytes.begin(), bytes.end());
-    while (!text.empty() && (text.back() == '\n' || text.back() == '\r' || text.back() == ' ')) {
-        text.pop_back();
-    }
-    return text;
-}
-
-/// The API token from --token-file or $CEXCHAIN_TOKEN, if any.
-std::optional<std::string> api_token(const Args& args) {
-    if (const auto file = args.get("token-file")) {
-        return trimmed_text(*file);
-    }
-    if (const char* env = std::getenv("CEXCHAIN_TOKEN"); env != nullptr && *env != '\0') {
-        return std::string(env);
-    }
-    return std::nullopt;
-}
-
-node::Client client_for(const std::string& url, const Args& args,
-                        const std::optional<std::string>& ca_file) {
-    node::ClientOptions options;
-    options.bearer_token = api_token(args);
-    if (ca_file) {
-        options.ca_file = *ca_file;
-    }
-    return node::Client(unwrap(node::Url::parse(url), "reading the URL"), std::move(options));
-}
-
 /// HOST:PORT, with [v6]:PORT for IPv6.
 std::pair<std::string, std::uint16_t> parse_listen(const std::string& text) {
     std::string host;
@@ -631,7 +601,7 @@ int report_restore_failure(const Args& args, const Error& e, std::string_view wh
 } // namespace
 
 int cmd_backup_create(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const std::filesystem::path dir = session.directory();
     std::vector<ledger::BackupFile> files;
     auto add = [&](const std::string& relative) {

@@ -159,6 +159,8 @@ std::filesystem::path default_vault_key_path(const Session& session) {
 }
 
 Bytes vault_public_key(const Session& session) {
+    // In client mode, the server's: sealed here, opened by its key holders.
+    session.fetch_vault_public_key();
     const std::filesystem::path path = vault_public_key_path(session);
     if (!std::filesystem::exists(path)) {
         throw CommandError{
@@ -225,13 +227,6 @@ Bytes seal_vault(const protocol::Id& ledger, const protocol::Id& record, const V
         "encoding the vault");
 }
 
-void save_vault(const Session& session, const protocol::Id& record, const Vault& vault) {
-    const Bytes sealed =
-        seal_vault(session.state().ledger_id(), record, vault, vault_public_key(session));
-    std::filesystem::create_directories(session.vault_path(record).parent_path());
-    write_file(session.vault_path(record), sealed, true);
-}
-
 Vault load_vault(const Session& session, const protocol::Id& record,
                  const crypto::openssl::HpkeKey* key) {
     const std::filesystem::path path = session.vault_path(record);
@@ -269,6 +264,12 @@ Vault load_vault(const Session& session, const protocol::Id& record,
 }
 
 Vault read_vault(const Session& session, const protocol::Id& record, const Args& args) {
+    if (session.remote()) {
+        session.fetch_vault_public_key();
+        if (!session.fetch_vault(record)) {
+            throw CommandError{"the server holds no private data for the record"};
+        }
+    }
     const std::filesystem::path path = session.vault_path(record);
     if (std::filesystem::exists(path) && is_sealed_vault(read_file(path))) {
         const auto key = load_vault_key(session, args);
@@ -321,10 +322,14 @@ protocol::Id issue_record(Session& session, const crypto::Signer& signer,
         }
         body.metadata = cbor::Value::map(std::move(metadata));
     }
-    const protocol::Id id =
-        session.submit(signer, body, request.delegation, request.provenance, request.presence);
-    save_vault(session, id, vault);
-    return id;
+    // Sealed once the record's id is known, and kept with it (sent along in
+    // client mode).
+    const Bytes vault_key = vault_public_key(session);
+    return session.submit(signer, body, request.delegation, request.provenance, request.presence,
+                          [&](const protocol::Id& record) {
+                              return seal_vault(session.state().ledger_id(), record, vault,
+                                                vault_key);
+                          });
 }
 
 } // namespace cexchain::cli

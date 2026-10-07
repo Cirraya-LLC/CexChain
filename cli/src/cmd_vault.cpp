@@ -30,7 +30,7 @@ void save_hpke_key(const std::filesystem::path& path, const crypto::openssl::Hpk
 }
 
 int cmd_vault_status(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const bool has_key = std::filesystem::exists(vault_public_key_path(session));
     const std::optional<Bytes> public_key =
         has_key ? std::optional(vault_public_key(session)) : std::nullopt;
@@ -118,7 +118,7 @@ int cmd_vault_keygen(const Args& args) {
 }
 
 int cmd_vault_rekey(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     session.require_primary();
     const std::filesystem::path dir = session.directory();
 

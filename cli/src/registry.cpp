@@ -29,6 +29,26 @@ const OptionSpec model_version_option{"model-version", "VERSION", "AI provenance
 const OptionSpec inputs_option{
     "inputs", "TEXT", "AI provenance: what the action was based on (only a hash is recorded)"};
 const OptionSpec log_key_option{"log-key", "KEY", "The ledger's log key file", true};
+/// For what the server signs in client mode.
+const OptionSpec signing_log_key_option{
+    "log-key", "KEY",
+    "The ledger's log key file (required, except with --server: the server signs)"};
+/// Client mode (D-050), added to every command that can work through a
+/// server.
+const std::vector<OptionSpec> client_options{
+    {"server", "URL",
+     "Work on the ledger this API serves, through a verified local mirror (default: "
+     "$CEXCHAIN_SERVER)"},
+    {"token-file", "FILE", "The API token for --server (default: $CEXCHAIN_TOKEN)"},
+    {"ca-file", "FILE", "CA certificates (PEM) to trust for --server, if not the system's"},
+    {"cache", "DIR",
+     "Where --server keeps its mirror (default: $XDG_CACHE_HOME/cexchain or ~/.cache/cexchain)"},
+    {"ledger-id", "ID",
+     "With --server: the ledger to expect there (required on first use of an http:// URL)"}};
+/// Commands that work on a ledger directory only: they administer the
+/// server's files and keys, or peers' exchanges with it.
+const std::set<std::string_view> local_only{"init",  "serve", "token",  "replica", "backup",
+                                            "vault", "peer",  "access", "mcp"};
 const OptionSpec reason_option{"reason", "TEXT", "Reason, recorded on the ledger"};
 const OptionSpec passphrase_file_option{
     "passphrase-file", "FILE",
@@ -466,7 +486,7 @@ std::vector<CommandSpec> build() {
          "",
          0,
          0,
-         with({ledger_option, log_key_option, passphrase_file_option}),
+         with({ledger_option, signing_log_key_option, passphrase_file_option}),
          cmd_checkpoint_create},
         {{"checkpoint", "list"},
          "List stored checkpoints",
@@ -545,7 +565,7 @@ std::vector<CommandSpec> build() {
          1,
          1,
          with({ledger_option,
-               log_key_option,
+               signing_log_key_option,
                {"out", "FILE", "Output file", true},
                passphrase_file_option}),
          cmd_receipt},
@@ -558,7 +578,7 @@ std::vector<CommandSpec> build() {
          1,
          1,
          with({ledger_option,
-               log_key_option,
+               signing_log_key_option,
                {"out", "FILE", "Output file", true},
                {"disclose", "FIELDS", "Comma-separated fields to disclose"},
                {"with-attachments", "", "Include attachment openings"},
@@ -735,7 +755,9 @@ std::vector<CommandSpec> build() {
          "           /v1/cosignatures, /v1/inclusion?index=&size=, /v1/statements/ID,\n"
          "           /v1/receipts/INDEX, /v1/state/ID, /v1/evidence/RECORD,\n"
          "           /v1/vault/public-key, /v1/vault/records/RECORD\n"
-         "  submit:  POST /v1/statements (a signed statement, application/cose)\n"
+         "  submit:  POST /v1/statements (a signed statement, application/cose; or a record's\n"
+         "           registration with its sealed private data, "
+         "application/cexchain-submission+cbor)\n"
          "  admin:   POST /v1/checkpoint, POST /v1/cosignatures ([cosignature, witness key])\n"
          "  peer:    POST /v1/access/requests, GET /v1/access/deliveries/REQUEST,\n"
          "           POST /v1/access/receipts, POST /v1/witness/cosign\n"
@@ -1034,6 +1056,17 @@ std::vector<CommandSpec> build() {
 
 void add_global_options(std::vector<CommandSpec>& specs) {
     for (CommandSpec& spec : specs) {
+        auto has = [&](std::string_view name) {
+            return std::ranges::any_of(spec.options,
+                                       [&](const OptionSpec& o) { return o.name == name; });
+        };
+        if (has("ledger") && !local_only.contains(spec.path.front())) {
+            for (const OptionSpec& option : client_options) {
+                if (!has(option.name)) {
+                    spec.options.push_back(option);
+                }
+            }
+        }
         spec.options.push_back(json_option);
         spec.options.push_back(help_option);
     }

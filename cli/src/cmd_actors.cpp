@@ -40,7 +40,7 @@ void print_delegation_line(const Session& session, const protocol::DelegationSta
 // ---------------------------------------------------------------------------
 
 int cmd_actor_add(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     protocol::ActorRegisterBody body{parse_actor_kind(args.need("kind")), args.need("name"),
                                      public_key_of(args.need("key"), args), std::nullopt,
                                      std::nullopt};
@@ -72,7 +72,7 @@ int cmd_actor_add(const Args& args) {
 }
 
 int cmd_actor_list(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const std::optional<std::string> kind = args.get("kind");
     if (kind && *kind != "organization") {
         static_cast<void>(parse_actor_kind(*kind));
@@ -95,7 +95,7 @@ int cmd_actor_list(const Args& args) {
 }
 
 int cmd_actor_show(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const protocol::ActorState& actor =
         *session.state().actor(session.actor_id(args.positional().front()));
     const protocol::Timestamp now = ledger::SystemClock{}.now();
@@ -187,7 +187,7 @@ int cmd_actor_show(const Args& args) {
 }
 
 int cmd_actor_revoke(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const protocol::ActorRevokeBody body{session.actor_id(args.positional().front()),
                                          args.get("reason")};
     const protocol::Id id = session.submit(args, body);
@@ -197,7 +197,7 @@ int cmd_actor_revoke(const Args& args) {
 }
 
 int cmd_actor_rotate_key(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const protocol::ActorRotateKeyBody body{session.actor_id(args.positional().front()),
                                             public_key_of(args.need("new-key"), args)};
     const protocol::Id id = session.submit(args, body);
@@ -213,7 +213,7 @@ int cmd_actor_rotate_key(const Args& args) {
 // ---------------------------------------------------------------------------
 
 int cmd_delegation_grant(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     protocol::Scope scope;
     for (const std::string& name : split(args.need("allow"), ',')) {
         scope.statement_types.push_back(parse_statement_type(name));
@@ -245,7 +245,7 @@ int cmd_delegation_grant(const Args& args) {
 }
 
 int cmd_delegation_list(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const std::optional<protocol::Id> actor =
         args.has("actor") ? std::optional(session.actor_id(*args.get("actor"))) : std::nullopt;
     const protocol::Timestamp now = ledger::SystemClock{}.now();
@@ -268,7 +268,7 @@ int cmd_delegation_list(const Args& args) {
 }
 
 int cmd_delegation_show(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const protocol::DelegationState& d =
         *session.state().delegation(session.delegation_id(args.positional().front()));
     if (args.json()) {
@@ -313,7 +313,7 @@ int cmd_delegation_show(const Args& args) {
 }
 
 int cmd_delegation_revoke(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const protocol::DelegationRevokeBody body{session.delegation_id(args.positional().front()),
                                               args.get("reason")};
     const protocol::Id id = session.submit(args, body);

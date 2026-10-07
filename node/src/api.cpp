@@ -198,6 +198,27 @@ struct Routed {
 };
 
 /// Statements one group commit takes at most.
+/// The shape of a sealed vault file, {1: 1, 2: [kem, kdf, aead], 3:
+/// encapsulated key, 4: ciphertext}: the server cannot open one, but stores
+/// nothing else.
+bool is_sealed_vault(ByteView file) {
+    const auto value = cbor::decode(file);
+    const cbor::Map* map = value ? value->as_map() : nullptr;
+    if (map == nullptr || map->size() != 4) {
+        return false;
+    }
+    const cbor::Value* version = value->find(1);
+    const cbor::Value* suite = value->find(2);
+    const cbor::Value* enc = value->find(3);
+    const cbor::Value* ciphertext = value->find(4);
+    const cbor::Array* ids = suite != nullptr ? suite->as_array() : nullptr;
+    return version != nullptr && version->as_uint64() == 1 && ids != nullptr && ids->size() == 3 &&
+           std::ranges::all_of(*ids,
+                               [](const cbor::Value& id) { return id.as_uint64().has_value(); }) &&
+           enc != nullptr && enc->as_bytes() != nullptr && ciphertext != nullptr &&
+           ciphertext->as_bytes() != nullptr;
+}
+
 constexpr std::size_t max_group = 4096;
 constexpr std::size_t max_group_bytes = 32 * 1024 * 1024;
 
@@ -252,6 +273,8 @@ struct LedgerApi::State {
         Bytes statement;
         std::string principal;
         Done done;
+        /// A record's private data, sealed to the vault key, stored with it.
+        std::optional<Bytes> vault = std::nullopt;
     };
     /// Runs on the writer thread holding the ledger's lock, caught up; or,
     /// if that could not be had, gets the answer to give instead.
@@ -425,7 +448,12 @@ struct LedgerApi::State {
             }
             auto results = ledger->submit_batch(views);
             for (std::size_t i = 0; i < batch.size(); ++i) {
-                finish(batch[i].done, batch[i].principal, registration_response(results[i]));
+                auto response = registration_response(results[i]);
+                if (results[i] && batch[i].vault) {
+                    response =
+                        store_vault(results[i]->statement_id, *batch[i].vault, std::move(response));
+                }
+                finish(batch[i].done, batch[i].principal, std::move(response));
             }
         }
         for (Locked& job : jobs) {
@@ -436,6 +464,33 @@ struct LedgerApi::State {
             }
         }
         return true;
+    }
+
+    /// Keeps a record's sealed private data, once: the same data again is
+    /// fine (a retry), other data is refused, so nobody can swap it.
+    http::Response store_vault(const protocol::Id& record, const Bytes& sealed,
+                               http::Response answer) {
+        const std::filesystem::path vault = options.directory / "vault";
+        if (!std::filesystem::exists(vault / "vault.pub")) {
+            return error_response(409, "conflict",
+                                  "the statement is registered, but this ledger keeps no vault");
+        }
+        const std::filesystem::path file = vault / "records" / (hex(record) + ".cbor");
+        if (const auto existing = detail::read_file(file)) {
+            return *existing == sealed
+                       ? answer
+                       : error_response(409, "conflict",
+                                        "the statement is registered, but the record's private "
+                                        "data was stored before, differently");
+        }
+        std::error_code ec;
+        std::filesystem::create_directories(file.parent_path(), ec);
+        if (auto s = detail::write_file(file, sealed, true); ec || !s) {
+            return error_response(500, "internal",
+                                  "the statement is registered, but its private data could not "
+                                  "be stored: send it again");
+        }
+        return answer;
     }
 
     http::Response registration_response(const Result<ledger::Registration>& registration) {
@@ -1012,6 +1067,10 @@ struct LedgerApi::State {
 
     void submit(http::Request& r, std::string principal, Done& done) {
         const auto type = r.header("content-type");
+        if (type && type->starts_with(submission_content_type)) {
+            submit_with_vault(r, std::move(principal), done);
+            return;
+        }
         if (type && !type->starts_with("application/cose") &&
             !type->starts_with("application/cbor") &&
             !type->starts_with("application/octet-stream")) {
@@ -1026,6 +1085,33 @@ struct LedgerApi::State {
             return;
         }
         queue_submission({std::move(r.body), std::move(principal), std::move(done)});
+    }
+
+    /// {1: signed statement, 2: sealed private data}: a record's
+    /// registration together with its vault file, so the data arrives with
+    /// the record and nobody can store other data for it first.
+    void submit_with_vault(http::Request& r, std::string principal, Done& done) {
+        auto value = cbor::decode(r.body);
+        const cbor::Value* statement = value ? value->find(1) : nullptr;
+        const cbor::Value* sealed = value ? value->find(2) : nullptr;
+        if (statement == nullptr || statement->as_bytes() == nullptr || sealed == nullptr ||
+            sealed->as_bytes() == nullptr || value->as_map()->size() != 2 ||
+            !is_sealed_vault(*sealed->as_bytes())) {
+            finish(done, principal,
+                   error_response(400, "malformed",
+                                  "send {1: signed statement, 2: sealed private data}"));
+            return;
+        }
+        auto parsed = protocol::parse_statement(*provider, *statement->as_bytes(), ledger->hash());
+        if (!parsed ||
+            !std::holds_alternative<protocol::RecordRegisterBody>(parsed->statement.body)) {
+            finish(done, principal,
+                   error_response(400, "invalid_argument",
+                                  "only a record's registration carries private data"));
+            return;
+        }
+        queue_submission(
+            {*statement->as_bytes(), std::move(principal), std::move(done), *sealed->as_bytes()});
     }
 
     void make_checkpoint(std::string principal, Done& done) {

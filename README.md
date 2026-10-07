@@ -268,6 +268,28 @@ Operations: `GET /healthz`, Prometheus metrics at `GET /metrics`, an access log 
 stderr, automatic checkpoints (`--checkpoint-interval`), and graceful shutdown on SIGTERM. The
 `Dockerfile` builds a small image that runs as a non-root user with the ledger in `/data`.
 
+## Working through a server
+
+Most commands also run against a server instead of a ledger directory: pass `--server URL` (or set
+`$CEXCHAIN_SERVER`) with an API token (`--token-file`, or `$CEXCHAIN_TOKEN`). The client keeps a
+mirror of the ledger in its cache and brings it up to date first, re-validating every entry and
+checkpoint, so everything it shows was verified on this machine; a server that rolls back or forks
+what the client saw before is refused. Statements are signed here and sent to the server, so keys
+never leave the client. A record's private data is sealed here to the server's vault key and sent
+with the record.
+
+```sh
+export CEXCHAIN_SERVER=https://ledger.example.com CEXCHAIN_TOKEN=$(cat app.token)
+cexchain status --ledger-id LEDGER_ID        # the first use pins the ledger the URL serves
+cexchain record issue --as alice.key --type cexchain.certificate/1 --field result=pass
+cexchain checkpoint create                    # the server signs (admin token); the client checks
+cexchain export RECORD --disclose result --vault-key vault.key --out evidence.cbor
+```
+
+The ledger id must be given on first use of an `http://` URL. Commands that administer the server's
+own files and keys (`init`, `serve`, `token`, `replica`, `backup`, `vault`, `peer`, `access`, `mcp`)
+run where the ledger is.
+
 ## Working with other organizations
 
 Two organizations, each with its own ledger, can share records without a platform between them.

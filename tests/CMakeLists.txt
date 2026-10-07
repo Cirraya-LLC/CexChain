@@ -56,6 +56,8 @@ add_test(NAME serve_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/serve.sh $<TARGET_FILE:cexchain>)
 add_test(NAME access_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/access.sh $<TARGET_FILE:cexchain>)
+add_test(NAME client_end_to_end
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/client.sh $<TARGET_FILE:cexchain>)
 add_test(NAME rotation_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/rotation.sh $<TARGET_FILE:cexchain>)
 

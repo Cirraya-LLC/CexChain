@@ -9,6 +9,7 @@
 #include <memory>
 #include <ostream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <cexchain/core/crypto.hpp>
@@ -32,6 +33,10 @@
 /// peer:   POST /v1/access/requests (a request's evidence), GET /v1/access/deliveries/{request},
 ///         POST /v1/access/receipts (a receipt's evidence), POST /v1/witness/cosign
 namespace cexchain::node {
+
+/// The content type of a record's registration sent with its sealed private
+/// data: {1: signed statement, 2: sealed vault file}.
+inline constexpr std::string_view submission_content_type = "application/cexchain-submission+cbor";
 
 /// A ledger directory that is a replica holds this file (JSON).
 inline constexpr std::string_view replica_file = "replica";

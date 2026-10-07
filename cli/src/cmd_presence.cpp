@@ -105,7 +105,7 @@ int cmd_presence_enroll(const Args& args) {
 }
 
 int cmd_actor_set_presence(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const protocol::Id actor = session.actor_id(args.positional().front());
     const protocol::ActorState& state = *session.state().actor(actor);
     protocol::ActorSetPresenceBody body{actor, {}};

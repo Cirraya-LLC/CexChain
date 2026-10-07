@@ -157,7 +157,7 @@ Json state_json(const WitnessState& s) {
 // ---------------------------------------------------------------------------
 
 int cmd_checkpoint_cosign_request(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const auto& latest = session.ledger().latest_checkpoint();
     if (!latest) {
         throw CommandError{"the ledger has no checkpoint yet (cexchain checkpoint create)"};
@@ -238,11 +238,10 @@ int cmd_checkpoint_cosign_request(const Args& args) {
 }
 
 int cmd_checkpoint_add_cosignature(const Args& args) {
-    Session session(args.ledger());
-    session.require_primary();
+    Session session(args);
     const crypto::PublicKey witness = load_public_key(args.need("witness"));
     const Bytes cosignature = read_file(args.positional().front());
-    unwrap(session.ledger().add_cosignature(cosignature, witness), "storing the cosignature");
+    session.add_cosignature(cosignature, witness);
     const auto parsed = unwrap(protocol::parse_cosignature(cosignature), "cosignature");
     if (args.json()) {
         print_json(

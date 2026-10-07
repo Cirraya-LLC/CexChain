@@ -349,7 +349,7 @@ int cmd_peer_remove(const Args& args) {
 // ---------------------------------------------------------------------------
 
 int cmd_access_request(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     session.require_primary();
     const node::Peer peer = peer_named(session.directory(), args.need("peer"));
     const auto log_key = load_signer(args.need("log-key"), args);
@@ -418,7 +418,7 @@ int cmd_access_request(const Args& args) {
 }
 
 int cmd_access_fetch(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const node::Peer peer = peer_named(session.directory(), args.need("peer"));
     const protocol::Id request = session.record_id(args.need("request"));
     const auto response =
@@ -448,7 +448,7 @@ int cmd_access_fetch(const Args& args) {
 }
 
 int cmd_access_accept(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     session.require_primary();
     const Bytes delivery_bytes = read_file(args.positional().front());
     const auto delivery = unwrap(protocol::decode_delivery(delivery_bytes), "reading the delivery");
@@ -600,7 +600,7 @@ Bytes request_bundle_for(const Session& session, const std::string& text) {
 } // namespace
 
 int cmd_access_inbox(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const std::filesystem::path inbox = session.directory() / "access" / "inbox";
     std::vector<std::filesystem::path> files;
     if (std::filesystem::is_directory(inbox)) {
@@ -659,7 +659,7 @@ int cmd_access_inbox(const Args& args) {
 }
 
 int cmd_access_grant(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     session.require_primary();
     const Bytes request_bundle = request_bundle_for(session, args.positional().front());
     const node::Peer peer = peer_for_bundle(session.directory(), request_bundle);
@@ -788,7 +788,7 @@ int cmd_access_grant(const Args& args) {
 }
 
 int cmd_access_receipt(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const Bytes bundle = read_file(args.positional().front());
     const node::Peer peer = peer_for_bundle(session.directory(), bundle);
     protocol::VerifyOptions pinned;
@@ -828,7 +828,7 @@ int cmd_access_receipt(const Args& args) {
 }
 
 int cmd_access_list(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     Json list = Json::array();
     const auto peers = peers_of(session.directory());
     auto peer_name = [&](const protocol::Id& ledger) -> std::string {
@@ -915,7 +915,7 @@ int cmd_access_list(const Args& args) {
 }
 
 int cmd_access_send_request(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const node::Peer peer = peer_named(session.directory(), args.need("peer"));
     const protocol::Id request = session.record_id(args.positional().front());
     const Bytes bundle =

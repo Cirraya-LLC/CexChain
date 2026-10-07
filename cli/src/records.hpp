@@ -87,8 +87,6 @@ void save_hpke_key(const std::filesystem::path& path, const crypto::openssl::Hpk
 [[nodiscard]] bool is_sealed_vault(ByteView file);
 [[nodiscard]] Bytes seal_vault(const protocol::Id& ledger, const protocol::Id& record,
                                const Vault& vault, ByteView public_key);
-/// Seals the record's private data to the ledger's vault public key.
-void save_vault(const Session& session, const protocol::Id& record, const Vault& vault);
 /// Reads a record's private data; `key` is needed unless the file predates
 /// sealing.
 [[nodiscard]] Vault load_vault(const Session& session, const protocol::Id& record,

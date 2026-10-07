@@ -83,7 +83,7 @@ std::string to_terminal(const qrcodegen::QrCode& qr, bool color) {
 } // namespace
 
 int cmd_qr(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const protocol::Id record = session.record_id(args.positional().front());
     const std::string verifier = args.need("verifier-url");
     const std::string bundle = args.need("bundle-url");

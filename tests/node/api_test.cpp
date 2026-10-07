@@ -8,6 +8,8 @@
 #include <atomic>
 #include <filesystem>
 #include <format>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <netinet/in.h>
 #include <optional>
@@ -204,6 +206,11 @@ struct Primary {
         return signed_statement->encoded;
     }
 };
+
+Bytes read_bytes(const std::filesystem::path& path) {
+    std::ifstream in(path, std::ios::binary);
+    return Bytes(std::istreambuf_iterator<char>(in), {});
+}
 
 node::http::ClientResponse post(const node::Client& c, const std::string& path, const Bytes& body) {
     auto r = c.request("POST", path, body, "application/cose");
@@ -753,4 +760,62 @@ TEST_CASE("TLS: the server's certificate must be trusted and name it", "[node][a
     CHECK(broken.listen().error().code == Errc::invalid_argument);
     std::filesystem::remove_all(dir);
     std::filesystem::remove_all(other_dir);
+}
+
+TEST_CASE("a record's private data arrives with it, and is kept once", "[node][api][vault]") {
+    Primary p;
+    std::filesystem::create_directories(p.dir / "vault" / "records");
+    {
+        std::ofstream(p.dir / "vault" / "vault.pub") << "key";
+    }
+    auto api = p.api();
+    Running server(*api);
+    const auto app = server.client(p.submit_token);
+
+    auto record = [&](std::uint8_t seed) {
+        protocol::Statement s;
+        s.ledger_id = p.ledger_id;
+        s.actor_id = p.ledger_id;
+        s.issued_at = t0 + 1;
+        s.nonce = p.entropy.bytes<16>();
+        s.body = protocol::RecordRegisterBody{
+            "cexchain.certificate/1", Bytes(32, seed), 1, {}, std::nullopt};
+        return protocol::sign_statement(p.org, provider(), crypto::HashAlg::sha256, s);
+    };
+    auto sealed = [](std::uint8_t fill) {
+        return *cbor::encode(cbor::Value::map(
+            {{cbor::Value::integer(1), cbor::Value::unsigned_integer(1)},
+             {cbor::Value::integer(2), cbor::Value::array({cbor::Value::unsigned_integer(32),
+                                                           cbor::Value::unsigned_integer(1),
+                                                           cbor::Value::unsigned_integer(2)})},
+             {cbor::Value::integer(3), cbor::Value::bytes(Bytes(32, fill))},
+             {cbor::Value::integer(4), cbor::Value::bytes(Bytes(64, fill))}}));
+    };
+    auto send = [&](const Bytes& statement, const Bytes& vault) {
+        const Bytes body = *cbor::encode(
+            cbor::Value::map({{cbor::Value::integer(1), cbor::Value::bytes(statement)},
+                              {cbor::Value::integer(2), cbor::Value::bytes(vault)}}));
+        auto r = app.request("POST", "/v1/statements", body, node::submission_content_type);
+        REQUIRE(r);
+        return std::move(*r);
+    };
+
+    const auto first = record(1);
+    REQUIRE(first);
+    CHECK(send(first->encoded, sealed(7)).status == 201);
+    const auto file = p.dir / "vault" / "records" / (cexchain::to_hex(first->id.bytes()) + ".cbor");
+    REQUIRE(std::filesystem::exists(file));
+    // A retry with the same data is fine; other data for it is refused.
+    CHECK(send(first->encoded, sealed(7)).status == 200);
+    const auto swapped = send(first->encoded, sealed(8));
+    CHECK(swapped.status == 409);
+    CHECK(read_bytes(file) == sealed(7));
+
+    // Only a record's registration carries private data, and only sealed.
+    CHECK(send(p.register_person("alice"), sealed(7)).status == 400);
+    const auto second = record(2);
+    REQUIRE(second);
+    CHECK(send(second->encoded, Bytes{0xa0}).status == 400);
+    CHECK_FALSE(std::filesystem::exists(p.dir / "vault" / "records" /
+                                        (cexchain::to_hex(second->id.bytes()) + ".cbor")));
 }

@@ -207,10 +207,8 @@ Json inspect_json(const crypto::Provider& provider, const Bytes& content) {
 // ---------------------------------------------------------------------------
 
 int cmd_checkpoint_create(const Args& args) {
-    Session session(args.ledger());
-    session.require_primary();
-    const auto log_key = load_signer(args.need("log-key"), args);
-    const auto c = unwrap(session.ledger().checkpoint(*log_key), "checkpointing");
+    Session session(args);
+    const auto c = session.checkpoint(args);
     if (args.json()) {
         print_json(checkpoint_json(c.checkpoint));
     } else {
@@ -221,7 +219,7 @@ int cmd_checkpoint_create(const Args& args) {
 }
 
 int cmd_checkpoint_list(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const auto checkpoints = unwrap(session.ledger().checkpoints(), "reading checkpoints");
     Json out = Json::array();
     const auto cosignatures = unwrap(session.ledger().cosignatures(), "reading cosignatures");
@@ -255,7 +253,7 @@ int cmd_checkpoint_list(const Args& args) {
 }
 
 int cmd_checkpoint_show(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const auto checkpoints = unwrap(session.ledger().checkpoints(), "reading checkpoints");
     if (checkpoints.empty()) {
         throw CommandError{"the ledger has no checkpoints yet"};
@@ -306,7 +304,7 @@ int cmd_checkpoint_show(const Args& args) {
 // ---------------------------------------------------------------------------
 
 int cmd_proof_inclusion(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const std::uint64_t index = index_argument(session, args.positional().front());
     const std::uint64_t size =
         args.has("size") ? parse_number(*args.get("size"), "--size") : session.ledger().size();
@@ -340,7 +338,7 @@ int cmd_proof_inclusion(const Args& args) {
 }
 
 int cmd_proof_consistency(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const std::uint64_t old_size = parse_number(args.positional()[0], "OLD");
     const std::uint64_t new_size = parse_number(args.positional()[1], "NEW");
     if (old_size > new_size || new_size > session.ledger().size()) {
@@ -371,7 +369,7 @@ int cmd_proof_consistency(const Args& args) {
 }
 
 int cmd_proof_state(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const std::string text = args.positional().front();
     std::optional<protocol::Id> id;
     for (const auto& resolve : {&Session::actor_id, &Session::delegation_id, &Session::record_id}) {
@@ -420,10 +418,9 @@ int cmd_proof_state(const Args& args) {
 }
 
 int cmd_receipt(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const std::uint64_t index = index_argument(session, args.positional().front());
-    const auto log_key = load_signer(args.need("log-key"), args);
-    const Bytes receipt = unwrap(session.ledger().receipt(*log_key, index), "issuing the receipt");
+    const Bytes receipt = session.receipt(args, index);
     const std::filesystem::path out = args.need("out");
     write_file(out, receipt, false);
     const auto parsed = unwrap(protocol::parse_receipt(receipt), "parsing the receipt");
@@ -442,10 +439,9 @@ int cmd_receipt(const Args& args) {
 // ---------------------------------------------------------------------------
 
 int cmd_export(const Args& args) {
-    Session session(args.ledger());
+    Session session(args);
     const protocol::Id record = session.record_id(args.positional().front());
-    const auto log_key = load_signer(args.need("log-key"), args);
-    auto bundle = unwrap(session.ledger().export_evidence(*log_key, record), "exporting evidence");
+    auto bundle = session.evidence(args, record);
 
     const auto disclose = split(args.get("disclose").value_or(""), ',');
     if (!disclose.empty() || args.has("with-attachments")) {
