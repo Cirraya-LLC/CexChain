@@ -17,6 +17,7 @@
 
 #include <cexchain/ledger/backup.hpp>
 #include <cexchain/node/api.hpp>
+#include <cexchain/node/assets.hpp>
 #include <cexchain/node/client.hpp>
 #include <cexchain/node/replica.hpp>
 #include <cexchain/node/server.hpp>
@@ -83,14 +84,16 @@ bool backup_path_allowed(std::string_view path) {
     if (path == node::tokens_file || path == "vault/vault.pub" || path == "vault/vault.key") {
         return true;
     }
-    constexpr std::string_view prefix = "vault/records/";
-    if (!path.starts_with(prefix) || !path.ends_with(".cbor")) {
-        return false;
+    for (const std::string_view prefix : {"vault/records/", "assets/consents/"}) {
+        if (!path.starts_with(prefix) || !path.ends_with(".cbor")) {
+            continue;
+        }
+        const std::string_view name = path.substr(prefix.size(), path.size() - prefix.size() - 5);
+        return name.size() == 64 && std::ranges::all_of(name, [](char c) {
+                   return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+               });
     }
-    const std::string_view name = path.substr(prefix.size(), path.size() - prefix.size() - 5);
-    return name.size() == 64 && std::ranges::all_of(name, [](char c) {
-               return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
-           });
+    return false;
 }
 
 std::atomic<bool> stop_requested{false};
@@ -155,6 +158,12 @@ int cmd_serve(const Args& args) {
                            witness_key](ByteView request) {
             return witness_cosign(dir, *witness_key, request);
         };
+    }
+    if (const auto registrar = args.get("registrar-key")) {
+        if (options.log_keys.empty()) {
+            throw UsageError{"--registrar-key needs --log-key (to serve the assets' evidence)"};
+        }
+        options.registrar = load_signer(*registrar, args);
     }
     auto api = unwrap(node::LedgerApi::open(options, shared_provider()), "opening the ledger");
 
@@ -611,6 +620,20 @@ int cmd_backup_create(const Args& args) {
         }
     };
     add(std::string(node::tokens_file));
+    // The consents asset actions pin (D-052): the assets' evidence needs them.
+    if (std::filesystem::is_directory(node::consents_directory(dir))) {
+        std::vector<std::string> names;
+        for (const auto& e : std::filesystem::directory_iterator(node::consents_directory(dir))) {
+            const std::string relative = "assets/consents/" + e.path().filename().string();
+            if (e.is_regular_file() && backup_path_allowed(relative)) {
+                names.push_back(relative);
+            }
+        }
+        std::ranges::sort(names);
+        for (const auto& n : names) {
+            add(n);
+        }
+    }
     if (!args.has("no-vault")) {
         add("vault/vault.pub");
         add("vault/vault.key");

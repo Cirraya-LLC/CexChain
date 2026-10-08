@@ -8,6 +8,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -173,11 +174,13 @@ public:
     /// a passkey in the browser or with a hardware key.
     /// With `seal_vault`, the record's sealed private data is kept with it:
     /// written to the vault here, or sent with the statement in client mode.
+    /// With `consents` (an asset action's, in the order it cites them), the
+    /// consents' evidence is kept with it the same way (D-052).
     protocol::Id submit(const crypto::Signer& signer, protocol::Body body,
                         const std::optional<std::string>& delegation,
                         std::optional<protocol::Provenance> provenance = std::nullopt,
                         const std::optional<PresenceRequest>& presence = std::nullopt,
-                        const SealVault& seal_vault = {});
+                        const SealVault& seal_vault = {}, std::span<const Bytes> consents = {});
 
     /// Signs and submits as the holder of --as, with --delegation, --model,
     /// --model-version, --inputs, --presence, and --no-browser taken from
@@ -213,6 +216,10 @@ public:
     // server, and checked against the mirror before it is used.
     [[nodiscard]] protocol::SignedCheckpoint checkpoint(const Args& args);
     [[nodiscard]] protocol::EvidenceBundle evidence(const Args& args, const protocol::Id& record);
+    /// An asset's evidence with the consents its actions pin (D-052),
+    /// without private data: built here with --log-key, or the server's,
+    /// verified against the mirror.
+    [[nodiscard]] Bytes asset_evidence(const Args& args, const protocol::Id& asset);
     [[nodiscard]] Bytes receipt(const Args& args, std::uint64_t index);
     void add_cosignature(ByteView cosignature, const crypto::PublicKey& witness);
 

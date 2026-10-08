@@ -2,8 +2,10 @@
 // Copyright 2026 Cirraya
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <format>
+#include <map>
 
 #include <cexchain/verifier/report.hpp>
 
@@ -84,6 +86,22 @@ std::string event_line(const protocol::RecordEvent& event) {
         return "moved " + event.detail + " by " + actor;
     case protocol::StatementType::record_revoke:
         return "revoked by " + actor + (event.detail.empty() ? "" : " (" + event.detail + ")");
+    case protocol::StatementType::asset_action:
+        if (event.asset_action) {
+            const protocol::AssetActionBody& a = *event.asset_action;
+            std::string what(protocol::name(a.action));
+            if (a.to) {
+                what += " to ledger " + short_id(*a.to);
+            }
+            if (a.quantity) {
+                what += std::format(" ({})", *a.quantity);
+            }
+            if (a.reference) {
+                what += " (" + *a.reference + ")";
+            }
+            return what + ", recorded by " + actor;
+        }
+        return "asset action by " + actor;
     default:
         return std::string(protocol::name(event.type)) + " by " + actor;
     }
@@ -338,6 +356,264 @@ std::string report_text(const protocol::EvidenceReport& r, bool ledger_checked) 
         line("  Not provable from this bundle: that nothing, such as a revocation, was left out");
         line("  (its checkpoint does not end with a state commitment).");
     }
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// Assets
+// ---------------------------------------------------------------------------
+
+int currency_exponent(std::string_view currency) {
+    static constexpr std::array<std::string_view, 8> none{"JPY", "KRW", "VND", "CLP",
+                                                          "ISK", "UGX", "PYG", "XAF"};
+    static constexpr std::array<std::string_view, 7> three{"BHD", "KWD", "OMR", "JOD",
+                                                           "TND", "LYD", "IQD"};
+    if (std::ranges::contains(none, currency)) {
+        return 0;
+    }
+    return std::ranges::contains(three, currency) ? 3 : 2;
+}
+
+std::string format_units(protocol::AssetKind kind, std::uint64_t units, std::string_view unit) {
+    const int exponent = kind == protocol::AssetKind::receivable ? currency_exponent(unit) : 0;
+    if (exponent == 0) {
+        return std::format("{} {}", units, unit);
+    }
+    std::uint64_t scale = 1;
+    for (int i = 0; i < exponent; ++i) {
+        scale *= 10;
+    }
+    return std::format("{}.{:0{}} {}", units / scale, units % scale, exponent, unit);
+}
+
+namespace {
+
+/// Party ledgers by id, named as their consents' evidence declares them.
+using PartyNames = std::map<std::string, std::string>;
+
+PartyNames party_names(const protocol::AssetReport& r) {
+    PartyNames names;
+    for (const protocol::AssetStep& step : r.steps) {
+        for (const protocol::ConsentCheck& c : step.consents) {
+            names[hex_id(c.ref.ledger)] = c.report.organization;
+        }
+    }
+    return names;
+}
+
+Json party_json(const PartyNames& names, const std::optional<protocol::Id>& id) {
+    if (!id) {
+        return nullptr;
+    }
+    const auto name = names.find(hex_id(*id));
+    return {{"ledger_id", hex_id(*id)},
+            {"organization", name == names.end() ? Json(nullptr) : Json(name->second)}};
+}
+
+std::string party_text(const PartyNames& names, const protocol::Id& id) {
+    const auto name = names.find(hex_id(id));
+    return name == names.end() ? "ledger " + short_id(id)
+                               : name->second + " (ledger " + short_id(id) + ")";
+}
+
+std::optional<protocol::AssetMetadata> asset_metadata(const protocol::EvidenceReport& r) {
+    if (!r.asset || !r.metadata) {
+        return std::nullopt;
+    }
+    auto m = protocol::decode_asset_metadata(r.asset->kind, *r.metadata);
+    return m ? std::optional(std::move(*m)) : std::nullopt;
+}
+
+/// How a consent was given: by a person present, or by a key alone.
+std::string presence_text(const protocol::RecordEvent& e) {
+    if (!e.actor.kind) {
+        return "the organization's own key";
+    }
+    if (e.actor.kind != protocol::ActorKind::person) {
+        return "a machine: " + kind_label(e.actor.kind);
+    }
+    if (!e.presence) {
+        return "a person's key, presence not proven";
+    }
+    return e.presence->method == protocol::PresenceMethod::hardware_key
+               ? "a person, present: hardware key"
+               : "a person, present: passkey";
+}
+
+/// "pledge to Bank (ledger 9a7a445f47f1), recorded by "Registrar" [device]"
+std::string action_text(const PartyNames& names, const protocol::RecordEvent& e) {
+    const protocol::AssetActionBody& a = *e.asset_action;
+    std::string out(protocol::name(a.action));
+    if (a.to) {
+        out += " to " + party_text(names, *a.to);
+    }
+    if (a.quantity) {
+        out += std::format(" ({})", *a.quantity);
+    }
+    if (a.reference) {
+        out += " (" + *a.reference + ")";
+    }
+    return out + std::format(", recorded by \"{}\" [{}]", e.actor.name, kind_label(e.actor.kind));
+}
+
+} // namespace
+
+Json asset_report_json(const protocol::AssetReport& r, bool ledger_checked) {
+    const protocol::EvidenceReport& a = r.asset;
+    const protocol::AssetState& asset = *a.asset;
+    const PartyNames names = party_names(r);
+    const auto m = asset_metadata(a);
+    const std::string unit = m ? m->unit : std::string();
+    Json chain = Json::array();
+    for (const protocol::RecordEvent& e : a.events) {
+        if (e.type == protocol::StatementType::record_register) {
+            chain.push_back({{"index", e.index},
+                             {"registered_at", iso_time(e.registered_at)},
+                             {"action", "issue"},
+                             {"to", m ? party_json(names, m->holder) : Json(nullptr)},
+                             {"summary", event_line(e)},
+                             {"recorded_by", actor_json(e.actor)},
+                             {"consents", Json::array()}});
+        }
+    }
+    for (const protocol::AssetStep& step : r.steps) {
+        const protocol::RecordEvent& e = a.events[step.event];
+        const protocol::AssetActionBody& action = *e.asset_action;
+        Json consents = Json::array();
+        for (const protocol::ConsentCheck& c : step.consents) {
+            const protocol::RecordEvent* given =
+                c.report.events.empty() ? nullptr : &c.report.events.front();
+            Json authority = Json::array();
+            if (given != nullptr) {
+                for (const protocol::ActorSummary& link : given->authority) {
+                    authority.push_back(link.name);
+                }
+            }
+            consents.push_back(
+                {{"ledger_id", hex_id(c.ref.ledger)},
+                 {"organization", c.report.organization},
+                 {"record", hex_id(c.ref.record)},
+                 {"signer", given != nullptr ? actor_json(given->actor) : Json(nullptr)},
+                 {"authority", std::move(authority)},
+                 {"presence", given != nullptr ? Json(presence_text(*given)) : Json(nullptr)},
+                 {"provenance", given != nullptr && given->provenance
+                                    ? provenance_json(*given->provenance)
+                                    : Json(nullptr)},
+                 {"given_at",
+                  given != nullptr ? Json(iso_time(given->registered_at)) : Json(nullptr)},
+                 {"until", iso_time(c.consent.until)},
+                 {"reference", optional_text(c.consent.reference)},
+                 {"witnesses",
+                  {{"trusted", c.report.trusted_cosignatures},
+                   {"untrusted", c.report.untrusted_cosignatures}}}});
+        }
+        chain.push_back({{"index", e.index},
+                         {"registered_at", iso_time(e.registered_at)},
+                         {"action", protocol::name(action.action)},
+                         {"to", party_json(names, action.to)},
+                         {"quantity", action.quantity ? Json(*action.quantity) : Json(nullptr)},
+                         {"reference", optional_text(action.reference)},
+                         {"summary", event_line(e)},
+                         {"recorded_by", actor_json(e.actor)},
+                         {"consents", std::move(consents)}});
+    }
+    const bool receivable = asset.kind == protocol::AssetKind::receivable;
+    return {{"verified", !has_attachment_mismatch(a)},
+            {"asset",
+             {{"id", hex_id(a.record)},
+              {"type", a.record_type},
+              {"state", a.state},
+              {"holder", party_json(names, asset.holder)},
+              {"pledgee", party_json(names, asset.pledgee)},
+              {"payee", party_json(names, asset.payee)},
+              {receivable ? "amount" : "quantity", asset.units},
+              {receivable ? "currency" : "unit", unit},
+              {"display", format_units(asset.kind, asset.units, unit)},
+              {"due", m && m->due ? Json(iso_time(*m->due)) : Json(nullptr)},
+              {"head", asset.head}}},
+            {"home",
+             {{"id", hex_id(a.ledger_id)},
+              {"organization", a.organization},
+              {"hash", crypto::name(a.hash)},
+              {"id_checked", ledger_checked}}},
+            {"checkpoint", checkpoint_json(a.checkpoint)},
+            {"witnesses",
+             {{"trusted", a.trusted_cosignatures}, {"untrusted", a.untrusted_cosignatures}}},
+            {"chain", std::move(chain)},
+            {"complete", a.complete},
+            {"report", report_json(a, ledger_checked)}};
+}
+
+std::string asset_report_text(const protocol::AssetReport& r, bool ledger_checked) {
+    const protocol::EvidenceReport& a = r.asset;
+    const protocol::AssetState& asset = *a.asset;
+    const PartyNames names = party_names(r);
+    const auto m = asset_metadata(a);
+    std::string out;
+    auto line = [&out](const std::string& text) {
+        out += text + "\n";
+    };
+    line("CexChain asset report\n");
+    line(std::format("  Asset        {} (id {})", a.record_type, short_id(a.record)));
+    line(std::format("  Home         {} (ledger {}, {})", a.organization, short_id(a.ledger_id),
+                     crypto::name(a.hash)));
+    if (!ledger_checked) {
+        line("               ! not compared with an expected ledger id");
+    }
+    line(std::format("  State        {}", a.state));
+    line("  Holder       " + party_text(names, asset.holder));
+    if (asset.pledgee) {
+        line("  Pledgee      " + party_text(names, *asset.pledgee));
+    }
+    if (asset.payee) {
+        line("  Payee        " + party_text(names, *asset.payee));
+    }
+    if (m) {
+        const bool receivable = asset.kind == protocol::AssetKind::receivable;
+        line(std::format("  {}       {}{}", receivable ? "Amount" : "Units ",
+                         format_units(asset.kind, asset.units, m->unit),
+                         m->due ? ", due " + format_time(*m->due) : std::string()));
+    }
+    line(std::format("  Checkpoint   size {}, signed {} by the home's log key",
+                     a.checkpoint.tree_size, format_time(a.checkpoint.timestamp)));
+    line(std::format("  Witnesses    {} trusted{}", a.trusted_cosignatures,
+                     a.untrusted_cosignatures == 0
+                         ? std::string()
+                         : std::format(" ({} more from witnesses you do not trust, not checked)",
+                                       a.untrusted_cosignatures)));
+    line("\n  Chain of title");
+    for (const protocol::RecordEvent& e : a.events) {
+        if (e.type == protocol::StatementType::record_register) {
+            line(std::format("    #{:<4} {}  issued to {} by \"{}\" [{}]", e.index,
+                             format_time(e.registered_at),
+                             m ? party_text(names, m->holder) : std::string("?"), e.actor.name,
+                             kind_label(e.actor.kind)));
+        }
+    }
+    for (const protocol::AssetStep& step : r.steps) {
+        const protocol::RecordEvent& e = a.events[step.event];
+        line(std::format("    #{:<4} {}  {}", e.index, format_time(e.registered_at),
+                         action_text(names, e)));
+        for (const protocol::ConsentCheck& c : step.consents) {
+            const protocol::RecordEvent* given =
+                c.report.events.empty() ? nullptr : &c.report.events.front();
+            std::string who = given != nullptr
+                                  ? "\"" + given->actor.name + "\" (" + presence_text(*given) + ")"
+                                  : "?";
+            line(std::format("           consent of {}: given by {}{}", c.report.organization, who,
+                             c.consent.reference ? ", ref. " + *c.consent.reference
+                                                 : std::string()));
+        }
+    }
+    if (!a.disclosed_fields.empty()) {
+        line("\n  Disclosed fields (each proven against the asset's commitment)");
+        for (const protocol::RecordField& f : a.disclosed_fields) {
+            line(std::format("    {} = {}", f.name, display_value(f.value)));
+        }
+    }
+    line("\n  Verified: the asset's complete history is proven against its home's state");
+    line("  commitment, and each consent against the consenting party's own ledger. Party names");
+    line("  are as their own ledgers declare them; ledger ids are what bind them.");
     return out;
 }
 

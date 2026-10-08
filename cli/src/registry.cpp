@@ -49,6 +49,9 @@ const std::vector<OptionSpec> client_options{
 /// server's files and keys, or peers' exchanges with it.
 const std::set<std::string_view> local_only{"init",  "serve", "token",  "replica", "backup",
                                             "vault", "peer",  "access", "mcp",     "cluster"};
+/// Single commands of other groups that need the directory (its peers).
+const std::set<std::pair<std::string_view, std::string_view>> local_only_commands{
+    {"asset", "send"}, {"asset", "fetch"}};
 /// The cluster commands that talk to a member's API.
 std::vector<OptionSpec> cluster_api(std::vector<OptionSpec> extra) {
     std::vector<OptionSpec> options{
@@ -385,7 +388,7 @@ std::vector<CommandSpec> build() {
          cmd_delegation_grant,
          "Statement types: actor-register, actor-rotate-key, actor-revoke, actor-set-presence,\n"
          "delegation-grant, delegation-revoke, record-register, record-endorse,\n"
-         "record-transition, record-revoke."},
+         "record-transition, record-revoke, asset-action."},
         {{"delegation", "list"},
          "List delegations",
          "Delegations",
@@ -763,6 +766,9 @@ std::vector<CommandSpec> build() {
                {"quiet", "", "No access log on stderr"},
                {"witness-dir", "DIR", "Also witness peers' ledgers: this witness state directory"},
                {"witness-key", "KEY", "The witness key (file or pkcs11: URI), with --witness-dir"},
+               {"registrar-key", "KEY",
+                "Take peers' consents to asset actions, and record each action once all are in, "
+                "signing as this actor (file or pkcs11: URI)"},
                passphrase_file_option}),
          cmd_serve,
          "Routes (API v1; binary objects are CBOR or COSE, everything else JSON):\n"
@@ -770,13 +776,14 @@ std::vector<CommandSpec> build() {
          "  read:    GET /metrics, /v1/status, /v1/entries?start=&count=, /v1/checkpoints,\n"
          "           /v1/cosignatures, /v1/inclusion?index=&size=, /v1/statements/ID,\n"
          "           /v1/receipts/INDEX, /v1/state/ID, /v1/evidence/RECORD,\n"
-         "           /v1/vault/public-key, /v1/vault/records/RECORD\n"
+         "           /v1/vault/public-key, /v1/vault/records/RECORD, /v1/assets/ASSET\n"
          "  submit:  POST /v1/statements (a signed statement, application/cose; or a record's\n"
-         "           registration with its sealed private data, "
-         "application/cexchain-submission+cbor)\n"
+         "           registration with its sealed private data, or an asset action with its\n"
+         "           consents' evidence, application/cexchain-submission+cbor)\n"
          "  admin:   POST /v1/checkpoint, POST /v1/cosignatures ([cosignature, witness key])\n"
          "  peer:    POST /v1/access/requests, GET /v1/access/deliveries/REQUEST,\n"
-         "           POST /v1/access/receipts, POST /v1/witness/cosign\n"
+         "           POST /v1/access/receipts, POST /v1/witness/cosign,\n"
+         "           POST /v1/assets/consents, GET /v1/assets/ASSET (the asset's parties)\n"
          "Requests send \"Authorization: Bearer TOKEN\" (cexchain token create). Reads run on all\n"
          "I/O threads at once; writes queue for one writer, which commits whatever has queued\n"
          "as a group with one sync. The server holds the ledger's lock only while writing, so\n"
@@ -1133,6 +1140,150 @@ std::vector<CommandSpec> build() {
          cmd_access_list},
 
         // ------------------------------------------------------------------
+        {{"asset", "issue"},
+         "Issue an ownership asset: a receivable or a warehouse receipt",
+         "Ownership assets",
+         "KIND",
+         1,
+         1,
+         signing({{"holder", "PEER", "Who holds it: a peer's name or a ledger id", true},
+                  {"amount", "AMOUNT", "Receivables: the amount, e.g. 125000.00"},
+                  {"currency", "CODE", "Receivables: the ISO 4217 currency (default: CNY)"},
+                  {"due", "DATE", "Receivables: when it falls due (YYYY-MM-DD)"},
+                  {"quantity", "N", "Warehouse receipts: the quantity held"},
+                  {"unit", "UNIT", "Warehouse receipts: the unit, e.g. t, kg, bale"},
+                  {"title", "TEXT", "A public title"},
+                  {"field", "NAME=VALUE", "A field (private until disclosed)", true, true},
+                  {"meta", "NAME=VALUE", "More public metadata", false, true},
+                  {"attach", "FILE", "Attach a file (committed by hash)", false, true}}),
+         cmd_asset_issue,
+         "KIND is receivable or warehouse-receipt. The asset lives on this ledger (its home):\n"
+         "it changes only through asset actions, each with the consent of the parties it\n"
+         "concerns, given on their own ledgers. The holder, amount (or quantity), and due date\n"
+         "are public to whoever holds the asset's evidence; fields stay private until disclosed."},
+        {{"asset", "show"},
+         "Show an asset: its state, parties, and actions",
+         "Ownership assets",
+         "ASSET",
+         1,
+         1,
+         with({ledger_option}),
+         cmd_asset_show},
+        {{"asset", "list"},
+         "List this ledger's assets",
+         "Ownership assets",
+         "",
+         0,
+         0,
+         with({ledger_option,
+               {"type", "KIND", "Only receivable or warehouse-receipt"},
+               {"state", "STATE", "Only this state, e.g. pledged"},
+               {"holder", "PEER", "Only those this peer (or ledger id) holds"}}),
+         cmd_asset_list},
+        {{"asset", "record"},
+         "Record an action on one of this ledger's assets",
+         "Ownership assets",
+         "ACTION ASSET",
+         2,
+         2,
+         signing({{"to", "PEER", "The counterparty (transfer, pledge): a peer or a ledger id"},
+                  {"quantity", "N", "How much (redeem)"},
+                  {"reference", "TEXT", "A payment reference, a court order, a reason"},
+                  {"consent", "FILE", "A party's consent (its evidence, from asset consent)", false,
+                   true}}),
+         cmd_asset_record,
+         "ACTION is transfer, pledge, release, enforce, redeem, pay, confirm, dispute, freeze,\n"
+         "unfreeze, or cancel. Pay, freeze, and unfreeze are this organization's own word; every\n"
+         "other action needs the consent of each party it concerns (the holder, the counterparty,\n"
+         "the pledgee, the payee), given on their own ledgers and passed here with --consent. A\n"
+         "server with --registrar-key collects consents online instead."},
+        {{"asset", "evidence"},
+         "Write an asset's evidence, with the consents its actions pin",
+         "Ownership assets",
+         "ASSET",
+         1,
+         1,
+         with({ledger_option,
+               signing_log_key_option,
+               vault_key_option,
+               passphrase_file_option,
+               {"fields", "NAMES", "Disclose these fields, comma-separated (* for all)"},
+               {"attachments", "NAMES", "Open these attachments (* for all)"},
+               {"out", "FILE", "Where to write it", true}}),
+         cmd_asset_evidence,
+         "Give it to the holder, or to a bank considering the asset: asset verify checks it\n"
+         "offline. Disclosures do not depend on the checkpoint, so later evidence can carry them."},
+        {{"asset", "consent"},
+         "Consent, on this ledger, to an action on an asset on another ledger",
+         "Ownership assets",
+         "",
+         0,
+         0,
+         signing({{"peer", "NAME", "The asset's home, a peer (or give --home)"},
+                  {"home", "ID", "The asset's home ledger id (with --server)"},
+                  {"asset", "ID", "The asset (full hex id)", true},
+                  {"action", "ACTION",
+                   "transfer, pledge, release, enforce, redeem, confirm, "
+                   "dispute, or cancel",
+                   true},
+                  {"to", "PEER", "The counterparty (transfer, pledge): a peer or a ledger id"},
+                  {"quantity", "N", "How much (redeem)"},
+                  {"head", "N", "The asset's head the consent is to (default: ask the home)"},
+                  {"evidence", "FILE", "Take the head from this asset evidence"},
+                  {"days", "N", "The consent lapses after this many days (default: 7)"},
+                  {"reference", "TEXT", "A financing contract, a registry filing number"},
+                  signing_log_key_option,
+                  {"out", "FILE", "Write the consent's evidence here"},
+                  {"send", "", "Send it to the home's API (needs --peer)"}}),
+         cmd_asset_consent,
+         "Records a cexchain.asset-consent/1 record naming exact terms, and the asset's head:\n"
+         "the consent applies only to the asset as it is now, and only once. The home records\n"
+         "the action once every party it needs has consented. Before a pledge, a bank is no\n"
+         "party yet: take the head from the evidence the holder gave you (--evidence)."},
+        {{"asset", "withdraw"},
+         "Withdraw a consent not used yet",
+         "Ownership assets",
+         "CONSENT",
+         1,
+         1,
+         signing({}),
+         cmd_asset_withdraw},
+        {{"asset", "send"},
+         "Send a consent's evidence to the asset's home",
+         "Ownership assets",
+         "FILE",
+         1,
+         1,
+         with({ledger_option, {"peer", "NAME", "The asset's home", true}}),
+         cmd_asset_send},
+        {{"asset", "fetch"},
+         "Fetch an asset's evidence from its home, as one of its parties",
+         "Ownership assets",
+         "",
+         0,
+         0,
+         with({ledger_option,
+               {"peer", "NAME", "The asset's home", true},
+               {"asset", "ID", "The asset (full hex id)", true},
+               {"out", "FILE", "Where to write it", true}}),
+         cmd_asset_fetch},
+        {{"asset", "verify"},
+         "Verify an asset's evidence offline: its state and chain of title",
+         "Ownership assets",
+         "FILE",
+         1,
+         1,
+         with({{"ledger-id", "ID", "The home's ledger id, learned out of band"},
+               {"witness", "PUBKEY", "Trust this witness's public key file", false, true},
+               {"min-witnesses", "N", "Fail unless at least N trusted witnesses cosigned"},
+               {"require-presence", "", "Fail unless a person proved presence for each consent"},
+               {"attachment", "NAME=FILE", "Check an attachment's content", false, true}}),
+         cmd_asset_verify,
+         "A lender funds only once its pledge is in a checkpoint cosigned by witnesses it trusts\n"
+         "(--witness, --min-witnesses): a home that showed another lender a different history\n"
+         "would need those witnesses to cosign it too, and a witness cosigns only one history."},
+
+        // ------------------------------------------------------------------
         {{"mcp"},
          "Run an MCP server (stdio) for an AI agent",
          "AI agents",
@@ -1150,7 +1301,10 @@ void add_global_options(std::vector<CommandSpec>& specs) {
             return std::ranges::any_of(spec.options,
                                        [&](const OptionSpec& o) { return o.name == name; });
         };
-        if (has("ledger") && !local_only.contains(spec.path.front())) {
+        const bool local =
+            local_only.contains(spec.path.front()) ||
+            (spec.path.size() > 1 && local_only_commands.contains({spec.path[0], spec.path[1]}));
+        if (has("ledger") && !local) {
             for (const OptionSpec& option : client_options) {
                 if (!has(option.name)) {
                     spec.options.push_back(option);
@@ -1336,7 +1490,7 @@ int dispatch(int argc, const char* const* argv) {
                     std::format("  cexchain {:<30} {}\n", join_path(candidate), candidate.summary);
             }
             if (candidate.path.back() == tokens[0]) {
-                suggestion = join_path(candidate);
+                suggestion += (suggestion.empty() ? "" : "' or 'cexchain ") + join_path(candidate);
             }
         }
         if (!group.empty()) {

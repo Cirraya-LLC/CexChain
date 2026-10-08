@@ -7,7 +7,7 @@
 # quality certificate, the inspector endorses it, keys rotate, rights are
 # revoked, and a third party verifies the exported evidence offline.
 set -Eeuo pipefail
-trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
+trap 'echo "FAILED at line $LINENO (from lines ${BASH_LINENO[*]}): $BASH_COMMAND" >&2' ERR
 
 CEXCHAIN="$1"
 WORK="$(mktemp -d)"

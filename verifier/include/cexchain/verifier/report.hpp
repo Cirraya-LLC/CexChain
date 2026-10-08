@@ -9,6 +9,8 @@
 #include <nlohmann/json.hpp>
 
 #include <cexchain/core/cbor.hpp>
+#include <cexchain/core/protocol/asset_evidence.hpp>
+#include <cexchain/core/protocol/assets.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/log.hpp>
 #include <cexchain/core/protocol/statement.hpp>
@@ -48,5 +50,19 @@ using Json = nlohmann::ordered_json;
 
 /// True if any attachment content was provided and did not match.
 [[nodiscard]] bool has_attachment_mismatch(const protocol::EvidenceReport& report);
+
+/// Digits after the decimal point in an ISO 4217 currency's amounts (2 for
+/// most; 0 for JPY, KRW, ...; 3 for BHD, KWD, ...).
+[[nodiscard]] int currency_exponent(std::string_view currency);
+/// An asset's units for people: "125000.00 CNY", "60 t".
+[[nodiscard]] std::string format_units(protocol::AssetKind kind, std::uint64_t units,
+                                       std::string_view unit);
+
+/// An asset's verification report (D-052): its state, and its chain of
+/// title with each party's consent. Parties are named as their own ledgers
+/// declare themselves, where a consent of theirs shows it.
+[[nodiscard]] Json asset_report_json(const protocol::AssetReport& report, bool ledger_checked);
+[[nodiscard]] std::string asset_report_text(const protocol::AssetReport& report,
+                                            bool ledger_checked);
 
 } // namespace cexchain::verifier

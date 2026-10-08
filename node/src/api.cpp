@@ -1005,6 +1005,11 @@ struct LedgerApi::State {
         if (!allowed) {
             return error_response(404, "not_found", "no such asset");
         }
+        if (const auto latest = ledger->latest_checkpoint();
+            !latest || latest->checkpoint.tree_size <= asset->head) {
+            return error_response(409, "conflict",
+                                  "the asset changed after the latest checkpoint; retry");
+        }
         auto bundle = ledger->export_evidence(log_keys(), *id);
         if (!bundle) {
             return error_response(bundle.error());
@@ -1012,6 +1017,50 @@ struct LedgerApi::State {
         auto evidence = asset_evidence(*provider, options.directory, *bundle);
         return evidence ? binary("application/cbor", std::move(*evidence))
                         : error_response(evidence.error());
+    }
+
+    /// GET /v1/assets/{asset}: the evidence as of a checkpoint that covers
+    /// the asset's latest change. If the latest does not, a writable server
+    /// (a cluster's leader) checkpoints first, on the writer.
+    void asset_evidence_request(const http::Request& r, const Routed& routed, std::string principal,
+                                Scopes scopes, Done& done) {
+        const std::string rest(std::string_view(r.path).substr(routed.rest));
+        bool covered = true;
+        if (const auto id = id_from(rest)) {
+            std::optional<std::uint64_t> head;
+            ledger->read_state([&](const protocol::LedgerState& s) {
+                if (const protocol::AssetState* a = s.asset(*id)) {
+                    head = a->head;
+                }
+            });
+            const auto latest = ledger->latest_checkpoint();
+            covered = !head || (latest && latest->checkpoint.tree_size > *head);
+        }
+        const bool can_write = !options.read_only && !replica && !options.log_keys.empty();
+        if ((covered && !ledger->outdated()) || !can_write) {
+            finish(done, principal, answer_safely(r, routed, principal, scopes));
+            return;
+        }
+        if (cluster && !cluster->leads()) {
+            finish(done, principal, not_leader(r.target));
+            return;
+        }
+        queue_locked([this, rest, principal = std::move(principal), scopes,
+                      done = std::move(done)](const http::Response* refusal) mutable {
+            if (refusal != nullptr) {
+                finish(done, principal, *refusal);
+                return;
+            }
+            // Caught up with the files: checkpoint unless that covers it now.
+            auto response = asset_evidence_of(rest, principal, scopes);
+            if (response.status == 409) {
+                auto made =
+                    cluster ? cluster->checkpoint(log_keys()) : ledger->checkpoint(log_keys());
+                response = made ? asset_evidence_of(rest, principal, scopes)
+                                : error_response(made.error());
+            }
+            finish(done, principal, std::move(response));
+        });
     }
 
     http::Response vault_file(const std::filesystem::path& relative) const {
@@ -1844,6 +1893,10 @@ struct LedgerApi::State {
         }
         if (routed.endpoint == Endpoint::asset_consent) {
             asset_consent(r, std::move(principal), done);
+            return;
+        }
+        if (routed.endpoint == Endpoint::asset_evidence) {
+            asset_evidence_request(r, routed, std::move(principal), scopes, done);
             return;
         }
         if (writes) {

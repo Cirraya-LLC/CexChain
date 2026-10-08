@@ -4,7 +4,7 @@
 
 CexChain is a ledger protocol and node for trust between organizations. Every document, asset, and action can be independently verified by anyone, without relying on a platform operator. The action can come from a person or an AI agent.
 
-> **Status:** early development (specification v0.3: [the protocol in prose](spec/README.md), [`spec/cexchain.cddl`](spec/cexchain.cddl)). Interfaces and formats may still change.
+> **Status:** early development (specification v0.5: [the protocol in prose](spec/README.md), [`spec/cexchain.cddl`](spec/cexchain.cddl)). Interfaces and formats may still change.
 
 ## Why
 
@@ -43,7 +43,7 @@ CexChain is a ledger protocol and node for trust between organizations. Every do
 | `crypto/pkcs11` | Keys on PKCS #11 tokens: USB keys (UKey), smart cards, and HSMs, loaded at run time |
 | `ledger` | Ledger node: crash-safe storage, rule engine, checkpoints, receipts, evidence export, backups (C++26) |
 | `node` | HTTP API server and client (Asio), API tokens, and replicas (C++26) |
-| `cli` | `cexchain` command-line tool: full control of keys, ledgers, actors, delegations, records, proofs, and evidence |
+| `cli` | `cexchain` command-line tool: full control of keys, ledgers, actors, delegations, records, assets, proofs, and evidence |
 | `cexchain mcp` | MCP server through which an AI agent acts under its own key and delegation |
 
 ## Quick start
@@ -352,6 +352,42 @@ Two organizations can also witness each other's ledgers. `cexchain serve --witne
 --witness-key KEY` cosigns a peer's checkpoints online, and the peer runs
 `cexchain checkpoint cosign-request --peer NAME --send`. No third party is needed for neither side
 to be able to rewrite its history unseen.
+
+## Receivables and warehouse receipts
+
+An ownership asset lives on its issuer's ledger, its home: a receivable on the debtor's, a
+warehouse receipt on the warehouse's. It changes hands only with the consent of every party
+involved, each given on that party's own ledger, so the home cannot move it alone, and it refuses
+a second pledge outright. A core enterprise, its supplier, and a bank:
+
+```sh
+# The core enterprise issues a receivable to its supplier (a peer), and runs a registrar:
+# a device actor with a delegation for asset actions, which records each action once all
+# its parties have consented.
+cexchain asset issue receivable --holder supplier --amount 125000.00 --currency CNY \
+    --due 2027-01-06 --field contract=PO-2026-0815 --field invoice=INV-77 --as clerk.key
+cexchain serve --log-key log.key --registrar-key registrar.key ...
+
+# The supplier asks to pledge it to the bank, and the bank agrees: each consents on its
+# own ledger, and sends the consent to the core enterprise's server.
+cexchain asset consent --peer core --asset <id> --action pledge --to bank \
+    --as cfo.key --log-key log.key --send
+cexchain asset consent --peer core --asset <id> --action pledge --to <bank-ledger-id> \
+    --evidence asset.cbor --reference "Loan SCF-2026-0042" --as officer.key --log-key log.key --send
+
+# The bank funds once its pledge is in a checkpoint cosigned by witnesses it trusts.
+cexchain asset fetch --peer core --asset <id> --out pledged.cbor
+cexchain asset verify pledged.cbor --ledger-id <core-ledger-id> --witness regulator.pub --min-witnesses 1
+```
+
+Each consent names exact terms, among them the asset's *head* (its latest change), so it applies
+only to the asset as its party saw it, and only once. Actions: transfer, pledge, release, enforce,
+redeem (in part), pay and confirm or dispute, freeze and unfreeze (the home's own word, e.g. under a
+court order), and cancel. Without a registrar, the home's people record actions with the consents
+as files (`asset record pledge <id> --to bank --consent s.cbor --consent b.cbor`). `asset verify`
+checks the asset's evidence offline and prints its chain of title: who consented to each action,
+under whose authority, and whether a person proved presence. Lenders that share a witness (a
+regulator, say) are protected against a home that would show each of them a different history.
 
 ## AI agents (MCP)
 

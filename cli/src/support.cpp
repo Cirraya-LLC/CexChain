@@ -21,9 +21,11 @@
 #include <nlohmann/json.hpp>
 
 #include <cexchain/core/cbor.hpp>
+#include <cexchain/core/protocol/asset_evidence.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/presence.hpp>
 #include <cexchain/node/api.hpp>
+#include <cexchain/node/assets.hpp>
 #include <cexchain/node/cluster.hpp>
 #include <cexchain/node/replica.hpp>
 #ifdef CEXCHAIN_HAVE_PKCS11
@@ -774,7 +776,7 @@ protocol::Id Session::submit(const crypto::Signer& signer, protocol::Body body,
                              const std::optional<std::string>& delegation,
                              std::optional<protocol::Provenance> provenance,
                              const std::optional<PresenceRequest>& presence,
-                             const SealVault& seal_vault) {
+                             const SealVault& seal_vault, std::span<const Bytes> consents) {
     const protocol::ActorState& actor = actor_for(signer);
     protocol::Statement statement;
     statement.ledger_id = state().ledger_id();
@@ -831,7 +833,19 @@ protocol::Id Session::submit(const crypto::Signer& signer, protocol::Body body,
     if (remote_) {
         // Signed here; the server registers it, with its private data if
         // any, and the mirror shows it once it re-validated it.
-        if (sealed) {
+        if (!consents.empty()) {
+            cbor::Array list;
+            for (const Bytes& c : consents) {
+                list.push_back(cbor::Value::bytes(c));
+            }
+            const Bytes submission =
+                unwrap(cbor::encode(cbor::Value::map(
+                           {{cbor::Value::integer(1), cbor::Value::bytes(signed_statement.encoded)},
+                            {cbor::Value::integer(3), cbor::Value::array(std::move(list))}})),
+                       "encoding the submission");
+            static_cast<void>(
+                call("POST", "/v1/statements", submission, node::submission_content_type));
+        } else if (sealed) {
             const Bytes submission =
                 unwrap(cbor::encode(cbor::Value::map(
                            {{cbor::Value::integer(1), cbor::Value::bytes(signed_statement.encoded)},
@@ -847,6 +861,12 @@ protocol::Id Session::submit(const crypto::Signer& signer, protocol::Body body,
             throw CommandError{"the server accepted the statement but does not show it"};
         }
         return signed_statement.id;
+    }
+    if (!consents.empty()) {
+        // Kept first: a registered action always has its consents here.
+        const Bytes encoded = unwrap(node::encode_consent_bundles(consents), "the consents");
+        unwrap(node::store_consents(directory_, signed_statement.id, encoded),
+               "keeping the consents");
     }
     const auto registration =
         unwrap(ledger_->submit(signed_statement.encoded), "the ledger refused the statement");
@@ -1062,6 +1082,31 @@ protocol::EvidenceBundle Session::evidence(const Args& args, const protocol::Id&
                            "verified"};
     }
     return bundle;
+}
+
+Bytes Session::asset_evidence(const Args& args, const protocol::Id& asset) {
+    if (!remote_) {
+        return unwrap(node::asset_evidence(provider_, directory_, evidence(args, asset)),
+                      "the asset's evidence");
+    }
+    if (args.has("log-key")) {
+        throw UsageError{"with --server the server signs: drop --log-key"};
+    }
+    const Bytes encoded = call("GET", "/v1/assets/" + hex_id(asset));
+    protocol::VerifyOptions options;
+    options.expected_ledger = state().ledger_id();
+    const auto report = protocol::verify_asset_evidence(provider_, encoded, options);
+    if (!report || report->asset.record != asset) {
+        throw CommandError{"the server sent asset evidence that does not verify"};
+    }
+    const auto decoded = unwrap(protocol::decode_asset_evidence(encoded), "reading the evidence");
+    const auto bundle =
+        unwrap(protocol::decode_bundle(decoded.asset_bundle), "reading the evidence");
+    if (!sync_until([&] { return has_checkpoint(bundle.checkpoint); })) {
+        throw CommandError{"the server's evidence is anchored to a checkpoint this client has not "
+                           "verified"};
+    }
+    return encoded;
 }
 
 Bytes Session::receipt(const Args& args, std::uint64_t index) {
