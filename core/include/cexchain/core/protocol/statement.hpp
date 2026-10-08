@@ -34,6 +34,7 @@ enum class StatementType : std::uint8_t {
     record_endorse = 17,
     record_transition = 18,
     record_revoke = 19,
+    asset_action = 20,
 };
 
 [[nodiscard]] std::optional<StatementType> statement_type_from(std::uint64_t value) noexcept;
@@ -201,10 +202,65 @@ struct RecordRevokeBody {
     friend bool operator==(const RecordRevokeBody&, const RecordRevokeBody&) = default;
 };
 
+/// What an asset action does to an ownership asset (spec v0.5, section 13).
+enum class AssetAction : std::uint8_t {
+    transfer,
+    pledge,
+    release,
+    enforce,
+    redeem,
+    pay,
+    confirm,
+    dispute,
+    freeze,
+    unfreeze,
+    cancel,
+};
+
+[[nodiscard]] std::string_view name(AssetAction action) noexcept;
+[[nodiscard]] std::optional<AssetAction> asset_action_from(std::string_view name) noexcept;
+
+/// A party's consent to an asset action, given on its own ledger.
+struct ConsentRef {
+    /// The party's ledger, and its consent record there.
+    Id ledger;
+    Id record;
+    /// HASH (the home ledger's) of the consent's evidence bundle the home
+    /// verified and keeps.
+    Id bundle;
+
+    friend bool operator==(const ConsentRef&, const ConsentRef&) = default;
+};
+
+/// At most this many consents per action (the most any action needs is 2).
+inline constexpr std::size_t max_consents = 4;
+/// Asset action references and consent references: at most this many bytes.
+inline constexpr std::size_t max_asset_reference = 1024;
+
+/// Changes an ownership asset on its home ledger (spec v0.5).
+struct AssetActionBody {
+    /// The asset: the record id of its registration.
+    Id asset;
+    AssetAction action = AssetAction::transfer;
+    /// The log index of the asset's registration or latest asset action,
+    /// which this action follows.
+    std::uint64_t head = 0;
+    /// The counterparty's ledger: transfer and pledge.
+    std::optional<Id> to;
+    /// Redeem only.
+    std::optional<std::uint64_t> quantity;
+    /// One per party the action needs, strictly ascending by ledger.
+    std::vector<ConsentRef> consents;
+    /// A payment reference, a court order, a reason.
+    std::optional<std::string> reference;
+
+    friend bool operator==(const AssetActionBody&, const AssetActionBody&) = default;
+};
+
 using Body = std::variant<GenesisBody, ActorRegisterBody, ActorRotateKeyBody, ActorRevokeBody,
                           DelegationGrantBody, DelegationRevokeBody, ActorSetPresenceBody,
                           LedgerRotateLogKeyBody, RecordRegisterBody, RecordEndorseBody,
-                          RecordTransitionBody, RecordRevokeBody>;
+                          RecordTransitionBody, RecordRevokeBody, AssetActionBody>;
 
 [[nodiscard]] StatementType type_of(const Body& body) noexcept;
 

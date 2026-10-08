@@ -47,13 +47,16 @@ inline KeyPair key(const std::string& name) {
 /// statements.
 class World {
 public:
-    explicit World(crypto::HashAlg hash = crypto::HashAlg::sha256)
+    /// Worlds with the same hash and organization name are the same ledger
+    /// (same keys, same genesis).
+    explicit World(crypto::HashAlg hash = crypto::HashAlg::sha256,
+                   const std::string& organization = "Test Org")
         : hash_(hash), clock_(t0), entropy_(7), org_(key("org")), log_key_(key("log")) {
         protocol::Statement genesis;
         genesis.issued_at = t0;
         genesis.nonce = entropy_.bytes<16>();
         genesis.body =
-            protocol::GenesisBody{hash, "Test Org", org_.public_key(), log_key_.public_key()};
+            protocol::GenesisBody{hash, organization, org_.public_key(), log_key_.public_key()};
         auto signed_genesis = protocol::sign_statement(org_, provider(), hash, genesis);
         REQUIRE(signed_genesis);
         genesis_bytes_ = signed_genesis->encoded;

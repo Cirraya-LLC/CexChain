@@ -74,6 +74,9 @@ std::optional<std::string> record_type_for(const protocol::LedgerState& state,
                                  std::is_same_v<T, protocol::RecordRevokeBody>) {
                 const protocol::RecordState* r = state.record(b.record);
                 return r == nullptr ? std::nullopt : std::optional(r->record_type);
+            } else if constexpr (std::is_same_v<T, protocol::AssetActionBody>) {
+                const protocol::RecordState* r = state.record(b.asset);
+                return r == nullptr ? std::nullopt : std::optional(r->record_type);
             } else {
                 return std::nullopt;
             }

@@ -8,9 +8,11 @@
 //
 //   make_seeds DIR    writes DIR/<target>/<name> for each target
 
+#include <algorithm>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <print>
 #include <sstream>
 #include <stdexcept>
@@ -19,6 +21,8 @@
 
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/access.hpp>
+#include <cexchain/core/protocol/asset_evidence.hpp>
+#include <cexchain/core/protocol/assets.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/presence.hpp>
 #include <cexchain/core/protocol/record.hpp>
@@ -207,6 +211,124 @@ void ledger_seeds(const Seeds& seeds) {
     }
 }
 
+/// One organization's ledger in memory, for the asset seeds.
+struct Org {
+    crypto::openssl::Provider provider;
+    crypto::openssl::KeyPair root =
+        must(crypto::openssl::KeyPair::generate(crypto::SigAlg::ed25519), "key");
+    crypto::openssl::KeyPair log =
+        must(crypto::openssl::KeyPair::generate(crypto::SigAlg::ed25519), "key");
+    ledger::ManualClock clock{1'791'244'800'000};
+    ledger::SeededEntropy entropy;
+    ledger::MemoryFileSystem fs;
+    std::optional<ledger::Ledger> ledger;
+
+    Org(const std::string& name, std::uint64_t seed) : entropy(seed) {
+        protocol::Statement genesis;
+        genesis.issued_at = clock.now();
+        genesis.nonce = entropy.bytes<16>();
+        genesis.body = protocol::GenesisBody{crypto::HashAlg::sha256, name, root.public_key(),
+                                             log.public_key()};
+        const auto signed_genesis = must(
+            protocol::sign_statement(root, provider, crypto::HashAlg::sha256, genesis), "sign");
+        ledger.emplace(
+            must(ledger::Ledger::create(fs, clock, provider, signed_genesis.encoded), "create"));
+    }
+
+    [[nodiscard]] const protocol::Id& id() const { return ledger->id(); }
+
+    /// Signs and registers a statement by the organization; returns it.
+    protocol::SignedStatement submit(protocol::Body body) {
+        protocol::Statement s;
+        s.ledger_id = ledger->id();
+        s.actor_id = ledger->id();
+        s.issued_at = clock.now();
+        s.nonce = entropy.bytes<16>();
+        s.body = std::move(body);
+        auto signed_statement =
+            must(protocol::sign_statement(root, provider, crypto::HashAlg::sha256, s), "sign");
+        must(ledger->submit(signed_statement.encoded), "submit");
+        clock.advance(1000);
+        return signed_statement;
+    }
+
+    protocol::Id record(std::string_view type, cbor::Value metadata) {
+        const auto fields = must(protocol::commit_fields(provider, crypto::HashAlg::sha256,
+                                                         {{"contract", protocol::Nonce{},
+                                                           cbor::Value::text("PO-0815")}}),
+                                 "fields");
+        return submit(protocol::RecordRegisterBody{
+                          std::string(type),
+                          Bytes(fields.root.bytes().begin(), fields.root.bytes().end()),
+                          1,
+                          {},
+                          std::move(metadata)})
+            .id;
+    }
+
+    Bytes evidence(const protocol::Id& record) {
+        must(ledger->checkpoint(log), "checkpoint");
+        return must(protocol::encode_bundle(must(ledger->export_evidence(log, record), "export")),
+                    "encode");
+    }
+};
+
+/// A receivable pledged with two consents, and its asset evidence (D-052).
+void asset_seeds(const Seeds& seeds) {
+    Org home("Seed Core Enterprise", 11);
+    Org supplier("Seed Supplier", 12);
+    Org bank("Seed Bank", 13);
+    const auto metadata =
+        must(protocol::encode_asset_metadata(
+                 protocol::AssetKind::receivable,
+                 {supplier.id(), 12'500'000, "CNY", home.clock.now() + 90 * 86'400'000ULL},
+                 {{cbor::Value::text("title"), cbor::Value::text("PO-0815")}}),
+             "metadata");
+    seeds.write("asset_parse_fuzz", "receivable-metadata", must(cbor::encode(metadata), "encode"));
+    seeds.write("asset_parse_fuzz", "receipt-metadata",
+                must(cbor::encode(must(
+                         protocol::encode_asset_metadata(protocol::AssetKind::warehouse_receipt,
+                                                         {supplier.id(), 100, "t", std::nullopt}),
+                         "metadata")),
+                     "encode"));
+    const protocol::Id receivable = home.record(protocol::receivable_type, metadata);
+
+    protocol::AssetActionBody pledge;
+    pledge.asset = receivable;
+    pledge.action = protocol::AssetAction::pledge;
+    pledge.head = home.ledger->state().asset(receivable)->head;
+    pledge.to = bank.id();
+    const protocol::AssetConsent consent{protocol::terms_of(pledge, home.id()),
+                                         home.clock.now() + 86'400'000, "Loan SCF-0042"};
+    const auto consent_metadata = must(protocol::encode_asset_consent(consent), "consent");
+    seeds.write("asset_parse_fuzz", "consent", must(cbor::encode(consent_metadata), "encode"));
+
+    std::vector<std::pair<protocol::ConsentRef, Bytes>> consents;
+    for (Org* party : {&supplier, &bank}) {
+        const protocol::Id record = party->record(protocol::asset_consent_type, consent_metadata);
+        Bytes bundle = party->evidence(record);
+        const auto digest = must(home.provider.digest(crypto::HashAlg::sha256, bundle), "hash");
+        consents.emplace_back(protocol::ConsentRef{party->id(), record, digest}, std::move(bundle));
+    }
+    std::ranges::sort(consents, [](const auto& a, const auto& b) {
+        return std::ranges::lexicographical_compare(a.first.ledger.bytes(), b.first.ledger.bytes());
+    });
+    std::vector<Bytes> bundles;
+    for (auto& [ref, bundle] : consents) {
+        pledge.consents.push_back(ref);
+        bundles.push_back(std::move(bundle));
+    }
+    const auto action = home.submit(pledge);
+    seeds.write("protocol_parse_fuzz", "statement-asset-action", action.encoded);
+    seeds.write("protocol_parse_fuzz", "payload-asset-action",
+                must(protocol::encode_payload(action.statement), "payload"));
+    const Bytes evidence =
+        must(protocol::encode_asset_evidence({home.evidence(receivable), std::move(bundles)}),
+             "evidence");
+    must(protocol::verify_asset_evidence(home.provider, evidence), "the seed evidence must verify");
+    seeds.write("asset_parse_fuzz", "evidence", evidence);
+}
+
 /// A passkey registration as a browser returns it: [length][attestation
 /// object][client data], for the challenge and site the fuzzer uses.
 void webauthn_seed(const Seeds& seeds) {
@@ -309,6 +431,7 @@ int main(int argc, char** argv) {
     try {
         const Seeds seeds(argv[1]);
         ledger_seeds(seeds);
+        asset_seeds(seeds);
         webauthn_seed(seeds);
         cluster_seeds(seeds);
         text_seeds(seeds);

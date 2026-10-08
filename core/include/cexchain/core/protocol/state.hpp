@@ -14,6 +14,7 @@
 
 #include <cexchain/core/crypto.hpp>
 #include <cexchain/core/error.hpp>
+#include <cexchain/core/protocol/assets.hpp>
 #include <cexchain/core/protocol/id_map.hpp>
 #include <cexchain/core/protocol/keys.hpp>
 #include <cexchain/core/protocol/statement.hpp>
@@ -143,6 +144,9 @@ public:
     [[nodiscard]] const ActorState* actor_by_kid(const Id& kid) const;
     [[nodiscard]] const DelegationState* delegation(const Id& id) const;
     [[nodiscard]] const RecordState* record(const Id& id) const;
+    /// The asset a record is, if it is of an asset type (its status is the
+    /// record's state).
+    [[nodiscard]] const AssetState* asset(const Id& id) const;
     /// The log index of a registered statement.
     [[nodiscard]] std::optional<std::uint64_t> statement_index(const Id& id) const;
 
@@ -153,6 +157,7 @@ public:
         return delegations_;
     }
     [[nodiscard]] const IdMap<RecordState>& records() const noexcept { return records_; }
+    [[nodiscard]] const IdMap<AssetState>& assets() const noexcept { return assets_; }
 
     /// The objects created or changed since the last call (possibly
     /// repeated), in order: what an incremental state tree must update.
@@ -183,6 +188,7 @@ private:
     std::map<IdKey, IdKey> actors_by_kid_;
     IdMap<DelegationState> delegations_;
     IdMap<RecordState> records_;
+    IdMap<AssetState> assets_;
     IdMap<std::uint64_t> statements_;
     /// (signer, nonce) of every statement: a payload is never accepted twice,
     /// even re-signed with a rotated key.

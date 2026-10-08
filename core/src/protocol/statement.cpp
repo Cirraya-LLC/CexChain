@@ -2,6 +2,7 @@
 // Copyright 2026 Cirraya
 
 #include <algorithm>
+#include <array>
 #include <string>
 #include <utility>
 
@@ -222,6 +223,32 @@ Status check_body(const Body& body) {
                 return require_text(b.to_state, "state must not be empty");
             },
             [](const RecordRevokeBody&) -> Status { return {}; },
+            [](const AssetActionBody& b) -> Status {
+                if (b.quantity && *b.quantity == 0) {
+                    return fail(Errc::malformed, "an asset action's quantity is at least 1");
+                }
+                if (b.consents.size() > max_consents) {
+                    return fail(Errc::malformed, "an asset action cites at most 4 consents");
+                }
+                for (std::size_t i = 1; i < b.consents.size(); ++i) {
+                    if (!std::ranges::lexicographical_compare(b.consents[i - 1].ledger.bytes(),
+                                                              b.consents[i].ledger.bytes())) {
+                        return fail(Errc::malformed,
+                                    "consents must ascend by ledger, one per ledger");
+                    }
+                }
+                for (const ConsentRef& c : b.consents) {
+                    if (c.ledger.size() != id_size || c.record.size() != id_size ||
+                        c.bundle.size() != id_size) {
+                        return fail(Errc::malformed, "consent references hold 32-byte hashes");
+                    }
+                }
+                if (b.reference &&
+                    (b.reference->empty() || b.reference->size() > max_asset_reference)) {
+                    return fail(Errc::malformed, "an asset action's reference is 1 to 1024 bytes");
+                }
+                return {};
+            },
         },
         body);
 }
@@ -437,6 +464,29 @@ Result<cbor::Value> encode_body(const Body& body) {
                 cbor::Map map{entry(1, id_value(b.record))};
                 if (b.reason) {
                     map.push_back(entry(2, text_value(*b.reason)));
+                }
+                return cbor::Value::map(std::move(map));
+            },
+            [](const AssetActionBody& b) -> Result<cbor::Value> {
+                cbor::Map map{entry(1, id_value(b.asset)),
+                              entry(2, cbor::Value::text(std::string(name(b.action)))),
+                              entry(3, uint_value(b.head))};
+                if (b.to) {
+                    map.push_back(entry(4, id_value(*b.to)));
+                }
+                if (b.quantity) {
+                    map.push_back(entry(5, uint_value(*b.quantity)));
+                }
+                if (!b.consents.empty()) {
+                    cbor::Array consents;
+                    for (const ConsentRef& c : b.consents) {
+                        consents.push_back(cbor::Value::array(
+                            {id_value(c.ledger), id_value(c.record), id_value(c.bundle)}));
+                    }
+                    map.push_back(entry(6, cbor::Value::array(std::move(consents))));
+                }
+                if (b.reference) {
+                    map.push_back(entry(7, text_value(*b.reference)));
                 }
                 return cbor::Value::map(std::move(map));
             },
@@ -673,6 +723,45 @@ Result<Body> decode_body(StatementType type, const cbor::Value& value) {
         body = std::move(b);
         break;
     }
+    case StatementType::asset_action: {
+        AssetActionBody b;
+        CEXCHAIN_TRY(b.asset, reader.need_id(1));
+        CEXCHAIN_TRY(std::string action, reader.need_text(2));
+        const auto known = asset_action_from(action);
+        if (!known) {
+            return fail(Errc::malformed, "unknown asset action");
+        }
+        b.action = *known;
+        CEXCHAIN_TRY(b.head, reader.need_uint(3));
+        CEXCHAIN_TRY(b.to, reader.opt_id(4));
+        CEXCHAIN_TRY(b.quantity, reader.opt_uint(5));
+        if (const cbor::Value* consents = reader.get(6)) {
+            CEXCHAIN_TRY(const cbor::Array* items, detail::as_array(*consents));
+            if (items->empty()) {
+                return fail(Errc::non_canonical, "an empty consent list must be omitted");
+            }
+            if (items->size() > max_consents) {
+                return fail(Errc::malformed, "an asset action cites at most 4 consents");
+            }
+            for (const cbor::Value& item : *items) {
+                const cbor::Array* parts = item.as_array();
+                if (parts == nullptr || parts->size() != 3) {
+                    return fail(Errc::malformed, "a consent is [ledger, record, bundle hash]");
+                }
+                ConsentRef c;
+                CEXCHAIN_TRY(Bytes ledger, detail::as_bytes_value((*parts)[0]));
+                CEXCHAIN_TRY(c.ledger, to_id(ledger));
+                CEXCHAIN_TRY(Bytes record, detail::as_bytes_value((*parts)[1]));
+                CEXCHAIN_TRY(c.record, to_id(record));
+                CEXCHAIN_TRY(Bytes bundle, detail::as_bytes_value((*parts)[2]));
+                CEXCHAIN_TRY(c.bundle, to_id(bundle));
+                b.consents.push_back(std::move(c));
+            }
+        }
+        CEXCHAIN_TRY(b.reference, reader.opt_text(7));
+        body = std::move(b);
+        break;
+    }
     }
     CEXCHAIN_CHECK(reader.finish());
     return body;
@@ -748,6 +837,7 @@ std::optional<StatementType> statement_type_from(std::uint64_t value) noexcept {
     case 17:
     case 18:
     case 19:
+    case 20:
         return static_cast<StatementType>(value);
     default:
         return std::nullopt;
@@ -780,6 +870,8 @@ std::string_view name(StatementType type) noexcept {
         return "record-transition";
     case StatementType::record_revoke:
         return "record-revoke";
+    case StatementType::asset_action:
+        return "asset-action";
     }
     return "unknown";
 }
@@ -799,8 +891,45 @@ StatementType type_of(const Body& body) noexcept {
             [](const RecordEndorseBody&) { return StatementType::record_endorse; },
             [](const RecordTransitionBody&) { return StatementType::record_transition; },
             [](const RecordRevokeBody&) { return StatementType::record_revoke; },
+            [](const AssetActionBody&) { return StatementType::asset_action; },
         },
         body);
+}
+
+namespace {
+
+constexpr std::array<std::pair<AssetAction, std::string_view>, 11> asset_action_names{{
+    {AssetAction::transfer, "transfer"},
+    {AssetAction::pledge, "pledge"},
+    {AssetAction::release, "release"},
+    {AssetAction::enforce, "enforce"},
+    {AssetAction::redeem, "redeem"},
+    {AssetAction::pay, "pay"},
+    {AssetAction::confirm, "confirm"},
+    {AssetAction::dispute, "dispute"},
+    {AssetAction::freeze, "freeze"},
+    {AssetAction::unfreeze, "unfreeze"},
+    {AssetAction::cancel, "cancel"},
+}};
+
+} // namespace
+
+std::string_view name(AssetAction action) noexcept {
+    for (const auto& [value, text] : asset_action_names) {
+        if (value == action) {
+            return text;
+        }
+    }
+    return "unknown";
+}
+
+std::optional<AssetAction> asset_action_from(std::string_view text) noexcept {
+    for (const auto& [value, known] : asset_action_names) {
+        if (known == text) {
+            return value;
+        }
+    }
+    return std::nullopt;
 }
 
 Result<Bytes> encode_payload(const Statement& statement) {

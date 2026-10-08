@@ -108,6 +108,10 @@ const RecordState* LedgerState::record(const Id& id) const {
     return records_.find(key_of(id));
 }
 
+const AssetState* LedgerState::asset(const Id& id) const {
+    return assets_.find(key_of(id));
+}
+
 std::optional<std::uint64_t> LedgerState::statement_index(const Id& id) const {
     const std::uint64_t* index = statements_.find(key_of(id));
     return index == nullptr ? std::nullopt : std::optional(*index);
@@ -127,6 +131,10 @@ std::optional<std::string> LedgerState::record_type_of(const Statement& statemen
             },
             [this](const RecordRevokeBody& b) -> std::optional<std::string> {
                 const RecordState* r = record(b.record);
+                return r == nullptr ? std::nullopt : std::optional(r->record_type);
+            },
+            [this](const AssetActionBody& b) -> std::optional<std::string> {
+                const RecordState* r = record(b.asset);
                 return r == nullptr ? std::nullopt : std::optional(r->record_type);
             },
             [](const auto&) -> std::optional<std::string> { return std::nullopt; },
@@ -459,7 +467,16 @@ Status LedgerState::check_rules(const crypto::Provider& provider, const Statemen
                 }
                 return {};
             },
-            [&](const RecordRegisterBody&) -> Status { return {}; },
+            [&](const RecordRegisterBody& b) -> Status {
+                if (const auto kind = asset_kind_of(b.record_type)) {
+                    // The id and index do not matter for the check.
+                    auto asset = register_asset(*kind, b.metadata, ledger_id_, ledger_id_, 0);
+                    if (!asset) {
+                        return std::unexpected(asset.error());
+                    }
+                }
+                return {};
+            },
             [&](const RecordEndorseBody& b) -> Status {
                 auto target = active_record(b.record);
                 if (!target) {
@@ -484,6 +501,9 @@ Status LedgerState::check_rules(const crypto::Provider& provider, const Statemen
                 if (!target) {
                     return std::unexpected(target.error());
                 }
+                if (asset_kind_of((*target)->record_type)) {
+                    return fail(Errc::rejected, "assets change only through asset actions");
+                }
                 if ((*target)->state != b.from_state) {
                     return fail(Errc::rejected, "the record is not in the stated state");
                 }
@@ -498,7 +518,22 @@ Status LedgerState::check_rules(const crypto::Provider& provider, const Statemen
                 if (!target) {
                     return std::unexpected(target.error());
                 }
+                if (asset_kind_of((*target)->record_type)) {
+                    return fail(Errc::rejected, "an asset is never revoked: it can be cancelled, "
+                                                "with its holder's consent");
+                }
                 return {};
+            },
+            [&](const AssetActionBody& b) -> Status {
+                auto target = active_record(b.asset);
+                if (!target) {
+                    return std::unexpected(target.error());
+                }
+                const AssetState* asset = this->asset(b.asset);
+                if (asset == nullptr) {
+                    return fail(Errc::rejected, "the record is not an asset");
+                }
+                return check_asset_action(*asset, (*target)->state, b, ledger_id_);
             },
         },
         statement.body);
@@ -615,6 +650,13 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
                 record.registered_at_index = index;
                 record.history.push_back(index);
                 records_.insert_or_assign(key_of(id), std::move(record));
+                if (const auto kind = asset_kind_of(b.record_type)) {
+                    auto asset = register_asset(*kind, b.metadata, ledger_id_, id, index);
+                    if (!asset) {
+                        return std::unexpected(asset.error());
+                    }
+                    assets_.insert_or_assign(key_of(id), std::move(*asset));
+                }
                 changes_.push_back(key_of(id));
                 return {};
             },
@@ -637,6 +679,14 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
                 record.revoked = true;
                 record.history.push_back(index);
                 changes_.push_back(key_of(b.record));
+                return {};
+            },
+            [&](const AssetActionBody& b) -> Status {
+                RecordState& record = records_.at(key_of(b.asset));
+                record.state =
+                    apply_asset_action(assets_.at(key_of(b.asset)), record.state, b, index);
+                record.history.push_back(index);
+                changes_.push_back(key_of(b.asset));
                 return {};
             },
         },

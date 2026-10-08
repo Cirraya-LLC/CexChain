@@ -75,6 +75,9 @@ std::string event_detail(const Statement& statement) {
     if (const auto* b = std::get_if<RecordRevokeBody>(&statement.body)) {
         return b->reason.value_or("");
     }
+    if (const auto* b = std::get_if<AssetActionBody>(&statement.body)) {
+        return std::string(name(b->action));
+    }
     return {};
 }
 
@@ -456,6 +459,9 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
     report.record_type = record->record_type;
     report.state = record->state;
     report.revoked = record->revoked;
+    if (const AssetState* asset = state->asset(record->id)) {
+        report.asset = *asset;
+    }
 
     // Entries ascend by index (checked above): find them by binary search,
     // so a long history costs O(h log n), not O(h n).
@@ -480,6 +486,9 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
             .provenance = statement.provenance,
             .presence = presence.contains(index) ? std::optional(presence.at(index)) : std::nullopt,
             .detail = event_detail(statement),
+            .asset_action = std::holds_alternative<AssetActionBody>(statement.body)
+                                ? std::optional(std::get<AssetActionBody>(statement.body))
+                                : std::nullopt,
         });
     }
 
