@@ -1153,6 +1153,271 @@ def generate_protocol_v04() -> None:
     print(f"wrote protocol vectors for {len(ledgers)} ledgers to testvectors/protocol-v0.4.json")
 
 
+# ---------------------------------------------------------------------------
+# Protocol v0.5 additions: ownership assets (spec/cexchain.cddl, revision
+# v0.5): asset-action statements, asset metadata, consents, asset evidence
+# ---------------------------------------------------------------------------
+
+RECEIVABLE = "cexchain.receivable/1"
+WAREHOUSE_RECEIPT = "cexchain.warehouse-receipt/1"
+
+
+def generate_protocol_v05() -> None:
+    names = ("org_root", "log", "registrar")
+    seeds = {name: hashlib.sha256(f"CexChain test key: {name}".encode()).hexdigest() for name in names}
+    keys = {name: ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(seed)) for name, seed in seeds.items()}
+    t0 = 1_791_244_800_000
+    day = 86_400_000
+    # The parties' ledgers. Their consent records and bundles are opaque here:
+    # bundles have their own vectors, and only their hashes enter the home's log.
+    parties = {name: hashlib.sha256(f"{name} ledger".encode()).digest() for name in ("supplier", "bank", "buyer")}
+
+    ledgers = []
+    for hash_id in (-16, -65538):
+        lg = Ledger(hash_id)
+        statements, refused, consents = [], [], []
+        counter = [0]
+
+        def payload(signer_actor, body_type, body, delegation=None):
+            counter[0] += 1
+            out = {0: 1, 1: body_type, 2: ledger_id, 3: signer_actor, 5: t0 + counter[0],
+                   6: bytes([counter[0]]) * 16, 7: body}
+            if delegation is not None:
+                out[4] = delegation
+            return out
+
+        def add(name, signer, p):
+            encoded, statement_id = lg.statement(keys[signer], p)
+            statements.append({"name": name, "signer": signer, "encoded": encoded.hex(),
+                               "payload": dcbor(p).hex(), "statement_id": statement_id.hex()})
+            return statement_id
+
+        def refuse(name, signer, p):
+            encoded, _ = lg.statement(keys[signer], p)
+            refused.append({"name": name, "signer": signer, "encoded": encoded.hex(),
+                            "payload": dcbor(p).hex(), "after": len(statements)})
+
+        def consent(party, asset, action, head, to=None, quantity=None, reference=None):
+            metadata = {"ledger": ledger_id, "asset": asset, "action": action, "head": head,
+                        "until": t0 + 7 * day}
+            if to is not None:
+                metadata["to"] = to
+            if quantity is not None:
+                metadata["quantity"] = quantity
+            if reference is not None:
+                metadata["reference"] = reference
+            tag = f"{party} consents to {action} of {asset.hex()[:16]} at {head}".encode()
+            record = hashlib.sha256(b"consent record: " + tag).digest()
+            bundle = b"consent evidence bundle: " + tag
+            consents.append({"party": party, "ledger": parties[party].hex(), "record": record.hex(),
+                             "metadata": dcbor(metadata).hex(), "bundle": bundle.hex(),
+                             "bundle_hash": lg.h(bundle).hex()})
+            return [parties[party], record, lg.h(bundle)]
+
+        def action(asset, name, head, to=None, quantity=None, refs=None, reference=None):
+            body = {1: asset, 2: name, 3: head}
+            if to is not None:
+                body[4] = to
+            if quantity is not None:
+                body[5] = quantity
+            if refs:
+                body[6] = sorted(refs, key=lambda r: r[0])
+            if reference is not None:
+                body[7] = reference
+            return body
+
+        genesis = {0: 1, 1: 1, 5: t0, 6: bytes([0xE0]) * 16, 7: {
+            1: hash_id, 2: "Cirraya Asset Home", 3: ed_public(keys["org_root"]), 4: ed_public(keys["log"])}}
+        encoded, ledger_id = lg.statement(keys["org_root"], genesis)
+        statements.append({"name": "genesis", "signer": "org_root", "encoded": encoded.hex(),
+                           "payload": dcbor(genesis).hex(), "statement_id": ledger_id.hex()})
+        org = ledger_id
+        supplier, bank, buyer = parties["supplier"], parties["bank"], parties["buyer"]
+
+        registrar = add("register the registrar", "org_root", payload(org, 2, {
+            1: 3, 2: "Asset Registrar", 3: ed_public(keys["registrar"])}))
+        delegation = add("delegate asset actions to the registrar", "org_root", payload(org, 5, {
+            1: registrar, 2: {1: [20], 2: [RECEIVABLE, WAREHOUSE_RECEIPT]}}))
+
+        def by_registrar(name, body):
+            return add(name, "registrar", payload(registrar, 20, body, delegation))
+
+        def refused_by_registrar(name, body):
+            refuse(name, "registrar", payload(registrar, 20, body, delegation))
+
+        def by_org(name, body):
+            return add(name, "org_root", payload(org, 20, body))
+
+        receivable_meta = {"holder": supplier, "amount": 12_500_000, "currency": "CNY", "due": t0 + 90 * day,
+                           "title": "Receivable for PO-2026-0815"}
+        refuse("a receivable held by its home", "org_root", payload(org, 16, {
+            1: RECEIVABLE, 2: lg.h(b"fields"), 3: 1, 5: {**receivable_meta, "holder": ledger_id}}))
+        refuse("a receivable in a lower-case currency", "org_root", payload(org, 16, {
+            1: RECEIVABLE, 2: lg.h(b"fields"), 3: 1, 5: {**receivable_meta, "currency": "cny"}}))
+        refuse("a receivable without an amount", "org_root", payload(org, 16, {
+            1: RECEIVABLE, 2: lg.h(b"fields"), 3: 1,
+            5: {k: v for k, v in receivable_meta.items() if k != "amount"}}))
+        refuse("a warehouse receipt of nothing", "org_root", payload(org, 16, {
+            1: WAREHOUSE_RECEIPT, 2: lg.h(b"fields"), 3: 1, 5: {"holder": supplier, "quantity": 0, "unit": "t"}}))
+        receivable = add("register a receivable", "org_root", payload(org, 16, {
+            1: RECEIVABLE, 2: lg.h(b"receivable fields"), 3: 4, 5: receivable_meta}))
+        r_reg = len(statements) - 1
+        receipt = add("register a warehouse receipt", "org_root", payload(org, 16, {
+            1: WAREHOUSE_RECEIPT, 2: lg.h(b"receipt fields"), 3: 3,
+            5: {"holder": supplier, "quantity": 100, "unit": "t", "goods": "Copper cathode, grade A"}}))
+        w_reg = len(statements) - 1
+        add("endorse the receipt as inspector (not a change of its head)", "org_root",
+            payload(org, 17, {1: receipt, 2: "inspector"}))
+
+        # The receivable is pledged to the bank: the supplier and the bank consent.
+        by_registrar("pledge the receivable to the bank", action(receivable, "pledge", r_reg, to=bank, refs=[
+            consent("supplier", receivable, "pledge", r_reg, to=bank),
+            consent("bank", receivable, "pledge", r_reg, to=bank, reference="Loan contract SCF-2026-0042")]))
+        r_head = len(statements) - 1
+        refused_by_registrar("pledge the pledged receivable again", action(receivable, "pledge", r_head, to=buyer,
+                             refs=[consent("supplier", receivable, "pledge", r_head, to=buyer),
+                                   consent("buyer", receivable, "pledge", r_head, to=buyer)]))
+        refused_by_registrar("pledge it with the head before the pledge", action(receivable, "pledge", r_reg, to=buyer,
+                             refs=[consent("supplier", receivable, "pledge", r_reg, to=buyer),
+                                   consent("buyer", receivable, "pledge", r_reg, to=buyer)]))
+        refuse("revoke an asset", "org_root", payload(org, 19, {1: receivable, 2: "issued in error"}))
+        refuse("transition an asset as a record", "org_root", payload(org, 18, {
+            1: receivable, 2: "pledged", 3: "active"}))
+
+        # The receipt: pledged, then 40 t redeemed under the pledge.
+        by_registrar("pledge the receipt to the bank", action(receipt, "pledge", w_reg, to=bank, refs=[
+            consent("supplier", receipt, "pledge", w_reg, to=bank),
+            consent("bank", receipt, "pledge", w_reg, to=bank)]))
+        w_head = len(statements) - 1
+        refused_by_registrar("redeem more than remains", action(receipt, "redeem", w_head, quantity=101, refs=[
+            consent("supplier", receipt, "redeem", w_head, quantity=101),
+            consent("bank", receipt, "redeem", w_head, quantity=101)]))
+        refused_by_registrar("redeem a pledged receipt without the pledgee", action(
+            receipt, "redeem", w_head, quantity=40, refs=[consent("supplier", receipt, "redeem", w_head, quantity=40)]))
+        refuse("pay a warehouse receipt", "org_root", payload(org, 20, action(receipt, "pay", w_head)))
+        by_org("redeem 40 t under the pledge", action(receipt, "redeem", w_head, quantity=40, refs=[
+            consent("supplier", receipt, "redeem", w_head, quantity=40),
+            consent("bank", receipt, "redeem", w_head, quantity=40)]))
+        w_head = len(statements) - 1
+
+        # The receivable is frozen under a court order, then unfrozen.
+        by_org("freeze the receivable", action(receivable, "freeze", r_head,
+                                               reference="Court order (2026) 0101 Zhi Bao 1234"))
+        r_head = len(statements) - 1
+        refused_by_registrar("release a frozen receivable", action(receivable, "release", r_head, refs=[
+            consent("bank", receivable, "release", r_head)]))
+        refuse("freeze it twice", "org_root", payload(org, 20, action(receivable, "freeze", r_head)))
+        by_org("unfreeze the receivable", action(receivable, "unfreeze", r_head))
+        r_head = len(statements) - 1
+        refused_by_registrar("release consented by the holder, not the pledgee", action(
+            receivable, "release", r_head, refs=[consent("supplier", receivable, "release", r_head)]))
+        by_registrar("release the receivable", action(receivable, "release", r_head, refs=[
+            consent("bank", receivable, "release", r_head)]))
+        r_head = len(statements) - 1
+
+        # Transferred to the buyer, paid, disputed, paid again, confirmed.
+        refused_by_registrar("transfer without the new holder's consent", action(
+            receivable, "transfer", r_head, to=buyer, refs=[consent("supplier", receivable, "transfer", r_head, to=buyer)]))
+        refused_by_registrar("transfer to the home ledger", action(receivable, "transfer", r_head, to=ledger_id, refs=[
+            consent("supplier", receivable, "transfer", r_head, to=ledger_id)]))
+        refused_by_registrar("transfer to the holder", action(receivable, "transfer", r_head, to=supplier, refs=[
+            consent("supplier", receivable, "transfer", r_head, to=supplier)]))
+        by_registrar("transfer the receivable to the buyer", action(receivable, "transfer", r_head, to=buyer, refs=[
+            consent("supplier", receivable, "transfer", r_head, to=buyer),
+            consent("buyer", receivable, "transfer", r_head, to=buyer)]))
+        r_head = len(statements) - 1
+        refuse("pay with a consent", "org_root", payload(org, 20, action(receivable, "pay", r_head, refs=[
+            consent("buyer", receivable, "pay", r_head)])))
+        by_org("pay the receivable", action(receivable, "pay", r_head, reference="CNAPS 2026101500001"))
+        r_head = len(statements) - 1
+        by_registrar("the payee disputes the payment", action(receivable, "dispute", r_head, refs=[
+            consent("buyer", receivable, "dispute", r_head, reference="Nothing received")]))
+        r_head = len(statements) - 1
+        by_org("pay again", action(receivable, "pay", r_head, reference="CNAPS 2026101600007"))
+        r_head = len(statements) - 1
+        by_registrar("the payee confirms", action(receivable, "confirm", r_head, refs=[
+            consent("buyer", receivable, "confirm", r_head)]))
+        r_head = len(statements) - 1
+        refused_by_registrar("pledge a settled receivable", action(receivable, "pledge", r_head, to=bank, refs=[
+            consent("buyer", receivable, "pledge", r_head, to=bank),
+            consent("bank", receivable, "pledge", r_head, to=bank)]))
+
+        # The receipt: released, the rest redeemed.
+        by_registrar("release the receipt", action(receipt, "release", w_head, refs=[
+            consent("bank", receipt, "release", w_head)]))
+        w_head = len(statements) - 1
+        by_org("redeem the remaining 60 t", action(receipt, "redeem", w_head, quantity=60, refs=[
+            consent("supplier", receipt, "redeem", w_head, quantity=60)]))
+        w_head = len(statements) - 1
+
+        # A second receivable: pledged, the pledge enforced, then cancelled by
+        # its new holder.
+        second = add("register a second receivable", "org_root", payload(org, 16, {
+            1: RECEIVABLE, 2: lg.h(b"second receivable fields"), 3: 2,
+            5: {"holder": supplier, "amount": 880_000, "currency": "CNY", "due": t0 + 60 * day}}))
+        s_head = len(statements) - 1
+        by_registrar("pledge the second receivable", action(second, "pledge", s_head, to=bank, refs=[
+            consent("supplier", second, "pledge", s_head, to=bank),
+            consent("bank", second, "pledge", s_head, to=bank)]))
+        s_head = len(statements) - 1
+        by_org("the bank enforces its pledge", action(second, "enforce", s_head, refs=[
+            consent("bank", second, "enforce", s_head, reference="Default notice 2026-11-30")]))
+        s_head = len(statements) - 1
+        by_registrar("its new holder cancels it", action(second, "cancel", s_head, refs=[
+            consent("bank", second, "cancel", s_head)]))
+        s_head = len(statements) - 1
+
+        def pins(asset):
+            out = []
+            for st in statements:
+                body = cbor2.loads(bytes.fromhex(st["payload"]))[7]
+                if cbor2.loads(bytes.fromhex(st["payload"]))[1] == 20 and body[1] == asset:
+                    out += [ref[2] for ref in body.get(6, [])]
+            return out
+
+        bundle_by_hash = {bytes.fromhex(c["bundle_hash"]): bytes.fromhex(c["bundle"]) for c in consents}
+        asset_bundle = b"the receivable's evidence bundle"
+        evidence = dcbor({0: 1, 1: asset_bundle, 2: [bundle_by_hash[h] for h in pins(receivable)]})
+
+        ledgers.append({
+            "hash": hash_id,
+            "ledger_id": ledger_id.hex(),
+            "parties": {name: value.hex() for name, value in parties.items()},
+            "statements": statements,
+            "refused": refused,
+            "consents": consents,
+            "assets": [
+                {"name": "receivable", "id": receivable.hex(), "type": RECEIVABLE, "state": "settled",
+                 "holder": buyer.hex(), "pledgee": None, "payee": buyer.hex(), "quantity": 12_500_000,
+                 "head": r_head},
+                {"name": "warehouse receipt", "id": receipt.hex(), "type": WAREHOUSE_RECEIPT, "state": "redeemed",
+                 "holder": supplier.hex(), "pledgee": None, "payee": None, "quantity": 0, "head": w_head},
+                {"name": "second receivable", "id": second.hex(), "type": RECEIVABLE, "state": "cancelled",
+                 "holder": bank.hex(), "pledgee": None, "payee": None, "quantity": 880_000, "head": s_head},
+            ],
+            "asset_evidence": {"encoded": evidence.hex(), "asset_bundle": asset_bundle.hex(),
+                               "pins": [h.hex() for h in pins(receivable)]},
+        })
+
+    document = {
+        "description": "CexChain protocol objects added in specification revision v0.5 (ownership assets), "
+                       "built by an independent Python encoder from spec/cexchain.cddl: a home ledger whose "
+                       "registrar (a device with a delegation for statement type 20) and organization take a "
+                       "receivable and a warehouse receipt through every asset action, citing consents from "
+                       "three other ledgers; statements the ledger rules must refuse, each to be validated "
+                       "against the state after the first `after` statements, registered at "
+                       "t0 + 1000 + index; the consents' metadata; the expected final state of each asset; "
+                       "and asset evidence. Consent records and evidence bundles of other ledgers are opaque "
+                       "bytes here (bundles have their own vectors): a consent reference pins HASH(bundle) "
+                       "under the home's hash. All signatures are Ed25519 (deterministic). Keys are throwaway "
+                       "test keys: seed = SHA-256(\"CexChain test key: <name>\").",
+        "seeds": seeds,
+        "ledgers": ledgers,
+    }
+    (OUT / "protocol-v0.5.json").write_text(json.dumps(document, indent=2) + "\n")
+    print(f"wrote protocol vectors for {len(ledgers)} ledgers to testvectors/protocol-v0.5.json")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--openssl", default="openssl", help="OpenSSL 3.5+ command-line tool")
@@ -1167,6 +1432,7 @@ def main() -> None:
     generate_protocol_v02()
     generate_protocol_v03()
     generate_protocol_v04()
+    generate_protocol_v05()
 
 
 if __name__ == "__main__":

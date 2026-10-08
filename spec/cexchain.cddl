@@ -1,7 +1,7 @@
 ; SPDX-License-Identifier: Apache-2.0
 ; Copyright 2026 Cirraya
 ;
-; The CexChain protocol (RFC 8610 CDDL). Specification revision v0.4; the
+; The CexChain protocol (RFC 8610 CDDL). Specification revision v0.5; the
 ; wire protocol version (statement key 0) is 1.
 ;
 ; Revision history:
@@ -20,6 +20,9 @@
 ;         your own key or credentials needs a user-verified proof. Earlier
 ;         objects remain valid; a log that breaks the tightened rules does
 ;         not.
+;   v0.5  ownership assets: asset-action (statement type 20), the
+;         receivable, warehouse-receipt, and asset-consent record types and
+;         their metadata, and asset evidence. Earlier objects remain valid.
 ;
 ; Every structure is encoded as deterministic CBOR (RFC 8949 section 4.2.1) in
 ; the CexChain profile: no floats, no indefinite lengths, no duplicate keys.
@@ -85,13 +88,14 @@ statement-type = &(
   record-endorse: 17,
   record-transition: 18,
   record-revoke: 19,
+  asset-action: 20,
 )
 
 statement-body = genesis-body / actor-register-body / actor-rotate-key-body /
                  actor-revoke-body / delegation-grant-body / delegation-revoke-body /
                  actor-set-presence-body / ledger-rotate-log-key-body /
                  record-register-body / record-endorse-body / record-transition-body /
-                 record-revoke-body
+                 record-revoke-body / asset-action-body
 
 ; Genesis creates the ledger. It is signed by the organization root key, and
 ;   ledger_id = statement_id of the genesis statement.
@@ -269,6 +273,35 @@ record-revoke-body = {
   1 => id,                     ; record
   ? 2 => tstr,                 ; reason
 }
+
+; Changes an ownership asset (v0.5): a record of an asset type, on its home
+; ledger. Only the home records actions, and only as its rules allow (see
+; "Ownership assets" below). Assets refuse record-transition and
+; record-revoke.
+asset-action-body = {
+  1 => id,                     ; the asset: the record id of its registration
+  2 => asset-action-name,
+  3 => uint,                   ; head: the log index of the asset's
+                               ; registration or latest asset-action, which
+                               ; this action follows
+  ? 4 => id,                   ; to: the counterparty's ledger (transfer, pledge)
+  ? 5 => uint .ge 1,           ; quantity (redeem)
+  ? 6 => [1*4 consent-ref],    ; one per party the action needs, strictly
+                               ; ascending by ledger
+  ? 7 => tstr,                 ; reference: a payment reference, a court
+                               ; order, a reason; 1-1024 bytes
+}
+asset-action-name = "transfer" / "pledge" / "release" / "enforce" / "redeem" /
+                    "pay" / "confirm" / "dispute" / "freeze" / "unfreeze" /
+                    "cancel"
+; A party's consent, given on its own ledger.
+consent-ref = [
+  ledger: id,                  ; the party's ledger
+  record: id,                  ; its cexchain.asset-consent/1 record there
+  bundle: bstr .size 32,       ; HASH (the home ledger's) of the consent's
+                               ; evidence bundle that the home verified and
+                               ; keeps
+]
 
 provenance = {
   ? 1 => tstr,                 ; model
@@ -518,4 +551,66 @@ delivery-contents = {
 ; key; the contents open with that key; the record bundle verifies for the
 ; granter's ledger, is the granted record, and discloses nothing beyond the
 ; grant; and every attachment content matches its commitment.
+
+; ---------------------------------------------------------------------------
+; Ownership assets (v0.5)
+; ---------------------------------------------------------------------------
+
+; An asset is a record of an asset type, registered on its home ledger, the
+; issuer's. Its parties (holder, pledgee, payee) are other organizations,
+; identified by ledger id; no party is the home ledger itself. A party
+; consents to an action with a cexchain.asset-consent/1 record on its own
+; ledger; the home records the action (asset-action-body) once every party
+; it needs has consented to the same terms, citing each consent.
+;
+; Record metadata (key 5 of record-register-body), checked by the ledger
+; rules when an asset is registered. Other text keys are allowed.
+receivable = {                 ; cexchain.receivable/1, on the debtor's ledger
+  "holder" => bstr .size 32,   ; the first creditor's ledger
+  "amount" => uint .ge 1,      ; in the currency's minor unit (fen for CNY)
+  "currency" => tstr,          ; ISO 4217: three capital letters
+  "due" => uint,               ; ms since the epoch
+  * tstr => any,
+}
+warehouse-receipt = {          ; cexchain.warehouse-receipt/1, on the
+                               ; warehouse's ledger
+  "holder" => bstr .size 32,   ; the depositor's ledger
+  "quantity" => uint .ge 1,
+  "unit" => tstr,              ; 1-16 bytes: "kg", "t", "bale"
+  * tstr => any,
+}
+
+; Metadata of a cexchain.asset-consent/1 record (initial state "given",
+; which may become "withdrawn"), on the consenting party's ledger. Like the
+; access records, its metadata is checked by the home and by verifiers, not
+; by the ledger rules. The terms (ledger, asset, action, head, to, quantity)
+; must equal the action's.
+asset-consent = {
+  "ledger" => bstr .size 32,   ; the asset's home ledger
+  "asset" => bstr .size 32,
+  "action" => asset-action-name,
+  "head" => uint,
+  ? "to" => bstr .size 32,
+  ? "quantity" => uint .ge 1,
+  "until" => uint,             ; > 0: the consent lapses then (ms)
+  ? "reference" => tstr,       ; 1-1024 bytes: a financing contract, a
+                               ; registry filing
+}
+
+; Everything needed to verify an asset offline: its bundle from the home
+; ledger, and every consent bundle its actions pin (each once, in any
+; order). A verifier:
+;   1. verifies the asset bundle for the home ledger; it must be complete;
+;   2. replays the asset's actions, so knows its holder, pledgee, payee,
+;      state, and quantity as of the bundle's checkpoint;
+;   3. for each consent-ref, takes the bundle whose HASH (the home's) it
+;      names, and requires that bundle to verify for the referenced ledger,
+;      completely; to be about the referenced record, a live (given, not
+;      revoked) cexchain.asset-consent/1 record; to carry the action's
+;      terms; and to lapse no earlier than the action's registration time.
+asset-evidence = {
+  0 => 1,                      ; format version
+  1 => bstr,                   ; the asset's evidence bundle
+  ? 2 => [1*4096 bstr],        ; consent evidence bundles
+}
 

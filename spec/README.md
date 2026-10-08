@@ -1,6 +1,6 @@
 # The CexChain protocol
 
-Revision v0.4. Wire protocol version 1.
+Revision v0.5. Wire protocol version 1.
 
 This document explains the protocol in prose. The normative definitions are:
 
@@ -25,9 +25,10 @@ The key words MUST, MUST NOT, SHOULD, and MAY are used as in RFC 2119.
 10. [Witnesses](#10-witnesses)
 11. [Evidence bundles and verification](#11-evidence-bundles-and-verification)
 12. [Access across organizations](#12-access-across-organizations)
-13. [The HTTP API](#13-the-http-api)
-14. [Security considerations](#14-security-considerations)
-15. [Test vectors](#15-test-vectors)
+13. [Ownership assets](#13-ownership-assets)
+14. [The HTTP API](#14-the-http-api)
+15. [Security considerations](#15-security-considerations)
+16. [Test vectors](#16-test-vectors)
 
 ## 1. Overview
 
@@ -45,6 +46,8 @@ An **evidence bundle** packs all of this for one record, so a third party can ve
 Documents stay off the ledger. The ledger holds salted commitments to field values and attachments, and the owner discloses fields selectively.
 
 Two organizations exchange records through the same mechanism (section 12): each step is a statement on the acting organization's own ledger, checked by the other side with an evidence bundle.
+
+**Ownership assets** (section 13), such as receivables and warehouse receipts, live on their issuer's ledger. Each change of hands needs the consent of every party involved, given on that party's own ledger. The issuer's ledger refuses a second pledge, and witnesses stop it from showing different banks different histories.
 
 **Machine by default.** A signature shows only that a key was used. A statement counts as a person's action only if it carries proof of presence (section 7).
 
@@ -129,6 +132,7 @@ Statement types:
 | 17 | record-endorse | record, role |
 | 18 | record-transition | record, from state, to state |
 | 19 | record-revoke | record, reason |
+| 20 | asset-action | asset, action, head, counterparty, quantity, consents, reference (v0.5; section 13) |
 
 ## 5. Ledger rules
 
@@ -168,6 +172,7 @@ A ledger accepts a statement only if every rule below holds at its registration 
 - **The log key.** Only the organization rotates it (ledger-rotate-log-key), without a delegation. The new key must not be weak, must not be an actor's key, and must never have been a log key of this ledger.
 - **Delegations.** Only the grantor or the organization may revoke a delegation. Revoking an actor or a delegation ends everything that depends on it, because authority is checked through the whole chain at every statement.
 - **Records.** Records follow their type's lifecycle (section 6). Transitions must start from the record's current state and be allowed by its type. Endorsement roles must be defined by the type, and an actor endorses a record at most once per role. A revoked record accepts no further statements.
+- **Assets.** An asset's registration must carry its type's metadata, and asset actions follow the rules of section 13. Assets refuse record-transition and record-revoke: they change only through asset actions. For authority, an asset action acts on the asset's record type.
 
 ## 6. Records and private data
 
@@ -187,6 +192,9 @@ A ledger accepts a statement only if every rule below holds at its registration 
 | `cexchain.access-request/1` | requested | requested → withdrawn | none |
 | `cexchain.access-grant/1` | granted | none (revoke the record) | none |
 | `cexchain.access-receipt/1` | received | none | none |
+| `cexchain.asset-consent/1` | given | given → withdrawn | none |
+| `cexchain.receivable/1` | active | asset actions only (section 13) | none |
+| `cexchain.warehouse-receipt/1` | active | asset actions only (section 13) | inspector, insurer |
 
 Other record types use a generic lifecycle: initial state `registered`, no transitions, any role.
 
@@ -346,7 +354,75 @@ Each side learns the other's **ledger id** out of band and pins every bundle it 
 
 Revoking a grant stops future deliveries. It cannot make a recipient forget, but the receipt makes access accountable.
 
-## 13. The HTTP API
+## 13. Ownership assets
+
+An **asset** is a record of an asset type whose holder can change: a receivable, a warehouse receipt. The threat is no longer only tampering but double spending: pledging or selling one asset twice. CexChain prevents it without a shared chain:
+
+- **One home.** Each asset lives on exactly one ledger, its **home**: its issuer's (the debtor's for a receivable, the warehouse's for a receipt). Only the home changes it, and its rules refuse every change the asset's state does not allow. A second pledge breaks a rule, so a log that holds one fails replay.
+- **Parties are ledgers.** The holder, the pledgee, and the payee are other organizations, identified by ledger id. No party is the home ledger itself.
+- **Consent on the party's own ledger.** A party consents to an action by registering a `cexchain.asset-consent/1` record on its own ledger, under its own delegations, with proof of presence if a person approved. The home records the action only once every party it needs has consented to the same terms, and the action cites each consent.
+- **Witnesses** stop the home from showing different histories to different parties (section 10).
+
+**Types.** Their metadata (key 5 of the registration) is public to whoever holds the asset's evidence, and checked by the rules:
+
+| Type | Metadata | States |
+|---|---|---|
+| `cexchain.receivable/1` | `holder` (the first creditor's ledger), `amount` (≥ 1, in the currency's minor unit), `currency` (ISO 4217, three capital letters), `due` (ms) | active, pledged, frozen, paid, disputed; settled, cancelled (final) |
+| `cexchain.warehouse-receipt/1` | `holder` (the depositor's ledger), `quantity` (≥ 1), `unit` (1 to 16 bytes) | active, pledged, frozen; redeemed, cancelled (final) |
+
+Other metadata keys are allowed. Confidential terms (contracts, invoices, the goods) belong in fields and attachments, disclosed selectively. A new asset is active, held by `holder`.
+
+**The head.** An asset's head is the log index of its registration or of its latest asset action (endorsements do not count). Every action and every consent names the head it follows. A consent therefore applies only to the asset as its party saw it, and only once.
+
+**Actions** (statement type 20, `asset-action`):
+
+| Action | Types | From | To | Consents from | Effect |
+|---|---|---|---|---|---|
+| transfer | both | active | active | the holder and `to` | the holder becomes `to` |
+| pledge | both | active | pledged | the holder and `to` | `to` becomes the pledgee |
+| release | both | pledged | active | the pledgee | no pledgee |
+| enforce | both | pledged | active | the pledgee | the pledgee becomes the holder; no pledgee |
+| redeem | receipt | active, pledged | unchanged, or redeemed when nothing remains | the holder, and the pledgee if pledged | the quantity falls by `quantity` |
+| pay | receivable | active, pledged, disputed | paid | none | the payee becomes the pledgee if there is one, otherwise the holder (kept when paid again after a dispute) |
+| confirm | receivable | paid, disputed | settled | the payee | |
+| dispute | receivable | paid | disputed | the payee | |
+| freeze | both | active, pledged, paid, disputed | frozen | none | remembers the state |
+| unfreeze | both | frozen | the remembered state | none | |
+| cancel | both | active | cancelled | the holder | |
+
+An asset action MUST be refused unless:
+
+- the asset exists, is of an asset type, and is not in a final state;
+- `head` is the asset's head;
+- the action is defined for the asset's type and allowed from its state;
+- `to` is present exactly for transfer and pledge, and is neither the home ledger nor the holder;
+- `quantity` is present exactly for redeem, at most the quantity remaining;
+- `consents` cites exactly one consent from each party the table names, ascending by ledger, and is absent for pay, freeze, and unfreeze.
+
+Pay, freeze, and unfreeze are the home's own word: a debtor's claim that it paid (which the payee confirms or disputes), or a freeze under a court order. Their `reference` says which.
+
+**Consents.** The consent's metadata (`asset-consent`) names the terms (home ledger, asset, action, head, and `to` and `quantity` where the action has them), an expiry `until`, and optionally a `reference`, such as a financing contract or a registry filing. A consent reference in an action is `[ledger, record, bundle]`: the party's ledger, the consent record, and the hash, under the home's hash, of the consent's evidence bundle the home verified. Before recording an action, the home MUST check each consent bundle as a verifier does (step 3 below), and MUST keep the bundles it pins.
+
+**Asset evidence** (`asset-evidence`) is the asset's evidence bundle with every consent bundle its actions pin. A verifier MUST:
+
+1. verify the asset bundle for the expected home ledger (section 11) and require it to be complete, since only a complete history shows the asset's current state (not pledged, say);
+2. replay the asset's actions to its current holder, pledgee, payee, state, and quantity;
+3. for each consent reference, find the bundle with that hash and check that it verifies for the referenced ledger, completely; is about the referenced record, a live `cexchain.asset-consent/1` record (state given, not revoked); carries the action's terms; and lapses no earlier than the action's registration time;
+4. refuse bundles that no reference pins, and references without a bundle.
+
+The report shows the chain of title: each action, who consented to it, under whose authority, whether a person proved presence, and any AI provenance.
+
+**Lending against an asset.** A lender MUST NOT fund until its pledge is in a checkpoint cosigned by witnesses it trusts. From then on, a second pledge is refused or detected:
+- a consent with an old head no longer matches;
+- a pledged asset cannot be pledged again;
+- a home that forks its log to show another lender an unpledged asset needs that lender's witnesses to cosign the fork, and a witness cosigns only one history. So lenders SHOULD require a common witness, such as a regulator or a third-party witness service. Two checkpoints of one size with different roots, both signed by the home's log key, also prove the home's misconduct.
+
+**Limits.**
+- A home can refuse to record an action (censorship). It cannot move an asset without its parties' consents, nor fork unseen.
+- The ledger cannot know whether goods exist: a warehouse could issue two receipts for the same goods. Every receipt it issued is in its log, for auditors and witnesses.
+- Legal registries of pledges and transfers are not replaced; a consent's `reference` can carry the filing number.
+
+## 14. The HTTP API
 
 This section is informative. The reference implementation serves a ledger over HTTP/1.1 (`cexchain serve`):
 
@@ -356,21 +432,23 @@ This section is informative. The reference implementation serves a ledger over H
 | Scope | Routes |
 |---|---|
 | none | `GET /healthz`, `GET /v1/checkpoint[?size=N]`, `GET /v1/consistency?old=&new=` |
-| read | `GET /metrics`, `/v1/status`, `/v1/entries?start=&count=`, `/v1/checkpoints`, `/v1/cosignatures`, `/v1/inclusion?index=&size=`, `/v1/statements/{id}`, `/v1/receipts/{index}`, `/v1/state/{id}`, `/v1/evidence/{record}`, `/v1/vault/public-key`, `/v1/vault/records/{record}` |
+| read | `GET /metrics`, `/v1/status`, `/v1/entries?start=&count=`, `/v1/checkpoints`, `/v1/cosignatures`, `/v1/inclusion?index=&size=`, `/v1/statements/{id}`, `/v1/receipts/{index}`, `/v1/state/{id}`, `/v1/evidence/{record}`, `/v1/vault/public-key`, `/v1/vault/records/{record}`, `/v1/assets/{asset}` |
 | submit | `POST /v1/statements` |
 | admin | `POST /v1/checkpoint`, `POST /v1/cosignatures` |
-| peer | `POST /v1/access/requests`, `GET /v1/access/deliveries/{request}`, `POST /v1/access/receipts`, `POST /v1/witness/cosign` |
+| peer | `POST /v1/access/requests`, `GET /v1/access/deliveries/{request}`, `POST /v1/access/receipts`, `POST /v1/witness/cosign`, `POST /v1/assets/consents`, `GET /v1/assets/{asset}` (the asset's current parties) |
 | read, admin | clusters: `GET /v1/cluster`; `POST /v1/cluster/members`, `/v1/cluster/members/remove`, `/v1/cluster/step-down` |
 
 **Clusters.** Several members can keep one ledger with Raft. Each group of statements is replicated as `{time, statements, sealed private data}` and applied by every member at that time, so their logs are identical. Checkpoints are signed by the leader and replicated as signed. A follower answers writes with 307 and the leader's API. Members authenticate their Raft messages with a shared secret. None of this changes the protocol: a cluster's log is one ledger's log.
 
-`POST /v1/statements` also takes `application/cexchain-submission+cbor`: `{1: signed statement, 2: sealed private data}`, a record's registration with its vault file. The server stores the file with the record, once: the same file again is accepted (a retry), a different one refused, so nobody can store other data for a record first.
+`POST /v1/statements` also takes `application/cexchain-submission+cbor`: `{1: signed statement, 2: sealed private data}`, a record's registration with its vault file. The server stores the file with the record, once: the same file again is accepted (a retry), a different one refused, so nobody can store other data for a record first. For an asset action, the submission is `{1: signed statement, 3: [consent bundles]}`: the server checks every consent the action cites against its bundle (section 13) before registering it, and keeps the bundles.
+
+**Assets.** A server with a registrar key (an actor of the home with a delegation for asset actions) takes consents from its peers: `POST /v1/assets/consents` with a consent's evidence bundle, which must come from the peer's ledger. It checks the consent, holds it until every party the action needs has consented to the same terms, then signs and registers the action. It answers with the action once recorded, or with the parties still missing. A consent whose head is no longer the asset's, or that has lapsed, is dropped. `GET /v1/assets/{asset}` returns the asset evidence with every field disclosed and attachment opened, to the asset's current holder, pledgee, and payee, and to read tokens.
 
 A server holds the log key to sign checkpoints, receipts, and evidence. Across a rotation it may hold the old and new key, and signs with the one in effect.
 
 **Replicas.** A replica copies a ledger through the read routes. It takes the entries a checkpoint covers only once they lead to its root and the checkpoint is signed by the log key in effect at its size, following any key rotation among them (checkpoints never go back in size or time). It re-validates every entry under the rules, rebuilds the tree, and never copies entries that no checkpoint covers. It MUST stop at the first entry that fails, and MUST refuse a primary whose log is shorter than its own (a rollback).
 
-## 14. Security considerations
+## 15. Security considerations
 
 - **What a bundle proves.** Within one ledger, a bundle proves:
   - authorship: the actor's key signed the statement;
@@ -393,8 +471,12 @@ A server holds the log key to sign checkpoints, receipts, and evidence. Across a
 - **Cross-organization access.**
   - A delivery is sealed to a key made for one request. It is bound to its grant and checked against the granter's ledger.
   - Revocation cannot recall data already delivered.
+- **Assets.**
+  - Double-pledge safety across lenders rests on the witnesses they share (section 13). If two lenders share no witness, the home can show each of them a different history, in which each pledge is the only one.
+  - Every holder and pledgee sees an asset's chain of title and public metadata.
+  - Consents are machine actions unless they carry proof of presence. Verifiers report this and MAY require it.
 
-## 15. Test vectors
+## 16. Test vectors
 
 | File | Covers |
 |---|---|
@@ -407,5 +489,6 @@ A server holds the log key to sign checkpoints, receipts, and evidence. Across a
 | `protocol-v0.2.json` | presence (passkey and hardware key), state trees and commitments, cosign requests |
 | `protocol-v0.3.json` | access metadata, and a delivery sealed by an independent HPKE implementation |
 | `protocol-v0.4.json` | log and root key rotation, the checkpoint and state commitment under the new key, a cosign request with key rotations |
+| `protocol-v0.5.json` | assets: a receivable and a warehouse receipt through every action, consent metadata, actions the rules refuse, and asset evidence |
 
 `tools/testvectors/generate.py` regenerates them with Python's `cryptography` and `cbor2`, and OpenSSL, independently of the C++ code.
