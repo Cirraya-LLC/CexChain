@@ -30,6 +30,7 @@
 #include <cexchain/core/protocol/common.hpp>
 #include <cexchain/core/protocol/statement.hpp>
 #include <cexchain/ledger/ledger.hpp>
+#include <cexchain/node/assets.hpp>
 #include <cexchain/node/cluster.hpp>
 
 #include "crc32c.hpp"
@@ -51,7 +52,10 @@ constexpr std::string_view applied_file = "applied";
 constexpr std::string_view snapshot_file = "snapshot";
 
 // Raft entries (CBOR arrays), each applied at the ledger size it names.
-constexpr std::uint64_t entry_batch = 1;       // [1, at, size, [statement], [[i, vault]]]
+constexpr std::uint64_t entry_batch = 1; // [1, at, size, [statement], [sidecar]]
+/// A sidecar is [i, vault file], or [i, consent bundles, 2] for an asset
+/// action (D-052); snapshots carry them as [id, bytes(, 2)].
+constexpr std::uint64_t sidecar_consents = 2;
 constexpr std::uint64_t entry_checkpoint = 2;  // [2, commitment entry / null, checkpoint]
 constexpr std::uint64_t entry_cosignature = 3; // [3, cosignature, witness public key]
 
@@ -600,21 +604,26 @@ public:
             encoded = cbor::encode(cbor::Value::array(std::move(entries)));
         } else if (obj_id == chunks + 1) {
             encoded = extras(size);
-            is_last_obj = vault_records(size).empty();
+            is_last_obj = sidecar_files(size).empty();
         } else {
-            const auto records = vault_records(size);
+            const auto files_kept = sidecar_files(size);
             const std::size_t first =
                 static_cast<std::size_t>(obj_id - chunks - 2) * snapshot_vault_files;
             cbor::Array files;
-            for (std::size_t i = first; i < std::min(records.size(), first + snapshot_vault_files);
-                 ++i) {
-                if (auto sealed = detail::read_file(vault_path(records[i]))) {
-                    files.push_back(cbor::Value::array(
-                        {cbor::Value::bytes(records[i].bytes()), cbor::Value::bytes(*sealed)}));
+            for (std::size_t i = first;
+                 i < std::min(files_kept.size(), first + snapshot_vault_files); ++i) {
+                const auto& [id, consents] = files_kept[i];
+                if (auto bytes = detail::read_file(consents ? consents_path(directory_, id)
+                                                            : vault_path(id))) {
+                    cbor::Array item{cbor::Value::bytes(id.bytes()), cbor::Value::bytes(*bytes)};
+                    if (consents) {
+                        item.push_back(cbor::Value::unsigned_integer(sidecar_consents));
+                    }
+                    files.push_back(cbor::Value::array(std::move(item)));
                 }
             }
             encoded = cbor::encode(cbor::Value::array(std::move(files)));
-            is_last_obj = first + snapshot_vault_files >= records.size();
+            is_last_obj = first + snapshot_vault_files >= files_kept.size();
         }
         if (!encoded) {
             return -1;
@@ -664,9 +673,16 @@ public:
         } else {
             for (const cbor::Value& item : *items) {
                 const cbor::Array* parts = item.as_array();
-                if (parts != nullptr && parts->size() == 2 && (*parts)[0].as_bytes() != nullptr &&
-                    (*parts)[1].as_bytes() != nullptr) {
-                    if (auto id = protocol::to_id(*(*parts)[0].as_bytes())) {
+                if (parts == nullptr || parts->size() < 2 || parts->size() > 3 ||
+                    (*parts)[0].as_bytes() == nullptr || (*parts)[1].as_bytes() == nullptr) {
+                    continue;
+                }
+                const bool consents =
+                    parts->size() == 3 && (*parts)[2].as_uint64() == sidecar_consents;
+                if (auto id = protocol::to_id(*(*parts)[0].as_bytes())) {
+                    if (consents) {
+                        keep_consents(*id, *(*parts)[1].as_bytes());
+                    } else {
                         store_vault(*id, *(*parts)[1].as_bytes());
                     }
                 }
@@ -697,17 +713,44 @@ private:
         return directory_ / "vault" / "records" / (to_hex(record.bytes()) + ".cbor");
     }
 
-    /// Records below `size` (in the order the log created them).
-    std::vector<protocol::Id> vault_records(std::uint64_t size) const {
-        std::vector<protocol::Id> out;
+    /// The files kept with statements below `size`: records' vault files
+    /// (in the order the log created the records), then the consents of
+    /// asset actions (true), in log order.
+    std::vector<std::pair<protocol::Id, bool>> sidecar_files(std::uint64_t size) const {
+        std::vector<std::pair<protocol::Id, bool>> out;
         ledger_->read_state([&](const protocol::LedgerState& state) {
             for (const auto& [id, record] : state.records()) {
                 if (record.registered_at_index < size) {
-                    out.push_back(protocol::to_id(id).value_or(protocol::Id{}));
+                    out.emplace_back(protocol::to_id(id).value_or(protocol::Id{}), false);
                 }
             }
         });
+        std::vector<std::pair<std::uint64_t, protocol::Id>> actions;
+        std::error_code ec;
+        for (const auto& e :
+             std::filesystem::directory_iterator(consents_directory(directory_), ec)) {
+            const std::string name = e.path().stem().string();
+            auto bytes = from_hex(name);
+            auto id =
+                bytes ? protocol::to_id(*bytes) : Result<protocol::Id>(fail(Errc::malformed, ""));
+            const auto index = id ? ledger_->statement_index(*id) : std::nullopt;
+            if (index && *index < size) {
+                actions.emplace_back(*index, *id);
+            }
+        }
+        std::ranges::sort(actions, {}, &std::pair<std::uint64_t, protocol::Id>::first);
+        for (const auto& [index, id] : actions) {
+            out.emplace_back(id, true);
+        }
         return out;
+    }
+
+    /// Keeps an asset action's consents; a node that holds other bytes for
+    /// it has diverged.
+    void keep_consents(const protocol::Id& action, ByteView bundles) {
+        if (auto s = store_consents(directory_, action, bundles); !s) {
+            failed("cannot keep an asset action's consents");
+        }
     }
 
     Result<Bytes> extras(std::uint64_t size) const {
@@ -828,6 +871,20 @@ private:
         std::vector<ByteView> statements;
         for (const cbor::Value& s : list) {
             statements.emplace_back(s.as_bytes() != nullptr ? ByteView(*s.as_bytes()) : ByteView());
+        }
+        // An asset action's consents are kept before it is registered.
+        for (const cbor::Value& v : vaults) {
+            const cbor::Array* parts = v.as_array();
+            if (parts == nullptr || parts->size() != 3 || !(*parts)[0].as_uint64() ||
+                (*parts)[1].as_bytes() == nullptr || (*parts)[2].as_uint64() != sidecar_consents ||
+                *(*parts)[0].as_uint64() >= statements.size()) {
+                continue;
+            }
+            auto parsed = protocol::parse_statement(
+                ledger_->provider(), statements[*(*parts)[0].as_uint64()], ledger_->hash());
+            if (parsed) {
+                keep_consents(parsed->id, *(*parts)[1].as_bytes());
+            }
         }
         results = ledger_->submit_batch(statements, at);
         for (const cbor::Value& v : vaults) {

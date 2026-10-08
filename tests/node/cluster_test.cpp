@@ -21,6 +21,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cexchain/core/protocol/assets.hpp>
+#include <cexchain/node/assets.hpp>
 #include <cexchain/node/cluster.hpp>
 
 #include "cluster_parts.hpp"
@@ -159,8 +161,9 @@ struct Trio {
             statements.push_back(record(at + static_cast<protocol::Timestamp>(i)));
         }
         const std::vector<ByteView> views(statements.begin(), statements.end());
-        std::vector<std::optional<Bytes>> vaults(statements.size());
-        vaults[0] = Bytes{0xa0, static_cast<std::uint8_t>(at & 0xffU)};
+        std::vector<std::optional<node::Sidecar>> vaults(statements.size());
+        vaults[0] = node::Sidecar{node::Sidecar::Kind::vault,
+                                  Bytes{0xa0, static_cast<std::uint8_t>(at & 0xffU)}};
         cexchain::Result<node::BatchResult> results = std::unexpected(cexchain::Error{});
         REQUIRE(eventually([&] {
             Node* now = leader();
@@ -188,6 +191,64 @@ struct Trio {
             }
         }
         return nullptr;
+    }
+
+    /// Registers a receivable held by `party`, which consents to cancel it;
+    /// the cancellation goes in with the consent. Returns its id.
+    protocol::Id cancel_asset(World& party, protocol::Timestamp at) {
+        auto commit = [&](std::string type, cbor::Value metadata) {
+            return protocol::RecordRegisterBody{
+                std::move(type), Bytes(32, 0x42), 1, {}, std::move(metadata)};
+        };
+        auto submit = [&](const Bytes& statement, std::optional<node::Sidecar> sidecar) {
+            const ByteView view = statement;
+            cexchain::Result<node::BatchResult> results = std::unexpected(cexchain::Error{});
+            REQUIRE(eventually([&] {
+                Node* now = leader();
+                results =
+                    now != nullptr
+                        ? now->cluster->submit(std::span(&view, 1), std::span(&sidecar, 1), at)
+                        : cexchain::Result<node::BatchResult>(
+                              std::unexpected(cexchain::Error{Errc::unavailable, "no leader"}));
+                return results.has_value();
+            }));
+            REQUIRE(results->front());
+            return results->front()->index;
+        };
+        auto metadata = protocol::encode_asset_metadata(
+            protocol::AssetKind::receivable, {party.ledger().id(), 100, "CNY", t0 + day});
+        REQUIRE(metadata);
+        auto s = w.statement(w.org_id(), std::nullopt,
+                             commit(std::string(protocol::receivable_type), std::move(*metadata)));
+        s.issued_at = at;
+        const Bytes registration = w.sign(w.org(), s);
+        const std::uint64_t head = submit(registration, std::nullopt);
+        const protocol::Id asset =
+            protocol::parse_statement(provider(), registration, w.hash())->id;
+
+        protocol::AssetActionBody cancel;
+        cancel.asset = asset;
+        cancel.action = protocol::AssetAction::cancel;
+        cancel.head = head;
+        auto consent_metadata = protocol::encode_asset_consent(
+            {protocol::terms_of(cancel, w.org_id()), t0 + 30 * day, std::nullopt});
+        REQUIRE(consent_metadata);
+        const protocol::Id consent =
+            party.ok(party.org(), party.statement(party.org_id(), std::nullopt,
+                                                  commit(std::string(protocol::asset_consent_type),
+                                                         std::move(*consent_metadata))));
+        REQUIRE(party.ledger().checkpoint(party.log_key()));
+        const Bytes bundle =
+            *protocol::encode_bundle(*party.ledger().export_evidence(party.log_key(), consent));
+        cancel.consents.push_back(
+            {party.ledger().id(), consent, *provider().digest(w.hash(), bundle)});
+        auto a = w.statement(w.org_id(), std::nullopt, cancel);
+        a.issued_at = at + 1;
+        const Bytes signed_action = w.sign(w.org(), a);
+        const Bytes bundles = *node::encode_consent_bundles(std::vector<Bytes>{bundle});
+        submit(signed_action, node::Sidecar{node::Sidecar::Kind::consents, bundles});
+        REQUIRE(eventually([&] { return agree(); }));
+        return protocol::parse_statement(provider(), signed_action, w.hash())->id;
     }
 
     Bytes record(protocol::Timestamp at) {
@@ -230,7 +291,7 @@ TEST_CASE("a cluster replicates writes and survives its leader", "[node][cluster
     forged[forged.size() - 2] ^= 1;
     const std::vector<Bytes> batch{trio.record(t0 + 1), trio.record(t0 + 2), forged};
     const std::vector<ByteView> views(batch.begin(), batch.end());
-    const std::vector<std::optional<Bytes>> vaults(batch.size());
+    const std::vector<std::optional<node::Sidecar>> vaults(batch.size());
     cexchain::Result<node::BatchResult> results = std::unexpected(cexchain::Error{});
     REQUIRE(eventually([&] {
         results = trio.leader()->cluster->submit(views, vaults, t0 + 5000);
@@ -279,7 +340,7 @@ TEST_CASE("a cluster replicates writes and survives its leader", "[node][cluster
     gone->stop();
     const std::vector<Bytes> more{trio.record(t0 + 10)};
     const std::vector<ByteView> more_views(more.begin(), more.end());
-    const std::vector<std::optional<Bytes>> no_vaults(1);
+    const std::vector<std::optional<node::Sidecar>> no_vaults(1);
     REQUIRE(eventually([&] {
         Node* leader = trio.leader();
         return leader != nullptr && leader != gone &&
@@ -313,6 +374,14 @@ TEST_CASE("a node far behind gets the ledger itself as a snapshot", "[node][clus
     trio.write(2, t0 + 20000);
     REQUIRE(eventually([&] { return trio.agree(); }));
 
+    // An asset action, with the consent it pins kept on every node (D-052).
+    World party{crypto::HashAlg::sha256, "Party"};
+    const protocol::Id action = trio.cancel_asset(party, t0 + 25000);
+    for (int n = 0; n < 2; ++n) {
+        CHECK(std::filesystem::exists(
+            node::consents_path(trio.nodes[static_cast<std::size_t>(n)]->dir, action)));
+    }
+
     trio.nodes[2]->start();
     trio.add(3);
     auto& late = *trio.nodes[2];
@@ -327,6 +396,8 @@ TEST_CASE("a node far behind gets the ledger itself as a snapshot", "[node][clus
         }
         return files == 9;
     }));
+    CHECK(
+        eventually([&] { return std::filesystem::exists(node::consents_path(late.dir, action)); }));
     // And it takes part from then on.
     trio.write(1, t0 + 30000);
     CHECK(eventually([&] { return trio.agree(); }));

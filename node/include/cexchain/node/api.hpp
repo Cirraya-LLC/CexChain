@@ -27,15 +27,19 @@
 ///         /v1/checkpoints?start=&count=, /v1/cosignatures?start=&count=,
 ///         /v1/inclusion?index=&size=, /v1/statements/{id}, /v1/receipts/{index},
 ///         /v1/state/{id}, /v1/evidence/{record}, /v1/vault/public-key,
-///         /v1/vault/records/{record}
+///         /v1/vault/records/{record}, /v1/assets/{asset}
 /// submit: POST /v1/statements (a signed statement)
 /// admin:  POST /v1/checkpoint, POST /v1/cosignatures ([cosignature, witness key])
 /// peer:   POST /v1/access/requests (a request's evidence), GET /v1/access/deliveries/{request},
-///         POST /v1/access/receipts (a receipt's evidence), POST /v1/witness/cosign
+///         POST /v1/access/receipts (a receipt's evidence), POST /v1/witness/cosign,
+///         POST /v1/assets/consents (a consent's evidence), GET /v1/assets/{asset} (the
+///         asset's current parties)
 namespace cexchain::node {
 
-/// The content type of a record's registration sent with its sealed private
-/// data: {1: signed statement, 2: sealed vault file}.
+/// The content type of a statement sent with what is kept with it: a
+/// record's registration with its sealed private data, {1: signed
+/// statement, 2: sealed vault file}; or an asset action with the consent
+/// bundles it pins, {1: signed statement, 3: [consent bundles]}.
 inline constexpr std::string_view submission_content_type = "application/cexchain-submission+cbor";
 
 /// A ledger directory that is a replica holds this file (JSON).
@@ -64,6 +68,11 @@ struct ApiOptions {
     /// (D-051): the node holds the ledger's lock for as long as it runs,
     /// writes go through Raft, and followers send writers to the leader.
     bool cluster = false;
+    /// The registrar (D-052): an actor of this ledger with a delegation for
+    /// asset actions. With it, the server takes peers' consents (POST
+    /// /v1/assets/consents) and records each action once every party it
+    /// needs has consented; without it, that route answers 501.
+    std::shared_ptr<const crypto::Signer> registrar;
 };
 
 class LedgerApi final : public Application {

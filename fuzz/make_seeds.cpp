@@ -387,6 +387,12 @@ void cluster_seeds(const Seeds& seeds) {
                         Value::unsigned_integer(1), Value::array({Value::bytes(Bytes(40, 0xd2))}),
                         Value::array({Value::array(
                             {Value::unsigned_integer(0), Value::bytes(Bytes{0xa0})})})}));
+    write("batch-consents", 0,
+          Value::array({Value::unsigned_integer(1), Value::unsigned_integer(1'791'244'800'000),
+                        Value::unsigned_integer(1), Value::array({Value::bytes(Bytes(40, 0xd2))}),
+                        Value::array({Value::array({Value::unsigned_integer(0),
+                                                    Value::bytes(Bytes{0x81, 0x41, 0x00}),
+                                                    Value::unsigned_integer(2)})})}));
     write("checkpoint", 1,
           Value::array({Value::unsigned_integer(2), Value::null(), Value::bytes(Bytes(60, 0xd2))}));
     write("cosignature", 2,
@@ -396,6 +402,10 @@ void cluster_seeds(const Seeds& seeds) {
           Value::array({Value::bytes(Bytes(32, 1)), Value::unsigned_integer(5),
                         Value::unsigned_integer(1)}));
     write("snapshot-entries", 4, Value::array({Value::bytes(Bytes(20, 3))}));
+    write("snapshot-files", 5,
+          Value::array({Value::array({Value::bytes(Bytes(32, 4)), Value::bytes(Bytes{0xa0})}),
+                        Value::array({Value::bytes(Bytes(32, 5)), Value::bytes(Bytes{0x81, 0x40}),
+                                      Value::unsigned_integer(2)})}));
     write("snapshot-extras", 5, Value::array({Value::array({}), Value::array({})}));
 }
 

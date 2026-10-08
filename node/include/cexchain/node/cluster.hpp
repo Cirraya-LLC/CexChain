@@ -31,7 +31,9 @@
 ///
 /// Files under <ledger>/cluster: node.json (this node), secret (the
 /// cluster's shared secret, which authenticates every Raft message), state
-/// and config (Raft's), raft-log, applied, snapshot.
+/// and config (Raft's), raft-log, applied, snapshot. A batch entry carries
+/// the files kept with its statements: [i, bytes] for a vault file,
+/// [i, bytes, 2] for an asset action's consents.
 namespace cexchain::node {
 
 inline constexpr std::string_view cluster_directory = "cluster";
@@ -97,6 +99,15 @@ struct ClusterTuning {
 /// Each statement's outcome in a replicated batch, in order.
 using BatchResult = std::vector<Result<ledger::Registration>>;
 
+/// A file kept with a replicated statement: a record's sealed private data
+/// (stored once it is registered), or the consent bundles an asset action
+/// pins (stored before, so a registered action always has them).
+struct Sidecar {
+    enum class Kind : std::uint8_t { vault = 1, consents = 2 };
+    Kind kind = Kind::vault;
+    Bytes bytes;
+};
+
 class Cluster {
 public:
     /// Starts this node's Raft server over `ledger`, opened from
@@ -123,7 +134,7 @@ public:
     // lost on the way): a client may retry, since every write is idempotent.
 
     [[nodiscard]] Result<BatchResult> submit(std::span<const ByteView> statements,
-                                             std::span<const std::optional<Bytes>> vault_files,
+                                             std::span<const std::optional<Sidecar>> sidecars,
                                              protocol::Timestamp at);
     /// Signs a checkpoint (and the state commitment before it) and
     /// replicates it; refused while an entry is still on its way.

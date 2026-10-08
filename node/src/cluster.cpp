@@ -364,7 +364,7 @@ ClusterStatus Cluster::status() const {
 }
 
 Result<BatchResult> Cluster::submit(std::span<const ByteView> statements,
-                                    std::span<const std::optional<Bytes>> vault_files,
+                                    std::span<const std::optional<Sidecar>> sidecars,
                                     protocol::Timestamp at) {
     if (auto s = impl_->settle(); !s) {
         return std::unexpected(s.error());
@@ -374,11 +374,15 @@ Result<BatchResult> Cluster::submit(std::span<const ByteView> statements,
         list.push_back(cbor::Value::bytes(s));
     }
     cbor::Array vaults;
-    for (std::size_t i = 0; i < vault_files.size(); ++i) {
-        if (vault_files[i]) {
-            vaults.push_back(cbor::Value::array(
-                {cbor::Value::unsigned_integer(i), cbor::Value::bytes(*vault_files[i])}));
+    for (std::size_t i = 0; i < sidecars.size(); ++i) {
+        if (!sidecars[i]) {
+            continue;
         }
+        cbor::Array item{cbor::Value::unsigned_integer(i), cbor::Value::bytes(sidecars[i]->bytes)};
+        if (sidecars[i]->kind == Sidecar::Kind::consents) {
+            item.push_back(cbor::Value::unsigned_integer(sidecar_consents));
+        }
+        vaults.push_back(cbor::Value::array(std::move(item)));
     }
     auto entry = cbor::encode(cbor::Value::array(
         {cbor::Value::unsigned_integer(entry_batch), cbor::Value::unsigned_integer(at),
