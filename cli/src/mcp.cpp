@@ -21,10 +21,12 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cexchain/core/protocol/asset_evidence.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/record_types.hpp>
 
 #include "commands.hpp"
+#include "output.hpp"
 #include "records.hpp"
 #include "support.hpp"
 
@@ -494,6 +496,66 @@ private:
                                                           text_arg(arguments, "to_state")};
                 session.submit(*key_, body, std::nullopt, provenance(tool, arguments, session));
                 return json{{"record_id", hex_id(record)}, {"from", from}, {"to", body.to_state}};
+            });
+
+        add("cexchain_list_assets",
+            "This ledger's ownership assets (receivables, warehouse receipts): state, holder, "
+            "pledgee, and amount or quantity.",
+            {{"state", {{"type", "string"}, {"description", "Only this state, e.g. pledged."}}}},
+            json::array(), read_only, [this](const Tool&, const json& arguments) {
+                Session session(ledger_);
+                const auto only = optional_text(arguments, "state");
+                json assets = json::array();
+                for (const auto& [key, asset] : session.state().assets()) {
+                    const protocol::RecordState& record = *session.state().record(asset.id);
+                    if (!only || record.state == *only) {
+                        assets.push_back(json::parse(asset_json(session, record, asset).dump()));
+                    }
+                }
+                return json{{"assets", assets}};
+            });
+
+        add("cexchain_get_asset",
+            "An ownership asset: its state, holder, pledgee, payee, amount or quantity, due "
+            "date, head (which consents must name), and every action with its consents.",
+            {{"asset",
+              {{"type", "string"}, {"description", "Asset id or unique prefix (8+ hex)."}}}},
+            json::array({"asset"}), read_only, [this](const Tool&, const json& arguments) {
+                Session session(ledger_);
+                const protocol::Id id = session.record_id(text_arg(arguments, "asset"));
+                const protocol::AssetState* asset = session.state().asset(id);
+                if (asset == nullptr) {
+                    throw ToolError{"that record is not an asset"};
+                }
+                return json::parse(asset_json(session, *session.state().record(id), *asset).dump());
+            });
+
+        add("cexchain_verify_asset_evidence",
+            "Verify an asset's evidence offline (its state and chain of title, with every "
+            "party's consent) before relying on it, e.g. before financing it.",
+            {{"evidence_path", {{"type", "string"}}},
+             {"expected_ledger_id",
+              {{"type", "string"},
+               {"description", "The asset's home ledger id, learned out of band."}}}},
+            json::array({"evidence_path"}), read_only, [](const Tool&, const json& arguments) {
+                const crypto::openssl::Provider provider;
+                protocol::VerifyOptions options;
+                if (const auto ledger_id = optional_text(arguments, "expected_ledger_id")) {
+                    options.expected_ledger = unwrap(
+                        protocol::to_id(unwrap(from_hex(*ledger_id), "ledger id")), "ledger id");
+                }
+                const auto report = protocol::verify_asset_evidence(
+                    provider, read_file(text_arg(arguments, "evidence_path")), options);
+                if (!report) {
+                    return json{{"verified", false}, {"error", report.error().detail}};
+                }
+                // The text report goes under "report", as for record evidence; the
+                // record-level report becomes "evidence".
+                const bool checked = options.expected_ledger.has_value();
+                json out = json::parse(verifier::asset_report_json(*report, checked).dump());
+                out["evidence"] = std::move(out["report"]);
+                out["report"] = verifier::asset_report_text(*report, checked);
+                return out;
             });
 
         add("cexchain_verify_evidence",

@@ -3,7 +3,9 @@
 
 // The browser verifier's interface to JavaScript. Options are set one call at
 // a time (so attachment contents need no encoding), then cexchain_verify runs
-// the same verification as `cexchain verify` and returns the report as JSON.
+// the same verification as `cexchain verify` (or, for an asset's evidence,
+// `cexchain asset verify`) and returns the report as JSON, with "kind" set to
+// "record" or "asset".
 // Strings returned to JavaScript are allocated with malloc; release them with
 // cexchain_free.
 
@@ -15,6 +17,7 @@
 #include <string>
 
 #include <cexchain/core/cbor.hpp>
+#include <cexchain/core/protocol/asset_evidence.hpp>
 #include <cexchain/core/protocol/common.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/crypto/openssl.hpp>
@@ -91,15 +94,32 @@ EMSCRIPTEN_KEEPALIVE void cexchain_add_attachment(const char* name, const std::u
     options.attachment_contents[name] = Bytes(data, data + size);
 }
 
-/// Verifies an evidence bundle with the options set since the last reset.
+/// Verifies an evidence bundle, or an asset's evidence, with the options set
+/// since the last reset.
 EMSCRIPTEN_KEEPALIVE char* cexchain_verify(const std::uint8_t* bundle, std::size_t size) {
     try {
-        const auto report = protocol::verify_bundle(provider(), ByteView(bundle, size), options);
+        const ByteView input(bundle, size);
+        const bool checked = options.expected_ledger.has_value();
+        // The two formats never decode as each other.
+        if (protocol::decode_asset_evidence(input)) {
+            const auto report = protocol::verify_asset_evidence(provider(), input, options);
+            if (!report) {
+                Json out = failure(report.error().detail);
+                out["kind"] = "asset";
+                return to_c_string(out);
+            }
+            Json out = verifier::asset_report_json(*report, checked);
+            out["kind"] = "asset";
+            out["text"] = verifier::asset_report_text(*report, checked);
+            return to_c_string(out);
+        }
+        const auto report = protocol::verify_bundle(provider(), input, options);
         if (!report) {
             return to_c_string(failure(report.error().detail));
         }
-        Json out = verifier::report_json(*report, options.expected_ledger.has_value());
-        out["text"] = verifier::report_text(*report, options.expected_ledger.has_value());
+        Json out = verifier::report_json(*report, checked);
+        out["kind"] = "record";
+        out["text"] = verifier::report_text(*report, checked);
         return to_c_string(out);
     } catch (const std::exception& e) {
         return to_c_string(failure(std::string("internal error: ") + e.what()));

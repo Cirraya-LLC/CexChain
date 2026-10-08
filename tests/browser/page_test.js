@@ -120,6 +120,21 @@ async function verdict(page) {
     await page.waitForFunction(() => document.getElementById("verdict-title").textContent === "Not verified");
     await page.close();
 
+    // 6. An asset's evidence: its state and chain of title, with each consent.
+    page = await open("file://" + pagePath);
+    await page.fill("#ledger", text("asset-ledger-id"));
+    await page.setInputFiles("#bundle-file", path.join(dir, "asset.cbor"));
+    v = await verdict(page);
+    assert.equal(v.kind, "ok", v.title + ": " + v.detail);
+    assert.match(v.detail, /pledged, pledged to Cirraya Bank/);
+    const chain = await page.textContent("#result");
+    assert.match(chain, /Chain of title/);
+    assert.match(chain, /Issued to Cirraya Supplier/);
+    assert.match(chain, /consent of Cirraya Bank/);
+    assert.match(chain, /125000\.00 CNY/);
+    assert.match(chain, /INV-77/);
+    await page.close();
+
     assert.deepEqual(problems, []);
     console.log("wasm verifier (browser): ok");
   } finally {

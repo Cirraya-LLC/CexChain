@@ -111,6 +111,8 @@ Json optional_id(const std::optional<protocol::Id>& id) {
     return id ? id_json(*id) : Json(nullptr);
 }
 
+} // namespace
+
 Json asset_json(const Session& session, const protocol::RecordState& record,
                 const protocol::AssetState& asset) {
     const protocol::AssetMetadata m = metadata_of(session, record, asset.kind);
@@ -150,6 +152,8 @@ Json asset_json(const Session& session, const protocol::RecordState& record,
             {"issued_at", iso_time(session.log_entry(record.registered_at_index).registered_at)},
             {"actions", std::move(actions)}};
 }
+
+namespace {
 
 void print_asset(const Session& session, const protocol::RecordState& record,
                  const protocol::AssetState& asset) {
@@ -286,7 +290,8 @@ Bytes with_disclosures(const Session& session, const Args& args, const Bytes& ev
         }
     }
     for (const VaultAttachment& a : vault.attachments) {
-        if (std::ranges::contains(attachments, a.name) || std::ranges::contains(attachments, std::string("*"))) {
+        if (std::ranges::contains(attachments, a.name) ||
+            std::ranges::contains(attachments, std::string("*"))) {
             bundle.attachments.push_back({a.name, a.salt});
         }
     }

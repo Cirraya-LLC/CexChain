@@ -41,6 +41,9 @@ void print_json(const Json& value);
 [[nodiscard]] Json delegation_json(const Session& session,
                                    const protocol::DelegationState& delegation);
 [[nodiscard]] Json record_json(const Session& session, const protocol::RecordState& record);
+/// An asset (D-052): its state, parties, units, head, and actions.
+[[nodiscard]] Json asset_json(const Session& session, const protocol::RecordState& record,
+                              const protocol::AssetState& asset);
 [[nodiscard]] Json body_json(const protocol::Body& body);
 [[nodiscard]] Json statement_json(const protocol::Statement& statement);
 [[nodiscard]] Json commitment_json(const protocol::StateCommitment& commitment);

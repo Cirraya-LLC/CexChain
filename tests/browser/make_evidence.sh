@@ -5,7 +5,8 @@
 # Builds evidence with the native command-line tool, for the browser verifier
 # tests. Usage: make_evidence.sh CEXCHAIN DIR
 # Writes into DIR: bundle.cbor, report.pdf, ledger-id, record-id, and
-# native-report.json (what `cexchain verify --json` reports).
+# native-report.json (what `cexchain verify --json` reports); and for an
+# asset, asset.cbor, asset-id, asset-ledger-id, and native-asset-report.json.
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
@@ -35,3 +36,25 @@ run record endorse "$(cat record-id)" --as alice.key --role inspector > /dev/nul
 run checkpoint create --log-key log.key > /dev/null
 run export "$(cat record-id)" --log-key log.key --disclose result,note --with-attachments --out bundle.cbor > /dev/null
 run verify bundle.cbor --ledger-id "$(cat ledger-id)" --attachment report.pdf=report.pdf --json > native-report.json
+
+# An asset: a core enterprise's receivable that its supplier pledges to a
+# bank, each consenting on its own ledger; the consents travel as files.
+for k in core-root core-log sup-root sup-log bank-root bank-log; do run key generate --out "$k.key" > /dev/null; done
+run init --org "Cirraya Core Enterprise" --root-key core-root.key --log-key core-log.key --ledger "$DIR/core" \
+    | id_from > asset-ledger-id
+SUPPLIER="$(run init --org "Cirraya Supplier" --root-key sup-root.key --log-key sup-log.key --ledger "$DIR/supplier" | id_from)"
+BANK="$(run init --org "Cirraya Bank" --root-key bank-root.key --log-key bank-log.key --ledger "$DIR/bank" | id_from)"
+run asset issue receivable --holder "$SUPPLIER" --amount 125000.00 --currency CNY --due 2027-01-06 \
+    --field contract=PO-2026-0815 --field invoice=INV-77 --as core-root.key --ledger "$DIR/core" | id_from > asset-id
+HEAD="$(run asset show "$(cat asset-id)" --ledger "$DIR/core" --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["head"])')"
+consent() { # ROOT LOG LEDGER OUT
+    run asset consent --home "$(cat asset-ledger-id)" --asset "$(cat asset-id)" --action pledge --to "$BANK" \
+        --head "$HEAD" --as "$1" --log-key "$2" --ledger "$3" --out "$4" > /dev/null
+}
+consent sup-root.key sup-log.key "$DIR/supplier" consent-supplier.cbor
+consent bank-root.key bank-log.key "$DIR/bank" consent-bank.cbor
+run asset record pledge "$(cat asset-id)" --to "$BANK" --consent consent-supplier.cbor --consent consent-bank.cbor \
+    --as core-root.key --ledger "$DIR/core" > /dev/null
+run checkpoint create --log-key core-log.key --ledger "$DIR/core" > /dev/null
+run asset evidence "$(cat asset-id)" --log-key core-log.key --fields '*' --out asset.cbor --ledger "$DIR/core" > /dev/null
+run asset verify asset.cbor --ledger-id "$(cat asset-ledger-id)" --json > native-asset-report.json
