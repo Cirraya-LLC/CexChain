@@ -88,6 +88,16 @@ StateLeaf record_leaf(const RecordState& r) {
     return {ObjectKind::record, r.id, r.history.to_vector()};
 }
 
+StateLeaf contract_leaf(const ContractState& c) {
+    StateLeaf leaf{ObjectKind::contract, c.id, {c.deployed_at_index}};
+    add_index(leaf.history, c.retired_at_index);
+    return leaf;
+}
+
+StateLeaf instance_leaf(const InstanceState& i) {
+    return {ObjectKind::instance, i.id, i.history.to_vector()};
+}
+
 } // namespace
 
 Result<Bytes> encode_state_leaf(const StateLeaf& leaf) {
@@ -110,7 +120,8 @@ Result<Bytes> encode_state_leaf(const StateLeaf& leaf) {
 
 std::vector<StateLeaf> state_leaves(const LedgerState& state) {
     std::vector<StateLeaf> leaves;
-    leaves.reserve(state.actors().size() + state.delegations().size() + state.records().size());
+    leaves.reserve(state.actors().size() + state.delegations().size() + state.records().size() +
+                   state.contracts().size() + state.instances().size());
     for (const auto& [key, actor] : state.actors()) {
         leaves.push_back(actor_leaf(actor));
     }
@@ -119,6 +130,12 @@ std::vector<StateLeaf> state_leaves(const LedgerState& state) {
     }
     for (const auto& [key, record] : state.records()) {
         leaves.push_back(record_leaf(record));
+    }
+    for (const auto& [key, contract] : state.contracts()) {
+        leaves.push_back(contract_leaf(contract));
+    }
+    for (const auto& [key, instance] : state.instances()) {
+        leaves.push_back(instance_leaf(instance));
     }
     std::ranges::sort(leaves, [](const StateLeaf& a, const StateLeaf& b) {
         return std::ranges::lexicographical_compare(a.id.bytes(), b.id.bytes());
@@ -135,6 +152,12 @@ std::optional<StateLeaf> state_leaf(const LedgerState& state, const Id& id) {
     }
     if (const RecordState* r = state.record(id)) {
         return record_leaf(*r);
+    }
+    if (const ContractState* c = state.contract(id)) {
+        return contract_leaf(*c);
+    }
+    if (const InstanceState* i = state.instance(id)) {
+        return instance_leaf(*i);
     }
     return std::nullopt;
 }

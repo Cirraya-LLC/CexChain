@@ -15,6 +15,7 @@
 #include <cexchain/core/crypto.hpp>
 #include <cexchain/core/error.hpp>
 #include <cexchain/core/protocol/assets.hpp>
+#include <cexchain/core/protocol/contracts.hpp>
 #include <cexchain/core/protocol/id_map.hpp>
 #include <cexchain/core/protocol/keys.hpp>
 #include <cexchain/core/protocol/statement.hpp>
@@ -113,9 +114,10 @@ public:
                                   const SignedStatement& statement, Timestamp now,
                                   const SignatureCheck* checked = nullptr) const;
 
-    /// Applies a statement that `validate` accepted. `index` is its log index.
+    /// Applies a statement that `validate` accepted at `now`, its
+    /// registration time. `index` is its log index.
     [[nodiscard]] Status apply(const crypto::Provider& provider, const SignedStatement& statement,
-                               std::uint64_t index);
+                               std::uint64_t index, Timestamp now);
 
     [[nodiscard]] const Id& ledger_id() const noexcept { return ledger_id_; }
     [[nodiscard]] crypto::HashAlg hash() const noexcept { return hash_; }
@@ -147,6 +149,21 @@ public:
     /// The asset a record is, if it is of an asset type (its status is the
     /// record's state).
     [[nodiscard]] const AssetState* asset(const Id& id) const;
+    [[nodiscard]] const ContractState* contract(const Id& id) const;
+    [[nodiscard]] const InstanceState* instance(const Id& id) const;
+
+    /// Runs a contract call's contract as the home would register the call at
+    /// `now`: the input built from this state, the outcome, and the output.
+    /// The call must name a deployed contract or an existing instance; the
+    /// other rules are not checked here (see `validate`). A home runs a call
+    /// before collecting consents to learn whose it needs.
+    [[nodiscard]] Result<ContractRun> run_contract(const crypto::Provider& provider,
+                                                   const SignedStatement& call,
+                                                   Timestamp now) const;
+
+    /// How a statement's registered signer appears to contracts.
+    [[nodiscard]] Result<ContractSigner> contract_signer(const Statement& statement) const;
+
     /// The log index of a registered statement.
     [[nodiscard]] std::optional<std::uint64_t> statement_index(const Id& id) const;
 
@@ -158,6 +175,8 @@ public:
     }
     [[nodiscard]] const IdMap<RecordState>& records() const noexcept { return records_; }
     [[nodiscard]] const IdMap<AssetState>& assets() const noexcept { return assets_; }
+    [[nodiscard]] const IdMap<ContractState>& contracts() const noexcept { return contracts_; }
+    [[nodiscard]] const IdMap<InstanceState>& instances() const noexcept { return instances_; }
 
     /// The objects created or changed since the last call (possibly
     /// repeated), in order: what an incremental state tree must update.
@@ -175,6 +194,12 @@ private:
     [[nodiscard]] bool is_log_key(const crypto::PublicKey& key) const;
     /// The record type that a record statement acts on, if any.
     [[nodiscard]] std::optional<std::string> record_type_of(const Statement& statement) const;
+    /// The contract that a call or retire acts on, if any.
+    [[nodiscard]] std::optional<Id> contract_of(const Statement& statement) const;
+    /// Runs a call's contract and requires it to accept.
+    [[nodiscard]] Result<ContractRun> accepted_run(const crypto::Provider& provider,
+                                                   const SignedStatement& call,
+                                                   Timestamp now) const;
 
     Id ledger_id_;
     crypto::HashAlg hash_ = crypto::HashAlg::sha256;
@@ -189,6 +214,8 @@ private:
     IdMap<DelegationState> delegations_;
     IdMap<RecordState> records_;
     IdMap<AssetState> assets_;
+    IdMap<ContractState> contracts_;
+    IdMap<InstanceState> instances_;
     IdMap<std::uint64_t> statements_;
     /// (signer, nonce) of every statement: a payload is never accepted twice,
     /// even re-signed with a rotated key.

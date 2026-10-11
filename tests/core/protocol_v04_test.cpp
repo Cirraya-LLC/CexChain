@@ -73,7 +73,7 @@ TEST_CASE("v0.4 key rotation from an independent encoder", "[protocol][vectors][
             const auto valid = state->validate(provider(), statements[i], t0 + 1000 + i);
             INFO((valid ? std::string() : std::string(valid.error().detail)));
             REQUIRE(valid);
-            REQUIRE(state->apply(provider(), statements[i], i));
+            REQUIRE(state->apply(provider(), statements[i], i, t0 + 1000 + i));
         }
         std::vector<protocol::KeyEpoch> log_keys;
         for (const auto& k : ledger["log_keys"]) {

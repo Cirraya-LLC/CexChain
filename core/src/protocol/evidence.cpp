@@ -287,7 +287,7 @@ Result<EvidenceBundle> decode_bundle(ByteView encoded) {
             }
             StateProof p;
             CEXCHAIN_TRY(std::uint64_t kind, detail::as_uint((*leaf)[0]));
-            if (kind < 1 || kind > 3) {
+            if (kind < 1 || kind > static_cast<std::uint64_t>(ObjectKind::instance)) {
                 return fail(Errc::malformed, "a state proof names an unknown kind of object");
             }
             p.leaf.kind = static_cast<ObjectKind>(kind);
@@ -415,7 +415,8 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
             return verification_failure(
                 "an included statement fails the ledger rules or depends on a missing statement");
         }
-        CEXCHAIN_CHECK(state->apply(provider, item.statement, item.index));
+        CEXCHAIN_CHECK(
+            state->apply(provider, item.statement, item.index, item.log_entry.registered_at));
     }
 
     // Now the keys: the checkpoint and every receipt with the log key in

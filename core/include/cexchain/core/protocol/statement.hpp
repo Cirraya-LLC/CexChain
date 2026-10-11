@@ -4,6 +4,7 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -35,6 +36,9 @@ enum class StatementType : std::uint8_t {
     record_transition = 18,
     record_revoke = 19,
     asset_action = 20,
+    contract_deploy = 21,
+    contract_call = 22,
+    contract_retire = 23,
 };
 
 [[nodiscard]] std::optional<StatementType> statement_type_from(std::uint64_t value) noexcept;
@@ -142,6 +146,9 @@ struct Scope {
     bool may_delegate = false;
     /// Statements under this delegation must carry proof of presence.
     bool require_presence = false;
+    /// Contracts that calls and retires may act on (spec v0.6), strictly
+    /// ascending; nullopt means any.
+    std::optional<std::vector<Id>> contracts;
 
     friend bool operator==(const Scope&, const Scope&) = default;
 };
@@ -257,10 +264,101 @@ struct AssetActionBody {
     friend bool operator==(const AssetActionBody&, const AssetActionBody&) = default;
 };
 
+/// Contract limits (spec v0.6, section 15).
+inline constexpr std::size_t max_contract_source = 262'144;
+inline constexpr std::size_t max_contract_functions = 256;
+inline constexpr std::size_t max_function_name = 64;
+inline constexpr std::size_t max_contract_language = 32;
+inline constexpr std::size_t max_contract_compiler = 128;
+inline constexpr std::size_t max_contract_name = 256;
+/// Arguments and an instance's state, encoded.
+inline constexpr std::size_t max_contract_value = 65'536;
+inline constexpr std::size_t max_contract_consents = 16;
+inline constexpr std::size_t max_contract_reference = 1024;
+
+/// Whether a contract function creates an instance or acts on one.
+enum class FunctionKind : std::uint8_t {
+    create = 1,
+    call = 2,
+};
+
+/// Deploys a contract (spec v0.6): a module in the profile of section 14.
+/// The contract's id is this statement's id.
+struct ContractDeployBody {
+    /// The WebAssembly module, at most vm::max_module_size bytes.
+    Bytes code;
+    /// Function names (1-64 bytes) and kinds; at least one creates.
+    std::map<std::string, FunctionKind> interface;
+    /// "bo", "wasm", ...
+    std::string language;
+    /// The compiler and its version.
+    std::string compiler;
+    /// The source, so that anyone can rebuild the module and compare.
+    std::optional<Bytes> source;
+    std::optional<std::string> name;
+
+    friend bool operator==(const ContractDeployBody&, const ContractDeployBody&) = default;
+};
+
+/// Who signed a statement, as a contract sees it.
+struct ContractSigner {
+    /// 0 for the organization, otherwise the actor's ActorKind.
+    std::uint8_t kind = 0;
+    /// Set if the statement carries proof of presence: its method.
+    std::optional<PresenceMethod> presence;
+    /// The model its provenance names (agents).
+    std::optional<std::string> model;
+
+    friend bool operator==(const ContractSigner&, const ContractSigner&) = default;
+};
+
+/// `signer` as statements and contract inputs encode it.
+[[nodiscard]] cbor::Value encode_contract_signer(const ContractSigner& signer);
+
+/// A party's consent to a contract call, given on its own ledger, with who
+/// signed the consent's registration there (which the contract decides on,
+/// and verifiers check against the bundle).
+struct ContractConsentRef {
+    Id ledger;
+    Id record;
+    /// HASH (the home's) of the consent's evidence bundle the home verified.
+    Id bundle;
+    ContractSigner signer;
+
+    friend bool operator==(const ContractConsentRef&, const ContractConsentRef&) = default;
+};
+
+/// Creates an instance (contract set, a creating function, no head, no
+/// consents; the instance's id is this statement's id) or acts on one
+/// (instance and head set).
+struct ContractCallBody {
+    std::optional<Id> contract;
+    std::optional<Id> instance;
+    std::string function;
+    /// Any CBOR value, at most max_contract_value bytes encoded.
+    cbor::Value arguments;
+    /// The log index of the instance's latest call; exactly with an instance.
+    std::optional<std::uint64_t> head;
+    /// Strictly ascending by ledger.
+    std::vector<ContractConsentRef> consents;
+    std::optional<std::string> reference;
+
+    friend bool operator==(const ContractCallBody&, const ContractCallBody&) = default;
+};
+
+/// Retires a contract: it creates no more instances; its instances carry on.
+struct ContractRetireBody {
+    Id contract;
+    std::optional<std::string> reason;
+
+    friend bool operator==(const ContractRetireBody&, const ContractRetireBody&) = default;
+};
+
 using Body = std::variant<GenesisBody, ActorRegisterBody, ActorRotateKeyBody, ActorRevokeBody,
                           DelegationGrantBody, DelegationRevokeBody, ActorSetPresenceBody,
                           LedgerRotateLogKeyBody, RecordRegisterBody, RecordEndorseBody,
-                          RecordTransitionBody, RecordRevokeBody, AssetActionBody>;
+                          RecordTransitionBody, RecordRevokeBody, AssetActionBody,
+                          ContractDeployBody, ContractCallBody, ContractRetireBody>;
 
 [[nodiscard]] StatementType type_of(const Body& body) noexcept;
 

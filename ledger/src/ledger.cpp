@@ -322,7 +322,7 @@ struct Ledger::Impl {
     /// takes it when it is durable: see append_merkle.)
     Status apply(const Decoded& d, std::uint64_t index) {
         if (d.statement) {
-            if (auto s = state.apply(*provider, *d.statement, index); !s) {
+            if (auto s = state.apply(*provider, *d.statement, index, d.entry->registered_at); !s) {
                 return s;
             }
         } else {
@@ -811,7 +811,7 @@ std::vector<Result<Registration>> Ledger::submit_batch(std::span<const ByteView>
                 continue;
             }
             const std::uint64_t index = first + entries.size();
-            if (auto s = impl_->state.apply(*impl_->provider, statement, index); !s) {
+            if (auto s = impl_->state.apply(*impl_->provider, statement, index, now); !s) {
                 // The state moved partway: nothing of this batch may be
                 // written, and the ledger must be reopened.
                 impl_->failed = true;

@@ -33,6 +33,8 @@ enum class ObjectKind : std::uint8_t {
     actor = 1,
     delegation = 2,
     record = 3,
+    contract = 4,
+    instance = 5,
 };
 
 /// One object in the state commitment.
@@ -42,7 +44,8 @@ struct StateLeaf {
     /// Ascending log indices of every statement that created or changed the
     /// object: registration, key rotations, passkey changes, and revocation
     /// for actors; grant and revocation for delegations; every statement about
-    /// a record.
+    /// a record; deploy and retire for contracts; creation and every call for
+    /// instances.
     std::vector<std::uint64_t> history;
 
     friend bool operator==(const StateLeaf&, const StateLeaf&) = default;

@@ -286,6 +286,42 @@ Json body_json(const protocol::Body& body) {
                         {"consents", std::move(consents)},
                         {"reference", optional_text(b.reference)}};
             },
+            [](const protocol::ContractDeployBody& b) -> Json {
+                Json interface = Json::object();
+                for (const auto& [function, kind] : b.interface) {
+                    interface[function] =
+                        kind == protocol::FunctionKind::create ? "create" : "call";
+                }
+                return {{"code_size", b.code.size()},
+                        {"interface", std::move(interface)},
+                        {"language", b.language},
+                        {"compiler", b.compiler},
+                        {"source_size", b.source ? Json(b.source->size()) : Json(nullptr)},
+                        {"name", optional_text(b.name)}};
+            },
+            [](const protocol::ContractCallBody& b) -> Json {
+                Json consents = Json::array();
+                for (const protocol::ContractConsentRef& c : b.consents) {
+                    consents.push_back(
+                        {{"ledger", id_json(c.ledger)},
+                         {"record", id_json(c.record)},
+                         {"bundle", id_json(c.bundle)},
+                         {"signer_kind", c.signer.kind},
+                         {"presence", c.signer.presence ? Json(static_cast<int>(*c.signer.presence))
+                                                        : Json(nullptr)},
+                         {"model", optional_text(c.signer.model)}});
+                }
+                return {{"contract", b.contract ? id_json(*b.contract) : Json(nullptr)},
+                        {"instance", b.instance ? id_json(*b.instance) : Json(nullptr)},
+                        {"function", b.function},
+                        {"arguments", cbor::diagnostic(b.arguments)},
+                        {"head", b.head ? Json(*b.head) : Json(nullptr)},
+                        {"consents", std::move(consents)},
+                        {"reference", optional_text(b.reference)}};
+            },
+            [](const protocol::ContractRetireBody& b) -> Json {
+                return {{"contract", id_json(b.contract)}, {"reason", optional_text(b.reason)}};
+            },
         },
         body);
 }
@@ -413,6 +449,24 @@ std::string body_summary(const Session& session, const protocol::Body& body,
                     out += ", " + std::to_string(b.consents.size()) + " consent(s)";
                 }
                 return out;
+            },
+            [&](const protocol::ContractDeployBody& b) {
+                return "deploy contract" + id + (b.name ? " \"" + *b.name + "\"" : "") + " (" +
+                       b.language + ", " + std::to_string(b.code.size()) + " bytes)";
+            },
+            [&](const protocol::ContractCallBody& b) {
+                std::string out =
+                    b.instance ? "call " + b.function + " on instance " + short_id(*b.instance)
+                               : "create instance" + id + " with " + b.function + " of contract " +
+                                     short_id(*b.contract);
+                if (!b.consents.empty()) {
+                    out += ", " + std::to_string(b.consents.size()) + " consent(s)";
+                }
+                return out;
+            },
+            [&](const protocol::ContractRetireBody& b) {
+                return "retire contract " + short_id(b.contract) +
+                       (b.reason ? " (" + *b.reason + ")" : "");
             },
         },
         body);

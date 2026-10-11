@@ -87,7 +87,7 @@ TEST_CASE("v0.5 ownership assets from an independent encoder", "[protocol][vecto
             const auto valid = state->validate(provider(), statements[i], t0 + 1000 + i);
             INFO((valid ? std::string() : std::string(valid.error().detail)));
             REQUIRE(valid);
-            REQUIRE(state->apply(provider(), statements[i], i));
+            REQUIRE(state->apply(provider(), statements[i], i, t0 + 1000 + i));
         }
         check_refused(statements.size());
 

@@ -9,6 +9,8 @@
 #include <cexchain/core/protocol/record_types.hpp>
 #include <cexchain/core/protocol/state.hpp>
 
+#include "reader.hpp"
+
 namespace cexchain::protocol {
 
 namespace {
@@ -52,6 +54,16 @@ Status check_narrowing(const Scope& parent, const Scope& child) {
     if (parent.require_presence && !child.require_presence) {
         return fail(Errc::rejected,
                     "the grantor's delegation requires proof of presence, so must this one");
+    }
+    if (parent.contracts) {
+        if (!child.contracts) {
+            return fail(Errc::rejected, "delegated contracts exceed the grantor's scope");
+        }
+        for (const Id& contract : *child.contracts) {
+            if (!std::ranges::contains(*parent.contracts, contract)) {
+                return fail(Errc::rejected, "delegated contracts exceed the grantor's scope");
+            }
+        }
     }
     return {};
 }
@@ -110,6 +122,113 @@ const RecordState* LedgerState::record(const Id& id) const {
 
 const AssetState* LedgerState::asset(const Id& id) const {
     return assets_.find(key_of(id));
+}
+
+const ContractState* LedgerState::contract(const Id& id) const {
+    return contracts_.find(key_of(id));
+}
+
+const InstanceState* LedgerState::instance(const Id& id) const {
+    return instances_.find(key_of(id));
+}
+
+Result<ContractSigner> LedgerState::contract_signer(const Statement& statement) const {
+    const ActorState* signer = statement.actor_id ? actor(*statement.actor_id) : nullptr;
+    if (signer == nullptr) {
+        return fail(Errc::not_found, "the signing actor is not registered");
+    }
+    ContractSigner out;
+    out.kind = signer->kind ? static_cast<std::uint8_t>(*signer->kind) : std::uint8_t{0};
+    if (statement.presence) {
+        for (const PresenceCredential& c : signer->presence) {
+            if (c.credential_id == statement.presence->credential_id) {
+                out.presence = c.method;
+            }
+        }
+    }
+    if (statement.provenance) {
+        out.model = statement.provenance->model;
+    }
+    return out;
+}
+
+Result<ContractRun> LedgerState::run_contract(const crypto::Provider& provider,
+                                              const SignedStatement& signed_statement,
+                                              Timestamp now) const {
+    const Statement& statement = signed_statement.statement;
+    const auto* call = std::get_if<ContractCallBody>(&statement.body);
+    if (call == nullptr || !statement.actor_id) {
+        return fail(Errc::invalid_argument, "not a contract call");
+    }
+    ContractInput input;
+    input.function = call->function;
+    input.arguments = call->arguments;
+    input.home = ledger_id_;
+    const ContractState* contract = nullptr;
+    if (call->instance) {
+        const InstanceState* instance = this->instance(*call->instance);
+        if (instance == nullptr) {
+            return fail(Errc::not_found, "the instance does not exist");
+        }
+        contract = this->contract(instance->contract);
+        input.instance = ContractInstanceView{*call->instance, instance->head, instance->state,
+                                              instance->status, instance->parties};
+    } else if (call->contract) {
+        contract = this->contract(*call->contract);
+    }
+    if (contract == nullptr || !contract->module) {
+        return fail(Errc::not_found, "the contract does not exist");
+    }
+    input.contract = contract->id;
+    input.caller = *statement.actor_id;
+    CEXCHAIN_TRY(input.caller_signer, contract_signer(statement));
+    input.time = now;
+    for (const ContractConsentRef& c : call->consents) {
+        input.consents.emplace_back(c.ledger, c.signer);
+    }
+    ContractRun run;
+    CEXCHAIN_TRY(run.input, encode_contract_input(input));
+    CEXCHAIN_TRY(run.outcome, vm::run(*contract->module, run.input, provider, hash_));
+    if (!run.outcome.trap) {
+        if (auto output = decode_contract_output(run.outcome.output, ledger_id_)) {
+            run.output = std::move(*output);
+        } else {
+            run.malformed = output.error();
+        }
+    }
+    return run;
+}
+
+Result<ContractRun> LedgerState::accepted_run(const crypto::Provider& provider,
+                                              const SignedStatement& call, Timestamp now) const {
+    CEXCHAIN_TRY(ContractRun run, run_contract(provider, call, now));
+    if (run.outcome.trap == vm::Trap::aborted) {
+        return fail(Errc::rejected, "the contract rejected the call");
+    }
+    if (run.outcome.trap) {
+        return fail(Errc::rejected, "the contract trapped on the call");
+    }
+    if (run.malformed) {
+        return fail(Errc::rejected, "the contract's output is not well formed");
+    }
+    if (run.accepted() == nullptr) {
+        return fail(Errc::rejected, "the contract needs more consents for the call");
+    }
+    return run;
+}
+
+std::optional<Id> LedgerState::contract_of(const Statement& statement) const {
+    if (const auto* call = std::get_if<ContractCallBody>(&statement.body)) {
+        if (call->contract) {
+            return *call->contract;
+        }
+        const InstanceState* instance = call->instance ? this->instance(*call->instance) : nullptr;
+        return instance == nullptr ? std::nullopt : std::optional<Id>(instance->contract);
+    }
+    if (const auto* retire = std::get_if<ContractRetireBody>(&statement.body)) {
+        return retire->contract;
+    }
+    return std::nullopt;
 }
 
 std::optional<std::uint64_t> LedgerState::statement_index(const Id& id) const {
@@ -214,7 +333,16 @@ Status LedgerState::validate(const crypto::Provider& provider,
                                         "verifies you (PIN or biometric), not only a touch");
         }
     }
-    return check_rules(provider, statement, *signer);
+    if (auto s = check_rules(provider, statement, *signer); !s) {
+        return s;
+    }
+    // A call is registered only if its contract accepts it (spec section 15).
+    if (std::holds_alternative<ContractCallBody>(statement.body)) {
+        if (auto run = accepted_run(provider, signed_statement, now); !run) {
+            return std::unexpected(run.error());
+        }
+    }
+    return {};
 }
 
 Status LedgerState::check_authority(const Statement& statement, const ActorState& signer,
@@ -261,6 +389,11 @@ Status LedgerState::check_authority(const Statement& statement, const ActorState
         record_type && delegation->scope.record_types &&
         !std::ranges::contains(*delegation->scope.record_types, *record_type)) {
         return fail(Errc::rejected, "the delegation does not cover this record type");
+    }
+    if (const auto contract = contract_of(statement);
+        contract && delegation->scope.contracts &&
+        !std::ranges::contains(*delegation->scope.contracts, *contract)) {
+        return fail(Errc::rejected, "the delegation does not cover this contract");
     }
     for (const DelegationState* link = delegation; link != nullptr;
          link = link->parent ? this->delegation(*link->parent) : nullptr) {
@@ -535,12 +668,74 @@ Status LedgerState::check_rules(const crypto::Provider& provider, const Statemen
                 }
                 return check_asset_action(*asset, (*target)->state, b, ledger_id_);
             },
+            [&](const ContractDeployBody& b) -> Status {
+                if (auto module = vm::load(b.code); !module) {
+                    return fail(Errc::rejected,
+                                "the contract's code is not a module in the profile");
+                }
+                return {};
+            },
+            [&](const ContractCallBody& b) -> Status {
+                const ContractState* contract = nullptr;
+                FunctionKind kind = FunctionKind::create;
+                if (b.contract) {
+                    contract = this->contract(*b.contract);
+                    if (contract == nullptr) {
+                        return fail(Errc::not_found, "the contract does not exist");
+                    }
+                    if (contract->retired) {
+                        return fail(Errc::rejected, "the contract is retired");
+                    }
+                    if (!b.consents.empty()) {
+                        return fail(Errc::rejected, "creating an instance takes no consents");
+                    }
+                } else {
+                    const InstanceState* instance = this->instance(*b.instance);
+                    if (instance == nullptr) {
+                        return fail(Errc::not_found, "the instance does not exist");
+                    }
+                    if (instance->final) {
+                        return fail(Errc::rejected, "the instance is final");
+                    }
+                    if (*b.head != instance->head) {
+                        return fail(Errc::rejected, "the call does not follow the instance's head");
+                    }
+                    contract = this->contract(instance->contract);
+                    kind = FunctionKind::call;
+                }
+                const auto function = contract->interface.find(b.function);
+                if (function == contract->interface.end()) {
+                    return fail(Errc::rejected, "the function is not in the contract's interface");
+                }
+                if (function->second != kind) {
+                    return fail(Errc::rejected,
+                                kind == FunctionKind::create
+                                    ? "the function acts on instances; it does not create one"
+                                    : "the function creates instances; it does not act on one");
+                }
+                for (const ContractConsentRef& c : b.consents) {
+                    if (c.ledger == ledger_id_) {
+                        return fail(Errc::rejected, "the home never consents to its own calls");
+                    }
+                }
+                return {};
+            },
+            [&](const ContractRetireBody& b) -> Status {
+                const ContractState* contract = this->contract(b.contract);
+                if (contract == nullptr) {
+                    return fail(Errc::not_found, "the contract does not exist");
+                }
+                if (contract->retired) {
+                    return fail(Errc::rejected, "the contract is already retired");
+                }
+                return {};
+            },
         },
         statement.body);
 }
 
 Status LedgerState::apply(const crypto::Provider& provider, const SignedStatement& signed_statement,
-                          std::uint64_t index) {
+                          std::uint64_t index, Timestamp now) {
     const Statement& statement = signed_statement.statement;
     const Id& id = signed_statement.id;
     statements_.insert_or_assign(key_of(id), index);
@@ -687,6 +882,53 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
                     apply_asset_action(assets_.at(key_of(b.asset)), record.state, b, index);
                 record.history.push_back(index);
                 changes_.push_back(key_of(b.asset));
+                return {};
+            },
+            [&](const ContractDeployBody& b) -> Status {
+                CEXCHAIN_TRY(vm::Module module, vm::load(b.code));
+                ContractState contract;
+                contract.id = id;
+                contract.deployer = *statement.actor_id;
+                contract.interface = b.interface;
+                contract.language = b.language;
+                contract.compiler = b.compiler;
+                contract.name = b.name;
+                contract.module = std::move(module);
+                contract.deployed_at_index = index;
+                contracts_.insert_or_assign(key_of(id), std::move(contract));
+                changes_.push_back(key_of(id));
+                return {};
+            },
+            [&](const ContractCallBody& b) -> Status {
+                // validate() ran it on this state at this time: the same run.
+                CEXCHAIN_TRY(ContractRun run, accepted_run(provider, signed_statement, now));
+                ContractAccept accept = std::get<ContractAccept>(std::move(*run.output));
+                const Id& target = b.instance ? *b.instance : id;
+                if (!b.instance) {
+                    InstanceState instance;
+                    instance.id = id;
+                    instance.contract = *b.contract;
+                    instances_.insert_or_assign(key_of(id), std::move(instance));
+                }
+                InstanceState& instance = instances_.at(key_of(target));
+                instance.head = index;
+                instance.state = std::move(accept.state);
+                if (accept.status) {
+                    instance.status = std::move(accept.status);
+                }
+                if (accept.parties) {
+                    instance.parties = std::move(*accept.parties);
+                }
+                instance.final = accept.final;
+                instance.history.push_back(index);
+                changes_.push_back(key_of(target));
+                return {};
+            },
+            [&](const ContractRetireBody& b) -> Status {
+                ContractState& contract = contracts_.at(key_of(b.contract));
+                contract.retired = true;
+                contract.retired_at_index = index;
+                changes_.push_back(key_of(b.contract));
                 return {};
             },
         },

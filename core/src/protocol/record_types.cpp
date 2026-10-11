@@ -59,6 +59,8 @@ constexpr std::array types{
     RecordType{"cexchain.access-grant/1", "granted", no_transitions, no_roles},
     RecordType{"cexchain.access-receipt/1", "received", no_transitions, no_roles},
     RecordType{"cexchain.asset-consent/1", "given", asset_consent_transitions, no_roles},
+    // A party's consent to a contract call (spec v0.6), on its own ledger.
+    RecordType{"cexchain.contract-consent/1", "given", asset_consent_transitions, no_roles},
     RecordType{"cexchain.receivable/1", "active", no_transitions, no_roles},
     RecordType{"cexchain.warehouse-receipt/1", "active", no_transitions, warehouse_receipt_roles},
 };

@@ -1488,6 +1488,22 @@ def check_contract_output(output: bytes, home: bytes):
     except Exception:  # noqa: BLE001 - any decoding failure
         return "malformed", "not CBOR"
 
+    def size(v, depth):
+        """(data items, nesting levels) of a decoded value."""
+        if isinstance(v, list):
+            inner = [size(x, depth + 1) for x in v]
+        elif isinstance(v, dict):
+            inner = [size(x, depth + 1) for kv in v.items() for x in kv]
+        elif isinstance(v, cbor2.CBORTag):
+            inner = [size(v.value, depth + 1)]
+        else:
+            return 1, depth
+        return 1 + sum(n for n, _ in inner), max([depth + 1] + [d for _, d in inner])
+
+    items, levels = size(value, 0)
+    if items > 131_072 or levels > 32:
+        return "malformed", "beyond the CBOR limits"
+
     def text(v, lo, hi):
         return isinstance(v, str) and lo <= len(v.encode()) <= hi
 
@@ -1563,10 +1579,12 @@ def generate_protocol_v06() -> None:
                                "payload": dcbor(p).hex(), "statement_id": statement_id.hex()})
             return statement_id
 
-        def refuse(name, signer, p):
+        def refuse(name, signer, p, malformed=False):
+            """`malformed`: the body breaks the CDDL, so the statement does not
+            even parse; otherwise the ledger rules refuse it."""
             encoded, _ = lg.statement(keys[signer], p)
             refused.append({"name": name, "signer": signer, "encoded": encoded.hex(),
-                            "payload": dcbor(p).hex(), "after": len(statements)})
+                            "payload": dcbor(p).hex(), "after": len(statements), "malformed": malformed})
 
         def contract_input(p, now):
             body = p[7]
@@ -1614,20 +1632,20 @@ def generate_protocol_v06() -> None:
                 inst["parties"] = accept[3]
             return statement_id
 
-        def refused_call(name, signer, actor, body, delegation, expect=None, provenance=None):
+        def refused_call(name, signer, actor, body, delegation, expect=None, provenance=None, malformed=False):
             """A call the rules refuse; `expect` names what the contract does if
             the rules let it run."""
             p = payload(actor, 22, body, delegation, provenance)
             if expect is not None:
                 run_call(name, p, t0 + 1000 + len(statements), expect)
-            refuse(name, signer, p)
+            refuse(name, signer, p, malformed)
 
         def consent(party, instance, function, args, head, signer, reference=None):
             metadata = {"ledger": ledger_id, "instance": instance, "function": function,
                         "arguments": lg.h(dcbor(args)), "head": head, "until": t0 + 7 * day}
             if reference is not None:
                 metadata["reference"] = reference
-            tag = f"{party} consents to {function} of {instance.hex()[:16]} at {head}".encode()
+            tag = f"consent {len(consents)}: {party} to {function} of {instance.hex()[:16]} at {head}".encode()
             record = hashlib.sha256(b"consent record: " + tag).digest()
             bundle = b"consent evidence bundle: " + tag
             consents.append({"party": party, "ledger": parties[party].hex(), "record": record.hex(),
@@ -1672,13 +1690,13 @@ def generate_protocol_v06() -> None:
         refuse("deploy a module without cexchain_call", "org_root", payload(org, 21, {
             1: no_entry, 2: interface, 3: "wasm", 4: "hand"}))
         refuse("deploy an interface that creates nothing", "org_root", payload(org, 21, {
-            1: code, 2: {"update": 2}, 3: "wasm", 4: "hand"}))
+            1: code, 2: {"update": 2}, 3: "wasm", 4: "hand"}), malformed=True)
         refuse("deploy a function with an empty name", "org_root", payload(org, 21, {
-            1: code, 2: {"": 1}, 3: "wasm", 4: "hand"}))
+            1: code, 2: {"": 1}, 3: "wasm", 4: "hand"}), malformed=True)
         refuse("deploy a function of kind 3", "org_root", payload(org, 21, {
-            1: code, 2: {"propose": 1, "update": 3}, 3: "wasm", 4: "hand"}))
+            1: code, 2: {"propose": 1, "update": 3}, 3: "wasm", 4: "hand"}), malformed=True)
         refuse("deploy in an empty language", "org_root", payload(org, 21, {
-            1: code, 2: interface, 3: "", 4: "hand"}))
+            1: code, 2: interface, 3: "", 4: "hand"}), malformed=True)
         k1 = add("deploy the test contract", "org_root", payload(org, 21, {
             1: code, 2: interface, 3: "wasm", 4: "tools/testvectors/generate.py 1",
             5: b"hand-assembled: see oracle_contract in tools/testvectors/generate.py", 6: "Oracle test contract"}))
@@ -1704,8 +1722,8 @@ def generate_protocol_v06() -> None:
         def by_registrar(name, body):
             return call(name, "registrar", registrar, body, d_registrar)
 
-        def refused_by_registrar(name, body, expect=None):
-            refused_call(name, "registrar", registrar, body, d_registrar, expect)
+        def refused_by_registrar(name, body, expect=None, malformed=False):
+            refused_call(name, "registrar", registrar, body, d_registrar, expect, malformed=malformed)
 
         # Instance A: proposed with three parties, the home among them.
         terms = {"amount": 12_500_000, "currency": "CNY", "goods": "Copper cathode, 100 t"}
@@ -1717,9 +1735,10 @@ def generate_protocol_v06() -> None:
         refused_by_registrar("create with a function outside the interface", {1: k1, 3: "launch", 4: proposal})
         refused_by_registrar("create on a contract that does not exist", {1: lg.h(b"nothing"), 3: "propose",
                                                                            4: proposal})
-        refused_by_registrar("create with a head", {1: k1, 3: "propose", 4: proposal, 5: 0})
+        refused_by_registrar("create with a head", {1: k1, 3: "propose", 4: proposal, 5: 0}, malformed=True)
         a = by_registrar("propose an agreement", {1: k1, 3: "propose", 4: proposal})
-        refused_by_registrar("create naming an instance too", {1: k1, 2: a, 3: "propose", 4: proposal})
+        refused_by_registrar("create naming an instance too", {1: k1, 2: a, 3: "propose", 4: proposal},
+                             malformed=True)
 
         # The supplier signs (a person, with a hardware key): the state becomes
         # the hash of the input.
@@ -1729,14 +1748,15 @@ def generate_protocol_v06() -> None:
         old, head = head, instances[a]["head"]
         refused_by_registrar("call with an old head", on(a, "sign", None, old, refs=[
             consent("supplier", a, "sign", None, old, {1: 1, 2: 2})]))
-        refused_by_registrar("call without a head", {2: a, 3: "update", 4: None})
+        refused_by_registrar("call without a head", {2: a, 3: "update", 4: None}, malformed=True)
         refused_by_registrar("call a creating function on an instance", on(a, "propose", None, head))
         refused_by_registrar("call an instance that does not exist", on(lg.h(b"nothing"), "update", None, head))
         two = [consent("supplier", a, "update", None, head, {1: 1}), consent("bank", a, "update", None, head, {1: 0})]
         descending = sorted(two, key=lambda r: r[0], reverse=True)
-        refused_by_registrar("call with consents out of order", {**on(a, "update", None, head), 6: descending})
+        refused_by_registrar("call with consents out of order", {**on(a, "update", None, head), 6: descending},
+                             malformed=True)
         refused_by_registrar("call with two consents from one ledger", {**on(a, "update", None, head),
-                                                                         6: [two[0], two[0]]})
+                                                                         6: [two[0], two[0]]}, malformed=True)
         refused_by_registrar("call with a consent from the home", on(a, "update", None, head, refs=[
             [ledger_id, lg.h(b"home consent"), lg.h(b"home bundle"), {1: 0}]]))
         refused_by_registrar("the contract asks for the bank's consent", on(a, "update", output([2, [bank]]), head),
@@ -1772,7 +1792,7 @@ def generate_protocol_v06() -> None:
         # Instance B, on the second contract, created by the agent.
         b = call("the agent proposes on the second contract", "agent", agent, {1: k2, 3: "propose", 4: None},
                  d_agent, provenance=model)
-        refused_call("retire without authority", "registrar", registrar, {1: k2}, d_registrar)
+        refuse("retire without authority", "registrar", payload(registrar, 23, {1: k2}, d_registrar))
         add("the clerk retires the second contract", "clerk", payload(clerk, 23, {1: k2, 2: "superseded"}, d_clerk))
         contracts[k2]["retired"] = True
         refuse("retire it again", "clerk", payload(clerk, 23, {1: k2}, d_clerk))
@@ -1824,7 +1844,8 @@ def generate_protocol_v06() -> None:
                        "deploys it twice; a registrar (a device, scope key 7: the first contract), a clerk (a "
                        "person), and an agent (under the clerk, scope key 7: the second contract) create and call "
                        "instances, citing consents from other ledgers; the clerk retires the second contract. "
-                       "Statements are registered at t0 + 1000 + index; refused statements are validated against "
+                       "Statements are registered at t0 + 1000 + index; refused statements either break the CDDL "
+                       "(`malformed`: they do not parse) or are validated against "
                        "the state after the first `after` statements, at t0 + 1000 + after. `runs` lists every "
                        "contract run, after the first `after` statements: the input the home builds, and the "
                        "outcome, output, fuel, and verdict "

@@ -4,8 +4,9 @@
 // Writes valid inputs for the fuzz targets, to start their corpora from:
 // random bytes rarely get past a signature, so the deeper checks (evidence
 // replay, access rules, backup restore, passkey registration) are reached
-// from real objects mutated, not from nothing. The contract interpreter starts
-// from the modules in testvectors/vm-v1.json.
+// from real objects mutated, not from nothing. The contract interpreter and
+// the contract parsers start from testvectors/vm-v1.json and
+// protocol-v0.6.json.
 //
 //   make_seeds DIR    writes DIR/<target>/<name> for each target
 
@@ -453,6 +454,27 @@ void vm_seeds(const Seeds& seeds) {
     }
 }
 
+/// Contract outputs (every verdict) and consent metadata from the v0.6
+/// vectors.
+void contract_seeds(const Seeds& seeds) {
+    std::ifstream in(CEXCHAIN_TESTVECTORS_DIR "/protocol-v0.6.json");
+    if (!in) {
+        throw std::runtime_error("cannot read protocol-v0.6.json");
+    }
+    const auto doc = nlohmann::json::parse(in);
+    const auto& ledger = doc.at("ledgers").at(0);
+    std::size_t n = 0;
+    for (const auto& run : ledger.at("runs")) {
+        const auto output = must(from_hex(run.at("output").get<std::string>()), "output");
+        seeds.write("contract_parse_fuzz", std::format("output-{:02}", n++), ByteView(output));
+    }
+    n = 0;
+    for (const auto& consent : ledger.at("consents")) {
+        const auto metadata = must(from_hex(consent.at("metadata").get<std::string>()), "consent");
+        seeds.write("contract_parse_fuzz", std::format("consent-{:02}", n++), ByteView(metadata));
+    }
+}
+
 int main(int argc, char** argv) {
     if (argc != 2) {
         std::println(stderr, "usage: make_seeds DIR");
@@ -466,6 +488,7 @@ int main(int argc, char** argv) {
         cluster_seeds(seeds);
         text_seeds(seeds);
         vm_seeds(seeds);
+        contract_seeds(seeds);
     } catch (const std::exception& e) {
         std::println(stderr, "error: {}", e.what());
         return 1;

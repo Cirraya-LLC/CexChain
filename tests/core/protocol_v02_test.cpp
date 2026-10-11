@@ -72,7 +72,7 @@ TEST_CASE("v0.2 objects from an independent encoder", "[protocol][vectors]") {
             const auto valid = state->validate(provider(), statements[i], at);
             INFO((valid ? std::string() : std::string(valid.error().detail)));
             REQUIRE(valid);
-            REQUIRE(state->apply(provider(), statements[i], i));
+            REQUIRE(state->apply(provider(), statements[i], i, at));
         }
 
         // Proof of presence.

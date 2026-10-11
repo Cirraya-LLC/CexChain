@@ -360,7 +360,7 @@ signer = {
   1 => 0 / actor-kind,         ; 0: the organization
   ? 2 => 1 / 2,                ; proof of presence carried: passkey 1,
                                ; hardware key 2
-  ? 3 => tstr,                 ; the provenance's model (agents)
+  ? 3 => tstr,                 ; the model its provenance names, if any
 }
 
 contract-retire-body = {

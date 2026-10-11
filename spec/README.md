@@ -62,7 +62,8 @@ All structures are **deterministic CBOR** (RFC 8949 section 4.2.1), restricted f
 - integers and lengths in their shortest form; definite lengths only;
 - map keys sorted by the bytewise order of their encodings, with no duplicates;
 - no floating-point numbers, no simple values other than `false`, `true`, and `null`, no bignums (tags 2 and 3);
-- text strings MUST be valid UTF-8.
+- text strings MUST be valid UTF-8;
+- at most 32 levels of nesting, where each array, map, and tag is one level (v0.6). A statement payload and a contract output hold at most 131,072 data items, every key and value counted. Decoders MUST refuse more, so that every implementation accepts exactly the same objects.
 
 A decoder MUST accept exactly the bytes an encoder would produce for the decoded value, so `encode(decode(x)) == x` for every accepted input. Maps with unknown keys MUST be rejected, except where the CDDL allows any key (record metadata).
 
@@ -617,7 +618,7 @@ A contract-deploy MUST be refused unless its code loads and its interface is wel
 A **signer** describes who signed a statement: `{1: kind, ? 2: presence, ? 3: model}`.
 - **Kind:** 0 for the organization; otherwise the actor's kind (person 1, agent 2, device 3).
 - **Presence:** present only if the statement carries proof of presence, as its method (passkey 1, hardware key 2).
-- **Model:** the model the statement's provenance names, for an agent.
+- **Model:** the model the statement's provenance names, if any (an agent's always names one).
 
 So a contract can require that a person approved in person, or that an agent's step is confirmed by a person.
 
@@ -630,7 +631,7 @@ So a contract can require that a person approved in person, or that an agent's s
   - **key 5:** the instance is **final** and takes no more calls.
 - `[2, needs]` asks for consents. `needs` lists the ledgers whose consents the call lacks: 1 to 16, strictly ascending, none the home.
 
-The call is refused on a trap (`abort` is how a contract rejects a call, with its reason), on a `needs` output, and on an output that is not well formed. The contract is deterministic, so the home runs it first without consents to learn whom to ask. A role may name the home itself: the home agrees through the call it signs, so it never consents to its own calls.
+An output is well formed only if it is deterministic CBOR within the limits of section 2 and matches `contract-output`. The call is refused on a trap (`abort` is how a contract rejects a call, with its reason), on a `needs` output, and on an output that is not well formed. The contract is deterministic, so the home runs it first without consents to learn whom to ask. A role may name the home itself: the home agrees through the call it signs, so it never consents to its own calls.
 
 **Consents.** A party consents with a `cexchain.contract-consent/1` record on its own ledger (state given, which may become withdrawn), under its own delegations and with proof of presence if a person approved. Its metadata names the terms:
 - `ledger` (the home), `instance`, `function`, and `head`;

@@ -21,6 +21,7 @@ cexchain_add_fuzzer(access_parse_fuzz)
 cexchain_add_fuzzer(asset_parse_fuzz cexchain::crypto_openssl)
 cexchain_add_fuzzer(webauthn_registration_fuzz cexchain::crypto_openssl)
 cexchain_add_fuzzer(vm_fuzz cexchain::crypto_openssl)
+cexchain_add_fuzzer(contract_parse_fuzz)
 # The interpreter's internals (core/src/vm/internal.hpp), for a lower fuel limit.
 target_include_directories(vm_fuzz PRIVATE ${PROJECT_SOURCE_DIR}/core/src)
 if(TARGET cexchain_crypto_pkcs11)

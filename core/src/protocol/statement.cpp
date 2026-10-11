@@ -7,6 +7,7 @@
 #include <utility>
 
 #include <cexchain/core/protocol/statement.hpp>
+#include <cexchain/core/vm.hpp>
 
 #include "envelope.hpp"
 #include "reader.hpp"
@@ -66,6 +67,20 @@ Status require_text(const std::string& text, std::string_view detail) {
     return {};
 }
 
+/// Text of `min` to `max` bytes.
+Status check_length(const std::string& text, std::size_t min, std::size_t max,
+                    std::string_view detail) {
+    if (text.size() < min || text.size() > max) {
+        return fail(Errc::malformed, detail);
+    }
+    return {};
+}
+
+/// Strictly ascending, so encoding them is canonical.
+bool ascending(const Id& a, const Id& b) {
+    return std::ranges::lexicographical_compare(a.bytes(), b.bytes());
+}
+
 Status check_scope(const Scope& scope) {
     if (scope.statement_types.empty()) {
         return fail(Errc::malformed, "scope must allow at least one statement type");
@@ -86,6 +101,24 @@ Status check_scope(const Scope& scope) {
     }
     if (scope.not_before && scope.not_after && *scope.not_before > *scope.not_after) {
         return fail(Errc::malformed, "scope validity ends before it begins");
+    }
+    if (scope.contracts) {
+        if (scope.contracts->empty()) {
+            return fail(Errc::malformed, "contract list must not be empty when present");
+        }
+        for (std::size_t i = 0; i < scope.contracts->size(); ++i) {
+            if ((*scope.contracts)[i].size() != id_size ||
+                (i > 0 && !ascending((*scope.contracts)[i - 1], (*scope.contracts)[i]))) {
+                return fail(Errc::malformed, "scope contracts must be distinct, ascending ids");
+            }
+        }
+    }
+    return {};
+}
+
+Status check_contract_signer(const ContractSigner& signer) {
+    if (signer.kind > static_cast<std::uint8_t>(ActorKind::device)) {
+        return fail(Errc::malformed, "a signer's kind is 0 to 3");
     }
     return {};
 }
@@ -249,6 +282,77 @@ Status check_body(const Body& body) {
                 }
                 return {};
             },
+            [](const ContractDeployBody& b) -> Status {
+                if (b.code.empty() || b.code.size() > vm::max_module_size) {
+                    return fail(Errc::malformed, "contract code is 1 to 524,288 bytes");
+                }
+                if (b.interface.empty() || b.interface.size() > max_contract_functions) {
+                    return fail(Errc::malformed, "a contract interface has 1 to 256 functions");
+                }
+                bool creates = false;
+                for (const auto& [function, kind] : b.interface) {
+                    CEXCHAIN_CHECK(check_length(function, 1, max_function_name,
+                                                "a function name is 1 to 64 bytes"));
+                    creates = creates || kind == FunctionKind::create;
+                }
+                if (!creates) {
+                    return fail(Errc::malformed,
+                                "a contract has a function that creates instances");
+                }
+                CEXCHAIN_CHECK(check_length(b.language, 1, max_contract_language,
+                                            "a contract's language is 1 to 32 bytes"));
+                CEXCHAIN_CHECK(check_length(b.compiler, 1, max_contract_compiler,
+                                            "a contract's compiler is 1 to 128 bytes"));
+                if (b.source && b.source->size() > max_contract_source) {
+                    return fail(Errc::malformed, "a contract's source is at most 262,144 bytes");
+                }
+                if (b.name) {
+                    CEXCHAIN_CHECK(check_length(*b.name, 1, max_contract_name,
+                                                "a contract's name is 1 to 256 bytes"));
+                }
+                return {};
+            },
+            [](const ContractCallBody& b) -> Status {
+                if (b.contract.has_value() == b.instance.has_value()) {
+                    return fail(Errc::malformed,
+                                "a contract call names either a contract or an instance");
+                }
+                if (b.head.has_value() != b.instance.has_value()) {
+                    return fail(Errc::malformed,
+                                "a contract call names a head exactly with an instance");
+                }
+                if ((b.contract && b.contract->size() != id_size) ||
+                    (b.instance && b.instance->size() != id_size)) {
+                    return fail(Errc::malformed, "contracts and instances are 32-byte ids");
+                }
+                CEXCHAIN_CHECK(check_length(b.function, 1, max_function_name,
+                                            "a function name is 1 to 64 bytes"));
+                CEXCHAIN_TRY(Bytes arguments, cbor::encode(b.arguments));
+                if (arguments.size() > max_contract_value) {
+                    return fail(Errc::malformed, "a call's arguments are at most 65,536 bytes");
+                }
+                if (b.consents.size() > max_contract_consents) {
+                    return fail(Errc::malformed, "a contract call cites at most 16 consents");
+                }
+                for (std::size_t i = 0; i < b.consents.size(); ++i) {
+                    const ContractConsentRef& c = b.consents[i];
+                    if (c.ledger.size() != id_size || c.record.size() != id_size ||
+                        c.bundle.size() != id_size) {
+                        return fail(Errc::malformed, "consent references hold 32-byte hashes");
+                    }
+                    if (i > 0 && !ascending(b.consents[i - 1].ledger, c.ledger)) {
+                        return fail(Errc::malformed,
+                                    "consents must ascend by ledger, one per ledger");
+                    }
+                    CEXCHAIN_CHECK(check_contract_signer(c.signer));
+                }
+                if (b.reference) {
+                    CEXCHAIN_CHECK(check_length(*b.reference, 1, max_contract_reference,
+                                                "a call's reference is 1 to 1024 bytes"));
+                }
+                return {};
+            },
+            [](const ContractRetireBody&) -> Status { return {}; },
         },
         body);
 }
@@ -316,6 +420,13 @@ Result<cbor::Value> encode_scope(const Scope& scope) {
     }
     if (scope.require_presence) {
         map.push_back(entry(6, cbor::Value::boolean(true)));
+    }
+    if (scope.contracts) {
+        cbor::Array values;
+        for (const Id& contract : *scope.contracts) {
+            values.push_back(id_value(contract));
+        }
+        map.push_back(entry(7, cbor::Value::array(std::move(values))));
     }
     return cbor::Value::map(std::move(map));
 }
@@ -490,6 +601,57 @@ Result<cbor::Value> encode_body(const Body& body) {
                 }
                 return cbor::Value::map(std::move(map));
             },
+            [](const ContractDeployBody& b) -> Result<cbor::Value> {
+                cbor::Map interface;
+                for (const auto& [function, kind] : b.interface) {
+                    interface.push_back(
+                        {text_value(function), uint_value(static_cast<std::uint64_t>(kind))});
+                }
+                cbor::Map map{entry(1, cbor::Value::bytes(b.code)),
+                              entry(2, cbor::Value::map(std::move(interface))),
+                              entry(3, text_value(b.language)), entry(4, text_value(b.compiler))};
+                if (b.source) {
+                    map.push_back(entry(5, cbor::Value::bytes(*b.source)));
+                }
+                if (b.name) {
+                    map.push_back(entry(6, text_value(*b.name)));
+                }
+                return cbor::Value::map(std::move(map));
+            },
+            [](const ContractCallBody& b) -> Result<cbor::Value> {
+                cbor::Map map;
+                if (b.contract) {
+                    map.push_back(entry(1, id_value(*b.contract)));
+                }
+                if (b.instance) {
+                    map.push_back(entry(2, id_value(*b.instance)));
+                }
+                map.push_back(entry(3, text_value(b.function)));
+                map.push_back(entry(4, b.arguments));
+                if (b.head) {
+                    map.push_back(entry(5, uint_value(*b.head)));
+                }
+                if (!b.consents.empty()) {
+                    cbor::Array consents;
+                    for (const ContractConsentRef& c : b.consents) {
+                        consents.push_back(cbor::Value::array(
+                            {id_value(c.ledger), id_value(c.record), id_value(c.bundle),
+                             encode_contract_signer(c.signer)}));
+                    }
+                    map.push_back(entry(6, cbor::Value::array(std::move(consents))));
+                }
+                if (b.reference) {
+                    map.push_back(entry(7, text_value(*b.reference)));
+                }
+                return cbor::Value::map(std::move(map));
+            },
+            [](const ContractRetireBody& b) -> Result<cbor::Value> {
+                cbor::Map map{entry(1, id_value(b.contract))};
+                if (b.reason) {
+                    map.push_back(entry(2, text_value(*b.reason)));
+                }
+                return cbor::Value::map(std::move(map));
+            },
         },
         body);
 }
@@ -568,8 +730,42 @@ Result<Scope> decode_scope(const cbor::Value& value) {
         return fail(Errc::non_canonical, "require-presence is encoded only when true");
     }
     scope.require_presence = require_presence.value_or(false);
+    if (const cbor::Value* contracts = reader.get(7)) {
+        CEXCHAIN_TRY(const cbor::Array* items, detail::as_array(*contracts));
+        std::vector<Id> list;
+        for (const cbor::Value& item : *items) {
+            CEXCHAIN_TRY(Bytes contract, detail::as_bytes_value(item));
+            CEXCHAIN_TRY(Id id, to_id(contract));
+            if (!list.empty() && !ascending(list.back(), id)) {
+                return fail(Errc::non_canonical, "scope contracts must be strictly ascending");
+            }
+            list.push_back(std::move(id));
+        }
+        scope.contracts = std::move(list);
+    }
     CEXCHAIN_CHECK(reader.finish());
     return scope;
+}
+
+Result<ContractSigner> decode_contract_signer(const cbor::Value& value) {
+    CEXCHAIN_TRY(MapReader reader, MapReader::open(value));
+    ContractSigner signer;
+    CEXCHAIN_TRY(std::uint64_t kind, reader.need_uint(1));
+    if (kind > static_cast<std::uint64_t>(ActorKind::device)) {
+        return fail(Errc::malformed, "a signer's kind is 0 to 3");
+    }
+    signer.kind = static_cast<std::uint8_t>(kind);
+    CEXCHAIN_TRY(std::optional<std::uint64_t> presence, reader.opt_uint(2));
+    if (presence) {
+        if (*presence != static_cast<std::uint64_t>(PresenceMethod::webauthn) &&
+            *presence != static_cast<std::uint64_t>(PresenceMethod::hardware_key)) {
+            return fail(Errc::malformed, "a signer's presence method is 1 or 2");
+        }
+        signer.presence = static_cast<PresenceMethod>(*presence);
+    }
+    CEXCHAIN_TRY(signer.model, reader.opt_text(3));
+    CEXCHAIN_CHECK(reader.finish());
+    return signer;
 }
 
 Result<std::optional<std::string>> decode_reason(MapReader& reader) {
@@ -762,6 +958,74 @@ Result<Body> decode_body(StatementType type, const cbor::Value& value) {
         body = std::move(b);
         break;
     }
+    case StatementType::contract_deploy: {
+        ContractDeployBody b;
+        CEXCHAIN_TRY(b.code, reader.need_bytes(1));
+        CEXCHAIN_TRY(const cbor::Value* interface, reader.need(2));
+        const cbor::Map* functions = interface->as_map();
+        if (functions == nullptr) {
+            return fail(Errc::malformed, "a contract interface is a map");
+        }
+        for (const cbor::MapEntry& function : *functions) {
+            CEXCHAIN_TRY(std::string name, detail::as_text(function.key));
+            CEXCHAIN_TRY(std::uint64_t kind, detail::as_uint(function.value));
+            if (kind != static_cast<std::uint64_t>(FunctionKind::create) &&
+                kind != static_cast<std::uint64_t>(FunctionKind::call)) {
+                return fail(Errc::malformed, "a function's kind is 1 (create) or 2 (call)");
+            }
+            b.interface.emplace(std::move(name), static_cast<FunctionKind>(kind));
+        }
+        CEXCHAIN_TRY(b.language, reader.need_text(3));
+        CEXCHAIN_TRY(b.compiler, reader.need_text(4));
+        CEXCHAIN_TRY(b.source, reader.opt_bytes(5));
+        CEXCHAIN_TRY(b.name, reader.opt_text(6));
+        body = std::move(b);
+        break;
+    }
+    case StatementType::contract_call: {
+        ContractCallBody b;
+        CEXCHAIN_TRY(b.contract, reader.opt_id(1));
+        CEXCHAIN_TRY(b.instance, reader.opt_id(2));
+        CEXCHAIN_TRY(b.function, reader.need_text(3));
+        CEXCHAIN_TRY(const cbor::Value* arguments, reader.need(4));
+        b.arguments = *arguments;
+        CEXCHAIN_TRY(b.head, reader.opt_uint(5));
+        if (const cbor::Value* consents = reader.get(6)) {
+            CEXCHAIN_TRY(const cbor::Array* items, detail::as_array(*consents));
+            if (items->empty()) {
+                return fail(Errc::non_canonical, "an empty consent list must be omitted");
+            }
+            if (items->size() > max_contract_consents) {
+                return fail(Errc::malformed, "a contract call cites at most 16 consents");
+            }
+            for (const cbor::Value& item : *items) {
+                const cbor::Array* parts = item.as_array();
+                if (parts == nullptr || parts->size() != 4) {
+                    return fail(Errc::malformed,
+                                "a consent is [ledger, record, bundle hash, signer]");
+                }
+                ContractConsentRef c;
+                CEXCHAIN_TRY(Bytes ledger, detail::as_bytes_value((*parts)[0]));
+                CEXCHAIN_TRY(c.ledger, to_id(ledger));
+                CEXCHAIN_TRY(Bytes record, detail::as_bytes_value((*parts)[1]));
+                CEXCHAIN_TRY(c.record, to_id(record));
+                CEXCHAIN_TRY(Bytes bundle, detail::as_bytes_value((*parts)[2]));
+                CEXCHAIN_TRY(c.bundle, to_id(bundle));
+                CEXCHAIN_TRY(c.signer, decode_contract_signer((*parts)[3]));
+                b.consents.push_back(std::move(c));
+            }
+        }
+        CEXCHAIN_TRY(b.reference, reader.opt_text(7));
+        body = std::move(b);
+        break;
+    }
+    case StatementType::contract_retire: {
+        ContractRetireBody b;
+        CEXCHAIN_TRY(b.contract, reader.need_id(1));
+        CEXCHAIN_TRY(b.reason, decode_reason(reader));
+        body = std::move(b);
+        break;
+    }
     }
     CEXCHAIN_CHECK(reader.finish());
     return body;
@@ -823,6 +1087,17 @@ Result<Provenance> decode_provenance(const cbor::Value& value) {
 
 } // namespace
 
+cbor::Value encode_contract_signer(const ContractSigner& signer) {
+    cbor::Map map{entry(1, uint_value(signer.kind))};
+    if (signer.presence) {
+        map.push_back(entry(2, uint_value(static_cast<std::uint64_t>(*signer.presence))));
+    }
+    if (signer.model) {
+        map.push_back(entry(3, text_value(*signer.model)));
+    }
+    return cbor::Value::map(std::move(map));
+}
+
 std::optional<StatementType> statement_type_from(std::uint64_t value) noexcept {
     switch (value) {
     case 1:
@@ -838,6 +1113,9 @@ std::optional<StatementType> statement_type_from(std::uint64_t value) noexcept {
     case 18:
     case 19:
     case 20:
+    case 21:
+    case 22:
+    case 23:
         return static_cast<StatementType>(value);
     default:
         return std::nullopt;
@@ -872,6 +1150,12 @@ std::string_view name(StatementType type) noexcept {
         return "record-revoke";
     case StatementType::asset_action:
         return "asset-action";
+    case StatementType::contract_deploy:
+        return "contract-deploy";
+    case StatementType::contract_call:
+        return "contract-call";
+    case StatementType::contract_retire:
+        return "contract-retire";
     }
     return "unknown";
 }
@@ -892,6 +1176,9 @@ StatementType type_of(const Body& body) noexcept {
             [](const RecordTransitionBody&) { return StatementType::record_transition; },
             [](const RecordRevokeBody&) { return StatementType::record_revoke; },
             [](const AssetActionBody&) { return StatementType::asset_action; },
+            [](const ContractDeployBody&) { return StatementType::contract_deploy; },
+            [](const ContractCallBody&) { return StatementType::contract_call; },
+            [](const ContractRetireBody&) { return StatementType::contract_retire; },
         },
         body);
 }
