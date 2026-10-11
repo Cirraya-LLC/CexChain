@@ -15,6 +15,7 @@ add_library(cexchain_core
     src/protocol/access.cpp
     src/protocol/asset_evidence.cpp
     src/protocol/assets.cpp
+    src/protocol/contract_evidence.cpp
     src/protocol/contracts.cpp
     src/protocol/common.cpp
     src/protocol/envelope.cpp

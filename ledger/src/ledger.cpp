@@ -1675,14 +1675,18 @@ Result<protocol::EvidenceBundle> Ledger::export_evidence(LogKeys log_keys,
     }
     const crypto::Signer& log_key = **picked;
     const protocol::LedgerState& state = impl_->state;
+    // A record, or a contract instance (spec section 15).
     const protocol::RecordState* record = state.record(record_id);
-    if (record == nullptr) {
+    const protocol::InstanceState* instance =
+        record == nullptr ? state.instance(record_id) : nullptr;
+    if (record == nullptr && instance == nullptr) {
         return fail(Errc::not_found, "no record with this id");
     }
+    const protocol::IndexList& history = record != nullptr ? record->history : instance->history;
     // Everything about it must be covered by the latest checkpoint (which
     // also rules out what is not durable yet).
     const auto& checkpoint = impl_->latest_checkpoint;
-    if (!checkpoint || std::ranges::any_of(record->history, [&](std::uint64_t index) {
+    if (!checkpoint || std::ranges::any_of(history, [&](std::uint64_t index) {
             return index >= checkpoint->checkpoint.tree_size;
         })) {
         return fail(Errc::not_found, "no checkpoint covers the record's statements yet");
@@ -1717,7 +1721,12 @@ Result<protocol::EvidenceBundle> Ledger::export_evidence(LogKeys log_keys,
             need(d->granted_at_index);
         }
     };
-    for (const std::uint64_t index : record->history) {
+    auto need_contract = [&](const protocol::Id& id) {
+        if (const protocol::ContractState* c = state.contract(id)) {
+            need(c->deployed_at_index);
+        }
+    };
+    for (const std::uint64_t index : history) {
         need(index);
     }
     // Every rotation of the organization's keys below the checkpoint: the
@@ -1734,7 +1743,7 @@ Result<protocol::EvidenceBundle> Ledger::export_evidence(LogKeys log_keys,
     const bool committed = checkpoint && impl_->checkpoint_commitment;
     if (committed) {
         std::vector<protocol::Statement> events;
-        for (const std::uint64_t index : record->history) {
+        for (const std::uint64_t index : history) {
             auto bytes = impl_->log.read(index);
             if (!bytes) {
                 return std::unexpected(bytes.error());
@@ -1808,6 +1817,14 @@ Result<protocol::EvidenceBundle> Ledger::export_evidence(LogKeys log_keys,
                     if (const protocol::RecordState* r = state.record(body.asset)) {
                         need(r->registered_at_index);
                     }
+                } else if constexpr (std::is_same_v<Body, protocol::ContractCallBody>) {
+                    if (body.contract) {
+                        need_contract(*body.contract);
+                    } else if (const protocol::InstanceState* i = state.instance(*body.instance)) {
+                        need_contract(i->contract);
+                    }
+                } else if constexpr (std::is_same_v<Body, protocol::ContractRetireBody>) {
+                    need_contract(body.contract);
                 }
             },
             statement.body);

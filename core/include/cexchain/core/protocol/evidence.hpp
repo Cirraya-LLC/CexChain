@@ -15,6 +15,7 @@
 #include <cexchain/core/error.hpp>
 #include <cexchain/core/protocol/assets.hpp>
 #include <cexchain/core/protocol/common.hpp>
+#include <cexchain/core/protocol/contracts.hpp>
 #include <cexchain/core/protocol/log.hpp>
 #include <cexchain/core/protocol/presence.hpp>
 #include <cexchain/core/protocol/record.hpp>
@@ -114,6 +115,25 @@ struct RecordEvent {
     std::string detail;
     /// For an asset action: the action itself.
     std::optional<AssetActionBody> asset_action;
+    /// For a contract call: the call, and what the contract made of it.
+    std::optional<ContractCallBody> contract_call;
+    std::optional<ContractAccept> outcome;
+};
+
+/// A contract instance as of the checkpoint (spec section 15).
+struct InstanceReport {
+    Id contract;
+    std::optional<std::string> contract_name;
+    std::string language;
+    std::string compiler;
+    /// The contract creates no more instances (known for certain only in a
+    /// complete report).
+    bool contract_retired = false;
+    std::uint64_t head = 0;
+    cbor::Value state;
+    std::optional<std::string> status;
+    Parties parties;
+    bool final = false;
 };
 
 enum class AttachmentStatus : std::uint8_t {
@@ -142,7 +162,9 @@ struct EvidenceReport {
     std::size_t trusted_cosignatures = 0;
     std::size_t untrusted_cosignatures = 0;
 
+    /// The record, or the instance, the bundle is about.
     Id record;
+    /// Empty for an instance.
     std::string record_type;
     std::string state;
     bool revoked = false;
@@ -150,6 +172,8 @@ struct EvidenceReport {
     /// of the checkpoint (its status is `state`).
     std::optional<AssetState> asset;
     std::optional<cbor::Value> metadata;
+    /// If the bundle is about a contract instance.
+    std::optional<InstanceReport> instance;
     std::vector<RecordEvent> events;
     std::vector<RecordField> disclosed_fields;
     std::vector<AttachmentCheck> attachments;
@@ -162,9 +186,10 @@ struct EvidenceReport {
 };
 
 /// The objects whose complete history a bundle about `record` must prove:
-/// the record, and for each of its events (`events`, the statements in its
-/// history) the signer, an agent signer's accountable person, and every
-/// delegation in the chain with its grantor. In first-seen order.
+/// the record (or instance, and then its contract), and for each of its
+/// events (`events`, the statements in its history) the signer, an agent
+/// signer's accountable person, and every delegation in the chain with its
+/// grantor. In first-seen order.
 [[nodiscard]] std::vector<Id> involved_objects(const LedgerState& state, const Id& record,
                                                std::span<const Statement> events);
 

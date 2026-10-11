@@ -78,6 +78,9 @@ std::string event_detail(const Statement& statement) {
     if (const auto* b = std::get_if<AssetActionBody>(&statement.body)) {
         return std::string(name(b->action));
     }
+    if (const auto* b = std::get_if<ContractCallBody>(&statement.body)) {
+        return b->function;
+    }
     return {};
 }
 
@@ -92,6 +95,9 @@ std::vector<Id> involved_objects(const LedgerState& state, const Id& record,
         }
     };
     add(record);
+    if (const InstanceState* instance = state.instance(record)) {
+        add(instance->contract);
+    }
     for (const Statement& statement : events) {
         if (!statement.actor_id) {
             continue;
@@ -322,6 +328,43 @@ Result<EvidenceBundle> decode_bundle(ByteView encoded) {
 // Verification
 // ---------------------------------------------------------------------------
 
+namespace {
+
+/// Counts the witnesses that cosigned the bundle's checkpoint into `report`.
+Result<EvidenceReport> count_witnesses(const crypto::Provider& provider, const LedgerState& state,
+                                       const SignedCheckpoint& checkpoint,
+                                       const EvidenceBundle& bundle, const VerifyOptions& options,
+                                       EvidenceReport report) {
+    // Count witnesses, not cosignatures: a witness that signed twice (or a
+    // bundle that repeats its cosignature) is still one witness.
+    std::vector<Id> counted;
+    for (const Bytes& encoded_cosignature : bundle.cosignatures) {
+        auto cosignature = parse_cosignature(encoded_cosignature);
+        if (!cosignature || cosignature->checkpoint != checkpoint.checkpoint) {
+            return verification_failure("a cosignature does not cover the bundle's checkpoint");
+        }
+        if (std::ranges::contains(counted, cosignature->kid)) {
+            continue;
+        }
+        counted.push_back(cosignature->kid);
+        bool trusted = false;
+        for (const crypto::PublicKey& witness : options.trusted_witnesses) {
+            auto kid = key_id(provider, state.hash(), witness);
+            if (kid && *kid == cosignature->kid) {
+                if (!verify_cosignature(provider, *cosignature, witness)) {
+                    return verification_failure("a trusted witness's cosignature does not verify");
+                }
+                trusted = true;
+                break;
+            }
+        }
+        ++(trusted ? report.trusted_cosignatures : report.untrusted_cosignatures);
+    }
+    return report;
+}
+
+} // namespace
+
 Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView encoded,
                                      const VerifyOptions& options) {
     CEXCHAIN_TRY(EvidenceBundle bundle, decode_bundle(encoded));
@@ -397,8 +440,10 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
     }
 
     // Replay the included statements under the ledger rules, noting each
-    // proof of presence against the credentials of the moment.
+    // proof of presence against the credentials of the moment, and what the
+    // contract made of each call on the bundle's instance.
     std::map<std::uint64_t, PresenceCheck> presence;
+    std::map<std::uint64_t, ContractAccept> outcomes;
     for (const Included& item : included) {
         if (item.index == 0 || item.commitment) {
             continue;
@@ -414,6 +459,15 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
         if (!state->validate(provider, item.statement, item.log_entry.registered_at)) {
             return verification_failure(
                 "an included statement fails the ledger rules or depends on a missing statement");
+        }
+        if (const auto* call = std::get_if<ContractCallBody>(&item.statement.statement.body);
+            call != nullptr && (call->instance ? *call->instance == bundle.record
+                                               : item.statement.id == bundle.record)) {
+            CEXCHAIN_TRY(ContractRun run, state->run_contract(provider, item.statement,
+                                                              item.log_entry.registered_at));
+            if (const ContractAccept* accept = run.accepted()) {
+                outcomes.emplace(item.index, *accept);
+            }
         }
         CEXCHAIN_CHECK(
             state->apply(provider, item.statement, item.index, item.log_entry.registered_at));
@@ -444,9 +498,11 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
     }
 
     const RecordState* record = state->record(bundle.record);
-    if (record == nullptr) {
+    const InstanceState* instance = record == nullptr ? state->instance(bundle.record) : nullptr;
+    if (record == nullptr && instance == nullptr) {
         return verification_failure("the bundle does not include the record's registration");
     }
+    const IndexList& history = record != nullptr ? record->history : instance->history;
 
     EvidenceReport report;
     report.ledger_id = state->ledger_id();
@@ -456,12 +512,31 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
     report.log_key = log_key;
     report.log_key_rotations = state->log_keys().size() - 1;
     report.root_key_rotations = state->root_keys().size() - 1;
-    report.record = record->id;
-    report.record_type = record->record_type;
-    report.state = record->state;
-    report.revoked = record->revoked;
-    if (const AssetState* asset = state->asset(record->id)) {
-        report.asset = *asset;
+    report.record = bundle.record;
+    if (record != nullptr) {
+        report.record_type = record->record_type;
+        report.state = record->state;
+        report.revoked = record->revoked;
+        if (const AssetState* asset = state->asset(record->id)) {
+            report.asset = *asset;
+        }
+    } else {
+        const ContractState* contract = state->contract(instance->contract);
+        report.instance = InstanceReport{
+            .contract = instance->contract,
+            .contract_name = contract->name,
+            .language = contract->language,
+            .compiler = contract->compiler,
+            .contract_retired = contract->retired,
+            .head = instance->head,
+            .state = instance->state,
+            .status = instance->status,
+            .parties = instance->parties,
+            .final = instance->final,
+        };
+        if (instance->status) {
+            report.state = *instance->status;
+        }
     }
 
     // Entries ascend by index (checked above): find them by binary search,
@@ -470,7 +545,7 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
         return std::ranges::lower_bound(included, index, {}, &Included::index);
     };
     const RecordRegisterBody* registration = nullptr;
-    for (const std::uint64_t index : record->history) {
+    for (const std::uint64_t index : history) {
         const auto it = included_at(index);
         const Statement& statement = it->statement.statement;
         if (const auto* body = std::get_if<RecordRegisterBody>(&statement.body)) {
@@ -490,6 +565,10 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
             .asset_action = std::holds_alternative<AssetActionBody>(statement.body)
                                 ? std::optional(std::get<AssetActionBody>(statement.body))
                                 : std::nullopt,
+            .contract_call = std::holds_alternative<ContractCallBody>(statement.body)
+                                 ? std::optional(std::get<ContractCallBody>(statement.body))
+                                 : std::nullopt,
+            .outcome = outcomes.contains(index) ? std::optional(outcomes.at(index)) : std::nullopt,
         });
     }
 
@@ -505,7 +584,7 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
         const crypto::Digest* state_root = &last->commitment->commitment.state_root;
         report.state_commitment = last->commitment->commitment;
         std::vector<Statement> events;
-        for (const std::uint64_t index : record->history) {
+        for (const std::uint64_t index : history) {
             events.push_back(included_at(index)->statement.statement);
         }
         std::map<IdKey, const StateProof*> proven;
@@ -518,7 +597,7 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
                     "a state proof does not match the ledger's state commitment");
             }
         }
-        for (const Id& id : involved_objects(*state, record->id, events)) {
+        for (const Id& id : involved_objects(*state, bundle.record, events)) {
             const auto proof = proven.find(key_of(id));
             if (proof == proven.end()) {
                 return verification_failure(
@@ -534,6 +613,15 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
     } else if (!bundle.state_proofs.empty()) {
         return verification_failure(
             "state proofs need the state commitment the checkpoint ends with");
+    }
+
+    if (instance != nullptr) {
+        // An instance has no fields or attachments: its state is public to
+        // whoever holds its evidence.
+        if (!bundle.disclosures.empty() || !bundle.attachments.empty()) {
+            return verification_failure("an instance has no fields or attachments to disclose");
+        }
+        return count_witnesses(provider, *state, checkpoint, bundle, options, std::move(report));
     }
 
     // Leaves are sorted by name, one per name: disclosures must agree (a
@@ -585,32 +673,7 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
         report.attachments.push_back(std::move(check));
     }
 
-    // Count witnesses, not cosignatures: a witness that signed twice (or a
-    // bundle that repeats its cosignature) is still one witness.
-    std::vector<Id> counted;
-    for (const Bytes& encoded_cosignature : bundle.cosignatures) {
-        auto cosignature = parse_cosignature(encoded_cosignature);
-        if (!cosignature || cosignature->checkpoint != checkpoint.checkpoint) {
-            return verification_failure("a cosignature does not cover the bundle's checkpoint");
-        }
-        if (std::ranges::contains(counted, cosignature->kid)) {
-            continue;
-        }
-        counted.push_back(cosignature->kid);
-        bool trusted = false;
-        for (const crypto::PublicKey& witness : options.trusted_witnesses) {
-            auto kid = key_id(provider, state->hash(), witness);
-            if (kid && *kid == cosignature->kid) {
-                if (!verify_cosignature(provider, *cosignature, witness)) {
-                    return verification_failure("a trusted witness's cosignature does not verify");
-                }
-                trusted = true;
-                break;
-            }
-        }
-        ++(trusted ? report.trusted_cosignatures : report.untrusted_cosignatures);
-    }
-    return report;
+    return count_witnesses(provider, *state, checkpoint, bundle, options, std::move(report));
 }
 
 } // namespace cexchain::protocol

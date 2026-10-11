@@ -256,10 +256,11 @@ public:
     /// The latest stored checkpoint, if any.
     [[nodiscard]] std::optional<protocol::SignedCheckpoint> latest_checkpoint() const;
 
-    /// Builds an evidence bundle for `record`: genesis, the record's
-    /// statements, and every statement they depend on (signers'
-    /// registrations and key rotations, delegation chains, referenced
-    /// actors), each with a receipt anchored to the latest checkpoint, which
+    /// Builds an evidence bundle for `record`, a record or a contract
+    /// instance: genesis, its statements, and every statement they depend on
+    /// (signers' registrations and key rotations, delegation chains,
+    /// referenced actors, a contract's deploy), each with a receipt anchored
+    /// to the latest checkpoint, which
     /// must cover them all, plus the stored witness cosignatures of that
     /// checkpoint. The caller adds field disclosures and attachment openings,
     /// since only it holds the record's private data.

@@ -29,6 +29,8 @@
 #include <cexchain/core/protocol/access.hpp>
 #include <cexchain/core/protocol/asset_evidence.hpp>
 #include <cexchain/core/protocol/assets.hpp>
+#include <cexchain/core/protocol/contract_evidence.hpp>
+#include <cexchain/core/protocol/contracts.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/presence.hpp>
 #include <cexchain/core/protocol/record.hpp>
@@ -455,7 +457,8 @@ void vm_seeds(const Seeds& seeds) {
 }
 
 /// Contract outputs (every verdict) and consent metadata from the v0.6
-/// vectors.
+/// vectors, and real contract evidence: the vectors' test contract deployed,
+/// an instance created, and a call with a supplier's consent.
 void contract_seeds(const Seeds& seeds) {
     std::ifstream in(CEXCHAIN_TESTVECTORS_DIR "/protocol-v0.6.json");
     if (!in) {
@@ -473,6 +476,61 @@ void contract_seeds(const Seeds& seeds) {
         const auto metadata = must(from_hex(consent.at("metadata").get<std::string>()), "consent");
         seeds.write("contract_parse_fuzz", std::format("consent-{:02}", n++), ByteView(metadata));
     }
+
+    Org home("Seed Contract Home", 21);
+    Org supplier("Seed Contract Supplier", 22);
+    protocol::ContractDeployBody deploy;
+    deploy.code = must(from_hex(doc.at("contract").get<std::string>()), "contract");
+    deploy.interface = {{"propose", protocol::FunctionKind::create},
+                        {"sign", protocol::FunctionKind::call}};
+    deploy.language = "wasm";
+    deploy.compiler = "hand-assembled 1";
+    const auto deployed = home.submit(deploy);
+    seeds.write("protocol_parse_fuzz", "statement-contract-deploy", deployed.encoded);
+
+    // The test contract writes the content of byte-string arguments.
+    auto arguments = [](const protocol::ContractOutput& output) {
+        return cbor::Value::bytes(must(protocol::encode_contract_output(output), "output"));
+    };
+    protocol::ContractCallBody create;
+    create.contract = deployed.id;
+    create.function = "propose";
+    create.arguments =
+        arguments(protocol::ContractAccept{cbor::Value::text("draft"),
+                                           "proposed",
+                                           protocol::Parties{{"supplier", supplier.id()}},
+                                           {},
+                                           false});
+    const auto created = home.submit(create);
+    seeds.write("protocol_parse_fuzz", "statement-contract-create", created.encoded);
+
+    protocol::ContractCallBody sign;
+    sign.instance = created.id;
+    sign.function = "sign";
+    sign.arguments = arguments(protocol::ContractAccept{
+        cbor::Value::text("signed"), "effective", std::nullopt, {}, false});
+    sign.head = home.ledger->state().instance(created.id)->head;
+    const auto digest = must(
+        protocol::contract_arguments_digest(home.provider, crypto::HashAlg::sha256, sign.arguments),
+        "digest");
+    const auto consent_metadata =
+        must(protocol::encode_contract_consent({home.id(), created.id, "sign", digest, *sign.head,
+                                                home.clock.now() + 86'400'000, std::nullopt}),
+             "consent");
+    const protocol::Id record = supplier.record(protocol::contract_consent_type, consent_metadata);
+    Bytes bundle = supplier.evidence(record);
+    sign.consents.push_back({supplier.id(),
+                             record,
+                             must(home.provider.digest(crypto::HashAlg::sha256, bundle), "hash"),
+                             {}});
+    const auto signed_call = home.submit(sign);
+    seeds.write("protocol_parse_fuzz", "statement-contract-call", signed_call.encoded);
+    const Bytes evidence =
+        must(protocol::encode_contract_evidence({home.evidence(created.id), {std::move(bundle)}}),
+             "evidence");
+    must(protocol::verify_contract_evidence(home.provider, evidence),
+         "the seed evidence must verify");
+    seeds.write("contract_parse_fuzz", "evidence", evidence);
 }
 
 int main(int argc, char** argv) {

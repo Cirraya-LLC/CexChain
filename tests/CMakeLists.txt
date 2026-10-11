@@ -17,6 +17,7 @@ add_executable(cexchain_tests
     crypto/openssl_test.cpp
     ledger/access_test.cpp
     ledger/assets_test.cpp
+    ledger/contracts_test.cpp
     ledger/backup_test.cpp
     ledger/concurrency_test.cpp
     ledger/evidence_test.cpp
