@@ -1,7 +1,7 @@
 ; SPDX-License-Identifier: Apache-2.0
 ; Copyright 2026 Cirraya
 ;
-; The CexChain protocol (RFC 8610 CDDL). Specification revision v0.5; the
+; The CexChain protocol (RFC 8610 CDDL). Specification revision v0.6 (draft); the
 ; wire protocol version (statement key 0) is 1.
 ;
 ; Revision history:
@@ -23,6 +23,11 @@
 ;   v0.5  ownership assets: asset-action (statement type 20), the
 ;         receivable, warehouse-receipt, and asset-consent record types and
 ;         their metadata, and asset evidence. Earlier objects remain valid.
+;   v0.6  contracts (draft): contract-deploy, contract-call, and
+;         contract-retire (statement types 21 to 23), scope key 7, state
+;         leaves for contracts and instances, the contract input and output,
+;         the contract-consent record type, and contract evidence. Earlier
+;         objects remain valid.
 ;
 ; Every structure is encoded as deterministic CBOR (RFC 8949 section 4.2.1) in
 ; the CexChain profile: no floats, no indefinite lengths, no duplicate keys.
@@ -89,13 +94,17 @@ statement-type = &(
   record-transition: 18,
   record-revoke: 19,
   asset-action: 20,
+  contract-deploy: 21,
+  contract-call: 22,
+  contract-retire: 23,
 )
 
 statement-body = genesis-body / actor-register-body / actor-rotate-key-body /
                  actor-revoke-body / delegation-grant-body / delegation-revoke-body /
                  actor-set-presence-body / ledger-rotate-log-key-body /
                  record-register-body / record-endorse-body / record-transition-body /
-                 record-revoke-body / asset-action-body
+                 record-revoke-body / asset-action-body / contract-deploy-body /
+                 contract-call-body / contract-retire-body
 
 ; Genesis creates the ledger. It is signed by the organization root key, and
 ;   ledger_id = statement_id of the genesis statement.
@@ -168,6 +177,10 @@ scope = {
                                ; presence; encoded only when true. A
                                ; delegation granted under one that requires
                                ; presence must require it too.
+  ? 7 => [+ id],               ; contracts (v0.6): calls and retires must act
+                               ; on one of them (a call on an instance acts on
+                               ; its contract); absent means any. Unique; a
+                               ; delegated list is a subset of the grantor's.
 }
 
 ; Proof of human presence (machine by default: a statement without it shows
@@ -302,6 +315,58 @@ consent-ref = [
                                ; evidence bundle that the home verified and
                                ; keeps
 ]
+
+; Contracts (v0.6; see "Contracts" below). A contract is identified by its
+; deploy's statement_id, and its code never changes.
+contract-deploy-body = {
+  1 => bstr,                   ; code: a WebAssembly module that loads under
+                               ; the profile (spec section 14.1), at most
+                               ; 524,288 bytes
+  2 => contract-interface,
+  3 => tstr,                   ; language, 1-32 bytes: "bo", "wasm"
+  4 => tstr,                   ; compiler and its version, 1-128 bytes
+  ? 5 => bstr,                 ; source, at most 262,144 bytes
+  ? 6 => tstr,                 ; name, 1-256 bytes
+}
+; Function names (UTF-8, 1-64 bytes), at most 256, at least one of kind 1.
+contract-interface = { + tstr => function-kind }
+function-kind = &(create: 1, call: 2)
+
+; Either creates an instance (contract, a function of kind 1, no head, no
+; consents; the instance id is this statement's id) or acts on one
+; (instance, its head, a function of kind 2).
+contract-call-body = {
+  ? 1 => id,                   ; contract: exactly for a creation
+  ? 2 => id,                   ; instance: exactly otherwise
+  3 => tstr,                   ; function, in the contract's interface
+  4 => any,                    ; arguments, at most 65,536 bytes encoded
+  ? 5 => uint,                 ; head: the log index of the instance's
+                               ; latest call; exactly with an instance
+  ? 6 => [1*16 contract-consent-ref], ; strictly ascending by ledger; none
+                               ; from the home
+  ? 7 => tstr,                 ; reference, 1-1024 bytes
+}
+; A party's consent, given on its own ledger.
+contract-consent-ref = [
+  ledger: id,                  ; the party's ledger
+  record: id,                  ; its cexchain.contract-consent/1 record there
+  bundle: bstr .size 32,       ; HASH (the home's) of the consent's evidence
+                               ; bundle that the home verified and keeps
+  signer: signer,              ; who signed the consent's registration, as
+                               ; that bundle shows; the contract sees it
+]
+; Who signed a statement, as a contract sees it.
+signer = {
+  1 => 0 / actor-kind,         ; 0: the organization
+  ? 2 => 1 / 2,                ; proof of presence carried: passkey 1,
+                               ; hardware key 2
+  ? 3 => tstr,                 ; the provenance's model (agents)
+}
+
+contract-retire-body = {
+  1 => id,                     ; contract: it creates no more instances
+  ? 2 => tstr,                 ; reason
+}
 
 provenance = {
   ? 1 => tstr,                 ; model
@@ -450,8 +515,10 @@ inclusion-proof = [
 ; statement about them. The organization's leaf is [1, ledger_id, [0, ...]],
 ; with every rotation of its root key and of the log key (v0.4), so a
 ; complete bundle shows them all.
+; Contracts list their deploy and retire (v0.6); instances their creation
+; and every call.
 state-leaf = [
-  kind: 1 / 2 / 3,             ; actor, delegation, record
+  kind: 1 / 2 / 3 / 4 / 5,     ; actor, delegation, record, contract, instance
   id,
   history: [+ uint],           ; strictly ascending
 ]
@@ -461,7 +528,8 @@ state-proof = [state-leaf, siblings: [* bstr]]   ; at most 256 siblings
 
 evidence-bundle = {
   0 => 1,                      ; bundle format version
-  1 => id,                     ; the record (statement_id of its registration)
+  1 => id,                     ; the record (statement_id of its registration),
+                               ; or an instance (v0.6)
   2 => [+ evidence-entry],     ; ascending log index, starting with genesis
   3 => bstr,                   ; the signed checkpoint the receipts lead to
   ? 4 => [+ bstr],             ; witness cosignatures on that checkpoint
@@ -614,3 +682,75 @@ asset-evidence = {
   ? 2 => [1*4096 bstr],        ; consent evidence bundles
 }
 
+; ---------------------------------------------------------------------------
+; Contracts (v0.6, draft)
+; ---------------------------------------------------------------------------
+
+; What a call's contract reads with input_read (spec section 14.4). The home
+; builds it when it registers the call, and every verifier rebuilds it from
+; the log when it replays the call.
+contract-input = {
+  1 => tstr,                   ; function
+  2 => any,                    ; arguments
+  3 => id,                     ; the home ledger
+  4 => id,                     ; the contract
+  ? 5 => instance-view,        ; absent for a creation
+  6 => [actor: id, signer],    ; the caller
+  7 => timestamp,              ; the call's registration time
+  ? 8 => [+ [ledger: id, signer]], ; the consents, in the call's order
+}
+instance-view = {
+  1 => id,                     ; the instance
+  2 => uint,                   ; its head
+  3 => any,                    ; its state
+  ? 4 => tstr,                 ; its status
+  ? 5 => parties,
+}
+parties = { + tstr => id }     ; role (1-64 bytes) => ledger, at most 64
+
+; What the contract writes with output_write. The call is registered only on
+; an accept; a trap (abort is a rejection), a needs, or an output that is not
+; this, in deterministic CBOR, refuses it.
+contract-output = [1, contract-accept] / [2, needs: [1*16 id]]
+                               ; needs: the ledgers whose consents the call
+                               ; lacks, strictly ascending, none the home
+contract-accept = {
+  1 => any,                    ; the new state, at most 65,536 bytes encoded
+  ? 2 => tstr,                 ; status, 1-64 bytes
+  ? 3 => parties,              ; replaces the parties; absent keeps them
+  ? 4 => [1*64 [name: tstr, data: any]], ; events, names 1-64 bytes
+  ? 5 => true,                 ; final: the instance takes no more calls
+}
+
+; Metadata of a cexchain.contract-consent/1 record (initial state "given",
+; which may become "withdrawn"), on the consenting party's ledger. It is
+; checked by the home and by verifiers, not by the ledger rules; the terms
+; must equal the call's.
+contract-consent = {
+  "ledger" => bstr .size 32,   ; the instance's home ledger
+  "instance" => bstr .size 32,
+  "function" => tstr,
+  "arguments" => bstr .size 32, ; HASH (the home's) of the encoded arguments
+  "head" => uint,
+  "until" => uint,             ; > 0: the consent lapses then (ms)
+  ? "reference" => tstr,       ; 1-1024 bytes
+}
+
+; Everything needed to verify an instance offline: its bundle from the home
+; ledger (with the deploy, any retire, and every call), and every consent
+; bundle its calls cite (each once, in any order). A verifier:
+;   1. verifies the instance bundle for the home ledger; it must be complete;
+;   2. replays it, running the contract for each call, to the instance's
+;      state, status, parties, and finality;
+;   3. for each contract-consent-ref, takes the bundle whose HASH (the home's)
+;      it names, and requires that bundle to verify for the cited ledger,
+;      completely; to be about the cited record, a live (given, not revoked)
+;      cexchain.contract-consent/1 record; to carry the call's terms; to
+;      lapse no earlier than the call's registration time; and to show the
+;      record's registration signed as the citation's signer claims;
+;   4. refuses bundles no citation pins, and citations without a bundle.
+contract-evidence = {
+  0 => 1,                      ; format version
+  1 => bstr,                   ; the instance's evidence bundle
+  ? 2 => [1*4096 bstr],        ; consent evidence bundles
+}

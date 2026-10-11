@@ -1419,6 +1419,432 @@ def generate_protocol_v05() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Protocol v0.6 additions: contracts (spec section 15): contract-deploy,
+# contract-call, contract-retire, scope key 7, the contract input and output,
+# contract consents, contract evidence
+# ---------------------------------------------------------------------------
+
+CONTRACT_CONSENT = "cexchain.contract-consent/1"
+
+
+def oracle_contract(w, entry_name="cexchain_call") -> bytes:
+    """The test contract. Its arguments decide its output, so that vectors
+    reach every outcome:
+      - a byte string: the output is its content;
+      - a text string: it aborts, with the text as the reason;
+      - anything else: it accepts, with HASH(input) as the state, which checks
+        the input's bytes end to end.
+    The input is a map whose first key is 1, the function, so the arguments
+    (key 2) follow the function's name, which must be shorter than 24 bytes.
+    Imports: input_size 0, input_read 1, output_write 2, hash 3, abort 4."""
+    # Function 5: a string's header at p -> (start of its content, length),
+    # for lengths below 65,536.
+    header = {"params": ["i32"], "results": ["i32", "i32"], "locals": ["i32"], "body": [
+        ("local.get", 0), ("i32.load8_u", 0), ("i32.const", 31), ("i32.and",), ("local.set", 1),
+        ("local.get", 1), ("i32.const", 24), ("i32.lt_u",),
+        ("if", None),
+        ("local.get", 0), ("i32.const", 1), ("i32.add",), ("local.get", 1), ("return",),
+        ("end",),
+        ("local.get", 1), ("i32.const", 24), ("i32.eq",),
+        ("if", None),
+        ("local.get", 0), ("i32.const", 2), ("i32.add",), ("local.get", 0), ("i32.load8_u", 1), ("return",),
+        ("end",),
+        ("local.get", 0), ("i32.const", 3), ("i32.add",),
+        ("local.get", 0), ("i32.load8_u", 1), ("i32.const", 8), ("i32.shl",),
+        ("local.get", 0), ("i32.load8_u", 2), ("i32.or",),
+    ]}
+    # Function 6, the entry. Locals: input size, the arguments' offset, their
+    # major type.
+    prefix = [0x82, 0x01, 0xA1, 0x01, 0x58, 0x20]  # [1, {1: h'<32 bytes>'}]
+    entry = {"locals": ["i32", "i32", "i32"], "body": [
+        ("call", 0), ("local.set", 0),
+        ("i32.const", 0), ("call", 1),
+        ("i32.const", 2), ("i32.load8_u", 0), ("i32.const", 31), ("i32.and",), ("i32.const", 4), ("i32.add",),
+        ("local.set", 1),
+        ("local.get", 1), ("i32.load8_u", 0), ("i32.const", 5), ("i32.shr_u",), ("local.set", 2),
+        ("local.get", 2), ("i32.const", 2), ("i32.eq",),
+        ("if", None),
+        ("local.get", 1), ("call", 5), ("call", 2), ("return",),
+        ("end",),
+        ("local.get", 2), ("i32.const", 3), ("i32.eq",),
+        ("if", None),
+        ("local.get", 1), ("call", 5), ("call", 4), ("return",),
+        ("end",),
+        *[x for i, b in enumerate(prefix) for x in (("local.get", 0), ("i32.const", b), ("i32.store8", i))],
+        ("i32.const", 0), ("local.get", 0), ("local.get", 0), ("i32.const", 6), ("i32.add",), ("call", 3),
+        ("local.get", 0), ("i32.const", 38), ("call", 2),
+    ]}
+    return w.assemble([header, entry], imports=["input_size", "input_read", "output_write", "hash", "abort"],
+                      memory=(4, 4), entry_name=entry_name)
+
+
+def check_contract_output(output: bytes, home: bytes):
+    """Section 15's rules for an output: ("accept", map), ("needs", ledgers),
+    or ("malformed", why)."""
+    try:
+        value = cbor2.loads(output)
+        if dcbor(value) != output:
+            return "malformed", "not deterministic CBOR"
+    except Exception:  # noqa: BLE001 - any decoding failure
+        return "malformed", "not CBOR"
+
+    def text(v, lo, hi):
+        return isinstance(v, str) and lo <= len(v.encode()) <= hi
+
+    def ledger(v):
+        return isinstance(v, bytes) and len(v) == 32
+
+    if not isinstance(value, list) or len(value) != 2 or value[0] not in (1, 2) or isinstance(value[0], bool):
+        return "malformed", "not [1, accept] or [2, needs]"
+    if value[0] == 2:
+        needs = value[1]
+        if (not isinstance(needs, list) or not 1 <= len(needs) <= 16 or not all(map(ledger, needs))
+                or any(a >= b for a, b in zip(needs, needs[1:])) or home in needs):
+            return "malformed", "bad needs"
+        return "needs", needs
+    accept = value[1]
+    if not isinstance(accept, dict) or 1 not in accept or not set(accept) <= {1, 2, 3, 4, 5}:
+        return "malformed", "bad accept keys"
+    if len(dcbor(accept[1])) > 65_536:
+        return "malformed", "state too large"
+    if 2 in accept and not text(accept[2], 1, 64):
+        return "malformed", "bad status"
+    if 3 in accept:
+        p = accept[3]
+        if (not isinstance(p, dict) or not 1 <= len(p) <= 64
+                or not all(text(k, 1, 64) and ledger(v) for k, v in p.items())):
+            return "malformed", "bad parties"
+    if 4 in accept:
+        e = accept[4]
+        if (not isinstance(e, list) or not 1 <= len(e) <= 64
+                or not all(isinstance(x, list) and len(x) == 2 and text(x[0], 1, 64) for x in e)):
+            return "malformed", "bad events"
+    if 5 in accept and accept[5] is not True:
+        return "malformed", "final must be true"
+    return "accept", accept
+
+
+def generate_protocol_v06() -> None:
+    import wasm_ref as w
+
+    names = ("org_root", "log", "registrar", "clerk", "agent")
+    seeds = {name: hashlib.sha256(f"CexChain test key: {name}".encode()).hexdigest() for name in names}
+    keys = {name: ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(seed)) for name, seed in seeds.items()}
+    t0 = 1_791_244_800_000
+    day = 86_400_000
+    model = "claude-opus-5-5"
+    parties = {name: hashlib.sha256(f"{name} ledger".encode()).digest() for name in ("supplier", "bank", "buyer")}
+    code = oracle_contract(w)
+    module = w.load(code)
+    no_entry = oracle_contract(w, entry_name=None)
+
+    ledgers = []
+    for hash_id in (-16, -65538):
+        lg = Ledger(hash_id)
+        hash_name = HASHES[hash_id]
+        statements, refused, consents, runs = [], [], [], []
+        counter = [0]
+        contracts, instances = {}, {}
+        signers = {}  # actor id -> the signer map a contract sees
+
+        def payload(signer_actor, body_type, body, delegation=None, provenance=None):
+            counter[0] += 1
+            out = {0: 1, 1: body_type, 2: ledger_id, 3: signer_actor, 5: t0 + counter[0],
+                   6: bytes([counter[0]]) * 16, 7: body}
+            if delegation is not None:
+                out[4] = delegation
+            if provenance is not None:
+                out[9] = {1: provenance}
+            return out
+
+        def add(name, signer, p):
+            encoded, statement_id = lg.statement(keys[signer], p)
+            statements.append({"name": name, "signer": signer, "encoded": encoded.hex(),
+                               "payload": dcbor(p).hex(), "statement_id": statement_id.hex()})
+            return statement_id
+
+        def refuse(name, signer, p):
+            encoded, _ = lg.statement(keys[signer], p)
+            refused.append({"name": name, "signer": signer, "encoded": encoded.hex(),
+                            "payload": dcbor(p).hex(), "after": len(statements)})
+
+        def contract_input(p, now):
+            body = p[7]
+            inp = {1: body[3], 2: body[4], 3: ledger_id, 6: [p[3], signers[p[3]]], 7: now}
+            if 2 in body:
+                inst = instances[body[2]]
+                inp[4] = inst["contract"]
+                view = {1: body[2], 2: inst["head"], 3: inst["state"]}
+                if inst["status"] is not None:
+                    view[4] = inst["status"]
+                if inst["parties"]:
+                    view[5] = inst["parties"]
+                inp[5] = view
+            else:
+                inp[4] = body[1]
+            if 6 in body:
+                inp[8] = [[ref[0], ref[3]] for ref in body[6]]
+            return dcbor(inp)
+
+        def run_call(name, p, now, expect):
+            """Runs the contract as the home would at `now`; returns the accept."""
+            inp = contract_input(p, now)
+            outcome, output, fuel, reason = w.run(module, inp, hash_name)
+            verdict = check_contract_output(output, ledger_id)[0] if outcome == "ok" else outcome
+            assert verdict == expect, f"{name}: {verdict}, expected {expect}"
+            runs.append({"name": name, "after": len(statements), "input": inp.hex(), "outcome": outcome,
+                         "output": output.hex(),
+                         "fuel": fuel, "verdict": verdict, **({"reason": reason.hex()} if reason else {})})
+            return check_contract_output(output, ledger_id)[1] if verdict == "accept" else None
+
+        def call(name, signer, actor, body, delegation, provenance=None):
+            """A call the contract accepts: registered, and applied."""
+            p = payload(actor, 22, body, delegation, provenance)
+            accept = run_call(name, p, t0 + 1000 + len(statements), "accept")
+            statement_id = add(name, signer, p)
+            index = len(statements) - 1
+            if 2 in body:
+                inst = instances[body[2]]
+            else:
+                inst = instances[statement_id] = {"contract": body[1], "parties": {}, "status": None}
+            inst.update(head=index, state=accept[1], final=accept.get(5, False))
+            if 2 in accept:
+                inst["status"] = accept[2]
+            if 3 in accept:
+                inst["parties"] = accept[3]
+            return statement_id
+
+        def refused_call(name, signer, actor, body, delegation, expect=None, provenance=None):
+            """A call the rules refuse; `expect` names what the contract does if
+            the rules let it run."""
+            p = payload(actor, 22, body, delegation, provenance)
+            if expect is not None:
+                run_call(name, p, t0 + 1000 + len(statements), expect)
+            refuse(name, signer, p)
+
+        def consent(party, instance, function, args, head, signer, reference=None):
+            metadata = {"ledger": ledger_id, "instance": instance, "function": function,
+                        "arguments": lg.h(dcbor(args)), "head": head, "until": t0 + 7 * day}
+            if reference is not None:
+                metadata["reference"] = reference
+            tag = f"{party} consents to {function} of {instance.hex()[:16]} at {head}".encode()
+            record = hashlib.sha256(b"consent record: " + tag).digest()
+            bundle = b"consent evidence bundle: " + tag
+            consents.append({"party": party, "ledger": parties[party].hex(), "record": record.hex(),
+                             "metadata": dcbor(metadata).hex(), "bundle": bundle.hex(),
+                             "bundle_hash": lg.h(bundle).hex(), "signer": dcbor(signer).hex()})
+            return [parties[party], record, lg.h(bundle), signer]
+
+        def on(instance, function, args, head, refs=None, reference=None):
+            body = {2: instance, 3: function, 4: args, 5: head}
+            if refs:
+                body[6] = sorted(refs, key=lambda r: r[0])
+            if reference is not None:
+                body[7] = reference
+            return body
+
+        def output(value) -> bytes:
+            return dcbor(value)
+
+        genesis = {0: 1, 1: 1, 5: t0, 6: bytes([0xE0]) * 16, 7: {
+            1: hash_id, 2: "Cirraya Contract Home", 3: ed_public(keys["org_root"]), 4: ed_public(keys["log"])}}
+        encoded, ledger_id = lg.statement(keys["org_root"], genesis)
+        statements.append({"name": "genesis", "signer": "org_root", "encoded": encoded.hex(),
+                           "payload": dcbor(genesis).hex(), "statement_id": ledger_id.hex()})
+        org = ledger_id
+        signers[org] = {1: 0}
+        supplier, bank = parties["supplier"], parties["bank"]
+
+        registrar = add("register the registrar", "org_root", payload(org, 2, {
+            1: 3, 2: "Contract Registrar", 3: ed_public(keys["registrar"])}))
+        signers[registrar] = {1: 3}
+        clerk = add("register a clerk", "org_root", payload(org, 2, {
+            1: 1, 2: "Contracts Clerk", 3: ed_public(keys["clerk"])}))
+        signers[clerk] = {1: 1}
+        agent = add("register an agent", "org_root", payload(org, 2, {
+            1: 2, 2: "Procurement Agent", 3: ed_public(keys["agent"]), 4: clerk, 5: {1: model}}))
+        signers[agent] = {1: 2, 3: model}
+
+        # Deploys, by the organization.
+        interface = {"propose": 1, "sign": 2, "update": 2, "close": 2}
+        refuse("deploy bytes that are not WebAssembly", "org_root", payload(org, 21, {
+            1: b"\0asm\x01", 2: interface, 3: "wasm", 4: "hand"}))
+        refuse("deploy a module without cexchain_call", "org_root", payload(org, 21, {
+            1: no_entry, 2: interface, 3: "wasm", 4: "hand"}))
+        refuse("deploy an interface that creates nothing", "org_root", payload(org, 21, {
+            1: code, 2: {"update": 2}, 3: "wasm", 4: "hand"}))
+        refuse("deploy a function with an empty name", "org_root", payload(org, 21, {
+            1: code, 2: {"": 1}, 3: "wasm", 4: "hand"}))
+        refuse("deploy a function of kind 3", "org_root", payload(org, 21, {
+            1: code, 2: {"propose": 1, "update": 3}, 3: "wasm", 4: "hand"}))
+        refuse("deploy in an empty language", "org_root", payload(org, 21, {
+            1: code, 2: interface, 3: "", 4: "hand"}))
+        k1 = add("deploy the test contract", "org_root", payload(org, 21, {
+            1: code, 2: interface, 3: "wasm", 4: "tools/testvectors/generate.py 1",
+            5: b"hand-assembled: see oracle_contract in tools/testvectors/generate.py", 6: "Oracle test contract"}))
+        contracts[k1] = {"retired": False}
+        k2 = add("deploy it again with a smaller interface", "org_root", payload(org, 21, {
+            1: code, 2: {"propose": 1, "update": 2}, 3: "wasm", 4: "tools/testvectors/generate.py 1"}))
+        contracts[k2] = {"retired": False}
+
+        # Delegations: the registrar for calls on the first contract only; the
+        # clerk for everything about contracts; the agent, under the clerk, for
+        # calls on the second contract.
+        d_registrar = add("delegate calls on the first contract to the registrar", "org_root", payload(org, 5, {
+            1: registrar, 2: {1: [5, 22], 5: True, 7: [k1]}}))
+        d_clerk = add("delegate contracts to the clerk", "org_root", payload(org, 5, {
+            1: clerk, 2: {1: [5, 21, 22, 23], 5: True}}))
+        refuse("the registrar delegates calls on another contract", "registrar", payload(registrar, 5, {
+            1: agent, 2: {1: [22], 7: [k2]}}, d_registrar))
+        refuse("the registrar delegates calls on any contract", "registrar", payload(registrar, 5, {
+            1: agent, 2: {1: [22]}}, d_registrar))
+        d_agent = add("the clerk delegates calls on the second contract to the agent", "clerk", payload(clerk, 5, {
+            1: agent, 2: {1: [22], 7: [k2]}}, d_clerk))
+
+        def by_registrar(name, body):
+            return call(name, "registrar", registrar, body, d_registrar)
+
+        def refused_by_registrar(name, body, expect=None):
+            refused_call(name, "registrar", registrar, body, d_registrar, expect)
+
+        # Instance A: proposed with three parties, the home among them.
+        terms = {"amount": 12_500_000, "currency": "CNY", "goods": "Copper cathode, 100 t"}
+        proposal = output([1, {1: terms, 2: "proposed",
+                               3: {"buyer": ledger_id, "supplier": supplier, "bank": bank}}])
+        refused_by_registrar("create with a consent", {1: k1, 3: "propose", 4: proposal, 6: [
+            consent("supplier", k1, "propose", proposal, 0, {1: 1})]})
+        refused_by_registrar("create with a function that acts on an instance", {1: k1, 3: "sign", 4: proposal})
+        refused_by_registrar("create with a function outside the interface", {1: k1, 3: "launch", 4: proposal})
+        refused_by_registrar("create on a contract that does not exist", {1: lg.h(b"nothing"), 3: "propose",
+                                                                           4: proposal})
+        refused_by_registrar("create with a head", {1: k1, 3: "propose", 4: proposal, 5: 0})
+        a = by_registrar("propose an agreement", {1: k1, 3: "propose", 4: proposal})
+        refused_by_registrar("create naming an instance too", {1: k1, 2: a, 3: "propose", 4: proposal})
+
+        # The supplier signs (a person, with a hardware key): the state becomes
+        # the hash of the input.
+        head = instances[a]["head"]
+        by_registrar("the supplier signs", on(a, "sign", None, head, refs=[
+            consent("supplier", a, "sign", None, head, {1: 1, 2: 2})], reference="PO-2026-0815"))
+        old, head = head, instances[a]["head"]
+        refused_by_registrar("call with an old head", on(a, "sign", None, old, refs=[
+            consent("supplier", a, "sign", None, old, {1: 1, 2: 2})]))
+        refused_by_registrar("call without a head", {2: a, 3: "update", 4: None})
+        refused_by_registrar("call a creating function on an instance", on(a, "propose", None, head))
+        refused_by_registrar("call an instance that does not exist", on(lg.h(b"nothing"), "update", None, head))
+        two = [consent("supplier", a, "update", None, head, {1: 1}), consent("bank", a, "update", None, head, {1: 0})]
+        descending = sorted(two, key=lambda r: r[0], reverse=True)
+        refused_by_registrar("call with consents out of order", {**on(a, "update", None, head), 6: descending})
+        refused_by_registrar("call with two consents from one ledger", {**on(a, "update", None, head),
+                                                                         6: [two[0], two[0]]})
+        refused_by_registrar("call with a consent from the home", on(a, "update", None, head, refs=[
+            [ledger_id, lg.h(b"home consent"), lg.h(b"home bundle"), {1: 0}]]))
+        refused_by_registrar("the contract asks for the bank's consent", on(a, "update", output([2, [bank]]), head),
+                             expect="needs")
+        refused_by_registrar("the contract rejects the call", on(a, "update", "the amount exceeds the credit line",
+                                                                 head), expect="aborted")
+        malformed = {
+            "an accept without a state": output([1, {2: "effective"}]),
+            "an empty status": output([1, {1: 0, 2: ""}]),
+            "an unknown outcome": output([3, 0]),
+            "unsorted map keys": bytes.fromhex("8201a2026165010" + "0"),
+            "a trailing byte": output([1, {1: 0}]) + b"\0",
+            "empty needs": output([2, []]),
+            "needs the home": output([2, [ledger_id]]),
+            "final false": output([1, {1: 0, 5: False}]),
+            "a party that is not a ledger id": output([1, {1: 0, 3: {"bank": b"short"}}]),
+            "an empty output": b"",
+        }
+        for what, out in malformed.items():
+            refused_by_registrar(f"the contract writes {what}", on(a, "update", out, head), expect="malformed")
+        refused_call("the agent calls the first contract", "agent", agent, on(a, "update", None, head), d_agent,
+                     provenance=model)
+
+        # The supplier (passkey) and the bank (an agent) consent to the
+        # agreement taking effect.
+        effective = output([1, {1: {**terms, "signed": True}, 2: "effective",
+                                4: [["signed", {"by": ["supplier", "bank"]}], ["effective", None]]}])
+        by_registrar("the agreement takes effect", on(a, "update", effective, head, refs=[
+            consent("supplier", a, "update", effective, head, {1: 1, 2: 1}),
+            consent("bank", a, "update", effective, head, {1: 2, 3: "risk-model-7"}, reference="Credit line 0042")]))
+        head = instances[a]["head"]
+
+        # Instance B, on the second contract, created by the agent.
+        b = call("the agent proposes on the second contract", "agent", agent, {1: k2, 3: "propose", 4: None},
+                 d_agent, provenance=model)
+        refused_call("retire without authority", "registrar", registrar, {1: k2}, d_registrar)
+        add("the clerk retires the second contract", "clerk", payload(clerk, 23, {1: k2, 2: "superseded"}, d_clerk))
+        contracts[k2]["retired"] = True
+        refuse("retire it again", "clerk", payload(clerk, 23, {1: k2}, d_clerk))
+        refuse("retire a contract that does not exist", "clerk", payload(clerk, 23, {1: lg.h(b"nothing")}, d_clerk))
+        refused_call("create on a retired contract", "agent", agent, {1: k2, 3: "propose", 4: None}, d_agent,
+                     provenance=model)
+        call("the agent updates its instance of the retired contract", "agent", agent,
+             on(b, "update", None, instances[b]["head"]), d_agent, provenance=model)
+
+        # A closes, and takes no more calls.
+        by_registrar("close the agreement", on(a, "close", output([1, {1: "done", 2: "settled", 5: True}]), head))
+        refused_by_registrar("call a final instance", on(a, "update", None, instances[a]["head"]))
+
+        def pins(instance):
+            out = []
+            for st in statements:
+                p = cbor2.loads(bytes.fromhex(st["payload"]))
+                if p[1] == 22 and p[7].get(2) == instance:
+                    out += [ref[2] for ref in p[7].get(6, [])]
+            return out
+
+        bundle_by_hash = {bytes.fromhex(c["bundle_hash"]): bytes.fromhex(c["bundle"]) for c in consents}
+        instance_bundle = b"the agreement's evidence bundle"
+        evidence = dcbor({0: 1, 1: instance_bundle, 2: [bundle_by_hash[h] for h in pins(a)]})
+
+        ledgers.append({
+            "hash": hash_id,
+            "ledger_id": ledger_id.hex(),
+            "parties": {name: value.hex() for name, value in parties.items()},
+            "statements": statements,
+            "refused": refused,
+            "runs": runs,
+            "consents": consents,
+            "contracts": [{"id": k.hex(), "retired": v["retired"]} for k, v in contracts.items()],
+            "instances": [{"id": k.hex(), "contract": v["contract"].hex(), "head": v["head"],
+                           "state": dcbor(v["state"]).hex(), "status": v["status"],
+                           "parties": {r: l.hex() for r, l in v["parties"].items()}, "final": v["final"]}
+                          for k, v in instances.items()],
+            "contract_evidence": {"encoded": evidence.hex(), "instance_bundle": instance_bundle.hex(),
+                                  "pins": [h.hex() for h in pins(a)]},
+        })
+
+    document = {
+        "description": "CexChain protocol objects added in specification revision v0.6 (contracts), built by an "
+                       "independent Python encoder from spec/cexchain.cddl and run by the reference interpreter "
+                       "tools/testvectors/wasm_ref.py. The test contract (oracle_contract in "
+                       "tools/testvectors/generate.py) outputs the content of byte-string arguments, aborts with "
+                       "text arguments, and otherwise accepts with HASH(input) as the state. A home ledger "
+                       "deploys it twice; a registrar (a device, scope key 7: the first contract), a clerk (a "
+                       "person), and an agent (under the clerk, scope key 7: the second contract) create and call "
+                       "instances, citing consents from other ledgers; the clerk retires the second contract. "
+                       "Statements are registered at t0 + 1000 + index; refused statements are validated against "
+                       "the state after the first `after` statements, at t0 + 1000 + after. `runs` lists every "
+                       "contract run, after the first `after` statements: the input the home builds, and the "
+                       "outcome, output, fuel, and verdict "
+                       "(accept, needs, malformed, or the trap). `instances` gives each instance's final state "
+                       "(encoded), status, parties, head, and finality. Consent records and bundles of other "
+                       "ledgers are opaque bytes; a citation pins HASH(bundle) under the home's hash. Signatures "
+                       "are Ed25519 (deterministic); keys are throwaway: seed = SHA-256(\"CexChain test key: "
+                       "<name>\").",
+        "t0": 1_791_244_800_000,
+        "contract": code.hex(),
+        "seeds": seeds,
+        "ledgers": ledgers,
+    }
+    (OUT / "protocol-v0.6.json").write_text(json.dumps(document, indent=1) + "\n")
+    print(f"wrote protocol vectors for {len(ledgers)} ledgers to testvectors/protocol-v0.6.json: "
+          f"{len(ledgers[0]['statements'])} statements, {len(ledgers[0]['refused'])} refused, "
+          f"{len(ledgers[0]['runs'])} contract runs")
+
+
+# ---------------------------------------------------------------------------
 # Contract execution (spec section 14): the deterministic WebAssembly profile,
 # from the independent reference interpreter in wasm_ref.py
 # ---------------------------------------------------------------------------
@@ -1873,6 +2299,7 @@ def main() -> None:
     generate_protocol_v03()
     generate_protocol_v04()
     generate_protocol_v05()
+    generate_protocol_v06()
     generate_vm_v1()
 
 
