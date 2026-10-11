@@ -20,6 +20,9 @@ cexchain_add_fuzzer(protocol_parse_fuzz cexchain::crypto_openssl)
 cexchain_add_fuzzer(access_parse_fuzz)
 cexchain_add_fuzzer(asset_parse_fuzz cexchain::crypto_openssl)
 cexchain_add_fuzzer(webauthn_registration_fuzz cexchain::crypto_openssl)
+cexchain_add_fuzzer(vm_fuzz cexchain::crypto_openssl)
+# The interpreter's internals (core/src/vm/internal.hpp), for a lower fuel limit.
+target_include_directories(vm_fuzz PRIVATE ${PROJECT_SOURCE_DIR}/core/src)
 if(TARGET cexchain_crypto_pkcs11)
     cexchain_add_fuzzer(pkcs11_uri_fuzz cexchain::crypto_pkcs11)
 endif()
@@ -35,6 +38,9 @@ endif()
 
 # Valid inputs to start the corpora from (an ordinary program, not a fuzzer).
 add_executable(make_seeds make_seeds.cpp)
-target_link_libraries(make_seeds PRIVATE cexchain::ledger cexchain::crypto_openssl)
+target_link_libraries(make_seeds PRIVATE cexchain::ledger cexchain::crypto_openssl
+    nlohmann_json::nlohmann_json)
+target_compile_definitions(make_seeds PRIVATE
+    CEXCHAIN_TESTVECTORS_DIR="${PROJECT_SOURCE_DIR}/testvectors")
 target_compile_features(make_seeds PRIVATE cxx_std_23)
 cexchain_target_defaults(make_seeds)

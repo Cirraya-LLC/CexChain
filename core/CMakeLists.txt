@@ -28,7 +28,9 @@ add_library(cexchain_core
     src/protocol/state.cpp
     src/protocol/state_tree.cpp
     src/protocol/statement.cpp
-    src/protocol/witness.cpp)
+    src/protocol/witness.cpp
+    src/vm/execute.cpp
+    src/vm/module.cpp)
 add_library(cexchain::core ALIAS cexchain_core)
 
 target_include_directories(cexchain_core PUBLIC

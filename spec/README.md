@@ -26,9 +26,10 @@ The key words MUST, MUST NOT, SHOULD, and MAY are used as in RFC 2119.
 11. [Evidence bundles and verification](#11-evidence-bundles-and-verification)
 12. [Access across organizations](#12-access-across-organizations)
 13. [Ownership assets](#13-ownership-assets)
-14. [The HTTP API](#14-the-http-api)
-15. [Security considerations](#15-security-considerations)
-16. [Test vectors](#16-test-vectors)
+14. [Contract execution](#14-contract-execution)
+15. [The HTTP API](#15-the-http-api)
+16. [Security considerations](#16-security-considerations)
+17. [Test vectors](#17-test-vectors)
 
 ## 1. Overview
 
@@ -422,7 +423,130 @@ The report shows the chain of title: each action, who consented to it, under who
 - The ledger cannot know whether goods exist: a warehouse could issue two receipts for the same goods. Every receipt it issued is in its log, for auditors and witnesses.
 - Legal registries of pledges and transfers are not replaced; a consent's `reference` can carry the filing number.
 
-## 14. The HTTP API
+## 14. Contract execution
+
+*Draft for revision v0.6. This section defines how contract code runs. The statements that deploy and call contracts follow.*
+
+Contracts are WebAssembly modules (WebAssembly 2.0, binary format) restricted to a **deterministic profile**. The home ledger runs a contract when it registers a call. Every verifier runs it again when it replays the call. For a given module and input, every implementation MUST produce the same outcome: the same output or the same trap, and the same **fuel** used.
+
+### 14.1 The profile
+
+A module is refused unless all of the following hold.
+
+**Size and structure**
+- At most 524,288 bytes.
+- No start section.
+- Custom sections are ignored, but count towards the size.
+
+**Types**
+- Value types are only `i32` and `i64`, in function types, locals, globals, and block types.
+- At most 1,024 types, each with at most 32 parameters and 16 results.
+
+**Imports**
+- Functions only, from the module `cexchain`, among the host functions of section 14.4, each with its exact type and at most once.
+
+**Memory and table**
+- At most one memory, defined in the module, of at most 16 pages (64 KiB each). The maximum, when absent, is 16.
+- At most one table, `funcref`, of at most 1,024 elements.
+
+**Globals**
+- At most 1,024, of type `i32` or `i64`.
+- Each initialized by a single `i32.const` or `i64.const`.
+
+**Exports**
+- The memory, named `memory`.
+- A function `cexchain_call` of type `[] -> []`, defined in the module.
+- Other exports are allowed and ignored.
+
+**Segments**
+- Element segments: only the active form for table 0 (flag 0), with an `i32.const` offset and function indices, within the table's initial size.
+- Data segments: active (flag 0, with an `i32.const` offset, within the memory's initial size) or passive (flag 1); at most 1 MiB in all.
+
+**Functions**
+- At most 10,000 functions, counting imports.
+- At most 4,096 locals each, counting parameters.
+- Bodies of at most 131,072 bytes.
+
+**Instructions:** only these.
+
+| Kind | Instructions |
+|---|---|
+| Control | `unreachable`, `nop`, `block`, `loop`, `if`, `else`, `end`, `br`, `br_if`, `br_table`, `return`, `call`, `call_indirect` (table 0) |
+| Parametric | `drop`, `select`, `select t` (with one value type) |
+| Variable | `local.get`, `local.set`, `local.tee`, `global.get`, `global.set` |
+| Memory | integer loads and stores (all widths), `memory.size`, `memory.grow`, `memory.init`, `data.drop`, `memory.copy`, `memory.fill` |
+| Numeric | `i32.const`, `i64.const`; all `i32` and `i64` comparisons and arithmetic; `i32.wrap_i64`, `i64.extend_i32_s`, `i64.extend_i32_u`; `i32.extend8_s`, `i32.extend16_s`, `i64.extend8_s`, `i64.extend16_s`, `i64.extend32_s` |
+
+Every floating-point instruction is refused, and so are SIMD, atomics, exceptions, tail calls, and reference instructions.
+
+**Validation** follows the WebAssembly specification, with two additions:
+- at most 1,024 control frames are open at once, the function's own included (so at most 1,023 nested blocks, loops, and ifs);
+- each function's **maximum operand stack height** is at most 65,535. That height is the largest number of values on the operand stack after any instruction, as counted by the validation algorithm of the WebAssembly specification's appendix, unreachable code included.
+
+### 14.2 Instantiation
+
+- The memory starts zeroed at its initial size.
+- Active data segments are copied in order, then dropped.
+- Active element segments fill the table, whose other elements are null.
+- Globals take their initial values.
+
+Instantiation uses no fuel.
+
+### 14.3 Execution and fuel
+
+An invocation calls `cexchain_call` once. It has **10,000,000 fuel**, and each instruction executed consumes fuel *before* it takes effect.
+
+| Cost | Instructions |
+|---|---|
+| 0 | `else` and `end` (reaching them) |
+| 1 | every other instruction, except those below; including `block`, `loop`, `if`, every branch, `unreachable` (then trapping), loads, stores, `memory.size`, and `data.drop` |
+| 2 | `call` and `call_indirect`, plus the cost of a host function they call |
+| 1 + 1024 × *n* | `memory.grow` by *n* pages; 1 if the memory would exceed its maximum (it then returns −1) |
+| 1 + ⌈*n* / 64⌉ | `memory.copy`, `memory.fill`, `memory.init` of *n* bytes, charged once their operands are taken and before their bounds are checked |
+
+**Branches.** A branch to a loop resumes the loop's body at its first instruction, so re-entering the loop costs nothing beyond the branch.
+
+**Limits.** An instruction that costs more than the fuel left traps with *out of fuel*. All the fuel is then used.
+
+**Calls.** After a call's cost is charged:
+- Calling a function defined in the module first checks the call depth: with the entry counted as 1, it must stay at most 256.
+- It then checks the stack budget. Each active frame reserves one slot per local, parameters included, plus its function's maximum operand stack height. All active frames together reserve at most 131,072 slots.
+
+**Traps.** These end the invocation:
+
+| Trap | When |
+|---|---|
+| `unreachable` | an `unreachable` instruction |
+| `divide by zero` | an integer division or remainder by zero |
+| `integer overflow` | the most negative value divided by −1 (`div_s`) |
+| `out of bounds` | a memory access, or a host function's memory range, beyond the memory; a `memory.init` beyond its segment |
+| `indirect call out of range` | an index beyond the table |
+| `indirect call to null` | an element that is null |
+| `indirect call type mismatch` | an element whose function has another type |
+| `out of fuel` | the fuel is exhausted |
+| `call depth exceeded` | the call depth would exceed 256 |
+| `stack budget exceeded` | the stack budget would be exceeded |
+| `output written twice` | `output_write` called a second time |
+| `output too large` | an output of more than 1 MiB |
+| `aborted` | the contract called `abort` |
+
+**The result.** An invocation that returns without a trap succeeds, and its output is what `output_write` wrote, or empty. *Fuel used* is 10,000,000 minus the fuel left, in either case.
+
+### 14.4 Host functions
+
+Imported from the module `cexchain`. Pointers and lengths are unsigned. A range `[ptr, ptr + len)` must lie within the memory, or the call traps with *out of bounds*. Each function charges its cost first, then checks its ranges, in the order listed.
+
+| Function | Type | Cost | Effect |
+|---|---|---|---|
+| `input_size` | `[] -> [i32]` | 1 | the input's length |
+| `input_read` | `[i32] -> []` | 1 + ⌈length / 64⌉ | copies the whole input to `ptr` |
+| `output_write` | `[i32 i32] -> []` | 1 + ⌈len / 64⌉ | sets the output to `[ptr, ptr + len)`. Traps if an output was already written, then if `len` exceeds 1 MiB, then on the range |
+| `hash` | `[i32 i32 i32] -> []` | 64 + ⌈len / 64⌉ | writes the ledger's hash (SHA-256 or SM3) of `[ptr, ptr + len)` to `[out, out + 32)`, checking the input range first |
+| `abort` | `[i32 i32] -> []` | 1 | traps with *aborted*; the reason is the first min(`len`, 1,024) bytes at `ptr` |
+
+The input and output are bytes to the execution layer. Their contents, deterministic CBOR, are defined with the contract statements.
+
+## 15. The HTTP API
 
 This section is informative. The reference implementation serves a ledger over HTTP/1.1 (`cexchain serve`):
 
@@ -448,7 +572,7 @@ A server holds the log key to sign checkpoints, receipts, and evidence. Across a
 
 **Replicas.** A replica copies a ledger through the read routes. It takes the entries a checkpoint covers only once they lead to its root and the checkpoint is signed by the log key in effect at its size, following any key rotation among them (checkpoints never go back in size or time). It re-validates every entry under the rules, rebuilds the tree, and never copies entries that no checkpoint covers. It MUST stop at the first entry that fails, and MUST refuse a primary whose log is shorter than its own (a rollback).
 
-## 15. Security considerations
+## 16. Security considerations
 
 - **What a bundle proves.** Within one ledger, a bundle proves:
   - authorship: the actor's key signed the statement;
@@ -476,7 +600,7 @@ A server holds the log key to sign checkpoints, receipts, and evidence. Across a
   - Every holder and pledgee sees an asset's chain of title and public metadata.
   - Consents are machine actions unless they carry proof of presence. Verifiers report this and MAY require it.
 
-## 16. Test vectors
+## 17. Test vectors
 
 | File | Covers |
 |---|---|
@@ -490,5 +614,6 @@ A server holds the log key to sign checkpoints, receipts, and evidence. Across a
 | `protocol-v0.3.json` | access metadata, and a delivery sealed by an independent HPKE implementation |
 | `protocol-v0.4.json` | log and root key rotation, the checkpoint and state commitment under the new key, a cosign request with key rotations |
 | `protocol-v0.5.json` | assets: a receivable and a warehouse receipt through every action, consent metadata, actions the rules refuse, and asset evidence |
+| `vm-v1.json` | contract execution (section 14): modules in and out of the profile, invocations with their outputs, traps, and fuel, and random integer programs, all from an independent reference interpreter (`tools/testvectors/wasm_ref.py`) |
 
 `tools/testvectors/generate.py` regenerates them with Python's `cryptography` and `cbor2`, and OpenSSL, independently of the C++ code.

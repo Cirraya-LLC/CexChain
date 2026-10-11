@@ -4,13 +4,15 @@
 // Writes valid inputs for the fuzz targets, to start their corpora from:
 // random bytes rarely get past a signature, so the deeper checks (evidence
 // replay, access rules, backup restore, passkey registration) are reached
-// from real objects mutated, not from nothing.
+// from real objects mutated, not from nothing. The contract interpreter starts
+// from the modules in testvectors/vm-v1.json.
 //
 //   make_seeds DIR    writes DIR/<target>/<name> for each target
 
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <optional>
 #include <print>
@@ -19,6 +21,9 @@
 #include <string>
 #include <vector>
 
+#include <nlohmann/json.hpp>
+
+#include <cexchain/core/bytes.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/access.hpp>
 #include <cexchain/core/protocol/asset_evidence.hpp>
@@ -433,6 +438,21 @@ void text_seeds(const Seeds& seeds) {
 
 } // namespace
 
+/// Every module of the interpreter's vectors, valid and refused: they cover
+/// each instruction, trap, and validation rule.
+void vm_seeds(const Seeds& seeds) {
+    std::ifstream in(CEXCHAIN_TESTVECTORS_DIR "/vm-v1.json");
+    if (!in) {
+        throw std::runtime_error("cannot read vm-v1.json");
+    }
+    const auto doc = nlohmann::json::parse(in);
+    std::size_t n = 0;
+    for (const auto& module : doc.at("modules")) {
+        const auto wasm = must(from_hex(module.at("wasm").get<std::string>()), "module");
+        seeds.write("vm_fuzz", std::format("module-{:03}", n++), ByteView(wasm));
+    }
+}
+
 int main(int argc, char** argv) {
     if (argc != 2) {
         std::println(stderr, "usage: make_seeds DIR");
@@ -445,6 +465,7 @@ int main(int argc, char** argv) {
         webauthn_seed(seeds);
         cluster_seeds(seeds);
         text_seeds(seeds);
+        vm_seeds(seeds);
     } catch (const std::exception& e) {
         std::println(stderr, "error: {}", e.what());
         return 1;

@@ -1418,6 +1418,446 @@ def generate_protocol_v05() -> None:
     print(f"wrote protocol vectors for {len(ledgers)} ledgers to testvectors/protocol-v0.5.json")
 
 
+# ---------------------------------------------------------------------------
+# Contract execution (spec section 14): the deterministic WebAssembly profile,
+# from the independent reference interpreter in wasm_ref.py
+# ---------------------------------------------------------------------------
+
+def generate_vm_v1() -> None:
+    import random
+    import struct
+    import wasm_ref as w
+
+    modules, runs = [], []
+
+    def add_module(name, wasm, refused=None):
+        try:
+            module = w.load(wasm)
+            outcome = None
+        except w.Refused as e:
+            module, outcome = None, str(e)
+        if refused is not None:
+            assert module is None, f"{name} should be refused ({refused})"
+        else:
+            assert module is not None, f"{name} was refused: {outcome}"
+        modules.append({"name": name, "wasm": wasm.hex(), "valid": module is not None,
+                        **({"refused_because": outcome} if module is None else {})})
+        return module
+
+    def add_run(name, module_name, module, input_=b"", hash_name="sha256"):
+        outcome, output, fuel, reason = w.run(module, input_, hash_name)
+        runs.append({"name": name, "module": module_name, "input": input_.hex(), "hash": hash_name,
+                     "outcome": outcome, "output": output.hex(), "fuel": fuel,
+                     **({"reason": reason.hex()} if outcome == "aborted" else {})})
+
+    def out_i64(expr):
+        # Computes an i64 and writes its 8 bytes.
+        return [("i32.const", 0), *expr, ("i64.store",), ("i32.const", 0), ("i32.const", 8), ("call", 0)]
+
+    def out_i32(expr):
+        return [("i32.const", 0), *expr, ("i32.store",), ("i32.const", 0), ("i32.const", 4), ("call", 0)]
+
+    def expr_module(name, body, locals_=(), **kw):
+        wasm = w.assemble([{"body": body, "locals": list(locals_)}], imports=["output_write"], **kw)
+        m = add_module(name, wasm)
+        add_run(name, name, m)
+
+    # --- Host functions --------------------------------------------------------
+    echo = w.assemble([{"locals": ["i32"], "body": [
+        ("call", 0), ("local.set", 0), ("i32.const", 0), ("call", 1),
+        ("i32.const", 0), ("local.get", 0), ("call", 2)]}],
+        imports=["input_size", "input_read", "output_write"])
+    m = add_module("echo", echo)
+    for i, data in enumerate([b"", b"hello", bytes(range(256)) * 3]):
+        add_run(f"echo {i}", "echo", m, data)
+    hasher = w.assemble([{"locals": ["i32"], "body": [
+        ("call", 0), ("local.set", 0), ("i32.const", 64), ("call", 1),
+        ("i32.const", 64), ("local.get", 0), ("i32.const", 0), ("call", 2),
+        ("i32.const", 0), ("i32.const", 32), ("call", 3)]}],
+        imports=["input_size", "input_read", "hash", "output_write"])
+    m = add_module("hash", hasher)
+    for h in ("sha256", "sm3"):
+        add_run(f"hash {h}", "hash", m, b"CexChain contract input", h)
+    aborts = w.assemble([{"body": [("i32.const", 0), ("i32.const", 2000), ("call", 0)]}],
+                        imports=["abort"], data=[(0, b"refused: " + b"x" * 1500)])
+    m = add_module("abort", aborts)
+    add_run("abort with a long reason", "abort", m)
+    twice = w.assemble([{"body": [("i32.const", 0), ("i32.const", 1), ("call", 0),
+                                  ("i32.const", 0), ("i32.const", 1), ("call", 0)]}], imports=["output_write"])
+    add_run("output twice", "output twice", add_module("output twice", twice))
+    big = w.assemble([{"body": [("i32.const", 0), ("i32.const", (1 << 20) + 1), ("call", 0)]}],
+                     imports=["output_write"], memory=(16, 16))
+    add_run("output too large", "output too large", add_module("output too large", big))
+    oob = w.assemble([{"body": [("i32.const", 65530), ("i32.const", 7), ("call", 0)]}], imports=["output_write"])
+    add_run("output out of bounds", "output out of bounds", add_module("output out of bounds", oob))
+    silent = w.assemble([{"body": [("nop",)]}])
+    add_run("no output", "no output", add_module("no output", silent))
+
+    # --- Integer edge cases ------------------------------------------------------
+    I64MIN, I32MIN = 1 << 63, 1 << 31
+    cases = {
+        "i32 div_s overflow": out_i32([("i32.const", I32MIN), ("i32.const", 0xFFFFFFFF), ("i32.div_s",)]),
+        "i64 div_s overflow": out_i64([("i64.const", I64MIN), ("i64.const", (1 << 64) - 1), ("i64.div_s",)]),
+        "i32 rem_s min by -1": out_i32([("i32.const", I32MIN), ("i32.const", 0xFFFFFFFF), ("i32.rem_s",)]),
+        "i64 rem_s min by -1": out_i64([("i64.const", I64MIN), ("i64.const", (1 << 64) - 1), ("i64.rem_s",)]),
+        "i32 div_u by zero": out_i32([("i32.const", 7), ("i32.const", 0), ("i32.div_u",)]),
+        "i64 rem_u by zero": out_i64([("i64.const", 7), ("i64.const", 0), ("i64.rem_u",)]),
+        "i32 div_s rounds to zero": out_i32([("i32.const", (-7) & 0xFFFFFFFF), ("i32.const", 2), ("i32.div_s",)]),
+        "i32 rem_s sign": out_i32([("i32.const", (-7) & 0xFFFFFFFF), ("i32.const", 2), ("i32.rem_s",)]),
+        "i32 shl by 33": out_i32([("i32.const", 1), ("i32.const", 33), ("i32.shl",)]),
+        "i64 shr_s by 65": out_i64([("i64.const", I64MIN), ("i64.const", 65), ("i64.shr_s",)]),
+        "i64 shr_u by 64": out_i64([("i64.const", I64MIN), ("i64.const", 64), ("i64.shr_u",)]),
+        "i32 rotl": out_i32([("i32.const", 0x80000001), ("i32.const", 1), ("i32.rotl",)]),
+        "i64 rotr by 0": out_i64([("i64.const", 0x0123456789ABCDEF), ("i64.const", 0), ("i64.rotr",)]),
+        "i64 rotr by 4": out_i64([("i64.const", 0x0123456789ABCDEF), ("i64.const", 4), ("i64.rotr",)]),
+        "i32 clz of 0": out_i32([("i32.const", 0), ("i32.clz",)]),
+        "i64 ctz of 0": out_i64([("i64.const", 0), ("i64.ctz",)]),
+        "i64 popcnt": out_i64([("i64.const", 0xF0F0F0F0F0F0F0F1), ("i64.popcnt",)]),
+        "i32 mul wraps": out_i32([("i32.const", 0x10000), ("i32.const", 0x10001), ("i32.mul",)]),
+        "i64 sub wraps": out_i64([("i64.const", 0), ("i64.const", 1), ("i64.sub",)]),
+        "i64 extend_i32_s": out_i64([("i32.const", 0x80000000), ("i64.extend_i32_s",)]),
+        "i64 extend_i32_u": out_i64([("i32.const", 0x80000000), ("i64.extend_i32_u",)]),
+        "i32 wrap": out_i32([("i64.const", 0x1234567887654321), ("i32.wrap_i64",)]),
+        "i32 extend8_s": out_i32([("i32.const", 0x180), ("i32.extend8_s",)]),
+        "i32 extend16_s": out_i32([("i32.const", 0x18000), ("i32.extend16_s",)]),
+        "i64 extend32_s": out_i64([("i64.const", 0x80000000), ("i64.extend32_s",)]),
+        "i64 lt_s vs lt_u": out_i32([("i64.const", I64MIN), ("i64.const", 1), ("i64.lt_s",),
+                                     ("i64.const", I64MIN), ("i64.const", 1), ("i64.lt_u",), ("i32.add",)]),
+        "i32 ge_u": out_i32([("i32.const", 0xFFFFFFFF), ("i32.const", 1), ("i32.ge_u",)]),
+        "unreachable": [("unreachable",)],
+    }
+    for name, body in cases.items():
+        expr_module(name, body)
+
+    # --- Control -------------------------------------------------------------------
+    sum_loop = [
+        ("i32.const", 0), ("i32.load",), ("local.set", 0),
+        ("block", None), ("loop", None),
+        ("local.get", 0), ("i32.eqz",), ("br_if", 1),
+        ("local.get", 1), ("local.get", 0), ("i64.extend_i32_u",), ("i64.add",), ("local.set", 1),
+        ("local.get", 0), ("i32.const", 1), ("i32.sub",), ("local.set", 0),
+        ("br", 0),
+        ("end",), ("end",),
+        ("i32.const", 8), ("local.get", 1), ("i64.store",),
+        ("i32.const", 8), ("i32.const", 8), ("call", 2)]
+    loop_mod = w.assemble([{"locals": ["i32", "i64"], "body": [("i32.const", 0), ("call", 1)] + sum_loop}],
+                          imports=["input_size", "input_read", "output_write"])
+    m = add_module("sum loop", loop_mod)
+    for n in (0, 1, 10, 1000, 1_000_000):
+        add_run(f"sum loop {n}", "sum loop", m, struct.pack("<I", n))
+
+    # Blocks with values, multi-value, br_table, select, if/else, return.
+    control = w.assemble([{"locals": ["i32"], "body": [
+        ("i32.const", 0), ("call", 0), ("i32.const", 0), ("i32.load",), ("local.set", 0),
+        ("i32.const", 16),
+        ("block", 3),  # type 3 is [] -> [i32 i64]: after the imports' and the function's types
+        ("i32.const", 1), ("i64.const", 2),
+        ("end",),
+        ("drop",), ("i32.const", 10), ("i32.add",),
+        ("block", "i32"), ("block", "i32"), ("block", "i32"),
+        ("i32.const", 100), ("local.get", 0), ("br_table", [0, 1], 2),
+        ("end",), ("i32.const", 1), ("i32.add",),
+        ("end",), ("i32.const", 2), ("i32.add",),
+        ("end",), ("i32.const", 3), ("i32.add",),
+        ("i32.add",),
+        ("local.get", 0), ("i32.const", 1), ("i32.and",),
+        ("if", "i32"), ("i32.const", 1000), ("else",), ("i32.const", 2000), ("end",),
+        ("i32.add",),
+        ("i32.const", 7), ("i32.const", 9), ("local.get", 0), ("select",), ("i32.add",),
+        ("i32.const", 7), ("i32.const", 9), ("local.get", 0), ("select_t", "i32"), ("i32.add",),
+        ("i32.store",),
+        ("i32.const", 16), ("i32.const", 4), ("call", 1)]}],
+        imports=["input_read", "output_write"], extra_types=[([], ["i32", "i64"])])
+    m = add_module("control", control)
+    for k in range(4):
+        add_run(f"control {k}", "control", m, struct.pack("<I", k))
+
+    # Recursion: depth and the stack budget.
+    rec = w.assemble([
+        {"params": ["i32"], "results": ["i32"], "body": [
+            ("local.get", 0), ("i32.eqz",), ("if", "i32"), ("i32.const", 0), ("else",),
+            ("local.get", 0), ("i32.const", 1), ("i32.sub",), ("call", 2), ("i32.const", 1), ("i32.add",),
+            ("end",)]},
+        {"body": [("i32.const", 0), ("call", 0), ("i32.const", 0), ("i32.const", 0), ("i32.load",),
+                  ("call", 2), ("i32.store",), ("i32.const", 0), ("i32.const", 4), ("call", 1)]}],
+        imports=["input_read", "output_write"])
+    m = add_module("recursion", rec)
+    for n in (10, 254, 255, 300):
+        add_run(f"recursion {n}", "recursion", m, struct.pack("<I", n))
+    heavy = w.assemble([
+        {"params": ["i32"], "locals": ["i64"] * 4000, "body": [
+            ("local.get", 0), ("if", None), ("local.get", 0), ("i32.const", 1), ("i32.sub",), ("call", 1),
+            ("end",)]},
+        {"body": [("i32.const", 0), ("call", 0), ("i32.const", 0), ("i32.load",), ("call", 1)]}],
+        imports=["input_read"])
+    m = add_module("stack budget", heavy)
+    for n in (20, 40):
+        add_run(f"stack budget {n}", "stack budget", m, struct.pack("<I", n))
+
+    # Memory: widths and signs, bounds, growth, bulk operations.
+    mem = w.assemble([{"body": [
+        ("i32.const", 0), ("i64.const", 0x8182838485868788), ("i64.store",),
+        ("i32.const", 16), ("i32.const", 0), ("i64.load8_s",), ("i64.store",),
+        ("i32.const", 24), ("i32.const", 1), ("i64.load16_u", 0), ("i64.store",),
+        ("i32.const", 32), ("i32.const", 0), ("i64.load32_s", 4), ("i64.store",),
+        ("i32.const", 40), ("i32.const", 2), ("i32.load16_s",), ("i32.store",),
+        ("i32.const", 44), ("memory.size",), ("i32.store",),
+        ("i32.const", 48), ("i32.const", 2), ("memory.grow",), ("i32.store",),
+        ("i32.const", 52), ("i32.const", 2), ("memory.grow",), ("i32.store",),
+        ("i32.const", 56), ("memory.size",), ("i32.store",),
+        ("i32.const", 60), ("i32.const", 0xAB), ("i32.const", 8), ("memory.fill",),
+        ("i32.const", 68), ("i32.const", 0), ("i32.const", 8), ("memory.copy",),
+        ("i32.const", 76), ("i32.const", 1), ("i32.const", 4), ("memory.init", 0),
+        ("data.drop", 0),
+        ("i32.const", 0), ("i32.const", 80), ("call", 0)]}],
+        imports=["output_write"], memory=(1, 4), data=[(None, b"WXYZ!")], data_count=True)
+    add_run("memory", "memory", add_module("memory", mem))
+    for name, body in {
+        "load out of bounds": [("i32.const", 65533), ("i32.load",), ("drop",)],
+        "store at the edge": [("i32.const", 65532), ("i32.const", 1), ("i32.store",),
+                              ("i32.const", 65533), ("i32.const", 1), ("i32.store",)],
+        "offset overflow": [("i32.const", 0xFFFFFFF0), ("i64.load", 0x20), ("drop",)],
+        "init after drop": [("data.drop", 0), ("i32.const", 0), ("i32.const", 0), ("i32.const", 1),
+                            ("memory.init", 0)],
+        "init of nothing after drop": [("data.drop", 0), ("i32.const", 0), ("i32.const", 0),
+                                       ("i32.const", 0), ("memory.init", 0)],
+        "grow beyond the maximum": [("i32.const", 0), ("i32.const", 16), ("memory.grow",), ("i32.store",),
+                                    ("i32.const", 0), ("i32.const", 4), ("call", 0)],
+        "copy out of bounds": [("i32.const", 65000), ("i32.const", 0), ("i32.const", 1000), ("memory.copy",)],
+    }.items():
+        wasm = w.assemble([{"body": body}], imports=["output_write"], data=[(None, b"Q")], data_count=True)
+        add_run(name, name, add_module(name, wasm))
+
+    # Fuel charged by size: growth, and bulk operations until the fuel runs out.
+    grow = w.assemble([{"body": [
+        ("i32.const", 0), ("i32.const", 15), ("memory.grow",), ("i32.store",),
+        ("i32.const", 4), ("memory.size",), ("i32.store",),
+        ("i32.const", 0), ("i32.const", 8), ("call", 0)]}], imports=["output_write"], memory=(1, 16))
+    add_run("grow fifteen pages", "grow fifteen pages", add_module("grow fifteen pages", grow))
+    fill = w.assemble([{"body": [
+        ("loop", None), ("i32.const", 0), ("i32.const", 7), ("i32.const", 65536), ("memory.fill",),
+        ("br", 0), ("end",)]}])
+    add_run("fill until out of fuel", "fill until out of fuel", add_module("fill until out of fuel", fill))
+
+    # Indirect calls.
+    ind = w.assemble([
+        {"params": ["i32"], "results": ["i32"], "body": [("local.get", 0), ("i32.const", 1), ("i32.add",)]},
+        {"params": ["i64"], "results": ["i64"], "body": [("local.get", 0)]},
+        {"body": [("i32.const", 0), ("call", 0),
+                  ("i32.const", 4), ("i32.const", 41), ("i32.const", 0), ("i32.load",),
+                  ("call_indirect", 2), ("i32.store",), ("i32.const", 4), ("i32.const", 4), ("call", 1)]}],
+        imports=["input_read", "output_write"], table=(4, 4), elems=[(0, [2, 3]), (3, [2])])
+    m = add_module("indirect", ind)
+    for i in range(5):
+        add_run(f"indirect {i}", "indirect", m, struct.pack("<I", i))
+
+    # Globals.
+    glob = w.assemble([{"body": [
+        ("global.get", 0), ("i32.const", 5), ("i32.add",), ("global.set", 0),
+        ("i32.const", 0), ("global.get", 0), ("i32.store",),
+        ("i32.const", 8), ("global.get", 1), ("i64.store",),
+        ("i32.const", 0), ("i32.const", 16), ("call", 0)]}],
+        imports=["output_write"], globals_=[("i32", True, 37), ("i64", False, -5 & ((1 << 64) - 1))])
+    add_run("globals", "globals", add_module("globals", glob))
+
+    # Validation edge cases that are valid (the appendix algorithm).
+    edge = {
+        # Labels of different types meet in unreachable code (WebAssembly's "meet-bottom").
+        "br_table meeting at the bottom": [("raw", b"\x02\x7e\x02\x7f\x00\x41\x01\x0e\x01\x00\x01"
+                                                   b"\x0b\x1a\x42\x00\x0b\x1a")],
+        "polymorphic stack": [("raw", b"\x00\x6a\x1a\x42\x01\x7c\x1a")],
+        "branch out of unreachable code": [("block", None), ("unreachable",), ("br", 0), ("end",)],
+    }
+    for name, body in edge.items():
+        wasm = w.assemble([{"body": body}], imports=["output_write"])
+        add_run(name, name, add_module(name, wasm))
+    # The validation limits, at and just beyond the boundary: control frames
+    # (the function's own included), and the operand stack's height, here
+    # reached with calls that return 16 values each.
+    for blocks, ok in ((1023, True), (1024, False)):
+        name = f"{blocks} nested blocks"
+        wasm = w.assemble([{"body": [("block", None)] * blocks + [("end",)] * blocks}])
+        m = add_module(name, wasm, refused=None if ok else name)
+        if ok:
+            add_run(name, name, m)
+    sixteen = {"results": ["i32"] * 16, "body": [("i32.const", 0)] * 16}
+    for extra, ok in ((15, True), (16, False)):
+        height = 4095 * 16 + extra
+        name = f"operand stack of {height}"
+        wasm = w.assemble([sixteen, {"body": [("call", 0)] * 4095 + [("i32.const", 0)] * extra
+                                     + [("return",)]}])
+        m = add_module(name, wasm, refused=None if ok else name)
+        if ok:
+            add_run(name, name, m)
+
+    # Blocks and loops with parameters (type 2 is [i32] -> [i32]).
+    params = w.assemble([{"locals": ["i32"], "body": [
+        ("i32.const", 0),
+        ("i32.const", 5), ("loop", 2),
+        ("i32.const", 1), ("i32.sub",), ("local.tee", 0), ("local.get", 0), ("br_if", 0),
+        ("end",),
+        ("i32.const", 7), ("block", 2), ("i32.const", 3), ("i32.add",), ("br", 0), ("end",),
+        ("i32.add",), ("i32.store",),
+        ("i32.const", 0), ("i32.const", 4), ("call", 0)]}],
+        imports=["output_write"], extra_types=[(["i32"], ["i32"])])
+    add_run("block and loop parameters", "block and loop parameters",
+            add_module("block and loop parameters", params))
+
+    # --- Modules outside the profile -------------------------------------------------
+    good = w.assemble([{"body": [("nop",)]}])
+
+    def body_bytes(raw):
+        return w.assemble([{"body": [("raw", raw)]}])
+
+    refused = {
+        "float local": w.assemble([{"locals": ["f32"], "body": [("nop",)]}]),
+        "float parameter": w.assemble([{"params": ["f64"], "body": [("nop",)]},
+                                       {"body": [("nop",)]}]),
+        "f64.const": body_bytes(b"\x44" + bytes(8) + b"\x1a"),
+        "f32.add": body_bytes(b"\x43" + bytes(4) + b"\x43" + bytes(4) + b"\x92\x1a"),
+        "SIMD": body_bytes(b"\xfd\x0c" + bytes(16) + b"\x1a"),
+        "atomics": body_bytes(b"\xfe\x03\x00"),
+        "saturating truncation": body_bytes(b"\x43" + bytes(4) + b"\xfc\x00\x1a"),
+        "table.grow": w.assemble([{"body": [("raw", b"\xd0\x70\x41\x01\xfc\x0f\x00\x1a")]}], table=(1, 2)),
+        "ref.null": body_bytes(b"\xd0\x70\x1a"),
+        "tail call": body_bytes(b"\x12\x00"),
+        "start section": w.assemble([{"body": [("nop",)]}], raw_sections=[(8, b"\x00")]),
+        "import from another module": w.assemble([{"body": [("nop",)]}], imports=["input_size"]).replace(
+            b"\x08cexchain", b"\x08cexchai_"),
+        "unknown host function": w.assemble([{"body": [("nop",)]}], imports=["input_size"]).replace(
+            b"\x0ainput_size", b"\x0ainput_sizz"),
+        "memory of 17 pages": w.assemble([{"body": [("nop",)]}], memory=(1, 17)),
+        "memory without maximum, 17 pages": w.assemble([{"body": [("nop",)]}], memory=(17, None)),
+        "table of 1025": w.assemble([{"body": [("nop",)]}], table=(1025, None)),
+        "no memory export": w.assemble([{"body": [("nop",)]}], memory=None),
+        "no cexchain_call": w.assemble([{"body": [("nop",)]}], entry_name="main"),
+        "cexchain_call with a parameter": w.assemble([{"params": ["i32"], "body": [("nop",)]}]),
+        "duplicate export": w.assemble([{"body": [("nop",)]}],
+                                       exports_extra=[w.name_("memory") + b"\x02\x00"]),
+        "data out of bounds": w.assemble([{"body": [("nop",)]}], data=[(65535, b"ab")]),
+        "element out of bounds": w.assemble([{"body": [("nop",)]}], table=(1, 1), elems=[(1, [0])]),
+        "memory.init without data count": w.assemble([{"body": [
+            ("i32.const", 0), ("i32.const", 0), ("i32.const", 0), ("memory.init", 0)]}], data=[(None, b"x")]),
+        "type mismatch": body_bytes(b"\x41\x01\x42\x01\x6a\x1a"),
+        "unknown local": body_bytes(b"\x20\x05\x1a"),
+        "alignment too large": body_bytes(b"\x41\x00\x28\x03\x00\x1a"),
+        "immutable global set": w.assemble([{"body": [("i32.const", 1), ("global.set", 0)]}],
+                                           globals_=[("i32", False, 0)]),
+        "too many locals": w.assemble([{"locals": ["i32"] * 4097, "body": [("nop",)]}]),
+        "br_table arity mismatch": body_bytes(
+            b"\x02\x7f\x02\x40\x41\x00\x0e\x01\x00\x01\x0b\x41\x00\x0b\x1a"),
+        "if without else changes type": body_bytes(b"\x41\x01\x04\x7f\x41\x01\x0b\x1a"),
+        "u32 too long": w.assemble([{"body": [("nop",)]}], entry_name=None, exports_extra=[
+            w.name_("cexchain_call") + b"\x00\x80\x80\x80\x80\x80\x00"]),
+        "u32 too large": w.assemble([{"body": [("nop",)]}], entry_name=None, exports_extra=[
+            w.name_("cexchain_call") + b"\x00\x80\x80\x80\x80\x10"]),
+    }
+    for name, wasm in refused.items():
+        add_module(name, wasm, refused=name)
+
+    # --- Random integer programs (differential) -----------------------------------------
+    rng = random.Random(20261011)
+    binops32 = ["i32." + o for o in w._BIN]
+    binops64 = ["i64." + o for o in w._BIN]
+    unops = ["clz", "ctz", "popcnt"]
+    cmps = [c for c in w._I32_CMP if c != "eqz"]
+
+    def gen(t, depth):
+        """Code that pushes one value of type t."""
+        r = rng.random()
+        if depth <= 0 or r < 0.25:
+            if rng.random() < 0.5:
+                return [("local.get", rng.randrange(4) + (0 if t == "i32" else 4))]
+            v = rng.choice([0, 1, 2, 31, 32, 63, 64, 0x7FFFFFFF, 0x80000000, 0xFFFFFFFF,
+                            rng.getrandbits(32 if t == "i32" else 64)])
+            return [(t + ".const", v & (w.MASK32 if t == "i32" else w.MASK64))]
+        if r < 0.55:
+            op = rng.choice(binops32 if t == "i32" else binops64)
+            divisor = gen(t, depth - 1)
+            if op.split(".")[1] in ("div_s", "div_u", "rem_s", "rem_u") and rng.random() < 0.9:
+                divisor += [(t + ".const", 1), (t + ".or",)]  # mostly nonzero, so programs run on
+            return gen(t, depth - 1) + divisor + [(op,)]
+        if r < 0.62:
+            return gen(t, depth - 1) + [(t + "." + rng.choice(unops),)]
+        if r < 0.70:
+            if t == "i32":
+                u = rng.choice(["i32", "i64"])
+                return gen(u, depth - 1) + gen(u, depth - 1) + [(u + "." + rng.choice(cmps),)]
+            return gen("i32", depth - 1) + [(rng.choice(["i64.extend_i32_s", "i64.extend_i32_u"]),)]
+        if r < 0.75:
+            if t == "i32":
+                return gen("i64", depth - 1) + [("i32.wrap_i64",)]
+            return gen("i64", depth - 1) + [(rng.choice(["i64.extend8_s", "i64.extend16_s", "i64.extend32_s"]),)]
+        if r < 0.82:
+            return gen(t, depth - 1) + gen(t, depth - 1) + gen("i32", depth - 1) + [("select",)]
+        if r < 0.90:
+            return gen("i32", depth - 1) + [("if", t)] + gen(t, depth - 1) + [("else",)] + gen(t, depth - 1) + [("end",)]
+        if r < 0.95:
+            # A block that may leave early with a value.
+            return ([("block", t)] + gen(t, depth - 1) + gen("i32", depth - 1) + [("br_if", 0)] + [("drop",)]
+                    + gen(t, depth - 1) + [("end",)])
+        addr = rng.randrange(0, 512)
+        load = rng.choice(["i32.load", "i32.load8_s", "i32.load16_u"] if t == "i32"
+                          else ["i64.load", "i64.load8_u", "i64.load32_s"])
+        return [("i32.const", addr), (load,)]
+
+    def statement(depth):
+        r = rng.random()
+        if r < 0.5 or depth <= 0:
+            i = rng.randrange(8)
+            return gen("i32" if i < 4 else "i64", 3) + [("local.set", i)]
+        if r < 0.75:
+            t = rng.choice(["i32", "i64"])
+            return [("i32.const", rng.randrange(0, 512))] + gen(t, 2) + [(t + ".store",)]
+        # A bounded loop, its counter in a local of its own: 8 + depth.
+        n = rng.randrange(1, 12)
+        counter = 8 + depth
+        body = [("i32.const", n), ("local.set", counter), ("loop", None)]
+        for _ in range(rng.randrange(1, 4)):
+            body += statement(depth - 1)
+        body += [("local.get", counter), ("i32.const", 1), ("i32.sub",), ("local.tee", counter),
+                 ("br_if", 0), ("end",)]
+        return body
+
+    for k in range(400):
+        body = [("i32.const", 0), ("call", 0)]  # the input (64 bytes) at address 0
+        for i in range(4):
+            body += [("i32.const", 4 * i), ("i32.load",), ("local.set", i)]
+        for i in range(4):
+            body += [("i32.const", 16 + 8 * i), ("i64.load",), ("local.set", 4 + i)]
+        for _ in range(rng.randrange(3, 12)):
+            body += statement(2)
+        for i in range(4):
+            body += [("i32.const", 512 + 4 * i), ("local.get", i), ("i32.store",)]
+        for i in range(4):
+            body += [("i32.const", 528 + 8 * i), ("local.get", 4 + i), ("i64.store",)]
+        # The output is the hash of the 560 bytes written, to keep the vectors small.
+        body += [("i32.const", 0), ("i32.const", 560), ("i32.const", 600), ("call", 1),
+                 ("i32.const", 600), ("i32.const", 32), ("call", 2)]
+        wasm = w.assemble([{"locals": ["i32"] * 4 + ["i64"] * 4 + ["i32"] * 3, "body": body}],
+                          imports=["input_read", "hash", "output_write"])
+        name = f"random {k}"
+        m = add_module(name, wasm)
+        for j, hash_name in enumerate(("sha256", "sm3")):
+            add_run(f"{name}.{j}", name, m, rng.randbytes(64), hash_name)
+
+    document = {
+        "description": "CexChain contract execution (spec section 14): modules in and out of the "
+                       "deterministic WebAssembly profile, and invocations of cexchain_call with their "
+                       "outcome (ok, or the trap's name), output, fuel used, and abort reason. Built by "
+                       "the independent reference interpreter tools/testvectors/wasm_ref.py; the random "
+                       "programs (seeded) check every implementation against it, fuel included.",
+        "fuel": w.FUEL,
+        "modules": modules,
+        "runs": runs,
+    }
+    (OUT / "vm-v1.json").write_text(json.dumps(document, indent=1) + "\n")
+    outcomes = {}
+    for r in runs:
+        outcomes[r["outcome"]] = outcomes.get(r["outcome"], 0) + 1
+    print(f"wrote {len(modules)} modules and {len(runs)} runs to testvectors/vm-v1.json: {outcomes}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--openssl", default="openssl", help="OpenSSL 3.5+ command-line tool")
@@ -1433,6 +1873,7 @@ def main() -> None:
     generate_protocol_v03()
     generate_protocol_v04()
     generate_protocol_v05()
+    generate_vm_v1()
 
 
 if __name__ == "__main__":
