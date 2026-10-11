@@ -156,7 +156,7 @@ public:
         for (const detail::DataSegment& d : m.data) {
             const ByteView bytes = ByteView(m.bytes).subspan(d.begin, d.size);
             if (d.offset) {
-                std::ranges::copy(bytes, memory_.begin() + *d.offset);
+                std::ranges::copy(bytes, memory_.begin() + static_cast<std::ptrdiff_t>(*d.offset));
                 segments_.emplace_back();
             } else {
                 segments_.push_back(bytes);
@@ -404,7 +404,9 @@ std::optional<Trap> Machine::execute() {
         case detail::op_br_table: {
             sp_ = sp - 1;
             const std::uint64_t i = sp[-1];
-            const Branch& e = frames_[depth_ - 1].function->branches[in.a + std::min(i, in.b)];
+            const Branch& e =
+                frames_[depth_ - 1]
+                    .function->branches[in.a + static_cast<std::size_t>(std::min(i, in.b))];
             branch(e.target, e.arity, e.height);
             break;
         }

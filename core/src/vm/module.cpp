@@ -1347,7 +1347,8 @@ private:
         if (m_.table) {
             m_.table_functions.assign(m_.table->min, null_function);
             for (const ElemSegment& e : m_.elems) {
-                std::ranges::copy(e.functions, m_.table_functions.begin() + e.offset);
+                std::ranges::copy(e.functions, m_.table_functions.begin() +
+                                                   static_cast<std::ptrdiff_t>(e.offset));
             }
         }
         return {};
