@@ -901,8 +901,11 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
             },
             [&](const ContractCallBody& b) -> Status {
                 // validate() ran it on this state at this time: the same run.
-                CEXCHAIN_TRY(ContractRun run, accepted_run(provider, signed_statement, now));
-                ContractAccept accept = std::get<ContractAccept>(std::move(*run.output));
+                const auto run = accepted_run(provider, signed_statement, now);
+                if (!run) {
+                    return std::unexpected(run.error());
+                }
+                ContractAccept accept = *run->accepted();
                 const Id& target = b.instance ? *b.instance : id;
                 if (!b.instance) {
                     InstanceState instance;
