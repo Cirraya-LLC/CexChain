@@ -102,6 +102,12 @@ std::string event_line(const protocol::RecordEvent& event) {
             return what + ", recorded by " + actor;
         }
         return "asset action by " + actor;
+    case protocol::StatementType::contract_call:
+        if (event.contract_call) {
+            const protocol::ContractCallBody& c = *event.contract_call;
+            return (c.instance ? "call " : "create with ") + c.function + " by " + actor;
+        }
+        return "contract call by " + actor;
     default:
         return std::string(protocol::name(event.type)) + " by " + actor;
     }
@@ -613,6 +619,271 @@ std::string asset_report_text(const protocol::AssetReport& r, bool ledger_checke
     }
     line("\n  Verified: the asset's complete history is proven against its home's state");
     line("  commitment, and each consent against the consenting party's own ledger. Party names");
+    line("  are as their own ledgers declare them; ledger ids are what bind them.");
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// Contracts
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/// Long values (arguments and states may be 64 KiB) shortened for a terminal.
+std::string shortened(std::string text) {
+    constexpr std::size_t limit = 240;
+    if (text.size() <= limit) {
+        return text;
+    }
+    const std::size_t size = text.size();
+    text.resize(limit);
+    // Never cut a UTF-8 sequence in two.
+    while (!text.empty() && (static_cast<unsigned char>(text.back()) & 0xc0U) == 0x80U) {
+        text.pop_back();
+    }
+    if (!text.empty() && static_cast<unsigned char>(text.back()) >= 0xc0U) {
+        text.pop_back();
+    }
+    return std::format("{}... ({} characters)", text, size);
+}
+
+std::string encoded_hex(const cbor::Value& value) {
+    auto encoded = cbor::encode(value);
+    return encoded ? to_hex(*encoded) : std::string();
+}
+
+/// Party ledgers by id: the home, and each ledger that consented, as their
+/// own evidence declares them.
+PartyNames contract_party_names(const protocol::ContractReport& r) {
+    PartyNames names;
+    names[hex_id(r.instance.ledger_id)] = r.instance.organization;
+    for (const protocol::ContractStep& step : r.steps) {
+        for (const protocol::ContractConsentCheck& c : step.consents) {
+            names[hex_id(c.ref.ledger)] = c.report.organization;
+        }
+    }
+    return names;
+}
+
+Json parties_json(const PartyNames& names, const protocol::Parties& parties) {
+    Json out = Json::object();
+    for (const auto& [role, ledger] : parties) {
+        out[role] = party_json(names, ledger);
+    }
+    return out;
+}
+
+std::string parties_text(const PartyNames& names, const protocol::Parties& parties) {
+    std::string out;
+    for (const auto& [role, ledger] : parties) {
+        out += (out.empty() ? "" : ", ") + role + ": " + party_text(names, ledger);
+    }
+    return out.empty() ? "none" : out;
+}
+
+/// Who signed a consent's registration, for people: a person present, a key
+/// alone, or a machine (with an AI agent's model and accountable person).
+std::string signer_text(const protocol::RecordEvent& e) {
+    std::string out = presence_text(e);
+    if (e.actor.kind == protocol::ActorKind::agent) {
+        if (e.provenance && e.provenance->model) {
+            out += "; model " + *e.provenance->model;
+        }
+        if (e.actor.responsible) {
+            out += "; responsible: " + *e.actor.responsible;
+        }
+    }
+    return out;
+}
+
+Json outcome_json(const PartyNames& names, const protocol::ContractAccept& a) {
+    Json events = Json::array();
+    for (const protocol::ContractEvent& e : a.events) {
+        events.push_back({{"name", e.name}, {"data", cbor::diagnostic(e.data)}});
+    }
+    return {{"status", optional_text(a.status)},
+            {"parties", a.parties ? parties_json(names, *a.parties) : Json(nullptr)},
+            {"events", std::move(events)},
+            {"final", a.final},
+            {"state", cbor::diagnostic(a.state)}};
+}
+
+std::string outcome_text(const PartyNames& names, const protocol::ContractAccept& a) {
+    std::string out = a.status ? "status " + *a.status : std::string("no status");
+    if (a.parties) {
+        out += "; parties " + parties_text(names, *a.parties);
+    }
+    for (const protocol::ContractEvent& e : a.events) {
+        out += "; event " + e.name + " " + shortened(cbor::diagnostic(e.data));
+    }
+    if (a.final) {
+        out += "; final";
+    }
+    return out;
+}
+
+Json consent_json(const protocol::ContractConsentCheck& c) {
+    const protocol::RecordEvent* given =
+        c.report.events.empty() ? nullptr : &c.report.events.front();
+    Json authority = Json::array();
+    if (given != nullptr) {
+        for (const protocol::ActorSummary& link : given->authority) {
+            authority.push_back(link.name);
+        }
+    }
+    return {{"ledger_id", hex_id(c.ref.ledger)},
+            {"organization", c.report.organization},
+            {"hash", crypto::name(c.report.hash)},
+            {"record", hex_id(c.ref.record)},
+            {"signer", given != nullptr ? actor_json(given->actor) : Json(nullptr)},
+            {"authority", std::move(authority)},
+            {"presence", given != nullptr ? Json(presence_text(*given)) : Json(nullptr)},
+            {"provenance", given != nullptr && given->provenance
+                               ? provenance_json(*given->provenance)
+                               : Json(nullptr)},
+            {"given_at", given != nullptr ? Json(iso_time(given->registered_at)) : Json(nullptr)},
+            {"until", iso_time(c.consent.until)},
+            {"reference", optional_text(c.consent.reference)},
+            {"witnesses",
+             {{"trusted", c.report.trusted_cosignatures},
+              {"untrusted", c.report.untrusted_cosignatures}}}};
+}
+
+} // namespace
+
+Json contract_report_json(const protocol::ContractReport& r, bool ledger_checked) {
+    const protocol::EvidenceReport& e = r.instance;
+    const protocol::InstanceReport& i = *e.instance;
+    const PartyNames names = contract_party_names(r);
+    Json calls = Json::array();
+    for (const protocol::ContractStep& step : r.steps) {
+        const protocol::RecordEvent& event = e.events[step.event];
+        const protocol::ContractCallBody& call = *event.contract_call;
+        Json authority = Json::array();
+        for (const protocol::ActorSummary& a : event.authority) {
+            authority.push_back(actor_json(a));
+        }
+        Json consents = Json::array();
+        for (const protocol::ContractConsentCheck& c : step.consents) {
+            consents.push_back(consent_json(c));
+        }
+        calls.push_back(
+            {{"index", event.index},
+             {"registered_at", iso_time(event.registered_at)},
+             {"function", call.function},
+             {"creates", !call.instance.has_value()},
+             {"arguments", cbor::diagnostic(call.arguments)},
+             {"arguments_cbor", encoded_hex(call.arguments)},
+             {"reference", optional_text(call.reference)},
+             {"summary", event_line(event)},
+             {"called_by", actor_json(event.actor)},
+             {"authority", std::move(authority)},
+             {"presence", event.presence ? Json(presence_text(event)) : Json(nullptr)},
+             {"provenance", event.provenance ? provenance_json(*event.provenance) : Json(nullptr)},
+             {"outcome", event.outcome ? outcome_json(names, *event.outcome) : Json(nullptr)},
+             {"consents", std::move(consents)}});
+    }
+    return {{"verified", true},
+            {"instance",
+             {{"id", hex_id(e.record)},
+              {"status", optional_text(i.status)},
+              {"parties", parties_json(names, i.parties)},
+              {"final", i.final},
+              {"head", i.head},
+              {"state", cbor::diagnostic(i.state)},
+              {"state_cbor", encoded_hex(i.state)},
+              {"contract",
+               {{"id", hex_id(i.contract)},
+                {"name", optional_text(i.contract_name)},
+                {"language", i.language},
+                {"compiler", i.compiler},
+                {"retired", i.contract_retired}}}}},
+            {"home",
+             {{"id", hex_id(e.ledger_id)},
+              {"organization", e.organization},
+              {"hash", crypto::name(e.hash)},
+              {"id_checked", ledger_checked}}},
+            {"checkpoint", checkpoint_json(e.checkpoint)},
+            {"witnesses",
+             {{"trusted", e.trusted_cosignatures}, {"untrusted", e.untrusted_cosignatures}}},
+            {"calls", std::move(calls)},
+            {"complete", e.complete},
+            {"report", report_json(e, ledger_checked)}};
+}
+
+std::string contract_report_text(const protocol::ContractReport& r, bool ledger_checked) {
+    const protocol::EvidenceReport& e = r.instance;
+    const protocol::InstanceReport& i = *e.instance;
+    const PartyNames names = contract_party_names(r);
+    std::string out;
+    auto line = [&out](const std::string& text) {
+        out += text + "\n";
+    };
+    line("CexChain contract report\n");
+    line(std::format("  Instance     {} of contract {}(id {})", short_id(e.record),
+                     i.contract_name ? "\"" + *i.contract_name + "\" " : std::string(),
+                     short_id(i.contract)));
+    line(std::format("  Contract     {}, compiled with {}{}", i.language, i.compiler,
+                     i.contract_retired ? "; retired: it creates no more instances" : ""));
+    line(std::format("  Home         {} (ledger {}, {})", e.organization, short_id(e.ledger_id),
+                     crypto::name(e.hash)));
+    if (!ledger_checked) {
+        line("               ! not compared with an expected ledger id");
+    }
+    line(std::format("  Status       {}{}", i.status.value_or("(none)"),
+                     i.final ? " - FINAL: it takes no more calls" : ""));
+    if (i.parties.empty()) {
+        line("  Parties      none");
+    }
+    bool first = true;
+    for (const auto& [role, ledger] : i.parties) {
+        line(std::format("  {}{}: {}", first ? "Parties      " : "             ", role,
+                         party_text(names, ledger)));
+        first = false;
+    }
+    line("  State        " + shortened(cbor::diagnostic(i.state)));
+    line(std::format("  Checkpoint   size {}, signed {} by the home's log key",
+                     e.checkpoint.tree_size, format_time(e.checkpoint.timestamp)));
+    line(std::format("  Witnesses    {} trusted{}", e.trusted_cosignatures,
+                     e.untrusted_cosignatures == 0
+                         ? std::string()
+                         : std::format(" ({} more from witnesses you do not trust, not checked)",
+                                       e.untrusted_cosignatures)));
+    line("\n  Calls");
+    for (const protocol::ContractStep& step : r.steps) {
+        const protocol::RecordEvent& event = e.events[step.event];
+        const protocol::ContractCallBody& call = *event.contract_call;
+        line(std::format("    #{:<4} {}  {}", event.index, format_time(event.registered_at),
+                         event_line(event)));
+        if (!event.authority.empty()) {
+            std::string chain;
+            for (const protocol::ActorSummary& link : event.authority) {
+                chain += (chain.empty() ? "" : " <- ") + link.name;
+            }
+            line("           authorized by " + chain);
+        }
+        line("           arguments  " + shortened(cbor::diagnostic(call.arguments)));
+        if (call.reference) {
+            line("           reference  " + *call.reference);
+        }
+        if (event.outcome) {
+            line("           outcome    " + outcome_text(names, *event.outcome));
+        }
+        for (const protocol::ContractConsentCheck& c : step.consents) {
+            const protocol::RecordEvent* given =
+                c.report.events.empty() ? nullptr : &c.report.events.front();
+            const std::string who =
+                given != nullptr ? "\"" + given->actor.name + "\" (" + signer_text(*given) + ")"
+                                 : "?";
+            line(std::format("           consent of {} ({}): given by {}{}", c.report.organization,
+                             crypto::name(c.report.hash), who,
+                             c.consent.reference ? ", ref. " + *c.consent.reference
+                                                 : std::string()));
+        }
+    }
+    line("\n  Verified: the instance's complete history is proven against its home's state");
+    line("  commitment, and its contract was run again on every call, reaching the state");
+    line("  above; each consent is verified on the consenting party's own ledger. Party names");
     line("  are as their own ledgers declare them; ledger ids are what bind them.");
     return out;
 }

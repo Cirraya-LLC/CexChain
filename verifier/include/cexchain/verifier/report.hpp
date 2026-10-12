@@ -11,6 +11,7 @@
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/asset_evidence.hpp>
 #include <cexchain/core/protocol/assets.hpp>
+#include <cexchain/core/protocol/contract_evidence.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/log.hpp>
 #include <cexchain/core/protocol/statement.hpp>
@@ -64,5 +65,17 @@ using Json = nlohmann::ordered_json;
 [[nodiscard]] Json asset_report_json(const protocol::AssetReport& report, bool ledger_checked);
 [[nodiscard]] std::string asset_report_text(const protocol::AssetReport& report,
                                             bool ledger_checked);
+
+/// A contract instance's verification report (D-053): the instance as of
+/// the checkpoint (its contract, status, parties, state, and whether it is
+/// final), and every call: who called under whose authority, the arguments,
+/// what the contract made of it, and each consent the call cites, verified
+/// on the consenting party's own ledger, with who gave it (a person present,
+/// a key alone, an AI agent and its model). Parties are named as their own
+/// ledgers declare themselves, where a consent of theirs shows it.
+[[nodiscard]] Json contract_report_json(const protocol::ContractReport& report,
+                                        bool ledger_checked);
+[[nodiscard]] std::string contract_report_text(const protocol::ContractReport& report,
+                                               bool ledger_checked);
 
 } // namespace cexchain::verifier
