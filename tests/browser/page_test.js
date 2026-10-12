@@ -3,7 +3,8 @@
 //
 // Drives cexchain-verify.html in a real browser, as a verifier would use it:
 // opened from a QR link that names the ledger, the record, and the bundle's
-// URL; opened from disk with files chosen by hand; fed a forged attachment.
+// URL; opened from disk with files chosen by hand; fed a forged attachment;
+// and given an asset's and a contract instance's evidence.
 // Usage: node page_test.js PAGE EVIDENCE_DIR CEXCHAIN
 "use strict";
 const assert = require("node:assert/strict");
@@ -19,7 +20,8 @@ const ledgerId = text("ledger-id");
 const recordId = text("record-id");
 
 function serve() {
-  const files = { "/cexchain-verify.html": pagePath, "/bundle.cbor": path.join(dir, "bundle.cbor") };
+  const files = { "/cexchain-verify.html": pagePath, "/bundle.cbor": path.join(dir, "bundle.cbor"),
+                  "/contract.cbor": path.join(dir, "contract.cbor") };
   const server = http.createServer((req, res) => {
     const file = files[req.url];
     if (!file) { res.writeHead(404).end(); return; }
@@ -133,6 +135,58 @@ async function verdict(page) {
     assert.match(chain, /consent of Cirraya Bank/);
     assert.match(chain, /125000\.00 CNY/);
     assert.match(chain, /INV-77/);
+    await page.close();
+
+    // 7. A contract instance's evidence: every call, what the contract made
+    // of it, and each consent with who gave it. The page's report is the one
+    // `cexchain contract verify --json` gives for the same evidence.
+    const contractLedger = text("contract-ledger-id");
+    const instanceId = text("instance-id");
+    page = await open("file://" + pagePath);
+    await page.setInputFiles("#bundle-file", path.join(dir, "contract.cbor"));
+    v = await verdict(page);
+    assert.equal(v.kind, "warn", "without a ledger id the home is unconfirmed: " + v.detail);
+    await page.fill("#ledger", contractLedger);
+    await page.dispatchEvent("#ledger", "change");
+    await page.waitForFunction(() => document.getElementById("verdict-title").textContent === "Verified");
+    v = await verdict(page);
+    assert.equal(v.kind, "ok", v.title + ": " + v.detail);
+    assert.match(v.detail, /Supply agreement.* at "Cirraya Core Enterprise": status effective after 2 calls/);
+    const shown = await page.evaluate(() => window.lastReport);
+    assert.equal(shown.kind, "contract");
+    delete shown.kind;
+    delete shown.text;
+    assert.deepEqual(shown, JSON.parse(text("native-contract-report.json")));
+    const calls = await page.textContent("#result");
+    assert.match(calls, /Instance ID/);
+    assert.match(calls, new RegExp(instanceId));
+    assert.match(calls, /bank: Cirraya Bank \(ledger [0-9a-f]{12}/);
+    assert.match(calls, /Created with propose/);
+    assert.match(calls, /reference: PO-2026-1012/);
+    assert.match(calls, /Called sign/);
+    assert.match(calls, /Procurement Manager/);
+    assert.match(calls, /signed with their key; presence not proven/);
+    assert.match(calls, /authorized by Cirraya Core Enterprise/);
+    assert.match(calls, /outcome: status effective; event signed \{"amount": 125000\}/);
+    assert.match(calls, /consent of Cirraya Bank \(SHA-256\): given by "Credit Agent" \(a machine: AI agent\), ref\. Credit approval CA-9/);
+    assert.match(calls, /model credit-model-7 \u00b7 accountable person: Credit Officer/);
+    assert.match(calls, /consent of Cirraya Supplier \(SHA-256\): given by "Cirraya Supplier" \(the organization's own key\)/);
+    assert.match(calls, /complete \(proven against the state commitment\)/);
+    assert.match(calls, /contract was run again on every call/);
+    await page.close();
+
+    // 8. A link to a contract instance's evidence, naming the home and the
+    // instance, is green; one naming another instance is refused.
+    const contractLink = base + "/cexchain-verify.html#l=" + contractLedger + "&r=" + instanceId +
+      "&b=" + encodeURIComponent(base + "/contract.cbor");
+    page = await open(contractLink);
+    v = await verdict(page);
+    assert.equal(v.kind, "ok", v.title + ": " + v.detail);
+    await page.close();
+    page = await open(contractLink.replace("r=" + instanceId, "r=" + "ab".repeat(32)));
+    v = await verdict(page);
+    assert.equal(v.kind, "bad");
+    assert.match(v.detail, /different instance/);
     await page.close();
 
     assert.deepEqual(problems, []);

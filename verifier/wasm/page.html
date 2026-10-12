@@ -74,6 +74,8 @@ th { color: var(--muted); font-weight: 500; }
 .status-verified { color: var(--ok); font-weight: 600; }
 .status-mismatch { color: var(--bad); font-weight: 600; }
 .status-not-provided { color: var(--muted); }
+details.value summary { cursor: pointer; }
+details.value code { display: block; font: 12px var(--mono); overflow-wrap: anywhere; margin-top: 4px; color: var(--text); }
 .note { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 12px; margin-top: 18px; }
 footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 24px; }
 [hidden] { display: none !important; }
@@ -83,7 +85,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
 <main>
   <header>
     <h1>CexChain Verifier</h1>
-    <p>Check a record's or an asset's evidence on this device. Nothing is uploaded: verification runs entirely in your browser.</p>
+    <p>Check a record's, an asset's, or a contract's evidence on this device. Nothing is uploaded: verification runs entirely in your browser.</p>
   </header>
 
   <section class="card" id="input">
@@ -128,7 +130,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
     </div>
   </section>
 
-  <footer>CexChain Verifier <span id="version"></span>, open source (Apache-2.0). Evidence is checked with the same code as the <span class="mono">cexchain verify</span> command.</footer>
+  <footer>CexChain Verifier <span id="version"></span>, open source (Apache-2.0). Evidence is checked with the same code as the <span class="mono">cexchain verify</span>, <span class="mono">asset verify</span>, and <span class="mono">contract verify</span> commands.</footer>
 </main>
 
 <script>
@@ -249,6 +251,98 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
     $("details").hidden = false;
   }
 
+  function shorten(text, limit) {
+    return text.length <= limit ? text : text.slice(0, limit) + "\u2026 (" + text.length + " characters)";
+  }
+
+  // A long CBOR value in diagnostic notation: shortened, the whole value one click away.
+  function value(label, text) {
+    if (text.length <= 120) return el("div", label + ": " + text, "meta");
+    const details = el("details", null, "meta value");
+    details.append(el("summary", label + ": " + shorten(text, 80)), el("code", text));
+    return details;
+  }
+
+  function partyList(parties) {
+    const roles = Object.keys(parties || {});
+    return roles.length ? roles.map((role) => role + ": " + party(parties[role])).join(", ") : "none";
+  }
+
+  function agentLine(actor, provenance) {
+    const parts = [];
+    const model = (provenance && provenance.model) || actor.model;
+    if (model) parts.push("model " + model + ((provenance && provenance.model_version) ? " " + provenance.model_version : ""));
+    if (actor.responsible) parts.push("accountable person: " + actor.responsible);
+    if (provenance && provenance.tools && provenance.tools.length) parts.push("via " + provenance.tools.map((t) => t.name).join(", "));
+    if (provenance && provenance.input_commitment) parts.push("inputs committed");
+    return el("div", parts.join(" \u00b7 "), "meta");
+  }
+
+  function outcomeText(o) {
+    let text = o.status ? "status " + o.status : "no status";
+    if (o.parties) text += "; parties " + partyList(o.parties);
+    for (const e of o.events) text += "; event " + e.name + " " + shorten(e.data, 120);
+    if (o.final) text += "; final";
+    return text;
+  }
+
+  function renderContract(report) {
+    const i = report.instance;
+    const facts = $("facts");
+    facts.replaceChildren();
+    const fact = (name, text, mono) => {
+      facts.append(el("dt", name));
+      facts.append(el("dd", text, mono ? "mono" : ""));
+    };
+    fact("Contract", (i.contract.name ? "\u201c" + i.contract.name + "\u201d, " : "") + i.contract.language +
+      ", compiled with " + i.contract.compiler + (i.contract.retired ? " (retired: it creates no more instances)" : ""));
+    fact("Contract ID", i.contract.id, true);
+    fact("Instance ID", i.id, true);
+    fact("Status", (i.status || "(none)") + (i.final ? " \u2014 final: it takes no more calls" : ""));
+    fact("Parties", partyList(i.parties));
+    fact("State", shorten(i.state, 300), true);
+    fact("Home", report.home.organization + " (" + report.home.hash + ")");
+    fact("Home ledger ID", report.home.id, true);
+    fact("Checkpoint", "log size " + report.checkpoint.tree_size + ", signed " + when(report.checkpoint.timestamp));
+    fact("Witnesses", report.witnesses.trusted + " trusted, " + report.witnesses.untrusted + " other");
+    fact("History", report.complete ? "complete (proven against the state commitment)" : "may be incomplete");
+    $("metadata-section").hidden = true;
+    $("fields-section").hidden = true;
+    $("attachments-section").hidden = true;
+    $("events-title").textContent = "Calls";
+    $("events").replaceChildren(...report.calls.map((call) => {
+      const li = el("li");
+      li.append(el("div", call.creates ? "Created with " + call.function : "Called " + call.function, "what"));
+      const who = el("div");
+      who.append(el("span", "by "), actorLine(call.called_by));
+      if (call.presence && call.presence.startsWith("a person, present")) who.append(el("span", "\u2713 present", "chip present"));
+      li.append(who);
+      if (call.called_by.kind === "person" && !call.presence) li.append(el("div", "signed with their key; presence not proven", "meta"));
+      if (call.called_by.kind === "agent") li.append(agentLine(call.called_by, call.provenance));
+      if (call.authority.length) li.append(el("div", "authorized by " + call.authority.map((a) => a.name).join(" \u2190 "), "meta"));
+      li.append(value("arguments", call.arguments));
+      if (call.reference) li.append(el("div", "reference: " + call.reference, "meta"));
+      if (call.outcome) li.append(el("div", "outcome: " + outcomeText(call.outcome), "meta"));
+      for (const c of call.consents) {
+        const line = el("div", null, "meta consent");
+        line.append(el("span", "consent of " + c.organization + " (" + c.hash + "): given by " +
+          (c.signer ? "\"" + c.signer.name + "\"" : "?") + " (" + c.presence + ")" +
+          (c.reference ? ", ref. " + c.reference : "") + (c.given_at ? ", " + when(c.given_at) : "")));
+        if (c.presence && c.presence.startsWith("a person, present")) line.append(el("span", "\u2713 present", "chip present"));
+        if (c.signer && c.signer.kind === "agent") line.append(el("span", "AI agent", "chip agent"));
+        li.append(line);
+        if (c.signer && c.signer.kind === "agent") li.append(agentLine(c.signer, c.provenance));
+        if (c.authority.length) li.append(el("div", "authorized by " + c.authority.join(" \u2190 "), "meta"));
+      }
+      li.append(el("div", when(call.registered_at) + " \u00b7 entry #" + call.index, "when"));
+      return li;
+    }));
+    $("limits").textContent = "The instance's complete history is proven against its home's state commitment, and its " +
+      "contract was run again on every call, reaching the state above; each consent is verified on the consenting " +
+      "party's own ledger. Party names are as their own ledgers declare them; the ledger IDs bind them.";
+    $("details").hidden = false;
+  }
+
   function render(report) {
     $("events-title").textContent = "History";
     const facts = $("facts");
@@ -348,6 +442,25 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
           "\". Compare its ledger ID with the one the issuer published, or enter it above. State: " + summary);
       } else {
         setVerdict("ok", "Verified", "Issued by \"" + report.home.organization + "\": " + summary);
+      }
+      return;
+    }
+    if (report.kind === "contract" && report.instance) {
+      renderContract(report);
+      const i = report.instance;
+      const summary = "status " + (i.status || "(none)") + (i.final ? " (final)" : "") + " after " +
+        report.calls.length + (report.calls.length === 1 ? " call" : " calls") + ", each run again.";
+      if (state.expectedRecord && i.id !== state.expectedRecord.toLowerCase()) {
+        setVerdict("bad", "Not verified", "This evidence is about a different instance than the one the link or QR code names.");
+      } else if (!report.verified) {
+        setVerdict("bad", "Not verified", report.error || "The evidence could not be verified.");
+      } else if (!report.home.id_checked) {
+        setVerdict("warn", "Genuine, but the home ledger is not confirmed",
+          "The contract's evidence is intact and correctly signed by the ledger of \"" + report.home.organization +
+          "\". Compare its ledger ID with the one the issuer published, or enter it above. " + summary);
+      } else {
+        setVerdict("ok", "Verified", (i.contract.name ? "\u201c" + i.contract.name + "\u201d at " : "An instance at ") +
+          "\"" + report.home.organization + "\": " + summary);
       }
       return;
     }

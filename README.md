@@ -212,9 +212,11 @@ cexchain verify evidence.cbor --witness witness.pub --min-witnesses 1
 ## Browser verifier
 
 Anyone can check evidence without installing anything. `cexchain-verify.html` is one self-contained
-page: the same verification code as `cexchain verify`, compiled to WebAssembly together with
-OpenSSL. It runs entirely in the browser and uploads nothing. It works offline, even opened from
-disk, and it can be hosted on any static web server.
+page: the same verification code as `cexchain verify`, `asset verify`, and `contract verify`,
+compiled to WebAssembly together with OpenSSL and the contract interpreter. It takes a record's
+evidence bundle, an asset's evidence, or a contract instance's evidence, which it checks by running
+the contract again on every call. It runs entirely in the browser and uploads nothing. It works
+offline, even opened from disk, and it can be hosted on any static web server.
 
 ```sh
 tools/wasm/build.sh            # needs Emscripten; writes build/wasm/cexchain-verify.html
@@ -428,7 +430,8 @@ Arguments are written in CBOR diagnostic notation: JSON without floating point, 
 *head* and a digest of the arguments, so it applies to one call, once. Without a registrar, the
 home's people record calls with consents as files (`contract call <instance> sign --consent
 s.cbor --consent b.cbor`). `contract verify` shows each call, its outcome, and who consented: a
-person who proved presence, a key alone, or an AI agent and its model. Delegations can be limited
+person who proved presence, a key alone, or an AI agent and its model. The browser verifier shows
+the same report. Delegations can be limited
 to contracts (`delegation grant --contracts`), and `contract retire` stops new instances while
 existing ones carry on.
 
@@ -461,7 +464,8 @@ ctest --preset gcc-debug
 Other presets: `gcc-release`, `clang-debug`, `clang-asan` (AddressSanitizer + UndefinedBehaviorSanitizer), and `clang-fuzz` (libFuzzer targets).
 
 The browser verifier is tested against evidence from the native tool. A Node.js test requires its
-report to match `cexchain verify --json` exactly, and a Chromium test drives the page:
+report to match `cexchain verify --json` (and `asset verify --json`, `contract verify --json`)
+exactly, and a Chromium test drives the page:
 
 ```sh
 tools/wasm/build.sh

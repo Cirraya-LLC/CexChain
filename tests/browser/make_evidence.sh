@@ -5,13 +5,16 @@
 # Builds evidence with the native command-line tool, for the browser verifier
 # tests. Usage: make_evidence.sh CEXCHAIN DIR
 # Writes into DIR: bundle.cbor, report.pdf, ledger-id, record-id, and
-# native-report.json (what `cexchain verify --json` reports); and for an
-# asset, asset.cbor, asset-id, asset-ledger-id, and native-asset-report.json.
+# native-report.json (what `cexchain verify --json` reports); for an asset,
+# asset.cbor, asset-id, asset-ledger-id, and native-asset-report.json; and for
+# a contract instance, contract.cbor, instance-id, contract-ledger-id, and
+# native-contract-report.json and .txt (what `cexchain contract verify` reports).
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
 CEXCHAIN="$1"
 DIR="$2"
+SOURCE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 mkdir -p "$DIR"
 cd "$DIR"
 rm -rf ledger ./*.key ./*.pub
@@ -58,3 +61,48 @@ run asset record pledge "$(cat asset-id)" --to "$BANK" --consent consent-supplie
 run checkpoint create --log-key core-log.key --ledger "$DIR/core" > /dev/null
 run asset evidence "$(cat asset-id)" --log-key core-log.key --fields '*' --out asset.cbor --ledger "$DIR/core" > /dev/null
 run asset verify asset.cbor --ledger-id "$(cat asset-ledger-id)" --json > native-asset-report.json
+
+# A contract instance on the core enterprise's ledger: an agreement it
+# proposes to the supplier and the bank, then signs with both consents, the
+# bank's given by its AI agent; the consents travel as files.
+python3 -c 'import json,sys; open("counting.wasm","wb").write(bytes.fromhex(json.load(open(sys.argv[1]))["counting"]))' \
+    "$SOURCE/testvectors/test-contracts.json"
+cp asset-ledger-id contract-ledger-id
+core() { run "$@" --ledger "$DIR/core"; }
+CONTRACT="$(core contract deploy counting.wasm --function propose=create --function sign=call \
+    --function close=call --compiler "test_contracts.py 1" --name "Supply agreement" --as core-root.key | id_from)"
+# The counting contract answers a call citing n consents with item n of its
+# arguments (the last one for more): the CBOR, in a byte string, of its output.
+CREATE="[<<[1, {1: \"proposed\", 2: \"proposed\", 3: {\"supplier\": h'$SUPPLIER', \"bank\": h'$BANK'}}]>>]"
+core contract create "$CONTRACT" propose --args "$CREATE" --reference PO-2026-1012 --as core-root.key \
+    | id_from > instance-id
+INSTANCE="$(cat instance-id)"
+LO="$(printf '%s\n' "$SUPPLIER" "$BANK" | LC_ALL=C sort | sed -n 1p)"
+HI="$(printf '%s\n' "$SUPPLIER" "$BANK" | LC_ALL=C sort | sed -n 2p)"
+NEEDS="<<[2, [h'$LO', h'$HI']]>>"
+SIGN="[$NEEDS, $NEEDS, <<[1, {1: \"signed\", 2: \"effective\", 4: [[\"signed\", {\"amount\": 125000}]]}]>>]"
+run key generate --out manager.key > /dev/null
+MANAGER="$(core actor add --as core-root.key --kind person --name "Procurement Manager" --key manager.key | id_from)"
+core delegation grant --as core-root.key --to "$MANAGER" --allow contract-call --contracts "$CONTRACT" > /dev/null
+for k in bank-officer bank-agent; do run key generate --out "$k.key" > /dev/null; done
+OFFICER="$(run actor add --as bank-root.key --kind person --name "Credit Officer" --key bank-officer.key \
+    --ledger "$DIR/bank" | id_from)"
+AGENT="$(run actor add --as bank-root.key --kind agent --name "Credit Agent" --key bank-agent.key \
+    --responsible "$OFFICER" --model credit-model-7 --ledger "$DIR/bank" | id_from)"
+run delegation grant --as bank-root.key --to "$AGENT" --allow record-register \
+    --record-types cexchain.contract-consent/1 --ledger "$DIR/bank" > /dev/null
+HEAD="$(core contract instance "$INSTANCE" --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["head"])')"
+consent() { # AS LOG LEDGER OUT ARGS...
+    local as="$1" log="$2" ledger="$3" out="$4"; shift 4
+    run contract consent --home "$(cat contract-ledger-id)" --hash sha256 --instance "$INSTANCE" \
+        --function sign --args "$SIGN" --head "$HEAD" --as "$as" --log-key "$log" --ledger "$ledger" \
+        --out "$out" "$@" > /dev/null
+}
+consent sup-root.key sup-log.key "$DIR/supplier" sign-supplier.cbor
+consent bank-agent.key bank-log.key "$DIR/bank" sign-bank.cbor --reference "Credit approval CA-9"
+core contract call "$INSTANCE" sign --args "$SIGN" --consent sign-supplier.cbor --consent sign-bank.cbor \
+    --reference INV-77 --as manager.key > /dev/null
+run checkpoint create --log-key core-log.key --ledger "$DIR/core" > /dev/null
+core contract evidence "$INSTANCE" --log-key core-log.key --out contract.cbor > /dev/null
+run contract verify contract.cbor --ledger-id "$(cat contract-ledger-id)" --json > native-contract-report.json
+run contract verify contract.cbor --ledger-id "$(cat contract-ledger-id)" > native-contract-report.txt

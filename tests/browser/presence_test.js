@@ -131,6 +131,49 @@ function withPasskey(page, ...args) {
     await viewer.setInputFiles("#bundle-file", path.join(work, "bundle.cbor"));
     await viewer.waitForFunction(() => !document.getElementById("result").hidden);
     assert.equal(await viewer.locator(".chip.present").count(), 2);
+
+    // Alice consents in person to a call on a contract instance at another
+    // ledger, the instance's home. Its evidence shows she was present, on the
+    // command line and on the page alike.
+    for (const k of ["home-root", "home-log"]) run("key", "generate", "--out", k + ".key");
+    const home = path.join(work, "home");
+    const homeId = idFrom(run("init", "--org", "Cirraya Buyer", "--root-key", "home-root.key", "--log-key",
+                              "home-log.key", "--ledger", home));
+    const vectors = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "testvectors", "test-contracts.json")));
+    fs.writeFileSync(path.join(work, "counting.wasm"), Buffer.from(vectors.counting, "hex"));
+    const contract = idFrom(run("contract", "deploy", "counting.wasm", "--function", "propose=create", "--function",
+                                "sign=call", "--compiler", "test_contracts.py 1", "--as", "home-root.key",
+                                "--ledger", home));
+    // The counting contract answers a call citing n consents with item n of
+    // its arguments: the CBOR, in a byte string, of its output.
+    const create = `[<<[1, {1: "proposed", 2: "proposed", 3: {"supplier": h'${ledgerId}'}}]>>]`;
+    const instance = idFrom(run("contract", "create", contract, "propose", "--args", create, "--as", "home-root.key",
+                                "--ledger", home));
+    const sign = `[<<[2, [h'${ledgerId}']]>>, <<[1, {1: "signed", 2: "effective"}]>>]`;
+    const head = JSON.parse(run("contract", "instance", instance, "--ledger", home, "--json")).head;
+    await withPasskey(page, "contract", "consent", "--home", homeId, "--hash", "sha256", "--instance", instance,
+                      "--function", "sign", "--args", sign, "--head", String(head), "--as", "alice.key",
+                      "--log-key", "log.key", "--out", "consent.cbor", "--presence");
+    run("contract", "call", instance, "sign", "--args", sign, "--consent", "consent.cbor", "--as", "home-root.key",
+        "--ledger", home);
+    run("checkpoint", "create", "--log-key", "home-log.key", "--ledger", home);
+    run("contract", "evidence", instance, "--log-key", "home-log.key", "--out", "contract.cbor", "--ledger", home);
+    const native = JSON.parse(run("contract", "verify", "contract.cbor", "--ledger-id", homeId, "--require-presence",
+                                  "--json"));
+    assert.equal(native.verified, true);
+    assert.equal(native.calls[1].consents[0].signer.name, "Alice Inspector");
+    assert.equal(native.calls[1].consents[0].presence, "a person, present: passkey");
+
+    await viewer.fill("#ledger", homeId);
+    await viewer.setInputFiles("#bundle-file", path.join(work, "contract.cbor"));
+    await viewer.waitForFunction(() => window.lastReport && window.lastReport.kind === "contract" &&
+                                       document.getElementById("verdict-title").textContent === "Verified");
+    const shown = await viewer.evaluate(() => window.lastReport);
+    delete shown.kind;
+    delete shown.text;
+    assert.deepEqual(shown, native);
+    assert.equal(await viewer.locator(".chip.present").count(), 1);
+    assert.match(await viewer.textContent("#events"), /given by "Alice Inspector" \(a person, present: passkey\)/);
     console.log("passkey presence (browser): ok");
   } finally {
     await browser.close();
