@@ -30,6 +30,7 @@ endif()
 if(TARGET cexchain_node)
     cexchain_add_fuzzer(http_parse_fuzz cexchain::node)
     cexchain_add_fuzzer(backup_restore_fuzz cexchain::ledger)
+    cexchain_add_fuzzer(pending_call_fuzz cexchain::node)
     # The cluster's internals (node/src/cluster_parts.hpp).
     cexchain_add_fuzzer(cluster_entry_fuzz cexchain::node cexchain::crypto_openssl cexchain_nuraft)
     target_include_directories(cluster_entry_fuzz PRIVATE

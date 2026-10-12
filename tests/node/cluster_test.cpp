@@ -22,11 +22,14 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cexchain/core/protocol/assets.hpp>
+#include <cexchain/core/protocol/contracts.hpp>
 #include <cexchain/node/assets.hpp>
 #include <cexchain/node/cluster.hpp>
+#include <cexchain/node/contracts.hpp>
 
 #include "cluster_parts.hpp"
 #include "support/ledger_world.hpp"
+#include "support/vectors.hpp"
 
 namespace {
 
@@ -251,6 +254,101 @@ struct Trio {
         return protocol::parse_statement(provider(), signed_action, w.hash())->id;
     }
 
+    /// Commits one statement on the leader, with its sidecar; its index.
+    std::uint64_t commit_one(const Bytes& statement, std::optional<node::Sidecar> sidecar,
+                             protocol::Timestamp at) {
+        const ByteView view = statement;
+        cexchain::Result<node::BatchResult> results = std::unexpected(cexchain::Error{});
+        REQUIRE(eventually([&] {
+            Node* now = leader();
+            results = now != nullptr
+                          ? now->cluster->submit(std::span(&view, 1), std::span(&sidecar, 1), at)
+                          : cexchain::Result<node::BatchResult>(
+                                std::unexpected(cexchain::Error{Errc::unavailable, "no leader"}));
+            return results.has_value();
+        }));
+        INFO((results->front() ? std::string() : std::string(results->front().error().detail)));
+        REQUIRE(results->front());
+        return results->front()->index;
+    }
+
+    /// Deploys the vectors' test contract, creates an instance, and calls it
+    /// with `party`'s consent, which goes in with the call. Then a registrar
+    /// holds a call on the instance's new head. Returns the call's id and
+    /// the pending call's file name.
+    std::pair<protocol::Id, std::string> contract_call(World& party, protocol::Timestamp at) {
+        auto signed_by_org = [&](protocol::Body body, protocol::Timestamp issued) {
+            auto s = w.statement(w.org_id(), std::nullopt, std::move(body));
+            s.issued_at = issued;
+            return w.sign(w.org(), s);
+        };
+        protocol::ContractDeployBody deploy;
+        deploy.code = hex(load_vectors("protocol-v0.6.json")["contract"].get<std::string>());
+        deploy.interface = {{"propose", protocol::FunctionKind::create},
+                            {"sign", protocol::FunctionKind::call}};
+        deploy.language = "wasm";
+        deploy.compiler = "hand-assembled 1";
+        const Bytes deployed = signed_by_org(deploy, at);
+        commit_one(deployed, std::nullopt, at);
+        protocol::ContractCallBody create;
+        create.contract = protocol::parse_statement(provider(), deployed, w.hash())->id;
+        create.function = "propose";
+        create.arguments = cbor::Value::null(); // the test contract accepts
+        const Bytes created = signed_by_org(create, at + 1);
+        const std::uint64_t head = commit_one(created, std::nullopt, at + 1);
+        const protocol::Id instance = protocol::parse_statement(provider(), created, w.hash())->id;
+
+        protocol::ContractCallBody sign;
+        sign.instance = instance;
+        sign.head = head;
+        sign.function = "sign";
+        sign.arguments = cbor::Value::null();
+        auto digest = protocol::contract_arguments_digest(provider(), w.hash(), sign.arguments);
+        REQUIRE(digest);
+        auto metadata = protocol::encode_contract_consent(
+            {w.org_id(), instance, "sign", *digest, head, t0 + 30 * day, std::nullopt});
+        REQUIRE(metadata);
+        const protocol::Id consent =
+            party.ok(party.org(), party.statement(party.org_id(), std::nullopt,
+                                                  protocol::RecordRegisterBody{
+                                                      std::string(protocol::contract_consent_type),
+                                                      Bytes(32, 0x42),
+                                                      1,
+                                                      {},
+                                                      std::move(*metadata)}));
+        REQUIRE(party.ledger().checkpoint(party.log_key()));
+        const Bytes bundle =
+            *protocol::encode_bundle(*party.ledger().export_evidence(party.log_key(), consent));
+        sign.consents.push_back(
+            {party.ledger().id(), consent, *provider().digest(w.hash(), bundle), {}});
+        const Bytes call = signed_by_org(sign, at + 2);
+        const std::uint64_t index =
+            commit_one(call,
+                       node::Sidecar{node::Sidecar::Kind::contract_consents,
+                                     *node::encode_consent_bundles(std::vector<Bytes>{bundle})},
+                       at + 2);
+
+        // A call the registrar holds, on the new head.
+        node::PendingCall pending;
+        pending.instance = instance;
+        pending.head = index;
+        pending.function = "sign";
+        pending.arguments = cbor::Value::text("later");
+        pending.until = t0 + day;
+        pending.proposer = "staff";
+        pending.missing = {party.ledger().id()};
+        const node::PendingChange change{
+            node::pending_call_name({instance, index, *protocol::to_id(Bytes(32, 0x77))}),
+            *node::encode_pending_call(pending)};
+        REQUIRE(eventually([&] {
+            Node* now = leader();
+            return now != nullptr &&
+                   now->cluster->change_pending(std::span(&change, 1)).has_value();
+        }));
+        REQUIRE(eventually([&] { return agree(); }));
+        return {protocol::parse_statement(provider(), call, w.hash())->id, change.name};
+    }
+
     Bytes record(protocol::Timestamp at) {
         auto s = w.statement(w.org_id(), std::nullopt, w.record_body("other/1"));
         s.issued_at = at;
@@ -374,12 +472,17 @@ TEST_CASE("a node far behind gets the ledger itself as a snapshot", "[node][clus
     trio.write(2, t0 + 20000);
     REQUIRE(eventually([&] { return trio.agree(); }));
 
-    // An asset action, with the consent it pins kept on every node (D-052).
+    // An asset action, with the consent it pins kept on every node (D-052);
+    // a contract call with its consent, and a call a registrar holds (D-053).
     World party{crypto::HashAlg::sha256, "Party"};
     const protocol::Id action = trio.cancel_asset(party, t0 + 25000);
+    const auto [call, pending] = trio.contract_call(party, t0 + 26000);
     for (int n = 0; n < 2; ++n) {
-        CHECK(std::filesystem::exists(
-            node::consents_path(trio.nodes[static_cast<std::size_t>(n)]->dir, action)));
+        const auto& dir = trio.nodes[static_cast<std::size_t>(n)]->dir;
+        CHECK(std::filesystem::exists(node::consents_path(dir, action)));
+        CHECK(std::filesystem::exists(node::contract_consents_path(dir, call)));
+        CHECK(eventually(
+            [&] { return std::filesystem::exists(node::pending_calls_directory(dir) / pending); }));
     }
 
     trio.nodes[2]->start();
@@ -398,6 +501,22 @@ TEST_CASE("a node far behind gets the ledger itself as a snapshot", "[node][clus
     }));
     CHECK(
         eventually([&] { return std::filesystem::exists(node::consents_path(late.dir, action)); }));
+    CHECK(eventually(
+        [&] { return std::filesystem::exists(node::contract_consents_path(late.dir, call)); }));
+    CHECK(eventually([&] {
+        return std::filesystem::exists(node::pending_calls_directory(late.dir) / pending);
+    }));
+    // Removed on every node, through Raft.
+    const node::PendingChange removal{pending, std::nullopt};
+    REQUIRE(eventually([&] {
+        Node* now = trio.leader();
+        return now != nullptr && now->cluster->change_pending(std::span(&removal, 1)).has_value();
+    }));
+    for (auto& n : trio.nodes) {
+        CHECK(eventually([&] {
+            return !std::filesystem::exists(node::pending_calls_directory(n->dir) / pending);
+        }));
+    }
     // And it takes part from then on.
     trio.write(1, t0 + 30000);
     CHECK(eventually([&] { return trio.agree(); }));

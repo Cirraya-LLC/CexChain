@@ -19,6 +19,7 @@
 #include <cexchain/node/api.hpp>
 #include <cexchain/node/assets.hpp>
 #include <cexchain/node/client.hpp>
+#include <cexchain/node/contracts.hpp>
 #include <cexchain/node/replica.hpp>
 #include <cexchain/node/server.hpp>
 #include <cexchain/node/tokens.hpp>
@@ -84,7 +85,12 @@ bool backup_path_allowed(std::string_view path) {
     if (path == node::tokens_file || path == "vault/vault.pub" || path == "vault/vault.key") {
         return true;
     }
-    for (const std::string_view prefix : {"vault/records/", "assets/consents/"}) {
+    constexpr std::string_view pending = "contracts/pending/";
+    if (path.starts_with(pending)) {
+        return node::parse_pending_call_name(path.substr(pending.size())).has_value();
+    }
+    for (const std::string_view prefix :
+         {"vault/records/", "assets/consents/", "contracts/consents/"}) {
         if (!path.starts_with(prefix) || !path.ends_with(".cbor")) {
             continue;
         }
@@ -161,7 +167,8 @@ int cmd_serve(const Args& args) {
     }
     if (const auto registrar = args.get("registrar-key")) {
         if (options.log_keys.empty()) {
-            throw UsageError{"--registrar-key needs --log-key (to serve the assets' evidence)"};
+            throw UsageError{
+                "--registrar-key needs --log-key (to serve assets' and instances' evidence)"};
         }
         options.registrar = load_signer(*registrar, args);
     }
@@ -620,11 +627,15 @@ int cmd_backup_create(const Args& args) {
         }
     };
     add(std::string(node::tokens_file));
-    // The consents asset actions pin (D-052): the assets' evidence needs them.
-    if (std::filesystem::is_directory(node::consents_directory(dir))) {
+    // The consents asset actions (D-052) and contract calls (D-053) cite:
+    // their evidence needs them. And the calls a registrar holds.
+    auto add_directory = [&](const std::filesystem::path& directory, const std::string& prefix) {
+        if (!std::filesystem::is_directory(directory)) {
+            return;
+        }
         std::vector<std::string> names;
-        for (const auto& e : std::filesystem::directory_iterator(node::consents_directory(dir))) {
-            const std::string relative = "assets/consents/" + e.path().filename().string();
+        for (const auto& e : std::filesystem::directory_iterator(directory)) {
+            const std::string relative = prefix + e.path().filename().string();
             if (e.is_regular_file() && backup_path_allowed(relative)) {
                 names.push_back(relative);
             }
@@ -633,7 +644,10 @@ int cmd_backup_create(const Args& args) {
         for (const auto& n : names) {
             add(n);
         }
-    }
+    };
+    add_directory(node::consents_directory(dir), "assets/consents/");
+    add_directory(node::contract_consents_directory(dir), "contracts/consents/");
+    add_directory(node::pending_calls_directory(dir), "contracts/pending/");
     if (!args.has("no-vault")) {
         add("vault/vault.pub");
         add("vault/vault.key");

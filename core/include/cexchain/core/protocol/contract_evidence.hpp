@@ -34,6 +34,10 @@ struct ContractEvidence {
 [[nodiscard]] Result<Bytes> encode_contract_evidence(const ContractEvidence& evidence);
 [[nodiscard]] Result<ContractEvidence> decode_contract_evidence(ByteView encoded);
 
+/// Who signed a record's registration (an evidence report's first event), as
+/// contracts see it: what a call citing a consent to the record must claim.
+[[nodiscard]] ContractSigner registration_signer(const RecordEvent& registration);
+
 /// A consent checked against the call that cites it.
 struct ContractConsentCheck {
     ContractConsentRef ref;

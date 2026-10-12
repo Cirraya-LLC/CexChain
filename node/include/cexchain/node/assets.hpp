@@ -38,7 +38,10 @@ consents_directory(const std::filesystem::path& ledger_directory);
                                                   const protocol::Id& action);
 
 [[nodiscard]] Result<Bytes> encode_consent_bundles(std::span<const Bytes> bundles);
-[[nodiscard]] Result<std::vector<Bytes>> decode_consent_bundles(ByteView encoded);
+/// At most `max` bundles: an asset action cites up to 4 consents, a contract
+/// call up to 16.
+[[nodiscard]] Result<std::vector<Bytes>>
+decode_consent_bundles(ByteView encoded, std::size_t max = protocol::max_consents);
 
 /// Checks the bundles an asset action pins, one per consent, in its order:
 /// what a home does before recording the action at `now` on the ledger
@@ -52,6 +55,8 @@ consents_directory(const std::filesystem::path& ledger_directory);
 /// are fine, other bytes are refused (Errc::rejected).
 [[nodiscard]] Status store_consents(const std::filesystem::path& ledger_directory,
                                     const protocol::Id& action, ByteView encoded);
+/// The same, for any statement's consents kept at `path`.
+[[nodiscard]] Status store_consents_file(const std::filesystem::path& path, ByteView encoded);
 
 /// True if the signed statement is an asset action that cites consents.
 [[nodiscard]] bool cites_consents(const protocol::Statement& statement);
@@ -64,11 +69,12 @@ consents_directory(const std::filesystem::path& ledger_directory);
                                            const protocol::EvidenceBundle& asset_bundle);
 
 /// The newest valid delegation of `actor` for `type`, on records of
-/// `record_type` if given, at `now`.
+/// `record_type` and on `contract` if given, at `now`.
 [[nodiscard]] std::optional<protocol::Id>
 choose_delegation(const protocol::LedgerState& state, const protocol::Id& actor,
                   protocol::StatementType type, const std::optional<std::string>& record_type,
-                  protocol::Timestamp now);
+                  protocol::Timestamp now,
+                  const std::optional<protocol::Id>& contract = std::nullopt);
 
 /// Signs an asset action as the registrar `signer` (an actor of the ledger),
 /// under its newest delegation that covers it.

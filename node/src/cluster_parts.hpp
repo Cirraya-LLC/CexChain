@@ -32,6 +32,7 @@
 #include <cexchain/ledger/ledger.hpp>
 #include <cexchain/node/assets.hpp>
 #include <cexchain/node/cluster.hpp>
+#include <cexchain/node/contracts.hpp>
 
 #include "crc32c.hpp"
 #include "files.hpp"
@@ -53,11 +54,16 @@ constexpr std::string_view snapshot_file = "snapshot";
 
 // Raft entries (CBOR arrays), each applied at the ledger size it names.
 constexpr std::uint64_t entry_batch = 1; // [1, at, size, [statement], [sidecar]]
-/// A sidecar is [i, vault file], or [i, consent bundles, 2] for an asset
-/// action (D-052); snapshots carry them as [id, bytes(, 2)].
+/// A sidecar is [i, vault file], [i, consent bundles, 2] for an asset action
+/// (D-052), or [i, consent bundles, 3] for a contract call (D-053);
+/// snapshots carry them as [id, bytes(, kind)], and the pending calls as
+/// [name, file, 4].
 constexpr std::uint64_t sidecar_consents = 2;
+constexpr std::uint64_t sidecar_contract_consents = 3;
+constexpr std::uint64_t snapshot_pending_call = 4;
 constexpr std::uint64_t entry_checkpoint = 2;  // [2, commitment entry / null, checkpoint]
 constexpr std::uint64_t entry_cosignature = 3; // [3, cosignature, witness public key]
+constexpr std::uint64_t entry_pending = 4;     // [4, [* [name, file / null]]]
 
 /// Entries and vault files per snapshot object.
 constexpr std::uint64_t snapshot_entries = 1000;
@@ -612,12 +618,15 @@ public:
             cbor::Array files;
             for (std::size_t i = first;
                  i < std::min(files_kept.size(), first + snapshot_vault_files); ++i) {
-                const auto& [id, consents] = files_kept[i];
-                if (auto bytes = detail::read_file(consents ? consents_path(directory_, id)
-                                                            : vault_path(id))) {
-                    cbor::Array item{cbor::Value::bytes(id.bytes()), cbor::Value::bytes(*bytes)};
-                    if (consents) {
-                        item.push_back(cbor::Value::unsigned_integer(sidecar_consents));
+                const KeptFile& kept = files_kept[i];
+                if (auto bytes = detail::read_file(path_of(kept))) {
+                    cbor::Array item{kept.kind == KeptFile::Kind::pending_call
+                                         ? cbor::Value::text(kept.name)
+                                         : cbor::Value::bytes(kept.id.bytes()),
+                                     cbor::Value::bytes(*bytes)};
+                    if (kept.kind != KeptFile::Kind::vault) {
+                        item.push_back(
+                            cbor::Value::unsigned_integer(static_cast<std::uint64_t>(kept.kind)));
                     }
                     files.push_back(cbor::Value::array(std::move(item)));
                 }
@@ -674,17 +683,32 @@ public:
             for (const cbor::Value& item : *items) {
                 const cbor::Array* parts = item.as_array();
                 if (parts == nullptr || parts->size() < 2 || parts->size() > 3 ||
-                    (*parts)[0].as_bytes() == nullptr || (*parts)[1].as_bytes() == nullptr) {
+                    (*parts)[1].as_bytes() == nullptr) {
                     continue;
                 }
-                const bool consents =
-                    parts->size() == 3 && (*parts)[2].as_uint64() == sidecar_consents;
-                if (auto id = protocol::to_id(*(*parts)[0].as_bytes())) {
-                    if (consents) {
-                        keep_consents(*id, *(*parts)[1].as_bytes());
-                    } else {
-                        store_vault(*id, *(*parts)[1].as_bytes());
+                const std::uint64_t kind =
+                    parts->size() == 3 ? (*parts)[2].as_uint64().value_or(0) : 0;
+                const Bytes& bytes = *(*parts)[1].as_bytes();
+                if (kind == snapshot_pending_call) {
+                    if (const std::string* name = (*parts)[0].as_text()) {
+                        const PendingChange change{*name, bytes};
+                        static_cast<void>(keep_pending(std::span(&change, 1)));
                     }
+                    continue;
+                }
+                const Bytes* id_bytes = (*parts)[0].as_bytes();
+                auto id = id_bytes != nullptr
+                              ? protocol::to_id(*id_bytes)
+                              : Result<protocol::Id>(fail(Errc::malformed, "no id"));
+                if (!id) {
+                    continue;
+                }
+                if (kind == sidecar_consents) {
+                    keep_consents(*id, bytes);
+                } else if (kind == sidecar_contract_consents) {
+                    keep_contract_consents(*id, bytes);
+                } else if (kind == 0) {
+                    store_vault(*id, bytes);
                 }
             }
         }
@@ -713,34 +737,81 @@ private:
         return directory_ / "vault" / "records" / (to_hex(record.bytes()) + ".cbor");
     }
 
-    /// The files kept with statements below `size`: records' vault files
-    /// (in the order the log created the records), then the consents of
-    /// asset actions (true), in log order.
-    std::vector<std::pair<protocol::Id, bool>> sidecar_files(std::uint64_t size) const {
-        std::vector<std::pair<protocol::Id, bool>> out;
-        ledger_->read_state([&](const protocol::LedgerState& state) {
-            for (const auto& [id, record] : state.records()) {
-                if (record.registered_at_index < size) {
-                    out.emplace_back(protocol::to_id(id).value_or(protocol::Id{}), false);
-                }
-            }
-        });
-        std::vector<std::pair<std::uint64_t, protocol::Id>> actions;
+    /// A file a snapshot carries besides the ledger.
+    struct KeptFile {
+        enum class Kind : std::uint8_t {
+            vault = 0,
+            asset_consents = sidecar_consents,
+            contract_consents = sidecar_contract_consents,
+            pending_call = snapshot_pending_call,
+        };
+        Kind kind = Kind::vault;
+        protocol::Id id;
+        /// A pending call's file name.
+        std::string name;
+    };
+
+    std::filesystem::path path_of(const KeptFile& kept) const {
+        switch (kept.kind) {
+        case KeptFile::Kind::asset_consents:
+            return consents_path(directory_, kept.id);
+        case KeptFile::Kind::contract_consents:
+            return contract_consents_path(directory_, kept.id);
+        case KeptFile::Kind::pending_call:
+            return pending_calls_directory(directory_) / kept.name;
+        case KeptFile::Kind::vault:
+            break;
+        }
+        return vault_path(kept.id);
+    }
+
+    /// The statements below `size` whose consents are kept in `directory`,
+    /// in log order.
+    std::vector<protocol::Id> consents_kept(const std::filesystem::path& directory,
+                                            std::uint64_t size) const {
+        std::vector<std::pair<std::uint64_t, protocol::Id>> statements;
         std::error_code ec;
-        for (const auto& e :
-             std::filesystem::directory_iterator(consents_directory(directory_), ec)) {
+        for (const auto& e : std::filesystem::directory_iterator(directory, ec)) {
             const std::string name = e.path().stem().string();
             auto bytes = from_hex(name);
             auto id =
                 bytes ? protocol::to_id(*bytes) : Result<protocol::Id>(fail(Errc::malformed, ""));
             const auto index = id ? ledger_->statement_index(*id) : std::nullopt;
-            if (index && *index < size) {
-                actions.emplace_back(*index, *id);
+            if (index && *index < size && e.path().extension() == ".cbor") {
+                statements.emplace_back(*index, *id);
             }
         }
-        std::ranges::sort(actions, {}, &std::pair<std::uint64_t, protocol::Id>::first);
-        for (const auto& [index, id] : actions) {
-            out.emplace_back(id, true);
+        std::ranges::sort(statements, {}, &std::pair<std::uint64_t, protocol::Id>::first);
+        std::vector<protocol::Id> out;
+        for (const auto& [index, id] : statements) {
+            out.push_back(id);
+        }
+        return out;
+    }
+
+    /// The files kept with statements below `size`: records' vault files
+    /// (in the order the log created the records), then the consents of
+    /// asset actions and of contract calls, in log order; then the calls a
+    /// registrar holds now.
+    std::vector<KeptFile> sidecar_files(std::uint64_t size) const {
+        std::vector<KeptFile> out;
+        ledger_->read_state([&](const protocol::LedgerState& state) {
+            for (const auto& [id, record] : state.records()) {
+                if (record.registered_at_index < size) {
+                    out.push_back(
+                        {KeptFile::Kind::vault, protocol::to_id(id).value_or(protocol::Id{}), {}});
+                }
+            }
+        });
+        for (const protocol::Id& id : consents_kept(consents_directory(directory_), size)) {
+            out.push_back({KeptFile::Kind::asset_consents, id, {}});
+        }
+        for (const protocol::Id& id :
+             consents_kept(contract_consents_directory(directory_), size)) {
+            out.push_back({KeptFile::Kind::contract_consents, id, {}});
+        }
+        for (const HeldCall& held : held_calls(directory_)) {
+            out.push_back({KeptFile::Kind::pending_call, {}, pending_call_name(held.name)});
         }
         return out;
     }
@@ -751,6 +822,23 @@ private:
         if (auto s = store_consents(directory_, action, bundles); !s) {
             failed("cannot keep an asset action's consents");
         }
+    }
+
+    /// Keeps a contract call's consents, the same way.
+    void keep_contract_consents(const protocol::Id& call, ByteView bundles) {
+        if (auto s = store_consents_file(contract_consents_path(directory_, call), bundles); !s) {
+            failed("cannot keep a contract call's consents");
+        }
+    }
+
+    /// Writes or removes pending calls; changes that do not hold up change
+    /// nothing.
+    Status keep_pending(std::span<const PendingChange> changes) {
+        auto s = apply_pending_changes(directory_, changes);
+        if (!s) {
+            failed("cannot keep a registrar's pending calls");
+        }
+        return s;
     }
 
     Result<Bytes> extras(std::uint64_t size) const {
@@ -836,6 +924,9 @@ private:
             auto key = protocol::decode_public_key((*items)[2]);
             outcome = key ? ledger_->add_cosignature(*(*items)[1].as_bytes(), *key)
                           : Status(std::unexpected(key.error()));
+        } else if (type == entry_pending && items->size() == 2) {
+            auto changes = decode_pending_changes((*items)[1]);
+            outcome = changes ? keep_pending(*changes) : Status(std::unexpected(changes.error()));
         } else {
             outcome = Status(fail(Errc::malformed, "a cluster entry is malformed"));
         }
@@ -872,18 +963,26 @@ private:
         for (const cbor::Value& s : list) {
             statements.emplace_back(s.as_bytes() != nullptr ? ByteView(*s.as_bytes()) : ByteView());
         }
-        // An asset action's consents are kept before it is registered.
+        // The consents an asset action or a contract call cites are kept
+        // before it is registered.
         for (const cbor::Value& v : vaults) {
             const cbor::Array* parts = v.as_array();
-            if (parts == nullptr || parts->size() != 3 || !(*parts)[0].as_uint64() ||
-                (*parts)[1].as_bytes() == nullptr || (*parts)[2].as_uint64() != sidecar_consents ||
+            const auto kind =
+                parts != nullptr && parts->size() == 3 ? (*parts)[2].as_uint64() : std::nullopt;
+            if (!kind || (*kind != sidecar_consents && *kind != sidecar_contract_consents) ||
+                !(*parts)[0].as_uint64() || (*parts)[1].as_bytes() == nullptr ||
                 *(*parts)[0].as_uint64() >= statements.size()) {
                 continue;
             }
             auto parsed = protocol::parse_statement(
                 ledger_->provider(), statements[*(*parts)[0].as_uint64()], ledger_->hash());
-            if (parsed) {
+            if (!parsed) {
+                continue;
+            }
+            if (*kind == sidecar_consents) {
                 keep_consents(parsed->id, *(*parts)[1].as_bytes());
+            } else {
+                keep_contract_consents(parsed->id, *(*parts)[1].as_bytes());
             }
         }
         results = ledger_->submit_batch(statements, at);

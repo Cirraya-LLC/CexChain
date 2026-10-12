@@ -6,7 +6,8 @@
 // replay, access rules, backup restore, passkey registration) are reached
 // from real objects mutated, not from nothing. The contract interpreter and
 // the contract parsers start from testvectors/vm-v1.json and
-// protocol-v0.6.json.
+// protocol-v0.6.json. A registrar's pending calls (node/contracts.hpp) are
+// built here as CBOR, without the node library.
 //
 //   make_seeds DIR    writes DIR/<target>/<name> for each target
 
@@ -380,6 +381,45 @@ void webauthn_seed(const Seeds& seeds) {
     seeds.write("webauthn_registration_fuzz", "registration", input);
 }
 
+/// A pending call as a registrar holds it (node/contracts.hpp): with
+/// `progress`, the proposer, the ledgers missing, and a consent held.
+cbor::Value pending_call(bool progress) {
+    using cbor::Value;
+    cbor::Map map{{Value::integer(1), Value::bytes(Bytes(32, 0x11))},
+                  {Value::integer(2), Value::unsigned_integer(7)},
+                  {Value::integer(3), Value::text("sign")},
+                  {Value::integer(4), Value::array({Value::bytes(Bytes{0x82, 0x01, 0xa0})})},
+                  {Value::integer(5), Value::text("PO-2026-17")},
+                  {Value::integer(6), Value::unsigned_integer(1'791'849'600'000)}};
+    if (progress) {
+        map.push_back({Value::integer(7), Value::text("staff")});
+        map.push_back({Value::integer(8), Value::array({Value::bytes(Bytes(32, 0x22))})});
+        map.push_back({Value::integer(9),
+                       Value::array({Value::array({Value::bytes(Bytes(32, 0x33)),
+                                                   Value::bytes(Bytes{0xa1, 0x00, 0x01})})})});
+    }
+    return Value::map(std::move(map));
+}
+
+/// A pending call's file name: "<instance>-<head>-<id>.cbor".
+std::string pending_name() {
+    return to_hex(Bytes(32, 0x11)) + "-7-" + to_hex(Bytes(32, 0x44)) + ".cbor";
+}
+
+void pending_call_seeds(const Seeds& seeds) {
+    using cbor::Value;
+    seeds.write("pending_call_fuzz", "proposal", must(cbor::encode(pending_call(false)), "encode"));
+    seeds.write("pending_call_fuzz", "pending", must(cbor::encode(pending_call(true)), "encode"));
+    seeds.write("pending_call_fuzz", "name", pending_name());
+    seeds.write(
+        "pending_call_fuzz", "changes",
+        must(cbor::encode(Value::array(
+                 {Value::array({Value::text(pending_name()),
+                                Value::bytes(must(cbor::encode(pending_call(true)), "encode"))}),
+                  Value::array({Value::text(pending_name()), Value::null()})})),
+             "encode"));
+}
+
 /// Raft entries and snapshot objects, as a cluster member receives them:
 /// [kind][CBOR] (see cluster_entry_fuzz).
 void cluster_seeds(const Seeds& seeds) {
@@ -401,6 +441,18 @@ void cluster_seeds(const Seeds& seeds) {
                         Value::array({Value::array({Value::unsigned_integer(0),
                                                     Value::bytes(Bytes{0x81, 0x41, 0x00}),
                                                     Value::unsigned_integer(2)})})}));
+    write("batch-contract-consents", 0,
+          Value::array({Value::unsigned_integer(1), Value::unsigned_integer(1'791'244'800'000),
+                        Value::unsigned_integer(1), Value::array({Value::bytes(Bytes(40, 0xd2))}),
+                        Value::array({Value::array({Value::unsigned_integer(0),
+                                                    Value::bytes(Bytes{0x81, 0x41, 0x00}),
+                                                    Value::unsigned_integer(3)})})}));
+    const Bytes pending = must(cbor::encode(pending_call(true)), "encode");
+    write("pending", 2,
+          Value::array(
+              {Value::unsigned_integer(4),
+               Value::array({Value::array({Value::text(pending_name()), Value::bytes(pending)}),
+                             Value::array({Value::text(pending_name()), Value::null()})})}));
     write("checkpoint", 1,
           Value::array({Value::unsigned_integer(2), Value::null(), Value::bytes(Bytes(60, 0xd2))}));
     write("cosignature", 2,
@@ -413,7 +465,11 @@ void cluster_seeds(const Seeds& seeds) {
     write("snapshot-files", 5,
           Value::array({Value::array({Value::bytes(Bytes(32, 4)), Value::bytes(Bytes{0xa0})}),
                         Value::array({Value::bytes(Bytes(32, 5)), Value::bytes(Bytes{0x81, 0x40}),
-                                      Value::unsigned_integer(2)})}));
+                                      Value::unsigned_integer(2)}),
+                        Value::array({Value::bytes(Bytes(32, 6)), Value::bytes(Bytes{0x81, 0x40}),
+                                      Value::unsigned_integer(3)}),
+                        Value::array({Value::text(pending_name()), Value::bytes(pending),
+                                      Value::unsigned_integer(4)})}));
     write("snapshot-extras", 5, Value::array({Value::array({}), Value::array({})}));
 }
 
@@ -544,6 +600,7 @@ int main(int argc, char** argv) {
         asset_seeds(seeds);
         webauthn_seed(seeds);
         cluster_seeds(seeds);
+        pending_call_seeds(seeds);
         text_seeds(seeds);
         vm_seeds(seeds);
         contract_seeds(seeds);

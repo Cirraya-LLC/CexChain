@@ -17,6 +17,7 @@
 #include <cexchain/core/crypto.hpp>
 #include <cexchain/core/error.hpp>
 #include <cexchain/ledger/ledger.hpp>
+#include <cexchain/node/contracts.hpp>
 
 /// Clusters: a ledger kept by several nodes, with automatic failover (D-051).
 ///
@@ -33,7 +34,9 @@
 /// cluster's shared secret, which authenticates every Raft message), state
 /// and config (Raft's), raft-log, applied, snapshot. A batch entry carries
 /// the files kept with its statements: [i, bytes] for a vault file,
-/// [i, bytes, 2] for an asset action's consents.
+/// [i, bytes, 2] for an asset action's consents, [i, bytes, 3] for a
+/// contract call's. The calls a registrar holds until their consents are in
+/// (D-053) are replicated too, so a new leader carries on with them.
 namespace cexchain::node {
 
 inline constexpr std::string_view cluster_directory = "cluster";
@@ -101,9 +104,10 @@ using BatchResult = std::vector<Result<ledger::Registration>>;
 
 /// A file kept with a replicated statement: a record's sealed private data
 /// (stored once it is registered), or the consent bundles an asset action
-/// pins (stored before, so a registered action always has them).
+/// or a contract call cites (stored before, so a registered statement always
+/// has them).
 struct Sidecar {
-    enum class Kind : std::uint8_t { vault = 1, consents = 2 };
+    enum class Kind : std::uint8_t { vault = 1, consents = 2, contract_consents = 3 };
     Kind kind = Kind::vault;
     Bytes bytes;
 };
@@ -140,6 +144,8 @@ public:
     /// replicates it; refused while an entry is still on its way.
     [[nodiscard]] Result<protocol::SignedCheckpoint> checkpoint(ledger::LogKeys log_keys);
     [[nodiscard]] Status add_cosignature(ByteView cosignature, const crypto::PublicKey& witness);
+    /// Writes or removes the registrar's pending calls on every node.
+    [[nodiscard]] Status change_pending(std::span<const PendingChange> changes);
     [[nodiscard]] Status add_member(const ClusterMember& member);
     [[nodiscard]] Status remove_member(int id);
     /// Hands leadership to another member.

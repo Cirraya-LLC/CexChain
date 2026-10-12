@@ -8,6 +8,7 @@ add_library(cexchain_node
     src/api.cpp
     src/assets.cpp
     src/client.cpp
+    src/contracts.cpp
     src/cluster.cpp
     src/files.cpp
     src/http.cpp

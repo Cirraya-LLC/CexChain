@@ -81,18 +81,19 @@ Result<Bytes> encode_consent_bundles(std::span<const Bytes> bundles) {
     return cbor::encode(cbor::Value::array(std::move(list)));
 }
 
-Result<std::vector<Bytes>> decode_consent_bundles(ByteView encoded) {
+Result<std::vector<Bytes>> decode_consent_bundles(ByteView encoded, std::size_t max) {
     cbor::DecodeOptions options;
-    options.max_items = protocol::max_consents + 1;
+    options.max_items = max + 1;
     auto value = cbor::decode(encoded, options);
     const cbor::Array* list = value ? value->as_array() : nullptr;
-    if (list == nullptr || list->empty() || list->size() > protocol::max_consents) {
-        return fail(Errc::malformed, "consent bundles are a list of 1 to 4 byte strings");
+    if (list == nullptr || list->empty() || list->size() > max) {
+        return fail(Errc::malformed, "consent bundles are a list of byte strings, one per consent");
     }
     std::vector<Bytes> out;
     for (const cbor::Value& item : *list) {
         if (item.as_bytes() == nullptr) {
-            return fail(Errc::malformed, "consent bundles are a list of 1 to 4 byte strings");
+            return fail(Errc::malformed,
+                        "consent bundles are a list of byte strings, one per consent");
         }
         out.push_back(*item.as_bytes());
     }
@@ -119,7 +120,10 @@ Status check_action_consents(const crypto::Provider& provider, const protocol::I
 
 Status store_consents(const std::filesystem::path& ledger_directory, const protocol::Id& action,
                       ByteView encoded) {
-    const std::filesystem::path path = consents_path(ledger_directory, action);
+    return store_consents_file(consents_path(ledger_directory, action), encoded);
+}
+
+Status store_consents_file(const std::filesystem::path& path, ByteView encoded) {
     if (auto held = detail::read_file(path)) {
         if (!std::ranges::equal(*held, encoded)) {
             return fail(Errc::rejected, "other consent evidence is kept for this action");
@@ -129,7 +133,7 @@ Status store_consents(const std::filesystem::path& ledger_directory, const proto
     std::error_code ec;
     std::filesystem::create_directories(path.parent_path(), ec);
     if (ec) {
-        return fail(Errc::unavailable, "cannot create the assets directory");
+        return fail(Errc::unavailable, "cannot create the consents' directory");
     }
     return detail::write_file(path, encoded, true);
 }
@@ -191,11 +195,10 @@ Result<Bytes> asset_evidence(const crypto::Provider& provider,
     return protocol::encode_asset_evidence(evidence);
 }
 
-std::optional<protocol::Id> choose_delegation(const protocol::LedgerState& state,
-                                              const protocol::Id& actor,
-                                              protocol::StatementType type,
-                                              const std::optional<std::string>& record_type,
-                                              protocol::Timestamp now) {
+std::optional<protocol::Id>
+choose_delegation(const protocol::LedgerState& state, const protocol::Id& actor,
+                  protocol::StatementType type, const std::optional<std::string>& record_type,
+                  protocol::Timestamp now, const std::optional<protocol::Id>& contract) {
     std::optional<protocol::Id> chosen;
     std::uint64_t newest = 0;
     for (const auto& [key, d] : state.delegations()) {
@@ -203,6 +206,8 @@ std::optional<protocol::Id> choose_delegation(const protocol::LedgerState& state
                             std::ranges::contains(d.scope.statement_types, type) &&
                             (!record_type || !d.scope.record_types ||
                              std::ranges::contains(*d.scope.record_types, *record_type)) &&
+                            (!contract || !d.scope.contracts ||
+                             std::ranges::contains(*d.scope.contracts, *contract)) &&
                             (!d.scope.not_before || *d.scope.not_before <= now) &&
                             (!d.scope.not_after || now <= *d.scope.not_after);
         if (usable && (!chosen || d.granted_at_index > newest)) {

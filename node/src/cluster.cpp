@@ -381,6 +381,8 @@ Result<BatchResult> Cluster::submit(std::span<const ByteView> statements,
         cbor::Array item{cbor::Value::unsigned_integer(i), cbor::Value::bytes(sidecars[i]->bytes)};
         if (sidecars[i]->kind == Sidecar::Kind::consents) {
             item.push_back(cbor::Value::unsigned_integer(sidecar_consents));
+        } else if (sidecars[i]->kind == Sidecar::Kind::contract_consents) {
+            item.push_back(cbor::Value::unsigned_integer(sidecar_contract_consents));
         }
         vaults.push_back(cbor::Value::array(std::move(item)));
     }
@@ -441,6 +443,25 @@ Status Cluster::add_cosignature(ByteView cosignature, const crypto::PublicKey& w
     auto entry = cbor::encode(cbor::Value::array({cbor::Value::unsigned_integer(entry_cosignature),
                                                   cbor::Value::bytes(cosignature),
                                                   protocol::encode_public_key(witness)}));
+    if (!entry) {
+        return std::unexpected(entry.error());
+    }
+    auto outcome = impl_->replicate(*entry);
+    if (!outcome) {
+        return std::unexpected(outcome.error());
+    }
+    if (const auto* status = std::get_if<Status>(&*outcome)) {
+        return *status;
+    }
+    return {};
+}
+
+Status Cluster::change_pending(std::span<const PendingChange> changes) {
+    if (changes.empty()) {
+        return {};
+    }
+    auto entry = cbor::encode(cbor::Value::array(
+        {cbor::Value::unsigned_integer(entry_pending), pending_changes_value(changes)}));
     if (!entry) {
         return std::unexpected(entry.error());
     }

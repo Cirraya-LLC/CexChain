@@ -21,7 +21,8 @@ std::unexpected<Error> verification_failure(std::string_view detail) {
     return fail(Errc::verification_failed, detail);
 }
 
-/// The signer of a record's registration, as its report shows it.
+} // namespace
+
 ContractSigner registration_signer(const RecordEvent& registration) {
     ContractSigner signer;
     signer.kind = registration.actor.kind ? static_cast<std::uint8_t>(*registration.actor.kind) : 0;
@@ -33,8 +34,6 @@ ContractSigner registration_signer(const RecordEvent& registration) {
     }
     return signer;
 }
-
-} // namespace
 
 Result<Bytes> encode_contract_evidence(const ContractEvidence& e) {
     if (e.instance_bundle.empty()) {
