@@ -1540,8 +1540,33 @@ std::vector<CommandSpec> build() {
          "",
          0,
          0,
-         with({ledger_option, {"as", "KEY", "The agent's key file", true}, passphrase_file_option}),
-         cmd_mcp},
+         with({ledger_option,
+               {"as", "KEY", "The agent's key file", true},
+               {"log-key", "KEY",
+                "The ledger's log key file: lets the agent's contract consents travel as "
+                "evidence"},
+               passphrase_file_option}),
+         cmd_mcp,
+         "Serves one AI agent over stdio (Model Context Protocol, revision 2026-07-28, and\n"
+         "earlier revisions). Every write is signed with the agent's key, refused unless its\n"
+         "delegations cover it, and recorded with provenance: the agent's model, a hash of the\n"
+         "inputs it names, and the digest of the tool it used.\n\n"
+         "Tools:\n"
+         "  cexchain_whoami, cexchain_ledger_status, cexchain_record_types\n"
+         "  cexchain_get_record, cexchain_issue_record, cexchain_endorse_record,\n"
+         "  cexchain_transition_record, cexchain_verify_evidence\n"
+         "  cexchain_list_assets, cexchain_get_asset, cexchain_verify_asset_evidence\n"
+         "  cexchain_list_contracts, cexchain_get_instance, cexchain_verify_contract_evidence\n"
+         "  cexchain_call_contract           create or call an instance on this ledger\n"
+         "  cexchain_list_pending_calls      calls a home's registrar holds for this ledger\n"
+         "  cexchain_fetch_instance          an instance from its home, verified\n"
+         "  cexchain_propose_contract_call   propose a call to a home's registrar\n"
+         "  cexchain_consent_contract_call   consent to a held call, and send the consent\n\n"
+         "Contract tools reach other organizations as this ledger's peers (peer add). Consents\n"
+         "travel as evidence, which needs a checkpoint: give --log-key to let the agent consent.\n"
+         "Contract arguments are CBOR diagnostic notation; a JSON value works as well. MCP\n"
+         "clients start the server without a terminal: give key passphrases with\n"
+         "--passphrase-file or $CEXCHAIN_PASSPHRASE."},
     };
 }
 

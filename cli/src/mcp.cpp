@@ -13,8 +13,10 @@
 
 #include <array>
 #include <cstdio>
+#include <format>
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <print>
 #include <string>
 #include <vector>
@@ -25,9 +27,14 @@
 #include <cexchain/core/protocol/contract_evidence.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/record_types.hpp>
+#include <cexchain/node/assets.hpp>
+#include <cexchain/node/contracts.hpp>
+#include <cexchain/node/peers.hpp>
 
 #include "commands.hpp"
+#include "contracts.hpp"
 #include "output.hpp"
+#include "peers.hpp"
 #include "records.hpp"
 #include "support.hpp"
 
@@ -92,6 +99,65 @@ std::optional<std::string> optional_text(const json& arguments, const char* name
     return arguments[name].get<std::string>();
 }
 
+/// An optional whole number from `low` to `high`.
+std::optional<std::uint64_t> optional_number(const json& arguments, const char* name,
+                                             std::uint64_t low, std::uint64_t high) {
+    if (!arguments.contains(name) || arguments[name].is_null()) {
+        return std::nullopt;
+    }
+    const json& value = arguments[name];
+    if (!value.is_number_unsigned() || value.get<std::uint64_t>() < low ||
+        value.get<std::uint64_t>() > high) {
+        throw ToolError{
+            std::format("argument '{}' must be a whole number from {} to {}", name, low, high)};
+    }
+    return value.get<std::uint64_t>();
+}
+
+bool optional_flag(const json& arguments, const char* name, bool fallback) {
+    if (!arguments.contains(name) || arguments[name].is_null()) {
+        return fallback;
+    }
+    if (!arguments[name].is_boolean()) {
+        throw ToolError{std::string("argument '") + name + "' must be true or false"};
+    }
+    return arguments[name].get<bool>();
+}
+
+std::vector<std::string> string_list(const json& arguments, const char* name) {
+    std::vector<std::string> out;
+    if (!arguments.contains(name)) {
+        return out;
+    }
+    if (!arguments[name].is_array()) {
+        throw ToolError{std::string("argument '") + name + "' must be an array of strings"};
+    }
+    for (const json& item : arguments[name]) {
+        if (!item.is_string()) {
+            throw ToolError{std::string("argument '") + name + "' must be an array of strings"};
+        }
+        out.push_back(item.get<std::string>());
+    }
+    return out;
+}
+
+/// A contract call's arguments: a string in CBOR diagnostic notation, or any
+/// other JSON value as it is (which is diagnostic notation too); null if
+/// absent.
+cbor::Value contract_arguments(const json& arguments) {
+    if (!arguments.contains("arguments")) {
+        return {};
+    }
+    const json& value = arguments["arguments"];
+    return parse_contract_arguments(value.is_string() ? value.get<std::string>() : value.dump(),
+                                    "arguments");
+}
+
+/// The JSON of the command line (ordered keys) as the MCP server's JSON.
+json plain(const Json& value) {
+    return json::parse(value.dump());
+}
+
 std::vector<std::pair<std::string, std::string>> string_map(const json& arguments,
                                                             const char* name) {
     std::vector<std::pair<std::string, std::string>> out;
@@ -134,8 +200,10 @@ json scope_json(const protocol::Scope& scope) {
 
 class Server {
 public:
-    Server(std::filesystem::path ledger, std::unique_ptr<crypto::Signer> key)
-        : ledger_(std::move(ledger)), key_(std::move(key)) {
+    /// `args` are the command's: the ledger, and the log key (--log-key) that
+    /// checkpoints it for the evidence of the agent's contract consents.
+    Server(const Args& args, std::unique_ptr<crypto::Signer> key)
+        : args_(args), ledger_(args.ledger()), key_(std::move(key)) {
         define_tools();
         Session session(ledger_);
         const protocol::ActorState& me = session.actor_for(*key_);
@@ -153,7 +221,10 @@ public:
             "(cexchain_whoami lists them); if the ledger refuses an action, do not try to work "
             "around it, report it. Before acting on a document from someone else, verify its "
             "evidence with cexchain_verify_evidence. When issuing or changing records, pass "
-            "'inputs' describing what you based the action on: only its hash is recorded.";
+            "'inputs' describing what you based the action on: only its hash is recorded. "
+            "Contracts with other organizations: cexchain_list_pending_calls shows the calls a "
+            "home holds for your consent; check the instance with cexchain_fetch_instance before "
+            "consenting with cexchain_consent_contract_call.";
     }
 
     int run() {
@@ -308,6 +379,20 @@ private:
         return p;
     }
 
+    /// Proposals carry no signature: they go out under the organization's
+    /// peer token, so only an agent that may consent to contract calls makes
+    /// them.
+    void require_consent_delegation(const Session& session) const {
+        const protocol::ActorState& me = session.actor_for(*key_);
+        if (!node::choose_delegation(
+                session.state(), me.id, protocol::StatementType::record_register,
+                std::string(protocol::contract_consent_type), ledger::SystemClock{}.now())) {
+            throw ToolError{"no valid delegation lets you consent to contract calls "
+                            "(cexchain.contract-consent/1 records), so you may not propose them "
+                            "for your organization either"};
+        }
+    }
+
     void add(std::string name, std::string description, json properties, json required,
              json annotations, std::function<json(const Tool&, const json&)> run) {
         Tool tool;
@@ -372,7 +457,9 @@ private:
                 return out;
             });
 
-        add("cexchain_ledger_status", "The ledger's identity, size, and latest checkpoint.",
+        add("cexchain_ledger_status",
+            "The ledger's identity, size, and latest checkpoint, and its peers: other "
+            "organizations' ledgers, by the names the contract tools take as 'home'.",
             json::object(), json::array(), read_only, [this](const Tool&, const json&) {
                 Session session(ledger_);
                 json out = {{"ledger_id", hex_id(session.state().ledger_id())},
@@ -384,6 +471,14 @@ private:
                     out["checkpoint"] = {{"tree_size", c->checkpoint.tree_size},
                                          {"time", format_time(c->checkpoint.timestamp)}};
                 }
+                json peers = json::array();
+                for (const node::Peer& p :
+                     unwrap(node::load_peers(session.directory()), "reading the peers")) {
+                    peers.push_back({{"name", p.name},
+                                     {"ledger_id", hex_id(p.ledger_id)},
+                                     {"online", p.url.has_value()}});
+                }
+                out["peers"] = std::move(peers);
                 return out;
             });
 
@@ -616,6 +711,263 @@ private:
                 return out;
             });
 
+        // Contracts with other organizations (D-053). Their homes' servers
+        // are reached as peers of this ledger.
+        const json remote_read = {{"readOnlyHint", true}, {"openWorldHint", true}};
+        const json remote_writes = {{"readOnlyHint", false},
+                                    {"destructiveHint", false},
+                                    {"idempotentHint", false},
+                                    {"openWorldHint", true}};
+        const json home_property = {{"type", "string"},
+                                    {"description",
+                                     "The instance's home: a peer of this ledger, by name "
+                                     "(cexchain_ledger_status lists them)."}};
+        const json arguments_property = {
+            {"description",
+             "The call's arguments in CBOR diagnostic notation (RFC 8949, section 8): JSON "
+             "without floating point, plus byte strings h'00ff', keys of any type, tags, and "
+             "embedded CBOR <<...>>. A string is read as diagnostic notation, any other JSON "
+             "value as it is. Default: null."}};
+        const json reference_property = {
+            {"type", "string"},
+            {"description", "A reference of your organization's, such as an order or approval "
+                            "number; recorded in the clear."}};
+
+        add("cexchain_call_contract",
+            "Act on a contract whose home is your organization's ledger: create an instance (give "
+            "'contract' and a function that creates) or call a function on one (give "
+            "'instance'). Signed with your key under your delegation, which may cover only some "
+            "contracts. The contract runs here first, exactly as the ledger will run it, and the "
+            "call is recorded only if the contract accepts it; otherwise the result says what it "
+            "decided: the parties whose consents it still needs, or its reason for refusing. "
+            "'dry_run' shows the decision and records nothing.",
+            {{"contract",
+              {{"type", "string"},
+               {"description", "To create an instance: the contract's id or a unique prefix."}}},
+             {"instance",
+              {{"type", "string"},
+               {"description", "To call one: the instance's id or a unique prefix."}}},
+             {"function", {{"type", "string"}, {"description", "The contract's function."}}},
+             {"arguments", arguments_property},
+             {"reference", reference_property},
+             {"consents",
+              {{"type", "array"},
+               {"items", {{"type", "string"}}},
+               {"description", "Files holding the evidence of the parties' consents to this "
+                               "call, one per party."}}},
+             {"dry_run",
+              {{"type", "boolean"},
+               {"description", "Only show what the contract would decide (default: false)."}}},
+             {"inputs", inputs_property}},
+            json::array({"function"}), writes, [this](const Tool& tool, const json& arguments) {
+                Session session(ledger_);
+                const auto contract = optional_text(arguments, "contract");
+                const auto instance = optional_text(arguments, "instance");
+                if (contract.has_value() == instance.has_value()) {
+                    throw ToolError{"give 'contract' (to create an instance) or 'instance' (to "
+                                    "call one)"};
+                }
+                const std::string function = text_arg(arguments, "function");
+                protocol::ContractCallBody body = contract
+                                                      ? creation_call(session, *contract, function)
+                                                      : instance_call(session, *instance, function);
+                body.arguments = contract_arguments(arguments);
+                body.reference = optional_text(arguments, "reference");
+                const std::vector<std::string> paths = string_list(arguments, "consents");
+                if (contract && !paths.empty()) {
+                    throw ToolError{"a creation takes no consents"};
+                }
+                const std::vector<Bytes> bundles = cite_consents(session, body, paths);
+                CallOptions options;
+                options.provenance = provenance(tool, arguments, session);
+                options.dry_run = optional_flag(arguments, "dry_run", false);
+                const CallAttempt attempt =
+                    attempt_call(session, *key_, std::move(body), bundles, options);
+                json out = plain(run_json(session, attempt.run));
+                out["function"] = function;
+                out["dry_run"] = options.dry_run;
+                out["recorded"] = attempt.recorded.has_value();
+                if (attempt.recorded) {
+                    const auto& call =
+                        std::get<protocol::ContractCallBody>(attempt.statement.statement.body);
+                    const protocol::Id id = call.instance ? *call.instance : *attempt.recorded;
+                    out["statement_id"] = hex_id(*attempt.recorded);
+                    out["instance"] = plain(instance_json(session, *session.state().instance(id)));
+                } else if (!options.dry_run && out["verdict"] == "needs") {
+                    out["advice"] = "Each party named consents on its own ledger. Cite their "
+                                    "consents' evidence files in 'consents', or have the call "
+                                    "proposed to this ledger's registrar, which collects them.";
+                }
+                return out;
+            });
+
+        add("cexchain_list_pending_calls",
+            "Calls an instance's home holds until the parties consent (its registrar), as far as "
+            "they concern your ledger: the instance and its head, the function, the arguments, "
+            "which ledgers the contract still waits for, and when each call lapses. Review a "
+            "call's terms here before consenting to it.",
+            {{"home", home_property},
+             {"call",
+              {{"type", "string"},
+               {"description", "Only this call: its full id (64 hex digits)."}}}},
+            json::array({"home"}), remote_read, [this](const Tool&, const json& arguments) {
+                const Session session(ledger_);
+                const node::Peer home = peer_named(ledger_, text_arg(arguments, "home"));
+                std::optional<std::string> call;
+                if (const auto text = optional_text(arguments, "call")) {
+                    call = hex_id(full_id(*text, "call"));
+                }
+                json calls = json::array();
+                for (const Json& held : pending_at(home, call)) {
+                    json item = plain(held);
+                    item["waiting_for"] =
+                        ledgers_text(session, held.value("missing", Json::array()));
+                    calls.push_back(std::move(item));
+                }
+                return json{{"home", home.name}, {"calls", std::move(calls)}};
+            });
+
+        add("cexchain_fetch_instance",
+            "A contract instance whose home is another organization's ledger (a peer), fetched "
+            "and verified: every call run again and every consent checked on its own ledger. "
+            "Shows its status, parties, state, head, and calls. Homes show an instance only to "
+            "its parties.",
+            {{"home", home_property},
+             {"instance",
+              {{"type", "string"}, {"description", "The instance's full id (64 hex digits)."}}}},
+            json::array({"home", "instance"}), remote_read,
+            [this](const Tool&, const json& arguments) {
+                const node::Peer home = peer_named(ledger_, text_arg(arguments, "home"));
+                const protocol::ContractReport report =
+                    fetch_instance(home, full_id(text_arg(arguments, "instance"), "instance"))
+                        .second;
+                json out = plain(verifier::contract_report_json(report, true));
+                out["evidence"] = std::move(out["report"]);
+                out["report"] = verifier::contract_report_text(report, true);
+                return out;
+            });
+
+        add("cexchain_propose_contract_call",
+            "Propose a call on a contract instance whose home is another organization's ledger "
+            "(a peer) to that home's registrar, as one of the instance's parties. The registrar "
+            "runs the contract and holds the call until every party it names has consented on "
+            "its own ledger (cexchain_consent_contract_call); nothing is recorded before that. A "
+            "call the contract would take without consents, or rejects, is refused. Proposals "
+            "go out under your organization's peer token, so you need a delegation to consent to "
+            "contract calls.",
+            {{"home", home_property},
+             {"instance",
+              {{"type", "string"}, {"description", "The instance's full id (64 hex digits)."}}},
+             {"function", {{"type", "string"}, {"description", "The contract's function."}}},
+             {"arguments", arguments_property},
+             {"reference", reference_property},
+             {"head",
+              {{"type", "integer"},
+               {"minimum", 0},
+               {"description", "The instance's head the call is on (default: its current head, "
+                               "from the home's verified evidence)."}}},
+             {"days",
+              {{"type", "integer"},
+               {"minimum", 1},
+               {"maximum", 30},
+               {"description", "The call lapses after this many days (default: the home's, 7)."}}}},
+            json::array({"home", "instance", "function"}), remote_writes,
+            [this](const Tool&, const json& arguments) {
+                const Session session(ledger_);
+                require_consent_delegation(session);
+                const node::Peer home = peer_named(ledger_, text_arg(arguments, "home"));
+                node::PendingCall proposal;
+                proposal.instance = full_id(text_arg(arguments, "instance"), "instance");
+                proposal.function = text_arg(arguments, "function");
+                proposal.arguments = contract_arguments(arguments);
+                proposal.reference = optional_text(arguments, "reference");
+                if (const auto head = optional_number(arguments, "head", 0,
+                                                      std::numeric_limits<std::uint64_t>::max())) {
+                    proposal.head = *head;
+                } else {
+                    proposal.head =
+                        fetch_instance(home, proposal.instance).second.instance.instance->head;
+                }
+                if (const auto days = optional_number(arguments, "days", 1, 30)) {
+                    proposal.until = ledger::SystemClock{}.now() + *days * day_ms;
+                }
+                const Json answer =
+                    peer_call(home, "POST", "/v1/contracts/calls",
+                              unwrap(node::encode_call_proposal(proposal), "the proposal"));
+                json out = plain(held_json(answer));
+                out["waiting_for"] = ledgers_text(session, answer.value("missing", Json::array()));
+                return out;
+            });
+
+        add("cexchain_consent_contract_call",
+            "Consent, on your organization's ledger, to a call another organization's registrar "
+            "holds (find it with cexchain_list_pending_calls, and check the instance with "
+            "cexchain_fetch_instance, first). Records a cexchain.contract-consent/1 record signed "
+            "with your key and naming the call's exact terms: the instance and its head, the "
+            "function, and a digest of the arguments. Its evidence goes to the home, which "
+            "records the call once the contract has every consent it asks for. A consent applies "
+            "to that one call only, once, until it lapses.",
+            {{"home", home_property},
+             {"call",
+              {{"type", "string"}, {"description", "The held call's full id (64 hex digits)."}}},
+             {"reference", reference_property},
+             {"days",
+              {{"type", "integer"},
+               {"minimum", 1},
+               {"maximum", 30},
+               {"description", "The consent lapses after this many days (default: 7)."}}},
+             {"send",
+              {{"type", "boolean"},
+               {"description", "Send the consent's evidence to the home (default: true)."}}},
+             {"out",
+              {{"type", "string"},
+               {"description", "Also write the consent's evidence to this file."}}},
+             {"inputs", inputs_property}},
+            json::array({"home", "call"}), remote_writes,
+            [this](const Tool& tool, const json& arguments) {
+                if (!args_.has("log-key")) {
+                    throw ToolError{"this MCP server cannot export a consent's evidence: its "
+                                    "operator starts it with --log-key (the ledger's log key)"};
+                }
+                Session session(ledger_);
+                const node::Peer home = peer_named(ledger_, text_arg(arguments, "home"));
+                const protocol::Id call = full_id(text_arg(arguments, "call"), "call");
+                const bool send = optional_flag(arguments, "send", true);
+                const auto out_path = optional_text(arguments, "out");
+                if (!send && !out_path) {
+                    throw ToolError{"with 'send' false, give 'out' to keep the consent's evidence"};
+                }
+                ConsentOptions options;
+                options.days = optional_number(arguments, "days", 1, 30).value_or(7);
+                options.reference = optional_text(arguments, "reference");
+                options.provenance = provenance(tool, arguments, session);
+                HeldTerms terms = held_call_terms(session, home, call, std::nullopt);
+                const GivenConsent given =
+                    give_consent(session, *key_, terms.consent, options, args_);
+                if (out_path) {
+                    write_file(*out_path, given.bundle, false);
+                }
+                json out = plain(consent_json(given.record, terms.consent, terms.arguments));
+                if (send) {
+                    try {
+                        const Json answer =
+                            peer_call(home, "POST", "/v1/contracts/consents", given.bundle);
+                        json result = plain(answer);
+                        if (answer.contains("missing")) {
+                            result["waiting_for"] = ledgers_text(session, answer["missing"]);
+                        }
+                        out["home_answer"] = std::move(result);
+                    } catch (const CommandError& e) {
+                        out["home_answer"] = {{"status", "refused"}, {"error", e.message}};
+                        out["note"] = "Your consent is recorded on your ledger, but the home did "
+                                      "not take it. Unused, it lapses; you may also withdraw it "
+                                      "(cexchain_transition_record to \"withdrawn\") if your "
+                                      "delegation allows.";
+                    }
+                }
+                return out;
+            });
+
         add("cexchain_verify_evidence",
             "Verify an evidence bundle offline before acting on a document from someone else.",
             {{"bundle_path", {{"type", "string"}}},
@@ -650,6 +1002,7 @@ private:
             });
     }
 
+    const Args& args_;
     std::filesystem::path ledger_;
     std::unique_ptr<crypto::Signer> key_;
     std::vector<Tool> tools_;
@@ -659,7 +1012,11 @@ private:
 } // namespace
 
 int cmd_mcp(const Args& args) {
-    Server server(args.ledger(), load_signer(args.need("as"), args));
+    if (const auto log_key = args.get("log-key")) {
+        // Opened now, so that a wrong passphrase shows before any client connects.
+        static_cast<void>(load_signer(*log_key, args));
+    }
+    Server server(args, load_signer(args.need("as"), args));
     std::println(stderr, "cexchain MCP server ready (stdio)");
     return server.run();
 }

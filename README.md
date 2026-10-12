@@ -446,6 +446,16 @@ acted on, and the digest of the tool it used. Verification reports show all of t
 start the server without a terminal, so give it the agent key's passphrase with
 `--passphrase-file` or `CEXCHAIN_PASSPHRASE`.
 
+Agents take part in contracts too. On their own organization's ledger they create and call
+instances (`cexchain_call_contract`): the contract runs first, and the result says what it decided,
+whether it accepted the call, whose consents it still needs, or why it refuses. With another
+organization's registrar they review the calls it holds and the instance itself
+(`cexchain_list_pending_calls`, `cexchain_fetch_instance`), propose calls
+(`cexchain_propose_contract_call`), and consent on their own ledger
+(`cexchain_consent_contract_call`). A consent travels as evidence, so start the server with the
+ledger's `--log-key` to let the agent consent. Arguments are CBOR diagnostic notation, as on the
+command line. `cexchain mcp --help` lists every tool.
+
 ## Building
 
 Requirements:

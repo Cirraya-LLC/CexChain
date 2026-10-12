@@ -26,6 +26,7 @@
 #include <cexchain/node/peers.hpp>
 
 #include "commands.hpp"
+#include "contracts.hpp"
 #include "output.hpp"
 #include "peers.hpp"
 #include "records.hpp"
@@ -33,8 +34,6 @@
 namespace cexchain::cli {
 
 namespace {
-
-constexpr protocol::Timestamp day_ms = 86'400'000;
 
 Json optional_text(const std::optional<std::string>& text) {
     return text ? Json(*text) : Json(nullptr);
@@ -68,20 +67,14 @@ cbor::Value arguments_of(const Args& args) {
     if (text && file) {
         throw UsageError{"give --args or --args-cbor, not both"};
     }
-    cbor::Value value;
     if (text) {
-        auto parsed = cbor::parse_diagnostic(*text);
-        if (!parsed) {
-            throw UsageError{"--args: " + std::string(parsed.error().detail) +
-                             " (see cexchain contract call --help)"};
-        }
-        value = *parsed;
-    } else if (file) {
+        return parse_contract_arguments(*text, "--args");
+    }
+    cbor::Value value;
+    if (file) {
         value = unwrap(cbor::decode(read_file(*file)), "--args-cbor " + *file);
     }
-    if (unwrap(cbor::encode(value), "the arguments").size() > protocol::max_contract_value) {
-        throw UsageError{"the arguments are at most 65,536 bytes encoded"};
-    }
+    check_contract_arguments(value);
     return value;
 }
 
@@ -116,14 +109,6 @@ std::string signer_text(const protocol::ContractSigner& signer) {
     }
     if (signer.model) {
         out += ", model " + *signer.model;
-    }
-    return out;
-}
-
-Json parties_json(const protocol::Parties& parties) {
-    Json out = Json::object();
-    for (const auto& [role, ledger] : parties) {
-        out[role] = id_json(ledger);
     }
     return out;
 }
@@ -179,11 +164,6 @@ Json contract_json(const Session& session, const protocol::ContractState& c) {
 }
 
 namespace {
-
-std::string contract_label(const Session& session, const protocol::Id& id) {
-    const protocol::ContractState* c = session.state().contract(id);
-    return c != nullptr && c->name ? "\"" + *c->name + "\" (" + short_id(id) + ")" : short_id(id);
-}
 
 Json call_json(const Session& session, std::uint64_t index, const protocol::SignedStatement& s,
                const protocol::ContractCallBody& call) {
@@ -270,122 +250,22 @@ void print_instance(const Session& session, const protocol::InstanceState& i) {
     }
 }
 
-/// A contract's reason, for a terminal: UTF-8 text as it is, control
-/// characters and bytes that are not text as '?'.
-std::string readable(ByteView reason) {
-    const std::string text(reason.begin(), reason.end());
-    std::string out;
-    const bool utf8 = cbor::is_valid_utf8(text);
-    for (const char c : text) {
-        const auto b = static_cast<unsigned char>(c);
-        out.push_back(b < 0x20 || b == 0x7f || (!utf8 && b >= 0x80) ? '?' : c);
-    }
-    return out;
-}
-
-/// Why a run does not accept the call, for people.
-std::string refusal(const Session& session, const protocol::ContractRun& run) {
-    if (run.outcome.trap) {
-        if (*run.outcome.trap == vm::Trap::aborted) {
-            return "the contract refuses the call: " + readable(run.outcome.abort_reason);
-        }
-        return "the contract trapped on the call (" + std::string(vm::name(*run.outcome.trap)) +
-               ")";
-    }
-    if (run.malformed) {
-        return "the contract's output is not well formed: " + std::string(run.malformed->detail);
-    }
-    if (const auto* needs =
-            run.output ? std::get_if<protocol::ContractNeeds>(&*run.output) : nullptr) {
-        std::string who;
-        for (const protocol::Id& l : needs->ledgers) {
-            who += (who.empty() ? "" : ", ") + ledger_label(session, l);
-        }
-        return "the contract needs the consent of " + who;
-    }
-    return "the contract does not accept the call";
-}
-
-/// What a run would do, as JSON: accept (with its effect), needs, or refuse.
-Json run_json(const Session& session, const protocol::ContractRun& run) {
-    Json out{{"fuel_used", run.outcome.fuel_used}};
-    if (const protocol::ContractAccept* a = run.accepted()) {
-        Json events = Json::array();
-        for (const protocol::ContractEvent& e : a->events) {
-            events.push_back({{"name", e.name}, {"data", cbor::diagnostic(e.data)}});
-        }
-        out["verdict"] = "accept";
-        out["status"] = optional_text(a->status);
-        out["parties"] = a->parties ? parties_json(*a->parties) : Json(nullptr);
-        out["events"] = std::move(events);
-        out["final"] = a->final;
-        out["state"] = cbor::diagnostic(a->state);
-        return out;
-    }
-    if (const auto* needs =
-            run.output ? std::get_if<protocol::ContractNeeds>(&*run.output) : nullptr) {
-        Json ledgers = Json::array();
-        for (const protocol::Id& l : needs->ledgers) {
-            ledgers.push_back(id_json(l));
-        }
-        out["verdict"] = "needs";
-        out["needs"] = std::move(ledgers);
-    } else {
-        out["verdict"] = "refuse";
-    }
-    out["reason"] = refusal(session, run);
-    return out;
-}
-
-/// Each consent's evidence, from files, cited as the call will cite it: by
-/// its ledger, its record, its hash under this ledger's hash, and the signer
-/// of its registration. In ledger order.
-std::vector<std::pair<protocol::ContractConsentRef, Bytes>> consents_from(const Session& session,
-                                                                          const Args& args) {
-    std::vector<std::pair<protocol::ContractConsentRef, Bytes>> out;
-    for (const std::string& path : args.all("consent")) {
-        Bytes bundle = read_file(path);
-        const protocol::Id ledger = unwrap(protocol::bundle_ledger_id(bundle), "reading " + path);
-        protocol::VerifyOptions options;
-        options.expected_ledger = ledger;
-        const auto report = unwrap(protocol::verify_bundle(session.provider(), bundle, options),
-                                   path + " does not verify");
-        if (report.events.empty()) {
-            throw CommandError{path + " shows no registration"};
-        }
-        const auto digest =
-            unwrap(session.provider().digest(session.state().hash(), bundle), "hashing " + path);
-        out.emplace_back(
-            protocol::ContractConsentRef{ledger, report.record, digest,
-                                         protocol::registration_signer(report.events.front())},
-            std::move(bundle));
-    }
-    std::ranges::sort(out, [](const auto& a, const auto& b) {
-        return std::ranges::lexicographical_compare(a.first.ledger.bytes(), b.first.ledger.bytes());
-    });
-    for (std::size_t i = 1; i < out.size(); ++i) {
-        if (out[i].first.ledger == out[i - 1].first.ledger) {
-            throw UsageError{"one consent per party: two --consent files are from ledger " +
-                             short_id(out[i].first.ledger)};
-        }
-    }
-    return out;
-}
-
 /// Signs the call, runs its contract here as the ledger will, and records
 /// it if the contract accepts it (or, with --dry-run, reports the run).
 int record_call(const Args& args, Session& session, protocol::ContractCallBody body,
                 const std::vector<Bytes>& bundles) {
-    const bool dry_run = args.has("dry-run");
     const auto signer = load_signer(args.need("as"), args);
-    const protocol::SignedStatement statement =
-        session.sign(*signer, std::move(body), args.get("delegation"), session.provenance(args),
-                     dry_run ? std::nullopt : presence_request(args));
-    const protocol::ContractRun run = unwrap(
-        session.state().run_contract(session.provider(), statement, ledger::SystemClock{}.now()),
-        "running the contract");
-    const auto& call = std::get<protocol::ContractCallBody>(statement.statement.body);
-    if (dry_run) {
+    CallOptions options;
+    options.delegation = args.get("delegation");
+    options.provenance = session.provenance(args);
+    options.dry_run = args.has("dry-run");
+    if (!options.dry_run) {
+        options.presence = presence_request(args);
+    }
+    const CallAttempt attempt = attempt_call(session, *signer, std::move(body), bundles, options);
+    const protocol::ContractRun& run = attempt.run;
+    const auto& call = std::get<protocol::ContractCallBody>(attempt.statement.statement.body);
+    if (options.dry_run) {
         if (args.json()) {
             Json out = run_json(session, run);
             out["function"] = call.function;
@@ -408,7 +288,7 @@ int record_call(const Args& args, Session& session, protocol::ContractCallBody b
         std::println("fuel used: {}", run.outcome.fuel_used);
         return exit_ok;
     }
-    if (run.accepted() == nullptr) {
+    if (!attempt.recorded) {
         std::string advice;
         if (run.output && std::holds_alternative<protocol::ContractNeeds>(*run.output)) {
             advice = call.instance ? ": pass each party's consent with --consent (from contract "
@@ -418,7 +298,7 @@ int record_call(const Args& args, Session& session, protocol::ContractCallBody b
         }
         throw CommandError{refusal(session, run) + advice};
     }
-    const protocol::Id id = session.submit_signed(statement, std::nullopt, bundles);
+    const protocol::Id id = *attempt.recorded;
     const protocol::Id instance = call.instance ? *call.instance : id;
     const protocol::InstanceState& now = *session.state().instance(instance);
     std::string text =
@@ -431,23 +311,6 @@ int record_call(const Args& args, Session& session, protocol::ContractCallBody b
         text += "\n" + role + ": " + ledger_label(session, ledger);
     }
     return report_submitted(args, session, id, {{"instance", instance_json(session, now)}}, text);
-}
-
-/// A call the registrar holds, as the server shows it (`GET
-/// /v1/contracts/calls`), for people and scripts: arguments in diagnostic
-/// notation, times in RFC 3339.
-Json held_json(const Json& held) {
-    Json out = held;
-    const std::string hex = held.value("arguments", std::string());
-    const auto bytes = from_hex(hex);
-    const auto value =
-        bytes ? cbor::decode(*bytes) : Result<cbor::Value>(fail(Errc::malformed, ""));
-    out["arguments"] = value ? Json(cbor::diagnostic(*value)) : Json(nullptr);
-    out["arguments_cbor"] = hex;
-    if (held.contains("until") && held["until"].is_number_unsigned()) {
-        out["until"] = iso_time(held["until"].get<protocol::Timestamp>());
-    }
-    return out;
 }
 
 /// A held call from this ledger's own files, as the server would show it.
@@ -477,24 +340,6 @@ Json local_held_json(const Session& session, const node::HeldCall& h) {
             {"proposer", h.call.proposer}};
 }
 
-std::string ledgers_text(const Session& session, const Json& list) {
-    std::string out;
-    if (!list.is_array()) {
-        return "?";
-    }
-    for (const auto& item : list) {
-        const std::string text = item.is_string() ? item.get<std::string>() : std::string("?");
-        std::optional<protocol::Id> id;
-        if (const auto bytes = from_hex(text)) {
-            if (const auto parsed = protocol::to_id(*bytes)) {
-                id = *parsed;
-            }
-        }
-        out += (out.empty() ? "" : ", ") + (id ? ledger_label(session, *id) : "ledger " + text);
-    }
-    return out.empty() ? "none" : out;
-}
-
 void print_held(const Session& session, const Json& h) {
     std::println("call {}  {} on instance {} (head #{})",
                  h["call"].get<std::string>().substr(0, 12), h["function"].get<std::string>(),
@@ -511,49 +356,6 @@ void print_held(const Session& session, const Json& h) {
     if (h.contains("proposer")) {
         std::println("  proposed by:  {}", h["proposer"].get<std::string>());
     }
-}
-
-/// The ledger's hash a peer's checkpoint names: what the home hashes the
-/// arguments with in a consent's terms.
-crypto::HashAlg hash_of_peer(const node::Peer& peer) {
-    const auto response =
-        unwrap(peer_client(peer).request("GET", "/v1/checkpoint"), "reaching peer " + peer.name);
-    if (response.status != 200) {
-        throw CommandError{"peer " + peer.name + " shows no checkpoint (status " +
-                           std::to_string(response.status) + "): give --hash"};
-    }
-    const auto checkpoint =
-        unwrap(protocol::parse_checkpoint(response.body), "peer " + peer.name + "'s checkpoint");
-    if (checkpoint.checkpoint.ledger_id != peer.ledger_id) {
-        throw CommandError{"peer " + peer.name + " serves another ledger than the one pinned"};
-    }
-    return checkpoint.checkpoint.tree_hash;
-}
-
-/// An instance's contract evidence from its home (a peer), verified for it.
-std::pair<Bytes, protocol::ContractReport> fetch_instance(const node::Peer& home,
-                                                          const protocol::Id& instance) {
-    const auto response =
-        unwrap(peer_client(home).request("GET", "/v1/contracts/instances/" + hex_id(instance)),
-               "reaching peer " + home.name);
-    if (response.status == 404) {
-        throw CommandError{"peer " + home.name +
-                           " shows this instance only to its parties: ask for its evidence, or "
-                           "give --head and --hash"};
-    }
-    if (response.status != 200) {
-        throw CommandError{"peer " + home.name + " answered status " +
-                           std::to_string(response.status)};
-    }
-    protocol::VerifyOptions options;
-    options.expected_ledger = home.ledger_id;
-    auto report =
-        unwrap(protocol::verify_contract_evidence(shared_provider(), response.body, options),
-               "the instance's evidence from " + home.name + " does not verify");
-    if (report.instance.record != instance) {
-        throw CommandError{"peer " + home.name + " sent evidence of another instance"};
-    }
-    return {response.body, std::move(report)};
 }
 
 /// What a registrar answered to a proposal or a consent, for people.
@@ -723,21 +525,8 @@ int cmd_contract_retire(const Args& args) {
 
 int cmd_contract_create(const Args& args) {
     Session session(args);
-    const protocol::Id contract = session.contract_id(args.positional()[0]);
-    const protocol::ContractState& c = *session.state().contract(contract);
-    const std::string& function = args.positional()[1];
-    if (c.retired) {
-        throw CommandError{"contract " + contract_label(session, contract) +
-                           " is retired: it creates no more instances"};
-    }
-    const auto f = c.interface.find(function);
-    if (f == c.interface.end() || f->second != protocol::FunctionKind::create) {
-        throw CommandError{"contract " + contract_label(session, contract) + " has no function " +
-                           function + " that creates instances"};
-    }
-    protocol::ContractCallBody body;
-    body.contract = contract;
-    body.function = function;
+    protocol::ContractCallBody body =
+        creation_call(session, args.positional()[0], args.positional()[1]);
     body.arguments = arguments_of(args);
     body.reference = args.get("reference");
     return record_call(args, session, std::move(body), {});
@@ -745,36 +534,11 @@ int cmd_contract_create(const Args& args) {
 
 int cmd_contract_call(const Args& args) {
     Session session(args);
-    const protocol::Id instance = session.instance_id(args.positional()[0]);
-    const protocol::InstanceState& i = *session.state().instance(instance);
-    const std::string& function = args.positional()[1];
-    if (i.final) {
-        throw CommandError{"instance " + short_id(instance) + " is final: it takes no more calls"};
-    }
-    const protocol::ContractState& c = *session.state().contract(i.contract);
-    const auto f = c.interface.find(function);
-    if (f == c.interface.end() || f->second != protocol::FunctionKind::call) {
-        throw CommandError{"contract " + contract_label(session, i.contract) + " has no function " +
-                           function + " for instances"};
-    }
-    protocol::ContractCallBody body;
-    body.instance = instance;
-    body.head = i.head;
-    body.function = function;
+    protocol::ContractCallBody body =
+        instance_call(session, args.positional()[0], args.positional()[1]);
     body.arguments = arguments_of(args);
     body.reference = args.get("reference");
-    std::vector<Bytes> bundles;
-    for (auto& [ref, bundle] : consents_from(session, args)) {
-        body.consents.push_back(ref);
-        bundles.push_back(std::move(bundle));
-    }
-    if (!bundles.empty()) {
-        // Checked as a verifier will, for a clear answer before signing.
-        unwrap(node::check_call_consents(session.provider(), session.state().ledger_id(),
-                                         session.state().hash(), body, bundles,
-                                         ledger::SystemClock{}.now()),
-               "checking the consents");
-    }
+    const std::vector<Bytes> bundles = cite_consents(session, body, args.all("consent"));
     return record_call(args, session, std::move(body), bundles);
 }
 
@@ -918,11 +682,7 @@ int cmd_contract_pending(const Args& args) {
         if (args.has("server")) {
             throw UsageError{"give --peer (as a party) or --server (as the home's staff)"};
         }
-        const node::Peer home = peer_named(args.ledger(), *peer);
-        const Json answer = peer_call(home, "GET", path);
-        for (const Json& h : call ? Json::array({answer}) : answer.value("calls", Json::array())) {
-            calls.push_back(held_json(h));
-        }
+        calls = pending_at(peer_named(args.ledger(), *peer), call);
         session.emplace(args.ledger());
     } else {
         session.emplace(args);
@@ -969,22 +729,19 @@ int cmd_contract_pending(const Args& args) {
 int cmd_contract_consent(const Args& args) {
     Session session(args);
     std::optional<node::Peer> home_peer;
-    protocol::ContractConsent consent;
     if (const auto peer = args.get("peer")) {
         if (session.remote()) {
             throw UsageError{"--peer needs this ledger's directory; with --server give --home"};
         }
         home_peer = peer_named(session.directory(), *peer);
-        consent.ledger = home_peer->ledger_id;
-    } else {
-        consent.ledger = full_id(args.need("home"), "--home");
+    } else if (args.has("send")) {
+        throw UsageError{"--send needs --peer (the instance's home)"};
     }
     std::optional<crypto::HashAlg> hash;
     if (const auto name = args.get("hash")) {
         hash = parse_hash(*name);
     }
-    cbor::Value arguments;
-    std::optional<std::string> claimed_digest;
+    HeldTerms terms;
     if (const auto call = args.get("call")) {
         // The terms of a call the home's registrar holds.
         if (!home_peer) {
@@ -997,21 +754,13 @@ int cmd_contract_consent(const Args& args) {
                     std::format("--call takes the terms from the home: drop --{}", option)};
             }
         }
-        const Json held =
-            peer_call(*home_peer, "GET", "/v1/contracts/calls/" + hex_id(full_id(*call, "--call")));
-        consent.instance = full_id(held.value("instance", std::string()), "the call's instance");
-        consent.head = held.value("head", std::uint64_t{0});
-        consent.function = held.value("function", std::string());
-        const auto bytes = from_hex(held.value("arguments", std::string()));
-        if (!bytes) {
-            throw CommandError{"peer " + home_peer->name + " sent arguments that are not hex"};
-        }
-        arguments = unwrap(cbor::decode(*bytes), "the call's arguments");
-        claimed_digest = held.value("arguments_digest", std::string());
+        terms = held_call_terms(session, *home_peer, full_id(*call, "--call"), hash);
     } else {
+        protocol::ContractConsent& consent = terms.consent;
+        consent.ledger = home_peer ? home_peer->ledger_id : full_id(args.need("home"), "--home");
         consent.instance = full_id(args.need("instance"), "--instance");
         consent.function = args.need("function");
-        arguments = arguments_of(args);
+        terms.arguments = arguments_of(args);
         if (const auto head = args.get("head")) {
             consent.head = parse_number(*head, "--head");
         } else if (const auto evidence = args.get("evidence")) {
@@ -1032,53 +781,35 @@ int cmd_contract_consent(const Args& args) {
         } else {
             throw UsageError{"give --call or --head, --evidence, or --peer (to ask the home)"};
         }
-    }
-    if (!hash) {
-        if (!home_peer || !home_peer->url) {
-            throw UsageError{"give --hash: the home's hash (sha256 or sm3), which the consent "
-                             "hashes the arguments with"};
+        if (!hash) {
+            if (!home_peer) {
+                throw UsageError{"give --hash: the home's hash (sha256 or sm3), which the consent "
+                                 "hashes the arguments with"};
+            }
+            hash = home_hash(*home_peer, consent.instance);
         }
-        hash = hash_of_peer(*home_peer);
+        consent.arguments =
+            unwrap(protocol::contract_arguments_digest(session.provider(), *hash, terms.arguments),
+                   "the digest");
     }
-    consent.arguments = unwrap(
-        protocol::contract_arguments_digest(session.provider(), *hash, arguments), "the digest");
-    if (claimed_digest && *claimed_digest != hex_id(consent.arguments)) {
-        throw CommandError{"the home's call names other arguments than it sent; nothing recorded"};
+    ConsentOptions options;
+    if (const auto days = args.get("days")) {
+        options.days = parse_number(*days, "--days");
     }
-    const std::uint64_t days =
-        args.has("days") ? parse_number(*args.get("days"), "--days") : std::uint64_t{7};
-    consent.until = ledger::SystemClock{}.now() + days * day_ms;
-    consent.reference = args.get("reference");
-
-    IssueRequest request;
-    request.record_type = std::string(protocol::contract_consent_type);
-    request.fields.emplace_back("note", "consent to " + consent.function + " on instance " +
-                                            short_id(consent.instance));
-    request.metadata_value = unwrap(protocol::encode_contract_consent(consent), "the consent");
-    request.delegation = args.get("delegation");
-    request.provenance = session.provenance(args);
-    request.presence = presence_request(args);
-    const protocol::Id record = issue_record(session, *load_signer(args.need("as"), args), request);
-    static_cast<void>(session.checkpoint(args));
-    const Bytes bundle =
-        unwrap(protocol::encode_bundle(session.evidence(args, record)), "encoding the consent");
+    options.reference = args.get("reference");
+    options.delegation = args.get("delegation");
+    options.provenance = session.provenance(args);
+    options.presence = presence_request(args);
+    const protocol::ContractConsent& consent = terms.consent;
+    const GivenConsent given =
+        give_consent(session, *load_signer(args.need("as"), args), terms.consent, options, args);
     if (const auto out = args.get("out")) {
-        write_file(*out, bundle, false);
+        write_file(*out, given.bundle, false);
     }
-    Json result{{"consent", id_json(record)},
-                {"home", id_json(consent.ledger)},
-                {"instance", id_json(consent.instance)},
-                {"function", consent.function},
-                {"arguments", cbor::diagnostic(arguments)},
-                {"arguments_digest", id_json(consent.arguments)},
-                {"head", consent.head},
-                {"until", iso_time(consent.until)}};
+    Json result = consent_json(given.record, consent, terms.arguments);
     std::optional<Json> answer;
     if (args.has("send")) {
-        if (!home_peer) {
-            throw UsageError{"--send needs --peer (the instance's home)"};
-        }
-        answer = peer_call(*home_peer, "POST", "/v1/contracts/consents", bundle);
+        answer = peer_call(*home_peer, "POST", "/v1/contracts/consents", given.bundle);
         result["home_answer"] = *answer;
     }
     if (args.json()) {
@@ -1086,8 +817,8 @@ int cmd_contract_consent(const Args& args) {
         return exit_ok;
     }
     std::println("consented to {} on instance {} (head #{}) as record {}", consent.function,
-                 short_id(consent.instance), consent.head, hex_id(record));
-    std::println("  arguments: {}", shortened(cbor::diagnostic(arguments)));
+                 short_id(consent.instance), consent.head, hex_id(given.record));
+    std::println("  arguments: {}", shortened(cbor::diagnostic(terms.arguments)));
     std::println("  lapses:    {}", format_time(consent.until));
     if (answer) {
         print_answer(&session, home_peer->name, *answer);
