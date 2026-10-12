@@ -71,9 +71,11 @@ add_test(NAME assets_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/assets.sh $<TARGET_FILE:cexchain>)
 add_test(NAME contracts_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/contracts.sh $<TARGET_FILE:cexchain>)
-# The supply-chain finance demo, so it keeps working.
+# The demos, so they keep working.
 add_test(NAME demo_supply_chain_finance
     COMMAND bash ${PROJECT_SOURCE_DIR}/deploy/demo/supply-chain-finance.sh $<TARGET_FILE:cexchain>)
+add_test(NAME demo_supply_agreement
+    COMMAND bash ${PROJECT_SOURCE_DIR}/deploy/demo/supply-agreement.sh $<TARGET_FILE:cexchain>)
 add_test(NAME client_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/client.sh $<TARGET_FILE:cexchain>)
 add_test(NAME cluster_end_to_end

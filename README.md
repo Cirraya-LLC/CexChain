@@ -433,7 +433,8 @@ s.cbor --consent b.cbor`). `contract verify` shows each call, its outcome, and w
 person who proved presence, a key alone, or an AI agent and its model. The browser verifier shows
 the same report. Delegations can be limited
 to contracts (`delegation grant --contracts`), and `contract retire` stops new instances while
-existing ones carry on.
+existing ones carry on. `deploy/demo/supply-agreement.sh` walks through such an agreement on one
+machine, narrated, with the bank's AI agent consenting through MCP.
 
 ## AI agents (MCP)
 
