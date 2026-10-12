@@ -54,27 +54,6 @@ protocol::AssetAction action_from(std::string_view text) {
     return *action;
 }
 
-protocol::Id full_id(std::string_view text, std::string_view what) {
-    const auto bytes = from_hex(text);
-    if (!bytes || bytes->size() != protocol::id_size) {
-        throw UsageError{std::string(what) + " must be a full id (64 hex digits)"};
-    }
-    return *protocol::to_id(*bytes);
-}
-
-/// A ledger, by peer name (with a ledger directory) or by its full id.
-protocol::Id ledger_of(const Session& session, std::string_view text) {
-    if (text.size() == 2 * protocol::id_size) {
-        if (const auto bytes = from_hex(text)) {
-            return *protocol::to_id(*bytes);
-        }
-    }
-    if (session.remote()) {
-        throw UsageError{"with --server, name ledgers by their full id"};
-    }
-    return peer_named(session.directory(), std::string(text)).ledger_id;
-}
-
 /// The asset `text` names on this ledger.
 std::pair<const protocol::RecordState*, const protocol::AssetState*>
 find_asset(const Session& session, std::string_view text) {
@@ -84,19 +63,6 @@ find_asset(const Session& session, std::string_view text) {
         throw CommandError{"record " + short_id(id) + " is not an asset"};
     }
     return {session.state().record(id), asset};
-}
-
-std::string ledger_label(const Session& session, const protocol::Id& ledger) {
-    if (!session.remote()) {
-        if (const auto peers = node::load_peers(session.directory())) {
-            for (const node::Peer& p : *peers) {
-                if (p.ledger_id == ledger) {
-                    return p.name + " (" + short_id(ledger) + ")";
-                }
-            }
-        }
-    }
-    return "ledger " + short_id(ledger);
 }
 
 /// The record metadata the asset was registered with.
@@ -215,22 +181,6 @@ std::uint64_t parse_amount(std::string_view text, std::string_view currency) {
         throw UsageError{"--amount is too large"};
     }
     return major * scale + minor;
-}
-
-/// Answers from a peer's API, as JSON; throws on an error status.
-Json peer_call(const node::Peer& peer, std::string_view method, const std::string& path,
-               ByteView body = {}) {
-    const auto response = unwrap(peer_client(peer).request(method, path, body, "application/cbor"),
-                                 "reaching peer " + peer.name);
-    const Json answer = Json::parse(response.body.begin(), response.body.end(), nullptr, false);
-    if (response.status / 100 != 2) {
-        std::string message = "status " + std::to_string(response.status);
-        if (answer.is_object() && answer.contains("error")) {
-            message = answer["error"].value("message", message);
-        }
-        throw CommandError{"peer " + peer.name + " refused: " + message};
-    }
-    return answer;
 }
 
 /// An asset's evidence from its home (a peer), verified for it.

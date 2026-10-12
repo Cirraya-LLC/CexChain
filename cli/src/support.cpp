@@ -22,11 +22,13 @@
 
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/asset_evidence.hpp>
+#include <cexchain/core/protocol/contract_evidence.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/presence.hpp>
 #include <cexchain/node/api.hpp>
 #include <cexchain/node/assets.hpp>
 #include <cexchain/node/cluster.hpp>
+#include <cexchain/node/contracts.hpp>
 #include <cexchain/node/replica.hpp>
 #ifdef CEXCHAIN_HAVE_PKCS11
 #include <cexchain/crypto/pkcs11.hpp>
@@ -84,6 +86,23 @@ std::optional<std::string> record_type_for(const protocol::LedgerState& state,
             }
         },
         body);
+}
+
+/// The contract a call or retire acts on, if any (scope key 7).
+std::optional<protocol::Id> contract_for(const protocol::LedgerState& state,
+                                         const protocol::Body& body) {
+    if (const auto* call = std::get_if<protocol::ContractCallBody>(&body)) {
+        if (call->contract) {
+            return *call->contract;
+        }
+        const protocol::InstanceState* instance =
+            call->instance ? state.instance(*call->instance) : nullptr;
+        return instance == nullptr ? std::nullopt : std::optional<protocol::Id>(instance->contract);
+    }
+    if (const auto* retire = std::get_if<protocol::ContractRetireBody>(&body)) {
+        return retire->contract;
+    }
+    return std::nullopt;
 }
 
 std::string prompt_hidden(const std::string& prompt) {
@@ -725,6 +744,14 @@ Bytes Session::call(std::string_view method, std::string_view path, ByteView bod
     return response.body;
 }
 
+Bytes Session::request(std::string_view method, std::string_view path, ByteView body,
+                       std::string_view content_type) const {
+    if (!remote_) {
+        throw UsageError{"this needs a server: give --server URL"};
+    }
+    return call(method, path, body, content_type);
+}
+
 protocol::Id Session::actor_id(std::string_view text) const {
     return resolve(state().actors(), text, "actor");
 }
@@ -735,6 +762,14 @@ protocol::Id Session::record_id(std::string_view text) const {
 
 protocol::Id Session::delegation_id(std::string_view text) const {
     return resolve(state().delegations(), text, "delegation");
+}
+
+protocol::Id Session::contract_id(std::string_view text) const {
+    return resolve(state().contracts(), text, "contract");
+}
+
+protocol::Id Session::instance_id(std::string_view text) const {
+    return resolve(state().instances(), text, "instance");
 }
 
 const protocol::ActorState& Session::actor_for(const crypto::Signer& key) const {
@@ -751,25 +786,11 @@ const protocol::ActorState& Session::actor_for(const crypto::Signer& key) const 
     throw CommandError{"this key does not belong to any actor of the ledger"};
 }
 
-std::optional<protocol::Id>
-Session::choose_delegation(const protocol::ActorState& actor, protocol::StatementType type,
-                           const std::optional<std::string>& record_type) const {
-    const protocol::Timestamp now = ledger::SystemClock{}.now();
-    std::optional<protocol::Id> chosen;
-    std::uint64_t newest = 0;
-    for (const auto& [key, d] : state().delegations()) {
-        const bool usable = d.grantee == actor.id && !d.revoked &&
-                            std::ranges::contains(d.scope.statement_types, type) &&
-                            (!record_type || !d.scope.record_types ||
-                             std::ranges::contains(*d.scope.record_types, *record_type)) &&
-                            (!d.scope.not_before || *d.scope.not_before <= now) &&
-                            (!d.scope.not_after || now <= *d.scope.not_after);
-        if (usable && (!chosen || d.granted_at_index > newest)) {
-            chosen = d.id;
-            newest = d.granted_at_index;
-        }
-    }
-    return chosen;
+std::optional<protocol::Id> Session::choose_delegation(const protocol::ActorState& actor,
+                                                       const protocol::Body& body) const {
+    return node::choose_delegation(state(), actor.id, protocol::type_of(body),
+                                   record_type_for(state(), body), ledger::SystemClock{}.now(),
+                                   contract_for(state(), body));
 }
 
 protocol::Id Session::submit(const crypto::Signer& signer, protocol::Body body,
@@ -777,6 +798,19 @@ protocol::Id Session::submit(const crypto::Signer& signer, protocol::Body body,
                              std::optional<protocol::Provenance> provenance,
                              const std::optional<PresenceRequest>& presence,
                              const SealVault& seal_vault, std::span<const Bytes> consents) {
+    const protocol::SignedStatement signed_statement =
+        sign(signer, std::move(body), delegation, std::move(provenance), presence);
+    std::optional<Bytes> sealed;
+    if (seal_vault) {
+        sealed = seal_vault(signed_statement.id);
+    }
+    return submit_signed(signed_statement, sealed, consents);
+}
+
+protocol::SignedStatement Session::sign(const crypto::Signer& signer, protocol::Body body,
+                                        const std::optional<std::string>& delegation,
+                                        std::optional<protocol::Provenance> provenance,
+                                        const std::optional<PresenceRequest>& presence) {
     const protocol::ActorState& actor = actor_for(signer);
     protocol::Statement statement;
     statement.ledger_id = state().ledger_id();
@@ -794,8 +828,7 @@ protocol::Id Session::submit(const crypto::Signer& signer, protocol::Body body,
         if (delegation) {
             statement.delegation_id = delegation_id(*delegation);
         } else if (!self_rotation && !self_presence) {
-            statement.delegation_id =
-                choose_delegation(actor, protocol::type_of(body), record_type_for(state(), body));
+            statement.delegation_id = choose_delegation(actor, body);
             if (!statement.delegation_id) {
                 throw CommandError{"no valid delegation lets " + actor.display_name + " do this"};
             }
@@ -823,13 +856,13 @@ protocol::Id Session::submit(const crypto::Signer& signer, protocol::Body body,
     if (presence) {
         prove_presence(actor, statement, signer.public_key(), *presence);
     }
+    return unwrap(protocol::sign_statement(signer, provider_, state().hash(), statement),
+                  "signing");
+}
 
-    const auto signed_statement =
-        unwrap(protocol::sign_statement(signer, provider_, state().hash(), statement), "signing");
-    std::optional<Bytes> sealed;
-    if (seal_vault) {
-        sealed = seal_vault(signed_statement.id);
-    }
+protocol::Id Session::submit_signed(const protocol::SignedStatement& signed_statement,
+                                    const std::optional<Bytes>& sealed,
+                                    std::span<const Bytes> consents) {
     if (remote_) {
         // Signed here; the server registers it, with its private data if
         // any, and the mirror shows it once it re-validated it.
@@ -862,10 +895,16 @@ protocol::Id Session::submit(const crypto::Signer& signer, protocol::Body body,
         }
         return signed_statement.id;
     }
+    require_primary();
     if (!consents.empty()) {
-        // Kept first: a registered action always has its consents here.
+        // Kept first: a registered action or call always has its consents
+        // here.
         const Bytes encoded = unwrap(node::encode_consent_bundles(consents), "the consents");
-        unwrap(node::store_consents(directory_, signed_statement.id, encoded),
+        const bool call =
+            std::holds_alternative<protocol::ContractCallBody>(signed_statement.statement.body);
+        unwrap(call ? node::store_consents_file(
+                          node::contract_consents_path(directory_, signed_statement.id), encoded)
+                    : node::store_consents(directory_, signed_statement.id, encoded),
                "keeping the consents");
     }
     const auto registration =
@@ -1102,6 +1141,37 @@ Bytes Session::asset_evidence(const Args& args, const protocol::Id& asset) {
     const auto decoded = unwrap(protocol::decode_asset_evidence(encoded), "reading the evidence");
     const auto bundle =
         unwrap(protocol::decode_bundle(decoded.asset_bundle), "reading the evidence");
+    if (!sync_until([&] { return has_checkpoint(bundle.checkpoint); })) {
+        throw CommandError{"the server's evidence is anchored to a checkpoint this client has not "
+                           "verified"};
+    }
+    return encoded;
+}
+
+Bytes Session::contract_evidence(const Args& args, const protocol::Id& instance) {
+    if (!remote_) {
+        const protocol::InstanceState* i = state().instance(instance);
+        const auto& latest = ledger_->latest_checkpoint();
+        if (i != nullptr && (!latest || latest->checkpoint.tree_size <= i->head)) {
+            static_cast<void>(checkpoint(args));
+        }
+        return unwrap(node::contract_evidence(provider_, directory_, evidence(args, instance)),
+                      "the instance's evidence");
+    }
+    if (args.has("log-key")) {
+        throw UsageError{"with --server the server signs: drop --log-key"};
+    }
+    const Bytes encoded = call("GET", "/v1/contracts/instances/" + hex_id(instance));
+    protocol::VerifyOptions options;
+    options.expected_ledger = state().ledger_id();
+    const auto report = protocol::verify_contract_evidence(provider_, encoded, options);
+    if (!report || report->instance.record != instance) {
+        throw CommandError{"the server sent contract evidence that does not verify"};
+    }
+    const auto decoded =
+        unwrap(protocol::decode_contract_evidence(encoded), "reading the evidence");
+    const auto bundle =
+        unwrap(protocol::decode_bundle(decoded.instance_bundle), "reading the evidence");
     if (!sync_until([&] { return has_checkpoint(bundle.checkpoint); })) {
         throw CommandError{"the server's evidence is anchored to a checkpoint this client has not "
                            "verified"};

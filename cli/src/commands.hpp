@@ -140,4 +140,22 @@ int cmd_asset_send(const Args& args);
 int cmd_asset_fetch(const Args& args);
 int cmd_asset_verify(const Args& args);
 
+// Contracts (D-053)
+int cmd_contract_deploy(const Args& args);
+int cmd_contract_show(const Args& args);
+int cmd_contract_list(const Args& args);
+int cmd_contract_retire(const Args& args);
+int cmd_contract_create(const Args& args);
+int cmd_contract_call(const Args& args);
+int cmd_contract_instance(const Args& args);
+int cmd_contract_instances(const Args& args);
+int cmd_contract_evidence(const Args& args);
+int cmd_contract_propose(const Args& args);
+int cmd_contract_pending(const Args& args);
+int cmd_contract_consent(const Args& args);
+int cmd_contract_withdraw(const Args& args);
+int cmd_contract_send(const Args& args);
+int cmd_contract_fetch(const Args& args);
+int cmd_contract_verify(const Args& args);
+
 } // namespace cexchain::cli

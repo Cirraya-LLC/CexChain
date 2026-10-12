@@ -44,6 +44,10 @@ void print_json(const Json& value);
 /// An asset (D-052): its state, parties, units, head, and actions.
 [[nodiscard]] Json asset_json(const Session& session, const protocol::RecordState& record,
                               const protocol::AssetState& asset);
+/// A contract (D-053): its interface, language, code, and instances.
+[[nodiscard]] Json contract_json(const Session& session, const protocol::ContractState& contract);
+/// A contract instance: its status, parties, state, head, and calls.
+[[nodiscard]] Json instance_json(const Session& session, const protocol::InstanceState& instance);
 [[nodiscard]] Json body_json(const protocol::Body& body);
 [[nodiscard]] Json statement_json(const protocol::Statement& statement);
 [[nodiscard]] Json commitment_json(const protocol::StateCommitment& commitment);

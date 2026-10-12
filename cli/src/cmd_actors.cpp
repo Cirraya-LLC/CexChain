@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
+#include <algorithm>
 #include <print>
 
 #include "commands.hpp"
@@ -235,6 +236,23 @@ int cmd_delegation_grant(const Args& args) {
     }
     scope.may_delegate = args.has("may-delegate");
     scope.require_presence = args.has("require-presence");
+    if (const auto contracts = args.get("contracts")) {
+        std::vector<protocol::Id> ids;
+        for (const std::string& text : split(*contracts, ',')) {
+            const protocol::Id id = session.contract_id(text);
+            if (!std::ranges::contains(ids, id)) {
+                ids.push_back(id);
+            }
+        }
+        if (ids.empty()) {
+            throw UsageError{"--contracts names at least one contract"};
+        }
+        // Strictly ascending, as scope key 7 requires.
+        std::ranges::sort(ids, [](const protocol::Id& a, const protocol::Id& b) {
+            return std::ranges::lexicographical_compare(a.bytes(), b.bytes());
+        });
+        scope.contracts = std::move(ids);
+    }
     const protocol::DelegationGrantBody body{session.actor_id(args.need("to")), scope};
     const protocol::Id id = session.submit(args, body);
     return report_submitted(

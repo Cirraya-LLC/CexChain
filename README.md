@@ -43,7 +43,7 @@ CexChain is a ledger protocol and node for trust between organizations. Every do
 | `crypto/pkcs11` | Keys on PKCS #11 tokens: USB keys (UKey), smart cards, and HSMs, loaded at run time |
 | `ledger` | Ledger node: crash-safe storage, rule engine, checkpoints, receipts, evidence export, backups (C++26) |
 | `node` | HTTP API server and client (Asio), API tokens, and replicas (C++26) |
-| `cli` | `cexchain` command-line tool: full control of keys, ledgers, actors, delegations, records, assets, proofs, and evidence |
+| `cli` | `cexchain` command-line tool: full control of keys, ledgers, actors, delegations, records, assets, contracts, proofs, and evidence |
 | `cexchain mcp` | MCP server through which an AI agent acts under its own key and delegation |
 
 ## Quick start
@@ -107,6 +107,8 @@ The `cexchain` tool controls every part of a ledger:
 | Replicas | `replica init`, `replica sync`, `replica status`, `replica promote` |
 | Backups | `backup create`, `backup verify`, `backup restore` |
 | Other organizations | `peer add`, `peer list`, `peer show`, `peer remove`, `access request`, `access send`, `access inbox`, `access grant`, `access fetch`, `access accept`, `access receipt`, `access list` |
+| Ownership assets | `asset issue`, `asset show`, `asset list`, `asset record`, `asset evidence`, `asset consent`, `asset withdraw`, `asset send`, `asset fetch`, `asset verify` |
+| Contracts | `contract deploy`, `contract show`, `contract list`, `contract retire`, `contract create`, `contract call`, `contract instance`, `contract instances`, `contract evidence`, `contract propose`, `contract pending`, `contract consent`, `contract withdraw`, `contract send`, `contract fetch`, `contract verify` |
 
 - Every command takes `--help`, and `--json` for scripting.
 - `cexchain help --json` describes every command and option in machine-readable form.
@@ -389,12 +391,53 @@ checks the asset's evidence offline and prints its chain of title: who consented
 under whose authority, and whether a person proved presence. Lenders that share a witness (a
 regulator, say) are protected against a home that would show each of them a different history.
 
+## Contracts
+
+A contract is a WebAssembly module deployed on a ledger, its home, that governs *instances*:
+agreements, orders, bills. The home records a call on an instance only if the contract, run on the
+call, accepts it. Parties on other ledgers consent on their own ledgers, and anyone holding an
+instance's evidence runs the contract again on every call. Contracts run in a deterministic,
+integer-only profile with metered fuel, so every verifier, the browser included, reaches the same
+result. A core enterprise, its supplier, and a bank:
+
+```sh
+# The core enterprise deploys a contract and proposes an agreement; the contract names the parties.
+cexchain contract deploy agreement.wasm --function propose=create --function sign=call \
+    --function close=call --compiler "bo 1.0" --source agreement.bo --name "Supply agreement" --as cto.key
+cexchain contract create <contract> propose --args '{"price": 98000, "currency": "CNY"}' --as clerk.key
+
+# Its registrar records calls that need other parties' consents: a device with a delegation
+# for calls on this contract only.
+cexchain delegation grant --as root.key --to <registrar> --allow contract-call --contracts <contract>
+cexchain serve --log-key log.key --registrar-key registrar.key ...
+
+# The supplier proposes signing it; the contract names whose consents it needs. Each party sees
+# the call's terms and consents on its own ledger; the last consent gets the call recorded.
+cexchain contract propose <instance> sign --peer core --args '{"price": 98000}'
+cexchain contract pending --peer core
+cexchain contract consent --peer core --call <call> --as cfo.key --log-key log.key --send
+
+# Anyone: verify the instance offline, every call run again and every consent checked.
+cexchain contract fetch --peer core --instance <instance> --out agreement.cbor
+cexchain contract verify agreement.cbor --ledger-id <core-ledger-id>
+```
+
+Arguments are written in CBOR diagnostic notation: JSON without floating point, plus byte strings
+(`h'00ff'`), keys of any type, and tags (`--args-cbor FILE` takes them encoded). `contract call
+--dry-run` shows what the contract would do. A consent names exact terms, among them the instance's
+*head* and a digest of the arguments, so it applies to one call, once. Without a registrar, the
+home's people record calls with consents as files (`contract call <instance> sign --consent
+s.cbor --consent b.cbor`). `contract verify` shows each call, its outcome, and who consented: a
+person who proved presence, a key alone, or an AI agent and its model. Delegations can be limited
+to contracts (`delegation grant --contracts`), and `contract retire` stops new instances while
+existing ones carry on.
+
 ## AI agents (MCP)
 
 `cexchain mcp --ledger DIR --as AGENT_KEY` runs a Model Context Protocol server over stdio
 (revision 2026-07-28, with fallback to earlier revisions). The agent can look up its identity and
-delegations, query and issue records, endorse, move records through their lifecycle, and verify
-evidence from others. Every action is signed with the agent's own key, refused by the ledger if
+delegations, query and issue records, endorse, move records through their lifecycle, read assets
+and contract instances, and verify evidence from others. Every action is signed with the agent's own key, refused by the ledger if
 its delegation does not cover it, and recorded with provenance: its model, a hash of the inputs it
 acted on, and the digest of the tool it used. Verification reports show all of this. MCP clients
 start the server without a terminal, so give it the agent key's passphrase with

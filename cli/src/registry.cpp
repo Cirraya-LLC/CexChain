@@ -51,7 +51,7 @@ const std::set<std::string_view> local_only{"init",  "serve", "token",  "replica
                                             "vault", "peer",  "access", "mcp",     "cluster"};
 /// Single commands of other groups that need the directory (its peers).
 const std::set<std::pair<std::string_view, std::string_view>> local_only_commands{
-    {"asset", "send"}, {"asset", "fetch"}};
+    {"asset", "send"}, {"asset", "fetch"}, {"contract", "send"}, {"contract", "fetch"}};
 /// The cluster commands that talk to a member's API.
 std::vector<OptionSpec> cluster_api(std::vector<OptionSpec> extra) {
     std::vector<OptionSpec> options{
@@ -78,7 +78,23 @@ const OptionSpec presence_key_option{"presence-key", "URI",
                                      "Prove presence with a hardware key on a token (pkcs11: URI)"};
 const OptionSpec no_browser_option{"no-browser", "",
                                    "Do not open the browser; open the printed address yourself"};
+const OptionSpec args_option{
+    "args", "VALUE", "The arguments, in CBOR diagnostic notation (default: null; see below)"};
+const OptionSpec args_cbor_option{"args-cbor", "FILE",
+                                  "The arguments as a file of CBOR, instead of --args"};
+const OptionSpec dry_run_option{"dry-run", "",
+                                "Run the contract here and show what it would do; record nothing"};
 const OptionSpec json_option{"json", "", "Print machine-readable JSON"};
+
+/// How contract commands take arguments.
+#define CEXCHAIN_ARGUMENTS_HELP                                                                    \
+    "Arguments are any CBOR value, written in CBOR diagnostic notation (RFC 8949, section 8),\n"   \
+    "which extends JSON: 42, -1, \"text\" (JSON escapes), true, false, null, [1, 2], and\n"        \
+    "{\"a\": 1} as in JSON; plus h'00ff' (a byte string, in hex), {1: \"a\"} (keys of any\n"       \
+    "type), 1(1700000000) (a tag), and <<[1, \"a\"]>> (a byte string holding the CBOR\n"           \
+    "encoding of [1, \"a\"]). No floating point; maps are put in canonical order. Or give\n"       \
+    "the encoded CBOR with --args-cbor FILE. Whoever holds the instance's evidence sees\n"         \
+    "the arguments: keep personal data out of them."
 const OptionSpec help_option{"help", "", "Show help for this command"};
 
 std::vector<OptionSpec> with(std::vector<OptionSpec> options) {
@@ -384,11 +400,16 @@ std::vector<CommandSpec> build() {
               {"until", "DATE", "Valid until"},
               {"days", "N", "Valid for N days from now"},
               {"may-delegate", "", "The grantee may delegate further (only narrower)"},
-              {"require-presence", "", "Everything done under it must carry proof of presence"}}),
+              {"require-presence", "", "Everything done under it must carry proof of presence"},
+              {"contracts", "IDS",
+               "Comma-separated contracts its calls and retires may act on (default: any)"}}),
          cmd_delegation_grant,
          "Statement types: actor-register, actor-rotate-key, actor-revoke, actor-set-presence,\n"
          "delegation-grant, delegation-revoke, record-register, record-endorse,\n"
-         "record-transition, record-revoke, asset-action."},
+         "record-transition, record-revoke, asset-action, contract-deploy, contract-call,\n"
+         "contract-retire. --contracts limits contract-call and contract-retire to those\n"
+         "contracts (a call on an instance acts on the instance's contract); a delegation\n"
+         "granted under it may name only some of them."},
         {{"delegation", "list"},
          "List delegations",
          "Delegations",
@@ -1291,6 +1312,228 @@ std::vector<CommandSpec> build() {
          "would need those witnesses to cosign it too, and a witness cosigns only one history."},
 
         // ------------------------------------------------------------------
+        {{"contract", "deploy"},
+         "Deploy a contract: a WebAssembly module that governs instances",
+         "Contracts",
+         "WASM",
+         1,
+         1,
+         signing({{"function", "NAME=KIND",
+                   "A function and its kind: create (makes an instance) or call (acts on one)",
+                   true, true},
+                  {"compiler", "TEXT", "The compiler and its version, e.g. \"bo 1.0\"", true},
+                  {"language", "LANG",
+                   "The language it was written in: bo, wasm, ... "
+                   "(default: wasm)"},
+                  {"source", "FILE", "Its source, so that anyone can rebuild it and compare"},
+                  {"name", "TEXT", "A name for people"}}),
+         cmd_contract_deploy,
+         "WASM is a module in the contract profile (spec section 14): integer-only WebAssembly\n"
+         "that exports cexchain_call and imports only from \"cexchain\", at most 512 KiB. It is\n"
+         "checked here before it is signed. The contract's id is the deploy statement's id; its\n"
+         "code never changes, so a new version is a new deploy. The ledger records a call only\n"
+         "if the contract, run on it, accepts it; every verifier runs it again."},
+        {{"contract", "show"},
+         "Show a contract: its interface, code, and instances",
+         "Contracts",
+         "CONTRACT",
+         1,
+         1,
+         with({ledger_option,
+               {"code-out", "FILE", "Write its module here"},
+               {"source-out", "FILE", "Write its source here (if it was deployed with it)"}}),
+         cmd_contract_show},
+        {{"contract", "list"},
+         "List this ledger's contracts",
+         "Contracts",
+         "",
+         0,
+         0,
+         with({ledger_option, {"active", "", "Only contracts not retired"}}),
+         cmd_contract_list},
+        {{"contract", "retire"},
+         "Retire a contract: it creates no more instances",
+         "Contracts",
+         "CONTRACT",
+         1,
+         1,
+         signing({reason_option}),
+         cmd_contract_retire,
+         "Its instances carry on under it until they are final. To change a contract, deploy a\n"
+         "new version and create new instances of it."},
+        {{"contract", "create"},
+         "Create an instance of a contract, such as an agreement or an order",
+         "Contracts",
+         "CONTRACT FUNCTION",
+         2,
+         2,
+         signing({args_option,
+                  args_cbor_option,
+                  {"reference", "TEXT", "A reference, such as an order number"},
+                  dry_run_option}),
+         cmd_contract_create,
+         "FUNCTION is one the contract declared to create instances. The instance starts as this\n"
+         "ledger's proposal, with the parties the contract names: a creation takes no consents.\n"
+         "Each party is bound only once it consents to a later call.\n\n" CEXCHAIN_ARGUMENTS_HELP},
+        {{"contract", "call"},
+         "Call a function on one of this ledger's instances",
+         "Contracts",
+         "INSTANCE FUNCTION",
+         2,
+         2,
+         signing({args_option,
+                  args_cbor_option,
+                  {"reference", "TEXT", "A reference, such as an invoice number"},
+                  {"consent", "FILE", "A party's consent (its evidence, from contract consent)",
+                   false, true},
+                  dry_run_option}),
+         cmd_contract_call,
+         "The contract runs here first, as the ledger will run it: the call is recorded only if\n"
+         "the contract accepts it. If it needs other parties' consents, pass each party's consent\n"
+         "with --consent, or propose the call to this ledger's registrar (contract propose), "
+         "which\n"
+         "collects them online. A consent names the instance's head, so it counts "
+         "once.\n\n" CEXCHAIN_ARGUMENTS_HELP},
+        {{"contract", "instance"},
+         "Show an instance: its status, parties, state, and calls",
+         "Contracts",
+         "INSTANCE",
+         1,
+         1,
+         with({ledger_option}),
+         cmd_contract_instance},
+        {{"contract", "instances"},
+         "List this ledger's contract instances",
+         "Contracts",
+         "",
+         0,
+         0,
+         with({ledger_option,
+               {"contract", "CONTRACT", "Only instances of this contract"},
+               {"status", "STATUS", "Only instances with this status"},
+               {"party", "PEER", "Only those where this peer (or ledger id) is a party"},
+               {"open", "", "Only instances that are not final"}}),
+         cmd_contract_instances},
+        {{"contract", "evidence"},
+         "Write an instance's evidence, with the consents its calls cite",
+         "Contracts",
+         "INSTANCE",
+         1,
+         1,
+         with({ledger_option,
+               signing_log_key_option,
+               passphrase_file_option,
+               {"out", "FILE", "Where to write it", true}}),
+         cmd_contract_evidence,
+         "Checkpoints first if the latest checkpoint does not cover the instance's last call.\n"
+         "Give it to the parties or anyone relying on the instance: contract verify checks it\n"
+         "offline, running the contract again on every call."},
+        {{"contract", "propose"},
+         "Propose a call to an instance's home, whose registrar collects the consents",
+         "Contracts",
+         "INSTANCE FUNCTION",
+         2,
+         2,
+         with({ledger_option,
+               {"peer", "NAME", "The instance's home, a peer (to propose as one of its parties)"},
+               args_option,
+               args_cbor_option,
+               {"reference", "TEXT", "A reference, such as an invoice number"},
+               {"head", "N", "The instance's head (default: as its home shows it now)"},
+               {"days", "N", "The proposal lapses after N days (1 to 30; default: 7)"}}),
+         cmd_contract_propose,
+         "As one of the instance's parties, propose to its home with --peer (INSTANCE in full);\n"
+         "as the home's staff, with --server and a submit token. The home's registrar (serve\n"
+         "--registrar-key) runs the call without consents: it refuses a call the contract\n"
+         "rejects, or takes as it is (the home's people sign those themselves); otherwise it\n"
+         "holds the call and asks the ledgers the contract names to consent (contract pending,\n"
+         "contract consent). It records the call once the contract accepts "
+         "it.\n\n" CEXCHAIN_ARGUMENTS_HELP},
+        {{"contract", "pending"},
+         "List the calls a home's registrar holds, waiting for consents",
+         "Contracts",
+         "[CALL]",
+         0,
+         1,
+         with(
+             {ledger_option,
+              {"peer", "NAME", "Ask this peer, the home, for the calls that concern this ledger"}}),
+         cmd_contract_pending,
+         "With --peer, the calls on that peer's instances that concern this ledger: as a party,\n"
+         "as a ledger whose consent the contract asks for, or as one that consented. With\n"
+         "--server, every call the server holds (a read token). Otherwise, the calls this\n"
+         "ledger's own registrar holds, from its files. CALL (in full) shows one."},
+        {{"contract", "consent"},
+         "Consent, on this ledger, to a call on an instance on another ledger",
+         "Contracts",
+         "",
+         0,
+         0,
+         signing({{"peer", "NAME", "The instance's home, a peer (or give --home)"},
+                  {"home", "ID", "The home's ledger id (with --server)"},
+                  {"call", "ID", "A call the home's registrar holds: take the terms from it"},
+                  {"instance", "ID", "The instance (full hex id), without --call"},
+                  {"function", "NAME", "The function called, without --call"},
+                  args_option,
+                  args_cbor_option,
+                  {"head", "N", "The instance's head the consent is to (default: ask the home)"},
+                  {"evidence", "FILE", "Take the head and the home's hash from this evidence"},
+                  {"hash", "HASH", "The home's hash, sha256 or sm3 (default: learned from it)"},
+                  {"days", "N", "The consent lapses after N days (default: 7)"},
+                  {"reference", "TEXT", "A reference of yours, such as an approval number"},
+                  signing_log_key_option,
+                  {"out", "FILE", "Write the consent's evidence here"},
+                  {"send", "", "Send it to the home's registrar (needs --peer)"}}),
+         cmd_contract_consent,
+         "Records a cexchain.contract-consent/1 record naming exact terms: the home, the\n"
+         "instance, the function, a digest of the arguments (under the home's hash), and the\n"
+         "instance's head. It applies to that one call only, once, until it lapses. With --call\n"
+         "the terms come from the call the home's registrar holds (contract pending shows it;\n"
+         "the terms are printed). Otherwise name them, as for contract call. Prove presence\n"
+         "(--presence) if the contract wants a person to have approved in "
+         "person.\n\n" CEXCHAIN_ARGUMENTS_HELP},
+        {{"contract", "withdraw"},
+         "Withdraw a contract consent not used yet",
+         "Contracts",
+         "CONSENT",
+         1,
+         1,
+         signing({}),
+         cmd_contract_withdraw},
+        {{"contract", "send"},
+         "Send a consent's evidence to the instance's home",
+         "Contracts",
+         "FILE",
+         1,
+         1,
+         with({ledger_option, {"peer", "NAME", "The instance's home", true}}),
+         cmd_contract_send},
+        {{"contract", "fetch"},
+         "Fetch an instance's evidence from its home, as one of its parties",
+         "Contracts",
+         "",
+         0,
+         0,
+         with({ledger_option,
+               {"peer", "NAME", "The instance's home", true},
+               {"instance", "ID", "The instance (full hex id)", true},
+               {"out", "FILE", "Where to write it", true}}),
+         cmd_contract_fetch},
+        {{"contract", "verify"},
+         "Verify an instance's evidence offline: every call, its outcome, and its consents",
+         "Contracts",
+         "FILE",
+         1,
+         1,
+         with({{"ledger-id", "ID", "The home's ledger id, learned out of band"},
+               {"witness", "PUBKEY", "Trust this witness's public key file", false, true},
+               {"min-witnesses", "N", "Fail unless at least N trusted witnesses cosigned"},
+               {"require-presence", "", "Fail unless a person proved presence for each consent"}}),
+         cmd_contract_verify,
+         "Replays the instance's calls, running the contract again on each, and checks every\n"
+         "consent a call cites on the consenting party's own ledger, with who gave it: a person\n"
+         "present, a key alone, or an AI agent and its model."},
+        // ------------------------------------------------------------------
         {{"mcp"},
          "Run an MCP server (stdio) for an AI agent",
          "AI agents",
@@ -1301,6 +1544,8 @@ std::vector<CommandSpec> build() {
          cmd_mcp},
     };
 }
+
+#undef CEXCHAIN_ARGUMENTS_HELP
 
 void add_global_options(std::vector<CommandSpec>& specs) {
     for (CommandSpec& spec : specs) {

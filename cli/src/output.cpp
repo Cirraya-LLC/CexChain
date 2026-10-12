@@ -95,6 +95,15 @@ Json scope_json(const protocol::Scope& scope) {
              {"valid_until", scope.not_after ? Json(iso_time(*scope.not_after)) : Json(nullptr)},
              {"may_delegate", scope.may_delegate},
              {"require_presence", scope.require_presence}};
+    if (scope.contracts) {
+        Json contracts = Json::array();
+        for (const protocol::Id& id : *scope.contracts) {
+            contracts.push_back(id_json(id));
+        }
+        out["contracts"] = std::move(contracts);
+    } else {
+        out["contracts"] = nullptr;
+    }
     return out;
 }
 
@@ -109,6 +118,13 @@ std::string scope_text(const protocol::Scope& scope) {
             types += (types.empty() ? "" : ",") + t;
         }
         out += " on " + types;
+    }
+    if (scope.contracts) {
+        std::string contracts;
+        for (const protocol::Id& id : *scope.contracts) {
+            contracts += (contracts.empty() ? "" : ",") + short_id(id);
+        }
+        out += " for contract(s) " + contracts;
     }
     if (scope.not_before) {
         out += " from " + format_time(*scope.not_before);

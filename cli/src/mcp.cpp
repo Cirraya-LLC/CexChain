@@ -22,6 +22,7 @@
 #include <nlohmann/json.hpp>
 
 #include <cexchain/core/protocol/asset_evidence.hpp>
+#include <cexchain/core/protocol/contract_evidence.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/record_types.hpp>
 
@@ -117,6 +118,13 @@ json scope_json(const protocol::Scope& scope) {
     json out = {{"statement_types", types}, {"may_delegate", scope.may_delegate}};
     if (scope.record_types) {
         out["record_types"] = *scope.record_types;
+    }
+    if (scope.contracts) {
+        json contracts = json::array();
+        for (const protocol::Id& id : *scope.contracts) {
+            contracts.push_back(to_hex(id.bytes()));
+        }
+        out["contracts"] = std::move(contracts);
     }
     if (scope.not_after) {
         out["valid_until"] = format_time(*scope.not_after);
@@ -555,6 +563,56 @@ private:
                 json out = json::parse(verifier::asset_report_json(*report, checked).dump());
                 out["evidence"] = std::move(out["report"]);
                 out["report"] = verifier::asset_report_text(*report, checked);
+                return out;
+            });
+
+        add("cexchain_list_contracts",
+            "This ledger's contracts: their functions (create makes an instance, call acts on "
+            "one), language, whether retired, and how many instances each governs.",
+            json::object(), json::array(), read_only, [this](const Tool&, const json&) {
+                Session session(ledger_);
+                json contracts = json::array();
+                for (const auto& [key, contract] : session.state().contracts()) {
+                    contracts.push_back(json::parse(contract_json(session, contract).dump()));
+                }
+                return json{{"contracts", contracts}};
+            });
+
+        add("cexchain_get_instance",
+            "A contract instance (an agreement, an order): its status, parties, state, head "
+            "(which calls and consents must name), whether final, and every call with its "
+            "arguments and consents.",
+            {{"instance",
+              {{"type", "string"}, {"description", "Instance id or unique prefix (8+ hex)."}}}},
+            json::array({"instance"}), read_only, [this](const Tool&, const json& arguments) {
+                Session session(ledger_);
+                const protocol::Id id = session.instance_id(text_arg(arguments, "instance"));
+                return json::parse(instance_json(session, *session.state().instance(id)).dump());
+            });
+
+        add("cexchain_verify_contract_evidence",
+            "Verify a contract instance's evidence offline (every call, run again, and every "
+            "party's consent on its own ledger) before relying on the instance.",
+            {{"evidence_path", {{"type", "string"}}},
+             {"expected_ledger_id",
+              {{"type", "string"},
+               {"description", "The instance's home ledger id, learned out of band."}}}},
+            json::array({"evidence_path"}), read_only, [](const Tool&, const json& arguments) {
+                const crypto::openssl::Provider provider;
+                protocol::VerifyOptions options;
+                if (const auto ledger_id = optional_text(arguments, "expected_ledger_id")) {
+                    options.expected_ledger = unwrap(
+                        protocol::to_id(unwrap(from_hex(*ledger_id), "ledger id")), "ledger id");
+                }
+                const auto report = protocol::verify_contract_evidence(
+                    provider, read_file(text_arg(arguments, "evidence_path")), options);
+                if (!report) {
+                    return json{{"verified", false}, {"error", report.error().detail}};
+                }
+                const bool checked = options.expected_ledger.has_value();
+                json out = json::parse(verifier::contract_report_json(*report, checked).dump());
+                out["evidence"] = std::move(out["report"]);
+                out["report"] = verifier::contract_report_text(*report, checked);
                 return out;
             });
 

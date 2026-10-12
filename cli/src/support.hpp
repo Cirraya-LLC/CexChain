@@ -163,6 +163,8 @@ public:
     [[nodiscard]] protocol::Id actor_id(std::string_view text) const;
     [[nodiscard]] protocol::Id record_id(std::string_view text) const;
     [[nodiscard]] protocol::Id delegation_id(std::string_view text) const;
+    [[nodiscard]] protocol::Id contract_id(std::string_view text) const;
+    [[nodiscard]] protocol::Id instance_id(std::string_view text) const;
 
     /// The actor holding `key`.
     [[nodiscard]] const protocol::ActorState& actor_for(const crypto::Signer& key) const;
@@ -174,13 +176,27 @@ public:
     /// a passkey in the browser or with a hardware key.
     /// With `seal_vault`, the record's sealed private data is kept with it:
     /// written to the vault here, or sent with the statement in client mode.
-    /// With `consents` (an asset action's, in the order it cites them), the
-    /// consents' evidence is kept with it the same way (D-052).
+    /// With `consents` (an asset action's or a contract call's, in the order
+    /// it cites them), the consents' evidence is kept with it the same way
+    /// (D-052, D-053).
     protocol::Id submit(const crypto::Signer& signer, protocol::Body body,
                         const std::optional<std::string>& delegation,
                         std::optional<protocol::Provenance> provenance = std::nullopt,
                         const std::optional<PresenceRequest>& presence = std::nullopt,
                         const SealVault& seal_vault = {}, std::span<const Bytes> consents = {});
+
+    /// Builds and signs a statement as `submit` does, without registering
+    /// it: to run a contract call first, or for a dry run.
+    [[nodiscard]] protocol::SignedStatement
+    sign(const crypto::Signer& signer, protocol::Body body,
+         const std::optional<std::string>& delegation,
+         std::optional<protocol::Provenance> provenance = std::nullopt,
+         const std::optional<PresenceRequest>& presence = std::nullopt);
+    /// Registers a statement from `sign`, with its sealed private data or
+    /// its consents' evidence, as `submit` does.
+    protocol::Id submit_signed(const protocol::SignedStatement& statement,
+                               const std::optional<Bytes>& sealed = std::nullopt,
+                               std::span<const Bytes> consents = {});
 
     /// Signs and submits as the holder of --as, with --delegation, --model,
     /// --model-version, --inputs, --presence, and --no-browser taken from
@@ -220,6 +236,11 @@ public:
     /// without private data: built here with --log-key, or the server's,
     /// verified against the mirror.
     [[nodiscard]] Bytes asset_evidence(const Args& args, const protocol::Id& asset);
+    /// An instance's contract evidence with the consents its calls cite
+    /// (D-053), without private data: built here with --log-key (after a
+    /// checkpoint, if the latest does not cover the instance's last call), or
+    /// the server's, verified against the mirror.
+    [[nodiscard]] Bytes contract_evidence(const Args& args, const protocol::Id& instance);
     [[nodiscard]] Bytes receipt(const Args& args, std::uint64_t index);
     void add_cosignature(ByteView cosignature, const crypto::PublicKey& witness);
 
@@ -230,13 +251,17 @@ public:
     /// (once per session).
     void fetch_vault_public_key() const;
 
+    /// Client mode: sends a request to the server, and fails unless it
+    /// succeeded (with the server's message). Returns the answer's body.
+    Bytes request(std::string_view method, std::string_view path, ByteView body = {},
+                  std::string_view content_type = {}) const;
+
 private:
     void prove_presence(const protocol::ActorState& actor, protocol::Statement& statement,
                         const crypto::PublicKey& signing_key, const PresenceRequest& request) const;
 
-    [[nodiscard]] std::optional<protocol::Id>
-    choose_delegation(const protocol::ActorState& actor, protocol::StatementType type,
-                      const std::optional<std::string>& record_type) const;
+    [[nodiscard]] std::optional<protocol::Id> choose_delegation(const protocol::ActorState& actor,
+                                                                const protocol::Body& body) const;
 
     void open(const std::filesystem::path& directory);
     void open_remote(const Args& args, const std::string& url);

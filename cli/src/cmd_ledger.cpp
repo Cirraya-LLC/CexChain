@@ -17,6 +17,10 @@ namespace {
 
 constexpr std::uint64_t default_list_limit = 100;
 
+bool state_has_contracts(const Json& status) {
+    return status["contracts"].get<std::size_t>() > 0;
+}
+
 Json status_json(Session& session) {
     const auto& state = session.state();
     const std::uint64_t size = session.ledger().size();
@@ -30,7 +34,9 @@ Json status_json(Session& session) {
              {"root", hex_json(unwrap(session.ledger().root(size), "computing the root").bytes())},
              {"actors", state.actors().size()},
              {"delegations", state.delegations().size()},
-             {"records", state.records().size()}};
+             {"records", state.records().size()},
+             {"contracts", state.contracts().size()},
+             {"instances", state.instances().size()}};
     out["state_commitment"] = session.ledger().state_commitment()
                                   ? commitment_json(*session.ledger().state_commitment())
                                   : Json(nullptr);
@@ -129,6 +135,11 @@ int cmd_status(const Args& args) {
     std::println("actors:        {}", s["actors"].get<std::size_t>());
     std::println("delegations:   {}", s["delegations"].get<std::size_t>());
     std::println("records:       {}", s["records"].get<std::size_t>());
+    if (!state_has_contracts(s)) {
+        return exit_ok;
+    }
+    std::println("contracts:     {} ({} instances)", s["contracts"].get<std::size_t>(),
+                 s["instances"].get<std::size_t>());
     return exit_ok;
 }
 

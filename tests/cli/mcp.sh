@@ -9,6 +9,7 @@ set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
 CEXCHAIN="$1"
+VECTORS="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../testvectors" && pwd)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 cd "$WORK"
@@ -18,6 +19,7 @@ run() { "$CEXCHAIN" "$@"; }
 # early (grep -q, head) can kill the writer with SIGPIPE and fail the test.
 contains() { grep "$@" > /dev/null; }
 id_from() { grep -oE '[0-9a-f]{64}' | sed -n 1p; }
+json_id() { python3 -c "import json, sys; print(json.load(sys.stdin)['instance']['id'])"; }
 fail() { echo "FAIL: $1"; echo "--- responses:"; cat responses.txt; exit 1; }
 
 export CEXCHAIN_PASSPHRASE="mcp test passphrase"
@@ -99,4 +101,23 @@ run mcp --ledger ledger --as agent.key < asset-requests.jsonl > responses.txt 2>
 contains '880.50 CNY' responses.txt || fail "asset tools"
 contains "\"holder\":\"$HOLDER\"" responses.txt || fail "asset holder"
 contains '"chain":' responses.txt || fail "asset evidence through MCP"
+
+# Contracts (D-053): the agent reads them and verifies an instance's evidence.
+# The vectors' oracle contract writes the output its byte-string argument holds.
+python3 -c "import json, sys; open('oracle.wasm', 'wb').write(bytes.fromhex(json.load(open(sys.argv[1]))['contract']))" \
+    "$VECTORS/protocol-v0.6.json"
+CONTRACT="$(run contract deploy oracle.wasm --ledger ledger --as root.key --function open=create \
+    --function act=call --compiler "hand-assembled 1" --name "Test agreement" | id_from)"
+INSTANCE="$(run contract create "$CONTRACT" open --ledger ledger --as root.key \
+    --args '<<[1, {1: "terms", 2: "open"}]>>' --json | json_id)"
+run contract evidence "$INSTANCE" --ledger ledger --log-key log.key --out instance.cbor > /dev/null
+cat > contract-requests.jsonl <<JSON
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{$META,"name":"cexchain_list_contracts","arguments":{}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{$META,"name":"cexchain_get_instance","arguments":{"instance":"${INSTANCE:0:12}"}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{$META,"name":"cexchain_verify_contract_evidence","arguments":{"evidence_path":"instance.cbor","expected_ledger_id":"$LEDGER_ID"}}}
+JSON
+run mcp --ledger ledger --as agent.key < contract-requests.jsonl > responses.txt 2> /dev/null
+contains 'Test agreement' responses.txt || fail "contract tools"
+contains '"status":"open"' responses.txt || fail "instance status"
+contains 'CexChain contract report' responses.txt || fail "contract evidence through MCP"
 echo "mcp end-to-end: ok"
