@@ -7,6 +7,7 @@
 add_library(cexchain_core
     src/bytes.cpp
     src/cbor.cpp
+    src/cbor_diagnostic.cpp
     src/cose.cpp
     src/crypto.cpp
     src/error.cpp

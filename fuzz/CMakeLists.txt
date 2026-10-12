@@ -14,6 +14,7 @@ function(cexchain_add_fuzzer name)
 endfunction()
 
 cexchain_add_fuzzer(cbor_decode_fuzz)
+cexchain_add_fuzzer(diagnostic_fuzz)
 cexchain_add_fuzzer(cose_parse_fuzz)
 cexchain_add_fuzzer(merkle_verify_fuzz cexchain::crypto_openssl)
 cexchain_add_fuzzer(protocol_parse_fuzz cexchain::crypto_openssl)

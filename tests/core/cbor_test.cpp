@@ -270,6 +270,96 @@ TEST_CASE("diagnostic notation", "[core][cbor]") {
     CHECK(cbor::diagnostic(Value::negative(UINT64_MAX)) == "-18446744073709551616");
 }
 
+TEST_CASE("diagnostic notation parses back, as people type it", "[core][cbor]") {
+    const auto parsed = [](std::string_view text) {
+        auto value = cbor::parse_diagnostic(text);
+        INFO(text << ": " << (value ? std::string() : std::string(value.error().detail)));
+        REQUIRE(value);
+        return *value;
+    };
+    const auto encoded = [&](std::string_view text) {
+        auto bytes = cbor::encode(parsed(text));
+        REQUIRE(bytes);
+        return to_hex(*bytes);
+    };
+    // What diagnostic() writes, and JSON without floating point.
+    const std::string written = R"({1: -19, -1: 18([true, null]), "a\"b": h'01ff'})";
+    CHECK(cbor::diagnostic(parsed(written)) == written);
+    CHECK(cbor::diagnostic(parsed(R"({"a\"b": h'01FF', -1: 18([true, null]), 1: -19})")) ==
+          written);
+    CHECK(encoded(R"( {"b": [1, 2, {"c": null}], "a": false} )") ==
+          "a26161f46162830102a16163f6"); // maps come out canonical
+    CHECK(encoded("0") == "00");
+    CHECK(encoded("-0") == "00");
+    CHECK(encoded("18446744073709551615") == "1bffffffffffffffff");
+    CHECK(encoded("-18446744073709551616") == "3bffffffffffffffff");
+    CHECK(encoded("-1") == "20");
+    CHECK(encoded(R"("\u00e9\ud83d\ude00\n\/")") == "68c3a9f09f98800a2f");
+    CHECK(encoded("\"水\"") == "63e6b0b4");
+    CHECK(encoded("h''") == "40");
+    CHECK(encoded("h'00 FF\n0a'") == "4300ff0a");
+    CHECK(encoded("<<>>") == "40");
+    CHECK(encoded("<<1, \"a\">>") == "4301"
+                                     "6161");
+    CHECK(encoded("[<<[2, [h'01']]>>]") == "81"
+                                           "45"
+                                           "82028141"
+                                           "01");
+    CHECK(encoded("1(1700000000)") == "c11a6553f100");
+    CHECK(encoded("{}") == "a0");
+    CHECK(encoded("[ ]") == "80");
+
+    for (const std::string_view bad : {"",
+                                       " ",
+                                       "1.5",
+                                       "1e3",
+                                       "01",
+                                       "-",
+                                       "18446744073709551616",
+                                       "-18446744073709551617",
+                                       "[1,]",
+                                       "[1 2]",
+                                       "{1: 2, 1: 3}",
+                                       "{1 2}",
+                                       "{1: }",
+                                       "h'0'",
+                                       "h'0g'",
+                                       "h'00",
+                                       "\"abc",
+                                       "\"a\\x\"",
+                                       "\"\\ud800\"",
+                                       "\"\\udc00\"",
+                                       "\"\\u12\"",
+                                       "\"tab\there\"",
+                                       "2(h'01')",
+                                       "3(h'01')",
+                                       "tru",
+                                       "undefined",
+                                       "NaN",
+                                       "1 2",
+                                       "[1]]",
+                                       "<<1",
+                                       "<1>",
+                                       "18446744073709551616(1)",
+                                       "simple(1)",
+                                       "'a'"}) {
+        INFO(bad);
+        const auto value = cbor::parse_diagnostic(bad);
+        CHECK_FALSE(value);
+        if (!value) {
+            CHECK(value.error().code == Errc::malformed);
+        }
+    }
+    CHECK_FALSE(cbor::parse_diagnostic("\"\xff\""));
+
+    // Nesting is bounded, so recursion is.
+    std::string deep(cbor::max_nesting_depth, '[');
+    deep += std::string(cbor::max_nesting_depth, ']');
+    CHECK(cbor::parse_diagnostic(deep));
+    CHECK_FALSE(cbor::parse_diagnostic("[" + deep + "]"));
+    CHECK_FALSE(cbor::parse_diagnostic(std::string(100'000, '[')));
+}
+
 namespace {
 
 Value random_value(std::mt19937_64& rng, int depth) {
@@ -335,6 +425,10 @@ TEST_CASE("random values round-trip through canonical form", "[core][cbor][prope
         const auto reencoded = cbor::encode(*decoded);
         REQUIRE(reencoded);
         CHECK(*reencoded == *encoded);
+        // Diagnostic notation is a faithful text form.
+        const auto parsed = cbor::parse_diagnostic(cbor::diagnostic(*decoded));
+        REQUIRE(parsed);
+        CHECK(*parsed == *decoded);
     }
 }
 

@@ -587,6 +587,14 @@ void contract_seeds(const Seeds& seeds) {
     must(protocol::verify_contract_evidence(home.provider, evidence),
          "the seed evidence must verify");
     seeds.write("contract_parse_fuzz", "evidence", evidence);
+
+    // Diagnostic notation, as the command line takes contract arguments; and
+    // CBOR, whose rendering must parse back.
+    seeds.write("diagnostic_fuzz", "arguments", cbor::diagnostic(sign.arguments));
+    seeds.write("diagnostic_fuzz", "typed",
+                std::string_view(R"([<<[2, [h'0102']]>>, {1: "a", "b": [true, null, -1]}, )"
+                                 R"(1(1700000000), "é😀", h'00 ff'])"));
+    seeds.write("diagnostic_fuzz", "statement", signed_call.encoded);
 }
 
 int main(int argc, char** argv) {

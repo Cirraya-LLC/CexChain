@@ -196,6 +196,20 @@ struct DecodeOptions {
 /// Renders a value in RFC 8949 §8 diagnostic notation, for logs and tests.
 [[nodiscard]] std::string diagnostic(const Value& value);
 
+/// Parses diagnostic notation (RFC 8949 §8), as people and programs type
+/// values: JSON without floating point, plus byte strings and integer keys.
+///   integers      0, 42, -1, down to -18446744073709551616
+///   text strings  "a\"bé" (JSON's escapes; UTF-8)
+///   byte strings  h'00ff' (hex; spaces allowed), and <<1, "a">>: the
+///                 encodings of the items, in turn (RFC 8610, Appendix G.3)
+///   arrays, maps  [1, 2], {1: "a", "b": [true, false, null]}
+///   tags          1(1700000000)
+/// Whatever `diagnostic` writes parses back to the same value. The result is
+/// canonical (maps in deterministic order) and encodes: duplicate map keys,
+/// bignum tags, nesting deeper than max_nesting_depth, and more items than
+/// DecodeOptions allows by default are refused (Errc::malformed).
+[[nodiscard]] Result<Value> parse_diagnostic(std::string_view text);
+
 /// True if `text` is valid UTF-8 (RFC 3629): no overlong forms, no surrogates,
 /// no code points above U+10FFFF.
 [[nodiscard]] bool is_valid_utf8(std::string_view text) noexcept;
