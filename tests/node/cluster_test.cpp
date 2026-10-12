@@ -4,17 +4,14 @@
 // Clusters (D-051), in one process: three nodes on loopback, each with its
 // own ledger directory and Raft port.
 
-#include <arpa/inet.h>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <functional>
 #include <memory>
-#include <netinet/in.h>
 #include <optional>
 #include <string>
-#include <sys/socket.h>
 #include <thread>
 #include <unistd.h>
 #include <vector>
@@ -29,6 +26,7 @@
 
 #include "cluster_parts.hpp"
 #include "support/ledger_world.hpp"
+#include "support/ports.hpp"
 #include "support/vectors.hpp"
 
 namespace {
@@ -39,18 +37,6 @@ using cexchain::ByteView;
 using cexchain::Errc;
 using namespace std::chrono_literals;
 namespace node = cexchain::node;
-
-std::uint16_t free_port() {
-    const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
-    sockaddr_in address{};
-    address.sin_family = AF_INET;
-    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    socklen_t length = sizeof address;
-    REQUIRE(::bind(fd, reinterpret_cast<sockaddr*>(&address), sizeof address) == 0);
-    REQUIRE(::getsockname(fd, reinterpret_cast<sockaddr*>(&address), &length) == 0);
-    ::close(fd);
-    return ntohs(address.sin_port);
-}
 
 bool eventually(const std::function<bool()>& condition, std::chrono::milliseconds limit = 60s) {
     const auto deadline = std::chrono::steady_clock::now() + limit;
@@ -122,7 +108,7 @@ struct Trio {
             auto fs = ledger::PosixFileSystem::open_directory(n->dir);
             REQUIRE(fs);
             REQUIRE(ledger::Ledger::create_replica(*fs, n->clock, provider(), genesis));
-            const std::uint16_t port = free_port();
+            const std::uint16_t port = fixed_port();
             n->config = {id, "127.0.0.1:" + std::to_string(port), port,
                          "http://127.0.0.1:" + std::to_string(9000 + id), id == 1};
             const auto i = static_cast<std::size_t>(id - 1);

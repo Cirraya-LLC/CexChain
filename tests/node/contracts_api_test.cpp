@@ -7,14 +7,11 @@
 // its parties. The supplier keeps a SHA-256 ledger, the bank an SM3 one.
 
 #include <algorithm>
-#include <arpa/inet.h>
 #include <chrono>
 #include <filesystem>
 #include <functional>
 #include <memory>
-#include <netinet/in.h>
 #include <string>
-#include <sys/socket.h>
 #include <thread>
 #include <unistd.h>
 #include <vector>
@@ -33,6 +30,7 @@
 #include <cexchain/node/tokens.hpp>
 
 #include "support/ledger_world.hpp"
+#include "support/ports.hpp"
 #include "support/vectors.hpp"
 
 namespace {
@@ -285,18 +283,6 @@ std::string text(const node::http::ClientResponse& r) {
 
 std::string hex_id(const protocol::Id& id) {
     return cexchain::to_hex(id.bytes());
-}
-
-std::uint16_t free_port() {
-    const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
-    sockaddr_in address{};
-    address.sin_family = AF_INET;
-    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    socklen_t length = sizeof address;
-    REQUIRE(::bind(fd, reinterpret_cast<sockaddr*>(&address), sizeof address) == 0);
-    REQUIRE(::getsockname(fd, reinterpret_cast<sockaddr*>(&address), &length) == 0);
-    ::close(fd);
-    return ntohs(address.sin_port);
 }
 
 bool eventually(const std::function<bool()>& condition, std::chrono::milliseconds limit = 60s) {
@@ -685,8 +671,8 @@ TEST_CASE("a cluster's registrar carries on with a pending call after a failover
             std::filesystem::remove_all(m.dir);
             std::filesystem::copy(home.dir, m.dir, std::filesystem::copy_options::recursive);
         }
-        const std::uint16_t port = free_port();
-        m.api_port = free_port();
+        const std::uint16_t port = fixed_port();
+        m.api_port = fixed_port();
         m.config = {i + 1, "127.0.0.1:" + std::to_string(port), port,
                     "http://127.0.0.1:" + std::to_string(m.api_port), i == 0};
         REQUIRE(node::init_cluster(m.dir, m.config, secret));

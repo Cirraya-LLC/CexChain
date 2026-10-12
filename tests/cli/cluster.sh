@@ -38,7 +38,49 @@ expect_exit() {
 }
 contains() { grep "$@" > /dev/null; }
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
-free_port() { python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])'; }
+# fixed_ports N: N distinct ports for the members' Raft and API addresses,
+# which the cluster's membership names, so they are chosen before a member
+# binds them. Not from bind(0): that hands out ports from the ephemeral range,
+# where the system also picks the local end of every outgoing connection, and
+# by the time a member started (or restarted), one of the cluster's own Raft
+# or client connections could hold its port ("Address already in use"). These
+# come from just below that range, where the system assigns none, and each is
+# free when chosen. (tests/support/ports.hpp does the same for C++ tests.)
+fixed_ports() {
+    python3 - "$1" << 'PY'
+import random, socket, subprocess, sys
+
+def first_ephemeral():
+    try:
+        with open("/proc/sys/net/ipv4/ip_local_port_range") as f:
+            return int(f.read().split()[0])
+    except (OSError, ValueError, IndexError):
+        pass
+    try:
+        return int(subprocess.run(["sysctl", "-n", "net.inet.ip.portrange.first"],
+                                  capture_output=True, text=True, check=True).stdout)
+    except (OSError, ValueError, subprocess.CalledProcessError):
+        return 32768
+
+end = first_ephemeral()
+end = end if 1024 < end <= 65535 else 32768
+begin = max(1024, end - 16384)
+if end - begin < 1024:  # no room below the range: any port, as free as can be checked
+    begin, end = 1024, 65536
+ports = []
+while len(ports) < int(sys.argv[1]):
+    port = random.randrange(begin, end)
+    if port in ports:
+        continue
+    with socket.socket() as s:
+        try:
+            s.bind(("127.0.0.1", port))
+        except OSError:
+            continue
+    ports.append(port)
+print(" ".join(map(str, ports)))
+PY
+}
 # eventually SECONDS COMMAND...: retries until it succeeds.
 eventually() {
     local limit="$1"; shift
@@ -80,8 +122,9 @@ start_member() {
 }
 
 API=(); APORT=(); RPORT=()
+read -r -a PORTS <<< "$(fixed_ports 6)"
 for n in 1 2 3; do
-    APORT[$n]="$(free_port)"; RPORT[$n]="$(free_port)"
+    APORT[$n]="${PORTS[$((2 * n - 2))]}"; RPORT[$n]="${PORTS[$((2 * n - 1))]}"
     API[$n]="http://127.0.0.1:${APORT[$n]}"
 done
 
