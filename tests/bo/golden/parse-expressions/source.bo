@@ -1,0 +1,9 @@
+can check
+  requires a + b * c - d / e = f
+  requires (a + b) * c >= 10 or not g and h
+  requires x in (HKD 1, HKD 2, HKD 3)
+  requires sum of parts <= amount
+  requires count of parts > 0 and 各部分 數目 < 17
+  requires 30日內 or within 30 days
+  requires overdue 3 days or 7 days before due or 到期前 7日
+  requires 2027-01-06 < due and 5% > rate and "text" = note and yes

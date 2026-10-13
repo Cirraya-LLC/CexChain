@@ -17,26 +17,14 @@
 #include <cexchain/bo/names.hpp>
 #include <cexchain/core/bytes.hpp>
 
+#include "reflection.hpp"
+
 namespace cexchain::bo {
 
 namespace {
 
-/// True if `table` lists E's enumerators' identifiers, in order, and the
-/// enumerators are 0, 1, 2, ...
-template <class E, std::size_t N>
-consteval bool table_matches(const std::array<std::string_view, N>& table) {
-    const auto enumerators = std::meta::enumerators_of(^^E);
-    if (enumerators.size() != N) {
-        return false;
-    }
-    for (std::size_t i = 0; i < N; ++i) {
-        if (std::meta::identifier_of(enumerators[i]) != table[i] ||
-            static_cast<std::size_t>(std::meta::extract<E>(enumerators[i])) != i) {
-            return false;
-        }
-    }
-    return true;
-}
+using detail::enumerator_name;
+using detail::table_matches;
 
 static_assert(table_matches<Category>(category_names), "category_names is out of date");
 static_assert(table_matches<Severity>(severity_names), "severity_names is out of date");
@@ -44,20 +32,17 @@ static_assert(table_matches<Separation>(separation_names), "separation_names is 
 static_assert(table_matches<MeaningKind>(meaning_kind_names), "meaning_kind_names is out of date");
 static_assert(table_matches<TokenKind>(token_kind_names), "token_kind_names is out of date");
 static_assert(table_matches<Piece>(piece_names), "piece_names is out of date");
+static_assert(table_matches<ast::ExprKind>(ast::expr_kind_names), "expr_kind_names is out of date");
+static_assert(table_matches<ast::LiteralKind>(ast::literal_kind_names),
+              "literal_kind_names is out of date");
+static_assert(table_matches<ast::Operator>(ast::operator_names), "operator_names is out of date");
+// operator_texts holds how each operator is written: one per enumerator.
+static_assert(detail::enumerator_count<ast::Operator>() == ast::operator_texts.size(),
+              "operator_texts is out of date");
 // symbol_texts holds what each symbol looks like, not its name: one per
 // enumerator.
 static_assert(std::meta::enumerators_of(^^Symbol).size() == symbol_texts.size(),
               "symbol_texts is out of date");
-
-template <class E>
-constexpr std::string_view enumerator_name(const E value) noexcept {
-    template for (constexpr auto e : std::define_static_array(std::meta::enumerators_of(^^E))) {
-        if (value == [:e:]) {
-            return std::meta::identifier_of(e);
-        }
-    }
-    return {};
-}
 
 static_assert(enumerator_name(Category::expression) == "expression");
 static_assert(enumerator_name(MeaningKind::punctuation) == "punctuation");
@@ -113,6 +98,18 @@ std::string_view name_of(const TokenKind value) noexcept {
 }
 
 std::string_view name_of(const Piece value) noexcept {
+    return enumerator_name(value);
+}
+
+std::string_view name_of(const ast::ExprKind value) noexcept {
+    return enumerator_name(value);
+}
+
+std::string_view name_of(const ast::LiteralKind value) noexcept {
+    return enumerator_name(value);
+}
+
+std::string_view name_of(const ast::Operator value) noexcept {
     return enumerator_name(value);
 }
 

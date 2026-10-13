@@ -1,0 +1,4 @@
+edition 1
+contract X
+when (phrase cond.overdue (duration time.day 3))
+  do act.suspend

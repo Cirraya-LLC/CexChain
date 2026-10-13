@@ -5,9 +5,12 @@
 // is read with. Built only with the Bo compiler (cexchain::bo: GCC 16, for C++26
 // reflection and contracts).
 
+#include <algorithm>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <format>
+#include <limits>
 #include <optional>
 #include <print>
 #include <string>
@@ -19,6 +22,7 @@
 #include <cexchain/bo/messages.hpp>
 #include <cexchain/bo/names.hpp>
 #include <cexchain/bo/pack.hpp>
+#include <cexchain/bo/parser.hpp>
 #include <cexchain/crypto/openssl.hpp>
 
 #include "commands.hpp"
@@ -339,8 +343,8 @@ void print_source_diagnostics(std::FILE* stream, std::string_view file,
 int cmd_bo_check(const Args& args) {
     const std::string file = args.positional().front();
     const std::optional<std::string> stage = args.get("stage");
-    if (stage && *stage != "lex") {
-        throw UsageError{"--stage must be lex (the tokens); the parser's stage is not built yet"};
+    if (stage && *stage != "lex" && *stage != "parse") {
+        throw UsageError{"--stage must be lex (the tokens) or parse (the tree)"};
     }
     const bo::PackSet set = pack_set(args);
     std::vector<bo::Pack> given;
@@ -354,15 +358,25 @@ int cmd_bo_check(const Args& args) {
     const std::string_view source(reinterpret_cast<const char*>(bytes.data()), bytes.size());
     const bo::Lexicon lexicon(set);
     const bo::Lexed lexed = bo::lex(source, lexicon);
-    const bool ok = !bo::has_errors(lexed.diagnostics);
+    const bo::Parsed parsed = bo::parse(source, lexed);
+    // The lexer's problems and the parser's, in source order.
+    std::vector<bo::Diagnostic> diagnostics = lexed.diagnostics;
+    diagnostics.insert(diagnostics.end(), parsed.diagnostics.begin(), parsed.diagnostics.end());
+    std::ranges::stable_sort(diagnostics, {}, [](const bo::Diagnostic& d) {
+        return d.span.line == 0 ? std::numeric_limits<std::uint64_t>::max()
+                                : std::uint64_t{d.span.offset};
+    });
+    const bool ok = !bo::has_errors(diagnostics);
+    const std::size_t clauses = parsed.file.clauses.size();
 
     if (args.json()) {
         Json out = {{"file", file},
                     {"ok", ok},
-                    {"stage", "lex"},
+                    {"stage", stage.value_or("parse")},
                     {"edition", lexed.edition},
-                    {"diagnostics", diagnostics_json(lexed.diagnostics, language)}};
-        if (stage) {
+                    {"clauses", clauses},
+                    {"diagnostics", diagnostics_json(diagnostics, language)}};
+        if (stage == "lex") {
             Json tokens = Json::array();
             for (const bo::Token& token : lexed.tokens) {
                 tokens.push_back(token_json(source, token));
@@ -373,25 +387,30 @@ int cmd_bo_check(const Args& args) {
             }
             out["tokens"] = tokens;
             out["comments"] = comments;
+        } else if (stage == "parse") {
+            out["tree"] = bo::dump(parsed.file);
+            out["ast"] = cbor_json(bo::to_cbor(parsed.file));
         }
         print_json(out);
         return ok ? exit_ok : exit_failure;
     }
-    if (stage) {
+    if (stage == "lex") {
         // The tokens on stdout; the problems after them, as below.
         bo::Lexed quiet;
         quiet.tokens = lexed.tokens;
         quiet.comments = lexed.comments;
         std::print("{}", bo::dump(source, quiet, language));
+    } else if (stage == "parse") {
+        std::print("{}", bo::dump(parsed.file));
     }
-    print_source_diagnostics(stage ? stdout : stderr, file, lexed.diagnostics, language);
+    print_source_diagnostics(stage ? stdout : stderr, file, diagnostics, language);
     std::size_t errors = 0;
-    for (const bo::Diagnostic& d : lexed.diagnostics) {
+    for (const bo::Diagnostic& d : diagnostics) {
         errors += d.severity() == bo::Severity::error ? 1U : 0U;
     }
     if (ok) {
-        std::println("{}: ok: {} tokens, {} comments, edition {}", file, lexed.tokens.size(),
-                     lexed.comments.size(), lexed.edition);
+        std::println("{}: ok: {} tokens, {} comments, {} clauses, edition {}", file,
+                     lexed.tokens.size(), lexed.comments.size(), clauses, lexed.edition);
     } else {
         std::println("{}: {} error{}", file, errors, errors == 1 ? "" : "s");
     }

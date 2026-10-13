@@ -1,0 +1,8 @@
+edition 1
+parties role.issuer
+1:12 error parse.trailing: the line is complete before Y: remove it, or start a new line
+2:1 error parse.duplicate: contract is given twice; give it once
+3:1 error parse.top-level: holder cannot start a line here: outside any block, a line starts with contract, parties, a kind (asset, service, resource, record), charge or tax, can, when, or test
+4:1 error parse.reserved: use is reserved for modules, in a later edition of Bo
+6:1 error parse.unexpected-block: these lines are indented, but the line before them opens no block
+7:1 error parse.empty-block: test needs what it governs: an indented block under it, or for when, if, and otherwise, a statement on the same line

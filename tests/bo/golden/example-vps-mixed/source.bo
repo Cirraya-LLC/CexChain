@@ -1,0 +1,19 @@
+bo 1
+合約 VPS服務
+parties 本公司, customer
+
+service VPS
+  價格 monthly HKD 120
+  traffic 每月 2TB, 超出 per GB HKD 0.10
+  IP 1个
+  tax 按 客戶所在地
+
+可subscribe by 客户
+can 續期 由 customer
+可升级 by customer          # proration recognized: by days remaining
+當 7 days before due 通知 客戶
+when 逾期 3天 suspend        # 請求面板執行器暫停 VPS
+当 overdue 30日 終止 and 收回 IP
+can refund 由 us
+  超過 HKD 100 requires in person
+  AI agent 可 提議

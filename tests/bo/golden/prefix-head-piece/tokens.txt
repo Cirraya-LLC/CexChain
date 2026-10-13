@@ -1,12 +1,12 @@
 1:1 word kw.requires | 須
-1:2 word cond.consent_of piece=head | 經
+1:2 word cond.consent_of piece=open | 經
 1:4 word role.bank | 銀行
-1:7 word cond.consent_of piece=tail | 同意
+1:7 word cond.consent_of piece=close | 同意
 1:9 newline
 2:1 word kw.requires | 须
-2:2 word cond.consent_of piece=head | 经
+2:2 word cond.consent_of piece=open | 经
 2:4 word role.bank | 银行
-2:7 word cond.consent_of piece=tail | 同意
+2:7 word cond.consent_of piece=close | 同意
 2:9 newline
 3:1 word kw.requires | requires
 3:10 word cond.consent_of piece=head | consent of

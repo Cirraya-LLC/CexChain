@@ -1,7 +1,7 @@
 1:1 edition_line 1 | bo 1
 1:5 newline
 2:1 word kw.contract | 合约
-2:4 name VPS服务 | VPS服务
+2:4 name VPS服務 | VPS服務
 2:9 newline
 3:1 word kw.parties | 参与方
 3:5 word role.we | 本公司

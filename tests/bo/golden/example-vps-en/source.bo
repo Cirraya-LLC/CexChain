@@ -1,5 +1,5 @@
 bo 1
-contract VPSService
+contract VPS服務
 parties we, customer
 
 service VPS

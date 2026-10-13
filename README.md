@@ -43,7 +43,7 @@ CexChain is a ledger protocol and node for trust between organizations. Every do
 | `crypto/pkcs11` | Keys on PKCS #11 tokens: USB keys (UKey), smart cards, and HSMs, loaded at run time |
 | `ledger` | Ledger node: crash-safe storage, rule engine, checkpoints, receipts, evidence export, backups (C++26) |
 | `node` | HTTP API server and client (Asio), API tokens, and replicas (C++26) |
-| `bo` | The Bo contract language's compiler (in progress): language packs and the lexer so far. C++26 with static reflection and contracts, built with GCC 16; its front end (everything that reads source) also builds with Clang, for fuzzing |
+| `bo` | The Bo contract language's compiler (in progress): language packs, the lexer, and the parser so far. C++26 with static reflection and contracts, built with GCC 16; its front end (everything that reads source) also builds with Clang, for fuzzing |
 | `cli` | `cexchain` command-line tool: full control of keys, ledgers, actors, delegations, records, assets, contracts, proofs, and evidence |
 | `cexchain mcp` | MCP server through which an AI agent acts under its own key and delegation |
 
@@ -443,7 +443,7 @@ machine, narrated, with the bank's AI agent consenting through MCP.
 Bo is the language in which contracts will be written: a few keywords in English, Traditional
 Chinese (Hong Kong usage), and Simplified Chinese, freely mixed, and built-in business words
 (pledge, renew, suspend) with fixed meanings. Its compiler is being built. What exists now is
-the layer every source is read through, *language packs*, and the lexer. Each pack maps Bo's concepts (`kw.can`,
+the layer every source is read through, *language packs*, the lexer, and the parser. Each pack maps Bo's concepts (`kw.can`,
 `act.pledge`, `unit.GB`) to one language's spellings, with its reading rules (words that attach
 without a space, as in `可質押` or `每GB`; full-width punctuation; `萬` and `億`; date forms), its
 messages, and the sentences of the contract text. A pack never changes what runs: the same
@@ -456,6 +456,7 @@ cexchain bo packs check company.pack            # a pack of your own, alone and 
 cexchain bo packs check company.pack --language zh-Hant-HK   # messages in Traditional Chinese
 cexchain bo check contract.bo                   # problems, as FILE:LINE:COLUMN: error: message (code)
 cexchain bo check contract.bo --stage lex       # its tokens: 可質押 is kw.can + act.pledge
+cexchain bo check contract.bo --stage parse     # its tree, the same in every language
 ```
 
 The lexer reads a word only by the packs' fixed rules and never guesses: a run of characters
@@ -463,6 +464,25 @@ with two readings is an error asking for a space. So `可質押`, `can pledge`, 
 the same concepts; `可用率` stays one name; `500萬` is 5,000,000, `HKD 0.10` exact money, and
 `5,000` an error (write `5_000`). Invisible characters are refused, and so are names that only
 look alike (a Cyrillic `рау` beside `pay`), so the text the parties read is the text that runs.
+
+The parser turns the tokens into a tree of concepts and names, so a contract gives the same tree
+whatever language it is written in. Words whose argument sits on different sides in different
+languages meet there: `7 days before due` and `到期前 7日`, `consent of bank` and `經 銀行 同意`.
+
+```
+can pledge to bank                     可質押 予 銀行
+  over 5_000_000 requires in person      超過 5_000_000 須親身確認
+
+can act.pledge to=role.bank            (the tree of both)
+  requires cond.in_person guard=(cond.over 5000000)
+```
+
+Clauses are `contract`, `parties`, a kind and its fields (`asset Receivable`), `can` with `by`,
+`to`, and `with`, `when`, and `test`; an action's block holds `requires`, `if`/`otherwise`,
+`each`, `reject`, `FIELD = VALUE`, and state changes (`active -> suspended`). `=` sets a field at
+the start of an action's line and compares inside a condition. Ambiguity is an error, never a
+guess: `a < b < c`, or `monthly HKD 120 * 12` (which words does `*` take?), ask for a rewrite, and
+`可提款` is read as `可` + `提款` only when the contract declares `提款` and not `可提款`.
 
 Packs are files in CBOR diagnostic notation; `bo/packs/` holds the official ones. A pack's digest
 is the hash of its canonical CBOR, and a deploy will record the packs its source was read with, so

@@ -1,0 +1,30 @@
+1:1 word kw.contract | contract
+1:10 name Names | Names
+1:15 newline
+2:1 word kw.parties | parties
+2:9 word role.we | 本公司
+2:12 symbol , | ,
+2:14 word role.customer | 客戶
+2:16 newline
+4:1 word kind.asset | 資產
+4:4 name 賬戶 | 賬戶
+4:6 newline
+5:1 indent
+5:3 name 可提款 split=kw.can/提款 | 可提款
+5:7 word type.number | 數值
+5:9 newline
+7:1 dedent
+7:1 word kw.can | 可
+7:3 name 提款 | 提款
+7:6 word kw.by | 由
+7:8 word role.customer | 客戶
+7:10 newline
+8:1 name 可提款 split=kw.can/提款 | 可提款
+8:5 word kw.by | 由
+8:7 word role.we | 本公司
+8:10 newline
+9:1 name 可退錢 split=kw.can/退錢 | 可退錢
+9:5 word kw.by | 由
+9:7 word role.customer | 客戶
+9:9 newline
+10:1 end

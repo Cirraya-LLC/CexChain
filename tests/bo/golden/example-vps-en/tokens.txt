@@ -1,8 +1,8 @@
 1:1 edition_line 1 | bo 1
 1:5 newline
 2:1 word kw.contract | contract
-2:10 name VPSService | VPSService
-2:20 newline
+2:10 name VPS服務 | VPS服務
+2:15 newline
 3:1 word kw.parties | parties
 3:9 word role.we | we
 3:11 symbol , | ,

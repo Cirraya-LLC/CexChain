@@ -137,15 +137,18 @@ void add_spelling(Lexicon::Impl& lx, std::string_view spelling, const Meaning& m
         add_entry(lx, {words, meaning.concept_entry, meaning.form, Piece::whole});
         return;
     }
+    // Words on both sides of the place: the first part opens, the second
+    // closes, so the parser knows to expect the second.
+    const bool both = place > 0 && place < words.size();
     if (place > 0) {
         add_entry(lx, {std::vector<std::string>(words.begin(),
                                                 words.begin() + static_cast<std::ptrdiff_t>(place)),
-                       meaning.concept_entry, meaning.form, Piece::head});
+                       meaning.concept_entry, meaning.form, both ? Piece::open : Piece::head});
     }
     if (place < words.size()) {
         add_entry(lx, {std::vector<std::string>(words.begin() + static_cast<std::ptrdiff_t>(place),
                                                 words.end()),
-                       meaning.concept_entry, meaning.form, Piece::tail});
+                       meaning.concept_entry, meaning.form, both ? Piece::close : Piece::tail});
     }
 }
 
@@ -1089,8 +1092,8 @@ std::vector<const Entry*> Lexer::longest(std::string_view first,
         if (entry.words.size() - 1 > next.size()) {
             continue;
         }
-        if (vocabulary &&
-            (entry.concept_entry->category == Category::keyword || entry.piece == Piece::tail)) {
+        if (vocabulary && (entry.concept_entry->category == Category::keyword ||
+                           entry.piece == Piece::tail || entry.piece == Piece::close)) {
             continue;
         }
         if (!std::ranges::equal(std::span(entry.words).subspan(1),

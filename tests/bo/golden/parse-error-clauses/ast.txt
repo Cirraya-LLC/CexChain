@@ -1,0 +1,13 @@
+edition 1
+1:9 error parse.expected-name: a name of your own must follow contract: keywords and words of the vocabulary cannot be names
+2:6 error parse.expected-name: a name of your own must follow asset: keywords and words of the vocabulary cannot be names
+3:7 error parse.expected-name: a name of your own must follow asset: keywords and words of the vocabulary cannot be names
+4:4 error parse.expected-action: an action must follow can: a word of the vocabulary (pledge, transfer) or a name of your own
+5:14 error parse.expected-party: a party must follow to: a role (issuer, bank, customer) or a name of your own
+6:12 error parse.can: bank cannot follow the action here: write by PARTY, to PARTY, or with INPUTS, each at most once
+7:20 error parse.duplicate: to is given twice; give it once
+8:16 error parse.expected-value: a value must follow with
+9:6 error parse.when: when needs an event before its action: when overdue 3 days suspend, when 7 days before due notify customer
+10:21 error parse.trailing: the line is complete before to: remove it, or start a new line
+11:1 error parse.empty-block: when needs what it governs: an indented block under it, or for when, if, and otherwise, a statement on the same line
+12:16 error parse.expected-party: a party must follow ,: a role (issuer, bank, customer) or a name of your own

@@ -1,0 +1,16 @@
+contract Tests
+parties issuer, supplier, bank
+
+asset Receivable
+  amount HKD
+  holder supplier
+
+can pledge to bank
+can split with parts
+
+test "a second pledge is refused"
+  issuer issue with amount = HKD 1_000, holder = supplier
+  supplier pledge to bank1 at 2027-01-06 in person
+  -> pledged
+  supplier pledge to bank2 by AI agent -> refused "already pledged"
+  supplier split with parts = (HKD 400, HKD 600) -> refused

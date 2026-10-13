@@ -1,0 +1,20 @@
+edition 1
+contract Tests
+parties role.issuer role.supplier role.bank
+block kind.asset Receivable
+  field field.amount cur.HKD
+  field field.holder role.supplier
+can act.pledge to=role.bank
+can act.split
+  with field.parts
+test "a second pledge is refused"
+  do subject=role.issuer act.issue
+    set field.amount (money cur.HKD 1000)
+    set field.holder role.supplier
+  do subject=role.supplier act.pledge (time.at 2027-01-06) cond.in_person to=bank1
+  expect state.pledged
+  do subject=role.supplier act.pledge to=bank2 by=actor.ai_agent
+  expect val.refused "already pledged"
+  do subject=role.supplier act.split
+    set field.parts (list (money cur.HKD 400) (money cur.HKD 600))
+  expect val.refused

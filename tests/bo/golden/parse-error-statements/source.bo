@@ -1,0 +1,14 @@
+can pledge
+  tier < 5
+  otherwise
+  reject
+  reject 5
+  each x
+  each x in
+  if tier < 2
+  contract Q
+  ->
+  holder =
+  bank can
+  active, ->
+  sum of parts = amount

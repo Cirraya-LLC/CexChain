@@ -1,0 +1,21 @@
+edition 1
+contract VPS服務
+parties role.we role.customer
+block kind.service VPS
+  field price.price (phrase time.monthly (money cur.HKD 120))
+  field price.traffic (phrase time.monthly (quantity unit.TB 2)) (phrase price.overage price.per unit.GB (money cur.HKD 0.10))
+  field IP (quantity unit.item 1)
+  field charge.tax (phrase charge.by field.customer_location)
+can act.subscribe by=role.customer
+can act.renew by=role.customer
+can act.upgrade by=role.customer
+when (cond.before_due (duration time.day 7))
+  do act.notify role.customer
+when (phrase cond.overdue (duration time.day 3))
+  do act.suspend
+when (phrase cond.overdue (duration time.day 30))
+  do act.terminate
+  do act.reclaim IP
+can act.refund by=role.we
+  requires cond.in_person guard=(cond.over (money cur.HKD 100))
+  permit actor.ai_agent act.propose

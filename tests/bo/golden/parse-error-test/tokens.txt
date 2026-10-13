@@ -1,0 +1,28 @@
+1:1 word kw.contract | contract
+1:10 name T | T
+1:11 newline
+2:1 word kw.test | test
+2:5 newline
+3:1 indent
+3:3 word act.pledge | pledge
+3:10 word kw.to | to
+3:13 word role.bank | bank
+3:17 newline
+4:3 word role.supplier | supplier
+4:12 word act.pledge | pledge
+4:19 word kw.to | to
+4:21 newline
+5:3 word role.supplier | supplier
+5:12 word act.pledge | pledge
+5:19 symbol -> | ->
+5:21 newline
+6:3 word role.supplier | supplier
+6:12 number 5 | 5
+6:13 newline
+7:3 word kw.requires | requires
+7:12 name x | x
+7:13 newline
+8:3 symbol -> | ->
+8:5 newline
+9:1 dedent
+9:1 end

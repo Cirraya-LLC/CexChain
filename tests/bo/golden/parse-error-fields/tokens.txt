@@ -1,0 +1,22 @@
+1:1 word kind.asset | asset
+1:7 name A | A
+1:8 newline
+2:1 indent
+2:3 word field.amount | amount
+2:10 symbol = | =
+2:12 money cur.HKD 1 | HKD 1
+2:17 newline
+3:3 word kw.can | can
+3:7 name x | x
+3:8 newline
+4:3 word field.amount | amount
+4:10 word cur.HKD | HKD
+4:13 symbol , | ,
+4:14 newline
+5:3 word field.holder | holder
+5:10 word role.supplier | supplier
+5:19 word kw.to | to
+5:22 word role.bank | bank
+5:26 newline
+6:1 dedent
+6:1 end

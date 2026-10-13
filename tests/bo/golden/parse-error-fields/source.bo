@@ -1,0 +1,5 @@
+asset A
+  amount = HKD 1
+  can x
+  amount HKD,
+  holder supplier to bank

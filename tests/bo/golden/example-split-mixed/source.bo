@@ -1,0 +1,11 @@
+contract Split
+参与方 issuer, 供應商
+
+资产 Receivable
+  amount 港元
+  層級 number
+  holder 供应商
+
+可split 附带 各部分
+  requires 各部分 總和 = amount
+  須 tier < 5

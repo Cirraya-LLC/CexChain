@@ -1,0 +1,6 @@
+charge 增值税
+  稅率 6%
+  applies to 客户所在地 = 中国内地
+  另计
+  按 invoice 四捨五入
+  從 2027-01-01 起 rate 9%

@@ -1,0 +1,14 @@
+contract Rules
+parties we, customer, 甲方
+
+service Hosting
+  price monthly HKD 120
+
+can 停機 by we
+when overdue 3 days 停機
+when due 甲方 pays
+when 7 days before due notify customer and 甲方 pays
+when overdue 30 days and not paid
+  terminate
+  reclaim IP
+  -> terminated

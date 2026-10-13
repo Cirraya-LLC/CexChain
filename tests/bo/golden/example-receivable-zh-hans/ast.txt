@@ -1,0 +1,12 @@
+edition 1
+contract ReceivableFinancing
+parties role.issuer role.supplier role.bank
+block kind.asset Receivable
+  field field.amount cur.HKD
+  field field.due type.date
+  field field.holder role.supplier
+can act.pledge to=role.bank
+  requires cond.in_person guard=(cond.over 5000000)
+can act.transfer
+when field.due
+  do subject=role.issuer act.pay

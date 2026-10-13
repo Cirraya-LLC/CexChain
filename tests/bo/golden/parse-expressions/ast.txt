@@ -1,0 +1,10 @@
+edition 1
+can check
+  requires (= (- (+ a (* b c)) (/ d e)) f)
+  requires (or (>= (* (+ a b) c) 10) (and (not g) h))
+  requires (in x (list (money cur.HKD 1) (money cur.HKD 2) (money cur.HKD 3)))
+  requires (<= (expr.sum_of field.parts) field.amount)
+  requires (and (> (expr.count_of field.parts) 0) (< (expr.count_of field.parts) 17))
+  requires (or (cond.within (duration time.day 30)) (cond.within (duration time.day 30)))
+  requires (or (or (phrase cond.overdue (duration time.day 3)) (cond.before_due (duration time.day 7))) (cond.before_due (duration time.day 7)))
+  requires (and (and (and (< 2027-01-06 field.due) (> 5% charge.rate)) (= "text" note)) val.yes)

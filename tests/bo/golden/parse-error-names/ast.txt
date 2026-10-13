@@ -1,0 +1,9 @@
+edition 1
+contract Names
+parties role.we role.customer
+block kind.asset 賬戶
+  field 可提款 type.number
+can 提款 by=role.customer
+5:3 error parse.ambiguous-name: 可提款 could be the name 可提款 or 可 followed by 提款, since both are declared; Bo never guesses: write 可 提款 with a space, or rename one of them
+8:1 error parse.ambiguous-name: 可提款 could be the name 可提款 or 可 followed by 提款, since both are declared; Bo never guesses: write 可 提款 with a space, or rename one of them
+9:1 error parse.undeclared-split: 可退錢 is one name here, since nothing declares 退錢; to begin the line with 可, write 可 退錢 with a space

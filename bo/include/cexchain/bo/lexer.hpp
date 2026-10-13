@@ -81,15 +81,18 @@ inline constexpr std::array<std::string_view, 15> token_kind_names{
 /// Which part of a spelling a word token is. A concept that takes an
 /// argument marks its place with "…" in each spelling, and the words on
 /// either side are read as separate tokens: `consent of` (head) in
-/// `consent of bank`, and 經 (head) and 同意 (tail) in `經 銀行 同意`. The
-/// parser joins them.
+/// `consent of bank`, `before due` (tail) in `7 days before due`, and 經
+/// (open) and 同意 (close) in `經 銀行 同意`. The parser joins them.
 enum class Piece : std::uint8_t {
     whole, ///< a spelling without an argument's place
-    head,  ///< the words before the argument
-    tail,  ///< the words after the argument
+    head,  ///< the words before the argument, in a spelling with none after it
+    tail,  ///< the words after the argument, in a spelling with none before it
+    open,  ///< the words before the argument, in a spelling with words after it too
+    close, ///< the words after the argument, in a spelling with words before it too
 };
 
-inline constexpr std::array<std::string_view, 3> piece_names{"whole", "head", "tail"};
+inline constexpr std::array<std::string_view, 5> piece_names{"whole", "head", "tail", "open",
+                                                             "close"};
 
 /// Punctuation and operators. `×` is `*`, `÷` is `/`, and the packs'
 /// punctuation aliases (`，`, `（`) are their ASCII characters.

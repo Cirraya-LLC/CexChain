@@ -52,9 +52,9 @@
 10:18 newline
 11:1 word charge.rate | 費率
 11:4 rate 8.5% | 8.5%
-11:9 word charge.from piece=head | from
+11:9 word charge.from piece=open | from
 11:14 date 2027-01-01 | 2027年1月1日
-11:24 word charge.from piece=tail | on
+11:24 word charge.from piece=close | on
 11:26 newline
 12:1 word kw.requires | requires
 12:10 word field.tier | 層級

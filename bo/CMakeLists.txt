@@ -3,7 +3,7 @@
 
 # The Bo compiler (D-053), in two libraries:
 #   cexchain::bo_front  everything that reads untrusted text (language packs,
-#                       the lexer, later the parser). C++26 without reflection,
+#                       the lexer, the parser). C++26 without reflection,
 #                       contracts only through BO_PRE, BO_POST, and BO_ASSERT,
 #                       so that Clang builds it too and libFuzzer can fuzz it.
 #   cexchain::bo        the rest of the compiler, in C++26 with static
@@ -55,6 +55,7 @@ add_library(cexchain_bo_front
     src/front/official.cpp
     src/front/pack.cpp
     src/front/pack_set.cpp
+    src/front/parser.cpp
     src/front/spelling.cpp)
 add_library(cexchain::bo_front ALIAS cexchain_bo_front)
 target_include_directories(cexchain_bo_front PUBLIC
@@ -104,7 +105,8 @@ elseif(NOT CEXCHAIN_HAVE_REFLECTION_AND_CONTRACTS)
         "lacks C++26 reflection or contracts); only its front end is built")
 else()
     add_library(cexchain_bo
-        src/names.cpp)
+        src/names.cpp
+        src/tree.cpp)
     add_library(cexchain::bo ALIAS cexchain_bo)
     target_link_libraries(cexchain_bo PUBLIC cexchain::bo_front)
     target_compile_options(cexchain_bo PRIVATE -freflection)

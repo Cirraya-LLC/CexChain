@@ -1,0 +1,62 @@
+1:1 word kw.can | can
+1:5 word act.pledge | pledge
+1:11 newline
+2:1 indent
+2:3 word kw.requires | requires
+2:12 word cond.consent_of piece=open | 經
+2:14 word role.bank | 銀行
+2:16 newline
+3:3 word kw.requires | requires
+3:12 word role.bank | 銀行
+3:15 word cond.consent_of piece=close | 同意
+3:17 newline
+4:3 word kw.requires | requires
+4:12 word cond.before_due piece=tail | before due
+4:22 newline
+5:3 word kw.requires | requires
+5:12 name a | a
+5:14 symbol < | <
+5:16 name b | b
+5:18 symbol < | <
+5:20 name c | c
+5:21 newline
+6:3 word kw.requires | requires
+6:12 word time.monthly | monthly
+6:20 money cur.HKD 120 | HKD 120
+6:28 symbol * | *
+6:30 number 12 | 12
+6:33 symbol > | >
+6:35 name x | x
+6:36 newline
+7:3 word kw.requires | requires
+7:12 symbol ( | (
+7:13 name a | a
+7:14 newline
+8:3 word kw.requires | requires
+8:12 symbol ( | (
+8:13 name a | a
+8:15 name b | b
+8:16 symbol ) | )
+8:18 word kw.to | to
+8:20 newline
+9:3 word kw.requires | requires
+9:12 symbol ( | (
+9:13 symbol ) | )
+9:14 newline
+10:3 word kw.requires | requires
+10:12 word kw.not | not
+10:15 newline
+11:3 word kw.requires | requires
+11:12 name a | a
+11:14 word kw.and | and
+11:17 newline
+12:3 word kw.requires | requires
+12:12 name a | a
+12:14 word kw.or | or
+12:16 newline
+13:3 word kw.requires | requires
+13:12 word charge.from piece=open | 從
+13:14 date 2027-01-01 | 2027-01-01
+13:24 newline
+14:1 dedent
+14:1 end

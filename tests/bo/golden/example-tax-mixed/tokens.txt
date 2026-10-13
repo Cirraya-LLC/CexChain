@@ -1,0 +1,26 @@
+1:1 word charge.charge | charge
+1:8 name 增值税 | 增值税
+1:11 newline
+2:1 indent
+2:3 word charge.rate | 稅率
+2:6 rate 6% | 6%
+2:8 newline
+3:3 word charge.applies_to piece=head | applies to
+3:14 word field.customer_location | 客户所在地
+3:20 symbol = | =
+3:22 name 中国内地 | 中国内地
+3:26 newline
+4:3 word charge.added | 另计
+4:5 newline
+5:3 word charge.by | 按
+5:5 word doc.invoice | invoice
+5:13 word round.half_up | 四捨五入
+5:17 newline
+6:3 word charge.from piece=open | 從
+6:5 date 2027-01-01 | 2027-01-01
+6:16 word charge.from piece=close | 起
+6:18 word charge.rate | rate
+6:23 rate 9% | 9%
+6:25 newline
+7:1 dedent
+7:1 end

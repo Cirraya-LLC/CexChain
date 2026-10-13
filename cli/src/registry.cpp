@@ -1553,30 +1553,44 @@ std::vector<CommandSpec> build() {
 #if defined(CEXCHAIN_HAVE_BO)
         // ------------------------------------------------------------------
         {{"bo", "check"},
-         "Check a Bo source file; with --stage lex, show its tokens",
+         "Check a Bo source file; with --stage, show its tokens or its tree",
          "Bo language",
          "FILE",
          1,
          1,
          with({pack_option,
                language_option,
-               {"stage", "STAGE", "Show what a stage reads: lex (the tokens, with their places)"}}),
+               {"stage", "STAGE",
+                "Show what a stage reads: lex (the tokens, with their places) or parse (the "
+                "tree)"}}),
          cmd_bo_check,
          "Reads FILE (UTF-8) with the official language packs and any given with --pack, and\n"
-         "reports every problem (up to 100) as FILE:LINE:COLUMN: error: message (code), in the\n"
-         "language of --language. Exit status 2 if there is an error. So far the check is the\n"
-         "lexer's: lines and indentation (spaces only), # comments, words under the packs'\n"
-         "rules (可質押 is 可 + 質押; 每GB is 每 + GB; a word with two readings is an error,\n"
-         "since Bo never guesses), names, numbers (5_000_000, 0.10, 500萬, full-width digits),\n"
-         "money with its currency on either side (HKD 0.10), quantities (2TB, 3 噸, 1個),\n"
-         "durations (30日), percentages (5%), dates (2027-01-06, 2027年1月6日), texts in\n"
+         "reports every problem (up to 100 per stage) as FILE:LINE:COLUMN: error: message\n"
+         "(code), in the language of --language. Exit status 2 if there is an error. So far\n"
+         "the check is the lexer's and the parser's.\n\n"
+         "The lexer reads lines and indentation (spaces only), # comments, words under the\n"
+         "packs' rules (可質押 is 可 + 質押; 每GB is 每 + GB; a word with two readings is an\n"
+         "error, since Bo never guesses), names, numbers (5_000_000, 0.10, 500萬, full-width\n"
+         "digits), money with its currency on either side (HKD 0.10), quantities (2TB, 3 噸,\n"
+         "1個), durations (30日), percentages (5%), dates (2027-01-06, 2027年1月6日), texts in\n"
          "double quotes, and the edition line (bo 1). Invisible characters, and in names\n"
          "anything Unicode normalization would change, are refused, so that two names that\n"
          "look alike are never different.\n\n"
+         "The parser reads the clauses: contract NAME; parties; a kind and its fields (asset\n"
+         "Receivable, then amount HKD); can ACTION with by, to, with, and a block of requires,\n"
+         "if/otherwise, each, reject, FIELD = VALUE, state changes (active -> suspended), and\n"
+         "actions; when EVENT ACTION; test blocks of steps (supplier pledge to bank at\n"
+         "2027-01-06) and expectations (-> pledged, -> refused). Conditions use not, and, or,\n"
+         "the comparisons = < <= > >= and in, then + -, then * /. `use` is reserved.\n\n"
          "--stage lex prints one token per line: LINE:COLUMN KIND VALUE | as written. A word\n"
          "is its concept (kw.can, act.pledge), the same in every language; a word with an\n"
-         "argument's place comes in parts (piece=head, piece=tail: 經 ... 同意).\n\n"
+         "argument's place comes in pieces (consent of: piece=head; before due: piece=tail;\n"
+         "經 ... 同意: piece=open and piece=close).\n\n"
+         "--stage parse prints the tree: one clause or statement per line, expressions as\n"
+         "S-expressions of concepts and names, the same for the same contract in any\n"
+         "language. With --json, also the tree as objects with their places.\n\n"
          "  cexchain bo check contract.bo\n"
+         "  cexchain bo check contract.bo --stage parse\n"
          "  cexchain bo check contract.bo --stage lex --json\n\n" CEXCHAIN_BO_PACKS_HELP},
         {{"bo", "packs", "list"},
          "List the language packs Bo source is read with, and their digests",

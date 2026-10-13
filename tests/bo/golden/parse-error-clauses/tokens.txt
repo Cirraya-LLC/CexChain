@@ -1,0 +1,45 @@
+1:1 word kw.contract | contract
+1:9 newline
+2:1 word kind.asset | asset
+2:6 newline
+3:1 word kind.asset | asset
+3:7 word field.amount | amount
+3:13 newline
+4:1 word kw.can | can
+4:4 newline
+5:1 word kw.can | can
+5:5 word act.pledge | pledge
+5:12 word kw.to | to
+5:14 newline
+6:1 word kw.can | can
+6:5 word act.pledge | pledge
+6:12 word role.bank | bank
+6:16 newline
+7:1 word kw.can | can
+7:5 word act.pledge | pledge
+7:12 word kw.to | to
+7:15 word role.bank | bank
+7:20 word kw.to | to
+7:23 word role.issuer | issuer
+7:29 newline
+8:1 word kw.can | can
+8:5 word act.pledge | pledge
+8:12 word kw.with | with
+8:16 newline
+9:1 word kw.when | when
+9:6 word act.pay | pay
+9:9 newline
+10:1 word kw.when | when
+10:6 word cond.overdue | overdue
+10:14 duration time.day 3 | 3 days
+10:21 word kw.to | to
+10:23 newline
+11:1 word kw.when | when
+11:6 word cond.overdue | overdue
+11:14 duration time.day 3 | 3 days
+11:20 newline
+12:1 word kw.parties | parties
+12:9 word role.issuer | issuer
+12:15 symbol , | ,
+12:16 newline
+13:1 end

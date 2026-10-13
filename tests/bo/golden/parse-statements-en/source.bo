@@ -1,0 +1,22 @@
+contract Statements
+parties issuer, supplier, bank
+
+asset Note
+  amount HKD
+  tier number
+  holder supplier
+
+can pledge to bank by supplier with reason text, limit HKD
+  requires consent of bank and not frozen
+  over HKD 1_000_000 requires in person
+  AI agent can propose
+  bank can approve
+  if tier < 2 reject "the tier is too low"
+  otherwise if tier < 4
+    holder = bank
+    active, frozen -> pledged
+  otherwise
+    -> pledged
+  each part in parts
+    requires part > HKD 0
+  notify bank and issuer pays

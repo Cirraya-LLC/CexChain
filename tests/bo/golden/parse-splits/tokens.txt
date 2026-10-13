@@ -1,0 +1,33 @@
+1:1 word kw.contract | contract
+1:10 name Splits | Splits
+1:16 newline
+2:1 word kw.parties | parties
+2:9 word role.we | 本公司
+2:12 symbol , | ,
+2:14 word role.customer | 客戶
+2:16 newline
+4:1 word kind.asset | 資產
+4:4 name 賬戶 | 賬戶
+4:6 newline
+5:1 indent
+5:3 name 可用率 split=kw.can/用率 | 可用率
+5:7 word type.number | 數值
+5:9 newline
+6:3 name 結算日 | 結算日
+6:7 word type.date | 日期
+6:9 newline
+8:1 dedent
+8:1 word kw.can | 可
+8:3 name 提款 | 提款
+8:6 word kw.by | 由
+8:8 word role.customer | 客戶
+8:10 newline
+9:1 name 可提款 split=kw.can/提款 | 可提款
+9:5 word kw.by | 由
+9:7 word role.we | 本公司
+9:10 newline
+10:1 name 當結算日 split=kw.when/結算日 | 當結算日
+10:6 word act.notify | 通知
+10:9 word role.customer | 客戶
+10:11 newline
+11:1 end

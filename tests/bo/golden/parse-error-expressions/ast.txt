@@ -1,0 +1,14 @@
+edition 1
+can act.pledge
+2:12 error parse.missing-tail: 經 begins cond.consent_of, but the word that ends it is missing after the value
+3:15 error parse.missing-head: 同意 ends cond.consent_of, but the word that begins it is missing
+4:12 error parse.missing-argument: before due (cond.before_due) needs its value before it, as in 7 days before due
+5:18 error parse.chained-comparison: comparisons do not chain: write a < b and b < c, not a < b < c (at <)
+6:28 error parse.phrase-operator: words side by side cannot be combined with *: put them in parentheses
+7:12 error parse.unclosed: this ( is not closed on its line
+8:18 error parse.trailing: the line is complete before to: remove it, or start a new line
+9:13 error parse.expected-value: a value must follow (
+10:15 error parse.expected-value: a value must follow not
+11:17 error parse.expected-value: a value must follow and
+12:16 error parse.expected-value: a value must follow or
+13:12 error parse.missing-tail: 從 begins charge.from, but the word that ends it is missing after the value

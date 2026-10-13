@@ -1,0 +1,17 @@
+edition 1
+contract Rules
+parties role.we role.customer 甲方
+block kind.service Hosting
+  field price.price (phrase time.monthly (money cur.HKD 120))
+can 停機 by=role.we
+when (phrase cond.overdue (duration time.day 3))
+  do 停機
+when field.due
+  do subject=甲方 act.pay
+when (cond.before_due (duration time.day 7))
+  do act.notify role.customer
+  do subject=甲方 act.pay
+when (and (phrase cond.overdue (duration time.day 30)) (not state.paid))
+  do act.terminate
+  do act.reclaim IP
+  transition -> state.terminated

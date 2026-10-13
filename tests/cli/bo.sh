@@ -5,8 +5,8 @@
 # The Bo commands, end to end (D-053, step 6): the official language packs and
 # their digests, a company's own pack, and packs that are refused (a missing
 # keyword, one spelling with two meanings, a word an attaching rule could
-# split), with messages in each official language; checking source, and its
-# tokens (the lexer), in each language and mixed.
+# split), with messages in each official language; checking source, its
+# tokens (the lexer), and its tree (the parser), in each language and mixed.
 # Usage: bo.sh CEXCHAIN
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO (from lines ${BASH_LINENO[*]}): $BASH_COMMAND" >&2' ERR
@@ -64,7 +64,7 @@ for hash in SHA-256 SM3; do
     diff expected.txt digests.txt > /dev/null || fail "digests ($hash) differ from $GOLDEN"
 done
 json 'd[1]["keywords"], d[1]["words"], d[1]["official"], d[1]["separation"]' < list.json > out.txt
-contains -Fx "18 123 True none" out.txt || fail "facts"
+contains -Fx "18 125 True none" out.txt || fail "facts"
 
 run bo packs show zh-Hant-HK > out.txt
 contains -F "prefixes     可 (kw.can), 須 (kw.requires), 當 (kw.when), 如 (kw.if)" out.txt || fail "prefixes"
@@ -79,7 +79,7 @@ run bo packs show zh-Hans-CN --json > show.json
 json 'd["keywords"]["kw.each"], d["vocabulary"]["unit.item"]["category"], d["reading"]["multipliers"]["万"]' < show.json > out.txt
 contains -Fx "['逐个'] unit 10000" out.txt || fail "show --json"
 json 'len(d["messages"]), len(d["sentences"])' < show.json > out.txt
-contains -Fx "67 10" out.txt || fail "messages and sentences"
+contains -Fx "97 10" out.txt || fail "messages and sentences"
 expect_exit 1 bo packs show fr
 contains -F "no pack fr" out.txt || fail "unknown pack"
 expect_exit 1 bo packs show en --section nope
@@ -109,7 +109,7 @@ cat > company.pack <<'EOF'
 }
 EOF
 run bo packs check company.pack > out.txt
-contains -F "warning: pack acme-terms does not spell 120 of the 123 words" out.txt || fail "partial"
+contains -F "warning: pack acme-terms does not spell 122 of the 125 words" out.txt || fail "partial"
 contains -F "company.pack: pack acme-terms version 3 (community): 18 keywords, 3 words" out.txt || fail "check ok"
 contains -F "ok: the packs read" out.txt || fail "ok"
 run bo packs list --pack company.pack > out.txt
@@ -183,14 +183,20 @@ expect_exit 1 bo packs check
 expect_exit 2 bo packs check no-such.pack
 
 echo "== bo check: the spec's VPS example, in each language"
-for language in zh-hant zh-hans en; do
+for language in zh-hant zh-hans en mixed; do
     cp "$GOLDENS/example-vps-$language/source.bo" "vps-$language.bo"
     run bo check "vps-$language.bo" > out.txt
-    contains -Fx "vps-$language.bo: ok: 86 tokens, 2 comments, edition 1" out.txt || fail "check $language"
+    contains -Fx "vps-$language.bo: ok: 86 tokens, 2 comments, 10 clauses, edition 1" out.txt || fail "check $language"
     # --stage lex prints the tokens the lexer's goldens keep.
     run bo check "vps-$language.bo" --stage lex > tokens.txt
     sed '$d' tokens.txt > printed.txt
     diff "$GOLDENS/example-vps-$language/tokens.txt" printed.txt > /dev/null || fail "tokens ($language)"
+    # --stage parse prints the tree the parser's goldens keep: the same tree
+    # in every language.
+    run bo check "vps-$language.bo" --stage parse > tree.txt
+    sed '$d' tree.txt > printed.txt
+    diff "$GOLDENS/example-vps-$language/ast.txt" printed.txt > /dev/null || fail "tree ($language)"
+    diff "$GOLDENS/example-vps-zh-hant/ast.txt" printed.txt > /dev/null || fail "the same tree ($language)"
 done
 contains -F "2:4 name VPS服務 | VPS服務" "$GOLDENS/example-vps-zh-hant/tokens.txt" || fail "golden"
 run bo check vps-zh-hant.bo --stage lex --json > lex.json
@@ -233,10 +239,49 @@ contains -F "invisible.bo:1:11: error: the invisible character U+200B is not all
 printf 'contract \xff\n' > utf8.bo
 expect_exit 2 bo check utf8.bo
 contains -F "utf8.bo:1:10: error: the source is not valid UTF-8 here (lex.utf8)" out.txt || fail "utf8"
-expect_exit 1 bo check vps-en.bo --stage parse
-contains -F -- "--stage must be lex" out.txt || fail "stage"
+expect_exit 1 bo check vps-en.bo --stage nope
+contains -F -- "--stage must be lex (the tokens) or parse (the tree)" out.txt || fail "stage"
 expect_exit 1 bo check
 expect_exit 2 bo check no-such.bo
+
+echo "== bo check: the tree, one clause in any language"
+for language in en zh-hant zh-hans mixed; do
+    cp "$GOLDENS/example-receivable-$language/source.bo" "receivable-$language.bo"
+    run bo check "receivable-$language.bo" --stage parse --json > "receivable-$language.json"
+    json 'd["tree"]' < "receivable-$language.json" > "receivable-$language.tree"
+    diff receivable-en.tree "receivable-$language.tree" > /dev/null || fail "the same tree ($language)"
+done
+contains -Fx "can act.pledge to=role.bank" receivable-en.tree || fail "tree: can"
+contains -Fx "  requires cond.in_person guard=(cond.over 5000000)" receivable-en.tree || fail "tree: guard"
+# The tree as objects, member by member, with places in the source as written.
+json 'd["ok"], d["stage"], d["clauses"], [c["node"] for c in d["ast"]["clauses"]]' < receivable-zh-hant.json > out.txt
+contains -Fx "True parse 6 ['contract', 'parties', 'block', 'can', 'can', 'when']" out.txt || fail "parse --json"
+json 'd["ast"]["clauses"][3]["action"]["concept"], d["ast"]["clauses"][3]["to"]["concept"], d["ast"]["clauses"][3]["body"][0]["guard"]["concept"], d["ast"]["clauses"][3]["span"]' < receivable-zh-hant.json > out.txt
+contains -Fx "act.pledge role.bank cond.over {'line': 9, 'column': 1, 'offset': 143, 'length': 20}" out.txt || fail "parse --json members"
+json 'd["ast"]["clauses"][5]["actions"][0]["subject"]["concept"], d["ast"]["clauses"][5]["actions"][0]["action"]["concept"]' < receivable-en.json > out.txt
+contains -Fx "role.issuer act.pay" out.txt || fail "when: the party before the action"
+
+echo "== bo check: the parser's errors, with places, in the reader's language"
+printf 'contract X\ncan pledge bank\n  requires a < b < c\nuse modules\n可提款 由 客戶\n' > parse.bo
+expect_exit 2 bo check parse.bo
+contains -F "parse.bo:2:12: error: bank cannot follow the action here: write by PARTY, to PARTY, or with INPUTS, each at most once (parse.can)" out.txt || fail "can"
+contains -F "parse.bo:4:1: error: use is reserved for modules, in a later edition of Bo (parse.reserved)" out.txt || fail "use"
+contains -F "parse.bo:5:1: error: 可提款 is one name here, since nothing declares 提款; to begin the line with 可, write 可 提款 with a space (parse.undeclared-split)" out.txt || fail "split"
+contains -Fx "parse.bo: 3 errors" out.txt || fail "count (the block under a failed line is skipped)"
+expect_exit 2 bo check parse.bo --language zh-Hant-HK
+contains -F "parse.bo:2:12: error: bank 不可接在此動作之後：可寫 由 訂約方、予 訂約方 或 連同 輸入項，每項最多一次 (parse.can)" out.txt || fail "zh-Hant"
+CEXCHAIN_LANGUAGE=zh-Hans expect_exit 2 bo check parse.bo --stage parse
+contains -F "parse.bo:4:1: error: use 已保留给以后版本的模块使用 (parse.reserved)" out.txt || fail "zh-Hans"
+contains -Fx "contract X" out.txt || fail "the tree of what parsed"
+expect_exit 2 bo check parse.bo --json
+json '[(x["code"], x["span"]["line"], x["span"]["column"]) for x in d["diagnostics"]]' < out.txt > codes.txt
+contains -Fx "[('parse.can', 2, 12), ('parse.reserved', 4, 1), ('parse.undeclared-split', 5, 1)]" codes.txt || fail "parse errors in json"
+# The lexer's problems and the parser's together, in source order; a line
+# the lexer refused gets no second message from the parser.
+printf 'can pledge @@ bank\n  requires a < b < c\n' > both.bo
+expect_exit 2 bo check both.bo --json
+json '[x["code"] for x in d["diagnostics"]]' < out.txt > codes.txt
+contains -Fx "['lex.bad-character', 'lex.bad-character']" codes.txt || fail "lexer first, parser quiet"
 
 echo "== bo check: with a company's own pack"
 printf 'can lodge to bank\n可lodge 予 vendor\n' > own.bo

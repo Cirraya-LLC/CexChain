@@ -1,0 +1,11 @@
+edition 1
+contract Split
+parties role.issuer role.supplier
+block kind.asset Receivable
+  field field.amount cur.HKD
+  field field.tier type.number
+  field field.holder role.supplier
+can act.split
+  with field.parts
+  requires (= (expr.sum_of field.parts) field.amount)
+  requires (< field.tier 5)

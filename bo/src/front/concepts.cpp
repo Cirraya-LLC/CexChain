@@ -116,6 +116,8 @@ constexpr Concept unsorted_concepts[] = {
     {"time.yearly", time, 0},
     {"time.now", time, 0},
     {"time.today", time, 0},
+    // When a test's step happens (`at 2027-01-06`).
+    {"time.at", time, 1},
     // Units: TB is 1,000 GB, TiB 1,024 GiB.
     {"unit.MB", unit, 0},
     {"unit.GB", unit, 0},
@@ -150,6 +152,8 @@ constexpr Concept unsorted_concepts[] = {
     {"type.list", type, 0},
     {"val.yes", value, 0},
     {"val.no", value, 0},
+    // A test's expectation that a step is refused (`-> refused`).
+    {"val.refused", value, 0},
     // Fields.
     {"field.holder", field, 0},
     {"field.amount", field, 0},
@@ -279,6 +283,40 @@ constexpr MessageSpec unsorted_messages[] = {
     {"lex.not-normalized", Severity::error, "character"},
     {"lex.mixed-script", Severity::error, "name"},
     {"lex.confusable", Severity::error, "name other"},
+    // Parsing: lines and blocks.
+    {"parse.top-level", Severity::error, "found"},
+    {"parse.statement", Severity::error, "found"},
+    {"parse.field", Severity::error, "found"},
+    {"parse.step", Severity::error, "found"},
+    {"parse.trailing", Severity::error, "found"},
+    {"parse.unexpected-block", Severity::error, ""},
+    {"parse.empty-block", Severity::error, "word"},
+    {"parse.otherwise", Severity::error, "word"},
+    {"parse.duplicate", Severity::error, "word"},
+    {"parse.reserved", Severity::error, "word"},
+    {"parse.too-deep", Severity::error, "limit"},
+    // Clauses.
+    {"parse.expected-name", Severity::error, "after"},
+    {"parse.expected-action", Severity::error, "after"},
+    {"parse.expected-party", Severity::error, "after"},
+    {"parse.expected-value", Severity::error, "after"},
+    {"parse.expected-text", Severity::error, "after"},
+    {"parse.expected-state", Severity::error, "after"},
+    {"parse.expected-set", Severity::error, "after"},
+    {"parse.can", Severity::error, "found"},
+    {"parse.when", Severity::error, ""},
+    {"parse.each", Severity::error, ""},
+    {"parse.bare-condition", Severity::error, ""},
+    // Expressions.
+    {"parse.unclosed", Severity::error, ""},
+    {"parse.missing-head", Severity::error, "text concept"},
+    {"parse.missing-tail", Severity::error, "text concept"},
+    {"parse.missing-argument", Severity::error, "text concept"},
+    {"parse.chained-comparison", Severity::error, "operator"},
+    {"parse.phrase-operator", Severity::error, "operator"},
+    // Names: never guess.
+    {"parse.ambiguous-name", Severity::error, "name prefix rest"},
+    {"parse.undeclared-split", Severity::error, "name prefix rest"},
     // Any reading.
     {"bo.truncated", Severity::warning, "limit"},
 };

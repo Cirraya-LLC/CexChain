@@ -1,0 +1,110 @@
+1:1 word kw.contract | contract
+1:10 name Statements | Statements
+1:20 newline
+2:1 word kw.parties | parties
+2:9 word role.issuer | issuer
+2:15 symbol , | ,
+2:17 word role.supplier | supplier
+2:25 symbol , | ,
+2:27 word role.bank | bank
+2:31 newline
+4:1 word kind.asset | asset
+4:7 name Note | Note
+4:11 newline
+5:1 indent
+5:3 word field.amount | amount
+5:10 word cur.HKD | HKD
+5:13 newline
+6:3 word field.tier | tier
+6:8 word type.number | number
+6:14 newline
+7:3 word field.holder | holder
+7:10 word role.supplier | supplier
+7:18 newline
+9:1 dedent
+9:1 word kw.can | can
+9:5 word act.pledge | pledge
+9:12 word kw.to | to
+9:15 word role.bank | bank
+9:20 word kw.by | by
+9:23 word role.supplier | supplier
+9:32 word kw.with | with
+9:37 name reason | reason
+9:44 word type.text | text
+9:48 symbol , | ,
+9:50 name limit | limit
+9:56 word cur.HKD | HKD
+9:59 newline
+10:1 indent
+10:3 word kw.requires | requires
+10:12 word cond.consent_of piece=head | consent of
+10:23 word role.bank | bank
+10:28 word kw.and | and
+10:32 word kw.not | not
+10:36 word state.frozen | frozen
+10:42 newline
+11:3 word cond.over piece=head | over
+11:8 money cur.HKD 1000000 | HKD 1_000_000
+11:22 word kw.requires | requires
+11:31 word cond.in_person | in person
+11:40 newline
+12:3 word actor.ai_agent | AI agent
+12:12 word kw.can | can
+12:16 word act.propose | propose
+12:23 newline
+13:3 word role.bank | bank
+13:8 word kw.can | can
+13:12 word act.approve | approve
+13:19 newline
+14:3 word kw.if | if
+14:6 word field.tier | tier
+14:11 symbol < | <
+14:13 number 2 | 2
+14:15 word kw.reject | reject
+14:22 text "the tier is too low" | "the tier is too low"
+14:43 newline
+15:3 word kw.otherwise | otherwise
+15:13 word kw.if | if
+15:16 word field.tier | tier
+15:21 symbol < | <
+15:23 number 4 | 4
+15:24 newline
+16:1 indent
+16:5 word field.holder | holder
+16:12 symbol = | =
+16:14 word role.bank | bank
+16:18 newline
+17:5 word state.active | active
+17:11 symbol , | ,
+17:13 word state.frozen | frozen
+17:20 symbol -> | ->
+17:23 word state.pledged | pledged
+17:30 newline
+18:3 dedent
+18:3 word kw.otherwise | otherwise
+18:12 newline
+19:1 indent
+19:5 symbol -> | ->
+19:8 word state.pledged | pledged
+19:15 newline
+20:3 dedent
+20:3 word kw.each | each
+20:8 name part | part
+20:13 word kw.in | in
+20:16 word field.parts | parts
+20:21 newline
+21:1 indent
+21:5 word kw.requires | requires
+21:14 name part | part
+21:19 symbol > | >
+21:21 money cur.HKD 0 | HKD 0
+21:26 newline
+22:3 dedent
+22:3 word act.notify | notify
+22:10 word role.bank | bank
+22:15 word kw.and | and
+22:19 word role.issuer | issuer
+22:26 word act.pay form=third | pays
+22:30 newline
+23:1 dedent
+23:1 end

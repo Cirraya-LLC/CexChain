@@ -7,6 +7,7 @@
 #include <string>
 #include <string_view>
 
+#include <cexchain/bo/ast.hpp>
 #include <cexchain/bo/concepts.hpp>
 #include <cexchain/bo/contracts.hpp>
 #include <cexchain/bo/lexer.hpp>
@@ -28,6 +29,9 @@ namespace cexchain::bo {
 [[nodiscard]] std::string_view name_of(MeaningKind value) noexcept BO_POST(r, !r.empty());
 [[nodiscard]] std::string_view name_of(TokenKind value) noexcept BO_POST(r, !r.empty());
 [[nodiscard]] std::string_view name_of(Piece value) noexcept BO_POST(r, !r.empty());
+[[nodiscard]] std::string_view name_of(ast::ExprKind value) noexcept BO_POST(r, !r.empty());
+[[nodiscard]] std::string_view name_of(ast::LiteralKind value) noexcept BO_POST(r, !r.empty());
+[[nodiscard]] std::string_view name_of(ast::Operator value) noexcept BO_POST(r, !r.empty());
 
 /// What `bo packs list` shows of a pack.
 struct PackFacts {
@@ -59,5 +63,13 @@ struct PackFacts {
 /// up without more code).
 [[nodiscard]] cbor::Value to_cbor(const PackFacts& facts)
     BO_POST(r, r.as_map() != nullptr && !r.as_map()->empty());
+
+/// A parsed tree as CBOR (`bo check --stage parse --json`): each clause and
+/// statement a map with "node" (its tag) and one entry per member, keyed by
+/// the member's name, in declaration order, written by reflection, so a new
+/// member or node shows up without more code. Expressions are maps of the
+/// members their kind uses; places are maps of line, column, offset, and
+/// length; concepts are their ids.
+[[nodiscard]] cbor::Value to_cbor(const ast::File& file) BO_POST(r, r.as_map() != nullptr);
 
 } // namespace cexchain::bo

@@ -1,0 +1,5 @@
+contract X
+can pledge @@ bank
+  requires 5,000 < amount
+when overdue 3 days
+  suspend

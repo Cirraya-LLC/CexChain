@@ -1,0 +1,23 @@
+1:1 word kw.contract | contract
+1:10 name X | X
+1:12 name Y | Y
+1:13 newline
+2:1 word kw.contract | contract
+2:10 name Z | Z
+2:11 newline
+3:1 word field.holder | holder
+3:8 word role.supplier | supplier
+3:16 newline
+4:1 word kw.use | use
+4:5 name modules | modules
+4:12 newline
+5:1 word kw.parties | parties
+5:9 word role.issuer | issuer
+5:15 newline
+6:1 indent
+6:3 name indented | indented
+6:11 newline
+7:1 dedent
+7:1 word kw.test | test
+7:5 newline
+8:1 end

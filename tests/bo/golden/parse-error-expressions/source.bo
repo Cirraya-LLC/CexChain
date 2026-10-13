@@ -1,0 +1,13 @@
+can pledge
+  requires 經 銀行
+  requires 銀行 同意
+  requires before due
+  requires a < b < c
+  requires monthly HKD 120 * 12 > x
+  requires (a
+  requires (a b) to
+  requires ()
+  requires not
+  requires a and
+  requires a or
+  requires 從 2027-01-01

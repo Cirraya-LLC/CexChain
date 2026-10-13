@@ -1,0 +1,7 @@
+edition 1
+block charge.charge 增值税
+  field charge.rate 6%
+  field (charge.applies_to (= field.customer_location 中国内地))
+  field charge.added
+  field charge.by (phrase doc.invoice round.half_up)
+  field (charge.from 2027-01-01) (phrase charge.rate 9%)

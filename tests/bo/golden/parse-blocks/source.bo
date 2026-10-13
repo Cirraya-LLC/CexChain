@@ -1,0 +1,12 @@
+service Hosting
+  price monthly HKD 120, setup fee HKD 500
+resource Address
+  cooling period 30 days
+record Log
+  note text
+charge Fee
+  rate 2%
+  per line half even
+tax VAT
+  rate 5%
+  included

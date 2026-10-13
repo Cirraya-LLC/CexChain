@@ -1,0 +1,9 @@
+edition 1
+contract T
+test
+3:3 error parse.step: pledge cannot start a step: a test's lines are steps, the party first (supplier pledge to bank, optionally at DATE, in person, by AI agent), and expectations (-> pledged, -> refused)
+4:21 error parse.expected-party: a party must follow to: a role (issuer, bank, customer) or a name of your own
+5:21 error parse.expected-state: a state must follow ->: a word such as pledged, a name of your own, or refused in a test
+6:12 error parse.expected-action: an action must follow supplier: a word of the vocabulary (pledge, transfer) or a name of your own
+7:3 error parse.step: requires cannot start a step: a test's lines are steps, the party first (supplier pledge to bank, optionally at DATE, in person, by AI agent), and expectations (-> pledged, -> refused)
+8:5 error parse.expected-state: a state must follow ->: a word such as pledged, a name of your own, or refused in a test

@@ -1,0 +1,13 @@
+edition 1
+block kind.service Hosting
+  field price.price (phrase time.monthly (money cur.HKD 120)) (phrase price.setup_fee (money cur.HKD 500))
+block kind.resource Address
+  field field.cooling_period (duration time.day 30)
+block kind.record Log
+  field note type.text
+block charge.charge Fee
+  field charge.rate 2%
+  field charge.per_line round.half_even
+block charge.tax VAT
+  field charge.rate 5%
+  field charge.included

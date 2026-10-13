@@ -61,7 +61,7 @@ catch_discover_tests(cexchain_tests)
 # The Bo compiler (D-053): its front end with any compiler, the rest where it
 # builds (GCC 16). Labelled "bo": the GCC ASan+UBSan configuration builds and
 # runs these alone.
-add_executable(cexchain_bo_tests bo/lexer_test.cpp bo/packs_test.cpp)
+add_executable(cexchain_bo_tests bo/lexer_test.cpp bo/packs_test.cpp bo/parser_test.cpp)
 target_link_libraries(cexchain_bo_tests PRIVATE
     cexchain::bo_front
     cexchain::crypto_openssl

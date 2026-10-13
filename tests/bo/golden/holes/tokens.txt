@@ -1,9 +1,9 @@
 1:1 word cond.consent_of piece=head | consent of
 1:12 word role.supplier | supplier
 1:20 newline
-2:1 word cond.consent_of piece=head | 經
+2:1 word cond.consent_of piece=open | 經
 2:3 word role.supplier | 供應商
-2:7 word cond.consent_of piece=tail | 同意
+2:7 word cond.consent_of piece=close | 同意
 2:9 newline
 3:1 duration time.day 7 | 7 days
 3:8 word cond.before_due piece=tail | before due
@@ -11,13 +11,13 @@
 4:1 word cond.before_due piece=head | 到期前
 4:5 duration time.day 7 | 7日
 4:7 newline
-5:1 word charge.from piece=head | from
+5:1 word charge.from piece=open | from
 5:6 date 2027-01-01 | 2027-01-01
-5:17 word charge.from piece=tail | on
+5:17 word charge.from piece=close | on
 5:19 newline
-6:1 word charge.from piece=head | 從
+6:1 word charge.from piece=open | 從
 6:3 date 2027-01-01 | 2027-01-01
-6:14 word charge.from piece=tail | 起
+6:14 word charge.from piece=close | 起
 6:15 newline
 7:1 word expr.sum_of piece=head | sum of
 7:8 word field.parts | parts

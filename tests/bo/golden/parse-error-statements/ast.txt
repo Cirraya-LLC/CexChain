@@ -1,0 +1,15 @@
+edition 1
+can act.pledge
+2:3 error parse.bare-condition: a condition alone does nothing: write requires or if before it; to set a field, write FIELD = VALUE
+3:3 error parse.otherwise: otherwise must follow an if block at the same indentation
+4:9 error parse.expected-text: a text in double quotes must follow reject
+5:10 error parse.expected-text: a text in double quotes must follow reject
+6:8 error parse.each: each is written each NAME in LIST, with the lines to repeat in a block under it
+7:12 error parse.expected-value: a value must follow in
+8:3 error parse.empty-block: if needs what it governs: an indented block under it, or for when, if, and otherwise, a statement on the same line
+9:3 error parse.statement: contract cannot start a line in an action's block: write requires, if, otherwise, each, reject, a field set (holder = bank), a state change (active -> suspended), an action (notify customer), or who may propose (AI agent can propose)
+10:5 error parse.expected-state: a state must follow ->: a word such as pledged, a name of your own, or refused in a test
+11:11 error parse.expected-value: a value must follow =
+12:11 error parse.expected-action: an action must follow can: a word of the vocabulary (pledge, transfer) or a name of your own
+13:11 error parse.expected-value: a value must follow ,
+14:3 error parse.bare-condition: a condition alone does nothing: write requires or if before it; to set a field, write FIELD = VALUE

@@ -1,0 +1,4 @@
+edition 1
+can act.pledge
+2:62 error parse.too-deep: this line nests more than 100 levels deep (parentheses, operators, or otherwise if)
+3:408 error parse.too-deep: this line nests more than 100 levels deep (parentheses, operators, or otherwise if)

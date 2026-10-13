@@ -52,9 +52,9 @@
 10:14 newline
 11:1 word charge.rate | 税率
 11:4 rate 8.5% | 8.5%
-11:9 word charge.from piece=head | 从
+11:9 word charge.from piece=open | 从
 11:11 date 2027-01-01 | 2027-01-01
-11:22 word charge.from piece=tail | 起
+11:22 word charge.from piece=close | 起
 11:23 newline
 12:1 word kw.requires | 须
 12:3 word field.tier | 层级

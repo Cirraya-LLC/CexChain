@@ -1,0 +1,10 @@
+edition 1
+contract Splits
+parties role.we role.customer
+block kind.asset 賬戶
+  field 可用率 type.number
+  field 結算日 type.date
+can 提款 by=role.customer
+can 提款 by=role.we
+when 結算日
+  do act.notify role.customer

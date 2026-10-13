@@ -1,0 +1,49 @@
+1:1 word kw.can | can
+1:5 word act.pledge | pledge
+1:11 newline
+2:1 indent
+2:3 word field.tier | tier
+2:8 symbol < | <
+2:10 number 5 | 5
+2:11 newline
+3:3 word kw.otherwise | otherwise
+3:12 newline
+4:3 word kw.reject | reject
+4:9 newline
+5:3 word kw.reject | reject
+5:10 number 5 | 5
+5:11 newline
+6:3 word kw.each | each
+6:8 name x | x
+6:9 newline
+7:3 word kw.each | each
+7:8 name x | x
+7:10 word kw.in | in
+7:12 newline
+8:3 word kw.if | if
+8:6 word field.tier | tier
+8:11 symbol < | <
+8:13 number 2 | 2
+8:14 newline
+9:3 word kw.contract | contract
+9:12 name Q | Q
+9:13 newline
+10:3 symbol -> | ->
+10:5 newline
+11:3 word field.holder | holder
+11:10 symbol = | =
+11:11 newline
+12:3 word role.bank | bank
+12:8 word kw.can | can
+12:11 newline
+13:3 word state.active | active
+13:9 symbol , | ,
+13:11 symbol -> | ->
+13:13 newline
+14:3 word expr.sum_of piece=head | sum of
+14:10 word field.parts | parts
+14:16 symbol = | =
+14:18 word field.amount | amount
+14:24 newline
+15:1 dedent
+15:1 end

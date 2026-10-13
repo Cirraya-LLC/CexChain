@@ -1,0 +1,26 @@
+edition 1
+contract Statements
+parties role.issuer role.supplier role.bank
+block kind.asset Note
+  field field.amount cur.HKD
+  field field.tier type.number
+  field field.holder role.supplier
+can act.pledge by=role.supplier to=role.bank
+  with reason type.text
+  with limit cur.HKD
+  requires (and (cond.consent_of role.bank) (not state.frozen))
+  requires cond.in_person guard=(cond.over (money cur.HKD 1000000))
+  permit actor.ai_agent act.propose
+  permit role.bank act.approve
+  if (< field.tier 2)
+    reject "the tier is too low"
+  otherwise
+    if (< field.tier 4)
+      set field.holder role.bank
+      transition state.active state.frozen -> state.pledged
+    otherwise
+      transition -> state.pledged
+  each part in=field.parts
+    requires (> part (money cur.HKD 0))
+  do act.notify role.bank
+  do subject=role.issuer act.pay

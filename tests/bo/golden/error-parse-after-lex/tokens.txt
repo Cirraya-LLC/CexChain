@@ -1,0 +1,25 @@
+1:1 word kw.contract | contract
+1:10 name X | X
+1:11 newline
+2:1 word kw.can | can
+2:5 word act.pledge | pledge
+2:15 word role.bank | bank
+2:19 newline
+3:1 indent
+3:3 word kw.requires | requires
+3:18 symbol < | <
+3:20 word field.amount | amount
+3:26 newline
+4:1 dedent
+4:1 word kw.when | when
+4:6 word cond.overdue | overdue
+4:14 duration time.day 3 | 3 days
+4:20 newline
+5:1 indent
+5:3 word act.suspend | suspend
+5:10 newline
+6:1 dedent
+6:1 end
+2:12 error lex.bad-character: U+0040 (@) cannot appear here: it is not part of a word, a number, or an operator
+2:13 error lex.bad-character: U+0040 (@) cannot appear here: it is not part of a word, a number, or an operator
+3:12 error lex.digit-comma: 5,000: a comma never groups digits; write 5_000

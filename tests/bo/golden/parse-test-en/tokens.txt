@@ -1,0 +1,82 @@
+1:1 word kw.contract | contract
+1:10 name Tests | Tests
+1:15 newline
+2:1 word kw.parties | parties
+2:9 word role.issuer | issuer
+2:15 symbol , | ,
+2:17 word role.supplier | supplier
+2:25 symbol , | ,
+2:27 word role.bank | bank
+2:31 newline
+4:1 word kind.asset | asset
+4:7 name Receivable | Receivable
+4:17 newline
+5:1 indent
+5:3 word field.amount | amount
+5:10 word cur.HKD | HKD
+5:13 newline
+6:3 word field.holder | holder
+6:10 word role.supplier | supplier
+6:18 newline
+8:1 dedent
+8:1 word kw.can | can
+8:5 word act.pledge | pledge
+8:12 word kw.to | to
+8:15 word role.bank | bank
+8:19 newline
+9:1 word kw.can | can
+9:5 word act.split | split
+9:11 word kw.with | with
+9:16 word field.parts | parts
+9:21 newline
+11:1 word kw.test | test
+11:6 text "a second pledge is refused" | "a second pledge is refused"
+11:34 newline
+12:1 indent
+12:3 word role.issuer | issuer
+12:10 word act.issue | issue
+12:16 word kw.with | with
+12:21 word field.amount | amount
+12:28 symbol = | =
+12:30 money cur.HKD 1000 | HKD 1_000
+12:39 symbol , | ,
+12:41 word field.holder | holder
+12:48 symbol = | =
+12:50 word role.supplier | supplier
+12:58 newline
+13:3 word role.supplier | supplier
+13:12 word act.pledge | pledge
+13:19 word kw.to | to
+13:22 name bank1 | bank1
+13:28 word time.at piece=head | at
+13:31 date 2027-01-06 | 2027-01-06
+13:42 word cond.in_person | in person
+13:51 newline
+14:3 symbol -> | ->
+14:6 word state.pledged | pledged
+14:13 newline
+15:3 word role.supplier | supplier
+15:12 word act.pledge | pledge
+15:19 word kw.to | to
+15:22 name bank2 | bank2
+15:28 word kw.by | by
+15:31 word actor.ai_agent | AI agent
+15:40 symbol -> | ->
+15:43 word val.refused | refused
+15:51 text "already pledged" | "already pledged"
+15:68 newline
+16:3 word role.supplier | supplier
+16:12 word act.split | split
+16:18 word kw.with | with
+16:23 word field.parts | parts
+16:29 symbol = | =
+16:31 symbol ( | (
+16:32 money cur.HKD 400 | HKD 400
+16:39 symbol , | ,
+16:41 money cur.HKD 600 | HKD 600
+16:48 symbol ) | )
+16:50 symbol -> | ->
+16:53 word val.refused | refused
+16:60 newline
+17:1 dedent
+17:1 end
