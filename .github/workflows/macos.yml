@@ -28,6 +28,12 @@ jobs:
           cmake --build --preset gcc-debug
           ctest --preset gcc-debug
 
+      - name: GCC 16 with AddressSanitizer and UndefinedBehaviorSanitizer (the Bo compiler)
+        run: |
+          cmake --preset gcc-asan -DCMAKE_CXX_COMPILER=g++-16
+          cmake --build --preset gcc-asan
+          ctest --preset gcc-asan
+
       - name: Clang with AddressSanitizer and UndefinedBehaviorSanitizer
         run: |
           cmake --preset clang-asan -DCMAKE_CXX_COMPILER="$(brew --prefix llvm)/bin/clang++"

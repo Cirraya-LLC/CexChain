@@ -37,13 +37,16 @@ jobs:
           cmake --build --preset gcc-debug
           ctest --preset gcc-debug
 
-      - name: GCC 16 release (as the Docker image builds it)
+      - name: GCC 16 release (as the Docker image builds it, with the Bo compiler)
         run: |
           cmake --preset gcc-release -DCMAKE_CXX_COMPILER=g++ -DCEXCHAIN_BUILD_TESTS=OFF \
               -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc"
           cmake --build --preset gcc-release --target cexchain
           build/gcc-release/cli/cexchain version
+          build/gcc-release/cli/cexchain bo packs list
 
+      # Clang has no C++26 reflection or contracts yet: it builds everything
+      # but the Bo compiler proper, its front end included.
       - name: Clang 23 with AddressSanitizer and UndefinedBehaviorSanitizer
         run: |
           cmake --preset clang-asan -DCMAKE_CXX_COMPILER=clang++-23
@@ -54,6 +57,25 @@ jobs:
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git ls-files '*.cpp' '*.hpp' | xargs clang-format-23 --dry-run --Werror
+
+  bo-sanitizers:
+    # The Bo compiler is C++26 with reflection and contracts, which only GCC
+    # builds: its sanitizer run is GCC's. It builds the Bo tests alone.
+    name: Linux (GCC 16 with sanitizers, the Bo compiler)
+    runs-on: ubuntu-latest
+    container: gcc:16-trixie
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install tools
+        run: .github/scripts/install-linux-tools.sh
+
+      - name: GCC 16 with AddressSanitizer and UndefinedBehaviorSanitizer
+        run: |
+          cmake --preset gcc-asan -DCMAKE_CXX_COMPILER=g++
+          cmake --build --preset gcc-asan
+          ctest --preset gcc-asan
 
   thread-sanitizer:
     name: Linux (Clang 23 with ThreadSanitizer)

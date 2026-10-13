@@ -18,12 +18,14 @@ WORKDIR /src
 COPY . .
 # Parallel compile jobs (default: all cores); lower it on small machines.
 ARG BUILD_JOBS=
-# GCC 16's C++ library is newer than Debian's: link it in.
+# GCC 16's C++ library is newer than Debian's: link it in. The preset requires
+# the Bo compiler (CEXCHAIN_BO=ON), so the image always has the bo commands.
 RUN cmake --preset gcc-release -DCMAKE_CXX_COMPILER=g++ -DCEXCHAIN_BUILD_TESTS=OFF \
         -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc" \
  && cmake --build --preset gcc-release --target cexchain ${BUILD_JOBS:+-j $BUILD_JOBS} \
  && strip build/gcc-release/cli/cexchain \
- && build/gcc-release/cli/cexchain version
+ && build/gcc-release/cli/cexchain version \
+ && build/gcc-release/cli/cexchain bo packs list > /dev/null
 
 FROM debian:trixie-slim
 RUN apt-get update \
