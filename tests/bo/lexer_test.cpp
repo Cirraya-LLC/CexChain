@@ -109,7 +109,9 @@ Lexicon with_pack(std::string_view vocabulary) {
 TEST_CASE("the lexer's goldens", "[bo][lexer]") {
     std::vector<std::filesystem::path> cases;
     for (const auto& entry : std::filesystem::directory_iterator(golden_dir)) {
-        if (std::filesystem::exists(entry.path() / "source.bo")) {
+        // The checker's own cases (check-*) keep only the model.
+        if (std::filesystem::exists(entry.path() / "source.bo") &&
+            !entry.path().filename().string().starts_with("check-")) {
             cases.push_back(entry.path());
         }
     }

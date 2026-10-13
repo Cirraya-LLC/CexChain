@@ -48,10 +48,12 @@ unset(CMAKE_CXX_STANDARD)
 set(official_packs en zh-Hant-HK zh-Hans-CN)
 
 add_library(cexchain_bo_front
+    src/front/checker.cpp
     src/front/concepts.cpp
     src/front/identifiers.cpp
     src/front/lexer.cpp
     src/front/messages.cpp
+    src/front/model.cpp
     src/front/official.cpp
     src/front/pack.cpp
     src/front/pack_set.cpp
@@ -105,6 +107,7 @@ elseif(NOT CEXCHAIN_HAVE_REFLECTION_AND_CONTRACTS)
         "lacks C++26 reflection or contracts); only its front end is built")
 else()
     add_library(cexchain_bo
+        src/checked.cpp
         src/names.cpp
         src/tree.cpp)
     add_library(cexchain::bo ALIAS cexchain_bo)

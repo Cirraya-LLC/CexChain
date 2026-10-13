@@ -1,0 +1,14 @@
+# Two parties agree on terms: the customer signs, with our consent, and we
+# close. The first state is the one no state change leads to (R4).
+contract Agreement
+parties we, customer
+
+record Terms
+  terms text
+  price HKD
+
+can sign by customer
+  requires consent of we
+  proposed -> signed
+can close by we
+  signed -> closed

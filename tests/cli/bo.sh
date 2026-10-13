@@ -6,7 +6,8 @@
 # their digests, a company's own pack, and packs that are refused (a missing
 # keyword, one spelling with two meanings, a word an attaching rule could
 # split), with messages in each official language; checking source, its
-# tokens (the lexer), and its tree (the parser), in each language and mixed.
+# tokens (the lexer), its tree (the parser), and its model (the checker), in
+# each language and mixed.
 # Usage: bo.sh CEXCHAIN
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO (from lines ${BASH_LINENO[*]}): $BASH_COMMAND" >&2' ERR
@@ -79,7 +80,7 @@ run bo packs show zh-Hans-CN --json > show.json
 json 'd["keywords"]["kw.each"], d["vocabulary"]["unit.item"]["category"], d["reading"]["multipliers"]["万"]' < show.json > out.txt
 contains -Fx "['逐个'] unit 10000" out.txt || fail "show --json"
 json 'len(d["messages"]), len(d["sentences"])' < show.json > out.txt
-contains -Fx "97 10" out.txt || fail "messages and sentences"
+contains -Fx "138 49" out.txt || fail "messages and sentences"
 expect_exit 1 bo packs show fr
 contains -F "no pack fr" out.txt || fail "unknown pack"
 expect_exit 1 bo packs show en --section nope
@@ -185,8 +186,11 @@ expect_exit 2 bo packs check no-such.pack
 echo "== bo check: the spec's VPS example, in each language"
 for language in zh-hant zh-hans en mixed; do
     cp "$GOLDENS/example-vps-$language/source.bo" "vps-$language.bo"
-    run bo check "vps-$language.bo" > out.txt
+    run bo check "vps-$language.bo" > out.txt 2> warnings.txt
     contains -Fx "vps-$language.bo: ok: 86 tokens, 2 comments, 10 clauses, edition 1" out.txt || fail "check $language"
+    contains -Fx "vps-$language.bo: checked: 2 parties, 5 fields, 0 charges, 1 state, 4 actions, 3 time rules; 6 warnings" out.txt || fail "checked $language"
+    # The executor clauses are marked: they come in step 6b.
+    [ "$(grep -c "(check.needs-executor)" warnings.txt)" = 6 ] || fail "executors marked ($language)"
     # --stage lex prints the tokens the lexer's goldens keep.
     run bo check "vps-$language.bo" --stage lex > tokens.txt
     sed '$d' tokens.txt > printed.txt
@@ -208,8 +212,8 @@ contains -Fx "[('word', 'kw.can', 11, 1, '可'), ('word', 'act.subscribe', 11, 2
 json '[(t["value"], t["unit"]) for t in d["tokens"] if t["kind"] == "money"]' < lex.json > out.txt
 contains -Fx "[('120', 'cur.HKD'), ('0.10', 'cur.HKD'), ('100', 'cur.HKD')]" out.txt || fail "money in json"
 run bo check vps-en.bo --json > out.txt
-json '"tokens" in d, d["diagnostics"]' < out.txt > keys.txt
-contains -Fx "False []" keys.txt || fail "check --json without --stage"
+json '"tokens" in d, d["stage"], d["checked"], sorted(set(x["code"] for x in d["diagnostics"])), [x["severity"] for x in d["diagnostics"]].count("warning")' < out.txt > keys.txt
+contains -Fx "False check True ['check.needs-executor'] 6" keys.txt || fail "check --json without --stage"
 
 echo "== bo check: one line, any language, the same concepts"
 printf 'can pledge to bank\n可質押 予 銀行\n可质押 给 银行\n可pledge 予 bank\n' > lines.bo
@@ -240,7 +244,7 @@ printf 'contract \xff\n' > utf8.bo
 expect_exit 2 bo check utf8.bo
 contains -F "utf8.bo:1:10: error: the source is not valid UTF-8 here (lex.utf8)" out.txt || fail "utf8"
 expect_exit 1 bo check vps-en.bo --stage nope
-contains -F -- "--stage must be lex (the tokens) or parse (the tree)" out.txt || fail "stage"
+contains -F -- "--stage must be lex (the tokens), parse (the tree), or model (the checked model)" out.txt || fail "stage"
 expect_exit 1 bo check
 expect_exit 2 bo check no-such.bo
 
@@ -282,6 +286,51 @@ printf 'can pledge @@ bank\n  requires a < b < c\n' > both.bo
 expect_exit 2 bo check both.bo --json
 json '[x["code"] for x in d["diagnostics"]]' < out.txt > codes.txt
 contains -Fx "['lex.bad-character', 'lex.bad-character']" codes.txt || fail "lexer first, parser quiet"
+
+echo "== bo check: the model, the same in every language"
+for language in en zh-hant zh-hans mixed; do
+    cp "$GOLDENS/example-receivable-$language/source.bo" "receivable-$language.bo"
+    run bo check "receivable-$language.bo" --stage model > model.txt
+    sed '$d' model.txt | sed '$d' > "receivable-$language.model"
+    diff "$GOLDENS/example-receivable-en/check.txt" "receivable-$language.model" > /dev/null || fail "model ($language)"
+done
+contains -Fx "party role.bank bound=act.pledge{R3}" receivable-en.model || fail "model: the bank, bound by the pledge"
+contains -Fx "  requires cond.in_person{R13} guard=(cond.over (money cur.HKD 5000000){R6})" receivable-en.model || fail "model: threshold"
+contains -Fx "  do subject=role.issuer act.pay obligation{R9}" receivable-en.model || fail "model: duty"
+run bo check receivable-zh-hant.bo --stage model --json > model.json
+json 'd["ok"], d["stage"], d["checked"], d["model"]["name"], d["model"]["parties"][2]["bound_by"], d["model"]["fields"][0]["type"]' < model.json > out.txt
+contains -Fx "True model True ReceivableFinancing act.pledge money cur.HKD" out.txt || fail "model --json"
+json 'd["model"]["actions"][0]["body"][0]["guard"]["operands"][0]["rule"], d["model"]["actions"][0]["body"][0]["span"]["line"]' < model.json > out.txt
+contains -Fx "R6 10" out.txt || fail "model --json: the rule and the place"
+json 'd["dump"].splitlines()[0]' < model.json > out.txt
+contains -Fx "edition 1" out.txt || fail "model --json: the text"
+cp "$GOLDENS/example-tax-en/source.bo" tax.bo
+run bo check tax.bo > out.txt 2> warnings.txt
+contains -Fx "tax.bo: checked: 0 parties, 1 field, 1 charge, 1 state, 0 actions, 0 time rules; 1 warning" out.txt || fail "fragment"
+contains -F "tax.bo: warning: there is no contract line, so this file is checked as a fragment" warnings.txt || fail "fragment warning"
+
+echo "== bo check: the checker's errors, in the reader's language"
+printf 'contract C\nparties issuer, supplier\nasset A\n  amount HKD\n  holder HKD\ncan pledge to bank\n  over USD 5 requires in person\ncan go\n' > model.bo
+expect_exit 2 bo check model.bo
+contains -F "model.bo:5:10: error: holder holds a party, not money in HKD (check.field-type)" out.txt || fail "field type"
+contains -F "model.bo:6:15: error: bank is not one of the contract's parties: add it to the parties line (check.unknown-party)" out.txt || fail "party"
+contains -F "model.bo:7:8: error: money in USD and money in HKD are in different currencies; Bo never converts one into the other (check.mixed-currencies)" out.txt || fail "currencies"
+contains -F "model.bo:8:5: error: who starts go? An action of your own needs by PARTY (check.needs-by)" out.txt || fail "by"
+contains -Fx "model.bo: 4 errors" out.txt || fail "count"
+expect_exit 2 bo check model.bo --language zh-Hant-HK
+contains -F "model.bo:5:10: error: 持有人 存放的是訂約方，而非港元金額 (check.field-type)" out.txt || fail "zh-Hant"
+contains -F "model.bo:7:8: error: 美元金額與港元金額是不同貨幣；Bo 從不換算貨幣 (check.mixed-currencies)" out.txt || fail "zh-Hant currencies"
+CEXCHAIN_LANGUAGE=zh-Hans expect_exit 2 bo check model.bo --stage model
+contains -F "model.bo:6:15: error: 银行 不是此合约的参与方：请把它加入 参与方 一行 (check.unknown-party)" out.txt || fail "zh-Hans"
+contains -Fx "contract C" out.txt || fail "the model of what checked"
+expect_exit 2 bo check model.bo --json
+json '[(x["code"], x["span"]["line"], x["args"].get("type", "")) for x in d["diagnostics"]]' < out.txt > codes.txt
+contains -Fx "[('check.field-type', 5, 'money cur.HKD'), ('check.unknown-party', 6, ''), ('check.mixed-currencies', 7, ''), ('check.needs-by', 8, '')]" codes.txt || fail "checker errors in json"
+# A source the lexer or the parser refuses is not checked.
+printf 'contract C\ncan pledge to bank bank\n' > unparsed.bo
+expect_exit 2 bo check unparsed.bo --json
+json 'd["checked"], [x["code"] for x in d["diagnostics"]]' < out.txt > codes.txt
+contains -Fx "False ['parse.can']" codes.txt || fail "no check after a parse error"
 
 echo "== bo check: with a company's own pack"
 printf 'can lodge to bank\n可lodge 予 vendor\n' > own.bo

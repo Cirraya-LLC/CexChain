@@ -2,8 +2,8 @@
 // Copyright 2026 Cirraya
 
 // cexchain::bo, the part of the compiler built with C++26 reflection and
-// contracts (GCC 16): names from the enumerators, and records written member
-// by member.
+// contracts (GCC 16): names from the enumerators, and records (a pack's
+// facts, a tree, a checked model) written member by member.
 
 #include <cstddef>
 #include <string>
@@ -12,6 +12,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cexchain/bo/ast.hpp>
+#include <cexchain/bo/checker.hpp>
 #include <cexchain/bo/concepts.hpp>
 #include <cexchain/bo/lexer.hpp>
 #include <cexchain/bo/names.hpp>
@@ -35,6 +36,12 @@ TEST_CASE("names come from the enumerators", "[bo][names]") {
     CHECK(name_of(ast::ExprKind::apply) == "apply");
     CHECK(name_of(ast::LiteralKind::duration) == "duration");
     CHECK(name_of(ast::Operator::member) == "member");
+    CHECK(name_of(model::TypeKind::unit_price) == "unit_price");
+    CHECK(name_of(model::Dimension::bandwidth) == "bandwidth");
+    CHECK(name_of(model::Refers::item) == "item");
+    CHECK(name_of(model::Binding::action) == "action");
+    CHECK(name_of(model::FieldKind::constant) == "constant");
+    CHECK(name_of(model::DueKind::period) == "period");
     // Contracts are on: this build checks BO_PRE, BO_POST, and BO_ASSERT.
     CHECK(BO_CONTRACTS == 1);
 }
@@ -105,4 +112,58 @@ TEST_CASE("a tree, written node by node and member by member", "[bo][names]") {
     const cbor::Value& expect = clauses[2].find("steps")->as_array()->at(1);
     CHECK(*expect.find("node")->as_text() == "expect");
     CHECK(*expect.find("reason")->as_text() == "no");
+}
+
+TEST_CASE("a checked model, written member by member", "[bo][names]") {
+    const std::string source = "contract ReceivableFinancing\nparties issuer, supplier, bank\n"
+                               "asset Receivable\n  amount HKD\n  due date\n  holder supplier\n"
+                               "can pledge to bank\n  over 5_000_000 requires in person\n"
+                               "when due issuer pays\n";
+    const PackSetRead set = make_pack_set({});
+    REQUIRE(set.set);
+    const Lexicon lexicon(*set.set);
+    const Parsed parsed = parse(source, lex(source, lexicon));
+    REQUIRE(parsed.diagnostics.empty());
+    const Checked checked = check(source, parsed.file);
+    REQUIRE(checked.diagnostics.empty());
+    const cbor::Value value = to_cbor(checked.model);
+    // Model's members by name, in declaration order.
+    const cbor::Map& map = *value.as_map();
+    REQUIRE(map.size() == 12);
+    CHECK(*map[0].key.as_text() == "edition");
+    CHECK(*map[1].key.as_text() == "name");
+    CHECK(*map[1].value.as_text() == "ReceivableFinancing");
+    CHECK(*value.find("kind")->as_text() == "kind.asset");
+    CHECK(*value.find("due")->as_text() == "field");
+    // Enumerations by their enumerators' names; rules by their ids.
+    const cbor::Value& bank = value.find("parties")->as_array()->at(2);
+    CHECK(*bank.find("role")->as_text() == "role.bank");
+    CHECK(*bank.find("binding")->as_text() == "action");
+    CHECK(*bank.find("bound_by")->as_text() == "act.pledge");
+    CHECK(*bank.find("rule")->as_text() == "R3");
+    // Types as their text.
+    const cbor::Value& holder = value.find("fields")->as_array()->at(2);
+    CHECK(*holder.find("type")->as_text() == "party");
+    CHECK(*holder.find("kind")->as_text() == "instance");
+    CHECK(*holder.find("value")->find("concept")->as_text() == "role.supplier");
+    CHECK(*holder.find("rule")->as_text() == "R2");
+    // Statements: their tag, then their members; the threshold took the
+    // amount's currency (R6).
+    const cbor::Value& pledge = value.find("actions")->as_array()->at(0);
+    const cbor::Value& requires_ = pledge.find("body")->as_array()->at(0);
+    CHECK(*requires_.find("node")->as_text() == "requires");
+    const cbor::Value& amount = requires_.find("guard")->find("operands")->as_array()->at(0);
+    CHECK(*amount.find("type")->as_text() == "money cur.HKD");
+    CHECK(*amount.find("rule")->as_text() == "R6");
+    CHECK(*amount.find("literal")->find("value")->as_text() == "5000000");
+    CHECK(*requires_.find("condition")->find("rule")->as_text() == "R13");
+    CHECK(*pledge.find("consents")->as_array()->at(0).find("rule")->as_text() == "R3");
+    CHECK(*pledge.find("agents_rule")->as_text() == "R14");
+    // A duty in a time rule (R9).
+    const cbor::Value& pays =
+        value.find("rules")->as_array()->at(0).find("actions")->as_array()->at(0);
+    CHECK(*pays.find("node")->as_text() == "do");
+    CHECK(pays.find("obligation")->as_bool() == true);
+    CHECK(*pays.find("rule")->as_text() == "R9");
+    CHECK(*pays.find("subject")->find("refers")->as_text() == "party");
 }

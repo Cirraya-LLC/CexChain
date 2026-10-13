@@ -1553,7 +1553,7 @@ std::vector<CommandSpec> build() {
 #if defined(CEXCHAIN_HAVE_BO)
         // ------------------------------------------------------------------
         {{"bo", "check"},
-         "Check a Bo source file; with --stage, show its tokens or its tree",
+         "Check a Bo source file; with --stage, show its tokens, its tree, or its model",
          "Bo language",
          "FILE",
          1,
@@ -1561,13 +1561,13 @@ std::vector<CommandSpec> build() {
          with({pack_option,
                language_option,
                {"stage", "STAGE",
-                "Show what a stage reads: lex (the tokens, with their places) or parse (the "
-                "tree)"}}),
+                "Show what a stage reads: lex (the tokens, with their places), parse (the "
+                "tree), or model (the checked model)"}}),
          cmd_bo_check,
          "Reads FILE (UTF-8) with the official language packs and any given with --pack, and\n"
          "reports every problem (up to 100 per stage) as FILE:LINE:COLUMN: error: message\n"
-         "(code), in the language of --language. Exit status 2 if there is an error. So far\n"
-         "the check is the lexer's and the parser's.\n\n"
+         "(code), in the language of --language. Exit status 2 if there is an error;\n"
+         "warnings (clauses that need executors, which come in step 6b) do not fail.\n\n"
          "The lexer reads lines and indentation (spaces only), # comments, words under the\n"
          "packs' rules (可質押 is 可 + 質押; 每GB is 每 + GB; a word with two readings is an\n"
          "error, since Bo never guesses), names, numbers (5_000_000, 0.10, 500萬, full-width\n"
@@ -1582,6 +1582,16 @@ std::vector<CommandSpec> build() {
          "actions; when EVENT ACTION; test blocks of steps (supplier pledge to bank at\n"
          "2027-01-06) and expectations (-> pledged, -> refused). Conditions use not, and, or,\n"
          "the comparisons = < <= > >= and in, then + -, then * /. `use` is reserved.\n\n"
+         "The checker reads the tree into a model: the parties and how each is bound (at\n"
+         "creation, or by the action that first names it after to), the one kind of instance\n"
+         "and its fields (a type: each instance's own; a value: a constant; a party: a field\n"
+         "that starts with it), the states (from the state changes; an instance starts in the\n"
+         "one state nothing leads to, else in active), the actions, and the time rules. It\n"
+         "checks names, types and units (money never mixes currencies, quantities never mix\n"
+         "dimensions, months never mix with days, every value exact in its smallest unit),\n"
+         "bounded lists, no recursion, reachable states, thresholds (over N takes the unit of\n"
+         "the action's one amount), and where in person may stand. What it infers carries the\n"
+         "id of its rule (R1, R2, ...; the packs' sentences rule-R1 ... explain each).\n\n"
          "--stage lex prints one token per line: LINE:COLUMN KIND VALUE | as written. A word\n"
          "is its concept (kw.can, act.pledge), the same in every language; a word with an\n"
          "argument's place comes in pieces (consent of: piece=head; before due: piece=tail;\n"
@@ -1589,7 +1599,11 @@ std::vector<CommandSpec> build() {
          "--stage parse prints the tree: one clause or statement per line, expressions as\n"
          "S-expressions of concepts and names, the same for the same contract in any\n"
          "language. With --json, also the tree as objects with their places.\n\n"
+         "--stage model prints the checked model: one declaration or statement per line, with\n"
+         "{R3} after what a rule inferred, the same in any language. With --json, also the\n"
+         "model as objects (types as text: money cur.HKD), with their places.\n\n"
          "  cexchain bo check contract.bo\n"
+         "  cexchain bo check contract.bo --stage model\n"
          "  cexchain bo check contract.bo --stage parse\n"
          "  cexchain bo check contract.bo --stage lex --json\n\n" CEXCHAIN_BO_PACKS_HELP},
         {{"bo", "packs", "list"},

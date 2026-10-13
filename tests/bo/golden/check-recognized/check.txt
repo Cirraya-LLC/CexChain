@@ -1,0 +1,32 @@
+edition 1
+contract Recognized
+party role.we bound=creation{R3}
+party role.customer bound=sell{R3}
+party role.bank bound=lend{R3}
+kind kind.asset Note
+field field.amount instance money cur.HKD
+field field.holder instance party = role.we{R2}
+field field.due instance date
+field size instance quantity data
+field fee_rate constant rate = 3%
+field codes instance list 16 text{R16}
+field region instance text
+due field
+state drafted first{R4}
+state state.active{R5}
+can offer own by=role.we agents=delegation{R14}
+  transition drafted -> state.active
+can sell own by=field.holder to=role.customer agents=delegation{R14}
+  consent role.customer{R3}
+  requires cond.in_person{R13} guard=(cond.over (money cur.HKD 5000){R6})
+  set field.holder role.customer
+  requires (= region "香港"{R18})
+can lend own by=role.we to=role.bank agents=delegation{R14}
+  consent role.bank{R3}
+  consent field.holder{R8}
+  requires (not drafted{R7})
+  requires (> (* field.amount fee_rate){R17} (money cur.HKD 1))
+  requires (> size (quantity unit.GB 1.5))
+  set field.holder role.bank
+when field.due
+  do subject=role.customer act.pay obligation{R9}

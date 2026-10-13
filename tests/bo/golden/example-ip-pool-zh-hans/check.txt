@@ -1,0 +1,10 @@
+edition 1
+contract IP地址池
+party role.we bound=creation{R3}
+party role.customer bound=act.allocate{R3}
+kind kind.resource IP地址
+field field.cooling_period constant duration = (duration time.day 30)
+state state.active first{R4}
+can act.allocate standard to=role.customer agents=delegation{R14}
+  consent role.customer{R3}
+can act.reclaim standard by=role.we agents=delegation{R14}

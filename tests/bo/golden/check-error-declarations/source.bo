@@ -1,0 +1,19 @@
+contract Declarations
+parties issuer, supplier, issuer
+
+asset Note
+  amount HKD
+  amount USD
+  holder HKD
+  note
+  pledge 5
+  price HKD 5, 3
+  setup fee 5%
+  due
+
+asset Second
+  memo text
+
+can pledge to bank
+can pledge by supplier
+can settle

@@ -1,0 +1,25 @@
+contract Types
+parties we
+
+record Bill
+  amount HKD
+  fee USD
+  size TB
+  count number
+  term 3 months
+  note text
+
+can bill by we
+  requires amount + fee > HKD 0
+  requires size > 2 items
+  requires term > 30 days
+  requires note < "a"
+  requires amount
+  requires amount = 0
+  requires count = 1.5
+  requires amount > HKD 0.001
+  requires count > 10000000000000000000
+  requires amount / 0 > HKD 1
+  requires count in (1, "a")
+  requires (monthly 5) = 0
+  requires 5% < 0.00001%

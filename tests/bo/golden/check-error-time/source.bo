@@ -1,0 +1,13 @@
+contract Time
+parties we, customer
+
+record Plan
+  tier number
+  start date
+
+when tier < 2 customer pays
+when overdue 3 days customer pays
+when start
+  requires in person
+  AI agent can propose
+  customer pays

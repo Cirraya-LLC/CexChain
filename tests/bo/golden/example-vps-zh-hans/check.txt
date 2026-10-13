@@ -1,0 +1,31 @@
+edition 1
+contract VPS服務
+party role.we bound=creation{R3}
+party role.customer bound=creation{R3}
+kind kind.service VPS
+field price.price constant recurring time.monthly money cur.HKD = (phrase time.monthly (money cur.HKD 120))
+field price.traffic constant recurring time.monthly quantity data = (phrase time.monthly (quantity unit.TB 2))
+  more (phrase price.overage price.per unit.GB (money cur.HKD 0.10)) : unit_price cur.HKD data
+field IP constant quantity count = (quantity unit.item 1)
+field field.customer_location instance text{R12}
+field charge.tax constant basis = (phrase charge.by field.customer_location)
+due period{R11}
+state state.active first{R4}
+can act.subscribe standard by=role.customer agents=delegation{R14} executor{R10}
+can act.renew standard by=role.customer agents=delegation{R14}
+can act.upgrade standard by=role.customer agents=delegation{R14} executor{R10}
+can act.refund standard by=role.we agents=propose
+  requires cond.in_person{R13} guard=(cond.over (money cur.HKD 100)){R6}
+when (cond.before_due (duration time.day 7))
+  do act.notify role.customer executor{R10}
+when (phrase cond.overdue (duration time.day 3))
+  do act.suspend executor{R10}
+when (phrase cond.overdue (duration time.day 30))
+  do act.terminate executor{R10}
+  do act.reclaim IP executor{R10}
+11:2 warning check.needs-executor: subscribe asks an executor to act outside the ledger, which comes in step 6b: bo check accepts it, and bo build will refuse it until then
+13:2 warning check.needs-executor: upgrade asks an executor to act outside the ledger, which comes in step 6b: bo check accepts it, and bo build will refuse it until then
+14:10 warning check.needs-executor: notify asks an executor to act outside the ledger, which comes in step 6b: bo check accepts it, and bo build will refuse it until then
+15:9 warning check.needs-executor: suspend asks an executor to act outside the ledger, which comes in step 6b: bo check accepts it, and bo build will refuse it until then
+16:10 warning check.needs-executor: terminate asks an executor to act outside the ledger, which comes in step 6b: bo check accepts it, and bo build will refuse it until then
+16:15 warning check.needs-executor: reclaim asks an executor to act outside the ledger, which comes in step 6b: bo check accepts it, and bo build will refuse it until then

@@ -1,0 +1,24 @@
+contract Recognized
+parties we, customer, bank
+
+asset Note
+  amount HKD
+  holder we
+  due date
+  size GB
+  fee_rate 3%
+  codes list text
+  region text
+
+can offer by we
+  drafted -> active
+can sell by holder to customer
+  over 5_000 requires in person
+  holder = customer
+  requires region = 香港
+can lend by we to bank
+  requires not drafted
+  requires amount * fee_rate > HKD 1
+  requires size > 1.5 GB
+  holder = bank
+when due customer pays

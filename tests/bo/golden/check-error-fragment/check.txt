@@ -1,0 +1,6 @@
+edition 1
+fragment
+state state.active first{R4}
+can sign own by=role.we agents=delegation{R14}
+1:1 error check.no-parties: the contract has actions but no parties line: write parties, then its roles (parties issuer, supplier, bank)
+- warning check.fragment: there is no contract line, so this file is checked as a fragment; bo build will need contract NAME

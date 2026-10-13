@@ -17,6 +17,7 @@
 #include <string_view>
 #include <vector>
 
+#include <cexchain/bo/checker.hpp>
 #include <cexchain/bo/concepts.hpp>
 #include <cexchain/bo/lexer.hpp>
 #include <cexchain/bo/messages.hpp>
@@ -340,11 +341,27 @@ void print_source_diagnostics(std::FILE* stream, std::string_view file,
 
 } // namespace
 
+/// "2 parties, 5 fields, 1 state, ...": what a checked model holds.
+std::string model_summary(const bo::model::Model& model) {
+    std::string out;
+    const auto count = [&](std::size_t n, std::string_view one, std::string_view many) {
+        out += std::format("{}{} {}", out.empty() ? "" : ", ", n, n == 1 ? one : many);
+    };
+    count(model.parties.size(), "party", "parties");
+    count(model.fields.size(), "field", "fields");
+    count(model.charges.size(), "charge", "charges");
+    count(model.states.size(), "state", "states");
+    count(model.actions.size(), "action", "actions");
+    count(model.rules.size(), "time rule", "time rules");
+    return out;
+}
+
 int cmd_bo_check(const Args& args) {
     const std::string file = args.positional().front();
     const std::optional<std::string> stage = args.get("stage");
-    if (stage && *stage != "lex" && *stage != "parse") {
-        throw UsageError{"--stage must be lex (the tokens) or parse (the tree)"};
+    if (stage && *stage != "lex" && *stage != "parse" && *stage != "model") {
+        throw UsageError{
+            "--stage must be lex (the tokens), parse (the tree), or model (the checked model)"};
     }
     const bo::PackSet set = pack_set(args);
     std::vector<bo::Pack> given;
@@ -359,9 +376,17 @@ int cmd_bo_check(const Args& args) {
     const bo::Lexicon lexicon(set);
     const bo::Lexed lexed = bo::lex(source, lexicon);
     const bo::Parsed parsed = bo::parse(source, lexed);
-    // The lexer's problems and the parser's, in source order.
+    // The lexer's problems and the parser's, then, on a tree without errors
+    // and unless only the tokens or the tree are asked for, the checker's,
+    // in source order.
     std::vector<bo::Diagnostic> diagnostics = lexed.diagnostics;
     diagnostics.insert(diagnostics.end(), parsed.diagnostics.begin(), parsed.diagnostics.end());
+    std::optional<bo::Checked> checked;
+    if (stage != "lex" && stage != "parse" && !bo::has_errors(diagnostics)) {
+        checked = bo::check(source, parsed.file);
+        diagnostics.insert(diagnostics.end(), checked->diagnostics.begin(),
+                           checked->diagnostics.end());
+    }
     std::ranges::stable_sort(diagnostics, {}, [](const bo::Diagnostic& d) {
         return d.span.line == 0 ? std::numeric_limits<std::uint64_t>::max()
                                 : std::uint64_t{d.span.offset};
@@ -372,9 +397,10 @@ int cmd_bo_check(const Args& args) {
     if (args.json()) {
         Json out = {{"file", file},
                     {"ok", ok},
-                    {"stage", stage.value_or("parse")},
+                    {"stage", stage.value_or("check")},
                     {"edition", lexed.edition},
                     {"clauses", clauses},
+                    {"checked", checked.has_value()},
                     {"diagnostics", diagnostics_json(diagnostics, language)}};
         if (stage == "lex") {
             Json tokens = Json::array();
@@ -390,6 +416,9 @@ int cmd_bo_check(const Args& args) {
         } else if (stage == "parse") {
             out["tree"] = bo::dump(parsed.file);
             out["ast"] = cbor_json(bo::to_cbor(parsed.file));
+        } else if (stage == "model" && checked) {
+            out["dump"] = bo::dump(checked->model);
+            out["model"] = cbor_json(bo::to_cbor(checked->model));
         }
         print_json(out);
         return ok ? exit_ok : exit_failure;
@@ -402,15 +431,22 @@ int cmd_bo_check(const Args& args) {
         std::print("{}", bo::dump(source, quiet, language));
     } else if (stage == "parse") {
         std::print("{}", bo::dump(parsed.file));
+    } else if (stage == "model" && checked) {
+        std::print("{}", bo::dump(checked->model));
     }
     print_source_diagnostics(stage ? stdout : stderr, file, diagnostics, language);
     std::size_t errors = 0;
+    std::size_t warnings = 0;
     for (const bo::Diagnostic& d : diagnostics) {
-        errors += d.severity() == bo::Severity::error ? 1U : 0U;
+        (d.severity() == bo::Severity::error ? errors : warnings) += 1;
     }
     if (ok) {
         std::println("{}: ok: {} tokens, {} comments, {} clauses, edition {}", file,
                      lexed.tokens.size(), lexed.comments.size(), clauses, lexed.edition);
+        if (checked) {
+            std::println("{}: checked: {}; {} warning{}", file, model_summary(checked->model),
+                         warnings, warnings == 1 ? "" : "s");
+        }
     } else {
         std::println("{}: {} error{}", file, errors, errors == 1 ? "" : "s");
     }

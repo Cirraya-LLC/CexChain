@@ -1,0 +1,19 @@
+contract Actions
+parties we, customer
+
+record Thing
+  holder customer
+  note text
+
+can give by we
+  holder = we
+  AI agent can approve
+  customer pays
+can sign by we with fee HKD, cost USD
+  over 5 requires in person
+can stamp by we
+  over 5 requires in person
+can loop_a by we
+  loop_b
+can loop_b by we
+  loop_a

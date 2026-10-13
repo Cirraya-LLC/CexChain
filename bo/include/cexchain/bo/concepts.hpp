@@ -102,6 +102,22 @@ struct SentenceSpec {
 [[nodiscard]] std::span<const SentenceSpec> sentence_specs() noexcept;
 [[nodiscard]] const SentenceSpec* find_sentence(std::string_view id) noexcept;
 
+/// A recognition rule of the edition: something Bo infers from a source by a
+/// fixed, published rule, never by a guess (a field's type from the
+/// vocabulary, the state an instance starts in, a consent an action needs).
+/// The checked model tags everything it infers with its rule's id, and
+/// `explain` spells it out; each pack gives its text as the sentence
+/// "rule-ID". Ids are R1, R2, ... in the order the rules were added; once an
+/// edition is released, a rule never changes meaning.
+struct RuleSpec {
+    std::string_view id;
+    std::string_view name;
+};
+
+/// The edition's rules, in the order of their ids (R1, R2, ...).
+[[nodiscard]] std::span<const RuleSpec> rule_specs() noexcept;
+[[nodiscard]] const RuleSpec* find_rule(std::string_view id) noexcept;
+
 /// True if `name` is one of the space-separated names in `params`.
 [[nodiscard]] bool has_param(std::string_view params, std::string_view name) noexcept;
 

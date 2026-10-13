@@ -1,0 +1,18 @@
+edition 1
+contract Charges
+party role.we bound=creation{R3}
+party role.customer bound=creation{R3}
+charge charge.charge Fee
+  line charge.added
+  line charge.included
+  line charge.per_line round.half_up
+  line act.notify
+charge charge.tax Levy
+  line charge.rate 5
+  line charge.added
+state state.active first{R4}
+4:8 error check.charge-rate: the charge Fee needs a rate (rate 5%) or an amount
+4:8 error check.charge-included: say whether Fee is included in the price or added to it: write included or added, once
+8:3 error check.charge-field: notify customer is not a line a charge has: rate, amount, applies to, included or added, per line, per document, according to a document, a rounding mode, or from DATE on with a rate
+9:8 error check.duplicate: Fee is declared twice; a name has one meaning in a contract
+13:8 error check.type: 5 is a number, but a rate (%) is needed here

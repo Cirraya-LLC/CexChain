@@ -1,0 +1,19 @@
+edition 1
+contract Time
+party role.we bound=creation{R3}
+party role.customer bound=creation{R3}
+kind kind.record Plan
+field field.tier instance number
+field start instance date
+state state.active first{R4}
+when (< field.tier 2)
+  do subject=role.customer act.pay obligation{R9}
+when (phrase cond.overdue (duration time.day 3))
+  do subject=role.customer act.pay obligation{R9}
+when start
+  requires cond.in_person
+  do subject=role.customer act.pay obligation{R9}
+8:6 error check.when-event: tier < 2 is not a time: a when rule fires at a date (when due), N before due, or overdue N
+9:6 error check.needs-due: overdue counts from a due date, which the instance does not have: declare due date in the kind's block (a service with a recurring price is due at the end of each period)
+11:12 error check.when-person: in person asks for a person, but the keeper (a device) fires a when rule: nobody confirms it in person or proposes it
+12:3 error check.when-person: AI agent can propose asks for a person, but the keeper (a device) fires a when rule: nobody confirms it in person or proposes it

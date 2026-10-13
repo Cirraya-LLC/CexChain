@@ -1,0 +1,12 @@
+contract Unreachable
+parties we
+
+record Order
+  note text
+
+can place by we
+  drafted -> placed
+can hold by we
+  held -> blocked
+  blocked -> held
+  requires not frozen

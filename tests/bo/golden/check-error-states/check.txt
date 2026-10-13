@@ -1,0 +1,13 @@
+edition 1
+contract States
+party role.we bound=creation{R3}
+kind kind.record Order
+field note instance text
+state drafted first{R4}
+state placed{R5}
+state queued{R5}
+can place own by=role.we agents=delegation{R14}
+  transition drafted -> placed
+can queue own by=role.we agents=delegation{R14}
+  transition queued -> placed
+10:3 error check.initial-state: an instance could start in any of drafted, queued, since no state change leads to them; Bo never guesses: an instance starts in the one state nothing leads to, otherwise in active

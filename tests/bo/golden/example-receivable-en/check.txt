@@ -1,0 +1,17 @@
+edition 1
+contract ReceivableFinancing
+party role.issuer bound=creation{R3}
+party role.supplier bound=creation{R3}
+party role.bank bound=act.pledge{R3}
+kind kind.asset Receivable
+field field.amount instance money cur.HKD
+field field.due instance date
+field field.holder instance party = role.supplier{R2}
+due field
+state state.active first{R4}
+can act.pledge standard to=role.bank agents=delegation{R14}
+  consent role.bank{R3}
+  requires cond.in_person{R13} guard=(cond.over (money cur.HKD 5000000){R6})
+can act.transfer standard agents=delegation{R14}
+when field.due
+  do subject=role.issuer act.pay obligation{R9}

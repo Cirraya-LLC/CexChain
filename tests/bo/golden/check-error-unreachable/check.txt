@@ -1,0 +1,18 @@
+edition 1
+contract Unreachable
+party role.we bound=creation{R3}
+kind kind.record Order
+field note instance text
+state drafted first{R4}
+state placed{R5}
+state held{R5}
+state blocked{R5}
+can place own by=role.we agents=delegation{R14}
+  transition drafted -> placed
+can hold own by=role.we agents=delegation{R14}
+  transition held -> blocked
+  transition blocked -> held
+  requires (not state.frozen{R7})
+10:3 error check.unreachable-state: no state change leads to held from the state an instance starts in, so no instance can ever reach it
+10:11 error check.unreachable-state: no state change leads to blocked from the state an instance starts in, so no instance can ever reach it
+12:16 error check.unreachable-state: no state change leads to frozen from the state an instance starts in, so no instance can ever reach it

@@ -1,0 +1,16 @@
+contract Lists
+parties we
+
+record Batch
+  codes list text at most 2000
+  tags list text
+  sizes list number at most 4
+
+can load by we with rows list number at most 3
+  each entry in tags
+    requires entry = "x"
+  each n in 5
+    requires n > 0
+  sizes = (1, 2, 3, 4, 5)
+  requires count of rows > 0
+  requires sum of tags = "a"

@@ -1,0 +1,11 @@
+edition 1
+fragment
+field field.customer_location instance text{R12}
+charge charge.charge 增值税
+  line charge.rate 6%
+  line (charge.applies_to (= field.customer_location "中国内地"{R18}))
+  line charge.added
+  line charge.by (phrase doc.invoice round.half_up)
+  line (charge.from 2027-01-01) 9%
+state state.active first{R4}
+- warning check.fragment: there is no contract line, so this file is checked as a fragment; bo build will need contract NAME

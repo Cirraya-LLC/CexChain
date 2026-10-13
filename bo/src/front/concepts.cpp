@@ -317,6 +317,53 @@ constexpr MessageSpec unsorted_messages[] = {
     // Names: never guess.
     {"parse.ambiguous-name", Severity::error, "name prefix rest"},
     {"parse.undeclared-split", Severity::error, "name prefix rest"},
+    // Checking: the contract and its declarations.
+    {"check.fragment", Severity::warning, ""},
+    {"check.no-parties", Severity::error, ""},
+    {"check.duplicate", Severity::error, "name"},
+    {"check.one-kind", Severity::error, "name"},
+    {"check.unknown-name", Severity::error, "name"},
+    {"check.unknown-party", Severity::error, "party"},
+    {"check.unknown-field", Severity::error, "field"},
+    {"check.unknown-input", Severity::error, "name action"},
+    {"check.field-head", Severity::error, "text"},
+    {"check.field-needs-type", Severity::error, "field"},
+    {"check.field-type", Severity::error, "field type expected_type"},
+    {"check.field-values", Severity::error, "field"},
+    // Checking: values, types, and units.
+    {"check.not-a-value", Severity::error, "text"},
+    {"check.phrase", Severity::error, "text"},
+    {"check.type", Severity::error, "text type expected_type"},
+    {"check.operands", Severity::error, "operator left_type right_type"},
+    {"check.mixed-currencies", Severity::error, "left_type right_type"},
+    {"check.mixed-units", Severity::error, "left_type right_type"},
+    {"check.calendar", Severity::error, "text"},
+    {"check.precision", Severity::error, "text"},
+    {"check.whole-number", Severity::error, "text"},
+    {"check.overflow", Severity::error, "text"},
+    {"check.zero-division", Severity::error, "text"},
+    {"check.list-items", Severity::error, "text"},
+    {"check.list-bound", Severity::error, "text limit"},
+    // Checking: states and actions.
+    {"check.set-constant", Severity::error, "field"},
+    {"check.set-target", Severity::error, "text"},
+    {"check.initial-state", Severity::error, "states"},
+    {"check.unreachable-state", Severity::error, "state"},
+    {"check.needs-by", Severity::error, "action"},
+    {"check.recursion", Severity::error, "action"},
+    {"check.permit", Severity::error, "text"},
+    {"check.subject", Severity::error, "text"},
+    {"check.threshold-amount", Severity::error, "text action"},
+    // Checking: time rules.
+    {"check.when-event", Severity::error, "text"},
+    {"check.when-person", Severity::error, "text"},
+    {"check.needs-due", Severity::error, "text"},
+    // Checking: charges.
+    {"check.charge-field", Severity::error, "text"},
+    {"check.charge-rate", Severity::error, "name"},
+    {"check.charge-included", Severity::error, "name"},
+    // Checking: what comes in later steps.
+    {"check.needs-executor", Severity::warning, "action"},
     // Any reading.
     {"bo.truncated", Severity::warning, "limit"},
 };
@@ -334,11 +381,57 @@ static_assert(std::ranges::adjacent_find(sorted_messages, {}, &MessageSpec::code
 
 // The sentences of the contract text (`explain`, milestone 8 builds on them).
 constexpr SentenceSpec unsorted_sentences[] = {
-    {"contract", "name"},    {"parties", "parties"},
-    {"can", "party action"}, {"can-to", "party action counterparty"},
-    {"consent", "party"},    {"in-person", "party"},
-    {"agents-propose", ""},  {"when", "event action"},
-    {"reject", "message"},   {"recognized", "rule"},
+    {"contract", "name"},
+    {"parties", "parties"},
+    {"can", "party action"},
+    {"can-to", "party action counterparty"},
+    {"consent", "party"},
+    {"in-person", "party"},
+    {"agents-propose", ""},
+    {"when", "event action"},
+    {"reject", "message"},
+    {"recognized", "rule"},
+    // Types, for messages (and the contract text): "money in {currency}".
+    {"type-number", ""},
+    {"type-money", "currency"},
+    {"type-any-money", ""},
+    {"type-data", ""},
+    {"type-bandwidth", ""},
+    {"type-count", ""},
+    {"type-mass", ""},
+    {"type-any-quantity", ""},
+    {"type-rate", ""},
+    {"type-date", ""},
+    {"type-duration", ""},
+    {"type-text", ""},
+    {"type-yes-no", ""},
+    {"type-party", ""},
+    {"type-state", ""},
+    {"type-list", "element limit"},
+    {"type-any-list", ""},
+    {"type-unit-price", "currency unit"},
+    {"type-recurring", "value period"},
+    {"type-basis", ""},
+    {"type-unknown", ""},
+    // What each recognition rule infers (rule_specs).
+    {"rule-R1", ""},
+    {"rule-R2", ""},
+    {"rule-R3", ""},
+    {"rule-R4", ""},
+    {"rule-R5", ""},
+    {"rule-R6", ""},
+    {"rule-R7", ""},
+    {"rule-R8", ""},
+    {"rule-R9", ""},
+    {"rule-R10", ""},
+    {"rule-R11", ""},
+    {"rule-R12", ""},
+    {"rule-R13", ""},
+    {"rule-R14", ""},
+    {"rule-R15", ""},
+    {"rule-R16", ""},
+    {"rule-R17", ""},
+    {"rule-R18", ""},
 };
 
 constexpr auto sorted_sentences = [] {
@@ -351,6 +444,29 @@ constexpr auto sorted_sentences = [] {
 static_assert(std::ranges::adjacent_find(sorted_sentences, {}, &SentenceSpec::id) ==
                   sorted_sentences.end(),
               "sentence ids are unique");
+
+// The recognition rules of edition 1, in the order of their ids. Their
+// texts are the packs' sentences "rule-ID". Append only.
+constexpr RuleSpec rules[] = {
+    {"R1", "field-meaning"},      // a vocabulary field has the vocabulary's type
+    {"R2", "party-field"},        // a field given a party: per instance, and may change
+    {"R3", "role-binding"},       // roles: at creation, or by the first `to` (U4)
+    {"R4", "first-state"},        // the one state nothing leads to, else active
+    {"R5", "states"},             // the states are those state changes name
+    {"R6", "threshold"},          // over N: the action's one amount (plan 5.1, item 7)
+    {"R7", "state-condition"},    // a state as a condition: the instance is in it
+    {"R8", "consent-taken"},      // changing a party's field needs that party's consent
+    {"R9", "obligation"},         // when due issuer pays: a duty, no call (U7)
+    {"R10", "executor"},          // notify, a service's changes: executors (6b)
+    {"R11", "service-due"},       // a recurring price: due at each period's end
+    {"R12", "customer-location"}, // customer location: text each instance holds
+    {"R13", "presence"},          // in person: the starter's presence (U2)
+    {"R14", "agents"},            // AI agents within delegation, unless propose (U3)
+    {"R15", "parts"},             // parts: a list of amounts
+    {"R16", "list-bound"},        // lists: at most 16 items (plan 5.1, item 8)
+    {"R17", "rounding"},          // products and quotients round half up (U5)
+    {"R18", "bare-text"},         // an undeclared name compared with text is text
+};
 
 template <class T, std::size_t N, class Key>
 const T* find_sorted(const std::array<T, N>& table, std::string_view id, Key key) noexcept {
@@ -394,6 +510,15 @@ std::span<const SentenceSpec> sentence_specs() noexcept {
 
 const SentenceSpec* find_sentence(std::string_view id) noexcept {
     return find_sorted(sorted_sentences, id, &SentenceSpec::id);
+}
+
+std::span<const RuleSpec> rule_specs() noexcept {
+    return rules;
+}
+
+const RuleSpec* find_rule(std::string_view id) noexcept {
+    const auto it = std::ranges::find(rules, id, &RuleSpec::id);
+    return it == std::end(rules) ? nullptr : &*it;
 }
 
 bool has_param(std::string_view params, std::string_view name) noexcept {

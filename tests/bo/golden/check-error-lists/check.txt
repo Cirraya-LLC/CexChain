@@ -1,0 +1,21 @@
+edition 1
+contract Lists
+party role.we bound=creation{R3}
+kind kind.record Batch
+field codes instance list 16 text
+field tags instance list 16 text{R16}
+field sizes instance list 4 number
+state state.active first{R4}
+can load own by=role.we agents=delegation{R14}
+  input rows instance list 3 number
+  each entry in=tags
+    requires (= entry "x")
+  each n in=5
+    requires (> n 0)
+  set sizes (list 1 2 3 4 5)
+  requires (> (expr.count_of rows) 0)
+  requires (= (expr.sum_of tags) "a")
+5:19 error check.list-bound: at most 2000: a list holds from 1 to 1000 items
+12:13 error check.type: 5 is a number, but a list is needed here
+14:11 error check.list-bound: (1, 2, 3, 4, 5): a list holds from 1 to 4 items
+16:19 error check.operands: + cannot combine a text with a text

@@ -1,0 +1,14 @@
+contract Charges
+parties we, customer
+
+charge Fee
+  added
+  included
+  per line half up
+  notify customer
+charge Fee
+  rate 2%
+  added
+tax Levy
+  rate 5
+  added

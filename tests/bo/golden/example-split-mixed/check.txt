@@ -1,0 +1,13 @@
+edition 1
+contract Split
+party role.issuer bound=creation{R3}
+party role.supplier bound=creation{R3}
+kind kind.asset Receivable
+field field.amount instance money cur.HKD
+field field.tier instance number
+field field.holder instance party = role.supplier{R2}
+state state.active first{R4}
+can act.split standard agents=delegation{R14}
+  input field.parts instance list 16 money cur.HKD{R15}
+  requires (= (expr.sum_of field.parts) field.amount)
+  requires (< field.tier 5)

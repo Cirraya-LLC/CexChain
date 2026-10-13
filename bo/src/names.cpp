@@ -36,6 +36,16 @@ static_assert(table_matches<ast::ExprKind>(ast::expr_kind_names), "expr_kind_nam
 static_assert(table_matches<ast::LiteralKind>(ast::literal_kind_names),
               "literal_kind_names is out of date");
 static_assert(table_matches<ast::Operator>(ast::operator_names), "operator_names is out of date");
+static_assert(table_matches<model::TypeKind>(model::type_kind_names),
+              "type_kind_names is out of date");
+static_assert(table_matches<model::Dimension>(model::dimension_names),
+              "dimension_names is out of date");
+static_assert(table_matches<model::Refers>(model::refers_names), "refers_names is out of date");
+static_assert(table_matches<model::Binding>(model::binding_names), "binding_names is out of date");
+static_assert(table_matches<model::FieldKind>(model::field_kind_names),
+              "field_kind_names is out of date");
+static_assert(table_matches<model::DueKind>(model::due_kind_names),
+              "due_kind_names is out of date");
 // operator_texts holds how each operator is written: one per enumerator.
 static_assert(detail::enumerator_count<ast::Operator>() == ast::operator_texts.size(),
               "operator_texts is out of date");
@@ -110,6 +120,30 @@ std::string_view name_of(const ast::LiteralKind value) noexcept {
 }
 
 std::string_view name_of(const ast::Operator value) noexcept {
+    return enumerator_name(value);
+}
+
+std::string_view name_of(const model::TypeKind value) noexcept {
+    return enumerator_name(value);
+}
+
+std::string_view name_of(const model::Dimension value) noexcept {
+    return enumerator_name(value);
+}
+
+std::string_view name_of(const model::Refers value) noexcept {
+    return enumerator_name(value);
+}
+
+std::string_view name_of(const model::Binding value) noexcept {
+    return enumerator_name(value);
+}
+
+std::string_view name_of(const model::FieldKind value) noexcept {
+    return enumerator_name(value);
+}
+
+std::string_view name_of(const model::DueKind value) noexcept {
     return enumerator_name(value);
 }
 

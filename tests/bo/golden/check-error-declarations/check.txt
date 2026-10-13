@@ -1,0 +1,26 @@
+edition 1
+contract Declarations
+party role.issuer bound=creation{R3}
+party role.supplier bound=creation{R3}
+kind kind.asset Note
+field field.amount instance money cur.HKD
+field field.holder instance ?
+field note instance ?
+field price.price constant money cur.HKD = (money cur.HKD 5)
+field price.setup_fee constant ? = 5%
+field field.due instance date{R1}
+due field
+state state.active first{R4}
+can act.pledge standard to=role.bank agents=delegation{R14}
+can settle own agents=delegation{R14}
+2:27 error check.duplicate: issuer is declared twice; a name has one meaning in a contract
+6:3 error check.duplicate: amount is declared twice; a name has one meaning in a contract
+7:10 error check.field-type: holder holds a party, not money in HKD
+8:3 error check.field-needs-type: note needs its type or its value: amount HKD, due date, IP 1 item
+9:3 error check.field-head: pledge cannot name a field: use a name of your own, or a field or price word (amount, due, holder, price)
+10:16 error check.field-values: price takes one type or value; further parts after commas must be labelled prices (overage per GB HKD 0.10)
+11:13 error check.field-type: setup fee holds money, not a rate (%)
+14:7 error check.one-kind: a contract describes one kind of instance; Second would be a second: write another contract for it
+17:15 error check.unknown-party: bank is not one of the contract's parties: add it to the parties line
+18:5 error check.duplicate: pledge is declared twice; a name has one meaning in a contract
+19:5 error check.needs-by: who starts settle? An action of your own needs by PARTY

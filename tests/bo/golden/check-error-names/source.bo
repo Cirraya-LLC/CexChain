@@ -1,0 +1,17 @@
+contract Names
+parties we, customer
+
+record Log
+  note text
+  limit HKD 100
+
+can close by we with reason text, reason number
+  requires missing > 3
+  requires due < today
+  requires date
+  limit = HKD 5
+  customer = we
+  archive with nothing = 1
+can archive by we with label text
+  each note in (1, 2)
+    requires note > 0

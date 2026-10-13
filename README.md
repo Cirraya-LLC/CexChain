@@ -43,7 +43,7 @@ CexChain is a ledger protocol and node for trust between organizations. Every do
 | `crypto/pkcs11` | Keys on PKCS #11 tokens: USB keys (UKey), smart cards, and HSMs, loaded at run time |
 | `ledger` | Ledger node: crash-safe storage, rule engine, checkpoints, receipts, evidence export, backups (C++26) |
 | `node` | HTTP API server and client (Asio), API tokens, and replicas (C++26) |
-| `bo` | The Bo contract language's compiler (in progress): language packs, the lexer, and the parser so far. C++26 with static reflection and contracts, built with GCC 16; its front end (everything that reads source) also builds with Clang, for fuzzing |
+| `bo` | The Bo contract language's compiler (in progress): language packs, the lexer, the parser, and the checker so far. C++26 with static reflection and contracts, built with GCC 16; its front end (everything that reads source) also builds with Clang, for fuzzing |
 | `cli` | `cexchain` command-line tool: full control of keys, ledgers, actors, delegations, records, assets, contracts, proofs, and evidence |
 | `cexchain mcp` | MCP server through which an AI agent acts under its own key and delegation |
 
@@ -443,7 +443,7 @@ machine, narrated, with the bank's AI agent consenting through MCP.
 Bo is the language in which contracts will be written: a few keywords in English, Traditional
 Chinese (Hong Kong usage), and Simplified Chinese, freely mixed, and built-in business words
 (pledge, renew, suspend) with fixed meanings. Its compiler is being built. What exists now is
-the layer every source is read through, *language packs*, the lexer, and the parser. Each pack maps Bo's concepts (`kw.can`,
+the layer every source is read through, *language packs*, the lexer, the parser, and the checker. Each pack maps Bo's concepts (`kw.can`,
 `act.pledge`, `unit.GB`) to one language's spellings, with its reading rules (words that attach
 without a space, as in `可質押` or `每GB`; full-width punctuation; `萬` and `億`; date forms), its
 messages, and the sentences of the contract text. A pack never changes what runs: the same
@@ -457,6 +457,7 @@ cexchain bo packs check company.pack --language zh-Hant-HK   # messages in Tradi
 cexchain bo check contract.bo                   # problems, as FILE:LINE:COLUMN: error: message (code)
 cexchain bo check contract.bo --stage lex       # its tokens: 可質押 is kw.can + act.pledge
 cexchain bo check contract.bo --stage parse     # its tree, the same in every language
+cexchain bo check contract.bo --stage model     # its checked model, with what each rule inferred
 ```
 
 The lexer reads a word only by the packs' fixed rules and never guesses: a run of characters
@@ -483,6 +484,29 @@ Clauses are `contract`, `parties`, a kind and its fields (`asset Receivable`), `
 the start of an action's line and compares inside a condition. Ambiguity is an error, never a
 guess: `a < b < c`, or `monthly HKD 120 * 12` (which words does `*` take?), ask for a rewrite, and
 `可提款` is read as `可` + `提款` only when the contract declares `提款` and not `可提款`.
+
+The checker reads the tree into a model: the parties, the one kind of instance and its fields,
+the states, the actions, and the time rules, with every name resolved and every expression typed.
+Money never mixes currencies, quantities never mix dimensions (TB and GB convert; TB and items do
+not), months never mix with days, and every value is exact in its smallest unit (cents, bytes,
+millionths of a rate): `HKD 0.001` is an error, never a rounding. Lists are bounded, actions never
+recurse, and every state must be reachable. Whatever Bo infers rather than reads carries the id of
+the fixed rule that inferred it, which the contract text will spell out:
+
+```
+asset Receivable                       party role.bank bound=act.pledge{R3}
+  amount HKD                           field field.holder instance party = role.supplier{R2}
+  holder supplier                      state state.active first{R4}
+can pledge to bank                     can act.pledge standard to=role.bank agents=delegation{R14}
+  over 5_000_000 requires in person      consent role.bank{R3}
+                                         requires cond.in_person{R13} guard=(cond.over (money cur.HKD 5000000){R6})
+```
+
+The bank is bound to a ledger by the pledge, with its consent (R3); the holder starts as the
+supplier and may change (R2); `over 5_000_000` takes the unit of the action's one amount (R6); in
+person asks the starter's presence (R13); an AI agent may act within its delegation unless the
+action says it only proposes (R14). Clauses that ask the outside world to act (notify, or
+suspending a service) are accepted with a warning: executors come in a later step.
 
 Packs are files in CBOR diagnostic notation; `bo/packs/` holds the official ones. A pack's digest
 is the hash of its canonical CBOR, and a deploy will record the packs its source was read with, so
