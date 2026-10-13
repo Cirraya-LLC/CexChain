@@ -583,6 +583,19 @@ A **contract** is a module, in the profile of section 14, deployed on a ledger: 
 - **Source** (at most 262,144 bytes), so that anyone can rebuild the module and compare.
 - **Name** (1 to 256 bytes), for people.
 
+**Contracts written in Bo.** A deploy whose language is `bo` SHOULD carry, as its source, a **`bo-source` bundle** (`bo-source` in the CDDL): `{1: 1, 2: edition, 3: source, 4: [+ [id, version, digest]], ? 5: [+ pack]}`.
+- **Source:** the source as written (UTF-8, comments included) and the Bo edition it is written in. Whoever holds the deploy reads it, comments too.
+- **Packs:** every language pack the source was read with, by ascending id: its id, its version, and the hash under the home's hash of the pack's canonical CBOR. Packs that are not official are embedded in full (key 5, as their canonical CBOR, by ascending id); a reference without one names an official pack, which a Bo compiler carries in every released version. A pack maps spellings to concepts and never changes what runs, but it decides how the source reads, so the digests pin it.
+- **Compiler:** the compiler string names the compiler, its release, its codegen version, and the edition it reads: `cexchain-bo 0.0.1; codegen 1; edition 1`. The same codegen version builds the same bytes from the same source, in any language and on any machine.
+
+A verifier SHOULD rebuild the code: decode the bundle, find each pack (the official ones from its compiler, the others from the bundle) and check its digest, build the source, and compare the module, the interface, and the name with the deploy's. It reports one of:
+- **rebuilds:** the source builds to the deployed code;
+- **differs:** the compiler the deploy names builds something else, so the source is not the code's. The verifier SHOULD fail the evidence;
+- **malformed:** no source, not a bundle, or a pack that does not match its digest or does not read. The verifier SHOULD fail the evidence;
+- **another compiler:** another compiler, or another release or codegen version, built it, and this one builds something else. The verifier says which and MAY require a rebuild with that compiler; it never reports this as a forgery.
+
+The ledger rules do not rebuild: a home that deploys a source that is not its code is caught by every verifier that rebuilds. For another Bo compiler, the language's behaviour is normative and these code bytes are not.
+
 **Retire.** A retired contract creates no more instances. Its instances carry on.
 
 **Call.** A call names either:
@@ -729,7 +742,7 @@ A server holds the log key to sign checkpoints, receipts, and evidence. Across a
 - **Contracts.**
   - A contract's code, arguments, states, and events are visible to whoever holds an instance's evidence. Private values belong in records, disclosed selectively.
   - Every call is bounded by fuel, call depth, and memory (section 14), so a contract cannot stall the home or a verifier.
-  - Code is immutable, but it can be wrong. Verifiers show which contract, and which source, an instance runs. Parties should read the code (or its Bo source) before consenting.
+  - Code is immutable, but it can be wrong. Verifiers show which contract, and which source, an instance runs, and rebuild a Bo contract's code from its source. Parties should read the code (or its Bo source) before consenting.
   - Consent signers are claimed in the call and checked only by verifiers that hold the consent bundles, so parties SHOULD verify contract evidence, not just the home's log.
 
 ## 18. Test vectors
