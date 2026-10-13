@@ -617,6 +617,8 @@ The Bo compiler's lowering is GCC-only and libFuzzer is Clang-only, so its fuzze
 
 Test vectors in `testvectors/` come from implementations independent of CexChain. `tools/testvectors/generate.py` regenerates them; `tools/testvectors/bo_vectors.py` writes the Bo compiler's from a GCC build.
 
+`tools/ci-local.sh` runs the Linux jobs of the CI workflow in CI's container image under Podman (or Docker), with logs in `build/ci-local/`.
+
 On macOS, Homebrew's LLVM is keg-only. To use it with the Clang presets, add a `CMakeUserPresets.json` that inherits a Clang preset and sets `CMAKE_CXX_COMPILER` to `/opt/homebrew/opt/llvm/bin/clang++`. Homebrew's `openssl@3` is detected automatically.
 
 ## License
