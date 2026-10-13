@@ -356,6 +356,7 @@
     "build.too-large": "the compiled contract would be too large: an action's code, or the texts, names, and reasons it holds, exceed what a contract allows",
     "build.reject-text": "{text}: a refusal's text cannot start with bo:, which marks the compiler's own reasons",
     "build.late-party": "{field} starts with {party}, but an action binds {party} only later: give {field} a party bound at creation",
+    "build.comments": "the source is deployed with its comments ({count} lines): every party, and anyone who verifies the contract, can read them",
     "run.input": "the call's input is not what a contract reads: deterministic CBOR within the limits",
     "run.overflow": "a value went beyond what Bo keeps: a whole number of its smallest unit, in 64 bits",
     "run.division-by-zero": "a division by zero",

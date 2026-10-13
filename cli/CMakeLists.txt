@@ -3,6 +3,7 @@
 
 add_executable(cexchain
     src/args.cpp
+    src/bo_support.cpp
     src/cmd_access.cpp
     src/cmd_assets.cpp
     src/cmd_actors.cpp
@@ -27,6 +28,10 @@ add_executable(cexchain
     src/support.cpp
     src/webauthn.cpp)
 target_link_libraries(cexchain PRIVATE cexchain::ledger cexchain::node cexchain::verifier cexchain_qrcodegen nlohmann_json::nlohmann_json)
+# The Bo front end, in every build: it reads a Bo deploy's source bundle, so
+# contract show and contract verify can say what they can of it without the
+# compiler.
+target_link_libraries(cexchain PRIVATE cexchain::bo_front)
 target_compile_definitions(cexchain PRIVATE CEXCHAIN_VERSION="${PROJECT_VERSION}")
 target_compile_features(cexchain PRIVATE cxx_std_26)
 cexchain_target_defaults(cexchain)

@@ -62,7 +62,7 @@ catch_discover_tests(cexchain_tests)
 # builds (GCC 16). Labelled "bo": the GCC ASan+UBSan configuration builds and
 # runs these alone.
 add_executable(cexchain_bo_tests bo/check_test.cpp bo/lexer_test.cpp bo/packs_test.cpp
-    bo/parser_test.cpp)
+    bo/parser_test.cpp bo/source_test.cpp)
 target_link_libraries(cexchain_bo_tests PRIVATE
     cexchain::bo_front
     cexchain::crypto_openssl
@@ -73,8 +73,8 @@ target_compile_definitions(cexchain_bo_tests PRIVATE
 target_compile_features(cexchain_bo_tests PRIVATE cxx_std_26)
 cexchain_target_defaults(cexchain_bo_tests)
 if(TARGET cexchain_bo)
-    target_sources(cexchain_bo_tests PRIVATE bo/codegen_test.cpp bo/names_test.cpp
-        bo/runtime_harness.cpp bo/runtime_test.cpp)
+    target_sources(cexchain_bo_tests PRIVATE bo/build_test.cpp bo/codegen_test.cpp
+        bo/names_test.cpp bo/runtime_harness.cpp bo/runtime_test.cpp)
     target_link_libraries(cexchain_bo_tests PRIVATE cexchain::bo nlohmann_json::nlohmann_json)
     target_compile_definitions(cexchain_bo_tests PRIVATE
         CEXCHAIN_TESTVECTORS_DIR="${PROJECT_SOURCE_DIR}/testvectors")

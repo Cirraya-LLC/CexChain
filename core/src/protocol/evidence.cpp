@@ -522,11 +522,24 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
         }
     } else {
         const ContractState* contract = state->contract(instance->contract);
+        // The deploy is in the bundle: the contract was loaded from it while
+        // replaying (entries ascend by index, checked above).
+        const auto deploy =
+            std::ranges::lower_bound(included, contract->deployed_at_index, {}, &Included::index);
+        const auto* body = deploy == included.end() || deploy->index != contract->deployed_at_index
+                               ? nullptr
+                               : std::get_if<ContractDeployBody>(&deploy->statement.statement.body);
+        if (body == nullptr) {
+            return verification_failure("the bundle does not include the contract's deploy");
+        }
         report.instance = InstanceReport{
             .contract = instance->contract,
             .contract_name = contract->name,
             .language = contract->language,
             .compiler = contract->compiler,
+            .code = body->code,
+            .interface = body->interface,
+            .source = body->source,
             .contract_retired = contract->retired,
             .head = instance->head,
             .state = instance->state,

@@ -25,6 +25,7 @@
 #include <cexchain/node/contracts.hpp>
 #include <cexchain/node/peers.hpp>
 
+#include "bo_support.hpp"
 #include "commands.hpp"
 #include "contracts.hpp"
 #include "output.hpp"
@@ -310,7 +311,9 @@ int record_call(const Args& args, Session& session, protocol::ContractCallBody b
     for (const auto& [role, ledger] : now.parties) {
         text += "\n" + role + ": " + ledger_label(session, ledger);
     }
-    return report_submitted(args, session, id, {{"instance", instance_json(session, now)}}, text);
+    return report_submitted(
+        args, session, id,
+        {{"instance", instance_json(session, now)}, {"fuel_used", run.outcome.fuel_used}}, text);
 }
 
 /// A held call from this ledger's own files, as the server would show it.
@@ -387,38 +390,64 @@ void print_answer(const Session* session, const std::string& who, const Json& an
 int cmd_contract_deploy(const Args& args) {
     Session session(args);
     protocol::ContractDeployBody body;
-    const std::string path = args.positional().front();
-    body.code = read_file(path);
-    if (body.code.size() > vm::max_module_size) {
-        throw CommandError{path + " is larger than a contract may be (512 KiB)"};
-    }
-    static_cast<void>(unwrap(vm::load(body.code), path + " is not a contract module"));
-    for (const std::string& item : args.all("function")) {
-        auto [name, kind] = split_pair(item, "--function");
-        if (name.empty() || name.size() > protocol::max_function_name) {
-            throw UsageError{"a function name is 1 to 64 bytes"};
+    std::optional<Json> build;
+    if (const auto bo_file = args.get("bo")) {
+        // Bo: the build fills in everything the deploy records.
+        if (!args.positional().empty()) {
+            throw UsageError{"give a module (WASM) or --bo FILE, not both"};
         }
-        if (kind != "create" && kind != "call") {
-            throw UsageError{"--function " + item + ": the kind is create or call"};
+        for (const char* option : {"function", "compiler", "language", "source", "name"}) {
+            if (args.has(option)) {
+                throw UsageError{std::string("--bo fills in --") + option +
+                                 " from the contract's source"};
+            }
         }
-        if (!body.interface
-                 .emplace(name, kind == "create" ? protocol::FunctionKind::create
-                                                 : protocol::FunctionKind::call)
-                 .second) {
-            throw UsageError{"--function " + name + " is given twice"};
+        BoDeploy built = bo_deploy_body(args, *bo_file, session.provider(), session.state().hash());
+        body = std::move(built.body);
+        build = std::move(built.build);
+    } else {
+        if (args.positional().empty()) {
+            throw UsageError{"give the module to deploy (WASM), or --bo FILE for Bo"};
         }
+        if (args.has("pack")) {
+            throw UsageError{"--pack reads Bo source: use it with --bo"};
+        }
+        const std::string path = args.positional().front();
+        body.code = read_file(path);
+        if (body.code.size() > vm::max_module_size) {
+            throw CommandError{path + " is larger than a contract may be (512 KiB)"};
+        }
+        static_cast<void>(unwrap(vm::load(body.code), path + " is not a contract module"));
+        for (const std::string& item : args.all("function")) {
+            auto [name, kind] = split_pair(item, "--function");
+            if (name.empty() || name.size() > protocol::max_function_name) {
+                throw UsageError{"a function name is 1 to 64 bytes"};
+            }
+            if (kind != "create" && kind != "call") {
+                throw UsageError{"--function " + item + ": the kind is create or call"};
+            }
+            if (!body.interface
+                     .emplace(name, kind == "create" ? protocol::FunctionKind::create
+                                                     : protocol::FunctionKind::call)
+                     .second) {
+                throw UsageError{"--function " + name + " is given twice"};
+            }
+        }
+        if (std::ranges::none_of(body.interface, [](const auto& f) {
+                return f.second == protocol::FunctionKind::create;
+            })) {
+            throw UsageError{"at least one function creates instances (--function NAME=create)"};
+        }
+        body.language = args.get("language").value_or("wasm");
+        if (!args.has("compiler")) {
+            throw UsageError{"missing required option --compiler (or deploy Bo with --bo)"};
+        }
+        body.compiler = args.need("compiler");
+        if (const auto source = args.get("source")) {
+            body.source = read_file(*source);
+        }
+        body.name = args.get("name");
     }
-    if (std::ranges::none_of(body.interface, [](const auto& f) {
-            return f.second == protocol::FunctionKind::create;
-        })) {
-        throw UsageError{"at least one function creates instances (--function NAME=create)"};
-    }
-    body.language = args.get("language").value_or("wasm");
-    body.compiler = args.need("compiler");
-    if (const auto source = args.get("source")) {
-        body.source = read_file(*source);
-    }
-    body.name = args.get("name");
     const protocol::Id id = session.submit(args, body);
     const protocol::ContractState& c = *session.state().contract(id);
     std::string functions;
@@ -426,9 +455,17 @@ int cmd_contract_deploy(const Args& args) {
         functions += (functions.empty() ? "" : ", ") + name +
                      (kind == protocol::FunctionKind::create ? " (creates)" : "");
     }
-    return report_submitted(args, session, id, {{"contract", contract_json(session, c)}},
-                            std::format("deployed contract {}{}\nfunctions: {}", hex_id(id),
-                                        c.name ? " \"" + *c.name + "\"" : "", functions));
+    Json extra = {{"contract", contract_json(session, c)}};
+    std::string text = std::format("deployed contract {}{}\nfunctions: {}", hex_id(id),
+                                   c.name ? " \"" + *c.name + "\"" : "", functions);
+    if (build) {
+        extra["build"] = *build;
+        text += std::format("\nbuilt from {}: {} bytes of code, with {}; the source (Bo "
+                            "edition {}) is recorded with it, so anyone can rebuild the code",
+                            *args.get("bo"), (*build)["code_size"].get<std::size_t>(), c.compiler,
+                            (*build)["edition"].get<std::uint64_t>());
+    }
+    return report_submitted(args, session, id, std::move(extra), text);
 }
 
 int cmd_contract_show(const Args& args) {
@@ -436,6 +473,12 @@ int cmd_contract_show(const Args& args) {
     const protocol::ContractState& c =
         *session.state().contract(session.contract_id(args.positional().front()));
     const protocol::ContractDeployBody deploy = deploy_of(session, c);
+    // A Bo contract's source is checked against its code: rebuilt where this
+    // build has the compiler.
+    std::optional<SourceCheck> source_check;
+    if (c.language == "bo") {
+        source_check = check_bo_source(deploy, session.provider(), session.state().hash());
+    }
     if (const auto out = args.get("code-out")) {
         write_file(*out, deploy.code, false);
     }
@@ -443,9 +486,23 @@ int cmd_contract_show(const Args& args) {
         if (!deploy.source) {
             throw CommandError{"the contract was deployed without its source"};
         }
+        if (source_check && source_check->bundle) {
+            // The Bo source as written, from its bundle.
+            write_file(*out, as_bytes(source_check->bundle->source), false);
+        } else {
+            write_file(*out, *deploy.source, false);
+        }
+    }
+    if (const auto out = args.get("bundle-out")) {
+        if (c.language != "bo" || !deploy.source) {
+            throw CommandError{"only a contract written in Bo has a source bundle"};
+        }
         write_file(*out, *deploy.source, false);
     }
-    const Json j = contract_json(session, c);
+    Json j = contract_json(session, c);
+    if (source_check) {
+        j["bo"] = source_check_json(*source_check, deploy);
+    }
     if (args.json()) {
         print_json(j);
         return exit_ok;
@@ -465,6 +522,10 @@ int cmd_contract_show(const Args& args) {
                  crypto::name(session.state().hash()), j["code_hash"].get<std::string>());
     std::println("source:     {}", deploy.source ? std::format("{} bytes", deploy.source->size())
                                                  : std::string("not deployed with it"));
+    if (source_check) {
+        std::println("            {}", bundle_text(*source_check));
+        std::println("rebuild:    {}", source_check_text(*source_check));
+    }
     std::println("deployed:   #{} {} by \"{}\"", c.deployed_at_index,
                  format_time(session.log_entry(c.deployed_at_index).registered_at),
                  session.actor_name(c.deployer));
@@ -909,10 +970,37 @@ int cmd_contract_verify(const Args& args) {
             }
         }
     }
+    // A contract written in Bo: its source, rebuilt and compared with its
+    // code (where this build has the compiler).
+    const protocol::InstanceReport& instance = *report->instance.instance;
+    std::optional<protocol::ContractDeployBody> deploy;
+    std::optional<SourceCheck> source_check;
+    if (instance.language == "bo") {
+        deploy = protocol::ContractDeployBody{instance.code,     instance.interface,
+                                              instance.language, instance.compiler,
+                                              instance.source,   instance.contract_name};
+        source_check = check_bo_source(*deploy, provider, report->instance.hash);
+        if (source_check->failed) {
+            problems.push_back(source_check->status == "differs"
+                                   ? "the contract's source does not rebuild to its code"
+                                   : "the contract's Bo source is malformed");
+        }
+    }
+    if (args.has("require-rebuild")) {
+        if (!source_check) {
+            problems.push_back("the contract is written in " + instance.language +
+                               ", not Bo: nothing rebuilds its code from a source");
+        } else if (source_check->status != "rebuilds" && !source_check->failed) {
+            problems.push_back("the contract's source was not rebuilt to its code");
+        }
+    }
     const bool verified = problems.empty();
     const bool checked = options.expected_ledger.has_value();
     if (args.json()) {
         Json out = verifier::contract_report_json(*report, checked);
+        if (source_check) {
+            out["source"] = source_check_json(*source_check, *deploy);
+        }
         out["verified"] = verified;
         if (!verified) {
             out["error"] = problems.front();
@@ -920,6 +1008,10 @@ int cmd_contract_verify(const Args& args) {
         print_json(out);
     } else {
         std::print("{}", verifier::contract_report_text(*report, checked));
+        if (source_check) {
+            std::println("\n  Source       {}", bundle_text(*source_check));
+            std::println("               {}", source_check_text(*source_check));
+        }
         for (const std::string& p : problems) {
             std::println("\nVERIFICATION FAILED: {}", p);
         }

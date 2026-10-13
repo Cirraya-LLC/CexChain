@@ -1330,18 +1330,24 @@ std::vector<CommandSpec> build() {
 
         // ------------------------------------------------------------------
         {{"contract", "deploy"},
-         "Deploy a contract: a WebAssembly module that governs instances",
+         "Deploy a contract: a WebAssembly module, or a contract written in Bo",
          "Contracts",
-         "WASM",
+         "[WASM]",
+         0,
          1,
-         1,
-         signing({{"function", "NAME=KIND",
+         signing({{"bo", "FILE",
+                   "Build and deploy a contract written in Bo: FILE.bo, its source, or FILE.boc, "
+                   "from bo build --out"},
+                  {"pack", "FILE", "With --bo: read the source with this language pack too", false,
+                   true},
+                  {"function", "NAME=KIND",
                    "A function and its kind: create (makes an instance) or call (acts on one)",
-                   true, true},
-                  {"compiler", "TEXT", "The compiler and its version, e.g. \"bo 1.0\"", true},
+                   false, true},
+                  {"compiler", "TEXT",
+                   "The compiler and its version (required, but with --bo, which fills it in)"},
                   {"language", "LANG",
-                   "The language it was written in: bo, wasm, ... "
-                   "(default: wasm)"},
+                   "The language it was written in: wasm (default) or another; Bo deploys with "
+                   "--bo"},
                   {"source", "FILE", "Its source, so that anyone can rebuild it and compare"},
                   {"name", "TEXT", "A name for people"}}),
          cmd_contract_deploy,
@@ -1349,7 +1355,18 @@ std::vector<CommandSpec> build() {
          "that exports cexchain_call and imports only from \"cexchain\", at most 512 KiB. It is\n"
          "checked here before it is signed. The contract's id is the deploy statement's id; its\n"
          "code never changes, so a new version is a new deploy. The ledger records a call only\n"
-         "if the contract, run on it, accepts it; every verifier runs it again."},
+         "if the contract, run on it, accepts it; every verifier runs it again.\n\n"
+         "With --bo, the contract is built from its Bo source (as bo build does; warnings are\n"
+         "shown, errors stop it) and the deploy records the code, the interface, the language\n"
+         "bo, the compiler (cexchain-bo RELEASE; codegen N; edition E), the contract's name,\n"
+         "and its source as a bo-source bundle: the source as written, comments included, with\n"
+         "the language packs it was read with (their digests under this ledger's hash; packs\n"
+         "that are not official, in full). Anyone can then rebuild the code from the source and\n"
+         "compare (contract show, contract verify). A .boc file must rebuild here to its code\n"
+         "before it is deployed. Needs a build with the Bo compiler (GCC 16).\n\n"
+         "  cexchain contract deploy --bo agreement.bo --as root.key\n"
+         "  cexchain contract deploy agreement.wasm --function propose=create \\\n"
+         "      --function sign=call --compiler \"mytool 1.2\" --as root.key"},
         {{"contract", "show"},
          "Show a contract: its interface, code, and instances",
          "Contracts",
@@ -1358,8 +1375,16 @@ std::vector<CommandSpec> build() {
          1,
          with({ledger_option,
                {"code-out", "FILE", "Write its module here"},
-               {"source-out", "FILE", "Write its source here (if it was deployed with it)"}}),
-         cmd_contract_show},
+               {"source-out", "FILE",
+                "Write its source here (if it was deployed with it; for Bo, the source as "
+                "written)"},
+               {"bundle-out", "FILE", "Write a Bo contract's bo-source bundle here"}}),
+         cmd_contract_show,
+         "For a contract written in Bo, also shows its source bundle (edition, packs) and\n"
+         "rebuilds the code from it to compare with the deployed code (in a build with the Bo\n"
+         "compiler): \"rebuilds\", \"DOES NOT REBUILD\" (the source is not the code's),\n"
+         "\"MALFORMED\", or \"not rebuilt\" (another compiler or version built it, or this build\n"
+         "has no compiler; it says which)."},
         {{"contract", "list"},
          "List this ledger's contracts",
          "Contracts",
@@ -1545,11 +1570,24 @@ std::vector<CommandSpec> build() {
          with({{"ledger-id", "ID", "The home's ledger id, learned out of band"},
                {"witness", "PUBKEY", "Trust this witness's public key file", false, true},
                {"min-witnesses", "N", "Fail unless at least N trusted witnesses cosigned"},
-               {"require-presence", "", "Fail unless a person proved presence for each consent"}}),
+               {"require-presence", "", "Fail unless a person proved presence for each consent"},
+               {"require-rebuild", "",
+                "Fail unless the contract is written in Bo and its source was rebuilt to its "
+                "code"}}),
          cmd_contract_verify,
          "Replays the instance's calls, running the contract again on each, and checks every\n"
          "consent a call cites on the consenting party's own ledger, with who gave it: a person\n"
-         "present, a key alone, or an AI agent and its model."},
+         "present, a key alone, or an AI agent and its model.\n\n"
+         "For a contract written in Bo, it also rebuilds the code from the source the deploy\n"
+         "carries and compares the bytes (Source, at the end; \"source\" in --json):\n"
+         "  rebuilds          the source builds to the deployed code, interface, and name\n"
+         "  DOES NOT REBUILD  with the compiler the deploy names, it builds to something else:\n"
+         "                    the source is not the code's (fails)\n"
+         "  MALFORMED         no source, or not a bo-source bundle, or packs that do not check\n"
+         "                    (fails)\n"
+         "  not rebuilt       another compiler or version built it, whose output this one does\n"
+         "                    not reproduce (it names the release to use), or this build has no\n"
+         "                    Bo compiler (GCC 16); --require-rebuild makes this fail too"},
 #if defined(CEXCHAIN_HAVE_BO)
         // ------------------------------------------------------------------
         {{"bo", "check"},
@@ -1606,6 +1644,36 @@ std::vector<CommandSpec> build() {
          "  cexchain bo check contract.bo --stage model\n"
          "  cexchain bo check contract.bo --stage parse\n"
          "  cexchain bo check contract.bo --stage lex --json\n\n" CEXCHAIN_BO_PACKS_HELP},
+        {{"bo", "build"},
+         "Build a Bo contract: its code, interface, and the source bundle a deploy records",
+         "Bo language",
+         "FILE",
+         1,
+         1,
+         with(
+             {pack_option,
+              language_option,
+              {"hash", "HASH",
+               "Pack digests with sha256 (default) or sm3: the hash of the ledger it goes to"},
+              {"out", "FILE", "Write the built contract here (FILE.boc), for contract deploy --bo"},
+              {"code-out", "FILE", "Write the module (WebAssembly) here"},
+              {"bundle-out", "FILE", "Write the bo-source bundle here"}}),
+         cmd_bo_build,
+         "Checks FILE as bo check does, then compiles it to a module in the contract profile\n"
+         "(spec section 14) with one function per action plus create (or issue, for an asset),\n"
+         "and makes the bo-source bundle a deploy records: the source as written, comments\n"
+         "included (a warning says so: every party and verifier reads them), its edition, and\n"
+         "each language pack it was read with (id, version, and the digest of its canonical\n"
+         "CBOR under --hash; packs that are not official, in full). The same source gives the\n"
+         "same bytes in any language and on any machine; the compiler string (cexchain-bo\n"
+         "RELEASE; codegen N; edition E) names what built it. A fragment (no contract line) and\n"
+         "clauses that need executors (step 6b) do not build. Exit status 2 if it does not\n"
+         "build.\n\n"
+         "Without --out, nothing is written: it reports the code's size and hash. Deploy with\n"
+         "contract deploy --bo FILE.bo (which builds again) or FILE.boc.\n\n"
+         "  cexchain bo build agreement.bo\n"
+         "  cexchain bo build agreement.bo --out agreement.boc --hash sm3\n"
+         "  cexchain bo build agreement.bo --json\n\n" CEXCHAIN_BO_PACKS_HELP},
         {{"bo", "packs", "list"},
          "List the language packs Bo source is read with, and their digests",
          "Bo language",

@@ -43,7 +43,7 @@ CexChain is a ledger protocol and node for trust between organizations. Every do
 | `crypto/pkcs11` | Keys on PKCS #11 tokens: USB keys (UKey), smart cards, and HSMs, loaded at run time |
 | `ledger` | Ledger node: crash-safe storage, rule engine, checkpoints, receipts, evidence export, backups (C++26) |
 | `node` | HTTP API server and client (Asio), API tokens, and replicas (C++26) |
-| `bo` | The Bo contract language's compiler (in progress): language packs, the lexer, the parser, the checker, and the WebAssembly emitter with its runtime so far. C++26 with static reflection and contracts, built with GCC 16; its front end (everything that reads source) also builds with Clang, for fuzzing |
+| `bo` | The Bo contract language's compiler (in progress): language packs, the lexer, the parser, the checker, the WebAssembly emitter with its runtime, lowering a first subset of Bo, and the source bundle a deploy records, rebuilt by verifiers. C++26 with static reflection and contracts, built with GCC 16; its front end (everything that reads source) also builds with Clang, for fuzzing |
 | `cli` | `cexchain` command-line tool: full control of keys, ledgers, actors, delegations, records, assets, contracts, proofs, and evidence |
 | `cexchain mcp` | MCP server through which an AI agent acts under its own key and delegation |
 
@@ -110,7 +110,7 @@ The `cexchain` tool controls every part of a ledger:
 | Other organizations | `peer add`, `peer list`, `peer show`, `peer remove`, `access request`, `access send`, `access inbox`, `access grant`, `access fetch`, `access accept`, `access receipt`, `access list` |
 | Ownership assets | `asset issue`, `asset show`, `asset list`, `asset record`, `asset evidence`, `asset consent`, `asset withdraw`, `asset send`, `asset fetch`, `asset verify` |
 | Contracts | `contract deploy`, `contract show`, `contract list`, `contract retire`, `contract create`, `contract call`, `contract instance`, `contract instances`, `contract evidence`, `contract propose`, `contract pending`, `contract consent`, `contract withdraw`, `contract send`, `contract fetch`, `contract verify` |
-| Bo language | `bo check`, `bo packs list`, `bo packs show`, `bo packs check` (in builds with the Bo compiler) |
+| Bo language | `bo check`, `bo build`, `bo packs list`, `bo packs show`, `bo packs check` (in builds with the Bo compiler); `contract deploy --bo` |
 
 - Every command takes `--help`, and `--json` for scripting.
 - `cexchain help --json` describes every command and option in machine-readable form.
@@ -405,10 +405,9 @@ integer-only profile with metered fuel, so every verifier, the browser included,
 result. A core enterprise, its supplier, and a bank:
 
 ```sh
-# The core enterprise deploys a contract and proposes an agreement; the contract names the parties.
-cexchain contract deploy agreement.wasm --function propose=create --function sign=call \
-    --function close=call --compiler "bo 1.0" --source agreement.bo --name "Supply agreement" --as cto.key
-cexchain contract create <contract> propose --args '{"price": 98000, "currency": "CNY"}' --as clerk.key
+# The core enterprise deploys a contract written in Bo and proposes an agreement, naming the parties.
+cexchain contract deploy --bo agreement.bo --as cto.key
+cexchain contract create <contract> create --args '{"fields": {"price": 9800000, ...}, "parties": {...}}' --as clerk.key
 
 # Its registrar records calls that need other parties' consents: a device with a delegation
 # for calls on this contract only.
@@ -417,11 +416,12 @@ cexchain serve --log-key log.key --registrar-key registrar.key ...
 
 # The supplier proposes signing it; the contract names whose consents it needs. Each party sees
 # the call's terms and consents on its own ledger; the last consent gets the call recorded.
-cexchain contract propose <instance> sign --peer core --args '{"price": 98000}'
+cexchain contract propose <instance> sign --peer core
 cexchain contract pending --peer core
 cexchain contract consent --peer core --call <call> --as cfo.key --log-key log.key --send
 
-# Anyone: verify the instance offline, every call run again and every consent checked.
+# Anyone: verify the instance offline, every call run again, every consent checked, and the
+# contract's code rebuilt from the Bo source its deploy carries.
 cexchain contract fetch --peer core --instance <instance> --out agreement.cbor
 cexchain contract verify agreement.cbor --ledger-id <core-ledger-id>
 ```
@@ -435,15 +435,17 @@ s.cbor --consent b.cbor`). `contract verify` shows each call, its outcome, and w
 person who proved presence, a key alone, or an AI agent and its model. The browser verifier shows
 the same report. Delegations can be limited
 to contracts (`delegation grant --contracts`), and `contract retire` stops new instances while
-existing ones carry on. `deploy/demo/supply-agreement.sh` walks through such an agreement on one
-machine, narrated, with the bank's AI agent consenting through MCP.
+existing ones carry on. `contract deploy WASM --function NAME=KIND --compiler TEXT` deploys a
+module built some other way. `deploy/demo/supply-agreement.sh` walks through such an agreement
+on one machine, narrated, with the bank's AI agent consenting through MCP.
 
 ## The Bo language
 
-Bo is the language in which contracts will be written: a few keywords in English, Traditional
-Chinese (Hong Kong usage), and Simplified Chinese, freely mixed, and built-in business words
-(pledge, renew, suspend) with fixed meanings. Its compiler is being built. What exists now is
-the layer every source is read through, *language packs*, the lexer, the parser, and the checker. Each pack maps Bo's concepts (`kw.can`,
+Bo is the language contracts are written in: a few keywords in English, Traditional Chinese
+(Hong Kong usage), and Simplified Chinese, freely mixed, and built-in business words (pledge,
+renew, suspend) with fixed meanings. Its compiler is being built: it reads every source through
+*language packs*, then lexes, parses, checks, and compiles a first subset of the language to
+contract code, which `contract deploy --bo` deploys with its source. Each pack maps Bo's concepts (`kw.can`,
 `act.pledge`, `unit.GB`) to one language's spellings, with its reading rules (words that attach
 without a space, as in `可質押` or `每GB`; full-width punctuation; `萬` and `億`; date forms), its
 messages, and the sentences of the contract text. A pack never changes what runs: the same
@@ -509,7 +511,7 @@ action says it only proposes (R14). Clauses that ask the outside world to act (n
 suspending a service) are accepted with a warning: executors come in a later step.
 
 Packs are files in CBOR diagnostic notation; `bo/packs/` holds the official ones. A pack's digest
-is the hash of its canonical CBOR, and a deploy will record the packs its source was read with, so
+is the hash of its canonical CBOR, and a deploy records the packs its source was read with, so
 anyone can rebuild the contract from the source and compare. Bo never guesses: one spelling with
 two meanings, in one pack or across the packs a source is read with, is an error, and so is a
 word that an attaching rule could split into two others.
@@ -547,6 +549,25 @@ fuel of each of its calls. What later steps bring (the vocabulary's actions, `wh
 lists, charges, executors) is refused with a message for now. `testvectors/bo-v1.json`
 (`tools/testvectors/bo_vectors.py`) pins sources, code, and outcomes, checked on both
 interpreters.
+
+```sh
+cexchain bo build agreement.bo                  # code, hash, compiler, and the source bundle
+cexchain bo build agreement.bo --out agreement.boc --hash sm3   # to deploy on an SM3 ledger
+cexchain contract deploy --bo agreement.bo --as root.key        # build and deploy in one step
+cexchain contract show <contract>               # its source bundle, and whether it rebuilds
+cexchain contract verify evidence.cbor --ledger-id <home>       # ... and every instance's
+```
+
+A Bo deploy records the code, its interface, the language `bo`, the compiler (`cexchain-bo
+RELEASE; codegen N; edition E`), the contract's name, and its source as a *bo-source bundle*
+(spec section 15): the source as written, comments included (`bo build` warns that they are
+published), its edition, and each language pack it was read with, by id, version, and digest
+under the home's hash, the packs that are not official embedded in full. `contract show` and
+`contract verify` rebuild the code from it and compare the bytes: "rebuilds"; "DOES NOT
+REBUILD" when the compiler the deploy names builds something else (the source is not the
+code's, and verification fails); "MALFORMED" when there is no usable bundle; or "not rebuilt"
+when another compiler, release, or codegen version built it (named, never called a forgery) or
+the build has no compiler. `contract verify --require-rebuild` accepts only "rebuilds".
 
 ## AI agents (MCP)
 

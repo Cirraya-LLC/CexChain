@@ -862,6 +862,10 @@ PackRead single_failure(std::string_view code, detail::Args args) {
 
 } // namespace
 
+bool detail::valid_pack_id(std::string_view id) noexcept {
+    return valid_id(id);
+}
+
 Severity Diagnostic::severity() const noexcept {
     const MessageSpec* spec = find_message(code);
     BO_ASSERT(spec != nullptr);

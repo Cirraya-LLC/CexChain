@@ -7,6 +7,7 @@
 #include <format>
 #include <variant>
 
+#include <cexchain/bo/messages.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/vm.hpp>
 #include <cexchain/node/contracts.hpp>
@@ -191,7 +192,12 @@ CallAttempt attempt_call(Session& session, const crypto::Signer& signer,
 std::string refusal(const Session& session, const protocol::ContractRun& run) {
     if (run.outcome.trap) {
         if (*run.outcome.trap == vm::Trap::aborted) {
-            return "the contract refuses the call: " + readable(run.outcome.abort_reason);
+            const std::string reason = readable(run.outcome.abort_reason);
+            // A compiled Bo contract's own checks ("bo:state sign"), in words.
+            if (const auto words = bo::render_reason(reason, nullptr)) {
+                return "the contract refuses the call: " + *words + " (" + reason + ")";
+            }
+            return "the contract refuses the call: " + reason;
         }
         return "the contract trapped on the call (" + std::string(vm::name(*run.outcome.trap)) +
                ")";

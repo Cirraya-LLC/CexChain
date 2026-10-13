@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// Bo commands (D-053, step 6): checking Bo source, and the language packs it
-// is read with. Built only with the Bo compiler (cexchain::bo: GCC 16, for C++26
+// Bo commands (D-053, step 6): checking and building Bo source, and the
+// language packs it is read with; building the deploy of `contract deploy
+// --bo`. Built only with the Bo compiler (cexchain::bo: GCC 16, for C++26
 // reflection and contracts).
 
 #include <algorithm>
@@ -17,6 +18,7 @@
 #include <string_view>
 #include <vector>
 
+#include <cexchain/bo/build.hpp>
 #include <cexchain/bo/checker.hpp>
 #include <cexchain/bo/concepts.hpp>
 #include <cexchain/bo/lexer.hpp>
@@ -24,8 +26,10 @@
 #include <cexchain/bo/names.hpp>
 #include <cexchain/bo/pack.hpp>
 #include <cexchain/bo/parser.hpp>
+#include <cexchain/bo/source.hpp>
 #include <cexchain/crypto/openssl.hpp>
 
+#include "bo_support.hpp"
 #include "commands.hpp"
 #include "output.hpp"
 
@@ -339,6 +343,116 @@ void print_source_diagnostics(std::FILE* stream, std::string_view file,
     }
 }
 
+/// The packs given with --pack (for the language of messages).
+std::vector<bo::Pack> given_packs(const bo::PackSet& set) {
+    std::vector<bo::Pack> given;
+    for (const bo::Pack& pack : set.packs()) {
+        if (!pack.official) {
+            given.push_back(pack);
+        }
+    }
+    return given;
+}
+
+std::string read_text_file(const std::string& file) {
+    const Bytes bytes = read_file(file);
+    return {reinterpret_cast<const char*>(bytes.data()), bytes.size()};
+}
+
+/// A source built, and its bundle made under the home's hash.
+struct SourceBuild {
+    std::string source;
+    bo::Compiled compiled;
+    /// Set if it built.
+    std::optional<bo::SourceBundle> bundle;
+    Bytes bundle_bytes;
+};
+
+SourceBuild build_source(const bo::PackSet& set, const std::string& file,
+                         const crypto::HashAlg hash) {
+    SourceBuild out;
+    out.source = read_text_file(file);
+    out.compiled = bo::compile(out.source, set);
+    if (out.compiled.build) {
+        out.bundle =
+            unwrap(bo::make_source_bundle(out.source, out.compiled.edition, set, provider(), hash),
+                   "the source bundle (the source and the packs that are not official) cannot be "
+                   "deployed");
+        out.bundle_bytes = unwrap(bo::encode_source_bundle(*out.bundle), "the source bundle");
+    }
+    return out;
+}
+
+Json functions_json(const std::map<std::string, protocol::FunctionKind>& interface) {
+    Json out = Json::object();
+    for (const auto& [name, kind] : interface) {
+        out[name] = kind == protocol::FunctionKind::create ? "create" : "call";
+    }
+    return out;
+}
+
+std::string functions_text(const std::map<std::string, protocol::FunctionKind>& interface) {
+    std::string out;
+    for (const auto& [name, kind] : interface) {
+        out += (out.empty() ? "" : ", ") + name +
+               (kind == protocol::FunctionKind::create ? " (creates)" : "");
+    }
+    return out;
+}
+
+/// What a build holds, as `bo build --json` and `contract deploy --bo
+/// --json` show it.
+Json build_json(const protocol::ContractDeployBody& body, const bo::SourceBundle& bundle,
+                std::size_t comments, const crypto::HashAlg hash) {
+    const auto code_hash = unwrap(provider().digest(hash, body.code), "hashing the code");
+    // References without an embedded pack name official packs.
+    std::vector<std::string> embedded;
+    for (const cbor::Value& pack : bundle.embedded) {
+        if (const cbor::Value* id = pack.find("id"); id != nullptr && id->as_text() != nullptr) {
+            embedded.push_back(*id->as_text());
+        }
+    }
+    Json packs = Json::array();
+    for (const bo::PackRef& ref : bundle.packs) {
+        packs.push_back({{"id", ref.id},
+                         {"version", ref.version},
+                         {"digest", to_hex(ref.digest)},
+                         {"official", std::ranges::find(embedded, ref.id) == embedded.end()}});
+    }
+    return {{"contract", body.name ? Json(*body.name) : Json(nullptr)},
+            {"language", body.language},
+            {"compiler", body.compiler},
+            {"edition", bundle.edition},
+            {"functions", functions_json(body.interface)},
+            {"code_size", body.code.size()},
+            {"code_hash", to_hex(code_hash.bytes())},
+            {"hash", crypto::name(hash)},
+            {"source_size", bundle.source.size()},
+            {"comments", comments},
+            {"bundle_size", body.source ? body.source->size() : std::size_t{0}},
+            {"packs", packs}};
+}
+
+/// The build's lines after its first: functions, code, compiler, source.
+void print_build(const protocol::ContractDeployBody& body, const Json& j) {
+    std::println("  {:<10} {}", "functions", functions_text(body.interface));
+    std::println("  {:<10} {} bytes, {} {}", "code", j["code_size"].get<std::size_t>(),
+                 j["hash"].get<std::string>(), j["code_hash"].get<std::string>());
+    std::println("  {:<10} {}", "compiler", body.compiler);
+    std::string packs;
+    for (const Json& p : j["packs"]) {
+        packs += std::format("{}{} {}{}", packs.empty() ? "" : ", ", p["id"].get<std::string>(),
+                             p["version"].get<std::uint64_t>(),
+                             p["official"].get<bool>() ? "" : " (embedded)");
+    }
+    const std::size_t comments = j["comments"].get<std::size_t>();
+    std::println("  {:<10} bo-source bundle of {} bytes: the source ({} bytes{}, Bo edition {}) "
+                 "and the packs {} ({} digests)",
+                 "source", j["bundle_size"].get<std::size_t>(), j["source_size"].get<std::size_t>(),
+                 comments == 0 ? std::string() : std::format(", {} comment lines", comments),
+                 j["edition"].get<std::uint64_t>(), packs, j["hash"].get<std::string>());
+}
+
 } // namespace
 
 /// "2 parties, 5 fields, 1 state, ...": what a checked model holds.
@@ -635,6 +749,115 @@ int cmd_bo_packs_check(const Args& args) {
     std::println("{}", ok ? "ok: the packs read, alone and with the official packs"
                           : "failed: see above");
     return ok ? exit_ok : exit_failure;
+}
+
+int cmd_bo_build(const Args& args) {
+    const std::string file = args.positional().front();
+    const crypto::HashAlg hash = parse_hash(args.get("hash").value_or("sha256"));
+    const bo::PackSet set = pack_set(args);
+    const bo::Pack* language = message_language(args, given_packs(set));
+    const SourceBuild built = build_source(set, file, hash);
+    const bo::Compiled& c = built.compiled;
+    const bool ok = c.build.has_value();
+    std::optional<protocol::ContractDeployBody> body;
+    Json j = nullptr;
+    if (ok) {
+        body = protocol::ContractDeployBody{c.build->code,         c.build->interface, "bo",
+                                            bo::compiler_string(), built.bundle_bytes, c.name};
+        j = build_json(*body, *built.bundle, c.comments, hash);
+        if (const auto out = args.get("out")) {
+            const bo::BuiltContract boc{body->code,         body->interface, body->compiler,
+                                        built.bundle_bytes, c.name,          hash};
+            write_file(*out, unwrap(bo::encode_built(boc), "writing the built contract"), false);
+        }
+        if (const auto out = args.get("code-out")) {
+            write_file(*out, body->code, false);
+        }
+        if (const auto out = args.get("bundle-out")) {
+            write_file(*out, built.bundle_bytes, false);
+        }
+    }
+    std::size_t errors = 0;
+    for (const bo::Diagnostic& d : c.diagnostics) {
+        errors += d.severity() == bo::Severity::error ? 1U : 0U;
+    }
+
+    if (args.json()) {
+        Json out = {{"file", file}, {"ok", ok}};
+        if (ok) {
+            out.update(j);
+            for (const char* key : {"out", "code-out", "bundle-out"}) {
+                const auto path = args.get(key);
+                std::string name(key);
+                std::ranges::replace(name, '-', '_');
+                out[name] = path ? Json(*path) : Json(nullptr);
+            }
+        }
+        out["diagnostics"] = diagnostics_json(c.diagnostics, language);
+        print_json(out);
+        return ok ? exit_ok : exit_failure;
+    }
+    print_source_diagnostics(stderr, file, c.diagnostics, language);
+    if (!ok) {
+        std::println("{}: {} error{}", file, errors, errors == 1 ? "" : "s");
+        return exit_failure;
+    }
+    std::println("{}: built contract {} (Bo edition {})", file, c.name, c.edition);
+    print_build(*body, j);
+    for (const char* key : {"out", "code-out", "bundle-out"}) {
+        if (const auto path = args.get(key)) {
+            std::println("  {:<10} {}", "wrote", *path);
+        }
+    }
+    return exit_ok;
+}
+
+BoDeploy bo_deploy_body(const Args& args, const std::string& file,
+                        const crypto::Provider& home_provider, const crypto::HashAlg hash) {
+    BoDeploy out;
+    if (file.ends_with(".boc")) {
+        // Built elsewhere: it must rebuild here to its code, so that the
+        // deploy passes everyone's rebuild check.
+        if (args.has("pack")) {
+            throw UsageError{"a .boc file carries its packs: drop --pack"};
+        }
+        const bo::BuiltContract built =
+            unwrap(bo::decode_built(read_file(file)), file + " is not a built contract (.boc)");
+        out.body = protocol::ContractDeployBody{built.code,     built.interface, "bo",
+                                                built.compiler, built.source,    built.name};
+        const bo::Rebuild rebuilt = bo::rebuild(out.body, home_provider, built.hash);
+        if (rebuilt.status != bo::RebuildStatus::rebuilds) {
+            throw CommandError{file +
+                               " does not rebuild here, so it is not deployed: " + rebuilt.detail};
+        }
+        bo::SourceBundle bundle = *rebuilt.bundle;
+        if (built.hash != hash) {
+            // The pack digests under the home's hash, from the same packs.
+            const bo::OpenedSource opened =
+                bo::open_source_bundle(bundle, home_provider, built.hash);
+            bundle = unwrap(bo::make_source_bundle(bundle.source, bundle.edition, *opened.packs,
+                                                   home_provider, hash),
+                            "the source bundle");
+            out.body.source = unwrap(bo::encode_source_bundle(bundle), "the source bundle");
+        }
+        // The comments are counted again: the .boc does not say.
+        const bo::OpenedSource opened = bo::open_source_bundle(bundle, home_provider, hash);
+        const bo::Compiled compiled = bo::compile(bundle.source, *opened.packs);
+        out.build = build_json(out.body, bundle, compiled.comments, hash);
+        return out;
+    }
+    const bo::PackSet set = pack_set(args);
+    const bo::Pack* language = message_language(args, given_packs(set));
+    const SourceBuild built = build_source(set, file, hash);
+    print_source_diagnostics(stderr, file, built.compiled.diagnostics, language);
+    if (!built.compiled.build) {
+        throw CommandError{file + " does not build (see above; bo build shows the same)"};
+    }
+    const bo::Compiled& c = built.compiled;
+    out.body = protocol::ContractDeployBody{c.build->code,         c.build->interface, "bo",
+                                            bo::compiler_string(), built.bundle_bytes, c.name};
+    out.build = build_json(out.body, *built.bundle, c.comments, hash);
+    return out;
 }
 
 } // namespace cexchain::cli

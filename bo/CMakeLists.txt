@@ -58,6 +58,7 @@ add_library(cexchain_bo_front
     src/front/pack.cpp
     src/front/pack_set.cpp
     src/front/parser.cpp
+    src/front/source.cpp
     src/front/spelling.cpp
     src/front/values.cpp)
 add_library(cexchain::bo_front ALIAS cexchain_bo_front)
@@ -108,6 +109,7 @@ elseif(NOT CEXCHAIN_HAVE_REFLECTION_AND_CONTRACTS)
         "lacks C++26 reflection or contracts); only its front end is built")
 else()
     add_library(cexchain_bo
+        src/build.cpp
         src/checked.cpp
         src/lower.cpp
         src/names.cpp
@@ -120,6 +122,9 @@ else()
     add_library(cexchain::bo ALIAS cexchain_bo)
     target_link_libraries(cexchain_bo PUBLIC cexchain::bo_front)
     target_compile_options(cexchain_bo PRIVATE -freflection)
+    # A deploy records the compiler's release: "cexchain-bo 0.0.1; codegen 1;
+    # edition 1" (build.hpp).
+    target_compile_definitions(cexchain_bo PRIVATE CEXCHAIN_BO_RELEASE="${PROJECT_VERSION}")
     cexchain_target_defaults(cexchain_bo)
     message(STATUS "Bo compiler: built (C++26 reflection and contracts)")
 endif()

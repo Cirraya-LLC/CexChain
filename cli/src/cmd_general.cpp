@@ -8,6 +8,7 @@
 #include <cexchain/core/protocol/common.hpp>
 #include <cexchain/crypto/openssl.hpp>
 #if defined(CEXCHAIN_HAVE_BO)
+#include <cexchain/bo/build.hpp>
 #include <cexchain/bo/concepts.hpp>
 #include <cexchain/bo/pack.hpp>
 #endif
@@ -67,7 +68,7 @@ int cmd_version(const Args& args) {
     for (const bo::Pack& pack : bo::official_packs()) {
         packs.push_back(pack.id + " " + std::to_string(pack.version));
     }
-    bo = {{"edition", bo::edition}, {"packs", packs}};
+    bo = {{"edition", bo::edition}, {"packs", packs}, {"compiler", bo::compiler_string()}};
 #endif
     if (args.json()) {
         print_json({{"version", CEXCHAIN_VERSION},
@@ -101,6 +102,7 @@ int cmd_version(const Args& args) {
             list += (list.empty() ? "" : ", ") + p.get<std::string>();
         }
         std::println("bo:          edition {}; packs {}", bo["edition"].get<std::uint64_t>(), list);
+        std::println("             compiler {}", bo["compiler"].get<std::string>());
     }
     return exit_ok;
 }

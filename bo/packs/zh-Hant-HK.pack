@@ -355,6 +355,7 @@
     "build.too-large": "編譯後的合約會過大：某動作的程式碼，或其包含的文字、名稱及原因，超出合約的上限",
     "build.reject-text": "{text}：拒絕的文字不可以 bo: 開首，此標記屬編譯器本身的原因",
     "build.late-party": "{field} 以 {party} 開始，但 {party} 要待之後的動作才確定：請為 {field} 指定於建立時已確定的訂約方",
+    "build.comments": "原始碼會連同其註釋（{count} 行）一併部署：各訂約方及任何驗證此合約的人均可閱讀",
     "run.input": "調用的輸入並非合約可讀取的內容：須為上限以內的確定性 CBOR",
     "run.overflow": "數值超出 Bo 可保存的範圍：以最小單位計的整數，64 位元",
     "run.division-by-zero": "除以零",

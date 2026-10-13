@@ -46,6 +46,10 @@ private:
     bool errors_ = false;
 };
 
+/// A pack's id: letters, digits, and single hyphens, starting with a
+/// letter and not ending with a hyphen; at most 64 bytes.
+[[nodiscard]] bool valid_pack_id(std::string_view id) noexcept;
+
 /// Code points of valid UTF-8, or nullopt.
 [[nodiscard]] std::optional<std::u32string> code_points(std::string_view text);
 [[nodiscard]] std::string utf8(char32_t code_point);

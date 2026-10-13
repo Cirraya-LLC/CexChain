@@ -369,6 +369,44 @@ d contract list --active --json | json 'len(d)' | contains -x 1
 # Its instances carry on.
 run contract pending "${SERVER[@]}" --json | json 'len(d)' | contains -x 1
 
+# --- A deploy that says it is Bo ----------------------------------------------------------
+# Its source is checked in every build (the front end reads bo-source
+# bundles) and rebuilt where the build has the Bo compiler (bo.sh tests that).
+printf 'not a bundle' > junk.bundle
+BJ="$(d contract deploy counting.wasm --function propose=create --language bo \
+    --compiler "cexchain-bo 9.9.9; codegen 1; edition 1" --source junk.bundle --as d-root.key --json \
+    | json 'd["contract"]["id"]')"
+d contract show "$BJ" | contains "rebuild:    MALFORMED: the deploy's source is not a bo-source bundle"
+d contract show "$BJ" --json | json 'd["bo"]["status"], d["bo"]["failed"]' | contains -x "malformed True"
+# A bundle in the right shape whose pack digests are not the packs': another
+# release's, as far as this build can tell.
+python3 - << 'EOF2'
+def head(major, n):
+    return bytes([major << 5 | n]) if n < 24 else bytes([major << 5 | 24, n])
+def text(t):
+    b = t.encode()
+    return head(3, len(b)) + b
+packs = [text(i) + head(0, 1) + bytes([0x58, 32]) + bytes(32) for i in ("en", "zh-Hans-CN", "zh-Hant-HK")]
+bundle = (head(5, 4) + head(0, 1) + head(0, 1) + head(0, 2) + head(0, 1) + head(0, 3)
+          + text("contract X\n") + head(0, 4) + head(4, 3) + b"".join(head(4, 3) + p for p in packs))
+open("other.bundle", "wb").write(bundle)
+EOF2
+BO="$(d contract deploy counting.wasm --function propose=create --language bo \
+    --compiler "cexchain-bo 9.9.9; codegen 1; edition 1" --source other.bundle --as d-root.key --json \
+    | json 'd["contract"]["id"]')"
+d contract show "$BO" > show-bo.txt
+contains "            Bo, edition 1: 11 bytes of source; packs en 1, zh-Hans-CN 1, zh-Hant-HK 1" show-bo.txt
+contains "rebuild:    not rebuilt: .*the official pack en version 1 has the digest" show-bo.txt
+IB="$(d contract create "$BO" propose --args "$CREATE" --as d-root.key --json | json 'd["instance"]["id"]')"
+d contract evidence "$IB" --log-key d-log.key --out bo.cbor > /dev/null
+run contract verify bo.cbor --ledger-id "$D_ID" | contains "               not rebuilt: "
+run contract verify bo.cbor --ledger-id "$D_ID" --json | json 'd["verified"], d["source"]["status"]' \
+    | contains -Ex "True (other-compiler|not-rebuilt)"
+expect_exit 3 contract verify bo.cbor --ledger-id "$D_ID" --require-rebuild
+contains 'VERIFICATION FAILED: the contract.s source was not rebuilt to its code' out.txt
+expect_exit 3 contract verify e3.cbor --ledger-id "$D_ID" --require-rebuild
+contains 'not Bo: nothing rebuilds its code' out.txt
+
 # --- Help, completion, audits ------------------------------------------------------------
 for cmd in deploy show list retire create call instance instances evidence propose pending \
     consent withdraw send fetch verify; do

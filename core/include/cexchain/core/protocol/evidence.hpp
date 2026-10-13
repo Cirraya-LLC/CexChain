@@ -126,6 +126,12 @@ struct InstanceReport {
     std::optional<std::string> contract_name;
     std::string language;
     std::string compiler;
+    /// The deploy's code, interface, and source (if it carried one), so that
+    /// a verifier can rebuild the code from the source and compare (for Bo,
+    /// a `bo-source` bundle).
+    Bytes code;
+    std::map<std::string, FunctionKind> interface;
+    std::optional<Bytes> source;
     /// The contract creates no more instances (known for certain only in a
     /// complete report).
     bool contract_retired = false;
