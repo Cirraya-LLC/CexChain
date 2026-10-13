@@ -29,6 +29,7 @@
 
 #if defined(CEXCHAIN_HAVE_BO_FRONT)
 #include <cexchain/bo/pack.hpp>
+#include <cexchain/bo/source.hpp>
 #endif
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/cbor.hpp>
@@ -632,6 +633,84 @@ void bo_seeds(const Seeds& seeds) {
         seeds.write("bo_parse_fuzz", path.filename().string() + ".bo", text.str());
         seeds.write("bo_check_fuzz", path.filename().string() + ".bo", text.str());
     }
+
+    // Deploys' source bundles: each golden source (the compiled agreement in
+    // four spellings among them) with the official packs, under SHA-256 and
+    // SM3; one with a company's pack embedded; a .boc of the agreement (its
+    // code from bo-v1.json); compiler strings.
+    const crypto::openssl::Provider provider;
+    const bo::PackSetRead official = bo::make_pack_set({});
+    if (!official.set) {
+        throw std::runtime_error("the official packs");
+    }
+    for (const auto& entry : std::filesystem::directory_iterator(
+             std::filesystem::path(CEXCHAIN_BO_GOLDEN_DIR) / "build")) {
+        cases.push_back(entry.path());
+    }
+    std::ranges::sort(cases);
+    Bytes agreement_bundle;
+    for (const auto& path : cases) {
+        std::ifstream in(path / "source.bo", std::ios::binary);
+        std::stringstream text;
+        text << in.rdbuf();
+        for (const crypto::HashAlg hash : {crypto::HashAlg::sha256, crypto::HashAlg::sm3}) {
+            // Sources that are not UTF-8 make no bundle.
+            const auto bundle =
+                bo::make_source_bundle(text.str(), 1, *official.set, provider, hash);
+            if (!bundle) {
+                continue;
+            }
+            const Bytes bytes = must(bo::encode_source_bundle(*bundle), "bundle");
+            seeds.write("bo_source_fuzz",
+                        std::format("{}-{}", path.filename().string(), crypto::name(hash)),
+                        ByteView(bytes));
+            if (path.filename() == "agreement-en" && hash == crypto::HashAlg::sha256) {
+                agreement_bundle = bytes;
+            }
+        }
+    }
+    std::string keywords;
+    for (const auto& [id, word] : bo::english_pack().keywords) {
+        keywords += (keywords.empty() ? "" : ", ") +
+                    std::format("\"{}\": \"{}\"", id, word.spellings.front());
+    }
+    const bo::PackRead company =
+        bo::read_pack(R"({"format": 1, "id": "acme-terms", "version": 3, "language": "en-x-acme", )"
+                      R"("name": "Acme terms", "official": false, "edition": 1, )"
+                      R"("reading": {"separation": "spaces"}, "keywords": {)" +
+                      keywords + R"(}, "vocabulary": {"role.supplier": "vendor"}})");
+    if (!company.pack) {
+        throw std::runtime_error("the company pack");
+    }
+    const bo::PackSetRead with_company = bo::make_pack_set({*company.pack});
+    if (!with_company.set) {
+        throw std::runtime_error("the company pack with the official ones");
+    }
+    const auto embedded =
+        must(bo::make_source_bundle("contract Supply\nparties we, vendor\nrecord Order\n  amount "
+                                    "HKD\ncan countersign by vendor\n  proposed -> signed\n",
+                                    1, *with_company.set, provider, crypto::HashAlg::sha256),
+             "bundle");
+    seeds.write("bo_source_fuzz", "embedded-pack",
+                ByteView(must(bo::encode_source_bundle(embedded), "bundle")));
+
+    std::ifstream vectors(CEXCHAIN_TESTVECTORS_DIR "/bo-v1.json");
+    if (!vectors) {
+        throw std::runtime_error("cannot read bo-v1.json");
+    }
+    const auto doc = nlohmann::json::parse(vectors);
+    bo::BuiltContract built;
+    built.code = must(from_hex(doc.at("contracts").at(0).at("code").get<std::string>()), "code");
+    built.interface = {{"amend", protocol::FunctionKind::call},
+                       {"close", protocol::FunctionKind::call},
+                       {"countersign", protocol::FunctionKind::call},
+                       {"create", protocol::FunctionKind::create},
+                       {"sign", protocol::FunctionKind::call}};
+    built.compiler = "cexchain-bo 0.0.1; codegen 1; edition 1";
+    built.source = agreement_bundle;
+    built.name = "Agreement";
+    seeds.write("bo_source_fuzz", "agreement.boc", ByteView(must(bo::encode_built(built), "boc")));
+    seeds.write("bo_source_fuzz", "compiler", built.compiler);
 #else
     static_cast<void>(seeds);
 #endif
