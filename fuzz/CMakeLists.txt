@@ -28,6 +28,7 @@ if(TARGET cexchain_bo_front)
     cexchain_add_fuzzer(bo_pack_fuzz cexchain::bo_front)
     cexchain_add_fuzzer(bo_lex_fuzz cexchain::bo_front)
     cexchain_add_fuzzer(bo_parse_fuzz cexchain::bo_front)
+    cexchain_add_fuzzer(bo_check_fuzz cexchain::bo_front)
 endif()
 # The interpreter's internals (core/src/vm/internal.hpp), for a lower fuel limit.
 target_include_directories(vm_fuzz PRIVATE ${PROJECT_SOURCE_DIR}/core/src)
