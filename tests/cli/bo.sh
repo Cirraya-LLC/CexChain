@@ -10,7 +10,9 @@
 # each language and mixed; building it (bo build) and deploying it
 # (contract deploy --bo), then a Bo agreement through a ledger and its
 # registrar, with a consent from a ledger on SM3, verified offline with the
-# rebuild check; and deploys whose source is not their code.
+# rebuild check; the contract text (bo explain, contract explain) in each
+# language, the same from every spelling; and deploys whose source is not
+# their code.
 # Usage: bo.sh CEXCHAIN
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO (from lines ${BASH_LINENO[*]}): $BASH_COMMAND" >&2' ERR
@@ -55,7 +57,7 @@ start_server() {
 }
 
 echo "== help and completion"
-for command in "bo check" "bo build" "bo packs list" "bo packs show" "bo packs check"; do
+for command in "bo check" "bo build" "bo explain" "bo packs list" "bo packs show" "bo packs check"; do
     # shellcheck disable=SC2086
     run $command --help > out.txt
     contains -F "cexchain $command" out.txt || fail "help for $command"
@@ -64,12 +66,16 @@ done
 run --help > out.txt
 contains -F "bo packs list" out.txt || fail "overview lists bo"
 run completion bash > out.txt
-contains -F '"bo") words="build check packs"' out.txt || fail "completion: bo"
+contains -F '"bo") words="build check explain packs"' out.txt || fail "completion: bo"
+contains -F 'deploy evidence explain fetch' out.txt || fail "completion: contract explain"
 contains -F -- "--bundle-out" out.txt || fail "completion: bo build"
 contains -F -- "--require-rebuild" out.txt || fail "completion: contract verify"
 contains -F -- "--stage" out.txt || fail "completion: --stage"
 contains -F '"bo packs") words="check list show"' out.txt || fail "completion: bo packs"
 contains -F -- "--section" out.txt || fail "completion: options"
+run contract explain --help > out.txt
+contains -F "cexchain contract explain CONTRACT|INSTANCE" out.txt || fail "help for contract explain"
+contains -F "only if that source rebuilds" out.txt || fail "help: contract explain needs a rebuild"
 run version --json | json 'd["bo"]["edition"]' > out.txt
 contains -x 1 out.txt || fail "version names the edition"
 
@@ -104,7 +110,7 @@ run bo packs show zh-Hans-CN --json > show.json
 json 'd["keywords"]["kw.each"], d["vocabulary"]["unit.item"]["category"], d["reading"]["multipliers"]["万"]' < show.json > out.txt
 contains -Fx "['逐个'] unit 10000" out.txt || fail "show --json"
 json 'len(d["messages"]), len(d["sentences"])' < show.json > out.txt
-contains -Fx "167 49" out.txt || fail "messages and sentences"
+contains -Fx "167 152" out.txt || fail "messages and sentences"
 expect_exit 1 bo packs show fr
 contains -F "no pack fr" out.txt || fail "unknown pack"
 expect_exit 1 bo packs show en --section nope
@@ -421,6 +427,58 @@ expect_exit 1 bo build agreement.bo --hash sha384
 expect_exit 1 bo build
 expect_exit 2 bo build no-such.bo
 
+echo "== bo explain: the contract text, the same from every spelling"
+TEXTS="$GOLDENS/explain"
+for language in en zh-Hant-HK zh-Hans-CN; do
+    file="$(tr 'A-Z' 'a-z' <<< "$language" | sed 's/-hk$//; s/-cn$//')"
+    for spelling in en zh-hant zh-hans mixed; do
+        cp "$BUILDS/agreement-$spelling/source.bo" "agreement-$spelling.bo"
+        run bo explain "agreement-$spelling.bo" --language "$language" > text.txt 2> warnings.txt
+        diff "$TEXTS/agreement/$file.txt" text.txt > /dev/null || fail "text ($language from $spelling)"
+        [ -s warnings.txt ] && fail "no problems for a source that builds"
+    done
+done
+run bo explain agreement.bo > text.txt
+contains -Fx "Contract Agreement" text.txt || fail "title"
+contains -Fx "  4.2.2 Requirement 1: if the amount is over HKD 1,000,000, the customer must prove presence in person, with a passkey or a hardware key. [R6, R13]" text.txt || fail "an inferred clause, marked"
+contains -F "[R6] Over N compares N with the action's one amount" text.txt || fail "the rule explained"
+CEXCHAIN_LANGUAGE=zh-Hans run bo explain agreement.bo > text.txt
+diff "$TEXTS/agreement/zh-hans.txt" text.txt > /dev/null || fail "\$CEXCHAIN_LANGUAGE"
+run bo explain agreement.bo --language zh-Hant > text.txt
+contains -F "  4.2.2 要求 1：如金額超過港元 1,000,000，客戶須以通行密鑰或硬件密鑰證明本人親身在場。〔R6、R13〕" text.txt || fail "zh-Hant"
+# The demo's agreement, in Simplified Chinese.
+run bo explain "$SOURCE/deploy/demo/supply-agreement.bo" --language zh-Hans-CN > text.txt
+diff "$TEXTS/supply-agreement/zh-hans.txt" text.txt > /dev/null || fail "the demo's text"
+# --json: the clauses, their rules, requirements numbered as refusals name
+# them (bo:requires sign 2), and the rules' texts.
+run bo explain agreement.bo --json > explain.json
+json 'd["ok"], d["language"], d["title"], [s["kind"] for s in d["sections"]]' < explain.json > out.txt
+contains -Fx "True en Contract Agreement ['parties', 'instance', 'states', 'actions']" out.txt || fail "explain --json"
+json '[(c["function"], c["requirement"], c["rules"]) for s in d["sections"] for c in s["clauses"] if c["kind"] == "requirement"]' < explain.json > out.txt
+contains -Fx "[('amend', 1, ['R7']), ('amend', 2, []), ('amend', 3, []), ('sign', 1, ['R6', 'R13']), ('sign', 2, []), ('close', 1, [])]" out.txt || fail "requirements in json"
+json '[r["id"] for r in d["rules"]], d["text"] == open("'"$TEXTS"'/agreement/en.txt").read()' < explain.json > out.txt
+contains -Fx "['R3', 'R4', 'R5', 'R6', 'R7', 'R13', 'R14', 'R17'] True" out.txt || fail "rules in json"
+# R18: a name compared with a text is that text, shown in quotation marks.
+run bo explain tax.bo > text.txt 2> warnings.txt
+contains -F '  2.1.2 It applies when the customer location is "中国内地". [R18]' text.txt || fail "R18 in quotes"
+contains -F "(check.fragment)" warnings.txt || fail "warnings on stderr"
+run bo explain tax.bo --language zh-Hant-HK 2> /dev/null | contains -F "適用條件：客戶所在地為「中国内地」。〔R18〕" || fail "R18 in zh-Hant"
+# A contract that needs executors explains (it does not build yet).
+run bo explain vps-zh-hant.bo > text.txt 2> warnings.txt
+diff "$TEXTS/vps/en.txt" text.txt > /dev/null || fail "the VPS text"
+[ "$(grep -c "(check.needs-executor)" warnings.txt)" = 6 ] || fail "executors marked"
+# A source that does not check has no text; its problems in the reader's language.
+expect_exit 2 bo explain model.bo
+contains -F "model.bo: 4 errors: there is no contract text until it checks" out.txt || fail "no text"
+expect_exit 2 bo explain model.bo --language zh-Hant-HK
+contains -F "持有人 存放的是訂約方，而非港元金額 (check.field-type)" out.txt || fail "errors in zh-Hant"
+expect_exit 2 bo explain model.bo --json
+json 'd["ok"], "text" in d, d["diagnostics"][0]["code"]' < out.txt > codes.txt
+contains -Fx "False False check.field-type" codes.txt || fail "explain --json without a text"
+expect_exit 1 bo explain agreement.bo --language fr
+expect_exit 1 bo explain
+expect_exit 2 bo explain no-such.bo
+
 echo "== contract deploy --bo: two organizations, the customer's ledger on SM3"
 D="$WORK/core"; S="$WORK/customer"
 d() { run "$@" --ledger "$D"; }
@@ -480,6 +538,8 @@ d contract call "$I" sign --as d-root.key --dry-run --json > dry.json
 json 'd["verdict"], d["needs"]' < dry.json > out.txt
 contains -Fx "needs ['$S_ID']" out.txt || fail "sign needs the customer"
 d contract call "$I" countersign --as d-root.key --dry-run | contains -F "bo:state countersign" || fail "countersign too early"
+CEXCHAIN_LANGUAGE=zh-Hant-HK d contract call "$I" countersign --as d-root.key --dry-run |
+    contains -F "實例目前的狀態不容許 countersign (bo:state countersign)" || fail "a refusal in the reader's language"
 # The home's registrar.
 run key generate --out registrar.key > /dev/null
 run key public registrar.key --out registrar.pub > /dev/null
@@ -536,6 +596,45 @@ contains -F "rebuilds: the source rebuilds" verify.txt || fail "verify: rebuilds
 echo "   module $GOLDEN_SIZE bytes; fuel: create $FUEL_CREATE, sign $FUEL_SIGN (dry run with the consent)," \
     "countersign $FUEL_COUNTERSIGN, close $FUEL_CLOSE"
 
+echo "== contract explain: the text of the code that runs"
+# The deployed agreement's text, from the source its deploy carries: the
+# same text bo explain writes, in each language.
+d contract explain "$C" > explained.txt
+contains -F "contract:  $C (Agreement)" explained.txt || fail "contract explain: the contract"
+contains -F "rebuild:   rebuilds: the source rebuilds to the deployed code" explained.txt || fail "contract explain: rebuilds"
+sed '1,/^$/d' explained.txt > text.txt
+diff "$TEXTS/agreement/en.txt" text.txt > /dev/null || fail "contract explain: the text"
+for language in zh-Hant-HK zh-Hans-CN; do
+    file="$(tr 'A-Z' 'a-z' <<< "$language" | sed 's/-hk$//; s/-cn$//')"
+    d contract explain "$C" --language "$language" | sed '1,/^$/d' > text.txt
+    diff "$TEXTS/agreement/$file.txt" text.txt > /dev/null || fail "contract explain ($language)"
+done
+CEXCHAIN_LANGUAGE=zh-Hans d contract explain "${C:0:12}" | sed '1,/^$/d' > text.txt
+diff "$TEXTS/agreement/zh-hans.txt" text.txt > /dev/null || fail "contract explain: \$CEXCHAIN_LANGUAGE"
+# An instance: its status, parties, and state, then its contract's text.
+d contract explain "$I" > explained.txt
+contains -F "instance:  $I" explained.txt || fail "contract explain: the instance"
+contains -F "status:    closed (final: it takes no more calls)" explained.txt || fail "contract explain: status"
+contains -F "customer: customer (" explained.txt || fail "contract explain: parties"
+contains -F "we: Core Enterprise (this ledger" explained.txt || fail "contract explain: this ledger"
+# Its fields in the text's words: money in HKD, the date at +08:00, the text in quotes.
+contains -Fx "state:     closed" explained.txt || fail "contract explain: the state"
+contains -Fx 'fields:    terms: "100 t of steel, monthly"' explained.txt || fail "contract explain: a text"
+contains -Fx "           amount: HKD 250,000.00" explained.txt || fail "contract explain: money"
+contains -Fx "           starts: 1 January 2030" explained.txt || fail "contract explain: a date"
+d contract explain "$I" --language zh-Hant-HK > explained-hant.txt
+contains -Fx "           金額: 港元 250,000.00" explained-hant.txt || fail "contract explain: money in zh-Hant"
+contains -Fx "           starts: 2030年1月1日" explained-hant.txt || fail "contract explain: a date in zh-Hant"
+sed '1,/^$/d' explained.txt > text.txt
+diff "$TEXTS/agreement/en.txt" text.txt > /dev/null || fail "contract explain INSTANCE: the text"
+d contract explain "$I" --json > explained.json
+json 'd["explained"], d["source"]["status"], d["instance"]["status"], d["contract"] == "'"$C"'", d["language"], d["text"] == open("'"$TEXTS"'/agreement/en.txt").read()' < explained.json > out.txt
+contains -Fx "True rebuilds closed True en True" out.txt || fail "contract explain --json"
+json '[(f["field"], f["value"]) for f in d["instance"]["fields"]]' < explained.json > out.txt
+contains -Fx "[('terms', '\"100 t of steel, monthly\"'), ('amount', 'HKD 250,000.00'), ('starts', '1 January 2030')]" out.txt || fail "contract explain --json: fields"
+expect_exit 1 contract explain "$C" --language fr --ledger "$D"
+expect_exit 2 contract explain 00000000 --ledger "$D"
+
 echo "== deploys whose source is not their code"
 # Another contract's code with the agreement's source: the same compiler
 # builds other code from it, so the source is not the code's.
@@ -551,6 +650,12 @@ d contract show "$X" > show.txt
 contains -F "rebuild:    DOES NOT REBUILD: the source builds to other code (" show.txt || fail "show: differs"
 contains -F "with the compiler the deploy names" show.txt || fail "show: differs with this compiler"
 d contract show "$X" --json | json 'd["bo"]["status"], d["bo"]["failed"]' | contains -Fx "differs True" || fail "show --json: differs"
+# No text for a source that is not the code's: it would not be what runs.
+expect_exit 3 contract explain "$X" --ledger "$D"
+contains -F "no contract text: its source does not rebuild to its code" out.txt || fail "explain: differs"
+contains -F "rebuild:  DOES NOT REBUILD" out.txt || fail "explain: says why"
+expect_exit 3 contract explain "$X" --ledger "$D" --json
+json 'd["explained"], d["source"]["status"], "text" in d' < out.txt | contains -Fx "False differs False" || fail "explain --json: differs"
 J="$(d contract create "$X" create --args "$CREATE" --as d-root.key --json | json 'd["instance"]["id"]')"
 d contract evidence "$J" --log-key d-log.key --out x.cbor > /dev/null
 expect_exit 3 contract verify x.cbor --ledger-id "$D_ID"
@@ -566,6 +671,9 @@ Y="$(deploy_raw other.wasm "$NEWER" agreement.bundle)"
 d contract show "$Y" > show.txt
 contains -F "rebuild:    not rebuilt: built with $NEWER; this compiler is $COMPILER, and the source builds to other code" show.txt || fail "show: other codegen"
 d contract show "$Y" --json | json 'd["bo"]["status"], d["bo"]["failed"]' | contains -Fx "other-compiler False" || fail "show --json: other codegen"
+expect_exit 2 contract explain "$Y" --ledger "$D"
+contains -F "no contract text: its source was not rebuilt to its code here" out.txt || fail "explain: other codegen"
+contains -F "not rebuilt: built with $NEWER" out.txt || fail "explain: names the compiler"
 # The agreement's own code, said to be built by another codegen version: the
 # bytes are the same, so it rebuilds.
 Z="$(deploy_raw agreement.wasm "$NEWER" agreement.bundle)"
@@ -574,6 +682,10 @@ d contract show "$Z" | contains -F "rebuild:    rebuilds" || fail "the same byte
 printf 'not a bundle' > junk.bundle
 W="$(deploy_raw agreement.wasm "$COMPILER" junk.bundle)"
 d contract show "$W" | contains -F "rebuild:    MALFORMED: the deploy's source is not a bo-source bundle" || fail "malformed"
+expect_exit 3 contract explain "$W" --ledger "$D"
+contains -F "MALFORMED" out.txt || fail "explain: malformed"
+d contract explain "$Z" | sed '1,/^$/d' > text.txt
+diff "$TEXTS/agreement/en.txt" text.txt > /dev/null || fail "explain: the same bytes, said to be another codegen's, rebuild"
 d contract deploy agreement.wasm --function create=create --language bo --compiler "$COMPILER" \
     --as d-root.key --json > nosource.json
 d contract show "$(json 'd["contract"]["id"]' < nosource.json)" | contains -F "MALFORMED: a Bo deploy carries its source" || fail "no source"
@@ -583,6 +695,8 @@ d contract show "$V" | contains -F "not rebuilt: built with \"acme-bo 2.1\", whi
 U="$(d contract deploy agreement.wasm --function create=create --function close=call --compiler x \
     --as d-root.key --json | json 'd["contract"]["id"]')"
 d contract show "$U" | contains -F "rebuild:" && fail "a wasm contract has no rebuild line"
+expect_exit 2 contract explain "$U" --ledger "$D"
+contains -F "is written in wasm, not Bo" out.txt || fail "explain: wasm"
 K="$(d contract create "$U" create --args "$CREATE" --as d-root.key --json | json 'd["instance"]["id"]')"
 d contract evidence "$K" --log-key d-log.key --out u.cbor > /dev/null
 run contract verify u.cbor --ledger-id "$D_ID" --json | json '"source" in d, d["verified"]' | contains -Fx "False True" || fail "wasm: no source check"

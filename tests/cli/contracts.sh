@@ -378,6 +378,13 @@ BJ="$(d contract deploy counting.wasm --function propose=create --language bo \
     | json 'd["contract"]["id"]')"
 d contract show "$BJ" | contains "rebuild:    MALFORMED: the deploy's source is not a bo-source bundle"
 d contract show "$BJ" --json | json 'd["bo"]["status"], d["bo"]["failed"]' | contains -x "malformed True"
+# No contract text for a malformed source (exit 3), nor for a contract not
+# written in Bo.
+expect_exit 3 contract explain "$BJ" --ledger "$D"
+contains "no contract text: its source does not rebuild to its code" out.txt
+contains "rebuild:  MALFORMED" out.txt
+expect_exit 2 contract explain "$C" --ledger "$D"
+contains "is written in wasm, not Bo" out.txt
 # A bundle in the right shape whose pack digests are not the packs': another
 # release's, as far as this build can tell.
 python3 - << 'EOF2'
@@ -397,6 +404,11 @@ BO="$(d contract deploy counting.wasm --function propose=create --language bo \
 d contract show "$BO" > show-bo.txt
 contains "            Bo, edition 1: 11 bytes of source; packs en 1, zh-Hans-CN 1, zh-Hant-HK 1" show-bo.txt
 contains "rebuild:    not rebuilt: .*the official pack en version 1 has the digest" show-bo.txt
+# Not rebuilt here, so no text that could be confirmed as the code's (exit 2).
+expect_exit 2 contract explain "$BO" --ledger "$D"
+contains "no contract text: its source was not rebuilt to its code here" out.txt
+expect_exit 2 contract explain "$BO" --ledger "$D" --json
+json 'd["explained"], d["source"]["failed"]' < out.txt | contains -x "False False"
 IB="$(d contract create "$BO" propose --args "$CREATE" --as d-root.key --json | json 'd["instance"]["id"]')"
 d contract evidence "$IB" --log-key d-log.key --out bo.cbor > /dev/null
 run contract verify bo.cbor --ledger-id "$D_ID" | contains "               not rebuilt: "
@@ -409,7 +421,7 @@ contains 'not Bo: nothing rebuilds its code' out.txt
 
 # --- Help, completion, audits ------------------------------------------------------------
 for cmd in deploy show list retire create call instance instances evidence propose pending \
-    consent withdraw send fetch verify; do
+    consent withdraw send fetch verify explain; do
     run contract "$cmd" --help | contains 'Usage: cexchain contract'
 done
 run contract call --help | contains 'diagnostic notation'

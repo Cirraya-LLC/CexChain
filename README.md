@@ -109,8 +109,8 @@ The `cexchain` tool controls every part of a ledger:
 | Backups | `backup create`, `backup verify`, `backup restore` |
 | Other organizations | `peer add`, `peer list`, `peer show`, `peer remove`, `access request`, `access send`, `access inbox`, `access grant`, `access fetch`, `access accept`, `access receipt`, `access list` |
 | Ownership assets | `asset issue`, `asset show`, `asset list`, `asset record`, `asset evidence`, `asset consent`, `asset withdraw`, `asset send`, `asset fetch`, `asset verify` |
-| Contracts | `contract deploy`, `contract show`, `contract list`, `contract retire`, `contract create`, `contract call`, `contract instance`, `contract instances`, `contract evidence`, `contract propose`, `contract pending`, `contract consent`, `contract withdraw`, `contract send`, `contract fetch`, `contract verify` |
-| Bo language | `bo check`, `bo build`, `bo packs list`, `bo packs show`, `bo packs check` (in builds with the Bo compiler); `contract deploy --bo` |
+| Contracts | `contract deploy`, `contract show`, `contract list`, `contract retire`, `contract create`, `contract call`, `contract instance`, `contract instances`, `contract evidence`, `contract propose`, `contract pending`, `contract consent`, `contract withdraw`, `contract send`, `contract fetch`, `contract verify`, `contract explain` |
+| Bo language | `bo check`, `bo build`, `bo explain`, `bo packs list`, `bo packs show`, `bo packs check` (in builds with the Bo compiler); `contract deploy --bo` |
 
 - Every command takes `--help`, and `--json` for scripting.
 - `cexchain help --json` describes every command and option in machine-readable form.
@@ -494,7 +494,7 @@ Money never mixes currencies, quantities never mix dimensions (TB and GB convert
 not), months never mix with days, and every value is exact in its smallest unit (cents, bytes,
 millionths of a rate): `HKD 0.001` is an error, never a rounding. Lists are bounded, actions never
 recurse, and every state must be reachable. Whatever Bo infers rather than reads carries the id of
-the fixed rule that inferred it, which the contract text will spell out:
+the fixed rule that inferred it, which the contract text spells out:
 
 ```
 asset Receivable                       party role.bank bound=act.pledge{R3}
@@ -569,6 +569,43 @@ REBUILD" when the compiler the deploy names builds something else (the source is
 code's, and verification fails); "MALFORMED" when there is no usable bundle; or "not rebuilt"
 when another compiler, release, or codegen version built it (named, never called a forgery) or
 the build has no compiler. `contract verify --require-rebuild` accepts only "rebuilds".
+
+### The contract text
+
+What the parties read and confirm before they sign is the *contract text*, which Bo writes from
+the contract in English, Traditional Chinese (Hong Kong usage), or Simplified Chinese: the
+parties and when each is bound to a ledger, what each instance records, the states (the first,
+the final ones, and the events), each action (who starts it, the consents it needs, its
+requirements, numbered as a refusal such as `bo:requires sign 2` names them, its state changes,
+and what AI agents may do), the time rules, and the rules Bo applied. Whatever Bo inferred
+instead of reading it is spelled out in its clause and marked with its rule (`[R3]`, `〔R3〕`), and
+the last section explains each rule used. Texts are always shown in quotation marks, including a
+name Bo read as a text (R18: `客户所在地 = 中国内地` reads as `the customer location is
+"中国内地"`). One contract gives the same text, byte for byte, whatever language its source was
+written in; `tests/bo/golden/explain/` holds the text of each example in each language.
+
+```sh
+cexchain bo explain agreement.bo                         # before a deploy
+cexchain bo explain agreement.bo --language zh-Hant-HK   # or set CEXCHAIN_LANGUAGE
+cexchain contract explain <contract or instance>         # from the deploy, only if it rebuilds
+```
+
+```
+4.2 sign
+  4.2.1 Started by the customer, whose agreement it needs.
+  4.2.2 Requirement 1: if the amount is over HKD 1,000,000, the customer must prove presence in
+        person, with a passkey or a hardware key. [R6, R13]
+  4.2.3 Requirement 2: the time of the call is before starts.
+  4.2.4 If the instance is proposed, it becomes signed; otherwise the call is refused.
+  4.2.5 An AI agent may start it within its delegation. [R14]
+```
+
+`contract explain` reads the source the deploy carries exactly as `contract verify` rebuilds it
+(with the language packs it names, at their versions) and writes the text only if that source
+rebuilds to the deployed code, so the text is the text of the code that runs; otherwise it says
+why. For an instance, it shows its state and fields in the same words first (`amount: HKD
+250,000.00`, `starts: 1 January 2030`). Messages follow `--language` or `CEXCHAIN_LANGUAGE`
+everywhere the compiler reports, refusals of compiled contracts included.
 
 ## AI agents (MCP)
 

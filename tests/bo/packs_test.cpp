@@ -504,7 +504,7 @@ TEST_CASE("messages and sentences use their own placeholders", "[bo][packs]") {
         return pack;
     };
     must_read(with(R"("messages": {"pack.missing-key": "{path}: {key}?"}, )"
-                   R"("sentences": {"can": "{party} {action.third}"}, )"));
+                   R"("sentences": {"party-action": "{party} {action.third}"}, )"));
     refuses(with(R"("messages": {"pack.nope": "x"}, )"), "pack.unknown-message",
             {{"code", "pack.nope"}});
     refuses(with(R"("sentences": {"nope": "x"}, )"), "pack.unknown-sentence");
@@ -514,7 +514,7 @@ TEST_CASE("messages and sentences use their own placeholders", "[bo][packs]") {
             "pack.bad-placeholder"); // forms are for sentences
     refuses(with(R"("messages": {"pack.missing-key": "{path"}, )"), "pack.bad-placeholder");
     refuses(with(R"("messages": {"pack.missing-key": "path}"}, )"), "pack.bad-placeholder");
-    refuses(with(R"("sentences": {"can": "{party.Third}"}, )"), "pack.bad-placeholder");
+    refuses(with(R"("sentences": {"party-action": "{party.Third}"}, )"), "pack.bad-placeholder");
     refuses(with(R"("messages": {"pack.missing-key": "a\nb"}, )"), "pack.bad-text");
 
     // A pack's messages are used, English fills in.

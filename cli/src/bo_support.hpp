@@ -4,9 +4,12 @@
 #pragma once
 
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
+#include <cexchain/bo/explain.hpp>
+#include <cexchain/bo/pack.hpp>
 #include <cexchain/bo/source.hpp>
 #include <cexchain/core/crypto.hpp>
 #include <cexchain/core/protocol/statement.hpp>
@@ -52,6 +55,37 @@ struct SourceCheck {
 /// "rebuilds: ...", "DOES NOT REBUILD: ...", "MALFORMED: ...", or
 /// "not rebuilt: ...".
 [[nodiscard]] std::string source_check_text(const SourceCheck& check);
+
+/// The reader's language for Bo's messages and contract text: `want`
+/// (--language), else $CEXCHAIN_LANGUAGE, else English. A pack id, a
+/// language tag, or a tag's unique prefix (zh-Hant), among the official
+/// packs and then `extra`; a language no pack has is a usage error.
+[[nodiscard]] const bo::Pack* reader_language(const std::optional<std::string>& want,
+                                              std::span<const bo::Pack> extra = {});
+
+/// $CEXCHAIN_LANGUAGE's official pack, else English: for the words of a
+/// compiled contract's refusals, which never fail a command.
+[[nodiscard]] const bo::Pack* environment_language() noexcept;
+
+/// The contract text as JSON: its language, title, introduction, sections
+/// (each clause with its number, kind, text, and rules; an action's clauses
+/// with its function; a requirement with its number), the rules it uses with
+/// their texts, and the whole text.
+[[nodiscard]] Json explained_json(const bo::Explained& explained);
+
+/// A Bo deploy's contract text. It is written only for a source that
+/// rebuilds to the deployed code (the parties confirm the text of the code
+/// that runs): read as the rebuild reads it, with the packs the bundle names
+/// at their versions. Otherwise `explained` is empty and `check` says why.
+struct DeployText {
+    SourceCheck check;
+    /// The checked model and its text, if the source rebuilds.
+    std::optional<bo::model::Model> model;
+    std::optional<bo::Explained> explained;
+};
+[[nodiscard]] DeployText explain_deploy(const protocol::ContractDeployBody& deploy,
+                                        const crypto::Provider& provider, crypto::HashAlg hash,
+                                        const std::optional<std::string>& language);
 
 /// A deploy built from FILE: Bo source (.bo, read with the packs of
 /// --pack), or a .boc file that `bo build --out` wrote (which must rebuild

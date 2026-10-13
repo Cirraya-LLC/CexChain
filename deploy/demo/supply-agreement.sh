@@ -108,6 +108,9 @@ PROPOSE="{\"fields\": $TERMS, \"parties\": {\"we\": h'$CORE_ID', \"supplier\": h
 AGREEMENT="$(run contract create "$CONTRACT" create --args "$PROPOSE" --reference "PO-2026-1012" \
     --as core-root.key --ledger "$CORE" --json | field '["instance"]["id"]')"
 run contract instance "$AGREEMENT" --ledger "$CORE" | sed -n '1,8p' | indent
+say "What the supplier and the bank confirm is the contract text, written from the source the"
+say "deploy carries (it rebuilds to the code that runs), here in Simplified Chinese:"
+run contract explain "$AGREEMENT" --language zh-Hans-CN --ledger "$CORE" | indent
 say "Can the core enterprise sign it alone? A dry run asks the contract:"
 run contract call "$AGREEMENT" sign --dry-run --as core-root.key --ledger "$CORE" | indent
 

@@ -407,25 +407,7 @@ void Lowering::plan_states() {
 std::optional<std::string> Lowering::amount_of(const ActionInfo& action) const {
     // R6: the action's one input of money or a quantity; with none, the
     // instance's amount.
-    std::optional<std::string> found;
-    int amounts = 0;
-    for (const m::Field& input : action.action->inputs) {
-        if (input.type.kind == TypeKind::money || input.type.kind == TypeKind::quantity) {
-            ++amounts;
-            found = m::key(input.word, input.name);
-        }
-    }
-    if (amounts == 1) {
-        return found;
-    }
-    if (amounts == 0) {
-        for (const m::Field& f : model_.fields) {
-            if (is(f.word, "field.amount") && rep_of(f.type) == Rep::i64) {
-                return std::string("field.amount");
-            }
-        }
-    }
-    return std::nullopt;
+    return m::action_amount(model_, *action.action);
 }
 
 std::optional<std::pair<Span, std::string>> Lowering::unsupported_in(const m::Expr& e,
@@ -613,7 +595,7 @@ void Lowering::support(ActionInfo& action, const std::vector<m::Statement>& list
 }
 
 void Lowering::plan_actions() {
-    creation_ = is(model_.kind, "kind.asset") ? "issue" : "create";
+    creation_ = std::string(m::creation_function(model_));
     std::set<std::string> names{creation_};
     for (const m::Action& a : model_.actions) {
         ActionInfo info;
@@ -683,85 +665,12 @@ void Lowering::plan_actions() {
     }
 }
 
-/// The states an action can start from, by its top-level lines before
-/// anything that may change the state: its first state change with FROM
-/// states, and `requires STATE` (or STATE or STATE). Null: any state.
-std::optional<std::set<std::string>> entry_states(const m::Action& a) {
-    std::optional<std::set<std::string>> allowed;
-    const auto narrow = [&](std::set<std::string> states) {
-        if (!allowed) {
-            allowed = std::move(states);
-            return;
-        }
-        std::set<std::string> both;
-        std::ranges::set_intersection(*allowed, states, std::inserter(both, both.begin()));
-        allowed = std::move(both);
-    };
-    // The states a condition names when it is only states joined by `or`.
-    const auto states_of = [](const m::Expr& e, std::set<std::string>& out, const auto& self) {
-        if ((e.kind == ExprKind::word || e.kind == ExprKind::name) && e.refers == Refers::state) {
-            out.insert(m::key(e.concept_entry, e.name));
-            return true;
-        }
-        if (e.kind == ExprKind::binary && e.op == Operator::logical_or && e.operands.size() == 2) {
-            return self(e.operands[0], out, self) && self(e.operands[1], out, self);
-        }
-        return false;
-    };
-    const auto changes = [](const std::vector<m::Statement>& list, const auto& self) -> bool {
-        return std::ranges::any_of(list, [&](const m::Statement& s) {
-            if (std::holds_alternative<m::Transition>(s.node)) {
-                return true;
-            }
-            if (const auto* i = std::get_if<m::If>(&s.node)) {
-                return self(i->then, self) || self(i->otherwise, self);
-            }
-            if (const auto* e = std::get_if<m::Each>(&s.node)) {
-                return self(e->body, self);
-            }
-            return false;
-        });
-    };
-    for (const m::Statement& s : a.body) {
-        if (const auto* t = std::get_if<m::Transition>(&s.node)) {
-            if (!t->from.empty()) {
-                std::set<std::string> from;
-                for (const m::Expr& f : t->from) {
-                    from.insert(m::key(f.concept_entry, f.name));
-                }
-                narrow(std::move(from));
-            }
-            break;
-        }
-        if (const auto* r = std::get_if<m::Requires>(&s.node); r != nullptr && !r->guard) {
-            std::set<std::string> states;
-            if (states_of(r->condition, states, states_of)) {
-                narrow(std::move(states));
-            }
-            continue;
-        }
-        if (changes(std::vector<m::Statement>{s}, changes)) {
-            break;
-        }
-    }
-    return allowed;
-}
-
 void Lowering::plan_finals() {
     // A state is final when no action can start from it.
-    std::set<std::string> open;
-    bool any = false;
-    for (const m::Action& a : model_.actions) {
-        const auto allowed = entry_states(a);
-        if (!allowed) {
-            any = true;
-            break;
-        }
-        open.insert(allowed->begin(), allowed->end());
-    }
-    for (const m::State& s : model_.states) {
-        const std::string key = m::key(s.word, s.name);
-        states_[state_index_.at(key)].final = !any && !open.contains(key);
+    const std::vector<bool> finals = m::final_states(model_);
+    for (std::size_t i = 0; i < model_.states.size(); ++i) {
+        const m::State& s = model_.states[i];
+        states_[state_index_.at(m::key(s.word, s.name))].final = finals[i];
     }
 }
 

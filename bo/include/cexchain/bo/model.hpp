@@ -6,6 +6,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -334,5 +335,31 @@ struct Model {
 [[nodiscard]] inline std::string key(const Concept* word, const std::string& name) {
     return word != nullptr ? std::string(word->id) : name;
 }
+
+// ---------------------------------------------------------------------------
+// What compiled code makes of a model, shared by lowering (which writes it
+// into the code) and `explain` (which writes it into the contract text), so
+// that the text says what the code does.
+
+/// The states an action can start from, by its top-level lines before
+/// anything that may change the state: the FROM states of its first state
+/// change, narrowed by `requires STATE` (or `requires STATE or STATE`)
+/// before it. Nullopt: any state.
+[[nodiscard]] std::optional<std::set<std::string>> entry_states(const Action& action);
+
+/// For each of the model's states, in order: true if it is final, that is,
+/// no action can start from it (none is final while some action can start
+/// from any state). A final instance takes no more calls.
+[[nodiscard]] std::vector<bool> final_states(const Model& model);
+
+/// The key of the action's one amount, which `over N` compares (R6): its
+/// one input of money or a quantity, or, with none, the instance's
+/// `amount` if that is money or a quantity. Nullopt if there is no such
+/// amount (several inputs, or none and no amount).
+[[nodiscard]] std::optional<std::string> action_amount(const Model& model, const Action& action);
+
+/// The name of the function that creates an instance: `issue` for an
+/// asset, `create` otherwise.
+[[nodiscard]] std::string_view creation_function(const Model& model) noexcept;
 
 } // namespace cexchain::bo::model

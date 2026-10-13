@@ -12,6 +12,7 @@
 #include <cexchain/core/vm.hpp>
 #include <cexchain/node/contracts.hpp>
 
+#include "bo_support.hpp"
 #include "commands.hpp"
 #include "peers.hpp"
 #include "records.hpp"
@@ -193,8 +194,9 @@ std::string refusal(const Session& session, const protocol::ContractRun& run) {
     if (run.outcome.trap) {
         if (*run.outcome.trap == vm::Trap::aborted) {
             const std::string reason = readable(run.outcome.abort_reason);
-            // A compiled Bo contract's own checks ("bo:state sign"), in words.
-            if (const auto words = bo::render_reason(reason, nullptr)) {
+            // A compiled Bo contract's own checks ("bo:state sign"), in words
+            // of the reader's language ($CEXCHAIN_LANGUAGE).
+            if (const auto words = bo::render_reason(reason, environment_language())) {
                 return "the contract refuses the call: " + *words + " (" + reason + ")";
             }
             return "the contract refuses the call: " + reason;

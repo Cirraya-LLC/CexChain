@@ -1,0 +1,70 @@
+Contract VPS服務
+
+Bo wrote this text from the contract's source (Bo edition 1). A clause marked with a rule, such as [R3], states what Bo inferred by that rule instead of reading it in the source; the last section explains each rule.
+
+1. Parties
+1.1 we: bound to a ledger when an instance is created. [R3]
+1.2 customer: bound to a ledger when an instance is created. [R3]
+
+2. Each instance
+2.1 Each instance is a service named VPS.
+2.2 price: HKD 120, monthly, the same for every instance.
+2.3 traffic: 2 TB, monthly; overage: HKD 0.10 per GB, the same for every instance.
+2.4 IP: 1 item, the same for every instance.
+2.5 customer location: a text, given when an instance is created. [R12]
+2.6 tax: according to the customer location, the same for every instance.
+2.7 Creating an instance (function create) names the ledgers of the parties bound at creation and sets the fields given at creation. It needs no party's consent: the parties agree through the actions below.
+
+3. States
+3.1 An instance starts in the state active. [R4]
+3.2 No state is final: some action can start from any state.
+3.3 Each change of state, the first state included, is recorded as an event.
+
+4. Actions
+A call that does not meet one of an action's requirements is refused, and the instance does not change. A missing consent is not a refusal: the call waits for it.
+
+4.1 subscribe
+  4.1.1 A built-in action of Bo: its standard terms (who starts it, who consents, the states it needs and changes) come with Bo's standard library in a later version, so this text states only the clauses the contract writes.
+  4.1.2 Started by the customer, whose agreement it needs.
+  4.1.3 An AI agent may start it within its delegation. [R14]
+  4.1.4 An executor carries it out outside the ledger and reports the result. [R10]
+
+4.2 renew
+  4.2.1 A built-in action of Bo: its standard terms (who starts it, who consents, the states it needs and changes) come with Bo's standard library in a later version, so this text states only the clauses the contract writes.
+  4.2.2 Started by the customer, whose agreement it needs.
+  4.2.3 An AI agent may start it within its delegation. [R14]
+
+4.3 upgrade
+  4.3.1 A built-in action of Bo: its standard terms (who starts it, who consents, the states it needs and changes) come with Bo's standard library in a later version, so this text states only the clauses the contract writes.
+  4.3.2 Started by the customer, whose agreement it needs.
+  4.3.3 An AI agent may start it within its delegation. [R14]
+  4.3.4 An executor carries it out outside the ledger and reports the result. [R10]
+
+4.4 refund
+  4.4.1 A built-in action of Bo: its standard terms (who starts it, who consents, the states it needs and changes) come with Bo's standard library in a later version, so this text states only the clauses the contract writes.
+  4.4.2 Started by us, whose agreement it needs.
+  4.4.3 Requirement 1: if the amount is over HKD 100, we must prove presence in person, with a passkey or a hardware key. [R6, R13]
+  4.4.4 An AI agent may only propose it: it takes effect once a person approves it, and every requirement is checked again then.
+
+5. Time rules
+5.1 An instance is due at the end of each paid period. [R11]
+
+5.2 When 7 days before it is due:
+  5.2.1 An executor must notify the customer, outside the ledger, and report the result. [R10]
+
+5.3 When 3 days overdue:
+  5.3.1 An executor must suspend, outside the ledger, and report the result. [R10]
+
+5.4 When 30 days overdue:
+  5.4.1 An executor must terminate, outside the ledger, and report the result. [R10]
+  5.4.2 An executor must reclaim IP, outside the ledger, and report the result. [R10]
+
+6. Rules Bo applied
+[R3] A role the contract first names as an action's counterparty (after to) is bound to a ledger by that action, with its consent; every other role is bound to a ledger when an instance is created.
+[R4] An instance starts in the one state that no state change leads to; if there is none, in the state active.
+[R6] Over N compares N with the action's one amount (its one input of money or a quantity, else the instance's amount); a bare number N is in that amount's unit.
+[R10] Notify, and on a service subscribe, upgrade, downgrade, suspend, resume, terminate, allocate, and reclaim, ask an executor to act outside the ledger.
+[R11] A service with a recurring price is due at the end of each paid period.
+[R12] Customer location is a text each instance holds, given when the instance is created.
+[R13] In person asks the party that starts the action to prove presence with a passkey or a hardware key.
+[R14] An AI agent may start an action within its delegation, unless the action says AI agent can propose; then the agent only proposes, and a person approves.

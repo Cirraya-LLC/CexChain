@@ -21,6 +21,7 @@
 #include <cexchain/bo/build.hpp>
 #include <cexchain/bo/checker.hpp>
 #include <cexchain/bo/concepts.hpp>
+#include <cexchain/bo/explain.hpp>
 #include <cexchain/bo/lexer.hpp>
 #include <cexchain/bo/messages.hpp>
 #include <cexchain/bo/names.hpp>
@@ -52,23 +53,7 @@ PackFile read_pack_file(const std::string& file) {
 /// The language for messages: --language, else $CEXCHAIN_LANGUAGE, else
 /// English. Any official pack, or one given with --pack.
 const bo::Pack* message_language(const Args& args, std::span<const bo::Pack> extra) {
-    std::optional<std::string> want = args.get("language");
-    if (!want) {
-        if (const char* env = std::getenv("CEXCHAIN_LANGUAGE"); env != nullptr && *env != '\0') {
-            want = env;
-        }
-    }
-    if (!want) {
-        return &bo::english_pack();
-    }
-    if (const bo::Pack* pack = bo::find_language(bo::official_packs(), *want)) {
-        return pack;
-    }
-    if (const bo::Pack* pack = bo::find_language(extra, *want)) {
-        return pack;
-    }
-    throw UsageError{"no pack for the language " + *want +
-                     " (en, zh-Hant-HK, zh-Hans-CN, or a pack given with --pack)"};
+    return reader_language(args.get("language"), extra);
 }
 
 Json span_json(const bo::Span& span) {
@@ -565,6 +550,56 @@ int cmd_bo_check(const Args& args) {
         std::println("{}: {} error{}", file, errors, errors == 1 ? "" : "s");
     }
     return ok ? exit_ok : exit_failure;
+}
+
+int cmd_bo_explain(const Args& args) {
+    const std::string file = args.positional().front();
+    const bo::PackSet set = pack_set(args);
+    const bo::Pack* language = message_language(args, given_packs(set));
+    const std::string source = read_text_file(file);
+    const bo::Lexicon lexicon(set);
+    const bo::Lexed lexed = bo::lex(source, lexicon);
+    const bo::Parsed parsed = bo::parse(source, lexed);
+    std::vector<bo::Diagnostic> diagnostics = lexed.diagnostics;
+    diagnostics.insert(diagnostics.end(), parsed.diagnostics.begin(), parsed.diagnostics.end());
+    std::optional<bo::Checked> checked;
+    if (!bo::has_errors(diagnostics)) {
+        checked = bo::check(source, parsed.file);
+        diagnostics.insert(diagnostics.end(), checked->diagnostics.begin(),
+                           checked->diagnostics.end());
+    }
+    std::ranges::stable_sort(diagnostics, {}, [](const bo::Diagnostic& d) {
+        return d.span.line == 0 ? std::numeric_limits<std::uint64_t>::max()
+                                : std::uint64_t{d.span.offset};
+    });
+    const bool ok = !bo::has_errors(diagnostics);
+    std::optional<bo::Explained> explained;
+    if (ok) {
+        explained = bo::explain(checked->model, language);
+    }
+    if (args.json()) {
+        Json out = {
+            {"file", file}, {"ok", ok}, {"diagnostics", diagnostics_json(diagnostics, language)}};
+        if (explained) {
+            out.update(explained_json(*explained));
+        }
+        print_json(out);
+        return ok ? exit_ok : exit_failure;
+    }
+    // Warnings (clauses that need executors) and errors on stderr; the text
+    // on stdout.
+    print_source_diagnostics(stderr, file, diagnostics, language);
+    if (!ok) {
+        std::size_t errors = 0;
+        for (const bo::Diagnostic& d : diagnostics) {
+            errors += d.severity() == bo::Severity::error ? 1U : 0U;
+        }
+        std::println("{}: {} error{}: there is no contract text until it checks", file, errors,
+                     errors == 1 ? "" : "s");
+        return exit_failure;
+    }
+    std::print("{}", explained->text);
+    return exit_ok;
 }
 
 int cmd_bo_packs_list(const Args& args) {

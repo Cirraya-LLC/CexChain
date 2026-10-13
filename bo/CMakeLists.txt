@@ -50,6 +50,7 @@ set(official_packs en zh-Hant-HK zh-Hans-CN)
 add_library(cexchain_bo_front
     src/front/checker.cpp
     src/front/concepts.cpp
+    src/front/explain.cpp
     src/front/identifiers.cpp
     src/front/lexer.cpp
     src/front/messages.cpp

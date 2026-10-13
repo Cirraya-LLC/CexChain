@@ -5,16 +5,22 @@
 // compiler, the source is rebuilt; without it, the front end still checks
 // the bundle and its packs, and the report says the code was not rebuilt.
 
+#include <cstdlib>
 #include <format>
 #include <string>
 
+#include <cexchain/bo/checker.hpp>
+#include <cexchain/bo/explain.hpp>
+#include <cexchain/bo/lexer.hpp>
 #include <cexchain/bo/pack.hpp>
+#include <cexchain/bo/parser.hpp>
 #include <cexchain/bo/source.hpp>
 #if defined(CEXCHAIN_HAVE_BO)
 #include <cexchain/bo/build.hpp>
 #endif
 
 #include "bo_support.hpp"
+#include "commands.hpp"
 
 namespace cexchain::cli {
 
@@ -67,6 +73,99 @@ SourceCheck check_bo_source(const protocol::ContractDeployBody& deploy,
     }
 #endif
     return check;
+}
+
+const bo::Pack* reader_language(const std::optional<std::string>& want,
+                                const std::span<const bo::Pack> extra) {
+    std::optional<std::string> chosen = want;
+    if (!chosen) {
+        if (const char* env = std::getenv("CEXCHAIN_LANGUAGE"); env != nullptr && *env != '\0') {
+            chosen = env;
+        }
+    }
+    if (!chosen) {
+        return &bo::english_pack();
+    }
+    if (const bo::Pack* pack = bo::find_language(bo::official_packs(), *chosen)) {
+        return pack;
+    }
+    if (const bo::Pack* pack = bo::find_language(extra, *chosen)) {
+        return pack;
+    }
+    throw UsageError{"no pack for the language " + *chosen +
+                     " (en, zh-Hant-HK, zh-Hans-CN, or a pack given with --pack)"};
+}
+
+const bo::Pack* environment_language() noexcept {
+    if (const char* env = std::getenv("CEXCHAIN_LANGUAGE"); env != nullptr && *env != '\0') {
+        if (const bo::Pack* pack = bo::find_language(bo::official_packs(), env)) {
+            return pack;
+        }
+    }
+    return &bo::english_pack();
+}
+
+Json explained_json(const bo::Explained& e) {
+    Json sections = Json::array();
+    for (const bo::ExplainedSection& s : e.sections) {
+        Json clauses = Json::array();
+        for (const bo::ExplainedClause& c : s.clauses) {
+            Json clause = {
+                {"number", c.number}, {"kind", c.kind}, {"text", c.text}, {"rules", Json::array()}};
+            for (const std::string_view rule : c.rules) {
+                clause["rules"].push_back(rule);
+            }
+            if (!c.function.empty()) {
+                clause["function"] = c.function;
+            }
+            if (c.requirement != 0) {
+                clause["requirement"] = c.requirement;
+            }
+            clauses.push_back(std::move(clause));
+        }
+        sections.push_back({{"number", s.number},
+                            {"kind", s.kind},
+                            {"title", s.title},
+                            {"note", s.note},
+                            {"clauses", std::move(clauses)}});
+    }
+    Json rules = Json::array();
+    for (const auto& [id, text] : e.rules) {
+        rules.push_back({{"id", id}, {"text", text}});
+    }
+    return {{"language", e.language},          {"title", e.title},          {"intro", e.intro},
+            {"sections", std::move(sections)}, {"rules", std::move(rules)}, {"text", e.text}};
+}
+
+DeployText explain_deploy(const protocol::ContractDeployBody& deploy,
+                          const crypto::Provider& provider, const crypto::HashAlg hash,
+                          const std::optional<std::string>& language) {
+    DeployText out;
+    out.check = check_bo_source(deploy, provider, hash);
+    if (out.check.status != "rebuilds" || !out.check.bundle) {
+        return out;
+    }
+    // Read exactly as the rebuild read it: the packs the bundle names, at
+    // their versions, each digest checked.
+    const bo::SourceBundle& bundle = *out.check.bundle;
+    const bo::OpenedSource opened = bo::open_source_bundle(bundle, provider, hash);
+    if (!opened.packs) {
+        return out;
+    }
+    std::vector<bo::Pack> given;
+    for (const bo::Pack& pack : opened.packs->packs()) {
+        if (!pack.official) {
+            given.push_back(pack);
+        }
+    }
+    const bo::Pack* reader = reader_language(language, given);
+    const bo::Lexicon lexicon(*opened.packs);
+    const bo::Lexed lexed = bo::lex(bundle.source, lexicon);
+    const bo::Parsed parsed = bo::parse(bundle.source, lexed);
+    bo::Checked checked = bo::check(bundle.source, parsed.file);
+    out.explained = bo::explain(checked.model, reader);
+    out.model = std::move(checked.model);
+    return out;
 }
 
 std::string bundle_text(const SourceCheck& check) {

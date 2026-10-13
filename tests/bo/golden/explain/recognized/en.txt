@@ -1,0 +1,72 @@
+Contract Recognized
+
+Bo wrote this text from the contract's source (Bo edition 1). A clause marked with a rule, such as [R3], states what Bo inferred by that rule instead of reading it in the source; the last section explains each rule.
+
+1. Parties
+1.1 we: bound to a ledger when an instance is created. [R3]
+1.2 customer: bound to a ledger by the first sell, with the consent of the customer. [R3]
+1.3 bank: bound to a ledger by the first lend, with the consent of the bank. [R3]
+
+2. Each instance
+2.1 Each instance is an asset named Note.
+2.2 amount: money in HKD, given when an instance is created.
+2.3 holder: a party; each instance starts with us, and actions may change it. [R2]
+2.4 due: a date, given when an instance is created.
+2.5 size: an amount of data (MB, GB, TB, MiB, GiB, TiB), given when an instance is created.
+2.6 fee_rate: 3%, the same for every instance.
+2.7 codes: a list of at most 16 items, each a text, given when an instance is created. [R16]
+2.8 region: a text, given when an instance is created.
+2.9 Creating an instance (function issue) names the ledgers of the parties bound at creation and sets the fields given at creation. It needs no party's consent: the parties agree through the actions below.
+
+3. States
+3.1 An instance starts in the state drafted. [R4]
+3.2 Its states are drafted and active. [R5]
+3.3 No state is final: some action can start from any state.
+3.4 Each change of state, the first state included, is recorded as an event.
+
+4. Actions
+A call that does not meet one of an action's requirements is refused, and the instance does not change. A missing consent is not a refusal: the call waits for it.
+
+4.1 offer
+  4.1.1 Started by us, whose agreement it needs.
+  4.1.2 If the instance is drafted, it becomes active; otherwise the call is refused.
+  4.1.3 An AI agent may start it within its delegation. [R14]
+
+4.2 sell
+  4.2.1 Started by the holder, whose agreement it needs.
+  4.2.2 It needs the consent of the customer. The first such call names the ledger of the customer and binds the customer to it; later calls may leave it out or name the same ledger. [R3]
+  4.2.3 Requirement 1: if the amount is over HKD 5,000, the holder must prove presence in person, with a passkey or a hardware key. [R6, R13]
+  4.2.4 It sets the holder to the customer.
+  4.2.5 Requirement 2: region is "香港". [R18]
+  4.2.6 An AI agent may start it within its delegation. [R14]
+
+4.3 lend
+  4.3.1 Started by us, whose agreement it needs.
+  4.3.2 It needs the consent of the bank. The first such call names the ledger of the bank and binds the bank to it; later calls may leave it out or name the same ledger. [R3]
+  4.3.3 It needs the consent of whichever party is the holder before the call, since the action changes the holder. [R8]
+  4.3.4 Requirement 1: the instance is not drafted. [R7]
+  4.3.5 Requirement 2: the amount × fee_rate is more than HKD 1. [R17]
+  4.3.6 Requirement 3: size is more than 1.5 GB.
+  4.3.7 It sets the holder to the bank.
+  4.3.8 An AI agent may start it within its delegation. [R14]
+
+5. Time rules
+5.1 An instance is due on the due date.
+
+5.2 On the due date:
+  5.2.1 Duty: the customer must pay. It sets when an instance is due and overdue; nothing is called. [R9]
+
+6. Rules Bo applied
+[R2] A field given a party holds a party: each instance starts with that party, and actions may change it.
+[R3] A role the contract first names as an action's counterparty (after to) is bound to a ledger by that action, with its consent; every other role is bound to a ledger when an instance is created.
+[R4] An instance starts in the one state that no state change leads to; if there is none, in the state active.
+[R5] The states of an instance are those its state changes name.
+[R6] Over N compares N with the action's one amount (its one input of money or a quantity, else the instance's amount); a bare number N is in that amount's unit.
+[R7] A state used as a condition means the instance is in that state.
+[R8] Changing a field that holds a party takes it from that party, so it needs that party's consent; when that party starts the action, its call is its consent.
+[R9] A time rule whose action names a party states that party's duty: it sets when an instance is due and overdue, and nothing is called.
+[R13] In person asks the party that starts the action to prove presence with a passkey or a hardware key.
+[R14] An AI agent may start an action within its delegation, unless the action says AI agent can propose; then the agent only proposes, and a person approves.
+[R16] A list holds at most 16 items, unless at most N says otherwise.
+[R17] A product or quotient of money, quantities, or rates is rounded to the smallest unit, half up (away from zero).
+[R18] A name nothing declares, compared with a text, is that text.

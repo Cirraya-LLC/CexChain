@@ -1,0 +1,25 @@
+A contract fragment (no contract line, so it cannot be deployed)
+
+Bo wrote this text from the contract's source (Bo edition 1). A clause marked with a rule, such as [R3], states what Bo inferred by that rule instead of reading it in the source; the last section explains each rule.
+
+1. Each instance
+1.1 customer location: a text, given when an instance is created. [R12]
+1.2 Creating an instance (function create) names the ledgers of the parties bound at creation and sets the fields given at creation. It needs no party's consent: the parties agree through the actions below.
+
+2. Charges
+2.1 The charge 增值税:
+  2.1.1 Its rate is 6%.
+  2.1.2 It applies when the customer location is "中国内地". [R18]
+  2.1.3 It is added to the price.
+  2.1.4 It is rounded once per invoice, half up.
+  2.1.5 From 1 January 2027, its rate is 9%.
+
+3. States
+3.1 An instance starts in the state active. [R4]
+3.2 The state active is final: no action can start from it, so an instance in it takes no more calls.
+3.3 Each change of state, the first state included, is recorded as an event.
+
+4. Rules Bo applied
+[R4] An instance starts in the one state that no state change leads to; if there is none, in the state active.
+[R12] Customer location is a text each instance holds, given when the instance is created.
+[R18] A name nothing declares, compared with a text, is that text.

@@ -18,6 +18,8 @@
 #include <print>
 #include <variant>
 
+#include <cexchain/bo/explain.hpp>
+#include <cexchain/bo/pack.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/contract_evidence.hpp>
 #include <cexchain/core/protocol/contracts.hpp>
@@ -1017,6 +1019,100 @@ int cmd_contract_verify(const Args& args) {
         }
     }
     return verified ? exit_ok : exit_not_verified;
+}
+
+int cmd_contract_explain(const Args& args) {
+    Session session(args);
+    const std::string wanted = args.positional().front();
+    // CONTRACT, or an INSTANCE of one: its contract's text, with the
+    // instance's status, parties, and state.
+    const protocol::InstanceState* instance = nullptr;
+    protocol::Id contract_id;
+    try {
+        contract_id = session.contract_id(wanted);
+    } catch (const CommandError&) {
+        instance = session.state().instance(session.instance_id(wanted));
+        contract_id = instance->contract;
+    }
+    const protocol::ContractState& c = *session.state().contract(contract_id);
+    if (c.language != "bo") {
+        throw CommandError{"contract " + hex_id(c.id) + " is written in " + c.language +
+                           ", not Bo: only a contract written in Bo has a contract text"};
+    }
+    const protocol::ContractDeployBody deploy = deploy_of(session, c);
+    const DeployText text =
+        explain_deploy(deploy, session.provider(), session.state().hash(), args.get("language"));
+    Json j = {{"contract", id_json(c.id)},
+              {"name", optional_text(c.name)},
+              {"source", source_check_json(text.check, deploy)},
+              {"explained", text.explained.has_value()}};
+    // An instance's state in the text's words: its state and fields, read
+    // by the contract's types, parties named as this ledger knows them.
+    std::optional<bo::ExplainedState> values;
+    if (instance != nullptr && text.model && text.explained) {
+        const bo::Pack* language =
+            bo::find_language(bo::official_packs(), text.explained->language);
+        values = bo::explain_state(*text.model, instance->state, language, [&](ByteView ledger) {
+            const auto id = protocol::Id::from_bytes(ledger);
+            return id ? ledger_label(session, *id) : to_hex(ledger);
+        });
+    }
+    if (instance != nullptr) {
+        j["instance"] = {{"id", id_json(instance->id)},
+                         {"status", optional_text(instance->status)},
+                         {"final", instance->final},
+                         {"parties", parties_json(instance->parties)},
+                         {"state", cbor::diagnostic(instance->state)}};
+        if (values) {
+            Json fields = Json::array();
+            for (const bo::ExplainedValue& v : values->fields) {
+                fields.push_back({{"field", v.field}, {"value", v.value}});
+            }
+            j["instance"]["state_text"] = values->state;
+            j["instance"]["fields"] = std::move(fields);
+        }
+    }
+    if (!text.explained) {
+        // The parties confirm the text of the code that runs: a source that
+        // does not rebuild to it has no text here.
+        const std::string why =
+            text.check.failed
+                ? "its source does not rebuild to its code, so a text of it would not be the "
+                  "text of the code that runs"
+                : "its source was not rebuilt to its code here, so a text of it could not be "
+                  "confirmed as the text of the code that runs";
+        if (args.json()) {
+            j["error"] = why;
+            print_json(j);
+        } else {
+            std::println("contract {}: no contract text: {}", hex_id(c.id), why);
+            std::println("rebuild:  {}", source_check_text(text.check));
+        }
+        return text.check.failed ? exit_not_verified : exit_failure;
+    }
+    if (args.json()) {
+        j.update(explained_json(*text.explained));
+        print_json(j);
+        return exit_ok;
+    }
+    std::println("contract:  {}{}", hex_id(c.id), c.name ? " (" + *c.name + ")" : "");
+    std::println("rebuild:   {}", source_check_text(text.check));
+    if (instance != nullptr) {
+        std::println("instance:  {}", hex_id(instance->id));
+        std::println("status:    {}{}", instance->status.value_or("(none)"),
+                     instance->final ? " (final: it takes no more calls)" : "");
+        print_parties(session, instance->parties);
+        std::println("state:     {}", values && !values->state.empty()
+                                          ? values->state
+                                          : shortened(cbor::diagnostic(instance->state)));
+        for (std::size_t i = 0; values && i < values->fields.size(); ++i) {
+            std::println("{}{}: {}", i == 0 ? "fields:    " : "           ",
+                         values->fields[i].field, values->fields[i].value);
+        }
+    }
+    std::println("");
+    std::print("{}", text.explained->text);
+    return exit_ok;
 }
 
 } // namespace cexchain::cli

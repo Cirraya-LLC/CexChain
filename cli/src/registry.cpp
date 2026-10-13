@@ -1588,6 +1588,37 @@ std::vector<CommandSpec> build() {
          "  not rebuilt       another compiler or version built it, whose output this one does\n"
          "                    not reproduce (it names the release to use), or this build has no\n"
          "                    Bo compiler (GCC 16); --require-rebuild makes this fail too"},
+        {{"contract", "explain"},
+         "Show the contract text of a contract written in Bo, in one of three languages",
+         "Contracts",
+         "CONTRACT|INSTANCE",
+         1,
+         1,
+         with({ledger_option,
+               {"language", "LANG",
+                "The text in en, zh-Hant-HK, zh-Hans-CN, or a pack the source was read with "
+                "(default: $CEXCHAIN_LANGUAGE, else en)"}}),
+         cmd_contract_explain,
+         "Writes the contract text that the parties read and confirm before they sign: the\n"
+         "parties and when each is bound to a ledger, what each instance records, the states\n"
+         "(the first, the final ones, the events), and each action (who starts it, the\n"
+         "consents it needs, its requirements numbered as the code numbers them in its\n"
+         "refusals, its state changes, and what AI agents may do), the time rules, and the\n"
+         "rules Bo applied. A clause Bo inferred instead of reading it in the source is marked\n"
+         "with its rule ([R3]), and the last section explains each rule. Texts are shown in\n"
+         "quotation marks, including a name Bo read as a text (rule R18).\n\n"
+         "The text comes from the source the deploy carries, read as contract verify rebuilds\n"
+         "it (the language packs it names, at their versions), and only if that source rebuilds\n"
+         "to the deployed code, so the text is the text of the code that runs. Otherwise it\n"
+         "says why: exit status 3 if the source does not rebuild to the code (or is\n"
+         "malformed), 2 if it was not rebuilt here (another compiler or release built it, or\n"
+         "this build has no Bo compiler). For an INSTANCE, the text of its contract follows its\n"
+         "status, parties, and state. The same contract gives the same text, byte for byte,\n"
+         "whatever language its source was written in (bo explain FILE writes it before a\n"
+         "deploy).\n\n"
+         "  cexchain contract explain 3f2a9c1e\n"
+         "  cexchain contract explain 3f2a9c1e --language zh-Hant-HK\n"
+         "  CEXCHAIN_LANGUAGE=zh-Hans cexchain contract explain 8d01b7a4 --json"},
 #if defined(CEXCHAIN_HAVE_BO)
         // ------------------------------------------------------------------
         {{"bo", "check"},
@@ -1674,6 +1705,40 @@ std::vector<CommandSpec> build() {
          "  cexchain bo build agreement.bo\n"
          "  cexchain bo build agreement.bo --out agreement.boc --hash sm3\n"
          "  cexchain bo build agreement.bo --json\n\n" CEXCHAIN_BO_PACKS_HELP},
+        {{"bo", "explain"},
+         "Write the contract text of a Bo source, in English or Chinese, with every inferred rule",
+         "Bo language",
+         "FILE",
+         1,
+         1,
+         with({pack_option,
+               {"language", "LANG",
+                "The text (and messages) in en, zh-Hant-HK, zh-Hans-CN, or a given pack's "
+                "language (default: $CEXCHAIN_LANGUAGE, else en)"}}),
+         cmd_bo_explain,
+         "Checks FILE as bo check does, then writes its contract text: what the parties read\n"
+         "and confirm before they sign. It covers the parties and when each is bound to a\n"
+         "ledger; what each instance records (its kind, its fields, and how one is created);\n"
+         "charges; the states (the first, the final ones, from which no action can start, and\n"
+         "the events); each action (who starts it, its inputs, the consents it needs, its\n"
+         "requirements numbered as compiled code numbers them in a refusal such as\n"
+         "bo:requires sign 2, its choices, refusals, field and state changes, and what AI\n"
+         "agents may do); the time rules (what is due, duties, executors); and the rules Bo\n"
+         "applied. Bo never guesses, and what it infers instead of reading it (a role bound by\n"
+         "an action, a consent an action needs, the first state, a threshold's unit) is\n"
+         "spelled out in the clause and marked with its rule, such as [R3]; the last section\n"
+         "explains each rule used. Texts are shown in quotation marks, including a name Bo\n"
+         "read as a text by rule R18 (customer location = mainland shows as: the customer\n"
+         "location is \"mainland\").\n\n"
+         "The text depends only on the contract and the language: a contract written in\n"
+         "English, in Chinese, or in both gives the same text, byte for byte. Problems go to\n"
+         "stderr (warnings do not stop the text); exit status 2 if the source does not check.\n"
+         "With --json: the text, and its sections and clauses, each with its number, its\n"
+         "rules, and (for an action) its function. Once deployed, contract explain writes the\n"
+         "same text from the deploy.\n\n"
+         "  cexchain bo explain agreement.bo\n"
+         "  cexchain bo explain agreement.bo --language zh-Hant-HK\n"
+         "  cexchain bo explain agreement.bo --language zh-Hans --json\n\n" CEXCHAIN_BO_PACKS_HELP},
         {{"bo", "packs", "list"},
          "List the language packs Bo source is read with, and their digests",
          "Bo language",

@@ -4,8 +4,12 @@
 // The checked model as text: types in their neutral form and in words, and
 // the canonical dump the checker's goldens keep.
 
+#include <algorithm>
 #include <cstddef>
 #include <format>
+#include <iterator>
+#include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -311,6 +315,121 @@ void consent_lines(std::string& out, const std::vector<model::Consent>& consents
 }
 
 } // namespace
+
+namespace model {
+
+std::optional<std::set<std::string>> entry_states(const Action& action) {
+    std::optional<std::set<std::string>> allowed;
+    const auto narrow = [&](std::set<std::string> states) {
+        if (!allowed) {
+            allowed = std::move(states);
+            return;
+        }
+        std::set<std::string> both;
+        std::ranges::set_intersection(*allowed, states, std::inserter(both, both.begin()));
+        allowed = std::move(both);
+    };
+    // The states a condition names when it is only states joined by `or`.
+    const auto states_of = [](const Expr& e, std::set<std::string>& out, const auto& self) {
+        if ((e.kind == ast::ExprKind::word || e.kind == ast::ExprKind::name) &&
+            e.refers == Refers::state) {
+            out.insert(key(e.concept_entry, e.name));
+            return true;
+        }
+        if (e.kind == ast::ExprKind::binary && e.op == ast::Operator::logical_or &&
+            e.operands.size() == 2) {
+            return self(e.operands[0], out, self) && self(e.operands[1], out, self);
+        }
+        return false;
+    };
+    const auto changes = [](const std::vector<Statement>& list, const auto& self) -> bool {
+        return std::ranges::any_of(list, [&](const Statement& s) {
+            if (std::holds_alternative<Transition>(s.node)) {
+                return true;
+            }
+            if (const auto* i = std::get_if<If>(&s.node)) {
+                return self(i->then, self) || self(i->otherwise, self);
+            }
+            if (const auto* e = std::get_if<Each>(&s.node)) {
+                return self(e->body, self);
+            }
+            return false;
+        });
+    };
+    for (const Statement& s : action.body) {
+        if (const auto* t = std::get_if<Transition>(&s.node)) {
+            if (!t->from.empty()) {
+                std::set<std::string> from;
+                for (const Expr& f : t->from) {
+                    from.insert(key(f.concept_entry, f.name));
+                }
+                narrow(std::move(from));
+            }
+            break;
+        }
+        if (const auto* r = std::get_if<Requires>(&s.node); r != nullptr && !r->guard) {
+            std::set<std::string> states;
+            if (states_of(r->condition, states, states_of)) {
+                narrow(std::move(states));
+            }
+            continue;
+        }
+        if (changes(std::vector<Statement>{s}, changes)) {
+            break;
+        }
+    }
+    return allowed;
+}
+
+std::vector<bool> final_states(const Model& model) {
+    std::set<std::string> open;
+    bool any = false;
+    for (const Action& a : model.actions) {
+        const auto allowed = entry_states(a);
+        if (!allowed) {
+            any = true;
+            break;
+        }
+        open.insert(allowed->begin(), allowed->end());
+    }
+    std::vector<bool> out;
+    out.reserve(model.states.size());
+    for (const State& s : model.states) {
+        out.push_back(!any && !open.contains(key(s.word, s.name)));
+    }
+    return out;
+}
+
+std::optional<std::string> action_amount(const Model& model, const Action& action) {
+    const auto amount = [](const Type& t) {
+        return t.kind == TypeKind::money || t.kind == TypeKind::quantity;
+    };
+    std::optional<std::string> found;
+    int amounts = 0;
+    for (const Field& input : action.inputs) {
+        if (amount(input.type)) {
+            ++amounts;
+            found = key(input.word, input.name);
+        }
+    }
+    if (amounts == 1) {
+        return found;
+    }
+    if (amounts == 0) {
+        for (const Field& f : model.fields) {
+            if (f.word != nullptr && f.word->id == "field.amount" && amount(f.type)) {
+                return std::string("field.amount");
+            }
+        }
+    }
+    return std::nullopt;
+}
+
+std::string_view creation_function(const Model& model) noexcept {
+    return model.kind != nullptr && model.kind->id == "kind.asset" ? "issue" : "create";
+}
+
+} // namespace model
 
 std::string encode(const model::Type& type) {
     switch (type.kind) {

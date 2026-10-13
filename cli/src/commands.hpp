@@ -157,11 +157,13 @@ int cmd_contract_withdraw(const Args& args);
 int cmd_contract_send(const Args& args);
 int cmd_contract_fetch(const Args& args);
 int cmd_contract_verify(const Args& args);
+int cmd_contract_explain(const Args& args);
 
 // The Bo language (D-053, step 6); only in builds with the Bo compiler
 // (CEXCHAIN_HAVE_BO).
 int cmd_bo_check(const Args& args);
 int cmd_bo_build(const Args& args);
+int cmd_bo_explain(const Args& args);
 int cmd_bo_packs_list(const Args& args);
 int cmd_bo_packs_show(const Args& args);
 int cmd_bo_packs_check(const Args& args);
