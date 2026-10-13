@@ -73,10 +73,34 @@ target_compile_definitions(cexchain_bo_tests PRIVATE
 target_compile_features(cexchain_bo_tests PRIVATE cxx_std_26)
 cexchain_target_defaults(cexchain_bo_tests)
 if(TARGET cexchain_bo)
-    target_sources(cexchain_bo_tests PRIVATE bo/names_test.cpp)
+    target_sources(cexchain_bo_tests PRIVATE bo/names_test.cpp bo/runtime_harness.cpp
+        bo/runtime_test.cpp)
     target_link_libraries(cexchain_bo_tests PRIVATE cexchain::bo)
+    # The interpreter's internals (core/src/vm/internal.hpp): its measure of
+    # each function's operand stack, against the emitter's.
+    target_include_directories(cexchain_bo_tests PRIVATE ${PROJECT_SOURCE_DIR}/core/src)
 endif()
 catch_discover_tests(cexchain_bo_tests PROPERTIES LABELS bo)
+
+# The Bo runtime on two engines (D-053, M5): a hidden case writes every run of
+# the runtime's harness modules (module, input, outcome, output, fuel), and
+# the independent Python interpreter must reproduce each exactly. Skipped
+# where there is no Python 3 (it needs the standard library only).
+if(TARGET cexchain_bo)
+    find_package(Python3 COMPONENTS Interpreter)
+    if(Python3_Interpreter_FOUND)
+        set(bo_reference_file ${CMAKE_CURRENT_BINARY_DIR}/bo-reference.json)
+        add_test(NAME bo_reference_runs COMMAND cexchain_bo_tests "[.reference]")
+        set_tests_properties(bo_reference_runs PROPERTIES LABELS bo
+            FIXTURES_SETUP bo_reference ENVIRONMENT CEXCHAIN_BO_REFERENCE=${bo_reference_file})
+        add_test(NAME bo_reference COMMAND ${Python3_EXECUTABLE}
+            ${PROJECT_SOURCE_DIR}/tools/testvectors/wasm_ref.py --check ${bo_reference_file})
+        set_tests_properties(bo_reference PROPERTIES LABELS bo FIXTURES_REQUIRED bo_reference)
+    else()
+        message(STATUS "bo_reference: no Python 3, so the runtime is not checked on the "
+            "Python reference interpreter")
+    endif()
+endif()
 
 # The command-line tool, end to end, as a user would run it.
 add_test(NAME cli_end_to_end

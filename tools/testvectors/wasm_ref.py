@@ -8,12 +8,27 @@ to produce test vectors. It favours clarity over speed.
     run(module, input, hash_name) -> (outcome, output, fuel)
         outcome is "ok" or the name of a trap
 
-Also an assembler for building test modules (see `assemble`).
+Also an assembler for building test modules (see `assemble`), and a checker
+for runs another engine recorded:
+
+    python3 wasm_ref.py --check FILE
+
+FILE is JSON: {"format": 1, "modules": {NAME: HEX}, "runs": [{"module": NAME,
+"input": HEX, "outcome": "ok" or a trap, "output": HEX, "fuel": N, "reason":
+HEX, ? "oracle": NAME}]}. Each run must give here exactly the outcome, output,
+fuel, and abort reason recorded; an oracle also checks what the run means
+(see ORACLES). The Bo compiler's runtime tests write such a file (CTest
+bo_reference). Exit status 1 if any run differs.
 """
 
 from __future__ import annotations
 
+import calendar
+import datetime
 import hashlib
+import json
+import sys
+import time
 
 # Limits (spec section 14.1 and 14.3).
 MAX_MODULE = 524_288
@@ -1307,3 +1322,198 @@ def assemble(funcs: list[dict], imports: list[str] = (), memory=(1, 1), table=No
                 segs.append(b"\x00" + instr(("i32.const", off)) + b"\x0b" + uleb(len(raw)) + raw)
         out += section(11, vec(segs))
     return out
+
+
+# ---------------------------------------------------------------------------
+# Checking runs another engine recorded (--check)
+# ---------------------------------------------------------------------------
+
+class _Refusal(Exception):
+    """What a harness of the Bo runtime must abort with."""
+
+
+def _signed64(v: int) -> int:
+    v &= MASK64
+    return v - (1 << 64) if v >> 63 else v
+
+
+def _in_range(v: int) -> int:
+    if not -(1 << 63) <= v < (1 << 63):
+        raise _Refusal("bo:overflow")
+    return v
+
+
+DAY_MS = 86_400_000
+FIRST_LOCAL = -62_135_596_800_000  # 0001-01-01T00:00
+LAST_LOCAL = 253_402_300_799_999  # 9999-12-31T23:59:59.999
+EPOCH = datetime.date(1970, 1, 1).toordinal()
+
+
+def _local_day(t: int, offset: int) -> tuple[datetime.date, int]:
+    if not -DAY_MS <= offset <= DAY_MS:
+        raise _Refusal("bo:date")
+    local = _signed64(t + offset)
+    if not FIRST_LOCAL <= local <= LAST_LOCAL:
+        raise _Refusal("bo:date")
+    return datetime.date.fromordinal(local // DAY_MS + EPOCH), local % DAY_MS
+
+
+def _muldiv(a: int, b: int, c: int, mode: int) -> int:
+    """a * b / c rounded: half up (away from zero) unless mode is 1 (half
+    even) or 2 (toward zero)."""
+    if c == 0:
+        raise _Refusal("bo:division-by-zero")
+    product = a * b
+    q, r = divmod(abs(product), abs(c))
+    if mode != 2 and r:
+        if 2 * r > abs(c) or (2 * r == abs(c) and (mode != 1 or q & 1)):
+            q += 1
+    return _in_range(-q if (product < 0) != (c < 0) else q)
+
+
+def _bo_math(raw: bytes) -> list[int]:
+    """What the Bo runtime's math harness (tests/bo/runtime_harness.hpp,
+    MathOp) must output for its input, from Python's integers and calendar."""
+    op = raw[0]
+
+    def a(i: int) -> int:
+        return int.from_bytes(raw[1 + 8 * i:9 + 8 * i], "little", signed=True)
+
+    if op == 0:
+        return []
+    if op == 1:
+        return [_in_range(a(0) + a(1))]
+    if op == 2:
+        return [_in_range(a(0) - a(1))]
+    if op == 3:
+        return [_in_range(a(0) * a(1))]
+    if op == 4:
+        return [_in_range(-a(0))]
+    if op == 5:
+        return [_muldiv(a(0), a(1), a(2), a(3) & MASK32)]
+    if op == 6:
+        n = ((a(0) & MASK64) << 64) | (a(1) & MASK64)
+        d = a(2) & MASK64
+        return [n // d, n % d]
+    if op == 7:
+        return [datetime.date(a(0), a(1), a(2)).toordinal() - EPOCH]
+    if op == 8:
+        day = datetime.date.fromordinal(a(0) + EPOCH)
+        return [day.year, day.month, day.day]
+    if op == 9:
+        return [calendar.monthrange(a(0), a(1))[1]]
+    if op == 10:
+        day, ms = _local_day(a(0), a(2))
+        months = a(1)
+        if not -120_000 <= months <= 120_000:
+            raise _Refusal("bo:date")
+        total = day.year * 12 + day.month - 1 + months
+        if not 12 <= total < 120_000:
+            raise _Refusal("bo:date")
+        year, month = total // 12, total % 12 + 1
+        moved = datetime.date(year, month, min(day.day, calendar.monthrange(year, month)[1]))
+        return [(moved.toordinal() - EPOCH) * DAY_MS + ms - a(2)]
+    if op == 11:
+        day, _ = _local_day(a(0), a(1))
+        return [day.year, day.month, day.day]
+    if op == 12:
+        y, m, d, offset = a(0), a(1), a(2), a(3)
+        if not -DAY_MS <= offset <= DAY_MS or not 1 <= y <= 9999 or not 1 <= m <= 12:
+            raise _Refusal("bo:date")
+        if not 1 <= d <= calendar.monthrange(y, m)[1]:
+            raise _Refusal("bo:date")
+        return [(datetime.date(y, m, d).toordinal() - EPOCH) * DAY_MS - offset]
+    if op in (13, 14):
+        n, m = a(0), a(1)
+        x, y = raw[17:17 + n], raw[17 + n:17 + n + m]
+        if op == 14:
+            return [1 if x == y else 0]
+        return [(x > y) - (x < y)]
+    raise AssertionError(f"unknown operation {op}")
+
+
+def _check_math(raw: bytes, outcome: str, output: bytes, reason: bytes) -> str | None:
+    try:
+        results = _bo_math(raw)
+    except _Refusal as refusal:
+        want = str(refusal).encode()
+        if outcome != "aborted" or reason != want:
+            return f"expected an abort with {want!r}, got {outcome} {reason!r}"
+        return None
+    want = b"".join((v & MASK64).to_bytes(8, "little") for v in results)
+    if outcome != "ok" or output != want:
+        return f"expected {want.hex()}, got {outcome} {output.hex()}"
+    return None
+
+
+def _check_cbor(written_back: bool):
+    def check(raw: bytes, outcome: str, output: bytes, reason: bytes) -> str | None:
+        if outcome == "ok":
+            want = raw if written_back else b""
+            return None if output == want else f"accepted, but wrote {output.hex()}"
+        return None if (outcome, reason) == ("aborted", b"bo:input") else \
+            f"expected ok or an abort with b'bo:input', got {outcome} {reason!r}"
+    return check
+
+
+# What a run means, by the harness that made it (tests/bo/runtime_harness.hpp):
+# a CBOR copy writes back exactly what it accepts, a read writes nothing, and
+# math agrees with Python's integers and calendar.
+ORACLES = {
+    "cbor-copy": _check_cbor(True),
+    "cbor-read": _check_cbor(False),
+    "math": _check_math,
+}
+
+
+def check(path: str) -> int:
+    with open(path, encoding="utf-8") as f:
+        doc = json.load(f)
+    if doc.get("format") != 1:
+        print(f"{path}: not format 1")
+        return 1
+    modules = {}
+    for name, wasm in doc["modules"].items():
+        try:
+            modules[name] = load(bytes.fromhex(wasm))
+        except Refused as refusal:
+            print(f"module {name}: refused here ({refusal})")
+            return 1
+    started = time.monotonic()
+    failures = 0
+    fuel_total = 0
+    for i, recorded in enumerate(doc["runs"]):
+        raw = bytes.fromhex(recorded["input"])
+        outcome, output, fuel, reason = run(modules[recorded["module"]], raw)
+        fuel_total += fuel
+        problems = []
+        want = (recorded["outcome"], bytes.fromhex(recorded["output"]), recorded["fuel"],
+                bytes.fromhex(recorded["reason"]))
+        if (outcome, output, fuel, reason) != want:
+            problems.append(f"here {outcome}, fuel {fuel}, output {output.hex()[:64]}, reason "
+                            f"{reason!r}; recorded {want[0]}, fuel {want[2]}, output "
+                            f"{want[1].hex()[:64]}, reason {want[3]!r}")
+        oracle = recorded.get("oracle")
+        if oracle:
+            problem = ORACLES[oracle](raw, outcome, output, reason)
+            if problem:
+                problems.append(f"{oracle}: {problem}")
+        if problems:
+            failures += 1
+            if failures <= 20:
+                print(f"run {i} ({recorded['module']}, input {raw.hex()[:64]}): "
+                      + "; ".join(problems))
+    runs = len(doc["runs"])
+    print(f"{runs} runs of {len(modules)} modules, {fuel_total:,} fuel in "
+          f"{time.monotonic() - started:.1f} s: "
+          + ("all identical" if not failures else f"{failures} differ"))
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Check recorded runs against this interpreter.")
+    parser.add_argument("--check", metavar="FILE", required=True,
+                        help="JSON of modules and runs, as the Bo runtime tests write it")
+    sys.exit(check(parser.parse_args().check))

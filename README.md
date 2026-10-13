@@ -43,7 +43,7 @@ CexChain is a ledger protocol and node for trust between organizations. Every do
 | `crypto/pkcs11` | Keys on PKCS #11 tokens: USB keys (UKey), smart cards, and HSMs, loaded at run time |
 | `ledger` | Ledger node: crash-safe storage, rule engine, checkpoints, receipts, evidence export, backups (C++26) |
 | `node` | HTTP API server and client (Asio), API tokens, and replicas (C++26) |
-| `bo` | The Bo contract language's compiler (in progress): language packs, the lexer, the parser, and the checker so far. C++26 with static reflection and contracts, built with GCC 16; its front end (everything that reads source) also builds with Clang, for fuzzing |
+| `bo` | The Bo contract language's compiler (in progress): language packs, the lexer, the parser, the checker, and the WebAssembly emitter with its runtime so far. C++26 with static reflection and contracts, built with GCC 16; its front end (everything that reads source) also builds with Clang, for fuzzing |
 | `cli` | `cexchain` command-line tool: full control of keys, ledgers, actors, delegations, records, assets, contracts, proofs, and evidence |
 | `cexchain mcp` | MCP server through which an AI agent acts under its own key and delegation |
 
@@ -519,6 +519,15 @@ yet. The `bo` commands therefore exist only in builds made with GCC 16 (the `gcc
 release build, and the Docker image); `cexchain version` says whether a build has them. The
 browser verifier never needs the compiler: verifying a contract replays its code.
 
+Compiled contracts are WebAssembly modules in the contract profile, written by the compiler's own
+emitter, with a small runtime it adds as needed: reading the call's input (checked inside the
+contract to be deterministic CBOR, exactly as core decodes it), writing the output, checked 64-bit
+arithmetic (an overflow refuses the call), multiply-divide on 128 bits with the rounding modes
+half up, half even, and down, civil dates at a fixed UTC offset with month ends clamped, and text
+comparison. Every routine runs to the same outcome, output, and fuel on the ledger's interpreter
+and on the independent Python interpreter (`ctest -R bo_reference`, with Python 3);
+`tests/bo/golden/runtime/fuel.txt` lists what each costs of a call's 10 million fuel.
+
 ## AI agents (MCP)
 
 `cexchain mcp --ledger DIR --as AGENT_KEY` runs a Model Context Protocol server over stdio
@@ -548,6 +557,7 @@ Requirements:
 - CMake 3.28+ and Ninja
 - OpenSSL 3.5+
 - Optional: the p11-kit headers, for keys on tokens (PKCS #11), and SoftHSM to test them
+- Optional: Python 3, to check the Bo runtime on the reference interpreter
 
 ```sh
 cmake --preset gcc-debug

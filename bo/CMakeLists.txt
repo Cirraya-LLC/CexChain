@@ -109,7 +109,11 @@ else()
     add_library(cexchain_bo
         src/checked.cpp
         src/names.cpp
-        src/tree.cpp)
+        src/runtime.cpp
+        src/runtime_cbor.cpp
+        src/runtime_math.cpp
+        src/tree.cpp
+        src/wasm.cpp)
     add_library(cexchain::bo ALIAS cexchain_bo)
     target_link_libraries(cexchain_bo PUBLIC cexchain::bo_front)
     target_compile_options(cexchain_bo PRIVATE -freflection)
