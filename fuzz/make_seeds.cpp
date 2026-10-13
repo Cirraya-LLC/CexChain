@@ -602,8 +602,8 @@ void contract_seeds(const Seeds& seeds) {
 }
 
 /// The official language packs, as written and as CBOR (a source bundle
-/// embeds packs as CBOR); Bo sources: the lexer's goldens, the spec's
-/// examples among them, in each language.
+/// embeds packs as CBOR); Bo sources, for the lexer and the parser: the
+/// goldens, the spec's examples among them, in each language.
 void bo_seeds(const Seeds& seeds) {
 #if defined(CEXCHAIN_HAVE_BO_FRONT)
     for (const bo::PackText& text : bo::official_pack_texts()) {
@@ -624,6 +624,7 @@ void bo_seeds(const Seeds& seeds) {
         std::stringstream text;
         text << in.rdbuf();
         seeds.write("bo_lex_fuzz", path.filename().string() + ".bo", text.str());
+        seeds.write("bo_parse_fuzz", path.filename().string() + ".bo", text.str());
     }
 #else
     static_cast<void>(seeds);
