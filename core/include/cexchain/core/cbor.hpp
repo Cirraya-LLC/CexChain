@@ -204,6 +204,8 @@ struct DecodeOptions {
 ///                 encodings of the items, in turn (RFC 8610, Appendix G.3)
 ///   arrays, maps  [1, 2], {1: "a", "b": [true, false, null]}
 ///   tags          1(1700000000)
+///   comments      / a comment / (RFC 8610, Appendix G.6), and # to the end
+///                 of the line (EDN), wherever white space may go
 /// Whatever `diagnostic` writes parses back to the same value. The result is
 /// canonical (maps in deterministic order) and encodes: duplicate map keys,
 /// bignum tags, nesting deeper than max_nesting_depth, and more items than

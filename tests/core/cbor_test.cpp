@@ -308,6 +308,14 @@ TEST_CASE("diagnostic notation parses back, as people type it", "[core][cbor]") 
     CHECK(encoded("1(1700000000)") == "c11a6553f100");
     CHECK(encoded("{}") == "a0");
     CHECK(encoded("[ ]") == "80");
+    // Comments, wherever white space may go.
+    CHECK(encoded("/ a comment / [1, / two / 2] # the end") == "820102");
+    CHECK(encoded("# a file's header\n{\"a\": 1, # one\n \"b\": 2}\n# done") == "a2616101616202");
+    CHECK(encoded("[\"/ not a comment /\", \"# nor this\"]") ==
+          "82"
+          "712f206e6f74206120636f6d6d656e74202f"
+          "6a23206e6f722074686973");
+    CHECK(encoded("h'00 01'#\n") == "420001");
 
     for (const std::string_view bad : {"",
                                        " ",
@@ -342,7 +350,13 @@ TEST_CASE("diagnostic notation parses back, as people type it", "[core][cbor]") 
                                        "<1>",
                                        "18446744073709551616(1)",
                                        "simple(1)",
-                                       "'a'"}) {
+                                       "'a'",
+                                       "/ open",
+                                       "[1, / open]",
+                                       "1 / open",
+                                       "#",
+                                       "[1 # 2]",
+                                       "h'00 / no comments in bytes / 01'"}) {
         INFO(bad);
         const auto value = cbor::parse_diagnostic(bad);
         CHECK_FALSE(value);

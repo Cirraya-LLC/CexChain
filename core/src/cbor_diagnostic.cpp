@@ -68,10 +68,16 @@ public:
     Result<Value> parse() {
         skip_space();
         auto value = item();
+        if (unclosed_comment_) {
+            return fail(Errc::malformed, "diagnostic notation: a comment is not closed");
+        }
         if (!value) {
             return value;
         }
         skip_space();
+        if (unclosed_comment_) {
+            return fail(Errc::malformed, "diagnostic notation: a comment is not closed");
+        }
         if (pos_ != text_.size()) {
             return fail(Errc::malformed, "diagnostic notation: unexpected text after the value");
         }
@@ -82,9 +88,27 @@ private:
     [[nodiscard]] bool at_end() const noexcept { return pos_ >= text_.size(); }
     [[nodiscard]] char peek() const noexcept { return at_end() ? '\0' : text_[pos_]; }
 
+    /// Skips white space and comments: "/ ... /" (RFC 8610, Appendix G.6)
+    /// and "#" to the end of the line (EDN, as people annotate files).
     void skip_space() noexcept {
-        while (!at_end() && is_space(text_[pos_])) {
-            ++pos_;
+        while (!at_end()) {
+            const char c = text_[pos_];
+            if (is_space(c)) {
+                ++pos_;
+            } else if (c == '#') {
+                const std::size_t end = text_.find('\n', pos_);
+                pos_ = end == std::string_view::npos ? text_.size() : end + 1;
+            } else if (c == '/') {
+                const std::size_t end = text_.find('/', pos_ + 1);
+                if (end == std::string_view::npos) {
+                    unclosed_comment_ = true;
+                    pos_ = text_.size();
+                } else {
+                    pos_ = end + 1;
+                }
+            } else {
+                return;
+            }
         }
     }
 
@@ -448,6 +472,7 @@ private:
     std::size_t pos_ = 0;
     std::size_t depth_ = 0;
     std::size_t items_ = 0;
+    bool unclosed_comment_ = false;
 };
 
 } // namespace
