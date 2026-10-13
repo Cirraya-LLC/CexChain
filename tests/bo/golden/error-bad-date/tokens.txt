@@ -1,0 +1,7 @@
+2:1 end
+1:1 error lex.bad-date: 2027-02-30 is not a date: write YYYY-MM-DD with a year from 1 to 9999, a month from 01 to 12, and a day the month has (2027-01-06)
+1:12 error lex.bad-date: 2027-13-01 is not a date: write YYYY-MM-DD with a year from 1 to 9999, a month from 01 to 12, and a day the month has (2027-01-06)
+1:23 error lex.bad-date: 2027-1-6 is not a date: write YYYY-MM-DD with a year from 1 to 9999, a month from 01 to 12, and a day the month has (2027-01-06)
+1:32 error lex.bad-date: 2023-02-29 is not a date: write YYYY-MM-DD with a year from 1 to 9999, a month from 01 to 12, and a day the month has (2027-01-06)
+1:43 error lex.bad-date: 2027-01-06-1 is not a date: write YYYY-MM-DD with a year from 1 to 9999, a month from 01 to 12, and a day the month has (2027-01-06)
+1:56 error lex.bad-date: 2027年2月30日 is not a date: write YYYY-MM-DD with a year from 1 to 9999, a month from 01 to 12, and a day the month has (2027-01-06)

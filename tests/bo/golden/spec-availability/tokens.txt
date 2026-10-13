@@ -1,0 +1,8 @@
+1:1 comment | # 可用率 is a name: 用率 is no word, so 可 stays part of it
+2:1 name 可用率 split=kw.can/用率 | 可用率
+2:5 symbol = | =
+2:7 rate 99.9% | 99.9%
+2:12 newline
+3:1 name 可提款 split=kw.can/提款 | 可提款
+3:4 newline
+4:1 end

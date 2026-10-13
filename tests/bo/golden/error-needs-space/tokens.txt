@@ -1,0 +1,8 @@
+1:1 name HKD100 | HKD100
+1:8 name GB2 | GB2
+1:12 name 港元500 | 港元500
+1:17 newline
+2:1 end
+1:1 error lex.needs-space: HKD100: write HKD and 100 apart, with a space
+1:8 error lex.needs-space: GB2: write GB and 2 apart, with a space
+1:12 error lex.needs-space: 港元500: write 港元 and 500 apart, with a space

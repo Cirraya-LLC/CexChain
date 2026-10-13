@@ -78,11 +78,25 @@
 /// in English.
 namespace cexchain::bo {
 
+/// Where something is in a source: its line and column, counted from 1
+/// (columns in characters, that is code points), and its bytes. Line 0 means
+/// no place: a pack's diagnostics name a path in their arguments instead.
+struct Span {
+    std::uint32_t line = 0;
+    std::uint32_t column = 0;
+    std::uint32_t offset = 0;
+    std::uint32_t length = 0;
+
+    friend bool operator==(const Span&, const Span&) = default;
+};
+
 /// One problem found, with its message's parameters (MessageSpec::params)
-/// as values. Packs give the texts; see messages.hpp.
+/// as values, and its place in a source, if it has one. Packs give the
+/// texts; see messages.hpp.
 struct Diagnostic {
     std::string_view code;
     std::vector<std::pair<std::string_view, std::string>> args;
+    Span span;
 
     [[nodiscard]] Severity severity() const noexcept;
     /// The value of a parameter, or empty.

@@ -1,0 +1,12 @@
+contract ReceivableFinancing
+訂約方 issuer, 供应商, bank
+
+asset Receivable
+  金額 HKD
+  due 日期
+  持有人 supplier
+
+可pledge 予 bank
+  over 5_000_000 須親身確認
+can 转让
+當 due issuer pays

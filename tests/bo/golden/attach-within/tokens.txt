@@ -1,0 +1,19 @@
+1:1 duration time.day 30 | 30日
+1:4 word cond.within piece=tail | 內
+1:5 newline
+2:1 duration time.day 30 | 30天
+2:4 word cond.within piece=tail | 内
+2:5 newline
+3:1 duration time.day 30 | 30 日
+3:5 word cond.within piece=tail | 內
+3:6 newline
+4:1 word time.month | 個月
+4:3 word cond.within piece=tail | 內
+4:4 newline
+5:1 word cond.within piece=head | within
+5:8 duration time.day 30 | 30 days
+5:15 newline
+6:1 duration time.day 30 | 30日
+6:5 word cond.within piece=tail | 內
+6:6 newline
+7:1 end

@@ -1,0 +1,8 @@
+1:1 name рау | рау
+1:4 newline
+2:1 name Coco | Coco
+2:6 name Сосо | Сосо
+2:10 newline
+3:1 end
+1:1 error lex.confusable: рау looks like pay but is not the same: write it one way, or choose a name that looks different
+2:6 error lex.confusable: Сосо looks like Coco but is not the same: write it one way, or choose a name that looks different

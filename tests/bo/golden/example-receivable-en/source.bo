@@ -1,0 +1,12 @@
+contract ReceivableFinancing
+parties issuer, supplier, bank
+
+asset Receivable
+  amount HKD
+  due date
+  holder supplier
+
+can pledge to bank
+  over 5_000_000 requires in person
+can transfer
+when due issuer pays

@@ -1,0 +1,5 @@
+1:1 word kw.reject | reject
+1:8 text "no end" | "no end
+1:15 newline
+2:1 end
+1:8 error lex.unterminated-text: the text has no closing quote on this line

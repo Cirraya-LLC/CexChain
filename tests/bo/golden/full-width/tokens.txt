@@ -1,0 +1,18 @@
+1:1 word price.price | 價格
+1:4 word time.monthly | 每月
+1:7 money cur.HKD 120 | 港元 １２０
+1:13 newline
+2:1 word kw.parties | 訂約方
+2:5 word role.we | 本公司
+2:8 symbol , | ，
+2:9 word role.customer | 客戶
+2:11 newline
+3:1 symbol ( | （
+3:2 number 5000000 | ５００萬
+3:6 symbol ) | ）
+3:7 symbol : | ：
+3:8 newline
+4:1 word price.price | 價格
+4:4 word time.monthly | 每月
+4:6 newline
+5:1 end

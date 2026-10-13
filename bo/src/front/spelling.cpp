@@ -104,6 +104,10 @@ bool well_formed(std::string_view code, Args args) noexcept {
 }
 
 void Diagnostics::add(std::string_view code, Args args) {
+    add(Span{}, code, args);
+}
+
+void Diagnostics::add(const Span& span, std::string_view code, Args args) {
     const MessageSpec* spec = find_message(code);
     if (spec != nullptr && spec->severity == Severity::error) {
         errors_ = true;
@@ -112,12 +116,13 @@ void Diagnostics::add(std::string_view code, Args args) {
         ++dropped_;
         return;
     }
-    list_.push_back(Diagnostic{code, {args.begin(), args.end()}});
+    list_.push_back(Diagnostic{code, {args.begin(), args.end()}, span});
 }
 
 std::vector<Diagnostic> Diagnostics::take() {
     if (dropped_ > 0) {
-        list_.push_back(Diagnostic{"bo.truncated", {{"limit", std::to_string(max_diagnostics)}}});
+        list_.push_back(
+            Diagnostic{"bo.truncated", {{"limit", std::to_string(max_diagnostics)}}, Span{}});
         dropped_ = 0;
     }
     return std::move(list_);
@@ -196,7 +201,11 @@ bool is_word_char(char32_t c) noexcept {
 
 std::string describe_char(char32_t c) {
     const std::string code = std::format("U+{:04X}", static_cast<std::uint32_t>(c));
-    if (is_invisible(c)) {
+    // Combining marks would sit on the parenthesis.
+    const bool combining = (c >= 0x0300 && c <= 0x036F) || (c >= 0x1AB0 && c <= 0x1AFF) ||
+                           (c >= 0x1DC0 && c <= 0x1DFF) || (c >= 0x20D0 && c <= 0x20FF) ||
+                           (c >= 0xFE20 && c <= 0xFE2F) || c == 0x3099 || c == 0x309A;
+    if (is_invisible(c) || combining) {
         return code;
     }
     return code + " (" + utf8(c) + ")";

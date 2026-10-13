@@ -1,0 +1,14 @@
+1:1 word kw.contract | contract
+1:10 name X | X
+1:11 newline
+2:1 indent
+2:2 word kw.parties | parties
+2:10 word role.we | we
+2:12 newline
+3:1 dedent
+3:1 word kw.parties | parties
+3:9 word role.we | we
+3:11 newline
+4:1 end
+2:1 error lex.tab: a tab is not allowed; indent and separate words with spaces
+3:8 error lex.tab: a tab is not allowed; indent and separate words with spaces

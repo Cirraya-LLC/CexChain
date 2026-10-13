@@ -1,0 +1,17 @@
+1:1 money cur.HKD 120 | HKD 120
+1:8 newline
+2:1 money cur.HKD 120 | 120 HKD
+2:8 newline
+3:1 money cur.HKD 120 | 港元 120
+3:7 newline
+4:1 money cur.HKD 120 | 120 港元
+4:7 newline
+5:1 money cur.HKD 5000000 | 500萬港元
+5:7 newline
+6:1 money cur.USD 5 | 美元 5
+6:5 newline
+7:1 money cur.EUR 5 | 5 EUR
+7:6 newline
+8:1 money cur.CNY 1000 | 人民币 1_000
+8:10 newline
+9:1 end

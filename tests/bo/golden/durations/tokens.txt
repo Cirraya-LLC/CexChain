@@ -1,0 +1,10 @@
+1:1 duration time.day 30 | 30日
+1:5 duration time.month 3 | 3個月
+1:9 duration time.month 3 | 3个月
+1:13 duration time.day 30 | 30天
+1:17 duration time.day 30 | 30 days
+1:25 duration time.week 1 | 1 week
+1:32 duration time.year 2 | 2 years
+1:40 duration time.month 1 | 1 month
+1:47 newline
+2:1 end

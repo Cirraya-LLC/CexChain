@@ -1,0 +1,4 @@
+2:1 end
+1:1 error lex.number-too-large: 99999999999999999999 has more digits than Bo keeps: at most 18446744073709551615 without the decimal point, and 18 decimal places
+1:22 error lex.number-too-large: 0.0000000000000000001 has more digits than Bo keeps: at most 18446744073709551615 without the decimal point, and 18 decimal places
+1:44 error lex.number-too-large: 18446744073709551615萬 has more digits than Bo keeps: at most 18446744073709551615 without the decimal point, and 18 decimal places

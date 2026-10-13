@@ -1,0 +1,6 @@
+1:1 edition_line 1 | bo 1
+1:5 newline
+2:1 word kw.contract | contract
+2:10 name X | X
+2:11 newline
+3:1 end

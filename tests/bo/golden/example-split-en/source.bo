@@ -1,0 +1,11 @@
+contract Split
+parties issuer, supplier
+
+asset Receivable
+  amount HKD
+  tier number
+  holder supplier
+
+can split with parts
+  requires sum of parts = amount
+  requires tier < 5

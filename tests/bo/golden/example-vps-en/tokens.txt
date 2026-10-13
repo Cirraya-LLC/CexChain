@@ -1,0 +1,88 @@
+1:1 edition_line 1 | bo 1
+1:5 newline
+2:1 word kw.contract | contract
+2:10 name VPSService | VPSService
+2:20 newline
+3:1 word kw.parties | parties
+3:9 word role.we | we
+3:11 symbol , | ,
+3:13 word role.customer | customer
+3:21 newline
+5:1 word kind.service | service
+5:9 name VPS | VPS
+5:12 newline
+6:1 indent
+6:3 word price.price | price
+6:9 word time.monthly | monthly
+6:17 money cur.HKD 120 | HKD 120
+6:24 newline
+7:3 word price.traffic | traffic
+7:11 word time.monthly | monthly
+7:19 quantity unit.TB 2 | 2TB
+7:22 symbol , | ,
+7:24 word price.overage | overage
+7:32 word price.per | per
+7:36 word unit.GB | GB
+7:39 money cur.HKD 0.10 | HKD 0.10
+7:47 newline
+8:3 name IP | IP
+8:6 quantity unit.item 1 | 1 item
+8:12 newline
+9:3 word charge.tax | tax
+9:7 word charge.by | according to
+9:20 word field.customer_location | customer location
+9:37 newline
+11:1 dedent
+11:1 word kw.can | can
+11:5 word act.subscribe | subscribe
+11:15 word kw.by | by
+11:18 word role.customer | customer
+11:26 newline
+12:1 word kw.can | can
+12:5 word act.renew | renew
+12:11 word kw.by | by
+12:14 word role.customer | customer
+12:22 newline
+13:1 word kw.can | can
+13:5 word act.upgrade | upgrade
+13:13 word kw.by | by
+13:16 word role.customer | customer
+13:34 comment | # proration recognized: by days remaining
+13:75 newline
+14:1 word kw.when | when
+14:6 duration time.day 7 | 7 days
+14:13 word cond.before_due piece=tail | before due
+14:24 word act.notify | notify
+14:31 word role.customer | customer
+14:39 newline
+15:1 word kw.when | when
+15:6 word cond.overdue | overdue
+15:14 duration time.day 3 | 3 days
+15:21 word act.suspend | suspend
+15:34 comment | # request to the panel executor: suspend VPS
+15:78 newline
+16:1 word kw.when | when
+16:6 word cond.overdue | overdue
+16:14 duration time.day 30 | 30 days
+16:22 word act.terminate | terminate
+16:32 word kw.and | and
+16:36 word act.reclaim | reclaim
+16:44 name IP | IP
+16:46 newline
+17:1 word kw.can | can
+17:5 word act.refund | refund
+17:12 word kw.by | by
+17:15 word role.we form=object | us
+17:17 newline
+18:1 indent
+18:3 word cond.over piece=head | over
+18:8 money cur.HKD 100 | HKD 100
+18:16 word kw.requires | requires
+18:25 word cond.in_person | in person
+18:34 newline
+19:3 word actor.ai_agent | AI agent
+19:12 word kw.can | can
+19:16 word act.propose | propose
+19:23 newline
+20:1 dedent
+20:1 end

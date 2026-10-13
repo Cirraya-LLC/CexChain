@@ -1,0 +1,78 @@
+1:1 word kw.can | can
+1:5 word act.pledge | pledge
+1:12 word kw.to | to
+1:15 word role.bank | bank
+1:19 newline
+2:1 word cond.over piece=head | over
+2:6 money cur.HKD 100 | HKD 100
+2:14 word kw.requires | requires
+2:23 word cond.in_person | in person
+2:32 newline
+3:1 word price.price | price
+3:7 word time.monthly | monthly
+3:15 money cur.HKD 120 | HKD 120
+3:22 newline
+4:1 word price.traffic | traffic
+4:9 word time.monthly | monthly
+4:17 quantity unit.TB 2 | 2TB
+4:20 symbol , | ,
+4:22 word price.overage | overage
+4:30 word price.per | per
+4:34 word unit.GB | GB
+4:37 money cur.HKD 0.10 | HKD 0.10
+4:45 newline
+5:1 word kw.when | when
+5:6 word cond.overdue | overdue
+5:14 duration time.day 3 | 3 days
+5:21 word act.suspend | suspend
+5:28 newline
+6:1 word actor.ai_agent | AI agent
+6:10 word kw.can | can
+6:14 word act.propose | propose
+6:21 newline
+7:1 word kw.can | can
+7:5 word act.confirm_payment | confirm payment
+7:21 word kw.by | by
+7:24 word role.customer | customer
+7:32 newline
+8:1 word charge.tax | tax
+8:5 word charge.by | according to
+8:18 word field.customer_location | customer location
+8:35 newline
+9:1 word kw.if | if
+9:4 word cond.overdue | overdue
+9:12 word act.terminate | terminate
+9:22 word kw.and | and
+9:26 word act.reclaim | reclaim
+9:33 newline
+10:1 word kw.each | each
+10:6 name part | part
+10:11 word kw.in | in
+10:14 word field.parts | parts
+10:19 newline
+11:1 word charge.rate | rate
+11:6 rate 8.5% | 8.5%
+11:11 word charge.from piece=head | from
+11:16 date 2027-01-01 | 2027-01-01
+11:27 word charge.from piece=tail | on
+11:29 newline
+12:1 word kw.requires | requires
+12:10 word field.tier | tier
+12:15 symbol < | <
+12:17 number 5 | 5
+12:19 word kw.and | and
+12:23 word kw.not | not
+12:27 word state.frozen | frozen
+12:33 newline
+13:1 word kw.otherwise | otherwise
+13:11 word kw.reject | reject
+13:18 text "too late" | "too late"
+13:28 newline
+14:1 word kw.parties | parties
+14:9 word role.we | we
+14:11 symbol , | ,
+14:13 word role.customer | customer
+14:21 symbol , | ,
+14:23 word role.supplier | supplier
+14:31 newline
+15:1 end

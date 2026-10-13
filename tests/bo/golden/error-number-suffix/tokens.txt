@@ -1,0 +1,4 @@
+2:1 end
+1:1 error lex.number-suffix: XB cannot follow the number in 2XB: a number may be followed directly by a multiplier (萬), then a unit, a time unit, or a currency (2TB, 30日, 500萬港元), then a word such as 內
+1:5 error lex.number-suffix: 個IP cannot follow the number in 1個IP: a number may be followed directly by a multiplier (萬), then a unit, a time unit, or a currency (2TB, 30日, 500萬港元), then a word such as 內
+1:10 error lex.number-suffix: 日X cannot follow the number in 3日X: a number may be followed directly by a multiplier (萬), then a unit, a time unit, or a currency (2TB, 30日, 500萬港元), then a word such as 內

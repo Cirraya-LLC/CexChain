@@ -1,0 +1,45 @@
+1:1 word kw.contract | contract
+1:10 name ReceivableFinancing | ReceivableFinancing
+1:29 newline
+2:1 word kw.parties | 訂約方
+2:5 word role.issuer | issuer
+2:11 symbol , | ,
+2:13 word role.supplier | 供应商
+2:16 symbol , | ,
+2:18 word role.bank | bank
+2:22 newline
+4:1 word kind.asset | asset
+4:7 name Receivable | Receivable
+4:17 newline
+5:1 indent
+5:3 word field.amount | 金額
+5:6 word cur.HKD | HKD
+5:9 newline
+6:3 word field.due | due
+6:7 word type.date | 日期
+6:9 newline
+7:3 word field.holder | 持有人
+7:7 word role.supplier | supplier
+7:15 newline
+9:1 dedent
+9:1 word kw.can | 可
+9:2 word act.pledge | pledge
+9:9 word kw.to | 予
+9:11 word role.bank | bank
+9:15 newline
+10:1 indent
+10:3 word cond.over piece=head | over
+10:8 number 5000000 | 5_000_000
+10:18 word kw.requires | 須
+10:19 word cond.in_person | 親身確認
+10:23 newline
+11:1 dedent
+11:1 word kw.can | can
+11:5 word act.transfer | 转让
+11:7 newline
+12:1 word kw.when | 當
+12:3 word field.due | due
+12:7 word role.issuer | issuer
+12:14 word act.pay form=third | pays
+12:18 newline
+13:1 end

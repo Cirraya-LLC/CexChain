@@ -1,0 +1,5 @@
+2:1 word kw.contract | contract
+2:10 name X | X
+2:11 newline
+3:1 end
+1:1 error lex.bad-edition: the first line names the edition: bo followed by its number alone (bo 1)

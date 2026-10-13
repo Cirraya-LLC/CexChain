@@ -1,0 +1,46 @@
+1:1 word cond.consent_of piece=head | consent of
+1:12 word role.supplier | supplier
+1:20 newline
+2:1 word cond.consent_of piece=head | 經
+2:3 word role.supplier | 供應商
+2:7 word cond.consent_of piece=tail | 同意
+2:9 newline
+3:1 duration time.day 7 | 7 days
+3:8 word cond.before_due piece=tail | before due
+3:18 newline
+4:1 word cond.before_due piece=head | 到期前
+4:5 duration time.day 7 | 7日
+4:7 newline
+5:1 word charge.from piece=head | from
+5:6 date 2027-01-01 | 2027-01-01
+5:17 word charge.from piece=tail | on
+5:19 newline
+6:1 word charge.from piece=head | 從
+6:3 date 2027-01-01 | 2027-01-01
+6:14 word charge.from piece=tail | 起
+6:15 newline
+7:1 word expr.sum_of piece=head | sum of
+7:8 word field.parts | parts
+7:13 newline
+8:1 word field.parts | 各部分
+8:5 word expr.sum_of piece=tail | 總和
+8:7 newline
+9:1 word expr.count_of piece=head | count of
+9:10 word field.parts | parts
+9:15 newline
+10:1 word field.parts | 各部分
+10:5 word expr.count_of piece=tail | 數目
+10:7 newline
+11:1 word expr.at_most piece=head | at most
+11:9 number 3 | 3
+11:10 newline
+12:1 word expr.at_most piece=head | 最多
+12:4 number 3 | 3
+12:5 newline
+13:1 word charge.applies_to piece=head | applies to
+13:12 word field.customer_location | customer location
+13:29 newline
+14:1 word cond.over piece=head | over
+14:6 number 5000000 | 5_000_000
+14:15 newline
+15:1 end

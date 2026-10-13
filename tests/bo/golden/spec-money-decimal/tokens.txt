@@ -1,0 +1,12 @@
+1:1 money cur.HKD 0.10 | HKD 0.10
+1:9 newline
+2:1 money cur.HKD 0.10 | 港元 0.10
+2:8 newline
+3:1 money cur.HKD 0.10 | 0.10 HKD
+3:9 newline
+4:1 word price.overage | 超出
+4:4 word price.per | 每
+4:5 word unit.GB | GB
+4:8 money cur.HKD 0.10 | HKD 0.10
+4:16 newline
+5:1 end

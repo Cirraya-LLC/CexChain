@@ -34,6 +34,8 @@ using Args = std::initializer_list<std::pair<std::string_view, std::string>>;
 class Diagnostics {
 public:
     void add(std::string_view code, Args args) BO_PRE(well_formed(code, args));
+    /// A problem at a place in a source.
+    void add(const Span& span, std::string_view code, Args args) BO_PRE(well_formed(code, args));
     [[nodiscard]] bool has_errors() const noexcept { return errors_; }
     /// The diagnostics, plus a last warning if some were dropped.
     [[nodiscard]] std::vector<Diagnostic> take();
@@ -54,7 +56,8 @@ private:
 /// True for spaces and characters that show nothing (format characters,
 /// variation selectors, fillers).
 [[nodiscard]] bool is_invisible(char32_t c) noexcept;
-/// "U+3001 (、)", or just "U+200B" for an invisible character.
+/// "U+3001 (、)", or just "U+200B" for an invisible character or a combining
+/// mark.
 [[nodiscard]] std::string describe_char(char32_t c);
 /// At most `max` bytes of `text` (whole characters), "…" marking a cut, for
 /// diagnostics that quote what they read.
@@ -84,6 +87,29 @@ struct SpellingCheck {
 [[nodiscard]] SpellingCheck check_spelling(std::string_view spelling);
 /// The words of a spelling.
 [[nodiscard]] std::vector<std::string_view> split_words(std::string_view spelling);
+
+enum class NameProblem : std::uint8_t {
+    none,
+    bad_start,      ///< it starts with "_" (digits start numbers, never names)
+    bad_character,  ///< a character no name may hold (a full-width digit)
+    not_normalized, ///< a character Unicode normalization (NFC) would change
+    mixed_script,   ///< Latin, Greek, and Cyrillic letters together
+};
+
+struct NameCheck {
+    NameProblem problem = NameProblem::none;
+    /// The first character at fault (bad_character, not_normalized).
+    char32_t character = 0;
+};
+
+/// Checks a name's characters: word characters and "_", not first; nothing
+/// normalization would change (combining marks, conjoining jamo, canonical
+/// singletons); not more than one of Latin, Greek, and Cyrillic.
+[[nodiscard]] NameCheck check_name(std::u32string_view name) noexcept;
+/// The text with each Greek or Cyrillic letter that looks like a Latin one
+/// replaced by that letter: names (and words) with the same skeleton look
+/// alike.
+[[nodiscard]] std::u32string skeleton(std::u32string_view text);
 
 /// A spelling's meaning, for diagnostics: "act.pay", "act.pay (third)",
 /// "×10000", or "','".

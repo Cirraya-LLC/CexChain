@@ -1,0 +1,8 @@
+1:19 number 5 | 5
+1:20 newline
+2:1 end
+1:1 error lex.bad-number: 5__0 is not a number: digits, with _ only between digits and at most one decimal point between digits (5_000, 0.10)
+1:6 error lex.bad-number: 1. is not a number: digits, with _ only between digits and at most one decimal point between digits (5_000, 0.10)
+1:9 error lex.bad-number: 5_ is not a number: digits, with _ only between digits and at most one decimal point between digits (5_000, 0.10)
+1:12 error lex.bad-number: 1.2.3 is not a number: digits, with _ only between digits and at most one decimal point between digits (5_000, 0.10)
+1:18 error lex.bad-character: U+002E (.) cannot appear here: it is not part of a word, a number, or an operator

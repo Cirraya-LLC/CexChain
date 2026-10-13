@@ -1,0 +1,11 @@
+1:1 word kw.contract | contract
+1:11 newline
+2:1 name unit | unit
+2:8 newline
+3:1 name IP４ | IP４
+3:4 newline
+4:1 end
+1:10 error lex.bad-character: U+F900 (豈) cannot appear here: it is not part of a word, a number, or an operator
+2:6 error lex.bad-character: U+FF27 (Ｇ) cannot appear here: it is not part of a word, a number, or an operator
+2:7 error lex.bad-character: U+FF22 (Ｂ) cannot appear here: it is not part of a word, a number, or an operator
+3:3 error lex.bad-character: U+FF14 (４) cannot appear here: it is not part of a word, a number, or an operator

@@ -1,0 +1,13 @@
+1:1 word kind.asset | asset
+1:7 name A | A
+1:8 newline
+2:1 indent
+2:5 word field.amount | amount
+2:12 word cur.HKD | HKD
+2:15 newline
+3:3 dedent
+3:3 word field.holder | holder
+3:10 word role.we | we
+3:12 newline
+4:1 end
+3:1 error lex.dedent: this line's indentation matches no enclosing block

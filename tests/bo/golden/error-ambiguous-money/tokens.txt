@@ -1,0 +1,11 @@
+1:1 number 100 | 100
+1:5 word cur.HKD | HKD
+1:9 number 200 | 200
+1:12 newline
+2:1 word cur.HKD | HKD
+2:5 number 100 | 100
+2:9 word cur.USD | USD
+2:12 newline
+3:1 end
+1:1 error lex.ambiguous-money: in 100 HKD 200, a currency stands between two numbers, or a number between two currencies, so which belongs to which is unclear: keep each amount with its currency, and separate the amounts
+2:1 error lex.ambiguous-money: in HKD 100 USD, a currency stands between two numbers, or a number between two currencies, so which belongs to which is unclear: keep each amount with its currency, and separate the amounts

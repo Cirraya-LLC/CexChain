@@ -1,0 +1,6 @@
+# a comment line
+reject "too late"   # trailing comment
+拒絕 "逾期未付，不可轉讓"
+reject "# not a comment"
+  # an indented comment changes no block
+否则 拒绝 ""

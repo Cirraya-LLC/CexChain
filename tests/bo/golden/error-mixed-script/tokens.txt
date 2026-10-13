@@ -1,0 +1,7 @@
+1:1 name pаy | pаy
+1:4 newline
+2:1 name abγ | abγ
+2:4 newline
+3:1 end
+1:1 error lex.mixed-script: pаy mixes Latin, Greek, or Cyrillic letters, which look alike: write a name in one of these scripts
+2:1 error lex.mixed-script: abγ mixes Latin, Greek, or Cyrillic letters, which look alike: write a name in one of these scripts

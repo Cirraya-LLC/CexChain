@@ -249,6 +249,36 @@ constexpr MessageSpec unsorted_messages[] = {
     // Pack sets.
     {"pack.false-official", Severity::error, "pack"},
     {"pack.duplicate-id", Severity::error, "pack"},
+    // Reading a source: characters and lines.
+    {"lex.too-large", Severity::error, "size limit"},
+    {"lex.utf8", Severity::error, ""},
+    {"lex.invisible", Severity::error, "character"},
+    {"lex.tab", Severity::error, ""},
+    {"lex.indent-character", Severity::error, "character"},
+    {"lex.dedent", Severity::error, ""},
+    {"lex.too-deep", Severity::error, "limit"},
+    {"lex.bad-character", Severity::error, "character"},
+    // Numbers, dates, texts, the edition.
+    {"lex.bad-number", Severity::error, "text"},
+    {"lex.digit-comma", Severity::error, "text suggestion"},
+    {"lex.number-too-large", Severity::error, "text"},
+    {"lex.number-suffix", Severity::error, "text suffix"},
+    {"lex.multiplier", Severity::error, "word"},
+    {"lex.percent", Severity::error, ""},
+    {"lex.bad-date", Severity::error, "text"},
+    {"lex.unterminated-text", Severity::error, ""},
+    {"lex.text-too-long", Severity::error, "limit"},
+    {"lex.edition", Severity::error, "value"},
+    {"lex.bad-edition", Severity::error, ""},
+    // Words and names: never guess.
+    {"lex.ambiguous", Severity::error, "text first second"},
+    {"lex.ambiguous-money", Severity::error, "text"},
+    {"lex.needs-space", Severity::error, "text first second"},
+    {"lex.bad-name", Severity::error, "name"},
+    {"lex.name-too-long", Severity::error, "name limit"},
+    {"lex.not-normalized", Severity::error, "character"},
+    {"lex.mixed-script", Severity::error, "name"},
+    {"lex.confusable", Severity::error, "name other"},
     // Any reading.
     {"bo.truncated", Severity::warning, "limit"},
 };

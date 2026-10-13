@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// Bo commands (D-053, step 6): the language packs Bo source is read with.
-// Built only with the Bo compiler (cexchain::bo: GCC 16, for C++26
+// Bo commands (D-053, step 6): checking Bo source, and the language packs it
+// is read with. Built only with the Bo compiler (cexchain::bo: GCC 16, for C++26
 // reflection and contracts).
 
 #include <cstdlib>
@@ -15,6 +15,7 @@
 #include <vector>
 
 #include <cexchain/bo/concepts.hpp>
+#include <cexchain/bo/lexer.hpp>
 #include <cexchain/bo/messages.hpp>
 #include <cexchain/bo/names.hpp>
 #include <cexchain/bo/pack.hpp>
@@ -61,15 +62,26 @@ const bo::Pack* message_language(const Args& args, std::span<const bo::Pack> ext
                      " (en, zh-Hant-HK, zh-Hans-CN, or a pack given with --pack)"};
 }
 
+Json span_json(const bo::Span& span) {
+    return {{"line", span.line},
+            {"column", span.column},
+            {"offset", span.offset},
+            {"length", span.length}};
+}
+
 Json diagnostic_json(const bo::Diagnostic& diagnostic, const bo::Pack* language) {
     Json args = Json::object();
     for (const auto& [name, value] : diagnostic.args) {
         args[std::string(name)] = value;
     }
-    return {{"severity", bo::name_of(diagnostic.severity())},
-            {"code", diagnostic.code},
-            {"message", bo::render(diagnostic, language)},
-            {"args", args}};
+    Json out = {{"severity", bo::name_of(diagnostic.severity())},
+                {"code", diagnostic.code},
+                {"message", bo::render(diagnostic, language)},
+                {"args", args}};
+    if (diagnostic.span.line != 0) {
+        out["span"] = span_json(diagnostic.span);
+    }
+    return out;
 }
 
 Json diagnostics_json(const std::vector<bo::Diagnostic>& diagnostics, const bo::Pack* language) {
@@ -255,7 +267,136 @@ const bo::Pack& chosen_pack(const bo::PackSet& set, const std::string& name) {
 constexpr std::string_view sections[] = {"reading", "keywords", "vocabulary", "messages",
                                          "sentences"};
 
+Json token_json(std::string_view source, const bo::Token& token) {
+    Json out = {{"kind", bo::name_of(token.kind)}, {"span", span_json(token.span)}};
+    switch (token.kind) {
+    case bo::TokenKind::word:
+        out["concept"] = token.concept_entry->id;
+        out["category"] = bo::name_of(token.concept_entry->category);
+        out["piece"] = bo::name_of(token.piece);
+        if (!token.form.empty()) {
+            out["form"] = token.form;
+        }
+        break;
+    case bo::TokenKind::name: {
+        out["name"] = token.text;
+        Json splits = Json::array();
+        for (const bo::NameSplit& split : token.splits) {
+            splits.push_back({{"prefix", split.prefix->id},
+                              {"rest", std::string_view(token.text).substr(split.length)}});
+        }
+        out["splits"] = splits;
+        break;
+    }
+    case bo::TokenKind::edition_line:
+    case bo::TokenKind::number:
+    case bo::TokenKind::rate:
+        out["value"] = bo::to_string(token.number);
+        break;
+    case bo::TokenKind::money:
+    case bo::TokenKind::quantity:
+    case bo::TokenKind::duration:
+        out["value"] = bo::to_string(token.number);
+        out["unit"] = token.concept_entry->id;
+        break;
+    case bo::TokenKind::date:
+        out["date"] =
+            std::format("{:04}-{:02}-{:02}", token.date.year, token.date.month, token.date.day);
+        break;
+    case bo::TokenKind::text:
+        out["text"] = token.text;
+        break;
+    case bo::TokenKind::symbol:
+        out["symbol"] = bo::symbol_texts[static_cast<std::size_t>(token.symbol)];
+        break;
+    case bo::TokenKind::newline:
+    case bo::TokenKind::indent:
+    case bo::TokenKind::dedent:
+    case bo::TokenKind::end:
+        break;
+    }
+    if (token.span.length > 0) {
+        out["source"] = source.substr(token.span.offset, token.span.length);
+    }
+    return out;
+}
+
+/// "FILE:LINE:COLUMN: error: message (code)", as compilers write it.
+void print_source_diagnostics(std::FILE* stream, std::string_view file,
+                              const std::vector<bo::Diagnostic>& diagnostics,
+                              const bo::Pack* language) {
+    for (const bo::Diagnostic& d : diagnostics) {
+        const std::string where = d.span.line == 0
+                                      ? std::string(file)
+                                      : std::format("{}:{}:{}", file, d.span.line, d.span.column);
+        std::println(stream, "{}: {}: {} ({})", where, bo::name_of(d.severity()),
+                     bo::render(d, language), d.code);
+    }
+}
+
 } // namespace
+
+int cmd_bo_check(const Args& args) {
+    const std::string file = args.positional().front();
+    const std::optional<std::string> stage = args.get("stage");
+    if (stage && *stage != "lex") {
+        throw UsageError{"--stage must be lex (the tokens); the parser's stage is not built yet"};
+    }
+    const bo::PackSet set = pack_set(args);
+    std::vector<bo::Pack> given;
+    for (const bo::Pack& pack : set.packs()) {
+        if (!pack.official) {
+            given.push_back(pack);
+        }
+    }
+    const bo::Pack* language = message_language(args, given);
+    const Bytes bytes = read_file(file);
+    const std::string_view source(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+    const bo::Lexicon lexicon(set);
+    const bo::Lexed lexed = bo::lex(source, lexicon);
+    const bool ok = !bo::has_errors(lexed.diagnostics);
+
+    if (args.json()) {
+        Json out = {{"file", file},
+                    {"ok", ok},
+                    {"stage", "lex"},
+                    {"edition", lexed.edition},
+                    {"diagnostics", diagnostics_json(lexed.diagnostics, language)}};
+        if (stage) {
+            Json tokens = Json::array();
+            for (const bo::Token& token : lexed.tokens) {
+                tokens.push_back(token_json(source, token));
+            }
+            Json comments = Json::array();
+            for (const bo::Comment& comment : lexed.comments) {
+                comments.push_back({{"span", span_json(comment.span)}, {"text", comment.text}});
+            }
+            out["tokens"] = tokens;
+            out["comments"] = comments;
+        }
+        print_json(out);
+        return ok ? exit_ok : exit_failure;
+    }
+    if (stage) {
+        // The tokens on stdout; the problems after them, as below.
+        bo::Lexed quiet;
+        quiet.tokens = lexed.tokens;
+        quiet.comments = lexed.comments;
+        std::print("{}", bo::dump(source, quiet, language));
+    }
+    print_source_diagnostics(stage ? stdout : stderr, file, lexed.diagnostics, language);
+    std::size_t errors = 0;
+    for (const bo::Diagnostic& d : lexed.diagnostics) {
+        errors += d.severity() == bo::Severity::error ? 1U : 0U;
+    }
+    if (ok) {
+        std::println("{}: ok: {} tokens, {} comments, edition {}", file, lexed.tokens.size(),
+                     lexed.comments.size(), lexed.edition);
+    } else {
+        std::println("{}: {} error{}", file, errors, errors == 1 ? "" : "s");
+    }
+    return ok ? exit_ok : exit_failure;
+}
 
 int cmd_bo_packs_list(const Args& args) {
     const bo::PackSet set = pack_set(args);

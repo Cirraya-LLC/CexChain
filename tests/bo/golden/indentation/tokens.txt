@@ -1,0 +1,42 @@
+1:1 word kw.contract | contract
+1:10 name X | X
+1:11 newline
+2:1 word kw.parties | parties
+2:9 word role.we | we
+2:11 newline
+4:1 word kind.asset | asset
+4:7 name A | A
+4:8 newline
+5:1 indent
+5:3 word field.amount | amount
+5:10 word cur.HKD | HKD
+5:13 newline
+6:3 word field.holder | holder
+6:10 word role.we | we
+6:12 newline
+8:1 dedent
+8:1 word kw.can | can
+8:5 word act.pledge | pledge
+8:11 newline
+9:1 indent
+9:3 word kw.if | if
+9:6 word cond.overdue | overdue
+9:13 newline
+10:1 indent
+10:5 word kw.reject | reject
+10:12 text "late" | "late"
+10:18 newline
+11:7 comment | # a comment, deeper
+12:3 dedent
+12:3 word kw.otherwise | otherwise
+12:12 newline
+13:1 indent
+13:5 word kw.requires | requires
+13:14 word cond.in_person | in person
+13:23 newline
+14:1 dedent
+14:1 dedent
+14:1 word kw.can | can
+14:5 word act.transfer | transfer
+14:13 newline
+15:1 end

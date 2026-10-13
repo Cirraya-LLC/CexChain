@@ -1,0 +1,13 @@
+1:1 word time.daily | 每日
+1:4 word time.monthly | 每月
+1:7 word time.daily | 每天
+1:10 word time.yearly | 每年
+1:13 word time.weekly | 每週
+1:16 word time.weekly | 每周
+1:18 newline
+2:1 word time.daily | daily
+2:7 word time.monthly | monthly
+2:15 word time.yearly | yearly
+2:22 word time.weekly | weekly
+2:28 newline
+3:1 end

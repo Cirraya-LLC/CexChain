@@ -160,6 +160,7 @@ int cmd_contract_verify(const Args& args);
 
 // The Bo language (D-053, step 6); only in builds with the Bo compiler
 // (CEXCHAIN_HAVE_BO).
+int cmd_bo_check(const Args& args);
 int cmd_bo_packs_list(const Args& args);
 int cmd_bo_packs_show(const Args& args);
 int cmd_bo_packs_check(const Args& args);

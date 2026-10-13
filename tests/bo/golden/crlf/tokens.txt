@@ -1,0 +1,11 @@
+1:1 edition_line 1 | bo 1
+1:5 newline
+2:1 word kw.contract | contract
+2:10 name X | X
+2:11 newline
+3:1 indent
+3:3 word kw.parties | parties
+3:11 word role.we | we
+3:13 newline
+4:1 dedent
+4:1 end

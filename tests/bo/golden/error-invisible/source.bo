@@ -1,0 +1,4 @@
+﻿contract a​b
+# bidi ‮ here
+x y
+reject "zero‍width"

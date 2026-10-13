@@ -1,0 +1,14 @@
+可pledge 予 bank
+超過 港元 100 requires 本人确认
+price 每月 港元 120
+traffic 每月 2TB, 超出 per GB 港元 0.10
+when 逾期 3日 suspend
+AI代理 can 提議
+可confirm payment by 客戶
+tax 按客戶所在地
+if 逾期 terminate 且 收回
+each part 於 parts
+費率 8.5% from 2027年1月1日 on
+requires 層級 < 5 and 非 frozen
+否則 reject "too late"
+parties 本公司，customer, 供应商

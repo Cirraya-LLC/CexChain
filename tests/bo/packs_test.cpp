@@ -520,12 +520,13 @@ TEST_CASE("messages and sentences use their own placeholders", "[bo][packs]") {
     // A pack's messages are used, English fills in.
     TestPack own = with(R"("messages": {"pack.missing-key": "{path} lacks {key}"}, )");
     const Pack pack = must_read(own);
-    const Diagnostic missing{"pack.missing-key", {{"path", "reading"}, {"key", "separation"}}};
+    const Diagnostic missing{
+        "pack.missing-key", {{"path", "reading"}, {"key", "separation"}}, Span{}};
     CHECK(render(missing, &pack) == "reading lacks separation");
     CHECK(render(missing, nullptr) == "reading needs the key separation");
     CHECK(render(missing, official_pack("zh-Hant-HK")) == "reading 須有鍵 separation");
     CHECK(render(missing, official_pack("zh-Hans-CN")) == "reading 缺少键 separation");
-    const Diagnostic other{"pack.duplicate-id", {{"pack", "x"}}};
+    const Diagnostic other{"pack.duplicate-id", {{"pack", "x"}}, Span{}};
     CHECK(render(other, &pack) == "two packs have the id x");
     CHECK(fill("{a}{b}{a}{c", std::vector<std::pair<std::string_view, std::string>>{
                                   {"a", "1"}, {"b", "2"}}) == "121{c");

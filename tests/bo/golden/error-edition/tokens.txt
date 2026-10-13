@@ -1,0 +1,7 @@
+1:1 edition_line 2 | bo 2
+1:5 newline
+2:1 word kw.contract | contract
+2:10 name X | X
+2:11 newline
+3:1 end
+1:1 error lex.edition: Bo edition 2 is not supported; this compiler reads edition 1

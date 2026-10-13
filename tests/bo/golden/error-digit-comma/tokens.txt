@@ -1,0 +1,7 @@
+1:1 word cond.over piece=head | over
+1:11 newline
+2:1 word cond.over piece=head | over
+2:11 newline
+3:1 end
+1:6 error lex.digit-comma: 5,000: a comma never groups digits; write 5_000
+2:6 error lex.digit-comma: ５，０００: a comma never groups digits; write 5_000

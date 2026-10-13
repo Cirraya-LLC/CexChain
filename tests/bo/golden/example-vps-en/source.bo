@@ -1,0 +1,19 @@
+bo 1
+contract VPSService
+parties we, customer
+
+service VPS
+  price monthly HKD 120
+  traffic monthly 2TB, overage per GB HKD 0.10
+  IP 1 item
+  tax according to customer location
+
+can subscribe by customer
+can renew by customer
+can upgrade by customer          # proration recognized: by days remaining
+when 7 days before due notify customer
+when overdue 3 days suspend      # request to the panel executor: suspend VPS
+when overdue 30 days terminate and reclaim IP
+can refund by us
+  over HKD 100 requires in person
+  AI agent can propose

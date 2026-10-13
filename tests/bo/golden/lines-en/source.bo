@@ -1,0 +1,14 @@
+can pledge to bank
+over HKD 100 requires in person
+price monthly HKD 120
+traffic monthly 2TB, overage per GB HKD 0.10
+when overdue 3 days suspend
+AI agent can propose
+can confirm payment by customer
+tax according to customer location
+if overdue terminate and reclaim
+each part in parts
+rate 8.5% from 2027-01-01 on
+requires tier < 5 and not frozen
+otherwise reject "too late"
+parties we, customer, supplier

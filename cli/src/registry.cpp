@@ -1552,6 +1552,32 @@ std::vector<CommandSpec> build() {
          "present, a key alone, or an AI agent and its model."},
 #if defined(CEXCHAIN_HAVE_BO)
         // ------------------------------------------------------------------
+        {{"bo", "check"},
+         "Check a Bo source file; with --stage lex, show its tokens",
+         "Bo language",
+         "FILE",
+         1,
+         1,
+         with({pack_option,
+               language_option,
+               {"stage", "STAGE", "Show what a stage reads: lex (the tokens, with their places)"}}),
+         cmd_bo_check,
+         "Reads FILE (UTF-8) with the official language packs and any given with --pack, and\n"
+         "reports every problem (up to 100) as FILE:LINE:COLUMN: error: message (code), in the\n"
+         "language of --language. Exit status 2 if there is an error. So far the check is the\n"
+         "lexer's: lines and indentation (spaces only), # comments, words under the packs'\n"
+         "rules (可質押 is 可 + 質押; 每GB is 每 + GB; a word with two readings is an error,\n"
+         "since Bo never guesses), names, numbers (5_000_000, 0.10, 500萬, full-width digits),\n"
+         "money with its currency on either side (HKD 0.10), quantities (2TB, 3 噸, 1個),\n"
+         "durations (30日), percentages (5%), dates (2027-01-06, 2027年1月6日), texts in\n"
+         "double quotes, and the edition line (bo 1). Invisible characters, and in names\n"
+         "anything Unicode normalization would change, are refused, so that two names that\n"
+         "look alike are never different.\n\n"
+         "--stage lex prints one token per line: LINE:COLUMN KIND VALUE | as written. A word\n"
+         "is its concept (kw.can, act.pledge), the same in every language; a word with an\n"
+         "argument's place comes in parts (piece=head, piece=tail: 經 ... 同意).\n\n"
+         "  cexchain bo check contract.bo\n"
+         "  cexchain bo check contract.bo --stage lex --json\n\n" CEXCHAIN_BO_PACKS_HELP},
         {{"bo", "packs", "list"},
          "List the language packs Bo source is read with, and their digests",
          "Bo language",

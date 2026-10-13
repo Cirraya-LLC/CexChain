@@ -1,0 +1,23 @@
+1:1 word kw.when | 當
+1:2 word cond.overdue | 逾期
+1:5 word act.suspend | 暫停
+1:7 newline
+2:1 word kw.when | 当
+2:2 word cond.overdue | 逾期
+2:5 word act.suspend | 暂停
+2:7 newline
+3:1 word kw.if | 如
+3:2 word cond.overdue | 逾期
+3:5 word act.terminate | 終止
+3:7 newline
+4:1 word kw.if | 如果
+4:3 word cond.overdue | 逾期
+4:6 word act.terminate | 终止
+4:8 newline
+5:1 word kw.can | 可
+5:2 word act.release | 解除質押
+5:6 newline
+6:1 word kw.requires | 須
+6:2 word cond.in_person | 親身確認
+6:6 newline
+7:1 end

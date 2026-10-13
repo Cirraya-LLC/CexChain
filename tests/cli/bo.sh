@@ -5,7 +5,8 @@
 # The Bo commands, end to end (D-053, step 6): the official language packs and
 # their digests, a company's own pack, and packs that are refused (a missing
 # keyword, one spelling with two meanings, a word an attaching rule could
-# split), with messages in each official language.
+# split), with messages in each official language; checking source, and its
+# tokens (the lexer), in each language and mixed.
 # Usage: bo.sh CEXCHAIN
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO (from lines ${BASH_LINENO[*]}): $BASH_COMMAND" >&2' ERR
@@ -13,6 +14,7 @@ trap 'echo "FAILED at line $LINENO (from lines ${BASH_LINENO[*]}): $BASH_COMMAND
 CEXCHAIN="$1"
 SOURCE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 GOLDEN="$SOURCE/tests/bo/golden/pack-digests.txt"
+GOLDENS="$SOURCE/tests/bo/golden"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 cd "$WORK"
@@ -30,7 +32,7 @@ contains() { grep "$@" > /dev/null; }
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 
 echo "== help and completion"
-for command in "bo packs list" "bo packs show" "bo packs check"; do
+for command in "bo check" "bo packs list" "bo packs show" "bo packs check"; do
     # shellcheck disable=SC2086
     run $command --help > out.txt
     contains -F "cexchain $command" out.txt || fail "help for $command"
@@ -39,7 +41,8 @@ done
 run --help > out.txt
 contains -F "bo packs list" out.txt || fail "overview lists bo"
 run completion bash > out.txt
-contains -F '"bo") words="packs"' out.txt || fail "completion: bo"
+contains -F '"bo") words="check packs"' out.txt || fail "completion: bo"
+contains -F -- "--stage" out.txt || fail "completion: --stage"
 contains -F '"bo packs") words="check list show"' out.txt || fail "completion: bo packs"
 contains -F -- "--section" out.txt || fail "completion: options"
 run version --json | json 'd["bo"]["edition"]' > out.txt
@@ -76,7 +79,7 @@ run bo packs show zh-Hans-CN --json > show.json
 json 'd["keywords"]["kw.each"], d["vocabulary"]["unit.item"]["category"], d["reading"]["multipliers"]["万"]' < show.json > out.txt
 contains -Fx "['逐个'] unit 10000" out.txt || fail "show --json"
 json 'len(d["messages"]), len(d["sentences"])' < show.json > out.txt
-contains -Fx "40 10" out.txt || fail "messages and sentences"
+contains -Fx "67 10" out.txt || fail "messages and sentences"
 expect_exit 1 bo packs show fr
 contains -F "no pack fr" out.txt || fail "unknown pack"
 expect_exit 1 bo packs show en --section nope
@@ -178,5 +181,71 @@ expect_exit 2 bo packs check fake.pack
 contains -F "pack en says it is official, but it is not one of the official packs this compiler carries" out.txt || fail "false official"
 expect_exit 1 bo packs check
 expect_exit 2 bo packs check no-such.pack
+
+echo "== bo check: the spec's VPS example, in each language"
+for language in zh-hant zh-hans en; do
+    cp "$GOLDENS/example-vps-$language/source.bo" "vps-$language.bo"
+    run bo check "vps-$language.bo" > out.txt
+    contains -Fx "vps-$language.bo: ok: 86 tokens, 2 comments, edition 1" out.txt || fail "check $language"
+    # --stage lex prints the tokens the lexer's goldens keep.
+    run bo check "vps-$language.bo" --stage lex > tokens.txt
+    sed '$d' tokens.txt > printed.txt
+    diff "$GOLDENS/example-vps-$language/tokens.txt" printed.txt > /dev/null || fail "tokens ($language)"
+done
+contains -F "2:4 name VPS服務 | VPS服務" "$GOLDENS/example-vps-zh-hant/tokens.txt" || fail "golden"
+run bo check vps-zh-hant.bo --stage lex --json > lex.json
+json 'd["ok"], d["edition"], d["stage"], len(d["tokens"]), len(d["comments"])' < lex.json > out.txt
+contains -Fx "True 1 lex 86 2" out.txt || fail "check --json"
+# 可訂購: the prefix keyword and the action, each with its place.
+json '[(t["kind"], t["concept"], t["span"]["line"], t["span"]["column"], t["source"]) for t in d["tokens"] if t.get("concept") in ("kw.can", "act.subscribe")][:2]' < lex.json > out.txt
+contains -Fx "[('word', 'kw.can', 11, 1, '可'), ('word', 'act.subscribe', 11, 2, '訂購')]" out.txt || fail "prefix in json"
+json '[(t["value"], t["unit"]) for t in d["tokens"] if t["kind"] == "money"]' < lex.json > out.txt
+contains -Fx "[('120', 'cur.HKD'), ('0.10', 'cur.HKD'), ('100', 'cur.HKD')]" out.txt || fail "money in json"
+run bo check vps-en.bo --json > out.txt
+json '"tokens" in d, d["diagnostics"]' < out.txt > keys.txt
+contains -Fx "False []" keys.txt || fail "check --json without --stage"
+
+echo "== bo check: one line, any language, the same concepts"
+printf 'can pledge to bank\n可質押 予 銀行\n可质押 给 银行\n可pledge 予 bank\n' > lines.bo
+run bo check lines.bo --stage lex --json |
+    json '"\n".join(" ".join(t.get("concept", t["kind"]) for t in d["tokens"] if t["span"]["line"] == n) for n in range(1, 5))' > out.txt
+[ "$(sort -u out.txt | wc -l | tr -d ' ')" = 1 ] || fail "the same concepts in each language"
+contains -Fx "kw.can act.pledge kw.to role.bank newline" out.txt || fail "concepts"
+
+echo "== bo check: errors, with places, in the reader's language"
+printf 'contract X\n\tparties we\nover 5,000\n100 HKD 200\n' > bad.bo
+expect_exit 2 bo check bad.bo
+contains -F "bad.bo:2:1: error: a tab is not allowed; indent and separate words with spaces (lex.tab)" out.txt || fail "tab"
+contains -F "bad.bo:3:6: error: 5,000: a comma never groups digits; write 5_000 (lex.digit-comma)" out.txt || fail "comma"
+contains -F "(lex.ambiguous-money)" out.txt || fail "money"
+contains -Fx "bad.bo: 3 errors" out.txt || fail "count"
+expect_exit 2 bo check bad.bo --language zh-Hant-HK
+contains -F "bad.bo:3:6: error: 5,000：逗號不可用作數字分組；請寫 5_000 (lex.digit-comma)" out.txt || fail "zh-Hant"
+CEXCHAIN_LANGUAGE=zh-Hans expect_exit 2 bo check bad.bo
+contains -F "不能使用制表符（Tab）" out.txt || fail "zh-Hans"
+expect_exit 2 bo check bad.bo --json
+json '[(x["code"], x["span"]["line"], x["span"]["column"]) for x in d["diagnostics"]]' < out.txt > codes.txt
+contains -Fx "[('lex.tab', 2, 1), ('lex.digit-comma', 3, 6), ('lex.ambiguous-money', 4, 1)]" codes.txt || fail "check --json errors"
+# Invisible characters are refused, and shown by code point.
+printf 'contract a\xe2\x80\x8bb\n' > invisible.bo
+expect_exit 2 bo check invisible.bo
+contains -F "invisible.bo:1:11: error: the invisible character U+200B is not allowed" out.txt || fail "invisible"
+printf 'contract \xff\n' > utf8.bo
+expect_exit 2 bo check utf8.bo
+contains -F "utf8.bo:1:10: error: the source is not valid UTF-8 here (lex.utf8)" out.txt || fail "utf8"
+expect_exit 1 bo check vps-en.bo --stage parse
+contains -F -- "--stage must be lex" out.txt || fail "stage"
+expect_exit 1 bo check
+expect_exit 2 bo check no-such.bo
+
+echo "== bo check: with a company's own pack"
+printf 'can lodge to bank\n可lodge 予 vendor\n' > own.bo
+expect_exit 0 bo check own.bo --pack company.pack --stage lex
+contains -F "1:5 word act.pledge | lodge" out.txt || fail "own word"
+contains -F "2:2 word act.pledge | lodge" out.txt || fail "prefix with own word"
+contains -F "2:10 word role.supplier | vendor" out.txt || fail "own role"
+run bo check own.bo --stage lex > out.txt
+contains -F "1:5 name lodge | lodge" out.txt || fail "without the pack, a name"
+expect_exit 2 bo check own.bo --pack missing.pack
 
 echo "bo: all checks passed"

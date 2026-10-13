@@ -1,0 +1,17 @@
+1:1 comment | # a comment line
+2:1 word kw.reject | reject
+2:8 text "too late" | "too late"
+2:21 comment | # trailing comment
+2:39 newline
+3:1 word kw.reject | 拒絕
+3:4 text "逾期未付，不可轉讓" | "逾期未付，不可轉讓"
+3:15 newline
+4:1 word kw.reject | reject
+4:8 text "# not a comment" | "# not a comment"
+4:25 newline
+5:3 comment | # an indented comment changes no block
+6:1 word kw.otherwise | 否则
+6:4 word kw.reject | 拒绝
+6:7 text "" | ""
+6:9 newline
+7:1 end

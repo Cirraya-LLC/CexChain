@@ -1,0 +1,16 @@
+1:1 word kw.can | 可
+1:2 word act.pledge | 質押
+1:5 word kw.to | 予
+1:7 word role.bank | 銀行
+1:9 newline
+2:1 word kw.can | 可
+2:2 word act.pledge | 质押
+2:5 word kw.to | 给
+2:7 word role.bank | 银行
+2:9 newline
+3:1 word kw.can | 可
+3:2 word act.pledge | pledge
+3:9 word kw.to | 予
+3:11 word role.bank | bank
+3:15 newline
+4:1 end

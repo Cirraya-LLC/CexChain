@@ -1,0 +1,25 @@
+1:1 word cond.in_person | in person
+1:10 newline
+2:1 word actor.ai_agent | AI agent
+2:9 newline
+3:1 word actor.ai_agent | AI 代理
+3:6 newline
+4:1 word actor.ai_agent | AI代理
+4:5 newline
+5:1 word act.confirm_payment | confirm payment
+5:16 newline
+6:1 word doc.credit_note | credit note
+6:12 newline
+7:1 word round.half_up | half up
+7:8 newline
+8:1 word round.half_even | half even
+8:10 newline
+9:1 word type.yes_no | yes or no
+9:10 newline
+10:1 word price.setup_fee | setup fee
+10:10 newline
+11:1 word field.customer_location | customer location
+11:18 newline
+12:1 word field.cooling_period | cooling period
+12:15 newline
+13:1 end

@@ -1,0 +1,78 @@
+1:1 word kw.can | 可
+1:2 word act.pledge | 質押
+1:5 word kw.to | 予
+1:7 word role.bank | 銀行
+1:9 newline
+2:1 word cond.over piece=head | 超過
+2:4 money cur.HKD 100 | HKD 100
+2:12 word kw.requires | 須
+2:13 word cond.in_person | 親身確認
+2:17 newline
+3:1 word price.price | 價格
+3:4 word time.monthly | 每月
+3:7 money cur.HKD 120 | HKD 120
+3:14 newline
+4:1 word price.traffic | 流量
+4:4 word time.monthly | 每月
+4:7 quantity unit.TB 2 | 2TB
+4:10 symbol , | ,
+4:12 word price.overage | 超出
+4:15 word price.per | 每
+4:16 word unit.GB | GB
+4:19 money cur.HKD 0.10 | HKD 0.10
+4:27 newline
+5:1 word kw.when | 當
+5:3 word cond.overdue | 逾期
+5:6 duration time.day 3 | 3日
+5:9 word act.suspend | 暫停
+5:11 newline
+6:1 word actor.ai_agent | AI 代理
+6:7 word kw.can | 可
+6:9 word act.propose | 提議
+6:11 newline
+7:1 word kw.can | 可
+7:2 word act.confirm_payment | 確認收款
+7:7 word kw.by | 由
+7:9 word role.customer | 客戶
+7:11 newline
+8:1 word charge.tax | 稅
+8:3 word charge.by | 按
+8:5 word field.customer_location | 客戶所在地
+8:10 newline
+9:1 word kw.if | 如
+9:2 word cond.overdue | 逾期
+9:5 word act.terminate | 終止
+9:8 word kw.and | 及
+9:10 word act.reclaim | 收回
+9:12 newline
+10:1 word kw.each | 逐一
+10:4 name part | part
+10:9 word kw.in | 於
+10:11 word field.parts | 各部分
+10:14 newline
+11:1 word charge.rate | 稅率
+11:4 rate 8.5% | 8.5%
+11:9 word charge.from piece=head | 從
+11:11 date 2027-01-01 | 2027-01-01
+11:22 word charge.from piece=tail | 起
+11:23 newline
+12:1 word kw.requires | 須
+12:3 word field.tier | 層級
+12:6 symbol < | <
+12:8 number 5 | 5
+12:10 word kw.and | 及
+12:12 word kw.not | 非
+12:14 word state.frozen | 已凍結
+12:17 newline
+13:1 word kw.otherwise | 否則
+13:4 word kw.reject | 拒絕
+13:7 text "too late" | "too late"
+13:17 newline
+14:1 word kw.parties | 訂約方
+14:5 word role.we | 本公司
+14:8 symbol , | 、
+14:9 word role.customer | 客戶
+14:11 symbol , | 、
+14:12 word role.supplier | 供應商
+14:15 newline
+15:1 end

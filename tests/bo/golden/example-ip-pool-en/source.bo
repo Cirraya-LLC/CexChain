@@ -1,0 +1,8 @@
+contract IP地址池
+parties we, customer
+
+resource IP地址
+  cooling period 30 days
+
+can allocate to customer
+can reclaim by us

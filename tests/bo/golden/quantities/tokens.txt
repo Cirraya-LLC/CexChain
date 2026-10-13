@@ -1,0 +1,13 @@
+1:1 quantity unit.TB 2 | 2TB
+1:5 quantity unit.Mbps 100 | 100 Mbps
+1:14 quantity unit.tonne 3 | 3 噸
+1:18 quantity unit.tonne 3 | 3吨
+1:21 quantity unit.item 1 | 1個
+1:24 quantity unit.item 1 | 1 個
+1:28 name IP | IP
+1:31 quantity unit.TiB 2 | 2 TiB
+1:37 quantity unit.kg 5 | 5 kg
+1:42 quantity unit.item 10 | 10 items
+1:51 quantity unit.tonne 1 | 1 tonne
+1:58 newline
+2:1 end

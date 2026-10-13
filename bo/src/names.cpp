@@ -42,6 +42,12 @@ static_assert(table_matches<Category>(category_names), "category_names is out of
 static_assert(table_matches<Severity>(severity_names), "severity_names is out of date");
 static_assert(table_matches<Separation>(separation_names), "separation_names is out of date");
 static_assert(table_matches<MeaningKind>(meaning_kind_names), "meaning_kind_names is out of date");
+static_assert(table_matches<TokenKind>(token_kind_names), "token_kind_names is out of date");
+static_assert(table_matches<Piece>(piece_names), "piece_names is out of date");
+// symbol_texts holds what each symbol looks like, not its name: one per
+// enumerator.
+static_assert(std::meta::enumerators_of(^^Symbol).size() == symbol_texts.size(),
+              "symbol_texts is out of date");
 
 template <class E>
 constexpr std::string_view enumerator_name(const E value) noexcept {
@@ -99,6 +105,14 @@ std::string_view name_of(const Separation value) noexcept {
 }
 
 std::string_view name_of(const MeaningKind value) noexcept {
+    return enumerator_name(value);
+}
+
+std::string_view name_of(const TokenKind value) noexcept {
+    return enumerator_name(value);
+}
+
+std::string_view name_of(const Piece value) noexcept {
     return enumerator_name(value);
 }
 

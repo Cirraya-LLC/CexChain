@@ -1,0 +1,17 @@
+1:2 word kw.contract | contract
+1:11 name a | a
+1:13 name b | b
+1:14 newline
+2:1 comment | # bidi U+202E here
+3:1 name x | x
+3:3 name y | y
+3:4 newline
+4:1 word kw.reject | reject
+4:8 text "zeroU+200Dwidth" | "zeroU+200Dwidth"
+4:20 newline
+5:1 end
+1:1 error lex.invisible: the invisible character U+FEFF is not allowed: the source must read as it looks
+1:12 error lex.invisible: the invisible character U+200B is not allowed: the source must read as it looks
+2:8 error lex.invisible: the invisible character U+202E is not allowed: the source must read as it looks
+3:2 error lex.invisible: the invisible character U+00A0 is not allowed: the source must read as it looks
+4:13 error lex.invisible: the invisible character U+200D is not allowed: the source must read as it looks

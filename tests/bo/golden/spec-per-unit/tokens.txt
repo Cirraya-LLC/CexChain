@@ -1,0 +1,19 @@
+1:1 word price.per | 每
+1:2 word unit.GB | GB
+1:5 money cur.HKD 0.10 | HKD 0.10
+1:13 newline
+2:1 word price.per | 每
+2:3 word unit.GB | GB
+2:6 money cur.HKD 0.10 | HKD 0.10
+2:14 newline
+3:1 word price.per | per
+3:5 word unit.GB | GB
+3:8 money cur.HKD 0.10 | HKD 0.10
+3:16 newline
+4:1 word price.per | 每
+4:2 word cur.HKD | 港元
+4:4 newline
+5:1 word price.per | 每
+5:2 word unit.item | 个
+5:3 newline
+6:1 end

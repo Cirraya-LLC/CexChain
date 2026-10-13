@@ -1,0 +1,14 @@
+contract X
+parties we
+
+asset A
+  amount HKD
+  holder we
+
+can pledge
+  if overdue
+    reject "late"
+      # a comment, deeper
+  otherwise
+    requires in person
+can transfer

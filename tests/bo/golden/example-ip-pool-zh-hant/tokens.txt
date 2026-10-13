@@ -1,0 +1,27 @@
+1:1 word kw.contract | 合約
+1:4 name IP地址池 | IP地址池
+1:9 newline
+2:1 word kw.parties | 訂約方
+2:5 word role.we | 本公司
+2:8 symbol , | ，
+2:9 word role.customer | 客戶
+2:11 newline
+4:1 word kind.resource | 資源
+4:4 name IP地址 | IP地址
+4:8 newline
+5:1 indent
+5:3 word field.cooling_period | 冷卻期
+5:7 duration time.day 30 | 30日
+5:10 newline
+7:1 dedent
+7:1 word kw.can | 可
+7:2 word act.allocate | 分配
+7:5 word kw.to | 予
+7:7 word role.customer | 客戶
+7:9 newline
+8:1 word kw.can | 可
+8:2 word act.reclaim | 收回
+8:5 word kw.by | 由
+8:7 word role.we | 本公司
+8:10 newline
+9:1 end

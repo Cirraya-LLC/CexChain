@@ -1,0 +1,20 @@
+1:1 word charge.by | 按
+1:2 word doc.invoice | 發票
+1:5 word round.half_up | 四捨五入
+1:9 newline
+2:1 word charge.by | 按
+2:2 word doc.invoice | 发票
+2:5 word round.half_up | 四舍五入
+2:9 newline
+3:1 word charge.by | 按
+3:3 word doc.invoice | 發票
+3:5 newline
+4:1 word charge.by | 按
+4:2 word field.customer_location | 客戶所在地
+4:7 newline
+5:1 word price.proration | 按日折算
+5:5 newline
+6:1 word charge.by | according to
+6:14 word doc.invoice | invoice
+6:21 newline
+7:1 end

@@ -1,0 +1,13 @@
+1:1 name VPS服務 | VPS服務
+1:7 name IP地址池 | IP地址池
+1:13 name late_fee | late_fee
+1:22 name Receivable | Receivable
+1:33 name Date | Date
+1:38 name 可提款 split=kw.can/提款 | 可提款
+1:42 name X1 | X1
+1:45 name Δέλτα | Δέλτα
+1:51 name ΑΒΓ | ΑΒΓ
+1:55 name Москва | Москва
+1:62 name 第2期 | 第2期
+1:65 newline
+2:1 end

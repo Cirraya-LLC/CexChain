@@ -1,0 +1,9 @@
+1:1 word kw.contract | contract
+1:10 name X | X
+1:11 newline
+2:1 indent
+2:3 word kw.parties | parties
+2:11 word role.we | we
+2:13 newline
+2:13 dedent
+2:13 end

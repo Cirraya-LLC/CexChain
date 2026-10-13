@@ -9,6 +9,7 @@
 
 #include <cexchain/bo/concepts.hpp>
 #include <cexchain/bo/contracts.hpp>
+#include <cexchain/bo/lexer.hpp>
 #include <cexchain/bo/pack.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/crypto.hpp>
@@ -25,6 +26,8 @@ namespace cexchain::bo {
 [[nodiscard]] std::string_view name_of(Severity value) noexcept BO_POST(r, !r.empty());
 [[nodiscard]] std::string_view name_of(Separation value) noexcept BO_POST(r, !r.empty());
 [[nodiscard]] std::string_view name_of(MeaningKind value) noexcept BO_POST(r, !r.empty());
+[[nodiscard]] std::string_view name_of(TokenKind value) noexcept BO_POST(r, !r.empty());
+[[nodiscard]] std::string_view name_of(Piece value) noexcept BO_POST(r, !r.empty());
 
 /// What `bo packs list` shows of a pack.
 struct PackFacts {

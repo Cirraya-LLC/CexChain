@@ -1,0 +1,88 @@
+1:1 edition_line 1 | bo 1
+1:5 newline
+2:1 word kw.contract | 合约
+2:4 name VPS服务 | VPS服务
+2:9 newline
+3:1 word kw.parties | 参与方
+3:5 word role.we | 本公司
+3:8 symbol , | ,
+3:10 word role.customer | 客户
+3:12 newline
+5:1 word kind.service | 服务
+5:4 name VPS | VPS
+5:7 newline
+6:1 indent
+6:3 word price.price | 价格
+6:6 word time.monthly | 每月
+6:9 money cur.HKD 120 | HKD 120
+6:16 newline
+7:3 word price.traffic | 流量
+7:6 word time.monthly | 每月
+7:9 quantity unit.TB 2 | 2TB
+7:12 symbol , | ,
+7:14 word price.overage | 超出
+7:17 word price.per | 每
+7:18 word unit.GB | GB
+7:21 money cur.HKD 0.10 | HKD 0.10
+7:29 newline
+8:3 name IP | IP
+8:6 quantity unit.item 1 | 1个
+8:8 newline
+9:3 word charge.tax | 税
+9:5 word charge.by | 按
+9:7 word field.customer_location | 客户所在地
+9:12 newline
+11:1 dedent
+11:1 word kw.can | 可
+11:2 word act.subscribe | 订购
+11:5 word kw.by | 由
+11:7 word role.customer | 客户
+11:9 newline
+12:1 word kw.can | 可
+12:2 word act.renew | 续费
+12:5 word kw.by | 由
+12:7 word role.customer | 客户
+12:9 newline
+13:1 word kw.can | 可
+13:2 word act.upgrade | 升级
+13:5 word kw.by | 由
+13:7 word role.customer | 客户
+13:19 comment | # 按剩余天数折算
+13:28 newline
+14:1 word kw.when | 当
+14:3 word cond.before_due piece=head | 到期前
+14:7 duration time.day 7 | 7天
+14:10 word act.notify | 通知
+14:13 word role.customer | 客户
+14:15 newline
+15:1 word kw.when | 当
+15:3 word cond.overdue | 逾期
+15:6 duration time.day 3 | 3天
+15:9 word act.suspend | 暂停
+15:19 comment | # 请求面板执行器暂停 VPS
+15:34 newline
+16:1 word kw.when | 当
+16:3 word cond.overdue | 逾期
+16:6 duration time.day 30 | 30天
+16:10 word act.terminate | 终止
+16:13 word kw.and | 且
+16:15 word act.reclaim | 收回
+16:18 name IP | IP
+16:20 newline
+17:1 word kw.can | 可
+17:2 word act.refund | 退款
+17:5 word kw.by | 由
+17:7 word role.we | 本公司
+17:10 newline
+18:1 indent
+18:3 word cond.over piece=head | 超过
+18:6 money cur.HKD 100 | HKD 100
+18:14 word kw.requires | 须
+18:15 word cond.in_person | 本人确认
+18:19 newline
+19:3 word actor.ai_agent | AI 代理
+19:9 word kw.can | 可
+19:11 word act.propose | 提议
+19:13 newline
+20:1 dedent
+20:1 end

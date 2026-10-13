@@ -1,0 +1,12 @@
+1:1 word act.pay form=third | pays
+1:6 word act.pay form=gerund | paying
+1:13 word act.pledge form=third | pledges
+1:21 word act.pledge form=gerund | pledging
+1:30 word kind.asset form=plural | assets
+1:37 word role.we form=object | us
+1:40 word actor.person form=plural | people
+1:47 word price.price form=plural | prices
+1:54 word doc.invoice form=plural | invoices
+1:63 word time.day form=plural | days
+1:67 newline
+2:1 end

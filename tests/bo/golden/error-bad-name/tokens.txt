@@ -1,0 +1,6 @@
+1:1 name _x | _x
+1:4 name __ | __
+1:6 newline
+2:1 end
+1:1 error lex.bad-name: _x is not a name: a name starts with a letter, followed by letters, marks, digits, or _
+1:4 error lex.bad-name: __ is not a name: a name starts with a letter, followed by letters, marks, digits, or _
