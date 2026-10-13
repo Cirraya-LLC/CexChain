@@ -110,7 +110,7 @@ const OptionSpec language_option{
     "A language pack maps Bo's concepts (kw.can, act.pledge, unit.GB) to one language's\n"         \
     "spellings and gives its reading rules, messages, and sentences; it never changes what\n"      \
     "runs. The official packs (English, Traditional Chinese in Hong Kong usage, Simplified\n"      \
-    "Chinese) are always read; a Bo deploy will record each pack's digest (the hash of its\n"      \
+    "Chinese) are always read; a Bo deploy records each pack's digest (the hash of its\n"          \
     "canonical CBOR). The bo commands exist only in builds with the Bo compiler, which\n"          \
     "needs GCC 16 (C++26 reflection and contracts)."
 
