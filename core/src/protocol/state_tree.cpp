@@ -17,7 +17,7 @@ constexpr std::uint8_t leaf_prefix = 0x00;
 constexpr std::uint8_t node_prefix = 0x01;
 
 bool bit(const Id& id, std::size_t depth) {
-    return ((id.bytes()[depth / 8] >> (7 - depth % 8)) & 1U) != 0;
+    return ((static_cast<unsigned>(id.bytes()[depth / 8]) >> (7 - depth % 8)) & 1U) != 0;
 }
 
 Result<crypto::Digest> leaf_hash(const crypto::Provider& provider, crypto::HashAlg hash,
@@ -265,7 +265,7 @@ namespace cexchain::protocol {
 namespace {
 
 bool key_bit(const IdKey& key, std::size_t depth) {
-    return ((key[depth / 8] >> (7 - depth % 8)) & 1U) != 0;
+    return ((static_cast<unsigned>(key[depth / 8]) >> (7 - depth % 8)) & 1U) != 0;
 }
 
 /// The first bit at which two keys differ, if any.
