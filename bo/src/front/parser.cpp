@@ -1673,13 +1673,15 @@ Parsed parse(std::string_view source, const Lexed& lexed) {
 
     detail::Diagnostics diagnostics;
     std::set<std::uint32_t> ambiguous;
-    const std::vector<Token> tokens =
+    std::vector<Token> tokens =
         resolve_splits(lexed.tokens, declared, diagnostics, quiet, ambiguous);
     // A line with an ambiguous name has its error: the parser adds none.
     ambiguous.insert(quiet.begin(), quiet.end());
     Parser second(source, tokens, declared, ambiguous, diagnostics);
     Parsed out;
     out.file = second.run(lexed.edition);
+    // The parser held them by reference until here.
+    out.tokens = std::move(tokens);
     std::vector<Diagnostic> list = diagnostics.take();
     // In source order; anything without a place (a truncation) last.
     std::ranges::stable_sort(list, {}, [](const Diagnostic& d) {

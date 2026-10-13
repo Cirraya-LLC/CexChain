@@ -12,7 +12,9 @@
 # registrar, with a consent from a ledger on SM3, verified offline with the
 # rebuild check; the contract text (bo explain, contract explain) in each
 # language, the same from every spelling; and deploys whose source is not
-# their code.
+# their code; and the source laid out canonically and written in each
+# language (bo fmt), which builds to the same code and explains to the same
+# text.
 # Usage: bo.sh CEXCHAIN
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO (from lines ${BASH_LINENO[*]}): $BASH_COMMAND" >&2' ERR
@@ -57,7 +59,7 @@ start_server() {
 }
 
 echo "== help and completion"
-for command in "bo check" "bo build" "bo explain" "bo packs list" "bo packs show" "bo packs check"; do
+for command in "bo check" "bo build" "bo explain" "bo fmt" "bo packs list" "bo packs show" "bo packs check"; do
     # shellcheck disable=SC2086
     run $command --help > out.txt
     contains -F "cexchain $command" out.txt || fail "help for $command"
@@ -66,7 +68,8 @@ done
 run --help > out.txt
 contains -F "bo packs list" out.txt || fail "overview lists bo"
 run completion bash > out.txt
-contains -F '"bo") words="build check explain packs"' out.txt || fail "completion: bo"
+contains -F '"bo") words="build check explain fmt packs"' out.txt || fail "completion: bo"
+contains -F -- "--write" out.txt || fail "completion: bo fmt"
 contains -F 'deploy evidence explain fetch' out.txt || fail "completion: contract explain"
 contains -F -- "--bundle-out" out.txt || fail "completion: bo build"
 contains -F -- "--require-rebuild" out.txt || fail "completion: contract verify"
@@ -110,7 +113,7 @@ run bo packs show zh-Hans-CN --json > show.json
 json 'd["keywords"]["kw.each"], d["vocabulary"]["unit.item"]["category"], d["reading"]["multipliers"]["万"]' < show.json > out.txt
 contains -Fx "['逐个'] unit 10000" out.txt || fail "show --json"
 json 'len(d["messages"]), len(d["sentences"])' < show.json > out.txt
-contains -Fx "167 152" out.txt || fail "messages and sentences"
+contains -Fx "169 152" out.txt || fail "messages and sentences"
 expect_exit 1 bo packs show fr
 contains -F "no pack fr" out.txt || fail "unknown pack"
 expect_exit 1 bo packs show en --section nope
@@ -478,6 +481,102 @@ contains -Fx "False False check.field-type" codes.txt || fail "explain --json wi
 expect_exit 1 bo explain agreement.bo --language fr
 expect_exit 1 bo explain
 expect_exit 2 bo explain no-such.bo
+
+echo "== bo fmt: the source laid out canonically, and in one language"
+# The demo's agreement, written in English, is formatted; into each language
+# it gives the same tree, the same code, and the same text, and formatting it
+# again changes nothing.
+cp "$SOURCE/deploy/demo/supply-agreement.bo" supply.bo
+run bo fmt supply.bo > out.txt
+cmp -s out.txt supply.bo || fail "the demo is formatted"
+run bo fmt supply.bo --check > out.txt
+contains -Fx "supply.bo: formatted" out.txt || fail "--check: formatted"
+SUPPLY_HASH="$(run bo build supply.bo --json 2> /dev/null | json 'd["code_hash"]')"
+run bo explain supply.bo > supply-text.txt
+run bo check supply.bo --stage parse | sed '$d' > supply-tree.txt
+for language in zh-Hant-HK zh-Hans-CN en; do
+    run bo fmt supply.bo --language "$language" > "supply-$language.bo"
+    run bo build "supply-$language.bo" --json 2> /dev/null | json 'd["code_hash"]' > out.txt
+    contains -Fx "$SUPPLY_HASH" out.txt || fail "fmt --language $language: the same code"
+    run bo explain "supply-$language.bo" > text.txt
+    diff supply-text.txt text.txt > /dev/null || fail "fmt --language $language: the same text"
+    run bo check "supply-$language.bo" --stage parse | sed '$d' > tree.txt
+    diff supply-tree.txt tree.txt > /dev/null || fail "fmt --language $language: the same tree"
+    run bo fmt "supply-$language.bo" --language "$language" --check > out.txt
+    contains -Fx "supply-$language.bo: formatted in $language" out.txt || fail "fmt --language $language again"
+done
+contains -Fx "訂約方 本公司, 供應商, 銀行" supply-zh-Hant-HK.bo || fail "zh-Hant: parties"
+contains -Fx "可 sign 由 本公司" supply-zh-Hant-HK.bo || fail "zh-Hant: names stay"
+contains -Fx "  須經 供應商 同意" supply-zh-Hant-HK.bo || fail "zh-Hant: words joined as Chinese writes them"
+contains -Fx "  须经 银行 同意" supply-zh-Hans-CN.bo || fail "zh-Hans"
+contains -Fx "# A supply agreement between a core enterprise (we), its supplier, and its" supply-zh-Hans-CN.bo || fail "comments stay"
+cmp -s supply-en.bo supply.bo || fail "into its own language: unchanged"
+run bo fmt supply-zh-Hant-HK.bo --language en > out.txt
+cmp -s out.txt supply.bo || fail "from Traditional Chinese back to English"
+# The compiled agreement, from each spelling into each language: one code.
+for spelling in en zh-hant zh-hans mixed; do
+    cp "$BUILDS/agreement-$spelling/source.bo" "agreement-$spelling.bo"
+    for language in en zh-Hant-HK zh-Hans-CN; do
+        run bo fmt "agreement-$spelling.bo" --language "$language" > formatted.bo
+        run bo build formatted.bo --json 2> /dev/null | json 'd["code_hash"]' > out.txt
+        contains -Fx "$GOLDEN_HASH" out.txt || fail "the agreement from $spelling in $language: the same code"
+    done
+done
+# The formatter's goldens.
+for case in layout pieces dates-numbers; do
+    run bo fmt "$GOLDENS/format/$case/source.bo" > out.txt
+    cmp -s out.txt "$GOLDENS/format/$case/keep.bo" || fail "fmt $case"
+    for language in en zh-Hant-HK zh-Hans-CN; do
+        file="$(tr 'A-Z' 'a-z' <<< "$language" | sed 's/-hk$//; s/-cn$//')"
+        run bo fmt "$GOLDENS/format/$case/source.bo" --language "$language" > out.txt
+        cmp -s out.txt "$GOLDENS/format/$case/$file.bo" || fail "fmt $case --language $language"
+    done
+done
+# --check, --json, --write.
+printf 'contract  A\nparties   we ,customer\n' > loose.bo
+expect_exit 3 bo fmt loose.bo --check
+contains -Fx "loose.bo: would change when formatted" out.txt || fail "--check: not formatted"
+expect_exit 3 bo fmt supply.bo --check --language zh-Hans
+contains -Fx "supply.bo: would change when formatted in zh-Hans-CN" out.txt || fail "--check --language"
+run bo fmt loose.bo --json > fmt.json
+json 'd["ok"], d["changed"], d["written"], d["language"], repr(d["source"]), d["diagnostics"]' < fmt.json > out.txt
+contains -Fx "True True False None 'contract A\nparties we, customer\n' []" out.txt || fail "fmt --json"
+run bo fmt loose.bo --write > out.txt
+contains -Fx "loose.bo: formatted" out.txt || fail "--write"
+[ "$(cat loose.bo)" = "$(printf 'contract A\nparties we, customer')" ] || fail "--write wrote the file"
+run bo fmt loose.bo --write > out.txt
+contains -Fx "loose.bo: already formatted" out.txt || fail "--write again"
+run bo fmt loose.bo --write --language zh-Hant-HK --json | json 'd["written"], d["language"]' > out.txt
+contains -Fx "True zh-Hant-HK" out.txt || fail "--write --language --json"
+contains -Fx "訂約方 本公司, 客戶" loose.bo || fail "written in Traditional Chinese"
+# Source with errors is not formatted, nor written; problems in the reader's
+# language.
+printf 'contract A\n\tparties we\n' > tab.bo
+cp tab.bo tab-before.bo
+expect_exit 2 bo fmt tab.bo --write
+contains -F "tab.bo:2:1: error: " out.txt || fail "fmt: the problem"
+contains -Fx "tab.bo: not formatted" out.txt || fail "fmt: not formatted"
+cmp -s tab.bo tab-before.bo || fail "a file with errors is not written"
+CEXCHAIN_LANGUAGE=zh-Hant expect_exit 2 bo fmt tab.bo
+contains -F "(lex.tab)" out.txt || fail "fmt: the code"
+contains -F "縮排" out.txt || fail "fmt: the problem in Traditional Chinese"
+expect_exit 2 bo fmt tab.bo --json
+json 'd["ok"], d["changed"], "source" in d, d["diagnostics"][0]["code"]' < out.txt > codes.txt
+contains -Fx "False False False lex.tab" codes.txt || fail "fmt --json with errors"
+# A company's pack in which two words side by side read as a third: the
+# formatter refuses rather than change what the line says.
+sed -e 's/"acme-terms"/"collide"/' -e 's/"en-x-acme"/"en-x-collide"/' \
+    -e 's|"role.supplier": "vendor",|"role.supplier": "vendor", "act.release": "lodge to",|' company.pack > collide.pack
+printf '合約 C\n訂約方 本公司, 銀行\n\n可質押 予 銀行\n' > pledge.bo
+expect_exit 2 bo fmt pledge.bo --pack collide.pack --language collide
+contains -F "pledge.bo:4:1: error: written in collide, the source would read differently here" out.txt || fail "fmt.unstable"
+contains -F "(fmt.unstable)" out.txt || fail "fmt.unstable: the code"
+run bo fmt pledge.bo --pack company.pack --language en-x-acme > out.txt
+contains -Fx "can lodge to bank" out.txt || fail "a company's pack: its words"
+expect_exit 1 bo fmt loose.bo --check --write
+expect_exit 1 bo fmt loose.bo --language fr
+expect_exit 1 bo fmt
+expect_exit 2 bo fmt no-such.bo
 
 echo "== contract deploy --bo: two organizations, the customer's ledger on SM3"
 D="$WORK/core"; S="$WORK/customer"

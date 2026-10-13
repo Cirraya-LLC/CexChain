@@ -1,0 +1,19 @@
+# Words whose argument sits on different sides in different languages.
+contract Pieces
+parties issuer, supplier, bank
+
+asset Receivable
+  amount HKD
+  due date
+  holder supplier
+
+can split with parts
+  requires sum of parts = amount
+  requires sum of parts before due > HKD 0
+  requires (sum of parts) before due > HKD 0
+  requires count of parts < 5
+  requires consent of bank before due
+  requires consent of (bank)
+  requires at most 3 = count of parts
+when within 30 days before due notify bank
+when 7 days before due notify issuer

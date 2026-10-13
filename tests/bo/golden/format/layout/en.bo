@@ -1,0 +1,24 @@
+# A file laid out loosely: indentation, spacing, blank lines, and comments.
+bo 1
+
+contract Layout  # after code
+parties we, customer, bank
+
+# indented more than the line after it
+asset 賬戶
+  amount HKD
+  due date
+  # deeper than any block: it stays in the asset's
+  holder customer
+# at the start of a line, between blocks
+
+can pledge to bank
+  over 5_000_000 requires in person
+  requires consent of bank
+can transfer by customer
+  if amount > HKD 1_000
+    reject "too  much"
+  otherwise
+    amount = amount × 2
+when overdue 3 days suspend
+# closing the when block

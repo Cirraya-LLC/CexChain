@@ -372,6 +372,8 @@
     "run.requires": "requirement {number} of {action} is not met",
     "run.in-person": "{action} needs a person who proves presence (a passkey or a hardware key)",
     "run.party": "{party} is not bound to a ledger yet",
+    "fmt.unstable": "written in {language}, the source would read differently here: a name the contract gives, or a word, would read together with the words around it as another word of {language}; nothing was formatted: rename the name or reword the line, or format into another language",
+    "fmt.internal": "laid out canonically, the source would read differently here, so nothing was formatted; this is a bug in the formatter: please report it",
     "bo.truncated": "more problems were found; only the first {limit} are shown"
   },
 

@@ -22,6 +22,7 @@
 #include <cexchain/bo/checker.hpp>
 #include <cexchain/bo/concepts.hpp>
 #include <cexchain/bo/explain.hpp>
+#include <cexchain/bo/format.hpp>
 #include <cexchain/bo/lexer.hpp>
 #include <cexchain/bo/messages.hpp>
 #include <cexchain/bo/names.hpp>
@@ -600,6 +601,64 @@ int cmd_bo_explain(const Args& args) {
     }
     std::print("{}", explained->text);
     return exit_ok;
+}
+
+int cmd_bo_fmt(const Args& args) {
+    const std::string file = args.positional().front();
+    const bool check = args.has("check");
+    const bool write = args.has("write");
+    if (check && write) {
+        throw UsageError{"--check and --write exclude each other"};
+    }
+    const bo::PackSet set = pack_set(args);
+    const bo::Pack* messages = message_language(args, given_packs(set));
+    // --language names the language to write; without it, every word keeps
+    // its spelling ($CEXCHAIN_LANGUAGE sets only the messages').
+    const bo::Pack* target = nullptr;
+    if (const std::optional<std::string> want = args.get("language")) {
+        target = bo::find_language(set.packs(), *want);
+        if (target == nullptr) {
+            throw UsageError{"no pack for the language " + *want +
+                             " (en, zh-Hant-HK, zh-Hans-CN, or a pack given with --pack)"};
+        }
+    }
+    const std::string source = read_text_file(file);
+    const bo::Lexicon lexicon(set);
+    const bo::Formatted formatted = bo::format_source(source, set, lexicon, target);
+    const bool ok = formatted.source.has_value();
+    const bool changed = ok && *formatted.source != source;
+    const bool written = ok && write && changed;
+    if (written) {
+        write_file(file, as_bytes(*formatted.source), false);
+    }
+    const int status = !ok ? exit_failure : (check && changed ? exit_not_verified : exit_ok);
+    if (args.json()) {
+        Json out = {{"file", file},
+                    {"ok", ok},
+                    {"language", target != nullptr ? Json(target->id) : Json(nullptr)},
+                    {"changed", changed},
+                    {"written", written},
+                    {"diagnostics", diagnostics_json(formatted.diagnostics, messages)}};
+        if (ok) {
+            out["source"] = *formatted.source;
+        }
+        print_json(out);
+        return status;
+    }
+    if (!ok) {
+        print_source_diagnostics(stderr, file, formatted.diagnostics, messages);
+        std::println(stderr, "{}: not formatted", file);
+        return status;
+    }
+    const std::string in = target != nullptr ? " in " + target->id : std::string();
+    if (check) {
+        std::println("{}: {}{}", file, changed ? "would change when formatted" : "formatted", in);
+    } else if (write) {
+        std::println("{}: {}{}", file, changed ? "formatted" : "already formatted", in);
+    } else {
+        std::print("{}", *formatted.source);
+    }
+    return status;
 }
 
 int cmd_bo_packs_list(const Args& args) {

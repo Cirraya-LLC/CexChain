@@ -8,6 +8,7 @@
 // such, never as a forgery; a deploy without a usable bundle is malformed.
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -21,6 +22,8 @@
 
 #include <cexchain/bo/build.hpp>
 #include <cexchain/bo/concepts.hpp>
+#include <cexchain/bo/format.hpp>
+#include <cexchain/bo/lexer.hpp>
 #include <cexchain/bo/pack.hpp>
 #include <cexchain/bo/source.hpp>
 #include <cexchain/bo/wasm.hpp>
@@ -133,6 +136,47 @@ TEST_CASE("compile builds the agreement, the same code from every language", "[b
         CHECK(other.build->interface == en.build->interface);
         CHECK(other.name == en.name);
     }
+}
+
+TEST_CASE("a source formatted into any language builds to the same code", "[bo][build]") {
+    // Every source that builds: the agreement in four spellings, the demo,
+    // and any golden of the other passes that is a whole contract.
+    const std::filesystem::path golden_dir = build_dir.parent_path();
+    std::vector<std::filesystem::path> paths{golden_dir.parent_path().parent_path().parent_path() /
+                                             "deploy/demo/supply-agreement.bo"};
+    for (const std::filesystem::path& dir : {golden_dir, build_dir, golden_dir / "format"}) {
+        for (const auto& entry : std::filesystem::directory_iterator(dir)) {
+            if (std::filesystem::exists(entry.path() / "source.bo")) {
+                paths.push_back(entry.path() / "source.bo");
+            }
+        }
+    }
+    std::ranges::sort(paths);
+    const Lexicon lexicon(official_set());
+    const Pack* languages[] = {nullptr, official_set().find("en"),
+                               official_set().find("zh-Hant-HK"),
+                               official_set().find("zh-Hans-CN")};
+    std::size_t built = 0;
+    for (const std::filesystem::path& path : paths) {
+        const std::string source = read_text(path);
+        const Compiled original = compile(source, official_set());
+        if (!original.build) {
+            continue;
+        }
+        ++built;
+        for (const Pack* language : languages) {
+            INFO(path.string() + " in " + (language != nullptr ? language->id : "its own words"));
+            const Formatted formatted = format_source(source, official_set(), lexicon, language);
+            REQUIRE(formatted.source.has_value());
+            const Compiled again = compile(*formatted.source, official_set());
+            REQUIRE(again.build.has_value());
+            CHECK(again.build->code == original.build->code);
+            CHECK(again.build->interface == original.build->interface);
+            CHECK(again.name == original.name);
+            CHECK(again.comments == original.comments);
+        }
+    }
+    CHECK(built >= 5);
 }
 
 TEST_CASE("compile stops at the first stage with errors", "[bo][build]") {

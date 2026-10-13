@@ -1,0 +1,15 @@
+# Numbers, money, quantities, dates, and charges, as Chinese writes them.
+charge 增值稅
+  rate 6%
+  applies to customer location = "中國內地"
+  added
+  according to invoice half up
+  from 2027-01-01 on rate 9%
+  from 2028-01-01 on rate 10%
+service VPS
+  price monthly 5_000_000 HKD
+  traffic monthly 2 TB, overage per GB HKD 0.10
+  setup fee HKD 15_000
+  IP 1 item
+  cooling period within 30 days
+  due 2027-01-06

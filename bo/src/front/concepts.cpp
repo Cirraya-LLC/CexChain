@@ -396,6 +396,9 @@ constexpr MessageSpec unsorted_messages[] = {
     {"run.requires", Severity::error, "action number"},
     {"run.in-person", Severity::error, "action"},
     {"run.party", Severity::error, "party"},
+    // The formatter (bo fmt).
+    {"fmt.unstable", Severity::error, "language"},
+    {"fmt.internal", Severity::error, ""},
     // Any reading.
     {"bo.truncated", Severity::warning, "limit"},
 };

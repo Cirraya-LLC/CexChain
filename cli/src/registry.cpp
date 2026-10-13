@@ -1739,6 +1739,47 @@ std::vector<CommandSpec> build() {
          "  cexchain bo explain agreement.bo\n"
          "  cexchain bo explain agreement.bo --language zh-Hant-HK\n"
          "  cexchain bo explain agreement.bo --language zh-Hans --json\n\n" CEXCHAIN_BO_PACKS_HELP},
+        {{"bo", "fmt"},
+         "Lay out a Bo source canonically, or write it in one language",
+         "Bo language",
+         "FILE",
+         1,
+         1,
+         with({pack_option,
+               {"language", "LANG",
+                "Write every keyword and word in en, zh-Hant-HK, zh-Hans-CN, or a given pack's "
+                "language (messages too); without it, words keep their spelling"},
+               {"check", "", "Change nothing; exit status 3 if formatting would change FILE"},
+               {"write", "", "Write the result back to FILE"}}),
+         cmd_bo_fmt,
+         "Prints FILE in canonical layout: two spaces per block, one space between words\n"
+         "(none before , and ) or after (), comments kept where they are (a comment after code\n"
+         "two spaces after it), runs of blank lines as one, digits in ASCII, full-width\n"
+         "punctuation (，、) kept without spaces around it, and\n"
+         "Chinese written as Chinese is: a prefix keyword joined to the word after it (可質押,\n"
+         "須親身確認), an attaching word to its neighbour (按發票, 30日內), a number to its\n"
+         "multiplier and its Chinese unit or currency (500萬港元, 30日); Latin words and numbers\n"
+         "stand apart from Chinese by a space (每 GB).\n\n"
+         "With --language, every keyword and word not already spelled in that language is\n"
+         "written in its first spelling there (a unit after a number other than 1 in its\n"
+         "plural form: 30 days), and a word with an argument is arranged as that language\n"
+         "spells it (consent of bank, 經 銀行 同意). Names the contract gives, texts in quotes,\n"
+         "and comments stay as written; a multiplier the language lacks is written out (500萬\n"
+         "is 5_000_000 in English). A contract written in Chinese can so be handed to an\n"
+         "English-speaking counterparty as English source: it parses to the same tree, checks to\n"
+         "the same model, builds to the same code, and explains to the same text. Formatting\n"
+         "again changes nothing. The text is not reversible: forms and other spellings become\n"
+         "the first spelling (pays, then 支付, then pay), and multipliers stay written out.\n\n"
+         "The result is read again before it is printed or written: it must give the same tree\n"
+         "and comments. If a name the contract gives would read together with the new\n"
+         "language's words, nothing is formatted (fmt.unstable says where). Source with errors\n"
+         "is not formatted (exit status 2, problems on stderr). --check changes nothing and exits\n"
+         "3 if FILE is not formatted (in that language, with --language); --write writes it\n"
+         "back. With --json: ok, changed, written, the source, and any problems.\n\n"
+         "  cexchain bo fmt agreement.bo\n"
+         "  cexchain bo fmt agreement.bo --language zh-Hant-HK\n"
+         "  cexchain bo fmt agreement.bo --language en --write\n"
+         "  cexchain bo fmt agreement.bo --check --json\n\n" CEXCHAIN_BO_PACKS_HELP},
         {{"bo", "packs", "list"},
          "List the language packs Bo source is read with, and their digests",
          "Bo language",

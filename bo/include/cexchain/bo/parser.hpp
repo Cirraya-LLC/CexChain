@@ -80,6 +80,10 @@ struct Parsed {
     /// The parser's problems only (the lexer's are in Lexed), in source
     /// order.
     std::vector<Diagnostic> diagnostics;
+    /// The tokens the tree was read from: the lexer's, with the prefix
+    /// splits the declarations decide applied (可提款 as 可 + 提款 when the
+    /// contract declares 提款). The formatter writes these.
+    std::vector<Token> tokens;
 };
 
 /// Parses a lexed source. `source` is the text the tokens were read from:

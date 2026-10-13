@@ -387,6 +387,7 @@ private:
     [[nodiscard]] Span span(std::size_t from, std::size_t to) const noexcept;
     [[nodiscard]] std::size_t after_bytes(std::size_t from, std::size_t bytes) const noexcept;
     [[nodiscard]] Span place_of_byte(std::size_t offset) const noexcept;
+    [[nodiscard]] std::string spelled(const Span& s) const;
     [[nodiscard]] std::string character(std::size_t i) const {
         return detail::describe_char(cps_[i].c);
     }
@@ -471,6 +472,26 @@ std::size_t Lexer::after_bytes(std::size_t from, std::size_t bytes) const noexce
         ++j;
     }
     return j;
+}
+
+/// What a span of the current line says, separators (spaces and what packs
+/// read as one) as single spaces: `30 days`, `AI 代理`.
+std::string Lexer::spelled(const Span& s) const {
+    std::string out;
+    bool gap = false;
+    auto it = std::ranges::lower_bound(cps_, s.offset, {}, &Cp::offset);
+    for (; it != cps_.end() && it->offset < std::uint64_t{s.offset} + s.length; ++it) {
+        if (mapped(static_cast<std::size_t>(it - cps_.begin())) == ' ') {
+            gap = true;
+            continue;
+        }
+        if (gap && !out.empty()) {
+            out += ' ';
+        }
+        gap = false;
+        out += detail::utf8(it->c);
+    }
+    return out;
 }
 
 Span Lexer::place_of_byte(std::size_t offset) const noexcept {
@@ -1007,6 +1028,9 @@ std::size_t Lexer::number(std::size_t i, std::vector<Raw>& raws) {
     token.kind = TokenKind::number;
     token.number = value;
     token.span = span(i, k);
+    for (std::size_t j = i; j < k; ++j) {
+        token.written.digits.push_back(mapped(j));
+    }
     if (mapped(k) == '%') {
         token.kind = TokenKind::rate;
         token.span = span(i, k + 1);
@@ -1049,6 +1073,10 @@ std::size_t Lexer::number(std::size_t i, std::vector<Raw>& raws) {
                               {"second", reading(found[1])}});
         }
         segment = found.front();
+        token.written.multiplier = std::string(suffix.substr(0, segment.multiplier_bytes));
+        if (segment.measure != nullptr) {
+            token.written.measure = segment.measure->words.front();
+        }
     }
     if (large || (segment.multiplier != 0 && !multiply(token.number, segment.multiplier))) {
         diagnostics_.add(span(i, end), "lex.number-too-large",
@@ -1327,6 +1355,7 @@ void Lexer::merge(std::vector<Item>& items) {
             diagnostics_.add(joined, "lex.number-too-large", {{"text", source_of(joined)}});
         }
         number.token.span = joined;
+        number.token.written.multiplier = item.token.text;
         number.multiplied = true;
     }
     items = std::move(out);
@@ -1341,6 +1370,7 @@ void Lexer::merge(std::vector<Item>& items) {
             number.kind = measure_kind(t.concept_entry);
             number.concept_entry = t.concept_entry;
             number.span = join(number.span, t.span);
+            number.written.measure = spelled(t.span);
             continue;
         }
         out.push_back(std::move(item));
@@ -1379,6 +1409,8 @@ void Lexer::merge(std::vector<Item>& items) {
             money.token.kind = TokenKind::money;
             money.token.concept_entry = items[c].token.concept_entry;
             money.token.span = join(items[j].token.span, items[j + 1].token.span);
+            money.token.written.measure = spelled(items[c].token.span);
+            money.token.written.measure_first = c == j;
             out.push_back(std::move(money));
             ++j;
             continue;

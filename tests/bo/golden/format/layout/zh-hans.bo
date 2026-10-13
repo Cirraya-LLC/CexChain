@@ -1,0 +1,24 @@
+# A file laid out loosely: indentation, spacing, blank lines, and comments.
+bo 1
+
+合约 Layout  # after code
+参与方 本公司, 客户，银行
+
+# indented more than the line after it
+资产 賬戶
+  金额 港元
+  到期日 日期
+  # deeper than any block: it stays in the asset's
+  持有人 客户
+# at the start of a line, between blocks
+
+可质押 给 银行
+  超过 500万 须本人确认
+  须经 银行 同意
+可转让 由 客户
+  如果金额 > 港元 1_000
+    拒绝 "too  much"
+  否则
+    金额 = 金额 × 2
+当逾期 3天 暂停
+# closing the when block

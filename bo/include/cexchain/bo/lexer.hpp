@@ -149,6 +149,21 @@ struct NameSplit {
     friend bool operator==(const NameSplit&, const NameSplit&) = default;
 };
 
+/// How a number was written, for the formatter: `500萬港元`, `HKD 0.10`,
+/// `30 days`. The value is in Token::number either way.
+struct Written {
+    /// The digits, `_`, and the decimal point as written (full-width digits
+    /// as ASCII), before any multiplier.
+    std::string digits;
+    /// The multiplier as written (萬), or empty.
+    std::string multiplier;
+    /// The unit, time unit, or currency as written (a form included: `days`),
+    /// its words separated by single spaces; empty for a plain number.
+    std::string measure;
+    /// The currency before the number (HKD 0.10).
+    bool measure_first = false;
+};
+
 struct Token {
     TokenKind kind = TokenKind::end;
     Span span;
@@ -166,6 +181,8 @@ struct Token {
     Symbol symbol = Symbol::comma;
     /// name: the prefix splits it allows, if a declaration says so.
     std::vector<NameSplit> splits;
+    /// number, money, quantity, duration, rate: how it was written.
+    Written written;
 };
 
 struct Comment {

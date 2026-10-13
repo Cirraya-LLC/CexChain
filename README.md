@@ -43,7 +43,7 @@ CexChain is a ledger protocol and node for trust between organizations. Every do
 | `crypto/pkcs11` | Keys on PKCS #11 tokens: USB keys (UKey), smart cards, and HSMs, loaded at run time |
 | `ledger` | Ledger node: crash-safe storage, rule engine, checkpoints, receipts, evidence export, backups (C++26) |
 | `node` | HTTP API server and client (Asio), API tokens, and replicas (C++26) |
-| `bo` | The Bo contract language's compiler (in progress): language packs, the lexer, the parser, the checker, the WebAssembly emitter with its runtime, lowering a first subset of Bo, and the source bundle a deploy records, rebuilt by verifiers. C++26 with static reflection and contracts, built with GCC 16; its front end (everything that reads source) also builds with Clang, for fuzzing |
+| `bo` | The Bo contract language's compiler (in progress): language packs, the lexer, the parser, the checker, the WebAssembly emitter with its runtime, lowering a first subset of Bo, the contract text, the formatter (one contract in any language), and the source bundle a deploy records, rebuilt by verifiers. C++26 with static reflection and contracts, built with GCC 16; its front end (everything that reads source) also builds with Clang, for fuzzing |
 | `cli` | `cexchain` command-line tool: full control of keys, ledgers, actors, delegations, records, assets, contracts, proofs, and evidence |
 | `cexchain mcp` | MCP server through which an AI agent acts under its own key and delegation |
 
@@ -110,7 +110,7 @@ The `cexchain` tool controls every part of a ledger:
 | Other organizations | `peer add`, `peer list`, `peer show`, `peer remove`, `access request`, `access send`, `access inbox`, `access grant`, `access fetch`, `access accept`, `access receipt`, `access list` |
 | Ownership assets | `asset issue`, `asset show`, `asset list`, `asset record`, `asset evidence`, `asset consent`, `asset withdraw`, `asset send`, `asset fetch`, `asset verify` |
 | Contracts | `contract deploy`, `contract show`, `contract list`, `contract retire`, `contract create`, `contract call`, `contract instance`, `contract instances`, `contract evidence`, `contract propose`, `contract pending`, `contract consent`, `contract withdraw`, `contract send`, `contract fetch`, `contract verify`, `contract explain` |
-| Bo language | `bo check`, `bo build`, `bo explain`, `bo packs list`, `bo packs show`, `bo packs check` (in builds with the Bo compiler); `contract deploy --bo` |
+| Bo language | `bo check`, `bo build`, `bo explain`, `bo fmt`, `bo packs list`, `bo packs show`, `bo packs check` (in builds with the Bo compiler); `contract deploy --bo` |
 
 - Every command takes `--help`, and `--json` for scripting.
 - `cexchain help --json` describes every command and option in machine-readable form.
@@ -606,6 +606,34 @@ rebuilds to the deployed code, so the text is the text of the code that runs; ot
 why. For an instance, it shows its state and fields in the same words first (`amount: HKD
 250,000.00`, `starts: 1 January 2030`). Messages follow `--language` or `CEXCHAIN_LANGUAGE`
 everywhere the compiler reports, refusals of compiled contracts included.
+
+### One contract, any language
+
+`bo fmt` lays a source out canonically (two spaces per block, one space between words, comments
+where they were) and, with `--language`, writes every keyword and word in one language. Names the
+contract gives, texts in quotes, and comments stay as written. A contract written in Chinese can
+so go to an English-speaking counterparty as English source: it parses to the same tree, checks
+to the same model, builds to the same code, and explains to the same text.
+
+```sh
+cexchain bo fmt agreement.bo --check                     # is it formatted? (exit 3 if not)
+cexchain bo fmt agreement.bo --language en               # the English source, on stdout
+cexchain bo fmt agreement.bo --language zh-Hant-HK --write
+```
+
+```
+requires consent of supplier          須經 供應商 同意          须经 供应商 同意
+when 7 days before due notify bank    當到期前 7日 通知 銀行    当到期前 7天 通知 银行
+```
+
+Chinese is written as Chinese is: a keyword joined to the word after it (`可質押`, `須經`), a
+number to its Chinese unit (`30日`, `500萬港元`); Latin words stand apart (`每 GB`). A word whose
+argument sits on the other side in another language (`7 days before due`, `到期前 7日`) moves
+around it, with parentheses where it would otherwise take a different argument. The text is not
+reversible, though the contract is: a multiplier English lacks is written out (`500萬` is
+`5_000_000`), and words become each language's first spelling (`pays`, then `支付`, then `pay`).
+Before printing anything, `bo fmt` reads its result again; if words would read together in the
+new language as another word, it says where and changes nothing.
 
 ## AI agents (MCP)
 
