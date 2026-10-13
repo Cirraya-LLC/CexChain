@@ -31,7 +31,7 @@ constexpr std::size_t all_routines = bo::detail::enumerator_count<Routine>();
 constexpr std::size_t reason_count = bo::detail::enumerator_count<Reason>();
 
 constexpr std::array<std::string_view, reason_count> reason_texts{
-    "bo:input", "bo:overflow", "bo:division-by-zero", "bo:date", "bo:output"};
+    "bo:input", "bo:overflow", "bo:division-by-zero", "bo:date", "bo:output", "bo:consents"};
 
 /// Each reason's text is "bo:" and its enumerator's name, with dashes.
 consteval bool reason_texts_match() {
@@ -110,6 +110,16 @@ const std::array<Spec, all_routines>& specs() {
         {date_from_parts, {{I64, I64, I64, I64}, {I64}}, define_date_from_parts},
         {bytes_cmp, {{I32, I32, I32, I32}, {I32}}, define_bytes_cmp},
         {bytes_eq, {{I32, I32, I32, I32}, {I32}}, define_bytes_eq},
+        {fail_consents, {}, define_fail<Reason::consents>},
+        {read_call, {{}, {I32}}, define_read_call},
+        {consent, {{I32}, {I32}}, define_consent},
+        {in_person, {{I32}, {I32}}, define_in_person},
+        {out_needs, {}, define_out_needs},
+        {expect_int, {{I32, I32, I32}, {I64}}, define_expect_int},
+        {expect_text, {{I32, I32, I32}, {I32, I32}}, define_expect_text},
+        {expect_ledger, {{I32, I32, I32}, {I32}}, define_expect_ledger},
+        {expect_bool, {{I32, I32, I32}, {I32}}, define_expect_bool},
+        {fail_numbered, {{I32, I32, I64}, {}}, define_fail_numbered},
     }};
     return table;
 }
@@ -121,8 +131,8 @@ const Spec& spec(const Routine routine) {
 }
 
 constexpr std::array<Routine, reason_count> fail_routines{
-    Routine::fail_input, Routine::fail_overflow, Routine::fail_division_by_zero, Routine::fail_date,
-    Routine::fail_output};
+    Routine::fail_input, Routine::fail_overflow, Routine::fail_division_by_zero,
+    Routine::fail_date,  Routine::fail_output,   Routine::fail_consents};
 
 consteval bool fail_routines_match() {
     for (std::size_t i = 0; i < reason_count; ++i) {
@@ -135,7 +145,7 @@ consteval bool fail_routines_match() {
     return true;
 }
 static_assert(fail_routines_match(), "fail_routines is out of date");
-static_assert(bo::detail::enumerator_count<Var>() == 3, "Runtime::vars_ is out of date");
+static_assert(bo::detail::enumerator_count<Var>() == 4, "Runtime::vars_ is out of date");
 
 } // namespace
 
@@ -175,6 +185,28 @@ wasm::Func Runtime::get(const Routine routine) {
 
 wasm::Func Runtime::fail(const Reason reason) {
     return get(fail_routines[static_cast<std::size_t>(reason)]);
+}
+
+std::uint32_t Runtime::call_table() {
+    if (!call_table_) {
+        call_table_ = module_->reserve(4 * 9, 4);
+    }
+    return *call_table_;
+}
+
+std::uint32_t Runtime::needs_area() {
+    if (!needs_area_) {
+        needs_area_ = module_->reserve(4 * max_needs, 4);
+    }
+    return *needs_area_;
+}
+
+std::uint32_t Runtime::number_buffer() {
+    if (!number_buffer_) {
+        // The text, then up to 20 digits.
+        number_buffer_ = module_->reserve(max_numbered_text + 20, 1);
+    }
+    return *number_buffer_;
 }
 
 wasm::Global Runtime::var(const Var var) {

@@ -720,6 +720,10 @@ ValType ModuleWriter::global_type(const Global global) const {
     return globals_[global.index].type;
 }
 
+bool ModuleWriter::interned(const ByteView bytes) const {
+    return interned_.contains(Bytes(bytes.begin(), bytes.end()));
+}
+
 std::uint32_t ModuleWriter::intern(const ByteView bytes) {
     Bytes key(bytes.begin(), bytes.end());
     if (const auto it = interned_.find(key); it != interned_.end()) {

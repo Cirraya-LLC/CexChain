@@ -1,0 +1,16 @@
+contract Agreement
+code: 5995 bytes, sha256 f292eabc214383d3596341bce7c188490ded2f5d6dc1d5eac626f49396940814, codegen 1
+interface: amend 2 close 2 countersign 2 create 1 sign 2
+1 create: accept proposed, event proposed; fuel 8249
+2 countersign too early: refused "bo:state countersign"; fuel 8516
+3 amend by too much: refused "an amendment may raise the amount by half at most"; fuel 10221
+4 amend: needs customer; fuel 10500
+5 amend, with consent: accept proposed; fuel 12263
+6 sign: needs customer; fuel 8951
+7 sign, not in person: refused "bo:in-person sign"; fuel 9505
+8 sign, after the start: refused "bo:requires sign 2"; fuel 9888
+9 sign, in person: accept signed, event signed; fuel 11343
+10 amend once signed: refused "bo:requires amend 1"; fuel 10863
+11 countersign: accept effective, event effective; fuel 10346
+12 close: needs customer; fuel 9099
+13 close, with consent: accept closed, event closed, final; fuel 11144

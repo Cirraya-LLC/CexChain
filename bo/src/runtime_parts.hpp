@@ -59,5 +59,14 @@ void define_date_parts(Runtime& rt, FunctionBuilder& b);
 void define_date_from_parts(Runtime& rt, FunctionBuilder& b);
 void define_bytes_cmp(Runtime& rt, FunctionBuilder& b);
 void define_bytes_eq(Runtime& rt, FunctionBuilder& b);
+void define_read_call(Runtime& rt, FunctionBuilder& b);
+void define_consent(Runtime& rt, FunctionBuilder& b);
+void define_in_person(Runtime& rt, FunctionBuilder& b);
+void define_out_needs(Runtime& rt, FunctionBuilder& b);
+void define_expect_int(Runtime& rt, FunctionBuilder& b);
+void define_expect_text(Runtime& rt, FunctionBuilder& b);
+void define_expect_ledger(Runtime& rt, FunctionBuilder& b);
+void define_expect_bool(Runtime& rt, FunctionBuilder& b);
+void define_fail_numbered(Runtime& rt, FunctionBuilder& b);
 
 } // namespace cexchain::bo::runtime::detail

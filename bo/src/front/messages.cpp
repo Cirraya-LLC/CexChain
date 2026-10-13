@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <format>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -125,7 +126,7 @@ std::string spelled(std::string_view value, const Pack* language) {
 } // namespace
 
 std::string render(const Diagnostic& diagnostic, const Pack* language) {
-    if (diagnostic.code.starts_with("check.")) {
+    if (diagnostic.code.starts_with("check.") || diagnostic.code.starts_with("build.")) {
         std::vector<std::pair<std::string_view, std::string>> words;
         words.reserve(diagnostic.args.size());
         for (const auto& [name, value] : diagnostic.args) {
@@ -136,6 +137,62 @@ std::string render(const Diagnostic& diagnostic, const Pack* language) {
         return render_text(in_words, language);
     }
     return render_text(diagnostic, language);
+}
+
+std::optional<std::string> render_reason(std::string_view reason, const Pack* language) {
+    if (!reason.starts_with("bo:")) {
+        return std::nullopt;
+    }
+    reason.remove_prefix(3);
+    const std::size_t space = reason.find(' ');
+    const std::string code = "run." + std::string(reason.substr(0, space));
+    const MessageSpec* spec = find_message(code);
+    if (spec == nullptr) {
+        return std::nullopt;
+    }
+    std::vector<std::string_view> values;
+    if (space != std::string_view::npos) {
+        std::string_view rest = reason.substr(space + 1);
+        while (true) {
+            const std::size_t next = rest.find(' ');
+            values.push_back(rest.substr(0, next));
+            if (next == std::string_view::npos) {
+                break;
+            }
+            rest.remove_prefix(next + 1);
+        }
+    }
+    std::vector<std::string_view> params;
+    for (std::string_view rest = spec->params; !rest.empty();) {
+        const std::size_t next = rest.find(' ');
+        params.push_back(rest.substr(0, next));
+        rest = next == std::string_view::npos ? std::string_view{} : rest.substr(next + 1);
+    }
+    if (values.size() != params.size()) {
+        return std::nullopt;
+    }
+    // Compiled code names vocabulary by its id without the category
+    // (wire_name): spell it again where the parameter says which category.
+    const auto word = [&](std::string_view param, std::string_view value) {
+        std::vector<std::string_view> prefixes;
+        if (param == "action") {
+            prefixes = {"act."};
+        } else if (param == "party") {
+            prefixes = {"role.", "field."};
+        }
+        for (const std::string_view prefix : prefixes) {
+            const std::string id = std::string(prefix) + std::string(value);
+            if (find_concept(id) != nullptr) {
+                return spell(id, language);
+            }
+        }
+        return std::string(value);
+    };
+    std::vector<std::pair<std::string_view, std::string>> args;
+    for (std::size_t i = 0; i < params.size(); ++i) {
+        args.emplace_back(params[i], word(params[i], values[i]));
+    }
+    return render_text(Diagnostic{spec->code, std::move(args), Span{}}, language);
 }
 
 namespace {

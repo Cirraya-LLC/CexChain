@@ -73,9 +73,11 @@ target_compile_definitions(cexchain_bo_tests PRIVATE
 target_compile_features(cexchain_bo_tests PRIVATE cxx_std_26)
 cexchain_target_defaults(cexchain_bo_tests)
 if(TARGET cexchain_bo)
-    target_sources(cexchain_bo_tests PRIVATE bo/names_test.cpp bo/runtime_harness.cpp
-        bo/runtime_test.cpp)
-    target_link_libraries(cexchain_bo_tests PRIVATE cexchain::bo)
+    target_sources(cexchain_bo_tests PRIVATE bo/codegen_test.cpp bo/names_test.cpp
+        bo/runtime_harness.cpp bo/runtime_test.cpp)
+    target_link_libraries(cexchain_bo_tests PRIVATE cexchain::bo nlohmann_json::nlohmann_json)
+    target_compile_definitions(cexchain_bo_tests PRIVATE
+        CEXCHAIN_TESTVECTORS_DIR="${PROJECT_SOURCE_DIR}/testvectors")
     # The interpreter's internals (core/src/vm/internal.hpp): its measure of
     # each function's operand stack, against the emitter's.
     target_include_directories(cexchain_bo_tests PRIVATE ${PROJECT_SOURCE_DIR}/core/src)
@@ -96,6 +98,16 @@ if(TARGET cexchain_bo)
         add_test(NAME bo_reference COMMAND ${Python3_EXECUTABLE}
             ${PROJECT_SOURCE_DIR}/tools/testvectors/wasm_ref.py --check ${bo_reference_file})
         set_tests_properties(bo_reference PROPERTIES LABELS bo FIXTURES_REQUIRED bo_reference)
+        # Compiled contracts (M6): every run of the codegen tests' scenarios.
+        set(bo_codegen_file ${CMAKE_CURRENT_BINARY_DIR}/bo-codegen-reference.json)
+        add_test(NAME bo_codegen_reference_runs COMMAND cexchain_bo_tests "[.codegen-reference]")
+        set_tests_properties(bo_codegen_reference_runs PROPERTIES LABELS bo
+            FIXTURES_SETUP bo_codegen_reference
+            ENVIRONMENT CEXCHAIN_BO_CODEGEN_REFERENCE=${bo_codegen_file})
+        add_test(NAME bo_codegen_reference COMMAND ${Python3_EXECUTABLE}
+            ${PROJECT_SOURCE_DIR}/tools/testvectors/wasm_ref.py --check ${bo_codegen_file})
+        set_tests_properties(bo_codegen_reference PROPERTIES LABELS bo
+            FIXTURES_REQUIRED bo_codegen_reference)
     else()
         message(STATUS "bo_reference: no Python 3, so the runtime is not checked on the "
             "Python reference interpreter")

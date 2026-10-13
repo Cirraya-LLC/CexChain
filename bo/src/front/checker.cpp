@@ -18,7 +18,6 @@
 #include <functional>
 #include <limits>
 #include <map>
-#include <numeric>
 #include <optional>
 #include <set>
 #include <string>
@@ -28,6 +27,7 @@
 #include <vector>
 
 #include <cexchain/bo/checker.hpp>
+#include <cexchain/bo/values.hpp>
 
 #include "internal.hpp"
 
@@ -82,81 +82,10 @@ bool word_in(const ast::Expr& e, Category category) noexcept {
 }
 
 // ---------------------------------------------------------------------------
-// Units and exact values.
+// Units and exact values (values.hpp).
 
-struct UnitInfo {
-    std::string_view id;
-    Dimension dimension;
-    /// Base units (bytes, bits per second, items, grams) in one unit.
-    std::uint64_t factor;
-};
-
-constexpr UnitInfo unit_table[] = {
-    {"unit.MB", Dimension::data, 1'000'000},
-    {"unit.GB", Dimension::data, 1'000'000'000},
-    {"unit.TB", Dimension::data, 1'000'000'000'000},
-    {"unit.MiB", Dimension::data, std::uint64_t{1} << 20U},
-    {"unit.GiB", Dimension::data, std::uint64_t{1} << 30U},
-    {"unit.TiB", Dimension::data, std::uint64_t{1} << 40U},
-    {"unit.Mbps", Dimension::bandwidth, 1'000'000},
-    {"unit.Gbps", Dimension::bandwidth, 1'000'000'000},
-    {"unit.item", Dimension::count, 1},
-    {"unit.kg", Dimension::mass, 1'000},
-    {"unit.tonne", Dimension::mass, 1'000'000},
-};
-
-const UnitInfo* unit_info(const Concept* unit) noexcept {
-    if (unit == nullptr) {
-        return nullptr;
-    }
-    const auto it = std::ranges::find(unit_table, unit->id, &UnitInfo::id);
-    return it == std::end(unit_table) ? nullptr : &*it;
-}
-
-/// The largest value Bo keeps: amounts, quantities, and durations are signed
-/// 64-bit numbers of their smallest unit.
-constexpr std::uint64_t max_value = std::numeric_limits<std::int64_t>::max();
-/// Every edition-1 currency has cents: two decimal places.
-constexpr std::uint64_t money_factor = 100;
-/// Unit prices keep six decimal places (U5).
-constexpr std::uint64_t unit_price_factor = 1'000'000;
-/// Rates are kept in millionths; a percent is 10,000 of them.
-constexpr std::uint64_t rate_factor = 10'000;
-constexpr std::uint64_t day_ms = 86'400'000;
-/// Calendar durations are counted in months; ten thousand years at most.
-constexpr std::uint64_t max_months = 120'000;
 constexpr std::uint32_t default_list_bound = 16;
 constexpr std::uint64_t max_list_bound = 1'000;
-
-struct Exact {
-    bool whole = false;
-    bool fits = false;
-    std::uint64_t value = 0;
-};
-
-/// `value` × `factor`, exactly: whole if it is a whole number, and fits if
-/// it is at most max_value.
-Exact exact(const Decimal& value, std::uint64_t factor) noexcept {
-    std::uint64_t power = 1;
-    for (std::uint8_t i = 0; i < value.scale; ++i) {
-        power *= 10;
-    }
-    const std::uint64_t common = std::gcd(factor, power);
-    const std::uint64_t multiply = factor / common;
-    const std::uint64_t divide = power / common;
-    Exact out;
-    if (value.digits % divide != 0) {
-        return out;
-    }
-    out.whole = true;
-    std::uint64_t product = 0;
-    if (__builtin_mul_overflow(value.digits / divide, multiply, &product) || product > max_value) {
-        return out;
-    }
-    out.fits = true;
-    out.value = product;
-    return out;
-}
 
 // ---------------------------------------------------------------------------
 // Types.

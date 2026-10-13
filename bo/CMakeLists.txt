@@ -58,7 +58,8 @@ add_library(cexchain_bo_front
     src/front/pack.cpp
     src/front/pack_set.cpp
     src/front/parser.cpp
-    src/front/spelling.cpp)
+    src/front/spelling.cpp
+    src/front/values.cpp)
 add_library(cexchain::bo_front ALIAS cexchain_bo_front)
 target_include_directories(cexchain_bo_front PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
@@ -108,9 +109,11 @@ elseif(NOT CEXCHAIN_HAVE_REFLECTION_AND_CONTRACTS)
 else()
     add_library(cexchain_bo
         src/checked.cpp
+        src/lower.cpp
         src/names.cpp
         src/runtime.cpp
         src/runtime_cbor.cpp
+        src/runtime_contract.cpp
         src/runtime_math.cpp
         src/tree.cpp
         src/wasm.cpp)

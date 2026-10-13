@@ -1,0 +1,27 @@
+# The agreement again, each keyword and word in any of the three languages.
+contract Agreement
+訂約方 we, 客户
+
+record Terms
+  terms 文字
+  amount 港元
+  starts date
+
+can amend 由 本公司 with new_amount HKD, new_start 日期
+  須 proposed
+  requires 經 customer 同意
+  须 new_amount > HKD 0
+  如 new_amount > 金額 * 150%
+    reject "an amendment may raise the amount by half at most"
+  否則
+    amount = new_amount
+  starts = new_start
+可 sign by 客戶
+  over 1_000_000 須親身確認
+  requires now < starts
+  已提議 -> signed
+can countersign 由 we
+  signed -> effective
+可 close by 本公司
+  须 经 客户 同意
+  effective -> closed

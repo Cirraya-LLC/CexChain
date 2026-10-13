@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -15,13 +16,23 @@ namespace cexchain::bo {
 
 /// A diagnostic's text in a pack's language: the pack's message for its
 /// code, else the English pack's, with the parameters filled in. A null
-/// pack means English. The checker's messages (check.*) carry concepts and
-/// types in a neutral form, which become words of the language here: a
-/// parameter named `type` or `..._type` holds an encoded type (checker.hpp,
-/// encode), described in words; any other value that is a concept id, or a
-/// list of them separated by ", ", is spelled.
+/// pack means English. The checker's and the builder's messages (check.*,
+/// build.*) carry concepts and types in a neutral form, which become words
+/// of the language here: a parameter named `type` or `..._type` holds an
+/// encoded type (checker.hpp, encode), described in words; any other value
+/// that is a concept id, or a list of them separated by ", ", is spelled.
 [[nodiscard]] std::string render(const Diagnostic& diagnostic, const Pack* language)
     BO_PRE(find_message(diagnostic.code) != nullptr);
+
+/// A refusal of compiled code in a pack's language. Compiled contracts
+/// abort with "bo:CODE VALUES" for the compiler's own checks (values
+/// separated by spaces: "bo:requires sign 2"), which is the message run.CODE
+/// with the values as its parameters, in order; actions and parties that are
+/// vocabulary are spelled in the language ("bo:state pledge" names 質押 in
+/// Chinese). Nullopt for any other reason, such as the text of a `reject`,
+/// which tools show as written.
+[[nodiscard]] std::optional<std::string> render_reason(std::string_view reason,
+                                                       const Pack* language);
 
 /// A concept's first spelling in the pack's language, else in English, else
 /// its id: "質押" for act.pledge in zh-Hant-HK.

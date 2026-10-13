@@ -1,0 +1,29 @@
+# 雙方就條款達成協議。本公司提出條款；客戶於開始日期前簽署（金額超過港元
+# 1,000,000 須親身確認）；本公司加簽後條款生效，直至本公司經客戶同意終結。
+# 修訂亦須經客戶同意，且只限於條款仍屬已提議期間。
+合約 Agreement
+訂約方 本公司, 客戶
+
+紀錄 Terms
+  terms 文字
+  金額 港元
+  starts 日期
+
+可 amend 由 本公司 連同 new_amount 港元, new_start 日期
+  須 已提議
+  須 經 客戶 同意
+  須 new_amount > 港元 0
+  如 new_amount > 金額 * 150%
+    拒絕 "an amendment may raise the amount by half at most"
+  否則
+    金額 = new_amount
+  starts = new_start
+可 sign 由 客戶
+  超過 1_000_000 須親身確認
+  須 現時 < starts
+  已提議 -> signed
+可 countersign 由 本公司
+  signed -> effective
+可 close 由 本公司
+  須 經 客戶 同意
+  effective -> closed

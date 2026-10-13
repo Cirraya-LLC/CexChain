@@ -215,6 +215,10 @@ public:
     /// until the frame ends.
     [[nodiscard]] bool reachable() const noexcept;
     [[nodiscard]] std::size_t open_frames() const noexcept { return frames_.size(); }
+    /// The body's size so far, in bytes.
+    [[nodiscard]] std::size_t size() const noexcept { return code_.size(); }
+    /// Locals declared so far (parameters not counted).
+    [[nodiscard]] std::size_t local_count() const noexcept { return locals_.size(); }
     [[nodiscard]] bool is_open(Label label) const noexcept;
     [[nodiscard]] bool is_innermost(Label label) const noexcept;
     [[nodiscard]] bool can_pop(std::span<const ValType> types) const noexcept;
@@ -340,6 +344,12 @@ public:
     }
     [[nodiscard]] ValType global_type(Global global) const BO_PRE(global.index < global_count());
 
+    /// Bytes of the static region not used yet.
+    [[nodiscard]] std::uint32_t static_free() const noexcept {
+        return plan_.static_end - plan_.static_base - static_cast<std::uint32_t>(statics_.size());
+    }
+    /// True if `bytes` are interned already.
+    [[nodiscard]] bool interned(ByteView bytes) const;
     /// The address of `bytes` in the static region, the same for the same
     /// bytes.
     [[nodiscard]] std::uint32_t intern(const ByteView bytes)

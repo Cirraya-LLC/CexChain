@@ -59,6 +59,11 @@ static_assert(layout::output_end == layout::pages * 65'536U);
     return {layout::pages, layout::static_base, layout::static_end};
 }
 
+/// The most ledgers a call can need consents from (spec section 15).
+inline constexpr std::uint32_t max_needs = 16;
+/// The longest text `fail_numbered` takes.
+inline constexpr std::uint32_t max_numbered_text = 128;
+
 /// Limits of the input, as core's decoder applies them (spec section 2).
 inline constexpr std::uint32_t max_input_items = 131'072;
 inline constexpr std::uint32_t max_input_depth = 32;
@@ -71,6 +76,7 @@ enum class Reason : std::uint8_t {
     division_by_zero, ///< a division by zero
     date,             ///< a date outside the years 1 to 9999, or a bad offset or date
     output,           ///< the output would not fit its region (192 KiB)
+    consents,         ///< a call would need the consents of more than 16 ledgers
 };
 [[nodiscard]] std::string_view text_of(Reason reason) noexcept BO_POST(r, r.starts_with("bo:"));
 
@@ -190,6 +196,41 @@ enum class Routine : std::uint8_t {
     bytes_cmp,
     /// [p, n, q, m] -> [1 or 0]: equal bytes.
     bytes_eq,
+
+    // Contracts (spec section 15): the call's input, consents, and refusals.
+    /// [] -> []: aborts with bo:consents.
+    fail_consents,
+    /// [] -> [root]: `read_input`, then records where the value of each key
+    /// 1 to 8 of the root map (contract-input) is, in the call table
+    /// (Runtime::call_table; 0 for a key that is absent). Aborts with
+    /// bo:input unless the root is a map.
+    read_call,
+    /// [ledger] -> [signer]: the consent of the ledger (a 32-byte id at that
+    /// address) to the call. The home's is the call itself: the caller's
+    /// signer. Another ledger's is the signer of its consent among the call's
+    /// (key 8); without one, the ledger joins the needs (Var::needs, at most
+    /// 16 ledgers, each once; bo:consents beyond) and the result is 0.
+    consent,
+    /// [signer] -> [flag]: 1 if the signer (a `signer` map) is a person (kind
+    /// 1) who proved presence (key 2).
+    in_person,
+    /// [] -> []: writes the output [2, needs], the needed ledgers in
+    /// ascending order.
+    out_needs,
+    /// [item, reason, reason_length] -> [i64]: an integer item's value, which
+    /// must fit 64 bits signed; aborts with the reason for anything else
+    /// (also for item 0, "absent").
+    expect_int,
+    /// [item, reason, reason_length] -> [address, length]: a text item's bytes.
+    expect_text,
+    /// [item, reason, reason_length] -> [address]: a 32-byte byte string's
+    /// bytes (a ledger id).
+    expect_ledger,
+    /// [item, reason, reason_length] -> [flag]: false or true.
+    expect_bool,
+    /// [text, text_length, i64 n] -> []: aborts with the text (at most 128
+    /// bytes) followed by n in decimal (n at least 0): "bo:requires sign 2".
+    fail_numbered,
 };
 
 /// The runtime's globals.
@@ -197,6 +238,7 @@ enum class Var : std::uint8_t {
     input_end, ///< i32: just after the input
     items,     ///< i32: items of the input read so far
     out,       ///< i32: where the next byte of output goes
+    needs,     ///< i32: the ledgers whose consents the call lacks, so far
 };
 
 [[nodiscard]] std::string_view name_of(Routine routine) noexcept BO_POST(r, !r.empty());
@@ -218,14 +260,24 @@ public:
     [[nodiscard]] wasm::Func get(Routine routine);
     [[nodiscard]] wasm::Func fail(Reason reason);
     [[nodiscard]] wasm::Global var(Var var);
+    /// The call table `read_call` fills: the address of the value of the
+    /// input's key k (1 to 8) is the i32 at call_table() + 4k.
+    [[nodiscard]] std::uint32_t call_table();
+    /// Where `consent` keeps the needed ledgers (16 addresses).
+    [[nodiscard]] std::uint32_t needs_area();
+    /// Scratch for `fail_numbered`'s reason.
+    [[nodiscard]] std::uint32_t number_buffer();
     /// The routines emitted so far, in order.
     [[nodiscard]] const std::vector<Routine>& emitted() const noexcept { return emitted_; }
 
 private:
     wasm::ModuleWriter* module_;
     std::vector<std::optional<wasm::Func>> functions_;
-    std::array<std::optional<wasm::Global>, 3> vars_;
+    std::array<std::optional<wasm::Global>, 4> vars_;
     std::vector<Routine> emitted_;
+    std::optional<std::uint32_t> call_table_;
+    std::optional<std::uint32_t> needs_area_;
+    std::optional<std::uint32_t> number_buffer_;
 };
 
 } // namespace cexchain::bo::runtime

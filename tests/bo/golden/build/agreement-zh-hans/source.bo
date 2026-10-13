@@ -1,0 +1,29 @@
+# 双方就条款达成协议。本公司提出条款；客户在开始日期前签署（金额超过港元
+# 1,000,000 须本人确认）；本公司加签后条款生效，直至本公司经客户同意终结。
+# 修订也须经客户同意，且只限于条款仍为已提议期间。
+合约 Agreement
+参与方 本公司、客户
+
+记录 Terms
+  terms 文本
+  金额 港元
+  starts 日期
+
+可 amend 由 本公司 附带 new_amount 港元, new_start 日期
+  须 已提议
+  须 经 客户 同意
+  须 new_amount > 港元 0
+  如果 new_amount > 金额 * 150%
+    拒绝 "an amendment may raise the amount by half at most"
+  否则
+    金额 = new_amount
+  starts = new_start
+可 sign 由 客户
+  超过 1_000_000 须本人确认
+  须 现在 < starts
+  已提议 -> signed
+可 countersign 由 本公司
+  signed -> effective
+可 close 由 本公司
+  须 经 客户 同意
+  effective -> closed

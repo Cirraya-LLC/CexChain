@@ -528,6 +528,26 @@ comparison. Every routine runs to the same outcome, output, and fuel on the ledg
 and on the independent Python interpreter (`ctest -R bo_reference`, with Python 3);
 `tests/bo/golden/runtime/fuel.txt` lists what each costs of a call's 10 million fuel.
 
+The compiler now lowers a first subset of Bo to such modules: creation, the contract's own
+actions with their inputs, fields, states, `requires` (with a guard such as `over 1_000_000`),
+`if` and `otherwise`, `reject`, consents, and `in person`, over numbers, money, quantities,
+rates, dates, durations, texts, yes or no, and parties. Each action is a function named by its
+concept or as written (the same name in every language), and creation is `create` (`issue` for
+an asset). Arguments are a map: `{"fields": {...}, "parties": {role: ledger}}` to create, the
+action's inputs by name otherwise (money in cents, rates in millionths, dates in milliseconds).
+A compiled contract asks for the consents an action needs (of its starter, of a role it binds,
+of a party a changed field held, and of every `requires consent of`) with `[2, needs]`, the
+home's own consent being the call itself; it keeps `{"state": NAME, "fields": {...}}`, reports
+the state as the status, the parties and every field holding one, each state change as an
+event, and the instance as final once no action can leave its state; and it refuses with the
+text of a `reject` or with `bo:CODE` (`bo:requires sign 2`), which tools show in the reader's
+language. The same contract in English, Traditional Chinese, Simplified Chinese, or mixed
+compiles to the same bytes; `tests/bo/golden/build/` holds a two-party agreement in each, and the
+fuel of each of its calls. What later steps bring (the vocabulary's actions, `when` rules,
+lists, charges, executors) is refused with a message for now. `testvectors/bo-v1.json`
+(`tools/testvectors/bo_vectors.py`) pins sources, code, and outcomes, checked on both
+interpreters.
+
 ## AI agents (MCP)
 
 `cexchain mcp --ledger DIR --as AGENT_KEY` runs a Model Context Protocol server over stdio
@@ -593,7 +613,7 @@ cmake --preset clang-fuzz && cmake --build --preset clang-fuzz
 ./build/clang-fuzz/fuzz/protocol_parse_fuzz corpus/protocol_parse_fuzz -max_total_time=300
 ```
 
-Test vectors in `testvectors/` come from implementations independent of CexChain. `tools/testvectors/generate.py` regenerates them.
+Test vectors in `testvectors/` come from implementations independent of CexChain. `tools/testvectors/generate.py` regenerates them; `tools/testvectors/bo_vectors.py` writes the Bo compiler's from a GCC build.
 
 On macOS, Homebrew's LLVM is keg-only. To use it with the Clang presets, add a `CMakeUserPresets.json` that inherits a Clang preset and sets `CMAKE_CXX_COMPILER` to `/opt/homebrew/opt/llvm/bin/clang++`. Homebrew's `openssl@3` is detected automatically.
 

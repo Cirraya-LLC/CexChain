@@ -1,0 +1,30 @@
+# Two parties agree on terms. We propose them; the customer signs (in person
+# above HKD 1,000,000) before the start date; we countersign, and the terms
+# are effective until we close them with the customer's consent. Amendments
+# need the customer's consent too, and only while the terms are proposed.
+contract Agreement
+parties we, customer
+
+record Terms
+  terms text
+  amount HKD
+  starts date
+
+can amend by we with new_amount HKD, new_start date
+  requires proposed
+  requires consent of customer
+  requires new_amount > HKD 0
+  if new_amount > amount * 150%
+    reject "an amendment may raise the amount by half at most"
+  otherwise
+    amount = new_amount
+  starts = new_start
+can sign by customer
+  over 1_000_000 requires in person
+  requires now < starts
+  proposed -> signed
+can countersign by we
+  signed -> effective
+can close by we
+  requires consent of customer
+  effective -> closed

@@ -364,6 +364,37 @@ constexpr MessageSpec unsorted_messages[] = {
     {"check.charge-included", Severity::error, "name"},
     // Checking: what comes in later steps.
     {"check.needs-executor", Severity::warning, "action"},
+    // Building (lowering a checked model to code).
+    {"build.fragment", Severity::error, ""},
+    {"build.standard-action", Severity::error, "action"},
+    {"build.executor", Severity::error, "action"},
+    {"build.time-rule", Severity::error, "text"},
+    {"build.unsupported", Severity::error, "text feature"},
+    {"build.name-taken", Severity::error, "name"},
+    {"build.name-too-long", Severity::error, "name limit"},
+    {"build.too-many-functions", Severity::error, "limit"},
+    {"build.too-many-parties", Severity::error, "limit"},
+    {"build.too-many-fields", Severity::error, "limit"},
+    {"build.too-many-inputs", Severity::error, "action limit"},
+    {"build.too-many-events", Severity::error, "action limit"},
+    {"build.too-large", Severity::error, ""},
+    {"build.reject-text", Severity::error, "text"},
+    {"build.late-party", Severity::error, "field party"},
+    // Refusals of compiled code at run time: the reason "bo:CODE VALUES" is
+    // the message run.CODE, its values the parameters in order (render_reason).
+    {"run.input", Severity::error, ""},
+    {"run.overflow", Severity::error, ""},
+    {"run.division-by-zero", Severity::error, ""},
+    {"run.date", Severity::error, ""},
+    {"run.output", Severity::error, ""},
+    {"run.consents", Severity::error, ""},
+    {"run.function", Severity::error, ""},
+    {"run.arguments", Severity::error, ""},
+    {"run.argument", Severity::error, "name"},
+    {"run.state", Severity::error, "action"},
+    {"run.requires", Severity::error, "action number"},
+    {"run.in-person", Severity::error, "action"},
+    {"run.party", Severity::error, "party"},
     // Any reading.
     {"bo.truncated", Severity::warning, "limit"},
 };
