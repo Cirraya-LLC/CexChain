@@ -84,6 +84,21 @@ if(TARGET cexchain_bo)
 endif()
 catch_discover_tests(cexchain_bo_tests PROPERTIES LABELS bo)
 
+# Fuzzing lowering (D-053, M6). cexchain::bo needs C++26 reflection (GCC) and
+# libFuzzer needs Clang, so bo_build_fuzz is built here with GCC and drives
+# itself from a contract generator (fuzz/bo_build_fuzz.cpp says how); CTest
+# runs a short round of it, under ASan and UBSan in gcc-asan.
+if(TARGET cexchain_bo)
+    add_executable(bo_build_fuzz ${PROJECT_SOURCE_DIR}/fuzz/bo_build_fuzz.cpp)
+    target_link_libraries(bo_build_fuzz PRIVATE cexchain::bo cexchain::crypto_openssl)
+    target_compile_definitions(bo_build_fuzz PRIVATE CEXCHAIN_BO_FUZZ_DRIVER=1
+        CEXCHAIN_BO_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/bo/golden")
+    target_compile_features(bo_build_fuzz PRIVATE cxx_std_26)
+    cexchain_target_defaults(bo_build_fuzz)
+    add_test(NAME bo_build_fuzz COMMAND bo_build_fuzz -runs=400 -seed=6)
+    set_tests_properties(bo_build_fuzz PROPERTIES LABELS bo)
+endif()
+
 # The Bo runtime on two engines (D-053, M5): a hidden case writes every run of
 # the runtime's harness modules (module, input, outcome, output, fuel), and
 # the independent Python interpreter must reproduce each exactly. Skipped

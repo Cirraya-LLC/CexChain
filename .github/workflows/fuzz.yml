@@ -20,9 +20,9 @@ jobs:
     name: libFuzzer
     runs-on: ubuntu-latest
     container: gcc:16-trixie
-    # Every target runs SECONDS_PER_TARGET in turn (20 targets: 100 minutes at
-    # the default), after a build of about 15 minutes.
-    timeout-minutes: 150
+    # Every target runs SECONDS_PER_TARGET in turn (21 targets: 105 minutes at
+    # the default), after builds of about 25 minutes.
+    timeout-minutes: 165
     steps:
       - uses: actions/checkout@v7
 
@@ -52,12 +52,25 @@ jobs:
             echo "::endgroup::"
           done
 
+      # Lowering needs C++26 reflection (GCC) and libFuzzer needs Clang, so the
+      # Bo compiler's build fuzzer is a GCC program that drives itself from a
+      # contract generator (fuzz/bo_build_fuzz.cpp), here with ASan and UBSan.
+      - name: Run the Bo build fuzzer (GCC)
+        env:
+          SECONDS_PER_TARGET: ${{ inputs.seconds || '300' }}
+        run: |
+          cmake --preset gcc-asan -DCMAKE_CXX_COMPILER=g++
+          cmake --build --preset gcc-asan --target bo_build_fuzz
+          build/gcc-asan/tests/bo_build_fuzz -max_total_time="$SECONDS_PER_TARGET" \
+            -seed="$GITHUB_RUN_NUMBER"
+
       - name: Keep crash inputs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: fuzz-crashes
           path: |
+            bo-build-crash.bin
             crash-*
             leak-*
             timeout-*

@@ -81,7 +81,7 @@
     "buildPresets": [
         { "name": "gcc-debug", "configurePreset": "gcc-debug" },
         { "name": "gcc-release", "configurePreset": "gcc-release" },
-        { "name": "gcc-asan", "configurePreset": "gcc-asan", "targets": ["cexchain_bo_tests"] },
+        { "name": "gcc-asan", "configurePreset": "gcc-asan", "targets": ["cexchain_bo_tests", "bo_build_fuzz"] },
         { "name": "clang-debug", "configurePreset": "clang-debug" },
         { "name": "clang-asan", "configurePreset": "clang-asan" },
         { "name": "clang-tsan", "configurePreset": "clang-tsan" },

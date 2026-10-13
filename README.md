@@ -613,6 +613,8 @@ cmake --preset clang-fuzz && cmake --build --preset clang-fuzz
 ./build/clang-fuzz/fuzz/protocol_parse_fuzz corpus/protocol_parse_fuzz -max_total_time=300
 ```
 
+The Bo compiler's lowering is GCC-only and libFuzzer is Clang-only, so its fuzzer, `bo_build_fuzz`, is a GCC program that drives itself: it generates contracts from random bytes, compiles them written in English and in mixed languages (which must give the same bytes), and runs the code on generated calls (`build/gcc-asan/tests/bo_build_fuzz -max_total_time=120`).
+
 Test vectors in `testvectors/` come from implementations independent of CexChain. `tools/testvectors/generate.py` regenerates them; `tools/testvectors/bo_vectors.py` writes the Bo compiler's from a GCC build.
 
 On macOS, Homebrew's LLVM is keg-only. To use it with the Clang presets, add a `CMakeUserPresets.json` that inherits a Clang preset and sets `CMAKE_CXX_COMPILER` to `/opt/homebrew/opt/llvm/bin/clang++`. Homebrew's `openssl@3` is detected automatically.

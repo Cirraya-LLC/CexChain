@@ -1,0 +1,1019 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Cirraya
+
+// Fuzzes lowering (milestone 6 of the Bo compiler): source, or a contract
+// generated from the input's bytes, through the lexer, the parser, and the
+// checker, and on a model without errors, through `lower`. Properties:
+//   - lowering never fails an assertion (its contracts and the emitter's are
+//     on), and gives the same result twice;
+//   - a generated contract gives the same result written in English and with
+//     every word in a language chosen at random (the same bytes, or the same
+//     problems);
+//   - every module it returns loads under the profile;
+//   - run on calls made from the input (creations and actions with
+//     arguments, consents, signers, and times, as the ledger encodes them),
+//     a compiled contract only accepts with an output the ledger accepts,
+//     asks for consents, or refuses with a reason that is the compiler's
+//     own (bo:..., which renders in every official language) or a `reject`
+//     text of the contract; it never traps otherwise (no out of fuel, no
+//     out of bounds, no unreachable).
+//
+// Why not libFuzzer: lowering is in cexchain::bo, which needs C++26 static
+// reflection (GCC 16 only), and libFuzzer needs Clang. So this target is
+// built by the GCC presets (with ASan and UBSan in gcc-asan) and drives
+// itself: `bo_build_fuzz [-runs=N] [-max_total_time=S] [-seed=N] [FILE|DIR
+// ...]` replays the files given (or the golden sources), then runs N inputs
+// of random bytes; most bytes decode to a contract that checks, because a
+// generator, not the bytes themselves, writes the source. Without coverage
+// guidance the generator is what reaches deep code. The entry point is
+// libFuzzer's (LLVMFuzzerTestOneInput), so a Clang with reflection can run it
+// under libFuzzer unchanged. A failure prints the input in hex and aborts.
+
+#include <algorithm>
+#include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <filesystem>
+#include <format>
+#include <fstream>
+#include <iterator>
+#include <limits>
+#include <map>
+#include <optional>
+#include <set>
+#include <sstream>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <variant>
+#include <vector>
+
+#include <cexchain/bo/checker.hpp>
+#include <cexchain/bo/lexer.hpp>
+#include <cexchain/bo/lower.hpp>
+#include <cexchain/bo/messages.hpp>
+#include <cexchain/bo/pack.hpp>
+#include <cexchain/bo/parser.hpp>
+#include <cexchain/bo/values.hpp>
+#include <cexchain/core/bytes.hpp>
+#include <cexchain/core/cbor.hpp>
+#include <cexchain/core/protocol/contracts.hpp>
+#include <cexchain/core/vm.hpp>
+#include <cexchain/crypto/openssl.hpp>
+
+namespace {
+
+namespace bo = cexchain::bo;
+namespace cbor = cexchain::cbor;
+namespace m = cexchain::bo::model;
+namespace protocol = cexchain::protocol;
+namespace vm = cexchain::vm;
+using cexchain::Bytes;
+using cexchain::ByteView;
+
+const std::uint8_t* current_data = nullptr;
+std::size_t current_size = 0;
+
+[[noreturn]] void fail(std::string_view what, std::string_view detail = {}) {
+    std::fprintf(stderr, "bo_build_fuzz: %.*s\n", static_cast<int>(what.size()), what.data());
+    if (!detail.empty()) {
+        std::fprintf(stderr, "%.*s\n", static_cast<int>(detail.size()), detail.data());
+    }
+    if (current_data != nullptr) {
+        const std::string hex = cexchain::to_hex(ByteView(current_data, current_size));
+        std::fprintf(stderr, "input: %s\n", hex.c_str());
+        std::ofstream("bo-build-crash.bin", std::ios::binary)
+            .write(reinterpret_cast<const char*>(current_data),
+                   static_cast<std::streamsize>(current_size));
+    }
+    std::abort();
+}
+
+void require(const bool condition, std::string_view what, std::string_view detail = {}) {
+    if (!condition) {
+        fail(what, detail);
+    }
+}
+
+const cexchain::crypto::Provider& provider() {
+    static const cexchain::crypto::openssl::Provider instance;
+    return instance;
+}
+
+const bo::Lexicon& official() {
+    static const bo::Lexicon lexicon = [] {
+        const bo::PackSetRead set = bo::make_pack_set({});
+        return bo::Lexicon(*set.set);
+    }();
+    return lexicon;
+}
+
+/// Decisions read from the input; zeros once it runs out.
+class Choices {
+public:
+    Choices(const std::uint8_t* data, std::size_t size) : data_(data), size_(size) {}
+
+    std::uint32_t below(const std::uint32_t n) {
+        if (n <= 1) {
+            return 0;
+        }
+        std::uint32_t v = next();
+        if (n > 256) {
+            v = (v << 8U) | next();
+        }
+        return v % n;
+    }
+    bool one_in(const std::uint32_t n) { return below(n) == 0; }
+    std::int64_t between(const std::int64_t low, const std::int64_t high) {
+        const auto span = static_cast<std::uint64_t>(high - low) + 1;
+        std::uint64_t v = 0;
+        for (int i = 0; i < 4; ++i) {
+            v = (v << 8U) | next();
+        }
+        return low + static_cast<std::int64_t>(v % span);
+    }
+
+private:
+    std::uint8_t next() { return at_ < size_ ? data_[at_++] : 0; }
+    const std::uint8_t* data_;
+    std::size_t size_;
+    std::size_t at_ = 0;
+};
+
+// ---------------------------------------------------------------------------
+// The generator: a contract as lines of tokens; a token is a concept (with
+// its argument, for spellings with "…"), or text written as it is.
+
+struct Tok {
+    std::string concept_id;
+    std::string text;
+    std::vector<Tok> arg;
+};
+
+Tok word(std::string id) {
+    return Tok{std::move(id), {}, {}};
+}
+Tok raw(std::string text) {
+    return Tok{{}, std::move(text), {}};
+}
+Tok apply(std::string id, std::vector<Tok> arg) {
+    return Tok{std::move(id), {}, std::move(arg)};
+}
+
+using Line = std::vector<Tok>;
+
+const bo::Pack* official_pack(std::uint32_t i) {
+    static const std::vector<const bo::Pack*> packs = [] {
+        std::vector<const bo::Pack*> out;
+        for (const std::string_view id : {"en", "zh-Hant-HK", "zh-Hans-CN"}) {
+            out.push_back(bo::official_pack(id));
+        }
+        return out;
+    }();
+    return packs[i % packs.size()];
+}
+
+std::string render(const std::vector<Tok>& toks, Choices* languages);
+
+std::string render(const Tok& t, Choices* languages) {
+    if (t.concept_id.empty()) {
+        return t.text;
+    }
+    const bo::Pack* pack = official_pack(languages != nullptr ? languages->below(3) : 0);
+    std::string spelled = bo::spell(t.concept_id, pack);
+    const std::string hole = "\xE2\x80\xA6";
+    if (const std::size_t at = spelled.find(hole); at != std::string::npos) {
+        spelled.replace(at, hole.size(), render(t.arg, languages));
+    }
+    return spelled;
+}
+
+std::string render(const std::vector<Tok>& toks, Choices* languages) {
+    std::string out;
+    for (const Tok& t : toks) {
+        out += (out.empty() ? "" : " ") + render(t, languages);
+    }
+    return out;
+}
+
+enum class T : std::uint8_t { text, number, money, usd, date, flag, data, days, months, party };
+constexpr std::uint32_t value_types = 9; // all but party
+
+struct GField {
+    std::string name; // a name, or "amount" for field.amount
+    T type = T::text;
+    bool constant = false;
+    std::string party; // a party field's starting role
+};
+
+struct GInput {
+    std::string name;
+    T type = T::text;
+};
+
+class Generator {
+public:
+    explicit Generator(Choices& c) : c_(c) {}
+
+    std::vector<std::pair<int, Line>> contract();
+
+private:
+    Tok type_word(T t);
+    Line literal(T t);
+    Line party();
+    Line value(T t, int depth);
+    Line condition(int depth);
+    void statements(int indent, int depth, std::vector<std::pair<int, Line>>& out);
+    Tok state(std::size_t i) { return i < vocabulary_states_ ? word(states_[i]) : raw(states_[i]); }
+
+    Choices& c_;
+    std::vector<Tok> roles_;
+    std::vector<GField> fields_;
+    std::vector<GInput> inputs_;
+    std::vector<std::string> states_;
+    std::size_t vocabulary_states_ = 0;
+    std::size_t used_states_ = 1;
+    bool in_action_ = false;
+    int rejects_ = 0;
+};
+
+Tok Generator::type_word(const T t) {
+    switch (t) {
+    case T::text:
+        return word("type.text");
+    case T::number:
+        return word("type.number");
+    case T::money:
+        return word("cur.HKD");
+    case T::usd:
+        return word("cur.USD");
+    case T::date:
+        return word("type.date");
+    case T::flag:
+        return word("type.yes_no");
+    case T::data:
+        return word("unit.GB");
+    case T::days:
+        return word("time.day");
+    case T::months:
+        return word("time.month");
+    case T::party:
+        break;
+    }
+    return word("type.text");
+}
+
+Line Generator::literal(const T t) {
+    switch (t) {
+    case T::text: {
+        static constexpr std::string_view texts[] = {"x", "any", "香港", "", "a b"};
+        return {raw("\"" + std::string(texts[c_.below(5)]) + "\"")};
+    }
+    case T::number:
+        return {raw(std::to_string(c_.below(4) == 0 ? 0 : c_.between(1, 1'000'000)))};
+    case T::money:
+        return {raw(std::format("HKD {}.{:02}", c_.between(0, 2'000'000), c_.below(100)))};
+    case T::usd:
+        return {raw(std::format("USD {}", c_.between(0, 5'000)))};
+    case T::date:
+        return {raw(
+            std::format("{}-{:02}-{:02}", 2026 + c_.below(3), 1 + c_.below(12), 1 + c_.below(28)))};
+    case T::flag:
+        return {word(c_.one_in(2) ? "val.yes" : "val.no")};
+    case T::data:
+        return {raw(std::format("{} GB", c_.between(0, 5'000)))};
+    case T::days:
+        return {raw(std::format("{} days", c_.between(0, 400)))};
+    case T::months:
+        return {raw(std::format("{} months", c_.between(0, 36)))};
+    case T::party:
+        break;
+    }
+    return {raw("\"x\"")};
+}
+
+Line Generator::party() {
+    std::vector<Line> options;
+    for (const Tok& r : roles_) {
+        options.push_back({r});
+    }
+    for (const GField& f : fields_) {
+        if (f.type == T::party) {
+            options.push_back({word("field.holder")});
+        }
+    }
+    return options[c_.below(static_cast<std::uint32_t>(options.size()))];
+}
+
+Line Generator::value(const T t, const int depth) {
+    if (t == T::party) {
+        return party();
+    }
+    std::vector<Line> leaves{literal(t)};
+    for (const GField& f : fields_) {
+        if (f.type == t) {
+            leaves.push_back({f.name == "amount" ? word("field.amount") : raw(f.name)});
+        }
+    }
+    if (in_action_) {
+        for (const GInput& i : inputs_) {
+            if (i.type == t) {
+                leaves.push_back({raw(i.name)});
+            }
+        }
+    }
+    if (t == T::date) {
+        leaves.push_back({word("time.now")});
+        leaves.push_back({word("time.today")});
+    }
+    if (depth <= 0 || c_.below(3) != 0) {
+        return leaves[c_.below(static_cast<std::uint32_t>(leaves.size()))];
+    }
+    const auto group = [](Line inner) {
+        Line out{raw("(")};
+        out.insert(out.end(), inner.begin(), inner.end());
+        out.push_back(raw(")"));
+        return out;
+    };
+    const auto join = [&](Line a, std::string op, Line b) {
+        a.push_back(raw(std::move(op)));
+        a.insert(a.end(), b.begin(), b.end());
+        return group(std::move(a));
+    };
+    switch (t) {
+    case T::number:
+    case T::money:
+    case T::usd:
+    case T::data:
+    case T::days:
+        switch (c_.below(5)) {
+        case 0:
+            return join(value(t, depth - 1), "+", value(t, depth - 1));
+        case 1:
+            return join(value(t, depth - 1), "-", value(t, depth - 1));
+        case 2:
+            return join(value(t, depth - 1), "*", value(T::number, depth - 1));
+        case 3:
+            if (t == T::number) {
+                return join(value(t, depth - 1), "/", {raw(std::to_string(1 + c_.below(9)))});
+            }
+            if (t == T::days) {
+                return join(value(t, depth - 1), "+", value(t, depth - 1));
+            }
+            return join(value(t, depth - 1), "*", {raw(std::format("{}%", c_.below(300)))});
+        default:
+            if (t == T::days) {
+                return join(value(T::date, depth - 1), "-", value(T::date, depth - 1));
+            }
+            return join(value(t, depth - 1), "/", value(T::number, depth - 1));
+        }
+    case T::months:
+        return join(value(t, depth - 1), "+", value(t, depth - 1));
+    case T::date:
+        return join(value(t, depth - 1), c_.one_in(2) ? "+" : "-",
+                    value(c_.one_in(2) ? T::days : T::months, depth - 1));
+    default:
+        return leaves[c_.below(static_cast<std::uint32_t>(leaves.size()))];
+    }
+}
+
+Line Generator::condition(const int depth) {
+    const std::uint32_t pick = c_.below(depth > 0 ? 9 : 6);
+    switch (pick) {
+    case 0:
+    case 1: {
+        static constexpr T ordered[] = {T::number, T::money, T::usd,   T::date,
+                                        T::data,   T::days,  T::months};
+        const T t = ordered[c_.below(7)];
+        static constexpr std::string_view ops[] = {"<", "<=", ">", ">=", "="};
+        Line out = value(t, depth);
+        out.push_back(raw(std::string(ops[c_.below(5)])));
+        const Line right = value(t, depth);
+        out.insert(out.end(), right.begin(), right.end());
+        return out;
+    }
+    case 2: {
+        static constexpr T equal[] = {T::text, T::flag, T::party};
+        const T t = equal[c_.below(3)];
+        Line out = value(t, 0);
+        out.push_back(raw("="));
+        const Line right = value(t, 0);
+        out.insert(out.end(), right.begin(), right.end());
+        return out;
+    }
+    case 3:
+        if (used_states_ > 1) {
+            return {state(c_.below(static_cast<std::uint32_t>(used_states_)))};
+        }
+        return {word("val.yes")};
+    case 4:
+        for (const GField& f : fields_) {
+            if (f.type == T::flag && c_.one_in(2)) {
+                return {raw(f.name)};
+            }
+        }
+        return {word(c_.one_in(2) ? "val.yes" : "val.no")};
+    case 5:
+        return in_action_ ? Line{word("cond.in_person")} : Line{word("val.no")};
+    case 6: {
+        Line out{word("kw.not"), raw("(")};
+        const Line inner = condition(depth - 1);
+        out.insert(out.end(), inner.begin(), inner.end());
+        out.push_back(raw(")"));
+        return out;
+    }
+    default: {
+        Line out{raw("(")};
+        const Line a = condition(depth - 1);
+        out.insert(out.end(), a.begin(), a.end());
+        out.push_back(raw(")"));
+        out.push_back(word(pick == 7 ? "kw.and" : "kw.or"));
+        out.push_back(raw("("));
+        const Line b = condition(depth - 1);
+        out.insert(out.end(), b.begin(), b.end());
+        out.push_back(raw(")"));
+        return out;
+    }
+    }
+}
+
+void Generator::statements(const int indent, const int depth,
+                           std::vector<std::pair<int, Line>>& out) {
+    const std::uint32_t count = 1 + c_.below(depth > 0 ? 5 : 3);
+    for (std::uint32_t k = 0; k < count; ++k) {
+        switch (c_.below(9)) {
+        case 0:
+        case 1:
+            out.push_back({indent, [&] {
+                               Line l{word("kw.requires")};
+                               const Line cond = condition(2);
+                               l.insert(l.end(), cond.begin(), cond.end());
+                               return l;
+                           }()});
+            break;
+        case 2:
+            out.push_back({indent, {word("kw.requires"), apply("cond.consent_of", party())}});
+            break;
+        case 3: {
+            bool amount = false;
+            int money_inputs = 0;
+            for (const GInput& i : inputs_) {
+                money_inputs += i.type == T::money || i.type == T::data ? 1 : 0;
+            }
+            for (const GField& f : fields_) {
+                amount = amount || f.name == "amount";
+            }
+            if (money_inputs == 1 || (money_inputs == 0 && amount)) {
+                out.push_back({indent,
+                               {apply("cond.over", {raw(std::to_string(c_.between(0, 10'000)))}),
+                                word("kw.requires"), word("cond.in_person")}});
+            } else {
+                out.push_back({indent, {word("kw.requires"), word("cond.in_person")}});
+            }
+            break;
+        }
+        case 4: {
+            if (depth <= 0) {
+                break;
+            }
+            Line head{word("kw.if")};
+            const Line cond = condition(2);
+            head.insert(head.end(), cond.begin(), cond.end());
+            out.push_back({indent, head});
+            statements(indent + 2, depth - 1, out);
+            if (c_.one_in(2)) {
+                out.push_back({indent, {word("kw.otherwise")}});
+                statements(indent + 2, depth - 1, out);
+            }
+            break;
+        }
+        case 5:
+            if (rejects_ < 3) {
+                ++rejects_;
+                out.push_back(
+                    {indent, {word("kw.reject"), raw(std::format("\"no {}\"", rejects_))}});
+            }
+            break;
+        case 6: {
+            std::vector<const GField*> settable;
+            for (const GField& f : fields_) {
+                if (!f.constant) {
+                    settable.push_back(&f);
+                }
+            }
+            if (settable.empty()) {
+                break;
+            }
+            const GField& f = *settable[c_.below(static_cast<std::uint32_t>(settable.size()))];
+            Line l{f.name == "amount"   ? word("field.amount")
+                   : f.type == T::party ? word("field.holder")
+                                        : raw(f.name),
+                   raw("=")};
+            const Line v = value(f.type, 2);
+            l.insert(l.end(), v.begin(), v.end());
+            out.push_back({indent, l});
+            break;
+        }
+        default: {
+            // A state change along the chain of states, or a new one.
+            if (used_states_ < states_.size() && c_.one_in(2)) {
+                out.push_back({indent, {state(used_states_ - 1), raw("->"), state(used_states_)}});
+                ++used_states_;
+            } else if (used_states_ > 1) {
+                const auto from = c_.below(static_cast<std::uint32_t>(used_states_));
+                const auto to = 1 + c_.below(static_cast<std::uint32_t>(used_states_ - 1));
+                out.push_back({indent, {state(from), raw("->"), state(to)}});
+            }
+            break;
+        }
+        }
+    }
+}
+
+std::vector<std::pair<int, Line>> Generator::contract() {
+    std::vector<std::pair<int, Line>> out;
+    out.push_back({0, {word("kw.contract"), raw("Fuzzed")}});
+    // Parties: role words or names.
+    static constexpr std::string_view role_words[] = {"role.we", "role.customer", "role.bank",
+                                                      "role.supplier"};
+    const std::uint32_t parties = 1 + c_.below(3);
+    Line line{word("kw.parties")};
+    for (std::uint32_t i = 0; i < parties; ++i) {
+        if (i > 0) {
+            line.push_back(raw(","));
+        }
+        roles_.push_back(c_.one_in(3) ? raw(std::format("p{}", i))
+                                      : word(std::string(role_words[i])));
+        line.push_back(roles_.back());
+    }
+    out.push_back({0, line});
+    // The kind and its fields.
+    const bool asset = c_.one_in(3);
+    out.push_back({0, {word(asset ? "kind.asset" : "kind.record"), raw("Thing")}});
+    if (c_.one_in(2)) {
+        fields_.push_back({"amount", T::money, false, {}});
+        out.push_back({2, {word("field.amount"), word("cur.HKD")}});
+    }
+    if (c_.one_in(3)) {
+        const Tok role = roles_[c_.below(static_cast<std::uint32_t>(roles_.size()))];
+        fields_.push_back({"holder", T::party, false, role.text});
+        out.push_back({2, {word("field.holder"), role}});
+    }
+    const std::uint32_t own = c_.below(6);
+    for (std::uint32_t i = 0; i < own; ++i) {
+        GField f{std::format("f{}", i), static_cast<T>(c_.below(value_types)), c_.one_in(4), {}};
+        Line l{raw(f.name)};
+        if (f.constant) {
+            const Line v = literal(f.type);
+            l.insert(l.end(), v.begin(), v.end());
+        } else {
+            l.push_back(type_word(f.type));
+        }
+        out.push_back({2, l});
+        fields_.push_back(std::move(f));
+    }
+    // States: a chain the actions walk, vocabulary words first.
+    static constexpr std::string_view state_words[] = {"state.proposed", "state.active",
+                                                       "state.paid"};
+    vocabulary_states_ = c_.below(3);
+    for (std::size_t i = 0; i < vocabulary_states_; ++i) {
+        states_.emplace_back(state_words[i]);
+    }
+    for (std::uint32_t i = 0, n = 2 + c_.below(3); i < n; ++i) {
+        states_.push_back(std::format("s{}", i));
+    }
+    // Actions.
+    const std::uint32_t actions = 1 + c_.below(4);
+    for (std::uint32_t a = 0; a < actions; ++a) {
+        inputs_.clear();
+        Line head{word("kw.can"), raw(std::format("a{}", a)), word("kw.by")};
+        const Line by = party();
+        head.insert(head.end(), by.begin(), by.end());
+        if (c_.one_in(3)) {
+            head.push_back(word("kw.to"));
+            head.push_back(roles_[c_.below(static_cast<std::uint32_t>(roles_.size()))]);
+        }
+        const std::uint32_t inputs = c_.below(4);
+        if (inputs > 0) {
+            head.push_back(word("kw.with"));
+            for (std::uint32_t i = 0; i < inputs; ++i) {
+                if (i > 0) {
+                    head.push_back(raw(","));
+                }
+                GInput input{std::format("i{}", i), static_cast<T>(c_.below(value_types))};
+                head.push_back(raw(input.name));
+                head.push_back(type_word(input.type));
+                inputs_.push_back(std::move(input));
+            }
+        }
+        out.push_back({0, head});
+        in_action_ = true;
+        statements(2, 2, out);
+        in_action_ = false;
+    }
+    // Now and then, what this version does not compile.
+    if (c_.one_in(16)) {
+        out.push_back({0, {word("kw.can"), word("act.transfer")}});
+    }
+    return out;
+}
+
+std::string write(const std::vector<std::pair<int, Line>>& lines, Choices* languages) {
+    std::string out;
+    for (const auto& [indent, line] : lines) {
+        out += std::string(static_cast<std::size_t>(indent), ' ') + render(line, languages) + "\n";
+    }
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// Compiling and running.
+
+struct Compiled {
+    std::optional<bo::Checked> checked;
+    bo::Lowered lowered;
+};
+
+Compiled compile(std::string_view source) {
+    Compiled out;
+    const bo::Lexed lexed = bo::lex(source, official());
+    if (bo::has_errors(lexed.diagnostics)) {
+        return out;
+    }
+    const bo::Parsed parsed = bo::parse(source, lexed);
+    if (!parsed.diagnostics.empty()) {
+        return out;
+    }
+    bo::Checked checked = bo::check(source, parsed.file);
+    if (bo::has_errors(checked.diagnostics)) {
+        return out;
+    }
+    out.lowered = bo::lower(source, checked.model);
+    out.checked = std::move(checked);
+    return out;
+}
+
+/// The result as text: the code, or the problems' codes and values.
+std::string result_of(const bo::Lowered& lowered) {
+    if (lowered.build) {
+        std::string out = cexchain::to_hex(lowered.build->code);
+        for (const auto& [name, kind] : lowered.build->interface) {
+            out += " " + name + std::to_string(static_cast<int>(kind));
+        }
+        return out;
+    }
+    std::string out;
+    for (const bo::Diagnostic& d : lowered.diagnostics) {
+        out += std::string(d.code);
+        for (const auto& [name, value] : d.args) {
+            if (name != "text") {
+                out += " " + value;
+            }
+        }
+        out += "\n";
+    }
+    return out;
+}
+
+protocol::Id ledger(const std::uint8_t fill) {
+    return protocol::Id::from_bytes(Bytes(32, fill)).value();
+}
+
+std::size_t runs_done = 0;
+std::size_t built = 0;
+std::size_t generated_checked = 0;
+std::size_t accepted = 0;
+std::size_t needed = 0;
+std::map<std::string, std::size_t> refusals;
+
+void collect_rejects(const std::vector<m::Statement>& list, std::set<std::string>& out) {
+    for (const m::Statement& s : list) {
+        if (const auto* r = std::get_if<m::Reject>(&s.node)) {
+            out.insert(r->message);
+        } else if (const auto* i = std::get_if<m::If>(&s.node)) {
+            collect_rejects(i->then, out);
+            collect_rejects(i->otherwise, out);
+        }
+    }
+}
+
+/// A value of a type, from the choices (now and then of the wrong type).
+cbor::Value random_value(const m::Type& t, Choices& c) {
+    if (c.one_in(40)) {
+        return cbor::Value::text("wrong");
+    }
+    switch (t.kind) {
+    case m::TypeKind::text:
+        return cbor::Value::text(c.one_in(2) ? "any" : "x");
+    case m::TypeKind::yes_no:
+        return cbor::Value::boolean(c.one_in(2));
+    case m::TypeKind::party:
+        return cbor::Value::bytes(ledger(static_cast<std::uint8_t>(1 + c.below(4))).bytes());
+    case m::TypeKind::date:
+        return cbor::Value::integer(c.between(1'700'000'000'000, 1'900'000'000'000));
+    default:
+        if (c.one_in(20)) {
+            return cbor::Value::integer(c.one_in(2) ? std::numeric_limits<std::int64_t>::max()
+                                                    : std::numeric_limits<std::int64_t>::min());
+        }
+        return cbor::Value::integer(c.between(-1'000, 1'000'000'000));
+    }
+}
+
+void run_calls(const bo::Build& build, const m::Model& model, Choices& c) {
+    auto module = vm::load(build.code);
+    require(module.has_value(), "a built module does not load");
+    const protocol::Id home = ledger(1);
+    std::set<std::string> rejects;
+    for (const m::Action& a : model.actions) {
+        collect_rejects(a.body, rejects);
+    }
+    std::optional<protocol::ContractInstanceView> instance;
+    std::string creation;
+    std::vector<std::string> functions;
+    for (const auto& [name, kind] : build.interface) {
+        (kind == protocol::FunctionKind::create ? creation : functions.emplace_back()) = name;
+    }
+    const std::uint32_t calls = 1 + c.below(12);
+    for (std::uint32_t k = 0; k < calls; ++k) {
+        protocol::ContractInput input;
+        input.home = home;
+        input.contract = ledger(0xC0);
+        input.caller = ledger(0xAC);
+        input.time =
+            static_cast<protocol::Timestamp>(c.between(1'700'000'000'000, 1'900'000'000'000));
+        input.caller_signer = protocol::ContractSigner{
+            static_cast<std::uint8_t>(c.below(4)),
+            c.one_in(2) ? std::optional(protocol::PresenceMethod::webauthn) : std::nullopt,
+            std::nullopt};
+        cbor::Map arguments;
+        if (!instance || c.one_in(10)) {
+            input.function = creation;
+            cbor::Map parties;
+            for (const m::Party& p : model.parties) {
+                if (p.binding == m::Binding::creation && !c.one_in(30)) {
+                    parties.push_back(
+                        {cbor::Value::text(bo::wire_name(p.role, p.name)),
+                         cbor::Value::bytes(
+                             ledger(static_cast<std::uint8_t>(1 + c.below(4))).bytes())});
+                }
+            }
+            cbor::Map fields;
+            for (const m::Field& f : model.fields) {
+                const bool from_role = f.type.kind == m::TypeKind::party && f.value;
+                if (f.kind == m::FieldKind::instance && !from_role && !c.one_in(30)) {
+                    fields.push_back({cbor::Value::text(bo::wire_name(f.word, f.name)),
+                                      random_value(f.type, c)});
+                }
+            }
+            if (!parties.empty()) {
+                arguments.push_back(
+                    {cbor::Value::text("parties"), cbor::Value::map(std::move(parties))});
+            }
+            if (!fields.empty()) {
+                arguments.push_back(
+                    {cbor::Value::text("fields"), cbor::Value::map(std::move(fields))});
+            }
+            instance.reset();
+        } else {
+            input.function = functions.empty() || c.one_in(30)
+                                 ? std::string("nothing")
+                                 : functions[c.below(static_cast<std::uint32_t>(functions.size()))];
+            input.instance = instance;
+            for (const m::Action& a : model.actions) {
+                if (bo::wire_name(a.word, a.name) != input.function) {
+                    continue;
+                }
+                for (const m::Field& f : a.inputs) {
+                    if (!c.one_in(30)) {
+                        arguments.push_back({cbor::Value::text(bo::wire_name(f.word, f.name)),
+                                             random_value(f.type, c)});
+                    }
+                }
+                if (a.to && c.one_in(2)) {
+                    arguments.push_back(
+                        {cbor::Value::text(bo::wire_name(a.to->concept_entry, a.to->name)),
+                         cbor::Value::bytes(
+                             ledger(static_cast<std::uint8_t>(1 + c.below(4))).bytes())});
+                }
+            }
+            // Consents, as a call cites them: ascending, never the home.
+            for (std::uint8_t l = 2; l <= 4; ++l) {
+                if (c.one_in(2)) {
+                    input.consents.push_back(
+                        {ledger(l),
+                         protocol::ContractSigner{
+                             static_cast<std::uint8_t>(c.below(4)),
+                             c.one_in(2) ? std::optional(protocol::PresenceMethod::hardware_key)
+                                         : std::nullopt,
+                             std::nullopt}});
+                }
+            }
+        }
+        input.arguments = arguments.empty() && c.one_in(2) ? cbor::Value::null()
+                                                           : cbor::Value::map(std::move(arguments));
+        auto encoded = protocol::encode_contract_input(input);
+        if (!encoded) {
+            continue; // keys given twice, or not in order: no ledger sends that
+        }
+        auto outcome = vm::run(*module, *encoded, provider(), cexchain::crypto::HashAlg::sha256);
+        require(outcome.has_value(), "vm::run failed");
+        ++runs_done;
+        if (outcome->trap) {
+            const std::string reason(outcome->abort_reason.begin(), outcome->abort_reason.end());
+            require(*outcome->trap == vm::Trap::aborted, "a compiled contract trapped",
+                    std::string(vm::name(*outcome->trap)) + " on " + input.function);
+            ++refusals[reason.starts_with("bo:") ? reason.substr(0, reason.find(' ')) : "reject"];
+            if (reason.starts_with("bo:")) {
+                require(bo::render_reason(reason, nullptr).has_value() &&
+                            bo::render_reason(reason, bo::official_pack("zh-Hant-HK")).has_value(),
+                        "a reason without a text", reason);
+            } else {
+                require(rejects.contains(reason), "a reason that is no reject text", reason);
+            }
+            continue;
+        }
+        auto output = protocol::decode_contract_output(outcome->output, home);
+        require(output.has_value(), "an output the ledger refuses",
+                cexchain::to_hex(outcome->output));
+        needed += std::holds_alternative<protocol::ContractNeeds>(*output) ? 1U : 0U;
+        if (const auto* accept = std::get_if<protocol::ContractAccept>(&*output)) {
+            ++accepted;
+            require(accept->state.find("state") != nullptr &&
+                        accept->state.find("fields") != nullptr,
+                    "a state without its name and fields");
+            if (!instance) {
+                instance = protocol::ContractInstanceView{ledger(0x1D), 0, {}, {}, {}};
+            }
+            instance->head += 1;
+            instance->state = accept->state;
+            instance->status = accept->status;
+            if (accept->parties) {
+                instance->parties = *accept->parties;
+            }
+            if (accept->final) {
+                instance.reset();
+            }
+        }
+    }
+}
+
+void build_and_run(std::string_view source, Choices& c,
+                   const std::optional<std::string>& expected = std::nullopt) {
+    const Compiled first = compile(source);
+    if (!first.checked) {
+        require(!expected.has_value(), "a rendering does not check", source);
+        return;
+    }
+    const std::string result = result_of(first.lowered);
+    require(result == result_of(compile(source).lowered), "lowering twice differs", source);
+    if (expected) {
+        require(result == *expected, "languages give different results", source);
+    }
+    for (const bo::Diagnostic& d : first.lowered.diagnostics) {
+        require(d.code.starts_with("build."), "a diagnostic that is no build.* code", d.code);
+        require(!bo::render(d, bo::official_pack("zh-Hans-CN")).empty(), "an empty message");
+    }
+    if (first.lowered.build) {
+        require(first.lowered.diagnostics.empty(), "a build with problems");
+        ++built;
+        run_calls(*first.lowered.build, first.checked->model, c);
+    }
+}
+
+} // namespace
+
+extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
+    current_data = data;
+    current_size = size;
+    if (size == 0) {
+        return 0;
+    }
+    if ((data[0] & 1U) != 0) {
+        // Source as it is, then calls from a fixed set of choices.
+        const std::string source(reinterpret_cast<const char*>(data + 1), size - 1);
+        const std::uint8_t calls[] = {7, 1, 200, 3, 9, 77, 5, 0, 2, 31, 4, 8, 16, 99, 1, 3};
+        Choices c(calls, sizeof calls);
+        build_and_run(source, c);
+        return 0;
+    }
+    Choices c(data + 1, size - 1);
+    Generator generator(c);
+    const auto lines = generator.contract();
+    const std::string english = write(lines, nullptr);
+    const Compiled compiled = compile(english);
+    if (!compiled.checked) {
+        return 0;
+    }
+    ++generated_checked;
+    const std::string result = result_of(compiled.lowered);
+    // The same contract, each word in a language chosen at random.
+    Choices languages(data + 1, size - 1);
+    build_and_run(write(lines, &languages), c, result);
+    build_and_run(english, c);
+    current_data = nullptr;
+    return 0;
+}
+
+#if defined(CEXCHAIN_BO_FUZZ_DRIVER)
+
+namespace {
+
+std::uint64_t splitmix(std::uint64_t& state) {
+    std::uint64_t z = (state += 0x9E37'79B9'7F4A'7C15ULL);
+    z = (z ^ (z >> 30U)) * 0xBF58'476D'1CE4'E5B9ULL;
+    z = (z ^ (z >> 27U)) * 0x94D0'49BB'1331'11EBULL;
+    return z ^ (z >> 31U);
+}
+
+Bytes read_file(const std::filesystem::path& path) {
+    std::ifstream in(path, std::ios::binary);
+    return Bytes(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+    std::uint64_t runs = 1000;
+    std::uint64_t seconds = 0;
+    std::uint64_t seed = 1;
+    std::vector<std::filesystem::path> inputs;
+    for (int i = 1; i < argc; ++i) {
+        const std::string_view arg = argv[i];
+        const auto number = [&](std::string_view flag) {
+            return std::strtoull(std::string(arg.substr(flag.size())).c_str(), nullptr, 10);
+        };
+        if (arg.starts_with("-runs=")) {
+            runs = number("-runs=");
+        } else if (arg.starts_with("-max_total_time=")) {
+            seconds = number("-max_total_time=");
+            runs = std::numeric_limits<std::uint64_t>::max();
+        } else if (arg.starts_with("-seed=")) {
+            seed = number("-seed=");
+        } else if (arg.starts_with("-")) {
+            // libFuzzer's other flags mean nothing here.
+        } else {
+            inputs.emplace_back(arg);
+        }
+    }
+    if (inputs.empty()) {
+        inputs.emplace_back(CEXCHAIN_BO_GOLDEN_DIR);
+    }
+    std::size_t replayed = 0;
+    for (const std::filesystem::path& input : inputs) {
+        std::vector<std::filesystem::path> files;
+        if (std::filesystem::is_directory(input)) {
+            for (const auto& entry : std::filesystem::recursive_directory_iterator(input)) {
+                if (entry.is_regular_file()) {
+                    files.push_back(entry.path());
+                }
+            }
+        } else {
+            files.push_back(input);
+        }
+        std::ranges::sort(files);
+        for (const std::filesystem::path& file : files) {
+            // Sources (.bo), and inputs as a corpus keeps them (no extension).
+            if (file.has_extension() && file.extension() != ".bo") {
+                continue;
+            }
+            Bytes bytes = read_file(file);
+            if (file.extension() == ".bo") {
+                bytes.insert(bytes.begin(), 1); // as source
+            }
+            LLVMFuzzerTestOneInput(bytes.data(), bytes.size());
+            ++replayed;
+        }
+    }
+    const auto start = std::chrono::steady_clock::now();
+    std::uint64_t state = seed;
+    std::uint64_t done = 0;
+    for (; done < runs; ++done) {
+        if (seconds > 0 &&
+            std::chrono::steady_clock::now() - start > std::chrono::seconds(seconds)) {
+            break;
+        }
+        Bytes bytes(64 + splitmix(state) % 960);
+        for (std::uint8_t& b : bytes) {
+            b = static_cast<std::uint8_t>(splitmix(state));
+        }
+        bytes[0] = static_cast<std::uint8_t>(bytes[0] & 0xFEU); // the generator
+        LLVMFuzzerTestOneInput(bytes.data(), bytes.size());
+    }
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - start);
+    std::printf("bo_build_fuzz: %zu files replayed, %llu inputs generated (%zu contracts that "
+                "check) in %lld ms; %zu builds, %zu calls run; no failures\n",
+                replayed, static_cast<unsigned long long>(done), generated_checked,
+                static_cast<long long>(elapsed.count()), built, runs_done);
+    std::printf("calls: %zu accepted, %zu needing consents, refused:", accepted, needed);
+    for (const auto& [reason, count] : refusals) {
+        std::printf(" %s %zu", reason.c_str(), count);
+    }
+    std::printf("\n");
+    return 0;
+}
+
+#endif
