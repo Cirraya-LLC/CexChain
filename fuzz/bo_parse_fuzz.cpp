@@ -11,7 +11,12 @@
 //     a place in the source, is not on a line where the lexer found a
 //     problem, and renders in each official language;
 //   - parsing again gives the same dump, and the tree's dump has no more
-//     lines than the source has tokens (nothing is invented).
+//     lines than the source has tokens (nothing is invented);
+//   - the formatter (bo fmt): a source with problems is not formatted; one
+//     without is, as written and in an official language chosen by the
+//     input's size, unless (in a language) words would read together
+//     (fmt.unstable); what it writes reads without problems, parses to the
+//     same tree with the same comments, and formats to itself.
 
 #include <algorithm>
 #include <cstddef>
@@ -20,10 +25,12 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <variant>
 #include <vector>
 
 #include <cexchain/bo/ast.hpp>
+#include <cexchain/bo/format.hpp>
 #include <cexchain/bo/lexer.hpp>
 #include <cexchain/bo/messages.hpp>
 #include <cexchain/bo/pack.hpp>
@@ -33,15 +40,50 @@ namespace {
 
 using namespace cexchain;
 
-const bo::Lexicon& lexicon() {
-    static const bo::Lexicon instance = [] {
-        const bo::PackSetRead set = bo::make_pack_set({});
+const bo::PackSet& packs() {
+    static const bo::PackSet instance = [] {
+        bo::PackSetRead set = bo::make_pack_set({});
         if (!set.set) {
             std::abort();
         }
-        return bo::Lexicon(*set.set);
+        return std::move(*set.set);
     }();
     return instance;
+}
+
+const bo::Lexicon& lexicon() {
+    static const bo::Lexicon instance(packs());
+    return instance;
+}
+
+/// Formats a source that reads without problems, and checks what it
+/// writes.
+void format_round_trip(std::string_view source, const bo::Lexed& lexed, const bo::Parsed& parsed,
+                       const bo::Pack* language) {
+    const bo::Formatted f = bo::format_source(source, packs(), lexicon(), language);
+    if (!f.source) {
+        // Only words that would read together in a language stop it.
+        if (language == nullptr || f.diagnostics.empty()) {
+            std::abort();
+        }
+        for (const bo::Diagnostic& d : f.diagnostics) {
+            if (d.code != "fmt.unstable") {
+                std::abort();
+            }
+        }
+        return;
+    }
+    const bo::Lexed again = bo::lex(*f.source, lexicon());
+    const bo::Parsed reparsed = bo::parse(*f.source, again);
+    if (bo::has_errors(again.diagnostics) || !reparsed.diagnostics.empty() ||
+        bo::dump(reparsed.file) != bo::dump(parsed.file) ||
+        again.comments.size() != lexed.comments.size()) {
+        std::abort();
+    }
+    const bo::Formatted twice = bo::format_source(*f.source, packs(), lexicon(), language);
+    if (twice.source != f.source) {
+        std::abort();
+    }
 }
 
 template <class... F>
@@ -277,5 +319,15 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     if (static_cast<std::size_t>(std::ranges::count(tree, '\n')) > lexed.tokens.size() + 1) {
         std::abort();
     }
+    if (bo::has_errors(lexed.diagnostics) || !parsed.diagnostics.empty()) {
+        if (bo::format_source(source, packs(), lx, nullptr).source.has_value()) {
+            std::abort();
+        }
+        return 0;
+    }
+    format_round_trip(source, lexed, parsed, nullptr);
+    static const bo::Pack* const languages[] = {packs().find("en"), packs().find("zh-Hant-HK"),
+                                                packs().find("zh-Hans-CN")};
+    format_round_trip(source, lexed, parsed, languages[size % 3]);
     return 0;
 }

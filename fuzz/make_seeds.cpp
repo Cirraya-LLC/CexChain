@@ -633,6 +633,16 @@ void bo_seeds(const Seeds& seeds) {
         seeds.write("bo_parse_fuzz", path.filename().string() + ".bo", text.str());
         seeds.write("bo_check_fuzz", path.filename().string() + ".bo", text.str());
     }
+    // The formatter's cases (bo_parse_fuzz formats every source it reads):
+    // layout, words with arguments on either side, numbers and dates.
+    for (const auto& entry : std::filesystem::directory_iterator(
+             std::filesystem::path(CEXCHAIN_BO_GOLDEN_DIR) / "format")) {
+        std::ifstream in(entry.path() / "source.bo", std::ios::binary);
+        std::stringstream text;
+        text << in.rdbuf();
+        seeds.write("bo_parse_fuzz", "format-" + entry.path().filename().string() + ".bo",
+                    text.str());
+    }
     // The compiled agreement in four spellings, whose model explains with
     // requirements, choices, and a refusal (bo_check_fuzz writes the text).
     for (const auto& entry : std::filesystem::directory_iterator(

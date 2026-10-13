@@ -9,6 +9,10 @@
 //   - a generated contract gives the same result written in English and with
 //     every word in a language chosen at random (the same bytes, or the same
 //     problems);
+//   - formatted (bo fmt) as written and into each official language, the
+//     generated contract and its mixed rendering give the same model, the
+//     same contract text in each language, and the same bytes (or the same
+//     problems); formatting again changes nothing;
 //   - every module it returns loads under the profile;
 //   - run on calls made from the input (creations and actions with
 //     arguments, consents, signers, and times, as the ledger encodes them),
@@ -43,6 +47,7 @@
 #include <map>
 #include <optional>
 #include <set>
+#include <span>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -51,6 +56,8 @@
 #include <vector>
 
 #include <cexchain/bo/checker.hpp>
+#include <cexchain/bo/explain.hpp>
+#include <cexchain/bo/format.hpp>
 #include <cexchain/bo/lexer.hpp>
 #include <cexchain/bo/lower.hpp>
 #include <cexchain/bo/messages.hpp>
@@ -102,11 +109,16 @@ const cexchain::crypto::Provider& provider() {
     return instance;
 }
 
-const bo::Lexicon& official() {
-    static const bo::Lexicon lexicon = [] {
-        const bo::PackSetRead set = bo::make_pack_set({});
-        return bo::Lexicon(*set.set);
+const bo::PackSet& official_set() {
+    static const bo::PackSet set = [] {
+        bo::PackSetRead read = bo::make_pack_set({});
+        return std::move(*read.set);
     }();
+    return set;
+}
+
+const bo::Lexicon& official() {
+    static const bo::Lexicon lexicon(official_set());
     return lexicon;
 }
 
@@ -883,6 +895,40 @@ void build_and_run(std::string_view source, Choices& c,
     }
 }
 
+/// The model and its text in each official language, then the build's
+/// result: what formatting must not change.
+std::string meaning_of(const Compiled& compiled) {
+    std::string out = bo::dump(compiled.checked->model);
+    for (const bo::Pack& language : bo::official_packs()) {
+        out += bo::explain(compiled.checked->model, &language).text;
+    }
+    return out + result_of(compiled.lowered);
+}
+
+std::size_t formatted = 0;
+
+/// A source that checks, formatted as written and into each official
+/// language: the same model, text, and build; formatting again changes
+/// nothing.
+void formats_alike(std::string_view source, const Compiled& compiled,
+                   std::span<const char* const> ids) {
+    const std::string expected = meaning_of(compiled);
+    for (const char* id : ids) {
+        const bo::Pack* language = *id == '\0' ? nullptr : official_set().find(id);
+        const bo::Formatted f = bo::format_source(source, official_set(), official(), language);
+        require(f.source.has_value(), "a contract that checks is not formatted",
+                f.diagnostics.empty() ? source : f.diagnostics.front().code);
+        const Compiled again = compile(*f.source);
+        require(again.checked.has_value(), "a formatted contract does not check", *f.source);
+        require(meaning_of(again) == expected, "formatting changed the model, text, or code",
+                *f.source);
+        require(bo::format_source(*f.source, official_set(), official(), language).source ==
+                    f.source,
+                "formatting twice differs", *f.source);
+        ++formatted;
+    }
+}
+
 } // namespace
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
@@ -911,8 +957,17 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     const std::string result = result_of(compiled.lowered);
     // The same contract, each word in a language chosen at random.
     Choices languages(data + 1, size - 1);
-    build_and_run(write(lines, &languages), c, result);
+    const std::string mixed = write(lines, &languages);
+    build_and_run(mixed, c, result);
     build_and_run(english, c);
+    // Formatted, as written and into each language; the mixed rendering as
+    // written and into one language the input picks.
+    static const char* const all[] = {"", "en", "zh-Hant-HK", "zh-Hans-CN"};
+    formats_alike(english, compiled, all);
+    if (const Compiled other = compile(mixed); other.checked) {
+        const char* const some[] = {"", all[1 + size % 3]};
+        formats_alike(mixed, other, some);
+    }
     current_data = nullptr;
     return 0;
 }
@@ -1005,9 +1060,10 @@ int main(int argc, char** argv) {
     const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - start);
     std::printf("bo_build_fuzz: %zu files replayed, %llu inputs generated (%zu contracts that "
-                "check) in %lld ms; %zu builds, %zu calls run; no failures\n",
+                "check) in %lld ms; %zu builds, %zu calls run, %zu sources formatted; no "
+                "failures\n",
                 replayed, static_cast<unsigned long long>(done), generated_checked,
-                static_cast<long long>(elapsed.count()), built, runs_done);
+                static_cast<long long>(elapsed.count()), built, runs_done, formatted);
     std::printf("calls: %zu accepted, %zu needing consents, refused:", accepted, needed);
     for (const auto& [reason, count] : refusals) {
         std::printf(" %s %zu", reason.c_str(), count);
