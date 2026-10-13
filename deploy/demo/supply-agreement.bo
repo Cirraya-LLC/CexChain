@@ -1,0 +1,20 @@
+# A supply agreement between a core enterprise (we), its supplier, and its
+# bank. We propose the terms; they take effect once the supplier and the
+# bank have both consented, each on its own ledger; we close the agreement
+# once the supplier confirms that the goods were delivered.
+contract SupplyAgreement
+parties we, supplier, bank
+
+record Terms
+  goods text
+  pieces number
+  price CNY
+  deliver_by date
+
+can sign by we
+  requires consent of supplier
+  requires consent of bank
+  proposed -> signed
+can close by we
+  requires consent of supplier
+  signed -> closed

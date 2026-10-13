@@ -436,8 +436,9 @@ person who proved presence, a key alone, or an AI agent and its model. The brows
 the same report. Delegations can be limited
 to contracts (`delegation grant --contracts`), and `contract retire` stops new instances while
 existing ones carry on. `contract deploy WASM --function NAME=KIND --compiler TEXT` deploys a
-module built some other way. `deploy/demo/supply-agreement.sh` walks through such an agreement
-on one machine, narrated, with the bank's AI agent consenting through MCP.
+module built some other way. `deploy/demo/supply-agreement.sh` walks through such an agreement,
+written in Bo (`deploy/demo/supply-agreement.bo`), on one machine, narrated, with the bank's AI
+agent consenting through MCP.
 
 ## The Bo language
 

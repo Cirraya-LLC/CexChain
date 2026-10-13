@@ -2,20 +2,22 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
 #
-# A supply agreement across three organizations, governed by a contract and
-# narrated step by step: a core enterprise deploys the contract on its ledger
-# and proposes an agreement to its supplier and its bank; the supplier's
-# sales manager and the bank's AI agent consent, each on their own
-# organization's ledger, and the core enterprise's registrar records the
-# signature once the contract has both consents; anyone verifies the
-# agreement offline; once the goods are delivered, it is closed. The bank's
-# ledger hashes with SM3 and signs with SM2. Three ledgers talk over HTTP.
+# A supply agreement across three organizations, governed by a contract
+# written in Bo and narrated step by step: a core enterprise builds the
+# contract and deploys it on its ledger, and proposes an agreement to its
+# supplier and its bank; the supplier's sales manager and the bank's AI agent
+# consent, each on their own organization's ledger, and the core
+# enterprise's registrar records the signature once the contract has both
+# consents; anyone verifies the agreement offline, rebuilding the contract's
+# code from its source; once the goods are delivered, it is closed. The
+# bank's ledger hashes with SM3 and signs with SM2. Three ledgers talk over
+# HTTP.
 #
-# The contract is a small test contract (tools/testvectors/test_contracts.py)
-# whose arguments spell out what it answers. Real contracts will be written
-# in Bo, CexChain's contract language (Phase 6, step 6), and work out their
-# answers from the terms themselves; the rest of this walkthrough stays the
-# same.
+# The contract is supply-agreement.bo, next to this script: Bo, CexChain's
+# contract language (Phase 6, step 6). The deploy records its source, so
+# whoever verifies an agreement can read the terms the code enforces and
+# check that the code is built from them. It needs a cexchain built with the
+# Bo compiler (GCC 16; the release build and the Docker image have it).
 #
 # Usage: supply-agreement.sh [CEXCHAIN] [DIR]
 #   CEXCHAIN  the command-line tool (default: cexchain on the PATH)
@@ -25,7 +27,7 @@ set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
 CEXCHAIN="${1:-cexchain}"
-VECTORS="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../testvectors" && pwd)"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -n "${2:-}" ]; then
     WORK="$2"; KEEP=1; mkdir -p "$WORK"
 else
@@ -78,38 +80,36 @@ run peer add bank --ledger-id "$BANK_ID" --ledger "$CORE" > /dev/null
 run peer add bank --ledger-id "$BANK_ID" --ledger "$SUP" > /dev/null
 run peer add supplier --ledger-id "$SUP_ID" --ledger "$BANK" > /dev/null
 
-step "2. The core enterprise deploys the contract on its ledger, the agreement's home"
-python3 -c "import json, sys; open('agreement.wasm', 'wb').write(bytes.fromhex(json.load(open(sys.argv[1]))['counting']))" \
-    "$VECTORS/test-contracts.json"
-# A contract is a WebAssembly module with named functions: "propose" creates
-# an instance (one agreement), "sign" and "close" act on it. The source is
-# recorded with the code, so anyone can compare the two.
-CONTRACT="$(run contract deploy agreement.wasm --function propose=create --function sign=call \
-    --function close=call --compiler "test_contracts.py 1" --name "Supply agreement" \
-    --source "$VECTORS/../tools/testvectors/test_contracts.py" --as core-root.key --ledger "$CORE" \
-    --json | field '["contract"]["id"]')"
+step "2. The core enterprise builds the contract and deploys it on its ledger, the agreement's home"
+if [ "$(run version --json | field '["bo"] is not None')" != True ]; then
+    echo "This demo needs a cexchain built with the Bo compiler (GCC 16)." >&2
+    exit 1
+fi
+cp "$HERE/supply-agreement.bo" .
+sed 's/^/   | /' supply-agreement.bo
+# Building checks the contract and compiles it to a WebAssembly module with a
+# function per action ("sign", "close") and one that creates an instance
+# ("create"). The deploy records the code, the compiler, and the source with
+# the language packs it was read with, so anyone can rebuild the code and
+# compare. (The warning says the comments are published with it.)
+run bo build supply-agreement.bo 2>&1 | indent
+CONTRACT="$(run contract deploy --bo supply-agreement.bo --as core-root.key --ledger "$CORE" --json \
+    2> /dev/null | field '["contract"]["id"]')"
 run contract show "$CONTRACT" --ledger "$CORE" | indent
 say "The ledger runs the contract on every call and records the call only if the contract"
 say "accepts it. The contract may also say whose consent it still needs."
 
 step "3. The core enterprise proposes the agreement to its supplier and its bank"
-# The test contract's arguments are its answers, one per number of consents
-# a call brings: each is CBOR (<<...>>) holding [1, accept] or [2, needs].
-# An accept gives the instance's state (here, the terms), its status, and its
-# parties. A Bo contract would work this out from the terms instead.
-TERMS='{"goods": "Bearings 6204-2RS", "quantity": 20000, "price": "CNY 1,250,000.00", "delivery by": "2026-11-30"}'
-PROPOSE="[<<[1, {1: $TERMS, 2: \"proposed\", 3: {\"supplier\": h'$SUP_ID', \"bank\": h'$BANK_ID'}}]>>]"
-AGREEMENT="$(run contract create "$CONTRACT" propose --args "$PROPOSE" --reference "PO-2026-1012" \
+# Creating an instance takes the terms and binds the roles to ledgers. Money
+# is in the currency's smallest unit (fen), dates in milliseconds since 1970.
+DELIVER_BY=1796054400000   # 2026-12-01, 00:00 in Hong Kong and Shanghai
+TERMS="{\"goods\": \"Bearings 6204-2RS\", \"pieces\": 20000, \"price\": 125000000, \"deliver_by\": $DELIVER_BY}"
+PROPOSE="{\"fields\": $TERMS, \"parties\": {\"we\": h'$CORE_ID', \"supplier\": h'$SUP_ID', \"bank\": h'$BANK_ID'}}"
+AGREEMENT="$(run contract create "$CONTRACT" create --args "$PROPOSE" --reference "PO-2026-1012" \
     --as core-root.key --ledger "$CORE" --json | field '["instance"]["id"]')"
-run contract instance "$AGREEMENT" --ledger "$CORE" | sed -n '1,7p' | indent
-# Signing: without consents the contract asks for both parties'; with one
-# (the supplier's, which comes first here), for the bank's; with both, it
-# accepts. (Ledgers are listed in byte order, as the protocol requires.)
-FIRST="$(printf '%s\n' "$SUP_ID" "$BANK_ID" | LC_ALL=C sort | sed -n 1p)"
-SECOND="$(printf '%s\n' "$SUP_ID" "$BANK_ID" | LC_ALL=C sort | sed -n 2p)"
-SIGN="[<<[2, [h'$FIRST', h'$SECOND']]>>, <<[2, [h'$BANK_ID']]>>, <<[1, {1: $TERMS, 2: \"signed\"}]>>]"
+run contract instance "$AGREEMENT" --ledger "$CORE" | sed -n '1,8p' | indent
 say "Can the core enterprise sign it alone? A dry run asks the contract:"
-run contract call "$AGREEMENT" sign --args "$SIGN" --dry-run --as core-root.key --ledger "$CORE" | indent
+run contract call "$AGREEMENT" sign --dry-run --as core-root.key --ledger "$CORE" | indent
 
 step "4. The core enterprise runs its server with a registrar"
 # The registrar is a device with a delegation for calls on this contract
@@ -140,7 +140,7 @@ run peer add core --ledger-id "$CORE_ID" --url "$URL" --token-file bank.token --
 # The core enterprise's staff work through the server (client mode): what
 # they see is checked against the ledger's history on their own machine.
 STAFF=(--server "$URL" --token-file staff.token --ledger-id "$CORE_ID" --cache "$WORK/cache")
-CALL="$(run contract propose "$AGREEMENT" sign --args "$SIGN" --reference "Signature of PO-2026-1012" \
+CALL="$(run contract propose "$AGREEMENT" sign --reference "Signature of PO-2026-1012" \
     "${STAFF[@]}" --json | field '["call"]')"
 say "The core enterprise proposes signing to its registrar, which holds call ${CALL:0:12}"
 say "until the supplier and the bank consent."
@@ -214,20 +214,20 @@ EOF
 
 step "8. Anyone verifies the agreement offline"
 # The supplier fetches the instance's evidence from its home and checks it:
-# every call is run again, and every consent is checked on the ledger that
-# gave it. The same file opens in the browser verifier (cexchain-verify.html).
+# every call is run again, every consent is checked on the ledger that gave
+# it, and the contract's code is rebuilt from the source its deploy carries.
+# The same file opens in the browser verifier (cexchain-verify.html).
 run contract fetch --peer core --instance "$AGREEMENT" --out agreement.cbor --ledger "$SUP" > /dev/null
 run contract verify agreement.cbor --ledger-id "$CORE_ID" | indent
 
 step "9. The goods are delivered; the agreement is closed"
 # Closing needs only the supplier's confirmation: the contract says so.
-CLOSE="[<<[2, [h'$SUP_ID']]>>, <<[1, {1: $TERMS, 2: \"closed\", 5: true}]>>]"
-CALL="$(run contract propose "$AGREEMENT" close --args "$CLOSE" --reference "Goods received GRN-2026-1130" \
+CALL="$(run contract propose "$AGREEMENT" close --reference "Goods received GRN-2026-1130" \
     "${STAFF[@]}" --json | field '["call"]')"
 run contract consent --peer core --call "$CALL" --reference "Delivered in full" --as manager.key \
     --log-key supplier-log.key --send --ledger "$SUP" | indent
 run contract fetch --peer core --instance "$AGREEMENT" --out closed.cbor --ledger "$BANK" > /dev/null
-run contract verify closed.cbor --ledger-id "$CORE_ID" | grep -E 'Status|consent of' | indent
+run contract verify closed.cbor --ledger-id "$CORE_ID" | grep -E 'Status|consent of|rebuilds' | indent
 for d in "$CORE" "$SUP" "$BANK"; do run audit --ledger "$d" > /dev/null; done
 say "Every ledger audits clean."
 if [ "$KEEP" = 1 ]; then
