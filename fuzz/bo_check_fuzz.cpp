@@ -13,7 +13,11 @@
 //     its first; its states, fields, and parties have distinct keys; every
 //     rule it names is a rule of the edition; every type it holds encodes
 //     and describes;
-//   - checking again gives the same model and the same diagnostics.
+//   - checking again gives the same model and the same diagnostics;
+//   - the contract text (explain, milestone 8) is written for every model, in
+//     each official language: valid UTF-8, every clause in the text, every
+//     rule it marks a rule of the edition and explained in its last section,
+//     and the same text twice.
 
 #include <cstddef>
 #include <cstdint>
@@ -27,11 +31,13 @@
 #include <cexchain/bo/ast.hpp>
 #include <cexchain/bo/checker.hpp>
 #include <cexchain/bo/concepts.hpp>
+#include <cexchain/bo/explain.hpp>
 #include <cexchain/bo/lexer.hpp>
 #include <cexchain/bo/messages.hpp>
 #include <cexchain/bo/model.hpp>
 #include <cexchain/bo/pack.hpp>
 #include <cexchain/bo/parser.hpp>
+#include <cexchain/core/cbor.hpp>
 
 namespace {
 
@@ -271,6 +277,33 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     const std::string text = bo::dump(checked, nullptr);
     if (bo::dump(bo::check(source, parsed.file), nullptr) != text) {
         std::abort();
+    }
+    for (const bo::Pack& language : bo::official_packs()) {
+        const bo::Explained e = bo::explain(checked.model, &language);
+        if (e.text.empty() || !cbor::is_valid_utf8(e.text) ||
+            bo::explain(checked.model, &language).text != e.text) {
+            std::abort();
+        }
+        std::set<std::string_view> marked;
+        for (const bo::ExplainedSection& section : e.sections) {
+            for (const bo::ExplainedClause& c : section.clauses) {
+                if (e.text.find(c.text) == std::string::npos) {
+                    std::abort();
+                }
+                for (const std::string_view r : c.rules) {
+                    walker.rule(r);
+                    marked.insert(r);
+                }
+            }
+        }
+        if (marked.size() != e.rules.size()) {
+            std::abort();
+        }
+        for (const auto& [rule, explanation] : e.rules) {
+            if (!marked.contains(rule) || explanation.empty()) {
+                std::abort();
+            }
+        }
     }
     return 0;
 }

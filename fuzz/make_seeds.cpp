@@ -633,6 +633,16 @@ void bo_seeds(const Seeds& seeds) {
         seeds.write("bo_parse_fuzz", path.filename().string() + ".bo", text.str());
         seeds.write("bo_check_fuzz", path.filename().string() + ".bo", text.str());
     }
+    // The compiled agreement in four spellings, whose model explains with
+    // requirements, choices, and a refusal (bo_check_fuzz writes the text).
+    for (const auto& entry : std::filesystem::directory_iterator(
+             std::filesystem::path(CEXCHAIN_BO_GOLDEN_DIR) / "build")) {
+        std::ifstream in(entry.path() / "source.bo", std::ios::binary);
+        std::stringstream text;
+        text << in.rdbuf();
+        seeds.write("bo_check_fuzz", "build-" + entry.path().filename().string() + ".bo",
+                    text.str());
+    }
 
     // Deploys' source bundles: each golden source (the compiled agreement in
     // four spellings among them) with the official packs, under SHA-256 and
