@@ -30,6 +30,19 @@ if(TARGET cexchain_bo_front)
     cexchain_add_fuzzer(bo_parse_fuzz cexchain::bo_front)
     cexchain_add_fuzzer(bo_check_fuzz cexchain::bo_front)
 endif()
+# The Bo runtime's CBOR reader, in the harness module the GCC tests keep equal
+# to the emitter's output (tests/bo/golden/runtime/cbor-copy.wasm). The
+# emitter needs C++26 reflection (GCC only) and libFuzzer needs Clang, so the
+# module's bytes are embedded here instead of generated.
+set(bo_harness ${PROJECT_SOURCE_DIR}/tests/bo/golden/runtime/cbor-copy.wasm)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${bo_harness})
+file(READ ${bo_harness} bo_harness_hex HEX)
+string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," bo_harness_hex "${bo_harness_hex}")
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/bo_runtime/cbor-copy.wasm.inc.new "${bo_harness_hex}\n")
+configure_file(${CMAKE_CURRENT_BINARY_DIR}/bo_runtime/cbor-copy.wasm.inc.new
+    ${CMAKE_CURRENT_BINARY_DIR}/bo_runtime/cbor-copy.wasm.inc COPYONLY)
+cexchain_add_fuzzer(bo_runtime_fuzz cexchain::crypto_openssl)
+target_include_directories(bo_runtime_fuzz PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/bo_runtime)
 # The interpreter's internals (core/src/vm/internal.hpp), for a lower fuel limit.
 target_include_directories(vm_fuzz PRIVATE ${PROJECT_SOURCE_DIR}/core/src)
 if(TARGET cexchain_crypto_pkcs11)

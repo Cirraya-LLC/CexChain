@@ -6,7 +6,8 @@
 // replay, access rules, backup restore, passkey registration) are reached
 // from real objects mutated, not from nothing. The contract interpreter and
 // the contract parsers start from testvectors/vm-v1.json and
-// protocol-v0.6.json. A registrar's pending calls (node/contracts.hpp) are
+// protocol-v0.6.json, and so does the Bo runtime's CBOR reader (contract
+// inputs and outputs). A registrar's pending calls (node/contracts.hpp) are
 // built here as CBOR, without the node library. The Bo pack reader starts
 // from the official packs.
 //
@@ -529,6 +530,10 @@ void contract_seeds(const Seeds& seeds) {
     std::size_t n = 0;
     for (const auto& run : ledger.at("runs")) {
         const auto output = must(from_hex(run.at("output").get<std::string>()), "output");
+        // The Bo runtime reads contract inputs (and any CBOR): both as seeds.
+        const auto input = must(from_hex(run.at("input").get<std::string>()), "input");
+        seeds.write("bo_runtime_fuzz", std::format("input-{:02}", n), ByteView(input));
+        seeds.write("bo_runtime_fuzz", std::format("output-{:02}", n), ByteView(output));
         seeds.write("contract_parse_fuzz", std::format("output-{:02}", n++), ByteView(output));
     }
     n = 0;

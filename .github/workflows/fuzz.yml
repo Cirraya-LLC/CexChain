@@ -20,7 +20,7 @@ jobs:
     name: libFuzzer
     runs-on: ubuntu-latest
     container: gcc:16-trixie
-    # Every target runs SECONDS_PER_TARGET in turn (18 targets: 90 minutes at
+    # Every target runs SECONDS_PER_TARGET in turn (20 targets: 100 minutes at
     # the default), after a build of about 15 minutes.
     timeout-minutes: 150
     steps:
