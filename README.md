@@ -43,6 +43,7 @@ CexChain is a ledger protocol and node for trust between organizations. Every do
 | `crypto/pkcs11` | Keys on PKCS #11 tokens: USB keys (UKey), smart cards, and HSMs, loaded at run time |
 | `ledger` | Ledger node: crash-safe storage, rule engine, checkpoints, receipts, evidence export, backups (C++26) |
 | `node` | HTTP API server and client (Asio), API tokens, and replicas (C++26) |
+| `bo` | The Bo contract language's compiler (in progress): language packs so far. C++26 with static reflection and contracts, built with GCC 16; its front end (everything that reads source) also builds with Clang, for fuzzing |
 | `cli` | `cexchain` command-line tool: full control of keys, ledgers, actors, delegations, records, assets, contracts, proofs, and evidence |
 | `cexchain mcp` | MCP server through which an AI agent acts under its own key and delegation |
 
@@ -109,6 +110,7 @@ The `cexchain` tool controls every part of a ledger:
 | Other organizations | `peer add`, `peer list`, `peer show`, `peer remove`, `access request`, `access send`, `access inbox`, `access grant`, `access fetch`, `access accept`, `access receipt`, `access list` |
 | Ownership assets | `asset issue`, `asset show`, `asset list`, `asset record`, `asset evidence`, `asset consent`, `asset withdraw`, `asset send`, `asset fetch`, `asset verify` |
 | Contracts | `contract deploy`, `contract show`, `contract list`, `contract retire`, `contract create`, `contract call`, `contract instance`, `contract instances`, `contract evidence`, `contract propose`, `contract pending`, `contract consent`, `contract withdraw`, `contract send`, `contract fetch`, `contract verify` |
+| Bo language | `bo packs list`, `bo packs show`, `bo packs check` (in builds with the Bo compiler) |
 
 - Every command takes `--help`, and `--json` for scripting.
 - `cexchain help --json` describes every command and option in machine-readable form.
@@ -436,6 +438,35 @@ to contracts (`delegation grant --contracts`), and `contract retire` stops new i
 existing ones carry on. `deploy/demo/supply-agreement.sh` walks through such an agreement on one
 machine, narrated, with the bank's AI agent consenting through MCP.
 
+## The Bo language
+
+Bo is the language in which contracts will be written: a few keywords in English, Traditional
+Chinese (Hong Kong usage), and Simplified Chinese, freely mixed, and built-in business words
+(pledge, renew, suspend) with fixed meanings. Its compiler is being built. What exists now is
+the layer every source is read through, *language packs*: each maps Bo's concepts (`kw.can`,
+`act.pledge`, `unit.GB`) to one language's spellings, with its reading rules (words that attach
+without a space, as in `可質押` or `每GB`; full-width punctuation; `萬` and `億`; date forms), its
+messages, and the sentences of the contract text. A pack never changes what runs: the same
+contract compiles to the same code through any of them.
+
+```sh
+cexchain bo packs list                          # the official packs and their digests
+cexchain bo packs show zh-Hant-HK               # its reading rules, keywords, and words
+cexchain bo packs check company.pack            # a pack of your own, alone and with the official ones
+cexchain bo packs check company.pack --language zh-Hant-HK   # messages in Traditional Chinese
+```
+
+Packs are files in CBOR diagnostic notation; `bo/packs/` holds the official ones. A pack's digest
+is the hash of its canonical CBOR, and a deploy will record the packs its source was read with, so
+anyone can rebuild the contract from the source and compare. Bo never guesses: one spelling with
+two meanings, in one pack or across the packs a source is read with, is an error, and so is a
+word that an attaching rule could split into two others.
+
+The compiler uses C++26 static reflection and contracts, which GCC 16 builds and Clang does not
+yet. The `bo` commands therefore exist only in builds made with GCC 16 (the `gcc-*` presets, the
+release build, and the Docker image); `cexchain version` says whether a build has them. The
+browser verifier never needs the compiler: verifying a contract replays its code.
+
 ## AI agents (MCP)
 
 `cexchain mcp --ledger DIR --as AGENT_KEY` runs a Model Context Protocol server over stdio
@@ -472,7 +503,12 @@ cmake --build --preset gcc-debug
 ctest --preset gcc-debug
 ```
 
-Other presets: `gcc-release`, `clang-debug`, `clang-asan` (AddressSanitizer + UndefinedBehaviorSanitizer), and `clang-fuzz` (libFuzzer targets).
+Other presets: `gcc-release`, `gcc-asan` (the Bo compiler's tests with AddressSanitizer + UndefinedBehaviorSanitizer), `clang-debug`, `clang-asan` (AddressSanitizer + UndefinedBehaviorSanitizer), and `clang-fuzz` (libFuzzer targets).
+
+The Bo compiler (`bo/`) needs GCC 16 for C++26 static reflection and contracts. `CEXCHAIN_BO`
+chooses: `AUTO` (the default) builds it when the compiler can, `ON` (the GCC presets) requires
+it, `OFF` leaves it out. Clang builds everything else, the compiler's front end included, so
+that libFuzzer can fuzz what reads untrusted source.
 
 The browser verifier is tested against evidence from the native tool. A Node.js test requires its
 report to match `cexchain verify --json` (and `asset verify --json`, `contract verify --json`)
@@ -487,7 +523,7 @@ tests/browser/run.sh build/gcc-debug/cli/cexchain build/wasm
 `tests/cli/serve.sh` runs a server, a replica, and backups end to end; `tests/node/` covers the
 HTTP parser and the API over real sockets, including a primary that serves a forged history.
 
-Fuzz targets cover every parser of untrusted input. `make_seeds` writes valid objects (evidence bundles, access records, signed backups, passkey registrations, requests) to start each corpus from, so mutations reach the checks behind the signatures:
+Fuzz targets cover every parser of untrusted input, Bo language packs included. `make_seeds` writes valid objects (evidence bundles, access records, signed backups, passkey registrations, requests, the official packs) to start each corpus from, so mutations reach the checks behind the signatures:
 
 ```sh
 cmake --preset clang-fuzz && cmake --build --preset clang-fuzz

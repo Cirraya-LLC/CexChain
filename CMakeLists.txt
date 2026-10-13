@@ -23,6 +23,11 @@ option(CEXCHAIN_BUILD_TESTS "Build unit tests" ${default_tests})
 option(CEXCHAIN_BUILD_FUZZERS "Build libFuzzer targets (Clang only)" OFF)
 option(CEXCHAIN_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 set(CEXCHAIN_SANITIZERS "" CACHE STRING "Sanitizers to enable, e.g. \"address;undefined\"")
+# The Bo compiler needs C++26 static reflection and contracts (GCC 16). AUTO
+# builds it when the compiler has both; ON requires it; OFF leaves it out.
+# Its front end (packs, lexer, parser) is built either way.
+set(CEXCHAIN_BO "AUTO" CACHE STRING "Build the Bo compiler: AUTO, ON, or OFF")
+set_property(CACHE CEXCHAIN_BO PROPERTY STRINGS AUTO ON OFF)
 
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -40,6 +45,9 @@ else()
     add_subdirectory(crypto/pkcs11)
     add_subdirectory(ledger)
     add_subdirectory(node)
+    # The Bo compiler: not in the browser (verifying a contract replays its
+    # code; rebuilding it from source is the command line's job).
+    add_subdirectory(bo)
     add_subdirectory(cli)
     add_subdirectory(bench)
 endif()

@@ -96,6 +96,23 @@ const OptionSpec json_option{"json", "", "Print machine-readable JSON"};
     "the encoded CBOR with --args-cbor FILE. Whoever holds the instance's evidence sees\n"         \
     "the arguments: keep personal data out of them."
 const OptionSpec help_option{"help", "", "Show help for this command"};
+#if defined(CEXCHAIN_HAVE_BO)
+const OptionSpec pack_option{"pack", "FILE", "Read source with this language pack too", false,
+                             true};
+const OptionSpec hash_option{"hash", "HASH", "Digests with sha256 (default) or sm3"};
+const OptionSpec language_option{
+    "language", "LANG",
+    "Messages in en, zh-Hant-HK, zh-Hans-CN, or a given pack's language (default: "
+    "$CEXCHAIN_LANGUAGE, else en)"};
+#endif
+/// What every Bo command says about where it exists.
+#define CEXCHAIN_BO_PACKS_HELP                                                                     \
+    "A language pack maps Bo's concepts (kw.can, act.pledge, unit.GB) to one language's\n"         \
+    "spellings and gives its reading rules, messages, and sentences; it never changes what\n"      \
+    "runs. The official packs (English, Traditional Chinese in Hong Kong usage, Simplified\n"      \
+    "Chinese) are always read; a Bo deploy will record each pack's digest (the hash of its\n"      \
+    "canonical CBOR). The bo commands exist only in builds with the Bo compiler, which\n"          \
+    "needs GCC 16 (C++26 reflection and contracts)."
 
 std::vector<OptionSpec> with(std::vector<OptionSpec> options) {
     return options;
@@ -1533,6 +1550,54 @@ std::vector<CommandSpec> build() {
          "Replays the instance's calls, running the contract again on each, and checks every\n"
          "consent a call cites on the consenting party's own ledger, with who gave it: a person\n"
          "present, a key alone, or an AI agent and its model."},
+#if defined(CEXCHAIN_HAVE_BO)
+        // ------------------------------------------------------------------
+        {{"bo", "packs", "list"},
+         "List the language packs Bo source is read with, and their digests",
+         "Bo language",
+         "",
+         0,
+         0,
+         with({pack_option, hash_option, language_option}),
+         cmd_bo_packs_list,
+         CEXCHAIN_BO_PACKS_HELP},
+        {{"bo", "packs", "show"},
+         "Show a language pack: its reading rules, keywords, words, messages, and sentences",
+         "Bo language",
+         "PACK",
+         1,
+         1,
+         with({pack_option,
+               hash_option,
+               language_option,
+               {"section", "NAME",
+                "Show one part: reading, keywords, vocabulary, messages, or sentences"}}),
+         cmd_bo_packs_show,
+         "PACK is a pack's id (en, zh-Hant-HK, zh-Hans-CN, or one given with --pack) or a\n"
+         "pack file.\n\n" CEXCHAIN_BO_PACKS_HELP},
+        {{"bo", "packs", "check"},
+         "Check language pack files, alone and with the official packs",
+         "Bo language",
+         "FILE...",
+         1,
+         64,
+         with({language_option}),
+         cmd_bo_packs_check,
+         "Reports every problem in each file (up to 100), then reads the files together with\n"
+         "the official packs, as a source would be read: one spelling with two meanings, or a\n"
+         "word an attaching rule could split two ways, is an error (Bo never guesses). Exit\n"
+         "status 2 if any pack has an error; warnings (words left to English) do not fail.\n\n"
+         "A pack is a file in CBOR diagnostic notation, with # and / ... / comments:\n"
+         "  {\"format\": 1, \"id\": \"ja\", \"version\": 1, \"language\": \"ja\",\n"
+         "   \"name\": \"日本語\", \"official\": false, \"edition\": 1,\n"
+         "   \"reading\": {\"separation\": \"none\", \"prefixes\": [...], \"attach\": [...],\n"
+         "               \"punctuation\": {...}, \"multipliers\": {...}, \"dates\": {...}},\n"
+         "   \"keywords\": {\"kw.can\": \"...\", ...},       every keyword\n"
+         "   \"vocabulary\": {\"act.pledge\": \"...\", ...},  any words; English fills in\n"
+         "   \"messages\": {...}, \"sentences\": {...}}\n"
+         "bo packs show en --json lists every concept id; the official packs in the source\n"
+         "tree (bo/packs/) are complete examples.\n\n" CEXCHAIN_BO_PACKS_HELP},
+#endif
         // ------------------------------------------------------------------
         {{"mcp"},
          "Run an MCP server (stdio) for an AI agent",
@@ -1571,6 +1636,7 @@ std::vector<CommandSpec> build() {
 }
 
 #undef CEXCHAIN_ARGUMENTS_HELP
+#undef CEXCHAIN_BO_PACKS_HELP
 
 void add_global_options(std::vector<CommandSpec>& specs) {
     for (CommandSpec& spec : specs) {
@@ -1666,6 +1732,11 @@ std::string overview_help() {
         }
         out += std::format("  {:<34} {}\n", name, spec.summary);
     }
+#if !defined(CEXCHAIN_HAVE_BO)
+    out += "\nBo language:\n"
+           "  (not in this build: the Bo compiler and its bo commands need GCC 16, for C++26\n"
+           "  reflection and contracts)\n";
+#endif
     return out;
 }
 

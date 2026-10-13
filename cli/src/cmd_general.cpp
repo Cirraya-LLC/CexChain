@@ -7,6 +7,10 @@
 
 #include <cexchain/core/protocol/common.hpp>
 #include <cexchain/crypto/openssl.hpp>
+#if defined(CEXCHAIN_HAVE_BO)
+#include <cexchain/bo/concepts.hpp>
+#include <cexchain/bo/pack.hpp>
+#endif
 
 #include "commands.hpp"
 #include "output.hpp"
@@ -56,13 +60,23 @@ int cmd_version(const Args& args) {
             hashes.push_back(crypto::name(alg));
         }
     }
+    // The Bo compiler, if this build has it: its edition and official packs.
+    Json bo = nullptr;
+#if defined(CEXCHAIN_HAVE_BO)
+    Json packs = Json::array();
+    for (const bo::Pack& pack : bo::official_packs()) {
+        packs.push_back(pack.id + " " + std::to_string(pack.version));
+    }
+    bo = {{"edition", bo::edition}, {"packs", packs}};
+#endif
     if (args.json()) {
         print_json({{"version", CEXCHAIN_VERSION},
                     {"protocol_version", protocol::protocol_version},
                     {"spec_revision", protocol::spec_revision},
                     {"crypto_library", crypto::openssl::library_version()},
                     {"signature_algorithms", algorithms},
-                    {"ledger_hashes", hashes}});
+                    {"ledger_hashes", hashes},
+                    {"bo", bo}});
         return exit_ok;
     }
     std::println("cexchain {}", CEXCHAIN_VERSION);
@@ -79,6 +93,15 @@ int cmd_version(const Args& args) {
         list += (list.empty() ? "" : ", ") + h.get<std::string>();
     }
     std::println("hashes:      {}", list);
+    if (bo.is_null()) {
+        std::println("bo:          not in this build (the compiler needs GCC 16)");
+    } else {
+        list.clear();
+        for (const auto& p : bo["packs"]) {
+            list += (list.empty() ? "" : ", ") + p.get<std::string>();
+        }
+        std::println("bo:          edition {}; packs {}", bo["edition"].get<std::uint64_t>(), list);
+    }
     return exit_ok;
 }
 

@@ -21,7 +21,8 @@
             "inherits": "base",
             "cacheVariables": {
                 "CMAKE_CXX_COMPILER": "g++-16",
-                "CMAKE_BUILD_TYPE": "Debug"
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CEXCHAIN_BO": "ON"
             }
         },
         {
@@ -30,7 +31,16 @@
             "inherits": "base",
             "cacheVariables": {
                 "CMAKE_CXX_COMPILER": "g++-16",
-                "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "CEXCHAIN_BO": "ON"
+            }
+        },
+        {
+            "name": "gcc-asan",
+            "displayName": "GCC 16, Debug, AddressSanitizer + UndefinedBehaviorSanitizer (the Bo compiler)",
+            "inherits": "gcc-debug",
+            "cacheVariables": {
+                "CEXCHAIN_SANITIZERS": "address;undefined"
             }
         },
         {
@@ -71,6 +81,7 @@
     "buildPresets": [
         { "name": "gcc-debug", "configurePreset": "gcc-debug" },
         { "name": "gcc-release", "configurePreset": "gcc-release" },
+        { "name": "gcc-asan", "configurePreset": "gcc-asan", "targets": ["cexchain_bo_tests"] },
         { "name": "clang-debug", "configurePreset": "clang-debug" },
         { "name": "clang-asan", "configurePreset": "clang-asan" },
         { "name": "clang-tsan", "configurePreset": "clang-tsan" },
@@ -85,6 +96,12 @@
         },
         { "name": "gcc-debug", "inherits": "base", "configurePreset": "gcc-debug" },
         { "name": "gcc-release", "inherits": "base", "configurePreset": "gcc-release" },
+        {
+            "name": "gcc-asan",
+            "inherits": "base",
+            "configurePreset": "gcc-asan",
+            "filter": { "include": { "label": "^bo$" } }
+        },
         { "name": "clang-debug", "inherits": "base", "configurePreset": "clang-debug" },
         { "name": "clang-asan", "inherits": "base", "configurePreset": "clang-asan" },
         { "name": "clang-tsan", "inherits": "base", "configurePreset": "clang-tsan" }

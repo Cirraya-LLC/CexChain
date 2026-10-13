@@ -23,6 +23,10 @@ cexchain_add_fuzzer(asset_parse_fuzz cexchain::crypto_openssl)
 cexchain_add_fuzzer(webauthn_registration_fuzz cexchain::crypto_openssl)
 cexchain_add_fuzzer(vm_fuzz cexchain::crypto_openssl)
 cexchain_add_fuzzer(contract_parse_fuzz cexchain::crypto_openssl)
+# The Bo compiler's front end: everything that reads untrusted source.
+if(TARGET cexchain_bo_front)
+    cexchain_add_fuzzer(bo_pack_fuzz cexchain::bo_front)
+endif()
 # The interpreter's internals (core/src/vm/internal.hpp), for a lower fuel limit.
 target_include_directories(vm_fuzz PRIVATE ${PROJECT_SOURCE_DIR}/core/src)
 if(TARGET cexchain_crypto_pkcs11)
@@ -43,6 +47,10 @@ endif()
 add_executable(make_seeds make_seeds.cpp)
 target_link_libraries(make_seeds PRIVATE cexchain::ledger cexchain::crypto_openssl
     nlohmann_json::nlohmann_json)
+if(TARGET cexchain_bo_front)
+    target_link_libraries(make_seeds PRIVATE cexchain::bo_front)
+    target_compile_definitions(make_seeds PRIVATE CEXCHAIN_HAVE_BO_FRONT=1)
+endif()
 target_compile_definitions(make_seeds PRIVATE
     CEXCHAIN_TESTVECTORS_DIR="${PROJECT_SOURCE_DIR}/testvectors")
 target_compile_features(make_seeds PRIVATE cxx_std_23)

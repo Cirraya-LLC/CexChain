@@ -1,0 +1,259 @@
+# Bo language pack: English (official).
+#
+# CBOR diagnostic notation; the pack's digest covers its canonical CBOR, so
+# comments and layout do not change it. Released versions never change: a
+# change is a new version. Spellings with "…" mark where the argument goes.
+
+{
+  "format": 1,
+  "id": "en",
+  "version": 1,
+  "language": "en",
+  "name": "English",
+  "official": true,
+  "edition": 1,
+
+  "reading": {
+    "separation": "spaces",
+    "dates": {
+      "write": "{D} {MONTH} {Y}",
+      "months": ["January", "February", "March", "April", "May", "June", "July",
+                 "August", "September", "October", "November", "December"]
+    }
+  },
+
+  "keywords": {
+    "kw.contract": "contract",
+    "kw.parties": "parties",
+    "kw.can": "can",
+    "kw.by": "by",
+    "kw.to": "to",
+    "kw.with": "with",
+    "kw.requires": "requires",
+    "kw.when": "when",
+    "kw.if": "if",
+    "kw.otherwise": "otherwise",
+    "kw.and": "and",
+    "kw.or": "or",
+    "kw.not": "not",
+    "kw.each": "each",
+    "kw.in": "in",
+    "kw.reject": "reject",
+    "kw.test": "test",
+    "kw.use": "use"
+  },
+
+  "vocabulary": {
+    # What a block declares.
+    "kind.asset": {"word": "asset", "forms": {"plural": "assets"}},
+    "kind.service": {"word": "service", "forms": {"plural": "services"}},
+    "kind.resource": {"word": "resource", "forms": {"plural": "resources"}},
+    "kind.record": {"word": "record", "forms": {"plural": "records"}},
+
+    # Business actions: the base form, and the forms sentences use.
+    "act.issue": {"word": "issue", "forms": {"third": "issues", "gerund": "issuing"}},
+    "act.transfer": {"word": "transfer", "forms": {"third": "transfers", "gerund": "transferring"}},
+    "act.pledge": {"word": "pledge", "forms": {"third": "pledges", "gerund": "pledging"}},
+    "act.release": {"word": "release", "forms": {"third": "releases", "gerund": "releasing"}},
+    "act.enforce": {"word": "enforce", "forms": {"third": "enforces", "gerund": "enforcing"}},
+    "act.redeem": {"word": "redeem", "forms": {"third": "redeems", "gerund": "redeeming"}},
+    "act.split": {"word": "split", "forms": {"third": "splits", "gerund": "splitting"}},
+    "act.merge": {"word": "merge", "forms": {"third": "merges", "gerund": "merging"}},
+    "act.cancel": {"word": "cancel", "forms": {"third": "cancels", "gerund": "cancelling"}},
+    "act.pay": {"word": "pay", "forms": {"third": "pays", "gerund": "paying"}},
+    "act.confirm_payment": {"word": "confirm payment",
+                            "forms": {"third": "confirms payment", "gerund": "confirming payment"}},
+    "act.dispute": {"word": "dispute", "forms": {"third": "disputes", "gerund": "disputing"}},
+    "act.refund": {"word": "refund", "forms": {"third": "refunds", "gerund": "refunding"}},
+    "act.credit": {"word": "credit", "forms": {"third": "credits", "gerund": "crediting"}},
+    "act.subscribe": {"word": "subscribe", "forms": {"third": "subscribes", "gerund": "subscribing"}},
+    "act.renew": {"word": "renew", "forms": {"third": "renews", "gerund": "renewing"}},
+    "act.upgrade": {"word": "upgrade", "forms": {"third": "upgrades", "gerund": "upgrading"}},
+    "act.downgrade": {"word": "downgrade", "forms": {"third": "downgrades", "gerund": "downgrading"}},
+    "act.suspend": {"word": "suspend", "forms": {"third": "suspends", "gerund": "suspending"}},
+    "act.resume": {"word": "resume", "forms": {"third": "resumes", "gerund": "resuming"}},
+    "act.terminate": {"word": "terminate", "forms": {"third": "terminates", "gerund": "terminating"}},
+    "act.allocate": {"word": "allocate", "forms": {"third": "allocates", "gerund": "allocating"}},
+    "act.reclaim": {"word": "reclaim", "forms": {"third": "reclaims", "gerund": "reclaiming"}},
+    "act.freeze": {"word": "freeze", "forms": {"third": "freezes", "gerund": "freezing"}},
+    "act.unfreeze": {"word": "unfreeze", "forms": {"third": "unfreezes", "gerund": "unfreezing"}},
+    "act.approve": {"word": "approve", "forms": {"third": "approves", "gerund": "approving"}},
+    "act.propose": {"word": "propose", "forms": {"third": "proposes", "gerund": "proposing"}},
+    "act.notify": {"word": "notify", "forms": {"third": "notifies", "gerund": "notifying"}},
+
+    # Conditions.
+    "cond.over": "over …",
+    "cond.in_person": "in person",
+    "cond.consent_of": "consent of …",
+    "cond.overdue": "overdue",
+    "cond.before_due": "… before due",
+    "cond.within": "within …",
+
+    # Prices and usage.
+    "price.price": {"word": "price", "forms": {"plural": "prices"}},
+    "price.usage": "usage",
+    "price.traffic": "traffic",
+    "price.overage": "overage",
+    "price.per": "per",
+    "price.setup_fee": {"word": "setup fee", "forms": {"plural": "setup fees"}},
+    "price.proration": "proration",
+
+    # Charges: taxes, fees, commissions, discounts.
+    "charge.charge": {"word": "charge", "forms": {"plural": "charges"}},
+    "charge.tax": {"word": "tax", "forms": {"plural": "taxes"}},
+    "charge.rate": {"word": "rate", "forms": {"plural": "rates"}},
+    "charge.applies_to": "applies to …",
+    "charge.from": "from … on",
+    "charge.included": "included",
+    "charge.added": "added",
+    "charge.per_line": "per line",
+    "charge.per_document": "per document",
+    "charge.by": "according to",
+
+    # Time.
+    "time.day": {"word": "day", "forms": {"plural": "days"}},
+    "time.week": {"word": "week", "forms": {"plural": "weeks"}},
+    "time.month": {"word": "month", "forms": {"plural": "months"}},
+    "time.year": {"word": "year", "forms": {"plural": "years"}},
+    "time.daily": "daily",
+    "time.weekly": "weekly",
+    "time.monthly": "monthly",
+    "time.yearly": "yearly",
+    "time.now": "now",
+    "time.today": "today",
+
+    # Units.
+    "unit.MB": "MB",
+    "unit.GB": "GB",
+    "unit.TB": "TB",
+    "unit.MiB": "MiB",
+    "unit.GiB": "GiB",
+    "unit.TiB": "TiB",
+    "unit.Mbps": "Mbps",
+    "unit.Gbps": "Gbps",
+    "unit.item": {"word": "item", "forms": {"plural": "items"}},
+    "unit.kg": "kg",
+    "unit.tonne": {"word": "tonne", "forms": {"plural": "tonnes"}},
+
+    # Currencies.
+    "cur.HKD": "HKD",
+    "cur.CNY": "CNY",
+    "cur.USD": "USD",
+    "cur.SGD": "SGD",
+    "cur.EUR": "EUR",
+
+    # Rounding modes.
+    "round.half_up": "half up",
+    "round.half_even": "half even",
+    "round.down": "down",
+
+    # Documents.
+    "doc.invoice": {"word": "invoice", "forms": {"plural": "invoices"}},
+    "doc.credit_note": {"word": "credit note", "forms": {"plural": "credit notes"}},
+    "doc.receipt": {"word": "receipt", "forms": {"plural": "receipts"}},
+
+    # Types and values.
+    "type.date": "date",
+    "type.text": "text",
+    "type.number": "number",
+    "type.yes_no": "yes or no",
+    "type.list": "list",
+    "val.yes": "yes",
+    "val.no": "no",
+
+    # Fields.
+    "field.holder": "holder",
+    "field.amount": "amount",
+    "field.due": "due",
+    "field.quantity": "quantity",
+    "field.tier": "tier",
+    "field.pledgee": "pledgee",
+    "field.parts": "parts",
+    "field.customer_location": "customer location",
+    "field.cooling_period": "cooling period",
+
+    # States.
+    "state.active": "active",
+    "state.proposed": "proposed",
+    "state.pledged": "pledged",
+    "state.paid": "paid",
+    "state.settled": "settled",
+    "state.frozen": "frozen",
+    "state.suspended": "suspended",
+    "state.terminated": "terminated",
+    "state.cancelled": "cancelled",
+
+    # Who acts.
+    "actor.person": {"word": "person", "forms": {"plural": "people"}},
+    "actor.ai_agent": {"word": "AI agent", "forms": {"plural": "AI agents"}},
+    "actor.device": {"word": "device", "forms": {"plural": "devices"}},
+
+    # Common roles.
+    "role.we": {"word": "we", "forms": {"object": "us"}},
+    "role.customer": "customer",
+    "role.supplier": "supplier",
+    "role.bank": "bank",
+    "role.issuer": "issuer",
+
+    # Built-in expressions.
+    "expr.sum_of": "sum of …",
+    "expr.count_of": "count of …",
+    "expr.at_most": "at most …"
+  },
+
+  "messages": {
+    "pack.syntax": "the pack is not valid CBOR diagnostic notation: {detail}",
+    "pack.too-large": "the pack is {size} bytes; the limit is {limit}",
+    "pack.expected-map": "{path} must be a map",
+    "pack.expected-text": "{path} must be a text string",
+    "pack.expected-list": "{path} must be a list",
+    "pack.expected-integer": "{path} must be an unsigned integer",
+    "pack.expected-boolean": "{path} must be true or false",
+    "pack.unknown-key": "{path} has an unknown key {key}",
+    "pack.missing-key": "{path} needs the key {key}",
+    "pack.format": "pack format {value} is not supported; this compiler reads format 1",
+    "pack.edition": "Bo edition {value} is not supported; this compiler knows edition 1",
+    "pack.bad-id": "{value} is not a valid pack id: letters, digits, and single hyphens, starting with a letter, at most 64",
+    "pack.bad-language": "{value} is not a valid language tag (BCP 47, such as zh-Hant-HK)",
+    "pack.bad-version": "the version must be 1 or more, not {value}",
+    "pack.bad-text": "{path} must be 1 to 200 bytes (64 for month names, 1,000 for messages and sentences), without control characters",
+    "pack.bad-value": "{path} cannot be {value}",
+    "pack.too-many": "{path} has more than {limit} entries",
+    "pack.unknown-concept": "{path}: {concept} is not a concept of Bo edition 1",
+    "pack.wrong-category": "{path}: {concept} is in the category {category}, which does not belong here",
+    "pack.missing-keyword": "pack {pack} does not spell the keyword {concept}; every pack spells every keyword",
+    "pack.partial": "pack {pack} does not spell {missing} of the {total} words; those are read and shown in English",
+    "pack.bad-spelling": "{path}: {spelling} is not a valid spelling: one to four words separated by single spaces, none longer than 64 bytes or starting with a digit",
+    "pack.bad-character": "{path}: {spelling} contains {character}, which no word may contain",
+    "pack.needs-hole": "{path}: {spelling} must mark the place of {concept}'s argument with … (once)",
+    "pack.unexpected-hole": "{path}: {spelling} may not contain …: {concept} takes no argument",
+    "pack.bad-form": "{path}: {form} is not a valid form name (lowercase letters, at most 16)",
+    "pack.duplicate-spelling": "pack {pack} gives {spelling} two meanings: {concept} and {other}",
+    "pack.conflict": "{spelling} means {meaning} in pack {pack} but {other} in pack {other_pack}; one spelling cannot have two meanings",
+    "pack.ambiguous-attachment": "{spelling} ({meaning}) could also be read as {first} + {second}; change a spelling or narrow the attaching rule",
+    "pack.bad-attach": "{path}: {concept} cannot attach: it must be spelled in this pack as one word, with … only on the side away from its neighbour",
+    "pack.unknown-category": "{path}: {category} is not a category a word may attach to",
+    "pack.bad-punctuation": "{path}: {character} cannot be a punctuation alias: one character that no word contains, for one of , : ( ) % \" = < > + - * / . _ a digit or a space",
+    "pack.bad-multiplier": "{path}: {value} is not a power of ten from 10 to 10^18",
+    "pack.bad-date": "{path}: {pattern} is not a valid date pattern: the fields Y, M (or MONTH, to write, with twelve month names), and D, each once and in braces, with text between them",
+    "pack.unknown-message": "{path}: {code} is not a message code",
+    "pack.unknown-sentence": "{path}: {id} is not a sentence id",
+    "pack.bad-placeholder": "{path}: {placeholder} is not a placeholder this text may use",
+    "pack.false-official": "pack {pack} says it is official, but it is not one of the official packs this compiler carries",
+    "pack.duplicate-id": "two packs have the id {pack}",
+    "bo.truncated": "more problems were found; only the first {limit} are shown"
+  },
+
+  "sentences": {
+    "contract": "Contract {name}",
+    "parties": "Parties: {parties}.",
+    "can": "{party} may {action}.",
+    "can-to": "{party} may {action} to {counterparty}.",
+    "consent": "This needs the consent of {party}.",
+    "in-person": "{party} must confirm in person, with a passkey or a hardware key.",
+    "agents-propose": "An AI agent may propose this; it takes effect once a person approves it.",
+    "when": "When {event}: {action}.",
+    "reject": "Otherwise it is refused: {message}",
+    "recognized": "(recognized by rule {rule})"
+  }
+}

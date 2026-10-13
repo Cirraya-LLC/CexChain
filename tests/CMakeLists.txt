@@ -58,6 +58,25 @@ list(APPEND CMAKE_MODULE_PATH "${catch2_SOURCE_DIR}/extras")
 include(Catch)
 catch_discover_tests(cexchain_tests)
 
+# The Bo compiler (D-053): its front end with any compiler, the rest where it
+# builds (GCC 16). Labelled "bo": the GCC ASan+UBSan configuration builds and
+# runs these alone.
+add_executable(cexchain_bo_tests bo/packs_test.cpp)
+target_link_libraries(cexchain_bo_tests PRIVATE
+    cexchain::bo_front
+    cexchain::crypto_openssl
+    Catch2::Catch2WithMain)
+target_include_directories(cexchain_bo_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_definitions(cexchain_bo_tests PRIVATE
+    CEXCHAIN_BO_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/bo/golden")
+target_compile_features(cexchain_bo_tests PRIVATE cxx_std_26)
+cexchain_target_defaults(cexchain_bo_tests)
+if(TARGET cexchain_bo)
+    target_sources(cexchain_bo_tests PRIVATE bo/names_test.cpp)
+    target_link_libraries(cexchain_bo_tests PRIVATE cexchain::bo)
+endif()
+catch_discover_tests(cexchain_bo_tests PROPERTIES LABELS bo)
+
 # The command-line tool, end to end, as a user would run it.
 add_test(NAME cli_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/end_to_end.sh $<TARGET_FILE:cexchain>)
@@ -82,6 +101,11 @@ add_test(NAME cluster_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/cluster.sh $<TARGET_FILE:cexchain>)
 add_test(NAME rotation_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/rotation.sh $<TARGET_FILE:cexchain>)
+# The Bo commands exist where the compiler does.
+if(TARGET cexchain_bo)
+    add_test(NAME bo_end_to_end
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/bo.sh $<TARGET_FILE:cexchain>)
+endif()
 
 # Keys on tokens (HSMs, USB keys), when SoftHSM is installed to stand in.
 if(TARGET cexchain_crypto_pkcs11)

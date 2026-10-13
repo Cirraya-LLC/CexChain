@@ -1,0 +1,255 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Cirraya
+
+#pragma once
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <map>
+#include <optional>
+#include <span>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+#include <cexchain/bo/concepts.hpp>
+#include <cexchain/bo/contracts.hpp>
+#include <cexchain/core/bytes.hpp>
+#include <cexchain/core/cbor.hpp>
+#include <cexchain/core/crypto.hpp>
+#include <cexchain/core/error.hpp>
+
+/// Language packs: how Bo source is read and how its text is written, for
+/// one language. A pack maps the edition's concepts to spellings; it never
+/// changes what runs.
+///
+/// A pack is a file in CBOR diagnostic notation (RFC 8949 section 8, with
+/// "/ ... /" and "#" comments), read by cbor::parse_diagnostic. Its digest is
+/// the hash of its canonical CBOR, so comments and layout do not change it:
+///
+///   {
+///     "format": 1,                  # the pack format
+///     "id": "zh-Hant-HK",           # letters, digits, hyphens
+///     "version": 1,                 # raised on any change
+///     "language": "zh-Hant-HK",     # a BCP 47 tag
+///     "name": "繁體中文（香港）",
+///     "official": true,             # only the packs the compiler carries
+///     "edition": 1,                 # the Bo edition it spells
+///     "reading": {
+///       "separation": "none",       # "spaces" or "none": how the language
+///                                   # separates words in running text
+///       "prefixes": ["kw.can"],     # keywords whose spellings may attach to
+///                                   # the start of the next word (可質押)
+///       "attach": [                 # words that attach to their neighbour,
+///         {"word": "price.per", "before": ["unit", "currency"]},  # 每GB
+///         {"word": "cond.within", "after": ["time", "unit"]}      # 30日內
+///       ],
+///       "punctuation": {"，": ","}, # characters read as ASCII punctuation
+///       "multipliers": {"萬": 10000},
+///       "dates": {"read": ["{Y}年{M}月{D}日"], "write": "{Y}年{M}月{D}日"}
+///     },
+///     "keywords": {"kw.can": "可", ...},          # every keyword
+///     "vocabulary": {                              # any of the rest
+///       "act.pledge": "質押",
+///       "cond.consent_of": "經 … 同意",            # … marks the argument
+///       "time.day": {"word": "日"},
+///       "act.pay": {"word": "pay", "forms": {"third": "pays"}}
+///     },
+///     "messages": {"pack.missing-key": "{path} 須有 {key}"},
+///     "sentences": {"can": "{party}可{action}。"}
+///   }
+///
+/// A spelling is one to four words separated by single spaces, plus the
+/// argument's place "…" for concepts that take one; alternatives are given
+/// as a list, the first being the one tools write. Words are exact UTF-8:
+/// letters, marks, and digits (not first), never punctuation, symbols,
+/// spaces, invisible characters, compatibility forms (full-width letters,
+/// CJK compatibility ideographs), or anything else Unicode normalization
+/// would change, so two words that look alike are never different. Where
+/// spellings share a beginning, the longest is read.
+///
+/// Never guess: one spelling with two meanings, in one pack or across the
+/// packs a file is read with, is an error, and so is a word an attaching rule
+/// could split into two others (每日 as 每 + 日, if 每 attached to time
+/// words). A pack spells every keyword; missing vocabulary is read and shown
+/// in English.
+namespace cexchain::bo {
+
+/// One problem found, with its message's parameters (MessageSpec::params)
+/// as values. Packs give the texts; see messages.hpp.
+struct Diagnostic {
+    std::string_view code;
+    std::vector<std::pair<std::string_view, std::string>> args;
+
+    [[nodiscard]] Severity severity() const noexcept;
+    /// The value of a parameter, or empty.
+    [[nodiscard]] std::string_view arg(std::string_view name) const noexcept;
+};
+
+[[nodiscard]] bool has_errors(std::span<const Diagnostic> diagnostics) noexcept;
+
+/// The most diagnostics one reading reports; a last warning says more were
+/// found.
+inline constexpr std::size_t max_diagnostics = 100;
+/// The largest pack, as text or as CBOR.
+inline constexpr std::size_t max_pack_size = std::size_t{1} << 20;
+/// The pack format this compiler reads.
+inline constexpr std::uint64_t pack_format = 1;
+/// The argument's place in a spelling: U+2026 HORIZONTAL ELLIPSIS.
+inline constexpr std::string_view hole = "\u2026";
+
+enum class Separation : std::uint8_t { spaces, none };
+
+inline constexpr std::array<std::string_view, 2> separation_names{"spaces", "none"};
+
+/// A word that attaches to its neighbour without a space: `before` lists
+/// the categories of words it may precede (每GB), `after` those it may
+/// follow (30日內).
+struct Attachment {
+    std::string word;
+    std::vector<Category> before;
+    std::vector<Category> after;
+};
+
+/// Dates beyond ISO 8601 (2027-01-06), which every pack reads. Patterns use
+/// {Y}, {M}, {D}, and, to write, {MONTH} for a month's name.
+struct DateForms {
+    std::vector<std::string> read;
+    std::string write;
+    std::vector<std::string> months;
+};
+
+struct ReadingRules {
+    Separation separation = Separation::spaces;
+    std::vector<std::string> prefixes;
+    std::vector<Attachment> attach;
+    /// One character to the ASCII character it stands for.
+    std::map<std::string, char, std::less<>> punctuation;
+    std::map<std::string, std::uint64_t, std::less<>> multipliers;
+    DateForms dates;
+};
+
+/// A concept's spellings in one pack: the first is canonical. Forms are
+/// further spellings with a grammatical name ("third": "pays"), which
+/// sentences may ask for; they read as the concept too.
+struct Word {
+    std::vector<std::string> spellings;
+    std::map<std::string, std::string, std::less<>> forms;
+};
+
+struct Pack {
+    std::string id;
+    std::uint64_t version = 0;
+    std::string language;
+    std::string name;
+    bool official = false;
+    std::uint64_t edition = 0;
+    ReadingRules reading;
+    /// By concept id.
+    std::map<std::string, Word, std::less<>> keywords;
+    std::map<std::string, Word, std::less<>> vocabulary;
+    /// By message code and sentence id.
+    std::map<std::string, std::string, std::less<>> messages;
+    std::map<std::string, std::string, std::less<>> sentences;
+    /// The pack's canonical CBOR: what digests cover, and what a source
+    /// bundle embeds.
+    Bytes canonical;
+
+    /// The spellings of a concept (keyword or vocabulary), or nullptr.
+    [[nodiscard]] const Word* word(std::string_view concept_id) const noexcept;
+};
+
+/// A pack, if it is valid (no errors), and everything found.
+struct PackRead {
+    std::optional<Pack> pack;
+    std::vector<Diagnostic> diagnostics;
+};
+
+/// Reads and checks a pack file (diagnostic notation).
+[[nodiscard]] PackRead read_pack(std::string_view text)
+    BO_POST(r, r.pack.has_value() != has_errors(r.diagnostics));
+/// Reads and checks a pack given as CBOR (a source bundle embeds them).
+[[nodiscard]] PackRead read_pack(const cbor::Value& value)
+    BO_POST(r, r.pack.has_value() != has_errors(r.diagnostics));
+
+/// The home's hash of the pack's canonical CBOR (SHA-256 or SM3).
+[[nodiscard]] Result<crypto::Digest> digest(const Pack& pack, const crypto::Provider& provider,
+                                            crypto::HashAlg alg);
+
+/// What a spelling means in a pack set.
+enum class MeaningKind : std::uint8_t {
+    word,        ///< a concept: a keyword or a vocabulary word, or one of its forms
+    multiplier,  ///< a number multiplier (萬)
+    punctuation, ///< a character read as ASCII punctuation (，)
+};
+
+inline constexpr std::array<std::string_view, 3> meaning_kind_names{"word", "multiplier",
+                                                                    "punctuation"};
+
+struct Meaning {
+    MeaningKind kind = MeaningKind::word;
+    /// For a word: the concept (from the edition's table).
+    const Concept* concept_entry = nullptr;
+    /// For a word: the form's name, or empty for a spelling.
+    std::string form;
+    std::uint64_t multiplier = 0;
+    char punctuation = 0;
+    /// The first pack that gives it.
+    std::string pack;
+};
+
+/// The packs a source is read with: the official packs, always, and any
+/// others given. No spelling has two meanings in it.
+class PackSet {
+public:
+    [[nodiscard]] const std::vector<Pack>& packs() const noexcept { return packs_; }
+    [[nodiscard]] const Pack* find(std::string_view id) const noexcept;
+    /// What a spelling (words separated by single spaces, the argument's
+    /// place as "…") means, or nullptr.
+    [[nodiscard]] const Meaning* lookup(std::string_view spelling) const noexcept;
+    /// Every spelling, multiplier, and punctuation alias, in byte order.
+    [[nodiscard]] const std::map<std::string, Meaning, std::less<>>& spellings() const noexcept {
+        return spellings_;
+    }
+
+private:
+    friend struct PackSetBuilder;
+    std::vector<Pack> packs_;
+    std::map<std::string, Meaning, std::less<>> spellings_;
+};
+
+struct PackSetRead {
+    std::optional<PackSet> set;
+    std::vector<Diagnostic> diagnostics;
+};
+
+/// The official packs plus `extra` (each already read without errors). A
+/// pack that calls itself official must be byte for byte one the compiler
+/// carries (it is then the same pack, and taken once).
+[[nodiscard]] PackSetRead make_pack_set(std::vector<Pack> extra)
+    BO_POST(r, r.set.has_value() != has_errors(r.diagnostics));
+
+/// The packs this compiler carries (the latest version of each), read once.
+[[nodiscard]] std::span<const Pack> official_packs() noexcept;
+/// The official pack with this id, or nullptr.
+[[nodiscard]] const Pack* official_pack(std::string_view id) noexcept;
+/// The English pack, where missing words and messages fall back to.
+[[nodiscard]] const Pack& english_pack() noexcept;
+
+/// An official pack's file, as compiled in.
+struct PackText {
+    std::string_view id;
+    std::string_view text;
+};
+
+[[nodiscard]] std::span<const PackText> official_pack_texts() noexcept;
+
+/// The pack for a language: by pack id, by language tag, or by a tag's
+/// unique prefix ("zh-Hant" finds zh-Hant-HK). Nullptr if none or several.
+[[nodiscard]] const Pack* find_language(std::span<const Pack> packs,
+                                        std::string_view want) noexcept;
+
+} // namespace cexchain::bo

@@ -31,6 +31,14 @@ target_compile_definitions(cexchain PRIVATE CEXCHAIN_VERSION="${PROJECT_VERSION}
 target_compile_features(cexchain PRIVATE cxx_std_26)
 cexchain_target_defaults(cexchain)
 
+# The Bo compiler's commands, when the build has it (GCC 16: C++26 reflection
+# and contracts).
+if(TARGET cexchain_bo)
+    target_sources(cexchain PRIVATE src/cmd_bo.cpp)
+    target_link_libraries(cexchain PRIVATE cexchain::bo)
+    target_compile_definitions(cexchain PRIVATE CEXCHAIN_HAVE_BO=1)
+endif()
+
 # Keys on PKCS #11 tokens, when the build has them.
 if(TARGET cexchain_crypto_pkcs11)
     target_link_libraries(cexchain PRIVATE cexchain::crypto_pkcs11)

@@ -7,7 +7,8 @@
 // from real objects mutated, not from nothing. The contract interpreter and
 // the contract parsers start from testvectors/vm-v1.json and
 // protocol-v0.6.json. A registrar's pending calls (node/contracts.hpp) are
-// built here as CBOR, without the node library.
+// built here as CBOR, without the node library. The Bo pack reader starts
+// from the official packs.
 //
 //   make_seeds DIR    writes DIR/<target>/<name> for each target
 
@@ -25,6 +26,9 @@
 
 #include <nlohmann/json.hpp>
 
+#if defined(CEXCHAIN_HAVE_BO_FRONT)
+#include <cexchain/bo/pack.hpp>
+#endif
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/access.hpp>
@@ -597,6 +601,21 @@ void contract_seeds(const Seeds& seeds) {
     seeds.write("diagnostic_fuzz", "statement", signed_call.encoded);
 }
 
+/// The official language packs, as written and as CBOR (a source bundle
+/// embeds packs as CBOR).
+void bo_seeds(const Seeds& seeds) {
+#if defined(CEXCHAIN_HAVE_BO_FRONT)
+    for (const bo::PackText& text : bo::official_pack_texts()) {
+        seeds.write("bo_pack_fuzz", std::string(text.id) + ".pack", text.text);
+    }
+    for (const bo::Pack& pack : bo::official_packs()) {
+        seeds.write("bo_pack_fuzz", pack.id + ".cbor", pack.canonical);
+    }
+#else
+    static_cast<void>(seeds);
+#endif
+}
+
 int main(int argc, char** argv) {
     if (argc != 2) {
         std::println(stderr, "usage: make_seeds DIR");
@@ -612,6 +631,7 @@ int main(int argc, char** argv) {
         text_seeds(seeds);
         vm_seeds(seeds);
         contract_seeds(seeds);
+        bo_seeds(seeds);
     } catch (const std::exception& e) {
         std::println(stderr, "error: {}", e.what());
         return 1;

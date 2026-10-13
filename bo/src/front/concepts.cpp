@@ -1,0 +1,345 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Cirraya
+
+// The concepts of edition 1, the compiler's messages, and the sentences
+// `explain` writes. The spellings and texts are in the language packs
+// (bo/packs/).
+
+#include <algorithm>
+#include <array>
+#include <cstddef>
+#include <functional>
+#include <optional>
+#include <span>
+#include <string_view>
+
+#include <cexchain/bo/concepts.hpp>
+
+namespace cexchain::bo {
+
+namespace {
+
+using enum Category;
+
+// Edition 1: the keywords of bo-1.0, the vocabulary of its section 4, and the
+// words its examples need (types, fields, states, actors, roles, built-in
+// expressions, and charges). Append only: once an edition is released, its
+// concepts never change meaning.
+constexpr Concept unsorted_concepts[] = {
+    // Keywords.
+    {"kw.contract", keyword, 0},
+    {"kw.parties", keyword, 0},
+    {"kw.can", keyword, 0},
+    {"kw.by", keyword, 0},
+    {"kw.to", keyword, 0},
+    {"kw.with", keyword, 0},
+    {"kw.requires", keyword, 0},
+    {"kw.when", keyword, 0},
+    {"kw.if", keyword, 0},
+    {"kw.otherwise", keyword, 0},
+    {"kw.and", keyword, 0},
+    {"kw.or", keyword, 0},
+    {"kw.not", keyword, 0},
+    {"kw.each", keyword, 0},
+    {"kw.in", keyword, 0},
+    {"kw.reject", keyword, 0},
+    {"kw.test", keyword, 0},
+    {"kw.use", keyword, 0},
+    // What a block declares.
+    {"kind.asset", kind, 0},
+    {"kind.service", kind, 0},
+    {"kind.resource", kind, 0},
+    {"kind.record", kind, 0},
+    // Business actions.
+    {"act.issue", action, 0},
+    {"act.transfer", action, 0},
+    {"act.pledge", action, 0},
+    {"act.release", action, 0},
+    {"act.enforce", action, 0},
+    {"act.redeem", action, 0},
+    {"act.split", action, 0},
+    {"act.merge", action, 0},
+    {"act.cancel", action, 0},
+    {"act.pay", action, 0},
+    {"act.confirm_payment", action, 0},
+    {"act.dispute", action, 0},
+    {"act.refund", action, 0},
+    {"act.credit", action, 0},
+    {"act.subscribe", action, 0},
+    {"act.renew", action, 0},
+    {"act.upgrade", action, 0},
+    {"act.downgrade", action, 0},
+    {"act.suspend", action, 0},
+    {"act.resume", action, 0},
+    {"act.terminate", action, 0},
+    {"act.allocate", action, 0},
+    {"act.reclaim", action, 0},
+    {"act.freeze", action, 0},
+    {"act.unfreeze", action, 0},
+    {"act.approve", action, 0},
+    {"act.propose", action, 0},
+    {"act.notify", action, 0},
+    // Conditions.
+    {"cond.over", condition, 1},
+    {"cond.in_person", condition, 0},
+    {"cond.consent_of", condition, 1},
+    {"cond.overdue", condition, 0},
+    {"cond.before_due", condition, 1},
+    {"cond.within", condition, 1},
+    // Prices and usage.
+    {"price.price", pricing, 0},
+    {"price.usage", pricing, 0},
+    {"price.traffic", pricing, 0},
+    {"price.overage", pricing, 0},
+    {"price.per", pricing, 0},
+    {"price.setup_fee", pricing, 0},
+    {"price.proration", pricing, 0},
+    // Charges: taxes, fees, commissions, discounts.
+    {"charge.charge", charge, 0},
+    {"charge.tax", charge, 0},
+    {"charge.rate", charge, 0},
+    {"charge.applies_to", charge, 1},
+    {"charge.from", charge, 1},
+    {"charge.included", charge, 0},
+    {"charge.added", charge, 0},
+    {"charge.per_line", charge, 0},
+    {"charge.per_document", charge, 0},
+    {"charge.by", charge, 0},
+    // Time.
+    {"time.day", time, 0},
+    {"time.week", time, 0},
+    {"time.month", time, 0},
+    {"time.year", time, 0},
+    {"time.daily", time, 0},
+    {"time.weekly", time, 0},
+    {"time.monthly", time, 0},
+    {"time.yearly", time, 0},
+    {"time.now", time, 0},
+    {"time.today", time, 0},
+    // Units: TB is 1,000 GB, TiB 1,024 GiB.
+    {"unit.MB", unit, 0},
+    {"unit.GB", unit, 0},
+    {"unit.TB", unit, 0},
+    {"unit.MiB", unit, 0},
+    {"unit.GiB", unit, 0},
+    {"unit.TiB", unit, 0},
+    {"unit.Mbps", unit, 0},
+    {"unit.Gbps", unit, 0},
+    {"unit.item", unit, 0},
+    {"unit.kg", unit, 0},
+    {"unit.tonne", unit, 0},
+    // Currencies.
+    {"cur.HKD", currency, 0},
+    {"cur.CNY", currency, 0},
+    {"cur.USD", currency, 0},
+    {"cur.SGD", currency, 0},
+    {"cur.EUR", currency, 0},
+    // Rounding modes.
+    {"round.half_up", rounding, 0},
+    {"round.half_even", rounding, 0},
+    {"round.down", rounding, 0},
+    // Documents.
+    {"doc.invoice", document, 0},
+    {"doc.credit_note", document, 0},
+    {"doc.receipt", document, 0},
+    // Types and values.
+    {"type.date", type, 0},
+    {"type.text", type, 0},
+    {"type.number", type, 0},
+    {"type.yes_no", type, 0},
+    {"type.list", type, 0},
+    {"val.yes", value, 0},
+    {"val.no", value, 0},
+    // Fields.
+    {"field.holder", field, 0},
+    {"field.amount", field, 0},
+    {"field.due", field, 0},
+    {"field.quantity", field, 0},
+    {"field.tier", field, 0},
+    {"field.pledgee", field, 0},
+    {"field.parts", field, 0},
+    {"field.customer_location", field, 0},
+    {"field.cooling_period", field, 0},
+    // States.
+    {"state.active", state, 0},
+    {"state.proposed", state, 0},
+    {"state.pledged", state, 0},
+    {"state.paid", state, 0},
+    {"state.settled", state, 0},
+    {"state.frozen", state, 0},
+    {"state.suspended", state, 0},
+    {"state.terminated", state, 0},
+    {"state.cancelled", state, 0},
+    // Who acts.
+    {"actor.person", actor, 0},
+    {"actor.ai_agent", actor, 0},
+    {"actor.device", actor, 0},
+    // Common roles.
+    {"role.we", role, 0},
+    {"role.customer", role, 0},
+    {"role.supplier", role, 0},
+    {"role.bank", role, 0},
+    {"role.issuer", role, 0},
+    // Built-in expressions.
+    {"expr.sum_of", expression, 1},
+    {"expr.count_of", expression, 1},
+    {"expr.at_most", expression, 1},
+};
+
+constexpr std::size_t concept_count = std::size(unsorted_concepts);
+
+constexpr auto sorted_concepts = [] {
+    std::array<Concept, concept_count> out{};
+    std::ranges::copy(unsorted_concepts, out.begin());
+    std::ranges::sort(out, {}, &Concept::id);
+    return out;
+}();
+
+static_assert(std::ranges::adjacent_find(sorted_concepts, {}, &Concept::id) ==
+                  sorted_concepts.end(),
+              "concept ids are unique");
+
+constexpr std::size_t keywords =
+    static_cast<std::size_t>(std::ranges::count(unsorted_concepts, keyword, &Concept::category));
+static_assert(keywords == 18, "bo-1.0 has 18 keywords");
+
+constexpr MessageSpec unsorted_messages[] = {
+    // Reading a pack.
+    {"pack.syntax", Severity::error, "detail"},
+    {"pack.too-large", Severity::error, "size limit"},
+    {"pack.expected-map", Severity::error, "path"},
+    {"pack.expected-text", Severity::error, "path"},
+    {"pack.expected-list", Severity::error, "path"},
+    {"pack.expected-integer", Severity::error, "path"},
+    {"pack.expected-boolean", Severity::error, "path"},
+    {"pack.unknown-key", Severity::error, "path key"},
+    {"pack.missing-key", Severity::error, "path key"},
+    {"pack.format", Severity::error, "value"},
+    {"pack.edition", Severity::error, "value"},
+    {"pack.bad-id", Severity::error, "value"},
+    {"pack.bad-language", Severity::error, "value"},
+    {"pack.bad-version", Severity::error, "value"},
+    {"pack.bad-text", Severity::error, "path"},
+    {"pack.bad-value", Severity::error, "path value"},
+    {"pack.too-many", Severity::error, "path limit"},
+    // Concepts and their spellings.
+    {"pack.unknown-concept", Severity::error, "path concept"},
+    {"pack.wrong-category", Severity::error, "path concept category"},
+    {"pack.missing-keyword", Severity::error, "pack concept"},
+    {"pack.partial", Severity::warning, "pack missing total"},
+    {"pack.bad-spelling", Severity::error, "path spelling"},
+    {"pack.bad-character", Severity::error, "path spelling character"},
+    {"pack.needs-hole", Severity::error, "path spelling concept"},
+    {"pack.unexpected-hole", Severity::error, "path spelling concept"},
+    {"pack.bad-form", Severity::error, "path form"},
+    // Never guess.
+    {"pack.duplicate-spelling", Severity::error, "pack spelling concept other"},
+    {"pack.conflict", Severity::error, "spelling pack meaning other_pack other"},
+    {"pack.ambiguous-attachment", Severity::error, "spelling meaning first second"},
+    // Reading rules.
+    {"pack.bad-attach", Severity::error, "path concept"},
+    {"pack.unknown-category", Severity::error, "path category"},
+    {"pack.bad-punctuation", Severity::error, "path character"},
+    {"pack.bad-multiplier", Severity::error, "path value"},
+    {"pack.bad-date", Severity::error, "path pattern"},
+    // Messages and sentences.
+    {"pack.unknown-message", Severity::error, "path code"},
+    {"pack.unknown-sentence", Severity::error, "path id"},
+    {"pack.bad-placeholder", Severity::error, "path placeholder"},
+    // Pack sets.
+    {"pack.false-official", Severity::error, "pack"},
+    {"pack.duplicate-id", Severity::error, "pack"},
+    // Any reading.
+    {"bo.truncated", Severity::warning, "limit"},
+};
+
+constexpr auto sorted_messages = [] {
+    std::array<MessageSpec, std::size(unsorted_messages)> out{};
+    std::ranges::copy(unsorted_messages, out.begin());
+    std::ranges::sort(out, {}, &MessageSpec::code);
+    return out;
+}();
+
+static_assert(std::ranges::adjacent_find(sorted_messages, {}, &MessageSpec::code) ==
+                  sorted_messages.end(),
+              "message codes are unique");
+
+// The sentences of the contract text (`explain`, milestone 8 builds on them).
+constexpr SentenceSpec unsorted_sentences[] = {
+    {"contract", "name"},    {"parties", "parties"},
+    {"can", "party action"}, {"can-to", "party action counterparty"},
+    {"consent", "party"},    {"in-person", "party"},
+    {"agents-propose", ""},  {"when", "event action"},
+    {"reject", "message"},   {"recognized", "rule"},
+};
+
+constexpr auto sorted_sentences = [] {
+    std::array<SentenceSpec, std::size(unsorted_sentences)> out{};
+    std::ranges::copy(unsorted_sentences, out.begin());
+    std::ranges::sort(out, {}, &SentenceSpec::id);
+    return out;
+}();
+
+static_assert(std::ranges::adjacent_find(sorted_sentences, {}, &SentenceSpec::id) ==
+                  sorted_sentences.end(),
+              "sentence ids are unique");
+
+template <class T, std::size_t N, class Key>
+const T* find_sorted(const std::array<T, N>& table, std::string_view id, Key key) noexcept {
+    const auto it = std::ranges::lower_bound(table, id, {}, key);
+    return it != table.end() && std::invoke(key, *it) == id ? &*it : nullptr;
+}
+
+} // namespace
+
+std::optional<Category> category_from_name(std::string_view name) noexcept {
+    const auto it = std::ranges::find(category_names, name);
+    if (it == category_names.end()) {
+        return std::nullopt;
+    }
+    return static_cast<Category>(it - category_names.begin());
+}
+
+std::span<const Concept> concepts() noexcept {
+    return sorted_concepts;
+}
+
+const Concept* find_concept(std::string_view id) noexcept {
+    return find_sorted(sorted_concepts, id, &Concept::id);
+}
+
+std::size_t keyword_count() noexcept {
+    return keywords;
+}
+
+std::span<const MessageSpec> message_specs() noexcept {
+    return sorted_messages;
+}
+
+const MessageSpec* find_message(std::string_view code) noexcept {
+    return find_sorted(sorted_messages, code, &MessageSpec::code);
+}
+
+std::span<const SentenceSpec> sentence_specs() noexcept {
+    return sorted_sentences;
+}
+
+const SentenceSpec* find_sentence(std::string_view id) noexcept {
+    return find_sorted(sorted_sentences, id, &SentenceSpec::id);
+}
+
+bool has_param(std::string_view params, std::string_view name) noexcept {
+    while (!params.empty()) {
+        const std::size_t space = params.find(' ');
+        if (params.substr(0, space) == name) {
+            return true;
+        }
+        if (space == std::string_view::npos) {
+            break;
+        }
+        params.remove_prefix(space + 1);
+    }
+    return false;
+}
+
+} // namespace cexchain::bo
