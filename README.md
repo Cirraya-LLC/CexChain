@@ -690,8 +690,8 @@ cexchain bo test agreement.bo --language zh-Hans-CN --json
 The built-in business actions are written in Bo itself, in a standard library compiled into the
 compiler (`bo/stdlib/edition1.bo`): transfer, pledge, release, enforce, redeem, pay, confirm
 payment, dispute, freeze, unfreeze, and cancel, with the semantics of CexChain's native assets
-(spec section 13); suspend, resume, and terminate, on the home's own word; and allocate and
-reclaim for resources. A contract that writes `can pledge to bank` gets the library's pledge: the
+(spec section 13); split, which makes parts of an asset (below); suspend, resume, and terminate,
+on the home's own word; and allocate and reclaim for resources. A contract that writes `can pledge to bank` gets the library's pledge: the
 holder starts it, the holder and the bank consent, only an active asset can be pledged (so no
 second pledge), and the bank becomes the pledgee. The lines a contract writes under a built-in
 action add to its terms and are checked first (`over 5_000_000 requires in person`); without
@@ -717,6 +717,42 @@ unfrozen asset returns to the state it was frozen in (`frozen -> previous state`
 same calls, a Bo receivable and a Bo warehouse receipt built from the library give the native
 rules' states, holders, pledgees, payees, quantities, consents, and refusals
 (`tests/bo/assets_test.cpp`).
+
+#### Splitting, for multi-tier supply-chain finance
+
+`can split` gives a receivable the library's split: its holder divides it among recipients, each
+part an instance of its own (spec v0.7) held by its recipient, one tier down, and the receivable
+ends (`divided`). The holder and every recipient consent (so at most 15 recipients besides the
+holder), each part is at least the currency's smallest unit, the parts add up to the amount,
+and only an active asset splits, so not while pledged. A part at depth 8 splits no further
+(`bo:depth split`). The template ends with the statement that makes the parts, which a copy of
+it can change:
+
+```
+can split by holder with parts, recipients
+  requires count of recipients = count of parts
+  requires count of recipients <= 15 or holder in recipients
+  each part in parts
+    requires part > 0
+  requires sum of parts = amount
+  requires consent of recipients
+  active -> divided
+  issue parts to recipients with tier = tier + 1
+```
+
+`issue PARTS to RECIPIENTS` (R30) makes each part an instance with the instance's fields, its
+amount the part and its holder the recipient in the same place, `with` setting others; fields
+Bo adds start empty, and the part starts in the first state. A part's evidence carries the
+history of the instances it came from, the other parts of each split included, which the
+contract text states. In tests, a step acts on the part its party holds (or names the holder:
+`issuer pay forge`), and the report names parts by path (part 1.2).
+
+```sh
+cexchain contract propose <receivable> split --peer core \
+    --args "{\"parts\": [60000000, 40000000], \"recipients\": [h'<tier-2 A>', h'<tier-2 B>']}"
+cexchain contract pending --peer core            # a recipient sees the call it is asked to consent to
+cexchain contract consent --peer core --call <call> --as root.key --log-key log.key --send
+```
 
 An action can let AI agents only propose it (`AI agent can propose`): an agent's call is then
 kept with the instance as a proposal, and a person who proves presence approves it with the

@@ -15,22 +15,39 @@ Bo wrote this text from the contract's source (Bo edition 1). A clause marked wi
 
 3. States
 3.1 An instance starts in the state active. [R4]
-3.2 No state is final: some action can start from any state.
-3.3 Each change of state, the first state included, is recorded as an event.
+3.2 Its states are active and divided.
+3.3 The state divided is final: no action can start from it, so an instance in it takes no more calls.
+3.4 Each change of state, the first state included, is recorded as an event.
 
 4. Actions
 A call that does not meet one of an action's requirements is refused, and the instance does not change. A missing consent is not a refusal: the call waits for it.
 
 4.1 split
-  4.1.1 A built-in action of Bo: its standard terms (who starts it, who consents, the states it needs and changes) come with Bo's standard library in a later version, so this text states only the clauses the contract writes.
-  4.1.2 The call gives parts (a list of at most 16 items, each money in HKD). [R15]
-  4.1.3 Requirement 1: the sum of the parts is the amount.
-  4.1.4 Requirement 2: the tier is less than 5.
-  4.1.5 An AI agent may start it within its delegation. [R14]
+  4.1.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show split): the clauses marked R19 state them, after the contract's own clauses.
+  4.1.2 Started by the holder, whose agreement it needs. [R19]
+  4.1.3 The call gives parts (a list of at most 16 items, each money in HKD); recipients (a list of at most 16 items, each a party). [R1, R15]
+  4.1.4 Requirement 1: the sum of the parts is the amount.
+  4.1.5 Requirement 2: the tier is less than 5.
+  4.1.6 Requirement 3: the number of items in the recipients is the number of items in the parts. [R19]
+  4.1.7 Requirement 4: the number of items in the recipients is at most 15 or the holder is one of the recipients. [R19]
+  4.1.8 For each part in the parts: [R19]
+    4.1.8.1 Requirement 5: part is more than 0. [R19, R22]
+  4.1.9 Requirement 6: the sum of the parts is the amount. [R19]
+  4.1.10 Requirement 7: the consent of the recipients. [R19]
+  4.1.11 If the instance is active, it becomes divided; otherwise the call is refused. [R19]
+  4.1.12 Each of the parts becomes an instance of this contract of its own, a part of this instance: its holder is the party in the same place in the recipients, and its amount is the part. It has this instance's other fields as they are now, except those Bo adds (they start with none), and it starts in the state active. This instance then ends: it takes no more calls. [R19, R30]
+  4.1.13 On each part, the tier is set to the tier + 1, computed on this instance. [R19, R30]
+  4.1.14 A part may itself be split, down to depth 8, the deepest the ledger allows: on a part at depth 8 the call is refused (bo:depth split). [R19, R30]
+  4.1.15 Whoever holds or verifies a part sees the history of each instance it came from, up to the call that split it: the other parts of that call, their holders, and their amounts included. [R19, R30]
+  4.1.16 An AI agent may start it within its delegation. [R14]
 
 5. Rules Bo applied
+[R1] A field the vocabulary defines has the vocabulary's type: holder, pledgee, and payee a party, due a date, tier a number, customer location a text, cooling period a duration, recipients a list of parties.
 [R2] A field given a party holds a party: each instance starts with that party, and actions may change it.
 [R3] A role the contract first names as an action's counterparty (after to) is bound to a ledger by that action, with its consent; every other role is bound to a ledger when an instance is created.
 [R4] An instance starts in the one state that no state change leads to; if there is none, in the state active.
 [R14] An AI agent may start an action within its delegation, unless the action says AI agent can propose; then the agent only proposes, and a person approves.
 [R15] Parts are a list of amounts in the unit of the instance's amount.
+[R19] A built-in action has the standard terms Bo's standard library gives it (cexchain bo stdlib show ACTION): who starts it, whose consent it needs, the states it starts from and leads to, and what it changes. The contract's own clauses come first and add to them; R8 adds no consent to the standard terms.
+[R22] A bare 0 compared with, added to, or taken from money, a quantity, a rate, or a duration is zero of it.
+[R30] Issue PARTS to RECIPIENTS makes each part an instance of its own, of the same contract, created by the call: its amount is the part and its holder its recipient, and the instance that issued it ends. A part may be split again, at most eight levels down, and its evidence carries the history of every instance it came from (spec section 15).

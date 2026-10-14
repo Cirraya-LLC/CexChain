@@ -259,6 +259,16 @@ struct ActionInfo {
     wasm::Func core{};
     /// Only time rules do it: no function of its own.
     bool rule_only = false;
+    /// It issues parts (R30): a part at depth 8 cannot do it.
+    bool parts = false;
+};
+
+/// A field each part gets as `with` sets it (R30): its value, computed on
+/// the instance that issues the parts, and whether this call gave it.
+struct PartField {
+    wasm::Global first{};
+    wasm::Global second{};
+    wasm::Global given{};
 };
 
 /// A time rule with code (R24): its function, the time it applies at, and
@@ -383,6 +393,8 @@ private:
     void shift(Ctx& c, const m::Expr& duration, bool earlier);
     void moment(Ctx& c, const m::Trigger& trigger);
     void entry_check(Ctx& c);
+    void depth_check(Ctx& c);
+    void issue_parts(Ctx& c, const m::Do& d);
     void party_raw(Ctx& c, const m::Expr& e);
     void ledger_equals(Ctx& c, const m::Expr& x, const m::Expr& y);
     void consent_of(Ctx& c, const m::Expr& party);
@@ -473,6 +485,9 @@ private:
     std::map<Rep, wasm::Func> list_readers_;
     std::map<Rep, wasm::Func> list_has_;
     std::optional<wasm::Func> list_sum_;
+    /// Parts (R30): some action issues them; the fields `with` sets on them.
+    bool parts_used_ = false;
+    std::map<std::size_t, PartField> part_fields_;
 
     // Written in the second pass.
     wasm::Global state_{};
@@ -505,6 +520,11 @@ private:
     wasm::Global rule_length_{};
     wasm::Global rule_time_{};
     wasm::Global rule_late_{};
+    /// Parts issued in this call (i32: 1 if any), and the lists of their
+    /// amounts and recipients (their items' addresses).
+    wasm::Global parts_made_{};
+    wasm::Global parts_list_{};
+    wasm::Global parts_to_{};
 };
 
 // ---------------------------------------------------------------------------
@@ -707,6 +727,15 @@ std::optional<std::pair<Span, std::string>> Lowering::unsupported_in(const m::Ex
             return all(false);
         }
         if (is(e.concept_entry, "cond.consent_of") && consent_ok) {
+            // A list of parties written out: each party.
+            if (const m::Expr* items = literal_items(e.operands[0])) {
+                for (const m::Expr& o : items->operands) {
+                    if (Found f = unsupported_in(o, action, false, depth + 1)) {
+                        return f;
+                    }
+                }
+                return std::nullopt;
+            }
             return all(false);
         }
         return no(e.concept_entry != nullptr ? std::string(e.concept_entry->id) : "cond.over");
@@ -864,6 +893,29 @@ void Lowering::support(ActionInfo& action, const std::vector<m::Statement>& list
                 },
                 [&](const m::Do& d) {
                     const std::string key = m::key(d.action.concept_entry, d.action.name);
+                    if (d.parts && !rule) {
+                        // R30: the parts, their recipients, and the fields
+                        // each part gets.
+                        parts_used_ = true;
+                        action.parts = true;
+                        for (const m::Expr& a : d.args) {
+                            check(a, false);
+                        }
+                        if (d.to) {
+                            check(*d.to, false);
+                        }
+                        for (const m::Set& w : d.with) {
+                            const auto at =
+                                field_index_.find(m::key(w.target.concept_entry, w.target.name));
+                            if (at == field_index_.end()) {
+                                unsupported(w.span, feature_of(w.target.type));
+                                continue;
+                            }
+                            part_fields_.try_emplace(at->second);
+                            check(w.value, false);
+                        }
+                        return;
+                    }
                     if (d.executor) {
                         error(d.span, "build.executor", {{"action", key}});
                     } else if (rule && d.obligation) {
@@ -2122,16 +2174,24 @@ wasm::Func Lowering::write_accept() {
     for (const FieldSlot& slot : fields_) {
         party_fields += slot.rep == Rep::ledger && !slot.optional ? 1 : 0;
     }
-    b.u32(static_cast<std::uint32_t>(party_fields)).set(parties);
-    for (const RoleSlot& role : roles_) {
-        b.global_get(role.ledger).op(i32_eqz).op(i32_eqz).get(parties).op(i32_add).set(parties);
-    }
-    // A party field that holds no party is no party of the instance.
-    for (const FieldSlot& slot : fields_) {
-        if (slot.optional) {
-            b.global_get(slot.first).op(i32_eqz).op(i32_eqz).get(parties).op(i32_add).set(parties);
+    const auto count_parties = [&] {
+        b.u32(static_cast<std::uint32_t>(party_fields)).set(parties);
+        for (const RoleSlot& role : roles_) {
+            b.global_get(role.ledger).op(i32_eqz).op(i32_eqz).get(parties).op(i32_add).set(parties);
         }
-    }
+        // A party field that holds no party is no party of the instance.
+        for (const FieldSlot& slot : fields_) {
+            if (slot.optional) {
+                b.global_get(slot.first)
+                    .op(i32_eqz)
+                    .op(i32_eqz)
+                    .get(parties)
+                    .op(i32_add)
+                    .set(parties);
+            }
+        }
+    };
+    count_parties();
     b.global_get(events_).set(events);
     if (proposals_) {
         // A proposal or an approval: one more event.
@@ -2145,142 +2205,156 @@ wasm::Func Lowering::write_accept() {
         // A bill made: one more event.
         b.global_get(bill_new_).get(events).op(i32_add).set(events);
     }
-    // [1, {1: state, 2: status, ? 3: parties, ? 4: events, ? 5: true}]
+    if (parts_used_) {
+        // R30: an instance that issued parts ends.
+        b.global_get(parts_made_).get(final).op(i32_or).set(final);
+    }
+    // [1, {1: state, 2: status, ? 3: parties, ? 4: events, ? 5: true, ? 6:
+    // parts}]
     b.i32(4).i64(2).call(head);
     b.i64(1).call(out_int);
     b.i32(2).get(parties).op(i32_eqz).op(i32_eqz).op(i32_add);
     b.get(events).op(i32_eqz).op(i32_eqz).op(i32_add).get(final).op(i32_add);
+    if (parts_used_) {
+        b.global_get(parts_made_).op(i32_add);
+    }
     b.op(i64_extend_i32_u).set(count);
     b.i32(5).get(count).call(head);
     // 1: {"state": NAME, "fields": {...}, ? "pending": [...], ? "previous":
     // NAME or null}, keys in canonical order.
     b.i64(1).call(out_int);
-    b.global_get(rt_.var(rt::Var::out)).set(mark);
-    b.i32(5)
-        .i64(2 + (proposals_ ? 1 : 0) + (previous_used_ ? 1 : 0) + (rules_.empty() ? 0 : 1) +
-             (since_used_ ? 1 : 0) + (bill_slot_ ? 1 : 0))
-        .call(head);
-    if (bill_slot_) {
-        // "bill": the bill made in this call, or the one kept (R26).
-        push_key(b, text_cbor("bill"));
-        b.call(out_raw);
-        write_bill(b);
-    }
-    if (!rules_.empty()) {
-        // "fired": {RULE: the time it last applied for, or null}.
-        push_key(b, text_cbor("fired"));
-        b.call(out_raw);
-        b.i32(5).i64(static_cast<std::int64_t>(rules_.size())).call(head);
-        std::vector<const RuleInfo*> sorted;
-        for (const RuleInfo& rule : rules_) {
-            sorted.push_back(&rule);
-        }
-        std::ranges::sort(sorted, {}, &RuleInfo::key);
-        for (const RuleInfo* rule : sorted) {
-            push_key(b, rule->key);
+    const auto write_state = [&] {
+        b.global_get(rt_.var(rt::Var::out)).set(mark);
+        b.i32(5)
+            .i64(2 + (proposals_ ? 1 : 0) + (previous_used_ ? 1 : 0) + (rules_.empty() ? 0 : 1) +
+                 (since_used_ ? 1 : 0) + (bill_slot_ ? 1 : 0))
+            .call(head);
+        if (bill_slot_) {
+            // "bill": the bill made in this call, or the one kept (R26).
+            push_key(b, text_cbor("bill"));
             b.call(out_raw);
-            b.global_get(rule->fired_set);
-            const Label applied = b.if_();
-            b.global_get(rule->fired).call(out_int);
-            b.else_(applied);
-            b.call(rt_.get(Routine::out_null));
-            b.end(applied);
+            write_bill(b);
         }
-    }
-    if (since_used_) {
-        push_key(b, text_cbor("since"));
+        if (!rules_.empty()) {
+            // "fired": {RULE: the time it last applied for, or null}.
+            push_key(b, text_cbor("fired"));
+            b.call(out_raw);
+            b.i32(5).i64(static_cast<std::int64_t>(rules_.size())).call(head);
+            std::vector<const RuleInfo*> sorted;
+            for (const RuleInfo& rule : rules_) {
+                sorted.push_back(&rule);
+            }
+            std::ranges::sort(sorted, {}, &RuleInfo::key);
+            for (const RuleInfo* rule : sorted) {
+                push_key(b, rule->key);
+                b.call(out_raw);
+                b.global_get(rule->fired_set);
+                const Label applied = b.if_();
+                b.global_get(rule->fired).call(out_int);
+                b.else_(applied);
+                b.call(rt_.get(Routine::out_null));
+                b.end(applied);
+            }
+        }
+        if (since_used_) {
+            push_key(b, text_cbor("since"));
+            b.call(out_raw);
+            b.global_get(since_).call(out_int);
+        }
+        push_key(b, text_cbor("state"));
         b.call(out_raw);
-        b.global_get(since_).call(out_int);
-    }
-    push_key(b, text_cbor("state"));
-    b.call(out_raw);
-    state_name(b, index);
-    push_key(b, text_cbor("fields"));
-    b.call(out_raw);
-    b.i32(5).i64(static_cast<std::int64_t>(fields_.size())).call(head);
-    std::vector<const FieldSlot*> sorted;
-    for (const FieldSlot& slot : fields_) {
-        sorted.push_back(&slot);
-    }
-    std::ranges::sort(sorted, {}, &FieldSlot::key);
-    for (const FieldSlot* slot : sorted) {
-        push_key(b, slot->key);
+        state_name(b, index);
+        push_key(b, text_cbor("fields"));
         b.call(out_raw);
-        if (slot->optional) {
-            b.global_get(slot->first).op(i32_eqz);
+        b.i32(5).i64(static_cast<std::int64_t>(fields_.size())).call(head);
+        std::vector<const FieldSlot*> sorted;
+        for (const FieldSlot& slot : fields_) {
+            sorted.push_back(&slot);
+        }
+        std::ranges::sort(sorted, {}, &FieldSlot::key);
+        for (const FieldSlot* slot : sorted) {
+            push_key(b, slot->key);
+            b.call(out_raw);
+            if (slot->optional) {
+                b.global_get(slot->first).op(i32_eqz);
+                const Label none = b.if_();
+                b.call(rt_.get(Routine::out_null));
+                b.else_(none);
+                load(b, *slot);
+                out_value(b, slot->rep);
+                b.end(none);
+                continue;
+            }
+            load(b, *slot);
+            out_value(b, slot->rep);
+        }
+        if (proposals_) {
+            push_key(b, text_cbor("pending"));
+            b.call(out_raw);
+            write_pending(b);
+        }
+        if (previous_used_) {
+            push_key(b, text_cbor("previous"));
+            b.call(out_raw);
+            b.global_get(previous_).op(i32_eqz);
             const Label none = b.if_();
             b.call(rt_.get(Routine::out_null));
             b.else_(none);
-            load(b, *slot);
-            out_value(b, slot->rep);
+            b.global_get(previous_).i32(1).op(i32_sub).set(index);
+            state_name(b, index);
+            b.global_get(state_).set(index);
             b.end(none);
-            continue;
         }
-        load(b, *slot);
-        out_value(b, slot->rep);
-    }
-    if (proposals_) {
-        push_key(b, text_cbor("pending"));
-        b.call(out_raw);
-        write_pending(b);
-    }
-    if (previous_used_) {
-        push_key(b, text_cbor("previous"));
-        b.call(out_raw);
-        b.global_get(previous_).op(i32_eqz);
-        const Label none = b.if_();
-        b.call(rt_.get(Routine::out_null));
-        b.else_(none);
-        b.global_get(previous_).i32(1).op(i32_sub).set(index);
-        state_name(b, index);
-        b.global_get(state_).set(index);
-        b.end(none);
-    }
-    // A state holds at most 64 KiB (spec section 15).
-    b.global_get(rt_.var(rt::Var::out)).get(mark).op(i32_sub);
-    b.u32(static_cast<std::uint32_t>(max_state_size)).op(i32_gt_u);
-    {
-        const Label large = b.if_();
-        b.call(rt_.fail(rt::Reason::output));
-        b.end(large);
-    }
+        // A state holds at most 64 KiB (spec section 15).
+        b.global_get(rt_.var(rt::Var::out)).get(mark).op(i32_sub);
+        b.u32(static_cast<std::uint32_t>(max_state_size)).op(i32_gt_u);
+        {
+            const Label large = b.if_();
+            b.call(rt_.fail(rt::Reason::output));
+            b.end(large);
+        }
+    };
+    write_state();
     // 2: the status, the state's name.
     b.i64(2).call(out_int);
     state_name(b, index);
-    // 3: the parties bound so far, and the fields holding one.
-    b.get(parties);
-    {
-        const Label some = b.if_();
-        b.i64(3).call(out_int);
-        b.i32(5).get(parties).op(i64_extend_i32_u).call(head);
-        std::vector<std::pair<const Bytes*, std::pair<wasm::Global, bool>>> entries;
-        for (const RoleSlot& role : roles_) {
-            entries.push_back({&role.key, {role.ledger, true}});
-        }
-        for (const FieldSlot& slot : fields_) {
-            if (slot.rep == Rep::ledger) {
-                entries.push_back({&slot.key, {slot.first, slot.optional}});
+    const auto write_parties = [&] {
+        // 3: the parties bound so far, and the fields holding one.
+        b.get(parties);
+        {
+            const Label some = b.if_();
+            b.i64(3).call(out_int);
+            b.i32(5).get(parties).op(i64_extend_i32_u).call(head);
+            std::vector<std::pair<const Bytes*, std::pair<wasm::Global, bool>>> entries;
+            for (const RoleSlot& role : roles_) {
+                entries.push_back({&role.key, {role.ledger, true}});
             }
-        }
-        std::ranges::sort(entries,
-                          [](const auto& x, const auto& y) { return *x.first < *y.first; });
-        for (const auto& [key, ledger] : entries) {
-            const auto& [global, maybe_unbound] = ledger;
-            std::optional<Label> bound;
-            if (maybe_unbound) {
+            for (const FieldSlot& slot : fields_) {
+                if (slot.rep == Rep::ledger) {
+                    entries.push_back({&slot.key, {slot.first, slot.optional}});
+                }
+            }
+            std::ranges::sort(entries,
+                              [](const auto& x, const auto& y) { return *x.first < *y.first; });
+            for (const auto& [key, ledger] : entries) {
+                const auto& [global, maybe_unbound] = ledger;
+                std::optional<Label> bound;
+                if (maybe_unbound) {
+                    b.global_get(global);
+                    bound = b.if_();
+                }
+                push_key(b, *key);
+                b.call(out_raw);
                 b.global_get(global);
-                bound = b.if_();
+                out_value(b, Rep::ledger);
+                if (bound) {
+                    b.end(*bound);
+                }
             }
-            push_key(b, *key);
-            b.call(out_raw);
-            b.global_get(global);
-            out_value(b, Rep::ledger);
-            if (bound) {
-                b.end(*bound);
-            }
+            b.end(some);
         }
-        b.end(some);
-    }
+    };
+    write_parties();
     // 4: each state change: [state, null] (after a proposal's or an
     // approval's: [propose or approve, ACTION]).
     b.get(events);
@@ -2330,6 +2404,88 @@ wasm::Func Lowering::write_accept() {
         b.i64(5).call(out_int);
         b.i32(1).call(rt_.get(Routine::out_bool));
         b.end(last);
+    }
+    if (parts_used_) {
+        // 6: the parts, each {1: state, 2: status, 3: parties} (R30): the
+        // instance's fields but the amount (the part), the holder (its
+        // recipient), the fields `with` gives, and those Bo adds (none);
+        // roles an action binds unbound; the first state, from now on.
+        const Local cp = b.local(I32);
+        const Local cr = b.local(I32);
+        const Local left = b.local(I32);
+        const wasm::Func head_arg = rt_.get(Routine::head_arg);
+        const wasm::Func content = rt_.get(Routine::content);
+        b.global_get(parts_made_);
+        const Label made = b.if_();
+        b.i64(6).call(out_int);
+        b.global_get(parts_list_).call(head_arg).op(i32_wrap_i64).set(left);
+        b.i32(4).get(left).op(i64_extend_i32_u).call(head);
+        b.global_get(parts_list_).call(content).set(cp);
+        b.global_get(parts_to_).call(content).set(cr);
+        for (const auto& [at, part] : part_fields_) {
+            const FieldSlot& slot = fields_[at];
+            b.global_get(part.given);
+            const Label given = b.if_();
+            b.global_get(part.first);
+            if (pair_rep(slot.rep)) {
+                b.global_get(part.second);
+            }
+            store(b, slot);
+            b.end(given);
+        }
+        for (const FieldSlot& slot : fields_) {
+            if (slot.empty_at_start) {
+                b.i32(0).global_set(slot.first);
+            }
+        }
+        for (const RoleSlot& role : roles_) {
+            if (role.party->binding == m::Binding::action) {
+                b.i32(0).global_set(role.ledger);
+            }
+        }
+        b.i32(0).global_set(state_);
+        if (since_used_) {
+            call_item(b, 7);
+            expect(b, Rep::i64, rt::text_of(rt::Reason::input));
+            b.global_set(since_);
+        }
+        for (const RuleInfo& rule : rules_) {
+            b.i32(0).global_set(rule.fired_set);
+        }
+        if (proposals_) {
+            for (const wasm::Global g : {pending_, drop_, add_args_}) {
+                b.i32(0).global_set(g);
+            }
+        }
+        if (previous_used_) {
+            b.i32(0).global_set(previous_);
+        }
+        const FieldSlot& amount = fields_[field_index_.at("field.amount")];
+        const FieldSlot& holder = fields_[field_index_.at("field.holder")];
+        {
+            const Label done = b.block();
+            const Label next = b.loop();
+            b.get(left).op(i32_eqz).br_if(done);
+            item_value(b, cp, Rep::i64);
+            b.global_set(amount.first);
+            item_value(b, cr, Rep::ledger);
+            b.global_set(holder.first);
+            next_item(b, cp, Rep::i64);
+            next_item(b, cr, Rep::ledger);
+            b.i32(0).set(index);
+            count_parties();
+            b.i32(5).i32(2).get(parties).op(i32_eqz).op(i32_eqz).op(i32_add);
+            b.op(i64_extend_i32_u).call(head);
+            b.i64(1).call(out_int);
+            write_state();
+            b.i64(2).call(out_int);
+            state_name(b, index);
+            write_parties();
+            b.get(left).i32(1).op(i32_sub).set(left).br(next);
+            b.end(next);
+            b.end(done);
+        }
+        b.end(made);
     }
     b.call(rt_.get(Routine::out_finish));
     module_.define(std::move(b));
@@ -2723,6 +2879,60 @@ void Lowering::entry_check(Ctx& c) {
     b.end(other);
 }
 
+void Lowering::depth_check(Ctx& c) {
+    // A part at depth 8 creates no parts (spec section 15): the instance
+    // view's [parent, depth] (key 6 of input key 5), which only parts have.
+    FunctionBuilder& b = *c.b;
+    call_item(b, 5);
+    push_key(b, uint_key(6));
+    b.call(rt_.get(Routine::map_get)).tee(c.t32);
+    const Label part = b.if_();
+    b.get(c.t32).call(rt_.get(Routine::content)).call(rt_.get(Routine::item_end));
+    expect(b, Rep::i64, rt::text_of(rt::Reason::input));
+    b.i64(static_cast<std::int64_t>(m::max_part_depth)).op(i64_ge_s);
+    {
+        const Label deep = b.if_();
+        refuse(b, "bo:depth " + c.wire);
+        b.end(deep);
+    }
+    b.end(part);
+}
+
+void Lowering::issue_parts(Ctx& c, const m::Do& d) {
+    // R30: the lists of amounts and recipients, as many of one as of the
+    // other and one at least, and the fields each part gets, computed now;
+    // the output writes the parts after the instance (write_accept).
+    FunctionBuilder& b = *c.b;
+    const wasm::Func head_arg = rt_.get(Routine::head_arg);
+    value(c, d.args[0]);
+    b.op(drop).global_set(parts_list_);
+    value(c, *d.to);
+    b.op(drop).global_set(parts_to_);
+    b.global_get(parts_list_).call(head_arg).global_get(parts_to_).call(head_arg).op(i64_ne);
+    b.global_get(parts_list_).call(head_arg).op(i64_eqz).op(i32_or);
+    {
+        const Label other = b.if_();
+        refuse(b, "bo:parts " + c.wire);
+        b.end(other);
+    }
+    for (const m::Set& w : d.with) {
+        const std::size_t index = field_index_.at(m::key(w.target.concept_entry, w.target.name));
+        const FieldSlot& slot = fields_[index];
+        const PartField& part = part_fields_.at(index);
+        if (slot.optional) {
+            party_raw(c, w.value);
+        } else {
+            value(c, w.value);
+        }
+        if (pair_rep(slot.rep)) {
+            b.global_set(part.second);
+        }
+        b.global_set(part.first);
+        b.i32(1).global_set(part.given);
+    }
+    b.i32(1).global_set(parts_made_);
+}
+
 void Lowering::emit_action(const ActionInfo& info) {
     FunctionBuilder b = module_.begin(info.function);
     const m::Action& a = *info.action;
@@ -2745,6 +2955,9 @@ void Lowering::emit_action(const ActionInfo& info) {
     c.t64b = b.local(I64);
     b.call(load_instance());
     entry_check(c);
+    if (info.parts) {
+        depth_check(c);
+    }
     arguments(c);
     const wasm::Func consent = rt_.get(Routine::consent);
     // The starter agrees through the call (the home) or its consent. A
@@ -2782,6 +2995,9 @@ void Lowering::emit_core(const ActionInfo& info) {
     c.t64b = b.local(I64);
     const m::Action& a = *info.action;
     entry_check(c);
+    if (info.parts) {
+        depth_check(c);
+    }
     arguments(c);
     const wasm::Func consent = rt_.get(Routine::consent);
     if (a.by) {
@@ -2971,9 +3187,12 @@ void Lowering::statements(Ctx& c, const std::vector<m::Statement>& list) {
                 },
                 [&](const m::Transition& t) { transition(c, t); },
                 [&](const m::Do& d) {
-                    // Only in a time rule: an action it does (a duty, none).
+                    // In an action, parts issued (R30); in a time rule, an
+                    // action it does (a duty, none).
                     BO_ASSERT(!d.executor);
-                    if (!d.obligation) {
+                    if (d.parts) {
+                        issue_parts(c, d);
+                    } else if (!d.obligation) {
                         run_action(c, d);
                     }
                 },
@@ -3265,6 +3484,30 @@ void Lowering::consent_of(Ctx& c, const m::Expr& party) {
     // A field that holds no party has nobody to ask.
     FunctionBuilder& b = *c.b;
     const wasm::Func consent = rt_.get(Routine::consent);
+    if (party.type.kind == TypeKind::list) {
+        // A list of parties (a split's recipients): each one's consent.
+        if (const m::Expr* items = literal_items(party)) {
+            for (const m::Expr& item : items->operands) {
+                consent_of(c, item);
+            }
+            return;
+        }
+        const Local p = b.local(I32);
+        const Local n = b.local(I32);
+        value(c, party);
+        b.op(drop).tee(p).call(rt_.get(Routine::head_arg)).op(i32_wrap_i64).set(n);
+        b.get(p).call(rt_.get(Routine::content)).set(p);
+        const Label done = b.block();
+        const Label next = b.loop();
+        b.get(n).op(i32_eqz).br_if(done);
+        item_value(b, p, Rep::ledger);
+        b.call(consent).op(drop);
+        next_item(b, p, Rep::ledger);
+        b.get(n).i32(1).op(i32_sub).set(n).br(next);
+        b.end(next);
+        b.end(done);
+        return;
+    }
     if (!may_be_empty(party)) {
         value(c, party);
         b.call(consent).op(drop);
@@ -3688,6 +3931,19 @@ void Lowering::emit() {
             if (!k.charge->per_document) {
                 k.line = module_.add_global(I64, 0);
             }
+        }
+    }
+    if (parts_used_) {
+        for (wasm::Global* g : {&parts_made_, &parts_list_, &parts_to_}) {
+            *g = module_.add_global(I32, 0);
+        }
+        for (auto& [index, part] : part_fields_) {
+            const FieldSlot& slot = fields_[index];
+            part.first = module_.add_global(slot.rep == Rep::i64 ? I64 : I32, 0);
+            if (pair_rep(slot.rep)) {
+                part.second = module_.add_global(I32, 0);
+            }
+            part.given = module_.add_global(I32, 0);
         }
     }
     events_area_ = module_.reserve(static_cast<std::uint32_t>(4 * max_transitions_), 4);

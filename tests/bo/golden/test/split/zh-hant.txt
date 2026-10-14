@@ -1,0 +1,125 @@
+測試 「two tiers, a pledge, and payment to the bank」：通過
+  第 1 步（第 23 行）通過：issuer issue with amount = HKD 1_000, due = 2027-06-30, tier = 1
+    結果：調用獲接納，實例現為正常。
+  第 2 步（第 24 行）通過：supplier split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> divided
+    結果：經供應商、maker2 及 maker1 同意，調用獲接納，實例現為已拆分；此為最終狀態，實例不再接受調用。
+  第 3 步（第 25 行）通過：maker1 split with parts = (HKD 100, HKD 500), recipients = (smith1, maker1) -> divided
+    處理部分 1。
+    結果：經 maker1 及 smith1 同意，調用獲接納，實例現為已拆分；此為最終狀態，實例不再接受調用。
+  第 4 步（第 26 行）通過：smith1 pledge to bank1 -> pledged
+    處理部分 1.1。
+    結果：經 smith1 及 bank1 同意，調用獲接納，實例現為已質押。
+  第 5 步（第 27 行）通過：maker1 transfer to factor1 -> active
+    處理部分 1.2。
+    結果：經 factor1 及 maker1 同意，調用獲接納，實例現為正常。
+  第 6 步（第 28 行）通過：supplier pledge to bank1 -> refused
+    結果：賬本拒絕調用：實例已處於最終狀態，不再接受調用。
+  第 7 步（第 29 行）通過：issuer pay smith1 at 2027-06-30 -> paid
+    處理部分 1.1。
+    結果：調用獲接納，實例現為已支付。
+  第 8 步（第 30 行）通過：bank1 confirm payment -> settled
+    處理部分 1.1。
+    結果：經 bank1 同意，調用獲接納，實例現為已結清；此為最終狀態，實例不再接受調用。
+  第 9 步（第 31 行）通過：issuer pay factor1 -> paid
+    處理部分 1.2。
+    結果：調用獲接納，實例現為已支付。
+  第 10 步（第 32 行）通過：factor1 confirm payment -> settled
+    處理部分 1.2。
+    結果：經 factor1 同意，調用獲接納，實例現為已結清；此為最終狀態，實例不再接受調用。
+  第 11 步（第 33 行）通過：issuer pay maker2 -> paid
+    處理部分 2。
+    結果：調用獲接納，實例現為已支付。
+  第 12 步（第 34 行）通過：maker2 confirm payment -> settled
+    處理部分 2。
+    結果：經 maker2 同意，調用獲接納，實例現為已結清；此為最終狀態，實例不再接受調用。
+
+測試 「each recipient consents, and the holder」：通過
+  第 1 步（第 37 行）通過：issuer issue with amount = HKD 1_000, due = 2027-06-30, tier = 1
+    結果：調用獲接納，實例現為正常。
+  第 2 步（第 38 行）通過：supplier split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> consent of maker2
+    結果：調用正等待 maker2 同意。
+  第 3 步（第 39 行）通過：supplier split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> consent of (maker1, maker2)
+    結果：調用正等待 maker2 及 maker1 同意。
+  第 4 步（第 40 行）通過：maker1 split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> consent of supplier
+    結果：調用正等待供應商同意。
+  第 5 步（第 41 行）通過：supplier split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> divided
+    結果：經供應商、maker2 及 maker1 同意，調用獲接納，實例現為已拆分；此為最終狀態，實例不再接受調用。
+
+測試 「the parts add up, each at least a cent, one for each recipient」：通過
+  第 1 步（第 44 行）通過：issuer issue with amount = HKD 1_000, due = 2027-06-30, tier = 1
+    結果：調用獲接納，實例現為正常。
+  第 2 步（第 45 行）通過：supplier split with parts = (HKD 600, HKD 300), recipients = (maker1, maker2) -> refused "bo:requires split 4"
+    結果：調用被拒絕，因為拆分 的第 4 項要求未獲滿足（bo:requires split 4）。
+    合約條文 4.1.7：要求 4：各部分的總和為金額。
+  第 3 步（第 46 行）通過：supplier split with parts = (HKD 1_000, HKD 0), recipients = (maker1, maker2) -> refused "bo:requires split 3"
+    結果：調用被拒絕，因為拆分 的第 3 項要求未獲滿足（bo:requires split 3）。
+    合約條文 4.1.6.1：要求 3：part 大於 0。
+  第 4 步（第 47 行）通過：supplier split with parts = (HKD 600, HKD 400), recipients = maker1 -> refused "bo:requires split 1"
+    結果：調用被拒絕，因為拆分 的第 1 項要求未獲滿足（bo:requires split 1）。
+    合約條文 4.1.4：要求 1：各接收方的項目數目為各部分的項目數目。
+  第 5 步（第 48 行）通過：supplier split with parts = HKD 1_000, recipients = maker1 -> divided
+    結果：經供應商及 maker1 同意，調用獲接納，實例現為已拆分；此為最終狀態，實例不再接受調用。
+
+測試 「at most 15 recipients besides the holder」：通過
+  第 1 步（第 51 行）通過：issuer issue with amount = HKD 16, due = 2027-06-30, tier = 1
+    結果：調用獲接納，實例現為正常。
+  第 2 步（第 52 行）通過：supplier split with parts = (HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1), recipients = (r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16) -> refused "bo:requires split 2"
+    結果：調用被拒絕，因為拆分 的第 2 項要求未獲滿足（bo:requires split 2）。
+    合約條文 4.1.5：要求 2：各接收方的項目數目不超過 15 或持有人屬於各接收方之一。
+  第 3 步（第 53 行）通過：supplier split with parts = (HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1), recipients = (r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, supplier) -> divided
+    結果：經 r11、r7、供應商、r5、r2、r4、r15、r13、r9、r3、r14、r6、r1、r10、r8 及 r12 同意，調用獲接納，實例現為已拆分；此為最終狀態，實例不再接受調用。
+  第 4 步（第 54 行）通過：r15 pledge to bank1 -> pledged
+    處理部分 15。
+    結果：經 r15 及 bank1 同意，調用獲接納，實例現為已質押。
+  第 5 步（第 55 行）通過：supplier transfer to r1 -> active
+    處理部分 16。
+    結果：經供應商及 r1 同意，調用獲接納，實例現為正常。
+
+測試 「not while pledged」：通過
+  第 1 步（第 58 行）通過：issuer issue with amount = HKD 1_000, due = 2027-06-30, tier = 1
+    結果：調用獲接納，實例現為正常。
+  第 2 步（第 59 行）通過：supplier pledge to bank1 -> pledged
+    結果：經供應商及 bank1 同意，調用獲接納，實例現為已質押。
+  第 3 步（第 60 行）通過：supplier split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> refused "bo:state split"
+    結果：調用被拒絕，因為實例目前的狀態不容許 拆分（bo:state split）。
+    合約條文 4.1.9：如實例處於正常狀態，即轉為已拆分狀態；否則拒絕調用。
+  第 4 步（第 61 行）通過：bank1 release -> active
+    結果：經 bank1 同意，調用獲接納，實例現為正常。
+  第 5 步（第 62 行）通過：supplier split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> divided
+    結果：經供應商、maker2 及 maker1 同意，調用獲接納，實例現為已拆分；此為最終狀態，實例不再接受調用。
+
+測試 「eight levels down, and no further」：通過
+  第 1 步（第 65 行）通過：issuer issue with amount = HKD 1_000, due = 2027-06-30, tier = 1
+    結果：調用獲接納，實例現為正常。
+  第 2 步（第 66 行）通過：supplier split with parts = HKD 1_000, recipients = supplier
+    結果：經供應商同意，調用獲接納，實例現為已拆分；此為最終狀態，實例不再接受調用。
+  第 3 步（第 67 行）通過：supplier split with parts = HKD 1_000, recipients = supplier
+    處理部分 1。
+    結果：經供應商同意，調用獲接納，實例現為已拆分；此為最終狀態，實例不再接受調用。
+  第 4 步（第 68 行）通過：supplier split with parts = HKD 1_000, recipients = supplier
+    處理部分 1.1。
+    結果：經供應商同意，調用獲接納，實例現為已拆分；此為最終狀態，實例不再接受調用。
+  第 5 步（第 69 行）通過：supplier split with parts = HKD 1_000, recipients = supplier
+    處理部分 1.1.1。
+    結果：經供應商同意，調用獲接納，實例現為已拆分；此為最終狀態，實例不再接受調用。
+  第 6 步（第 70 行）通過：supplier split with parts = HKD 1_000, recipients = supplier
+    處理部分 1.1.1.1。
+    結果：經供應商同意，調用獲接納，實例現為已拆分；此為最終狀態，實例不再接受調用。
+  第 7 步（第 71 行）通過：supplier split with parts = HKD 1_000, recipients = supplier
+    處理部分 1.1.1.1.1。
+    結果：經供應商同意，調用獲接納，實例現為已拆分；此為最終狀態，實例不再接受調用。
+  第 8 步（第 72 行）通過：supplier split with parts = HKD 1_000, recipients = supplier
+    處理部分 1.1.1.1.1.1。
+    結果：經供應商同意，調用獲接納，實例現為已拆分；此為最終狀態，實例不再接受調用。
+  第 9 步（第 73 行）通過：supplier split with parts = HKD 1_000, recipients = supplier
+    處理部分 1.1.1.1.1.1.1。
+    結果：經供應商同意，調用獲接納，實例現為已拆分；此為最終狀態，實例不再接受調用。
+  第 10 步（第 74 行）通過：supplier split with parts = HKD 1_000, recipients = supplier -> refused "bo:depth split"
+    處理部分 1.1.1.1.1.1.1.1。
+    結果：調用被拒絕，因為拆分 會建立部分，但此實例已是深度 8 的部分，即賬本容許的最深層（bo:depth split）。
+    合約條文 4.1.12：部分可再拆分，最深至深度 8，即賬本容許的最深層：對深度 8 的部分作此調用會被拒絕（bo:depth split）。
+  第 11 步（第 75 行）通過：supplier pledge to bank1 -> pledged
+    處理部分 1.1.1.1.1.1.1.1。
+    結果：經供應商及 bank1 同意，調用獲接納，實例現為已質押。
+
+共 6 個測試：6 個通過，0 個失敗。

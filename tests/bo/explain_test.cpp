@@ -117,6 +117,8 @@ std::vector<Case> cases() {
     out.push_back({"tax-tests", {golden_dir / "test/tax/source.bo"}});
     out.push_back({"charges", {golden_dir / "test/charges/source.bo"}});
     out.push_back({"lists", {golden_dir / "test/lists/source.bo"}});
+    // Splitting (milestone 17): the demo's receivable, split down its chain.
+    out.push_back({"multi-tier-split", {source_dir / "deploy/demo/multi-tier-split.bo"}});
     return out;
 }
 
@@ -176,7 +178,7 @@ TEST_CASE("the contract text's goldens, the same from every spelling", "[bo][exp
             }
         }
     }
-    CHECK(texts == 54);
+    CHECK(texts == 57);
 }
 
 TEST_CASE("the contract text says what compiled code decides", "[bo][explain]") {

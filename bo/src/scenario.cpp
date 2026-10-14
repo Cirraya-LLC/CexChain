@@ -146,11 +146,22 @@ const cbor::Array* first_proposal(const std::optional<protocol::ContractInstance
                                                                                          : nullptr;
 }
 
-/// One test's ledger: its instance, as the home keeps it.
+/// One test's ledger: the instance the step acts on, as the home keeps it.
 struct Ledger {
     Id home;
     std::optional<protocol::ContractInstanceView> instance;
     bool final = false;
+    /// The parts the step's call created (R30), in order.
+    std::vector<protocol::ContractChild> children;
+};
+
+/// An instance of a test: the one its first step creates, or a part.
+struct Instance {
+    protocol::ContractInstanceView view;
+    bool final = false;
+    /// "" for the instance the test created; "1.2" for the second part of
+    /// its first part.
+    std::string path;
 };
 
 class Runner {
@@ -161,6 +172,9 @@ public:
           instance_id_(hash_of(instance_seed, provider)) {}
 
     TestResult run(const m::Test& test);
+    /// The instance a step acts on (scenario.hpp), if there is one.
+    std::optional<std::size_t> target(const m::Step& step, const std::vector<Instance>& all,
+                                      StepResult& r);
     [[nodiscard]] std::vector<TestLedger> ledgers() const {
         std::vector<TestLedger> out;
         for (const auto& [id, ledger] : ledgers_) {
@@ -174,6 +188,7 @@ private:
     Id ledger_of(const m::TestParty& p, const Ledger& l);
     [[nodiscard]] std::optional<Id> starter_of(const m::Action& a, const Ledger& l) const;
     cbor::Value arguments(const m::Step& step, const m::Action* action, const Ledger& l);
+    cbor::Value given_value(const m::Expr& e, const Ledger& l);
     void run_step(const m::Step& step, Ledger& l, StepResult& r);
     void accept(const m::Step& step, const protocol::ContractAccept& a, Ledger& l, StepResult& r);
 
@@ -226,7 +241,7 @@ cbor::Value Runner::arguments(const m::Step& step, const m::Action* action, cons
     cbor::Map given;
     for (const m::Set& w : step.with) {
         given.push_back({cbor::Value::text(wire_name(w.target.concept_entry, w.target.name)),
-                         encode_value(w.value, model_.utc_offset_ms)});
+                         given_value(w.value, l)});
     }
     if (step.creation) {
         // {"fields": {...}, "parties": {role: ledger}}: every role bound at
@@ -274,6 +289,27 @@ cbor::Value Runner::arguments(const m::Step& step, const m::Action* action, cons
         }
     }
     return given.empty() ? cbor::Value::null() : canonical(std::move(given));
+}
+
+cbor::Value Runner::given_value(const m::Expr& e, const Ledger& l) {
+    // A party is its ledger (a role's, bound or its own; a ledger only tests
+    // name); a list of parties, theirs.
+    const auto party = [&](const m::Expr& p) {
+        const m::TestParty who{p.span, p.concept_entry, p.name, p.refers == m::Refers::party};
+        return cbor::Value::bytes(ledger_of(who, l).bytes());
+    };
+    if (e.type.kind == m::TypeKind::party) {
+        return party(e);
+    }
+    if (e.type.kind == m::TypeKind::list && e.type.element.size() == 1 &&
+        e.type.element[0].kind == m::TypeKind::party) {
+        cbor::Array items;
+        for (const m::Expr& o : e.operands) {
+            items.push_back(party(o));
+        }
+        return cbor::Value::array(std::move(items));
+    }
+    return encode_value(e, model_.utc_offset_ms);
 }
 
 namespace {
@@ -347,6 +383,8 @@ void Runner::accept(const m::Step& step, const protocol::ContractAccept& a, Ledg
         }
     }
     r.final = a.final;
+    r.parts = a.children.size();
+    l.children = a.children;
     if (step.creation) {
         l.instance = protocol::ContractInstanceView{instance_id_, 0, {}, {}, {}, {}, 0};
     }
@@ -535,6 +573,8 @@ TestResult Runner::run(const m::Test& test) {
     Ledger l;
     l.home = ledger_of(test.steps.front().subject, l);
     out.home = l.home;
+    // The test's instances: the one it creates, then each part.
+    std::vector<Instance> all;
     // The test starts on the default day, or on its first `at` date if
     // that is earlier, so that time never goes back.
     std::int64_t clock = test_start_ms(model_.utc_offset_ms);
@@ -559,12 +599,111 @@ TestResult Runner::run(const m::Test& test) {
             r.status = StepStatus::skipped;
             continue;
         }
+        std::optional<std::size_t> at;
+        if (!step.creation && !all.empty()) {
+            at = target(step, all, r);
+            if (!at) {
+                r.happened = Happened::no_part;
+                r.status = StepStatus::failed;
+                failed = true;
+                continue;
+            }
+            l.instance = all[*at].view;
+            l.final = all[*at].final;
+            r.part = all[*at].path;
+        }
+        l.children.clear();
         run_step(step, l, r);
+        if (step.creation && r.happened == Happened::accepted && l.instance) {
+            all.push_back(Instance{*l.instance, l.final, {}});
+            at = 0;
+        } else if (at) {
+            all[*at].view = *l.instance;
+            all[*at].final = l.final;
+        }
+        // R30: the parts the call created, after the instance.
+        for (std::size_t k = 0; at && k < l.children.size(); ++k) {
+            const Instance& parent = all[*at];
+            const protocol::ContractChild& child = l.children[k];
+            Instance part;
+            const auto id =
+                protocol::child_instance_id(provider_, crypto::HashAlg::sha256, parent.view.id, k);
+            part.view.id = id.has_value() ? *id : Id{};
+            part.view.head = parent.view.head;
+            part.view.state = child.state;
+            part.view.status = child.status;
+            part.view.parties = child.parties;
+            part.view.parent = parent.view.id;
+            part.view.depth = parent.view.depth + 1;
+            part.path =
+                (parent.path.empty() ? std::string() : parent.path + ".") + std::to_string(k + 1);
+            all.push_back(std::move(part));
+        }
         r.status = passes(step, r) ? StepStatus::passed : StepStatus::failed;
         failed = r.status == StepStatus::failed;
     }
     out.passed = !failed;
     return out;
+}
+
+std::optional<std::size_t> Runner::target(const m::Step& step, const std::vector<Instance>& all,
+                                          StepResult& r) {
+    // Before any split, the test's one instance.
+    if (all.size() == 1 && !step.part) {
+        return 0;
+    }
+    // Roles name the ledgers they were bound to at creation.
+    Ledger root;
+    root.instance = all.front().view;
+    std::set<std::string> fields;
+    for (const m::Field& f : model_.fields) {
+        if (f.kind == m::FieldKind::instance && f.type.kind == m::TypeKind::party) {
+            fields.insert(wire_name(f.word, f.name));
+        }
+    }
+    std::optional<Id> who;
+    if (step.part) {
+        who = ledger_of(*step.part, root);
+        r.holder = who;
+    } else {
+        who = step.keeper ? std::optional<Id>(r.home) : ledger_of(step.subject, root);
+    }
+    const auto holds = [&](const Instance& i) {
+        for (const auto& [name, id] : i.view.parties) {
+            const bool counts = step.part ? name == "holder" : fields.contains(name);
+            if (counts && id == *who) {
+                return true;
+            }
+        }
+        return false;
+    };
+    std::vector<std::size_t> live;
+    std::vector<std::size_t> ended;
+    for (std::size_t i = 0; i < all.size(); ++i) {
+        if (holds(all[i])) {
+            (all[i].final ? ended : live).push_back(i);
+        }
+    }
+    if (live.size() == 1) {
+        return live.front();
+    }
+    if (live.empty() && ended.size() == 1) {
+        return ended.front();
+    }
+    if (!step.part && live.empty() && ended.empty()) {
+        // The subject holds nothing: the one instance that takes calls.
+        std::optional<std::size_t> only;
+        for (std::size_t i = 0; i < all.size(); ++i) {
+            if (!all[i].final) {
+                if (only) {
+                    return std::nullopt;
+                }
+                only = i;
+            }
+        }
+        return only;
+    }
+    return std::nullopt;
 }
 
 // --- Words.
@@ -883,6 +1022,12 @@ std::string outcome_text(const StepResult& result, const TestResults& results,
         return say("outcome-final-instance", {}, language);
     case Happened::broken:
         return say("outcome-broken", {{"detail", result.reason}}, language);
+    case Happened::no_part:
+        if (result.holder) {
+            return say("outcome-no-part",
+                       {{"party", ledger_label(results, *result.holder, language)}}, language);
+        }
+        return say("outcome-no-part-step", {}, language);
     case Happened::none:
         break;
     }
@@ -935,6 +1080,13 @@ const ExplainedClause* refusal_clause(const Explained& text, const m::Model& mod
                 return &c;
             }
             if (code == "state" && c.function == action && c.kind == "transition") {
+                return &c;
+            }
+            // A part too deep to split; parts and recipients that differ.
+            if (code == "depth" && c.function == action && c.kind == "parts-depth") {
+                return &c;
+            }
+            if (code == "parts" && c.function == action && c.kind == "parts") {
                 return &c;
             }
             // A time rule whose time has not come, or that already applied.
@@ -995,6 +1147,9 @@ std::string test_report(const m::Model& model, const TestResults& results, std::
                            {{"what", expectation_text(step, r, results, language)}}, language) +
                        "\n";
             }
+            if (!r.part.empty()) {
+                out += "    " + say("step-part", {{"part", r.part}}, language) + "\n";
+            }
             out += "    " +
                    say("step-result", {{"what", outcome_text(r, results, language)}}, language) +
                    "\n";
@@ -1041,6 +1196,9 @@ std::string dump(const m::Model& model, const TestResults& results) {
             if (r.status != StepStatus::skipped) {
                 line += " " + time_text(r.time, model.utc_offset_ms) + " " +
                         std::string(happened_names[static_cast<std::size_t>(r.happened)]);
+                if (!r.part.empty()) {
+                    line += " part=" + r.part;
+                }
             }
             switch (r.happened) {
             case Happened::accepted:
@@ -1056,6 +1214,9 @@ std::string dump(const m::Model& model, const TestResults& results) {
                 }
                 if (!r.bill.empty()) {
                     line += " bill " + r.bill;
+                }
+                if (r.parts > 0) {
+                    line += std::format(" parts={}", r.parts);
                 }
                 break;
             case Happened::waits:

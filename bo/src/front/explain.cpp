@@ -1385,6 +1385,10 @@ private:
 
     void act(const m::Do& d, std::vector<ExplainedClause>& out, const std::string& parent,
              std::size_t& n) {
+        if (d.parts) {
+            issue_parts(d, out, parent, n);
+            return;
+        }
         Rules rules;
         note(rules, d.rule);
         const std::string action = done(d, rules);
@@ -1400,6 +1404,43 @@ private:
             text = w_.say("do", {{"action", plain(action)}});
         }
         add(out, parent, n, "do", std::move(text), rules);
+    }
+
+    /// R30: the parts an action issues, what each holds, how deep parts go,
+    /// and what a part's holder sees.
+    void issue_parts(const m::Do& d, std::vector<ExplainedClause>& out, const std::string& parent,
+                     std::size_t& n) {
+        const m::State* first = model_.states.empty() ? nullptr : &model_.states.front();
+        {
+            Rules rules;
+            note(rules, d.rule);
+            add(out, parent, n, "parts",
+                w_.say("do-parts",
+                       {{"parts", d.args.empty() ? plain({}) : party(d.args[0])},
+                        {"recipients", d.to ? party(*d.to) : plain({})},
+                        {"state", plain(first != nullptr ? label(first->word, first->name)
+                                                         : std::string())}}),
+                rules);
+        }
+        for (const m::Set& w : d.with) {
+            Rules rules;
+            note(rules, d.rule);
+            const std::string field = expr(w.target, rules);
+            const std::string value = expr(w.value, rules);
+            add(out, parent, n, "parts-set",
+                w_.say("parts-set", {{"field", plain(field)}, {"value", plain(value)}}), rules);
+        }
+        {
+            Rules rules;
+            note(rules, d.rule);
+            add(out, parent, n, "parts-depth",
+                w_.say("parts-depth", {{"function", plain(function_)}}), rules);
+        }
+        {
+            Rules rules;
+            note(rules, d.rule);
+            add(out, parent, n, "parts-privacy", w_.say("parts-privacy"), rules);
+        }
     }
 
     // --- Actions.

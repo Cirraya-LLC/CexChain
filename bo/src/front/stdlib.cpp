@@ -123,6 +123,8 @@ std::string_view standard_showcase() {
                           "\n"
                           "asset Asset\n"
                           "  holder supplier\n"
+                          "  amount HKD\n"
+                          "  tier number\n"
                           "  quantity item\n"
                           "  cooling period 30 days\n"
                           "\n";

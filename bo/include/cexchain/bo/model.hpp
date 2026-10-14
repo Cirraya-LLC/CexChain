@@ -174,6 +174,12 @@ struct Transition {
 /// that party (R9: `when due issuer pays`), never a call. `executor` marks an
 /// action that asks an executor to act outside the ledger (R10), which comes
 /// in step 6b: checked and explained, but not built yet.
+///
+/// `parts` marks the creation word in an action's own block (R30): `issue
+/// PARTS to RECIPIENTS [with FIELD = VALUE, ...]` issues parts, each an
+/// instance of its own created by the call (spec section 15): `args[0]` the
+/// list of amounts, `to` the list of parties, `with` the fields each part
+/// gets (their targets refer to fields, their values read this instance).
 struct Do {
     static constexpr std::string_view tag = "do";
     Span span;
@@ -185,6 +191,7 @@ struct Do {
     std::vector<Set> with;
     bool obligation = false;
     bool executor = false;
+    bool parts = false;
     std::string_view rule;
 };
 
@@ -397,6 +404,10 @@ struct Step {
     bool keeper = false;
     std::uint64_t rule = 0;
     std::optional<TestParty> to;
+    /// The party holding the instance the step acts on (`issuer pay
+    /// smith1`), once a split has made parts; without it, the instance the
+    /// subject holds, is pledgee or payee of (scenario.hpp).
+    std::optional<TestParty> part;
     /// The values given, typed: the action's inputs, or at creation the
     /// fields given at creation. Each is a literal (or yes, no, a list).
     std::vector<Set> with;
@@ -501,6 +512,17 @@ struct Model {
 /// The field that holds the contract's bill (R26): the one named by a
 /// document (invoice, credit note, receipt), a list of money. Null if none.
 [[nodiscard]] const Field* bill_field(const Model& model) noexcept;
+
+/// The statement by which an action issues parts (R30), if it has one: the
+/// creation word in its own block (never nested).
+[[nodiscard]] const Do* issued_parts(const Action& action) noexcept;
+
+/// True if some action issues parts.
+[[nodiscard]] bool issues_parts(const Model& model) noexcept;
+
+/// The deepest a part may be (spec section 15): an instance at this depth
+/// creates no parts.
+inline constexpr std::uint64_t max_part_depth = 8;
 
 /// The name of the function that approves a proposal.
 inline constexpr std::string_view approve_function = "approve";

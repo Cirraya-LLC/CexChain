@@ -1,0 +1,29 @@
+test "split across three tiers, financed by a bank, paid at maturity" passed home=role.issuer
+  step 1 passed 2026-01-01 accepted active event=active; fuel 8188
+  step 2 passed 2026-01-01 accepted divided event=divided final consents role.supplier castings gears parts=2; fuel 16392 23141
+  step 3 passed 2026-01-01 accepted part=1 divided event=divided final consents forge gears parts=2; fuel 16508 23043
+  step 4 passed 2026-01-01 accepted part=1.1 pledged event=pledged consents forge bank1; fuel 13361 16335
+  step 5 passed 2027-06-30 accepted part=1.1 paid event=paid; fuel 14880
+  step 6 passed 2027-06-30 accepted part=1.1 settled event=settled final consents bank1; fuel 13323 16112
+  step 7 passed 2027-06-30 accepted part=1.2 paid event=paid; fuel 14019
+  step 8 passed 2027-06-30 accepted part=1.2 settled event=settled final consents gears; fuel 12797 15384
+  step 9 passed 2027-06-30 accepted part=2 paid event=paid; fuel 14019
+  step 10 passed 2027-06-30 accepted part=2 settled event=settled final consents castings; fuel 12797 15384
+test "every recipient consents, and only the holder splits" passed home=role.issuer
+  step 1 passed 2026-01-01 accepted active event=active; fuel 8188
+  step 2 passed 2026-01-01 waits castings; fuel 16392 17515
+  step 3 passed 2026-01-01 waits role.supplier; fuel 15077 15741
+test "the parts add up to the amount" passed home=role.issuer
+  step 1 passed 2026-01-01 accepted active event=active; fuel 8188
+  step 2 passed 2026-01-01 refused "bo:requires split 5"; fuel 15048
+test "parts go down to tier 5" passed home=role.issuer
+  step 1 passed 2026-01-01 accepted active event=active; fuel 8188
+  step 2 passed 2026-01-01 accepted divided event=divided final consents role.supplier gears parts=1; fuel 15077 19726
+  step 3 passed 2026-01-01 refused part=1 "bo:requires split 1"; fuel 14279
+test "a pledged part neither splits nor moves" passed home=role.issuer
+  step 1 passed 2026-01-01 accepted active event=active; fuel 8188
+  step 2 passed 2026-01-01 accepted divided event=divided final consents role.supplier castings gears parts=2; fuel 16392 23141
+  step 3 passed 2026-01-01 accepted part=1 pledged event=pledged consents gears bank1; fuel 13361 16335
+  step 4 passed 2026-01-01 refused part=1 "bo:state split"; fuel 13352
+  step 5 passed 2026-01-01 refused part=1 "bo:state transfer"; fuel 12677
+5 tests: 5 passed, 0 failed

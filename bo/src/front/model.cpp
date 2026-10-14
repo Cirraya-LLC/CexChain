@@ -249,6 +249,9 @@ void do_lines(std::string& out, const model::Do& d, std::size_t depth) {
     if (d.executor) {
         line += " " + ruled("executor", d.rule);
     }
+    if (d.parts) {
+        line += " " + ruled("parts", d.rule);
+    }
     add_line(out, depth, line);
     for (const model::Set& s : d.with) {
         set_line(out, s, depth + 1);
@@ -340,6 +343,9 @@ void test_lines(std::string& out, const model::Test& t) {
         }
         if (s.to) {
             line += " to=" + party_text(*s.to);
+        }
+        if (s.part) {
+            line += " part=" + party_text(*s.part);
         }
         if (s.at) {
             line += " at=" + text(*s.at);
@@ -541,6 +547,20 @@ std::string_view creation_function(const Model& model) noexcept {
 
 bool has_proposals(const Model& model) noexcept {
     return std::ranges::any_of(model.actions, [](const Action& a) { return a.agents_propose; });
+}
+
+const Do* issued_parts(const Action& action) noexcept {
+    for (const Statement& s : action.body) {
+        if (const auto* d = std::get_if<Do>(&s.node); d != nullptr && d->parts) {
+            return d;
+        }
+    }
+    return nullptr;
+}
+
+bool issues_parts(const Model& model) noexcept {
+    return std::ranges::any_of(model.actions,
+                               [](const Action& a) { return issued_parts(a) != nullptr; });
 }
 
 namespace {

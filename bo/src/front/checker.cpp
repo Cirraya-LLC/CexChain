@@ -82,6 +82,7 @@ constexpr std::string_view rule_bill = "R26";
 // R27 (how a charge computes) is marked where the model states it (dump).
 constexpr std::string_view rule_rate_in_force = "R28";
 constexpr std::string_view rule_one_item = "R29";
+constexpr std::string_view rule_issue_parts = "R30";
 
 /// The fields the standard terms may add to an instance (R20): parties
 /// that hold the asset in some way, none until an action sets them; a
@@ -231,6 +232,11 @@ std::optional<Type> vocabulary_type(const Concept* word) {
     if (is(word, "field.cooling_period")) {
         return duration(false);
     }
+    if (is(word, "field.recipients")) {
+        // A split's recipients: at most 16, as a call creates at most 16
+        // instances (spec section 15).
+        return list_of(of(TypeKind::party), 16);
+    }
     return std::nullopt;
 }
 
@@ -257,6 +263,10 @@ bool vocabulary_accepts(const Concept* word, const Type& t) {
     }
     if (is(word, "field.cooling_period")) {
         return t.kind == TypeKind::duration;
+    }
+    if (is(word, "field.recipients")) {
+        return t.kind == TypeKind::list && t.element.size() == 1 &&
+               t.element[0].kind == TypeKind::party;
     }
     return t.kind == vocabulary_expected(word).kind;
 }
@@ -660,6 +670,7 @@ private:
     std::vector<m::Statement> statements(const std::vector<ast::Statement>& list);
     m::Set set_statement(const ast::Set& s);
     m::Do do_action(const ast::Do& d);
+    m::Do parts_statement(const ast::Do& d);
     void check_states();
     void check_recursion();
 
@@ -670,6 +681,7 @@ private:
                    const std::string& action_key);
     void test_expect(const ast::Expect& e, m::Step& step);
     std::optional<m::TestParty> test_party(const ast::Expr& e);
+    m::Expr test_parties(const ast::Expr& e, const Type& type);
     [[nodiscard]] std::string creation_word() const {
         return is(model_.kind, "kind.asset") ? "act.issue" : "act.create";
     }
@@ -1354,6 +1366,17 @@ void Checker::declare_actions() {
                 }
             }
             const std::string input_key = m::key(input->word, input->name);
+            if (in_terms_ && seen.contains(input_key)) {
+                // The contract may restate an input of the terms (`can split
+                // with parts`), with the same type.
+                const auto own = std::ranges::find_if(inputs, [&](const m::Field& written_input) {
+                    return m::key(written_input.word, written_input.name) == input_key;
+                });
+                if (own != inputs.end() &&
+                    (same(own->type, input->type) || !known(own->type) || !known(input->type))) {
+                    return;
+                }
+            }
             if (global(input_key) != nullptr || !seen.insert(input_key).second) {
                 error(f.head.span, "check.duplicate", {{"name", input_key}});
                 return;
@@ -2054,6 +2077,33 @@ void Checker::check_can(const ast::Can& c, std::size_t index) {
             a.body.push_back(std::move(st));
         }
     }
+    // R30: an action issues parts once, in its own block.
+    {
+        bool issued = false;
+        for (const m::Statement& st : a.body) {
+            if (const auto* d = std::get_if<m::Do>(&st.node); d != nullptr && d->parts) {
+                if (issued) {
+                    error(d->span, "check.parts-place", {{"text", written(d->span)}});
+                }
+                issued = true;
+            } else if (const auto* i = std::get_if<m::If>(&st.node)) {
+                const auto nested = [&](const std::vector<m::Statement>& list,
+                                        const auto& self) -> void {
+                    for (const m::Statement& inner : list) {
+                        if (const auto* nd = std::get_if<m::Do>(&inner.node);
+                            nd != nullptr && nd->parts) {
+                            error(nd->span, "check.parts-place", {{"text", written(nd->span)}});
+                        } else if (const auto* ni = std::get_if<m::If>(&inner.node)) {
+                            self(ni->then, self);
+                            self(ni->otherwise, self);
+                        }
+                    }
+                };
+                nested(i->then, nested);
+                nested(i->otherwise, nested);
+            }
+        }
+    }
     if (!a.agents_propose) {
         a.agents_rule = rule_agents;
     }
@@ -2290,10 +2340,17 @@ m::Set Checker::set_statement(const ast::Set& s) {
 }
 
 m::Do Checker::do_action(const ast::Do& d) {
+    const Concept* word = d.action.kind == ExprKind::word ? d.action.concept_entry : nullptr;
+    // R30: the creation word in an action's own block issues parts.
+    if ((is(word, "act.issue") || is(word, "act.create")) && !d.subject) {
+        if (place_ == Place::action) {
+            return parts_statement(d);
+        }
+        error(d.span, "check.parts-place", {{"text", written(d.span)}});
+    }
     m::Do out;
     out.span = d.span;
     out.action = plain(d.action);
-    const Concept* word = d.action.kind == ExprKind::word ? d.action.concept_entry : nullptr;
     const std::string action = m::key(word, d.action.name);
     if (word == nullptr) {
         out.action.refers = Refers::action;
@@ -2353,6 +2410,100 @@ m::Do Checker::do_action(const ast::Do& d) {
     }
     if (word == nullptr && place_ == Place::action && !action_key_.empty()) {
         calls_[action_key_].push_back(action);
+    }
+    return out;
+}
+
+m::Do Checker::parts_statement(const ast::Do& d) {
+    // issue PARTS to RECIPIENTS [with FIELD = VALUE, ...] (R30): each part an
+    // instance of its own, its amount the part and its holder the recipient
+    // in the same place; the instance that issues them ends.
+    m::Do out;
+    out.span = d.span;
+    out.action = plain(d.action);
+    out.parts = true;
+    out.rule = rule_issue_parts;
+    bool shaped =
+        expr_key(d.action) == creation_word() && !d.by && d.args.size() == 1 && d.to.has_value();
+    // The instance's amount and holder, which each part gets; no bill.
+    const Decl* amount = global("field.amount");
+    const Decl* holder = global("field.holder");
+    const m::Field* amount_field = amount != nullptr && amount->refers == Refers::field
+                                       ? &model_.fields[amount->index]
+                                       : nullptr;
+    const m::Field* holder_field = holder != nullptr && holder->refers == Refers::field
+                                       ? &model_.fields[holder->index]
+                                       : nullptr;
+    const bool instance = amount_field != nullptr && amount_field->kind == m::FieldKind::instance &&
+                          (amount_field->type.kind == TypeKind::money ||
+                           amount_field->type.kind == TypeKind::quantity) &&
+                          holder_field != nullptr && holder_field->kind == m::FieldKind::instance &&
+                          holder_field->type.kind == TypeKind::party &&
+                          m::bill_field(model_) == nullptr;
+    if (!instance) {
+        error(d.span, "check.parts-instance", {{"action", action_key_}});
+    }
+    // A list by its name: an input, or a field of the instance.
+    const auto named_list = [&](const m::Expr& e, const Type& item) {
+        if (!known(e.type)) {
+            return true;
+        }
+        const bool by_name = (e.kind == ExprKind::name || e.kind == ExprKind::word) &&
+                             (e.refers == Refers::input || e.refers == Refers::field);
+        return by_name && e.type.kind == TypeKind::list && e.type.element.size() == 1 &&
+               e.type.bound <= 16 && (!known(item) || same(e.type.element[0], item));
+    };
+    for (const ast::Expr& a : d.args) {
+        out.args.push_back(value(a));
+    }
+    if (d.to) {
+        out.to = value(*d.to);
+    }
+    if (!out.args.empty() && amount_field != nullptr &&
+        !named_list(out.args[0], amount_field->type)) {
+        shaped = false;
+    }
+    if (out.to && !named_list(*out.to, of(TypeKind::party))) {
+        shaped = false;
+    }
+    std::set<std::string> given;
+    for (const ast::Set& s : d.with) {
+        m::Set item;
+        item.span = s.span;
+        item.target = value(s.target);
+        const std::string field = m::key(item.target.concept_entry, item.target.name);
+        const Decl* decl = global(field);
+        const bool settable = item.target.refers == Refers::field && decl != nullptr &&
+                              decl->refers == Refers::field &&
+                              model_.fields[decl->index].kind == m::FieldKind::instance &&
+                              field != "field.amount" && field != "field.holder" &&
+                              m::bill_field(model_) == nullptr;
+        if (word_is(s.value, "val.none")) {
+            item.value = plain(s.value);
+            item.value.type = of(TypeKind::party);
+        } else {
+            item.value = value(s.value);
+        }
+        if (!settable) {
+            if (known(item.target.type)) {
+                shaped = false;
+            }
+        } else if (!given.insert(field).second) {
+            error(s.target.span, "check.duplicate", {{"name", field}});
+        } else {
+            const m::Field& target = model_.fields[decl->index];
+            if (item.value.type.kind == TypeKind::party && word_is(s.value, "val.none") &&
+                target.type.kind == TypeKind::party) {
+                // No party: the field may hold none.
+                model_.fields[decl->index].optional = true;
+            } else {
+                expect(item.value, target.type);
+            }
+        }
+        out.with.push_back(std::move(item));
+    }
+    if (!shaped) {
+        error(d.span, "check.parts-shape", {{"text", written(d.span)}});
     }
     return out;
 }
@@ -2492,6 +2643,37 @@ std::optional<m::TestParty> Checker::test_party(const ast::Expr& e) {
     }
     error(e.span, "check.test-party", {{"text", written(e.span)}});
     return std::nullopt;
+}
+
+m::Expr Checker::test_parties(const ast::Expr& e, const Type& type) {
+    // A party (a role, or a ledger only tests name), or a list of them: each
+    // item keeps its word or name, and refers to a party if it is a role.
+    const auto one = [&](const ast::Expr& item) {
+        m::Expr out = plain(item);
+        out.type = of(TypeKind::party);
+        if (std::optional<m::TestParty> p = test_party(item)) {
+            out.refers = p->role ? Refers::party : Refers::none;
+        } else {
+            out.type = of(TypeKind::unknown);
+        }
+        return out;
+    };
+    if (type.kind == TypeKind::party) {
+        return one(e);
+    }
+    m::Expr out = plain(e);
+    out.kind = ExprKind::list;
+    out.operands.clear();
+    const std::vector<ast::Expr> single{e};
+    // R29: one party where a list is needed is a list of one.
+    for (const ast::Expr& item : e.kind == ExprKind::list ? e.operands : single) {
+        out.operands.push_back(one(item));
+    }
+    out.type = type;
+    if (out.operands.size() > type.bound) {
+        error(e.span, "check.test-value", {{"text", written(e.span)}});
+    }
+    return out;
 }
 
 void Checker::check_tests() {
@@ -2644,6 +2826,16 @@ m::Step Checker::test_step(const ast::Do& d, const bool first, std::optional<std
             }
         } else if (word_is(a, "cond.in_person") && !step.in_person && !step.keeper) {
             step.in_person = true;
+        } else if ((a.kind == ExprKind::name || word_in(a, Category::role)) && !step.part &&
+                   !step.creation) {
+            // The instance the step acts on, by the party holding it.
+            const Decl* holder = global("field.holder");
+            if (holder == nullptr || holder->refers != Refers::field ||
+                model_.fields[holder->index].type.kind != TypeKind::party) {
+                error(a.span, "check.test-part", {{"text", written(a.span)}});
+            } else if (std::optional<m::TestParty> p = test_party(a)) {
+                step.part = std::move(*p);
+            }
         } else if (step.keeper) {
             error(d.span, "check.test-keeper", {{"text", written(d.span)}});
         } else {
@@ -2700,7 +2892,15 @@ void Checker::test_with(const ast::Do& d, m::Step& step, const m::Action* action
         } else if (!given.insert(target).second) {
             error(s.target.span, "check.duplicate", {{"name", target}});
         }
-        if (!test_value(s.value)) {
+        const bool parties = field != nullptr && (field->type.kind == TypeKind::party ||
+                                                  (field->type.kind == TypeKind::list &&
+                                                   field->type.element.size() == 1 &&
+                                                   field->type.element[0].kind == TypeKind::party));
+        if (parties) {
+            // Parties (a split's recipients): the test's ledgers, by name.
+            item.target.type = field->type;
+            item.value = test_parties(s.value, field->type);
+        } else if (!test_value(s.value)) {
             error(s.value.span, "check.test-value", {{"text", written(s.value.span)}});
             item.value = plain(s.value);
         } else {
@@ -3198,7 +3398,12 @@ void Checker::apply_value(const ast::Expr& e, m::Expr& out) {
     }
     if (id == "cond.consent_of" && (place_ == Place::action || place_ == Place::rule)) {
         out.operands.push_back(value(operand));
-        expect_kind(out.operands.back(), TypeKind::party);
+        // A party, or a list of parties (a split's recipients): each consents.
+        const Type& who = out.operands.back().type;
+        if (who.kind != TypeKind::list || who.element.size() != 1 ||
+            who.element[0].kind != TypeKind::party) {
+            expect_kind(out.operands.back(), TypeKind::party);
+        }
         out.type = of(TypeKind::yes_no);
         return;
     }

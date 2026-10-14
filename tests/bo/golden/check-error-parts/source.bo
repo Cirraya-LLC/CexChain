@@ -1,0 +1,30 @@
+# Issuing parts (R30): only an action issues them, once, in its own block,
+# never a time rule; the parts are a list of amounts and the recipients a
+# list of parties, each by its name; with sets fields other than the amount
+# and the holder; and each instance needs an amount and a holder. A test
+# names the part it acts on by its holder only where instances have one.
+contract Errors
+parties we, customer
+
+record R
+  amount HKD
+  tier number
+  due date
+
+can divide by we with parts, recipients
+  create parts to recipients with tier = tier + 1
+  create parts to recipients
+
+can nest by we with parts, recipients
+  if tier > 1
+    create parts to recipients
+
+can odd by we with parts, recipients
+  create amount to customer with amount = HKD 1
+
+when due
+  create
+
+test "steps"
+  we create with amount = HKD 1, tier = 1, due = 2027-01-01
+  we divide customer with parts = HKD 1, recipients = customer

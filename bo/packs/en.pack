@@ -181,6 +181,8 @@
     "field.payee": {"word": "payee", "forms": {"subject": "the payee", "object": "the payee"}},
     "field.portion": {"word": "portion", "forms": {"object": "the portion"}},
     "field.utc_offset": {"word": "UTC offset", "forms": {"object": "the UTC offset"}},
+    "field.recipients": {"word": "recipients",
+                         "forms": {"subject": "the recipients", "object": "the recipients"}},
 
     # States.
     "state.active": "active",
@@ -196,6 +198,7 @@
     "state.redeemed": "redeemed",
     "state.allocated": "allocated",
     "state.cooling": "cooling",
+    "state.divided": "divided",
 
     # Who acts.
     "actor.person": {"word": "person", "forms": {"plural": "people"}},
@@ -390,6 +393,10 @@
     "check.test-proposal": "-> pending approval: only a call by AI agent to an action an AI agent may only propose (AI agent can propose) is kept as a proposal, and {action} is not such an action",
     "check.test-needs-to": "{action} takes its counterparty from each call: write to PARTY (supplier transfer to factor1)",
     "check.test-rule": "no when rule does {action}: a keeper step names the action a when rule does (keeper suspend)",
+    "check.test-part": "{text}: a step names the instance it acts on by the party that holds it (issuer pay smith1): one party, in a contract whose instances have a holder",
+    "check.parts-place": "{text}: an action issues parts once, in its own block (not under if or each), and a when rule never does",
+    "check.parts-shape": "{text}: issue PARTS to RECIPIENTS [with FIELD = VALUE, ...]: the parts a list of amounts in the unit of the instance's amount, the recipients a list of parties, and with sets fields of the instance other than the amount and the holder",
+    "check.parts-instance": "{action} issues parts, so each instance needs an amount (money or a quantity) and a holder, and no bill",
     "check.test-keeper": "{text}: the keeper calls a when rule with nothing else: no to, with, in person, or by AI agent",
     "build.fragment": "this file has no contract line, so it is a fragment: only a contract (contract NAME) compiles",
     "build.standard-action": "{action} is a built-in action: its template comes with the standard library, in a later version of the compiler; for now, declare an action of your own (can NAME by PARTY)",
@@ -427,6 +434,8 @@
     "run.approve": "{action} was proposed by an AI agent: a person who proves presence must approve it",
     "run.when": "{rule} does not apply yet: its time has not come, or its conditions do not hold",
     "run.fired": "{rule} has already applied for this time",
+    "run.depth": "{action} creates parts, but this instance is a part at depth 8, the deepest the ledger allows",
+    "run.parts": "{action} issues one part to each recipient: give as many parts as recipients, one at least",
     "fmt.unstable": "written in {language}, the source would read differently here: a name the contract gives, or a word, would read together with the words around it as another word of {language}; nothing was formatted: rename the name or reword the line, or format into another language",
     "fmt.internal": "laid out canonically, the source would read differently here, so nothing was formatted; this is a bug in the formatter: please report it",
     "bo.truncated": "more problems were found; only the first {limit} are shown"
@@ -492,6 +501,10 @@
     "do-executor": "An executor must {action}, outside the ledger, and report the result.",
     "do-duty": "Duty: {party.subject} must {action}. It sets when an instance is due and overdue; nothing is called.",
     "do-rule": "It does {action}, under that action's clauses.",
+    "do-parts": "Each of {parts.object} becomes an instance of this contract of its own, a part of this instance: its holder is the party in the same place in {recipients.object}, and its amount is the part. It has this instance's other fields as they are now, except those Bo adds (they start with none), and it starts in the state {state}. This instance then ends: it takes no more calls.",
+    "parts-set": "On each part, {field} is set to {value}, computed on this instance.",
+    "parts-depth": "A part may itself be split, down to depth 8, the deepest the ledger allows: on a part at depth 8 the call is refused (bo:depth {function}).",
+    "parts-privacy": "Whoever holds or verifies a part sees the history of each instance it came from, up to the call that split it: the other parts of that call, their holders, and their amounts included.",
     "action-args": "{action} {args}",
     "action-to-party": "{action} to {party.object}",
     "action-by-party": "{action} by {party.object}",
@@ -602,6 +615,7 @@
     "step-skipped": "Step {number} (line {line}) not run: {text}",
     "step-result": "Result: {what}.",
     "step-expected": "Expected: {what}.",
+    "step-part": "On part {part}.",
     "step-clause": "The contract text, {number}: {text}",
     "outcome-accepted": "accepted, and the instance is {state}",
     "outcome-accepted-consents": "accepted with the consent of {parties}, and the instance is {state}",
@@ -614,6 +628,8 @@
     "outcome-no-instance": "refused by the ledger: there is no instance, since its creation was not accepted",
     "outcome-final-instance": "refused by the ledger: the instance is final and takes no more calls",
     "outcome-broken": "the contract's code did not run as compiled code does ({detail}); this is a bug in the compiler: please report it",
+    "outcome-no-part": "no single instance to act on: {party} holds none of this test's instances, or more than one",
+    "outcome-no-part-step": "no single instance to act on: the step's party is the holder, pledgee, or payee of none of this test's instances that take calls, or of several; name the holder after the action (issuer pay smith1)",
     "outcome-proposed": "kept as a proposal of {action}, which waits for a person's approval; the instance does not change",
     "expect-accepted": "the call is accepted",
     "expect-state": "the call is accepted, and the instance is {state}",
@@ -628,7 +644,7 @@
     "stdlib-counterparty": "to a counterparty, who consents",
     "stdlib-states": "{from} → {to}",
     "stdlib-terms": "The standard terms of {action}:",
-    "rule-R1": "A field the vocabulary defines has the vocabulary's type: holder, pledgee, and payee a party, due a date, tier a number, customer location a text, cooling period a duration.",
+    "rule-R1": "A field the vocabulary defines has the vocabulary's type: holder, pledgee, and payee a party, due a date, tier a number, customer location a text, cooling period a duration, recipients a list of parties.",
     "rule-R2": "A field given a party holds a party: each instance starts with that party, and actions may change it.",
     "rule-R3": "A role the contract first names as an action's counterparty (after to) is bound to a ledger by that action, with its consent; every other role is bound to a ledger when an instance is created.",
     "rule-R4": "An instance starts in the one state that no state change leads to; if there is none, in the state active.",
@@ -656,6 +672,7 @@
     "rule-R26": "A field named by a document (invoice, credit note, receipt) holds the lines of a bill, each an amount of money. Each time it is set, the charges are computed on it at the time of that call; the instance keeps the bill (its time, the price, each charge that applies, on each line and on the whole bill, and the total to pay), and the call records it as an event.",
     "rule-R27": "Charges are computed in the order written, each on the price (a line's amount, or the whole bill's for a charge computed once per bill) unless according to names what it is computed on: the price and charges written before it. An added charge is its base times its rate, and adds to the total; an included one is taken out of the price: the price times its rate, divided by 100% plus the rates of the included charges that apply. A fixed amount is charged once per bill, or on each line. A charge that does not apply, or has no rate in force, is not charged.",
     "rule-R28": "A charge's rate is the one in force at the bill's time: the rate from the latest date on or before it (from the start of that day, at the contract's UTC offset), else its own rate. A bill keeps the rate it was made with.",
-    "rule-R29": "A single value where a list is needed is a list of that one item."
+    "rule-R29": "A single value where a list is needed is a list of that one item.",
+    "rule-R30": "Issue PARTS to RECIPIENTS makes each part an instance of its own, of the same contract, created by the call: its amount is the part and its holder its recipient, and the instance that issued it ends. A part may be split again, at most eight levels down, and its evidence carries the history of every instance it came from (spec section 15)."
   }
 }

@@ -180,6 +180,9 @@ constexpr Concept unsorted_concepts[] = {
     // The contract's offset from UTC (U6, milestone 12): a constant text
     // such as "+08:00" in the kind's block.
     {"field.utc_offset", field, 0},
+    // The parties a split's parts go to, one for each part (the standard
+    // library's split; milestone 17): a list of parties (R1).
+    {"field.recipients", field, 0},
     // States.
     {"state.active", state, 0},
     {"state.proposed", state, 0},
@@ -196,6 +199,9 @@ constexpr Concept unsorted_concepts[] = {
     // held by a customer, and waiting out its cooling period after a reclaim.
     {"state.allocated", state, 0},
     {"state.cooling", state, 0},
+    // An instance that issued its parts (the standard library's split): it
+    // has ended, and its parts carry on.
+    {"state.divided", state, 0},
     // Who acts.
     {"actor.person", actor, 0},
     {"actor.ai_agent", actor, 0},
@@ -433,6 +439,12 @@ constexpr MessageSpec unsorted_messages[] = {
     {"check.test-needs-to", Severity::error, "action"},
     {"check.test-rule", Severity::error, "action"},
     {"check.test-keeper", Severity::error, "text"},
+    // A step names the instance it acts on by its holder (milestone 17).
+    {"check.test-part", Severity::error, "text"},
+    // Issuing parts (R30, milestone 17).
+    {"check.parts-place", Severity::error, "text"},
+    {"check.parts-shape", Severity::error, "text"},
+    {"check.parts-instance", Severity::error, "action"},
     // Building (lowering a checked model to code).
     {"build.fragment", Severity::error, ""},
     {"build.standard-action", Severity::error, "action"},
@@ -472,6 +484,8 @@ constexpr MessageSpec unsorted_messages[] = {
     {"run.approve", Severity::error, "action"},
     {"run.when", Severity::error, "rule"},
     {"run.fired", Severity::error, "rule"},
+    {"run.depth", Severity::error, "action"},
+    {"run.parts", Severity::error, "action"},
     // The formatter (bo fmt).
     {"fmt.unstable", Severity::error, "language"},
     {"fmt.internal", Severity::error, ""},
@@ -557,6 +571,10 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"do-executor", "action"},
     {"do-duty", "party action"},
     {"do-rule", "action"},
+    {"do-parts", "parts recipients state"},
+    {"parts-set", "field value"},
+    {"parts-depth", "function"},
+    {"parts-privacy", ""},
     {"action-args", "action args"},
     {"action-to-party", "action party"},
     {"action-by-party", "action party"},
@@ -674,6 +692,7 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"step-result", "what"},
     {"step-expected", "what"},
     {"step-clause", "number text"},
+    {"step-part", "part"},
     {"outcome-accepted", "state"},
     {"outcome-accepted-consents", "state parties"},
     {"outcome-final", "outcome"},
@@ -686,6 +705,8 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"outcome-final-instance", ""},
     {"outcome-broken", "detail"},
     {"outcome-proposed", "action"},
+    {"outcome-no-part", "party"},
+    {"outcome-no-part-step", ""},
     {"expect-accepted", ""},
     {"expect-state", "state"},
     {"expect-refused", ""},
@@ -730,6 +751,7 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"rule-R27", ""},
     {"rule-R28", ""},
     {"rule-R29", ""},
+    {"rule-R30", ""},
 };
 
 constexpr auto sorted_sentences = [] {
@@ -775,6 +797,7 @@ constexpr RuleSpec rules[] = {
     {"R27", "charges"},           // charges in order: on the price and earlier ones
     {"R28", "rate-in-force"},     // the rate in force at the bill's time (U9)
     {"R29", "one-item"},          // one value where a list is needed: a list of one
+    {"R30", "issue-parts"},       // issue PARTS to RECIPIENTS: parts are instances of their own
 };
 
 template <class T, std::size_t N, class Key>

@@ -53,6 +53,14 @@
 ///     subject is someone else. The home agrees by making the call, so a step
 ///     whose subject is not the home's party waits for the home when the home
 ///     starts the action;
+///   - acts on the test's instance; once a split has made parts (R30), on
+///     the instance the party it names after the action holds (`issuer pay
+///     smith1`), else on the one whose holder, pledgee, or payee (any party
+///     field) the subject is: of those, the one that takes calls, else the
+///     one final instance. A part's id is protocol::child_instance_id of its
+///     parent's id and its position, its view names its parent and depth,
+///     and the report names it by its path (part 1.2: the second part of the
+///     first part);
 ///   - happens at the time of the step before it, or on the day `at DATE`
 ///     names (local midnight, +08:00); a test starts on 2026-01-01, or on its
 ///     first `at` date if that is earlier. Time never goes back (the checker
@@ -76,10 +84,11 @@ enum class Happened : std::uint8_t {
     no_instance,    ///< the ledger refuses: there is no instance
     final_instance, ///< the ledger refuses: the instance is final
     broken,         ///< the code did what compiled code never does (a bug)
+    no_part,        ///< the step names no single instance of the test's (it fails)
 };
 
-inline constexpr std::array<std::string_view, 7> happened_names{
-    "none", "accepted", "waits", "refused", "no-instance", "final-instance", "broken"};
+inline constexpr std::array<std::string_view, 8> happened_names{
+    "none", "accepted", "waits", "refused", "no-instance", "final-instance", "broken", "no-part"};
 
 /// One run of the contract.
 struct TestCall {
@@ -119,6 +128,12 @@ struct StepResult {
     /// short ("price=11005 total=11665 VAT=660@60000"; amounts in the minor
     /// unit, rates in millionths, each line's charges in brackets).
     std::string bill;
+    /// The part the step acted on, by its path ("1.2"); empty for the
+    /// instance the test created. Accepted: the parts the call created.
+    std::string part;
+    std::size_t parts = 0;
+    /// No part: the party the step named as the holder, if it named one.
+    std::optional<protocol::Id> holder;
 };
 
 struct TestResult {

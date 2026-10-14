@@ -116,6 +116,9 @@ std::vector<std::pair<std::string, std::filesystem::path>> cases() {
         {"tax", golden_dir / "test/tax/source.bo"},
         {"charges", golden_dir / "test/charges/source.bo"},
         {"lists", golden_dir / "test/lists/source.bo"},
+        // Splitting (milestone 17): parts, and the demo's receivable.
+        {"split", golden_dir / "test/split/source.bo"},
+        {"multi-tier-split", source_dir / "deploy/demo/multi-tier-split.bo"},
     };
 }
 
@@ -514,6 +517,90 @@ TEST_CASE("bo test: a refusal names the clause of the contract text it comes fro
     CHECK(r.steps[4].reason == "bo:requires accept 2");
     CHECK(outcome_text(r.steps[4], t.results, pack("zh-Hans-CN")) ==
           "调用被拒绝，因为 accept 的第 2 项要求未满足（bo:requires accept 2）");
+}
+
+TEST_CASE("bo test: parts, by the party that holds them", "[bo][test]") {
+    // A receivable split twice (milestone 17): each part is an instance of
+    // its own, with its parent's id and its depth in the view, and a step
+    // acts on the part its party holds or the party it names holds.
+    constexpr std::string_view contract = R"(contract Split
+parties issuer, supplier
+
+asset Receivable
+  amount HKD
+  tier number
+  holder supplier
+
+can split
+can pledge
+can pay
+
+)";
+    const std::string source =
+        std::string(contract) +
+        "test \"parts\"\n"
+        "  issuer issue with amount = HKD 10, tier = 1\n"
+        "  supplier split with parts = (HKD 6, HKD 4), recipients = (a1, a2)\n"
+        "  a1 split with parts = (HKD 5, HKD 1), recipients = (b1, a1)\n"
+        "  b1 pledge to bank1 -> pledged\n"
+        "  issuer pay a2 -> paid\n"
+        "  issuer pay b1 -> paid\n";
+    const Tested t = tested(source);
+    const TestResult& r = only(t);
+    CHECK(r.passed);
+    CHECK(r.steps[1].part.empty());
+    CHECK(r.steps[1].parts == 2);
+    CHECK(r.steps[1].final);
+    CHECK(r.steps[2].part == "1");
+    CHECK(r.steps[2].parts == 2);
+    CHECK(r.steps[3].part == "1.1");
+    CHECK(r.steps[4].part == "2");
+    CHECK(r.steps[5].part == "1.1");
+    // The part's view: its parent (the root's first part) and its depth.
+    const protocol::ContractInput& in = r.steps[3].calls.front().input;
+    REQUIRE(in.instance.has_value());
+    CHECK(in.instance->depth == 2);
+    REQUIRE(in.instance->parent.has_value());
+    const protocol::ContractInput& parent = r.steps[2].calls.front().input;
+    REQUIRE(parent.instance.has_value());
+    CHECK(*in.instance->parent == parent.instance->id);
+    CHECK(parent.instance->depth == 1);
+    const auto id =
+        protocol::child_instance_id(provider(), crypto::HashAlg::sha256, parent.instance->id, 0);
+    REQUIRE(id.has_value());
+    CHECK(in.instance->id == *id);
+    // The parts' states: the amount, the holder, one tier down.
+    const cbor::Value* fields = in.instance->state.find("fields");
+    REQUIRE(fields != nullptr);
+    CHECK(fields->find("amount")->as_int64() == 500);
+    CHECK(fields->find("tier")->as_int64() == 3);
+    CHECK(in.instance->parties.at("holder") == test_ledger_id("b1", provider()));
+    CHECK(dump(*t.compiled.model, t.results).find("part=1.1") != std::string::npos);
+    CHECK(test_report(*t.compiled.model, t.results, source, pack("en")).find("On part 1.1.") !=
+          std::string::npos);
+
+    // No single part: a party that holds none (or several), or a holder
+    // named that holds none.
+    const Tested none =
+        tested(std::string(contract) +
+               "test \"no part\"\n"
+               "  issuer issue with amount = HKD 10, tier = 1\n"
+               "  supplier split with parts = (HKD 6, HKD 4), recipients = (a1, a2)\n"
+               "  issuer pay -> paid\n"
+               "test \"no holder\"\n"
+               "  issuer issue with amount = HKD 10, tier = 1\n"
+               "  supplier split with parts = (HKD 6, HKD 4), recipients = (a1, a1)\n"
+               "  issuer pay a1 -> paid\n");
+    REQUIRE(none.results.tests.size() == 2);
+    const StepResult& anyone = none.results.tests[0].steps[2];
+    CHECK(anyone.happened == Happened::no_part);
+    CHECK(anyone.status == StepStatus::failed);
+    CHECK(outcome_text(anyone, none.results, nullptr).starts_with("no single instance to act on"));
+    const StepResult& two = none.results.tests[1].steps[2];
+    CHECK(two.happened == Happened::no_part);
+    REQUIRE(two.holder.has_value());
+    CHECK(outcome_text(two, none.results, nullptr) ==
+          "no single instance to act on: a1 holds none of this test's instances, or more than one");
 }
 
 TEST_CASE("bo test: the report", "[bo][test]") {

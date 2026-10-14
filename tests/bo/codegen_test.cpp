@@ -292,6 +292,12 @@ public:
     }
 
     void set_creation(std::string name) { creation_ = std::move(name); }
+    /// Makes the instance a part (v0.7): its parent and depth, view key 6.
+    void as_part(const Id& parent, std::uint32_t depth) {
+        REQUIRE(instance_.has_value());
+        instance_->parent = parent;
+        instance_->depth = depth;
+    }
     /// The contract's charges, for the Python reference's oracle "bill".
     void oracle(nlohmann::ordered_json spec) { oracle_ = std::move(spec); }
     [[nodiscard]] const nlohmann::ordered_json& oracle() const { return oracle_; }
@@ -640,6 +646,124 @@ Home values_scenario() {
     return home;
 }
 
+/// The demo's receivable (deploy/demo/multi-tier-split.bo) split at its
+/// bounds (milestone 17): a part at depth 7 split into 16 parts, the holder
+/// keeping one and 15 recipients consenting, the most a call can carry; the
+/// refusals on the way; and a part at depth 8.
+Home split_scenario() {
+    const std::filesystem::path file =
+        build_dir.parent_path().parent_path().parent_path().parent_path() / "deploy" / "demo" /
+        "multi-tier-split.bo";
+    const std::string text = read_text(file);
+    Home home("split-bounds", build_text(text), we);
+    home.source("en", text);
+    home.set_creation("issue");
+    home.name(customer, "supplier");
+    const Outcome created =
+        home.create("issue",
+                    std::format(R"({{"fields": {{"amount": 1600000, "due": {}, "tier": 1}}, )"
+                                R"("parties": {{"issuer": {}, "supplier": {}}}}})",
+                                date(2027, 6, 30), h(we), h(customer)),
+                    t0);
+    REQUIRE(created.accepted() != nullptr);
+    // The instance is a part at depth 7, the deepest that may still split.
+    home.as_part(ledger(0x9A), 7);
+    std::vector<Id> recipients;
+    for (std::uint8_t i = 0; i < 15; ++i) {
+        recipients.push_back(ledger(static_cast<std::uint8_t>(0x50 + i)));
+        home.name(recipients.back(), std::format("r{}", i + 1));
+    }
+    const auto split = [&](std::string label, const std::vector<std::int64_t>& parts,
+                           const std::vector<Id>& to,
+                           std::vector<std::pair<Id, ContractSigner>> consents = {}) {
+        std::string amounts;
+        std::string ledgers;
+        for (const std::int64_t p : parts) {
+            amounts += (amounts.empty() ? "" : ", ") + std::to_string(p);
+        }
+        for (const Id& id : to) {
+            ledgers += (ledgers.empty() ? "" : ", ") + h(id);
+        }
+        return home.call(std::move(label), "split",
+                         std::format(R"({{"parts": [{}], "recipients": [{}]}})", amounts, ledgers),
+                         std::move(consents), t0);
+    };
+    std::vector<Id> sixteen = recipients;
+    sixteen.push_back(customer);
+    const std::vector<std::int64_t> parts(16, 100'000);
+    // Requirement 1 is the contract's own (tier < 5); the standard terms'
+    // follow: as many parts as recipients, at most 15 besides the holder,
+    // each part at least a fen, the parts adding up to the amount.
+    CHECK(split("split, 16 parts to 15", parts, recipients).refused("bo:requires split 2"));
+    std::vector<Id> others = recipients;
+    others.push_back(ledger(0x5F));
+    CHECK(split("split, 16 recipients besides the holder", parts, others)
+              .refused("bo:requires split 3"));
+    std::vector<std::int64_t> negative = parts;
+    negative[0] = 200'000;
+    negative[1] = 0;
+    CHECK(split("split, a part of 0", negative, sixteen).refused("bo:requires split 4"));
+    negative[1] = -1;
+    negative[2] = 100'001;
+    CHECK(split("split, a negative part", negative, sixteen).refused("bo:requires split 4"));
+    std::vector<std::int64_t> short_by = parts;
+    short_by[15] = 99'999;
+    CHECK(split("split, parts short by a fen", short_by, sixteen).refused("bo:requires split 5"));
+    CHECK(home.call("split, a recipient that is no ledger", "split",
+                    std::format(R"({{"parts": [1600000], "recipients": [h'00']}})"), {}, t0)
+              .refused("bo:argument recipients"));
+    // Without consents: the holder and the 15 recipients, never the home.
+    const Outcome asks = split("split into 16 at depth 7, consents missing", parts, sixteen);
+    REQUIRE(asks.needs() != nullptr);
+    CHECK(asks.needs()->ledgers.size() == 16);
+    std::vector<std::pair<Id, ContractSigner>> consents;
+    for (const Id& id : sixteen) {
+        consents.emplace_back(id, organization);
+    }
+    std::ranges::sort(consents, [](const auto& a, const auto& b) {
+        return std::ranges::lexicographical_compare(a.first.bytes(), b.first.bytes());
+    });
+    const Outcome made = split("split into 16 at depth 7", parts, sixteen, consents);
+    REQUIRE(made.accepted() != nullptr);
+    const protocol::ContractAccept& a = *made.accepted();
+    CHECK(a.final);
+    CHECK(a.status == "divided");
+    REQUIRE(a.children.size() == 16);
+    for (std::size_t i = 0; i < a.children.size(); ++i) {
+        const protocol::ContractChild& c = a.children[i];
+        INFO(i);
+        CHECK(c.status == "active");
+        const cbor::Value* fields = c.state.find("fields");
+        REQUIRE(fields != nullptr);
+        CHECK(fields->find("amount")->as_int64() == 100'000);
+        CHECK(fields->find("tier")->as_int64() == 2);
+        CHECK(fields->find("due")->as_int64() == date(2027, 6, 30));
+        CHECK(cbor::diagnostic(*fields->find("pledgee")) == "null");
+        CHECK(cbor::diagnostic(*c.state.find("state")) == "\"active\"");
+        CHECK(c.parties.at("holder") == sixteen[i]);
+        CHECK(c.parties.at("issuer") == we);
+        CHECK(c.parties.at("supplier") == customer);
+        CHECK(c.parties.size() == 3);
+    }
+    // A part at depth 8 splits no further, before anyone is asked.
+    Home deep("split-depth", build_text(text), we);
+    deep.set_creation("issue");
+    REQUIRE(deep.create("issue",
+                        std::format(R"({{"fields": {{"amount": 100, "due": {}, "tier": 1}}, )"
+                                    R"("parties": {{"issuer": {}, "supplier": {}}}}})",
+                                    date(2027, 6, 30), h(we), h(customer)),
+                        t0)
+                .accepted() != nullptr);
+    deep.as_part(ledger(0x9B), 8);
+    CHECK(deep.call("split at depth 8", "split",
+                    std::format(R"({{"parts": [100], "recipients": [{}]}})", h(customer)), {}, t0)
+              .refused("bo:depth split"));
+    for (const Outcome& o : deep.runs()) {
+        home.run("depth 8: " + o.label, o.input, o.call);
+    }
+    return home;
+}
+
 /// Every scenario, in a fixed order.
 std::vector<Home> scenarios() {
     std::vector<Home> out;
@@ -647,6 +771,7 @@ std::vector<Home> scenarios() {
     out.push_back(agreement_refusals());
     out.push_back(loan_scenario());
     out.push_back(values_scenario());
+    out.push_back(split_scenario());
     return out;
 }
 
@@ -1001,6 +1126,28 @@ can replace by we with others list number at most 1000
     CHECK(read_text(path) == text);
 }
 
+TEST_CASE("bo build: splitting into 16 parts at depth 7 stays within a call's fuel",
+          "[bo][build]") {
+    // The demo's receivable (milestone 17): its code's size and hash, and
+    // each run's fuel, kept as a golden (tests/bo/golden/build/split.txt).
+    const Home home = split_scenario();
+    const auto digest = provider().digest(cexchain::crypto::HashAlg::sha256, home.code());
+    REQUIRE(digest.has_value());
+    std::string text =
+        std::format("contract MultiTierReceivable (deploy/demo/multi-tier-split.bo)\n"
+                    "code: {} bytes, sha256 {}, codegen {}\n",
+                    home.code().size(), hex(digest->bytes()), bo::wasm::codegen_version);
+    for (const Outcome& o : home.runs()) {
+        CHECK(o.run.fuel_used < vm::fuel_limit / 10);
+        text += home.summary(o) + "\n";
+    }
+    const std::filesystem::path path = build_dir / "split.txt";
+    if (updating_goldens()) {
+        std::ofstream(path, std::ios::binary) << text;
+    }
+    CHECK(read_text(path) == text);
+}
+
 TEST_CASE("bo build: the spec's VAT, every way it can be written, on both sides of its rate change",
           "[bo][build]") {
     std::string golden;
@@ -1080,9 +1227,19 @@ TEST_CASE("bo build: one contract in any language compiles to the same bytes", "
     CHECK(tax.interface ==
           std::map<std::string, protocol::FunctionKind>{{"create", protocol::FunctionKind::create},
                                                         {"结算", protocol::FunctionKind::call}});
-    // The others (which need later milestones) are refused the same way in
+    // Splitting (milestone 17): the standard library's split, in each
+    // language, issues the same parts.
+    const bo::Build split = build_text(example_source("split", "en"));
+    for (const std::string_view language : {"zh-hant", "zh-hans", "mixed"}) {
+        INFO(language);
+        CHECK(build_text(example_source("split", language)).code == split.code);
+    }
+    CHECK(split.interface ==
+          std::map<std::string, protocol::FunctionKind>{{"issue", protocol::FunctionKind::create},
+                                                        {"split", protocol::FunctionKind::call}});
+    // The VPS (which needs executors, step 6b) is refused the same way in
     // every language. The IP pool builds since milestone 12.
-    for (const std::string_view example : {"split", "vps"}) {
+    for (const std::string_view example : {"vps"}) {
         std::string first;
         for (const std::string_view language : {"en", "zh-hant", "zh-hans", "mixed"}) {
             const std::string source = read_text(
@@ -1273,6 +1430,11 @@ nlohmann::ordered_json call_json(const protocol::ContractInput& c) {
                                           ? nlohmann::ordered_json(*c.instance->status)
                                           : nlohmann::ordered_json()},
                            {"parties", parties}};
+        if (c.instance->parent) {
+            // A part (v0.7): its parent and depth, view key 6.
+            out["instance"]["parent"] = hex(c.instance->parent->bytes());
+            out["instance"]["depth"] = c.instance->depth;
+        }
     } else {
         out["instance"] = nullptr;
     }
@@ -1343,7 +1505,11 @@ TEST_CASE("bo build: write the runs for the Python reference", "[.codegen-refere
              {"charges", golden_dir / "test" / "charges" / "source.bo"},
              {"lists", golden_dir / "test" / "lists" / "source.bo"},
              {"supply-agreement", golden_dir.parent_path().parent_path().parent_path() / "deploy" /
-                                      "demo" / "supply-agreement.bo"}}) {
+                                      "demo" / "supply-agreement.bo"},
+             // Splitting (milestone 17): parts, and the demo's receivable.
+             {"split-tests", golden_dir / "test" / "split" / "source.bo"},
+             {"multi-tier-split", golden_dir.parent_path().parent_path().parent_path() / "deploy" /
+                                      "demo" / "multi-tier-split.bo"}}) {
         const std::string text = read_text(file);
         const bo::Compiled compiled = bo::compile(text, *bo::make_pack_set({}).set);
         REQUIRE(compiled.build.has_value());

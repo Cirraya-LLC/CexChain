@@ -1,0 +1,64 @@
+# A core enterprise's receivable, split down its supply chain (multi-tier
+# supply-chain finance). The core enterprise (the issuer) owes its tier-1
+# supplier and pays at maturity. The supplier splits the receivable among its
+# own suppliers, who may split their parts again: each part is an instance of
+# its own, backed by the same promise to pay, which its holder can keep, sell,
+# or pledge to a bank for financing. The core enterprise's ledger keeps every
+# part; each holder consents on its own ledger.
+contract MultiTierReceivable
+parties issuer, supplier
+
+asset Receivable
+  amount CNY
+  due date
+  tier number
+  holder supplier
+
+# Splitting is the standard library's split: the holder starts it, every
+# recipient consents, the parts add up to the amount, and each part is one
+# tier down. The alliance's own rule: parts go down to tier 5.
+can split
+  requires tier < 5
+can transfer
+can pledge
+  over 5_000_000 requires in person
+can release
+can pay
+can confirm payment
+when due issuer pays
+
+# Its tests: bo test runs each on an instance of its own, as the ledger
+# would. A step acts on the part its party holds (or is pledgee or payee
+# of); `issuer pay forge` pays the part the forge holds.
+test "split across three tiers, financed by a bank, paid at maturity"
+  issuer issue with amount = CNY 1_000_000, due = 2027-06-30, tier = 1
+  supplier split with parts = (CNY 600_000, CNY 400_000), recipients = (gears, castings) -> divided
+  gears split with parts = (CNY 250_000, CNY 350_000), recipients = (forge, gears) -> divided
+  forge pledge to bank1 -> pledged
+  issuer pay forge at 2027-06-30 -> paid
+  bank1 confirm payment -> settled
+  issuer pay gears -> paid
+  gears confirm payment -> settled
+  issuer pay castings -> paid
+  castings confirm payment -> settled
+
+test "every recipient consents, and only the holder splits"
+  issuer issue with amount = CNY 1_000_000, due = 2027-06-30, tier = 1
+  supplier split with parts = (CNY 600_000, CNY 400_000), recipients = (gears, castings) -> consent of castings
+  gears split with parts = CNY 1_000_000, recipients = gears -> consent of supplier
+
+test "the parts add up to the amount"
+  issuer issue with amount = CNY 1_000_000, due = 2027-06-30, tier = 1
+  supplier split with parts = (CNY 600_000, CNY 300_000), recipients = (gears, castings) -> refused "bo:requires split 5"
+
+test "parts go down to tier 5"
+  issuer issue with amount = CNY 1_000_000, due = 2027-06-30, tier = 4
+  supplier split with parts = CNY 1_000_000, recipients = gears -> divided
+  gears split with parts = CNY 1_000_000, recipients = forge -> refused "bo:requires split 1"
+
+test "a pledged part neither splits nor moves"
+  issuer issue with amount = CNY 1_000_000, due = 2027-06-30, tier = 1
+  supplier split with parts = (CNY 600_000, CNY 400_000), recipients = (gears, castings)
+  gears pledge to bank1 -> pledged
+  gears split with parts = CNY 600_000, recipients = forge -> refused "bo:state split"
+  gears transfer to forge -> refused "bo:state transfer"

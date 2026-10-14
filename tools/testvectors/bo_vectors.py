@@ -98,6 +98,9 @@ def contract_input(call: dict) -> bytes:
             view[4] = i["status"]
         if i["parties"]:
             view[5] = {role: bytes.fromhex(v) for role, v in i["parties"].items()}
+        if i.get("parent") is not None:
+            # A part (spec v0.7): its parent and depth.
+            view[6] = [bytes.fromhex(i["parent"]), i["depth"]]
         inp[5] = view
     if call["consents"]:
         inp[8] = [[bytes.fromhex(l), signer(s)] for l, s in call["consents"]]
@@ -135,6 +138,8 @@ def result(outcome: str, output: bytes, reason: bytes) -> dict:
         out["events"] = readable(accept[4])
     if accept.get(5) is True:
         out["final"] = True
+    if 6 in accept:
+        out["children"] = readable(accept[6])
     return {"accept": out}
 
 

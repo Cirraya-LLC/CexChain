@@ -513,6 +513,10 @@ Json step_json(const bo::model::Model& model, const bo::Explained& text,
         if (!r.proposed.empty()) {
             result["proposed"] = r.proposed;
         }
+        if (r.parts > 0) {
+            // The parts the call created (R30).
+            result["parts"] = r.parts;
+        }
         break;
     }
     case bo::Happened::waits:
@@ -534,6 +538,8 @@ Json step_json(const bo::model::Model& model, const bo::Explained& text,
                 {"status", bo::step_status_names[static_cast<std::size_t>(r.status)]},
                 {"time", r.time},
                 {"expected", expectation_json(step, r, results)}};
+    // The part the step acted on, by its path ("1.2"), once a split made parts.
+    out["part"] = r.part.empty() ? Json(nullptr) : Json(r.part);
     if (r.status == bo::StepStatus::skipped) {
         out["result"] = nullptr;
         return out;

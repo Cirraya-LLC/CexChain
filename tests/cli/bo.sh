@@ -108,7 +108,7 @@ for hash in SHA-256 SM3; do
     diff expected.txt digests.txt > /dev/null || fail "digests ($hash) differ from $GOLDEN"
 done
 json 'd[1]["keywords"], d[1]["words"], d[1]["official"], d[1]["separation"]' < list.json > out.txt
-contains -Fx "18 138 True none" out.txt || fail "facts"
+contains -Fx "18 140 True none" out.txt || fail "facts"
 
 run bo packs show zh-Hant-HK > out.txt
 contains -F "prefixes     可 (kw.can), 須 (kw.requires), 當 (kw.when), 如 (kw.if)" out.txt || fail "prefixes"
@@ -123,7 +123,7 @@ run bo packs show zh-Hans-CN --json > show.json
 json 'd["keywords"]["kw.each"], d["vocabulary"]["unit.item"]["category"], d["reading"]["multipliers"]["万"]' < show.json > out.txt
 contains -Fx "['逐个'] unit 10000" out.txt || fail "show --json"
 json 'len(d["messages"]), len(d["sentences"])' < show.json > out.txt
-contains -Fx "211 224" out.txt || fail "messages and sentences"
+contains -Fx "217 232" out.txt || fail "messages and sentences"
 expect_exit 1 bo packs show fr
 contains -F "no pack fr" out.txt || fail "unknown pack"
 expect_exit 1 bo packs show en --section nope
@@ -153,7 +153,7 @@ cat > company.pack <<'EOF'
 }
 EOF
 run bo packs check company.pack > out.txt
-contains -F "warning: pack acme-terms does not spell 135 of the 138 words" out.txt || fail "partial"
+contains -F "warning: pack acme-terms does not spell 137 of the 140 words" out.txt || fail "partial"
 contains -F "company.pack: pack acme-terms version 3 (community): 18 keywords, 3 words" out.txt || fail "check ok"
 contains -F "ok: the packs read" out.txt || fail "ok"
 run bo packs list --pack company.pack > out.txt
@@ -892,7 +892,7 @@ for fn in d s; do "$fn" audit | contains 'audit passed' || fail "audit"; done
 
 echo "== bo stdlib: the built-in actions, written in Bo"
 run bo stdlib list > out.txt
-[ "$(wc -l < out.txt)" -eq 16 ] || fail "stdlib list: sixteen actions"
+[ "$(wc -l < out.txt)" -eq 17 ] || fail "stdlib list: seventeen actions"
 contains -Fx "pledge           pledge: started by the holder; to a counterparty, who consents; active → pledged" out.txt || fail "stdlib list: pledge"
 contains -Fx "pay              pay: started by the home ledger, on its own word; active, pledged, disputed → paid" out.txt || fail "stdlib list: pay"
 contains -Fx "unfreeze         unfreeze: started by the home ledger, on its own word; frozen → previous state" out.txt || fail "stdlib list: unfreeze"
@@ -1030,6 +1030,74 @@ contains -F "FINAL: it takes no more calls" verify.txt || fail "verify: final"
 contains -F "rebuilds: the source rebuilds to the deployed code" verify.txt || fail "verify: rebuilds"
 contains -F "VERIFICATION FAILED" verify.txt && fail "verify: verified"
 run contract explain "$RC" --ledger "$H" | contains -F "4.1.5 Requirement 2: the bank is not the holder. [R19]" || fail "explain: the standard terms"
+for dir in "$H" "$P" "$B" "$F"; do run audit --ledger "$dir" | contains 'audit passed' || fail "audit"; done
+
+echo "== splitting: parts through the registrar, a recipient that is no party yet"
+# The standard library's split (milestone 17): the supplier splits a
+# receivable, keeping a part and passing one to the factor, which is no
+# party of this contract yet: it sees the held call (it is asked for its
+# consent) and consents on its own ledger. Each part is an instance of its
+# own, one tier down; the factor verifies its part offline, ancestors
+# included, and the contract's code rebuilds from its source.
+cat > split.bo <<'EOF'
+contract Split
+parties issuer, supplier
+
+asset Receivable
+  amount HKD
+  due date
+  tier number
+  holder supplier
+
+can split
+  requires tier < 5
+can pledge
+can pay
+when due issuer pays
+EOF
+SC="$(h contract deploy --bo split.bo --as issuer-root.key --json 2> /dev/null | json 'd["contract"]["id"]')"
+h delegation grant --as issuer-root.key --to "$RR" --allow contract-call --contracts "$SC" > /dev/null
+SI="$(h contract create "$SC" issue --args "{\"fields\": {\"amount\": 300000000, \"due\": $DUE, \"tier\": 1}, \"parties\": {\"issuer\": h'$H_ID', \"supplier\": h'$P_ID'}}" \
+    --as issuer-root.key --json | json 'd["instance"]["id"]')"
+# Parts that do not add up are refused with the contract's reason.
+h contract call "$SI" split --args "{\"parts\": [180000000, 100000000], \"recipients\": [h'$F_ID', h'$P_ID']}" \
+    --as issuer-root.key --dry-run | contains -F "bo:requires split 5" || fail "split: the parts add up"
+PARTS="{\"parts\": [180000000, 120000000], \"recipients\": [h'$F_ID', h'$P_ID']}"
+run contract propose "$SI" split --args "$PARTS" --peer issuer --ledger "$P" --json > split.json
+json 'd["status"], sorted(d["missing"]) == sorted(["'"$P_ID"'", "'"$F_ID"'"])' < split.json | contains -Fx "waiting True" || fail "split: the holder and the recipient"
+CALL="$(json 'd["call"]' < split.json)"
+# The factor sees the call it is asked to consent to, and consents.
+run contract pending --peer issuer --ledger "$F" --json | json '[c["call"] for c in d]' | contains -F "$CALL" || fail "split: the recipient sees the call"
+consent_to supplier "$CALL"
+[ "$(h contract instance "$SI" --json | json 'd["status"]')" = active ] || fail "split: not without the recipient"
+consent_to factor "$CALL"
+h contract instance "$SI" --json | json 'd["status"], d["final"], len(d["children"])' | contains -Fx "divided True 2" || fail "split: divided"
+SP1="$(h contract instances --parent "$SI" --json | json 'd[0]["id"]')"
+SP2="$(h contract instances --parent "$SI" --json | json 'd[1]["id"]')"
+# A part's state is the contract's, in diagnostic notation: its amount, its tier.
+h contract instance "$SP1" --json | json 'd["depth"], "\"amount\": 180000000" in d["state"], "\"tier\": 2" in d["state"], d["parties"]["holder"] == "'"$F_ID"'"' \
+    | contains -Fx "1 True True True" || fail "split: the factor's part"
+h contract instance "$SP2" --json | json '"\"amount\": 120000000" in d["state"], d["parties"]["holder"] == "'"$P_ID"'"' \
+    | contains -Fx "True True" || fail "split: the part kept"
+# The factor fetches its part and verifies it offline.
+run contract fetch --peer issuer --instance "$SP1" --out part.cbor --ledger "$F" > /dev/null
+run contract verify part.cbor --ledger-id "$H_ID" > part.txt
+contains -F "Part of      ${SI:0:12}" part.txt || fail "verify: part of"
+contains -F "rebuilds: the source rebuilds to the deployed code" part.txt || fail "verify: rebuilds"
+contains -F "consent of Factor (SHA-256)" part.txt || fail "verify: the recipient's consent"
+contains -F "consent of Supplier (SHA-256)" part.txt || fail "verify: the holder's consent"
+contains -F "VERIFICATION FAILED" part.txt && fail "verify: verified"
+# The part's contract text says what a part is.
+h contract explain "$SP1" | contains -F "Each of the parts becomes an instance of this contract of its own" || fail "explain: parts"
+h contract explain "$SP1" --language zh-Hans-CN | contains -F "各部分中的每一部分各自成为本合约的一个实例" || fail "explain: parts, zh-Hans"
+# bo test names the part each step acts on, and counts the parts a call made.
+run bo test "$GOLDENS/test/split/source.bo" --json > split-test.json
+json 'd["passed"], [s["part"] for s in d["tests"][0]["steps"]][:5], d["tests"][0]["steps"][1]["result"]["parts"]' < split-test.json \
+    | contains -Fx "6 [None, None, '1', '1.1', '1.2'] 2" || fail "bo test --json: parts"
+run bo test "$GOLDENS/test/split/source.bo" --language zh-Hant-HK | contains -F "處理部分 1.1。" || fail "bo test: parts, zh-Hant"
+# A part splits again, one tier down; at tier 5 the contract's own rule refuses.
+h contract call "$SP2" split --args "{\"parts\": [120000000], \"recipients\": [h'$P_ID']}" --as issuer-root.key --dry-run \
+    | contains -F "consent of" || fail "split again: the holder's consent"
 for dir in "$H" "$P" "$B" "$F"; do run audit --ledger "$dir" | contains 'audit passed' || fail "audit"; done
 
 echo "== time rules: functions a keeper calls once their time has come"

@@ -7,7 +7,19 @@ field field.amount instance money cur.HKD
 field field.tier instance number
 field field.holder instance party = role.supplier{R2}
 state state.active first{R4}
-can act.split standard agents=delegation{R14}
+state state.divided{R19}
+can act.split standard by=field.holder{R19} agents=delegation{R14}
   input field.parts instance list 16 money cur.HKD{R15}
+  input field.recipients instance list 16 party{R1}
   requires (= (expr.sum_of field.parts) field.amount)
   requires (< field.tier 5)
+  terms{R19}
+    requires (= (expr.count_of field.recipients) (expr.count_of field.parts))
+    requires (or (<= (expr.count_of field.recipients) 15) (in field.holder field.recipients))
+    each part in=field.parts
+      requires (> part 0{R22})
+    requires (= (expr.sum_of field.parts) field.amount)
+    requires (cond.consent_of field.recipients)
+    transition state.active -> state.divided
+    do act.issue field.parts to=field.recipients parts{R30}
+      set field.tier (+ field.tier 1)

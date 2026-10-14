@@ -9,20 +9,23 @@ Bo wrote this text from the contract's source (Bo edition 1). A clause marked wi
 2. Each instance
 2.1 Each instance is an asset named Asset.
 2.2 holder: a party; each instance starts with the supplier, and actions may change it. [R2]
-2.3 quantity: a number of items, given when an instance is created.
-2.4 cooling period: 30 days, the same for every instance.
-2.5 pledgee: a party; each instance starts with none, and actions set it. [R20]
-2.6 payee: a party; each instance starts with none, and actions set it. [R20]
-2.7 Creating an instance (function issue) names the ledgers of the parties bound at creation and sets the fields given at creation. It needs no party's consent: the parties agree through the actions below.
+2.3 amount: money in HKD, given when an instance is created.
+2.4 tier: a number, given when an instance is created.
+2.5 quantity: a number of items, given when an instance is created.
+2.6 cooling period: 30 days, the same for every instance.
+2.7 pledgee: a party; each instance starts with none, and actions set it. [R20]
+2.8 payee: a party; each instance starts with none, and actions set it. [R20]
+2.9 Creating an instance (function issue) names the ledgers of the parties bound at creation and sets the fields given at creation. It needs no party's consent: the parties agree through the actions below.
 
 3. States
 3.1 An instance starts in the state active. [R4]
-3.2 Its states are active, pledged, redeemed, disputed, paid, settled, frozen, cancelled, suspended, terminated, cooling, and allocated.
+3.2 Its states are active, pledged, redeemed, disputed, paid, settled, frozen, divided, cancelled, suspended, terminated, cooling, and allocated.
 3.3 The state redeemed is final: no action can start from it, so an instance in it takes no more calls.
 3.4 The state settled is final: no action can start from it, so an instance in it takes no more calls.
-3.5 The state cancelled is final: no action can start from it, so an instance in it takes no more calls.
-3.6 The state terminated is final: no action can start from it, so an instance in it takes no more calls.
-3.7 Each change of state, the first state included, is recorded as an event.
+3.5 The state divided is final: no action can start from it, so an instance in it takes no more calls.
+3.6 The state cancelled is final: no action can start from it, so an instance in it takes no more calls.
+3.7 The state terminated is final: no action can start from it, so an instance in it takes no more calls.
+3.8 Each change of state, the first state included, is recorded as an event.
 
 4. Actions
 A call that does not meet one of an action's requirements is refused, and the instance does not change. A missing consent is not a refusal: the call waits for it.
@@ -112,55 +115,75 @@ A call that does not meet one of an action's requirements is refused, and the in
   4.10.3 If the instance is frozen, it returns to the state it was in before it became frozen; otherwise the call is refused. [R19]
   4.10.4 An AI agent may start it within its delegation. [R14]
 
-4.11 cancel
-  4.11.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show cancel): the clauses marked R19 state them, after the contract's own clauses.
+4.11 split
+  4.11.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show split): the clauses marked R19 state them, after the contract's own clauses.
   4.11.2 Started by the holder, whose agreement it needs. [R19]
-  4.11.3 If the instance is active, it becomes cancelled; otherwise the call is refused. [R19]
-  4.11.4 An AI agent may start it within its delegation. [R14]
+  4.11.3 The call gives parts (a list of at most 16 items, each money in HKD); recipients (a list of at most 16 items, each a party). [R1, R15]
+  4.11.4 Requirement 1: the number of items in the recipients is the number of items in the parts. [R19]
+  4.11.5 Requirement 2: the number of items in the recipients is at most 15 or the holder is one of the recipients. [R19]
+  4.11.6 For each part in the parts: [R19]
+    4.11.6.1 Requirement 3: part is more than 0. [R19, R22]
+  4.11.7 Requirement 4: the sum of the parts is the amount. [R19]
+  4.11.8 Requirement 5: the consent of the recipients. [R19]
+  4.11.9 If the instance is active, it becomes divided; otherwise the call is refused. [R19]
+  4.11.10 Each of the parts becomes an instance of this contract of its own, a part of this instance: its holder is the party in the same place in the recipients, and its amount is the part. It has this instance's other fields as they are now, except those Bo adds (they start with none), and it starts in the state active. This instance then ends: it takes no more calls. [R19, R30]
+  4.11.11 On each part, the tier is set to the tier + 1, computed on this instance. [R19, R30]
+  4.11.12 A part may itself be split, down to depth 8, the deepest the ledger allows: on a part at depth 8 the call is refused (bo:depth split). [R19, R30]
+  4.11.13 Whoever holds or verifies a part sees the history of each instance it came from, up to the call that split it: the other parts of that call, their holders, and their amounts included. [R19, R30]
+  4.11.14 An AI agent may start it within its delegation. [R14]
 
-4.12 suspend
-  4.12.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show suspend): the clauses marked R19 state them, after the contract's own clauses.
-  4.12.2 Started by the home ledger on its own word: no party's consent is needed. [R19]
-  4.12.3 If the instance is active, it becomes suspended; otherwise the call is refused. [R19]
+4.12 cancel
+  4.12.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show cancel): the clauses marked R19 state them, after the contract's own clauses.
+  4.12.2 Started by the holder, whose agreement it needs. [R19]
+  4.12.3 If the instance is active, it becomes cancelled; otherwise the call is refused. [R19]
   4.12.4 An AI agent may start it within its delegation. [R14]
 
-4.13 resume
-  4.13.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show resume): the clauses marked R19 state them, after the contract's own clauses.
+4.13 suspend
+  4.13.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show suspend): the clauses marked R19 state them, after the contract's own clauses.
   4.13.2 Started by the home ledger on its own word: no party's consent is needed. [R19]
-  4.13.3 If the instance is suspended, it becomes active; otherwise the call is refused. [R19]
+  4.13.3 If the instance is active, it becomes suspended; otherwise the call is refused. [R19]
   4.13.4 An AI agent may start it within its delegation. [R14]
 
-4.14 terminate
-  4.14.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show terminate): the clauses marked R19 state them, after the contract's own clauses.
+4.14 resume
+  4.14.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show resume): the clauses marked R19 state them, after the contract's own clauses.
   4.14.2 Started by the home ledger on its own word: no party's consent is needed. [R19]
-  4.14.3 If the instance is active or suspended, it becomes terminated; otherwise the call is refused. [R19]
+  4.14.3 If the instance is suspended, it becomes active; otherwise the call is refused. [R19]
   4.14.4 An AI agent may start it within its delegation. [R14]
 
-4.15 allocate
-  4.15.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show allocate): the clauses marked R19 state them, after the contract's own clauses.
-  4.15.2 Started by the home ledger on its own word. [R19]
-  4.15.3 The call gives counterparty (a party). [R21]
-  4.15.4 It needs the consent of the counterparty, whose ledger each call names (the argument counterparty). [R21]
-  4.15.5 If the instance is cooling: [R7, R19]
-    4.15.5.1 Requirement 1: the cooling period or more has passed since the instance last changed state. [R19]
-  4.15.6 If the instance is active or cooling, it becomes allocated; otherwise the call is refused. [R19]
-  4.15.7 It sets the holder to the counterparty. [R19]
-  4.15.8 An AI agent may start it within its delegation. [R14]
+4.15 terminate
+  4.15.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show terminate): the clauses marked R19 state them, after the contract's own clauses.
+  4.15.2 Started by the home ledger on its own word: no party's consent is needed. [R19]
+  4.15.3 If the instance is active or suspended, it becomes terminated; otherwise the call is refused. [R19]
+  4.15.4 An AI agent may start it within its delegation. [R14]
 
-4.16 reclaim
-  4.16.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show reclaim): the clauses marked R19 state them, after the contract's own clauses.
-  4.16.2 Started by the home ledger on its own word: no party's consent is needed. [R19]
-  4.16.3 If the instance is allocated, it becomes cooling; otherwise the call is refused. [R19]
-  4.16.4 It sets the holder to none. [R19]
-  4.16.5 An AI agent may start it within its delegation. [R14]
+4.16 allocate
+  4.16.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show allocate): the clauses marked R19 state them, after the contract's own clauses.
+  4.16.2 Started by the home ledger on its own word. [R19]
+  4.16.3 The call gives counterparty (a party). [R21]
+  4.16.4 It needs the consent of the counterparty, whose ledger each call names (the argument counterparty). [R21]
+  4.16.5 If the instance is cooling: [R7, R19]
+    4.16.5.1 Requirement 1: the cooling period or more has passed since the instance last changed state. [R19]
+  4.16.6 If the instance is active or cooling, it becomes allocated; otherwise the call is refused. [R19]
+  4.16.7 It sets the holder to the counterparty. [R19]
+  4.16.8 An AI agent may start it within its delegation. [R14]
+
+4.17 reclaim
+  4.17.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show reclaim): the clauses marked R19 state them, after the contract's own clauses.
+  4.17.2 Started by the home ledger on its own word: no party's consent is needed. [R19]
+  4.17.3 If the instance is allocated, it becomes cooling; otherwise the call is refused. [R19]
+  4.17.4 It sets the holder to none. [R19]
+  4.17.5 An AI agent may start it within its delegation. [R14]
 
 5. Rules Bo applied
+[R1] A field the vocabulary defines has the vocabulary's type: holder, pledgee, and payee a party, due a date, tier a number, customer location a text, cooling period a duration, recipients a list of parties.
 [R2] A field given a party holds a party: each instance starts with that party, and actions may change it.
 [R3] A role the contract first names as an action's counterparty (after to) is bound to a ledger by that action, with its consent; every other role is bound to a ledger when an instance is created.
 [R4] An instance starts in the one state that no state change leads to; if there is none, in the state active.
 [R7] A state used as a condition means the instance is in that state.
 [R14] An AI agent may start an action within its delegation, unless the action says AI agent can propose; then the agent only proposes, and a person approves.
+[R15] Parts are a list of amounts in the unit of the instance's amount.
 [R19] A built-in action has the standard terms Bo's standard library gives it (cexchain bo stdlib show ACTION): who starts it, whose consent it needs, the states it starts from and leads to, and what it changes. The contract's own clauses come first and add to them; R8 adds no consent to the standard terms.
 [R20] The pledgee and the payee, and a resource's holder, used by an action (the standard terms of a built-in action included) but not declared by the contract, are fields of each instance, holding no party until an action sets them.
 [R21] An action whose counterparty (after to) is counterparty, a party the contract does not declare, takes its counterparty from each call (the argument counterparty) and needs its consent; so does a built-in action with a counterparty when the contract writes no to.
 [R22] A bare 0 compared with, added to, or taken from money, a quantity, a rate, or a duration is zero of it.
+[R30] Issue PARTS to RECIPIENTS makes each part an instance of its own, of the same contract, created by the call: its amount is the part and its holder its recipient, and the instance that issued it ends. A part may be split again, at most eight levels down, and its evidence carries the history of every instance it came from (spec section 15).

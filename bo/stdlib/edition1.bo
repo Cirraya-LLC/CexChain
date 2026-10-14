@@ -10,9 +10,9 @@ bo 1
 # `cexchain bo stdlib show pledge` prints it, in any language.
 #
 # The fields these terms use: holder (a party; every asset has one, and Bo adds
-# one to a resource), quantity (redeem), cooling period (allocate), and pledgee
-# and payee, which Bo adds to each instance, holding no party until an action
-# sets them (R20). An action can start only from the states its terms name; a
+# one to a resource), quantity (redeem), amount and tier (split), cooling
+# period (allocate), and pledgee and payee, which Bo adds to each instance,
+# holding no party until an action sets them (R20). An action can start only from the states its terms name; a
 # state the contract never reaches is left out. A time rule may do any of
 # these actions that names no counterparty and takes no inputs, as the
 # contract's own word (R24).
@@ -81,6 +81,24 @@ can freeze
 # The home unfreezes it: it returns to the state it was frozen in.
 can unfreeze
   frozen -> previous state
+
+# The holder splits the asset into parts, one for each recipient, so that its
+# own suppliers can hold, pledge, and be paid each part (multi-tier transfer).
+# The parts add up to the amount, each at least the currency's smallest unit;
+# the holder may keep a part. The holder and every recipient consent: at most
+# 15 recipients besides the holder, as a call cites at most 16 consents. Each
+# part becomes an instance of its own, held by its recipient, one tier down
+# (R30); the asset ends, divided. Only an active asset splits, so not while
+# pledged; a part at depth 8 splits no further.
+can split by holder with parts, recipients
+  requires count of recipients = count of parts
+  requires count of recipients <= 15 or holder in recipients
+  each part in parts
+    requires part > 0
+  requires sum of parts = amount
+  requires consent of recipients
+  active -> divided
+  issue parts to recipients with tier = tier + 1
 
 # The holder cancels the asset.
 can cancel by holder
