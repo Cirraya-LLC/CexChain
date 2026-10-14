@@ -27,6 +27,11 @@
 //     and the tests' keeper steps run; and lists (in fields, inputs, and
 //     the state: each, sum of, count of, in, set) and a bill with charges
 //     of every shape (milestone 13), which calls with random lines make;
+//   - generated contracts also split (milestone 17): the standard library's
+//     split, with steps giving parts and recipients, and calls whose parts
+//     add up to the amount on instances that are parts at depths up to 8; a
+//     call that makes parts ends its instance, never at depth 8, and each
+//     part has its state, fields, status, and holder;
 //   - its test blocks (generated: a creation, then steps with parties,
 //     counterparties, inputs, dates, signers, and expectations) run as `bo
 //     test` runs them: no step breaks (does what compiled code never does),
@@ -266,6 +271,9 @@ struct GAction {
     bool open_to = false;
     /// AI agents may only propose it.
     bool proposes = false;
+    /// The standard library's split (milestone 17): its parts and
+    /// recipients, given by each step.
+    bool split = false;
 };
 
 class Generator {
@@ -291,6 +299,7 @@ private:
     Tok field_tok(const GField& f) const {
         return f.name == "amount"    ? word("field.amount")
                : f.name == "due"     ? word("field.due")
+               : f.name == "tier"    ? word("field.tier")
                : f.name == "invoice" ? word("doc.invoice")
                : f.type == T::party  ? word("field.holder")
                                      : raw(f.name);
@@ -325,6 +334,8 @@ private:
     /// The bill's charges (milestone 13), and the items each loop names.
     std::vector<GCharge> charges_;
     std::vector<std::pair<std::string, T>> items_;
+    /// The amount the test's creation gives, which a split may pass on whole.
+    Line amount_given_;
 };
 
 Tok Generator::type_word(const T t) {
@@ -957,6 +968,16 @@ std::vector<std::pair<int, Line>> Generator::contract() {
         const Tok role = roles_[c_.below(static_cast<std::uint32_t>(roles_.size()))];
         fields_.push_back({"holder", T::party, false, role.text});
         out.push_back({2, {word("field.holder"), role}});
+        // A tier, which the standard library's split takes one down, and
+        // the amount it splits.
+        if (c_.one_in(2)) {
+            fields_.push_back({"tier", T::number, false, {}});
+            out.push_back({2, {word("field.tier"), word("type.number")}});
+            if (std::ranges::none_of(fields_, [](const GField& f) { return f.name == "amount"; })) {
+                fields_.push_back({"amount", T::money, false, {}});
+                out.push_back({2, {word("field.amount"), word("cur.HKD")}});
+            }
+        }
     }
     const std::uint32_t own = c_.below(6);
     for (std::uint32_t i = 0; i < own; ++i) {
@@ -1000,7 +1021,9 @@ std::vector<std::pair<int, Line>> Generator::contract() {
     // States: a chain the actions walk, vocabulary words first.
     static constexpr std::string_view state_words[] = {"state.proposed", "state.active",
                                                        "state.paid"};
-    active_first_ = resource_ || c_.one_in(3);
+    // An instance with a tier (one that may split) starts active too.
+    active_first_ = resource_ || c_.one_in(3) ||
+                    std::ranges::any_of(fields_, [](const GField& f) { return f.name == "tier"; });
     if (active_first_) {
         // Active first, where a resource's terms and the time rules' built-in
         // actions start.
@@ -1076,9 +1099,13 @@ std::vector<std::pair<int, Line>> Generator::contract() {
             {"act.pay", "act.dispute", "act.confirm_payment"},
             {"act.freeze", "act.unfreeze", ""},
             {"act.transfer", "", ""},
-            {"act.cancel", "", ""}};
+            {"act.cancel", "", ""},
+            {"act.split", "", ""}};
         for (const auto& group : groups) {
-            if (!c_.one_in(2)) {
+            // Splitting, where the instance has a tier, more often.
+            const bool tier =
+                std::ranges::any_of(fields_, [](const GField& f) { return f.name == "tier"; });
+            if (group[0] == "act.split" ? tier && c_.one_in(4) : !c_.one_in(2)) {
                 continue;
             }
             for (const std::string_view id : group) {
@@ -1088,6 +1115,7 @@ std::vector<std::pair<int, Line>> Generator::contract() {
                 GAction action;
                 action.word = std::string(id);
                 action.name = std::string(id.substr(4));
+                action.split = id == "act.split";
                 Line head{word("kw.can"), word(action.word)};
                 if (id == "act.pledge" || id == "act.transfer") {
                     if (c_.one_in(2)) {
@@ -1256,7 +1284,33 @@ Line Generator::step(const GAction& a, int& month, int& day) {
         line.push_back(c_.one_in(4) ? test_party() : *a.to);
     }
     Line with;
-    if (!a.inputs.empty()) {
+    if (a.split) {
+        // Parts and their recipients, now and then as many of one as of the
+        // other; the recipients are the test's parties.
+        with.push_back(word("kw.with"));
+        with.push_back(word("field.parts"));
+        with.push_back(raw("="));
+        // Now and then the whole amount, to one recipient: the parts add up.
+        const bool whole = !amount_given_.empty() && c_.one_in(2);
+        const Line parts = whole ? amount_given_ : literal_list(T::money, 4);
+        with.insert(with.end(), parts.begin(), parts.end());
+        with.push_back(raw(","));
+        with.push_back(word("field.recipients"));
+        with.push_back(raw("="));
+        const std::uint32_t n = whole ? 1 : 1 + c_.below(4);
+        if (n > 1) {
+            with.push_back(raw("("));
+        }
+        for (std::uint32_t i = 0; i < n; ++i) {
+            if (i > 0) {
+                with.push_back(raw(","));
+            }
+            with.push_back(test_party());
+        }
+        if (n > 1) {
+            with.push_back(raw(")"));
+        }
+    } else if (!a.inputs.empty()) {
         with.push_back(word("kw.with"));
         for (std::size_t i = 0; i < a.inputs.size(); ++i) {
             if (i > 0) {
@@ -1358,6 +1412,9 @@ void Generator::tests(std::vector<std::pair<int, Line>>& out) {
             create.push_back(raw("="));
             const Line v = f.list ? literal_list(f.type, f.bound) : literal(f.type);
             create.insert(create.end(), v.begin(), v.end());
+            if (f.name == "amount") {
+                amount_given_ = v;
+            }
         }
         out.push_back({2, create});
         int month = static_cast<int>(c_.below(12));
@@ -1475,6 +1532,9 @@ std::size_t standard_built = 0;
 std::size_t lists_built = 0;
 std::size_t bills_built = 0;
 std::size_t bills_made = 0;
+/// Builds that issue parts (milestone 17), and calls that made parts.
+std::size_t parts_built = 0;
+std::size_t parts_made = 0;
 std::size_t generated_checked = 0;
 std::size_t accepted = 0;
 std::size_t needed = 0;
@@ -1588,6 +1648,12 @@ void run_calls(const bo::Build& build, const m::Model& model, Choices& c) {
             input.function = functions.empty() || c.one_in(30)
                                  ? std::string("nothing")
                                  : functions[c.below(static_cast<std::uint32_t>(functions.size()))];
+            // A contract that splits: its split, more often.
+            for (const m::Action& a : model.actions) {
+                if (m::issued_parts(a) != nullptr && !a.rule_only && c.one_in(2)) {
+                    input.function = bo::wire_name(a.word, a.name);
+                }
+            }
             input.instance = instance;
             if (input.function == bo::model::approve_function && !c.one_in(10)) {
                 // The first proposal kept, as approve names one.
@@ -1601,11 +1667,48 @@ void run_calls(const bo::Build& build, const m::Model& model, Choices& c) {
                         {cbor::Value::text("arguments"), list->front().as_array()->back()});
                 }
             }
+            // Now and then the instance is a part (v0.7), at a depth up to 8.
+            if (c.one_in(4)) {
+                input.instance->parent = ledger(0x9A);
+                input.instance->depth = 1 + c.below(8);
+            }
             for (const m::Action& a : model.actions) {
                 if (bo::wire_name(a.word, a.name) != input.function) {
                     continue;
                 }
+                // Parts that add up to the instance's amount, one for each
+                // recipient (R30): the split's arguments, as a holder gives them.
+                const cbor::Value* fields = instance->state.find("fields");
+                const cbor::Value* amount = fields != nullptr ? fields->find("amount") : nullptr;
+                const std::int64_t total =
+                    amount != nullptr && amount->as_int64() ? *amount->as_int64() : 0;
+                const bool exact = m::issued_parts(a) != nullptr && total > 0 && c.one_in(2);
+                const std::int64_t count =
+                    exact ? 1 + c.between(0, std::min<std::int64_t>(total, 16) - 1) : 0;
                 for (const m::Field& f : a.inputs) {
+                    if (exact && f.word != nullptr && f.word->id == "field.parts") {
+                        cbor::Array parts;
+                        std::int64_t left = total;
+                        for (std::int64_t i = 0; i < count; ++i) {
+                            const std::int64_t part =
+                                i + 1 == count ? left : 1 + c.between(0, left - (count - i));
+                            parts.push_back(cbor::Value::integer(part));
+                            left -= part;
+                        }
+                        arguments.push_back(
+                            {cbor::Value::text("parts"), cbor::Value::array(std::move(parts))});
+                        continue;
+                    }
+                    if (exact && f.word != nullptr && f.word->id == "field.recipients") {
+                        cbor::Array to;
+                        for (std::int64_t i = 0; i < count; ++i) {
+                            to.push_back(cbor::Value::bytes(
+                                ledger(static_cast<std::uint8_t>(1 + c.below(4))).bytes()));
+                        }
+                        arguments.push_back(
+                            {cbor::Value::text("recipients"), cbor::Value::array(std::move(to))});
+                        continue;
+                    }
                     if (!c.one_in(30)) {
                         arguments.push_back({cbor::Value::text(bo::wire_name(f.word, f.name)),
                                              random_value(f.type, c)});
@@ -1618,9 +1721,11 @@ void run_calls(const bo::Build& build, const m::Model& model, Choices& c) {
                              ledger(static_cast<std::uint8_t>(1 + c.below(4))).bytes())});
                 }
             }
-            // Consents, as a call cites them: ascending, never the home.
+            // Consents, as a call cites them: ascending, never the home (all
+            // of them, now and then, as a split's recipients give them).
+            const bool all = c.one_in(3);
             for (std::uint8_t l = 2; l <= 4; ++l) {
-                if (c.one_in(2)) {
+                if (all || c.one_in(2)) {
                     input.consents.push_back(
                         {ledger(l),
                          protocol::ContractSigner{
@@ -1639,6 +1744,7 @@ void run_calls(const bo::Build& build, const m::Model& model, Choices& c) {
         }
         auto outcome = vm::run(*module, *encoded, provider(), cexchain::crypto::HashAlg::sha256);
         require(outcome.has_value(), "vm::run failed");
+
         ++runs_done;
         if (outcome->trap) {
             const std::string reason(outcome->abort_reason.begin(), outcome->abort_reason.end());
@@ -1693,6 +1799,21 @@ void run_calls(const bo::Build& build, const m::Model& model, Choices& c) {
                 require(*price->as_int64() + added == *total->as_int64(),
                         "a bill's total is not its price and added charges");
             }
+            // Parts (R30): only from an instance above depth 8, which then
+            // ends; each with its state and its holder.
+            if (!accept->children.empty()) {
+                ++parts_made;
+                require(input.instance.has_value() && input.instance->depth < 8,
+                        "parts made at depth 8");
+                require(accept->final, "an instance that issued parts did not end");
+                require(accept->children.size() <= 16, "more than 16 parts");
+                for (const protocol::ContractChild& child : accept->children) {
+                    require(child.state.find("state") != nullptr &&
+                                child.state.find("fields") != nullptr &&
+                                child.parties.contains("holder") && child.status.has_value(),
+                            "a part without its state, fields, status, or holder");
+                }
+            }
             if (!instance) {
                 instance = protocol::ContractInstanceView{ledger(0x1D), 0, {}, {}, {}, {}, 0};
             }
@@ -1740,6 +1861,9 @@ std::string run_scenarios(const bo::Build& build, const m::Model& model, std::st
                 ++steps_run;
                 ++happenings[std::string(bo::happened_names[static_cast<std::size_t>(r.happened)])];
                 happenings["(proposals)"] += r.proposed.empty() ? 0U : 1U;
+                // Parts made, and steps on a part (milestone 17).
+                happenings["(splits)"] += r.parts > 0 ? 1U : 0U;
+                happenings["(on parts)"] += r.part.empty() ? 0U : 1U;
             }
             if (r.happened == bo::Happened::refused) {
                 require(
@@ -1799,6 +1923,7 @@ void build_and_run(std::string_view source, Choices& c,
                 ? 1U
                 : 0U;
         bills_built += m::bill_field(first.checked->model) != nullptr ? 1U : 0U;
+        parts_built += m::issues_parts(first.checked->model) ? 1U : 0U;
         run_calls(*first.lowered.build, first.checked->model, c);
     }
 }
@@ -1982,8 +2107,8 @@ int main(int argc, char** argv) {
                 replayed, static_cast<unsigned long long>(done), generated_checked,
                 static_cast<long long>(elapsed.count()), built, runs_done, formatted);
     std::printf("builds with the standard library's terms: %zu; with lists %zu; with a bill "
-                "%zu (bills made by calls: %zu)\n",
-                standard_built, lists_built, bills_built, bills_made);
+                "%zu (bills made by calls: %zu); issuing parts %zu (calls that made parts: %zu)\n",
+                standard_built, lists_built, bills_built, bills_made, parts_built, parts_made);
     std::printf("calls: %zu accepted, %zu needing consents, refused:", accepted, needed);
     for (const auto& [reason, count] : refusals) {
         std::printf(" %s %zu", reason.c_str(), count);
