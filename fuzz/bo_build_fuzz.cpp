@@ -21,6 +21,10 @@
 //     own (bo:..., which renders in every official language) or a `reject`
 //     text of the contract; it never traps otherwise (no out of fuel, no
 //     out of bounds, no unreachable);
+//   - generated contracts also carry due dates, UTC offsets, resources with
+//     allocate and reclaim, conditions on time (within, overdue, before due,
+//     a state held), and time rules (milestone 12) whose functions the calls
+//     and the tests' keeper steps run;
 //   - its test blocks (generated: a creation, then steps with parties,
 //     counterparties, inputs, dates, signers, and expectations) run as `bo
 //     test` runs them: no step breaks (does what compiled code never does),
@@ -258,7 +262,15 @@ private:
     Line party();
     Line value(T t, int depth);
     Line condition(int depth);
+    Line time_condition();
     void statements(int indent, int depth, std::vector<std::pair<int, Line>>& out);
+    void time_rules(std::vector<std::pair<int, Line>>& out);
+    Tok field_tok(const GField& f) const {
+        return f.name == "amount"   ? word("field.amount")
+               : f.name == "due"    ? word("field.due")
+               : f.type == T::party ? word("field.holder")
+                                    : raw(f.name);
+    }
     Tok state(std::size_t i) { return i < vocabulary_states_ ? word(states_[i]) : raw(states_[i]); }
     Tok test_party();
     Line step(const GAction& a, int& month, int& day);
@@ -272,9 +284,20 @@ private:
     std::size_t vocabulary_states_ = 0;
     std::size_t used_states_ = 1;
     bool in_action_ = false;
+    /// In a time rule's block: nobody proves presence there. In its event:
+    /// its date is no `now`.
+    bool in_rule_ = false;
+    bool in_event_ = false;
     int rejects_ = 0;
     bool asset_ = false;
+    bool resource_ = false;
+    /// The first state is active.
+    bool active_first_ = false;
+    /// The instance has a due date (field.due).
+    bool due_ = false;
     std::vector<GAction> actions_;
+    /// What keeper steps name: the action each time rule does.
+    std::vector<Tok> keeper_;
 };
 
 Tok Generator::type_word(const T t) {
@@ -352,7 +375,7 @@ Line Generator::value(const T t, const int depth) {
     std::vector<Line> leaves{literal(t)};
     for (const GField& f : fields_) {
         if (f.type == t) {
-            leaves.push_back({f.name == "amount" ? word("field.amount") : raw(f.name)});
+            leaves.push_back({field_tok(f)});
         }
     }
     if (in_action_) {
@@ -362,7 +385,7 @@ Line Generator::value(const T t, const int depth) {
             }
         }
     }
-    if (t == T::date) {
+    if (t == T::date && !in_event_) {
         leaves.push_back({word("time.now")});
         leaves.push_back({word("time.today")});
     }
@@ -417,7 +440,31 @@ Line Generator::value(const T t, const int depth) {
     }
 }
 
+/// A condition on time (milestone 12): within N, overdue (N), N before
+/// due, a state held N.
+Line Generator::time_condition() {
+    const std::string days = std::format("{} days", c_.between(0, 60));
+    switch (c_.below(due_ ? 5 : 2)) {
+    case 0:
+        return {apply("cond.within", {raw(days)})};
+    case 1:
+        if (used_states_ > 1) {
+            return {state(c_.below(static_cast<std::uint32_t>(used_states_))), raw(days)};
+        }
+        return {apply("cond.within", {raw(days)})};
+    case 2:
+        return {word("cond.overdue")};
+    case 3:
+        return {word("cond.overdue"), raw(days)};
+    default:
+        return {apply("cond.before_due", {raw(days)})};
+    }
+}
+
 Line Generator::condition(const int depth) {
+    if ((in_action_ || in_rule_) && c_.one_in(6)) {
+        return time_condition();
+    }
     const std::uint32_t pick = c_.below(depth > 0 ? 9 : 6);
     switch (pick) {
     case 0:
@@ -495,6 +542,9 @@ void Generator::statements(const int indent, const int depth,
             out.push_back({indent, {word("kw.requires"), apply("cond.consent_of", party())}});
             break;
         case 3: {
+            if (in_rule_) {
+                break; // a keeper proves no presence
+            }
             bool amount = false;
             int money_inputs = 0;
             for (const GInput& i : inputs_) {
@@ -545,10 +595,7 @@ void Generator::statements(const int indent, const int depth,
                 break;
             }
             const GField& f = *settable[c_.below(static_cast<std::uint32_t>(settable.size()))];
-            Line l{f.name == "amount"   ? word("field.amount")
-                   : f.type == T::party ? word("field.holder")
-                                        : raw(f.name),
-                   raw("=")};
+            Line l{field_tok(f), raw("=")};
             const Line v = value(f.type, 2);
             l.insert(l.end(), v.begin(), v.end());
             out.push_back({indent, l});
@@ -590,7 +637,30 @@ std::vector<std::pair<int, Line>> Generator::contract() {
     // The kind and its fields.
     const bool asset = c_.one_in(3);
     asset_ = asset;
-    out.push_back({0, {word(asset ? "kind.asset" : "kind.record"), raw("Thing")}});
+    resource_ = !asset && c_.one_in(4);
+    out.push_back({0,
+                   {word(asset       ? "kind.asset"
+                         : resource_ ? "kind.resource"
+                                     : "kind.record"),
+                    raw("Thing")}});
+    if (c_.one_in(3)) {
+        due_ = true;
+        fields_.push_back({"due", T::date, false, {}});
+        out.push_back({2, {word("field.due"), word("type.date")}});
+    }
+    if (c_.one_in(6)) {
+        // U6: a fixed offset from UTC, east or west, in quarter hours.
+        const auto quarters = c_.between(-56, 56);
+        const auto minutes = (quarters < 0 ? -quarters : quarters) * 15;
+        out.push_back({2,
+                       {word("field.utc_offset"),
+                        raw(std::format("\"{}{:02}:{:02}\"", quarters < 0 ? '-' : '+', minutes / 60,
+                                        minutes % 60))}});
+    }
+    if (resource_) {
+        out.push_back(
+            {2, {word("field.cooling_period"), raw(std::format("{} days", c_.between(0, 40)))}});
+    }
     if (c_.one_in(2)) {
         fields_.push_back({"amount", T::money, false, {}});
         out.push_back({2, {word("field.amount"), word("cur.HKD")}});
@@ -616,9 +686,17 @@ std::vector<std::pair<int, Line>> Generator::contract() {
     // States: a chain the actions walk, vocabulary words first.
     static constexpr std::string_view state_words[] = {"state.proposed", "state.active",
                                                        "state.paid"};
-    vocabulary_states_ = c_.below(3);
-    for (std::size_t i = 0; i < vocabulary_states_; ++i) {
-        states_.emplace_back(state_words[i]);
+    active_first_ = resource_ || c_.one_in(3);
+    if (active_first_) {
+        // Active first, where a resource's terms and the time rules' built-in
+        // actions start.
+        vocabulary_states_ = 1;
+        states_.emplace_back("state.active");
+    } else {
+        vocabulary_states_ = c_.below(3);
+        for (std::size_t i = 0; i < vocabulary_states_; ++i) {
+            states_.emplace_back(state_words[i]);
+        }
     }
     for (std::uint32_t i = 0, n = 2 + c_.below(3); i < n; ++i) {
         states_.push_back(std::format("s{}", i));
@@ -707,13 +785,134 @@ std::vector<std::pair<int, Line>> Generator::contract() {
             }
         }
     }
+    // A resource: allocated to one holder at a time, cooling after a reclaim.
+    if (resource_ && c_.one_in(3) == false) {
+        GAction allocate;
+        allocate.word = "act.allocate";
+        allocate.name = "allocate";
+        Line head{word("kw.can"), word(allocate.word)};
+        if (c_.one_in(2)) {
+            allocate.to = roles_[c_.below(static_cast<std::uint32_t>(roles_.size()))];
+            head.push_back(word("kw.to"));
+            head.push_back(*allocate.to);
+        } else {
+            allocate.to = raw("bank1");
+            allocate.open_to = true;
+        }
+        out.push_back({0, head});
+        actions_.push_back(std::move(allocate));
+        GAction reclaim;
+        reclaim.word = "act.reclaim";
+        reclaim.name = "reclaim";
+        out.push_back({0, {word("kw.can"), word(reclaim.word)}});
+        actions_.push_back(std::move(reclaim));
+    }
     // Now and then, what this version does not compile: a built-in action
     // whose terms come later.
     if (c_.one_in(16)) {
         out.push_back({0, {word("kw.can"), word("act.refund"), word("kw.by"), roles_.front()}});
     }
+    time_rules(out);
     tests(out);
     return out;
+}
+
+/// Time rules (milestone 12): each fires at a date, N before due, overdue
+/// (N), or a state held N, now and then joined to a condition; it does a
+/// built-in action, one of the contract's own, or a block.
+void Generator::time_rules(std::vector<std::pair<int, Line>>& out) {
+    if (!c_.one_in(2)) {
+        return;
+    }
+    for (std::uint32_t r = 0, n = 1 + c_.below(3); r < n; ++r) {
+        Line line{word("kw.when")};
+        switch (c_.below(4)) {
+        case 0:
+            if (due_) {
+                line.push_back(word("cond.overdue"));
+                if (c_.one_in(2)) {
+                    line.push_back(raw(std::format("{} days", c_.between(0, 40))));
+                }
+                break;
+            }
+            [[fallthrough]];
+        case 1:
+            if (due_ && c_.one_in(2)) {
+                line.push_back(
+                    apply("cond.before_due", {raw(std::format("{} days", c_.between(0, 40)))}));
+                break;
+            }
+            [[fallthrough]];
+        case 2:
+            if (used_states_ > 1) {
+                line.push_back(state(c_.below(static_cast<std::uint32_t>(used_states_))));
+                line.push_back(raw(std::format("{} days", c_.between(0, 40))));
+                break;
+            }
+            [[fallthrough]];
+        default: {
+            in_event_ = true;
+            const Line d = value(T::date, 1);
+            in_event_ = false;
+            line.insert(line.end(), d.begin(), d.end());
+            break;
+        }
+        }
+        if (c_.one_in(3)) {
+            line.push_back(word("kw.and"));
+            line.push_back(raw("("));
+            in_rule_ = true;
+            const Line cond = condition(1);
+            in_rule_ = false;
+            line.insert(line.end(), cond.begin(), cond.end());
+            line.push_back(raw(")"));
+        }
+        // What it does.
+        std::optional<Tok> does;
+        switch (c_.below(6)) {
+        case 0:
+            // A built-in action, when active is first (otherwise, now and
+            // then, one whose states the contract never reaches: refused).
+            // Resume starts from suspended, which suspend leads to.
+            if (active_first_ || c_.one_in(8)) {
+                static constexpr std::string_view built_in[] = {"act.suspend", "act.terminate",
+                                                                "act.resume"};
+                const bool suspends = std::ranges::any_of(
+                    keeper_, [](const Tok& t) { return t.concept_id == "act.suspend"; });
+                does = word(std::string(built_in[c_.below(suspends ? 3 : 2)]));
+            }
+            break;
+        case 1:
+        case 2:
+        case 3: {
+            // One of the contract's own (now and then one with inputs or a
+            // counterparty, which is refused: the keeper's call gives no
+            // arguments).
+            std::vector<const GAction*> own;
+            for (const GAction& a : actions_) {
+                if (a.word.empty() && ((a.inputs.empty() && !a.to) || c_.one_in(8))) {
+                    own.push_back(&a);
+                }
+            }
+            if (!own.empty()) {
+                does = raw(own[c_.below(static_cast<std::uint32_t>(own.size()))]->name);
+            }
+            break;
+        }
+        default:
+            break;
+        }
+        if (does) {
+            line.push_back(*does);
+            keeper_.push_back(*does);
+        }
+        out.push_back({0, line});
+        if (!does || c_.one_in(3)) {
+            in_rule_ = true;
+            statements(2, 1, out);
+            in_rule_ = false;
+        }
+    }
 }
 
 /// A party a test names: a role, or a ledger only tests name.
@@ -830,7 +1029,7 @@ void Generator::tests(std::vector<std::pair<int, Line>>& out) {
             }
             create.push_back(first ? word("kw.with") : raw(","));
             first = false;
-            create.push_back(f.name == "amount" ? word("field.amount") : raw(f.name));
+            create.push_back(field_tok(f));
             create.push_back(raw("="));
             const Line v = literal(f.type);
             create.insert(create.end(), v.begin(), v.end());
@@ -841,6 +1040,29 @@ void Generator::tests(std::vector<std::pair<int, Line>>& out) {
         const bool proposals =
             std::ranges::any_of(actions_, [](const GAction& a) { return a.proposes; });
         for (std::uint32_t k = 0, n = 1 + c_.below(6); k < n; ++k) {
+            if (!keeper_.empty() && c_.one_in(3)) {
+                // The keeper calls a time rule, by the action it does.
+                Line keep{word("actor.keeper"),
+                          keeper_[c_.below(static_cast<std::uint32_t>(keeper_.size()))]};
+                if (c_.one_in(2)) {
+                    // Time only goes on.
+                    if (c_.one_in(2)) {
+                        month += 1 + static_cast<int>(c_.below(3));
+                        day = 1 + static_cast<int>(c_.below(28));
+                    } else {
+                        day += static_cast<int>(c_.below(static_cast<std::uint32_t>(29 - day)));
+                    }
+                    keep.push_back(
+                        apply("time.at", {raw(std::format("{}-{:02}-{:02}", 2026 + month / 12,
+                                                          1 + month % 12, day))}));
+                }
+                if (c_.one_in(3)) {
+                    keep.push_back(raw("->"));
+                    keep.push_back(word("val.refused"));
+                }
+                out.push_back({2, keep});
+                continue;
+            }
             if (proposals && c_.one_in(4)) {
                 // A person approves the first proposal kept.
                 Line approve{test_party(), word("act.approve")};
@@ -970,6 +1192,9 @@ void run_calls(const bo::Build& build, const m::Model& model, Choices& c) {
     std::set<std::string> rejects;
     for (const m::Action& a : model.actions) {
         collect_rejects(a.body, rejects);
+    }
+    for (const m::TimeRule& r : model.rules) {
+        collect_rejects(r.body, rejects);
     }
     std::optional<protocol::ContractInstanceView> instance;
     std::string creation;
@@ -1128,6 +1353,9 @@ std::string run_scenarios(const bo::Build& build, const m::Model& model, std::st
     std::set<std::string> rejects;
     for (const m::Action& a : model.actions) {
         collect_rejects(a.body, rejects);
+    }
+    for (const m::TimeRule& r : model.rules) {
+        collect_rejects(r.body, rejects);
     }
     for (std::size_t t = 0; t < results.tests.size(); ++t) {
         const bo::TestResult& test = results.tests[t];

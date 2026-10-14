@@ -265,7 +265,16 @@ public:
         for (const m::Step& s : t.steps) {
             place(s.span);
             place(s.expect_span);
-            party(s.subject);
+            // The keeper (a device of the home) calls a time rule.
+            if (s.keeper) {
+                place(s.subject.span);
+                if (s.subject.word == nullptr || s.subject.word->id != "actor.keeper" ||
+                    s.creation || s.approve) {
+                    std::abort();
+                }
+            } else {
+                party(s.subject);
+            }
             if (s.to) {
                 party(*s.to);
             }
