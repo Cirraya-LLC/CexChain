@@ -676,7 +676,10 @@ private:
         add("cexchain_get_instance",
             "A contract instance (an agreement, an order): its status, parties, state, head "
             "(which calls and consents must name), whether final, and every call with its "
-            "arguments and consents.",
+            "arguments and consents. A call may create parts of an instance (such as a "
+            "receivable split among suppliers): a part shows its parent, depth, position, and "
+            "ancestors, and an instance lists the parts its calls created (children). A part is "
+            "called, proposed on, and verified like any instance.",
             {{"instance",
               {{"type", "string"}, {"description", "Instance id or unique prefix (8+ hex)."}}}},
             json::array({"instance"}), read_only, [this](const Tool&, const json& arguments) {
@@ -739,8 +742,9 @@ private:
             "'instance'). Signed with your key under your delegation, which may cover only some "
             "contracts. The contract runs here first, exactly as the ledger will run it, and the "
             "call is recorded only if the contract accepts it; otherwise the result says what it "
-            "decided: the parties whose consents it still needs, or its reason for refusing. "
-            "'dry_run' shows the decision and records nothing.",
+            "decided: the parties whose consents it still needs, or its reason for refusing "
+            "(or the ledger's, for parts it may not create). A call that creates parts lists "
+            "them in 'children'. 'dry_run' shows the decision and records nothing.",
             {{"contract",
               {{"type", "string"},
                {"description", "To create an instance: the contract's id or a unique prefix."}}},
@@ -783,7 +787,7 @@ private:
                 options.dry_run = optional_flag(arguments, "dry_run", false);
                 const CallAttempt attempt =
                     attempt_call(session, *key_, std::move(body), bundles, options);
-                json out = plain(run_json(session, attempt.run));
+                json out = plain(run_json(session, attempt));
                 out["function"] = function;
                 out["dry_run"] = options.dry_run;
                 out["recorded"] = attempt.recorded.has_value();
@@ -793,6 +797,11 @@ private:
                     const protocol::Id id = call.instance ? *call.instance : *attempt.recorded;
                     out["statement_id"] = hex_id(*attempt.recorded);
                     out["instance"] = plain(instance_json(session, *session.state().instance(id)));
+                    json children = json::array();
+                    for (const protocol::Id& child : created_children(session, *attempt.recorded)) {
+                        children.push_back(hex_id(child));
+                    }
+                    out["children"] = std::move(children);
                 } else if (!options.dry_run && out["verdict"] == "needs") {
                     out["advice"] = "Each party named consents on its own ledger. Cite their "
                                     "consents' evidence files in 'consents', or have the call "
@@ -830,8 +839,9 @@ private:
         add("cexchain_fetch_instance",
             "A contract instance whose home is another organization's ledger (a peer), fetched "
             "and verified: every call run again and every consent checked on its own ledger. "
-            "Shows its status, parties, state, head, and calls. Homes show an instance only to "
-            "its parties.",
+            "Shows its status, parties, state, head, and calls; for a part, its parent and its "
+            "ancestors, whose calls up to each split are run again too. Homes show an instance "
+            "only to its parties.",
             {{"home", home_property},
              {"instance",
               {{"type", "string"}, {"description", "The instance's full id (64 hex digits)."}}}},

@@ -6,6 +6,7 @@
 #include <chrono>
 #include <format>
 #include <map>
+#include <span>
 
 #include <cexchain/verifier/report.hpp>
 
@@ -696,19 +697,38 @@ std::string signer_text(const protocol::RecordEvent& e) {
     return out;
 }
 
-Json outcome_json(const PartyNames& names, const protocol::ContractAccept& a) {
+/// What a call made of its instance; `children`, the ids of the instances
+/// it created (v0.7), in order.
+Json outcome_json(const PartyNames& names, const protocol::ContractAccept& a,
+                  std::span<const protocol::Id> children_ids) {
     Json events = Json::array();
     for (const protocol::ContractEvent& e : a.events) {
         events.push_back({{"name", e.name}, {"data", cbor::diagnostic(e.data)}});
     }
-    return {{"status", optional_text(a.status)},
-            {"parties", a.parties ? parties_json(names, *a.parties) : Json(nullptr)},
-            {"events", std::move(events)},
-            {"final", a.final},
-            {"state", cbor::diagnostic(a.state)}};
+    Json out{{"status", optional_text(a.status)},
+             {"parties", a.parties ? parties_json(names, *a.parties) : Json(nullptr)},
+             {"events", std::move(events)},
+             {"final", a.final},
+             {"state", cbor::diagnostic(a.state)}};
+    // Children (v0.7), only where a call created some.
+    if (!a.children.empty()) {
+        Json children = Json::array();
+        for (std::size_t n = 0; n < a.children.size(); ++n) {
+            const protocol::ContractChild& c = a.children[n];
+            children.push_back(
+                {{"position", n},
+                 {"id", n < children_ids.size() ? Json(hex_id(children_ids[n])) : Json(nullptr)},
+                 {"status", optional_text(c.status)},
+                 {"parties", parties_json(names, c.parties)},
+                 {"state", cbor::diagnostic(c.state)}});
+        }
+        out["children"] = std::move(children);
+    }
+    return out;
 }
 
-std::string outcome_text(const PartyNames& names, const protocol::ContractAccept& a) {
+std::string outcome_text(const PartyNames& names, const protocol::ContractAccept& a,
+                         std::span<const protocol::Id> children_ids) {
     std::string out = a.status ? "status " + *a.status : std::string("no status");
     if (a.parties) {
         out += "; parties " + parties_text(names, *a.parties);
@@ -718,6 +738,14 @@ std::string outcome_text(const PartyNames& names, const protocol::ContractAccept
     }
     if (a.final) {
         out += "; final";
+    }
+    for (std::size_t n = 0; n < a.children.size(); ++n) {
+        const protocol::ContractChild& c = a.children[n];
+        out += std::format(
+            "; part {}{}: {}{}", n,
+            n < children_ids.size() ? " " + short_id(children_ids[n]) : std::string(),
+            c.status.value_or("(no status)"),
+            c.parties.empty() ? std::string() : " (" + parties_text(names, c.parties) + ")");
     }
     return out;
 }
@@ -780,35 +808,62 @@ Json contract_report_json(const protocol::ContractReport& r, bool ledger_checked
              {"authority", std::move(authority)},
              {"presence", event.presence ? Json(presence_text(event)) : Json(nullptr)},
              {"provenance", event.provenance ? provenance_json(*event.provenance) : Json(nullptr)},
-             {"outcome", event.outcome ? outcome_json(names, *event.outcome) : Json(nullptr)},
+             {"outcome",
+              event.outcome ? outcome_json(names, *event.outcome, event.children) : Json(nullptr)},
              {"consents", std::move(consents)}});
     }
-    return {{"verified", true},
-            {"instance",
-             {{"id", hex_id(e.record)},
-              {"status", optional_text(i.status)},
-              {"parties", parties_json(names, i.parties)},
-              {"final", i.final},
-              {"head", i.head},
-              {"state", cbor::diagnostic(i.state)},
-              {"state_cbor", encoded_hex(i.state)},
-              {"contract",
-               {{"id", hex_id(i.contract)},
-                {"name", optional_text(i.contract_name)},
-                {"language", i.language},
-                {"compiler", i.compiler},
-                {"retired", i.contract_retired}}}}},
-            {"home",
-             {{"id", hex_id(e.ledger_id)},
-              {"organization", e.organization},
-              {"hash", crypto::name(e.hash)},
-              {"id_checked", ledger_checked}}},
-            {"checkpoint", checkpoint_json(e.checkpoint)},
-            {"witnesses",
-             {{"trusted", e.trusted_cosignatures}, {"untrusted", e.untrusted_cosignatures}}},
-            {"calls", std::move(calls)},
-            {"complete", e.complete},
-            {"report", report_json(e, ledger_checked)}};
+    Json out{{"verified", true},
+             {"instance",
+              {{"id", hex_id(e.record)},
+               {"status", optional_text(i.status)},
+               {"parties", parties_json(names, i.parties)},
+               {"final", i.final},
+               {"head", i.head},
+               {"state", cbor::diagnostic(i.state)},
+               {"state_cbor", encoded_hex(i.state)},
+               {"contract",
+                {{"id", hex_id(i.contract)},
+                 {"name", optional_text(i.contract_name)},
+                 {"language", i.language},
+                 {"compiler", i.compiler},
+                 {"retired", i.contract_retired}}}}},
+             {"home",
+              {{"id", hex_id(e.ledger_id)},
+               {"organization", e.organization},
+               {"hash", crypto::name(e.hash)},
+               {"id_checked", ledger_checked}}},
+             {"checkpoint", checkpoint_json(e.checkpoint)},
+             {"witnesses",
+              {{"trusted", e.trusted_cosignatures}, {"untrusted", e.untrusted_cosignatures}}},
+             {"calls", std::move(calls)},
+             {"complete", e.complete},
+             {"report", report_json(e, ledger_checked)}};
+    // A child (v0.7): its place, and its ancestors, oldest first, each with
+    // its calls (log indices) up to the one that created the next generation.
+    // Its ancestors' calls are among the calls above.
+    if (i.parent) {
+        Json ancestors = Json::array();
+        for (const protocol::AncestorReport& a : i.ancestors) {
+            Json ancestor_calls = Json::array();
+            for (const std::size_t n : a.events) {
+                ancestor_calls.push_back(e.events[n].index);
+            }
+            ancestors.push_back({{"id", hex_id(a.id)},
+                                 {"depth", a.depth},
+                                 {"parent", a.parent ? Json(hex_id(*a.parent)) : Json(nullptr)},
+                                 {"position", a.position},
+                                 {"created_by", a.created_by},
+                                 {"until", a.until},
+                                 {"calls", std::move(ancestor_calls)}});
+        }
+        Json& instance = out["instance"];
+        instance["parent"] = hex_id(*i.parent);
+        instance["position"] = i.position;
+        instance["depth"] = i.depth;
+        instance["created_by"] = i.created_by;
+        instance["ancestors"] = std::move(ancestors);
+    }
+    return out;
 }
 
 std::string contract_report_text(const protocol::ContractReport& r, bool ledger_checked) {
@@ -823,6 +878,10 @@ std::string contract_report_text(const protocol::ContractReport& r, bool ledger_
     line(std::format("  Instance     {} of contract {}(id {})", short_id(e.record),
                      i.contract_name ? "\"" + *i.contract_name + "\" " : std::string(),
                      short_id(i.contract)));
+    if (i.parent) {
+        line(std::format("  Part of      {}: part {} of its call #{}, depth {}",
+                         short_id(*i.parent), i.position, i.created_by, i.depth));
+    }
     line(std::format("  Contract     {}, compiled with {}{}", i.language, i.compiler,
                      i.contract_retired ? "; retired: it creates no more instances" : ""));
     line(std::format("  Home         {} (ledger {}, {})", e.organization, short_id(e.ledger_id),
@@ -849,8 +908,7 @@ std::string contract_report_text(const protocol::ContractReport& r, bool ledger_
                          ? std::string()
                          : std::format(" ({} more from witnesses you do not trust, not checked)",
                                        e.untrusted_cosignatures)));
-    line("\n  Calls");
-    for (const protocol::ContractStep& step : r.steps) {
+    auto call_lines = [&](const protocol::ContractStep& step) {
         const protocol::RecordEvent& event = e.events[step.event];
         const protocol::ContractCallBody& call = *event.contract_call;
         line(std::format("    #{:<4} {}  {}", event.index, format_time(event.registered_at),
@@ -867,7 +925,7 @@ std::string contract_report_text(const protocol::ContractReport& r, bool ledger_
             line("           reference  " + *call.reference);
         }
         if (event.outcome) {
-            line("           outcome    " + outcome_text(names, *event.outcome));
+            line("           outcome    " + outcome_text(names, *event.outcome, event.children));
         }
         for (const protocol::ContractConsentCheck& c : step.consents) {
             const protocol::RecordEvent* given =
@@ -880,11 +938,50 @@ std::string contract_report_text(const protocol::ContractReport& r, bool ledger_
                              c.consent.reference ? ", ref. " + *c.consent.reference
                                                  : std::string()));
         }
+    };
+    if (!i.parent) {
+        line("\n  Calls");
+        for (const protocol::ContractStep& step : r.steps) {
+            call_lines(step);
+        }
+    } else {
+        // A child (v0.7): its ancestors first, each with its calls up to the
+        // one that created the next generation; then its own.
+        line("\n  Ancestors    oldest first, each up to its call that created the next generation");
+        for (const protocol::AncestorReport& a : i.ancestors) {
+            line(std::format("    Instance {}, depth {}{}", short_id(a.id), a.depth,
+                             a.parent
+                                 ? std::format(", part {} of #{} (above)", a.position, a.created_by)
+                                 : std::string()));
+            // The call that created it is its parent's, shown above.
+            for (const protocol::ContractStep& step : r.steps) {
+                if (std::ranges::contains(a.events, step.event) &&
+                    (!a.parent || e.events[step.event].index != a.created_by)) {
+                    call_lines(step);
+                }
+            }
+        }
+        line(std::format("\n  Calls        its own, after the call that created it (#{}, above)",
+                         i.created_by));
+        bool any = false;
+        for (const protocol::ContractStep& step : r.steps) {
+            if (step.event > i.first_own_event) {
+                call_lines(step);
+                any = true;
+            }
+        }
+        if (!any) {
+            line("    none yet");
+        }
     }
     line("\n  Verified: the instance's complete history is proven against its home's state");
     line("  commitment, and its contract was run again on every call, reaching the state");
     line("  above; each consent is verified on the consenting party's own ledger. Party names");
     line("  are as their own ledgers declare them; ledger ids are what bind them.");
+    if (i.parent) {
+        line("  Its ancestors' calls up to each one that created the next generation were run");
+        line("  again too, consents and all: the instance is the part those calls created.");
+    }
     return out;
 }
 

@@ -11,7 +11,10 @@
 # it offline. Refused on the way: a stale head, a consent from a ledger the
 # contract did not ask for, one sent by another peer, a lapsed one, a
 # withdrawn one, a retired contract, and delegations for another contract.
-# Backups keep the held calls and the consents calls cite.
+# Backups keep the held calls and the consents calls cite. Then parts (v0.7):
+# a receivable split across organizations, a part split again, a tier-3 part
+# taken by the bank, verified offline, and sold on with an SM3 consent; the
+# depth limit and a retired contract refuse new parts.
 # Usage: contracts.sh CEXCHAIN
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO (from lines ${BASH_LINENO[*]}): $BASH_COMMAND" >&2' ERR
@@ -419,6 +422,165 @@ contains 'VERIFICATION FAILED: the contract.s source was not rebuilt to its code
 expect_exit 3 contract verify e3.cbor --ledger-id "$D_ID" --require-rebuild
 contains 'not Bo: nothing rebuilds its code' out.txt
 
+# --- Parts: instances created by a call (v0.7) --------------------------------------------
+# The splitting test contract (testvectors/test-contracts.json): a receivable
+# with the state [amount, tier] and the parties {holder}. issue [holder,
+# amount] creates one; split [[ledger, amount], ...] ends it and makes each
+# part a child [amount, tier + 1] held by its ledger; transfer LEDGER passes
+# it on. Splitting and transferring need the holder's consent, unless the
+# home holds it. The supplier splits a receivable between the outsider (a
+# tier-2 supplier here) and itself; the outsider splits its part; the bank
+# takes a tier-3 part, verifies it offline, and sells it on with a consent
+# from its SM3 ledger.
+python3 -c 'import json, sys; open("split.wasm", "wb").write(bytes.fromhex(json.load(open(sys.argv[1]))["split"]))' \
+    "$SOURCE/testvectors/test-contracts.json"
+SP="$(d contract deploy split.wasm --function issue=create --function split=call \
+    --function transfer=call --compiler "test_contracts.py 1" --name "Receivable" --as d-root.key \
+    --json | json 'd["contract"]["id"]')"
+d delegation grant --as d-root.key --to "$REGISTRAR" --allow contract-call --contracts "${SP:0:12}" \
+    > /dev/null
+R="$(d contract create "$SP" issue --args "[h'$S_ID', 1000]" --reference "INV-2026-88" \
+    --as d-root.key --json | json 'd["instance"]["id"]')"
+d contract instance "$R" --json | json 'd["parent"], d["depth"], d["ancestors"], d["children"]' \
+    | contains -x 'None 0 \[\] \[\]'
+
+# Tier 1: the supplier proposes the split to the home's registrar and
+# consents; a transfer it proposed before lapses once the split moves the
+# receivable's head.
+PARTS="[[h'$O_ID', 600], [h'$S_ID', 400]]"
+expect_exit 2 contract propose "$R" split --peer core --args "[[h'$O_ID', 600], [h'$S_ID', 300]]" \
+    --ledger "$S"
+contains 'do not add up' out.txt
+s contract propose "$R" transfer --peer core --args "h'$B_ID'" --json | json 'd["status"]' \
+    | contains -x waiting
+s contract propose "$R" split --peer core --args "$PARTS" --json > split1.json
+json 'd["missing"]' < split1.json | contains "$S_ID"
+s contract consent --peer core --call "$(json 'd["call"]' < split1.json)" --as s-root.key \
+    --log-key s-log.key --send > split1.txt
+contains 'core: recorded' split1.txt
+contains 'part 1: ' split1.txt
+d contract pending --json | json 'len([c for c in d if c["instance"] == "'"$R"'"])' | contains -x 0
+A="$(d contract instances --parent "$R" --json | json 'd[0]["id"]')"
+A2="$(d contract instances --parent "${R:0:12}" --json | json 'd[1]["id"]')"
+d contract instances --parent "$R" --json | json 'len(d)' | contains -x 2
+d contract instances --parent "$R" | contains "part 1 of ${R:0:12}, depth 1"
+d contract instance "$R" > r.txt
+contains 'status:    split (final' r.txt
+contains "children:  $A part 0 of #[0-9]*: active; holder: outsider" r.txt
+contains "           $A2 part 1 of #[0-9]*: active; holder: supplier" r.txt
+d contract instance "$A" > a.txt
+contains "parent:    $R (part 0 of its call #[0-9]*; depth 1)" a.txt
+contains "ancestors: ${R:0:12} (split) > this one" a.txt
+contains 'created by split on the parent by "Contract Registrar", consents: supplier' a.txt
+d contract instance "$A" --json > a.json
+json 'd["parent"], d["depth"], d["position"], d["state"]' < a.json \
+    | contains -x "$R 1 0 \[600, 2\]"
+json 'd["ancestors"] == ["'"$R"'"], d["created_by"] == d["calls"][0]["index"]' < a.json \
+    | contains -x 'True True'
+d contract instance "$R" --json | json '[c["id"] for c in d["children"]] == ["'"$A"'", "'"$A2"'"]' \
+    | contains -x True
+# A final parent takes no proposals; its parts carry on.
+expect_exit 2 contract propose "$R" transfer --peer core --args "h'$B_ID'" --ledger "$S"
+contains 'final' out.txt
+
+# Tier 2: the outsider, a party of its part only, proposes splitting it.
+expect_exit 2 contract propose "$R" split --peer core --args "$PARTS" --head 1 --ledger "$O"
+contains 'no such instance' out.txt
+o contract propose "$A" split --peer core --args "[[h'$O_ID', 250], [h'$O_ID', 350]]" \
+    --json > split2.json
+o contract consent --peer core --call "$(json 'd["call"]' < split2.json)" --as o-root.key \
+    --log-key o-log.key --send | contains 'core: recorded'
+P3="$(d contract instances --parent "$A" --json | json 'd[0]["id"]')"
+d contract instance "$P3" --json | json 'd["depth"], d["state"], len(d["ancestors"])' \
+    | contains -x '2 \[250, 3\] 2'
+d contract instance "$P3" | contains "ancestors: ${R:0:12} (split) > ${A:0:12} (split) > this one"
+
+# The bank takes the tier-3 part: the outsider consents as a file, which the
+# home cites in its call.
+HEAD3="$(d contract instance "$P3" --json | json 'd["head"]')"
+o contract consent --home "$D_ID" --hash sha256 --instance "$P3" --function transfer \
+    --args "h'$B_ID'" --head "$HEAD3" --as o-root.key --log-key o-log.key --out t3.cbor > /dev/null
+d contract call "$P3" transfer --args "h'$B_ID'" --dry-run --consent t3.cbor --as d-root.key \
+    | contains 'would accept transfer'
+d contract call "$P3" transfer --args "h'$B_ID'" --consent t3.cbor --as d-root.key \
+    | contains 'holder: bank'
+b contract fetch --peer core --instance "$P3" --out p3.cbor | contains '(verified)'
+run contract verify p3.cbor --ledger-id "$D_ID" > p3.txt
+contains "Part of      ${A:0:12}: part 0 of its call #[0-9]*, depth 2" p3.txt
+contains 'Ancestors    oldest first' p3.txt
+contains "Instance ${R:0:12}, depth 0" p3.txt
+contains "Instance ${A:0:12}, depth 1, part 0 of #" p3.txt
+contains 'consent of Supplier (SHA-256)' p3.txt
+contains "outcome    status split; final; part 0 ${A:0:12}: active (holder: Outsider" p3.txt
+contains "part 0 ${P3:0:12}: active (holder: Outsider" p3.txt
+contains "Calls        its own, after the call that created it" p3.txt
+contains 'consent of Outsider (SHA-256)' p3.txt
+contains "Its ancestors' calls" p3.txt
+run contract verify p3.cbor --ledger-id "$D_ID" --json > p3.json
+json 'd["verified"], d["instance"]["parent"] == "'"$A"'", d["instance"]["depth"]' < p3.json \
+    | contains -x 'True True 2'
+json '[a["id"] for a in d["instance"]["ancestors"]] == ["'"$R"'", "'"$A"'"]' < p3.json \
+    | contains -x True
+json '[c["function"] for c in d["calls"]]' < p3.json \
+    | contains -Fx "['issue', 'split', 'split', 'transfer']"
+json 'd["instance"]["ancestors"][1]["calls"] == [c["index"] for c in d["calls"][1:3]]' < p3.json \
+    | contains -x True
+json '[c["id"] for c in d["calls"][1]["outcome"]["children"]] == ["'"$A"'", "'"$A2"'"]' < p3.json \
+    | contains -x True
+# Its sibling's evidence has none of its calls; the bank sees no other part.
+d contract evidence "$(d contract instances --parent "$A" --json | json 'd[1]["id"]')" \
+    --log-key d-log.key --out p4.cbor > /dev/null
+run contract verify p4.cbor --ledger-id "$D_ID" --json | json '[c["function"] for c in d["calls"]]' \
+    | contains -Fx "['issue', 'split', 'split']"
+expect_exit 2 contract fetch --peer core --instance "$A" --out none.cbor --ledger "$B"
+contains 'only to its parties' out.txt
+
+# The bank, a party of the part, sells it on with a consent from its SM3
+# ledger; the supplier then holds it and verifies its whole history.
+b contract propose "$P3" transfer --peer core --args "h'$S_ID'" --json > sell.json
+b contract consent --peer core --call "$(json 'd["call"]' < sell.json)" --as b-root.key \
+    --log-key b-log.key --send | contains 'core: recorded'
+s contract fetch --peer core --instance "$P3" --out p3s.cbor > /dev/null
+run contract verify p3s.cbor --ledger-id "$D_ID" > p3s.txt
+contains 'consent of Bank (SM3)' p3s.txt
+contains 'consent of Outsider (SHA-256)' p3s.txt
+contains 'consent of Supplier (SHA-256)' p3s.txt
+# Through the server, as its staff, from a verified mirror.
+run contract instance "$P3" "${SERVER[@]}" --json | json 'd["depth"]' | contains -x 2
+run contract evidence "$P3" "${SERVER[@]}" --out p3staff.cbor > /dev/null
+run contract verify p3staff.cbor --ledger-id "$D_ID" --json | json 'len(d["calls"])' | contains -x 5
+
+# Depth 8: the home holds a receivable and splits it one part at a time;
+# the ledger refuses a ninth generation, even where the contract accepts.
+X="$(d contract create "$SP" issue --args "[h'$D_ID', 256]" --as d-root.key --json \
+    | json 'd["instance"]["id"]')"
+for _ in 1 2 3 4 5 6 7 8; do
+    X="$(d contract call "$X" split --args "[[h'$D_ID', 256]]" --as d-root.key --json \
+        | json 'd["children"][0]')"
+done
+d contract instance "$X" --json | json 'd["depth"], len(d["ancestors"])' | contains -x '8 8'
+d contract call "$X" split --args "[[h'$D_ID', 256]]" --as d-root.key --dry-run \
+    | contains 'it would not be recorded: the ledger refuses the call: an instance at depth 8'
+d contract call "$X" split --args "[[h'$D_ID', 256]]" --as d-root.key --dry-run --json \
+    | json 'd["verdict"]' | contains -x refuse
+expect_exit 2 contract call "$X" split --args "[[h'$D_ID', 256]]" --as d-root.key --ledger "$D"
+contains 'depth 8 creates no children' out.txt
+d contract evidence "$X" --log-key d-log.key --out x8.cbor > /dev/null
+run contract verify x8.cbor --ledger-id "$D_ID" --json \
+    | json 'd["instance"]["depth"], len(d["instance"]["ancestors"]), len(d["calls"])' \
+    | contains -x '8 8 9'
+# A retired contract makes no parts; calls that make none carry on.
+d contract retire "$SP" --as d-root.key > /dev/null
+d contract call "$X" split --args "[[h'$D_ID', 256]]" --as d-root.key --dry-run \
+    | contains 'a retired contract creates no more instances, children included'
+d contract call "$X" transfer --args "h'$S_ID'" --as d-root.key | contains 'holder: supplier'
+
+# Backups keep every consent a part's ancestors' calls cite.
+d backup create --out d2.backup --log-key d-log.key > /dev/null
+run backup restore d2.backup --ledger "$WORK/restored2" > /dev/null
+run contract evidence "$P3" --ledger "$WORK/restored2" --log-key d-log.key --out p3r.cbor > /dev/null
+run contract verify p3r.cbor --ledger-id "$D_ID" | contains 'consent of Bank (SM3)'
+
 # --- Help, completion, audits ------------------------------------------------------------
 for cmd in deploy show list retire create call instance instances evidence propose pending \
     consent withdraw send fetch verify explain; do
@@ -427,5 +589,7 @@ done
 run contract call --help | contains 'diagnostic notation'
 run delegation grant --help | contains 'contract-call'
 run completion bash | contains 'instances'
+run completion bash | contains -- '--parent'
+run contract instance --help | contains 'its ancestors'
 for fn in d s b o; do "$fn" audit | contains 'audit passed'; done
 echo "contracts end-to-end: ok"

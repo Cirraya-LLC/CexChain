@@ -15,13 +15,16 @@
 #include <cstring>
 #include <emscripten/emscripten.h>
 #include <exception>
+#include <optional>
 #include <string>
+#include <variant>
 
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/cose.hpp>
 #include <cexchain/core/protocol/asset_evidence.hpp>
 #include <cexchain/core/protocol/common.hpp>
 #include <cexchain/core/protocol/contract_evidence.hpp>
+#include <cexchain/core/protocol/contracts.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/log.hpp>
 #include <cexchain/core/protocol/statement.hpp>
@@ -56,23 +59,47 @@ Json failure(std::string_view message) {
 /// Whether an asset's or an instance's evidence bundle (the two kinds of
 /// evidence share one shape) is about a contract instance: an instance's id
 /// is the id of the call that created it, an asset's the id of its
-/// registration. Only decodes; verification decides the rest.
+/// registration. A child's (v0.7) is derived from the call that created it
+/// and its position, HASH([call, position]) under the ledger's hash, and that
+/// call is in the bundle. Only decodes; verification decides the rest.
 bool about_instance(ByteView bundle) {
     const auto decoded = protocol::decode_bundle(bundle);
     if (!decoded) {
         return false;
     }
+    std::optional<crypto::HashAlg> hash;
     for (const protocol::EvidenceEntry& item : decoded->entries) {
         const auto entry = protocol::decode_log_entry(item.entry);
-        if (!entry || entry->statement_id != decoded->record || entry->is_state_commitment()) {
+        if (!entry || entry->is_state_commitment()) {
             continue;
         }
         const auto envelope = cose::parse(entry->statement);
-        if (!envelope || !envelope->payload) {
-            return false;
+        const auto statement =
+            envelope && envelope->payload
+                ? protocol::decode_payload(*envelope->payload)
+                : Result<protocol::Statement>(fail(Errc::malformed, "no payload"));
+        if (!statement) {
+            if (entry->statement_id == decoded->record) {
+                return false;
+            }
+            continue;
         }
-        const auto statement = protocol::decode_payload(*envelope->payload);
-        return statement && statement->type() == protocol::StatementType::contract_call;
+        if (const auto* genesis = std::get_if<protocol::GenesisBody>(&statement->body)) {
+            hash = genesis->hash_alg;
+            continue;
+        }
+        const bool call = statement->type() == protocol::StatementType::contract_call;
+        if (entry->statement_id == decoded->record) {
+            return call;
+        }
+        for (std::uint64_t position = 0; call && hash && position < protocol::max_contract_children;
+             ++position) {
+            const auto child =
+                protocol::child_instance_id(provider(), *hash, entry->statement_id, position);
+            if (child && *child == decoded->record) {
+                return true;
+            }
+        }
     }
     return false;
 }

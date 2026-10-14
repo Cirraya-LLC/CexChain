@@ -134,6 +134,34 @@ const text = (name) => fs.readFileSync(path.join(dir, name), "utf8").trim();
                  "contract: flipped byte at " + offset);
   }
 
+  // A tier-3 part of a receivable (v0.7): its subject is no statement id but
+  // derived from the call that created it, and its ancestors' calls are run
+  // again too. The same report as `cexchain contract verify`.
+  const part = read("part.cbor");
+  const partReport = verifier.verify(part, { ledgerId: contractLedger });
+  assert.equal(partReport.kind, "contract");
+  assert.equal(partReport.verified, true, partReport.error);
+  assert.equal(partReport.text, fs.readFileSync(path.join(dir, "native-part-report.txt"), "utf8"));
+  assert.match(partReport.text, /Ancestors {4}oldest first/);
+  delete partReport.text;
+  delete partReport.kind;
+  assert.deepEqual(partReport, JSON.parse(text("native-part-report.json")));
+  assert.equal(partReport.instance.id, text("part-id"));
+  assert.equal(partReport.instance.parent, text("part-parent-id"));
+  assert.equal(partReport.instance.depth, 2);
+  assert.deepEqual(partReport.instance.ancestors.map((a) => a.id), [text("part-root-id"), text("part-parent-id")]);
+  assert.deepEqual(partReport.calls.map((c) => c.function), ["issue", "split", "split", "transfer"]);
+  assert.equal(partReport.calls[1].outcome.children.length, 2);
+  assert.deepEqual(partReport.calls.map((c) => c.consents.map((k) => k.organization)),
+                   [[], ["Cirraya Supplier"], ["Cirraya Supplier"], ["Cirraya Bank"]]);
+  assert.equal(verifier.verify(part, { ledgerId }).verified, false);
+  for (let offset = 0; offset < part.length; offset += 97) {
+    const damaged = part.slice();
+    damaged[offset] ^= 1;
+    assert.equal(verifier.verify(damaged, { ledgerId: contractLedger }).verified, false,
+                 "part: flipped byte at " + offset);
+  }
+
   console.log("wasm verifier (node): ok, version " + verifier.version);
 })().catch((e) => {
   console.error(e);

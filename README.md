@@ -440,6 +440,23 @@ module built some other way. `deploy/demo/supply-agreement.sh` walks through suc
 written in Bo (`deploy/demo/supply-agreement.bo`), on one machine, narrated, with the bank's AI
 agent consenting through MCP.
 
+A call may also create instances of its contract, its *parts* (spec v0.7), such as a receivable
+split among suppliers: up to 16 per call, at most 8 generations deep. A part is an instance like
+any other, held by its own parties: they propose calls on it, consent to them, and fetch its
+evidence, which carries its ancestors' calls up to each split, consents and all. So a bank that
+takes a tier-3 part verifies its whole chain offline:
+
+```sh
+cexchain contract propose <receivable> split --peer core --args "[[h'<tier-2 ledger>', 600], [h'<supplier ledger>', 400]]"
+cexchain contract instances --parent <receivable>    # the parts its calls created
+cexchain contract instance <part>                    # its parent, depth, position, and ancestors
+cexchain contract fetch --peer core --instance <tier-3 part> --out part.cbor
+cexchain contract verify part.cbor --ledger-id <core-ledger-id>   # its ancestors first, then its own calls
+```
+
+The ledger refuses a call that creates parts on a retired contract or at depth 8; `--dry-run` and
+the registrar give the ledger's reason before anything is signed.
+
 ## The Bo language
 
 Bo is the language contracts are written in: a few keywords in English, Traditional Chinese

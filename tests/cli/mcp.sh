@@ -7,6 +7,7 @@
 # resulting evidence verified offline. Contracts across two organizations:
 # the home's agent creates and calls an instance; a bank's agent proposes a
 # call to the home's registrar and consents to it on the bank's SM3 ledger.
+# Parts (v0.7): the agents read parents and parts, and call and propose on parts.
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
@@ -272,6 +273,65 @@ json '[t["name"] for c in d["calls"] for k in c["consents"] for t in k["provenan
     || fail "consents through MCP"
 json 'd["calls"][2]["consents"][0]["provenance"]["input_commitment"] is None' < verify.json \
     | contains -x True || fail "inputs only where given"
+# Parts (v0.7): the splitting test contract. The factory's agent issues a
+# receivable the factory holds and splits it between the factory and the
+# bank; it then splits the factory's part (a call on a part). The bank's
+# agent reads its part, with its parent, and sells it back to the factory
+# through the registrar (the write tools work on parts).
+python3 -c "import json, sys; open('split.wasm', 'wb').write(bytes.fromhex(json.load(open(sys.argv[1]))['split']))" \
+    "$VECTORS/test-contracts.json"
+SPLIT="$(run contract deploy split.wasm --ledger ledger --as root.key --function issue=create \
+    --function split=call --function transfer=call --compiler "test_contracts.py 1" --name "Receivable" | id_from)"
+for actor in "$AGENT" "$REGISTRAR"; do
+    run delegation grant --ledger ledger --as root.key --to "$actor" --allow contract-call \
+        --contracts "$SPLIT" --days 7 > /dev/null
+done
+call 1 cexchain_call_contract "{\"contract\":\"$SPLIT\",\"function\":\"issue\",\"arguments\":\"[h'$LEDGER_ID', 900]\"}" \
+    | run mcp --ledger ledger --as agent.key > responses.txt 2> /dev/null
+RECEIVABLE="$(result 1 "['instance']['id']")"
+[ "$(result 1 "['children']")" = "[]" ] || fail "an issue creates no parts"
+call 1 cexchain_call_contract "{\"instance\":\"$RECEIVABLE\",\"function\":\"split\",\"arguments\":\"[[h'$LEDGER_ID', 500], [h'$BANK_ID', 400]]\"}" \
+    | run mcp --ledger ledger --as agent.key > responses.txt 2> /dev/null
+[ "$(result 1 "['recorded']")" = True ] || fail "split"
+OWN_PART="$(result 1 "['children'][0]")"
+BANK_PART="$(result 1 "['children'][1]")"
+{
+    call 1 cexchain_get_instance "{\"instance\":\"${RECEIVABLE:0:12}\"}"
+    call 2 cexchain_get_instance "{\"instance\":\"$OWN_PART\"}"
+    call 3 cexchain_call_contract "{\"instance\":\"$OWN_PART\",\"function\":\"split\",\"arguments\":\"[[h'$LEDGER_ID', 200], [h'$LEDGER_ID', 300]]\",\"dry_run\":true}"
+    call 4 cexchain_call_contract "{\"instance\":\"$OWN_PART\",\"function\":\"split\",\"arguments\":\"[[h'$LEDGER_ID', 200], [h'$LEDGER_ID', 300]]\"}"
+} > part-requests.jsonl
+run mcp --ledger ledger --as agent.key < part-requests.jsonl > responses.txt 2> /dev/null
+[ "$(result 1 "['final']")" = True ] || fail "a split receivable is final"
+[ "$(result 1 "['children'][1]['id']")" = "$BANK_PART" ] || fail "the parent lists its parts"
+[ "$(result 1 "['children'][1]['parties']['holder']")" = "$BANK_ID" ] || fail "a part's holder"
+[ "$(result 2 "['parent']")" = "$RECEIVABLE" ] || fail "a part's parent"
+[ "$(result 2 "['depth']")" = 1 ] || fail "a part's depth"
+[ "$(result 2 "['ancestors']")" = "['$RECEIVABLE']" ] || fail "a part's ancestors"
+[ "$(result 3 "['verdict']")" = accept ] || fail "a dry run on a part"
+[ "$(result 3 "['children'].__len__()")" = 2 ] || fail "a dry run shows the parts"
+[ "$(result 4 "['children'].__len__()")" = 2 ] || fail "a part split again"
+TIER3="$(result 4 "['children'][0]")"
+[ "$(run contract instance "$TIER3" --ledger ledger --json | json 'd["depth"]')" = 2 ] || fail "tier 3"
+{
+    call 1 cexchain_fetch_instance "{\"home\":\"factory\",\"instance\":\"$BANK_PART\"}"
+    call 2 cexchain_propose_contract_call "{\"home\":\"factory\",\"instance\":\"$BANK_PART\",\"function\":\"transfer\",\"arguments\":\"h'$LEDGER_ID'\"}"
+} > bank-part-requests.jsonl
+bank_mcp < bank-part-requests.jsonl
+[ "$(result 1 "['instance']['parent']")" = "$RECEIVABLE" ] || fail "fetched part's parent"
+[ "$(result 1 "['instance']['ancestors'][0]['id']")" = "$RECEIVABLE" ] || fail "fetched part's ancestors"
+result 1 "['report']" | contains 'Ancestors    oldest first' || fail "the part's report"
+[ "$(result 2 "['status']")" = waiting ] || fail "a part's party proposes"
+PART_CALL="$(result 2 "['call']")"
+call 1 cexchain_consent_contract_call "{\"home\":\"factory\",\"call\":\"$PART_CALL\"}" | bank_mcp
+[ "$(result 1 "['home_answer']['status']")" = recorded ] || fail "the bank's consent on its part"
+[ "$(run contract instance "$BANK_PART" --ledger ledger --json | json 'd["parties"]["holder"]')" = "$LEDGER_ID" ] \
+    || fail "sold back"
+run contract evidence "$TIER3" --ledger ledger --log-key log.key --out tier3.cbor > /dev/null
+call 1 cexchain_verify_contract_evidence "{\"evidence_path\":\"tier3.cbor\",\"expected_ledger_id\":\"$LEDGER_ID\"}" \
+    | run mcp --ledger ledger --as agent.key > responses.txt 2> /dev/null
+[ "$(result 1 "['instance']['depth']")" = 2 ] || fail "a tier-3 part verified through MCP"
+[ "$(result 1 "['verified']")" = True ] || fail "verified"
 run mcp --help | contains 'cexchain_consent_contract_call'
 run completion bash | contains 'log-key'
 for l in ledger bank; do run audit --ledger "$l" | contains 'audit passed'; done

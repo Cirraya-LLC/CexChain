@@ -118,6 +118,9 @@ struct RecordEvent {
     /// For a contract call: the call, and what the contract made of it.
     std::optional<ContractCallBody> contract_call;
     std::optional<ContractAccept> outcome;
+    /// For a contract call that created instances (v0.7): their ids, in the
+    /// order of the outcome's children.
+    std::vector<Id> children;
 };
 
 /// An ancestor of a child instance (v0.7), as the child's evidence shows it:

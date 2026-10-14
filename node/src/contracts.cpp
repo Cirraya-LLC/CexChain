@@ -329,9 +329,21 @@ bool cites_contract_consents(const protocol::Statement& statement) {
     return call != nullptr && !call->consents.empty();
 }
 
+std::vector<protocol::Id> ancestor_ids(const protocol::LedgerState& state,
+                                       const protocol::Id& instance) {
+    std::vector<protocol::Id> out;
+    if (const protocol::InstanceState* i = state.instance(instance)) {
+        for (const protocol::InstanceAncestor& a : protocol::instance_ancestors(state, *i)) {
+            out.push_back(a.instance->id);
+        }
+    }
+    return out;
+}
+
 Result<Bytes> contract_evidence(const crypto::Provider& provider,
                                 const std::filesystem::path& ledger_directory,
-                                const protocol::EvidenceBundle& instance_bundle) {
+                                const protocol::EvidenceBundle& instance_bundle,
+                                std::span<const protocol::Id> ancestors) {
     if (instance_bundle.entries.empty()) {
         return fail(Errc::invalid_argument, "the instance's bundle is empty");
     }
@@ -359,9 +371,12 @@ Result<Bytes> contract_evidence(const crypto::Provider& provider,
             return std::unexpected(statement.error());
         }
         const auto* call = std::get_if<protocol::ContractCallBody>(&statement->statement.body);
-        // Creations cite no consents: only calls on the instance do.
-        if (call == nullptr || !call->instance || *call->instance != instance_bundle.record ||
-            call->consents.empty()) {
+        // Creations cite no consents: only calls on the instance, or on its
+        // ancestors (whose calls the bundle holds up to each one that created
+        // the next generation), do.
+        if (call == nullptr || !call->instance || call->consents.empty() ||
+            (*call->instance != instance_bundle.record &&
+             !std::ranges::contains(ancestors, *call->instance))) {
             continue;
         }
         auto held = detail::read_file(contract_consents_path(ledger_directory, statement->id));
@@ -814,6 +829,13 @@ Result<CallProgress> CallRegistrar::run(const crypto::Provider& provider,
             run->output ? std::get_if<protocol::ContractNeeds>(&*run->output) : nullptr) {
         progress.verdict = CallProgress::Verdict::waiting;
         progress.call.missing = needs->ledgers;
+        return progress;
+    }
+    // The contract accepts it; the ledger's rules for the children it would
+    // create (v0.7) apply after the run, so check them before signing.
+    if (const auto allowed = state.check_children(body, *run->accepted()); !allowed) {
+        progress.verdict = CallProgress::Verdict::refused;
+        progress.reason = "the ledger refuses the call: " + std::string(allowed.error().detail);
         return progress;
     }
     progress.verdict = CallProgress::Verdict::accepted;

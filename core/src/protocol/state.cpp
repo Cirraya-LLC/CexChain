@@ -223,23 +223,29 @@ Result<ContractRun> LedgerState::accepted_run(const crypto::Provider& provider,
     if (accept == nullptr) {
         return fail(Errc::rejected, "the contract needs more consents for the call");
     }
+    CEXCHAIN_CHECK(check_children(std::get<ContractCallBody>(signed_call.statement.body), *accept));
+    return run;
+}
+
+Status LedgerState::check_children(const ContractCallBody& call,
+                                   const ContractAccept& accept) const {
     // Children (v0.7): only a contract that is not retired creates them, and
     // only below the depth limit. A creation's instance has depth 0.
-    if (!accept->children.empty()) {
-        const auto& call = std::get<ContractCallBody>(signed_call.statement.body);
-        const InstanceState* instance = call.instance ? this->instance(*call.instance) : nullptr;
-        const ContractState* contract =
-            instance != nullptr ? this->contract(instance->contract)
-                                : (call.contract ? this->contract(*call.contract) : nullptr);
-        if (contract == nullptr || contract->retired) {
-            return fail(Errc::rejected, "a retired contract creates no more instances, children "
-                                        "included");
-        }
-        if (instance != nullptr && instance->depth >= max_instance_depth) {
-            return fail(Errc::rejected, "an instance at depth 8 creates no children");
-        }
+    if (accept.children.empty()) {
+        return {};
     }
-    return run;
+    const InstanceState* instance = call.instance ? this->instance(*call.instance) : nullptr;
+    const ContractState* contract =
+        instance != nullptr ? this->contract(instance->contract)
+                            : (call.contract ? this->contract(*call.contract) : nullptr);
+    if (contract == nullptr || contract->retired) {
+        return fail(Errc::rejected, "a retired contract creates no more instances, children "
+                                    "included");
+    }
+    if (instance != nullptr && instance->depth >= max_instance_depth) {
+        return fail(Errc::rejected, "an instance at depth 8 creates no children");
+    }
+    return {};
 }
 
 std::optional<Id> LedgerState::contract_of(const Statement& statement) const {

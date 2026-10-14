@@ -58,10 +58,18 @@ pending_calls_directory(const std::filesystem::path& ledger_directory);
 
 /// The contract evidence for `instance_bundle` (an instance's evidence
 /// bundle from this ledger): the bundle and every consent bundle its calls
-/// cite, each once, read from `ledger_directory`.
+/// cite, each once, read from `ledger_directory`. For a child (v0.7), the
+/// calls on its `ancestors` that the bundle holds (each up to the one that
+/// created the next generation) are its calls too, consents and all.
 [[nodiscard]] Result<Bytes> contract_evidence(const crypto::Provider& provider,
                                               const std::filesystem::path& ledger_directory,
-                                              const protocol::EvidenceBundle& instance_bundle);
+                                              const protocol::EvidenceBundle& instance_bundle,
+                                              std::span<const protocol::Id> ancestors = {});
+
+/// The ids of an instance's ancestors in `state`, oldest first: none unless
+/// a call made it a child (v0.7), or if `state` has no such instance.
+[[nodiscard]] std::vector<protocol::Id> ancestor_ids(const protocol::LedgerState& state,
+                                                     const protocol::Id& instance);
 
 /// Signs a contract call as the registrar `signer` (an actor of the ledger),
 /// under its newest delegation that covers calls on the contract.

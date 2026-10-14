@@ -1155,8 +1155,10 @@ Bytes Session::contract_evidence(const Args& args, const protocol::Id& instance)
         if (i != nullptr && (!latest || latest->checkpoint.tree_size <= i->head)) {
             static_cast<void>(checkpoint(args));
         }
-        return unwrap(node::contract_evidence(provider_, directory_, evidence(args, instance)),
-                      "the instance's evidence");
+        const std::vector<protocol::Id> ancestors = node::ancestor_ids(state(), instance);
+        return unwrap(
+            node::contract_evidence(provider_, directory_, evidence(args, instance), ancestors),
+            "the instance's evidence");
     }
     if (args.has("log-key")) {
         throw UsageError{"with --server the server signs: drop --log-key"};

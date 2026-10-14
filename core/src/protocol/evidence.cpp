@@ -595,6 +595,17 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
             registration = body;
             report.metadata = body->metadata;
         }
+        // The instances a call created (v0.7), by the ids derived from it.
+        std::vector<Id> children;
+        if (const auto outcome = outcomes.find(index); outcome != outcomes.end()) {
+            for (std::size_t n = 0; n < outcome->second.children.size(); ++n) {
+                auto child = child_instance_id(provider, state->hash(), it->statement.id, n);
+                if (!child) {
+                    return std::unexpected(child.error());
+                }
+                children.push_back(*child);
+            }
+        }
         report.events.push_back(RecordEvent{
             .index = index,
             .registered_at = it->log_entry.registered_at,
@@ -612,6 +623,7 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
                                  ? std::optional(std::get<ContractCallBody>(statement.body))
                                  : std::nullopt,
             .outcome = outcomes.contains(index) ? std::optional(outcomes.at(index)) : std::nullopt,
+            .children = std::move(children),
         });
     }
 

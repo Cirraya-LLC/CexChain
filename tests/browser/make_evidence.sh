@@ -8,7 +8,9 @@
 # native-report.json (what `cexchain verify --json` reports); for an asset,
 # asset.cbor, asset-id, asset-ledger-id, and native-asset-report.json; and for
 # a contract instance, contract.cbor, instance-id, contract-ledger-id, and
-# native-contract-report.json and .txt (what `cexchain contract verify` reports).
+# native-contract-report.json and .txt (what `cexchain contract verify` reports);
+# and for a tier-3 part of a receivable (v0.7), part.cbor, part-id,
+# part-parent-id, part-root-id, and native-part-report.json and .txt.
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
@@ -106,3 +108,32 @@ run checkpoint create --log-key core-log.key --ledger "$DIR/core" > /dev/null
 core contract evidence "$INSTANCE" --log-key core-log.key --out contract.cbor > /dev/null
 run contract verify contract.cbor --ledger-id "$(cat contract-ledger-id)" --json > native-contract-report.json
 run contract verify contract.cbor --ledger-id "$(cat contract-ledger-id)" > native-contract-report.txt
+
+# A tier-3 part of a receivable (v0.7), with the splitting test contract: the
+# core enterprise issues a receivable to the supplier, which consents to
+# splitting it between itself and the bank, then to splitting its own part;
+# the bank, holding a tier-3 part, consents to passing it to the core
+# enterprise. The consents travel as files.
+python3 -c 'import json,sys; open("split.wasm","wb").write(bytes.fromhex(json.load(open(sys.argv[1]))["split"]))' \
+    "$SOURCE/testvectors/test-contracts.json"
+CORE="$(cat contract-ledger-id)"
+SPLIT="$(core contract deploy split.wasm --function issue=create --function split=call --function transfer=call \
+    --compiler "test_contracts.py 1" --name "Receivable" --as core-root.key | id_from)"
+field() { python3 -c "import json,sys; print(json.load(sys.stdin)$1)"; }
+RECEIVABLE="$(core contract create "$SPLIT" issue --args "[h'$SUPPLIER', 1000]" --as core-root.key --json | field '["instance"]["id"]')"
+split_with_consent() { # INSTANCE ARGS AS LOG LEDGER: prints the first part's id
+    local head
+    head="$(core contract instance "$1" --json | field '["head"]')"
+    run contract consent --home "$CORE" --hash sha256 --instance "$1" --function "${6:-split}" --args "$2" \
+        --head "$head" --as "$3" --log-key "$4" --ledger "$5" --out step.cbor > /dev/null
+    core contract call "$1" "${6:-split}" --args "$2" --consent step.cbor --as core-root.key --json \
+        | python3 -c 'import json,sys; c=json.load(sys.stdin)["children"]; print(c[0] if c else "")'
+}
+TIER2="$(split_with_consent "$RECEIVABLE" "[[h'$SUPPLIER', 600], [h'$BANK', 400]]" sup-root.key sup-log.key "$DIR/supplier")"
+split_with_consent "$TIER2" "[[h'$BANK', 250], [h'$SUPPLIER', 350]]" sup-root.key sup-log.key "$DIR/supplier" > part-id
+split_with_consent "$(cat part-id)" "h'$CORE'" bank-root.key bank-log.key "$DIR/bank" transfer > /dev/null
+echo "$TIER2" > part-parent-id
+echo "$RECEIVABLE" > part-root-id
+core contract evidence "$(cat part-id)" --log-key core-log.key --out part.cbor > /dev/null
+run contract verify part.cbor --ledger-id "$CORE" --json > native-part-report.json
+run contract verify part.cbor --ledger-id "$CORE" > native-part-report.txt

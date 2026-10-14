@@ -1059,9 +1059,11 @@ struct LedgerApi::State {
             return error_response(400, "invalid_argument", "an instance id is 64 hex digits");
         }
         std::optional<protocol::InstanceState> instance;
+        std::vector<protocol::Id> ancestors;
         ledger->read_state([&](const protocol::LedgerState& s) {
             if (const protocol::InstanceState* i = s.instance(*id)) {
                 instance = *i;
+                ancestors = ancestor_ids(s, *id);
             }
         });
         bool allowed = instance.has_value() && has_scope(scopes, Scope::read);
@@ -1083,7 +1085,7 @@ struct LedgerApi::State {
         if (!bundle) {
             return error_response(bundle.error());
         }
-        auto evidence = contract_evidence(*provider, options.directory, *bundle);
+        auto evidence = contract_evidence(*provider, options.directory, *bundle, ancestors);
         return evidence ? binary("application/cbor", std::move(*evidence))
                         : error_response(evidence.error());
     }
@@ -1924,10 +1926,20 @@ struct LedgerApi::State {
         // The instance moved on: what was pending on it is stale now.
         std::vector<PendingChange> stale;
         std::optional<std::string> status;
+        json children = json::array();
         ledger->read_state([&](const protocol::LedgerState& s) {
             stale = calls->sweep(s, clock.now(), false);
             if (const protocol::InstanceState* i = s.instance(progress->call.instance)) {
                 status = i->status;
+            }
+            // The instances the call created (v0.7), in order.
+            for (std::uint32_t n = 0; n < protocol::max_contract_children; ++n) {
+                auto child =
+                    protocol::child_instance_id(*provider, s.hash(), recorded->statement_id, n);
+                if (!child || s.instance(*child) == nullptr) {
+                    break;
+                }
+                children.push_back(hex(*child));
             }
         });
         if (auto s = keep_pending(stale); !s) {
@@ -1940,7 +1952,8 @@ struct LedgerApi::State {
                                    {"function", progress->call.function},
                                    {"statement_id", hex(recorded->statement_id)},
                                    {"index", recorded->index},
-                                   {"instance_status", status ? json(*status) : json(nullptr)}});
+                                   {"instance_status", status ? json(*status) : json(nullptr)},
+                                   {"children", std::move(children)}});
     }
 
     /// Membership changes and stepping down, on the leader's writer.

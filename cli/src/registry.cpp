@@ -1447,13 +1447,18 @@ std::vector<CommandSpec> build() {
          "on a schedule; one whose time has not come is refused, and nothing is recorded. Try\n"
          "one first with --dry-run --at TIME.\n\n" CEXCHAIN_ARGUMENTS_HELP},
         {{"contract", "instance"},
-         "Show an instance: its status, parties, state, and calls",
+         "Show an instance: its status, parties, state, calls, parent, and parts",
          "Contracts",
          "INSTANCE",
          1,
          1,
          with({ledger_option}),
-         cmd_contract_instance},
+         cmd_contract_instance,
+         "A call may create instances of its contract, its parts (such as a receivable split\n"
+         "among suppliers): a part shows its parent, its position among the parts its parent's\n"
+         "call created, its depth (at most 8), and its ancestors, oldest first; an instance whose\n"
+         "calls created parts lists them. A part is an instance like any other: call it, propose\n"
+         "calls on it, and fetch or verify its evidence, which carries its ancestors' calls."},
         {{"contract", "instances"},
          "List this ledger's contract instances",
          "Contracts",
@@ -1464,6 +1469,7 @@ std::vector<CommandSpec> build() {
                {"contract", "CONTRACT", "Only instances of this contract"},
                {"status", "STATUS", "Only instances with this status"},
                {"party", "PEER", "Only those where this peer (or ledger id) is a party"},
+               {"parent", "INSTANCE", "Only the parts calls on this instance created"},
                {"open", "", "Only instances that are not final"}}),
          cmd_contract_instances},
         {{"contract", "evidence"},

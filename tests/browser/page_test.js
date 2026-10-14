@@ -21,7 +21,7 @@ const recordId = text("record-id");
 
 function serve() {
   const files = { "/cexchain-verify.html": pagePath, "/bundle.cbor": path.join(dir, "bundle.cbor"),
-                  "/contract.cbor": path.join(dir, "contract.cbor") };
+                  "/contract.cbor": path.join(dir, "contract.cbor"), "/part.cbor": path.join(dir, "part.cbor") };
   const server = http.createServer((req, res) => {
     const file = files[req.url];
     if (!file) { res.writeHead(404).end(); return; }
@@ -187,6 +187,40 @@ async function verdict(page) {
     v = await verdict(page);
     assert.equal(v.kind, "bad");
     assert.match(v.detail, /different instance/);
+    await page.close();
+
+    // 9. A tier-3 part's evidence (v0.7): the chain of its ancestors, each
+    // with its calls and consents, then its own; the report is the one
+    // `cexchain contract verify --json` gives. A link naming the part is green.
+    const partId = text("part-id");
+    page = await open("file://" + pagePath);
+    await page.fill("#ledger", contractLedger);
+    await page.dispatchEvent("#ledger", "change");
+    await page.setInputFiles("#bundle-file", path.join(dir, "part.cbor"));
+    await page.waitForFunction(() => document.getElementById("verdict-title").textContent === "Verified");
+    v = await verdict(page);
+    assert.equal(v.kind, "ok", v.title + ": " + v.detail);
+    assert.match(v.detail, /Receivable.* at "Cirraya Core Enterprise": a part at depth 2, status active after 4 calls \(its ancestors' included\)/);
+    const shownPart = await page.evaluate(() => window.lastReport);
+    delete shownPart.kind;
+    delete shownPart.text;
+    assert.deepEqual(shownPart, JSON.parse(text("native-part-report.json")));
+    const partText = await page.textContent("#result");
+    assert.match(partText, new RegExp("Part ofpart 0 of call #\\d+ on " + text("part-parent-id")));
+    assert.match(partText, /Depth2 \(2 ancestors: /);
+    assert.match(partText, new RegExp("Ancestor " + text("part-root-id") + ", depth 0"));
+    assert.match(partText, new RegExp("Ancestor " + text("part-parent-id") + ", depth 1, part 0 of #\\d+ \\(above\\)"));
+    assert.match(partText, /This instance's own calls, after the call that created it/);
+    assert.match(partText, new RegExp("part 0 " + partId.slice(0, 12) + ": active \\(holder: Cirraya Bank"));
+    assert.match(partText, /consent of Cirraya Bank \(SHA-256\)/);
+    assert.match(partText, /run again too, consents and all/);
+    // The ancestors' creating calls are shown once: four calls, four items.
+    assert.equal(await page.locator("#events li:not(.group):not(.meta)").count(), 4);
+    await page.close();
+    page = await open(base + "/cexchain-verify.html#l=" + contractLedger + "&r=" + partId + "&b=" +
+      encodeURIComponent(base + "/part.cbor"));
+    v = await verdict(page);
+    assert.equal(v.kind, "ok", v.title + ": " + v.detail);
     await page.close();
 
     assert.deepEqual(problems, []);

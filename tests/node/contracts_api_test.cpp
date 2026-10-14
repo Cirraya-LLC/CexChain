@@ -310,6 +310,39 @@ Bytes proposal(const node::LedgerApi& api, const Home& home, const std::string& 
     return *encoded;
 }
 
+/// A proposal to call `function` with `arguments` on any instance (a part
+/// too) at its head.
+Bytes proposal_on(const node::LedgerApi& api, const protocol::Id& instance,
+                  const std::string& function, const cbor::Value& arguments) {
+    node::PendingCall p;
+    p.instance = instance;
+    p.head = api.ledger().state().instance(instance)->head;
+    p.function = function;
+    p.arguments = arguments;
+    auto encoded = node::encode_call_proposal(p);
+    REQUIRE(encoded);
+    return *encoded;
+}
+
+/// An accept that ends the instance and creates a part held by each ledger
+/// (v0.7).
+protocol::ContractAccept split_among(const std::vector<protocol::Id>& holders) {
+    protocol::ContractAccept a = accept("split", {}, true);
+    for (std::size_t n = 0; n < holders.size(); ++n) {
+        a.children.push_back({cbor::Value::text("part " + std::to_string(n)), "part",
+                              protocol::Parties{{"holder", holders[n]}}});
+    }
+    return a;
+}
+
+protocol::Id id_from_hex(const json& text) {
+    auto bytes = cexchain::from_hex(text.get<std::string>());
+    REQUIRE(bytes);
+    auto id = protocol::to_id(*bytes);
+    REQUIRE(id);
+    return *id;
+}
+
 } // namespace
 
 TEST_CASE("a registrar records a contract call once both parties consented", "[node][contracts]") {
@@ -594,6 +627,143 @@ TEST_CASE("a contract call arrives with its consents, and only so", "[node][cont
     INFO((report ? std::string() : std::string(report.error().detail)));
     REQUIRE(report);
     CHECK(report->steps.back().consents.size() == 1);
+}
+
+TEST_CASE("a registrar takes calls on parts from their own parties, and serves their ancestors' "
+          "consents",
+          "[node][contracts]") {
+    World supplier{crypto::HashAlg::sha256, "Supplier"};
+    World bank{crypto::HashAlg::sm3, "Bank"};
+    World buyer{crypto::HashAlg::sha256, "Buyer"};
+    Home home(supplier, bank, buyer);
+    auto api = home.api();
+    Running server(*api);
+    const auto staff = server.client(home.staff);
+    const auto supplier_client = server.client(home.supplier_token);
+    const auto bank_client = server.client(home.bank_token);
+    const auto buyer_client = server.client(home.buyer_token);
+    const protocol::Id s = supplier.ledger().id();
+    const protocol::Id b = bank.ledger().id();
+    const protocol::Id k = buyer.ledger().id();
+    const protocol::Timestamp until = now() + 30 * day;
+    auto head_of = [&](const protocol::Id& instance) {
+        return api->ledger().state().instance(instance)->head;
+    };
+
+    // With the supplier's consent, the agreement ends in two parts (v0.7):
+    // one held by the bank, one by the buyer, which is no party of it.
+    const cbor::Value split = outputs({needs({s}), split_among({b, k})});
+    const std::uint64_t head = head_of(home.agreement);
+    REQUIRE(
+        send(staff, "POST", "/v1/contracts/calls", proposal(*api, home, "sign", split)).status ==
+        202);
+    const auto split_recorded = send(supplier_client, "POST", "/v1/contracts/consents",
+                                     consent(supplier, home.id, crypto::HashAlg::sha256,
+                                             home.agreement, head, "sign", split, until));
+    INFO(text(split_recorded));
+    REQUIRE(split_recorded.status == 201);
+    const json children = body_json(split_recorded)["children"];
+    REQUIRE(children.size() == 2);
+    const protocol::Id bank_part = id_from_hex(children[0]);
+    const protocol::Id buyer_part = id_from_hex(children[1]);
+    const auto split_call = id_from_hex(body_json(split_recorded)["statement_id"]);
+    CHECK(bank_part ==
+          *protocol::child_instance_id(provider(), crypto::HashAlg::sha256, split_call, 0));
+    {
+        const auto& state = api->ledger().state();
+        CHECK(state.instance(home.agreement)->final);
+        const protocol::InstanceState* part = state.instance(buyer_part);
+        REQUIRE(part != nullptr);
+        CHECK(part->parent == home.agreement);
+        CHECK(part->depth == 1);
+        CHECK(part->position == 1);
+        CHECK(part->parties.at("holder") == k);
+    }
+
+    // A final parent takes no proposals. A part's own parties propose calls
+    // on it; others, the parent's parties included, find no such instance.
+    CHECK(send(supplier_client, "POST", "/v1/contracts/calls",
+               proposal(*api, home, "close", outputs({needs({s}), accept("closed")})))
+              .status == 409);
+    const cbor::Value sell = outputs({needs({k}), accept("sold")});
+    CHECK(send(buyer_client, "POST", "/v1/contracts/calls",
+               proposal_on(*api, bank_part, "sign", sell))
+              .status == 404);
+    CHECK(send(supplier_client, "POST", "/v1/contracts/calls",
+               proposal_on(*api, buyer_part, "sign", sell))
+              .status == 404);
+    const auto proposed = send(buyer_client, "POST", "/v1/contracts/calls",
+                               proposal_on(*api, buyer_part, "sign", sell));
+    INFO(text(proposed));
+    REQUIRE(proposed.status == 202);
+    CHECK(body_json(proposed)["missing"] == json::array({hex_id(k)}));
+    const auto sold = send(buyer_client, "POST", "/v1/contracts/consents",
+                           consent(buyer, home.id, crypto::HashAlg::sha256, buyer_part,
+                                   head_of(buyer_part), "sign", sell, until));
+    INFO(text(sold));
+    REQUIRE(sold.status == 201);
+    CHECK(body_json(sold)["children"].empty());
+    CHECK(api->ledger().state().instance(buyer_part)->status == "sold");
+
+    // A part's evidence goes to its own parties, with the consents its
+    // ancestors' calls cite: the supplier's to the split, then the buyer's.
+    const std::string buyer_path = "/v1/contracts/instances/" + hex_id(buyer_part);
+    CHECK(send(buyer_client, "GET", "/v1/contracts/instances/" + hex_id(bank_part)).status == 404);
+    CHECK(send(buyer_client, "GET", "/v1/contracts/instances/" + hex_id(home.agreement)).status ==
+          404);
+    CHECK(send(supplier_client, "GET", buyer_path).status == 404);
+    const auto evidence = send(buyer_client, "GET", buyer_path);
+    REQUIRE(evidence.status == 200);
+    protocol::VerifyOptions options;
+    options.expected_ledger = home.id;
+    auto report = protocol::verify_contract_evidence(provider(), evidence.body, options);
+    INFO((report ? std::string() : std::string(report.error().detail)));
+    REQUIRE(report);
+    REQUIRE(report->instance.instance);
+    CHECK(report->instance.record == buyer_part);
+    CHECK(report->instance.instance->parent == home.agreement);
+    CHECK(report->instance.instance->ancestors.size() == 1);
+    REQUIRE(report->steps.size() == 3); // the creation, the split, the sale
+    CHECK(report->steps[1].consents.size() == 1);
+    CHECK(report->steps[1].consents[0].ref.ledger == s);
+    CHECK(report->steps[2].consents.size() == 1);
+    CHECK(report->steps[2].consents[0].ref.ledger == k);
+    const auto for_bank = send(bank_client, "GET", "/v1/contracts/instances/" + hex_id(bank_part));
+    REQUIRE(for_bank.status == 200);
+    auto bank_report = protocol::verify_contract_evidence(provider(), for_bank.body, options);
+    REQUIRE(bank_report);
+    CHECK(bank_report->steps.size() == 2);
+
+    // The ledger's rules for parts apply to what the registrar records: once
+    // the contract is retired, a call that would create parts is refused
+    // with the ledger's reason, whether the contract accepts it at once or
+    // once the consents are in. Calls that create none carry on.
+    REQUIRE(send(staff, "POST", "/v1/statements",
+                 home.sign(protocol::ContractRetireBody{home.contract, "version 2"}),
+                 "application/cose")
+                .status == 201);
+    const auto at_once = send(staff, "POST", "/v1/contracts/calls",
+                              proposal_on(*api, bank_part, "sign", outputs({split_among({b})})));
+    CHECK(at_once.status == 409);
+    CHECK(text(at_once).find("a retired contract creates no more instances") != std::string::npos);
+    const cbor::Value resplit = outputs({needs({b}), split_among({b, b})});
+    REQUIRE(send(bank_client, "POST", "/v1/contracts/calls",
+                 proposal_on(*api, bank_part, "sign", resplit))
+                .status == 202);
+    const auto refused = send(bank_client, "POST", "/v1/contracts/consents",
+                              consent(bank, home.id, crypto::HashAlg::sha256, bank_part,
+                                      head_of(bank_part), "sign", resplit, until));
+    CHECK(refused.status == 409);
+    CHECK(text(refused).find("a retired contract creates no more instances") != std::string::npos);
+    const cbor::Value keep = outputs({needs({b}), accept("kept")});
+    REQUIRE(send(bank_client, "POST", "/v1/contracts/calls",
+                 proposal_on(*api, bank_part, "close", keep))
+                .status == 202);
+    CHECK(send(bank_client, "POST", "/v1/contracts/consents",
+               consent(bank, home.id, crypto::HashAlg::sha256, bank_part, head_of(bank_part),
+                       "close", keep, until))
+              .status == 201);
+    CHECK(api->ledger().state().instance(bank_part)->status == "kept");
 }
 
 TEST_CASE("pending calls survive their files' round trip", "[node][contracts]") {

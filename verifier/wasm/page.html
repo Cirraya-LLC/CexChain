@@ -66,6 +66,8 @@ th { color: var(--muted); font-weight: 500; }
 .timeline .what { font-weight: 600; }
 .timeline .when { color: var(--muted); font-size: 13px; }
 .timeline .meta { font-size: 13px; color: var(--muted); margin-top: 2px; }
+.timeline li.group { border-left-color: transparent; margin-left: 0; padding: 4px 0 10px; font-weight: 600; color: var(--muted); }
+.timeline li.group::before { display: none; }
 .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--chip); margin-right: 6px; }
 .chip.agent { background: #efe7ff; color: #5b2bbf; }
 .chip.present { background: var(--ok-bg); color: var(--ok); }
@@ -283,6 +285,10 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
     if (o.parties) text += "; parties " + partyList(o.parties);
     for (const e of o.events) text += "; event " + e.name + " " + shorten(e.data, 120);
     if (o.final) text += "; final";
+    (o.children || []).forEach((c, n) => {
+      text += "; part " + n + (c.id ? " " + c.id.slice(0, 12) : "") + ": " + (c.status || "(no status)") +
+        (Object.keys(c.parties).length ? " (" + partyList(c.parties) + ")" : "");
+    });
     return text;
   }
 
@@ -298,6 +304,12 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
       ", compiled with " + i.contract.compiler + (i.contract.retired ? " (retired: it creates no more instances)" : ""));
     fact("Contract ID", i.contract.id, true);
     fact("Instance ID", i.id, true);
+    if (i.parent) {
+      // A part (v0.7): created by a call on its parent, below its ancestors.
+      fact("Part of", "part " + i.position + " of call #" + i.created_by + " on " + i.parent);
+      fact("Depth", i.depth + " (" + i.ancestors.length + (i.ancestors.length === 1 ? " ancestor" : " ancestors") +
+        ": " + i.ancestors.map((a) => a.id.slice(0, 12) + "\u2026").join(" \u2192 ") + ")");
+    }
     fact("Status", (i.status || "(none)") + (i.final ? " \u2014 final: it takes no more calls" : ""));
     fact("Parties", partyList(i.parties));
     fact("State", shorten(i.state, 300), true);
@@ -309,8 +321,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
     $("metadata-section").hidden = true;
     $("fields-section").hidden = true;
     $("attachments-section").hidden = true;
-    $("events-title").textContent = "Calls";
-    $("events").replaceChildren(...report.calls.map((call) => {
+    $("events-title").textContent = i.parent ? "Calls, its ancestors' first" : "Calls";
+    const callItem = (call) => {
       const li = el("li");
       li.append(el("div", call.creates ? "Created with " + call.function : "Called " + call.function, "what"));
       const who = el("div");
@@ -336,10 +348,31 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
       }
       li.append(el("div", when(call.registered_at) + " \u00b7 entry #" + call.index, "when"));
       return li;
-    }));
+    };
+    let items = report.calls.map(callItem);
+    if (i.parent) {
+      // Each ancestor with its calls up to the one that created the next
+      // generation, then the instance's own.
+      items = [];
+      for (const a of i.ancestors) {
+        items.push(el("li", "Ancestor " + a.id + ", depth " + a.depth +
+          (a.parent ? ", part " + a.position + " of #" + a.created_by + " (above)" : ""), "group mono"));
+        // The call that created it is its parent's, shown above.
+        for (const call of report.calls) {
+          if (a.calls.includes(call.index) && !(a.parent && call.index === a.created_by)) items.push(callItem(call));
+        }
+      }
+      items.push(el("li", "This instance's own calls, after the call that created it (#" + i.created_by + ")", "group"));
+      const own = report.calls.filter((call) => call.index > i.created_by);
+      if (own.length === 0) items.push(el("li", "none yet", "meta"));
+      for (const call of own) items.push(callItem(call));
+    }
+    $("events").replaceChildren(...items);
     $("limits").textContent = "The instance's complete history is proven against its home's state commitment, and its " +
       "contract was run again on every call, reaching the state above; each consent is verified on the consenting " +
-      "party's own ledger. Party names are as their own ledgers declare them; the ledger IDs bind them.";
+      "party's own ledger. Party names are as their own ledgers declare them; the ledger IDs bind them." +
+      (i.parent ? " Its ancestors' calls up to each one that created the next generation were run again too, " +
+        "consents and all: the instance is the part those calls created." : "");
     $("details").hidden = false;
   }
 
@@ -448,8 +481,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
     if (report.kind === "contract" && report.instance) {
       renderContract(report);
       const i = report.instance;
-      const summary = "status " + (i.status || "(none)") + (i.final ? " (final)" : "") + " after " +
-        report.calls.length + (report.calls.length === 1 ? " call" : " calls") + ", each run again.";
+      const summary = (i.parent ? "a part at depth " + i.depth + ", " : "") + "status " + (i.status || "(none)") +
+        (i.final ? " (final)" : "") + " after " + report.calls.length + (report.calls.length === 1 ? " call" : " calls") +
+        (i.parent ? " (its ancestors' included)" : "") + ", each run again.";
       if (state.expectedRecord && i.id !== state.expectedRecord.toLowerCase()) {
         setVerdict("bad", "Not verified", "This evidence is about a different instance than the one the link or QR code names.");
       } else if (!report.verified) {

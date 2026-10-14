@@ -15,8 +15,11 @@
 
 #include <algorithm>
 #include <format>
+#include <map>
 #include <print>
+#include <span>
 #include <variant>
+#include <vector>
 
 #include <cexchain/bo/explain.hpp>
 #include <cexchain/bo/pack.hpp>
@@ -189,15 +192,62 @@ Json call_json(const Session& session, std::uint64_t index, const protocol::Sign
             {"consents", std::move(consents)}};
 }
 
+/// The instances calls created (v0.7), by parent, each list in the order
+/// they were created. The ledger keeps no such index: the state is scanned
+/// once per command.
+using Children = std::map<protocol::IdKey, std::vector<const protocol::InstanceState*>>;
+
+Children children_by_parent(const protocol::LedgerState& state) {
+    Children out;
+    for (const auto& [key, i] : state.instances()) {
+        if (i.parent) {
+            out[i.parent->key()].push_back(&i);
+        }
+    }
+    return out;
+}
+
+std::span<const protocol::InstanceState* const> children_of(const Children& children,
+                                                            const protocol::Id& parent) {
+    const auto it = children.find(protocol::key_of(parent));
+    return it == children.end() ? std::span<const protocol::InstanceState* const>()
+                                : std::span<const protocol::InstanceState* const>(it->second);
+}
+
+Json instance_json_with(const Session& session, const protocol::InstanceState& i,
+                        const Children& all_children);
+
 } // namespace
 
 Json instance_json(const Session& session, const protocol::InstanceState& i) {
+    return instance_json_with(session, i, children_by_parent(session.state()));
+}
+
+namespace {
+
+Json instance_json_with(const Session& session, const protocol::InstanceState& i,
+                        const Children& all_children) {
     Json calls = Json::array();
     for (const std::uint64_t index : i.history) {
         const protocol::SignedStatement s = session.statement(index);
         if (const auto* call = std::get_if<protocol::ContractCallBody>(&s.statement.body)) {
             calls.push_back(call_json(session, index, s, *call));
         }
+    }
+    // Its place among instances created by a call (v0.7): its ancestors,
+    // oldest first, and the instances its calls created.
+    Json ancestors = Json::array();
+    for (const protocol::InstanceAncestor& a : protocol::instance_ancestors(session.state(), i)) {
+        ancestors.push_back(id_json(a.instance->id));
+    }
+    Json children = Json::array();
+    for (const protocol::InstanceState* child : children_of(all_children, i.id)) {
+        children.push_back({{"id", id_json(child->id)},
+                            {"position", child->position},
+                            {"created_by", child->created_by},
+                            {"status", optional_text(child->status)},
+                            {"parties", parties_json(child->parties)},
+                            {"final", child->final}});
     }
     const protocol::ContractState* c = session.state().contract(i.contract);
     return {{"id", id_json(i.id)},
@@ -209,10 +259,14 @@ Json instance_json(const Session& session, const protocol::InstanceState& i) {
             {"head", i.head},
             {"state", cbor::diagnostic(i.state)},
             {"state_cbor", encoded_hex(i.state)},
-            {"calls", std::move(calls)}};
+            {"calls", std::move(calls)},
+            {"parent", i.parent ? id_json(i.parent->id()) : Json(nullptr)},
+            {"position", i.position},
+            {"depth", i.depth},
+            {"created_by", i.created_by},
+            {"ancestors", std::move(ancestors)},
+            {"children", std::move(children)}};
 }
-
-namespace {
 
 void print_parties(const Session& session, const protocol::Parties& parties) {
     if (parties.empty()) {
@@ -229,11 +283,36 @@ void print_parties(const Session& session, const protocol::Parties& parties) {
 void print_instance(const Session& session, const protocol::InstanceState& i) {
     std::println("instance:  {}", hex_id(i.id));
     std::println("contract:  {}", contract_label(session, i.contract));
+    if (i.parent) {
+        std::println("parent:    {} (part {} of its call #{}; depth {})", hex_id(i.parent->id()),
+                     i.position, i.created_by, i.depth);
+        std::string chain;
+        for (const protocol::InstanceAncestor& a :
+             protocol::instance_ancestors(session.state(), i)) {
+            chain += (chain.empty() ? "" : " > ") + short_id(a.instance->id) +
+                     std::format(" ({})", a.instance->status.value_or("no status"));
+        }
+        std::println("ancestors: {} > this one", chain);
+    }
     std::println("status:    {}{}", i.status.value_or("(none)"),
                  i.final ? " (final: it takes no more calls)" : "");
     print_parties(session, i.parties);
     std::println("state:     {}", shortened(cbor::diagnostic(i.state)));
     std::println("head:      #{} (calls and consents name it)", i.head);
+    bool first_child = true;
+    const Children children = children_by_parent(session.state());
+    for (const protocol::InstanceState* child : children_of(children, i.id)) {
+        std::string parties;
+        for (const auto& [role, ledger] : child->parties) {
+            parties +=
+                (parties.empty() ? "; " : ", ") + role + ": " + ledger_label(session, ledger);
+        }
+        std::println("{}{} part {} of #{}: {}{}{}", first_child ? "children:  " : "           ",
+                     hex_id(child->id), child->position, child->created_by,
+                     child->status.value_or("(no status)"), parties,
+                     child->final ? " (final)" : "");
+        first_child = false;
+    }
     for (const std::uint64_t index : i.history) {
         const protocol::SignedStatement s = session.statement(index);
         const auto* call = std::get_if<protocol::ContractCallBody>(&s.statement.body);
@@ -245,9 +324,12 @@ void print_instance(const Session& session, const protocol::InstanceState& i) {
             consents += (consents.empty() ? ", consents: " : "; ") +
                         ledger_label(session, c.ledger) + " [" + signer_text(c.signer) + "]";
         }
-        std::println("  #{:<5} {}  {} {} by \"{}\"{}", index,
+        // A child's first call is its parent's, which created it (v0.7).
+        const bool on_parent = i.parent && index == i.created_by;
+        std::println("  #{:<5} {}  {} {}{} by \"{}\"{}", index,
                      format_time(session.log_entry(index).registered_at),
-                     call->instance ? "call" : "create with", call->function,
+                     on_parent ? "created by" : (call->instance ? "call" : "create with"),
+                     call->function, on_parent ? " on the parent" : "",
                      session.actor_name(*s.statement.actor_id), consents);
         std::println("          arguments: {}", shortened(cbor::diagnostic(call->arguments)));
     }
@@ -277,12 +359,12 @@ int record_call(const Args& args, Session& session, protocol::ContractCallBody b
     const auto& call = std::get<protocol::ContractCallBody>(attempt.statement.statement.body);
     if (options.dry_run) {
         if (args.json()) {
-            Json out = run_json(session, run);
+            Json out = run_json(session, attempt);
             out["function"] = call.function;
             print_json(out);
             return exit_ok;
         }
-        if (const protocol::ContractAccept* a = run.accepted()) {
+        if (const protocol::ContractAccept* a = run.accepted(); a != nullptr && !attempt.refused) {
             std::println("the contract would accept {}: status {}{}", call.function,
                          a->status.value_or("(none)"), a->final ? ", final" : "");
             if (a->parties) {
@@ -292,21 +374,27 @@ int record_call(const Args& args, Session& session, protocol::ContractCallBody b
                 std::println("event:     {} {}", e.name, shortened(cbor::diagnostic(e.data)));
             }
             std::println("state:     {}", shortened(cbor::diagnostic(a->state)));
+            for (std::size_t n = 0; n < a->children.size(); ++n) {
+                std::println("part {}:    {}; state {}", n,
+                             a->children[n].status.value_or("(no status)"),
+                             shortened(cbor::diagnostic(a->children[n].state)));
+            }
         } else {
-            std::println("it would not be recorded: {}", refusal(session, run));
+            std::println("it would not be recorded: {}", refusal(session, attempt));
         }
         std::println("fuel used: {}", run.outcome.fuel_used);
         return exit_ok;
     }
     if (!attempt.recorded) {
         std::string advice;
-        if (run.output && std::holds_alternative<protocol::ContractNeeds>(*run.output)) {
+        if (!attempt.refused && run.output &&
+            std::holds_alternative<protocol::ContractNeeds>(*run.output)) {
             advice = call.instance ? ": pass each party's consent with --consent (from contract "
                                      "consent), or propose the call to the registrar (contract "
                                      "propose)"
                                    : ": a creation takes no consents";
         }
-        throw CommandError{refusal(session, run) + advice};
+        throw CommandError{refusal(session, attempt) + advice};
     }
     const protocol::Id id = *attempt.recorded;
     const protocol::Id instance = call.instance ? *call.instance : id;
@@ -320,9 +408,24 @@ int record_call(const Args& args, Session& session, protocol::ContractCallBody b
     for (const auto& [role, ledger] : now.parties) {
         text += "\n" + role + ": " + ledger_label(session, ledger);
     }
-    return report_submitted(
-        args, session, id,
-        {{"instance", instance_json(session, now)}, {"fuel_used", run.outcome.fuel_used}}, text);
+    // The instances the call created (v0.7), in order.
+    Json children = Json::array();
+    for (const protocol::Id& child : created_children(session, id)) {
+        const protocol::InstanceState& c = *session.state().instance(child);
+        std::string parties;
+        for (const auto& [role, ledger] : c.parties) {
+            parties +=
+                (parties.empty() ? "; " : ", ") + role + ": " + ledger_label(session, ledger);
+        }
+        text += std::format("\npart {}: {} {}{}", c.position, hex_id(child),
+                            c.status.value_or("(no status)"), parties);
+        children.push_back(id_json(child));
+    }
+    return report_submitted(args, session, id,
+                            {{"instance", instance_json(session, now)},
+                             {"children", std::move(children)},
+                             {"fuel_used", run.outcome.fuel_used}},
+                            text);
 }
 
 /// A held call from this ledger's own files, as the server would show it.
@@ -387,6 +490,14 @@ void print_answer(const Session* session, const std::string& who, const Json& an
                      answer.contains("instance_status") && answer["instance_status"].is_string()
                          ? answer["instance_status"].get<std::string>()
                          : std::string("(no status)"));
+    }
+    // The instances the recorded call created (v0.7).
+    if (answer.contains("children") && answer["children"].is_array()) {
+        std::size_t n = 0;
+        for (const Json& child : answer["children"]) {
+            std::println("  part {}:       {}", n++,
+                         child.is_string() ? child.get<std::string>() : std::string("?"));
+        }
     }
 }
 
@@ -632,26 +743,32 @@ int cmd_contract_instances(const Args& args) {
     const auto status = args.get("status");
     const std::optional<protocol::Id> party =
         args.has("party") ? std::optional(ledger_of(session, *args.get("party"))) : std::nullopt;
+    const std::optional<protocol::Id> parent =
+        args.has("parent") ? std::optional(session.instance_id(*args.get("parent"))) : std::nullopt;
     Json out = Json::array();
+    const Children children = args.json() ? children_by_parent(session.state()) : Children();
     for (const auto& [key, i] : session.state().instances()) {
         if ((contract && !(i.contract == *contract)) || (status && i.status != *status) ||
-            (args.has("open") && i.final) ||
+            (args.has("open") && i.final) || (parent && !(i.parent && *i.parent == *parent)) ||
             (party &&
              std::ranges::none_of(i.parties, [&](const auto& p) { return p.second == *party; }))) {
             continue;
         }
         if (args.json()) {
-            out.push_back(instance_json(session, i));
+            out.push_back(instance_json_with(session, i, children));
             continue;
         }
         std::string parties;
         for (const auto& [role, ledger] : i.parties) {
             parties += (parties.empty() ? "" : ", ") + role + ": " + ledger_label(session, ledger);
         }
-        std::println("{}  {:<12} head #{:<6} of {}; {}{}", short_id(i.id), i.status.value_or("-"),
+        std::println("{}  {:<12} head #{:<6} of {}; {}{}{}", short_id(i.id), i.status.value_or("-"),
                      i.head, contract_label(session, i.contract),
                      parties.empty() ? std::string("no parties") : parties,
-                     i.final ? " (final)" : "");
+                     i.final ? " (final)" : "",
+                     i.parent ? std::format("; part {} of {}, depth {}", i.position,
+                                            short_id(i.parent->id()), i.depth)
+                              : std::string());
     }
     if (args.json()) {
         print_json(out);

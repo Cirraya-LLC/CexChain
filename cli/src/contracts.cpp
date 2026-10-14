@@ -187,13 +187,37 @@ CallAttempt attempt_call(Session& session, const crypto::Signer& signer,
         options.dry_run && options.at ? *options.at : ledger::SystemClock{}.now();
     attempt.run = unwrap(session.state().run_contract(session.provider(), attempt.statement, time),
                          "running the contract");
-    if (!options.dry_run && attempt.run.accepted() != nullptr) {
+    if (const protocol::ContractAccept* accept = attempt.run.accepted()) {
+        const auto& call = std::get<protocol::ContractCallBody>(attempt.statement.statement.body);
+        if (const auto allowed = session.state().check_children(call, *accept); !allowed) {
+            attempt.refused = "the ledger refuses the call: " + std::string(allowed.error().detail);
+        }
+    }
+    if (!options.dry_run && attempt.run.accepted() != nullptr && !attempt.refused) {
         attempt.recorded = session.submit_signed(attempt.statement, std::nullopt, bundles);
     }
     return attempt;
 }
 
-std::string refusal(const Session& session, const protocol::ContractRun& run) {
+std::vector<protocol::Id> created_children(const Session& session, const protocol::Id& call) {
+    std::vector<protocol::Id> out;
+    for (std::uint64_t n = 0; n < protocol::max_contract_children; ++n) {
+        const protocol::Id child =
+            unwrap(protocol::child_instance_id(session.provider(), session.state().hash(), call, n),
+                   "a child's id");
+        if (session.state().instance(child) == nullptr) {
+            break;
+        }
+        out.push_back(child);
+    }
+    return out;
+}
+
+std::string refusal(const Session& session, const CallAttempt& attempt) {
+    if (attempt.refused) {
+        return *attempt.refused;
+    }
+    const protocol::ContractRun& run = attempt.run;
     if (run.outcome.trap) {
         if (*run.outcome.trap == vm::Trap::aborted) {
             const std::string reason = readable(run.outcome.abort_reason);
@@ -221,9 +245,10 @@ std::string refusal(const Session& session, const protocol::ContractRun& run) {
     return "the contract does not accept the call";
 }
 
-Json run_json(const Session& session, const protocol::ContractRun& run) {
+Json run_json(const Session& session, const CallAttempt& attempt) {
+    const protocol::ContractRun& run = attempt.run;
     Json out{{"fuel_used", run.outcome.fuel_used}};
-    if (const protocol::ContractAccept* a = run.accepted()) {
+    if (const protocol::ContractAccept* a = run.accepted(); a != nullptr && !attempt.refused) {
         Json events = Json::array();
         for (const protocol::ContractEvent& e : a->events) {
             events.push_back({{"name", e.name}, {"data", cbor::diagnostic(e.data)}});
@@ -234,10 +259,22 @@ Json run_json(const Session& session, const protocol::ContractRun& run) {
         out["events"] = std::move(events);
         out["final"] = a->final;
         out["state"] = cbor::diagnostic(a->state);
+        if (!a->children.empty()) {
+            Json children = Json::array();
+            for (std::size_t n = 0; n < a->children.size(); ++n) {
+                const protocol::ContractChild& c = a->children[n];
+                children.push_back({{"position", n},
+                                    {"status", optional_text(c.status)},
+                                    {"parties", parties_json(c.parties)},
+                                    {"state", cbor::diagnostic(c.state)}});
+            }
+            out["children"] = std::move(children);
+        }
         return out;
     }
-    if (const auto* needs =
-            run.output ? std::get_if<protocol::ContractNeeds>(&*run.output) : nullptr) {
+    if (const auto* needs = run.output && !attempt.refused
+                                ? std::get_if<protocol::ContractNeeds>(&*run.output)
+                                : nullptr) {
         Json ledgers = Json::array();
         for (const protocol::Id& l : needs->ledgers) {
             ledgers.push_back(id_json(l));
@@ -247,7 +284,7 @@ Json run_json(const Session& session, const protocol::ContractRun& run) {
     } else {
         out["verdict"] = "refuse";
     }
-    out["reason"] = refusal(session, run);
+    out["reason"] = refusal(session, attempt);
     return out;
 }
 

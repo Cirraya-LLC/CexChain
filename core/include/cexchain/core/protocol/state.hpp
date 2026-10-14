@@ -161,6 +161,13 @@ public:
                                                    const SignedStatement& call,
                                                    Timestamp now) const;
 
+    /// The rules for the children an accepted run creates (v0.7): none on a
+    /// retired contract, none from an instance at depth 8. `validate` applies
+    /// them after the run; a dry run that `run_contract` accepts checks them
+    /// here, so that its answer is the ledger's.
+    [[nodiscard]] Status check_children(const ContractCallBody& call,
+                                        const ContractAccept& accept) const;
+
     /// How a statement's registered signer appears to contracts.
     [[nodiscard]] Result<ContractSigner> contract_signer(const Statement& statement) const;
 
