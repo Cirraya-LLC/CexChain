@@ -24,7 +24,9 @@
 //   - generated contracts also carry due dates, UTC offsets, resources with
 //     allocate and reclaim, conditions on time (within, overdue, before due,
 //     a state held), and time rules (milestone 12) whose functions the calls
-//     and the tests' keeper steps run;
+//     and the tests' keeper steps run; and lists (in fields, inputs, and
+//     the state: each, sum of, count of, in, set) and a bill with charges
+//     of every shape (milestone 13), which calls with random lines make;
 //   - its test blocks (generated: a creation, then steps with parties,
 //     counterparties, inputs, dates, signers, and expectations) run as `bo
 //     test` runs them: no step breaks (does what compiled code never does),
@@ -227,15 +229,31 @@ enum class T : std::uint8_t { text, number, money, usd, date, flag, data, days, 
 constexpr std::uint32_t value_types = 9; // all but party
 
 struct GField {
-    std::string name; // a name, or "amount" for field.amount
+    std::string name; // a name, or "amount" for field.amount, "invoice" for the bill
     T type = T::text;
     bool constant = false;
     std::string party; // a party field's starting role
+    /// A list of `type` (milestone 13): at most `bound` items (0: 16).
+    bool list = false;
+    std::uint32_t bound = 0;
 };
 
 struct GInput {
     std::string name;
     T type = T::text;
+    bool list = false;
+    std::uint32_t bound = 0;
+};
+
+/// A list's most items, as its type says.
+std::uint32_t most(const std::uint32_t bound) {
+    return bound == 0 ? 16 : bound;
+}
+
+/// A charge generated (milestone 13): what later ones may be computed on.
+struct GCharge {
+    std::string name;
+    bool per_line = true;
 };
 
 struct GAction {
@@ -259,6 +277,11 @@ public:
 private:
     Tok type_word(T t);
     Line literal(T t);
+    Line literal_list(T t, std::uint32_t bound);
+    Line list_type(T t, std::uint32_t bound);
+    void charges(std::vector<std::pair<int, Line>>& out);
+    /// The lists in reach: fields, and an action's inputs.
+    std::vector<std::pair<Tok, std::pair<T, std::uint32_t>>> lists() const;
     Line party();
     Line value(T t, int depth);
     Line condition(int depth);
@@ -266,10 +289,11 @@ private:
     void statements(int indent, int depth, std::vector<std::pair<int, Line>>& out);
     void time_rules(std::vector<std::pair<int, Line>>& out);
     Tok field_tok(const GField& f) const {
-        return f.name == "amount"   ? word("field.amount")
-               : f.name == "due"    ? word("field.due")
-               : f.type == T::party ? word("field.holder")
-                                    : raw(f.name);
+        return f.name == "amount"    ? word("field.amount")
+               : f.name == "due"     ? word("field.due")
+               : f.name == "invoice" ? word("doc.invoice")
+               : f.type == T::party  ? word("field.holder")
+                                     : raw(f.name);
     }
     Tok state(std::size_t i) { return i < vocabulary_states_ ? word(states_[i]) : raw(states_[i]); }
     Tok test_party();
@@ -298,6 +322,9 @@ private:
     std::vector<GAction> actions_;
     /// What keeper steps name: the action each time rule does.
     std::vector<Tok> keeper_;
+    /// The bill's charges (milestone 13), and the items each loop names.
+    std::vector<GCharge> charges_;
+    std::vector<std::pair<std::string, T>> items_;
 };
 
 Tok Generator::type_word(const T t) {
@@ -355,6 +382,139 @@ Line Generator::literal(const T t) {
     return {raw("\"x\"")};
 }
 
+/// A list written out (now and then one value: a list of one, R29).
+Line Generator::literal_list(const T t, const std::uint32_t bound) {
+    // One item is written as the value alone: (x) only groups.
+    const std::uint32_t n = 1 + c_.below(std::min<std::uint32_t>(most(bound), 4));
+    if (n == 1) {
+        return literal(t);
+    }
+    Line out{raw("(")};
+    for (std::uint32_t i = 0; i < n; ++i) {
+        if (i > 0) {
+            out.push_back(raw(","));
+        }
+        const Line v = literal(t);
+        out.insert(out.end(), v.begin(), v.end());
+    }
+    out.push_back(raw(")"));
+    return out;
+}
+
+/// `list TYPE [at most N]`.
+Line Generator::list_type(const T t, const std::uint32_t bound) {
+    Line out{word("type.list"), type_word(t)};
+    if (bound != 0) {
+        out.push_back(apply("expr.at_most", {raw(std::to_string(bound))}));
+    }
+    return out;
+}
+
+std::vector<std::pair<Tok, std::pair<T, std::uint32_t>>> Generator::lists() const {
+    std::vector<std::pair<Tok, std::pair<T, std::uint32_t>>> out;
+    for (const GField& f : fields_) {
+        if (f.list) {
+            out.push_back({field_tok(f), {f.type, f.bound}});
+        }
+    }
+    if (in_action_) {
+        for (const GInput& i : inputs_) {
+            if (i.list) {
+                out.push_back({raw(i.name), {i.type, i.bound}});
+            }
+        }
+    }
+    return out;
+}
+
+/// Charges on the bill (milestone 13), mostly as the checker accepts them:
+/// a rate (now and then only from a date on) or a fixed amount, now and
+/// then a condition, included or added, a way of rounding, and what it is
+/// computed on (the price and earlier charges it may be computed on).
+void Generator::charges(std::vector<std::pair<int, Line>>& out) {
+    static constexpr std::string_view modes[] = {"round.half_up", "round.half_even", "round.down"};
+    for (std::uint32_t k = 0, n = c_.below(5); k < n; ++k) {
+        GCharge made{std::format("c{}", k), true};
+        out.push_back({0, {word(c_.one_in(2) ? "charge.charge" : "charge.tax"), raw(made.name)}});
+        const bool fixed = c_.one_in(5);
+        const bool included = c_.one_in(3);
+        if (fixed) {
+            out.push_back({2,
+                           {word("field.amount"),
+                            raw(std::format("HKD {}.{:02}", c_.below(50), c_.below(100)))}});
+        } else {
+            const bool plain = !c_.one_in(4);
+            if (plain) {
+                out.push_back({2,
+                               {word("charge.rate"),
+                                raw(std::format("{}.{}%", c_.below(30), c_.below(10)))}});
+            }
+            for (std::uint32_t d = 0, dates = plain ? c_.below(3) : 1 + c_.below(2); d < dates;
+                 ++d) {
+                out.push_back({2,
+                               {apply("charge.from", {raw(std::format("{}-{:02}-01", 2026 + d,
+                                                                      1 + c_.below(12)))}),
+                                word("charge.rate"), raw(std::format("{}%", c_.below(25)))}});
+            }
+        }
+        if (c_.one_in(3)) {
+            const Line cond = condition(1);
+            out.push_back({2, {apply("charge.applies_to", cond)}});
+        }
+        out.push_back({2, {word(included ? "charge.included" : "charge.added")}});
+        const Tok mode = word(std::string(modes[c_.below(3)]));
+        switch (c_.below(5)) {
+        case 0:
+            break;
+        case 1:
+            out.push_back(
+                {2, fixed ? Line{word("charge.per_line")} : Line{word("charge.per_line"), mode}});
+            break;
+        case 2:
+            made.per_line = false;
+            out.push_back({2, fixed ? Line{word("charge.per_document")}
+                                    : Line{word("charge.per_document"), mode}});
+            break;
+        case 3:
+            made.per_line = false;
+            out.push_back({2, fixed ? Line{word("charge.by"), word("doc.invoice")}
+                                    : Line{word("charge.by"), word("doc.invoice"), mode}});
+            break;
+        default:
+            if (!fixed) {
+                out.push_back({2, {mode}});
+            }
+            break;
+        }
+        if (fixed) {
+            made.per_line = false;
+        }
+        if (!fixed && !charges_.empty() && c_.one_in(2)) {
+            // What it is computed on: the price, and earlier charges.
+            Line on{word("charge.by")};
+            if (c_.one_in(2)) {
+                on.push_back(word("price.price"));
+            }
+            for (const GCharge& earlier : charges_) {
+                if (!included && (!made.per_line || earlier.per_line) && c_.one_in(2)) {
+                    on.push_back(raw(on.size() > 1 ? "," : ""));
+                    on.push_back(raw(earlier.name));
+                }
+            }
+            if (on.size() > 1) {
+                Line tidy{on.front()};
+                for (std::size_t i = 1; i < on.size(); ++i) {
+                    if (!on[i].text.empty() || !on[i].concept_id.empty()) {
+                        tidy.push_back(on[i]);
+                    }
+                }
+                out.push_back({2, tidy});
+            }
+        }
+        charges_.push_back(std::move(made));
+    }
+}
+
 Line Generator::party() {
     std::vector<Line> options;
     for (const Tok& r : roles_) {
@@ -374,13 +534,13 @@ Line Generator::value(const T t, const int depth) {
     }
     std::vector<Line> leaves{literal(t)};
     for (const GField& f : fields_) {
-        if (f.type == t) {
+        if (f.type == t && !f.list) {
             leaves.push_back({field_tok(f)});
         }
     }
     if (in_action_) {
         for (const GInput& i : inputs_) {
-            if (i.type == t) {
+            if (i.type == t && !i.list) {
                 leaves.push_back({raw(i.name)});
             }
         }
@@ -388,6 +548,26 @@ Line Generator::value(const T t, const int depth) {
     if (t == T::date && !in_event_) {
         leaves.push_back({word("time.now")});
         leaves.push_back({word("time.today")});
+    }
+    // Lists (milestone 13): their counts and sums; each loop's items; the
+    // bill's charges, in an action or a time rule.
+    for (const auto& [list, of] : lists()) {
+        if (t == T::number) {
+            leaves.push_back({apply("expr.count_of", {list})});
+        }
+        if (of.first == t && (t == T::number || t == T::money)) {
+            leaves.push_back({apply("expr.sum_of", {list})});
+        }
+    }
+    for (const auto& [name, type] : items_) {
+        if (type == t) {
+            leaves.push_back({raw(name)});
+        }
+    }
+    if (t == T::money && (in_action_ || in_rule_) && !in_event_) {
+        for (const GCharge& k : charges_) {
+            leaves.push_back({raw(k.name)});
+        }
     }
     if (depth <= 0 || c_.below(3) != 0) {
         return leaves[c_.below(static_cast<std::uint32_t>(leaves.size()))];
@@ -528,7 +708,115 @@ void Generator::statements(const int indent, const int depth,
                            std::vector<std::pair<int, Line>>& out) {
     const std::uint32_t count = 1 + c_.below(depth > 0 ? 5 : 3);
     for (std::uint32_t k = 0; k < count; ++k) {
-        switch (c_.below(9)) {
+        switch (c_.below(depth > 0 ? 12 : 11)) {
+        case 9: {
+            // A list's count, or whether it holds a value (milestone 13).
+            const auto in_reach = lists();
+            if (in_reach.empty()) {
+                break;
+            }
+            const auto& [list, of] =
+                in_reach[c_.below(static_cast<std::uint32_t>(in_reach.size()))];
+            Line l{word("kw.requires")};
+            if (c_.one_in(3)) {
+                l.push_back(apply("expr.count_of", {list}));
+                l.push_back(raw(c_.one_in(2) ? ">" : "<="));
+                l.push_back(raw(std::to_string(c_.below(5))));
+            } else {
+                const bool negated = c_.one_in(2);
+                if (negated) {
+                    l.push_back(word("kw.not"));
+                    l.push_back(raw("("));
+                }
+                const Line x = value(of.first, 0);
+                l.insert(l.end(), x.begin(), x.end());
+                l.push_back(word("kw.in"));
+                if (c_.one_in(3)) {
+                    const Line written = literal_list(of.first, 3);
+                    if (written.front().text == "(") {
+                        l.insert(l.end(), written.begin(), written.end());
+                    } else {
+                        l.push_back(list);
+                    }
+                } else {
+                    l.push_back(list);
+                }
+                if (negated) {
+                    l.push_back(raw(")"));
+                }
+            }
+            out.push_back({indent, l});
+            break;
+        }
+        case 10: {
+            // A list field set: to an input of its items, or to a list
+            // written out (the bill's: a new bill).
+            std::vector<const GField*> settable;
+            for (const GField& f : fields_) {
+                if (f.list && !f.constant) {
+                    settable.push_back(&f);
+                }
+            }
+            if (settable.empty()) {
+                break;
+            }
+            const GField& f = *settable[c_.below(static_cast<std::uint32_t>(settable.size()))];
+            Line l{field_tok(f), raw("=")};
+            std::vector<Tok> sources;
+            if (in_action_) {
+                for (const GInput& i : inputs_) {
+                    if (i.list && i.type == f.type && most(i.bound) <= most(f.bound)) {
+                        sources.push_back(raw(i.name));
+                    }
+                }
+            }
+            if (!sources.empty() && !c_.one_in(3)) {
+                l.push_back(sources[c_.below(static_cast<std::uint32_t>(sources.size()))]);
+            } else {
+                const Line v = literal_list(f.type, std::min<std::uint32_t>(most(f.bound), 3));
+                l.insert(l.end(), v.begin(), v.end());
+            }
+            out.push_back({indent, l});
+            break;
+        }
+        case 11: {
+            // each ITEM in LIST: requirements on the item, a reject.
+            const auto in_reach = lists();
+            if (in_reach.empty()) {
+                break;
+            }
+            const auto& [list, of] =
+                in_reach[c_.below(static_cast<std::uint32_t>(in_reach.size()))];
+            const std::string item = std::format("it{}", items_.size());
+            Line head{word("kw.each"), raw(item), word("kw.in")};
+            if (c_.one_in(4)) {
+                const Line written = literal_list(of.first, 3);
+                head.insert(head.end(), written.begin(), written.end());
+                if (written.front().text != "(") {
+                    head.back() = list;
+                }
+            } else {
+                head.push_back(list);
+            }
+            out.push_back({indent, head});
+            items_.emplace_back(item, of.first);
+            Line req{word("kw.requires"), raw(item)};
+            req.push_back(raw(of.first == T::text ? "=" : ">="));
+            const Line v = value(of.first, 0);
+            req.insert(req.end(), v.begin(), v.end());
+            out.push_back({indent + 2, req});
+            if (c_.one_in(2) && rejects_ < 3) {
+                ++rejects_;
+                Line when{word("kw.if"), raw(item), raw("=")};
+                const Line w = literal(of.first);
+                when.insert(when.end(), w.begin(), w.end());
+                out.push_back({indent + 2, when});
+                out.push_back(
+                    {indent + 4, {word("kw.reject"), raw(std::format("\"no {}\"", rejects_))}});
+            }
+            items_.pop_back();
+            break;
+        }
         case 0:
         case 1:
             out.push_back({indent, [&] {
@@ -587,7 +875,7 @@ void Generator::statements(const int indent, const int depth,
         case 6: {
             std::vector<const GField*> settable;
             for (const GField& f : fields_) {
-                if (!f.constant) {
+                if (!f.constant && !f.list) {
                     settable.push_back(&f);
                 }
             }
@@ -683,6 +971,32 @@ std::vector<std::pair<int, Line>> Generator::contract() {
         out.push_back({2, l});
         fields_.push_back(std::move(f));
     }
+    // Lists (milestone 13): fields of numbers, texts, or money, bounded.
+    for (std::uint32_t i = 0, n = c_.below(3); i < n; ++i) {
+        static constexpr T of[] = {T::number, T::text, T::money};
+        GField f{std::format("l{}", i),
+                 of[c_.below(3)],
+                 false,
+                 {},
+                 true,
+                 c_.one_in(2) ? 0 : 1 + c_.below(20)};
+        Line l{raw(f.name)};
+        const Line type = list_type(f.type, f.bound);
+        l.insert(l.end(), type.begin(), type.end());
+        out.push_back({2, l});
+        fields_.push_back(std::move(f));
+    }
+    // A bill, and the charges computed on it.
+    const bool bill = c_.one_in(3);
+    if (bill) {
+        GField f{"invoice", T::money, false, {}, true, c_.one_in(2) ? 0 : 1 + c_.below(20)};
+        Line l{word("doc.invoice")};
+        const Line type = list_type(T::money, f.bound);
+        l.insert(l.end(), type.begin(), type.end());
+        out.push_back({2, l});
+        fields_.push_back(std::move(f));
+        charges(out);
+    }
     // States: a chain the actions walk, vocabulary words first.
     static constexpr std::string_view state_words[] = {"state.proposed", "state.active",
                                                        "state.paid"};
@@ -721,7 +1035,17 @@ std::vector<std::pair<int, Line>> Generator::contract() {
                 }
                 GInput input{std::format("i{}", i), static_cast<T>(c_.below(value_types))};
                 head.push_back(raw(input.name));
-                head.push_back(type_word(input.type));
+                if (c_.one_in(4)) {
+                    // A list (milestone 13).
+                    static constexpr T of[] = {T::number, T::text, T::money};
+                    input.type = of[c_.below(3)];
+                    input.list = true;
+                    input.bound = c_.one_in(2) ? 0 : 1 + c_.below(20);
+                    const Line type = list_type(input.type, input.bound);
+                    head.insert(head.end(), type.begin(), type.end());
+                } else {
+                    head.push_back(type_word(input.type));
+                }
                 inputs_.push_back(std::move(input));
             }
         }
@@ -940,7 +1264,8 @@ Line Generator::step(const GAction& a, int& month, int& day) {
             }
             with.push_back(raw(a.inputs[i].name));
             with.push_back(raw("="));
-            const Line v = literal(a.inputs[i].type);
+            const Line v = a.inputs[i].list ? literal_list(a.inputs[i].type, a.inputs[i].bound)
+                                            : literal(a.inputs[i].type);
             with.insert(with.end(), v.begin(), v.end());
         }
     }
@@ -1031,7 +1356,7 @@ void Generator::tests(std::vector<std::pair<int, Line>>& out) {
             first = false;
             create.push_back(field_tok(f));
             create.push_back(raw("="));
-            const Line v = literal(f.type);
+            const Line v = f.list ? literal_list(f.type, f.bound) : literal(f.type);
             create.insert(create.end(), v.begin(), v.end());
         }
         out.push_back({2, create});
@@ -1144,8 +1469,12 @@ std::size_t tests_run = 0;
 std::size_t steps_run = 0;
 std::map<std::string, std::size_t> happenings;
 std::size_t built = 0;
-/// Builds with a built-in action's standard terms (milestone 11).
+/// Builds with a built-in action's standard terms (milestone 11); with lists,
+/// and with a bill and its charges (milestone 13); calls that made a bill.
 std::size_t standard_built = 0;
+std::size_t lists_built = 0;
+std::size_t bills_built = 0;
+std::size_t bills_made = 0;
 std::size_t generated_checked = 0;
 std::size_t accepted = 0;
 std::size_t needed = 0;
@@ -1334,6 +1663,36 @@ void run_calls(const bo::Build& build, const m::Model& model, Choices& c) {
             require(accept->state.find("state") != nullptr &&
                         accept->state.find("fields") != nullptr,
                     "a state without its name and fields");
+            // A bill made: its event and the state's bill are the same, and
+            // its total is its price and its added charges (R26, R27).
+            if (const m::Field* bill = m::bill_field(model); bill != nullptr) {
+                const cbor::Value* kept = accept->state.find("bill");
+                require(kept != nullptr, "an instance with a bill field keeps no bill");
+                for (const protocol::ContractEvent& e : accept->events) {
+                    if (e.name == bo::wire_name(bill->word, bill->name)) {
+                        require(e.data == *kept, "the bill's event is not the state's bill");
+                        ++bills_made;
+                    }
+                }
+                std::int64_t added = 0;
+                const cbor::Value* price = kept->find("price");
+                const cbor::Value* total = kept->find("total");
+                const cbor::Value* charges = kept->find("charges");
+                require(price != nullptr && total != nullptr && charges != nullptr &&
+                            charges->as_map() != nullptr && price->as_int64() && total->as_int64(),
+                        "a bill without its price, total, and charges");
+                for (const m::Charge& charge : model.charges) {
+                    if (const cbor::Value* x = charges->find(std::string_view(charge.name));
+                        x != nullptr && !charge.included) {
+                        const cbor::Value* amount = x->find("amount");
+                        require(amount != nullptr && amount->as_int64(),
+                                "a charge without its amount");
+                        added += *amount->as_int64();
+                    }
+                }
+                require(*price->as_int64() + added == *total->as_int64(),
+                        "a bill's total is not its price and added charges");
+            }
             if (!instance) {
                 instance = protocol::ContractInstanceView{ledger(0x1D), 0, {}, {}, {}};
             }
@@ -1434,6 +1793,12 @@ void build_and_run(std::string_view source, Choices& c,
                                               [](const m::Action& a) { return a.terms; })
                               ? 1U
                               : 0U;
+        lists_built +=
+            std::ranges::any_of(first.checked->model.fields,
+                                [](const m::Field& f) { return f.type.kind == m::TypeKind::list; })
+                ? 1U
+                : 0U;
+        bills_built += m::bill_field(first.checked->model) != nullptr ? 1U : 0U;
         run_calls(*first.lowered.build, first.checked->model, c);
     }
 }
@@ -1616,7 +1981,9 @@ int main(int argc, char** argv) {
                 "failures\n",
                 replayed, static_cast<unsigned long long>(done), generated_checked,
                 static_cast<long long>(elapsed.count()), built, runs_done, formatted);
-    std::printf("builds with the standard library's terms: %zu\n", standard_built);
+    std::printf("builds with the standard library's terms: %zu; with lists %zu; with a bill "
+                "%zu (bills made by calls: %zu)\n",
+                standard_built, lists_built, bills_built, bills_made);
     std::printf("calls: %zu accepted, %zu needing consents, refused:", accepted, needed);
     for (const auto& [reason, count] : refusals) {
         std::printf(" %s %zu", reason.c_str(), count);
