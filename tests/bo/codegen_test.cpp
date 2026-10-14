@@ -42,6 +42,7 @@
 #include <cexchain/bo/pack.hpp>
 #include <cexchain/bo/parser.hpp>
 #include <cexchain/bo/scenario.hpp>
+#include <cexchain/bo/source.hpp>
 #include <cexchain/bo/values.hpp>
 #include <cexchain/bo/wasm.hpp>
 #include <cexchain/core/bytes.hpp>
@@ -102,7 +103,8 @@ const bo::Pack* pack(std::string_view id) {
 }
 
 /// Lexes, parses, and checks a source that has no problems, then lowers it.
-bo::Lowered lower_text(std::string_view source) {
+bo::Lowered lower_text(std::string_view source,
+                       const std::uint32_t codegen = bo::wasm::codegen_version) {
     const bo::Lexed lexed = bo::lex(source, official());
     const bo::Parsed parsed = bo::parse(source, lexed);
     INFO(source);
@@ -111,12 +113,13 @@ bo::Lowered lower_text(std::string_view source) {
     const bo::Checked checked = bo::check(source, parsed.file);
     INFO(bo::dump(checked, nullptr));
     REQUIRE(!bo::has_errors(checked.diagnostics));
-    return bo::lower(source, checked.model);
+    return bo::lower(source, checked.model, codegen);
 }
 
 /// The code of a source that must compile.
-bo::Build build_text(std::string_view source) {
-    bo::Lowered lowered = lower_text(source);
+bo::Build build_text(std::string_view source,
+                     const std::uint32_t codegen = bo::wasm::codegen_version) {
+    bo::Lowered lowered = lower_text(source, codegen);
     std::string problems;
     for (const bo::Diagnostic& d : lowered.diagnostics) {
         problems += bo::render(d, nullptr) + "\n";
@@ -219,7 +222,8 @@ std::int64_t int_field(const protocol::ContractAccept& accept, std::string_view 
 class Home {
 public:
     Home(std::string name, const bo::Build& build, Id home)
-        : name_(std::move(name)), code_(build.code), home_(home), contract_(ledger(0xC0)) {
+        : name_(std::move(name)), code_(build.code), build_(build), home_(home),
+          contract_(ledger(0xC0)) {
         auto module = vm::load(code_);
         REQUIRE(module.has_value());
         module_.emplace(std::move(*module));
@@ -281,6 +285,15 @@ public:
         out.run = std::move(*result);
         // Compiled code never traps but to refuse.
         CHECK((!out.run.trap || *out.run.trap == vm::Trap::aborted));
+        // Nor uses more fuel than its bound (milestone 18), for arguments of
+        // the function's shape.
+        const std::string why(out.run.abort_reason.begin(), out.run.abort_reason.end());
+        if (const auto bound = bo::bound_for(build_, out.input);
+            bound && !why.starts_with("bo:argument")) {
+            INFO(out.label << ": fuel " << out.run.fuel_used << ", bound " << *bound);
+            CHECK(out.run.fuel_used <= *bound);
+            ++bounded_;
+        }
         if (!out.run.trap) {
             auto decoded = protocol::decode_contract_output(out.run.output, home_);
             INFO(out.label << ": " << hex(out.run.output));
@@ -339,9 +352,21 @@ public:
         return std::format("{}: {}; fuel {}", o.label, what, o.run.fuel_used);
     }
 
+    /// The summary and the call's bound (bo::bound_for), for goldens that
+    /// show how close the bound comes.
+    [[nodiscard]] std::string summary_bound(const Outcome& o) const {
+        const auto bound = bo::bound_for(build_, o.input);
+        return summary(o) +
+               (bound ? std::format(" of at most {}", *bound) : std::string(" (no bound)"));
+    }
+    /// How many runs were checked against their bound.
+    [[nodiscard]] std::size_t bounded() const { return bounded_; }
+
 private:
     std::string name_;
     Bytes code_;
+    bo::Build build_;
+    std::size_t bounded_ = 0;
     Id home_;
     Id contract_;
     std::optional<vm::Module> module_;
@@ -1070,7 +1095,7 @@ can replace by we with others list number at most 1000
         INFO(o.label << ": " << o.reason());
         CHECK(o.accepted() != nullptr);
         CHECK(o.run.fuel_used < vm::fuel_limit / 2);
-        text += home.summary(o) + "\n";
+        text += home.summary_bound(o) + "\n";
     };
     record(home.create(
         "create",
@@ -1111,7 +1136,7 @@ can replace by we with others list number at most 1000
         INFO(o.label << ": " << o.reason());
         CHECK(o.accepted() != nullptr);
         CHECK(o.run.fuel_used < vm::fuel_limit / 2);
-        text += bills.summary(o) + "\n";
+        text += bills.summary_bound(o) + "\n";
     };
     record_bill(bills.create(
         "create",
@@ -1139,8 +1164,9 @@ TEST_CASE("bo build: splitting into 16 parts at depth 7 stays within a call's fu
                     home.code().size(), hex(digest->bytes()), bo::wasm::codegen_version);
     for (const Outcome& o : home.runs()) {
         CHECK(o.run.fuel_used < vm::fuel_limit / 10);
-        text += home.summary(o) + "\n";
+        text += home.summary_bound(o) + "\n";
     }
+    CHECK(home.bounded() > 0);
     const std::filesystem::path path = build_dir / "split.txt";
     if (updating_goldens()) {
         std::ofstream(path, std::ios::binary) << text;
@@ -1174,8 +1200,13 @@ TEST_CASE("bo build: the agreement runs as the ledger runs it, with its fuel as 
         text += std::format(" {} {}", name, static_cast<int>(kind));
     }
     text += "\n";
+    // Each function's bound (milestone 18): fuel, reading the input, output.
+    for (const auto& [name, b] : build.bounds) {
+        text += std::format("bound {}: fuel {}, reading {} ({} items, {} keys), output {}\n", name,
+                            b.fuel, b.input, b.input_items, b.input_keys, b.output);
+    }
     for (const Outcome& o : home.runs()) {
-        text += home.summary(o) + "\n";
+        text += home.summary_bound(o) + "\n";
     }
     const auto path = build_dir / "agreement-en" / "build.txt";
     if (updating_goldens()) {
@@ -1552,8 +1583,98 @@ TEST_CASE("bo build: write the runs for the Python reference", "[.codegen-refere
             }
         }
     }
+    // The spec's examples, each in four spellings that build to one code.
+    for (const std::string_view example : {"receivable", "ip-pool", "split", "tax"}) {
+        const std::string name = "example-" + std::string(example);
+        nlohmann::ordered_json texts = nlohmann::ordered_json::array();
+        for (const auto& [language, dir] :
+             std::vector<std::pair<std::string, std::string>>{{"en", "en"},
+                                                              {"zh-Hant-HK", "zh-hant"},
+                                                              {"zh-Hans-CN", "zh-hans"},
+                                                              {"mixed", "mixed"}}) {
+            const std::string text = read_text(golden_dir / (name + "-" + dir) / "source.bo");
+            const bo::Compiled compiled = bo::compile(text, *bo::make_pack_set({}).set);
+            REQUIRE(compiled.build.has_value());
+            if (!modules.contains(name)) {
+                modules[name] = hex(compiled.build->code);
+            }
+            REQUIRE(modules[name] == hex(compiled.build->code));
+            texts.push_back({{"language", language}, {"text", text}});
+        }
+        sources[name] = std::move(texts);
+    }
+    // What a deploy of each records (milestone 18): the interface, the
+    // bo-source bundle (official packs, SHA-256 digests), the compiler, the
+    // code codegen 1 wrote, and each function's bounds (informative).
+    const bo::PackSet set = *bo::make_pack_set({}).set;
+    nlohmann::ordered_json deploys = nlohmann::ordered_json::object();
+    for (const auto& [name, code] : modules.items()) {
+        const std::string text = sources[name][0]["text"].get<std::string>();
+        const bo::Compiled compiled = bo::compile(text, set);
+        REQUIRE(compiled.build.has_value());
+        const bo::Build& build = *compiled.build;
+        REQUIRE(hex(build.code) == code.get<std::string>());
+        const auto bundle = bo::make_source_bundle(text, compiled.edition, set, provider(),
+                                                   cexchain::crypto::HashAlg::sha256);
+        REQUIRE(bundle.has_value());
+        const auto bundle_bytes = bo::encode_source_bundle(*bundle);
+        REQUIRE(bundle_bytes.has_value());
+        const bo::Compiled first = bo::compile(text, set, bo::CompileOptions{1, false});
+        REQUIRE(first.build.has_value());
+        const auto old = provider().digest(cexchain::crypto::HashAlg::sha256, first.build->code);
+        REQUIRE(old.has_value());
+        nlohmann::ordered_json interface = nlohmann::ordered_json::object();
+        for (const auto& [function, kind] : build.interface) {
+            interface[function] = kind == protocol::FunctionKind::create ? "create" : "call";
+        }
+        nlohmann::ordered_json bounds = nlohmann::ordered_json::object();
+        for (const auto& [function, b] : build.bounds) {
+            bounds[function] = {{"fuel", b.fuel}, {"output", b.output}};
+        }
+        deploys[name] = {{"contract", compiled.name},
+                         {"interface", std::move(interface)},
+                         {"compiler", bo::compiler_string()},
+                         {"bundle", hex(*bundle_bytes)},
+                         {"codegen1_sha256", hex(old->bytes())},
+                         {"bounds", std::move(bounds)}};
+    }
+    // Sources that must not build, with the codes a compiler reports
+    // (normative: which problems, in source order; their wording is not).
+    nlohmann::ordered_json errors = nlohmann::ordered_json::array();
+    std::vector<std::filesystem::path> dirs;
+    for (const auto& entry : std::filesystem::directory_iterator(golden_dir)) {
+        if (entry.is_directory() && std::filesystem::exists(entry.path() / "source.bo")) {
+            dirs.push_back(entry.path());
+        }
+    }
+    std::ranges::sort(dirs);
+    for (const std::filesystem::path& dir : dirs) {
+        const std::string text = read_text(dir / "source.bo");
+        const bo::Compiled compiled = bo::compile(text, set);
+        if (compiled.build) {
+            continue;
+        }
+        nlohmann::ordered_json codes = nlohmann::ordered_json::array();
+        for (const bo::Diagnostic& d : compiled.diagnostics) {
+            if (d.severity() == bo::Severity::error) {
+                codes.push_back({{"code", d.code}, {"line", d.span.line}});
+            }
+        }
+        // A source that is no UTF-8 at all goes as hex.
+        nlohmann::ordered_json error{{"name", dir.filename().string()}};
+        if (cbor::is_valid_utf8(text)) {
+            error["source"] = text;
+        } else {
+            error["source_hex"] = hex(cexchain::as_bytes(text));
+        }
+        error["errors"] = std::move(codes);
+        errors.push_back(std::move(error));
+    }
+    doc["compiler"] = bo::compiler_string();
     doc["modules"] = std::move(modules);
     doc["sources"] = std::move(sources);
+    doc["deploys"] = std::move(deploys);
+    doc["errors"] = std::move(errors);
     doc["runs"] = std::move(runs);
     std::ofstream out(path);
     out << doc.dump(1) << "\n";
@@ -1571,11 +1692,45 @@ TEST_CASE("bo build: the conformance vectors (testvectors/bo-v1.json)", "[bo][bu
         const std::string name = contract.at("name");
         INFO(name);
         for (const auto& source : contract.at("sources")) {
-            const bo::Build build = build_text(source.at("text").get<std::string>());
+            const std::string text = source.at("text").get<std::string>();
+            const bo::Build build = build_text(text, doc.value("codegen", 1U));
             const auto digest = provider().digest(cexchain::crypto::HashAlg::sha256, build.code);
             REQUIRE(digest.has_value());
             CHECK(hex(digest->bytes()) == contract.at("code_sha256").get<std::string>());
             CHECK(hex(build.code) == contract.at("code").get<std::string>());
+            if (contract.contains("codegen1_sha256")) {
+                // The code an earlier codegen version wrote, which this
+                // compiler still writes so that its deploys rebuild.
+                const bo::Build first = build_text(text, 1);
+                const auto old = provider().digest(cexchain::crypto::HashAlg::sha256, first.code);
+                REQUIRE(old.has_value());
+                CHECK(hex(old->bytes()) == contract.at("codegen1_sha256").get<std::string>());
+            }
+        }
+        if (contract.contains("bundle")) {
+            // What a deploy records: built here again from the first source.
+            const std::string text = contract.at("sources")[0].at("text").get<std::string>();
+            const bo::PackSet set = *bo::make_pack_set({}).set;
+            const bo::Compiled compiled = bo::compile(text, set);
+            REQUIRE(compiled.build.has_value());
+            CHECK(compiled.name == contract.at("contract").get<std::string>());
+            CHECK(bo::compiler_string() == contract.at("compiler").get<std::string>());
+            for (const auto& [function, kind] : contract.at("interface").items()) {
+                const auto it = compiled.build->interface.find(function);
+                REQUIRE(it != compiled.build->interface.end());
+                CHECK((it->second == protocol::FunctionKind::create ? "create" : "call") == kind);
+            }
+            CHECK(compiled.build->interface.size() == contract.at("interface").size());
+            const auto bundle = bo::make_source_bundle(text, compiled.edition, set, provider(),
+                                                       cexchain::crypto::HashAlg::sha256);
+            REQUIRE(bundle.has_value());
+            CHECK(hex(*bo::encode_source_bundle(*bundle)) ==
+                  contract.at("bundle").get<std::string>());
+            for (const auto& [function, b] : contract.at("bounds").items()) {
+                const bo::FunctionBound& ours = compiled.build->bounds.at(function);
+                CHECK(ours.fuel == b.at("fuel").get<std::uint64_t>());
+                CHECK(ours.output == b.at("output").get<std::uint64_t>());
+            }
         }
         const Bytes code = *cexchain::from_hex(contract.at("code").get<std::string>());
         const auto module = vm::load(code);
@@ -1595,4 +1750,31 @@ TEST_CASE("bo build: the conformance vectors (testvectors/bo-v1.json)", "[bo][bu
         }
     }
     CHECK(runs > 0);
+    // Sources that do not build, and why.
+    std::size_t refused = 0;
+    for (const auto& error : doc.value("errors", nlohmann::json::array())) {
+        INFO(error.at("name").get<std::string>());
+        std::string text;
+        if (error.contains("source")) {
+            text = error.at("source").get<std::string>();
+        } else {
+            const Bytes raw = *cexchain::from_hex(error.at("source_hex").get<std::string>());
+            text.assign(raw.begin(), raw.end());
+        }
+        const bo::Compiled compiled = bo::compile(text, *bo::make_pack_set({}).set);
+        CHECK(!compiled.build.has_value());
+        std::vector<std::pair<std::string, std::uint64_t>> ours;
+        for (const bo::Diagnostic& d : compiled.diagnostics) {
+            if (d.severity() == bo::Severity::error) {
+                ours.emplace_back(d.code, d.span.line);
+            }
+        }
+        std::vector<std::pair<std::string, std::uint64_t>> theirs;
+        for (const auto& e : error.at("errors")) {
+            theirs.emplace_back(e.at("code").get<std::string>(), e.at("line").get<std::uint64_t>());
+        }
+        CHECK(ours == theirs);
+        ++refused;
+    }
+    CHECK(refused == doc.value("errors", nlohmann::json::array()).size());
 }

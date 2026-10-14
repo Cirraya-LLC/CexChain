@@ -1,17 +1,17 @@
 test "lists in and out" passed home=role.we
-  step 1 passed 2026-01-01 accepted active event=active; fuel 7801
-  step 2 passed 2026-01-01 accepted active; fuel 12579
-  step 3 passed 2026-01-01 accepted active consents role.customer; fuel 9771 11253
-  step 4 passed 2026-01-01 refused "bo:requires check 1"; fuel 9461
-  step 5 passed 2026-01-01 accepted active; fuel 10705
-  step 6 passed 2026-01-01 refused "bo:requires mark 1"; fuel 9760
-  step 7 passed 2026-01-01 accepted active; fuel 10577
+  step 1 passed 2026-01-01 accepted active event=active; fuel 6882
+  step 2 passed 2026-01-01 accepted active; fuel 11222
+  step 3 passed 2026-01-01 accepted active consents role.customer; fuel 8549 10031
+  step 4 passed 2026-01-01 refused "bo:requires check 1"; fuel 8239
+  step 5 passed 2026-01-01 accepted active; fuel 9473
+  step 6 passed 2026-01-01 refused "bo:requires mark 1"; fuel 8528
+  step 7 passed 2026-01-01 accepted active; fuel 9345
 test "each item is checked" passed home=role.we
-  step 1 passed 2026-01-01 accepted active event=active; fuel 7727
-  step 2 passed 2026-01-01 refused "bo:requires load 2"; fuel 10763
-  step 3 passed 2026-01-01 refused "bo:requires load 3"; fuel 10718
-  step 4 passed 2026-01-01 refused "no x or y"; fuel 10659
-  step 5 passed 2026-01-01 refused "bo:requires load 4"; fuel 11222
-  step 6 passed 2026-01-01 accepted active; fuel 12262
-  step 7 passed 2026-01-01 refused "bo:requires check 2"; fuel 9444
+  step 1 passed 2026-01-01 accepted active event=active; fuel 6839
+  step 2 passed 2026-01-01 refused "bo:requires load 2"; fuel 9468
+  step 3 passed 2026-01-01 refused "bo:requires load 3"; fuel 9423
+  step 4 passed 2026-01-01 refused "no x or y"; fuel 9364
+  step 5 passed 2026-01-01 refused "bo:requires load 4"; fuel 9833
+  step 6 passed 2026-01-01 accepted active; fuel 10946
+  step 7 passed 2026-01-01 refused "bo:requires check 2"; fuel 8253
 2 tests: 2 passed, 0 failed

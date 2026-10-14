@@ -21,6 +21,7 @@
 #include <variant>
 #include <vector>
 
+#include <cexchain/bo/build.hpp>
 #include <cexchain/bo/messages.hpp>
 #include <cexchain/bo/scenario.hpp>
 #include <cexchain/bo/values.hpp>
@@ -166,10 +167,11 @@ struct Instance {
 
 class Runner {
 public:
-    Runner(const m::Model& model, const vm::Module& module, const crypto::Provider& provider)
-        : model_(model), module_(module), provider_(provider), rules_(m::rule_functions(model)),
-          contract_(hash_of(contract_seed, provider)), actor_(hash_of(actor_seed, provider)),
-          instance_id_(hash_of(instance_seed, provider)) {}
+    Runner(const m::Model& model, const Build& build, const vm::Module& module,
+           const crypto::Provider& provider)
+        : model_(model), build_(build), module_(module), provider_(provider),
+          rules_(m::rule_functions(model)), contract_(hash_of(contract_seed, provider)),
+          actor_(hash_of(actor_seed, provider)), instance_id_(hash_of(instance_seed, provider)) {}
 
     TestResult run(const m::Test& test);
     /// The instance a step acts on (scenario.hpp), if there is one.
@@ -193,6 +195,7 @@ private:
     void accept(const m::Step& step, const protocol::ContractAccept& a, Ledger& l, StepResult& r);
 
     const m::Model& model_;
+    const Build& build_;
     const vm::Module& module_;
     const crypto::Provider& provider_;
     /// The time rules' functions (R24).
@@ -471,6 +474,17 @@ void Runner::run_step(const m::Step& step, Ledger& l, StepResult& r) {
             return;
         }
         call.run = std::move(*run);
+        // The fuel bound (milestone 18) holds for every call a test makes
+        // with arguments of the function's shape: one beyond it is a bug in
+        // the compiler, which the test reports.
+        const std::string why(call.run.abort_reason.begin(), call.run.abort_reason.end());
+        if (const auto bound = bound_for(build_, call.encoded);
+            bound && call.run.fuel_used > *bound && !why.starts_with("bo:argument")) {
+            r.happened = Happened::broken;
+            r.reason = std::format("the call used {} fuel, beyond its bound of {}",
+                                   call.run.fuel_used, *bound);
+            return;
+        }
         if (call.run.trap) {
             if (*call.run.trap == vm::Trap::aborted) {
                 r.happened = Happened::refused;
@@ -917,7 +931,7 @@ TestResults run_tests(const m::Model& model, const Build& build, const crypto::P
     if (!module) {
         return out;
     }
-    Runner runner(model, *module, provider);
+    Runner runner(model, build, *module, provider);
     for (const m::Test& test : model.tests) {
         out.tests.push_back(runner.run(test));
         (out.tests.back().passed ? out.passed : out.failed) += 1;

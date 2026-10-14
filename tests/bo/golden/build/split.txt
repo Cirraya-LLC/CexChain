@@ -1,13 +1,13 @@
 contract MultiTierReceivable (deploy/demo/multi-tier-split.bo)
-code: 7413 bytes, sha256 e8950729f22078b35418ae8c5851552103e81b2287ee161cdeb0faf8f9ffb28a, codegen 1
-issue: accept active, event active; fuel 8188
-split, 16 parts to 15: refused "bo:requires split 2"; fuel 20837
-split, 16 recipients besides the holder: refused "bo:requires split 3"; fuel 22380
-split, a part of 0: refused "bo:requires split 4"; fuel 22487
-split, a negative part: refused "bo:requires split 4"; fuel 22491
-split, parts short by a fen: refused "bo:requires split 5"; fuel 27304
-split, a recipient that is no ledger: refused "bo:argument recipients"; fuel 14016
-split into 16 at depth 7, consents missing: needs supplier r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 r13 r14 r15; fuel 42519
-split into 16 at depth 7: accept divided, event divided, final; fuel 86138
-depth 8: issue: accept active, event active; fuel 8042
-depth 8: split at depth 8: refused "bo:depth split"; fuel 13128
+code: 7103 bytes, sha256 e129f1b915b6dc9ce509ca32e1c4b69200439f22f09c09e5a4eb2ec797a410a3, codegen 2
+issue: accept active, event active; fuel 7310 of at most 34549
+split, 16 parts to 15: refused "bo:requires split 2"; fuel 18997 of at most 506033
+split, 16 recipients besides the holder: refused "bo:requires split 3"; fuel 20540 of at most 506273
+split, a part of 0: refused "bo:requires split 4"; fuel 20647 of at most 506273
+split, a negative part: refused "bo:requires split 4"; fuel 20651 of at most 506273
+split, parts short by a fen: refused "bo:requires split 5"; fuel 25464 of at most 506273
+split, a recipient that is no ledger: refused "bo:argument recipients"; fuel 12176 of at most 499073
+split into 16 at depth 7, consents missing: needs supplier r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 r13 r14 r15; fuel 40679 of at most 506273
+split into 16 at depth 7: accept divided, event divided, final; fuel 84298 of at most 528673
+depth 8: issue: accept active, event active; fuel 7164 of at most 34549
+depth 8: split at depth 8: refused "bo:depth split"; fuel 11288 of at most 499073

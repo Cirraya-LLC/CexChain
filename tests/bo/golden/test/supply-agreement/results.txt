@@ -1,10 +1,10 @@
 test "signed by all three, then closed" passed home=role.we
-  step 1 passed 2026-10-12 accepted proposed event=proposed; fuel 9763
-  step 2 passed 2026-10-12 accepted signed event=signed consents role.supplier role.bank; fuel 10622 13301
-  step 3 passed 2026-12-01 accepted closed event=closed final consents role.supplier; fuel 10562 12855
+  step 1 passed 2026-10-12 accepted proposed event=proposed; fuel 8645
+  step 2 passed 2026-10-12 accepted signed event=signed consents role.supplier role.bank; fuel 9526 12205
+  step 3 passed 2026-12-01 accepted closed event=closed final consents role.supplier; fuel 9235 11528
 test "nobody signs alone" passed home=role.we
-  step 1 passed 2026-01-01 accepted proposed event=proposed; fuel 9763
-  step 2 passed 2026-01-01 waits role.bank; fuel 10622 11286
-  step 3 passed 2026-01-01 waits role.we; fuel 10622 13301
-  step 4 passed 2026-01-01 refused "bo:state close"; fuel 9948
+  step 1 passed 2026-01-01 accepted proposed event=proposed; fuel 8645
+  step 2 passed 2026-01-01 waits role.bank; fuel 9526 10190
+  step 3 passed 2026-01-01 waits role.we; fuel 9526 12205
+  step 4 passed 2026-01-01 refused "bo:state close"; fuel 8831
 2 tests: 2 passed, 0 failed

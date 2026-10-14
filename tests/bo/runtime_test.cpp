@@ -18,6 +18,7 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <initializer_list>
 #include <limits>
 #include <map>
 #include <optional>
@@ -1080,16 +1081,19 @@ Bytes results_bytes(const std::vector<std::int64_t>& results) {
 // Checks shared by the visible cases and the reference file.
 // ---------------------------------------------------------------------------
 
-/// The reader agrees with core's decoder: accepted exactly when core accepts,
-/// written back unchanged.
+/// The reader agrees with core's decoder: what core accepts it accepts and
+/// writes back unchanged; what core refuses it refuses, except that from
+/// codegen 2 on it does not check texts' UTF-8 (the ledger's input holds
+/// valid UTF-8 only), so an input core refuses for that alone it may accept.
 void check_reader(const Case& c, const Run& r) {
     INFO("input " << cexchain::to_hex(c.input));
     if (c.input.size() > rt::layout::input_max) {
         CHECK(r.aborted("bo:input"));
         return;
     }
-    const bool accepted = cbor::decode(c.input).has_value();
-    if (accepted) {
+    const auto decoded = cbor::decode(c.input);
+    const bool utf8_only = !decoded && decoded.error().detail.find("UTF-8") != std::string::npos;
+    if (decoded || (utf8_only && r.ok())) {
         CHECK(r.ok());
         // The copy harness writes it back; the read-only module, nothing.
         CHECK(r.output == (c.module == "cbor-copy" ? c.input : Bytes{}));
@@ -1543,4 +1547,192 @@ TEST_CASE("bo runtime: write the runs for the Python reference", "[.reference]")
     }
     out << "\n]}\n";
     REQUIRE(out.good());
+}
+
+namespace {
+
+/// A CBOR head in its shortest form.
+Bytes cbor_head(const std::uint8_t major, const std::uint64_t n) {
+    Bytes out;
+    const auto top = static_cast<std::uint8_t>(major << 5U);
+    if (n < 24) {
+        out.push_back(static_cast<std::uint8_t>(top | n));
+        return out;
+    }
+    int width = 8;
+    std::uint8_t info = 27;
+    if (n < 0x100) {
+        width = 1;
+        info = 24;
+    } else if (n < 0x1'0000) {
+        width = 2;
+        info = 25;
+    } else if (n < 0x1'0000'0000) {
+        width = 4;
+        info = 26;
+    }
+    out.push_back(static_cast<std::uint8_t>(top | info));
+    for (int shift = 8 * (width - 1); shift >= 0; shift -= 8) {
+        out.push_back(static_cast<std::uint8_t>(n >> static_cast<unsigned>(shift)));
+    }
+    return out;
+}
+
+Bytes joined(std::initializer_list<ByteView> parts) {
+    Bytes out;
+    for (const ByteView p : parts) {
+        out.insert(out.end(), p.begin(), p.end());
+    }
+    return out;
+}
+
+/// Counts a value's items and map keys as read_input reads them.
+void count_items(const cbor::Value& v, std::uint64_t& items, std::uint64_t& keys) {
+    ++items;
+    if (const cbor::Array* a = v.as_array()) {
+        for (const cbor::Value& x : *a) {
+            count_items(x, items, keys);
+        }
+    } else if (const cbor::Map* m = v.as_map()) {
+        for (const cbor::MapEntry& e : *m) {
+            ++keys;
+            count_items(e.key, items, keys);
+            count_items(e.value, items, keys);
+        }
+    } else if (const cbor::Tagged* t = v.as_tagged()) {
+        count_items(t->item, items, keys);
+    }
+}
+
+} // namespace
+
+TEST_CASE("bo runtime: read_input stays within its bound", "[bo][runtime]") {
+    // Milestone 18: what reading an input costs, against the bound the
+    // compiler counts for its items and keys (read_bound.hpp). Every kind of
+    // item, many times over, as array items, map keys (each compared with
+    // the one before it), map values, and nested; then inputs at the limits.
+    std::vector<Bytes> items;
+    for (const std::uint8_t major : {std::uint8_t{0}, std::uint8_t{1}, std::uint8_t{6}}) {
+        for (const std::uint64_t arg : {0ULL, 23ULL, 24ULL, 255ULL, 256ULL, 65'535ULL, 65'536ULL,
+                                        0xFFFF'FFFFULL, 0x1'0000'0000ULL, ~0ULL}) {
+            if (major == 6 && (arg == 2 || arg == 3)) {
+                continue;
+            }
+            items.push_back(major == 6 ? joined({cbor_head(6, arg), Bytes{0x00}})
+                                       : cbor_head(major, arg));
+        }
+    }
+    for (const std::uint8_t major : {std::uint8_t{2}, std::uint8_t{3}}) {
+        for (const std::uint64_t length : {0U, 1U, 7U, 8U, 9U, 23U, 24U, 255U, 256U}) {
+            items.push_back(joined({cbor_head(major, length), Bytes(length, 'a')}));
+        }
+    }
+    for (const std::uint64_t count : {0U, 1U, 2U, 23U, 24U}) {
+        items.push_back(joined({cbor_head(4, count), Bytes(count, 0x00)}));
+    }
+    items.push_back(Bytes{0xA0});
+    items.push_back(Bytes{0xA1, 0x00, 0x00});
+    items.push_back(Bytes{0xF4});
+    items.push_back(Bytes{0xF5});
+    items.push_back(Bytes{0xF6});
+    // Tags of 8 bytes, nested.
+    items.push_back(joined({cbor_head(6, ~0ULL), cbor_head(6, ~0ULL), Bytes{0x00}}));
+
+    std::vector<Bytes> inputs;
+    for (const Bytes& item : items) {
+        for (const std::uint32_t n : {1U, 60U, 600U}) {
+            Bytes input = cbor_head(4, n);
+            for (std::uint32_t i = 0; i < n; ++i) {
+                input.insert(input.end(), item.begin(), item.end());
+            }
+            inputs.push_back(std::move(input));
+        }
+    }
+    // Maps whose keys share their first byte, so that each is compared with
+    // the one before it: texts and byte strings of 1 to 64 bytes, integers
+    // of 1 to 8 bytes; values of every kind above.
+    const auto map_of = [](std::uint32_t n, const auto& key, const Bytes& value) {
+        Bytes input = cbor_head(5, n);
+        for (std::uint32_t i = 0; i < n; ++i) {
+            const Bytes k = key(i);
+            input.insert(input.end(), k.begin(), k.end());
+            input.insert(input.end(), value.begin(), value.end());
+        }
+        return input;
+    };
+    for (const std::uint8_t major : {std::uint8_t{2}, std::uint8_t{3}}) {
+        for (const std::uint64_t length : {1U, 2U, 7U, 8U, 9U, 16U, 31U, 32U, 33U, 63U, 64U}) {
+            const auto key = [&](const std::uint32_t i) {
+                Bytes k = joined({cbor_head(major, length), Bytes(length, 'a')});
+                k.back() = static_cast<std::uint8_t>(0x21 + i);
+                return k;
+            };
+            for (const Bytes& value : {items.front(), items[9], items.back()}) {
+                inputs.push_back(map_of(90, key, value));
+            }
+        }
+    }
+    for (const std::uint64_t base : {24ULL, 256ULL, 65'536ULL, 0x1'0000'0000ULL}) {
+        const auto key = [&](const std::uint32_t i) {
+            return cbor_head(0, base + i);
+        };
+        inputs.push_back(map_of(200, key, cbor_head(0, ~0ULL)));
+    }
+    // Nesting 32 deep, of arrays, maps, and tags.
+    Bytes arrays;
+    Bytes maps;
+    Bytes tags;
+    for (int i = 0; i < 31; ++i) {
+        arrays.push_back(0x81);
+        maps.insert(maps.end(), {0xA1, 0x00});
+        tags.push_back(0xC0);
+    }
+    arrays.push_back(0x00);
+    maps.push_back(0x00);
+    tags.push_back(0x00);
+    inputs.push_back(arrays);
+    inputs.push_back(maps);
+    inputs.push_back(tags);
+    // At the limits: the most items, 8-byte integers filling 160 KiB, and
+    // maps of 64-byte keys filling it.
+    inputs.push_back(flat_array(131'071));
+    {
+        Bytes input = cbor_head(4, 18'000);
+        for (int i = 0; i < 18'000; ++i) {
+            const Bytes v = cbor_head(0, ~0ULL);
+            input.insert(input.end(), v.begin(), v.end());
+        }
+        inputs.push_back(std::move(input));
+    }
+    {
+        const auto key = [](const std::uint32_t i) {
+            Bytes k = joined({cbor_head(3, 64), Bytes(64, 'a')});
+            k[63] = static_cast<std::uint8_t>(0x21 + i / 90);
+            k[64] = static_cast<std::uint8_t>(0x21 + i % 90);
+            return k;
+        };
+        inputs.push_back(map_of(2'000, key, cbor_head(0, ~0ULL)));
+    }
+
+    std::uint64_t closest = 0;
+    for (const Bytes& input : inputs) {
+        INFO("input " << cexchain::to_hex(
+                 ByteView(input).first(std::min<std::size_t>(input.size(), 40))));
+        REQUIRE(input.size() <= rt::layout::input_max);
+        const auto value = cbor::decode(input);
+        REQUIRE(value.has_value());
+        std::uint64_t n_items = 0;
+        std::uint64_t n_keys = 0;
+        count_items(*value, n_items, n_keys);
+        const Run r = run("read-only", input);
+        REQUIRE(r.ok());
+        const std::uint64_t bound = rt::read_input_fuel(n_items, n_keys);
+        INFO("fuel " << r.fuel << ", bound " << bound);
+        CHECK(r.fuel <= bound);
+        closest = std::max(closest, r.fuel * 1000 / bound);
+    }
+    // The bound is not loose either: the costliest kinds come within a
+    // fifth of it.
+    CHECK(closest > 800);
+    CHECK(inputs.size() > 250);
 }

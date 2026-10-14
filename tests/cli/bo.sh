@@ -82,6 +82,7 @@ contains -F '"bo stdlib") words="list show"' out.txt || fail "completion: bo std
 contains -F -- "--write" out.txt || fail "completion: bo fmt"
 contains -F 'deploy evidence explain fetch' out.txt || fail "completion: contract explain"
 contains -F -- "--bundle-out" out.txt || fail "completion: bo build"
+contains -F -- "--fuel" out.txt || fail "completion: bo build --fuel"
 contains -F -- "--require-rebuild" out.txt || fail "completion: contract verify"
 contains -F -- "--stage" out.txt || fail "completion: --stage"
 contains -F '"bo packs") words="check list show"' out.txt || fail "completion: bo packs"
@@ -123,7 +124,7 @@ run bo packs show zh-Hans-CN --json > show.json
 json 'd["keywords"]["kw.each"], d["vocabulary"]["unit.item"]["category"], d["reading"]["multipliers"]["万"]' < show.json > out.txt
 contains -Fx "['逐个'] unit 10000" out.txt || fail "show --json"
 json 'len(d["messages"]), len(d["sentences"])' < show.json > out.txt
-contains -Fx "217 232" out.txt || fail "messages and sentences"
+contains -Fx "219 232" out.txt || fail "messages and sentences"
 expect_exit 1 bo packs show fr
 contains -F "no pack fr" out.txt || fail "unknown pack"
 expect_exit 1 bo packs show en --section nope
@@ -393,7 +394,7 @@ cp "$BUILDS/agreement-en/source.bo" agreement.bo
 GOLDEN_HASH="$(sed -n 2p "$BUILDS/agreement-en/build.txt" | sed 's/.*sha256 \([0-9a-f]*\),.*/\1/')"
 GOLDEN_SIZE="$(sed -n 2p "$BUILDS/agreement-en/build.txt" | sed 's/^code: \([0-9]*\) bytes.*/\1/')"
 COMPILER="$(run version --json | json 'd["bo"]["compiler"]')"
-contains -E "^cexchain-bo [0-9.]+; codegen 1; edition 1$" <<< "$COMPILER" || fail "the compiler string"
+contains -E "^cexchain-bo [0-9.]+; codegen 2; edition 1$" <<< "$COMPILER" || fail "the compiler string"
 run bo build agreement.bo > out.txt 2> warnings.txt
 contains -Fx "agreement.bo: built contract Agreement (Bo edition 1)" out.txt || fail "build"
 contains -F "functions  amend, close, countersign, create (creates), sign" out.txt || fail "functions"
@@ -401,6 +402,17 @@ contains -F "code       $GOLDEN_SIZE bytes, SHA-256 $GOLDEN_HASH" out.txt || fai
 contains -F "compiler   $COMPILER" out.txt || fail "compiler"
 contains -F "the packs en 1, zh-Hans-CN 1, zh-Hant-HK 1 (SHA-256 digests)" out.txt || fail "packs"
 contains -F "wrote" out.txt && fail "nothing written without --out"
+# The highest fuel and output bounds (milestone 18), as the golden keeps them.
+AMEND_FUEL="$(sed -n 's/^bound amend: fuel \([0-9]*\),.*/\1/p' "$BUILDS/agreement-en/build.txt")"
+AMEND_GROUPED="$(python3 -c "print(f'{$AMEND_FUEL:,}')")"
+contains -F "fuel       at most $AMEND_GROUPED a call (amend), of 10,000,000; output at most" out.txt || fail "the fuel bound"
+contains -E "^  function +fuel +reading +output$" out.txt && fail "the table only with --fuel"
+run bo build agreement.bo --fuel > out.txt 2> /dev/null
+contains -E "^  function +fuel +reading +output$" out.txt || fail "--fuel: the table"
+contains -E "^  amend +$AMEND_GROUPED +[0-9,]+ +[0-9,]+$" out.txt || fail "--fuel: amend's bound"
+for function in close countersign create sign; do
+    contains -E "^  $function +[0-9,]+ +[0-9,]+ +[0-9,]+$" out.txt || fail "--fuel: $function"
+done
 # Comments are published with the source: a warning says so.
 contains -F "agreement.bo: warning: the source is deployed with its comments (4 lines)" warnings.txt || fail "comments"
 run bo build agreement.bo --json > build.json
@@ -412,6 +424,8 @@ BUNDLE_SIZE="$(json 'd["bundle_size"]' < build.json)"
 json 'd["source_size"]' < build.json | contains -Fx "$SOURCE_SIZE" || fail "build --json: the source's size"
 json 'd["functions"]["create"], d["functions"]["sign"], [p["id"] for p in d["packs"] if p["official"]]' < build.json > out.txt
 contains -Fx "create call ['en', 'zh-Hans-CN', 'zh-Hant-HK']" out.txt || fail "functions and packs in json"
+json 'sorted(d["bounds"]) == sorted(d["functions"]), d["bounds"]["amend"]["fuel"], d["fuel_limit"], d["output_limit"], all(b["input"] < b["fuel"] and b["output"] > 0 for b in d["bounds"].values())' < build.json > out.txt
+contains -Fx "True $AMEND_FUEL 10000000 196608 True" out.txt || fail "build --json: the bounds"
 # The packs' digests are those bo packs list shows.
 run bo packs list --json | json '" ".join(p["id"] + "=" + p["digest"] for p in sorted(d, key=lambda p: p["id"]))' > listed.txt
 json '" ".join(p["id"] + "=" + p["digest"] for p in d["packs"])' < build.json > digests.txt
@@ -441,6 +455,49 @@ contains -F "(build.executor)" out.txt || fail "executors"
 expect_exit 2 bo build model.bo --json
 json 'd["ok"], "code_hash" in d, d["diagnostics"][0]["code"]' < out.txt > codes.txt
 contains -Fx "False False check.field-type" codes.txt || fail "check errors stop the build"
+# A call that could run out of fuel: every row against every column, a
+# million comparisons. Lists of 100 build.
+cat > grid.bo <<'EOF'
+contract Grid
+parties we
+
+record Grid
+  rows list number at most 1000
+  columns list number at most 1000
+
+can check by we
+  each r in rows
+    each c in columns
+      requires r < c or r >= c
+EOF
+expect_exit 2 bo build grid.bo
+contains -F "(build.fuel)" out.txt || fail "the fuel bound refuses"
+contains -F "check could use up to" out.txt || fail "the fuel bound's function"
+expect_exit 2 bo build grid.bo --json
+json 'd["ok"], [x["code"] for x in d["diagnostics"]]' < out.txt > codes.txt
+contains -Fx "False ['build.fuel']" codes.txt || fail "build.fuel in json"
+expect_exit 2 bo build grid.bo --language zh-Hant-HK
+contains -F "燃料" out.txt || fail "build.fuel in zh-Hant"
+sed 's/1000/100/' grid.bo > grid100.bo
+run bo build grid100.bo > out.txt 2> /dev/null || fail "lists of 100 build"
+# An output that could exceed the code's region builds, with a warning: a
+# part repeats its parent's fields, a text of up to 64 KiB among them.
+cat > notes.bo <<'EOF'
+contract Notes
+parties issuer, supplier
+
+asset Receivable
+  amount CNY
+  tier number
+  note text
+  holder supplier
+
+can split
+EOF
+run bo build notes.bo > out.txt 2> warnings.txt || fail "an output bound only warns"
+contains -F "notes.bo: warning: split could write up to" warnings.txt || fail "build.output"
+contains -F "(build.output)" warnings.txt || fail "build.output code"
+contains -F "warning: issue" warnings.txt && fail "build.output for a function without parts"
 expect_exit 1 bo build agreement.bo --hash sha384
 expect_exit 1 bo build
 expect_exit 2 bo build no-such.bo
@@ -852,7 +909,7 @@ json 'd["verified"], d["source"]["status"], d["error"]' < out.txt > result.txt
 contains -Fx "False differs the contract's source does not rebuild to its code" result.txt || fail "verify --json: differs"
 # The same, said to be built by another codegen version: reported as such,
 # not as a forgery.
-NEWER="$(sed 's/codegen 1/codegen 2/' <<< "$COMPILER")"
+NEWER="$(sed 's/codegen 2/codegen 3/' <<< "$COMPILER")"
 Y="$(deploy_raw other.wasm "$NEWER" agreement.bundle)"
 d contract show "$Y" > show.txt
 contains -F "rebuild:    not rebuilt: built with $NEWER; this compiler is $COMPILER, and the source builds to other code" show.txt || fail "show: other codegen"

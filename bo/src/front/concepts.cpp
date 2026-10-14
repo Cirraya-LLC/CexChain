@@ -462,6 +462,8 @@ constexpr MessageSpec unsorted_messages[] = {
     {"build.too-large", Severity::error, ""},
     {"build.reject-text", Severity::error, "text"},
     {"build.late-party", Severity::error, "field party"},
+    {"build.fuel", Severity::error, "function bound limit"},
+    {"build.output", Severity::warning, "function bound limit"},
     {"build.comments", Severity::warning, "count"},
     // Refusals of compiled code at run time: the reason "bo:CODE VALUES" is
     // the message run.CODE, its values the parameters in order (render_reason).

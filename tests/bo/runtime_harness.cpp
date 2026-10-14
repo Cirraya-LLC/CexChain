@@ -80,7 +80,7 @@ wasm::Func copy_item(wasm::ModuleWriter& m, rt::Runtime& runtime) {
         b.get(arg).op(i32_wrap_i64).get(major).i32(5).op(i32_eq).op(i32_shl);
         b.i32(1).get(major).i32(6).op(i32_ne).op(select).set(n);
         const Label done = b.block();
-        const Label next = b.loop();
+        const Label next = b.loop({rt::max_input_items});
         b.get(n).op(i32_eqz).br_if(done);
         b.get(q).call(self).set(q);
         b.get(n).i32(1).op(i32_sub).set(n).br(next);
@@ -181,7 +181,7 @@ Bytes cbor_write_module() {
     b.u32(rt::layout::input_base).tee(p).get(n).op(i32_add).set(end);
 
     const Label finished = b.block();
-    const Label next = b.loop();
+    const Label next = b.loop({rt::layout::input_max + 1});
     b.get(p).get(end).op(i32_ge_u).br_if(finished);
     {
         const Label bad = b.block();

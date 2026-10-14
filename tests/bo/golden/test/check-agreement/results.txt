@@ -1,10 +1,10 @@
 test "signed and closed" passed home=role.we
-  step 1 passed 2026-01-01 accepted proposed event=proposed; fuel 6779
-  step 2 passed 2026-01-01 accepted signed event=signed consents role.customer; fuel 7717 9450
-  step 3 passed 2026-01-01 accepted closed event=closed final; fuel 8992
+  step 1 passed 2026-01-01 accepted proposed event=proposed; fuel 5922
+  step 2 passed 2026-01-01 accepted signed event=signed consents role.customer; fuel 6882 8615
+  step 3 passed 2026-01-01 accepted closed event=closed final; fuel 7926
 test "the customer cannot close" passed home=role.we
-  step 1 passed 2026-01-01 accepted proposed event=proposed; fuel 6779
-  step 2 passed 2026-01-01 refused "bo:state close"; fuel 7325
-  step 3 passed 2026-01-01 accepted signed event=signed consents role.customer; fuel 7717 9450
-  step 4 passed 2026-01-01 waits role.we; fuel 8992
+  step 1 passed 2026-01-01 accepted proposed event=proposed; fuel 5922
+  step 2 passed 2026-01-01 refused "bo:state close"; fuel 6469
+  step 3 passed 2026-01-01 accepted signed event=signed consents role.customer; fuel 6882 8615
+  step 4 passed 2026-01-01 waits role.we; fuel 7926
 2 tests: 2 passed, 0 failed

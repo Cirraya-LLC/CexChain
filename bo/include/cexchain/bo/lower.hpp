@@ -10,8 +10,10 @@
 #include <string_view>
 #include <vector>
 
+#include <cexchain/bo/cost.hpp>
 #include <cexchain/bo/model.hpp>
 #include <cexchain/bo/pack.hpp>
+#include <cexchain/bo/wasm.hpp>
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/protocol/statement.hpp>
 
@@ -78,12 +80,38 @@ inline constexpr std::size_t max_build_fields = 256;
 inline constexpr std::size_t max_build_inputs = 256;
 inline constexpr std::size_t max_build_events = 64;
 inline constexpr std::size_t max_build_charges = 64;
+/// The bytes compiled code has for its output (runtime::layout): beyond them
+/// a call is refused with bo:output.
+inline constexpr std::uint64_t max_build_output = 196'608;
+
+/// The most a call of one function can use (milestone 18; cost.hpp). It
+/// holds for every call whose arguments are of the function's shape (a map
+/// of its inputs, each of its type, lists within their bounds; arguments of
+/// another shape are refused, and reading very large ones may run out of
+/// fuel first), on any state the contract writes, with any other input the
+/// ledger gives within the 160 KiB compiled code reads.
+struct FunctionBound {
+    /// Fuel, all told (spec section 14.3: a call has 10,000,000).
+    std::uint64_t fuel = 0;
+    /// Of which reading and indexing the input (runtime::read_input_fuel).
+    std::uint64_t input = 0;
+    /// The input's items and map keys at most, which `input` is for.
+    std::uint64_t input_items = 0;
+    std::uint64_t input_keys = 0;
+    /// Bytes of output, against the max_build_output the code has.
+    std::uint64_t output = 0;
+
+    friend bool operator==(const FunctionBound&, const FunctionBound&) = default;
+};
 
 struct Build {
     /// The module, which vm::load accepts.
     Bytes code;
     /// Each function and its kind, the deploy's interface.
     std::map<std::string, protocol::FunctionKind> interface;
+    /// Each function's bound (only for the current codegen version; empty
+    /// for code built as an earlier version, whose input had no useful bound).
+    std::map<std::string, FunctionBound> bounds;
 };
 
 struct Lowered {
@@ -94,7 +122,13 @@ struct Lowered {
 };
 
 /// Compiles a checked model: one without errors from `check`. `source` is
-/// the text it was checked from, which messages quote.
-[[nodiscard]] Lowered lower(std::string_view source, const model::Model& model);
+/// the text it was checked from, which messages quote. `codegen` is the
+/// codegen version to write (an earlier one only to rebuild a deploy made
+/// with it): codegen 1 checked texts' UTF-8 in the input (runtime.hpp) and
+/// took two new locals for each comparison of parties that may be none and
+/// each `consent of` a list.
+[[nodiscard]] Lowered lower(std::string_view source, const model::Model& model,
+                            std::uint32_t codegen = wasm::codegen_version)
+    BO_PRE(codegen >= wasm::oldest_codegen_version && codegen <= wasm::codegen_version);
 
 } // namespace cexchain::bo

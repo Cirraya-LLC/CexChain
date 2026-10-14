@@ -232,6 +232,10 @@ bool is_store(const Op op) noexcept {
     return code_of(op) >= 0x36 && code_of(op) <= 0x3E;
 }
 
+bool is_bulk(const Op op) noexcept {
+    return op == Op::memory_copy || op == Op::memory_fill;
+}
+
 std::string_view name_of(const Op op) noexcept {
     static const std::map<Op, std::string> names = text_names<Op>();
     const auto it = names.find(op);
@@ -250,6 +254,72 @@ FunctionBuilder::FunctionBuilder(const ModuleWriter& module, const Func self)
     : module_(&module), self_(self) {
     frames_.push_back(
         Frame{Kind::function, module.type_of(self).results, 0, false, next_serial_++});
+    costs_.push_back(CostFrame{});
+}
+
+CostNode& FunctionBuilder::current_cost() {
+    CostFrame& top = costs_.back();
+    return top.node.kind == CostNode::Kind::alt ? top.node.children[top.arm] : top.node;
+}
+
+void FunctionBuilder::sizes(std::vector<std::uint64_t> defaults) {
+    // Item slots follow the parameters.
+    BO_ASSERT(next_item_slot_ == 0);
+    size_defaults_ = std::move(defaults);
+}
+
+Size FunctionBuilder::size(const std::uint32_t index) const {
+    return Size::param(index);
+}
+
+Size FunctionBuilder::item_size(const Label loop) const {
+    const auto it = item_slots_.find(loop.serial);
+    BO_ASSERT(it != item_slots_.end());
+    return Size::slot(it->second);
+}
+
+FunctionBuilder& FunctionBuilder::output(Size bytes) {
+    CostNode node;
+    node.kind = CostNode::Kind::output;
+    node.size = std::move(bytes);
+    current_cost().children.push_back(std::move(node));
+    return *this;
+}
+
+FunctionBuilder& FunctionBuilder::cap_begin() {
+    CostFrame frame;
+    frame.node.kind = CostNode::Kind::cap;
+    frame.cap = true;
+    costs_.push_back(std::move(frame));
+    return *this;
+}
+
+FunctionBuilder& FunctionBuilder::cap_end(const std::uint64_t limit) {
+    BO_ASSERT(costs_.size() > 1 && costs_.back().cap &&
+              costs_.back().node.kind == CostNode::Kind::cap);
+    CostNode node = std::move(costs_.back().node);
+    costs_.pop_back();
+    node.limit = limit;
+    current_cost().children.push_back(std::move(node));
+    return *this;
+}
+
+FunctionBuilder& FunctionBuilder::region_begin(const std::uint32_t tag) {
+    CostFrame frame;
+    frame.node.kind = CostNode::Kind::region;
+    frame.node.tag = tag;
+    frame.cap = true;
+    costs_.push_back(std::move(frame));
+    return *this;
+}
+
+FunctionBuilder& FunctionBuilder::region_end() {
+    BO_ASSERT(costs_.size() > 1 && costs_.back().cap &&
+              costs_.back().node.kind == CostNode::Kind::region);
+    CostNode node = std::move(costs_.back().node);
+    costs_.pop_back();
+    current_cost().children.push_back(std::move(node));
+    return *this;
 }
 
 std::uint32_t FunctionBuilder::params() const noexcept {
@@ -407,6 +477,7 @@ Local FunctionBuilder::local(const ValType type) {
 }
 
 FunctionBuilder& FunctionBuilder::i32(const std::int32_t value) {
+    charge(1);
     byte(op_i32_const);
     sleb(value);
     push(ValType::i32);
@@ -414,6 +485,7 @@ FunctionBuilder& FunctionBuilder::i32(const std::int32_t value) {
 }
 
 FunctionBuilder& FunctionBuilder::i64(const std::int64_t value) {
+    charge(1);
     byte(op_i64_const);
     sleb(value);
     push(ValType::i64);
@@ -421,6 +493,7 @@ FunctionBuilder& FunctionBuilder::i64(const std::int64_t value) {
 }
 
 FunctionBuilder& FunctionBuilder::get(const Local local) {
+    charge(1);
     byte(op_local_get);
     uleb(local.index);
     push(type_of(local));
@@ -428,6 +501,7 @@ FunctionBuilder& FunctionBuilder::get(const Local local) {
 }
 
 FunctionBuilder& FunctionBuilder::set(const Local local) {
+    charge(1);
     pop(type_of(local));
     byte(op_local_set);
     uleb(local.index);
@@ -435,6 +509,7 @@ FunctionBuilder& FunctionBuilder::set(const Local local) {
 }
 
 FunctionBuilder& FunctionBuilder::tee(const Local local) {
+    charge(1);
     pop(type_of(local));
     byte(op_local_tee);
     uleb(local.index);
@@ -443,6 +518,7 @@ FunctionBuilder& FunctionBuilder::tee(const Local local) {
 }
 
 FunctionBuilder& FunctionBuilder::global_get(const Global global) {
+    charge(1);
     byte(op_global_get);
     uleb(global.index);
     push(global_type(global));
@@ -450,13 +526,31 @@ FunctionBuilder& FunctionBuilder::global_get(const Global global) {
 }
 
 FunctionBuilder& FunctionBuilder::global_set(const Global global) {
+    charge(1);
     pop(global_type(global));
     byte(op_global_set);
     uleb(global.index);
     return *this;
 }
 
+FunctionBuilder& FunctionBuilder::bulk(const Op op, Size bytes) {
+    // 1 + ceil(n / 64) fuel, which 2 + floor(n / 64) bounds: superadditive,
+    // as the bounds of items' sizes must be (cost.hpp).
+    CostNode node;
+    node.kind = CostNode::Kind::bulk;
+    node.size = std::move(bytes);
+    current_cost().children.push_back(std::move(node));
+    emit_op(op);
+    return *this;
+}
+
 FunctionBuilder& FunctionBuilder::op(const Op op) {
+    charge(1);
+    emit_op(op);
+    return *this;
+}
+
+void FunctionBuilder::emit_op(const Op op) {
     const std::uint16_t code = code_of(op);
     if (op == Op::drop) {
         if (vals_.size() > frames_.back().height) {
@@ -492,10 +586,10 @@ FunctionBuilder& FunctionBuilder::op(const Op op) {
             byte(0x00);
         }
     }
-    return *this;
 }
 
 FunctionBuilder& FunctionBuilder::load(const Op op, const std::uint32_t offset) {
+    charge(1);
     const Signature sig = signature(op);
     pop(sig.pops);
     push(sig.pushes);
@@ -506,6 +600,7 @@ FunctionBuilder& FunctionBuilder::load(const Op op, const std::uint32_t offset) 
 }
 
 FunctionBuilder& FunctionBuilder::store(const Op op, const std::uint32_t offset) {
+    charge(1);
     pop(signature(op).pops);
     byte(static_cast<std::uint8_t>(code_of(op)));
     uleb(static_cast<std::uint32_t>(std::countr_zero(width(op))));
@@ -514,6 +609,16 @@ FunctionBuilder& FunctionBuilder::store(const Op op, const std::uint32_t offset)
 }
 
 Label FunctionBuilder::open(const Kind kind, const BlockType type, const std::uint8_t opcode) {
+    // The block, loop, or if itself: once, in the enclosing code.
+    charge(1);
+    CostFrame cost;
+    if (kind == Kind::if_) {
+        cost.node.kind = CostNode::Kind::alt;
+        cost.node.children.resize(2);
+    } else if (kind == Kind::loop) {
+        cost.node.kind = CostNode::Kind::loop;
+    }
+    costs_.push_back(std::move(cost));
     byte(opcode);
     byte(type ? byte_of(*type) : block_empty);
     Frame frame;
@@ -532,8 +637,16 @@ Label FunctionBuilder::block(const BlockType type) {
     return open(Kind::block, type, op_block);
 }
 
-Label FunctionBuilder::loop(const BlockType type) {
-    return open(Kind::loop, type, op_loop);
+Label FunctionBuilder::loop(LoopBound bound, const BlockType type) {
+    const Label label = open(Kind::loop, type, op_loop);
+    CostNode& node = costs_.back().node;
+    node.size = std::move(bound.starts);
+    if (bound.items) {
+        node.items = std::move(bound.items);
+        node.slot = size_count() + next_item_slot_++;
+        item_slots_.emplace(label.serial, node.slot);
+    }
+    return label;
 }
 
 Label FunctionBuilder::if_(const BlockType type) {
@@ -548,6 +661,8 @@ FunctionBuilder& FunctionBuilder::else_(const Label label) {
     BO_ASSERT(vals_.size() == frame.height);
     frame.kind = Kind::else_;
     frame.unreachable = false;
+    BO_ASSERT(!costs_.back().cap && costs_.back().node.kind == CostNode::Kind::alt);
+    costs_.back().arm = 1;
     byte(op_else);
     return *this;
 }
@@ -560,6 +675,10 @@ FunctionBuilder& FunctionBuilder::end(const Label label) {
     BO_ASSERT(vals_.size() == frame.height);
     frames_.pop_back();
     push(frame.results);
+    BO_ASSERT(costs_.size() > 1 && !costs_.back().cap);
+    CostNode node = std::move(costs_.back().node);
+    costs_.pop_back();
+    current_cost().children.push_back(std::move(node));
     byte(op_end);
     return *this;
 }
@@ -570,6 +689,7 @@ std::uint32_t FunctionBuilder::depth(const Label label) const {
 
 FunctionBuilder& FunctionBuilder::br(const Label label) {
     const std::uint32_t d = depth(label);
+    charge(1);
     pop(label_types(label));
     mark_unreachable();
     byte(op_br);
@@ -579,6 +699,7 @@ FunctionBuilder& FunctionBuilder::br(const Label label) {
 
 FunctionBuilder& FunctionBuilder::br_if(const Label label) {
     BO_ASSERT(is_open(label) && can_pop(ValType::i32));
+    charge(1);
     pop(ValType::i32);
     BO_ASSERT(can_branch(label));
     const std::vector<ValType> types = label_types(label);
@@ -592,6 +713,7 @@ FunctionBuilder& FunctionBuilder::br_if(const Label label) {
 FunctionBuilder& FunctionBuilder::br_table(const std::span<const Label> labels,
                                            const Label otherwise) {
     BO_ASSERT(is_open(otherwise) && can_pop(ValType::i32));
+    charge(1);
     pop(ValType::i32);
     const std::vector<ValType> types = label_types(otherwise);
     BO_ASSERT(can_pop(types));
@@ -615,6 +737,7 @@ FunctionBuilder& FunctionBuilder::br_table(const std::span<const Label> labels,
 FunctionBuilder& FunctionBuilder::return_() {
     const std::vector<ValType> results = frames_.front().results;
     BO_ASSERT(can_pop(results));
+    charge(1);
     pop(results);
     mark_unreachable();
     byte(op_return);
@@ -622,12 +745,19 @@ FunctionBuilder& FunctionBuilder::return_() {
 }
 
 FunctionBuilder& FunctionBuilder::unreachable() {
+    charge(1);
     mark_unreachable();
     byte(op_unreachable);
     return *this;
 }
 
-FunctionBuilder& FunctionBuilder::call(const Func callee) {
+FunctionBuilder& FunctionBuilder::call(const Func callee, std::vector<Size> sizes) {
+    CostNode node;
+    node.kind = CostNode::Kind::call;
+    node.fuel = 2;
+    node.callee = callee.index;
+    node.args = std::move(sizes);
+    current_cost().children.push_back(std::move(node));
     const FuncType type = module_->type_of(callee);
     pop(type.params);
     push(type.results);
@@ -671,7 +801,10 @@ Bytes FunctionBuilder::finish() {
 
 ModuleWriter::ModuleWriter(const MemoryPlan& plan) : plan_(plan) {
     for (std::uint32_t i = 0; i < host_count; ++i) {
-        functions_.push_back(Function{host_type(static_cast<Host>(i)), Bytes{}, 0});
+        Function host;
+        host.type = host_type(static_cast<Host>(i));
+        host.body = Bytes{};
+        functions_.push_back(std::move(host));
     }
 }
 
@@ -689,7 +822,9 @@ const FuncType& ModuleWriter::type_of(const Func f) const noexcept {
 
 Func ModuleWriter::declare(FuncType type) {
     BO_ASSERT(functions_.size() < vm::max_functions);
-    functions_.push_back(Function{std::move(type), std::nullopt, 0});
+    Function f;
+    f.type = std::move(type);
+    functions_.push_back(std::move(f));
     return Func{static_cast<std::uint32_t>(functions_.size() - 1)};
 }
 
@@ -700,8 +835,157 @@ FunctionBuilder ModuleWriter::begin(const Func f) const {
 void ModuleWriter::define(FunctionBuilder&& body) {
     const Func f = body.self();
     const std::uint32_t height = body.max_height();
-    functions_[f.index].body = body.finish();
-    functions_[f.index].max_height = height;
+    Function& function = functions_[f.index];
+    function.body = body.finish();
+    function.max_height = height;
+    // Every frame is closed, and so is every stretch with a cap.
+    BO_ASSERT(body.costs_.size() == 1 && !body.costs_.front().cap);
+    function.cost = std::move(body.costs_.front().node);
+    function.slots = body.size_count() + body.next_item_slot_;
+    function.size_defaults = std::move(body.size_defaults_);
+}
+
+void ModuleWriter::set_bound(const Func f, BoundFormula formula) {
+    functions_[f.index].formula = std::move(formula);
+}
+
+const std::vector<std::uint64_t>& ModuleWriter::size_defaults(const Func f) const {
+    return functions_[f.index].size_defaults;
+}
+
+Bound ModuleWriter::bound(const Func f, const std::span<const std::uint64_t> sizes,
+                          const std::span<const Func> skip, const std::uint32_t absent) const {
+    Evaluation e{skip, absent, {}};
+    return bound_of(f, std::vector<std::uint64_t>(sizes.begin(), sizes.end()), e);
+}
+
+namespace {
+
+/// 1 + ceil(n / 64): what a host function charges per byte it handles.
+std::uint64_t per64_cost(const std::uint64_t base, const std::uint64_t n) noexcept {
+    return add_saturating(base, n / 64 + (n % 64 != 0 ? 1 : 0));
+}
+
+} // namespace
+
+Bound ModuleWriter::bound_of(const Func f, std::vector<std::uint64_t> sizes, Evaluation& e) const {
+    if (f.index < host_count) {
+        // Spec section 14.4: by the bytes it handles, at most the memory.
+        const std::uint64_t n = sizes.empty() ? std::uint64_t{plan_.pages} * 65'536 : sizes[0];
+        switch (static_cast<Host>(f.index)) {
+        case Host::input_size:
+        case Host::abort:
+            return {1, 0};
+        case Host::input_read:
+        case Host::output_write:
+            return {per64_cost(1, n), 0};
+        case Host::hash:
+            return {per64_cost(64, n), 0};
+        }
+        return {unbounded, unbounded};
+    }
+    if (std::ranges::find(e.skip, f) != e.skip.end()) {
+        return {};
+    }
+    const Function& function = functions_[f.index];
+    BO_ASSERT(function.body.has_value());
+    BO_ASSERT(sizes.size() <= function.size_defaults.size());
+    for (std::size_t i = sizes.size(); i < function.size_defaults.size(); ++i) {
+        sizes.push_back(function.size_defaults[i]);
+    }
+    if (function.formula) {
+        return function.formula(sizes);
+    }
+    const bool memo = e.skip.empty();
+    std::tuple<std::uint32_t, std::uint32_t, std::vector<std::uint64_t>> key{f.index, e.absent,
+                                                                             sizes};
+    if (memo) {
+        if (const auto it = bounds_.find(key); it != bounds_.end()) {
+            return it->second;
+        }
+    }
+    if (std::ranges::find(e.active, f.index) != e.active.end()) {
+        // It calls itself: nothing here bounds how deep.
+        return {unbounded, unbounded};
+    }
+    e.active.push_back(f.index);
+    std::vector<std::uint64_t> env = std::move(sizes);
+    env.resize(function.slots, 0);
+    const Bound out = evaluate(function.cost, env, e);
+    e.active.pop_back();
+    if (memo) {
+        bounds_.emplace(std::move(key), out);
+    }
+    return out;
+}
+
+Bound ModuleWriter::evaluate(const CostNode& node, std::vector<std::uint64_t>& env,
+                             Evaluation& e) const {
+    const auto plus = [](Bound& to, const Bound& b) {
+        to.fuel = add_saturating(to.fuel, b.fuel);
+        to.output = add_saturating(to.output, b.output);
+    };
+    // A sequence's fuel and children (a loop's body is one).
+    const auto sequence = [&] {
+        Bound out{node.fuel, 0};
+        for (const CostNode& child : node.children) {
+            plus(out, evaluate(child, env, e));
+        }
+        return out;
+    };
+    switch (node.kind) {
+    case CostNode::Kind::seq:
+        return sequence();
+    case CostNode::Kind::cap: {
+        Bound out = sequence();
+        out.output = std::min(out.output, node.limit);
+        return out;
+    }
+    case CostNode::Kind::region:
+        return (e.absent & node.tag) != 0 ? Bound{} : sequence();
+    case CostNode::Kind::alt: {
+        const Bound a = evaluate(node.children[0], env, e);
+        const Bound b = evaluate(node.children[1], env, e);
+        return {add_saturating(node.fuel, std::max(a.fuel, b.fuel)),
+                add_saturating(0, std::max(a.output, b.output))};
+    }
+    case CostNode::Kind::loop: {
+        const std::uint64_t starts = node.size.eval(env);
+        if (!node.items) {
+            const Bound body = sequence();
+            return {mul_saturating(starts, body.fuel), mul_saturating(starts, body.output)};
+        }
+        // Each start with an item of size 0, plus what the items add, as
+        // much as one item as large as all of them adds (cost.hpp).
+        BO_ASSERT(node.slot < env.size());
+        const std::uint64_t total = node.items->eval(env);
+        const std::uint64_t saved = env[node.slot];
+        env[node.slot] = 0;
+        const Bound none = sequence();
+        env[node.slot] = total;
+        const Bound all = sequence();
+        env[node.slot] = saved;
+        const auto more = [](std::uint64_t a, std::uint64_t b) {
+            return a > b ? a - b : 0;
+        };
+        return {add_saturating(mul_saturating(starts, none.fuel), more(all.fuel, none.fuel)),
+                add_saturating(mul_saturating(starts, none.output), more(all.output, none.output))};
+    }
+    case CostNode::Kind::call: {
+        std::vector<std::uint64_t> sizes;
+        for (const Size& a : node.args) {
+            sizes.push_back(a.eval(env));
+        }
+        Bound out{node.fuel, 0};
+        plus(out, bound_of(Func{node.callee}, std::move(sizes), e));
+        return out;
+    }
+    case CostNode::Kind::output:
+        return {node.fuel, node.size.eval(env)};
+    case CostNode::Kind::bulk:
+        return {add_saturating(node.fuel, add_saturating(2, node.size.eval(env) / 64)), 0};
+    }
+    return {unbounded, unbounded};
 }
 
 std::uint32_t ModuleWriter::max_height(const Func f) const {

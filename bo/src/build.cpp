@@ -17,8 +17,11 @@
 #include <cexchain/bo/lexer.hpp>
 #include <cexchain/bo/messages.hpp>
 #include <cexchain/bo/parser.hpp>
+#include <cexchain/bo/runtime.hpp>
 #include <cexchain/bo/wasm.hpp>
 #include <cexchain/core/bytes.hpp>
+#include <cexchain/core/cbor.hpp>
+#include <cexchain/core/vm.hpp>
 
 #if !defined(CEXCHAIN_BO_RELEASE)
 #error "CEXCHAIN_BO_RELEASE names the release (bo/CMakeLists.txt sets it)"
@@ -59,7 +62,7 @@ std::string compiler_string() {
     return format_compiler(this_compiler());
 }
 
-Compiled compile(std::string_view source, const PackSet& packs) {
+Compiled compile(std::string_view source, const PackSet& packs, const CompileOptions& options) {
     Compiled out;
     const Lexicon lexicon(packs);
     const Lexed lexed = lex(source, lexicon);
@@ -74,9 +77,33 @@ Compiled compile(std::string_view source, const PackSet& packs) {
         out.name = checked.model.name;
         if (!has_errors(out.diagnostics)) {
             out.model = checked.model;
-            Lowered lowered = lower(source, checked.model);
+            Lowered lowered = lower(source, checked.model, options.codegen);
             append(out.diagnostics, lowered.diagnostics);
             out.build = std::move(lowered.build);
+            if (out.build && options.check_bounds) {
+                // Milestone 18: no call may run out of fuel; an output beyond
+                // the code's region is refused, which the author should know.
+                bool refused = false;
+                for (const auto& [function, bound] : out.build->bounds) {
+                    const auto args = [&](std::uint64_t value, std::uint64_t limit) {
+                        return std::vector<std::pair<std::string_view, std::string>>{
+                            {"function", function},
+                            {"bound", std::to_string(value)},
+                            {"limit", std::to_string(limit)}};
+                    };
+                    if (bound.fuel > vm::fuel_limit) {
+                        out.diagnostics.push_back(
+                            Diagnostic{"build.fuel", args(bound.fuel, vm::fuel_limit), Span{}});
+                        refused = true;
+                    } else if (bound.output > max_build_output) {
+                        out.diagnostics.push_back(Diagnostic{
+                            "build.output", args(bound.output, max_build_output), Span{}});
+                    }
+                }
+                if (refused) {
+                    out.build.reset();
+                }
+            }
             if (out.build && out.comments > 0) {
                 out.diagnostics.push_back(Diagnostic{
                     "build.comments", {{"count", std::to_string(out.comments)}}, Span{}});
@@ -90,13 +117,75 @@ Compiled compile(std::string_view source, const PackSet& packs) {
     return out;
 }
 
+namespace {
+
+/// Counts a value's items and map keys, as read_input reads them; false if
+/// a key is longer than read_input_fuel allows for.
+bool count_items(const cbor::Value& v, std::uint64_t& items, std::uint64_t& keys) {
+    ++items;
+    if (const cbor::Array* a = v.as_array()) {
+        return std::ranges::all_of(
+            *a, [&](const cbor::Value& x) { return count_items(x, items, keys); });
+    }
+    if (const cbor::Map* m = v.as_map()) {
+        for (const cbor::MapEntry& e : *m) {
+            ++keys;
+            const auto key = cbor::encode(e.key);
+            if (!key || key->size() > std::size_t{runtime::max_key_size} + 2 ||
+                !count_items(e.key, items, keys) || !count_items(e.value, items, keys)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    if (const cbor::Tagged* t = v.as_tagged()) {
+        return count_items(t->item, items, keys);
+    }
+    return true;
+}
+
+} // namespace
+
+std::optional<std::uint64_t> bound_for(const Build& build, const ByteView input) {
+    auto value = cbor::decode(input);
+    if (!value) {
+        return std::nullopt;
+    }
+    const cbor::Map* root = value->as_map();
+    if (root == nullptr) {
+        return std::nullopt;
+    }
+    const std::string* function = nullptr;
+    for (const cbor::MapEntry& e : *root) {
+        if (e.key.as_uint64() == 1U) {
+            function = e.value.as_text();
+        }
+    }
+    if (function == nullptr) {
+        return std::nullopt;
+    }
+    const auto it = build.bounds.find(*function);
+    if (it == build.bounds.end()) {
+        return std::nullopt;
+    }
+    std::uint64_t items = 0;
+    std::uint64_t keys = 0;
+    if (!count_items(*value, items, keys)) {
+        return std::nullopt;
+    }
+    const FunctionBound& b = it->second;
+    return wasm::add_saturating(b.fuel - b.input, runtime::read_input_fuel(items, keys));
+}
+
 Rebuild rebuild(const protocol::ContractDeployBody& deploy, const crypto::Provider& provider,
                 const crypto::HashAlg home_hash) {
     Rebuild r;
     const CompilerId& ours = this_compiler();
     r.deployed = parse_compiler(deploy.compiler);
-    const bool same_codegen =
-        r.deployed && r.deployed->codegen == ours.codegen && r.deployed->edition == ours.edition;
+    // A codegen version this compiler still writes, and its edition.
+    const bool same_codegen = r.deployed && r.deployed->codegen >= wasm::oldest_codegen_version &&
+                              r.deployed->codegen <= ours.codegen &&
+                              r.deployed->edition == ours.edition;
     const bool same_release = same_codegen && r.deployed->release == ours.release;
     const auto result = [&](RebuildStatus status, std::string detail) {
         r.status = status;
@@ -152,7 +241,11 @@ Rebuild rebuild(const protocol::ContractDeployBody& deploy, const crypto::Provid
         return other(opened.detail);
     }
 
-    Compiled compiled = compile(r.bundle->source, *opened.packs);
+    Compiled compiled =
+        compile(r.bundle->source, *opened.packs,
+                CompileOptions{same_codegen ? static_cast<std::uint32_t>(r.deployed->codegen)
+                                            : wasm::codegen_version,
+                               false});
     if (compiled.edition != r.bundle->edition) {
         return result(RebuildStatus::malformed,
                       std::format("the bundle says the source is Bo edition {}, but it is "

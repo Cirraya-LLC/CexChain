@@ -11,6 +11,7 @@
 #include <vector>
 
 #include <cexchain/bo/contracts.hpp>
+#include <cexchain/bo/read_bound.hpp>
 #include <cexchain/bo/wasm.hpp>
 
 /// Part of cexchain::bo, the compiler proper (GCC 16). The runtime: routines
@@ -98,10 +99,13 @@ enum class Routine : std::uint8_t {
     /// [] -> [item]: copies the input to layout::input_base, checks that it is
     /// one item of deterministic CBOR in the profile (what core's
     /// cbor::decode accepts: shortest forms, definite lengths, map keys in
-    /// order without duplicates, valid UTF-8, false, true, and null only, no
-    /// bignums, at most 32 levels and 131,072 items), records each item's
-    /// end, and returns the item. Aborts with bo:input otherwise, or if the
-    /// input is longer than layout::input_max.
+    /// order without duplicates, false, true, and null only, no bignums, at
+    /// most 32 levels and 131,072 items; in codegen 1 also valid UTF-8 in
+    /// texts), records each item's end, and returns the item. Aborts with
+    /// bo:input otherwise, or if the input is longer than layout::input_max.
+    /// From codegen 2 on, texts' bytes are not checked: the ledger's input
+    /// holds valid UTF-8 only (core's decoder refuses anything else), and
+    /// checking cost up to 50 fuel per byte of text that is not ASCII.
     read_input,
     /// [p, depth] -> [end]: reads and indexes the item at p (internal).
     read_item,
@@ -246,16 +250,23 @@ enum class Var : std::uint8_t {
 [[nodiscard]] std::size_t routine_count() noexcept;
 [[nodiscard]] wasm::FuncType type_of(Routine routine);
 
+// read_input_fuel and max_key_size: read_bound.hpp (it is read_input's bound,
+// which Runtime sets, since read_item recurses and has no cost tree).
+
 /// The routines of one module, emitted on first use. Emission order follows
 /// the order of first use, so the same calls give the same module.
 class Runtime {
 public:
-    explicit Runtime(wasm::ModuleWriter& module)
+    /// Writes routines as codegen version `codegen` did (the only routine
+    /// that differs is read_item: codegen 1 checks texts' UTF-8).
+    explicit Runtime(wasm::ModuleWriter& module, std::uint32_t codegen = wasm::codegen_version)
         BO_PRE(module.plan().pages == layout::pages &&
                module.plan().static_base == layout::static_base &&
-               module.plan().static_end == layout::static_end);
+               module.plan().static_end == layout::static_end &&
+               codegen >= wasm::oldest_codegen_version && codegen <= wasm::codegen_version);
 
     [[nodiscard]] wasm::ModuleWriter& module() noexcept { return *module_; }
+    [[nodiscard]] std::uint32_t codegen() const noexcept { return codegen_; }
     /// The routine's function, emitting it (and what it calls) if needed.
     [[nodiscard]] wasm::Func get(Routine routine);
     [[nodiscard]] wasm::Func fail(Reason reason);
@@ -272,6 +283,7 @@ public:
 
 private:
     wasm::ModuleWriter* module_;
+    std::uint32_t codegen_;
     std::vector<std::optional<wasm::Func>> functions_;
     std::array<std::optional<wasm::Global>, 4> vars_;
     std::vector<Routine> emitted_;

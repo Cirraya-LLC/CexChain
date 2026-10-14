@@ -1,16 +1,21 @@
 contract Agreement
-code: 5995 bytes, sha256 f292eabc214383d3596341bce7c188490ded2f5d6dc1d5eac626f49396940814, codegen 1
+code: 5685 bytes, sha256 fd74e703096db79e802227cd03335826a0bccdfd28f9ab58a3831fd8ac03b963, codegen 2
 interface: amend 2 close 2 countersign 2 create 1 sign 2
-1 create: accept proposed, event proposed; fuel 8249
-2 countersign too early: refused "bo:state countersign"; fuel 8516
-3 amend by too much: refused "an amendment may raise the amount by half at most"; fuel 10221
-4 amend: needs customer; fuel 10500
-5 amend, with consent: accept proposed; fuel 12263
-6 sign: needs customer; fuel 8951
-7 sign, not in person: refused "bo:in-person sign"; fuel 9505
-8 sign, after the start: refused "bo:requires sign 2"; fuel 9888
-9 sign, in person: accept signed, event signed; fuel 11343
-10 amend once signed: refused "bo:requires amend 1"; fuel 10863
-11 countersign: accept effective, event effective; fuel 10346
-12 close: needs customer; fuel 9099
-13 close, with consent: accept closed, event closed, final; fuel 11144
+bound amend: fuel 226042, reading 63080 (201 items, 74 keys), output 65771
+bound close: fuel 220650, reading 61800 (197 items, 72 keys), output 65771
+bound countersign: fuel 203679, reading 61800 (197 items, 72 keys), output 65771
+bound create: fuel 86980, reading 66280 (211 items, 79 keys), output 65771
+bound sign: fuel 207117, reading 61800 (197 items, 72 keys), output 65771
+1 create: accept proposed, event proposed; fuel 7151 of at most 33380
+2 countersign too early: refused "bo:state countersign"; fuel 7440 of at most 158399
+3 amend by too much: refused "an amendment may raise the amount by half at most"; fuel 8999 of at most 180762
+4 amend: needs customer; fuel 9278 of at most 180762
+5 amend, with consent: accept proposed; fuel 11041 of at most 182762
+6 sign: needs customer; fuel 7875 of at most 161837
+7 sign, not in person: refused "bo:in-person sign"; fuel 8429 of at most 163837
+8 sign, after the start: refused "bo:requires sign 2"; fuel 8812 of at most 164477
+9 sign, in person: accept signed, event signed; fuel 10267 of at most 164477
+10 amend once signed: refused "bo:requires amend 1"; fuel 9431 of at most 182762
+11 countersign: accept effective, event effective; fuel 9060 of at most 158399
+12 close: needs customer; fuel 7960 of at most 175370
+13 close, with consent: accept closed, event closed, final; fuel 10005 of at most 177370

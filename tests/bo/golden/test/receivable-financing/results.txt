@@ -1,22 +1,22 @@
 test "the supplier pledges the receivable to its bank" passed home=role.issuer
-  step 1 passed 2026-01-01 accepted active event=active; fuel 7430
-  step 2 passed 2026-01-01 accepted pledged event=pledged final consents role.supplier bank1; fuel 11475 14517
+  step 1 passed 2026-01-01 accepted active event=active; fuel 6646
+  step 2 passed 2026-01-01 accepted pledged event=pledged final consents role.supplier bank1; fuel 9917 12959
   step 3 passed 2026-01-01 final-instance
   step 4 passed 2026-01-01 final-instance
 test "the bank's consent is needed" passed home=role.issuer
-  step 1 passed 2026-01-01 accepted active event=active; fuel 7430
-  step 2 passed 2026-01-01 waits bank1; fuel 11475 12140
+  step 1 passed 2026-01-01 accepted active event=active; fuel 6646
+  step 2 passed 2026-01-01 waits bank1; fuel 9917 10582
 test "only the holder pledges" passed home=role.issuer
-  step 1 passed 2026-01-01 accepted active event=active; fuel 7430
-  step 2 passed 2026-01-01 waits role.supplier; fuel 11475 12140
+  step 1 passed 2026-01-01 accepted active event=active; fuel 6646
+  step 2 passed 2026-01-01 waits role.supplier; fuel 9917 10582
 test "over HKD 5,000,000 the holder proves presence" passed home=role.issuer
-  step 1 passed 2026-01-01 accepted active event=active; fuel 7430
-  step 2 passed 2026-01-01 refused "bo:in-person pledge"; fuel 11477 12460
-  step 3 passed 2026-01-01 accepted pledged event=pledged final consents role.supplier bank1; fuel 11477 14942
+  step 1 passed 2026-01-01 accepted active event=active; fuel 6646
+  step 2 passed 2026-01-01 refused "bo:in-person pledge"; fuel 9919 10902
+  step 3 passed 2026-01-01 accepted pledged event=pledged final consents role.supplier bank1; fuel 9919 13384
 test "the supplier sells the receivable, and the buyer pledges it" passed home=role.issuer
-  step 1 passed 2026-01-01 accepted active event=active; fuel 7430
-  step 2 passed 2026-01-01 refused "bo:requires transfer 1"; fuel 10956
-  step 3 passed 2026-01-01 accepted active event=active consents role.supplier factor1; fuel 11297 13939
-  step 4 passed 2026-01-01 waits factor1; fuel 11475 12140
-  step 5 passed 2026-01-01 accepted pledged event=pledged final consents factor1 bank1; fuel 11475 14517
+  step 1 passed 2026-01-01 accepted active event=active; fuel 6646
+  step 2 passed 2026-01-01 refused "bo:requires transfer 1"; fuel 9482
+  step 3 passed 2026-01-01 accepted active event=active consents role.supplier factor1; fuel 9823 12465
+  step 4 passed 2026-01-01 waits factor1; fuel 9917 10582
+  step 5 passed 2026-01-01 accepted pledged event=pledged final consents factor1 bank1; fuel 9917 12959
 5 tests: 5 passed, 0 failed

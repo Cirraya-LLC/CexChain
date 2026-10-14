@@ -121,6 +121,7 @@ else()
     add_library(cexchain_bo
         src/build.cpp
         src/checked.cpp
+        src/cost.cpp
         src/lower.cpp
         src/names.cpp
         src/runtime.cpp
@@ -133,7 +134,7 @@ else()
     add_library(cexchain::bo ALIAS cexchain_bo)
     target_link_libraries(cexchain_bo PUBLIC cexchain::bo_front)
     target_compile_options(cexchain_bo PRIVATE -freflection)
-    # A deploy records the compiler's release: "cexchain-bo 0.0.1; codegen 1;
+    # A deploy records the compiler's release: "cexchain-bo 0.0.1; codegen 2;
     # edition 1" (build.hpp).
     target_compile_definitions(cexchain_bo PRIVATE CEXCHAIN_BO_RELEASE="${PROJECT_VERSION}")
     cexchain_target_defaults(cexchain_bo)

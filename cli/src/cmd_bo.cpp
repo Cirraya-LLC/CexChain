@@ -33,6 +33,7 @@
 #include <cexchain/bo/source.hpp>
 #include <cexchain/bo/stdlib.hpp>
 #include <cexchain/bo/values.hpp>
+#include <cexchain/core/vm.hpp>
 #include <cexchain/crypto/openssl.hpp>
 
 #include "bo_support.hpp"
@@ -421,6 +422,62 @@ Json build_json(const protocol::ContractDeployBody& body, const bo::SourceBundle
             {"comments", comments},
             {"bundle_size", body.source ? body.source->size() : std::size_t{0}},
             {"packs", packs}};
+}
+
+/// "1,234,567": a bound for people.
+std::string grouped(const std::uint64_t n) {
+    std::string digits = std::to_string(n);
+    for (std::size_t at = digits.size(); at > 3; at -= 3) {
+        digits.insert(at - 3, ",");
+    }
+    return digits;
+}
+
+/// Each function's bound (milestone 18), as `bo build --json` shows it.
+Json bounds_json(const bo::Build& build) {
+    Json out = Json::object();
+    for (const auto& [name, b] : build.bounds) {
+        out[name] = {{"fuel", b.fuel},
+                     {"input", b.input},
+                     {"input_items", b.input_items},
+                     {"input_keys", b.input_keys},
+                     {"output", b.output}};
+    }
+    return out;
+}
+
+/// The highest bounds, one line; with `every`, one line per function.
+void print_bounds(const bo::Build& build, const bool every) {
+    if (build.bounds.empty()) {
+        return;
+    }
+    const auto most = [&](auto member) {
+        auto best = build.bounds.begin();
+        for (auto it = build.bounds.begin(); it != build.bounds.end(); ++it) {
+            if (it->second.*member > best->second.*member) {
+                best = it;
+            }
+        }
+        return best;
+    };
+    const auto fuel = most(&bo::FunctionBound::fuel);
+    const auto output = most(&bo::FunctionBound::output);
+    std::println("  {:<10} at most {} a call ({}), of {}; output at most {} bytes ({}), of {}",
+                 "fuel", grouped(fuel->second.fuel), fuel->first, grouped(vm::fuel_limit),
+                 grouped(output->second.output), output->first, grouped(bo::max_build_output));
+    if (!every) {
+        return;
+    }
+    std::size_t width = 8;
+    for (const auto& [name, b] : build.bounds) {
+        width = std::max(width, name.size());
+    }
+    std::println("  {:<{}}  {:>12}  {:>12}  {:>9}", "function", width + 2, "fuel", "reading",
+                 "output");
+    for (const auto& [name, b] : build.bounds) {
+        std::println("  {:<{}}  {:>12}  {:>12}  {:>9}", name, width + 2, grouped(b.fuel),
+                     grouped(b.input), grouped(b.output));
+    }
 }
 
 /// The build's lines after its first: functions, code, compiler, source.
@@ -1157,6 +1214,9 @@ int cmd_bo_build(const Args& args) {
         Json out = {{"file", file}, {"ok", ok}};
         if (ok) {
             out.update(j);
+            out["bounds"] = bounds_json(*c.build);
+            out["fuel_limit"] = vm::fuel_limit;
+            out["output_limit"] = bo::max_build_output;
             for (const char* key : {"out", "code-out", "bundle-out"}) {
                 const auto path = args.get(key);
                 std::string name(key);
@@ -1175,6 +1235,7 @@ int cmd_bo_build(const Args& args) {
     }
     std::println("{}: built contract {} (Bo edition {})", file, c.name, c.edition);
     print_build(*body, j);
+    print_bounds(*c.build, args.has("fuel"));
     for (const char* key : {"out", "code-out", "bundle-out"}) {
         if (const auto path = args.get(key)) {
             std::println("  {:<10} {}", "wrote", *path);

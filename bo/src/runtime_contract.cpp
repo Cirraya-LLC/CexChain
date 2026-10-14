@@ -26,6 +26,7 @@ constexpr auto I64 = wasm::ValType::i64;
 constexpr std::uint32_t key_home = 3;
 constexpr std::uint32_t key_caller = 6;
 constexpr std::uint32_t key_consents = 8;
+constexpr std::uint32_t input_keys = 8;
 constexpr std::uint32_t ledger_size = 32;
 
 /// Aborts with the reason a typed read was given (its parameters 1 and 2).
@@ -41,12 +42,14 @@ void call_item(Runtime& rt, FunctionBuilder& b, const std::uint32_t k) {
 /// Pushes [address, 32, ledger, 32] and compares: equal ids.
 void same_ledger(Runtime& rt, FunctionBuilder& b, const Local ledger) {
     b.i32(static_cast<std::int32_t>(ledger_size)).get(ledger);
-    b.i32(static_cast<std::int32_t>(ledger_size)).call(rt.get(Routine::bytes_eq));
+    b.i32(static_cast<std::int32_t>(ledger_size)).call(rt.get(Routine::bytes_eq), {ledger_size});
 }
 
 } // namespace
 
 void define_read_call(Runtime& rt, FunctionBuilder& b) {
+    // Sizes: read_input's (the input's items and map keys, at most).
+    b.sizes({max_input_items, max_input_items / 2});
     const Local root = b.local(I32);
     const Local n = b.local(I32);
     const Local q = b.local(I32);
@@ -55,13 +58,14 @@ void define_read_call(Runtime& rt, FunctionBuilder& b) {
     const wasm::Func item_end = rt.get(Routine::item_end);
     const std::uint32_t table = rt.call_table();
 
-    b.call(rt.get(Routine::read_input)).tee(root);
+    b.call(rt.get(Routine::read_input), {b.size(0), b.size(1)}).tee(root);
     b.load(i32_load8_u).u32(0xE0).op(i32_and).u32(0xA0).op(i32_ne);
     fail_if(rt, b, Reason::input);
     b.get(root).call(rt.get(Routine::head_arg)).op(i32_wrap_i64).set(n);
     b.get(root).call(rt.get(Routine::content)).set(q);
+    // The ledger's input has keys 1 to 8 (spec section 15).
     const Label done = b.block();
-    const Label next = b.loop();
+    const Label next = b.loop({input_keys + 1});
     b.get(n).op(i32_eqz).br_if(done);
     b.get(q).call(item_end).set(value);
     // Keys 1 to 8 are one byte each, 0x01 to 0x08; others are skipped.
@@ -109,12 +113,14 @@ void define_consent(Runtime& rt, FunctionBuilder& b) {
         const Label some = b.if_();
         b.get(q).call(head_arg).op(i32_wrap_i64).set(n);
         b.get(q).call(content).set(q);
+        // A call cites at most 16 consents (spec section 15).
         const Label done = b.block();
-        const Label next = b.loop();
+        const Label next = b.loop({max_needs + 1});
         b.get(n).op(i32_eqz).br_if(done);
         b.get(q).call(content).tee(id).call(content);
         b.get(id).call(head_arg).op(i32_wrap_i64).get(ledger);
-        b.i32(static_cast<std::int32_t>(ledger_size)).call(rt.get(Routine::bytes_eq));
+        b.i32(static_cast<std::int32_t>(ledger_size))
+            .call(rt.get(Routine::bytes_eq), {ledger_size});
         {
             const Label found = b.if_();
             b.get(id).call(item_end).return_();
@@ -130,7 +136,7 @@ void define_consent(Runtime& rt, FunctionBuilder& b) {
     b.global_get(needs).set(count);
     {
         const Label done = b.block();
-        const Label next = b.loop();
+        const Label next = b.loop({max_needs + 1});
         b.get(k).get(count).op(i32_ge_u).br_if(done);
         b.get(k).i32(2).op(i32_shl).load(i32_load, area);
         same_ledger(rt, b, ledger);
@@ -163,8 +169,9 @@ void define_in_person(Runtime& rt, FunctionBuilder& b) {
         b.i32(0).return_();
         b.end(none);
     }
-    // Kind 1 (a person), encoded 0x01.
-    b.get(signer).u32(m.intern(ByteView(key_kind))).i32(1).call(map_get).tee(kind).op(i32_eqz);
+    // Kind 1 (a person), encoded 0x01. A signer has at most three keys.
+    b.get(signer).u32(m.intern(ByteView(key_kind))).i32(1).call(map_get, {3, 1});
+    b.tee(kind).op(i32_eqz);
     {
         const Label none = b.if_();
         b.i32(0).return_();
@@ -176,7 +183,7 @@ void define_in_person(Runtime& rt, FunctionBuilder& b) {
         b.i32(0).return_();
         b.end(other);
     }
-    b.get(signer).u32(m.intern(ByteView(key_presence))).i32(1).call(map_get);
+    b.get(signer).u32(m.intern(ByteView(key_presence))).i32(1).call(map_get, {3, 1});
     b.op(i32_eqz).op(i32_eqz);
 }
 
@@ -192,17 +199,18 @@ void define_out_needs(Runtime& rt, FunctionBuilder& b) {
     b.i32(1).set(i);
     {
         const Label done = b.block();
-        const Label next = b.loop();
+        const Label next = b.loop({max_needs});
         b.get(i).get(n).op(i32_ge_u).br_if(done);
         b.get(i).i32(2).op(i32_shl).load(i32_load, area).set(x);
         b.get(i).set(j);
         {
             const Label placed = b.block();
-            const Label shift = b.loop();
+            const Label shift = b.loop({max_needs});
             b.get(j).op(i32_eqz).br_if(placed);
             b.get(j).i32(1).op(i32_sub).i32(2).op(i32_shl).load(i32_load, area).tee(before);
             b.i32(static_cast<std::int32_t>(ledger_size)).get(x);
-            b.i32(static_cast<std::int32_t>(ledger_size)).call(rt.get(Routine::bytes_cmp));
+            b.i32(static_cast<std::int32_t>(ledger_size));
+            b.call(rt.get(Routine::bytes_cmp), {ledger_size});
             b.i32(0).op(i32_le_s).br_if(placed);
             b.get(j).i32(2).op(i32_shl).get(before).store(i32_store, area);
             b.get(j).i32(1).op(i32_sub).set(j).br(shift);
@@ -221,10 +229,11 @@ void define_out_needs(Runtime& rt, FunctionBuilder& b) {
     b.i32(0).set(i);
     {
         const Label done = b.block();
-        const Label next = b.loop();
+        const Label next = b.loop({max_needs + 1});
         b.get(i).get(n).op(i32_ge_u).br_if(done);
         b.get(i).i32(2).op(i32_shl).load(i32_load, area);
-        b.i32(static_cast<std::int32_t>(ledger_size)).call(rt.get(Routine::out_bytes));
+        b.i32(static_cast<std::int32_t>(ledger_size));
+        b.call(rt.get(Routine::out_bytes), {ledger_size});
         b.get(i).i32(1).op(i32_add).set(i).br(next);
         b.end(next);
         b.end(done);
@@ -300,18 +309,19 @@ void define_fail_numbered(Runtime& rt, FunctionBuilder& b) {
     // The text, at most max_numbered_text bytes.
     b.get(length).u32(max_numbered_text).get(length).u32(max_numbered_text).op(i32_lt_u);
     b.op(select).set(length);
-    b.u32(buffer).get(text).get(length).op(memory_copy);
+    b.u32(buffer).get(text).get(length).bulk(memory_copy, max_numbered_text);
     // The digits, last first, at the buffer's end; then after the text.
     b.u32(last).set(p);
     {
-        const Label next = b.loop();
+        // A 64-bit number has at most 20 digits.
+        const Label next = b.loop({20});
         b.get(p).i32(1).op(i32_sub).tee(p);
         b.get(n).i64(10).op(i64_rem_u).op(i32_wrap_i64).i32('0').op(i32_add).store(i32_store8);
         b.get(n).i64(10).op(i64_div_u).tee(n).op(i64_eqz).op(i32_eqz).br_if(next);
         b.end(next);
     }
     b.u32(last).get(p).op(i32_sub).set(digits);
-    b.u32(buffer).get(length).op(i32_add).get(p).get(digits).op(memory_copy);
+    b.u32(buffer).get(length).op(i32_add).get(p).get(digits).bulk(memory_copy, 20);
     b.u32(buffer).get(length).get(digits).op(i32_add);
     b.call(rt.module().host(wasm::Host::abort)).unreachable();
 }

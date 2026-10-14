@@ -14,6 +14,7 @@
 #include <cexchain/bo/lower.hpp>
 #include <cexchain/bo/pack.hpp>
 #include <cexchain/bo/source.hpp>
+#include <cexchain/core/bytes.hpp>
 #include <cexchain/core/crypto.hpp>
 #include <cexchain/core/protocol/statement.hpp>
 
@@ -48,9 +49,30 @@ struct Compiled {
     std::optional<Build> build;
 };
 
-/// Builds a source read with `packs`. A fragment (no contract line) and
-/// anything that needs executors do not build.
-[[nodiscard]] Compiled compile(std::string_view source, const PackSet& packs);
+struct CompileOptions {
+    /// The codegen version to write: this compiler's, or an earlier one it
+    /// still writes (to rebuild a deploy made with it).
+    std::uint32_t codegen = wasm::codegen_version;
+    /// Refuse code that a call could run out of fuel in (build.fuel: a
+    /// function's bound beyond the 10,000,000 a call has), and warn when a
+    /// call's output could exceed what the code has for it (build.output).
+    /// A rebuild only compares bytes, so it does not.
+    bool check_bounds = true;
+};
+
+/// Builds a source read with `packs`. A fragment (no contract line),
+/// anything that needs executors, and (with check_bounds) code whose fuel
+/// bound exceeds a call's fuel do not build.
+[[nodiscard]] Compiled compile(std::string_view source, const PackSet& packs,
+                               const CompileOptions& options = {});
+
+/// The fuel bound of one call (milestone 18): the function's bound, with
+/// reading counted for this input's own items and map keys instead of the
+/// most a call's input can hold, so that a test can check the bound against
+/// a call's fuel closely. None if the input does not decode, names no
+/// function of the build, or holds a map key longer than
+/// runtime::max_key_size (read_input_fuel counts no such key).
+[[nodiscard]] std::optional<std::uint64_t> bound_for(const Build& build, ByteView input);
 
 enum class RebuildStatus : std::uint8_t {
     /// The source builds to the deployed code, interface, and name.
@@ -86,9 +108,11 @@ struct Rebuild {
 
 /// Rebuilds a deploy whose language is `bo` from its source, reading the
 /// bundle's pack digests with the home's hash, and compares the result with
-/// the deploy's code, interface, and name. "Differs" only when the deploy
-/// names this compiler's codegen and edition (and, for the official packs,
-/// its release): another version's output is reported as such, never as a
+/// the deploy's code, interface, and name. A deploy that names a codegen
+/// version this compiler still writes (wasm::oldest_codegen_version on) is
+/// rebuilt as that version. "Differs" only when the deploy names such a
+/// codegen and this compiler's edition (and, for the official packs, its
+/// release): another version's output is reported as such, never as a
 /// forgery.
 [[nodiscard]] Rebuild rebuild(const protocol::ContractDeployBody& deploy,
                               const crypto::Provider& provider, crypto::HashAlg home_hash);

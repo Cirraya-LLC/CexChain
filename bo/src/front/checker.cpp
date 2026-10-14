@@ -106,7 +106,7 @@ bool word_in(const ast::Expr& e, Category category) noexcept {
 // Units and exact values (values.hpp).
 
 constexpr std::uint32_t default_list_bound = 16;
-constexpr std::uint64_t max_list_bound = 1'000;
+using model::max_list_bound;
 
 // ---------------------------------------------------------------------------
 // Types.

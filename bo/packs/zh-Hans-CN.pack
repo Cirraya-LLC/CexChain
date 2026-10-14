@@ -409,6 +409,8 @@
     "build.too-large": "编译后的合约会过大：某动作的代码，或其包含的文本、名称及原因，超出合约的上限",
     "build.reject-text": "{text}：拒绝的文本不能以 bo: 开头，此标记属于编译器自身的原因",
     "build.late-party": "{field} 以 {party} 开始，但 {party} 要到之后的动作才确定：请为 {field} 指定在创建时已确定的参与方",
+    "build.fuel": "{function} 一次调用最多可用 {bound} 燃料，多于一次调用所拥有的 {limit}：请为其列表设定较小的上限（最多 N 项），或在一个动作内少做一些",
+    "build.output": "{function} 一次调用最多可写出 {bound} 字节，多于编译后合约为输出预留的 {limit}：这样的调用会被拒绝（bo:output）。部分会重复其母实例的字段，因此状态庞大的实例不能拆分为多个部分",
     "build.comments": "源代码会连同其注释（{count} 行）一起部署：各参与方以及任何验证此合约的人都能阅读",
     "run.input": "调用的输入不是合约可读取的内容：须为限度以内的确定性 CBOR",
     "run.overflow": "数值超出 Bo 可保存的范围：以最小单位计的整数，64 位",

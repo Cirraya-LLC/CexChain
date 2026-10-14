@@ -50,7 +50,9 @@ void check_offset(Runtime& rt, FunctionBuilder& b, const Local offset) {
 /// vn1 to rhat, as long as rhat stays below 2^32.
 void correct_digit(FunctionBuilder& b, const Local q, const Local rhat, const Local vn1,
                    const Local vn0, const Local un) {
-    const Label again = b.loop();
+    // At most two corrections (Hacker's Delight, 9-3; Knuth's algorithm D):
+    // three starts.
+    const Label again = b.loop({3});
     b.get(q).i64(base32).op(i64_ge_u);
     const Label too_big = b.if_(I32);
     b.i32(1);
@@ -401,6 +403,8 @@ void define_date_from_parts(Runtime& rt, FunctionBuilder& b) {
 }
 
 void define_bytes_cmp(Runtime&, FunctionBuilder& b) {
+    // Size 0: the shorter length, at most.
+    b.sizes({layout::input_max});
     const Local p = b.param(0);
     const Local n = b.param(1);
     const Local q = b.param(2);
@@ -414,7 +418,7 @@ void define_bytes_cmp(Runtime&, FunctionBuilder& b) {
     // first difference.
     {
         const Label tail = b.block();
-        const Label chunk = b.loop();
+        const Label chunk = b.loop({b.size(0).over(8) + 1});
         b.get(k).get(i).op(i32_sub).i32(8).op(i32_lt_u).br_if(tail);
         b.get(p).get(i).op(i32_add).load(i64_load);
         b.get(q).get(i).op(i32_add).load(i64_load).op(i64_ne).br_if(tail);
@@ -423,8 +427,9 @@ void define_bytes_cmp(Runtime&, FunctionBuilder& b) {
         b.end(tail);
     }
     {
+        // Fewer than eight bytes are left, or eight that differ.
         const Label equal = b.block();
-        const Label next = b.loop();
+        const Label next = b.loop({8});
         b.get(i).get(k).op(i32_eq).br_if(equal);
         b.get(p).get(i).op(i32_add).load(i32_load8_u).tee(x);
         b.get(q).get(i).op(i32_add).load(i32_load8_u).tee(y).op(i32_ne);
@@ -440,13 +445,16 @@ void define_bytes_cmp(Runtime&, FunctionBuilder& b) {
 }
 
 void define_bytes_eq(Runtime& rt, FunctionBuilder& b) {
+    // Size 0: the length, at most (unequal lengths compare no bytes).
+    b.sizes({layout::input_max});
     const Local n = b.param(1);
     const Local m = b.param(3);
     b.get(n).get(m).op(i32_ne);
     const Label lengths = b.if_();
     b.i32(0).return_();
     b.end(lengths);
-    b.get(b.param(0)).get(n).get(b.param(2)).get(m).call(rt.get(Routine::bytes_cmp)).op(i32_eqz);
+    b.get(b.param(0)).get(n).get(b.param(2)).get(m);
+    b.call(rt.get(Routine::bytes_cmp), {b.size(0)}).op(i32_eqz);
 }
 
 } // namespace cexchain::bo::runtime::detail

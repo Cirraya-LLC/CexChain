@@ -1,25 +1,25 @@
 test "6% 至 2026 年底，每张发票舍入一次" passed home=role.we
-  step 1 passed 2026-12-31 accepted active event=active event=invoice bill price=11005 total=11665 增值税=660@60000; fuel 9073
-  step 2 passed 2026-12-31 refused "bo:requires 结算 1"; fuel 13668
-  step 3 passed 2026-12-31 accepted settled event=settled final consents role.customer; fuel 13908 15704
+  step 1 passed 2026-12-31 accepted active event=active event=invoice bill price=11005 total=11665 增值税=660@60000; fuel 7833
+  step 2 passed 2026-12-31 refused "bo:requires 结算 1"; fuel 10660
+  step 3 passed 2026-12-31 accepted settled event=settled final consents role.customer; fuel 10900 12696
 test "半分四舍五入" passed home=role.we
-  step 1 passed 2026-12-31 accepted active event=active event=invoice bill price=10025 total=10627 增值税=602@60000; fuel 9039
-  step 2 passed 2026-12-31 refused "bo:requires 结算 1"; fuel 13620
-  step 3 passed 2026-12-31 accepted settled event=settled final consents role.customer; fuel 13860 15656
+  step 1 passed 2026-12-31 accepted active event=active event=invoice bill price=10025 total=10627 增值税=602@60000; fuel 7799
+  step 2 passed 2026-12-31 refused "bo:requires 结算 1"; fuel 10612
+  step 3 passed 2026-12-31 accepted settled event=settled final consents role.customer; fuel 10852 12648
 test "2027 年起 9%" passed home=role.we
-  step 1 passed 2027-01-01 accepted active event=active event=invoice bill price=11005 total=11995 增值税=990@90000; fuel 9107
-  step 2 passed 2027-01-01 refused "bo:requires 结算 1"; fuel 13700
-  step 3 passed 2027-01-01 accepted settled event=settled final consents role.customer; fuel 13940 15736
+  step 1 passed 2027-01-01 accepted active event=active event=invoice bill price=11005 total=11995 增值税=990@90000; fuel 7867
+  step 2 passed 2027-01-01 refused "bo:requires 结算 1"; fuel 10692
+  step 3 passed 2027-01-01 accepted settled event=settled final consents role.customer; fuel 10932 12728
 test "已开出的发票保留原税率" passed home=role.we
-  step 1 passed 2026-12-31 accepted active event=active event=invoice bill price=11005 total=11665 增值税=660@60000; fuel 9073
-  step 2 passed 2027-03-01 accepted settled event=settled final consents role.customer; fuel 13908 15704
+  step 1 passed 2026-12-31 accepted active event=active event=invoice bill price=11005 total=11665 增值税=660@60000; fuel 7833
+  step 2 passed 2027-03-01 accepted settled event=settled final consents role.customer; fuel 10900 12696
 test "重开的发票按开出时的税率" passed home=role.we
-  step 1 passed 2026-12-31 accepted active event=active event=invoice bill price=11005 total=11665 增值税=660@60000; fuel 9073
-  step 2 passed 2027-01-02 accepted active event=invoice bill price=11005 total=11995 增值税=990@90000; fuel 16765
-  step 3 passed 2027-01-02 refused "bo:requires 结算 1"; fuel 13700
-  step 4 passed 2027-01-02 accepted active event=invoice bill price=5000 total=5450 增值税=450@90000; fuel 16445
-  step 5 passed 2027-01-02 accepted settled event=settled final consents role.customer; fuel 13596 15392
+  step 1 passed 2026-12-31 accepted active event=active event=invoice bill price=11005 total=11665 增值税=660@60000; fuel 7833
+  step 2 passed 2027-01-02 accepted active event=invoice bill price=11005 total=11995 增值税=990@90000; fuel 13757
+  step 3 passed 2027-01-02 refused "bo:requires 结算 1"; fuel 10692
+  step 4 passed 2027-01-02 accepted active event=invoice bill price=5000 total=5450 增值税=450@90000; fuel 13437
+  step 5 passed 2027-01-02 accepted settled event=settled final consents role.customer; fuel 10588 12384
 test "内地以外不计增值税" passed home=role.we
-  step 1 passed 2027-01-01 accepted active event=active event=invoice bill price=11005 total=11005; fuel 8237
-  step 2 passed 2027-01-01 accepted settled event=settled final consents role.customer; fuel 11973 13768
+  step 1 passed 2027-01-01 accepted active event=active event=invoice bill price=11005 total=11005; fuel 7247
+  step 2 passed 2027-01-01 accepted settled event=settled final consents role.customer; fuel 9818 11613
 6 tests: 6 passed, 0 failed

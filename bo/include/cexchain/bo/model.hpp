@@ -523,6 +523,8 @@ struct Model {
 /// The deepest a part may be (spec section 15): an instance at this depth
 /// creates no parts.
 inline constexpr std::uint64_t max_part_depth = 8;
+/// The most items a list may hold: `at most N` with N at most this (R16).
+inline constexpr std::uint64_t max_list_bound = 1'000;
 
 /// The name of the function that approves a proposal.
 inline constexpr std::string_view approve_function = "approve";

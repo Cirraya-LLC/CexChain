@@ -1,35 +1,35 @@
 test "pledge, release, transfer, pay, dispute, confirm" passed home=role.issuer
-  step 1 passed 2026-01-01 accepted active event=active; fuel 7590
-  step 2 passed 2026-01-01 accepted pledged event=pledged consents role.supplier bank1; fuel 12849 15803
-  step 3 passed 2026-01-01 refused "bo:state pledge"; fuel 12644
-  step 4 passed 2026-01-01 refused "bo:state transfer"; fuel 12370
-  step 5 passed 2026-01-01 accepted active event=active consents bank1; fuel 12803 15096
-  step 6 passed 2026-01-01 accepted active event=active consents role.supplier factor1; fuel 12997 15750
-  step 7 passed 2026-01-01 waits factor1; fuel 12942 13607
-  step 8 passed 2026-01-01 accepted paid event=paid; fuel 13776
-  step 9 passed 2026-01-01 accepted disputed event=disputed consents factor1; fuel 12497 14991
-  step 10 passed 2026-01-01 accepted paid event=paid; fuel 13979
-  step 11 passed 2026-01-01 accepted settled event=settled final consents factor1; fuel 12350 14919
+  step 1 passed 2026-01-01 accepted active event=active; fuel 6806
+  step 2 passed 2026-01-01 accepted pledged event=pledged consents role.supplier bank1; fuel 11124 14078
+  step 3 passed 2026-01-01 refused "bo:state pledge"; fuel 10584
+  step 4 passed 2026-01-01 refused "bo:state transfer"; fuel 10415
+  step 5 passed 2026-01-01 accepted active event=active consents bank1; fuel 10837 13130
+  step 6 passed 2026-01-01 accepted active event=active consents role.supplier factor1; fuel 11220 13973
+  step 7 passed 2026-01-01 waits factor1; fuel 11186 11851
+  step 8 passed 2026-01-01 accepted paid event=paid; fuel 12093
+  step 9 passed 2026-01-01 accepted disputed event=disputed consents factor1; fuel 10699 13193
+  step 10 passed 2026-01-01 accepted paid event=paid; fuel 12433
+  step 11 passed 2026-01-01 accepted settled event=settled final consents factor1; fuel 10636 13205
   step 12 passed 2026-01-01 final-instance
 test "paid to the pledgee, under a freeze" passed home=role.issuer
-  step 1 passed 2026-01-01 accepted active event=active; fuel 7590
-  step 2 passed 2026-01-01 accepted pledged event=pledged consents role.supplier bank1; fuel 12849 15803
-  step 3 passed 2026-01-01 accepted frozen event=frozen; fuel 14501
-  step 4 passed 2026-01-01 refused "bo:state release"; fuel 12460
-  step 5 passed 2026-01-01 refused "bo:state pay"; fuel 12184
-  step 6 passed 2026-01-01 accepted pledged event=pledged; fuel 14451
-  step 7 passed 2026-01-01 accepted paid event=paid; fuel 14689
-  step 8 passed 2026-01-01 waits bank1; fuel 13116
-  step 9 passed 2026-01-01 accepted settled event=settled final consents bank1; fuel 13116 15885
+  step 1 passed 2026-01-01 accepted active event=active; fuel 6806
+  step 2 passed 2026-01-01 accepted pledged event=pledged consents role.supplier bank1; fuel 11124 14078
+  step 3 passed 2026-01-01 accepted frozen event=frozen; fuel 12556
+  step 4 passed 2026-01-01 refused "bo:state release"; fuel 10515
+  step 5 passed 2026-01-01 refused "bo:state pay"; fuel 10323
+  step 6 passed 2026-01-01 accepted pledged event=pledged; fuel 12632
+  step 7 passed 2026-01-01 accepted paid event=paid; fuel 12807
+  step 8 passed 2026-01-01 waits bank1; fuel 11119
+  step 9 passed 2026-01-01 accepted settled event=settled final consents bank1; fuel 11119 13888
 test "the bank enforces its pledge" passed home=role.issuer
-  step 1 passed 2026-01-01 accepted active event=active; fuel 7590
-  step 2 passed 2026-01-01 accepted pledged event=pledged consents role.supplier bank1; fuel 12849 15803
-  step 3 passed 2026-01-01 refused "bo:state cancel"; fuel 12135
-  step 4 passed 2026-01-01 accepted active event=active consents bank1; fuel 12699 14992
-  step 5 passed 2026-01-01 accepted pledged event=pledged consents bank2 bank1; fuel 13284 16225
+  step 1 passed 2026-01-01 accepted active event=active; fuel 6806
+  step 2 passed 2026-01-01 accepted pledged event=pledged consents role.supplier bank1; fuel 11124 14078
+  step 3 passed 2026-01-01 refused "bo:state cancel"; fuel 10190
+  step 4 passed 2026-01-01 accepted active event=active consents bank1; fuel 10733 13026
+  step 5 passed 2026-01-01 accepted pledged event=pledged consents bank2 bank1; fuel 11402 14343
 test "cancelled" passed home=role.issuer
-  step 1 passed 2026-01-01 accepted active event=active; fuel 7590
-  step 2 passed 2026-01-01 refused "bo:state unfreeze"; fuel 11141
-  step 3 passed 2026-01-01 accepted cancelled event=cancelled final consents role.supplier; fuel 11592 13960
+  step 1 passed 2026-01-01 accepted active event=active; fuel 6806
+  step 2 passed 2026-01-01 refused "bo:state unfreeze"; fuel 9636
+  step 3 passed 2026-01-01 accepted cancelled event=cancelled final consents role.supplier; fuel 9982 12350
   step 4 passed 2026-01-01 final-instance
 4 tests: 4 passed, 0 failed

@@ -31,11 +31,14 @@ void remaining(Runtime& rt, FunctionBuilder& b, const Local q) {
 
 void define_read_input(Runtime& rt, FunctionBuilder& b) {
     wasm::ModuleWriter& m = rt.module();
+    // Sizes: the input's items and map keys, at most (its bound is
+    // read_input_fuel's, which Runtime sets).
+    b.sizes({max_input_items, max_input_items / 2});
     const Local n = b.local(I32);
     const wasm::Global items = rt.var(Var::items);
     b.call(m.host(wasm::Host::input_size)).tee(n).u32(layout::input_max).op(i32_gt_u);
     fail_if(rt, b, Reason::input);
-    b.u32(layout::input_base).call(m.host(wasm::Host::input_read));
+    b.u32(layout::input_base).call(m.host(wasm::Host::input_read), {layout::input_max});
     b.u32(layout::input_base).get(n).op(i32_add).global_set(rt.var(Var::input_end));
     b.i32(0).global_set(items);
     b.u32(layout::input_base).i32(0).call(rt.get(Routine::read_item));
@@ -92,7 +95,8 @@ void define_read_item(Runtime& rt, FunctionBuilder& b) {
         b.i32(1).get(info).i32(24).op(i32_sub).op(i32_shl).set(width);
         b.get(width).global_get(input_end).get(q).op(i32_sub).op(i32_gt_u);
         fail_if(rt, b, Reason::input);
-        const Label bytes = b.loop();
+        // 1, 2, 4, or 8 bytes.
+        const Label bytes = b.loop({8});
         b.get(arg).i64(8).op(i64_shl).get(q).load(i64_load8_u).op(i64_or).set(arg);
         b.get(q).i32(1).op(i32_add).set(q);
         b.get(width).i32(1).op(i32_sub).tee(width).br_if(bytes);
@@ -138,7 +142,10 @@ void define_read_item(Runtime& rt, FunctionBuilder& b) {
     b.op(i64_gt_u);
     fail_if(rt, b, Reason::input);
     b.get(q).get(arg).op(i32_wrap_i64).op(i32_add).set(end);
-    b.get(q).get(end).call(rt.get(Routine::check_utf8)).br(done);
+    if (rt.codegen() < 2) {
+        b.get(q).get(end).call(rt.get(Routine::check_utf8), {layout::input_max});
+    }
+    b.br(done);
 
     b.end(array);
     b.get(depth).u32(max_input_depth).op(i32_ge_u);
@@ -152,7 +159,8 @@ void define_read_item(Runtime& rt, FunctionBuilder& b) {
     {
         const Label some = b.if_();
         b.get(depth).i32(1).op(i32_add).set(depth);
-        const Label next = b.loop();
+        // As many as the input has items (read_input's bound counts them).
+        const Label next = b.loop({max_input_items});
         b.get(q).get(depth).call(self).set(q);
         b.get(n).i32(1).op(i32_sub).tee(n).br_if(next);
         b.end(next);
@@ -171,7 +179,7 @@ void define_read_item(Runtime& rt, FunctionBuilder& b) {
     {
         const Label some = b.if_();
         b.get(depth).i32(1).op(i32_add).set(depth);
-        const Label next = b.loop();
+        const Label next = b.loop({max_input_items});
         b.get(q).set(key);
         b.get(q).get(depth).call(self).set(q);
         // Keys in the bytewise order of their encodings, none twice. Their
@@ -183,7 +191,7 @@ void define_read_item(Runtime& rt, FunctionBuilder& b) {
             const Label close = b.if_();
             b.get(prev).get(prev_end).get(prev).op(i32_sub);
             b.get(key).get(q).get(key).op(i32_sub);
-            b.call(rt.get(Routine::bytes_cmp)).i32(0).op(i32_ge_s);
+            b.call(rt.get(Routine::bytes_cmp), {layout::input_max}).i32(0).op(i32_ge_s);
             fail_if(rt, b, Reason::input);
             b.end(close);
             b.end(compare);
@@ -216,6 +224,8 @@ void define_read_item(Runtime& rt, FunctionBuilder& b) {
 }
 
 void define_check_utf8(Runtime& rt, FunctionBuilder& b) {
+    // Size 0: the bytes checked. Each pass takes one byte at least.
+    b.sizes({layout::input_max});
     const Local p = b.param(0);
     const Local end = b.param(1);
     const Local c = b.local(I32);
@@ -225,7 +235,7 @@ void define_check_utf8(Runtime& rt, FunctionBuilder& b) {
     const Local k = b.local(I32);
 
     const Label done = b.block();
-    const Label next = b.loop();
+    const Label next = b.loop({b.size(0) + 1});
     b.get(p).get(end).op(i32_ge_u).br_if(done);
     // Eight ASCII bytes at a time.
     b.get(end).get(p).op(i32_sub).i32(8).op(i32_ge_u);
@@ -269,7 +279,8 @@ void define_check_utf8(Runtime& rt, FunctionBuilder& b) {
     fail_if(rt, b, Reason::input);
     b.i32(1).set(k);
     {
-        const Label more = b.loop();
+        // The continuation bytes: one to three.
+        const Label more = b.loop({3});
         b.get(p).get(k).op(i32_add).load(i32_load8_u).tee(c);
         b.u32(0xC0).op(i32_and).u32(0x80).op(i32_ne);
         fail_if(rt, b, Reason::input);
@@ -303,7 +314,9 @@ void define_head_arg(Runtime&, FunctionBuilder& b) {
     b.get(info).op(i64_extend_i32_u).return_();
     b.end(small);
     b.i32(1).get(info).i32(24).op(i32_sub).op(i32_shl).set(width);
-    const Label bytes = b.loop();
+    // 1, 2, 4, or 8 bytes (info 28 to 31 never reach here: read_input
+    // refuses them).
+    const Label bytes = b.loop({8});
     b.get(p).i32(1).op(i32_add).set(p);
     b.get(arg).i64(8).op(i64_shl).get(p).load(i64_load8_u).op(i64_or).set(arg);
     b.get(width).i32(1).op(i32_sub).tee(width).br_if(bytes);
@@ -325,6 +338,9 @@ void define_content(Runtime&, FunctionBuilder& b) {
 }
 
 void define_map_get(Runtime& rt, FunctionBuilder& b) {
+    // Size 0: the entries searched at most (the map's); size 1: the key's
+    // length, which bounds each comparison.
+    b.sizes({layout::input_max / 2, layout::input_max});
     const Local map = b.param(0);
     const Local key = b.param(1);
     const Local key_length = b.param(2);
@@ -343,11 +359,11 @@ void define_map_get(Runtime& rt, FunctionBuilder& b) {
     b.get(map).call(rt.get(Routine::head_arg)).op(i32_wrap_i64).set(n);
     b.get(map).call(rt.get(Routine::content)).set(q);
     const Label absent = b.block();
-    const Label next = b.loop();
+    const Label next = b.loop({b.size(0) + 1});
     b.get(n).op(i32_eqz).br_if(absent);
     b.get(q).call(item_end).set(end);
     b.get(q).get(end).get(q).op(i32_sub).get(key).get(key_length);
-    b.call(rt.get(Routine::bytes_cmp)).tee(order).op(i32_eqz);
+    b.call(rt.get(Routine::bytes_cmp), {b.size(1)}).tee(order).op(i32_eqz);
     {
         const Label found = b.if_();
         b.get(end).return_();
@@ -363,6 +379,8 @@ void define_map_get(Runtime& rt, FunctionBuilder& b) {
 }
 
 void define_array_get(Runtime& rt, FunctionBuilder& b) {
+    // Size 0: the index, at most.
+    b.sizes({max_input_items});
     const Local array = b.param(0);
     const Local index = b.param(1);
     const Local q = b.local(I32);
@@ -382,7 +400,7 @@ void define_array_get(Runtime& rt, FunctionBuilder& b) {
     }
     b.get(array).call(rt.get(Routine::content)).set(q);
     const Label done = b.block();
-    const Label next = b.loop();
+    const Label next = b.loop({b.size(0) + 1});
     b.get(index).op(i32_eqz).br_if(done);
     b.get(q).call(item_end).set(q);
     b.get(index).i32(1).op(i32_sub).set(index).br(next);
@@ -392,6 +410,9 @@ void define_array_get(Runtime& rt, FunctionBuilder& b) {
 }
 
 void define_out_reserve(Runtime& rt, FunctionBuilder& b) {
+    // Size 0: the bytes reserved, the output's whole region at most.
+    b.sizes({layout::output_end - layout::output_base});
+    b.output(b.size(0));
     const Local n = b.param(0);
     const Local at = b.local(I32);
     const wasm::Global out = rt.var(Var::out);
@@ -421,8 +442,8 @@ void define_out_head(Runtime& rt, FunctionBuilder& b) {
     const Local at = b.local(I32);
     const Local n = b.local(I32);
     const Local k = b.local(I32);
-    b.get(arg).call(rt.get(Routine::out_head_size)).tee(n).call(rt.get(Routine::out_reserve));
-    b.set(at);
+    b.get(arg).call(rt.get(Routine::out_head_size)).tee(n);
+    b.call(rt.get(Routine::out_reserve), {9}).set(at);
     b.get(n).i32(1).op(i32_eq);
     {
         const Label one = b.if_();
@@ -435,7 +456,7 @@ void define_out_head(Runtime& rt, FunctionBuilder& b) {
     b.get(at).get(major).i32(5).op(i32_shl);
     b.get(n).i32(1).op(i32_sub).op(i32_ctz).i32(24).op(i32_add).op(i32_or).store(i32_store8);
     b.get(n).i32(1).op(i32_sub).set(k);
-    const Label bytes = b.loop();
+    const Label bytes = b.loop({8});
     b.get(at).get(k).op(i32_add).get(arg).store(i64_store8);
     b.get(arg).i64(8).op(i64_shr_u).set(arg);
     b.get(k).i32(1).op(i32_sub).tee(k).br_if(bytes);
@@ -454,31 +475,40 @@ void define_out_int(Runtime& rt, FunctionBuilder& b) {
 }
 
 void define_out_bool(Runtime& rt, FunctionBuilder& b) {
-    b.i32(1).call(rt.get(Routine::out_reserve));
+    b.i32(1).call(rt.get(Routine::out_reserve), {1});
     b.u32(0xF4).get(b.param(0)).op(i32_eqz).op(i32_eqz).op(i32_add).store(i32_store8);
 }
 
 void define_out_null(Runtime& rt, FunctionBuilder& b) {
-    b.i32(1).call(rt.get(Routine::out_reserve)).u32(0xF6).store(i32_store8);
+    b.i32(1).call(rt.get(Routine::out_reserve), {1}).u32(0xF6).store(i32_store8);
 }
 
 void define_out_raw(Runtime& rt, FunctionBuilder& b) {
+    // Size 0: the bytes written, at most.
+    b.sizes({layout::output_end - layout::output_base});
     const Local p = b.param(0);
     const Local n = b.param(1);
-    b.get(n).call(rt.get(Routine::out_reserve)).get(p).get(n).op(memory_copy);
+    b.get(n).call(rt.get(Routine::out_reserve), {b.size(0)}).get(p).get(n);
+    b.bulk(memory_copy, b.size(0));
 }
 
 void define_out_bytes(Runtime& rt, FunctionBuilder& b) {
+    // Size 0: the string's length, at most.
+    b.sizes({layout::output_end - layout::output_base});
     b.i32(2).get(b.param(1)).op(i64_extend_i32_u).call(rt.get(Routine::out_head));
-    b.get(b.param(0)).get(b.param(1)).call(rt.get(Routine::out_raw));
+    b.get(b.param(0)).get(b.param(1)).call(rt.get(Routine::out_raw), {b.size(0)});
 }
 
 void define_out_text(Runtime& rt, FunctionBuilder& b) {
+    // Size 0: the text's length, at most.
+    b.sizes({layout::output_end - layout::output_base});
     b.i32(3).get(b.param(1)).op(i64_extend_i32_u).call(rt.get(Routine::out_head));
-    b.get(b.param(0)).get(b.param(1)).call(rt.get(Routine::out_raw));
+    b.get(b.param(0)).get(b.param(1)).call(rt.get(Routine::out_raw), {b.size(0)});
 }
 
 void define_out_close(Runtime& rt, FunctionBuilder& b) {
+    // Size 0: the bytes written since the mark, at most.
+    b.sizes({layout::output_end - layout::output_base});
     const Local mark = b.param(0);
     const Local major = b.param(1);
     const Local count = b.param(2);
@@ -490,16 +520,18 @@ void define_out_close(Runtime& rt, FunctionBuilder& b) {
     // head at the mark.
     b.global_get(out).get(mark).op(i32_sub).set(length);
     b.get(count).call(rt.get(Routine::out_head_size)).tee(size);
-    b.call(rt.get(Routine::out_reserve)).get(size).op(i32_add).set(end);
-    b.get(mark).get(size).op(i32_add).get(mark).get(length).op(memory_copy);
+    b.call(rt.get(Routine::out_reserve), {9}).get(size).op(i32_add).set(end);
+    b.get(mark).get(size).op(i32_add).get(mark).get(length).bulk(memory_copy, b.size(0));
     b.get(mark).global_set(out);
+    // The head again, written where it goes: its bytes were reserved above.
     b.get(major).get(count).call(rt.get(Routine::out_head));
     b.get(end).global_set(out);
 }
 
 void define_out_finish(Runtime& rt, FunctionBuilder& b) {
     b.u32(layout::output_base).global_get(rt.var(Var::out)).u32(layout::output_base);
-    b.op(i32_sub).call(rt.module().host(wasm::Host::output_write));
+    b.op(i32_sub).call(rt.module().host(wasm::Host::output_write),
+                       {layout::output_end - layout::output_base});
 }
 
 } // namespace cexchain::bo::runtime::detail

@@ -211,6 +211,21 @@ constexpr int max_constant_depth = 16;
 
 /// The most bytes an instance's state may take, encoded (spec section 15).
 constexpr std::size_t max_state_size = 65'536;
+/// The most bytes a text or a list read from the input may take: the state,
+/// and the arguments, hold at most 64 KiB each (spec section 15).
+constexpr std::uint64_t max_value_size = 65'536;
+/// The most entries of maps the code searches: the instance view (spec
+/// section 15), the state ("bill", "fired", "since", "state", "fields",
+/// "pending", "previous"), a bill ("time", "lines", "price", "total",
+/// "charges"), and a signer (kind, presence, model).
+constexpr std::uint64_t view_keys = 6;
+/// Regions of code that only some functions can reach (cost.hpp): writing
+/// the parts a call issues, and a bill a call makes.
+constexpr std::uint32_t region_parts = 1;
+constexpr std::uint32_t region_bill = 2;
+constexpr std::uint64_t state_keys = 7;
+constexpr std::uint64_t bill_keys = 5;
+constexpr std::uint64_t signer_keys = 3;
 
 /// R17: products and quotients round half up.
 constexpr std::int32_t round_half_up = static_cast<std::int32_t>(rt::Rounding::half_up);
@@ -298,6 +313,33 @@ struct ChargeInfo {
     wasm::Global line{};
 };
 
+/// How much of the input reading a call's input meets: items, and map keys
+/// among them (runtime::read_input_fuel).
+struct Shape {
+    std::uint64_t items = 0;
+    std::uint64_t keys = 0;
+
+    Shape& operator+=(const Shape& o) {
+        items = wasm::add_saturating(items, o.items);
+        keys = wasm::add_saturating(keys, o.keys);
+        return *this;
+    }
+    friend Shape operator+(Shape a, const Shape& b) { return a += b; }
+    friend Shape operator*(const std::uint64_t n, const Shape& a) {
+        return {wasm::mul_saturating(n, a.items), wasm::mul_saturating(n, a.keys)};
+    }
+};
+
+/// A value of a type, as the input holds it: one item, or a list's items.
+Shape value_shape(const m::Type& t) {
+    return t.kind == TypeKind::list ? Shape{1 + std::uint64_t{t.bound}, 0} : Shape{1, 0};
+}
+
+/// A map's head and its keys.
+Shape map_shape(const std::uint64_t keys) {
+    return {1 + keys, keys};
+}
+
 /// One function being written.
 struct Ctx {
     FunctionBuilder* b = nullptr;
@@ -329,12 +371,21 @@ struct Ctx {
         Local b{};
     };
     std::vector<Loop> loops;
+    /// The size of each text item an `each` names, for what comparing it
+    /// costs (the loop's items, cost.hpp).
+    std::map<std::string, wasm::Size> item_sizes;
+    /// Two scratch locals, shared by every comparison of parties that may
+    /// be none and every `consent of` a list (codegen 2; codegen 1 took two
+    /// new ones each time, so that thousands could exceed the 4,096 locals
+    /// a function may have).
+    std::optional<std::pair<Local, Local>> scratch;
 };
 
 class Lowering {
 public:
-    Lowering(std::string_view source, const m::Model& model)
-        : source_(source), model_(model), module_(rt::memory_plan()), rt_(module_) {}
+    Lowering(std::string_view source, const m::Model& model, const std::uint32_t codegen)
+        : source_(source), model_(model), codegen_(codegen), module_(rt::memory_plan()),
+          rt_(module_, codegen) {}
 
     Lowered run();
 
@@ -372,12 +423,42 @@ private:
     void refuse(FunctionBuilder& b, std::string_view reason);
     void call_item(FunctionBuilder& b, std::uint32_t key);
     void push_key(FunctionBuilder& b, const Bytes& key);
+    // Calls whose cost depends on a size (cost.hpp), each with its size.
+    /// [map] -> [value]: the value under `key`, in a map of at most
+    /// `entries` entries.
+    void lookup(FunctionBuilder& b, const Bytes& key, wasm::Size entries);
+    /// [p, n, q, m] -> [flag]: equal bytes, at most `length` compared.
+    void equal_bytes(FunctionBuilder& b, wasm::Size length);
+    /// [p, n] -> []: n bytes of output as they are, at most `length`.
+    void out_raw(FunctionBuilder& b, wasm::Size length);
+    /// Writes a key (or any constant encoding).
+    void out_key(FunctionBuilder& b, const Bytes& key);
+    /// [p, n] -> []: a text of at most `length` bytes.
+    void out_text(FunctionBuilder& b, wasm::Size length);
+    /// The most bytes comparing two texts reads: no more than either holds.
+    [[nodiscard]] wasm::Size text_size(const Ctx& c, const m::Expr& x, const m::Expr& y) const;
+    /// A text's length if it is written in the contract (directly or as a
+    /// constant's value), or an `each` item's size; none otherwise.
+    [[nodiscard]] std::optional<wasm::Size> known_size(const Ctx& c, const m::Expr& e,
+                                                       bool items) const;
+    /// The two scratch locals of the function (codegen 2), or two new ones.
+    [[nodiscard]] std::pair<Local, Local> scratch(Ctx& c);
     void expect(FunctionBuilder& b, Rep rep, std::string_view reason);
     void read_value(FunctionBuilder& b, const m::Type& type, std::string_view reason);
     void store(FunctionBuilder& b, const FieldSlot& slot);
     void load(FunctionBuilder& b, const FieldSlot& slot);
     void out_value(FunctionBuilder& b, Rep rep);
     void state_name(FunctionBuilder& b, Local index);
+
+    // --- Bounds (milestone 18): the input each function meets at most.
+    [[nodiscard]] Shape arguments_shape(const ActionInfo& action) const;
+    [[nodiscard]] Shape creation_shape() const;
+    [[nodiscard]] Shape proposal_shape() const;
+    [[nodiscard]] Shape state_shape() const;
+    [[nodiscard]] Shape rest_shape() const;
+    /// True if the statements (and the actions they do) set the bill's field.
+    [[nodiscard]] bool sets_bill(const std::vector<m::Statement>& list, int depth = 0) const;
+    void bounds(Build& build);
 
     // --- The second pass: code.
     void emit();
@@ -395,6 +476,8 @@ private:
     void entry_check(Ctx& c);
     void depth_check(Ctx& c);
     void issue_parts(Ctx& c, const m::Do& d);
+    /// The most parts one call issues: no more than its lists hold.
+    [[nodiscard]] std::uint64_t parts_bound() const;
     void party_raw(Ctx& c, const m::Expr& e);
     void ledger_equals(Ctx& c, const m::Expr& x, const m::Expr& y);
     void consent_of(Ctx& c, const m::Expr& party);
@@ -439,6 +522,7 @@ private:
 
     std::string_view source_;
     const m::Model& model_;
+    std::uint32_t codegen_;
     wasm::ModuleWriter module_;
     rt::Runtime rt_;
     std::vector<Diagnostic> diagnostics_;
@@ -490,6 +574,7 @@ private:
     std::map<std::size_t, PartField> part_fields_;
 
     // Written in the second pass.
+    wasm::Func entry_{};
     wasm::Global state_{};
     wasm::Global events_{};
     std::uint32_t events_area_ = 0;
@@ -1003,9 +1088,6 @@ void Lowering::plan_actions() {
         max_transitions_ = std::max(max_transitions_, info.transitions);
         actions_.push_back(std::move(info));
     }
-    if (actions_.size() + 1 > max_build_functions) {
-        error(Span{}, "build.too-many-functions", {{"limit", std::to_string(max_build_functions)}});
-    }
 }
 
 namespace {
@@ -1065,10 +1147,6 @@ void Lowering::plan_rules() {
         }
         max_transitions_ = std::max(max_transitions_, info.transitions);
         rules_.push_back(std::move(info));
-    }
-    if (!rules_.empty() && actions_.size() + 1 <= max_build_functions &&
-        actions_.size() + rules_.size() + 1 > max_build_functions) {
-        error(Span{}, "build.too-many-functions", {{"limit", std::to_string(max_build_functions)}});
     }
 }
 
@@ -1134,6 +1212,37 @@ void Lowering::plan() {
     plan_actions();
     plan_rules();
     plan_charges();
+    // The interface: the creation, each action that has a function, approve,
+    // and each time rule (at most 256, spec section 15).
+    std::size_t functions = 1 + rules_.size() + (proposals_ ? 1U : 0U);
+    for (const ActionInfo& a : actions_) {
+        functions += a.rule_only ? 0U : 1U;
+    }
+    if (functions > max_build_functions) {
+        error(Span{}, "build.too-many-functions", {{"limit", std::to_string(max_build_functions)}});
+    }
+    // A call that makes a bill reports one more event (R26): with it, no
+    // more than 64 (spec section 15).
+    if (bill_slot_) {
+        for (const ActionInfo& a : actions_) {
+            if (a.transitions + (a.action->agents_propose ? 1U : 0U) == max_build_events &&
+                sets_bill(a.action->body)) {
+                error(a.action->span, "build.too-many-events",
+                      {{"action", a.key}, {"limit", std::to_string(max_build_events)}});
+            }
+        }
+        for (const RuleInfo& r : rules_) {
+            std::vector<m::Statement> all;
+            for (const m::Do& d : r.rule->actions) {
+                all.push_back(m::Statement{d});
+            }
+            if (r.transitions + 1 == max_build_events &&
+                (sets_bill(all) || sets_bill(r.rule->body))) {
+                error(r.rule->span, "build.too-many-events",
+                      {{"action", r.wire}, {"limit", std::to_string(max_build_events)}});
+            }
+        }
+    }
     since_used_ = m::uses_since(model_);
     if (!states_.empty()) {
         plan_finals();
@@ -1181,6 +1290,74 @@ void Lowering::push_key(FunctionBuilder& b, const Bytes& key) {
     b.u32(intern(ByteView(key))).u32(static_cast<std::uint32_t>(key.size()));
 }
 
+void Lowering::lookup(FunctionBuilder& b, const Bytes& key, wasm::Size entries) {
+    push_key(b, key);
+    b.call(rt_.get(Routine::map_get), {std::move(entries), key.size()});
+}
+
+void Lowering::equal_bytes(FunctionBuilder& b, wasm::Size length) {
+    b.call(rt_.get(Routine::bytes_eq), {std::move(length)});
+}
+
+void Lowering::out_raw(FunctionBuilder& b, wasm::Size length) {
+    b.call(rt_.get(Routine::out_raw), {std::move(length)});
+}
+
+void Lowering::out_key(FunctionBuilder& b, const Bytes& key) {
+    push_key(b, key);
+    out_raw(b, key.size());
+}
+
+void Lowering::out_text(FunctionBuilder& b, wasm::Size length) {
+    b.call(rt_.get(Routine::out_text), {std::move(length)});
+}
+
+std::optional<wasm::Size> Lowering::known_size(const Ctx& c, const m::Expr& e,
+                                               const bool items) const {
+    const m::Expr* at = &e;
+    for (int depth = 0; depth <= max_constant_depth; ++depth) {
+        if (at->kind == ExprKind::literal && at->literal.kind == ast::LiteralKind::text) {
+            return wasm::Size(at->literal.text.size());
+        }
+        if (items && at->refers == Refers::item) {
+            const auto it = c.item_sizes.find(m::key(at->concept_entry, at->name));
+            return it != c.item_sizes.end() ? std::optional(it->second) : std::nullopt;
+        }
+        const m::Field* k =
+            at->refers == Refers::field ? constant(m::key(at->concept_entry, at->name)) : nullptr;
+        if (k == nullptr || !k->value) {
+            return std::nullopt;
+        }
+        at = &*k->value;
+    }
+    return std::nullopt;
+}
+
+wasm::Size Lowering::text_size(const Ctx& c, const m::Expr& x, const m::Expr& y) const {
+    // A text written in the contract first, then an item's (cost.hpp: the
+    // size of an item must not pass through min), else the most a text in
+    // the input holds.
+    for (const bool items : {false, true}) {
+        for (const m::Expr* e : {&x, &y}) {
+            if (auto size = known_size(c, *e, items)) {
+                return *size;
+            }
+        }
+    }
+    return max_value_size;
+}
+
+std::pair<Local, Local> Lowering::scratch(Ctx& c) {
+    FunctionBuilder& b = *c.b;
+    if (codegen_ < 2) {
+        return {b.local(I32), b.local(I32)};
+    }
+    if (!c.scratch) {
+        c.scratch = std::pair{b.local(I32), b.local(I32)};
+    }
+    return *c.scratch;
+}
+
 /// The item on the stack, read as `rep`, or a refusal with `reason`.
 void Lowering::expect(FunctionBuilder& b, const Rep rep, const std::string_view reason) {
     b.u32(intern(reason)).u32(static_cast<std::uint32_t>(reason.size()));
@@ -1213,7 +1390,7 @@ void Lowering::read_value(FunctionBuilder& b, const m::Type& type, const std::st
         return;
     }
     b.u32(type.bound).u32(intern(reason)).u32(static_cast<std::uint32_t>(reason.size()));
-    b.call(list_reader(element_rep(type)));
+    b.call(list_reader(element_rep(type)), {type.bound});
 }
 
 void Lowering::store(FunctionBuilder& b, const FieldSlot& slot) {
@@ -1230,7 +1407,8 @@ void Lowering::load(FunctionBuilder& b, const FieldSlot& slot) {
     }
 }
 
-/// Writes the value on the stack.
+/// Writes the value on the stack (a text or a list as the input or the
+/// module holds it: at most 64 KiB).
 void Lowering::out_value(FunctionBuilder& b, const Rep rep) {
     switch (rep) {
     case Rep::i64:
@@ -1240,14 +1418,14 @@ void Lowering::out_value(FunctionBuilder& b, const Rep rep) {
         b.call(rt_.get(Routine::out_bool));
         return;
     case Rep::text:
-        b.call(rt_.get(Routine::out_text));
+        out_text(b, max_value_size);
         return;
     case Rep::ledger:
-        b.i32(32).call(rt_.get(Routine::out_bytes));
+        b.i32(32).call(rt_.get(Routine::out_bytes), {32});
         return;
     case Rep::list:
         // Its encoding, as read or interned.
-        b.call(rt_.get(Routine::out_raw));
+        out_raw(b, max_value_size);
         return;
     case Rep::none:
         break;
@@ -1259,7 +1437,11 @@ void Lowering::out_value(FunctionBuilder& b, const Rep rep) {
 void Lowering::state_name(FunctionBuilder& b, const Local index) {
     b.get(index).i32(3).op(i32_shl).load(i32_load, state_table_);
     b.get(index).i32(3).op(i32_shl).load(i32_load, state_table_ + 4);
-    b.call(rt_.get(Routine::out_raw));
+    std::size_t longest = 0;
+    for (const StateSlot& st : states_) {
+        longest = std::max(longest, st.encoded.size());
+    }
+    out_raw(b, longest);
 }
 
 // ---------------------------------------------------------------------------
@@ -1436,7 +1618,8 @@ wasm::Func Lowering::compute_bill() {
     }
     b.global_set(bill_divisor_);
     // The price: the lines' sum.
-    b.global_get(lines.first).call(list_sum()).global_set(bill_price_);
+    const std::uint64_t bound = lines.field->type.bound;
+    b.global_get(lines.first).call(list_sum(), {bound}).global_set(bill_price_);
     // The charges on each line, summed.
     bool per_line = false;
     for (const ChargeInfo& k : charges_) {
@@ -1449,7 +1632,7 @@ wasm::Func Lowering::compute_bill() {
         b.global_get(lines.first).call(rt_.get(Routine::head_arg)).op(i32_wrap_i64).set(n);
         b.global_get(lines.first).call(rt_.get(Routine::content)).set(p);
         const Label done = b.block();
-        const Label next = b.loop();
+        const Label next = b.loop({bound + 1});
         b.get(n).op(i32_eqz).br_if(done);
         item_value(b, p, Rep::i64);
         b.call(line_charges());
@@ -1498,15 +1681,16 @@ void Lowering::write_bill(FunctionBuilder& b) {
     // The bill made in this call, or the one the instance kept.
     const wasm::Func head = rt_.get(Routine::out_head);
     const wasm::Func out_int = rt_.get(Routine::out_int);
-    const wasm::Func out_raw = rt_.get(Routine::out_raw);
+    // Routines are emitted in the order of first use (runtime.hpp).
+    static_cast<void>(rt_.get(Routine::out_raw));
     const std::vector<const ChargeInfo*> line_keys = sorted_charges(true);
     const bool per_line = !line_keys.empty();
     b.global_get(bill_new_);
     const Label made = b.if_();
+    b.region_begin(region_bill);
     b.global_get(rt_.var(rt::Var::out)).global_set(bill_at_);
     b.i32(5).i64(per_line ? 5 : 4).call(head);
-    push_key(b, text_cbor("time"));
-    b.call(out_raw);
+    out_key(b, text_cbor("time"));
     b.global_get(bill_time_).call(out_int);
     if (per_line) {
         // "lines": [{CHARGE: amount, ...}, ...], those that apply.
@@ -1514,13 +1698,12 @@ void Lowering::write_bill(FunctionBuilder& b) {
         const Local n = b.local(I32);
         const Local count = b.local(I64);
         const FieldSlot& lines = fields_[*bill_slot_];
-        push_key(b, text_cbor("lines"));
-        b.call(out_raw);
+        out_key(b, text_cbor("lines"));
         b.global_get(lines.first).call(rt_.get(Routine::head_arg)).op(i32_wrap_i64).set(n);
         b.i32(4).get(n).op(i64_extend_i32_u).call(head);
         b.global_get(lines.first).call(rt_.get(Routine::content)).set(p);
         const Label done = b.block();
-        const Label next = b.loop();
+        const Label next = b.loop({lines.field->type.bound + 1});
         b.get(n).op(i32_eqz).br_if(done);
         item_value(b, p, Rep::i64);
         b.call(line_charges());
@@ -1534,8 +1717,7 @@ void Lowering::write_bill(FunctionBuilder& b) {
         for (const ChargeInfo* k : line_keys) {
             b.global_get(k->applies);
             const Label applies = b.if_();
-            push_key(b, k->key);
-            b.call(out_raw);
+            out_key(b, k->key);
             b.global_get(k->line).call(out_int);
             b.end(applies);
         }
@@ -1543,15 +1725,12 @@ void Lowering::write_bill(FunctionBuilder& b) {
         b.end(next);
         b.end(done);
     }
-    push_key(b, text_cbor("price"));
-    b.call(out_raw);
+    out_key(b, text_cbor("price"));
     b.global_get(bill_price_).call(out_int);
-    push_key(b, text_cbor("total"));
-    b.call(out_raw);
+    out_key(b, text_cbor("total"));
     b.global_get(bill_total_).call(out_int);
     // "charges": {CHARGE: {? "rate": r, "amount": a}, ...}, those that apply.
-    push_key(b, text_cbor("charges"));
-    b.call(out_raw);
+    out_key(b, text_cbor("charges"));
     b.i32(5).i64(0);
     for (const ChargeInfo& k : charges_) {
         b.global_get(k.applies).op(i64_extend_i32_u).op(i64_add);
@@ -1560,24 +1739,24 @@ void Lowering::write_bill(FunctionBuilder& b) {
     for (const ChargeInfo* k : sorted_charges(false)) {
         b.global_get(k->applies);
         const Label applies = b.if_();
-        push_key(b, k->key);
-        b.call(out_raw);
+        out_key(b, k->key);
         if (k->charge->amount) {
             b.i32(5).i64(1).call(head);
         } else {
             b.i32(5).i64(2).call(head);
-            push_key(b, text_cbor("rate"));
-            b.call(out_raw);
+            out_key(b, text_cbor("rate"));
             b.global_get(k->rate).call(out_int);
         }
-        push_key(b, text_cbor("amount"));
-        b.call(out_raw);
+        out_key(b, text_cbor("amount"));
         b.global_get(k->amount).call(out_int);
         b.end(applies);
     }
     b.global_get(rt_.var(rt::Var::out)).global_get(bill_at_).op(i32_sub).global_set(bill_length_);
+    b.region_end();
     b.else_(made);
-    b.global_get(bill_old_).global_get(bill_old_length_).call(out_raw);
+    // The bill kept, as the state held it.
+    b.global_get(bill_old_).global_get(bill_old_length_);
+    out_raw(b, max_state_size);
     b.end(made);
 }
 
@@ -1592,10 +1771,12 @@ wasm::Func Lowering::list_reader(const Rep element) {
     if (const auto it = list_readers_.find(element); it != list_readers_.end()) {
         return it->second;
     }
-    // [item, bound, reason, reason_length] -> [address, length]
+    // [item, bound, reason, reason_length] -> [address, length]. Size 0: the
+    // bound (at most 1,000, R16).
     const wasm::Func f = module_.declare({{I32, I32, I32, I32}, {I32, I32}});
     list_readers_.emplace(element, f);
     FunctionBuilder b = module_.begin(f);
+    b.sizes({m::max_list_bound});
     const Local item = b.param(0);
     const Local bound = b.param(1);
     const Local reason = b.param(2);
@@ -1611,7 +1792,7 @@ wasm::Func Lowering::list_reader(const Rep element) {
     b.get(item).call(rt_.get(Routine::content)).set(p);
     {
         const Label done = b.block();
-        const Label next = b.loop();
+        const Label next = b.loop({b.size(0) + 1});
         b.get(n).op(i64_eqz).br_if(done);
         b.get(p).get(reason).get(length);
         switch (element) {
@@ -1686,10 +1867,11 @@ wasm::Func Lowering::list_sum() {
     if (list_sum_) {
         return *list_sum_;
     }
-    // [address] -> [i64]: the items' sum, checked.
+    // [address] -> [i64]: the items' sum, checked. Size 0: the list's bound.
     const wasm::Func f = module_.declare({{I32}, {I64}});
     list_sum_ = f;
     FunctionBuilder b = module_.begin(f);
+    b.sizes({m::max_list_bound});
     const Local list = b.param(0);
     const Local n = b.local(I32);
     const Local p = b.local(I32);
@@ -1698,7 +1880,7 @@ wasm::Func Lowering::list_sum() {
     b.get(list).call(rt_.get(Routine::content)).set(p);
     {
         const Label done = b.block();
-        const Label next = b.loop();
+        const Label next = b.loop({b.size(0) + 1});
         b.get(n).op(i32_eqz).br_if(done);
         b.get(sum);
         item_value(b, p, Rep::i64);
@@ -1735,6 +1917,8 @@ wasm::Func Lowering::list_has(const Rep element) {
     const wasm::Func f = module_.declare({params, {I32}});
     list_has_.emplace(element, f);
     FunctionBuilder b = module_.begin(f);
+    // Sizes: the list's bound, and its texts' bytes in all.
+    b.sizes({m::max_list_bound, max_value_size});
     const Local list = b.param(0);
     const Local x = b.param(1);
     const Local n = b.local(I32);
@@ -1749,8 +1933,9 @@ wasm::Func Lowering::list_has(const Rep element) {
     b.get(list).call(rt_.get(Routine::head_arg)).op(i32_wrap_i64).set(n);
     b.get(list).call(rt_.get(Routine::content)).set(p);
     {
+        // A text is compared only with one as long: no more than the item.
         const Label done = b.block();
-        const Label next = b.loop();
+        const Label next = b.loop({b.size(0) + 1, b.size(1)});
         b.get(n).op(i32_eqz).br_if(done);
         switch (element) {
         case Rep::i64:
@@ -1763,11 +1948,11 @@ wasm::Func Lowering::list_has(const Rep element) {
             break;
         case Rep::text:
             item_value(b, p, element);
-            b.get(x).get(b.param(2)).call(bytes_eq);
+            b.get(x).get(b.param(2)).call(bytes_eq, {b.item_size(next)});
             break;
         default:
             item_value(b, p, element);
-            b.i32(32).get(x).i32(32).call(bytes_eq);
+            b.i32(32).get(x).i32(32).call(bytes_eq, {32});
             break;
         }
         {
@@ -1871,8 +2056,15 @@ void Lowering::each(Ctx& c, const m::Each& e) {
         value(c, e.list);
         b.op(drop).tee(loop.p).call(rt_.get(Routine::head_arg)).op(i32_wrap_i64).set(loop.n);
         b.get(loop.p).call(rt_.get(Routine::content)).set(loop.p);
+        // Once per item; a text item's bytes add up to the list's.
         const Label done = b.block();
-        const Label next = b.loop();
+        const Label next =
+            element == Rep::text
+                ? b.loop({wasm::Size(e.list.type.bound) + 1, wasm::Size(max_value_size)})
+                : b.loop({wasm::Size(e.list.type.bound) + 1});
+        if (element == Rep::text) {
+            c.item_sizes.insert_or_assign(e.name, b.item_size(next));
+        }
         b.get(loop.n).op(i32_eqz).br_if(done);
         item_value(b, loop.p, element);
         keep();
@@ -1883,6 +2075,7 @@ void Lowering::each(Ctx& c, const m::Each& e) {
         b.end(done);
     }
     c.items.erase(e.name);
+    c.item_sizes.erase(e.name);
 }
 
 void Lowering::member(Ctx& c, const m::Expr& e) {
@@ -1913,7 +2106,7 @@ void Lowering::member(Ctx& c, const m::Expr& e) {
     } else {
         value(c, x);
     }
-    b.call(list_has(element));
+    b.call(list_has(element), {list.type.bound, max_value_size});
 }
 
 void Lowering::list_apply(Ctx& c, const m::Expr& e) {
@@ -1939,7 +2132,7 @@ void Lowering::list_apply(Ctx& c, const m::Expr& e) {
     if (count) {
         b.call(rt_.get(Routine::head_arg));
     } else {
-        b.call(list_sum());
+        b.call(list_sum(), {list.type.bound});
     }
 }
 
@@ -1959,8 +2152,17 @@ wasm::Func Lowering::load_instance() {
     const Local parties = b.local(I32);
     const Local p = b.local(I32);
     const Local n = b.local(I32);
-    const wasm::Func map_get = rt_.get(Routine::map_get);
+    // Routines are emitted in the order of first use (runtime.hpp).
+    static_cast<void>(rt_.get(Routine::map_get));
     const std::string_view input = rt::text_of(rt::Reason::input);
+    // The maps the input and the state hold, and their entries at most.
+    const std::size_t parties_count = [&] {
+        std::size_t count = roles_.size();
+        for (const FieldSlot& slot : fields_) {
+            count += slot.rep == Rep::ledger ? 1 : 0;
+        }
+        return count;
+    }();
 
     call_item(b, 5);
     b.tee(instance).op(i32_eqz);
@@ -1970,12 +2172,11 @@ wasm::Func Lowering::load_instance() {
         b.end(none);
     }
     b.get(instance);
-    push_key(b, uint_key(3));
-    b.call(map_get).set(st);
+    lookup(b, uint_key(3), view_keys);
+    b.set(st);
     // The state, by name.
     b.get(st);
-    push_key(b, text_cbor("state"));
-    b.call(map_get);
+    lookup(b, text_cbor("state"), state_keys);
     expect(b, Rep::text, input);
     b.set(n).set(p);
     {
@@ -1983,7 +2184,7 @@ wasm::Func Lowering::load_instance() {
         for (std::size_t i = 0; i < states_.size(); ++i) {
             const std::string& wire = states_[i].wire;
             b.get(p).get(n).u32(intern(wire)).u32(static_cast<std::uint32_t>(wire.size()));
-            b.call(rt_.get(Routine::bytes_eq));
+            equal_bytes(b, wire.size());
             const Label same = b.if_();
             b.u32(static_cast<std::uint32_t>(i)).global_set(state_).br(found);
             b.end(same);
@@ -1992,12 +2193,11 @@ wasm::Func Lowering::load_instance() {
         b.end(found);
     }
     b.get(st);
-    push_key(b, text_cbor("fields"));
-    b.call(map_get).set(fields);
+    lookup(b, text_cbor("fields"), state_keys);
+    b.set(fields);
     for (const FieldSlot& slot : fields_) {
         b.get(fields);
-        push_key(b, slot.key);
-        b.call(map_get);
+        lookup(b, slot.key, fields_.size());
         if (slot.optional) {
             // No party: null.
             b.tee(p).op(i32_eqz).op(i32_eqz);
@@ -2024,8 +2224,8 @@ wasm::Func Lowering::load_instance() {
     if (previous_used_) {
         // The state before the current one, by name, or null.
         b.get(st);
-        push_key(b, text_cbor("previous"));
-        b.call(map_get).tee(p).op(i32_eqz);
+        lookup(b, text_cbor("previous"), state_keys);
+        b.tee(p).op(i32_eqz);
         {
             const Label missing = b.if_();
             b.call(rt_.fail(rt::Reason::input));
@@ -2041,7 +2241,7 @@ wasm::Func Lowering::load_instance() {
             for (std::size_t i = 0; i < states_.size(); ++i) {
                 const std::string& wire = states_[i].wire;
                 b.get(p).get(n).u32(intern(wire)).u32(static_cast<std::uint32_t>(wire.size()));
-                b.call(rt_.get(Routine::bytes_eq));
+                equal_bytes(b, wire.size());
                 const Label same = b.if_();
                 b.u32(static_cast<std::uint32_t>(i + 1)).global_set(previous_).br(found);
                 b.end(same);
@@ -2055,8 +2255,8 @@ wasm::Func Lowering::load_instance() {
         // The bill the instance keeps, and each charge's amount on it.
         const Local charges = b.local(I32);
         b.get(st);
-        push_key(b, text_cbor("bill"));
-        b.call(map_get).tee(p).op(i32_eqz);
+        lookup(b, text_cbor("bill"), state_keys);
+        b.tee(p).op(i32_eqz);
         {
             const Label missing = b.if_();
             b.call(rt_.fail(rt::Reason::input));
@@ -2065,16 +2265,15 @@ wasm::Func Lowering::load_instance() {
         b.get(p).global_set(bill_old_);
         b.get(p).call(rt_.get(Routine::item_end)).get(p).op(i32_sub).global_set(bill_old_length_);
         b.get(p);
-        push_key(b, text_cbor("charges"));
-        b.call(map_get).set(charges);
+        lookup(b, text_cbor("charges"), bill_keys);
+        b.set(charges);
         for (const ChargeInfo& k : charges_) {
             b.get(charges);
-            push_key(b, k.key);
-            b.call(map_get).tee(p);
+            lookup(b, k.key, charges_.size());
+            b.tee(p);
             const Label present = b.if_(I64);
             b.get(p);
-            push_key(b, text_cbor("amount"));
-            b.call(map_get);
+            lookup(b, text_cbor("amount"), 2);
             expect(b, Rep::i64, input);
             b.else_(present);
             b.i64(0);
@@ -2085,8 +2284,7 @@ wasm::Func Lowering::load_instance() {
     if (since_used_) {
         // When the instance last changed state.
         b.get(st);
-        push_key(b, text_cbor("since"));
-        b.call(map_get);
+        lookup(b, text_cbor("since"), state_keys);
         expect(b, Rep::i64, input);
         b.global_set(since_);
     }
@@ -2094,8 +2292,8 @@ wasm::Func Lowering::load_instance() {
         // For each time rule, the time it last applied for, or null.
         const Local fired = b.local(I32);
         b.get(st);
-        push_key(b, text_cbor("fired"));
-        b.call(map_get).tee(fired).op(i32_eqz);
+        lookup(b, text_cbor("fired"), state_keys);
+        b.tee(fired).op(i32_eqz);
         b.get(fired).load(i32_load8_u).u32(0xE0).op(i32_and).u32(0xA0).op(i32_ne).op(i32_or);
         {
             const Label other = b.if_();
@@ -2104,8 +2302,8 @@ wasm::Func Lowering::load_instance() {
         }
         for (const RuleInfo& rule : rules_) {
             b.get(fired);
-            push_key(b, rule.key);
-            b.call(map_get).tee(p).op(i32_eqz);
+            lookup(b, rule.key, rules_.size());
+            b.tee(p).op(i32_eqz);
             {
                 const Label missing = b.if_();
                 b.call(rt_.fail(rt::Reason::input));
@@ -2123,8 +2321,8 @@ wasm::Func Lowering::load_instance() {
     if (proposals_) {
         // The proposals: an array of [function, arguments].
         b.get(st);
-        push_key(b, text_cbor("pending"));
-        b.call(map_get).tee(p).op(i32_eqz);
+        lookup(b, text_cbor("pending"), state_keys);
+        b.tee(p).op(i32_eqz);
         b.get(p).load(i32_load8_u).u32(0xE0).op(i32_and).u32(0x80).op(i32_ne).op(i32_or);
         {
             const Label other = b.if_();
@@ -2134,12 +2332,12 @@ wasm::Func Lowering::load_instance() {
         b.get(p).global_set(pending_);
     }
     b.get(instance);
-    push_key(b, uint_key(5));
-    b.call(map_get).set(parties);
+    lookup(b, uint_key(5), view_keys);
+    b.set(parties);
     for (const RoleSlot& role : roles_) {
         b.get(parties);
-        push_key(b, role.key);
-        b.call(map_get).tee(p);
+        lookup(b, role.key, parties_count);
+        b.tee(p);
         const Label bound = b.if_();
         b.get(p);
         expect(b, Rep::ledger, input);
@@ -2166,7 +2364,8 @@ wasm::Func Lowering::write_accept() {
     const Local mark = b.local(I32);
     const wasm::Func head = rt_.get(Routine::out_head);
     const wasm::Func out_int = rt_.get(Routine::out_int);
-    const wasm::Func out_raw = rt_.get(Routine::out_raw);
+    // Routines are emitted in the order of first use (runtime.hpp).
+    static_cast<void>(rt_.get(Routine::out_raw));
 
     b.global_get(state_).set(index);
     b.get(index).load(i32_load8_u, final_table_).set(final);
@@ -2224,6 +2423,8 @@ wasm::Func Lowering::write_accept() {
     // NAME or null}, keys in canonical order.
     b.i64(1).call(out_int);
     const auto write_state = [&] {
+        // Its bytes count at most 64 KiB: the code refuses a larger state.
+        b.cap_begin();
         b.global_get(rt_.var(rt::Var::out)).set(mark);
         b.i32(5)
             .i64(2 + (proposals_ ? 1 : 0) + (previous_used_ ? 1 : 0) + (rules_.empty() ? 0 : 1) +
@@ -2231,14 +2432,12 @@ wasm::Func Lowering::write_accept() {
             .call(head);
         if (bill_slot_) {
             // "bill": the bill made in this call, or the one kept (R26).
-            push_key(b, text_cbor("bill"));
-            b.call(out_raw);
+            out_key(b, text_cbor("bill"));
             write_bill(b);
         }
         if (!rules_.empty()) {
             // "fired": {RULE: the time it last applied for, or null}.
-            push_key(b, text_cbor("fired"));
-            b.call(out_raw);
+            out_key(b, text_cbor("fired"));
             b.i32(5).i64(static_cast<std::int64_t>(rules_.size())).call(head);
             std::vector<const RuleInfo*> sorted;
             for (const RuleInfo& rule : rules_) {
@@ -2246,8 +2445,7 @@ wasm::Func Lowering::write_accept() {
             }
             std::ranges::sort(sorted, {}, &RuleInfo::key);
             for (const RuleInfo* rule : sorted) {
-                push_key(b, rule->key);
-                b.call(out_raw);
+                out_key(b, rule->key);
                 b.global_get(rule->fired_set);
                 const Label applied = b.if_();
                 b.global_get(rule->fired).call(out_int);
@@ -2257,15 +2455,12 @@ wasm::Func Lowering::write_accept() {
             }
         }
         if (since_used_) {
-            push_key(b, text_cbor("since"));
-            b.call(out_raw);
+            out_key(b, text_cbor("since"));
             b.global_get(since_).call(out_int);
         }
-        push_key(b, text_cbor("state"));
-        b.call(out_raw);
+        out_key(b, text_cbor("state"));
         state_name(b, index);
-        push_key(b, text_cbor("fields"));
-        b.call(out_raw);
+        out_key(b, text_cbor("fields"));
         b.i32(5).i64(static_cast<std::int64_t>(fields_.size())).call(head);
         std::vector<const FieldSlot*> sorted;
         for (const FieldSlot& slot : fields_) {
@@ -2273,8 +2468,7 @@ wasm::Func Lowering::write_accept() {
         }
         std::ranges::sort(sorted, {}, &FieldSlot::key);
         for (const FieldSlot* slot : sorted) {
-            push_key(b, slot->key);
-            b.call(out_raw);
+            out_key(b, slot->key);
             if (slot->optional) {
                 b.global_get(slot->first).op(i32_eqz);
                 const Label none = b.if_();
@@ -2289,13 +2483,11 @@ wasm::Func Lowering::write_accept() {
             out_value(b, slot->rep);
         }
         if (proposals_) {
-            push_key(b, text_cbor("pending"));
-            b.call(out_raw);
+            out_key(b, text_cbor("pending"));
             write_pending(b);
         }
         if (previous_used_) {
-            push_key(b, text_cbor("previous"));
-            b.call(out_raw);
+            out_key(b, text_cbor("previous"));
             b.global_get(previous_).op(i32_eqz);
             const Label none = b.if_();
             b.call(rt_.get(Routine::out_null));
@@ -2313,6 +2505,7 @@ wasm::Func Lowering::write_accept() {
             b.call(rt_.fail(rt::Reason::output));
             b.end(large);
         }
+        b.cap_end(max_state_size);
     };
     write_state();
     // 2: the status, the state's name.
@@ -2343,8 +2536,7 @@ wasm::Func Lowering::write_accept() {
                     b.global_get(global);
                     bound = b.if_();
                 }
-                push_key(b, *key);
-                b.call(out_raw);
+                out_key(b, *key);
                 b.global_get(global);
                 out_value(b, Rep::ledger);
                 if (bound) {
@@ -2368,8 +2560,9 @@ wasm::Func Lowering::write_accept() {
         if (!rules_.empty()) {
             write_rule_event(b);
         }
+        // Each state change a call made: at most the most an action makes.
         const Label done = b.block();
-        const Label next = b.loop();
+        const Label next = b.loop({max_transitions_ + 1});
         b.get(i);
         if (proposals_ || !rules_.empty() || bill_slot_) {
             b.global_get(events_);
@@ -2388,11 +2581,14 @@ wasm::Func Lowering::write_accept() {
             // [DOCUMENT, BILL]: the bill made, as the state keeps it.
             b.global_get(bill_new_);
             const Label made = b.if_();
+            b.region_begin(region_bill);
             const std::string document = fields_[*bill_slot_].wire;
             b.i32(4).i64(2).call(head);
             b.u32(intern(document)).u32(static_cast<std::uint32_t>(document.size()));
-            b.call(rt_.get(Routine::out_text));
-            b.global_get(bill_at_).global_get(bill_length_).call(out_raw);
+            out_text(b, document.size());
+            b.global_get(bill_at_).global_get(bill_length_);
+            out_raw(b, max_state_size);
+            b.region_end();
             b.end(made);
         }
         b.end(some);
@@ -2417,6 +2613,7 @@ wasm::Func Lowering::write_accept() {
         const wasm::Func content = rt_.get(Routine::content);
         b.global_get(parts_made_);
         const Label made = b.if_();
+        b.region_begin(region_parts);
         b.i64(6).call(out_int);
         b.global_get(parts_list_).call(head_arg).op(i32_wrap_i64).set(left);
         b.i32(4).get(left).op(i64_extend_i32_u).call(head);
@@ -2463,8 +2660,9 @@ wasm::Func Lowering::write_accept() {
         const FieldSlot& amount = fields_[field_index_.at("field.amount")];
         const FieldSlot& holder = fields_[field_index_.at("field.holder")];
         {
+            // Each part: no more than the parts' list holds.
             const Label done = b.block();
-            const Label next = b.loop();
+            const Label next = b.loop({parts_bound() + 1});
             b.get(left).op(i32_eqz).br_if(done);
             item_value(b, cp, Rep::i64);
             b.global_set(amount.first);
@@ -2485,6 +2683,7 @@ wasm::Func Lowering::write_accept() {
             b.end(next);
             b.end(done);
         }
+        b.region_end();
         b.end(made);
     }
     b.call(rt_.get(Routine::out_finish));
@@ -2521,7 +2720,7 @@ void Lowering::write_pending(FunctionBuilder& b) {
     const Local next = b.local(I32);
     const wasm::Func head = rt_.get(Routine::out_head);
     const wasm::Func item_end = rt_.get(Routine::item_end);
-    const wasm::Func out_raw = rt_.get(Routine::out_raw);
+    static_cast<void>(rt_.get(Routine::out_raw));
     b.global_get(pending_);
     {
         const Label some = b.if_(I32);
@@ -2539,14 +2738,16 @@ void Lowering::write_pending(FunctionBuilder& b) {
     {
         const Label some = b.if_();
         b.global_get(pending_).call(rt_.get(Routine::content)).set(q);
+        // At most 16 proposals, all of them within the state.
         const Label done = b.block();
-        const Label loop = b.loop();
+        const Label loop = b.loop({rt::max_needs + 1, max_state_size});
         b.get(k).get(n).op(i32_ge_u).br_if(done);
         b.get(q).call(item_end).set(next);
         b.get(k).i32(1).op(i32_add).global_get(drop_).op(i32_ne);
         {
             const Label kept = b.if_();
-            b.get(q).get(next).get(q).op(i32_sub).call(out_raw);
+            b.get(q).get(next).get(q).op(i32_sub);
+            out_raw(b, b.item_size(loop));
             b.end(kept);
         }
         b.get(next).set(q);
@@ -2559,10 +2760,11 @@ void Lowering::write_pending(FunctionBuilder& b) {
     {
         const Label added = b.if_();
         b.i32(4).i64(2).call(head);
-        b.global_get(add_name_).global_get(add_length_).call(rt_.get(Routine::out_text));
+        b.global_get(add_name_).global_get(add_length_);
+        out_text(b, max_build_name);
         b.global_get(add_args_);
         b.global_get(add_args_).call(item_end).global_get(add_args_).op(i32_sub);
-        b.call(out_raw);
+        out_raw(b, max_value_size);
         b.end(added);
     }
 }
@@ -2572,20 +2774,21 @@ void Lowering::write_event(FunctionBuilder& b) {
     b.global_get(event_kind_);
     const Label some = b.if_();
     b.i32(4).i64(2).call(rt_.get(Routine::out_head));
-    const wasm::Func out_text = rt_.get(Routine::out_text);
+    static_cast<void>(rt_.get(Routine::out_text));
     b.global_get(event_kind_).i32(1).op(i32_eq);
     {
         constexpr std::string_view propose_event = "propose";
         const Label propose = b.if_();
         b.u32(intern(propose_event)).u32(static_cast<std::uint32_t>(propose_event.size()));
-        b.call(out_text);
+        out_text(b, propose_event.size());
         b.else_(propose);
         b.u32(intern(m::approve_function))
             .u32(static_cast<std::uint32_t>(m::approve_function.size()));
-        b.call(out_text);
+        out_text(b, m::approve_function.size());
         b.end(propose);
     }
-    b.global_get(event_name_).global_get(event_length_).call(rt_.get(Routine::out_text));
+    b.global_get(event_name_).global_get(event_length_);
+    out_text(b, max_build_name);
     b.end(some);
 }
 
@@ -2595,21 +2798,19 @@ void Lowering::write_rule_event(FunctionBuilder& b) {
     b.global_get(rule_event_);
     const Label some = b.if_();
     const wasm::Func head = rt_.get(Routine::out_head);
-    const wasm::Func out_raw = rt_.get(Routine::out_raw);
+    static_cast<void>(rt_.get(Routine::out_raw));
     const wasm::Func out_int = rt_.get(Routine::out_int);
     b.i32(4).i64(2).call(head);
     constexpr std::string_view when_event = "when";
     b.u32(intern(when_event)).u32(static_cast<std::uint32_t>(when_event.size()));
-    b.call(rt_.get(Routine::out_text));
+    out_text(b, when_event.size());
     b.i32(5).i64(3).call(head);
-    push_key(b, text_cbor("late"));
-    b.call(out_raw);
+    out_key(b, text_cbor("late"));
     b.global_get(rule_late_).call(out_int);
-    push_key(b, text_cbor("rule"));
-    b.call(out_raw);
-    b.global_get(rule_name_).global_get(rule_length_).call(rt_.get(Routine::out_text));
-    push_key(b, text_cbor("time"));
-    b.call(out_raw);
+    out_key(b, text_cbor("rule"));
+    b.global_get(rule_name_).global_get(rule_length_);
+    out_text(b, max_build_name);
+    out_key(b, text_cbor("time"));
     b.global_get(rule_time_).call(out_int);
     b.end(some);
 }
@@ -2618,7 +2819,10 @@ void Lowering::emit_entry(const wasm::Func entry) {
     FunctionBuilder b = module_.begin(entry);
     const Local p = b.local(I32);
     const Local n = b.local(I32);
-    b.call(rt_.get(Routine::read_call)).op(drop);
+    // Sizes: the input's items and map keys, at most (input_shape), for what
+    // reading it costs.
+    b.sizes({rt::max_input_items, rt::max_input_items / 2});
+    b.call(rt_.get(Routine::read_call), {b.size(0), b.size(1)}).op(drop);
     call_item(b, 1);
     expect(b, Rep::text, rt::text_of(rt::Reason::input));
     b.set(n).set(p);
@@ -2637,7 +2841,7 @@ void Lowering::emit_entry(const wasm::Func entry) {
     std::ranges::sort(functions, {}, &std::pair<std::string, wasm::Func>::first);
     for (const auto& [name, f] : functions) {
         b.get(p).get(n).u32(intern(name)).u32(static_cast<std::uint32_t>(name.size()));
-        b.call(rt_.get(Routine::bytes_eq));
+        equal_bytes(b, name.size());
         const Label same = b.if_();
         b.call(f).return_();
         b.end(same);
@@ -2650,7 +2854,8 @@ void Lowering::emit_creation(const wasm::Func f) {
     FunctionBuilder b = module_.begin(f);
     const Local args = b.local(I32);
     const Local map = b.local(I32);
-    const wasm::Func map_get = rt_.get(Routine::map_get);
+    // Routines are emitted in the order of first use (runtime.hpp).
+    static_cast<void>(rt_.get(Routine::map_get));
     const wasm::Func head_arg = rt_.get(Routine::head_arg);
     std::vector<const RoleSlot*> roles;
     for (const RoleSlot& role : roles_) {
@@ -2686,8 +2891,9 @@ void Lowering::emit_creation(const wasm::Func f) {
     const auto part = [&](std::string_view name, std::size_t count) {
         const std::string reason = "bo:argument " + std::string(name);
         b.get(args);
-        push_key(b, text_cbor(name));
-        b.call(map_get).tee(map);
+        // The map has these keys (checked above): at most two.
+        lookup(b, text_cbor(name), 2);
+        b.tee(map);
         b.load(i32_load8_u).u32(0xE0).op(i32_and).u32(0xA0).op(i32_ne);
         b.get(map).op(i32_eqz).op(i32_or);
         b.get(map).call(head_arg).i64(static_cast<std::int64_t>(count)).op(i64_ne).op(i32_or);
@@ -2699,8 +2905,7 @@ void Lowering::emit_creation(const wasm::Func f) {
         part("fields", fields.size());
         for (const FieldSlot* slot : fields) {
             b.get(map);
-            push_key(b, slot->key);
-            b.call(map_get);
+            lookup(b, slot->key, fields.size());
             read_value(b, slot->field->type, "bo:argument " + slot->wire);
             store(b, *slot);
         }
@@ -2709,8 +2914,7 @@ void Lowering::emit_creation(const wasm::Func f) {
         part("parties", roles.size());
         for (const RoleSlot* role : roles) {
             b.get(map);
-            push_key(b, role->key);
-            b.call(map_get);
+            lookup(b, role->key, roles.size());
             expect(b, Rep::ledger, "bo:argument " + role->wire);
             b.global_set(role->ledger);
         }
@@ -2740,7 +2944,11 @@ void Lowering::arguments(Ctx& c) {
     FunctionBuilder& b = *c.b;
     const m::Action& a = *c.action->action;
     const Local args = b.local(I32);
-    const wasm::Func map_get = rt_.get(Routine::map_get);
+    // Routines are emitted in the order of first use (runtime.hpp).
+    static_cast<void>(rt_.get(Routine::map_get));
+    // Arguments of the function's shape: a map of its inputs, and the role
+    // it binds (the fuel bound holds for those; others are refused).
+    const std::uint64_t entries = a.inputs.size() + (c.action->binds ? 1 : 0);
     if (c.args) {
         b.get(*c.args);
     } else {
@@ -2758,8 +2966,8 @@ void Lowering::arguments(Ctx& c) {
     const Local given = b.local(I32);
     if (c.action->binds) {
         b.get(args);
-        push_key(b, roles_[*c.action->binds].key);
-        b.call(map_get).set(given);
+        lookup(b, roles_[*c.action->binds].key, entries);
+        b.set(given);
     }
     // A map of the inputs and the role it binds, if given; null for none.
     const Local is_map = b.local(I32);
@@ -2792,8 +3000,7 @@ void Lowering::arguments(Ctx& c) {
         const Local value = b.local(rep == Rep::i64 ? I64 : I32);
         const Local length = pair_rep(rep) ? b.local(I32) : value;
         b.get(args);
-        push_key(b, text_cbor(wire));
-        b.call(map_get);
+        lookup(b, text_cbor(wire), entries);
         read_value(b, input.type, "bo:argument " + wire);
         if (pair_rep(rep)) {
             b.set(length);
@@ -2836,7 +3043,8 @@ void Lowering::arguments(Ctx& c) {
             const Label repeated = b.if_();
             b.get(given);
             expect(b, Rep::ledger, reason);
-            b.i32(32).global_get(role.ledger).i32(32).call(rt_.get(Routine::bytes_eq));
+            b.i32(32).global_get(role.ledger).i32(32);
+            equal_bytes(b, 32);
             b.op(i32_eqz);
             const Label other = b.if_();
             refuse(b, reason);
@@ -2884,8 +3092,8 @@ void Lowering::depth_check(Ctx& c) {
     // view's [parent, depth] (key 6 of input key 5), which only parts have.
     FunctionBuilder& b = *c.b;
     call_item(b, 5);
-    push_key(b, uint_key(6));
-    b.call(rt_.get(Routine::map_get)).tee(c.t32);
+    lookup(b, uint_key(6), view_keys);
+    b.tee(c.t32);
     const Label part = b.if_();
     b.get(c.t32).call(rt_.get(Routine::content)).call(rt_.get(Routine::item_end));
     expect(b, Rep::i64, rt::text_of(rt::Reason::input));
@@ -2896,6 +3104,20 @@ void Lowering::depth_check(Ctx& c) {
         b.end(deep);
     }
     b.end(part);
+}
+
+std::uint64_t Lowering::parts_bound() const {
+    std::uint64_t most = 0;
+    for (const ActionInfo& a : actions_) {
+        const m::Do* d = a.parts ? m::issued_parts(*a.action) : nullptr;
+        if (d == nullptr || d->args.empty()) {
+            continue;
+        }
+        const std::uint64_t parts = d->args[0].type.bound;
+        const std::uint64_t to = d->to ? d->to->type.bound : parts;
+        most = std::max(most, std::min(parts, to));
+    }
+    return most;
 }
 
 void Lowering::issue_parts(Ctx& c, const m::Do& d) {
@@ -3028,7 +3250,7 @@ void Lowering::emit_core(const ActionInfo& info) {
         {
             const Label known = b.if_();
             b.get(c.signer).u32(intern(ByteView(key_kind))).i32(1);
-            b.call(rt_.get(Routine::map_get)).tee(c.t32);
+            b.call(rt_.get(Routine::map_get), {signer_keys, 1}).tee(c.t32);
             b.op(i32_eqz).op(i32_eqz);
             {
                 const Label kind = b.if_(I32);
@@ -3079,11 +3301,12 @@ void Lowering::emit_approve(const wasm::Func f) {
     const Local n = b.local(I32);
     const Local k = b.local(I32);
     const Local x = b.local(I32);
-    const wasm::Func map_get = rt_.get(Routine::map_get);
+    // Routines are emitted in the order of first use (runtime.hpp).
+    static_cast<void>(rt_.get(Routine::map_get));
     const wasm::Func item_end = rt_.get(Routine::item_end);
     const wasm::Func content = rt_.get(Routine::content);
     const wasm::Func head_arg = rt_.get(Routine::head_arg);
-    const wasm::Func bytes_eq = rt_.get(Routine::bytes_eq);
+    static_cast<void>(rt_.get(Routine::bytes_eq));
     b.call(load_instance());
     call_item(b, 2);
     b.tee(args).load(i32_load8_u).u32(0xE0).op(i32_and).u32(0xA0).op(i32_ne);
@@ -3094,13 +3317,12 @@ void Lowering::emit_approve(const wasm::Func f) {
         b.end(other);
     }
     b.get(args);
-    push_key(b, text_cbor("function"));
-    b.call(map_get);
+    lookup(b, text_cbor("function"), 2);
     expect(b, Rep::text, "bo:argument function");
     b.set(length).set(name);
     b.get(args);
-    push_key(b, text_cbor("arguments"));
-    b.call(map_get).tee(given).op(i32_eqz);
+    lookup(b, text_cbor("arguments"), 2);
+    b.tee(given).op(i32_eqz);
     {
         const Label missing = b.if_();
         refuse(b, "bo:argument arguments");
@@ -3109,8 +3331,10 @@ void Lowering::emit_approve(const wasm::Func f) {
     b.global_get(pending_).call(head_arg).op(i32_wrap_i64).set(n);
     b.global_get(pending_).call(content).set(q);
     {
+        // At most 16 proposals, all within the state; a function's name is
+        // at most 64 bytes, and arguments are compared only with as many.
         const Label found = b.block();
-        const Label next = b.loop();
+        const Label next = b.loop({rt::max_needs + 1, max_state_size});
         b.get(k).get(n).op(i32_ge_u);
         {
             const Label none = b.if_();
@@ -3119,13 +3343,15 @@ void Lowering::emit_approve(const wasm::Func f) {
         }
         // [function, arguments]: the same function, and the same bytes.
         b.get(q).call(content).tee(x).call(content);
-        b.get(x).call(head_arg).op(i32_wrap_i64).get(name).get(length).call(bytes_eq);
+        b.get(x).call(head_arg).op(i32_wrap_i64).get(name).get(length);
+        equal_bytes(b, max_build_name);
         {
             const Label same = b.if_();
             b.get(x).call(item_end).tee(x);
             b.get(x).call(item_end).get(x).op(i32_sub);
             b.get(given).get(given).call(item_end).get(given).op(i32_sub);
-            b.call(bytes_eq).br_if(found);
+            equal_bytes(b, b.item_size(next));
+            b.br_if(found);
             b.end(same);
         }
         b.get(q).call(item_end).set(q);
@@ -3139,7 +3365,7 @@ void Lowering::emit_approve(const wasm::Func f) {
             continue;
         }
         b.get(name).get(length).u32(intern(a.wire)).u32(static_cast<std::uint32_t>(a.wire.size()));
-        b.call(bytes_eq);
+        equal_bytes(b, a.wire.size());
         const Label same = b.if_();
         b.get(given).i32(1).call(a.core).return_();
         b.end(same);
@@ -3466,8 +3692,7 @@ void Lowering::party_raw(Ctx& c, const m::Expr& e) {
 void Lowering::ledger_equals(Ctx& c, const m::Expr& x, const m::Expr& y) {
     // No party equals no party only.
     FunctionBuilder& b = *c.b;
-    const Local left = b.local(I32);
-    const Local right = b.local(I32);
+    const auto [left, right] = scratch(c);
     party_raw(c, x);
     b.set(left);
     party_raw(c, y);
@@ -3476,7 +3701,8 @@ void Lowering::ledger_equals(Ctx& c, const m::Expr& x, const m::Expr& y) {
     const Label empty = b.if_(I32);
     b.get(left).get(right).op(i32_eq);
     b.else_(empty);
-    b.get(left).i32(32).get(right).i32(32).call(rt_.get(Routine::bytes_eq));
+    b.get(left).i32(32).get(right).i32(32);
+    equal_bytes(b, 32);
     b.end(empty);
 }
 
@@ -3492,13 +3718,12 @@ void Lowering::consent_of(Ctx& c, const m::Expr& party) {
             }
             return;
         }
-        const Local p = b.local(I32);
-        const Local n = b.local(I32);
+        const auto [p, n] = scratch(c);
         value(c, party);
         b.op(drop).tee(p).call(rt_.get(Routine::head_arg)).op(i32_wrap_i64).set(n);
         b.get(p).call(rt_.get(Routine::content)).set(p);
         const Label done = b.block();
-        const Label next = b.loop();
+        const Label next = b.loop({wasm::Size(party.type.bound) + 1});
         b.get(n).op(i32_eqz).br_if(done);
         item_value(b, p, Rep::ledger);
         b.call(consent).op(drop);
@@ -3778,7 +4003,9 @@ void Lowering::binary(Ctx& c, const m::Expr& e) {
         }
         if (rep == Rep::text || rep == Rep::ledger || rep == Rep::list) {
             // Lists are equal when their encodings are (deterministic CBOR).
-            b.call(rt_.get(Routine::bytes_eq));
+            equal_bytes(b, rep == Rep::ledger ? wasm::Size(32)
+                           : rep == Rep::text ? text_size(c, x, y)
+                                              : wasm::Size(max_value_size));
             return;
         }
         if (rep == Rep::flag) {
@@ -3963,6 +4190,7 @@ void Lowering::emit() {
 
     // Functions: the entry, the creation, the actions, in the model's order.
     const wasm::Func entry = module_.declare({});
+    entry_ = entry;
     creation_function_ = module_.declare({});
     for (ActionInfo& a : actions_) {
         if (a.rule_only) {
@@ -4024,14 +4252,222 @@ Lowered Lowering::run() {
     for (const RuleInfo& r : rules_) {
         build.interface.emplace(r.wire, protocol::FunctionKind::call);
     }
+    if (codegen_ == wasm::codegen_version) {
+        bounds(build);
+    }
     out.build = std::move(build);
     return out;
 }
 
+// ---------------------------------------------------------------------------
+// Bounds (milestone 18): what a call of each function can use at most.
+
+Shape Lowering::arguments_shape(const ActionInfo& action) const {
+    // A map of the inputs and the role the action binds; null for none.
+    const m::Action& a = *action.action;
+    const std::uint64_t keys = a.inputs.size() + (action.binds ? 1 : 0);
+    if (keys == 0) {
+        return {1, 0};
+    }
+    Shape out = map_shape(keys);
+    for (const m::Field& input : a.inputs) {
+        out += value_shape(input.type);
+    }
+    if (action.binds) {
+        out += Shape{1, 0};
+    }
+    return out;
+}
+
+Shape Lowering::creation_shape() const {
+    // {"fields": {...}, "parties": {...}}, null for nothing.
+    std::uint64_t roles = 0;
+    for (const RoleSlot& role : roles_) {
+        roles += role.party->binding == m::Binding::creation ? 1 : 0;
+    }
+    Shape fields;
+    std::uint64_t field_count = 0;
+    for (const FieldSlot& slot : fields_) {
+        if (!slot.starts_with && !slot.empty_at_start) {
+            fields += value_shape(slot.field->type);
+            ++field_count;
+        }
+    }
+    const std::uint64_t keys = (roles > 0 ? 1U : 0U) + (field_count > 0 ? 1U : 0U);
+    if (keys == 0) {
+        return {1, 0};
+    }
+    Shape out = map_shape(keys);
+    if (field_count > 0) {
+        out += map_shape(field_count) + fields;
+    }
+    if (roles > 0) {
+        out += map_shape(roles) + Shape{roles, 0};
+    }
+    return out;
+}
+
+Shape Lowering::proposal_shape() const {
+    // The arguments of an action AI agents may propose (the most of any).
+    Shape most;
+    for (const ActionInfo& a : actions_) {
+        if (!a.rule_only && a.action->agents_propose) {
+            const Shape s = arguments_shape(a);
+            most = {std::max(most.items, s.items), std::max(most.keys, s.keys)};
+        }
+    }
+    return most;
+}
+
+Shape Lowering::state_shape() const {
+    // {? "bill", ? "fired", ? "since", "state", "fields", ? "pending",
+    // ? "previous"}, as write_accept writes it.
+    const std::uint64_t keys = 2U + (bill_slot_ ? 1U : 0U) + (rules_.empty() ? 0U : 1U) +
+                               (since_used_ ? 1U : 0U) + (proposals_ ? 1U : 0U) +
+                               (previous_used_ ? 1U : 0U);
+    Shape out = map_shape(keys);
+    out += Shape{1, 0}; // the state's name
+    out += map_shape(fields_.size());
+    for (const FieldSlot& slot : fields_) {
+        out += value_shape(slot.field->type);
+    }
+    if (proposals_) {
+        // At most 16 proposals, each [function, arguments].
+        out += Shape{1, 0} + rt::max_needs * (Shape{2, 0} + proposal_shape());
+    }
+    out += Shape{previous_used_ ? 1U : 0U, 0};
+    if (!rules_.empty()) {
+        out += map_shape(rules_.size()) + Shape{rules_.size(), 0};
+    }
+    out += Shape{since_used_ ? 1U : 0U, 0};
+    if (bill_slot_) {
+        // {"time", ? "lines": [{CHARGE: amount}], "price", "total",
+        // "charges": {CHARGE: {? "rate", "amount"}}}.
+        std::uint64_t per_line = 0;
+        for (const ChargeInfo& k : charges_) {
+            per_line += k.charge->per_document ? 0 : 1;
+        }
+        const std::uint64_t lines = fields_[*bill_slot_].field->type.bound;
+        out += map_shape(bill_keys) + Shape{3, 0};
+        out += Shape{1, 0} + lines * (map_shape(per_line) + Shape{per_line, 0});
+        out += map_shape(charges_.size()) + charges_.size() * (map_shape(2) + Shape{2, 0});
+    }
+    return out;
+}
+
+Shape Lowering::rest_shape() const {
+    // The input's other items (spec section 15): {1: function, 2: (the
+    // arguments), 3: home, 4: contract, 5: {1: id, 2: head, 3: (the state),
+    // 4: status, 5: {role: ledger}, 6: [parent, depth]}, 6: [caller,
+    // signer], 7: time, 8: [[ledger, signer]] (at most 16)}, a signer being
+    // {1: kind, 2: presence, 3: model}.
+    std::uint64_t parties = roles_.size();
+    for (const FieldSlot& slot : fields_) {
+        parties += slot.rep == Rep::ledger ? 1 : 0;
+    }
+    const Shape signer = map_shape(signer_keys) + Shape{signer_keys, 0};
+    Shape out = map_shape(8) + Shape{4, 0};
+    out +=
+        map_shape(view_keys) + Shape{3, 0} + map_shape(parties) + Shape{parties, 0} + Shape{3, 0};
+    out += Shape{2, 0} + signer;
+    out += Shape{1, 0} + rt::max_needs * (Shape{2, 0} + signer);
+    return out;
+}
+
+bool Lowering::sets_bill(const std::vector<m::Statement>& list, const int depth) const {
+    if (!bill_slot_ || depth > 4) {
+        return bill_slot_.has_value();
+    }
+    const FieldSlot& bill = fields_[*bill_slot_];
+    return std::ranges::any_of(list, [&](const m::Statement& s) {
+        return std::visit(Overloaded{
+                              [&](const m::Set& st) {
+                                  return m::key(st.target.concept_entry, st.target.name) ==
+                                         m::key(bill.field->word, bill.field->name);
+                              },
+                              [&](const m::If& i) {
+                                  return sets_bill(i.then, depth) || sets_bill(i.otherwise, depth);
+                              },
+                              [&](const m::Each& e) { return sets_bill(e.body, depth); },
+                              [&](const m::Do& d) {
+                                  // A time rule does an action: its lines.
+                                  const ActionInfo* a = d.parts ? nullptr : action_info(d);
+                                  return a != nullptr && sets_bill(a->action->body, depth + 1);
+                              },
+                              [](const auto&) { return false; },
+                          },
+                          s.node);
+    });
+}
+
+void Lowering::bounds(Build& build) {
+    // A call: the entry reads the input and finds the function (each
+    // interface function counted only as called), then the function.
+    // Each interface function, its arguments, and the regions it never
+    // reaches: no parts unless it issues them, no bill unless it makes one.
+    struct Entry {
+        std::string name;
+        wasm::Func function;
+        Shape arguments;
+        std::uint32_t absent = 0;
+    };
+    const auto absent = [&](bool parts, bool bill) {
+        return (parts ? 0U : region_parts) | (bill ? 0U : region_bill);
+    };
+    std::vector<Entry> functions;
+    functions.push_back(
+        {creation_, creation_function_, creation_shape(), absent(false, bill_slot_.has_value())});
+    bool proposed_parts = false;
+    bool proposed_bill = false;
+    for (const ActionInfo& a : actions_) {
+        const bool bill = sets_bill(a.action->body);
+        if (a.action->agents_propose) {
+            proposed_parts = proposed_parts || a.parts;
+            proposed_bill = proposed_bill || bill;
+        }
+        if (!a.rule_only) {
+            functions.push_back({a.wire, a.function, arguments_shape(a), absent(a.parts, bill)});
+        }
+    }
+    if (proposals_) {
+        functions.push_back({std::string(m::approve_function), approve_function_,
+                             map_shape(2) + Shape{1, 0} + proposal_shape(),
+                             absent(proposed_parts, proposed_bill)});
+    }
+    for (const RuleInfo& r : rules_) {
+        std::vector<m::Statement> all;
+        for (const m::Do& d : r.rule->actions) {
+            all.push_back(m::Statement{d});
+        }
+        const bool bill = sets_bill(all) || sets_bill(r.rule->body);
+        functions.push_back({r.wire, r.function, Shape{1, 0}, absent(false, bill)});
+    }
+    std::vector<wasm::Func> interface;
+    for (const Entry& f : functions) {
+        interface.push_back(f.function);
+    }
+    const Shape common = state_shape() + rest_shape();
+    for (const Entry& f : functions) {
+        const std::string& name = f.name;
+        const Shape input = common + f.arguments;
+        const std::array<std::uint64_t, 2> sizes{input.items, input.keys};
+        const wasm::Bound entry = module_.bound(entry_, sizes, interface);
+        const wasm::Bound own = module_.bound(f.function, {}, {}, f.absent);
+        FunctionBound bound;
+        bound.fuel = wasm::add_saturating(entry.fuel, own.fuel);
+        bound.input = rt::read_input_fuel(input.items, input.keys);
+        bound.input_items = input.items;
+        bound.input_keys = input.keys;
+        bound.output = wasm::add_saturating(entry.output, own.output);
+        build.bounds.emplace(name, bound);
+    }
+}
+
 } // namespace
 
-Lowered lower(const std::string_view source, const model::Model& model) {
-    return Lowering(source, model).run();
+Lowered lower(const std::string_view source, const model::Model& model,
+              const std::uint32_t codegen) {
+    return Lowering(source, model, codegen).run();
 }
 
 } // namespace cexchain::bo

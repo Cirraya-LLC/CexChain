@@ -1704,7 +1704,8 @@ std::vector<CommandSpec> build() {
                "Pack digests with sha256 (default) or sm3: the hash of the ledger it goes to"},
               {"out", "FILE", "Write the built contract here (FILE.boc), for contract deploy --bo"},
               {"code-out", "FILE", "Write the module (WebAssembly) here"},
-              {"bundle-out", "FILE", "Write the bo-source bundle here"}}),
+              {"bundle-out", "FILE", "Write the bo-source bundle here"},
+              {"fuel", "", "Show each function's bound: fuel, reading the input, and output"}}),
          cmd_bo_build,
          "Checks FILE as bo check does, then compiles it to a module in the contract profile\n"
          "(spec section 14) with one function per action plus create (or issue, for an asset),\n"
@@ -1716,9 +1717,18 @@ std::vector<CommandSpec> build() {
          "RELEASE; codegen N; edition E) names what built it. A fragment (no contract line) and\n"
          "clauses that need executors (step 6b) do not build. Exit status 2 if it does not\n"
          "build.\n\n"
+         "Fuel. Each function's worst case comes from the code's structure: every loop bounded\n"
+         "by what the contract bounds (lists, a bill's lines and charges, a split's parts and\n"
+         "consents), sizes by the input's limits. It holds for any call whose arguments are of\n"
+         "the function's shape, on any state the contract writes. A contract any of whose\n"
+         "functions could need more than the 10,000,000 fuel a call has does not build\n"
+         "(build.fuel); one whose output could exceed the 196,608 bytes the code has for it\n"
+         "builds with a warning (build.output). The text shows the highest bound; --fuel shows\n"
+         "every function's: its fuel, the part reading the input takes, and its output.\n\n"
          "Without --out, nothing is written: it reports the code's size and hash. Deploy with\n"
          "contract deploy --bo FILE.bo (which builds again) or FILE.boc.\n\n"
          "  cexchain bo build agreement.bo\n"
+         "  cexchain bo build agreement.bo --fuel\n"
          "  cexchain bo build agreement.bo --out agreement.boc --hash sm3\n"
          "  cexchain bo build agreement.bo --json\n\n" CEXCHAIN_BO_PACKS_HELP},
         {{"bo", "explain"},

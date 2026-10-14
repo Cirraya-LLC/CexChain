@@ -3,15 +3,19 @@
 
 #pragma once
 
+#include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <optional>
 #include <span>
 #include <string_view>
+#include <tuple>
 #include <vector>
 
 #include <cexchain/bo/contracts.hpp>
+#include <cexchain/bo/cost.hpp>
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/error.hpp>
 
@@ -30,10 +34,19 @@
 ///
 /// Output is deterministic: the same calls give the same bytes. Every module
 /// `finish` returns has passed `vm::load`.
+///
+/// Costs (cost.hpp). The builder also records what each function can cost:
+/// every loop says how often its body may start, a call may give the
+/// callee's sizes, a bulk memory operation how many bytes it moves at most,
+/// and `output` marks bytes of output; `ModuleWriter::bound` then gives the
+/// most fuel and output an invocation can use.
 namespace cexchain::bo::wasm {
 
 /// It goes up whenever any emitted byte changes (the plan's section 2).
-inline constexpr std::uint32_t codegen_version = 1;
+/// Lowering still writes every version from `oldest_codegen_version` on, so
+/// that a deploy built with an earlier one rebuilds.
+inline constexpr std::uint32_t codegen_version = 2;
+inline constexpr std::uint32_t oldest_codegen_version = 1;
 
 enum class ValType : std::uint8_t { i32 = 0x7F, i64 = 0x7E };
 
@@ -158,6 +171,8 @@ struct Signature {
 [[nodiscard]] Signature signature(Op op);
 [[nodiscard]] bool is_load(Op op) noexcept;
 [[nodiscard]] bool is_store(Op op) noexcept;
+/// memory.copy and memory.fill, whose fuel depends on their size.
+[[nodiscard]] bool is_bulk(Op op) noexcept;
 /// The instruction's name in the text format ("i64.add", "memory.copy").
 [[nodiscard]] std::string_view name_of(Op op) noexcept BO_POST(r, !r.empty());
 /// The import's name ("input_read").
@@ -237,6 +252,29 @@ public:
     /// A new local, zero at entry.
     [[nodiscard]] Local local(ValType type);
 
+    // Costs (cost.hpp).
+    /// Declares the function's size parameters and their defaults (the most
+    /// each can be), once, before `size` is used.
+    void sizes(std::vector<std::uint64_t> defaults) BO_PRE(size_count() == 0);
+    [[nodiscard]] std::uint32_t size_count() const noexcept {
+        return static_cast<std::uint32_t>(size_defaults_.size());
+    }
+    /// The size parameter `index`.
+    [[nodiscard]] Size size(std::uint32_t index) const BO_PRE(index < size_count());
+    /// Inside a loop opened with `LoopBound::items`, the size of the item the
+    /// body is at.
+    [[nodiscard]] Size item_size(Label loop) const BO_PRE(is_open(loop));
+    /// Records that at most `bytes` of output are reserved here.
+    FunctionBuilder& output(Size bytes);
+    /// Output written from here to `cap_end` counts at most `limit` bytes (the
+    /// code refuses the call beyond it).
+    FunctionBuilder& cap_begin();
+    FunctionBuilder& cap_end(std::uint64_t limit);
+    /// Code from here to `region_end` runs only when a call does what `tag`
+    /// (one bit) stands for; ModuleWriter::bound may leave it out.
+    FunctionBuilder& region_begin(std::uint32_t tag) BO_PRE(std::has_single_bit(tag));
+    FunctionBuilder& region_end();
+
     FunctionBuilder& i32(std::int32_t value);
     FunctionBuilder& i64(std::int64_t value);
     /// An i32 constant written as unsigned (an address, a mask).
@@ -249,12 +287,16 @@ public:
         BO_PRE(is_global(global) && is_mutable(global) && can_pop(global_type(global)));
     /// A numeric, parametric, or memory instruction other than a load or a
     /// store.
-    FunctionBuilder& op(Op op) BO_PRE(!is_load(op) && !is_store(op) && accepts(op));
+    FunctionBuilder& op(Op op) BO_PRE(!is_load(op) && !is_store(op) && !is_bulk(op) &&
+                                      op != Op::memory_grow && accepts(op));
+    /// memory.copy or memory.fill of at most `bytes` bytes.
+    FunctionBuilder& bulk(Op op, Size bytes) BO_PRE(is_bulk(op) && accepts(op));
     FunctionBuilder& load(Op op, std::uint32_t offset = 0) BO_PRE(is_load(op) && accepts(op));
     FunctionBuilder& store(Op op, std::uint32_t offset = 0) BO_PRE(is_store(op) && accepts(op));
 
     [[nodiscard]] Label block(BlockType type = {});
-    [[nodiscard]] Label loop(BlockType type = {});
+    /// A loop whose body starts at most `bound.starts` times.
+    [[nodiscard]] Label loop(LoopBound bound, BlockType type = {});
     [[nodiscard]] Label if_(BlockType type = {}) BO_PRE(can_pop(ValType::i32));
     FunctionBuilder& else_(Label label) BO_PRE(is_innermost(label) && can_end());
     FunctionBuilder& end(Label label) BO_PRE(is_innermost(label) && can_end());
@@ -263,7 +305,9 @@ public:
     FunctionBuilder& br_table(std::span<const Label> labels, Label otherwise);
     FunctionBuilder& return_();
     FunctionBuilder& unreachable();
-    FunctionBuilder& call(Func callee) BO_PRE(can_call(callee));
+    /// Calls `callee`, giving its size parameters (those left out take their
+    /// defaults; a host function's one size is the bytes it handles).
+    FunctionBuilder& call(Func callee, std::vector<Size> sizes = {}) BO_PRE(can_call(callee));
 
     [[nodiscard]] bool is_global(Global global) const noexcept;
     [[nodiscard]] bool is_mutable(Global global) const noexcept;
@@ -280,7 +324,20 @@ private:
         std::uint32_t serial = 0;
     };
 
+    /// The cost of an open frame (or of a stretch `cap_begin` opened): its
+    /// node, and for an `if`, the arm being written.
+    struct CostFrame {
+        CostNode node;
+        std::size_t arm = 0;
+        /// A stretch (cap or region), not a frame of the code.
+        bool cap = false;
+    };
+
     FunctionBuilder(const ModuleWriter& module, Func self);
+    /// Where plain instructions add their fuel now.
+    CostNode& current_cost();
+    void charge(std::uint64_t fuel) { current_cost().fuel += fuel; }
+    void emit_op(Op op);
     void push(ValType type);
     void push(std::span<const ValType> types);
     void pop(ValType type);
@@ -305,6 +362,11 @@ private:
     std::uint32_t max_height_ = 0;
     std::uint32_t next_serial_ = 0;
     Bytes code_;
+    std::vector<std::uint64_t> size_defaults_;
+    std::vector<CostFrame> costs_;
+    /// The item slot of each open loop that walks items, by label serial.
+    std::map<std::uint32_t, std::uint32_t> item_slots_;
+    std::uint32_t next_item_slot_ = 0;
 };
 
 /// A module in the contract profile: the five `cexchain` imports, one
@@ -337,6 +399,23 @@ public:
     /// The operand stack's maximum height in a defined function, as the
     /// builder measured it.
     [[nodiscard]] std::uint32_t max_height(Func f) const BO_PRE(is_function(f) && is_defined(f));
+
+    /// A bound given by hand for `f`, used in place of its recorded cost: for
+    /// a routine whose cost the tree cannot bound (one that recurses). It
+    /// takes the function's sizes (its defaults filled in).
+    using BoundFormula = std::function<Bound(std::span<const std::uint64_t> sizes)>;
+    void set_bound(Func f, BoundFormula formula) BO_PRE(is_function(f) && f.index >= host_count);
+    /// The most an invocation of `f` can use with these sizes (the rest take
+    /// their defaults), every function it calls being defined. Calls to the
+    /// functions in `skip` count only the call itself; regions whose tag is
+    /// in `absent` (a set of bits) count nothing. A function that calls
+    /// itself, without a bound given by hand, is unbounded.
+    [[nodiscard]] Bound bound(Func f, std::span<const std::uint64_t> sizes = {},
+                              std::span<const Func> skip = {}, std::uint32_t absent = 0) const
+        BO_PRE(is_function(f));
+    /// The defaults of a defined function's sizes.
+    [[nodiscard]] const std::vector<std::uint64_t>& size_defaults(Func f) const
+        BO_PRE(is_function(f) && is_defined(f));
 
     [[nodiscard]] Global add_global(ValType type, std::int64_t initial);
     [[nodiscard]] std::uint32_t global_count() const noexcept {
@@ -372,7 +451,20 @@ private:
         FuncType type;
         std::optional<Bytes> body;
         std::uint32_t max_height = 0;
+        CostNode cost;
+        std::vector<std::uint64_t> size_defaults;
+        std::uint32_t slots = 0;
+        BoundFormula formula;
     };
+    /// What an evaluation leaves out, and the functions it is inside.
+    struct Evaluation {
+        std::span<const Func> skip;
+        std::uint32_t absent = 0;
+        std::vector<std::uint32_t> active;
+    };
+    [[nodiscard]] Bound evaluate(const CostNode& node, std::vector<std::uint64_t>& env,
+                                 Evaluation& e) const;
+    [[nodiscard]] Bound bound_of(Func f, std::vector<std::uint64_t> sizes, Evaluation& e) const;
     struct GlobalEntry {
         ValType type = ValType::i32;
         std::int64_t initial = 0;
@@ -385,6 +477,8 @@ private:
     /// The static region from its base, as far as it is used.
     Bytes statics_;
     std::map<Bytes, std::uint32_t> interned_;
+    mutable std::map<std::tuple<std::uint32_t, std::uint32_t, std::vector<std::uint64_t>>, Bound>
+        bounds_;
 };
 
 } // namespace cexchain::bo::wasm

@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <meta>
+#include <span>
 #include <string_view>
 #include <utility>
 
@@ -165,7 +166,8 @@ wasm::FuncType type_of(const Routine routine) {
     return spec(routine).type;
 }
 
-Runtime::Runtime(wasm::ModuleWriter& module) : module_(&module), functions_(all_routines) {}
+Runtime::Runtime(wasm::ModuleWriter& module, const std::uint32_t codegen)
+    : module_(&module), codegen_(codegen), functions_(all_routines) {}
 
 wasm::Func Runtime::get(const Routine routine) {
     std::optional<wasm::Func>& slot = functions_[static_cast<std::size_t>(routine)];
@@ -180,6 +182,17 @@ wasm::Func Runtime::get(const Routine routine) {
     wasm::FunctionBuilder b = module_->begin(f);
     s.define(*this, b);
     module_->define(std::move(b));
+    if (routine == Routine::read_input) {
+        // read_item recurses: read_input's bound is a formula (sizes: the
+        // input's items and keys at most). Codegen 1 checked each text's
+        // bytes, at up to 50 fuel a byte: it has no useful bound.
+        module_->set_bound(f, [codegen = codegen_](std::span<const std::uint64_t> sizes) {
+            if (codegen < 2) {
+                return wasm::Bound{wasm::unbounded, 0};
+            }
+            return wasm::Bound{read_input_fuel(sizes[0], sizes[1]), 0};
+        });
+    }
     return f;
 }
 

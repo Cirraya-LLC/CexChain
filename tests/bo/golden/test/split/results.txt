@@ -1,50 +1,50 @@
 test "two tiers, a pledge, and payment to the bank" passed home=role.issuer
-  step 1 passed 2026-01-01 accepted active event=active; fuel 8188
-  step 2 passed 2026-01-01 accepted divided event=divided final consents role.supplier maker2 maker1 parts=2; fuel 16131 22752
-  step 3 passed 2026-01-01 accepted part=1 divided event=divided final consents maker1 smith1 parts=2; fuel 16170 22404
-  step 4 passed 2026-01-01 accepted part=1.1 pledged event=pledged consents smith1 bank1; fuel 13293 16234
-  step 5 passed 2026-01-01 accepted part=1.2 active event=active consents factor1 maker1; fuel 13135 15863
+  step 1 passed 2026-01-01 accepted active event=active; fuel 7310
+  step 2 passed 2026-01-01 accepted divided event=divided final consents role.supplier maker2 maker1 parts=2; fuel 14291 20912
+  step 3 passed 2026-01-01 accepted part=1 divided event=divided final consents maker1 smith1 parts=2; fuel 14330 20564
+  step 4 passed 2026-01-01 accepted part=1.1 pledged event=pledged consents smith1 bank1; fuel 11505 14446
+  step 5 passed 2026-01-01 accepted part=1.2 active event=active consents factor1 maker1; fuel 11452 14180
   step 6 passed 2026-01-01 final-instance
-  step 7 passed 2027-06-30 accepted part=1.1 paid event=paid; fuel 14784
-  step 8 passed 2027-06-30 accepted part=1.1 settled event=settled final consents bank1; fuel 13259 16016
-  step 9 passed 2027-06-30 accepted part=1.2 paid event=paid; fuel 13922
-  step 10 passed 2027-06-30 accepted part=1.2 settled event=settled final consents factor1; fuel 12733 15288
-  step 11 passed 2027-06-30 accepted part=2 paid event=paid; fuel 13922
-  step 12 passed 2027-06-30 accepted part=2 settled event=settled final consents maker2; fuel 12733 15288
+  step 7 passed 2027-06-30 accepted part=1.1 paid event=paid; fuel 12975
+  step 8 passed 2027-06-30 accepted part=1.1 settled event=settled final consents bank1; fuel 11356 14113
+  step 9 passed 2027-06-30 accepted part=1.2 paid event=paid; fuel 12312
+  step 10 passed 2027-06-30 accepted part=1.2 settled event=settled final consents factor1; fuel 10987 13542
+  step 11 passed 2027-06-30 accepted part=2 paid event=paid; fuel 12312
+  step 12 passed 2027-06-30 accepted part=2 settled event=settled final consents maker2; fuel 10987 13542
 test "each recipient consents, and the holder" passed home=role.issuer
-  step 1 passed 2026-01-01 accepted active event=active; fuel 8188
-  step 2 passed 2026-01-01 waits maker2; fuel 16131 17254
-  step 3 passed 2026-01-01 waits maker2 maker1; fuel 16131 16844
-  step 4 passed 2026-01-01 waits role.supplier; fuel 16131 17254
-  step 5 passed 2026-01-01 accepted divided event=divided final consents role.supplier maker2 maker1 parts=2; fuel 16131 22752
+  step 1 passed 2026-01-01 accepted active event=active; fuel 7310
+  step 2 passed 2026-01-01 waits maker2; fuel 14291 15414
+  step 3 passed 2026-01-01 waits maker2 maker1; fuel 14291 15004
+  step 4 passed 2026-01-01 waits role.supplier; fuel 14291 15414
+  step 5 passed 2026-01-01 accepted divided event=divided final consents role.supplier maker2 maker1 parts=2; fuel 14291 20912
 test "the parts add up, each at least a cent, one for each recipient" passed home=role.issuer
-  step 1 passed 2026-01-01 accepted active event=active; fuel 8188
-  step 2 passed 2026-01-01 refused "bo:requires split 4"; fuel 14787
-  step 3 passed 2026-01-01 refused "bo:requires split 3"; fuel 14412
-  step 4 passed 2026-01-01 refused "bo:requires split 1"; fuel 14045
-  step 5 passed 2026-01-01 accepted divided event=divided final consents role.supplier maker1 parts=1; fuel 15072 19721
+  step 1 passed 2026-01-01 accepted active event=active; fuel 7310
+  step 2 passed 2026-01-01 refused "bo:requires split 4"; fuel 12947
+  step 3 passed 2026-01-01 refused "bo:requires split 3"; fuel 12572
+  step 4 passed 2026-01-01 refused "bo:requires split 1"; fuel 12205
+  step 5 passed 2026-01-01 accepted divided event=divided final consents role.supplier maker1 parts=1; fuel 13232 17881
 test "at most 15 recipients besides the holder" passed home=role.issuer
-  step 1 passed 2026-01-01 accepted active event=active; fuel 8092
-  step 2 passed 2026-01-01 refused "bo:requires split 2"; fuel 20353
-  step 3 passed 2026-01-01 accepted divided event=divided final consents r11 r7 role.supplier r5 r2 r4 r15 r13 r9 r3 r14 r6 r1 r10 r8 r12 parts=16; fuel 42960 81284
-  step 4 passed 2026-01-01 accepted part=15 pledged event=pledged consents r15 bank1; fuel 13261 16184
-  step 5 passed 2026-01-01 accepted part=16 active event=active consents role.supplier r1; fuel 13090 15812
+  step 1 passed 2026-01-01 accepted active event=active; fuel 7214
+  step 2 passed 2026-01-01 refused "bo:requires split 2"; fuel 18513
+  step 3 passed 2026-01-01 accepted divided event=divided final consents r11 r7 role.supplier r5 r2 r4 r15 r13 r9 r3 r14 r6 r1 r10 r8 r12 parts=16; fuel 41120 79444
+  step 4 passed 2026-01-01 accepted part=15 pledged event=pledged consents r15 bank1; fuel 11473 14396
+  step 5 passed 2026-01-01 accepted part=16 active event=active consents role.supplier r1; fuel 11407 14129
 test "not while pledged" passed home=role.issuer
-  step 1 passed 2026-01-01 accepted active event=active; fuel 8188
-  step 2 passed 2026-01-01 accepted pledged event=pledged consents role.supplier bank1; fuel 13069 16042
-  step 3 passed 2026-01-01 refused "bo:state split"; fuel 13280
-  step 4 passed 2026-01-01 accepted active event=active consents bank1; fuel 12714 15026
-  step 5 passed 2026-01-01 accepted divided event=divided final consents role.supplier maker2 maker1 parts=2; fuel 16131 22752
+  step 1 passed 2026-01-01 accepted active event=active; fuel 7310
+  step 2 passed 2026-01-01 accepted pledged event=pledged consents role.supplier bank1; fuel 11281 14254
+  step 3 passed 2026-01-01 refused "bo:state split"; fuel 11241
+  step 4 passed 2026-01-01 accepted active event=active consents bank1; fuel 10821 13133
+  step 5 passed 2026-01-01 accepted divided event=divided final consents role.supplier maker2 maker1 parts=2; fuel 14291 20912
 test "eight levels down, and no further" passed home=role.issuer
-  step 1 passed 2026-01-01 accepted active event=active; fuel 8188
-  step 2 passed 2026-01-01 accepted divided event=divided final consents role.supplier parts=1; fuel 14911 19202
-  step 3 passed 2026-01-01 accepted part=1 divided event=divided final consents role.supplier parts=1; fuel 15331 19623
-  step 4 passed 2026-01-01 accepted part=1.1 divided event=divided final consents role.supplier parts=1; fuel 15331 19623
-  step 5 passed 2026-01-01 accepted part=1.1.1 divided event=divided final consents role.supplier parts=1; fuel 15331 19623
-  step 6 passed 2026-01-01 accepted part=1.1.1.1 divided event=divided final consents role.supplier parts=1; fuel 15331 19623
-  step 7 passed 2026-01-01 accepted part=1.1.1.1.1 divided event=divided final consents role.supplier parts=1; fuel 15331 19623
-  step 8 passed 2026-01-01 accepted part=1.1.1.1.1.1 divided event=divided final consents role.supplier parts=1; fuel 15331 19623
-  step 9 passed 2026-01-01 accepted part=1.1.1.1.1.1.1 divided event=divided final consents role.supplier parts=1; fuel 15331 19623
-  step 10 passed 2026-01-01 refused part=1.1.1.1.1.1.1.1 "bo:depth split"; fuel 13272
-  step 11 passed 2026-01-01 accepted part=1.1.1.1.1.1.1.1 pledged event=pledged consents role.supplier bank1; fuel 13357 16331
+  step 1 passed 2026-01-01 accepted active event=active; fuel 7310
+  step 2 passed 2026-01-01 accepted divided event=divided final consents role.supplier parts=1; fuel 13071 17362
+  step 3 passed 2026-01-01 accepted part=1 divided event=divided final consents role.supplier parts=1; fuel 13491 17783
+  step 4 passed 2026-01-01 accepted part=1.1 divided event=divided final consents role.supplier parts=1; fuel 13491 17783
+  step 5 passed 2026-01-01 accepted part=1.1.1 divided event=divided final consents role.supplier parts=1; fuel 13491 17783
+  step 6 passed 2026-01-01 accepted part=1.1.1.1 divided event=divided final consents role.supplier parts=1; fuel 13491 17783
+  step 7 passed 2026-01-01 accepted part=1.1.1.1.1 divided event=divided final consents role.supplier parts=1; fuel 13491 17783
+  step 8 passed 2026-01-01 accepted part=1.1.1.1.1.1 divided event=divided final consents role.supplier parts=1; fuel 13491 17783
+  step 9 passed 2026-01-01 accepted part=1.1.1.1.1.1.1 divided event=divided final consents role.supplier parts=1; fuel 13491 17783
+  step 10 passed 2026-01-01 refused part=1.1.1.1.1.1.1.1 "bo:depth split"; fuel 11432
+  step 11 passed 2026-01-01 accepted part=1.1.1.1.1.1.1.1 pledged event=pledged consents role.supplier bank1; fuel 11569 14543
 6 tests: 6 passed, 0 failed

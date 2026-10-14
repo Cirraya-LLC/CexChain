@@ -1,22 +1,22 @@
 test "signed in person, countersigned, and closed" passed home=role.we
-  step 1 passed 2026-10-14 accepted proposed event=proposed; fuel 8249
-  step 2 passed 2026-10-14 accepted proposed consents role.customer; fuel 10500 12263
-  step 3 passed 2026-10-14 refused "bo:in-person sign"; fuel 8951 9375
-  step 4 passed 2026-10-14 accepted signed event=signed consents role.customer; fuel 8951 11343
-  step 5 passed 2026-10-14 refused "bo:requires amend 1"; fuel 10236
-  step 6 passed 2026-10-14 accepted effective event=effective; fuel 10346
-  step 7 passed 2027-06-30 accepted closed event=closed final consents role.customer; fuel 9087 11132
+  step 1 passed 2026-10-14 accepted proposed event=proposed; fuel 7151
+  step 2 passed 2026-10-14 accepted proposed consents role.customer; fuel 9278 11041
+  step 3 passed 2026-10-14 refused "bo:in-person sign"; fuel 7875 8299
+  step 4 passed 2026-10-14 accepted signed event=signed consents role.customer; fuel 7875 10267
+  step 5 passed 2026-10-14 refused "bo:requires amend 1"; fuel 8804
+  step 6 passed 2026-10-14 accepted effective event=effective; fuel 9060
+  step 7 passed 2027-06-30 accepted closed event=closed final consents role.customer; fuel 7948 9993
   step 8 passed 2027-06-30 final-instance
 test "what one party cannot do alone" passed home=role.we
-  step 1 passed 2026-01-01 accepted proposed event=proposed; fuel 8249
-  step 2 passed 2026-01-01 waits role.customer; fuel 10500
-  step 3 passed 2026-01-01 refused "an amendment may raise the amount by half at most"; fuel 10221
-  step 4 passed 2026-01-01 waits role.customer; fuel 8949
-  step 5 passed 2026-01-01 refused "bo:state countersign"; fuel 8516
-  step 6 passed 2026-01-01 accepted signed event=signed consents role.customer; fuel 8949 11174
-  step 7 passed 2026-01-01 waits role.we; fuel 10346
-  step 8 passed 2026-01-01 refused "bo:state close"; fuel 9040
+  step 1 passed 2026-01-01 accepted proposed event=proposed; fuel 7151
+  step 2 passed 2026-01-01 waits role.customer; fuel 9278
+  step 3 passed 2026-01-01 refused "an amendment may raise the amount by half at most"; fuel 8999
+  step 4 passed 2026-01-01 waits role.customer; fuel 7873
+  step 5 passed 2026-01-01 refused "bo:state countersign"; fuel 7440
+  step 6 passed 2026-01-01 accepted signed event=signed consents role.customer; fuel 7873 9962
+  step 7 passed 2026-01-01 waits role.we; fuel 9060
+  step 8 passed 2026-01-01 refused "bo:state close"; fuel 7733
 test "too late to sign" passed home=role.we
-  step 1 passed 2026-01-01 accepted proposed event=proposed; fuel 8249
-  step 2 passed 2027-01-02 refused "bo:requires sign 2"; fuel 8709
+  step 1 passed 2026-01-01 accepted proposed event=proposed; fuel 7151
+  step 2 passed 2027-01-02 refused "bo:requires sign 2"; fuel 7633
 3 tests: 3 passed, 0 failed

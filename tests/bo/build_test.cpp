@@ -405,3 +405,94 @@ TEST_CASE("a source read with a company's own pack rebuilds from its bundle", "[
     REQUIRE(spelled.build.has_value());
     CHECK(spelled.build->code == deploy.code);
 }
+
+TEST_CASE("a deploy built as codegen 1 still rebuilds", "[bo][build]") {
+    // Codegen 2 (milestone 18) stopped checking texts' UTF-8 in the input and
+    // shares two locals where codegen 1 took new ones; the compiler still
+    // writes codegen 1, so that deploys made with it rebuild.
+    const Compiled first = compile(agreement(), official_set(), CompileOptions{1, false});
+    const Compiled second = compile(agreement(), official_set());
+    REQUIRE(first.build.has_value());
+    REQUIRE(second.build.has_value());
+    CHECK(first.build->code != second.build->code);
+    CHECK(first.build->interface == second.build->interface);
+    // Only the current codegen has bounds.
+    CHECK(first.build->bounds.empty());
+    CHECK(second.build->bounds.size() == second.build->interface.size());
+
+    protocol::ContractDeployBody deploy = deploy_of(agreement());
+    CompilerId old = this_compiler();
+    old.codegen = 1;
+    deploy.compiler = format_compiler(old);
+    deploy.code = first.build->code;
+    Rebuild r = rebuilt(deploy);
+    CHECK(r.status == RebuildStatus::rebuilds);
+    REQUIRE(r.build.has_value());
+    CHECK(r.build->code == first.build->code);
+    // A deploy that names codegen 1 but holds codegen 2's code is not its
+    // source's: this compiler writes codegen 1, and it is other code.
+    deploy.code = second.build->code;
+    r = rebuilt(deploy);
+    CHECK(r.status == RebuildStatus::differs);
+    CHECK(mentions(r, "with the compiler the deploy names"));
+    // Codegen 0 was never written: code this compiler does not reproduce is
+    // another compiler's.
+    old.codegen = 0;
+    deploy.compiler = format_compiler(old);
+    deploy.code = first.build->code;
+    CHECK(rebuilt(deploy).status == RebuildStatus::other_compiler);
+}
+
+TEST_CASE("code a call could run out of fuel in does not build", "[bo][build]") {
+    // Every number of one list of 1,000 against every number of another: a
+    // million comparisons, beyond the 10,000,000 fuel a call has.
+    constexpr std::string_view nested = "contract Grid\nparties we\nrecord Grid\n"
+                                        "  rows list number at most 1000\n"
+                                        "  columns list number at most 1000\n"
+                                        "can check by we\n  each r in rows\n"
+                                        "    each c in columns\n      requires r < c or r >= c\n";
+    const Compiled refused = compile(nested, official_set());
+    CHECK(!refused.build.has_value());
+    const auto fuel =
+        std::ranges::find(refused.diagnostics, std::string_view("build.fuel"), &Diagnostic::code);
+    REQUIRE(fuel != refused.diagnostics.end());
+    CHECK(fuel->severity() == Severity::error);
+    CHECK(fuel->arg("function") == "check");
+    CHECK(fuel->arg("limit") == "10000000");
+    CHECK(std::stoull(std::string(fuel->arg("bound"))) > vm::fuel_limit);
+    // The same code builds when only bytes are compared (a rebuild).
+    const Compiled bytes_only = compile(nested, official_set(), CompileOptions{2, false});
+    REQUIRE(bytes_only.build.has_value());
+    CHECK(bytes_only.build->bounds.at("check").fuel > vm::fuel_limit);
+    // Smaller bounds build: 100 by 100.
+    std::string smaller(nested);
+    for (std::size_t at = smaller.find("1000"); at != std::string::npos;
+         at = smaller.find("1000")) {
+        smaller.replace(at, 4, "100");
+    }
+    const Compiled built = compile(smaller, official_set());
+    REQUIRE(built.build.has_value());
+    CHECK(built.build->bounds.at("check").fuel < vm::fuel_limit);
+    CHECK(built.build->bounds.at("check").fuel > 100 * 100 * 10);
+}
+
+TEST_CASE("an output that could exceed the code's region is a warning", "[bo][build]") {
+    // A part repeats its parent's fields: with a text of up to 64 KiB in the
+    // state, sixteen parts could not fit the 192 KiB the code writes into.
+    constexpr std::string_view source = "contract Notes\nparties issuer, supplier\n"
+                                        "asset Receivable\n  amount CNY\n  tier number\n"
+                                        "  note text\n  holder supplier\ncan split\n";
+    const Compiled c = compile(source, official_set());
+    REQUIRE(c.build.has_value());
+    const auto output =
+        std::ranges::find(c.diagnostics, std::string_view("build.output"), &Diagnostic::code);
+    REQUIRE(output != c.diagnostics.end());
+    CHECK(output->severity() == Severity::warning);
+    CHECK(output->arg("function") == "split");
+    CHECK(output->arg("limit") == "196608");
+    CHECK(c.build->bounds.at("split").output > max_build_output);
+    // The other functions write one state at most: no warning for them.
+    CHECK(std::ranges::count(c.diagnostics, std::string_view("build.output"), &Diagnostic::code) ==
+          1);
+    CHECK(c.build->bounds.at("issue").output <= max_build_output);
+}

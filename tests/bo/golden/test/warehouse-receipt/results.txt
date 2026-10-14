@@ -1,20 +1,20 @@
 test "goods redeemed in parts" passed home=warehouse
-  step 1 passed 2026-01-01 accepted active event=active; fuel 6271
-  step 2 passed 2026-01-01 refused "bo:requires redeem 3"; fuel 9857
-  step 3 passed 2026-01-01 refused "bo:requires redeem 4"; fuel 10052
-  step 4 passed 2026-01-01 accepted active consents depositor; fuel 10300 12109
-  step 5 passed 2026-01-01 accepted pledged event=pledged consents depositor bank1; fuel 10626 13320
-  step 6 passed 2026-01-01 accepted pledged consents depositor bank1; fuel 11763 14251
-  step 7 passed 2026-01-01 refused "bo:state transfer"; fuel 10249
-  step 8 passed 2026-01-01 accepted active event=active consents bank1; fuel 10637 12670
-  step 9 passed 2026-01-01 accepted active event=active consents trader1 depositor; fuel 10800 13279
-  step 10 passed 2026-01-01 accepted redeemed event=redeemed final consents trader1; fuel 10684 12716
+  step 1 passed 2026-01-01 accepted active event=active; fuel 5728
+  step 2 passed 2026-01-01 refused "bo:requires redeem 3"; fuel 8446
+  step 3 passed 2026-01-01 refused "bo:requires redeem 4"; fuel 8641
+  step 4 passed 2026-01-01 accepted active consents depositor; fuel 8889 10698
+  step 5 passed 2026-01-01 accepted pledged event=pledged consents depositor bank1; fuel 9257 11951
+  step 6 passed 2026-01-01 accepted pledged consents depositor bank1; fuel 10017 12505
+  step 7 passed 2026-01-01 refused "bo:state transfer"; fuel 8650
+  step 8 passed 2026-01-01 accepted active event=active consents bank1; fuel 9027 11060
+  step 9 passed 2026-01-01 accepted active event=active consents trader1 depositor; fuel 9379 11858
+  step 10 passed 2026-01-01 accepted redeemed event=redeemed final consents trader1; fuel 9137 11169
   step 11 passed 2026-01-01 final-instance
 test "frozen while pledged" passed home=warehouse
-  step 1 passed 2026-01-01 accepted active event=active; fuel 6271
-  step 2 passed 2026-01-01 accepted pledged event=pledged consents depositor bank1; fuel 10626 13320
-  step 3 passed 2026-01-01 accepted frozen event=frozen; fuel 12104
-  step 4 passed 2026-01-01 refused "bo:state redeem"; fuel 10714
-  step 5 passed 2026-01-01 accepted pledged event=pledged; fuel 12044
-  step 6 passed 2026-01-01 accepted redeemed event=redeemed final consents depositor bank1; fuel 11864 14357
+  step 1 passed 2026-01-01 accepted active event=active; fuel 5728
+  step 2 passed 2026-01-01 accepted pledged event=pledged consents depositor bank1; fuel 9257 11951
+  step 3 passed 2026-01-01 accepted frozen event=frozen; fuel 10515
+  step 4 passed 2026-01-01 refused "bo:state redeem"; fuel 8989
+  step 5 passed 2026-01-01 accepted pledged event=pledged; fuel 10581
+  step 6 passed 2026-01-01 accepted redeemed event=redeemed final consents depositor bank1; fuel 10118 12611
 2 tests: 2 passed, 0 failed
