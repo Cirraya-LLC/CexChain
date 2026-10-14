@@ -32,8 +32,10 @@
 ///     a 32-byte ledger id; a text, a text; yes or no, false or true. Null
 ///     stands for a function that takes nothing. Anything else is refused;
 ///   - keeps the instance's state as {"state": NAME, "fields": {...}} (plus
-///     "pending", the proposals AI agents made, and "previous", the state
-///     before the current one, when the contract uses them), and reports the
+///     "pending", the proposals AI agents made, "previous", the state before
+///     the current one, "fired" and "since" for time rules, and "bill", the
+///     bill its document's field holds, when the contract uses them; a list
+///     is kept as its CBOR array), and reports the
 ///     state's name as the status, the parties (the roles bound so far and
 ///     every field that holds a party; one that holds none, null in the
 ///     state, is no party), each state change as an event [state, null]
@@ -52,18 +54,19 @@
 /// It depends only on the model's concepts and names, never on spellings or
 /// places, so a contract written in any language gives the same bytes.
 ///
-/// What this version compiles (milestones 6 and 11): creation, the
+/// What this version compiles (milestones 6, 11, 12, and 13): creation, the
 /// contract's own actions with inputs, the vocabulary's actions with the
 /// standard library's terms (R19), fields (party fields that may hold none
 /// among them), states (and a return to the previous one), `requires` (with
 /// a guard), `if` and `otherwise`, `reject`, consents, `in person`, agents'
-/// proposals with the function `approve`, `when` rules that only state
-/// duties (R9: no code), and expressions over numbers, money, quantities,
-/// rates, dates, durations, texts, yes or no, and parties. Anything else is
-/// reported (build.*) and nothing is built: the built-in actions whose
-/// terms come later, executors (6b), `when` rules that call (milestone 12),
-/// lists, `each`, and charges (milestone 13), and actions done inside
-/// actions.
+/// proposals with the function `approve`, `when` rules (R24; those that only
+/// state duties, R9, have no code), lists (`each`, `sum of`, `count of`,
+/// `in`), bills and the charges computed on them (R26 to R28), and
+/// expressions over numbers, money, quantities, rates, dates, durations,
+/// texts, yes or no, parties, and lists. Anything else is reported (build.*)
+/// and nothing is built: the built-in actions whose terms come later,
+/// executors (6b), a service's period due (6b), a list built from values that
+/// are not constants, and actions done inside actions.
 namespace cexchain::bo {
 
 /// Limits of a compiled contract (spec section 15, and what keeps its
@@ -74,6 +77,7 @@ inline constexpr std::size_t max_build_parties = 64;
 inline constexpr std::size_t max_build_fields = 256;
 inline constexpr std::size_t max_build_inputs = 256;
 inline constexpr std::size_t max_build_events = 64;
+inline constexpr std::size_t max_build_charges = 64;
 
 struct Build {
     /// The module, which vm::load accepts.

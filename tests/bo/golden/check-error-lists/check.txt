@@ -6,6 +6,7 @@ field codes instance list 16 text
 field tags instance list 16 text{R16}
 field sizes instance list 4 number
 state state.active first{R4}
+state tidied{R5}
 can load own by=role.we agents=delegation{R14}
   input rows instance list 3 number
   each entry in=tags
@@ -15,7 +16,13 @@ can load own by=role.we agents=delegation{R14}
   set sizes (list 1 2 3 4 5)
   requires (> (expr.count_of rows) 0)
   requires (= (expr.sum_of tags) "a")
+can tidy own by=role.we agents=delegation{R14}
+  input names instance list 16 text{R16}
+  each n in=names
+    if (= n "x")
+      transition state.active -> tidied
 5:19 error check.list-bound: at most 2000: a list holds from 1 to 1000 items
 12:13 error check.type: 5 is a number, but a list is needed here
 14:11 error check.list-bound: (1, 2, 3, 4, 5): a list holds from 1 to 4 items
 16:19 error check.operands: + cannot combine a text with a text
+21:7 error check.each-body: active -> tidied: the block of each runs once for each item, so it cannot change the state or do an action; move it out of each

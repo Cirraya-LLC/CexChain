@@ -29,6 +29,7 @@
 #include <cexchain/bo/runtime.hpp>
 #include <cexchain/bo/values.hpp>
 #include <cexchain/bo/wasm.hpp>
+#include <cexchain/core/vm.hpp>
 
 namespace cexchain::bo {
 
@@ -60,7 +61,24 @@ enum class Rep : std::uint8_t {
     flag,   ///< yes or no: an i32, 0 or 1
     text,   ///< an address and a length (i32 each)
     ledger, ///< the address of a 32-byte ledger id (i32; 0 while a role is unbound)
+    list,   ///< a CBOR array of items of one of the above: its address and length (i32 each)
 };
+
+/// True for a representation held as two i32s: an address and a length.
+bool pair_rep(const Rep rep) noexcept {
+    return rep == Rep::text || rep == Rep::list;
+}
+
+Rep rep_of(const m::Type& t) noexcept;
+
+/// How compiled code holds a list's items (Rep::none if it cannot).
+Rep element_rep(const m::Type& t) noexcept {
+    if (t.kind != TypeKind::list || t.element.size() != 1) {
+        return Rep::none;
+    }
+    const Rep rep = rep_of(t.element.front());
+    return rep == Rep::list ? Rep::none : rep;
+}
 
 Rep rep_of(const m::Type& t) noexcept {
     switch (t.kind) {
@@ -77,6 +95,8 @@ Rep rep_of(const m::Type& t) noexcept {
         return Rep::text;
     case TypeKind::party:
         return Rep::ledger;
+    case TypeKind::list:
+        return element_rep(t) != Rep::none ? Rep::list : Rep::none;
     default:
         return Rep::none;
     }
@@ -129,6 +149,40 @@ Bytes text_cbor(std::string_view text) {
 /// One byte: a small unsigned integer key (contract-input, instance-view).
 Bytes uint_key(const std::uint8_t k) {
     return Bytes{k};
+}
+
+/// A CBOR head in its shortest form.
+void put_head(Bytes& out, const std::uint8_t major, const std::uint64_t n) {
+    const auto top = static_cast<std::uint8_t>(major << 5U);
+    if (n < 24) {
+        out.push_back(static_cast<std::uint8_t>(top | n));
+        return;
+    }
+    int width = 8;
+    std::uint8_t info = 27;
+    if (n < 0x100) {
+        width = 1;
+        info = 24;
+    } else if (n < 0x1'0000) {
+        width = 2;
+        info = 25;
+    } else if (n < 0x1'0000'0000) {
+        width = 4;
+        info = 26;
+    }
+    out.push_back(static_cast<std::uint8_t>(top | info));
+    for (int shift = 8 * (width - 1); shift >= 0; shift -= 8) {
+        out.push_back(static_cast<std::uint8_t>(n >> static_cast<unsigned>(shift)));
+    }
+}
+
+/// A signed integer's CBOR encoding.
+void put_int(Bytes& out, const std::int64_t v) {
+    if (v >= 0) {
+        put_head(out, 0, static_cast<std::uint64_t>(v));
+    } else {
+        put_head(out, 1, static_cast<std::uint64_t>(-(v + 1)));
+    }
 }
 
 /// Up to 80 bytes of the source at a place, cut at a character, for
@@ -221,6 +275,19 @@ struct RuleInfo {
     wasm::Global fired_set{};
 };
 
+/// A charge (R26, R27): its name, and what compiled code keeps of it while
+/// a call runs: whether it applies to the bill, the rate in force, its amount
+/// on the bill, and (for one on each line) its amount on the current line.
+struct ChargeInfo {
+    const m::Charge* charge = nullptr;
+    std::string wire;
+    Bytes key;
+    wasm::Global applies{};
+    wasm::Global rate{};
+    wasm::Global amount{};
+    wasm::Global line{};
+};
+
 /// One function being written.
 struct Ctx {
     FunctionBuilder* b = nullptr;
@@ -240,6 +307,18 @@ struct Ctx {
     Local t64b{};
     std::uint32_t requires_count = 0;
     int depth = 0;
+    /// The items `each` names: the value's local, and a text's length.
+    std::map<std::string, std::pair<Local, Local>> items;
+    /// Locals of the `each` loops, by depth (shared by loops one after
+    /// another): where the next item is, how many are left, and the item.
+    struct Loop {
+        Local p{};
+        Local n{};
+        Local v64{};
+        Local a{};
+        Local b{};
+    };
+    std::vector<Loop> loops;
 };
 
 class Lowering {
@@ -267,6 +346,7 @@ private:
     void plan_states();
     void plan_actions();
     void plan_rules();
+    void plan_charges();
     void plan_finals();
     [[nodiscard]] std::optional<std::pair<Span, std::string>>
     unsupported_in(const m::Expr& e, const ActionInfo* action, bool consent_ok, int depth) const;
@@ -283,6 +363,7 @@ private:
     void call_item(FunctionBuilder& b, std::uint32_t key);
     void push_key(FunctionBuilder& b, const Bytes& key);
     void expect(FunctionBuilder& b, Rep rep, std::string_view reason);
+    void read_value(FunctionBuilder& b, const m::Type& type, std::string_view reason);
     void store(FunctionBuilder& b, const FieldSlot& slot);
     void load(FunctionBuilder& b, const FieldSlot& slot);
     void out_value(FunctionBuilder& b, Rep rep);
@@ -318,6 +399,26 @@ private:
     void binary(Ctx& c, const m::Expr& e);
     void arithmetic(Ctx& c, const m::Expr& e);
     void in_person(Ctx& c);
+    // --- Bills and charges (milestone 13).
+    [[nodiscard]] wasm::Func compute_bill();
+    [[nodiscard]] wasm::Func line_charges();
+    void charge_base(Ctx& c, const ChargeInfo& k, std::optional<Local> price, bool per_line);
+    void charge_divisor(FunctionBuilder& b, const ChargeInfo& k);
+    void write_bill(FunctionBuilder& b);
+    [[nodiscard]] std::vector<const ChargeInfo*> sorted_charges(bool per_line_only) const;
+
+    // --- Lists (milestone 13).
+    [[nodiscard]] wasm::Func list_reader(Rep element);
+    [[nodiscard]] wasm::Func list_sum();
+    [[nodiscard]] wasm::Func list_has(Rep element);
+    void item_value(FunctionBuilder& b, Local p, Rep element);
+    void next_item(FunctionBuilder& b, Local p, Rep element);
+    [[nodiscard]] const m::Expr* literal_items(const m::Expr& e) const;
+    [[nodiscard]] bool constant_items(const m::Expr& list) const;
+    void encoded_list(FunctionBuilder& b, const m::Expr& list);
+    void each(Ctx& c, const m::Each& e);
+    void member(Ctx& c, const m::Expr& e);
+    void list_apply(Ctx& c, const m::Expr& e);
     void record_event(FunctionBuilder& b, std::size_t state);
     void record_event_at(FunctionBuilder& b, Local state);
     void write_pending(FunctionBuilder& b);
@@ -350,6 +451,28 @@ private:
     /// last changed state (`within`, a state held N).
     std::vector<RuleInfo> rules_;
     bool since_used_ = false;
+    /// The bill (R26): the field that holds its lines, and the charges.
+    std::optional<std::size_t> bill_slot_;
+    std::vector<ChargeInfo> charges_;
+    std::optional<wasm::Func> compute_bill_;
+    std::optional<wasm::Func> line_charges_;
+    /// Made in this call (i32); the bill the instance held (its item and
+    /// length); the bill's time, its lines' sum, and its total (i64); the
+    /// included charges' rates, 100% plus them (i64); where the bill was
+    /// written in the output (i32 each).
+    wasm::Global bill_new_{};
+    wasm::Global bill_old_{};
+    wasm::Global bill_old_length_{};
+    wasm::Global bill_time_{};
+    wasm::Global bill_price_{};
+    wasm::Global bill_total_{};
+    wasm::Global bill_divisor_{};
+    wasm::Global bill_at_{};
+    wasm::Global bill_length_{};
+    /// The list routines, by the representation of the items.
+    std::map<Rep, wasm::Func> list_readers_;
+    std::map<Rep, wasm::Func> list_has_;
+    std::optional<wasm::Func> list_sum_;
 
     // Written in the second pass.
     wasm::Global state_{};
@@ -541,9 +664,12 @@ std::optional<std::pair<Span, std::string>> Lowering::unsupported_in(const m::Ex
             // never the instance's.
             return e.type.kind == TypeKind::yes_no ? std::nullopt : no(feature_of(e.type));
         case Refers::item:
-            return no("kw.each");
+            return rep_of(e.type) != Rep::none ? std::nullopt : no(feature_of(e.type));
         case Refers::action:
             return no(key);
+        case Refers::charge:
+            // Its amount on the bill (R26).
+            return std::nullopt;
         case Refers::none:
             break;
         }
@@ -560,6 +686,20 @@ std::optional<std::pair<Span, std::string>> Lowering::unsupported_in(const m::Ex
     case ExprKind::apply:
         if (is(e.concept_entry, "cond.over") && action != nullptr && amount_of(*action)) {
             return all(false);
+        }
+        if ((is(e.concept_entry, "expr.sum_of") || is(e.concept_entry, "expr.count_of")) &&
+            e.operands.size() == 1) {
+            // A list written out needs only its items; any other, its value.
+            if (const m::Expr* items = literal_items(e.operands[0])) {
+                for (const m::Expr& o : items->operands) {
+                    if (Found f = unsupported_in(o, action, false, depth + 1)) {
+                        return f;
+                    }
+                }
+                return element_rep(e.operands[0].type) != Rep::none ? std::nullopt
+                                                                    : no("type.list");
+            }
+            return unsupported_in(e.operands[0], action, false, depth);
         }
         // Times: N before the due date, less than N since the last change.
         if ((is(e.concept_entry, "cond.before_due") && model_.due == m::DueKind::field) ||
@@ -580,7 +720,8 @@ std::optional<std::pair<Span, std::string>> Lowering::unsupported_in(const m::Ex
                       ? std::string(e.operands[0].concept_entry->id)
                       : "price.per");
     case ExprKind::list:
-        return no("type.list");
+        // A list as a whole: constants only, written into the module once.
+        return constant_items(e) ? std::nullopt : no("type.list");
     case ExprKind::unary:
         return all(false);
     case ExprKind::binary:
@@ -588,6 +729,24 @@ std::optional<std::pair<Span, std::string>> Lowering::unsupported_in(const m::Ex
     }
     if (e.operands.size() != 2) {
         return no("type.unknown");
+    }
+    if (e.op == Operator::member) {
+        // X in LIST: a list written out needs only its items.
+        if (Found f = unsupported_in(e.operands[0], action, false, depth)) {
+            return f;
+        }
+        if (rep_of(e.operands[0].type) == Rep::none) {
+            return no(feature_of(e.operands[0].type));
+        }
+        if (const m::Expr* items = literal_items(e.operands[1])) {
+            for (const m::Expr& o : items->operands) {
+                if (Found f = unsupported_in(o, action, false, depth + 1)) {
+                    return f;
+                }
+            }
+            return std::nullopt;
+        }
+        return unsupported_in(e.operands[1], action, false, depth);
     }
     if (Found f = all(false)) {
         return f;
@@ -602,7 +761,7 @@ std::optional<std::pair<Span, std::string>> Lowering::unsupported_in(const m::Ex
     case Operator::logical_or:
         return std::nullopt;
     case Operator::member:
-        return no("kw.in");
+        return std::nullopt;
     case Operator::equals:
         return rep != Rep::none && rep == rep_of(r) ? std::nullopt : no(feature_of(l));
     case Operator::less:
@@ -663,7 +822,20 @@ void Lowering::support(ActionInfo& action, const std::vector<m::Statement>& list
                     support(action, i.then, rule);
                     support(action, i.otherwise, rule);
                 },
-                [&](const m::Each& e) { unsupported(e.span, "kw.each"); },
+                [&](const m::Each& e) {
+                    // A list written out needs only its items.
+                    if (const m::Expr* items = literal_items(e.list)) {
+                        for (const m::Expr& item : items->operands) {
+                            check(item, false);
+                        }
+                        if (element_rep(e.list.type) == Rep::none) {
+                            unsupported(e.list.span, feature_of(e.list.type));
+                        }
+                    } else {
+                        check(e.list, false);
+                    }
+                    support(action, e.body, rule);
+                },
                 [&](const m::Reject& r) {
                     if (r.message.starts_with("bo:")) {
                         error(r.span, "build.reject-text", {{"text", quote(source_, r.span)}});
@@ -848,6 +1020,49 @@ void Lowering::plan_rules() {
     }
 }
 
+void Lowering::plan_charges() {
+    // R26: the field that holds the bill, and the charges computed on it.
+    if (const m::Field* bill = m::bill_field(model_); bill != nullptr) {
+        const auto it = field_index_.find(m::key(bill->word, bill->name));
+        if (it != field_index_.end() && fields_[it->second].rep == Rep::list) {
+            bill_slot_ = it->second;
+        }
+    }
+    if (model_.charges.size() > max_build_charges) {
+        error(Span{}, "build.too-many-charges", {{"limit", std::to_string(max_build_charges)}});
+        return;
+    }
+    const auto check = [&](const m::Expr& e) {
+        if (auto found = unsupported_in(e, nullptr, false, 0)) {
+            unsupported(found->first, std::move(found->second));
+        }
+    };
+    for (const m::Charge& c : model_.charges) {
+        ChargeInfo info;
+        info.charge = &c;
+        info.wire = c.name;
+        info.key = text_cbor(info.wire);
+        name_check(info.wire, c.span, max_build_name);
+        if (c.condition) {
+            check(*c.condition);
+        }
+        if (c.rate) {
+            check(*c.rate);
+        }
+        for (const m::DatedRate& d : c.dated) {
+            check(d.rate);
+        }
+        if (c.amount) {
+            check(*c.amount);
+        }
+        charges_.push_back(std::move(info));
+    }
+    if (!charges_.empty() && !bill_slot_) {
+        error(model_.charges.front().span, "build.unsupported",
+              {{"text", quote(source_, model_.charges.front().span)}, {"feature", "doc.invoice"}});
+    }
+}
+
 void Lowering::plan_finals() {
     // A state is final when no action can start from it.
     const std::vector<bool> finals = m::final_states(model_);
@@ -861,17 +1076,32 @@ void Lowering::plan() {
     if (model_.name.empty()) {
         error(Span{}, "build.fragment", {});
     }
-    for (const m::Charge& c : model_.charges) {
-        unsupported(c.span, c.kind != nullptr ? std::string(c.kind->id) : "charge.charge");
-    }
     plan_fields();
     plan_roles();
     plan_states();
     plan_actions();
     plan_rules();
+    plan_charges();
     since_used_ = m::uses_since(model_);
     if (!states_.empty()) {
         plan_finals();
+    }
+    // The globals the module will hold, within the profile's limit (the
+    // runtime's four included).
+    std::size_t globals = 2 + 4 + roles_.size();
+    for (const FieldSlot& slot : fields_) {
+        globals += pair_rep(slot.rep) ? 2U : 1U;
+    }
+    globals += (previous_used_ ? 1U : 0U) + (proposals_ ? 8U : 0U) + (since_used_ ? 1U : 0U);
+    globals += rules_.empty() ? 0 : 2 * rules_.size() + 5;
+    if (bill_slot_) {
+        globals += 9;
+        for (const ChargeInfo& k : charges_) {
+            globals += k.charge->per_document ? 3U : 4U;
+        }
+    }
+    if (globals > vm::max_globals) {
+        error(Span{}, "build.too-large", {});
     }
 }
 
@@ -915,14 +1145,27 @@ void Lowering::expect(FunctionBuilder& b, const Rep rep, const std::string_view 
     case Rep::ledger:
         b.call(rt_.get(Routine::expect_ledger));
         return;
+    case Rep::list:
     case Rep::none:
         break;
     }
-    BO_ASSERT(rep != Rep::none);
+    BO_ASSERT(rep != Rep::none && rep != Rep::list);
+}
+
+/// The item on the stack, read as a value of `type` (a list with its bound
+/// and its items' type), or a refusal with `reason`.
+void Lowering::read_value(FunctionBuilder& b, const m::Type& type, const std::string_view reason) {
+    const Rep rep = rep_of(type);
+    if (rep != Rep::list) {
+        expect(b, rep, reason);
+        return;
+    }
+    b.u32(type.bound).u32(intern(reason)).u32(static_cast<std::uint32_t>(reason.size()));
+    b.call(list_reader(element_rep(type)));
 }
 
 void Lowering::store(FunctionBuilder& b, const FieldSlot& slot) {
-    if (slot.rep == Rep::text) {
+    if (pair_rep(slot.rep)) {
         b.global_set(slot.second);
     }
     b.global_set(slot.first);
@@ -930,7 +1173,7 @@ void Lowering::store(FunctionBuilder& b, const FieldSlot& slot) {
 
 void Lowering::load(FunctionBuilder& b, const FieldSlot& slot) {
     b.global_get(slot.first);
-    if (slot.rep == Rep::text) {
+    if (pair_rep(slot.rep)) {
         b.global_get(slot.second);
     }
 }
@@ -950,6 +1193,10 @@ void Lowering::out_value(FunctionBuilder& b, const Rep rep) {
     case Rep::ledger:
         b.i32(32).call(rt_.get(Routine::out_bytes));
         return;
+    case Rep::list:
+        // Its encoding, as read or interned.
+        b.call(rt_.get(Routine::out_raw));
+        return;
     case Rep::none:
         break;
     }
@@ -961,6 +1208,687 @@ void Lowering::state_name(FunctionBuilder& b, const Local index) {
     b.get(index).i32(3).op(i32_shl).load(i32_load, state_table_);
     b.get(index).i32(3).op(i32_shl).load(i32_load, state_table_ + 4);
     b.call(rt_.get(Routine::out_raw));
+}
+
+// ---------------------------------------------------------------------------
+// Bills and charges (milestone 13). A bill is made when the field that holds
+// its lines is set (at creation, or by an action): the charges are computed
+// on its lines at the call's time (R26), in the order written, each on the
+// price and the charges it names (R27), with the rate in force then (R28).
+// The instance keeps the bill, {"time", ? "lines", "price", "total",
+// "charges"}, and the call reports it as an event [DOCUMENT, BILL]; a bill
+// already made is kept as it is (a later rate never changes it).
+
+std::vector<const ChargeInfo*> Lowering::sorted_charges(const bool per_line_only) const {
+    std::vector<const ChargeInfo*> out;
+    for (const ChargeInfo& k : charges_) {
+        if (!per_line_only || !k.charge->per_document) {
+            out.push_back(&k);
+        }
+    }
+    std::ranges::sort(out, {}, &ChargeInfo::key);
+    return out;
+}
+
+void Lowering::charge_divisor(FunctionBuilder& b, const ChargeInfo& k) {
+    // Added: base x rate / 100%. Included, taken out of the price: base x
+    // rate / (100% + the included charges' rates).
+    if (k.charge->included) {
+        b.global_get(bill_divisor_);
+    } else {
+        b.i64(rate_one);
+    }
+    const Concept* mode = k.charge->rounding;
+    const rt::Rounding rounding = is(mode, "round.half_even") ? rt::Rounding::half_even
+                                  : is(mode, "round.down")    ? rt::Rounding::down
+                                                              : rt::Rounding::half_up;
+    b.i32(static_cast<std::int32_t>(rounding)).call(rt_.get(Routine::muldiv));
+}
+
+void Lowering::charge_base(Ctx& c, const ChargeInfo& k, const std::optional<Local> price,
+                           const bool per_line) {
+    // What the charge is computed on: the price (a line's, or the bill's)
+    // and the charges it names (on that line, or on the bill).
+    FunctionBuilder& b = *c.b;
+    bool first = true;
+    if (k.charge->on_price) {
+        if (price) {
+            b.get(*price);
+        } else {
+            b.global_get(bill_price_);
+        }
+        first = false;
+    }
+    for (const std::uint64_t j : k.charge->on) {
+        const ChargeInfo& other = charges_[static_cast<std::size_t>(j)];
+        b.global_get(per_line ? other.line : other.amount);
+        if (!first) {
+            b.call(rt_.get(Routine::add));
+        }
+        first = false;
+    }
+    if (first) {
+        b.i64(0);
+    }
+}
+
+wasm::Func Lowering::line_charges() {
+    if (line_charges_) {
+        return *line_charges_;
+    }
+    // [i64 price] -> []: each charge on a line, on that line's price.
+    const wasm::Func f = module_.declare({{I64}, {}});
+    line_charges_ = f;
+    FunctionBuilder b = module_.begin(f);
+    Ctx c;
+    c.b = &b;
+    c.wire = "bill";
+    c.signer = b.local(I32);
+    c.t32 = b.local(I32);
+    c.t64 = b.local(I64);
+    c.t64b = b.local(I64);
+    const Local price = b.param(0);
+    for (const ChargeInfo& k : charges_) {
+        if (k.charge->per_document) {
+            continue;
+        }
+        b.global_get(k.applies);
+        const Label applies = b.if_(I64);
+        if (k.charge->amount) {
+            value(c, *k.charge->amount);
+        } else {
+            charge_base(c, k, price, true);
+            b.global_get(k.rate);
+            charge_divisor(b, k);
+        }
+        b.else_(applies);
+        b.i64(0);
+        b.end(applies);
+        b.global_set(k.line);
+    }
+    module_.define(std::move(b));
+    return f;
+}
+
+wasm::Func Lowering::compute_bill() {
+    if (compute_bill_) {
+        return *compute_bill_;
+    }
+    const wasm::Func f = module_.declare({});
+    compute_bill_ = f;
+    FunctionBuilder b = module_.begin(f);
+    Ctx c;
+    c.b = &b;
+    c.wire = "bill";
+    c.signer = b.local(I32);
+    c.t32 = b.local(I32);
+    c.t64 = b.local(I64);
+    c.t64b = b.local(I64);
+    const Local p = b.local(I32);
+    const Local n = b.local(I32);
+    const Local has = b.local(I32);
+    const FieldSlot& lines = fields_[*bill_slot_];
+    const wasm::Func add = rt_.get(Routine::add);
+    b.i32(1).global_set(bill_new_);
+    now(c);
+    b.global_set(bill_time_);
+    // Whether each charge applies, and the rate in force (R28): the latest
+    // of those from a date on or before the bill's time, else its own.
+    for (const ChargeInfo& k : charges_) {
+        const m::Charge& charge = *k.charge;
+        if (charge.condition) {
+            value(c, *charge.condition);
+        } else {
+            b.i32(1);
+        }
+        b.global_set(k.applies);
+        if (charge.amount) {
+            continue;
+        }
+        if (charge.rate) {
+            value(c, *charge.rate);
+            b.global_set(k.rate);
+        } else {
+            // No rate until its first date.
+            b.i64(0).global_set(k.rate);
+            b.i32(0).set(has);
+        }
+        for (const m::DatedRate& d : charge.dated) {
+            b.global_get(bill_time_);
+            b.i64(literal_value(d.date.literal, model_.utc_offset_ms).value_or(0));
+            b.op(i64_ge_s);
+            const Label from = b.if_();
+            value(c, d.rate);
+            b.global_set(k.rate);
+            if (!charge.rate) {
+                b.i32(1).set(has);
+            }
+            b.end(from);
+        }
+        if (!charge.rate) {
+            b.global_get(k.applies).get(has).op(i32_and).global_set(k.applies);
+        }
+    }
+    // 100% plus the rates of the included charges that apply.
+    b.i64(rate_one);
+    for (const ChargeInfo& k : charges_) {
+        if (k.charge->included && !k.charge->amount) {
+            b.global_get(k.applies);
+            const Label applies = b.if_(I64);
+            b.global_get(k.rate);
+            b.else_(applies);
+            b.i64(0);
+            b.end(applies);
+            b.call(add);
+        }
+    }
+    b.global_set(bill_divisor_);
+    // The price: the lines' sum.
+    b.global_get(lines.first).call(list_sum()).global_set(bill_price_);
+    // The charges on each line, summed.
+    bool per_line = false;
+    for (const ChargeInfo& k : charges_) {
+        if (!k.charge->per_document) {
+            b.i64(0).global_set(k.amount);
+            per_line = true;
+        }
+    }
+    if (per_line) {
+        b.global_get(lines.first).call(rt_.get(Routine::head_arg)).op(i32_wrap_i64).set(n);
+        b.global_get(lines.first).call(rt_.get(Routine::content)).set(p);
+        const Label done = b.block();
+        const Label next = b.loop();
+        b.get(n).op(i32_eqz).br_if(done);
+        item_value(b, p, Rep::i64);
+        b.call(line_charges());
+        next_item(b, p, Rep::i64);
+        for (const ChargeInfo& k : charges_) {
+            if (!k.charge->per_document) {
+                b.global_get(k.amount).global_get(k.line).call(add).global_set(k.amount);
+            }
+        }
+        b.get(n).i32(1).op(i32_sub).set(n).br(next);
+        b.end(next);
+        b.end(done);
+    }
+    // The charges once per bill, in the order written.
+    for (const ChargeInfo& k : charges_) {
+        if (!k.charge->per_document) {
+            continue;
+        }
+        b.global_get(k.applies);
+        const Label applies = b.if_(I64);
+        if (k.charge->amount) {
+            value(c, *k.charge->amount);
+        } else {
+            charge_base(c, k, std::nullopt, false);
+            b.global_get(k.rate);
+            charge_divisor(b, k);
+        }
+        b.else_(applies);
+        b.i64(0);
+        b.end(applies);
+        b.global_set(k.amount);
+    }
+    // The total: the price and the charges added to it.
+    b.global_get(bill_price_);
+    for (const ChargeInfo& k : charges_) {
+        if (!k.charge->included) {
+            b.global_get(k.amount).call(add);
+        }
+    }
+    b.global_set(bill_total_);
+    module_.define(std::move(b));
+    return f;
+}
+
+void Lowering::write_bill(FunctionBuilder& b) {
+    // The bill made in this call, or the one the instance kept.
+    const wasm::Func head = rt_.get(Routine::out_head);
+    const wasm::Func out_int = rt_.get(Routine::out_int);
+    const wasm::Func out_raw = rt_.get(Routine::out_raw);
+    const std::vector<const ChargeInfo*> line_keys = sorted_charges(true);
+    const bool per_line = !line_keys.empty();
+    b.global_get(bill_new_);
+    const Label made = b.if_();
+    b.global_get(rt_.var(rt::Var::out)).global_set(bill_at_);
+    b.i32(5).i64(per_line ? 5 : 4).call(head);
+    push_key(b, text_cbor("time"));
+    b.call(out_raw);
+    b.global_get(bill_time_).call(out_int);
+    if (per_line) {
+        // "lines": [{CHARGE: amount, ...}, ...], those that apply.
+        const Local p = b.local(I32);
+        const Local n = b.local(I32);
+        const Local count = b.local(I64);
+        const FieldSlot& lines = fields_[*bill_slot_];
+        push_key(b, text_cbor("lines"));
+        b.call(out_raw);
+        b.global_get(lines.first).call(rt_.get(Routine::head_arg)).op(i32_wrap_i64).set(n);
+        b.i32(4).get(n).op(i64_extend_i32_u).call(head);
+        b.global_get(lines.first).call(rt_.get(Routine::content)).set(p);
+        const Label done = b.block();
+        const Label next = b.loop();
+        b.get(n).op(i32_eqz).br_if(done);
+        item_value(b, p, Rep::i64);
+        b.call(line_charges());
+        next_item(b, p, Rep::i64);
+        b.i64(0);
+        for (const ChargeInfo* k : line_keys) {
+            b.global_get(k->applies).op(i64_extend_i32_u).op(i64_add);
+        }
+        b.set(count);
+        b.i32(5).get(count).call(head);
+        for (const ChargeInfo* k : line_keys) {
+            b.global_get(k->applies);
+            const Label applies = b.if_();
+            push_key(b, k->key);
+            b.call(out_raw);
+            b.global_get(k->line).call(out_int);
+            b.end(applies);
+        }
+        b.get(n).i32(1).op(i32_sub).set(n).br(next);
+        b.end(next);
+        b.end(done);
+    }
+    push_key(b, text_cbor("price"));
+    b.call(out_raw);
+    b.global_get(bill_price_).call(out_int);
+    push_key(b, text_cbor("total"));
+    b.call(out_raw);
+    b.global_get(bill_total_).call(out_int);
+    // "charges": {CHARGE: {? "rate": r, "amount": a}, ...}, those that apply.
+    push_key(b, text_cbor("charges"));
+    b.call(out_raw);
+    b.i32(5).i64(0);
+    for (const ChargeInfo& k : charges_) {
+        b.global_get(k.applies).op(i64_extend_i32_u).op(i64_add);
+    }
+    b.call(head);
+    for (const ChargeInfo* k : sorted_charges(false)) {
+        b.global_get(k->applies);
+        const Label applies = b.if_();
+        push_key(b, k->key);
+        b.call(out_raw);
+        if (k->charge->amount) {
+            b.i32(5).i64(1).call(head);
+        } else {
+            b.i32(5).i64(2).call(head);
+            push_key(b, text_cbor("rate"));
+            b.call(out_raw);
+            b.global_get(k->rate).call(out_int);
+        }
+        push_key(b, text_cbor("amount"));
+        b.call(out_raw);
+        b.global_get(k->amount).call(out_int);
+        b.end(applies);
+    }
+    b.global_get(rt_.var(rt::Var::out)).global_get(bill_at_).op(i32_sub).global_set(bill_length_);
+    b.else_(made);
+    b.global_get(bill_old_).global_get(bill_old_length_).call(out_raw);
+    b.end(made);
+}
+
+// ---------------------------------------------------------------------------
+// Lists (milestone 13). A list is kept as its CBOR array, an address and a
+// length: an instance's list in the state and an action's in its arguments
+// where the input holds them, a list of constants written into the module.
+// Lists from the input are checked once, when read (an array of at most the
+// bound, each item of the items' type); their items are then read in place.
+
+wasm::Func Lowering::list_reader(const Rep element) {
+    if (const auto it = list_readers_.find(element); it != list_readers_.end()) {
+        return it->second;
+    }
+    // [item, bound, reason, reason_length] -> [address, length]
+    const wasm::Func f = module_.declare({{I32, I32, I32, I32}, {I32, I32}});
+    list_readers_.emplace(element, f);
+    FunctionBuilder b = module_.begin(f);
+    const Local item = b.param(0);
+    const Local bound = b.param(1);
+    const Local reason = b.param(2);
+    const Local length = b.param(3);
+    const Local n = b.local(I64);
+    const Local p = b.local(I32);
+    const wasm::Func item_end = rt_.get(Routine::item_end);
+    const Label bad = b.block();
+    b.get(item).op(i32_eqz).br_if(bad);
+    b.get(item).load(i32_load8_u).u32(0xE0).op(i32_and).u32(0x80).op(i32_ne).br_if(bad);
+    b.get(item).call(rt_.get(Routine::head_arg)).tee(n);
+    b.get(bound).op(i64_extend_i32_u).op(i64_gt_u).br_if(bad);
+    b.get(item).call(rt_.get(Routine::content)).set(p);
+    {
+        const Label done = b.block();
+        const Label next = b.loop();
+        b.get(n).op(i64_eqz).br_if(done);
+        b.get(p).get(reason).get(length);
+        switch (element) {
+        case Rep::i64:
+            b.call(rt_.get(Routine::expect_int)).op(drop);
+            break;
+        case Rep::flag:
+            b.call(rt_.get(Routine::expect_bool)).op(drop);
+            break;
+        case Rep::text:
+            b.call(rt_.get(Routine::expect_text)).op(drop).op(drop);
+            break;
+        default:
+            b.call(rt_.get(Routine::expect_ledger)).op(drop);
+            break;
+        }
+        b.get(p).call(item_end).set(p);
+        b.get(n).i64(1).op(i64_sub).set(n).br(next);
+        b.end(next);
+        b.end(done);
+    }
+    b.get(item).get(item).call(item_end).get(item).op(i32_sub).return_();
+    b.end(bad);
+    b.get(reason).get(length).call(module_.host(wasm::Host::abort)).unreachable();
+    module_.define(std::move(b));
+    return f;
+}
+
+/// Pushes the value of the list item at `p` (one the list was checked to
+/// hold): an i64, a flag, a text's address and length, a ledger's address.
+void Lowering::item_value(FunctionBuilder& b, const Local p, const Rep element) {
+    switch (element) {
+    case Rep::i64: {
+        const std::string_view input = rt::text_of(rt::Reason::input);
+        b.get(p).u32(intern(input)).u32(static_cast<std::uint32_t>(input.size()));
+        b.call(rt_.get(Routine::expect_int));
+        return;
+    }
+    case Rep::flag:
+        b.get(p).load(i32_load8_u).u32(0xF5).op(i32_eq);
+        return;
+    case Rep::text:
+        b.get(p).call(rt_.get(Routine::content));
+        b.get(p).call(rt_.get(Routine::head_arg)).op(i32_wrap_i64);
+        return;
+    default:
+        b.get(p).i32(2).op(i32_add);
+        return;
+    }
+}
+
+/// Moves `p` past the list item it is at (items hold no other item).
+void Lowering::next_item(FunctionBuilder& b, const Local p, const Rep element) {
+    switch (element) {
+    case Rep::i64:
+        b.get(p).call(rt_.get(Routine::content)).set(p);
+        return;
+    case Rep::flag:
+        b.get(p).i32(1).op(i32_add).set(p);
+        return;
+    case Rep::text:
+        b.get(p).call(rt_.get(Routine::content));
+        b.get(p).call(rt_.get(Routine::head_arg)).op(i32_wrap_i64).op(i32_add).set(p);
+        return;
+    default:
+        b.get(p).i32(34).op(i32_add).set(p);
+        return;
+    }
+}
+
+wasm::Func Lowering::list_sum() {
+    if (list_sum_) {
+        return *list_sum_;
+    }
+    // [address] -> [i64]: the items' sum, checked.
+    const wasm::Func f = module_.declare({{I32}, {I64}});
+    list_sum_ = f;
+    FunctionBuilder b = module_.begin(f);
+    const Local list = b.param(0);
+    const Local n = b.local(I32);
+    const Local p = b.local(I32);
+    const Local sum = b.local(I64);
+    b.get(list).call(rt_.get(Routine::head_arg)).op(i32_wrap_i64).set(n);
+    b.get(list).call(rt_.get(Routine::content)).set(p);
+    {
+        const Label done = b.block();
+        const Label next = b.loop();
+        b.get(n).op(i32_eqz).br_if(done);
+        b.get(sum);
+        item_value(b, p, Rep::i64);
+        b.call(rt_.get(Routine::add)).set(sum);
+        next_item(b, p, Rep::i64);
+        b.get(n).i32(1).op(i32_sub).set(n).br(next);
+        b.end(next);
+        b.end(done);
+    }
+    b.get(sum);
+    module_.define(std::move(b));
+    return f;
+}
+
+wasm::Func Lowering::list_has(const Rep element) {
+    if (const auto it = list_has_.find(element); it != list_has_.end()) {
+        return it->second;
+    }
+    // [address, value...] -> [flag]: the list holds the value (a ledger's
+    // address 0, no party, is in no list).
+    std::vector<wasm::ValType> params{I32};
+    switch (element) {
+    case Rep::i64:
+        params.push_back(I64);
+        break;
+    case Rep::text:
+        params.push_back(I32);
+        params.push_back(I32);
+        break;
+    default:
+        params.push_back(I32);
+        break;
+    }
+    const wasm::Func f = module_.declare({params, {I32}});
+    list_has_.emplace(element, f);
+    FunctionBuilder b = module_.begin(f);
+    const Local list = b.param(0);
+    const Local x = b.param(1);
+    const Local n = b.local(I32);
+    const Local p = b.local(I32);
+    const wasm::Func bytes_eq = rt_.get(Routine::bytes_eq);
+    if (element == Rep::ledger) {
+        b.get(x).op(i32_eqz);
+        const Label none = b.if_();
+        b.i32(0).return_();
+        b.end(none);
+    }
+    b.get(list).call(rt_.get(Routine::head_arg)).op(i32_wrap_i64).set(n);
+    b.get(list).call(rt_.get(Routine::content)).set(p);
+    {
+        const Label done = b.block();
+        const Label next = b.loop();
+        b.get(n).op(i32_eqz).br_if(done);
+        switch (element) {
+        case Rep::i64:
+            item_value(b, p, element);
+            b.get(x).op(i64_eq);
+            break;
+        case Rep::flag:
+            item_value(b, p, element);
+            b.get(x).op(i32_eq);
+            break;
+        case Rep::text:
+            item_value(b, p, element);
+            b.get(x).get(b.param(2)).call(bytes_eq);
+            break;
+        default:
+            item_value(b, p, element);
+            b.i32(32).get(x).i32(32).call(bytes_eq);
+            break;
+        }
+        {
+            const Label found = b.if_();
+            b.i32(1).return_();
+            b.end(found);
+        }
+        next_item(b, p, element);
+        b.get(n).i32(1).op(i32_sub).set(n).br(next);
+        b.end(next);
+        b.end(done);
+    }
+    b.i32(0);
+    module_.define(std::move(b));
+    return f;
+}
+
+const m::Expr* Lowering::literal_items(const m::Expr& e) const {
+    // A list written out, directly or as a constant's value.
+    const m::Expr* at = &e;
+    for (int depth = 0; depth <= max_constant_depth; ++depth) {
+        if (at->kind == ExprKind::list) {
+            return at;
+        }
+        if (at->refers != Refers::field) {
+            return nullptr;
+        }
+        const m::Field* k = constant(m::key(at->concept_entry, at->name));
+        if (k == nullptr || !k->value) {
+            return nullptr;
+        }
+        at = &*k->value;
+    }
+    return nullptr;
+}
+
+bool Lowering::constant_items(const m::Expr& list) const {
+    // Literals (numbers, amounts, dates, texts) and yes or no only.
+    const Rep element = element_rep(list.type);
+    if (element == Rep::none || element == Rep::ledger) {
+        return false;
+    }
+    return std::ranges::all_of(list.operands, [&](const m::Expr& o) {
+        if (o.kind == ExprKind::literal) {
+            return o.literal.kind == ast::LiteralKind::text ||
+                   literal_value(o.literal, model_.utc_offset_ms).has_value();
+        }
+        return o.kind == ExprKind::word &&
+               (is(o.concept_entry, "val.yes") || is(o.concept_entry, "val.no"));
+    });
+}
+
+void Lowering::encoded_list(FunctionBuilder& b, const m::Expr& list) {
+    // A list of constants, encoded once into the module.
+    Bytes out;
+    put_head(out, 4, list.operands.size());
+    for (const m::Expr& o : list.operands) {
+        if (o.kind == ExprKind::literal && o.literal.kind == ast::LiteralKind::text) {
+            const Bytes text = text_cbor(o.literal.text);
+            out.insert(out.end(), text.begin(), text.end());
+        } else if (o.kind == ExprKind::literal) {
+            put_int(out, literal_value(o.literal, model_.utc_offset_ms).value_or(0));
+        } else {
+            out.push_back(is(o.concept_entry, "val.yes") ? 0xF5 : 0xF4);
+        }
+    }
+    b.u32(intern(ByteView(out))).u32(static_cast<std::uint32_t>(out.size()));
+}
+
+void Lowering::each(Ctx& c, const m::Each& e) {
+    FunctionBuilder& b = *c.b;
+    const Rep element = element_rep(e.list.type);
+    const std::size_t depth = c.items.size();
+    if (c.loops.size() <= depth) {
+        c.loops.push_back(
+            Ctx::Loop{b.local(I32), b.local(I32), b.local(I64), b.local(I32), b.local(I32)});
+    }
+    const Ctx::Loop loop = c.loops[depth];
+    const Local value_local = element == Rep::i64 ? loop.v64 : loop.a;
+    const auto keep = [&] {
+        if (element == Rep::text) {
+            b.set(loop.b);
+        }
+        b.set(value_local);
+    };
+    c.items.emplace(e.name, std::pair{value_local, loop.b});
+    if (const m::Expr* items = literal_items(e.list)) {
+        // A list written out: the block once for each item, each copy
+        // numbering its requirements as the block does.
+        const std::uint32_t start = c.requires_count;
+        std::uint32_t after = start;
+        for (const m::Expr& item : items->operands) {
+            value(c, item);
+            keep();
+            c.requires_count = start;
+            statements(c, e.body);
+            after = c.requires_count;
+        }
+        c.requires_count = after;
+    } else {
+        value(c, e.list);
+        b.op(drop).tee(loop.p).call(rt_.get(Routine::head_arg)).op(i32_wrap_i64).set(loop.n);
+        b.get(loop.p).call(rt_.get(Routine::content)).set(loop.p);
+        const Label done = b.block();
+        const Label next = b.loop();
+        b.get(loop.n).op(i32_eqz).br_if(done);
+        item_value(b, loop.p, element);
+        keep();
+        next_item(b, loop.p, element);
+        statements(c, e.body);
+        b.get(loop.n).i32(1).op(i32_sub).set(loop.n).br(next);
+        b.end(next);
+        b.end(done);
+    }
+    c.items.erase(e.name);
+}
+
+void Lowering::member(Ctx& c, const m::Expr& e) {
+    // X in LIST: X equals one of the items.
+    FunctionBuilder& b = *c.b;
+    const m::Expr& x = e.operands[0];
+    const m::Expr& list = e.operands[1];
+    if (const m::Expr* items = literal_items(list)) {
+        // A list written out: X = A or X = B ..., each tested.
+        for (std::size_t i = 0; i < items->operands.size(); ++i) {
+            m::Expr same;
+            same.kind = ExprKind::binary;
+            same.op = Operator::equals;
+            same.type.kind = TypeKind::yes_no;
+            same.operands = {x, items->operands[i]};
+            binary(c, same);
+            if (i > 0) {
+                b.op(i32_or);
+            }
+        }
+        return;
+    }
+    const Rep element = element_rep(list.type);
+    value(c, list);
+    b.op(drop);
+    if (element == Rep::ledger) {
+        party_raw(c, x);
+    } else {
+        value(c, x);
+    }
+    b.call(list_has(element));
+}
+
+void Lowering::list_apply(Ctx& c, const m::Expr& e) {
+    // sum of LIST, count of LIST.
+    FunctionBuilder& b = *c.b;
+    const bool count = is(e.concept_entry, "expr.count_of");
+    const m::Expr& list = e.operands[0];
+    if (const m::Expr* items = literal_items(list)) {
+        if (count) {
+            b.i64(static_cast<std::int64_t>(items->operands.size()));
+            return;
+        }
+        for (std::size_t i = 0; i < items->operands.size(); ++i) {
+            value(c, items->operands[i]);
+            if (i > 0) {
+                b.call(rt_.get(Routine::add));
+            }
+        }
+        return;
+    }
+    value(c, list);
+    b.op(drop);
+    if (count) {
+        b.call(rt_.get(Routine::head_arg));
+    } else {
+        b.call(list_sum());
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1037,7 +1965,7 @@ wasm::Func Lowering::load_instance() {
                 b.end(none);
             }
         } else {
-            expect(b, slot.rep, input);
+            read_value(b, slot.field->type, input);
         }
         store(b, slot);
     }
@@ -1069,6 +1997,37 @@ wasm::Func Lowering::load_instance() {
             b.call(rt_.fail(rt::Reason::input));
             b.end(found);
             b.end(some);
+        }
+    }
+    if (bill_slot_) {
+        // The bill the instance keeps, and each charge's amount on it.
+        const Local charges = b.local(I32);
+        b.get(st);
+        push_key(b, text_cbor("bill"));
+        b.call(map_get).tee(p).op(i32_eqz);
+        {
+            const Label missing = b.if_();
+            b.call(rt_.fail(rt::Reason::input));
+            b.end(missing);
+        }
+        b.get(p).global_set(bill_old_);
+        b.get(p).call(rt_.get(Routine::item_end)).get(p).op(i32_sub).global_set(bill_old_length_);
+        b.get(p);
+        push_key(b, text_cbor("charges"));
+        b.call(map_get).set(charges);
+        for (const ChargeInfo& k : charges_) {
+            b.get(charges);
+            push_key(b, k.key);
+            b.call(map_get).tee(p);
+            const Label present = b.if_(I64);
+            b.get(p);
+            push_key(b, text_cbor("amount"));
+            b.call(map_get);
+            expect(b, Rep::i64, input);
+            b.else_(present);
+            b.i64(0);
+            b.end(present);
+            b.global_set(k.amount);
         }
     }
     if (since_used_) {
@@ -1182,6 +2141,10 @@ wasm::Func Lowering::write_accept() {
         // A time rule applied: one more event.
         b.global_get(rule_event_).get(events).op(i32_add).set(events);
     }
+    if (bill_slot_) {
+        // A bill made: one more event.
+        b.global_get(bill_new_).get(events).op(i32_add).set(events);
+    }
     // [1, {1: state, 2: status, ? 3: parties, ? 4: events, ? 5: true}]
     b.i32(4).i64(2).call(head);
     b.i64(1).call(out_int);
@@ -1195,8 +2158,14 @@ wasm::Func Lowering::write_accept() {
     b.global_get(rt_.var(rt::Var::out)).set(mark);
     b.i32(5)
         .i64(2 + (proposals_ ? 1 : 0) + (previous_used_ ? 1 : 0) + (rules_.empty() ? 0 : 1) +
-             (since_used_ ? 1 : 0))
+             (since_used_ ? 1 : 0) + (bill_slot_ ? 1 : 0))
         .call(head);
+    if (bill_slot_) {
+        // "bill": the bill made in this call, or the one kept (R26).
+        push_key(b, text_cbor("bill"));
+        b.call(out_raw);
+        write_bill(b);
+    }
     if (!rules_.empty()) {
         // "fired": {RULE: the time it last applied for, or null}.
         push_key(b, text_cbor("fired"));
@@ -1328,7 +2297,7 @@ wasm::Func Lowering::write_accept() {
         const Label done = b.block();
         const Label next = b.loop();
         b.get(i);
-        if (proposals_ || !rules_.empty()) {
+        if (proposals_ || !rules_.empty() || bill_slot_) {
             b.global_get(events_);
         } else {
             b.get(events);
@@ -1341,6 +2310,17 @@ wasm::Func Lowering::write_accept() {
         b.get(i).i32(1).op(i32_add).set(i).br(next);
         b.end(next);
         b.end(done);
+        if (bill_slot_) {
+            // [DOCUMENT, BILL]: the bill made, as the state keeps it.
+            b.global_get(bill_new_);
+            const Label made = b.if_();
+            const std::string document = fields_[*bill_slot_].wire;
+            b.i32(4).i64(2).call(head);
+            b.u32(intern(document)).u32(static_cast<std::uint32_t>(document.size()));
+            b.call(rt_.get(Routine::out_text));
+            b.global_get(bill_at_).global_get(bill_length_).call(out_raw);
+            b.end(made);
+        }
         b.end(some);
     }
     // 5: final.
@@ -1565,7 +2545,7 @@ void Lowering::emit_creation(const wasm::Func f) {
             b.get(map);
             push_key(b, slot->key);
             b.call(map_get);
-            expect(b, slot->rep, "bo:argument " + slot->wire);
+            read_value(b, slot->field->type, "bo:argument " + slot->wire);
             store(b, *slot);
         }
     }
@@ -1591,6 +2571,10 @@ void Lowering::emit_creation(const wasm::Func f) {
         call_item(b, 7);
         expect(b, Rep::i64, rt::text_of(rt::Reason::input));
         b.global_set(since_);
+    }
+    if (bill_slot_) {
+        // R26: the bill on the lines given.
+        b.call(compute_bill());
     }
     b.call(write_accept());
     module_.define(std::move(b));
@@ -1650,12 +2634,12 @@ void Lowering::arguments(Ctx& c) {
         const std::string wire = wire_name(input.word, input.name);
         const Rep rep = rep_of(input.type);
         const Local value = b.local(rep == Rep::i64 ? I64 : I32);
-        const Local length = rep == Rep::text ? b.local(I32) : value;
+        const Local length = pair_rep(rep) ? b.local(I32) : value;
         b.get(args);
         push_key(b, text_cbor(wire));
         b.call(map_get);
-        expect(b, rep, "bo:argument " + wire);
-        if (rep == Rep::text) {
+        read_value(b, input.type, "bo:argument " + wire);
+        if (pair_rep(rep)) {
             b.set(length);
         }
         b.set(value);
@@ -1968,7 +2952,7 @@ void Lowering::statements(Ctx& c, const std::vector<m::Statement>& list) {
                     }
                     b.end(then);
                 },
-                [&](const m::Each&) { BO_ASSERT(false); },
+                [&](const m::Each& e) { each(c, e); },
                 [&](const m::Reject& r) { refuse(b, r.message); },
                 [&](const m::Set& st) {
                     const FieldSlot& slot =
@@ -1980,6 +2964,10 @@ void Lowering::statements(Ctx& c, const std::vector<m::Statement>& list) {
                         value(c, st.value);
                     }
                     store(b, slot);
+                    if (bill_slot_ && &slot == &fields_[*bill_slot_]) {
+                        // R26: new lines make a new bill, at this call's time.
+                        b.call(compute_bill());
+                    }
                 },
                 [&](const m::Transition& t) { transition(c, t); },
                 [&](const m::Do& d) {
@@ -2326,7 +3314,7 @@ void Lowering::reference(Ctx& c, const m::Expr& e) {
     case Refers::input: {
         const auto& [first, second] = c.inputs.at(key);
         b.get(first);
-        if (rep_of(e.type) == Rep::text) {
+        if (pair_rep(rep_of(e.type))) {
             b.get(second);
         }
         return;
@@ -2348,7 +3336,24 @@ void Lowering::reference(Ctx& c, const m::Expr& e) {
             b.i32(0);
         }
         return;
-    case Refers::item:
+    case Refers::item: {
+        // The item an `each` names.
+        const auto& [first, second] = c.items.at(key);
+        b.get(first);
+        if (rep_of(e.type) == Rep::text) {
+            b.get(second);
+        }
+        return;
+    }
+    case Refers::charge:
+        // Its amount on the instance's bill (R26).
+        for (const ChargeInfo& k : charges_) {
+            if (k.wire == e.name) {
+                b.global_get(k.amount);
+                return;
+            }
+        }
+        break;
     case Refers::action:
     case Refers::none:
         break;
@@ -2402,6 +3407,10 @@ void Lowering::value(Ctx& c, const m::Expr& e) {
         reference(c, e);
         return;
     case ExprKind::apply: {
+        if (is(e.concept_entry, "expr.sum_of") || is(e.concept_entry, "expr.count_of")) {
+            list_apply(c, e);
+            return;
+        }
         if (is(e.concept_entry, "cond.before_due")) {
             // From N before the due date on.
             now(c);
@@ -2473,7 +3482,9 @@ void Lowering::value(Ctx& c, const m::Expr& e) {
         }
         break;
     case ExprKind::list:
-        break;
+        // A list of constants, as a whole.
+        encoded_list(b, e);
+        return;
     }
     BO_ASSERT(false);
 }
@@ -2501,6 +3512,9 @@ void Lowering::binary(Ctx& c, const m::Expr& e) {
         b.end(either);
         return;
     }
+    case Operator::member:
+        member(c, e);
+        return;
     case Operator::equals:
     case Operator::less:
     case Operator::less_equal:
@@ -2519,7 +3533,8 @@ void Lowering::binary(Ctx& c, const m::Expr& e) {
         if (rep == Rep::ledger) {
             b.i32(32);
         }
-        if (rep == Rep::text || rep == Rep::ledger) {
+        if (rep == Rep::text || rep == Rep::ledger || rep == Rep::list) {
+            // Lists are equal when their encodings are (deterministic CBOR).
             b.call(rt_.get(Routine::bytes_eq));
             return;
         }
@@ -2628,7 +3643,7 @@ void Lowering::emit() {
     events_ = module_.add_global(I32, 0);
     for (FieldSlot& slot : fields_) {
         slot.first = module_.add_global(slot.rep == Rep::i64 ? I64 : I32, 0);
-        if (slot.rep == Rep::text) {
+        if (pair_rep(slot.rep)) {
             slot.second = module_.add_global(I32, 0);
         }
     }
@@ -2657,6 +3672,23 @@ void Lowering::emit() {
         }
         rule_time_ = module_.add_global(I64, 0);
         rule_late_ = module_.add_global(I64, 0);
+    }
+    if (bill_slot_) {
+        for (wasm::Global* g :
+             {&bill_new_, &bill_old_, &bill_old_length_, &bill_at_, &bill_length_}) {
+            *g = module_.add_global(I32, 0);
+        }
+        for (wasm::Global* g : {&bill_time_, &bill_price_, &bill_total_, &bill_divisor_}) {
+            *g = module_.add_global(I64, 0);
+        }
+        for (ChargeInfo& k : charges_) {
+            k.applies = module_.add_global(I32, 0);
+            k.rate = module_.add_global(I64, 0);
+            k.amount = module_.add_global(I64, 0);
+            if (!k.charge->per_document) {
+                k.line = module_.add_global(I64, 0);
+            }
+        }
     }
     events_area_ = module_.reserve(static_cast<std::uint32_t>(4 * max_transitions_), 4);
     Bytes names;

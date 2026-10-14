@@ -153,6 +153,12 @@ def main() -> int:
                        stdout=subprocess.DEVNULL)
         doc = json.loads(path.read_text(encoding="utf-8"))
 
+    # The VAT written every way it can be (codegen_test.cpp) is checked on
+    # both interpreters and by the Python oracle in CTest bo_codegen_reference
+    # each time; its 700-odd runs are left out of these vectors, which keep
+    # the tax contract's and the dinner's bills (their test blocks).
+    doc["modules"] = {n: c for n, c in doc["modules"].items() if not n.startswith("vat-")}
+    doc["runs"] = [r for r in doc["runs"] if not r["module"].startswith("vat-")]
     contracts = {}
     for name, code_hex in doc["modules"].items():
         code = bytes.fromhex(code_hex)

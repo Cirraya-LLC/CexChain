@@ -1,0 +1,56 @@
+# Bills and charges that cannot be computed (milestone 13): a second field
+# for a bill, an input named by a document, a charge that says something
+# twice, a fixed amount with a rounding mode or in another currency, charges
+# computed on charges they cannot be computed on, and a document that is not
+# the bill's.
+contract Bills
+parties we, customer
+
+record Sale
+  invoice list HKD at most 5
+  receipt list HKD
+
+charge Service
+  rate 10%
+  added
+  per document
+
+charge Fee
+  amount USD 2
+  added
+  per line half up
+
+charge Vat
+  rate 6%
+  rate 7%
+  added
+  according to price, Later
+  according to Service
+
+charge Line
+  rate 1%
+  added
+  according to Service
+
+charge Inside
+  rate 5%
+  included
+  according to price, Service
+
+charge Fixed
+  amount HKD 3
+  added
+  according to price
+
+charge Other
+  rate 2%
+  added
+  according to receipt
+  from 2027-01-01 on rate 3%
+  from 2027-01-01 on rate 4%
+
+charge Later
+  rate 1%
+  added
+
+can bill by we with invoice list HKD

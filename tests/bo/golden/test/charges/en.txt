@@ -1,0 +1,19 @@
+Test "the worked example": passed
+  Step 1 (line 59) passed: we create with invoice = (HKD 12.35, HKD 8.45) at 2027-06-30
+    Result: accepted, and the instance is active.
+  Step 2 (line 60) passed: customer settle with payment = HKD 26.10 -> settled
+    Result: accepted with the consent of the customer, and the instance is settled; it is final and takes no more calls.
+
+Test "the green fee, from 1 July 2027, on three lines or more": passed
+  Step 1 (line 67) passed: we create with invoice = (HKD 12.35, HKD 8.45, HKD 10.00) at 2027-07-01
+    Result: accepted, and the instance is active.
+  Step 2 (line 68) passed: customer settle with payment = HKD 37.99 -> settled
+    Result: accepted with the consent of the customer, and the instance is settled; it is final and takes no more calls.
+
+Test "the green fee needs three lines": passed
+  Step 1 (line 72) passed: we create with invoice = (HKD 12.35, HKD 8.45) at 2027-07-01
+    Result: accepted, and the instance is active.
+  Step 2 (line 73) passed: customer settle with payment = HKD 26.10 -> settled
+    Result: accepted with the consent of the customer, and the instance is settled; it is final and takes no more calls.
+
+3 tests: 3 passed, 0 failed.

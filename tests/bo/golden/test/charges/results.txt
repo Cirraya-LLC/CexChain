@@ -1,0 +1,10 @@
+test "the worked example" passed home=role.we
+  step 1 passed 2027-06-30 accepted active event=active event=invoice bill price=2080 total=2610 vat=114@50000 levy=200 tourism=61@30000 gratuity=208@100000 surcharge=8@70000 lines [tourism=36 gratuity=124] [tourism=25 gratuity=84]; fuel 11709
+  step 2 passed 2027-06-30 accepted settled event=settled final consents role.customer; fuel 20366 22069
+test "the green fee, from 1 July 2027, on three lines or more" passed home=role.we
+  step 1 passed 2027-07-01 accepted active event=active event=invoice bill price=3080 total=3799 vat=169@50000 levy=200 green=30@10000 tourism=90@30000 gratuity=308@100000 surcharge=12@70000 lines [green=12 tourism=36 gratuity=124] [green=8 tourism=25 gratuity=84] [green=10 tourism=29 gratuity=100]; fuel 14561
+  step 2 passed 2027-07-01 accepted settled event=settled final consents role.customer; fuel 23726 25431
+test "the green fee needs three lines" passed home=role.we
+  step 1 passed 2027-07-01 accepted active event=active event=invoice bill price=2080 total=2610 vat=114@50000 levy=200 tourism=61@30000 gratuity=208@100000 surcharge=8@70000 lines [tourism=36 gratuity=124] [tourism=25 gratuity=84]; fuel 11713
+  step 2 passed 2027-07-01 accepted settled event=settled final consents role.customer; fuel 20366 22069
+3 tests: 3 passed, 0 failed

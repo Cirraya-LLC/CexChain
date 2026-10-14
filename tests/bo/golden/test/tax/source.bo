@@ -1,0 +1,65 @@
+# The spec's VAT (bo-1.0, section 7) in a whole contract, with its tests. The
+# invoice's lines are amounts in fen (CNY 0.01). The VAT is added, computed
+# once per invoice on the lines' sum, and rounded half up (away from zero):
+# 6% until the end of 2026, 9% from 2027-01-01 (local midnight, UTC+08:00).
+# A bill is made when the invoice is set, at that call's time, and keeps its
+# rate (R26, R28); 重开 (reissue) sets new lines, and so makes a new bill.
+合约 销售
+参与方 本公司, 客户
+
+记录 销售单
+  发票 列表 人民币 最多 20
+
+费用 增值税
+  税率 6%
+  适用 客户所在地 = 中国内地
+  另计
+  按发票 四舍五入
+  从 2027-01-01 起 税率 9%
+
+可 结算 由 客户 附带 付款 人民币
+  须 付款 = 发票 总和 + 增值税
+  正常 -> 已结清
+
+可 重开 由 本公司 附带 明细 列表 人民币 最多 20
+  须 正常
+  发票 = 明细
+
+# Lines 100.00 + 10.05 = 11005 fen; 6% of it is 11005 x 60000 / 1000000 =
+# 660.3 fen, so 660 (CNY 6.60); the total is 11005 + 660 = 11665 (CNY 116.65).
+测试 "6% 至 2026 年底，每张发票舍入一次"
+  本公司 创建 附带 发票 = (人民币 100.00, 人民币 10.05), 客户所在地 = "中国内地" 时间 2026-12-31
+  客户 结算 附带 付款 = 人民币 116.66 -> 被拒绝 "bo:requires 结算 1"
+  客户 结算 附带 付款 = 人民币 116.65 -> 已结清
+
+# Half a fen: 100.00 + 0.25 = 10025 fen; 6% is 601.5 fen, which half up
+# makes 602 (away from zero); the total is 10627 (CNY 106.27).
+测试 "半分四舍五入"
+  本公司 创建 附带 发票 = (人民币 100.00, 人民币 0.25), 客户所在地 = "中国内地" 时间 2026-12-31
+  客户 结算 附带 付款 = 人民币 106.26 -> 被拒绝 "bo:requires 结算 1"
+  客户 结算 附带 付款 = 人民币 106.27 -> 已结清
+
+# From 2027-01-01: 9% of 11005 fen is 990.45 fen, so 990; the total is 11995.
+测试 "2027 年起 9%"
+  本公司 创建 附带 发票 = (人民币 100.00, 人民币 10.05), 客户所在地 = "中国内地" 时间 2027-01-01
+  客户 结算 附带 付款 = 人民币 116.65 -> 被拒绝 "bo:requires 结算 1"
+  客户 结算 附带 付款 = 人民币 119.95 -> 已结清
+
+# A bill made in 2026 keeps its 6% when it is settled in 2027.
+测试 "已开出的发票保留原税率"
+  本公司 创建 附带 发票 = (人民币 100.00, 人民币 10.05), 客户所在地 = "中国内地" 时间 2026-12-31
+  客户 结算 附带 付款 = 人民币 116.65 时间 2027-03-01 -> 已结清
+
+# New lines in 2027 make a new bill at 9%; one line is a list of one (R29):
+# 9% of 5000 fen is 450, so the total is 5450 (CNY 54.50).
+测试 "重开的发票按开出时的税率"
+  本公司 创建 附带 发票 = (人民币 100.00, 人民币 10.05), 客户所在地 = "中国内地" 时间 2026-12-31
+  本公司 重开 附带 明细 = (人民币 100.00, 人民币 10.05) 时间 2027-01-02
+  客户 结算 附带 付款 = 人民币 116.65 -> 被拒绝 "bo:requires 结算 1"
+  本公司 重开 附带 明细 = 人民币 50.00
+  客户 结算 附带 付款 = 人民币 54.50 -> 已结清
+
+# Outside the mainland the VAT does not apply: the total is the price.
+测试 "内地以外不计增值税"
+  本公司 创建 附带 发票 = (人民币 100.00, 人民币 10.05), 客户所在地 = "香港" 时间 2027-01-01
+  客户 结算 附带 付款 = 人民币 110.05 -> 已结清

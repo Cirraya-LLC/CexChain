@@ -1,11 +1,20 @@
 edition 1
-fragment
+contract 销售
+party role.we bound=creation{R3}
+party role.customer bound=creation{R3}
+kind kind.record 销售单
+field doc.invoice instance list 20 money cur.CNY{R26}
 field field.customer_location instance text{R12}
 charge charge.charge 增值税
   line charge.rate 6%
   line (charge.applies_to (= field.customer_location "中国内地"{R18}))
   line charge.added
   line charge.by (phrase doc.invoice round.half_up)
-  line (charge.from 2027-01-01) 9%
+  line (charge.from 2027-01-01{R28}) 9%
+  computes added rate per_document doc.invoice round.half_up on=price.price{R27}
 state state.active first{R4}
-- warning check.fragment: there is no contract line, so this file is checked as a fragment; bo build will need contract NAME
+state state.settled{R5}
+can 结算 own by=role.customer agents=delegation{R14}
+  input 付款 instance money cur.CNY
+  requires (= 付款 (+ (expr.sum_of doc.invoice) 增值税{R26}))
+  transition state.active -> state.settled

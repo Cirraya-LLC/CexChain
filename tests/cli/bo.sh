@@ -19,8 +19,11 @@
 # built with it, through four ledgers: pledged to a bank with the consents of
 # the supplier and the bank, released, sold to a factor, paid, and confirmed;
 # time rules (3 days overdue, suspend) and the IP pool, tested, built, and
-# explained; and a keeper, a device whose delegation names one contract,
-# calling a rule on a ledger once its time has come.
+# explained; a keeper, a device whose delegation names one contract,
+# calling a rule on a ledger once its time has come; and lists and charges:
+# the spec's VAT, tested on both sides of its rate change, explained in each
+# language, and billed on a ledger, where a bill keeps the rate it was made
+# with.
 # Usage: bo.sh CEXCHAIN
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO (from lines ${BASH_LINENO[*]}): $BASH_COMMAND" >&2' ERR
@@ -120,7 +123,7 @@ run bo packs show zh-Hans-CN --json > show.json
 json 'd["keywords"]["kw.each"], d["vocabulary"]["unit.item"]["category"], d["reading"]["multipliers"]["万"]' < show.json > out.txt
 contains -Fx "['逐个'] unit 10000" out.txt || fail "show --json"
 json 'len(d["messages"]), len(d["sentences"])' < show.json > out.txt
-contains -Fx "203 215" out.txt || fail "messages and sentences"
+contains -Fx "211 224" out.txt || fail "messages and sentences"
 expect_exit 1 bo packs show fr
 contains -F "no pack fr" out.txt || fail "unknown pack"
 expect_exit 1 bo packs show en --section nope
@@ -344,10 +347,11 @@ json 'd["model"]["actions"][0]["body"][0]["guard"]["operands"][0]["rule"], d["mo
 contains -Fx "R6 10" out.txt || fail "model --json: the rule and the place"
 json 'd["dump"].splitlines()[0]' < model.json > out.txt
 contains -Fx "edition 1" out.txt || fail "model --json: the text"
-cp "$GOLDENS/example-tax-en/source.bo" tax.bo
-run bo check tax.bo > out.txt 2> warnings.txt
-contains -Fx "tax.bo: checked: 0 parties, 1 field, 1 charge, 1 state, 0 actions, 0 time rules; 1 warning" out.txt || fail "fragment"
-contains -F "tax.bo: warning: there is no contract line, so this file is checked as a fragment" warnings.txt || fail "fragment warning"
+# A fragment: the spec's VAT, with the field that holds its bill.
+printf 'record Sale\n  invoice list CNY\n\ncharge 增值税\n  rate 6%%\n  applies to customer location = 中国内地\n  added\n  according to invoice half up\n  from 2027-01-01 on rate 9%%\n' > fragment.bo
+run bo check fragment.bo > out.txt 2> warnings.txt
+contains -Fx "fragment.bo: checked: 0 parties, 2 fields, 1 charge, 1 state, 0 actions, 0 time rules; 1 warning" out.txt || fail "fragment"
+contains -F "fragment.bo: warning: there is no contract line, so this file is checked as a fragment" warnings.txt || fail "fragment warning"
 
 echo "== bo check: the checker's errors, in the reader's language"
 printf 'contract C\nparties issuer, supplier\nasset A\n  amount HKD\n  holder HKD\ncan pledge to bank\n  over USD 5 requires in person\ncan go\n' > model.bo
@@ -429,9 +433,9 @@ run bo build agreement.bo --language zh-Hant-HK > /dev/null 2> warnings.txt
 contains -F "原始碼會連同其註釋（4 行）一併部署" warnings.txt || fail "zh-Hant warning"
 
 echo "== bo build: what does not build"
-expect_exit 2 bo build tax.bo
+expect_exit 2 bo build fragment.bo
 contains -F "this file has no contract line, so it is a fragment" out.txt || fail "fragment"
-contains -Fx "tax.bo: 2 errors" out.txt || fail "fragment count"
+contains -Fx "fragment.bo: 1 error" out.txt || fail "fragment count"
 expect_exit 2 bo build vps-en.bo
 contains -F "(build.executor)" out.txt || fail "executors"
 expect_exit 2 bo build model.bo --json
@@ -473,10 +477,10 @@ contains -Fx "[('amend', 1, ['R7']), ('amend', 2, []), ('amend', 3, []), ('sign'
 json '[r["id"] for r in d["rules"]], d["text"] == open("'"$TEXTS"'/agreement/en.txt").read()' < explain.json > out.txt
 contains -Fx "['R3', 'R4', 'R5', 'R6', 'R7', 'R13', 'R14', 'R17', 'R25'] True" out.txt || fail "rules in json"
 # R18: a name compared with a text is that text, shown in quotation marks.
-run bo explain tax.bo > text.txt 2> warnings.txt
-contains -F '  2.1.2 It applies when the customer location is "中国内地". [R18]' text.txt || fail "R18 in quotes"
+run bo explain fragment.bo > text.txt 2> warnings.txt
+contains -F '  2.2.2 It applies when the customer location is "中国内地". [R18]' text.txt || fail "R18 in quotes"
 contains -F "(check.fragment)" warnings.txt || fail "warnings on stderr"
-run bo explain tax.bo --language zh-Hant-HK 2> /dev/null | contains -F "適用條件：客戶所在地為「中国内地」。〔R18〕" || fail "R18 in zh-Hant"
+run bo explain fragment.bo --language zh-Hant-HK 2> /dev/null | contains -F "適用條件：客戶所在地為「中国内地」。〔R18〕" || fail "R18 in zh-Hant"
 # A contract that needs executors explains (it does not build yet).
 run bo explain vps-zh-hant.bo > text.txt 2> warnings.txt
 diff "$TEXTS/vps/en.txt" text.txt > /dev/null || fail "the VPS text"
@@ -703,8 +707,8 @@ expect_exit 1 contract deploy agreement.wasm --bo agreement.bo --as d-root.key -
 expect_exit 1 contract deploy agreement.wasm --function create=create --compiler x --pack company.pack \
     --as d-root.key --ledger "$D"
 expect_exit 1 contract deploy --as d-root.key --ledger "$D"
-expect_exit 2 contract deploy --bo tax.bo --as d-root.key --ledger "$D"
-contains -F "tax.bo does not build" out.txt || fail "deploy refuses what does not build"
+expect_exit 2 contract deploy --bo fragment.bo --as d-root.key --ledger "$D"
+contains -F "fragment.bo does not build" out.txt || fail "deploy refuses what does not build"
 
 echo "== the agreement: created, signed through the registrar, verified with the rebuild check"
 # Terms of HKD 250,000.00 (below the presence threshold) starting 2030-01-01.
@@ -1113,5 +1117,73 @@ contains -F "when.suspend" verify.txt || fail "keeper: verify the call"
 contains -F "rebuilds: the source rebuilds to the deployed code" verify.txt || fail "keeper: verify rebuilds"
 contains -F "VERIFICATION FAILED" verify.txt && fail "keeper: verified"
 run audit --ledger "$K" | contains 'audit passed' || fail "keeper: audit"
+
+echo "== lists and charges: bills computed on a document's lines"
+# The spec's VAT in a whole contract (bo-1.0, section 7): its tests on both
+# sides of the rate change, its code, and its text in three languages.
+cp "$GOLDENS/test/tax/source.bo" tax.bo
+run bo test tax.bo > out.txt
+contains -Fx "6 tests: 6 passed, 0 failed." out.txt || fail "tax: the tests"
+run bo test tax.bo --json | json '[e for t in d["tests"] for s in t["steps"] for e in s["result"].get("events", [])].count("invoice")' > out.txt
+contains -Fx "8" out.txt || fail "tax: the bills made"
+run bo build tax.bo > out.txt 2> /dev/null
+contains -F "functions  create (creates), 结算, 重开" out.txt || fail "tax: the functions"
+TAX_HASH="$(run bo build tax.bo --json 2> /dev/null | json 'd["code_hash"]')"
+run bo explain tax.bo > out.txt
+contains -F "3.1 The charges below are computed on invoice, the lines of a bill, each time it is set" out.txt || fail "tax: the bill's clause"
+contains -Fx "  3.2.5 From 1 January 2027, its rate is 9%. [R28]" out.txt || fail "tax: the rate change"
+contains -F "[R27] Charges are computed in the order written" out.txt || fail "tax: R27"
+run bo explain tax.bo --language zh-Hant-HK | contains -F "以下費用按發票（單據的各行）計算" || fail "tax: zh-Hant"
+run bo explain tax.bo --language zh-Hans-CN | contains -Fx "  3.2.5 自 2027年1月1日起，比率为 9%。〔R28〕" || fail "tax: zh-Hans"
+for language in en zh-Hant-HK; do
+    run bo fmt tax.bo --language "$language" > tax-other.bo
+    run bo test tax-other.bo | contains -Fx "6 tests: 6 passed, 0 failed." || fail "tax: tests in $language"
+    [ "$(run bo build tax-other.bo --json 2> /dev/null | json 'd["code_hash"]')" = "$TAX_HASH" ] || fail "tax: the code in $language"
+done
+# Every kind of charge on one bill; lists.
+cp "$GOLDENS/test/charges/source.bo" dinner.bo
+run bo test dinner.bo | contains -Fx "3 tests: 3 passed, 0 failed." || fail "charges: the tests"
+run bo explain dinner.bo | contains -Fx "  3.4.3 It is computed on the price and gratuity. [R27]" || fail "charges: on a charge"
+cp "$GOLDENS/test/lists/source.bo" lists.bo
+run bo test lists.bo | contains -Fx "2 tests: 2 passed, 0 failed." || fail "lists: the tests"
+run bo build lists.bo 2> /dev/null | contains -F "functions  check, create (creates), load, mark" || fail "lists: the functions"
+# Errors, in the reader's language.
+cp "$GOLDENS/check-error-bills/source.bo" bills-errors.bo
+expect_exit 2 bo check bills-errors.bo
+contains -F "Fee is a fixed amount, which is never rounded: give it no rounding mode (check.charge-rounding)" out.txt || fail "errors: a fixed amount"
+contains -F "(check.charge-on)" out.txt || fail "errors: on a charge"
+CEXCHAIN_LANGUAGE=zh-Hant-HK "$CEXCHAIN" bo check bills-errors.bo > out.txt 2>&1 || true
+contains -F "Fee 是定額，不會捨入：請勿為其寫捨入方式" out.txt || fail "errors: zh-Hant"
+printf 'contract L\nparties we\nrecord R\n  names list text\ncan go by we\n  each n in names\n    active -> gone\n' > each-errors.bo
+expect_exit 2 bo check each-errors.bo
+contains -F "(check.each-body)" out.txt || fail "errors: a state change in each"
+
+echo "== a bill on a ledger: the rate in force when it is made, kept"
+SHOP="$WORK/shop"
+sh_() { run "$@" --ledger "$SHOP"; }
+run key generate --out sale-root.key > /dev/null
+run key generate --out sale-log.key > /dev/null
+run init --org "Shop" --root-key sale-root.key --log-key sale-log.key --ledger "$SHOP" > /dev/null
+SHOP_ID="$(sh_ status --json | json 'd["ledger_id"]')"
+SC="$(sh_ contract deploy --bo tax.bo --as sale-root.key --json 2> /dev/null | json 'd["contract"]["id"]')"
+BUYER="$(python3 -c 'print("b7" * 32)')"
+SALE_ARGS="{\"fields\": {\"customer_location\": \"中国内地\", \"invoice\": [10000, 1005]}, \"parties\": {\"customer\": h'$BUYER', \"we\": h'$SHOP_ID'}}"
+# A dry run dated 2027 bills at 9%; made now (2026), the bill is at 6%.
+sh_ contract create "$SC" create --args "$SALE_ARGS" --as sale-root.key --dry-run --at 2027-01-02 --json > dry.json
+json 'd["events"][1]["name"], d["events"][1]["data"]' < dry.json > out.txt
+contains -F 'invoice {"time": 1798848000000, "price": 11005, "total": 11995, "charges": {"增值税": {"rate": 90000, "amount": 990}}}' out.txt || fail "bill: at 9% in 2027"
+SI="$(sh_ contract create "$SC" create --args "$SALE_ARGS" --as sale-root.key --json | json 'd["instance"]["id"]')"
+sh_ contract instance "$SI" --json | json 'd["state"]' > out.txt
+contains -F '"price": 11005, "total": 11665, "charges": {"增值税": {"rate": 60000, "amount": 660}}' out.txt || fail "bill: kept at 6%"
+sh_ contract explain "$SI" > out.txt
+contains -F "invoice: (CNY 100.00, CNY 10.05)" out.txt || fail "bill: the instance's lines in its text"
+# Settled with the bill's total: the customer's consent, through the registrar.
+sh_ contract call "$SI" 结算 --args '{"付款": 11666}' --as sale-root.key --dry-run --at 2027-03-01 | contains -F "(bo:requires 结算 1)" || fail "bill: a wrong payment"
+sh_ contract call "$SI" 结算 --args '{"付款": 11665}' --as sale-root.key --dry-run --at 2027-03-01 --json | json 'd["verdict"]' | contains -Fx needs || fail "bill: the old bill's total, in 2027"
+# Offline: the evidence verifies, and the source rebuilds.
+sh_ contract evidence "$SI" --log-key sale-log.key --out sale.cbor > /dev/null
+run contract verify sale.cbor --ledger-id "$SHOP_ID" > verify.txt
+contains -F "rebuilds: the source rebuilds to the deployed code" verify.txt || fail "bill: verify rebuilds"
+contains -F "VERIFICATION FAILED" verify.txt && fail "bill: verified"
 
 echo "bo: all checks passed"

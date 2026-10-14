@@ -14,3 +14,8 @@ can load by we with rows list number at most 3
   sizes = (1, 2, 3, 4, 5)
   requires count of rows > 0
   requires sum of tags = "a"
+
+can tidy by we with names list text
+  each n in names
+    if n = "x"
+      active -> tidied

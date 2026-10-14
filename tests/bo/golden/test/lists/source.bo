@@ -1,0 +1,50 @@
+# Lists (milestone 13): bounded lists in fields, inputs, and the state;
+# each, sum of, count of, and in; one value where a list is needed is a list
+# of one item (R29). A batch keeps its codes and sizes; loading adds rows.
+contract Batches
+parties we, customer
+
+record Batch
+  codes list text at most 3
+  sizes list number
+  total number
+
+can load by we with rows list number at most 4, tags list text
+  requires count of rows > 0
+  requires sum of rows < 100
+  each n in rows
+    requires n > 0
+    total = total + n
+  each t in tags
+    if t in ("x", "y")
+      reject "no x or y"
+  requires not ("bad" in tags)
+  sizes = rows
+
+can mark by we with code text
+  requires code in codes
+  codes = ("a", "b")
+  each s in (1, 2, 3)
+    requires s < 5
+
+can check by customer with size number
+  requires size in sizes
+  requires sizes = (1, 2)
+
+test "lists in and out"
+  we create with codes = ("p", "q"), sizes = 1, total = 0
+  we load with rows = (1, 2), tags = ("a", "b")
+  customer check with size = 2
+  customer check with size = 3 -> refused "bo:requires check 1"
+  we mark with code = "q"
+  we mark with code = "q" -> refused "bo:requires mark 1"
+  we mark with code = "a"
+
+test "each item is checked"
+  we create with codes = ("p"), sizes = (1, 2), total = 0
+  we load with rows = (50, 60), tags = "a" -> refused "bo:requires load 2"
+  we load with rows = (1, 0), tags = "a" -> refused "bo:requires load 3"
+  we load with rows = 1, tags = "x" -> refused "no x or y"
+  we load with rows = 1, tags = ("ok", "bad") -> refused "bo:requires load 4"
+  we load with rows = (1, 2, 3), tags = "ok"
+  customer check with size = 3 -> refused "bo:requires check 2"

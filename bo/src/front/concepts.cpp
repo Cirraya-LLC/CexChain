@@ -375,6 +375,7 @@ constexpr MessageSpec unsorted_messages[] = {
     {"check.zero-division", Severity::error, "text"},
     {"check.list-items", Severity::error, "text"},
     {"check.list-bound", Severity::error, "text limit"},
+    {"check.each-body", Severity::error, "text"},
     // Checking: states and actions.
     {"check.set-constant", Severity::error, "field"},
     {"check.set-target", Severity::error, "text"},
@@ -401,6 +402,13 @@ constexpr MessageSpec unsorted_messages[] = {
     {"check.charge-field", Severity::error, "text"},
     {"check.charge-rate", Severity::error, "name"},
     {"check.charge-included", Severity::error, "name"},
+    // Bills and charges computed (milestone 13).
+    {"check.document", Severity::error, "field"},
+    {"check.charge-document", Severity::error, "name"},
+    {"check.charge-twice", Severity::error, "name text"},
+    {"check.charge-on", Severity::error, "name other"},
+    {"check.charge-rounding", Severity::error, "name"},
+    {"check.charge-bill", Severity::error, "name document"},
     // Checking: what comes in later steps.
     {"check.needs-executor", Severity::warning, "action"},
     // Checking: tests (U8).
@@ -438,6 +446,7 @@ constexpr MessageSpec unsorted_messages[] = {
     {"build.too-many-fields", Severity::error, "limit"},
     {"build.too-many-inputs", Severity::error, "action limit"},
     {"build.too-many-events", Severity::error, "action limit"},
+    {"build.too-many-charges", Severity::error, "limit"},
     {"build.too-large", Severity::error, ""},
     {"build.reject-text", Severity::error, "text"},
     {"build.late-party", Severity::error, "field party"},
@@ -575,6 +584,11 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"charge-by-document", "document rounding"},
     {"charge-from", "date rate"},
     {"charge-other", "text"},
+    {"charge-bill", "document"},
+    {"charge-on", "base"},
+    {"charge-price", ""},
+    {"charge-once", ""},
+    {"charge-each-line", ""},
     // Values.
     {"value-money", "currency amount"},
     {"value-unit", "amount unit"},
@@ -712,6 +726,10 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"rule-R23", ""},
     {"rule-R24", ""},
     {"rule-R25", ""},
+    {"rule-R26", ""},
+    {"rule-R27", ""},
+    {"rule-R28", ""},
+    {"rule-R29", ""},
 };
 
 constexpr auto sorted_sentences = [] {
@@ -753,6 +771,10 @@ constexpr RuleSpec rules[] = {
     {"R23", "each-allocation"},   // allocate binds its role again on each call
     {"R24", "keeper"},            // a time rule: a function a keeper calls in time
     {"R25", "utc-offset"},        // dates and days at UTC+08:00 unless written (U6)
+    {"R26", "bill"},              // a document's field: a bill, made when it is set
+    {"R27", "charges"},           // charges in order: on the price and earlier ones
+    {"R28", "rate-in-force"},     // the rate in force at the bill's time (U9)
+    {"R29", "one-item"},          // one value where a list is needed: a list of one
 };
 
 template <class T, std::size_t N, class Key>

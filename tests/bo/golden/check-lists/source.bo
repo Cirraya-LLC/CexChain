@@ -1,0 +1,30 @@
+# Lists (milestone 13): in fields, inputs, and the state, bounded (16 items
+# unless at most N, R16); each, sum of, count of, and in; one value where a
+# list is needed is a list of that one item (R29).
+contract Batches
+parties we, customer
+
+record Batch
+  codes list text at most 3
+  sizes list number
+  total number
+  signers list text at most 4
+
+can load by we with rows list number at most 4, tags list text
+  requires count of rows > 0
+  requires sum of rows < 100
+  each n in rows
+    requires n > 0
+    total = total + n
+  each t in tags
+    if t in ("x", "y")
+      reject "no x or y"
+  requires not ("bad" in tags)
+  sizes = rows
+  codes = ("a", "b")
+
+can mark by we with code text
+  requires code in codes
+  signers = "z"
+  each s in (1, 2, 3)
+    requires s < 5

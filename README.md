@@ -547,9 +547,9 @@ text of a `reject` or with `bo:CODE` (`bo:requires sign 2`), which tools show in
 language. The same contract in English, Traditional Chinese, Simplified Chinese, or mixed
 compiles to the same bytes; `tests/bo/golden/build/` holds a two-party agreement in each, and the
 fuel of each of its calls. The vocabulary's asset, service-state, and resource actions compile
-with the standard library's terms, and `when` rules compile to functions a keeper calls (both
-below). What later steps bring (lists, charges, executors, and the built-in actions whose terms
-come later) is refused with a message for now. `testvectors/bo-v1.json`
+with the standard library's terms, `when` rules compile to functions a keeper calls, and lists
+and charges compute bills (all below). What later steps bring (executors, and the built-in
+actions whose terms come later) is refused with a message for now. `testvectors/bo-v1.json`
 (`tools/testvectors/bo_vectors.py`) pins sources, code, and outcomes, checked on both
 interpreters.
 
@@ -749,6 +749,46 @@ of the home, the rule that does that action (for a rule that does none, the stat
 change leads to, such as `keeper closed`).
 Nothing yet stops one IP address from being in two instances of a contract: unique keys across
 instances come later.
+
+### Lists and charges
+
+A field or an input may be a list, of at most 16 items unless `at most N` says otherwise (1,000
+at most): `codes list text at most 3`. A list given as an argument is checked when it is read
+(longer ones are refused), `each n in rows` runs its block once for each item (requirements,
+choices, refusals, and fields set; no state change), and `sum of rows`, `count of rows`, and
+`"x" in codes` read it. One value where a list is needed is a list of that one item (R29).
+
+Taxes, fees, commissions, and surcharges are *charges*, which the contract defines: there are no
+built-in tax templates. A field named by a document, such as `invoice list HKD`, holds the lines of
+a bill; each time it is set (when an instance is created, or by an action), the charges are
+computed on its lines at the time of that call, and the instance keeps the bill as it was made
+(R26): a later rate never changes a bill already made. The spec's VAT, in Simplified Chinese:
+
+```
+记录 销售单
+  发票 列表 人民币 最多 20
+
+费用 增值税
+  税率 6%
+  适用 客户所在地 = 中国内地
+  另计
+  按发票 四舍五入
+  从 2027-01-01 起 税率 9%
+```
+
+A charge is a rate (in millionths) or a fixed amount; it applies always or when a condition
+holds; it is `included` in the price (taken out of it) or `added` to it; it is rounded on each
+line (`per line`, the default) or once per bill (`per document`, `according to invoice`), half up
+(the default), half even, or down; and with `according to price, other` it is computed on the
+price and on charges written before it (R27). Its rate is the one in force at the bill's time
+(R28). Bills of 100.00 and 10.05 yuan: 6% of 11005 fen is 660.3, so 660, and the total is 116.65
+yuan until 2026 ends; 9% from 2027-01-01 gives 990.45, so 990, and 119.95 yuan. The state keeps
+`"bill": {"time", ? "lines", "price", "total", "charges": {NAME: {? "rate", "amount"}}}`, the
+call records it as the event `[invoice, bill]`, and a charge's name in an action is its amount on
+the bill (`requires payment = sum of invoice + 增值税`). `tests/bo/golden/test/tax/` and
+`test/charges/` show the arithmetic of their tests; `tests/bo/golden/build/vat-amounts.txt` holds
+the VAT written every way it can be (added or included, each rounding, per line or per bill) on
+both sides of its rate change, which the Python reference computes again with its own integers.
 
 ## AI agents (MCP)
 

@@ -1,6 +1,16 @@
+contract 销售
+parties we, customer
+
+record 销售单
+  invoice list CNY at most 20
+
 charge 增值税
   rate 6%
   applies to customer location = 中国内地
   added
   according to invoice half up
   from 2027-01-01 on rate 9%
+
+can 结算 by customer with 付款 CNY
+  requires 付款 = sum of invoice + 增值税
+  active -> settled

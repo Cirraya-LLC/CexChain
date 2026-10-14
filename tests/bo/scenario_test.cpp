@@ -111,6 +111,11 @@ std::vector<std::pair<std::string, std::filesystem::path>> cases() {
         {"time", golden_dir / "test/time/source.bo"},
         {"membership", golden_dir / "check-time/source.bo"},
         {"ip-pool", golden_dir / "test/ip-pool/source.bo"},
+        // Lists and charges (milestone 13): the spec's VAT on both sides of
+        // its rate change, charges of every kind on one bill, and lists.
+        {"tax", golden_dir / "test/tax/source.bo"},
+        {"charges", golden_dir / "test/charges/source.bo"},
+        {"lists", golden_dir / "test/lists/source.bo"},
     };
 }
 

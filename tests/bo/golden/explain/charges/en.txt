@@ -1,0 +1,70 @@
+Contract Dinner
+
+Bo wrote this text from the contract's source (Bo edition 1). A clause marked with a rule, such as [R3], states what Bo inferred by that rule instead of reading it in the source; the last section explains each rule.
+
+1. Parties
+1.1 we: bound to a ledger when an instance is created. [R3]
+1.2 customer: bound to a ledger when an instance is created. [R3]
+
+2. Each instance
+2.1 Each instance is a record named Table.
+2.2 invoice: a list of at most 10 items, each money in HKD, given when an instance is created. [R26]
+2.3 Creating an instance (function create) names the ledgers of the parties bound at creation and sets the fields given at creation. It needs no party's consent: the parties agree through the actions below.
+2.4 Dates and days are counted at UTC+08:00 all year, with no daylight saving; a month after a day the next month lacks (31 January plus a month) ends on that month's last day. [R25]
+
+3. Charges
+3.1 The charges below are computed on invoice, the lines of a bill, each time it is set: when an instance is created, and when an action sets it. They are computed at the time of that call; the instance keeps the bill as it was made, and the call records it as an event. A later change of rate never changes a bill already made. [R26]
+3.2 The charge gratuity:
+  3.2.1 Its rate is 10%.
+  3.2.2 It is added to the price. [R27]
+  3.2.3 It is rounded on each line, half even.
+3.3 The charge levy:
+  3.3.1 Its amount is HKD 2.
+  3.3.2 It is added to the price. [R27]
+  3.3.3 It is charged once per bill. [R27]
+3.4 The tax vat:
+  3.4.1 Its rate is 5%.
+  3.4.2 It is added to the price. [R27]
+  3.4.3 It is computed on the price and gratuity. [R27]
+  3.4.4 It is rounded once per invoice, down.
+3.5 The charge surcharge:
+  3.5.1 Its rate is 7%.
+  3.5.2 It is added to the price. [R27]
+  3.5.3 It is computed on vat. [R27]
+  3.5.4 It is rounded once per document, half up. [R17]
+3.6 The tax tourism:
+  3.6.1 Its rate is 3%.
+  3.6.2 It is included in the price. [R27]
+  3.6.3 It is rounded on each line, half up. [R17]
+3.7 The charge green:
+  3.7.1 From 1 July 2027, its rate is 1%. [R28]
+  3.7.2 It applies when the number of items in invoice is at least 3.
+  3.7.3 It is added to the price. [R27]
+  3.7.4 It is rounded on each line, half up. [R17]
+
+4. States
+4.1 An instance starts in the state active. [R4]
+4.2 Its states are active and settled. [R5]
+4.3 The state settled is final: no action can start from it, so an instance in it takes no more calls.
+4.4 Each change of state, the first state included, is recorded as an event.
+
+5. Actions
+A call that does not meet one of an action's requirements is refused, and the instance does not change. A missing consent is not a refusal: the call waits for it.
+
+5.1 settle
+  5.1.1 Started by the customer, whose agreement it needs.
+  5.1.2 The call gives payment (money in HKD).
+  5.1.3 Requirement 1: payment is the sum of invoice + gratuity + levy + vat + surcharge + green. [R26]
+  5.1.4 If the instance is active, it becomes settled; otherwise the call is refused.
+  5.1.5 An AI agent may start it within its delegation. [R14]
+
+6. Rules Bo applied
+[R3] A role the contract first names as an action's counterparty (after to) is bound to a ledger by that action, with its consent; every other role is bound to a ledger when an instance is created.
+[R4] An instance starts in the one state that no state change leads to; if there is none, in the state active.
+[R5] The states of an instance are those its state changes name.
+[R14] An AI agent may start an action within its delegation, unless the action says AI agent can propose; then the agent only proposes, and a person approves.
+[R17] A product or quotient of money, quantities, or rates is rounded to the smallest unit, half up (away from zero).
+[R25] A contract that names no UTC offset counts dates and days at UTC+08:00.
+[R26] A field named by a document (invoice, credit note, receipt) holds the lines of a bill, each an amount of money. Each time it is set, the charges are computed on it at the time of that call; the instance keeps the bill (its time, the price, each charge that applies, on each line and on the whole bill, and the total to pay), and the call records it as an event.
+[R27] Charges are computed in the order written, each on the price (a line's amount, or the whole bill's for a charge computed once per bill) unless according to names what it is computed on: the price and charges written before it. An added charge is its base times its rate, and adds to the total; an included one is taken out of the price: the price times its rate, divided by 100% plus the rates of the included charges that apply. A fixed amount is charged once per bill, or on each line. A charge that does not apply, or has no rate in force, is not charged.
+[R28] A charge's rate is the one in force at the bill's time: the rate from the latest date on or before it (from the start of that day, at the contract's UTC offset), else its own rate. A bill keeps the rate it was made with.

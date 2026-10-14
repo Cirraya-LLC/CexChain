@@ -155,7 +155,8 @@ TEST_CASE("one line in each language, or mixed, gives the same concept tokens", 
         {"lines", {"en", "zh-hant", "zh-hans", "mixed"}},
         {"example-receivable", {"en", "zh-hant", "zh-hans", "mixed"}},
         {"example-ip-pool", {"en", "zh-hant", "zh-hans", "mixed"}},
-        {"example-tax", {"en", "zh-hant", "zh-hans"}},
+        // The tax example's `sum of invoice` is `发票 总和` in Chinese: the
+        // same tree, not the same tokens (parser_test checks its tree).
     };
     for (const auto& [group, languages] : groups) {
         const auto first = concepts_of(read_text(golden_dir / (group + "-en") / "source.bo"));

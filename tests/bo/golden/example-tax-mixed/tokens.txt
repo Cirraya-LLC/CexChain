@@ -1,26 +1,67 @@
-1:1 word charge.charge | charge
-1:8 name 增值税 | 增值税
-1:11 newline
-2:1 indent
-2:3 word charge.rate | 稅率
-2:6 rate 6% | 6%
-2:8 newline
-3:3 word charge.applies_to piece=head | applies to
-3:14 word field.customer_location | 客户所在地
-3:20 symbol = | =
-3:22 name 中国内地 | 中国内地
-3:26 newline
-4:3 word charge.added | 另计
-4:5 newline
-5:3 word charge.by | 按
-5:5 word doc.invoice | invoice
-5:13 word round.half_up | 四捨五入
-5:17 newline
-6:3 word charge.from piece=open | 從
-6:5 date 2027-01-01 | 2027-01-01
-6:16 word charge.from piece=close | 起
-6:18 word charge.rate | rate
-6:23 rate 9% | 9%
-6:25 newline
+1:1 word kw.contract | 合约
+1:4 name 销售 | 销售
+1:6 newline
+2:1 word kw.parties | parties
+2:9 word role.we | 本公司
+2:12 symbol , | ,
+2:14 word role.customer | customer
+2:22 newline
+4:1 word kind.record | record
+4:8 name 销售单 | 销售单
+4:11 newline
+5:1 indent
+5:3 word doc.invoice | 發票
+5:6 word type.list | list
+5:11 word cur.CNY | 人民币
+5:15 word expr.at_most piece=head | 最多
+5:18 number 20 | 20
+5:20 newline
 7:1 dedent
-7:1 end
+7:1 word charge.charge | 费用
+7:4 name 增值税 | 增值税
+7:7 newline
+8:1 indent
+8:3 word charge.rate | 稅率
+8:6 rate 6% | 6%
+8:8 newline
+9:3 word charge.applies_to piece=head | applies to
+9:14 word field.customer_location | 客户所在地
+9:20 symbol = | =
+9:22 name 中国内地 | 中国内地
+9:26 newline
+10:3 word charge.added | 另计
+10:5 newline
+11:3 word charge.by | 按
+11:5 word doc.invoice | invoice
+11:13 word round.half_up | 四捨五入
+11:17 newline
+12:3 word charge.from piece=open | 從
+12:5 date 2027-01-01 | 2027-01-01
+12:16 word charge.from piece=close | 起
+12:18 word charge.rate | rate
+12:23 rate 9% | 9%
+12:25 newline
+14:1 dedent
+14:1 word kw.can | 可
+14:3 name 结算 | 结算
+14:6 word kw.by | 由
+14:8 word role.customer | customer
+14:17 word kw.with | with
+14:22 name 付款 | 付款
+14:25 word cur.CNY | CNY
+14:28 newline
+15:1 indent
+15:3 word kw.requires | 須
+15:5 name 付款 | 付款
+15:8 symbol = | =
+15:10 word expr.sum_of piece=head | sum of
+15:17 word doc.invoice | 发票
+15:20 symbol + | +
+15:22 name 增值税 | 增值税
+15:25 newline
+16:3 word state.active | active
+16:10 symbol -> | ->
+16:13 word state.settled | 已結清
+16:16 newline
+17:1 dedent
+17:1 end

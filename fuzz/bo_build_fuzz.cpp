@@ -1158,6 +1158,8 @@ void collect_rejects(const std::vector<m::Statement>& list, std::set<std::string
         } else if (const auto* i = std::get_if<m::If>(&s.node)) {
             collect_rejects(i->then, out);
             collect_rejects(i->otherwise, out);
+        } else if (const auto* e = std::get_if<m::Each>(&s.node)) {
+            collect_rejects(e->body, out);
         }
     }
 }
@@ -1176,6 +1178,15 @@ cbor::Value random_value(const m::Type& t, Choices& c) {
         return cbor::Value::bytes(ledger(static_cast<std::uint8_t>(1 + c.below(4))).bytes());
     case m::TypeKind::date:
         return cbor::Value::integer(c.between(1'700'000'000'000, 1'900'000'000'000));
+    case m::TypeKind::list: {
+        // Now and then one item more than its bound allows.
+        cbor::Array items;
+        const std::uint32_t n = c.below(std::min<std::uint32_t>(t.bound, 6) + 2);
+        for (std::uint32_t i = 0; i < n && !t.element.empty(); ++i) {
+            items.push_back(random_value(t.element.front(), c));
+        }
+        return cbor::Value::array(std::move(items));
+    }
     default:
         if (c.one_in(20)) {
             return cbor::Value::integer(c.one_in(2) ? std::numeric_limits<std::int64_t>::max()

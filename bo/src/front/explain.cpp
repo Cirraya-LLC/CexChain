@@ -463,6 +463,19 @@ public:
                 return ledger(ByteView(*id));
             }
             break;
+        case TypeKind::list:
+            // Each item as its type is written, in parentheses.
+            if (const cbor::Array* items = v.as_array();
+                items != nullptr && type.element.size() == 1) {
+                std::string out;
+                const std::string separator = say("list-separator");
+                for (const cbor::Value& item : *items) {
+                    out +=
+                        (out.empty() ? "" : separator) + value(type.element.front(), item, ledger);
+                }
+                return say("group", {{"text", plain(out)}});
+            }
+            break;
         default:
             break;
         }
@@ -1060,6 +1073,11 @@ private:
                                    [&](const m::Field& f) {
                                        return local(f.type) || (f.value && in(*f.value, in));
                                    }) ||
+               std::ranges::any_of(model_.charges,
+                                   [&](const m::Charge& c) {
+                                       return !c.dated.empty() ||
+                                              (c.condition && in(*c.condition, in));
+                                   }) ||
                std::ranges::any_of(model_.actions, [&](const m::Action& a) {
                    return std::ranges::any_of(a.inputs,
                                               [&](const m::Field& f) { return local(f.type); }) ||
@@ -1084,10 +1102,18 @@ private:
         }
         ExplainedSection& s = section("charges", "section-charges");
         std::size_t n = 0;
+        if (const m::Field* bill = m::bill_field(model_); bill != nullptr) {
+            // R26: what the charges are computed on, and when.
+            Rules rules;
+            note(rules, "R26");
+            add(s.clauses, s.number, n, "charge-bill",
+                w_.say("charge-bill", {{"document", w_.word(bill->word)}}), rules);
+        }
         for (const m::Charge& c : model_.charges) {
             const std::string number =
                 add(s.clauses, s.number, n, "charge",
                     w_.say("charge", {{"kind", w_.word(c.kind)}, {"name", plain(c.name)}}), {});
+            const bool fixed = c.amount.has_value();
             std::size_t k = 0;
             bool rounded = false;
             for (const m::ChargeLine& line : c.lines) {
@@ -1095,6 +1121,10 @@ private:
                 const m::Expr* value = line.values.empty() ? nullptr : &line.values.front();
                 const Concept* head = line.head;
                 std::string text;
+                const bool base =
+                    is(head, "charge.by") && value != nullptr &&
+                    (value->refers == Refers::charge ||
+                     (value->kind == ExprKind::word && is(value->concept_entry, "price.price")));
                 if (is(head, "charge.rate") && value != nullptr) {
                     text = w_.say("charge-rate", {{"rate", plain(expr(*value, rules))}});
                 } else if (is(head, "field.amount") && value != nullptr) {
@@ -1103,9 +1133,18 @@ private:
                     text = w_.say("charge-applies",
                                   {{"condition", plain(expr(*line.argument, rules))}});
                 } else if (is(head, "charge.included")) {
+                    note(rules, "R27");
                     text = w_.say("charge-included");
                 } else if (is(head, "charge.added")) {
+                    note(rules, "R27");
                     text = w_.say("charge-added");
+                } else if (fixed &&
+                           (is(head, "charge.per_line") || is(head, "charge.per_document") ||
+                            (is(head, "charge.by") && !base))) {
+                    // A fixed amount is never rounded: once per bill, or on each line.
+                    note(rules, "R27");
+                    text = w_.say(is(head, "charge.per_line") ? "charge-each-line" : "charge-once");
+                    rounded = true;
                 } else if (is(head, "charge.per_line")) {
                     text = w_.say("charge-per-line", {{"rounding", plain(rounding(value, rules))}});
                     rounded = true;
@@ -1117,6 +1156,14 @@ private:
                     text = w_.say("charge-per-document",
                                   {{"rounding", plain(rounding(value, rules))}});
                     rounded = true;
+                } else if (base) {
+                    // according to price, OTHER: what it is computed on (R27).
+                    note(rules, "R27");
+                    std::vector<std::string> items;
+                    for (const m::Expr& v : line.values) {
+                        items.push_back(v.kind == ExprKind::word ? w_.say("charge-price") : v.name);
+                    }
+                    text = w_.say("charge-on", {{"base", plain(w_.join(items, true))}});
                 } else if (is(head, "charge.by") && value != nullptr) {
                     // according to invoice [half up]: per document of that kind.
                     const bool with_mode =
@@ -1129,6 +1176,7 @@ private:
                           plain(rounding(with_mode ? &value->operands[1] : nullptr, rules))}});
                     rounded = true;
                 } else if (is(head, "charge.from") && line.argument && value != nullptr) {
+                    note(rules, "R28");
                     text = w_.say("charge-from", {{"date", plain(expr(*line.argument, rules))},
                                                   {"rate", plain(expr(*value, rules))}});
                 } else {
@@ -1145,9 +1193,14 @@ private:
             }
             if (!rounded) {
                 Rules rules;
-                const std::string mode = rounding(nullptr, rules);
-                add(s.clauses, number, k, "charge-line",
-                    w_.say("charge-per-line", {{"rounding", plain(mode)}}), rules);
+                if (fixed) {
+                    note(rules, "R27");
+                    add(s.clauses, number, k, "charge-line", w_.say("charge-once"), rules);
+                } else {
+                    const std::string mode = rounding(nullptr, rules);
+                    add(s.clauses, number, k, "charge-line",
+                        w_.say("charge-per-line", {{"rounding", plain(mode)}}), rules);
+                }
             }
         }
     }

@@ -1,6 +1,16 @@
-charge 增值税
+合约 销售
+parties 本公司, customer
+
+record 销售单
+  發票 list 人民币 最多 20
+
+费用 增值税
   稅率 6%
   applies to 客户所在地 = 中国内地
   另计
   按 invoice 四捨五入
   從 2027-01-01 起 rate 9%
+
+可 结算 由 customer with 付款 CNY
+  須 付款 = sum of 发票 + 增值税
+  active -> 已結清

@@ -149,14 +149,14 @@ TEST_CASE("each example, in each language or mixed, gives the same model", "[bo]
         }
     }
     // The examples check: the VPS example's executor clauses are marked
-    // (6b), the tax example is a fragment, and the others are clean.
+    // (6b), and the others are clean.
     CHECK(check_codes(read_text(golden_dir / "example-receivable-en" / "source.bo")).empty());
     CHECK(check_codes(read_text(golden_dir / "example-ip-pool-en" / "source.bo")).empty());
     CHECK(check_codes(read_text(golden_dir / "example-split-en" / "source.bo")).empty());
     CHECK(check_codes(read_text(golden_dir / "example-vps-en" / "source.bo")) ==
           "check.needs-executor check.needs-executor check.needs-executor check.needs-executor "
           "check.needs-executor check.needs-executor");
-    CHECK(check_codes(read_text(golden_dir / "example-tax-en" / "source.bo")) == "check.fragment");
+    CHECK(check_codes(read_text(golden_dir / "example-tax-en" / "source.bo")).empty());
 }
 
 TEST_CASE("every check has an error golden, and every rule is seen", "[bo][check]") {
@@ -189,7 +189,7 @@ TEST_CASE("every check has an error golden, and every rule is seen", "[bo][check
         CHECK(find_rule(models.substr(at + 1, end - at - 1)) != nullptr);
         at = end;
     }
-    CHECK(rule_specs().size() == 25);
+    CHECK(rule_specs().size() == 29);
     CHECK(rule_specs().front().id == "R1");
 }
 

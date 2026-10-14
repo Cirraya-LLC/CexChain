@@ -1,0 +1,12 @@
+lists of 1,000 items (fuel per call; the limit is 10,000,000; a state holds at most 64 KiB)
+create: accept active, event active; fuel 747364
+sum of: accept active; fuel 969377
+count of: accept active; fuel 749319
+a number in: accept active; fuel 953661
+a text in: accept active; fuel 1169038
+each number: accept active; fuel 956380
+each text: accept active; fuel 1025309
+a list replaced: accept active; fuel 1162302
+a bill of 1,000 lines with 16 charges, two on each line
+create: accept active, event active, event invoice; fuel 1789167
+rebill: accept active, event invoice; fuel 2816982

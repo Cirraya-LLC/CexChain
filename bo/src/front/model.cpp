@@ -568,6 +568,16 @@ bool uses_previous(const Model& model) noexcept {
            std::ranges::any_of(model.rules, [](const TimeRule& r) { return goes_back(r.body); });
 }
 
+const Field* bill_field(const Model& model) noexcept {
+    for (const Field& f : model.fields) {
+        if (f.word != nullptr && f.word->category == Category::document &&
+            f.kind == FieldKind::instance) {
+            return &f;
+        }
+    }
+    return nullptr;
+}
+
 namespace {
 
 bool word_is(const Expr& e, std::string_view id) noexcept {
@@ -926,6 +936,27 @@ std::string dump(const model::Model& m) {
             }
             add_line(out, 1, "line " + head);
         }
+        // What compiled code computes (R27): how, on what, and how rounded.
+        std::string how = std::string(c.included ? "computes included" : "computes added") +
+                          (c.amount ? " amount" : " rate") +
+                          (c.per_document ? " per_document" : " per_line");
+        if (c.document != nullptr) {
+            how += " " + std::string(c.document->id);
+        }
+        if (!c.amount) {
+            how +=
+                c.rounding != nullptr ? " " + std::string(c.rounding->id) : " round.half_up{R17}";
+        }
+        std::string on;
+        if (c.on_price) {
+            on = "price.price";
+        }
+        for (const std::uint64_t j : c.on) {
+            if (j < m.charges.size()) {
+                on += (on.empty() ? "" : ",") + m.charges[j].name;
+            }
+        }
+        add_line(out, 1, how + " on=" + on + "{R27}");
     }
     if (m.due != model::DueKind::none) {
         add_line(out, 0,

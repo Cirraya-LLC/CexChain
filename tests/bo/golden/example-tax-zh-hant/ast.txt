@@ -1,7 +1,15 @@
 edition 1
+contract 销售
+parties role.we role.customer
+block kind.record 销售单
+  field doc.invoice (phrase type.list cur.CNY (expr.at_most 20))
 block charge.charge 增值税
   field charge.rate 6%
   field (charge.applies_to (= field.customer_location 中国内地))
   field charge.added
   field charge.by (phrase doc.invoice round.half_up)
   field (charge.from 2027-01-01) (phrase charge.rate 9%)
+can 结算 by=role.customer
+  with 付款 cur.CNY
+  requires (= 付款 (+ (expr.sum_of doc.invoice) 增值税))
+  transition state.active -> state.settled

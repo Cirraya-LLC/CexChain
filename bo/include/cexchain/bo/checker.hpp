@@ -30,14 +30,22 @@
 ///     contract's counterparty (`to`) or one each call names (R21), and the
 ///     fields the terms use (R20); and the contract's own, which need `by`;
 ///     their inputs; their blocks, typed;
-///   - time rules (`when`): an event that is a time, and duties (R9).
+///   - time rules (`when`): an event that is a time, and duties (R9);
+///   - charges: what each line says, read once into the model's Charge (a
+///     rate, dated rates, or a fixed amount; a condition; included or added;
+///     how it is rounded; what it is computed on: R27, R28), and the field
+///     that holds the bill they are computed on (R26).
 /// What it checks (spec section 9):
 ///   - names: every name declared once and used where declared;
 ///   - types and units: money only with money of the same currency,
 ///     quantities only within a dimension, months never with days, rates,
 ///     dates, durations, texts, yes or no, parties, bounded lists; exact
 ///     values only (no amount finer than its smallest unit; no overflow);
-///   - termination: `each` only over bounded lists, and no recursion;
+///   - termination: `each` only over bounded lists (its block changes no
+///     state and does no action), and no recursion;
+///   - charges: one bill; each line said once; a rate or an amount; a fixed
+///     amount never rounded; each charge computed on the price and on
+///     charges written before it that it may be computed on;
 ///   - consents: changing a field that holds a party needs its consent (R8);
 ///   - every state reachable from the first (a state the standard terms
 ///     name but no instance reaches is none of the contract's), and every

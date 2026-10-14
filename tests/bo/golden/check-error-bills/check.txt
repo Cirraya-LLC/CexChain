@@ -1,0 +1,65 @@
+edition 1
+contract Bills
+party role.we bound=creation{R3}
+party role.customer bound=creation{R3}
+kind kind.record Sale
+field doc.invoice instance list 5 money cur.HKD{R26}
+field doc.receipt instance ?
+charge charge.charge Service
+  line charge.rate 10%
+  line charge.added
+  line charge.per_document
+  computes added rate per_document round.half_up{R17} on=price.price{R27}
+charge charge.charge Fee
+  line field.amount (money cur.USD 2)
+  line charge.added
+  line charge.per_line round.half_up
+  computes added amount per_line on=price.price{R27}
+charge charge.charge Vat
+  line charge.rate 6%
+  line charge.rate 7%
+  line charge.added
+  line charge.by price.price Later
+  line charge.by Service
+  computes added rate per_line round.half_up{R17} on=Service{R27}
+charge charge.charge Line
+  line charge.rate 1%
+  line charge.added
+  line charge.by Service
+  computes added rate per_line round.half_up{R17} on=Service{R27}
+charge charge.charge Inside
+  line charge.rate 5%
+  line charge.included
+  line charge.by price.price Service
+  computes included rate per_line round.half_up{R17} on=price.price,Service{R27}
+charge charge.charge Fixed
+  line field.amount (money cur.HKD 3)
+  line charge.added
+  line charge.by price.price
+  computes added amount per_document on=price.price{R27}
+charge charge.charge Other
+  line charge.rate 2%
+  line charge.added
+  line charge.by doc.receipt
+  line (charge.from 2027-01-01{R28}) 3%
+  line (charge.from 2027-01-01{R28}) 4%
+  computes added rate per_document doc.receipt round.half_up{R17} on=price.price{R27}
+charge charge.charge Later
+  line charge.rate 1%
+  line charge.added
+  computes added rate per_line round.half_up{R17} on=price.price{R27}
+state state.active first{R4}
+can bill own by=role.we agents=delegation{R14}
+11:3 error check.document: receipt holds the lines of a bill: declare one such field, in the kind's block, as a list of money in one currency (invoice list HKD)
+18:8 error check.charge-rounding: Fee is a fixed amount, which is never rounded: give it no rounding mode
+19:10 error check.mixed-currencies: money in USD and money in HKD are in different currencies; Bo never converts one into the other
+23:8 error check.charge-on: Vat cannot be computed on Service: a charge is computed on the price and on charges written before it (one on each line only on charges on each line), and an included charge or a fixed amount only on the price
+25:3 error check.charge-twice: rate 7%: the charge Vat already says this; say it once
+27:23 error check.charge-on: Vat cannot be computed on Later: a charge is computed on the price and on charges written before it (one on each line only on charges on each line), and an included charge or a fixed amount only on the price
+28:3 error check.charge-twice: according to Service: the charge Vat already says this; say it once
+30:8 error check.charge-on: Line cannot be computed on Service: a charge is computed on the price and on charges written before it (one on each line only on charges on each line), and an included charge or a fixed amount only on the price
+35:8 error check.charge-on: Inside cannot be computed on Service: a charge is computed on the price and on charges written before it (one on each line only on charges on each line), and an included charge or a fixed amount only on the price
+40:8 error check.charge-on: Fixed cannot be computed on price: a charge is computed on the price and on charges written before it (one on each line only on charges on each line), and an included charge or a fixed amount only on the price
+45:8 error check.charge-bill: Other is rounded once per receipt, but the contract's bill is another document
+50:3 error check.charge-twice: from 2027-01-01 on rate 4%: the charge Other already says this; say it once
+56:21 error check.document: invoice holds the lines of a bill: declare one such field, in the kind's block, as a list of money in one currency (invoice list HKD)

@@ -113,6 +113,10 @@ std::vector<Case> cases() {
     out.push_back({"time", {golden_dir / "test/time/source.bo"}});
     out.push_back({"membership", {golden_dir / "check-time/source.bo"}});
     out.push_back({"ip-pool-tests", {golden_dir / "test/ip-pool/source.bo"}});
+    // Lists and charges (milestone 13).
+    out.push_back({"tax-tests", {golden_dir / "test/tax/source.bo"}});
+    out.push_back({"charges", {golden_dir / "test/charges/source.bo"}});
+    out.push_back({"lists", {golden_dir / "test/lists/source.bo"}});
     return out;
 }
 
@@ -172,7 +176,7 @@ TEST_CASE("the contract text's goldens, the same from every spelling", "[bo][exp
             }
         }
     }
-    CHECK(texts == 45);
+    CHECK(texts == 54);
 }
 
 TEST_CASE("the contract text says what compiled code decides", "[bo][explain]") {

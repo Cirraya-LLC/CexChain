@@ -292,6 +292,9 @@ public:
     }
 
     void set_creation(std::string name) { creation_ = std::move(name); }
+    /// The contract's charges, for the Python reference's oracle "bill".
+    void oracle(nlohmann::ordered_json spec) { oracle_ = std::move(spec); }
+    [[nodiscard]] const nlohmann::ordered_json& oracle() const { return oracle_; }
     /// The sources the code was built from, by language.
     void source(std::string language, std::string text) {
         sources_.emplace_back(std::move(language), std::move(text));
@@ -342,6 +345,7 @@ private:
     std::map<std::string, std::string> names_;
     std::vector<Outcome> runs_;
     std::vector<std::pair<std::string, std::string>> sources_;
+    nlohmann::ordered_json oracle_;
 };
 
 // ---------------------------------------------------------------------------
@@ -646,7 +650,368 @@ std::vector<Home> scenarios() {
     return out;
 }
 
+// ---------------------------------------------------------------------------
+// The spec's VAT (bo-1.0, section 7) every way it can be written: added or
+// included, rounded on each line or once per invoice, half up, half even, or
+// down; 6% until 2026 ends and 9% from 2027-01-01 (+08:00). Each bill is
+// checked here against exact 128-bit arithmetic, kept as a golden
+// (tests/bo/golden/build/vat-amounts.txt), and written with its contract's
+// charges for the Python reference, which computes it again (the oracle
+// "bill" of wasm_ref.py).
+
+__extension__ using int128 = __int128;
+
+struct VatVariant {
+    bool included = false;
+    bool per_document = false;
+    int mode = 0; ///< 0 half up, 1 half even, 2 down
+};
+
+constexpr std::string_view vat_modes[] = {"half up", "half even", "down"};
+constexpr std::string_view vat_mode_names[] = {"half_up", "half_even", "down"};
+
+std::vector<VatVariant> vat_variants() {
+    std::vector<VatVariant> out;
+    for (const bool included : {false, true}) {
+        for (const bool per_document : {false, true}) {
+            for (int mode = 0; mode < 3; ++mode) {
+                out.push_back({included, per_document, mode});
+            }
+        }
+    }
+    return out;
+}
+
+std::string vat_source(const VatVariant& v) {
+    return std::format(
+        "contract VAT\nparties we\n\nrecord Sale\n  invoice list CNY at most 1000\n\n"
+        "charge 增值税\n  rate 6%\n  applies to customer location = 中国内地\n"
+        "  {}\n  {} {}\n  from 2027-01-01 on rate 9%\n",
+        v.included ? "included" : "added", v.per_document ? "according to invoice" : "per line",
+        vat_modes[v.mode]);
+}
+
+std::string vat_name(const VatVariant& v) {
+    return std::format("vat-{}-{}-{}", v.included ? "included" : "added",
+                       v.per_document ? "per_document" : "per_line", vat_mode_names[v.mode]);
+}
+
+/// The charges of a contract, as the Python oracle reads them.
+nlohmann::ordered_json vat_spec(const VatVariant& v) {
+    nlohmann::ordered_json charge{
+        {"name", "增值税"},
+        {"included", v.included},
+        {"per_document", v.per_document},
+        {"mode", v.mode},
+        {"rate", 60'000},
+        {"dated", nlohmann::ordered_json::array({{date(2027, 1, 1), 90'000}})},
+        {"amount", nullptr},
+        {"on_price", true},
+        {"on", nlohmann::ordered_json::array()},
+        {"condition", {{"field", "customer_location"}, {"equals", "中国内地"}}}};
+    return {{"document", "invoice"}, {"charges", nlohmann::ordered_json::array({charge})}};
+}
+
+/// The charges of tests/bo/golden/test/charges/source.bo (a dinner's bill),
+/// as the Python oracle reads them.
+nlohmann::ordered_json dinner_spec() {
+    const auto charge = [](std::string name, bool included, bool per_document, int mode,
+                           nlohmann::ordered_json rate, nlohmann::ordered_json amount,
+                           bool on_price, nlohmann::ordered_json on) {
+        return nlohmann::ordered_json{
+            {"name", std::move(name)},      {"included", included},
+            {"per_document", per_document}, {"mode", mode},
+            {"rate", std::move(rate)},      {"dated", nlohmann::ordered_json::array()},
+            {"amount", std::move(amount)},  {"on_price", on_price},
+            {"on", std::move(on)},          {"condition", nullptr}};
+    };
+    const nlohmann::ordered_json none = nlohmann::ordered_json::array();
+    nlohmann::ordered_json green = charge("green", false, false, 0, nullptr, nullptr, true, none);
+    green["dated"] = nlohmann::ordered_json::array({{date(2027, 7, 1), 10'000}});
+    green["condition"] = {{"lines_at_least", 3}};
+    return {
+        {"document", "invoice"},
+        {"charges", nlohmann::ordered_json::array(
+                        {charge("gratuity", false, false, 1, 100'000, nullptr, true, none),
+                         charge("levy", false, true, 0, nullptr, 200, true, none),
+                         charge("vat", false, true, 2, 50'000, nullptr, true, {"gratuity"}),
+                         charge("surcharge", false, true, 0, 70'000, nullptr, false, {"vat"}),
+                         charge("tourism", true, false, 0, 30'000, nullptr, true, none), green})}};
+}
+
+/// a * b / c, rounded as Bo rounds (exact, 128 bits).
+std::int64_t exact_muldiv(const std::int64_t a, const std::int64_t b, const std::int64_t c,
+                          const int mode) {
+    const int128 product = int128{a} * b;
+    const int128 magnitude = product < 0 ? -product : product;
+    int128 q = magnitude / c;
+    const int128 r = magnitude % c;
+    if (mode != 2 && r != 0 && (2 * r > c || (2 * r == c && (mode == 0 || (q & 1) != 0)))) {
+        ++q;
+    }
+    return static_cast<std::int64_t>(product < 0 ? -q : q);
+}
+
+/// The lines each variant bills: edge cases (half a fen, negative lines,
+/// zero), then pseudo-random ones (splitmix64, the same everywhere).
+std::vector<std::vector<std::int64_t>> vat_lines() {
+    std::vector<std::vector<std::int64_t>> out{
+        {10'000, 1'005}, {10'000, 25}, {25},           {75}, {1'025, 1'075, 1},
+        {-1'005, 25},    {-25},        {50, 150, 250}, {1},  {0}};
+    std::uint64_t state = 13;
+    const auto next = [&] {
+        std::uint64_t z = (state += 0x9E37'79B9'7F4A'7C15ULL);
+        z = (z ^ (z >> 30U)) * 0xBF58'476D'1CE4'E5B9ULL;
+        z = (z ^ (z >> 27U)) * 0x94D0'49BB'1331'11EBULL;
+        return z ^ (z >> 31U);
+    };
+    for (int i = 0; i < 10; ++i) {
+        std::vector<std::int64_t> lines;
+        const std::uint64_t n = 1 + next() % 8;
+        for (std::uint64_t k = 0; k < n; ++k) {
+            lines.push_back(static_cast<std::int64_t>(next() % 550'001) - 50'000);
+        }
+        out.push_back(std::move(lines));
+    }
+    return out;
+}
+
+/// The expected bill of a variant, in short (as the golden shows it).
+std::string vat_expected(const VatVariant& v, const std::vector<std::int64_t>& lines,
+                         const std::int64_t time, const bool mainland) {
+    std::int64_t price = 0;
+    for (const std::int64_t l : lines) {
+        price += l;
+    }
+    if (!mainland) {
+        // It does not apply: no charge, and each line's charges are none.
+        std::string out = std::format("price={} total={}", price, price);
+        if (!v.per_document) {
+            out += " lines";
+            for (std::size_t i = 0; i < lines.size(); ++i) {
+                out += " []";
+            }
+        }
+        return out;
+    }
+    const std::int64_t rate = time >= date(2027, 1, 1) ? 90'000 : 60'000;
+    const std::int64_t divisor = v.included ? 1'000'000 + rate : 1'000'000;
+    std::int64_t amount = 0;
+    std::string each;
+    if (v.per_document) {
+        amount = exact_muldiv(price, rate, divisor, v.mode);
+    } else {
+        for (const std::int64_t l : lines) {
+            const std::int64_t a = exact_muldiv(l, rate, divisor, v.mode);
+            amount += a;
+            each += std::format(" [增值税={}]", a);
+        }
+    }
+    std::string out = std::format("price={} total={} 增值税={}@{}", price,
+                                  v.included ? price : price + amount, amount, rate);
+    if (!v.per_document) {
+        out += " lines" + each;
+    }
+    return out;
+}
+
+/// A bill made by a run, in short: the event's (the same as the state's).
+std::string bill_of(const Outcome& o) {
+    const protocol::ContractAccept* a = o.accepted();
+    REQUIRE(a != nullptr);
+    const cbor::Value* bill = a->state.find("bill");
+    REQUIRE(bill != nullptr);
+    REQUIRE(!a->events.empty());
+    CHECK(a->events.back().name == "invoice");
+    CHECK(a->events.back().data == *bill);
+    const cbor::Value* charges = bill->find("charges");
+    REQUIRE(charges != nullptr);
+    REQUIRE(charges->as_map() != nullptr);
+    std::string out = std::format("price={} total={}", bill->find("price")->as_int64().value_or(-1),
+                                  bill->find("total")->as_int64().value_or(-1));
+    for (const cbor::MapEntry& e : *charges->as_map()) {
+        out += std::format(" {}={}@{}", *e.key.as_text(),
+                           e.value.find("amount")->as_int64().value_or(-1),
+                           e.value.find("rate")->as_int64().value_or(-1));
+    }
+    if (const cbor::Value* lines = bill->find("lines")) {
+        out += " lines";
+        for (const cbor::Value& line : *lines->as_array()) {
+            std::string items;
+            for (const cbor::MapEntry& e : *line.as_map()) {
+                items += (items.empty() ? "" : " ") + *e.key.as_text() + "=" +
+                         std::to_string(e.value.as_int64().value_or(-1));
+            }
+            out += " [" + items + "]";
+        }
+    }
+    return out;
+}
+
+/// Each variant, billing every set of lines at the last day of 2026, its
+/// last millisecond, and the first day of 2027; and once outside the
+/// mainland. The golden lines are the first ten sets'.
+std::vector<Home> vat_scenarios(std::string* golden) {
+    std::vector<Home> out;
+    const std::vector<std::vector<std::int64_t>> sets = vat_lines();
+    for (const VatVariant& v : vat_variants()) {
+        const std::string source = vat_source(v);
+        Home home(vat_name(v), build_text(source), we);
+        home.source("en", source);
+        home.oracle(vat_spec(v));
+        int n = 0;
+        for (std::size_t i = 0; i < sets.size(); ++i) {
+            const std::vector<std::int64_t>& lines = sets[i];
+            std::string items;
+            for (const std::int64_t l : lines) {
+                items += (items.empty() ? "" : ", ") + std::to_string(l);
+            }
+            for (const std::int64_t time :
+                 {date(2026, 12, 31), date(2027, 1, 1) - 1, date(2027, 1, 1)}) {
+                for (const bool mainland : {true, false}) {
+                    if (!mainland && (i != 0 || time != date(2027, 1, 1))) {
+                        continue;
+                    }
+                    const std::string args = std::format(
+                        R"({{"fields": {{"customer_location": "{}", "invoice": [{}]}}, )"
+                        R"("parties": {{"we": {}}}}})",
+                        mainland ? "中国内地" : "香港", items, h(we));
+                    const Outcome o = home.create(std::format("{} bill", ++n), args, time);
+                    INFO(vat_name(v) << " lines " << items << " at " << time);
+                    const std::string made = bill_of(o);
+                    CHECK(made == vat_expected(v, lines, time, mainland));
+                    if (golden != nullptr && i < 10) {
+                        *golden +=
+                            std::format("{} {} [{}] {}: {}\n", vat_name(v),
+                                        time == date(2026, 12, 31)     ? "2026-12-31"
+                                        : time == date(2027, 1, 1) - 1 ? "2026-12-31T23:59:59.999"
+                                                                       : "2027-01-01",
+                                        items, mainland ? "mainland" : "elsewhere", made);
+                    }
+                }
+            }
+        }
+        out.push_back(std::move(home));
+    }
+    return out;
+}
+
 } // namespace
+
+TEST_CASE("bo build: lists and bills at their bounds stay within a call's fuel", "[bo][build]") {
+    // Each list operation on 1,000 items (the most a list may hold), and a
+    // bill of 1,000 lines with sixteen charges: the fuel each call takes,
+    // kept as a golden (tests/bo/golden/build/fuel-bounds.txt), well within
+    // the 10 million a call may use (spec section 14). Texts are 40 bytes (a state holds at most 64
+    // KiB) and differ only in their last byte, so each comparison reads them all.
+    const std::string lists_source = R"(contract Bounds
+parties we
+
+record Bounds
+  numbers list number at most 1000
+  names list text at most 1000
+
+can sum by we
+  requires sum of numbers >= 0
+can count by we
+  requires count of numbers = 1000
+can has by we with x number
+  requires not (x in numbers)
+can named by we with x text
+  requires not (x in names)
+can walk by we
+  each n in numbers
+    requires n >= 0
+can walknames by we
+  each n in names
+    requires n = n
+can replace by we with others list number at most 1000
+  numbers = others
+)";
+    Home home("bounds", build_text(lists_source), we);
+    std::string numbers;
+    std::string others;
+    std::string names;
+    const std::string stem(39, 'n');
+    for (int i = 0; i < 1000; ++i) {
+        numbers += (i == 0 ? "" : ", ") + std::to_string(1'000'000'000'000 + i);
+        others += (i == 0 ? "" : ", ") + std::to_string(2'000'000'000'000 + i);
+        names +=
+            std::format("{}\"{}{}\"", i == 0 ? "" : ", ", stem, static_cast<char>('A' + i % 26));
+    }
+    std::string text = "lists of 1,000 items (fuel per call; the limit is 10,000,000; a state "
+                       "holds at most 64 KiB)\n";
+    const auto record = [&](const Outcome& o) {
+        INFO(o.label << ": " << o.reason());
+        CHECK(o.accepted() != nullptr);
+        CHECK(o.run.fuel_used < vm::fuel_limit / 2);
+        text += home.summary(o) + "\n";
+    };
+    record(home.create(
+        "create",
+        std::format(R"({{"fields": {{"names": [{}], "numbers": [{}]}}, "parties": {{"we": {}}}}})",
+                    names, numbers, h(we)),
+        t0));
+    record(home.call("sum of", "sum", "null", {}, t0));
+    record(home.call("count of", "count", "null", {}, t0));
+    record(home.call("a number in", "has", R"({"x": 7})", {}, t0));
+    record(home.call(std::format("a text in"), "named",
+                     std::format(R"({{"x": "{}{}"}})", stem, "z"), {}, t0));
+    record(home.call("each number", "walk", "null", {}, t0));
+    record(home.call("each text", "walknames", "null", {}, t0));
+    record(home.call("a list replaced", "replace", std::format(R"({{"others": [{}]}})", others), {},
+                     t0));
+
+    // A bill of 1,000 lines with sixteen charges: two on each line (the
+    // second on the price and the first), and fourteen once per bill, each on
+    // the price and both line charges. (A state holds at most 64 KiB, which
+    // bounds a bill's lines times its charges on each line.)
+    std::string bill_source =
+        "contract Bill\nparties we\n\nrecord Sale\n  invoice list HKD at most 1000\n\n";
+    bill_source += "charge a\n  rate 1%\n  added\n  per line half even\n";
+    bill_source += "charge b\n  rate 2%\n  added\n  per line\n  according to price, a\n";
+    for (int i = 0; i < 14; ++i) {
+        bill_source += std::format("charge whole{}\n  rate {}%\n  added\n  per document down\n"
+                                   "  according to price, a, b\n",
+                                   i, i + 1);
+    }
+    bill_source += "\ncan rebill by we with lines list HKD at most 1000\n  invoice = lines\n";
+    Home bills("bill-bounds", build_text(bill_source), we);
+    std::string lines;
+    for (int i = 0; i < 1000; ++i) {
+        lines += (i == 0 ? "" : ", ") + std::to_string(99'999'999 + i);
+    }
+    text += "a bill of 1,000 lines with 16 charges, two on each line\n";
+    const auto record_bill = [&](const Outcome& o) {
+        INFO(o.label << ": " << o.reason());
+        CHECK(o.accepted() != nullptr);
+        CHECK(o.run.fuel_used < vm::fuel_limit / 2);
+        text += bills.summary(o) + "\n";
+    };
+    record_bill(bills.create(
+        "create",
+        std::format(R"({{"fields": {{"invoice": [{}]}}, "parties": {{"we": {}}}}})", lines, h(we)),
+        t0));
+    record_bill(bills.call("rebill", "rebill", std::format(R"({{"lines": [{}]}})", lines), {}, t0));
+
+    const std::filesystem::path path = build_dir / "fuel-bounds.txt";
+    if (updating_goldens()) {
+        std::ofstream(path, std::ios::binary) << text;
+    }
+    CHECK(read_text(path) == text);
+}
+
+TEST_CASE("bo build: the spec's VAT, every way it can be written, on both sides of its rate change",
+          "[bo][build]") {
+    std::string golden;
+    const std::vector<Home> homes = vat_scenarios(&golden);
+    CHECK(homes.size() == 12);
+    const std::filesystem::path path = build_dir / "vat-amounts.txt";
+    if (updating_goldens()) {
+        std::ofstream(path, std::ios::binary) << golden;
+    }
+    CHECK(read_text(path) == golden);
+}
 
 TEST_CASE("bo build: the agreement runs as the ledger runs it, with its fuel as a golden",
           "[bo][build]") {
@@ -705,9 +1070,19 @@ TEST_CASE("bo build: one contract in any language compiles to the same bytes", "
                                       {"issue", protocol::FunctionKind::create},
                                       {"pledge", protocol::FunctionKind::call},
                                       {"transfer", protocol::FunctionKind::call}});
+    // The tax example builds since milestone 13, to the same code in every
+    // language.
+    const bo::Build tax = build_text(example_source("tax", "en"));
+    for (const std::string_view language : {"zh-hant", "zh-hans", "mixed"}) {
+        INFO(language);
+        CHECK(build_text(example_source("tax", language)).code == tax.code);
+    }
+    CHECK(tax.interface ==
+          std::map<std::string, protocol::FunctionKind>{{"create", protocol::FunctionKind::create},
+                                                        {"结算", protocol::FunctionKind::call}});
     // The others (which need later milestones) are refused the same way in
     // every language. The IP pool builds since milestone 12.
-    for (const std::string_view example : {"split", "vps", "tax"}) {
+    for (const std::string_view example : {"split", "vps"}) {
         std::string first;
         for (const std::string_view language : {"en", "zh-hant", "zh-hans", "mixed"}) {
             const std::string source = read_text(
@@ -786,18 +1161,30 @@ TEST_CASE("bo build: what this version does not compile yet", "[bo][build]") {
     CHECK(build_codes(head + "asset Note\n  amount HKD\n  holder we\n\ncan refund by we\n") ==
           "build.standard-action");
     // Time rules build (M12), but a service's period ends, which its executors
-    // track (6b); charges and lists (M13); agents' proposals.
+    // track (6b); lists and charges (M13), but a list built from values that
+    // are not constants; agents' proposals.
     CHECK(vm::load(build_text(head + "record R\n  ends date\n\ncan go by we\n  -> active\n"
                                      "when ends\n  -> active\n")
                        .code)
               .has_value());
     CHECK(build_codes(head + "service S\n  price monthly HKD 120\n\ncan go by we\n  -> active\n"
                              "when overdue\n  -> active\n") == "build.time-rule");
-    CHECK(build_codes(head + "record R\n  tags list text\n\ncan go by we\n  -> active\n") ==
-          "build.unsupported");
-    CHECK(build_codes(head + "record R\n  amount HKD\n\ncan go by we with rows list HKD\n"
-                             "  each row in rows\n    requires row > HKD 0\n") ==
-          "build.unsupported build.unsupported");
+    CHECK(vm::load(
+              build_text(head + "record R\n  tags list text\n\ncan go by we\n  -> active\n").code)
+              .has_value());
+    CHECK(vm::load(build_text(head + "record R\n  amount HKD\n\ncan go by we with rows list HKD\n"
+                                     "  each row in rows\n    requires row > HKD 0\n")
+                       .code)
+              .has_value());
+    CHECK(build_codes(head + "record R\n  tags list text\n\ncan go by we with tag text\n"
+                             "  tags = tag\n") == "build.unsupported");
+    CHECK(build_codes(head + "record R\n  ends list date\n\ncan go by we\n"
+                             "  requires ends = (now, today)\n") == "build.unsupported");
+    std::string charges = head + "record R\n  invoice list HKD\n\n";
+    for (int i = 0; i < 65; ++i) {
+        charges += std::format("charge c{}\n  rate 1%\n  added\n", i);
+    }
+    CHECK(build_codes(charges) == "build.too-many-charges");
     CHECK(vm::load(build_text(head + "can go by we\n  AI agent can propose\n  -> active\n").code)
               .has_value());
     CHECK(build_codes(head + "can go by we\n  -> active\ncan stop by we\n  go\n") ==
@@ -904,7 +1291,10 @@ nlohmann::ordered_json call_json(const protocol::ContractInput& c) {
 TEST_CASE("bo build: write the runs for the Python reference", "[.codegen-reference]") {
     const char* path = std::getenv("CEXCHAIN_BO_CODEGEN_REFERENCE");
     REQUIRE(path != nullptr);
-    const std::vector<Home> homes = scenarios();
+    std::vector<Home> homes = scenarios();
+    for (Home& home : vat_scenarios(nullptr)) {
+        homes.push_back(std::move(home));
+    }
     nlohmann::ordered_json doc;
     doc["format"] = 1;
     doc["codegen"] = bo::wasm::codegen_version;
@@ -926,6 +1316,10 @@ TEST_CASE("bo build: write the runs for the Python reference", "[.codegen-refere
             run["output"] = hex(o.run.output);
             run["fuel"] = o.run.fuel_used;
             run["reason"] = hex(o.run.abort_reason);
+            if (!home.oracle().is_null()) {
+                run["oracle"] = "bill";
+                run["bill"] = home.oracle();
+            }
             runs.push_back(std::move(run));
         }
     }
@@ -944,6 +1338,10 @@ TEST_CASE("bo build: write the runs for the Python reference", "[.codegen-refere
              {"time", golden_dir / "test" / "time" / "source.bo"},
              {"membership", golden_dir / "check-time" / "source.bo"},
              {"ip-pool", golden_dir / "test" / "ip-pool" / "source.bo"},
+             // Lists and charges (milestone 13).
+             {"tax", golden_dir / "test" / "tax" / "source.bo"},
+             {"charges", golden_dir / "test" / "charges" / "source.bo"},
+             {"lists", golden_dir / "test" / "lists" / "source.bo"},
              {"supply-agreement", golden_dir.parent_path().parent_path().parent_path() / "deploy" /
                                       "demo" / "supply-agreement.bo"}}) {
         const std::string text = read_text(file);
@@ -975,6 +1373,14 @@ TEST_CASE("bo build: write the runs for the Python reference", "[.codegen-refere
                     run["output"] = hex(c.run.output);
                     run["fuel"] = c.run.fuel_used;
                     run["reason"] = hex(c.run.abort_reason);
+                    // Bills, computed again by the Python reference.
+                    if (name == "tax") {
+                        run["oracle"] = "bill";
+                        run["bill"] = vat_spec({false, true, 0});
+                    } else if (name == "charges") {
+                        run["oracle"] = "bill";
+                        run["bill"] = dinner_spec();
+                    }
                     runs.push_back(std::move(run));
                 }
             }

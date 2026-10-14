@@ -1,0 +1,40 @@
+Test "lists in and out": passed
+  Step 1 (line 35) passed: we create with codes = ("p", "q"), sizes = 1, total = 0
+    Result: accepted, and the instance is active.
+  Step 2 (line 36) passed: we load with rows = (1, 2), tags = ("a", "b")
+    Result: accepted, and the instance is active.
+  Step 3 (line 37) passed: customer check with size = 2
+    Result: accepted with the consent of the customer, and the instance is active.
+  Step 4 (line 38) passed: customer check with size = 3 -> refused "bo:requires check 1"
+    Result: refused, since requirement 1 of check is not met (bo:requires check 1).
+    The contract text, 4.3.3: Requirement 1: size is one of sizes.
+  Step 5 (line 39) passed: we mark with code = "q"
+    Result: accepted, and the instance is active.
+  Step 6 (line 40) passed: we mark with code = "q" -> refused "bo:requires mark 1"
+    Result: refused, since requirement 1 of mark is not met (bo:requires mark 1).
+    The contract text, 4.2.3: Requirement 1: code is one of codes.
+  Step 7 (line 41) passed: we mark with code = "a"
+    Result: accepted, and the instance is active.
+
+Test "each item is checked": passed
+  Step 1 (line 44) passed: we create with codes = ("p"), sizes = (1, 2), total = 0
+    Result: accepted, and the instance is active.
+  Step 2 (line 45) passed: we load with rows = (50, 60), tags = "a" -> refused "bo:requires load 2"
+    Result: refused, since requirement 2 of load is not met (bo:requires load 2).
+    The contract text, 4.1.4: Requirement 2: the sum of rows is less than 100.
+  Step 3 (line 46) passed: we load with rows = (1, 0), tags = "a" -> refused "bo:requires load 3"
+    Result: refused, since requirement 3 of load is not met (bo:requires load 3).
+    The contract text, 4.1.5.1: Requirement 3: n is more than 0.
+  Step 4 (line 47) passed: we load with rows = 1, tags = "x" -> refused "no x or y"
+    Result: refused, with the reason "no x or y".
+    The contract text, 4.1.6.1.1: The call is refused, with the reason "no x or y".
+  Step 5 (line 48) passed: we load with rows = 1, tags = ("ok", "bad") -> refused "bo:requires load 4"
+    Result: refused, since requirement 4 of load is not met (bo:requires load 4).
+    The contract text, 4.1.7: Requirement 4: it is not so that "bad" is one of tags.
+  Step 6 (line 49) passed: we load with rows = (1, 2, 3), tags = "ok"
+    Result: accepted, and the instance is active.
+  Step 7 (line 50) passed: customer check with size = 3 -> refused "bo:requires check 2"
+    Result: refused, since requirement 2 of check is not met (bo:requires check 2).
+    The contract text, 4.3.4: Requirement 2: sizes is (1, 2).
+
+2 tests: 2 passed, 0 failed.

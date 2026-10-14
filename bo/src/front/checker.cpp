@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <format>
 #include <functional>
 #include <iterator>
 #include <limits>
@@ -24,6 +25,7 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -76,6 +78,10 @@ constexpr std::string_view rule_standard_fields = "R20";
 constexpr std::string_view rule_counterparty = "R21";
 constexpr std::string_view rule_zero = "R22";
 constexpr std::string_view rule_utc_offset = "R25";
+constexpr std::string_view rule_bill = "R26";
+// R27 (how a charge computes) is marked where the model states it (dump).
+constexpr std::string_view rule_rate_in_force = "R28";
+constexpr std::string_view rule_one_item = "R29";
 
 /// The fields the standard terms may add to an instance (R20): parties
 /// that hold the asset in some way, none until an action sets them; a
@@ -320,10 +326,10 @@ void each_statement(List& list, const F& f) {
         std::visit(
             [&](auto& node) {
                 using N = std::remove_cvref_t<decltype(node)>;
-                if constexpr (std::is_same_v<N, ast::If>) {
+                if constexpr (std::is_same_v<N, ast::If> || std::is_same_v<N, m::If>) {
                     each_statement(node.then, f);
                     each_statement(node.otherwise, f);
-                } else if constexpr (std::is_same_v<N, ast::Each>) {
+                } else if constexpr (std::is_same_v<N, ast::Each> || std::is_same_v<N, m::Each>) {
                     each_statement(node.body, f);
                 }
             },
@@ -627,8 +633,25 @@ private:
     void mentions(const ast::Expr& e, std::vector<std::string>& out) const;
     void mentions(const std::vector<ast::Statement>& list, std::vector<std::string>& out) const;
     void find_due();
+    /// What the lines of a charge said so far, and what they may name.
+    struct ChargeReading {
+        bool rate = false;
+        bool amount = false;
+        bool applies = false;
+        bool rounding = false;
+        bool mode = false;
+        bool base = false;
+        int inclusion = 0;
+        std::set<std::string> dates;
+        std::string first_base;
+        /// Every charge's name, and those written before this one.
+        std::set<std::string, std::less<>> all;
+        std::map<std::string, std::uint64_t, std::less<>> earlier;
+        /// The bill's lines' type (money), if the contract has a bill.
+        std::optional<Type> bill;
+    };
     void read_charges();
-    m::ChargeLine charge_line(const ast::Field& f, bool& rate, bool& amount, int& inclusion);
+    m::ChargeLine charge_line(const ast::Field& f, m::Charge& charge, ChargeReading& r);
 
     // --- Actions and rules.
     void check_can(const ast::Can& c, std::size_t index);
@@ -878,13 +901,21 @@ std::optional<m::Field> Checker::read_field(const ast::Field& f, const bool inpu
     m::Field out;
     out.span = f.span;
     const ast::Expr& head = f.head;
-    enum class What : std::uint8_t { own, vocabulary, pricing, charge };
+    enum class What : std::uint8_t { own, vocabulary, pricing, charge, document };
     What what = What::own;
     if (head.kind == ExprKind::name) {
         out.name = head.name;
     } else if (word_in(head, Category::field)) {
         out.word = head.concept_entry;
         what = What::vocabulary;
+    } else if (word_in(head, Category::document)) {
+        // R26: a bill's lines; only the instance holds one.
+        if (input) {
+            error(head.span, "check.document", {{"field", std::string(head.concept_entry->id)}});
+            return std::nullopt;
+        }
+        out.word = head.concept_entry;
+        what = What::document;
     } else if (!input && is_label(head)) {
         out.word = head.concept_entry;
         what = What::pricing;
@@ -985,6 +1016,21 @@ std::optional<m::Field> Checker::read_field(const ast::Field& f, const bool inpu
         }
     }
 
+    if (what == What::document) {
+        // R26: the lines of a bill, amounts of money in one currency.
+        const bool lines = out.kind == m::FieldKind::instance && out.type.kind == TypeKind::list &&
+                           out.type.element.size() == 1 &&
+                           out.type.element[0].kind == TypeKind::money &&
+                           out.type.element[0].currency != nullptr;
+        if (known(out.type) && (!lines || f.values.size() != 1)) {
+            error(f.span, "check.document", {{"field", field_key}});
+            out.type = of(TypeKind::unknown);
+        } else if (lines) {
+            out.rule = rule_bill;
+        }
+        return out;
+    }
+
     // Further parts: labelled prices, in the field's own dimension.
     for (std::size_t i = 1; i < f.values.size(); ++i) {
         const ast::Expr& part = f.values[i];
@@ -1038,6 +1084,13 @@ void Checker::read_kind() {
         std::optional<m::Field> field = read_field(f, false);
         if (!field) {
             continue;
+        }
+        // R26: one bill per instance.
+        if (field->word != nullptr && field->word->category == Category::document &&
+            field->rule == rule_bill && m::bill_field(model_) != nullptr) {
+            error(f.span, "check.document", {{"field", std::string(field->word->id)}});
+            field->type = of(TypeKind::unknown);
+            field->rule = {};
         }
         if (declare(m::key(field->word, field->name), Refers::field, model_.fields.size(),
                     f.head.span)) {
@@ -1666,12 +1719,19 @@ void Checker::find_due() {
     }
 }
 
-m::ChargeLine Checker::charge_line(const ast::Field& f, bool& rate, bool& amount, int& inclusion) {
+m::ChargeLine Checker::charge_line(const ast::Field& f, m::Charge& charge, ChargeReading& r) {
     m::ChargeLine line;
     line.span = f.span;
     const ast::Expr& head = f.head;
     const auto refuse = [&] {
         error(f.span, "check.charge-field", {{"text", written(f.span)}});
+    };
+    // Each kind of line once.
+    const auto once = [&](bool& seen) {
+        if (seen) {
+            error(f.span, "check.charge-twice", {{"name", charge.name}, {"text", written(f.span)}});
+        }
+        seen = true;
     };
     const Concept* word =
         head.kind == ExprKind::word || head.kind == ExprKind::apply ? head.concept_entry : nullptr;
@@ -1685,53 +1745,111 @@ m::ChargeLine Checker::charge_line(const ast::Field& f, bool& rate, bool& amount
     if (head.kind == ExprKind::word && is(word, "charge.rate") && values == 1) {
         m::Expr v = value(f.values[0]);
         expect_kind(v, TypeKind::rate);
-        line.values.push_back(std::move(v));
-        rate = true;
+        line.values.push_back(v);
+        once(r.rate);
+        charge.rate = std::move(v);
     } else if (head.kind == ExprKind::word && is(word, "field.amount") && values == 1) {
         m::Expr v = value(f.values[0]);
         expect_kind(v, TypeKind::money);
-        line.values.push_back(std::move(v));
-        amount = true;
+        if (r.bill && known(v.type)) {
+            expect(v, *r.bill);
+        }
+        line.values.push_back(v);
+        once(r.amount);
+        charge.amount = std::move(v);
     } else if (head.kind == ExprKind::apply && is(word, "charge.applies_to") && values == 0) {
         line.argument = condition(head.operands[0]);
+        once(r.applies);
+        charge.condition = line.argument;
     } else if (head.kind == ExprKind::word &&
                (is(word, "charge.included") || is(word, "charge.added")) && values == 0) {
-        ++inclusion;
+        ++r.inclusion;
+        charge.included = is(word, "charge.included");
     } else if (head.kind == ExprKind::word &&
                (is(word, "charge.per_line") || is(word, "charge.per_document")) &&
                (values == 0 || (values == 1 && word_in(f.values[0], Category::rounding)))) {
         if (values == 1) {
             line.values.push_back(plain(f.values[0]));
+            charge.rounding = f.values[0].concept_entry;
+            r.mode = true;
         }
-    } else if (head.kind == ExprKind::word && is(word, "charge.by") && values == 1) {
-        // according to invoice [half up]: per document of that kind.
+        once(r.rounding);
+        charge.per_document = is(word, "charge.per_document");
+    } else if (head.kind == ExprKind::word && is(word, "charge.by") && values >= 1) {
         const ast::Expr& v = f.values[0];
         const bool document = word_in(v, Category::document);
         const bool with_mode = v.kind == ExprKind::phrase && v.operands.size() == 2 &&
                                word_in(v.operands[0], Category::document) &&
                                word_in(v.operands[1], Category::rounding);
-        if (!document && !with_mode) {
-            refuse();
-        } else {
+        if (values == 1 && (document || with_mode)) {
+            // according to invoice [half up]: once per document of that kind.
             line.values.push_back(plain(v));
+            once(r.rounding);
+            charge.per_document = true;
+            charge.document = document ? v.concept_entry : v.operands[0].concept_entry;
+            if (with_mode) {
+                charge.rounding = v.operands[1].concept_entry;
+                r.mode = true;
+            }
+        } else if (std::ranges::all_of(f.values, [](const ast::Expr& o) {
+                       return word_is(o, "price.price") || o.kind == ExprKind::name;
+                   })) {
+            // according to price, OTHER: what it is computed on (R27).
+            once(r.base);
+            charge.on_price = false;
+            for (const ast::Expr& o : f.values) {
+                m::Expr item = plain(o);
+                if (word_is(o, "price.price")) {
+                    charge.on_price = true;
+                } else if (const auto it = r.earlier.find(o.name); it != r.earlier.end()) {
+                    item.refers = Refers::charge;
+                    charge.on.push_back(it->second);
+                } else if (r.all.contains(o.name)) {
+                    error(o.span, "check.charge-on", {{"name", charge.name}, {"other", o.name}});
+                } else {
+                    error(o.span, "check.unknown-name", {{"name", o.name}});
+                }
+                if (r.first_base.empty()) {
+                    r.first_base = word_is(o, "price.price") ? std::string("price.price") : o.name;
+                }
+                line.values.push_back(std::move(item));
+            }
+        } else {
+            refuse();
         }
     } else if (head.kind == ExprKind::word && word->category == Category::rounding && values == 0) {
         // A rounding mode alone: per line.
+        once(r.rounding);
+        charge.rounding = word;
+        r.mode = true;
     } else if (head.kind == ExprKind::apply && is(word, "charge.from") && values == 1) {
-        // from DATE on rate 9%: a rate from that date.
-        m::Expr date = value(head.operands[0]);
+        // from DATE on rate 9%: a rate from that date on (R28).
+        const ast::Expr& when = head.operands[0];
+        m::Expr date = value(when);
         expect_kind(date, TypeKind::date);
-        line.argument = std::move(date);
+        line.argument = date;
         const ast::Expr& v = f.values[0];
         const ast::Expr* rate_value = &v;
         if (v.kind == ExprKind::phrase && v.operands.size() == 2 &&
             word_is(v.operands[0], "charge.rate")) {
             rate_value = &v.operands[1];
         }
-        m::Expr r = value(*rate_value);
-        expect_kind(r, TypeKind::rate);
-        line.values.push_back(std::move(r));
-        rate = true;
+        m::Expr rate = value(*rate_value);
+        expect_kind(rate, TypeKind::rate);
+        line.values.push_back(rate);
+        date.rule = rule_rate_in_force;
+        line.argument->rule = rule_rate_in_force;
+        if (when.kind != ExprKind::literal || when.literal.kind != ast::LiteralKind::date) {
+            // Rates and their dates are written in the contract (U9).
+            refuse();
+        } else {
+            const Date& d = when.literal.date;
+            bool seen =
+                !r.dates.insert(std::format("{}-{}-{}", int{d.year}, int{d.month}, int{d.day}))
+                     .second;
+            once(seen);
+            charge.dated.push_back(m::DatedRate{std::move(date), std::move(rate)});
+        }
     } else {
         refuse();
     }
@@ -1739,7 +1857,18 @@ m::ChargeLine Checker::charge_line(const ast::Field& f, bool& rate, bool& amount
 }
 
 void Checker::read_charges() {
+    // R26: charges are computed on the instance's bill; R27: in the order
+    // written, each on the price and on charges written before it.
     std::set<std::string> names;
+    ChargeReading shared;
+    for (const ast::Block* block : charges_) {
+        shared.all.insert(block->name.name);
+    }
+    const m::Field* bill = m::bill_field(model_);
+    if (bill != nullptr && bill->rule == rule_bill) {
+        shared.bill = bill->type.element[0];
+    }
+    const Concept* document = bill != nullptr ? bill->word : nullptr;
     place_ = Place::charge;
     for (const ast::Block* block : charges_) {
         m::Charge charge;
@@ -1750,19 +1879,62 @@ void Checker::read_charges() {
             error(block->name.span, "check.duplicate", {{"name", charge.name}});
             continue;
         }
-        bool rate = false;
-        bool amount = false;
-        int inclusion = 0;
+        ChargeReading r;
+        r.all = shared.all;
+        r.earlier = shared.earlier;
+        r.bill = shared.bill;
         for (const ast::Field& f : block->fields) {
-            charge.lines.push_back(charge_line(f, rate, amount, inclusion));
+            charge.lines.push_back(charge_line(f, charge, r));
         }
-        if (!rate && !amount) {
-            error(block->name.span, "check.charge-rate", {{"name", charge.name}});
+        const Span& at = block->name.span;
+        if (charge.amount && !r.rounding) {
+            // R27: a fixed amount is charged once per bill unless per line.
+            charge.per_document = true;
         }
-        if (inclusion != 1) {
-            error(block->name.span, "check.charge-included", {{"name", charge.name}});
+        const bool rated = charge.rate || !charge.dated.empty();
+        if (rated == charge.amount.has_value()) {
+            error(at, "check.charge-rate", {{"name", charge.name}});
         }
-        model_.charges.push_back(std::move(charge));
+        if (r.inclusion != 1) {
+            error(at, "check.charge-included", {{"name", charge.name}});
+        }
+        if (charge.amount && r.mode) {
+            // A fixed amount is never rounded.
+            error(at, "check.charge-rounding", {{"name", charge.name}});
+        }
+        if (r.base && charge.amount) {
+            // A fixed amount has no base.
+            error(at, "check.charge-on", {{"name", charge.name}, {"other", r.first_base}});
+        } else if (charge.included && !charge.on.empty()) {
+            // An included charge is taken out of the price only.
+            error(at, "check.charge-on",
+                  {{"name", charge.name}, {"other", model_.charges[charge.on.front()].name}});
+        } else if (!charge.per_document) {
+            // On each line: only on charges with an amount on each line.
+            for (const std::uint64_t j : charge.on) {
+                if (model_.charges[j].per_document) {
+                    error(at, "check.charge-on",
+                          {{"name", charge.name}, {"other", model_.charges[j].name}});
+                }
+            }
+        }
+        if (document == nullptr) {
+            error(at, "check.charge-document", {{"name", charge.name}});
+        } else if (charge.document != nullptr && charge.document != document) {
+            error(at, "check.charge-bill",
+                  {{"name", charge.name}, {"document", std::string(charge.document->id)}});
+        }
+        std::ranges::stable_sort(charge.dated, [](const m::DatedRate& x, const m::DatedRate& y) {
+            const Date& a = x.date.literal.date;
+            const Date& b = y.date.literal.date;
+            return std::tuple{a.year, a.month, a.day} < std::tuple{b.year, b.month, b.day};
+        });
+        shared.earlier.emplace(charge.name, model_.charges.size());
+        if (declare(charge.name, Refers::charge, model_.charges.size(), at)) {
+            model_.charges.push_back(std::move(charge));
+        } else {
+            shared.earlier.erase(charge.name);
+        }
     }
     place_ = Place::declaration;
 }
@@ -2030,6 +2202,18 @@ std::vector<m::Statement> Checker::statements(const std::vector<ast::Statement>&
                            frames_.back().emplace(node.name, Local{Refers::item, item});
                            node.body = statements(e.body);
                            frames_.pop_back();
+                           // Once per item: no state change, no action done.
+                           each_statement(node.body, [&](const m::Statement& st) {
+                               const Span* at = nullptr;
+                               if (const auto* t = std::get_if<m::Transition>(&st.node)) {
+                                   at = &t->span;
+                               } else if (const auto* d = std::get_if<m::Do>(&st.node)) {
+                                   at = &d->span;
+                               }
+                               if (at != nullptr) {
+                                   error(*at, "check.each-body", {{"text", written(*at)}});
+                               }
+                           });
                            out.push_back(m::Statement{std::move(node)});
                        },
                        [&](const ast::Reject& r) {
@@ -2524,6 +2708,11 @@ void Checker::test_with(const ast::Do& d, m::Step& step, const m::Action* action
             if (field != nullptr) {
                 item.target.type = field->type;
                 expect(item.value, field->type);
+                // A test's value is no clause of the contract: R29 says what
+                // it is, but the contract text never states it.
+                if (item.value.rule == rule_one_item) {
+                    item.value.rule = {};
+                }
             }
         }
         step.with.push_back(std::move(item));
@@ -2658,6 +2847,18 @@ void Checker::expect_kind(m::Expr& e, const TypeKind kind) {
 
 void Checker::expect(m::Expr& e, const Type& want) {
     if (!known(e.type) || !known(want)) {
+        return;
+    }
+    if (want.kind == TypeKind::list && e.type.kind != TypeKind::list && want.element.size() == 1 &&
+        same(e.type, want.element[0])) {
+        // R29: one value where a list is needed is a list of that one item.
+        m::Expr list;
+        list.kind = ExprKind::list;
+        list.span = e.span;
+        list.type = list_of(e.type, 1);
+        list.rule = rule_one_item;
+        list.operands.push_back(std::move(e));
+        e = std::move(list);
         return;
     }
     if (want.kind == TypeKind::list && e.type.kind == TypeKind::list && !e.type.element.empty() &&
@@ -2807,6 +3008,17 @@ void Checker::name_value(const ast::Expr& e, m::Expr& out) {
     case Refers::state:
         out.type = of(TypeKind::state);
         break;
+    case Refers::charge:
+        // R26: the charge's amount on the instance's bill.
+        if (const m::Field* bill = m::bill_field(model_);
+            bill != nullptr && known(bill->type) && in_call()) {
+            out.type = bill->type.element[0];
+            out.rule = rule_bill;
+        } else {
+            out.refers = Refers::none;
+            not_a_value(e, out);
+        }
+        break;
     case Refers::action:
     case Refers::none:
     case Refers::input:
@@ -2879,6 +3091,14 @@ void Checker::word_value(const ast::Expr& e, m::Expr& out) {
         }
         not_a_value(e, out);
         return;
+    case Category::document:
+        // The field that holds the bill (R26).
+        if (const Decl* d = global(id); d != nullptr && d->refers == Refers::field) {
+            out.refers = Refers::field;
+            out.type = model_.fields[d->index].type;
+            return;
+        }
+        break;
     case Category::state:
         out.refers = Refers::state;
         out.type = of(TypeKind::state);

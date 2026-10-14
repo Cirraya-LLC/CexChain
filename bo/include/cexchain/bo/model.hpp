@@ -95,10 +95,11 @@ enum class Refers : std::uint8_t {
     item,   ///< the name an `each` gives
     state,  ///< a state of the instance
     action, ///< an action (in `do`)
+    charge, ///< a charge: its amount on the instance's bill (R26)
 };
 
-inline constexpr std::array<std::string_view, 7> refers_names{"none", "party", "field", "input",
-                                                              "item", "state", "action"};
+inline constexpr std::array<std::string_view, 8> refers_names{"none", "party", "field",  "input",
+                                                              "item", "state", "action", "charge"};
 
 /// A typed expression: the tree's expression (ast::Expr), with what it
 /// means. A rule is set where the meaning was inferred: a bare threshold
@@ -245,7 +246,7 @@ struct Field {
 
 /// A line of a charge's block (`rate 6%`, `applies to ...`, `added`,
 /// `from 2027-01-01 on rate 9%`): its head word, the head's argument, and
-/// its values, typed. Charges are computed in milestone 13.
+/// its values, typed.
 struct ChargeLine {
     Span span;
     const Concept* head = nullptr;
@@ -253,12 +254,41 @@ struct ChargeLine {
     std::vector<Expr> values;
 };
 
+/// `from DATE on rate R`: a rate in force from a day on (R28).
+struct DatedRate {
+    /// A date literal: its local midnight at the contract's offset.
+    Expr date;
+    Expr rate;
+};
+
+/// A charge (tax, fee, commission): what its lines say, read once by the
+/// checker, so that compiled code and the contract text agree. Charges are
+/// computed on the contract's bill (R26), in the order written (R27).
 struct Charge {
     Span span;
     /// charge.charge or charge.tax.
     const Concept* kind = nullptr;
     std::string name;
     std::vector<ChargeLine> lines;
+    /// Included in the price (taken out of it), or added to it.
+    bool included = false;
+    /// A rate (its plain one, and those from a date on, by date), or a fixed
+    /// amount of money.
+    std::optional<Expr> rate;
+    std::vector<DatedRate> dated;
+    std::optional<Expr> amount;
+    /// `applies to`: it applies only when this holds (on the whole bill).
+    std::optional<Expr> condition;
+    /// Rounded (or, for a fixed amount, charged) once per bill rather than
+    /// on each line; `document` is the document `according to` names.
+    bool per_document = false;
+    const Concept* document = nullptr;
+    /// The rounding mode (round.*); null: half up (R17).
+    const Concept* rounding = nullptr;
+    /// What it is computed on (`according to price, OTHER`): the price (the
+    /// lines), and charges written before it, by index (R27).
+    bool on_price = true;
+    std::vector<std::uint64_t> on;
 };
 
 /// A state of the instance: a state word or a name, collected from the state
@@ -467,6 +497,10 @@ struct Model {
 /// True if a transition goes back to the state before (`previous state`),
 /// so that compiled code keeps that state.
 [[nodiscard]] bool uses_previous(const Model& model) noexcept;
+
+/// The field that holds the contract's bill (R26): the one named by a
+/// document (invoice, credit note, receipt), a list of money. Null if none.
+[[nodiscard]] const Field* bill_field(const Model& model) noexcept;
 
 /// The name of the function that approves a proposal.
 inline constexpr std::string_view approve_function = "approve";

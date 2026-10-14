@@ -1,0 +1,372 @@
+vat-added-per_line-half_up 2026-12-31 [10000, 1005] mainland: price=11005 total=11665 增值税=660@60000 lines [增值税=600] [增值税=60]
+vat-added-per_line-half_up 2026-12-31T23:59:59.999 [10000, 1005] mainland: price=11005 total=11665 增值税=660@60000 lines [增值税=600] [增值税=60]
+vat-added-per_line-half_up 2027-01-01 [10000, 1005] mainland: price=11005 total=11995 增值税=990@90000 lines [增值税=900] [增值税=90]
+vat-added-per_line-half_up 2027-01-01 [10000, 1005] elsewhere: price=11005 total=11005 lines [] []
+vat-added-per_line-half_up 2026-12-31 [10000, 25] mainland: price=10025 total=10627 增值税=602@60000 lines [增值税=600] [增值税=2]
+vat-added-per_line-half_up 2026-12-31T23:59:59.999 [10000, 25] mainland: price=10025 total=10627 增值税=602@60000 lines [增值税=600] [增值税=2]
+vat-added-per_line-half_up 2027-01-01 [10000, 25] mainland: price=10025 total=10927 增值税=902@90000 lines [增值税=900] [增值税=2]
+vat-added-per_line-half_up 2026-12-31 [25] mainland: price=25 total=27 增值税=2@60000 lines [增值税=2]
+vat-added-per_line-half_up 2026-12-31T23:59:59.999 [25] mainland: price=25 total=27 增值税=2@60000 lines [增值税=2]
+vat-added-per_line-half_up 2027-01-01 [25] mainland: price=25 total=27 增值税=2@90000 lines [增值税=2]
+vat-added-per_line-half_up 2026-12-31 [75] mainland: price=75 total=80 增值税=5@60000 lines [增值税=5]
+vat-added-per_line-half_up 2026-12-31T23:59:59.999 [75] mainland: price=75 total=80 增值税=5@60000 lines [增值税=5]
+vat-added-per_line-half_up 2027-01-01 [75] mainland: price=75 total=82 增值税=7@90000 lines [增值税=7]
+vat-added-per_line-half_up 2026-12-31 [1025, 1075, 1] mainland: price=2101 total=2228 增值税=127@60000 lines [增值税=62] [增值税=65] [增值税=0]
+vat-added-per_line-half_up 2026-12-31T23:59:59.999 [1025, 1075, 1] mainland: price=2101 total=2228 增值税=127@60000 lines [增值税=62] [增值税=65] [增值税=0]
+vat-added-per_line-half_up 2027-01-01 [1025, 1075, 1] mainland: price=2101 total=2290 增值税=189@90000 lines [增值税=92] [增值税=97] [增值税=0]
+vat-added-per_line-half_up 2026-12-31 [-1005, 25] mainland: price=-980 total=-1038 增值税=-58@60000 lines [增值税=-60] [增值税=2]
+vat-added-per_line-half_up 2026-12-31T23:59:59.999 [-1005, 25] mainland: price=-980 total=-1038 增值税=-58@60000 lines [增值税=-60] [增值税=2]
+vat-added-per_line-half_up 2027-01-01 [-1005, 25] mainland: price=-980 total=-1068 增值税=-88@90000 lines [增值税=-90] [增值税=2]
+vat-added-per_line-half_up 2026-12-31 [-25] mainland: price=-25 total=-27 增值税=-2@60000 lines [增值税=-2]
+vat-added-per_line-half_up 2026-12-31T23:59:59.999 [-25] mainland: price=-25 total=-27 增值税=-2@60000 lines [增值税=-2]
+vat-added-per_line-half_up 2027-01-01 [-25] mainland: price=-25 total=-27 增值税=-2@90000 lines [增值税=-2]
+vat-added-per_line-half_up 2026-12-31 [50, 150, 250] mainland: price=450 total=477 增值税=27@60000 lines [增值税=3] [增值税=9] [增值税=15]
+vat-added-per_line-half_up 2026-12-31T23:59:59.999 [50, 150, 250] mainland: price=450 total=477 增值税=27@60000 lines [增值税=3] [增值税=9] [增值税=15]
+vat-added-per_line-half_up 2027-01-01 [50, 150, 250] mainland: price=450 total=492 增值税=42@90000 lines [增值税=5] [增值税=14] [增值税=23]
+vat-added-per_line-half_up 2026-12-31 [1] mainland: price=1 total=1 增值税=0@60000 lines [增值税=0]
+vat-added-per_line-half_up 2026-12-31T23:59:59.999 [1] mainland: price=1 total=1 增值税=0@60000 lines [增值税=0]
+vat-added-per_line-half_up 2027-01-01 [1] mainland: price=1 total=1 增值税=0@90000 lines [增值税=0]
+vat-added-per_line-half_up 2026-12-31 [0] mainland: price=0 total=0 增值税=0@60000 lines [增值税=0]
+vat-added-per_line-half_up 2026-12-31T23:59:59.999 [0] mainland: price=0 total=0 增值税=0@60000 lines [增值税=0]
+vat-added-per_line-half_up 2027-01-01 [0] mainland: price=0 total=0 增值税=0@90000 lines [增值税=0]
+vat-added-per_line-half_even 2026-12-31 [10000, 1005] mainland: price=11005 total=11665 增值税=660@60000 lines [增值税=600] [增值税=60]
+vat-added-per_line-half_even 2026-12-31T23:59:59.999 [10000, 1005] mainland: price=11005 total=11665 增值税=660@60000 lines [增值税=600] [增值税=60]
+vat-added-per_line-half_even 2027-01-01 [10000, 1005] mainland: price=11005 total=11995 增值税=990@90000 lines [增值税=900] [增值税=90]
+vat-added-per_line-half_even 2027-01-01 [10000, 1005] elsewhere: price=11005 total=11005 lines [] []
+vat-added-per_line-half_even 2026-12-31 [10000, 25] mainland: price=10025 total=10627 增值税=602@60000 lines [增值税=600] [增值税=2]
+vat-added-per_line-half_even 2026-12-31T23:59:59.999 [10000, 25] mainland: price=10025 total=10627 增值税=602@60000 lines [增值税=600] [增值税=2]
+vat-added-per_line-half_even 2027-01-01 [10000, 25] mainland: price=10025 total=10927 增值税=902@90000 lines [增值税=900] [增值税=2]
+vat-added-per_line-half_even 2026-12-31 [25] mainland: price=25 total=27 增值税=2@60000 lines [增值税=2]
+vat-added-per_line-half_even 2026-12-31T23:59:59.999 [25] mainland: price=25 total=27 增值税=2@60000 lines [增值税=2]
+vat-added-per_line-half_even 2027-01-01 [25] mainland: price=25 total=27 增值税=2@90000 lines [增值税=2]
+vat-added-per_line-half_even 2026-12-31 [75] mainland: price=75 total=79 增值税=4@60000 lines [增值税=4]
+vat-added-per_line-half_even 2026-12-31T23:59:59.999 [75] mainland: price=75 total=79 增值税=4@60000 lines [增值税=4]
+vat-added-per_line-half_even 2027-01-01 [75] mainland: price=75 total=82 增值税=7@90000 lines [增值税=7]
+vat-added-per_line-half_even 2026-12-31 [1025, 1075, 1] mainland: price=2101 total=2227 增值税=126@60000 lines [增值税=62] [增值税=64] [增值税=0]
+vat-added-per_line-half_even 2026-12-31T23:59:59.999 [1025, 1075, 1] mainland: price=2101 total=2227 增值税=126@60000 lines [增值税=62] [增值税=64] [增值税=0]
+vat-added-per_line-half_even 2027-01-01 [1025, 1075, 1] mainland: price=2101 total=2290 增值税=189@90000 lines [增值税=92] [增值税=97] [增值税=0]
+vat-added-per_line-half_even 2026-12-31 [-1005, 25] mainland: price=-980 total=-1038 增值税=-58@60000 lines [增值税=-60] [增值税=2]
+vat-added-per_line-half_even 2026-12-31T23:59:59.999 [-1005, 25] mainland: price=-980 total=-1038 增值税=-58@60000 lines [增值税=-60] [增值税=2]
+vat-added-per_line-half_even 2027-01-01 [-1005, 25] mainland: price=-980 total=-1068 增值税=-88@90000 lines [增值税=-90] [增值税=2]
+vat-added-per_line-half_even 2026-12-31 [-25] mainland: price=-25 total=-27 增值税=-2@60000 lines [增值税=-2]
+vat-added-per_line-half_even 2026-12-31T23:59:59.999 [-25] mainland: price=-25 total=-27 增值税=-2@60000 lines [增值税=-2]
+vat-added-per_line-half_even 2027-01-01 [-25] mainland: price=-25 total=-27 增值税=-2@90000 lines [增值税=-2]
+vat-added-per_line-half_even 2026-12-31 [50, 150, 250] mainland: price=450 total=477 增值税=27@60000 lines [增值税=3] [增值税=9] [增值税=15]
+vat-added-per_line-half_even 2026-12-31T23:59:59.999 [50, 150, 250] mainland: price=450 total=477 增值税=27@60000 lines [增值税=3] [增值税=9] [增值税=15]
+vat-added-per_line-half_even 2027-01-01 [50, 150, 250] mainland: price=450 total=490 增值税=40@90000 lines [增值税=4] [增值税=14] [增值税=22]
+vat-added-per_line-half_even 2026-12-31 [1] mainland: price=1 total=1 增值税=0@60000 lines [增值税=0]
+vat-added-per_line-half_even 2026-12-31T23:59:59.999 [1] mainland: price=1 total=1 增值税=0@60000 lines [增值税=0]
+vat-added-per_line-half_even 2027-01-01 [1] mainland: price=1 total=1 增值税=0@90000 lines [增值税=0]
+vat-added-per_line-half_even 2026-12-31 [0] mainland: price=0 total=0 增值税=0@60000 lines [增值税=0]
+vat-added-per_line-half_even 2026-12-31T23:59:59.999 [0] mainland: price=0 total=0 增值税=0@60000 lines [增值税=0]
+vat-added-per_line-half_even 2027-01-01 [0] mainland: price=0 total=0 增值税=0@90000 lines [增值税=0]
+vat-added-per_line-down 2026-12-31 [10000, 1005] mainland: price=11005 total=11665 增值税=660@60000 lines [增值税=600] [增值税=60]
+vat-added-per_line-down 2026-12-31T23:59:59.999 [10000, 1005] mainland: price=11005 total=11665 增值税=660@60000 lines [增值税=600] [增值税=60]
+vat-added-per_line-down 2027-01-01 [10000, 1005] mainland: price=11005 total=11995 增值税=990@90000 lines [增值税=900] [增值税=90]
+vat-added-per_line-down 2027-01-01 [10000, 1005] elsewhere: price=11005 total=11005 lines [] []
+vat-added-per_line-down 2026-12-31 [10000, 25] mainland: price=10025 total=10626 增值税=601@60000 lines [增值税=600] [增值税=1]
+vat-added-per_line-down 2026-12-31T23:59:59.999 [10000, 25] mainland: price=10025 total=10626 增值税=601@60000 lines [增值税=600] [增值税=1]
+vat-added-per_line-down 2027-01-01 [10000, 25] mainland: price=10025 total=10927 增值税=902@90000 lines [增值税=900] [增值税=2]
+vat-added-per_line-down 2026-12-31 [25] mainland: price=25 total=26 增值税=1@60000 lines [增值税=1]
+vat-added-per_line-down 2026-12-31T23:59:59.999 [25] mainland: price=25 total=26 增值税=1@60000 lines [增值税=1]
+vat-added-per_line-down 2027-01-01 [25] mainland: price=25 total=27 增值税=2@90000 lines [增值税=2]
+vat-added-per_line-down 2026-12-31 [75] mainland: price=75 total=79 增值税=4@60000 lines [增值税=4]
+vat-added-per_line-down 2026-12-31T23:59:59.999 [75] mainland: price=75 total=79 增值税=4@60000 lines [增值税=4]
+vat-added-per_line-down 2027-01-01 [75] mainland: price=75 total=81 增值税=6@90000 lines [增值税=6]
+vat-added-per_line-down 2026-12-31 [1025, 1075, 1] mainland: price=2101 total=2226 增值税=125@60000 lines [增值税=61] [增值税=64] [增值税=0]
+vat-added-per_line-down 2026-12-31T23:59:59.999 [1025, 1075, 1] mainland: price=2101 total=2226 增值税=125@60000 lines [增值税=61] [增值税=64] [增值税=0]
+vat-added-per_line-down 2027-01-01 [1025, 1075, 1] mainland: price=2101 total=2289 增值税=188@90000 lines [增值税=92] [增值税=96] [增值税=0]
+vat-added-per_line-down 2026-12-31 [-1005, 25] mainland: price=-980 total=-1039 增值税=-59@60000 lines [增值税=-60] [增值税=1]
+vat-added-per_line-down 2026-12-31T23:59:59.999 [-1005, 25] mainland: price=-980 total=-1039 增值税=-59@60000 lines [增值税=-60] [增值税=1]
+vat-added-per_line-down 2027-01-01 [-1005, 25] mainland: price=-980 total=-1068 增值税=-88@90000 lines [增值税=-90] [增值税=2]
+vat-added-per_line-down 2026-12-31 [-25] mainland: price=-25 total=-26 增值税=-1@60000 lines [增值税=-1]
+vat-added-per_line-down 2026-12-31T23:59:59.999 [-25] mainland: price=-25 total=-26 增值税=-1@60000 lines [增值税=-1]
+vat-added-per_line-down 2027-01-01 [-25] mainland: price=-25 total=-27 增值税=-2@90000 lines [增值税=-2]
+vat-added-per_line-down 2026-12-31 [50, 150, 250] mainland: price=450 total=477 增值税=27@60000 lines [增值税=3] [增值税=9] [增值税=15]
+vat-added-per_line-down 2026-12-31T23:59:59.999 [50, 150, 250] mainland: price=450 total=477 增值税=27@60000 lines [增值税=3] [增值税=9] [增值税=15]
+vat-added-per_line-down 2027-01-01 [50, 150, 250] mainland: price=450 total=489 增值税=39@90000 lines [增值税=4] [增值税=13] [增值税=22]
+vat-added-per_line-down 2026-12-31 [1] mainland: price=1 total=1 增值税=0@60000 lines [增值税=0]
+vat-added-per_line-down 2026-12-31T23:59:59.999 [1] mainland: price=1 total=1 增值税=0@60000 lines [增值税=0]
+vat-added-per_line-down 2027-01-01 [1] mainland: price=1 total=1 增值税=0@90000 lines [增值税=0]
+vat-added-per_line-down 2026-12-31 [0] mainland: price=0 total=0 增值税=0@60000 lines [增值税=0]
+vat-added-per_line-down 2026-12-31T23:59:59.999 [0] mainland: price=0 total=0 增值税=0@60000 lines [增值税=0]
+vat-added-per_line-down 2027-01-01 [0] mainland: price=0 total=0 增值税=0@90000 lines [增值税=0]
+vat-added-per_document-half_up 2026-12-31 [10000, 1005] mainland: price=11005 total=11665 增值税=660@60000
+vat-added-per_document-half_up 2026-12-31T23:59:59.999 [10000, 1005] mainland: price=11005 total=11665 增值税=660@60000
+vat-added-per_document-half_up 2027-01-01 [10000, 1005] mainland: price=11005 total=11995 增值税=990@90000
+vat-added-per_document-half_up 2027-01-01 [10000, 1005] elsewhere: price=11005 total=11005
+vat-added-per_document-half_up 2026-12-31 [10000, 25] mainland: price=10025 total=10627 增值税=602@60000
+vat-added-per_document-half_up 2026-12-31T23:59:59.999 [10000, 25] mainland: price=10025 total=10627 增值税=602@60000
+vat-added-per_document-half_up 2027-01-01 [10000, 25] mainland: price=10025 total=10927 增值税=902@90000
+vat-added-per_document-half_up 2026-12-31 [25] mainland: price=25 total=27 增值税=2@60000
+vat-added-per_document-half_up 2026-12-31T23:59:59.999 [25] mainland: price=25 total=27 增值税=2@60000
+vat-added-per_document-half_up 2027-01-01 [25] mainland: price=25 total=27 增值税=2@90000
+vat-added-per_document-half_up 2026-12-31 [75] mainland: price=75 total=80 增值税=5@60000
+vat-added-per_document-half_up 2026-12-31T23:59:59.999 [75] mainland: price=75 total=80 增值税=5@60000
+vat-added-per_document-half_up 2027-01-01 [75] mainland: price=75 total=82 增值税=7@90000
+vat-added-per_document-half_up 2026-12-31 [1025, 1075, 1] mainland: price=2101 total=2227 增值税=126@60000
+vat-added-per_document-half_up 2026-12-31T23:59:59.999 [1025, 1075, 1] mainland: price=2101 total=2227 增值税=126@60000
+vat-added-per_document-half_up 2027-01-01 [1025, 1075, 1] mainland: price=2101 total=2290 增值税=189@90000
+vat-added-per_document-half_up 2026-12-31 [-1005, 25] mainland: price=-980 total=-1039 增值税=-59@60000
+vat-added-per_document-half_up 2026-12-31T23:59:59.999 [-1005, 25] mainland: price=-980 total=-1039 增值税=-59@60000
+vat-added-per_document-half_up 2027-01-01 [-1005, 25] mainland: price=-980 total=-1068 增值税=-88@90000
+vat-added-per_document-half_up 2026-12-31 [-25] mainland: price=-25 total=-27 增值税=-2@60000
+vat-added-per_document-half_up 2026-12-31T23:59:59.999 [-25] mainland: price=-25 total=-27 增值税=-2@60000
+vat-added-per_document-half_up 2027-01-01 [-25] mainland: price=-25 total=-27 增值税=-2@90000
+vat-added-per_document-half_up 2026-12-31 [50, 150, 250] mainland: price=450 total=477 增值税=27@60000
+vat-added-per_document-half_up 2026-12-31T23:59:59.999 [50, 150, 250] mainland: price=450 total=477 增值税=27@60000
+vat-added-per_document-half_up 2027-01-01 [50, 150, 250] mainland: price=450 total=491 增值税=41@90000
+vat-added-per_document-half_up 2026-12-31 [1] mainland: price=1 total=1 增值税=0@60000
+vat-added-per_document-half_up 2026-12-31T23:59:59.999 [1] mainland: price=1 total=1 增值税=0@60000
+vat-added-per_document-half_up 2027-01-01 [1] mainland: price=1 total=1 增值税=0@90000
+vat-added-per_document-half_up 2026-12-31 [0] mainland: price=0 total=0 增值税=0@60000
+vat-added-per_document-half_up 2026-12-31T23:59:59.999 [0] mainland: price=0 total=0 增值税=0@60000
+vat-added-per_document-half_up 2027-01-01 [0] mainland: price=0 total=0 增值税=0@90000
+vat-added-per_document-half_even 2026-12-31 [10000, 1005] mainland: price=11005 total=11665 增值税=660@60000
+vat-added-per_document-half_even 2026-12-31T23:59:59.999 [10000, 1005] mainland: price=11005 total=11665 增值税=660@60000
+vat-added-per_document-half_even 2027-01-01 [10000, 1005] mainland: price=11005 total=11995 增值税=990@90000
+vat-added-per_document-half_even 2027-01-01 [10000, 1005] elsewhere: price=11005 total=11005
+vat-added-per_document-half_even 2026-12-31 [10000, 25] mainland: price=10025 total=10627 增值税=602@60000
+vat-added-per_document-half_even 2026-12-31T23:59:59.999 [10000, 25] mainland: price=10025 total=10627 增值税=602@60000
+vat-added-per_document-half_even 2027-01-01 [10000, 25] mainland: price=10025 total=10927 增值税=902@90000
+vat-added-per_document-half_even 2026-12-31 [25] mainland: price=25 total=27 增值税=2@60000
+vat-added-per_document-half_even 2026-12-31T23:59:59.999 [25] mainland: price=25 total=27 增值税=2@60000
+vat-added-per_document-half_even 2027-01-01 [25] mainland: price=25 total=27 增值税=2@90000
+vat-added-per_document-half_even 2026-12-31 [75] mainland: price=75 total=79 增值税=4@60000
+vat-added-per_document-half_even 2026-12-31T23:59:59.999 [75] mainland: price=75 total=79 增值税=4@60000
+vat-added-per_document-half_even 2027-01-01 [75] mainland: price=75 total=82 增值税=7@90000
+vat-added-per_document-half_even 2026-12-31 [1025, 1075, 1] mainland: price=2101 total=2227 增值税=126@60000
+vat-added-per_document-half_even 2026-12-31T23:59:59.999 [1025, 1075, 1] mainland: price=2101 total=2227 增值税=126@60000
+vat-added-per_document-half_even 2027-01-01 [1025, 1075, 1] mainland: price=2101 total=2290 增值税=189@90000
+vat-added-per_document-half_even 2026-12-31 [-1005, 25] mainland: price=-980 total=-1039 增值税=-59@60000
+vat-added-per_document-half_even 2026-12-31T23:59:59.999 [-1005, 25] mainland: price=-980 total=-1039 增值税=-59@60000
+vat-added-per_document-half_even 2027-01-01 [-1005, 25] mainland: price=-980 total=-1068 增值税=-88@90000
+vat-added-per_document-half_even 2026-12-31 [-25] mainland: price=-25 total=-27 增值税=-2@60000
+vat-added-per_document-half_even 2026-12-31T23:59:59.999 [-25] mainland: price=-25 total=-27 增值税=-2@60000
+vat-added-per_document-half_even 2027-01-01 [-25] mainland: price=-25 total=-27 增值税=-2@90000
+vat-added-per_document-half_even 2026-12-31 [50, 150, 250] mainland: price=450 total=477 增值税=27@60000
+vat-added-per_document-half_even 2026-12-31T23:59:59.999 [50, 150, 250] mainland: price=450 total=477 增值税=27@60000
+vat-added-per_document-half_even 2027-01-01 [50, 150, 250] mainland: price=450 total=490 增值税=40@90000
+vat-added-per_document-half_even 2026-12-31 [1] mainland: price=1 total=1 增值税=0@60000
+vat-added-per_document-half_even 2026-12-31T23:59:59.999 [1] mainland: price=1 total=1 增值税=0@60000
+vat-added-per_document-half_even 2027-01-01 [1] mainland: price=1 total=1 增值税=0@90000
+vat-added-per_document-half_even 2026-12-31 [0] mainland: price=0 total=0 增值税=0@60000
+vat-added-per_document-half_even 2026-12-31T23:59:59.999 [0] mainland: price=0 total=0 增值税=0@60000
+vat-added-per_document-half_even 2027-01-01 [0] mainland: price=0 total=0 增值税=0@90000
+vat-added-per_document-down 2026-12-31 [10000, 1005] mainland: price=11005 total=11665 增值税=660@60000
+vat-added-per_document-down 2026-12-31T23:59:59.999 [10000, 1005] mainland: price=11005 total=11665 增值税=660@60000
+vat-added-per_document-down 2027-01-01 [10000, 1005] mainland: price=11005 total=11995 增值税=990@90000
+vat-added-per_document-down 2027-01-01 [10000, 1005] elsewhere: price=11005 total=11005
+vat-added-per_document-down 2026-12-31 [10000, 25] mainland: price=10025 total=10626 增值税=601@60000
+vat-added-per_document-down 2026-12-31T23:59:59.999 [10000, 25] mainland: price=10025 total=10626 增值税=601@60000
+vat-added-per_document-down 2027-01-01 [10000, 25] mainland: price=10025 total=10927 增值税=902@90000
+vat-added-per_document-down 2026-12-31 [25] mainland: price=25 total=26 增值税=1@60000
+vat-added-per_document-down 2026-12-31T23:59:59.999 [25] mainland: price=25 total=26 增值税=1@60000
+vat-added-per_document-down 2027-01-01 [25] mainland: price=25 total=27 增值税=2@90000
+vat-added-per_document-down 2026-12-31 [75] mainland: price=75 total=79 增值税=4@60000
+vat-added-per_document-down 2026-12-31T23:59:59.999 [75] mainland: price=75 total=79 增值税=4@60000
+vat-added-per_document-down 2027-01-01 [75] mainland: price=75 total=81 增值税=6@90000
+vat-added-per_document-down 2026-12-31 [1025, 1075, 1] mainland: price=2101 total=2227 增值税=126@60000
+vat-added-per_document-down 2026-12-31T23:59:59.999 [1025, 1075, 1] mainland: price=2101 total=2227 增值税=126@60000
+vat-added-per_document-down 2027-01-01 [1025, 1075, 1] mainland: price=2101 total=2290 增值税=189@90000
+vat-added-per_document-down 2026-12-31 [-1005, 25] mainland: price=-980 total=-1038 增值税=-58@60000
+vat-added-per_document-down 2026-12-31T23:59:59.999 [-1005, 25] mainland: price=-980 total=-1038 增值税=-58@60000
+vat-added-per_document-down 2027-01-01 [-1005, 25] mainland: price=-980 total=-1068 增值税=-88@90000
+vat-added-per_document-down 2026-12-31 [-25] mainland: price=-25 total=-26 增值税=-1@60000
+vat-added-per_document-down 2026-12-31T23:59:59.999 [-25] mainland: price=-25 total=-26 增值税=-1@60000
+vat-added-per_document-down 2027-01-01 [-25] mainland: price=-25 total=-27 增值税=-2@90000
+vat-added-per_document-down 2026-12-31 [50, 150, 250] mainland: price=450 total=477 增值税=27@60000
+vat-added-per_document-down 2026-12-31T23:59:59.999 [50, 150, 250] mainland: price=450 total=477 增值税=27@60000
+vat-added-per_document-down 2027-01-01 [50, 150, 250] mainland: price=450 total=490 增值税=40@90000
+vat-added-per_document-down 2026-12-31 [1] mainland: price=1 total=1 增值税=0@60000
+vat-added-per_document-down 2026-12-31T23:59:59.999 [1] mainland: price=1 total=1 增值税=0@60000
+vat-added-per_document-down 2027-01-01 [1] mainland: price=1 total=1 增值税=0@90000
+vat-added-per_document-down 2026-12-31 [0] mainland: price=0 total=0 增值税=0@60000
+vat-added-per_document-down 2026-12-31T23:59:59.999 [0] mainland: price=0 total=0 增值税=0@60000
+vat-added-per_document-down 2027-01-01 [0] mainland: price=0 total=0 增值税=0@90000
+vat-included-per_line-half_up 2026-12-31 [10000, 1005] mainland: price=11005 total=11005 增值税=623@60000 lines [增值税=566] [增值税=57]
+vat-included-per_line-half_up 2026-12-31T23:59:59.999 [10000, 1005] mainland: price=11005 total=11005 增值税=623@60000 lines [增值税=566] [增值税=57]
+vat-included-per_line-half_up 2027-01-01 [10000, 1005] mainland: price=11005 total=11005 增值税=909@90000 lines [增值税=826] [增值税=83]
+vat-included-per_line-half_up 2027-01-01 [10000, 1005] elsewhere: price=11005 total=11005 lines [] []
+vat-included-per_line-half_up 2026-12-31 [10000, 25] mainland: price=10025 total=10025 增值税=567@60000 lines [增值税=566] [增值税=1]
+vat-included-per_line-half_up 2026-12-31T23:59:59.999 [10000, 25] mainland: price=10025 total=10025 增值税=567@60000 lines [增值税=566] [增值税=1]
+vat-included-per_line-half_up 2027-01-01 [10000, 25] mainland: price=10025 total=10025 增值税=828@90000 lines [增值税=826] [增值税=2]
+vat-included-per_line-half_up 2026-12-31 [25] mainland: price=25 total=25 增值税=1@60000 lines [增值税=1]
+vat-included-per_line-half_up 2026-12-31T23:59:59.999 [25] mainland: price=25 total=25 增值税=1@60000 lines [增值税=1]
+vat-included-per_line-half_up 2027-01-01 [25] mainland: price=25 total=25 增值税=2@90000 lines [增值税=2]
+vat-included-per_line-half_up 2026-12-31 [75] mainland: price=75 total=75 增值税=4@60000 lines [增值税=4]
+vat-included-per_line-half_up 2026-12-31T23:59:59.999 [75] mainland: price=75 total=75 增值税=4@60000 lines [增值税=4]
+vat-included-per_line-half_up 2027-01-01 [75] mainland: price=75 total=75 增值税=6@90000 lines [增值税=6]
+vat-included-per_line-half_up 2026-12-31 [1025, 1075, 1] mainland: price=2101 total=2101 增值税=119@60000 lines [增值税=58] [增值税=61] [增值税=0]
+vat-included-per_line-half_up 2026-12-31T23:59:59.999 [1025, 1075, 1] mainland: price=2101 total=2101 增值税=119@60000 lines [增值税=58] [增值税=61] [增值税=0]
+vat-included-per_line-half_up 2027-01-01 [1025, 1075, 1] mainland: price=2101 total=2101 增值税=174@90000 lines [增值税=85] [增值税=89] [增值税=0]
+vat-included-per_line-half_up 2026-12-31 [-1005, 25] mainland: price=-980 total=-980 增值税=-56@60000 lines [增值税=-57] [增值税=1]
+vat-included-per_line-half_up 2026-12-31T23:59:59.999 [-1005, 25] mainland: price=-980 total=-980 增值税=-56@60000 lines [增值税=-57] [增值税=1]
+vat-included-per_line-half_up 2027-01-01 [-1005, 25] mainland: price=-980 total=-980 增值税=-81@90000 lines [增值税=-83] [增值税=2]
+vat-included-per_line-half_up 2026-12-31 [-25] mainland: price=-25 total=-25 增值税=-1@60000 lines [增值税=-1]
+vat-included-per_line-half_up 2026-12-31T23:59:59.999 [-25] mainland: price=-25 total=-25 增值税=-1@60000 lines [增值税=-1]
+vat-included-per_line-half_up 2027-01-01 [-25] mainland: price=-25 total=-25 增值税=-2@90000 lines [增值税=-2]
+vat-included-per_line-half_up 2026-12-31 [50, 150, 250] mainland: price=450 total=450 增值税=25@60000 lines [增值税=3] [增值税=8] [增值税=14]
+vat-included-per_line-half_up 2026-12-31T23:59:59.999 [50, 150, 250] mainland: price=450 total=450 增值税=25@60000 lines [增值税=3] [增值税=8] [增值税=14]
+vat-included-per_line-half_up 2027-01-01 [50, 150, 250] mainland: price=450 total=450 增值税=37@90000 lines [增值税=4] [增值税=12] [增值税=21]
+vat-included-per_line-half_up 2026-12-31 [1] mainland: price=1 total=1 增值税=0@60000 lines [增值税=0]
+vat-included-per_line-half_up 2026-12-31T23:59:59.999 [1] mainland: price=1 total=1 增值税=0@60000 lines [增值税=0]
+vat-included-per_line-half_up 2027-01-01 [1] mainland: price=1 total=1 增值税=0@90000 lines [增值税=0]
+vat-included-per_line-half_up 2026-12-31 [0] mainland: price=0 total=0 增值税=0@60000 lines [增值税=0]
+vat-included-per_line-half_up 2026-12-31T23:59:59.999 [0] mainland: price=0 total=0 增值税=0@60000 lines [增值税=0]
+vat-included-per_line-half_up 2027-01-01 [0] mainland: price=0 total=0 增值税=0@90000 lines [增值税=0]
+vat-included-per_line-half_even 2026-12-31 [10000, 1005] mainland: price=11005 total=11005 增值税=623@60000 lines [增值税=566] [增值税=57]
+vat-included-per_line-half_even 2026-12-31T23:59:59.999 [10000, 1005] mainland: price=11005 total=11005 增值税=623@60000 lines [增值税=566] [增值税=57]
+vat-included-per_line-half_even 2027-01-01 [10000, 1005] mainland: price=11005 total=11005 增值税=909@90000 lines [增值税=826] [增值税=83]
+vat-included-per_line-half_even 2027-01-01 [10000, 1005] elsewhere: price=11005 total=11005 lines [] []
+vat-included-per_line-half_even 2026-12-31 [10000, 25] mainland: price=10025 total=10025 增值税=567@60000 lines [增值税=566] [增值税=1]
+vat-included-per_line-half_even 2026-12-31T23:59:59.999 [10000, 25] mainland: price=10025 total=10025 增值税=567@60000 lines [增值税=566] [增值税=1]
+vat-included-per_line-half_even 2027-01-01 [10000, 25] mainland: price=10025 total=10025 增值税=828@90000 lines [增值税=826] [增值税=2]
+vat-included-per_line-half_even 2026-12-31 [25] mainland: price=25 total=25 增值税=1@60000 lines [增值税=1]
+vat-included-per_line-half_even 2026-12-31T23:59:59.999 [25] mainland: price=25 total=25 增值税=1@60000 lines [增值税=1]
+vat-included-per_line-half_even 2027-01-01 [25] mainland: price=25 total=25 增值税=2@90000 lines [增值税=2]
+vat-included-per_line-half_even 2026-12-31 [75] mainland: price=75 total=75 增值税=4@60000 lines [增值税=4]
+vat-included-per_line-half_even 2026-12-31T23:59:59.999 [75] mainland: price=75 total=75 增值税=4@60000 lines [增值税=4]
+vat-included-per_line-half_even 2027-01-01 [75] mainland: price=75 total=75 增值税=6@90000 lines [增值税=6]
+vat-included-per_line-half_even 2026-12-31 [1025, 1075, 1] mainland: price=2101 total=2101 增值税=119@60000 lines [增值税=58] [增值税=61] [增值税=0]
+vat-included-per_line-half_even 2026-12-31T23:59:59.999 [1025, 1075, 1] mainland: price=2101 total=2101 增值税=119@60000 lines [增值税=58] [增值税=61] [增值税=0]
+vat-included-per_line-half_even 2027-01-01 [1025, 1075, 1] mainland: price=2101 total=2101 增值税=174@90000 lines [增值税=85] [增值税=89] [增值税=0]
+vat-included-per_line-half_even 2026-12-31 [-1005, 25] mainland: price=-980 total=-980 增值税=-56@60000 lines [增值税=-57] [增值税=1]
+vat-included-per_line-half_even 2026-12-31T23:59:59.999 [-1005, 25] mainland: price=-980 total=-980 增值税=-56@60000 lines [增值税=-57] [增值税=1]
+vat-included-per_line-half_even 2027-01-01 [-1005, 25] mainland: price=-980 total=-980 增值税=-81@90000 lines [增值税=-83] [增值税=2]
+vat-included-per_line-half_even 2026-12-31 [-25] mainland: price=-25 total=-25 增值税=-1@60000 lines [增值税=-1]
+vat-included-per_line-half_even 2026-12-31T23:59:59.999 [-25] mainland: price=-25 total=-25 增值税=-1@60000 lines [增值税=-1]
+vat-included-per_line-half_even 2027-01-01 [-25] mainland: price=-25 total=-25 增值税=-2@90000 lines [增值税=-2]
+vat-included-per_line-half_even 2026-12-31 [50, 150, 250] mainland: price=450 total=450 增值税=25@60000 lines [增值税=3] [增值税=8] [增值税=14]
+vat-included-per_line-half_even 2026-12-31T23:59:59.999 [50, 150, 250] mainland: price=450 total=450 增值税=25@60000 lines [增值税=3] [增值税=8] [增值税=14]
+vat-included-per_line-half_even 2027-01-01 [50, 150, 250] mainland: price=450 total=450 增值税=37@90000 lines [增值税=4] [增值税=12] [增值税=21]
+vat-included-per_line-half_even 2026-12-31 [1] mainland: price=1 total=1 增值税=0@60000 lines [增值税=0]
+vat-included-per_line-half_even 2026-12-31T23:59:59.999 [1] mainland: price=1 total=1 增值税=0@60000 lines [增值税=0]
+vat-included-per_line-half_even 2027-01-01 [1] mainland: price=1 total=1 增值税=0@90000 lines [增值税=0]
+vat-included-per_line-half_even 2026-12-31 [0] mainland: price=0 total=0 增值税=0@60000 lines [增值税=0]
+vat-included-per_line-half_even 2026-12-31T23:59:59.999 [0] mainland: price=0 total=0 增值税=0@60000 lines [增值税=0]
+vat-included-per_line-half_even 2027-01-01 [0] mainland: price=0 total=0 增值税=0@90000 lines [增值税=0]
+vat-included-per_line-down 2026-12-31 [10000, 1005] mainland: price=11005 total=11005 增值税=622@60000 lines [增值税=566] [增值税=56]
+vat-included-per_line-down 2026-12-31T23:59:59.999 [10000, 1005] mainland: price=11005 total=11005 增值税=622@60000 lines [增值税=566] [增值税=56]
+vat-included-per_line-down 2027-01-01 [10000, 1005] mainland: price=11005 total=11005 增值税=907@90000 lines [增值税=825] [增值税=82]
+vat-included-per_line-down 2027-01-01 [10000, 1005] elsewhere: price=11005 total=11005 lines [] []
+vat-included-per_line-down 2026-12-31 [10000, 25] mainland: price=10025 total=10025 增值税=567@60000 lines [增值税=566] [增值税=1]
+vat-included-per_line-down 2026-12-31T23:59:59.999 [10000, 25] mainland: price=10025 total=10025 增值税=567@60000 lines [增值税=566] [增值税=1]
+vat-included-per_line-down 2027-01-01 [10000, 25] mainland: price=10025 total=10025 增值税=827@90000 lines [增值税=825] [增值税=2]
+vat-included-per_line-down 2026-12-31 [25] mainland: price=25 total=25 增值税=1@60000 lines [增值税=1]
+vat-included-per_line-down 2026-12-31T23:59:59.999 [25] mainland: price=25 total=25 增值税=1@60000 lines [增值税=1]
+vat-included-per_line-down 2027-01-01 [25] mainland: price=25 total=25 增值税=2@90000 lines [增值税=2]
+vat-included-per_line-down 2026-12-31 [75] mainland: price=75 total=75 增值税=4@60000 lines [增值税=4]
+vat-included-per_line-down 2026-12-31T23:59:59.999 [75] mainland: price=75 total=75 增值税=4@60000 lines [增值税=4]
+vat-included-per_line-down 2027-01-01 [75] mainland: price=75 total=75 增值税=6@90000 lines [增值税=6]
+vat-included-per_line-down 2026-12-31 [1025, 1075, 1] mainland: price=2101 total=2101 增值税=118@60000 lines [增值税=58] [增值税=60] [增值税=0]
+vat-included-per_line-down 2026-12-31T23:59:59.999 [1025, 1075, 1] mainland: price=2101 total=2101 增值税=118@60000 lines [增值税=58] [增值税=60] [增值税=0]
+vat-included-per_line-down 2027-01-01 [1025, 1075, 1] mainland: price=2101 total=2101 增值税=172@90000 lines [增值税=84] [增值税=88] [增值税=0]
+vat-included-per_line-down 2026-12-31 [-1005, 25] mainland: price=-980 total=-980 增值税=-55@60000 lines [增值税=-56] [增值税=1]
+vat-included-per_line-down 2026-12-31T23:59:59.999 [-1005, 25] mainland: price=-980 total=-980 增值税=-55@60000 lines [增值税=-56] [增值税=1]
+vat-included-per_line-down 2027-01-01 [-1005, 25] mainland: price=-980 total=-980 增值税=-80@90000 lines [增值税=-82] [增值税=2]
+vat-included-per_line-down 2026-12-31 [-25] mainland: price=-25 total=-25 增值税=-1@60000 lines [增值税=-1]
+vat-included-per_line-down 2026-12-31T23:59:59.999 [-25] mainland: price=-25 total=-25 增值税=-1@60000 lines [增值税=-1]
+vat-included-per_line-down 2027-01-01 [-25] mainland: price=-25 total=-25 增值税=-2@90000 lines [增值税=-2]
+vat-included-per_line-down 2026-12-31 [50, 150, 250] mainland: price=450 total=450 增值税=24@60000 lines [增值税=2] [增值税=8] [增值税=14]
+vat-included-per_line-down 2026-12-31T23:59:59.999 [50, 150, 250] mainland: price=450 total=450 增值税=24@60000 lines [增值税=2] [增值税=8] [增值税=14]
+vat-included-per_line-down 2027-01-01 [50, 150, 250] mainland: price=450 total=450 增值税=36@90000 lines [增值税=4] [增值税=12] [增值税=20]
+vat-included-per_line-down 2026-12-31 [1] mainland: price=1 total=1 增值税=0@60000 lines [增值税=0]
+vat-included-per_line-down 2026-12-31T23:59:59.999 [1] mainland: price=1 total=1 增值税=0@60000 lines [增值税=0]
+vat-included-per_line-down 2027-01-01 [1] mainland: price=1 total=1 增值税=0@90000 lines [增值税=0]
+vat-included-per_line-down 2026-12-31 [0] mainland: price=0 total=0 增值税=0@60000 lines [增值税=0]
+vat-included-per_line-down 2026-12-31T23:59:59.999 [0] mainland: price=0 total=0 增值税=0@60000 lines [增值税=0]
+vat-included-per_line-down 2027-01-01 [0] mainland: price=0 total=0 增值税=0@90000 lines [增值税=0]
+vat-included-per_document-half_up 2026-12-31 [10000, 1005] mainland: price=11005 total=11005 增值税=623@60000
+vat-included-per_document-half_up 2026-12-31T23:59:59.999 [10000, 1005] mainland: price=11005 total=11005 增值税=623@60000
+vat-included-per_document-half_up 2027-01-01 [10000, 1005] mainland: price=11005 total=11005 增值税=909@90000
+vat-included-per_document-half_up 2027-01-01 [10000, 1005] elsewhere: price=11005 total=11005
+vat-included-per_document-half_up 2026-12-31 [10000, 25] mainland: price=10025 total=10025 增值税=567@60000
+vat-included-per_document-half_up 2026-12-31T23:59:59.999 [10000, 25] mainland: price=10025 total=10025 增值税=567@60000
+vat-included-per_document-half_up 2027-01-01 [10000, 25] mainland: price=10025 total=10025 增值税=828@90000
+vat-included-per_document-half_up 2026-12-31 [25] mainland: price=25 total=25 增值税=1@60000
+vat-included-per_document-half_up 2026-12-31T23:59:59.999 [25] mainland: price=25 total=25 增值税=1@60000
+vat-included-per_document-half_up 2027-01-01 [25] mainland: price=25 total=25 增值税=2@90000
+vat-included-per_document-half_up 2026-12-31 [75] mainland: price=75 total=75 增值税=4@60000
+vat-included-per_document-half_up 2026-12-31T23:59:59.999 [75] mainland: price=75 total=75 增值税=4@60000
+vat-included-per_document-half_up 2027-01-01 [75] mainland: price=75 total=75 增值税=6@90000
+vat-included-per_document-half_up 2026-12-31 [1025, 1075, 1] mainland: price=2101 total=2101 增值税=119@60000
+vat-included-per_document-half_up 2026-12-31T23:59:59.999 [1025, 1075, 1] mainland: price=2101 total=2101 增值税=119@60000
+vat-included-per_document-half_up 2027-01-01 [1025, 1075, 1] mainland: price=2101 total=2101 增值税=173@90000
+vat-included-per_document-half_up 2026-12-31 [-1005, 25] mainland: price=-980 total=-980 增值税=-55@60000
+vat-included-per_document-half_up 2026-12-31T23:59:59.999 [-1005, 25] mainland: price=-980 total=-980 增值税=-55@60000
+vat-included-per_document-half_up 2027-01-01 [-1005, 25] mainland: price=-980 total=-980 增值税=-81@90000
+vat-included-per_document-half_up 2026-12-31 [-25] mainland: price=-25 total=-25 增值税=-1@60000
+vat-included-per_document-half_up 2026-12-31T23:59:59.999 [-25] mainland: price=-25 total=-25 增值税=-1@60000
+vat-included-per_document-half_up 2027-01-01 [-25] mainland: price=-25 total=-25 增值税=-2@90000
+vat-included-per_document-half_up 2026-12-31 [50, 150, 250] mainland: price=450 total=450 增值税=25@60000
+vat-included-per_document-half_up 2026-12-31T23:59:59.999 [50, 150, 250] mainland: price=450 total=450 增值税=25@60000
+vat-included-per_document-half_up 2027-01-01 [50, 150, 250] mainland: price=450 total=450 增值税=37@90000
+vat-included-per_document-half_up 2026-12-31 [1] mainland: price=1 total=1 增值税=0@60000
+vat-included-per_document-half_up 2026-12-31T23:59:59.999 [1] mainland: price=1 total=1 增值税=0@60000
+vat-included-per_document-half_up 2027-01-01 [1] mainland: price=1 total=1 增值税=0@90000
+vat-included-per_document-half_up 2026-12-31 [0] mainland: price=0 total=0 增值税=0@60000
+vat-included-per_document-half_up 2026-12-31T23:59:59.999 [0] mainland: price=0 total=0 增值税=0@60000
+vat-included-per_document-half_up 2027-01-01 [0] mainland: price=0 total=0 增值税=0@90000
+vat-included-per_document-half_even 2026-12-31 [10000, 1005] mainland: price=11005 total=11005 增值税=623@60000
+vat-included-per_document-half_even 2026-12-31T23:59:59.999 [10000, 1005] mainland: price=11005 total=11005 增值税=623@60000
+vat-included-per_document-half_even 2027-01-01 [10000, 1005] mainland: price=11005 total=11005 增值税=909@90000
+vat-included-per_document-half_even 2027-01-01 [10000, 1005] elsewhere: price=11005 total=11005
+vat-included-per_document-half_even 2026-12-31 [10000, 25] mainland: price=10025 total=10025 增值税=567@60000
+vat-included-per_document-half_even 2026-12-31T23:59:59.999 [10000, 25] mainland: price=10025 total=10025 增值税=567@60000
+vat-included-per_document-half_even 2027-01-01 [10000, 25] mainland: price=10025 total=10025 增值税=828@90000
+vat-included-per_document-half_even 2026-12-31 [25] mainland: price=25 total=25 增值税=1@60000
+vat-included-per_document-half_even 2026-12-31T23:59:59.999 [25] mainland: price=25 total=25 增值税=1@60000
+vat-included-per_document-half_even 2027-01-01 [25] mainland: price=25 total=25 增值税=2@90000
+vat-included-per_document-half_even 2026-12-31 [75] mainland: price=75 total=75 增值税=4@60000
+vat-included-per_document-half_even 2026-12-31T23:59:59.999 [75] mainland: price=75 total=75 增值税=4@60000
+vat-included-per_document-half_even 2027-01-01 [75] mainland: price=75 total=75 增值税=6@90000
+vat-included-per_document-half_even 2026-12-31 [1025, 1075, 1] mainland: price=2101 total=2101 增值税=119@60000
+vat-included-per_document-half_even 2026-12-31T23:59:59.999 [1025, 1075, 1] mainland: price=2101 total=2101 增值税=119@60000
+vat-included-per_document-half_even 2027-01-01 [1025, 1075, 1] mainland: price=2101 total=2101 增值税=173@90000
+vat-included-per_document-half_even 2026-12-31 [-1005, 25] mainland: price=-980 total=-980 增值税=-55@60000
+vat-included-per_document-half_even 2026-12-31T23:59:59.999 [-1005, 25] mainland: price=-980 total=-980 增值税=-55@60000
+vat-included-per_document-half_even 2027-01-01 [-1005, 25] mainland: price=-980 total=-980 增值税=-81@90000
+vat-included-per_document-half_even 2026-12-31 [-25] mainland: price=-25 total=-25 增值税=-1@60000
+vat-included-per_document-half_even 2026-12-31T23:59:59.999 [-25] mainland: price=-25 total=-25 增值税=-1@60000
+vat-included-per_document-half_even 2027-01-01 [-25] mainland: price=-25 total=-25 增值税=-2@90000
+vat-included-per_document-half_even 2026-12-31 [50, 150, 250] mainland: price=450 total=450 增值税=25@60000
+vat-included-per_document-half_even 2026-12-31T23:59:59.999 [50, 150, 250] mainland: price=450 total=450 增值税=25@60000
+vat-included-per_document-half_even 2027-01-01 [50, 150, 250] mainland: price=450 total=450 增值税=37@90000
+vat-included-per_document-half_even 2026-12-31 [1] mainland: price=1 total=1 增值税=0@60000
+vat-included-per_document-half_even 2026-12-31T23:59:59.999 [1] mainland: price=1 total=1 增值税=0@60000
+vat-included-per_document-half_even 2027-01-01 [1] mainland: price=1 total=1 增值税=0@90000
+vat-included-per_document-half_even 2026-12-31 [0] mainland: price=0 total=0 增值税=0@60000
+vat-included-per_document-half_even 2026-12-31T23:59:59.999 [0] mainland: price=0 total=0 增值税=0@60000
+vat-included-per_document-half_even 2027-01-01 [0] mainland: price=0 total=0 增值税=0@90000
+vat-included-per_document-down 2026-12-31 [10000, 1005] mainland: price=11005 total=11005 增值税=622@60000
+vat-included-per_document-down 2026-12-31T23:59:59.999 [10000, 1005] mainland: price=11005 total=11005 增值税=622@60000
+vat-included-per_document-down 2027-01-01 [10000, 1005] mainland: price=11005 total=11005 增值税=908@90000
+vat-included-per_document-down 2027-01-01 [10000, 1005] elsewhere: price=11005 total=11005
+vat-included-per_document-down 2026-12-31 [10000, 25] mainland: price=10025 total=10025 增值税=567@60000
+vat-included-per_document-down 2026-12-31T23:59:59.999 [10000, 25] mainland: price=10025 total=10025 增值税=567@60000
+vat-included-per_document-down 2027-01-01 [10000, 25] mainland: price=10025 total=10025 增值税=827@90000
+vat-included-per_document-down 2026-12-31 [25] mainland: price=25 total=25 增值税=1@60000
+vat-included-per_document-down 2026-12-31T23:59:59.999 [25] mainland: price=25 total=25 增值税=1@60000
+vat-included-per_document-down 2027-01-01 [25] mainland: price=25 total=25 增值税=2@90000
+vat-included-per_document-down 2026-12-31 [75] mainland: price=75 total=75 增值税=4@60000
+vat-included-per_document-down 2026-12-31T23:59:59.999 [75] mainland: price=75 total=75 增值税=4@60000
+vat-included-per_document-down 2027-01-01 [75] mainland: price=75 total=75 增值税=6@90000
+vat-included-per_document-down 2026-12-31 [1025, 1075, 1] mainland: price=2101 total=2101 增值税=118@60000
+vat-included-per_document-down 2026-12-31T23:59:59.999 [1025, 1075, 1] mainland: price=2101 total=2101 增值税=118@60000
+vat-included-per_document-down 2027-01-01 [1025, 1075, 1] mainland: price=2101 total=2101 增值税=173@90000
+vat-included-per_document-down 2026-12-31 [-1005, 25] mainland: price=-980 total=-980 增值税=-55@60000
+vat-included-per_document-down 2026-12-31T23:59:59.999 [-1005, 25] mainland: price=-980 total=-980 增值税=-55@60000
+vat-included-per_document-down 2027-01-01 [-1005, 25] mainland: price=-980 total=-980 增值税=-80@90000
+vat-included-per_document-down 2026-12-31 [-25] mainland: price=-25 total=-25 增值税=-1@60000
+vat-included-per_document-down 2026-12-31T23:59:59.999 [-25] mainland: price=-25 total=-25 增值税=-1@60000
+vat-included-per_document-down 2027-01-01 [-25] mainland: price=-25 total=-25 增值税=-2@90000
+vat-included-per_document-down 2026-12-31 [50, 150, 250] mainland: price=450 total=450 增值税=25@60000
+vat-included-per_document-down 2026-12-31T23:59:59.999 [50, 150, 250] mainland: price=450 total=450 增值税=25@60000
+vat-included-per_document-down 2027-01-01 [50, 150, 250] mainland: price=450 total=450 增值税=37@90000
+vat-included-per_document-down 2026-12-31 [1] mainland: price=1 total=1 增值税=0@60000
+vat-included-per_document-down 2026-12-31T23:59:59.999 [1] mainland: price=1 total=1 增值税=0@60000
+vat-included-per_document-down 2027-01-01 [1] mainland: price=1 total=1 增值税=0@90000
+vat-included-per_document-down 2026-12-31 [0] mainland: price=0 total=0 增值税=0@60000
+vat-included-per_document-down 2026-12-31T23:59:59.999 [0] mainland: price=0 total=0 增值税=0@60000
+vat-included-per_document-down 2027-01-01 [0] mainland: price=0 total=0 增值税=0@90000

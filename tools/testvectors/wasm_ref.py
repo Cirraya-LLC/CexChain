@@ -1456,13 +1456,144 @@ def _check_cbor(written_back: bool):
     return check
 
 
+def _cbor_decode(data: bytes):
+    """A CBOR item (the profile's: integers, strings, arrays, maps, false,
+    true, null), decoded with Python's types; maps become dicts."""
+    def item(at: int):
+        first = data[at]
+        major, info = first >> 5, first & 31
+        at += 1
+        if info < 24:
+            arg = info
+        elif info <= 27:
+            width = 1 << (info - 24)
+            arg = int.from_bytes(data[at:at + width], "big")
+            at += width
+        else:
+            raise ValueError("not in the profile")
+        if major == 0:
+            return arg, at
+        if major == 1:
+            return -1 - arg, at
+        if major in (2, 3):
+            raw = data[at:at + arg]
+            return (raw if major == 2 else raw.decode("utf-8")), at + arg
+        if major == 4:
+            out = []
+            for _ in range(arg):
+                v, at = item(at)
+                out.append(v)
+            return out, at
+        if major == 5:
+            out = {}
+            for _ in range(arg):
+                k, at = item(at)
+                v, at = item(at)
+                out[k] = v
+            return out, at
+        if major == 7 and arg in (20, 21, 22):
+            return {20: False, 21: True, 22: None}[arg], at
+        raise ValueError("not in the profile")
+    value, end = item(0)
+    if end != len(data):
+        raise ValueError("trailing bytes")
+    return value
+
+
+def _bill(spec: dict, lines: list[int], time: int, fields: dict) -> dict:
+    """A bill as Bo's charges compute it (R26 to R28), from Python's integers:
+    the charges in order, each on the price (each line's, or the whole bill's)
+    and the charges it names; added ones times their rate, included ones
+    taken out of the price; fixed amounts once per bill or on each line."""
+    charges = spec["charges"]
+    applies, rates = {}, {}
+    for c in charges:
+        ok = True
+        cond = c.get("condition")
+        if cond is not None and "lines_at_least" in cond:
+            ok = len(lines) >= cond["lines_at_least"]
+        elif cond is not None:
+            ok = fields.get(cond["field"]) == cond["equals"]
+        if c.get("amount") is None:
+            rate = c.get("rate")
+            for since, r in c.get("dated", []):
+                if time >= since:
+                    rate = r
+            if rate is None:
+                ok = False
+            rates[c["name"]] = rate if rate is not None else 0
+        applies[c["name"]] = ok
+    divisor = 1_000_000 + sum(rates[c["name"]] for c in charges
+                              if c["included"] and c.get("amount") is None and applies[c["name"]])
+
+    def charged(c, base):
+        if c.get("amount") is not None:
+            return c["amount"]
+        return _muldiv(base, rates[c["name"]], divisor if c["included"] else 1_000_000, c["mode"])
+
+    price = _in_range(sum(lines))
+    per_line = [c for c in charges if not c["per_document"]]
+    line_amounts = []
+    totals = {c["name"]: 0 for c in charges}
+    for p in lines:
+        here = {}
+        for c in per_line:
+            if not applies[c["name"]]:
+                here[c["name"]] = 0
+                continue
+            base = (p if c["on_price"] else 0) + sum(here[o] for o in c["on"])
+            here[c["name"]] = charged(c, base)
+            totals[c["name"]] = _in_range(totals[c["name"]] + here[c["name"]])
+        line_amounts.append({n: a for n, a in here.items() if applies[n]})
+    for c in charges:
+        if not c["per_document"]:
+            continue
+        if applies[c["name"]]:
+            base = (price if c["on_price"] else 0) + sum(totals[o] for o in c["on"])
+            totals[c["name"]] = charged(c, base)
+    total = price + sum(totals[c["name"]] for c in charges if not c["included"])
+    bill = {"time": time, "price": price, "total": _in_range(total),
+            "charges": {c["name"]: ({"amount": totals[c["name"]]} if c.get("amount") is not None
+                                    else {"rate": rates[c["name"]], "amount": totals[c["name"]]})
+                        for c in charges if applies[c["name"]]}}
+    if per_line:
+        bill["lines"] = line_amounts
+    return bill
+
+
+def _check_bill(raw: bytes, outcome: str, output: bytes, reason: bytes,
+                recorded: dict) -> str | None:
+    """A Bo contract's bill: what the run made must be what _bill computes
+    from the contract's charges (recorded["bill"]), the lines and fields the
+    instance holds, and the call's time."""
+    if outcome != "ok":
+        return None
+    out = _cbor_decode(output)
+    if out[0] != 1:
+        return None
+    state = out[1][1]
+    events = out[1].get(4, [])
+    spec = recorded["bill"]
+    made = [e[1] for e in events if e[0] == spec["document"]]
+    if not made:
+        return None
+    if made[0] != state["bill"]:
+        return "the event's bill is not the state's"
+    time = _cbor_decode(raw)[7]
+    fields = state["fields"]
+    want = _bill(spec, fields[spec["document"]], time, fields)
+    return None if want == state["bill"] else f"expected the bill {want}, got {state['bill']}"
+
+
 # What a run means, by the harness that made it (tests/bo/runtime_harness.hpp):
 # a CBOR copy writes back exactly what it accepts, a read writes nothing, and
-# math agrees with Python's integers and calendar.
+# math agrees with Python's integers and calendar; a Bo contract's bill agrees
+# with Python's integers (tests/bo/codegen_test.cpp).
 ORACLES = {
     "cbor-copy": _check_cbor(True),
     "cbor-read": _check_cbor(False),
     "math": _check_math,
+    "bill": _check_bill,
 }
 
 
@@ -1495,7 +1626,9 @@ def check(path: str) -> int:
                             f"{want[1].hex()[:64]}, reason {want[3]!r}")
         oracle = recorded.get("oracle")
         if oracle:
-            problem = ORACLES[oracle](raw, outcome, output, reason)
+            check_with = ORACLES[oracle]
+            problem = (check_with(raw, outcome, output, reason, recorded) if oracle == "bill"
+                       else check_with(raw, outcome, output, reason))
             if problem:
                 problems.append(f"{oracle}: {problem}")
         if problems:

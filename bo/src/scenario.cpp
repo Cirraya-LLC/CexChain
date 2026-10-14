@@ -276,6 +276,51 @@ cbor::Value Runner::arguments(const m::Step& step, const m::Action* action, cons
     return given.empty() ? cbor::Value::null() : canonical(std::move(given));
 }
 
+namespace {
+
+/// A bill's event data in short (StepResult::bill), or empty for data that
+/// is no bill.
+std::string bill_text(const cbor::Value& bill) {
+    const cbor::Value* price = bill.find("price");
+    const cbor::Value* total = bill.find("total");
+    const cbor::Value* charges = bill.find("charges");
+    if (price == nullptr || total == nullptr || charges == nullptr || !price->as_int64() ||
+        !total->as_int64() || charges->as_map() == nullptr) {
+        return {};
+    }
+    std::string out = std::format("price={} total={}", *price->as_int64(), *total->as_int64());
+    const auto text_of = [](const cbor::Value& key) {
+        return key.as_text() != nullptr ? *key.as_text() : std::string("?");
+    };
+    for (const cbor::MapEntry& entry : *charges->as_map()) {
+        const cbor::Value* amount = entry.value.find("amount");
+        const cbor::Value* rate = entry.value.find("rate");
+        out += " " + text_of(entry.key) + "=" +
+               (amount != nullptr && amount->as_int64() ? std::to_string(*amount->as_int64())
+                                                        : std::string("?"));
+        if (rate != nullptr && rate->as_int64()) {
+            out += "@" + std::to_string(*rate->as_int64());
+        }
+    }
+    if (const cbor::Value* lines = bill.find("lines"); lines != nullptr && lines->as_array()) {
+        out += " lines";
+        for (const cbor::Value& line : *lines->as_array()) {
+            std::string items;
+            if (line.as_map() != nullptr) {
+                for (const cbor::MapEntry& entry : *line.as_map()) {
+                    items += (items.empty() ? "" : " ") + text_of(entry.key) + "=" +
+                             (entry.value.as_int64() ? std::to_string(*entry.value.as_int64())
+                                                     : std::string("?"));
+                }
+            }
+            out += " [" + items + "]";
+        }
+    }
+    return out;
+}
+
+} // namespace
+
 void Runner::accept(const m::Step& step, const protocol::ContractAccept& a, Ledger& l,
                     StepResult& r) {
     r.happened = Happened::accepted;
@@ -296,6 +341,9 @@ void Runner::accept(const m::Step& step, const protocol::ContractAccept& a, Ledg
         r.events.push_back(action != nullptr ? e.name + ":" + *action : e.name);
         if (e.name == "propose" && action != nullptr) {
             r.proposed = *action;
+        }
+        if (std::string made = bill_text(e.data); !made.empty()) {
+            r.bill = std::move(made);
         }
     }
     r.final = a.final;
@@ -1005,6 +1053,9 @@ std::string dump(const m::Model& model, const TestResults& results) {
                 }
                 if (!r.consents.empty()) {
                     line += " consents" + keys(r.consents);
+                }
+                if (!r.bill.empty()) {
+                    line += " bill " + r.bill;
                 }
                 break;
             case Happened::waits:

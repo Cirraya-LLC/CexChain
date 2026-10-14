@@ -1,0 +1,40 @@
+测试 “lists in and out”：通过
+  第 1 步（第 35 行）通过：we create with codes = ("p", "q"), sizes = 1, total = 0
+    结果：调用被接受，实例现为正常。
+  第 2 步（第 36 行）通过：we load with rows = (1, 2), tags = ("a", "b")
+    结果：调用被接受，实例现为正常。
+  第 3 步（第 37 行）通过：customer check with size = 2
+    结果：经客户同意，调用被接受，实例现为正常。
+  第 4 步（第 38 行）通过：customer check with size = 3 -> refused "bo:requires check 1"
+    结果：调用被拒绝，因为 check 的第 1 项要求未满足（bo:requires check 1）。
+    合约条款 4.3.3：要求 1：size 属于 sizes 之一。
+  第 5 步（第 39 行）通过：we mark with code = "q"
+    结果：调用被接受，实例现为正常。
+  第 6 步（第 40 行）通过：we mark with code = "q" -> refused "bo:requires mark 1"
+    结果：调用被拒绝，因为 mark 的第 1 项要求未满足（bo:requires mark 1）。
+    合约条款 4.2.3：要求 1：code 属于 codes 之一。
+  第 7 步（第 41 行）通过：we mark with code = "a"
+    结果：调用被接受，实例现为正常。
+
+测试 “each item is checked”：通过
+  第 1 步（第 44 行）通过：we create with codes = ("p"), sizes = (1, 2), total = 0
+    结果：调用被接受，实例现为正常。
+  第 2 步（第 45 行）通过：we load with rows = (50, 60), tags = "a" -> refused "bo:requires load 2"
+    结果：调用被拒绝，因为 load 的第 2 项要求未满足（bo:requires load 2）。
+    合约条款 4.1.4：要求 2：rows 的总和小于 100。
+  第 3 步（第 46 行）通过：we load with rows = (1, 0), tags = "a" -> refused "bo:requires load 3"
+    结果：调用被拒绝，因为 load 的第 3 项要求未满足（bo:requires load 3）。
+    合约条款 4.1.5.1：要求 3：n 大于 0。
+  第 4 步（第 47 行）通过：we load with rows = 1, tags = "x" -> refused "no x or y"
+    结果：调用被拒绝，原因为“no x or y”。
+    合约条款 4.1.6.1.1：拒绝调用，原因为“no x or y”。
+  第 5 步（第 48 行）通过：we load with rows = 1, tags = ("ok", "bad") -> refused "bo:requires load 4"
+    结果：调用被拒绝，因为 load 的第 4 项要求未满足（bo:requires load 4）。
+    合约条款 4.1.7：要求 4：并非“bad”属于 tags 之一。
+  第 6 步（第 49 行）通过：we load with rows = (1, 2, 3), tags = "ok"
+    结果：调用被接受，实例现为正常。
+  第 7 步（第 50 行）通过：customer check with size = 3 -> refused "bo:requires check 2"
+    结果：调用被拒绝，因为 check 的第 2 项要求未满足（bo:requires check 2）。
+    合约条款 4.3.4：要求 2：sizes 为（1、2）。
+
+共 2 个测试：2 个通过，0 个失败。

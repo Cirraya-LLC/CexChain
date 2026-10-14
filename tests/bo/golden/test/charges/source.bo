@@ -1,0 +1,73 @@
+# Charges of every kind on one bill (milestone 13): a gratuity on each
+# line, rounded half even; a levy, a fixed amount once per bill; VAT on the
+# price and the gratuity, once per invoice, rounded down; a surcharge on
+# the VAT alone; a tourism tax included in the prices, taken out of each line;
+# and a green fee with no rate until 1 July 2027, for bills of three lines or
+# more. Amounts are in cents; rates in millionths (5% is 50000).
+contract Dinner
+parties we, customer
+
+record Table
+  invoice list HKD at most 10
+
+charge gratuity
+  rate 10%
+  added
+  per line half even
+
+charge levy
+  amount HKD 2
+  added
+
+tax vat
+  rate 5%
+  added
+  according to price, gratuity
+  according to invoice down
+
+charge surcharge
+  rate 7%
+  added
+  according to vat
+  per document
+
+tax tourism
+  rate 3%
+  included
+
+charge green
+  from 2027-07-01 on rate 1%
+  applies to count of invoice >= 3
+  added
+
+can settle by customer with payment HKD
+  requires payment = sum of invoice + gratuity + levy + vat + surcharge + green
+  active -> settled
+
+# Lines HKD 12.35 and 8.45 (1235 and 845 cents, 2080 in all):
+#   gratuity, 10% on each line, half even: 123.5 -> 124 (to the even cent),
+#     84.5 -> 84; 208 in all;
+#   levy: 200 once;
+#   vat, 5% of the price and the gratuity (2080 + 208 = 2288), down:
+#     114.4 -> 114;
+#   surcharge, 7% of the vat: 7.98 -> 8 (half up, R17);
+#   tourism, 3% included, on each line: 1235 x 30000 / 1030000 = 35.97 -> 36,
+#     845 x 30000 / 1030000 = 24.61 -> 25 (in the price, not added);
+#   green: no rate before 1 July 2027.
+# Total: 2080 + 208 + 200 + 114 + 8 = 2610 (HKD 26.10).
+test "the worked example"
+  we create with invoice = (HKD 12.35, HKD 8.45) at 2027-06-30
+  customer settle with payment = HKD 26.10 -> settled
+
+# Three lines from 1 July 2027: the green fee applies, 1% of each line, half
+# up: 1235 -> 12.35 -> 12, 845 -> 8.45 -> 8, 1000 -> 10; 30 in all. Gratuity:
+# 124 + 84 + 100 = 308; vat: 5% of 3080 + 308 = 169.4 -> 169; surcharge: 7% of
+# 169 = 11.83 -> 12. Total: 3080 + 308 + 200 + 169 + 12 + 30 = 3799.
+test "the green fee, from 1 July 2027, on three lines or more"
+  we create with invoice = (HKD 12.35, HKD 8.45, HKD 10.00) at 2027-07-01
+  customer settle with payment = HKD 37.99 -> settled
+
+# Two lines after 1 July 2027: the green fee does not apply (its condition).
+test "the green fee needs three lines"
+  we create with invoice = (HKD 12.35, HKD 8.45) at 2027-07-01
+  customer settle with payment = HKD 26.10 -> settled

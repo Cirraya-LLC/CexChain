@@ -115,6 +115,10 @@ struct StepResult {
     /// Accepted as an AI agent's proposal of this action (its function's
     /// name), awaiting approval: the instance did not change.
     std::string proposed;
+    /// Accepted with a bill made (R26): the bill, as its event gives it, in
+    /// short ("price=11005 total=11665 VAT=660@60000"; amounts in the minor
+    /// unit, rates in millionths, each line's charges in brackets).
+    std::string bill;
 };
 
 struct TestResult {
