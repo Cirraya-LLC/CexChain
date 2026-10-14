@@ -1478,9 +1478,10 @@ def oracle_contract(w, entry_name="cexchain_call") -> bytes:
                       memory=(4, 4), entry_name=entry_name)
 
 
-def check_contract_output(output: bytes, home: bytes):
+def check_contract_output(output: bytes, home: bytes, children: bool = False):
     """Section 15's rules for an output: ("accept", map), ("needs", ledgers),
-    or ("malformed", why)."""
+    or ("malformed", why). `children`: the accept may create children (key 6,
+    v0.7)."""
     try:
         value = cbor2.loads(output)
         if dcbor(value) != output:
@@ -1519,17 +1520,33 @@ def check_contract_output(output: bytes, home: bytes):
             return "malformed", "bad needs"
         return "needs", needs
     accept = value[1]
-    if not isinstance(accept, dict) or 1 not in accept or not set(accept) <= {1, 2, 3, 4, 5}:
+    if (not isinstance(accept, dict) or 1 not in accept
+            or not set(accept) <= ({1, 2, 3, 4, 5, 6} if children else {1, 2, 3, 4, 5})):
         return "malformed", "bad accept keys"
+
+    def parties(p):
+        return (isinstance(p, dict) and 1 <= len(p) <= 64
+                and all(text(k, 1, 64) and ledger(v) for k, v in p.items()))
+
     if len(dcbor(accept[1])) > 65_536:
         return "malformed", "state too large"
     if 2 in accept and not text(accept[2], 1, 64):
         return "malformed", "bad status"
-    if 3 in accept:
-        p = accept[3]
-        if (not isinstance(p, dict) or not 1 <= len(p) <= 64
-                or not all(text(k, 1, 64) and ledger(v) for k, v in p.items())):
-            return "malformed", "bad parties"
+    if 3 in accept and not parties(accept[3]):
+        return "malformed", "bad parties"
+    if 6 in accept:
+        kids = accept[6]
+        if not isinstance(kids, list) or not 1 <= len(kids) <= 16:
+            return "malformed", "bad children"
+        for kid in kids:
+            if not isinstance(kid, dict) or 1 not in kid or not set(kid) <= {1, 2, 3}:
+                return "malformed", "bad child keys"
+            if len(dcbor(kid[1])) > 65_536:
+                return "malformed", "child state too large"
+            if 2 in kid and not text(kid[2], 1, 64):
+                return "malformed", "bad child status"
+            if 3 in kid and not parties(kid[3]):
+                return "malformed", "bad child parties"
     if 4 in accept:
         e = accept[4]
         if (not isinstance(e, list) or not 1 <= len(e) <= 64
@@ -1863,6 +1880,579 @@ def generate_protocol_v06() -> None:
     print(f"wrote protocol vectors for {len(ledgers)} ledgers to testvectors/protocol-v0.6.json: "
           f"{len(ledgers[0]['statements'])} statements, {len(ledgers[0]['refused'])} refused, "
           f"{len(ledgers[0]['runs'])} contract runs")
+
+
+# ---------------------------------------------------------------------------
+# Protocol v0.7 additions: instances created by a call (spec section 15,
+# "Instances created by a call"): accept key 6, child ids, instance-view key
+# 6, the depth limit, children's state leaves, and evidence for a child
+# ---------------------------------------------------------------------------
+
+MAX_DEPTH = 8
+
+
+def encode_log_entry(statement_id: bytes, registered_at: int, statement: bytes | None = None,
+                     commitment: bytes | None = None) -> bytes:
+    entry = {1: statement_id, 2: registered_at}
+    if statement is not None:
+        entry[3] = statement
+    else:
+        entry[4] = commitment
+    return dcbor(entry)
+
+
+def append_state_commitment(lg: Ledger, log_key, ledger_id: bytes, entries: list, leaves: list,
+                            timestamp: int) -> bytes:
+    """Appends the commitment to `leaves` (the state after every entry) as the
+    next log entry; returns its id."""
+    index = len(entries)
+    payload = dcbor({1: ledger_id, 2: lg.hash_id, 3: index, 4: smt_root(lg, leaves), 5: timestamp})
+    protected = {3: STATE_TYPE, 4: lg.kid(log_key)}
+    commitment = lg.sign(log_key, protected, payload)
+    commitment_id = lg.h(dcbor(["Signature1", dcbor({1: COSE["Ed25519"], **protected}), b"", payload]))
+    entries.append(encode_log_entry(commitment_id, timestamp, commitment=commitment))
+    return commitment_id
+
+
+def sign_log_checkpoint(lg: Ledger, log_key, ledger_id: bytes, entries: list, timestamp: int) -> tuple[bytes, bytes]:
+    root = lg.merkle().mth(entries)
+    payload = dcbor({1: ledger_id, 2: lg.hash_id, 3: len(entries), 4: root, 5: timestamp})
+    return lg.sign(log_key, {3: CHECKPOINT_TYPE, 4: lg.kid(log_key)}, payload), root
+
+
+def make_bundle(lg: Ledger, log_key, entries: list, checkpoint: bytes, root: bytes, subject: bytes,
+                indices, proofs: list) -> bytes:
+    """An evidence bundle: the entries at `indices` with their receipts
+    against the checkpoint over every entry, and the state proofs
+    ([leaf, siblings] each, in the order given)."""
+    tree = lg.merkle()
+    listed = []
+    for index in sorted(indices):
+        proof = dcbor([len(entries), index, tree.path(index, entries)])
+        receipt = lg.sign(log_key, {4: lg.kid(log_key), 395: VDS[lg.hash_id]}, root,
+                          unprotected={396: {-1: [proof]}}, detached=True)
+        listed.append([entries[index], receipt])
+    bundle = {0: 1, 1: subject, 2: listed, 3: checkpoint}
+    if proofs:
+        bundle[7] = proofs
+    return dcbor(bundle)
+
+
+class PartyLedger:
+    """Another organization's ledger. Its organization registers contract
+    consents itself (signer kind 0), each followed by a state commitment and
+    a checkpoint, and gives each consent's complete evidence bundle."""
+
+    def __init__(self, name: str, hash_id: int, t0: int):
+        self.lg = Ledger(hash_id)
+        self.name = name
+        self.root_key, self.log_key = (ed25519.Ed25519PrivateKey.from_private_bytes(
+            hashlib.sha256(f"CexChain test key: {name} {role}".encode()).digest()) for role in ("root", "log"))
+        self.t0 = t0
+        genesis = {0: 1, 1: 1, 5: t0, 6: bytes([0xE1]) * 16, 7: {
+            1: hash_id, 2: name, 3: ed_public(self.root_key), 4: ed_public(self.log_key)}}
+        encoded, self.id = self.lg.statement(self.root_key, genesis)
+        self.entries = [encode_log_entry(self.id, t0, encoded)]
+        self.leaves = {self.id: [1, self.id, [0]]}
+        self.consents = 0
+
+    def consent(self, metadata: dict) -> tuple[bytes, bytes]:
+        """Registers a cexchain.contract-consent/1 record; returns its id and
+        its evidence bundle."""
+        self.consents += 1
+        index = len(self.entries)
+        now = self.t0 + 10 * index
+        leaf = dcbor(["note", bytes([0xC0 + self.consents]) * 16, f"consent {self.consents}"])
+        payload = {0: 1, 1: 16, 2: self.id, 3: self.id, 5: now, 6: bytes([0xD0 + self.consents]) * 16, 7: {
+            1: CONTRACT_CONSENT, 2: self.lg.merkle().mth([leaf]), 3: 1, 5: metadata}}
+        encoded, record = self.lg.statement(self.root_key, payload)
+        self.entries.append(encode_log_entry(record, now, encoded))
+        self.leaves[record] = [3, record, [index]]
+        leaves = sorted(self.leaves.values(), key=lambda x: x[1])
+        append_state_commitment(self.lg, self.log_key, self.id, self.entries, leaves, now + 1)
+        checkpoint, root = sign_log_checkpoint(self.lg, self.log_key, self.id, self.entries, now + 1)
+        proofs = [[self.leaves[i], smt_proof(self.lg, leaves, i)] for i in (record, self.id)]
+        bundle = make_bundle(self.lg, self.log_key, self.entries, checkpoint, root, record,
+                             [0, index, len(self.entries) - 1], proofs)
+        return record, bundle
+
+
+def generate_protocol_v07() -> None:
+    import wasm_ref as w
+    import test_contracts
+
+    names = ("org_root", "log", "registrar", "clerk")
+    seeds = {name: hashlib.sha256(f"CexChain test key: {name}".encode()).hexdigest() for name in names}
+    keys = {name: ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(seed)) for name, seed in seeds.items()}
+    t0 = 1_791_331_200_000  # 2026-10-07T00:00:00Z
+    day = 86_400_000
+    split_code, oracle_code = test_contracts.split_contract(), oracle_contract(w)
+    modules = {}
+
+    ledgers = []
+    for hash_id in (-16, -65538):
+        lg = Ledger(hash_id)
+        hash_name = HASHES[hash_id]
+        statements, payloads, refused, runs, consents, children = [], [], [], [], [], []
+        contracts, instances, actors, delegations = {}, {}, {}, {}
+        signers = {}  # actor id -> the signer map a contract sees
+        party = {name: PartyLedger(name, hash_id, t0) for name in ("Supplier", "Tier-2 A", "Tier-3 C")}
+        others = {name: hashlib.sha256(f"{name} ledger".encode()).digest() for name in ("Tier-2 B", "Tier-3 D", "Bank")}
+        ledger_of = {**{name: p.id for name, p in party.items()}, **others}
+        bundle_of = {}  # HASH(bundle) under the home's hash -> bundle
+
+        def payload(signer_actor, body_type, body, delegation=None):
+            n = len(statements) + len(refused) + 1
+            out = {0: 1, 1: body_type, 2: ledger_id, 3: signer_actor, 5: t0 + n, 6: n.to_bytes(16, "big"), 7: body}
+            if delegation is not None:
+                out[4] = delegation
+            return out
+
+        def add(name, signer, p):
+            encoded, statement_id = lg.statement(keys[signer], p)
+            statements.append({"name": name, "signer": signer, "encoded": encoded.hex(),
+                               "payload": dcbor(p).hex(), "statement_id": statement_id.hex()})
+            payloads.append(p)
+            return statement_id
+
+        def refuse(name, signer, p, why, malformed=False):
+            """`malformed`: the body breaks the CDDL, so the statement does not
+            even parse; otherwise the ledger rules refuse it (`why`)."""
+            encoded, _ = lg.statement(keys[signer], p)
+            refused.append({"name": name, "signer": signer, "encoded": encoded.hex(), "payload": dcbor(p).hex(),
+                            "after": len(statements), "malformed": malformed, "why": why})
+
+        def view(instance_id):
+            inst = instances[instance_id]
+            out = {1: instance_id, 2: inst["head"], 3: inst["state"]}
+            if inst["status"] is not None:
+                out[4] = inst["status"]
+            if inst["parties"]:
+                out[5] = inst["parties"]
+            if inst["parent"] is not None:
+                out[6] = [inst["parent"], inst["depth"]]
+            return out
+
+        def contract_input(p, now):
+            body = p[7]
+            inp = {1: body[3], 2: body[4], 3: ledger_id, 6: [p[3], signers[p[3]]], 7: now}
+            if 2 in body:
+                inp[4] = instances[body[2]]["contract"]
+                inp[5] = view(body[2])
+            else:
+                inp[4] = body[1]
+            if 6 in body:
+                inp[8] = [[ref[0], ref[3]] for ref in body[6]]
+            return dcbor(inp)
+
+        def rule(p):
+            """The section 15 rules that do not need the contract's output, as
+            far as these vectors reach; None when they hold."""
+            body = p[7]
+            if 2 in body:
+                inst = instances.get(body[2])
+                if inst is None:
+                    return "no such instance"
+                if inst["final"]:
+                    return "final"
+                if body[5] != inst["head"]:
+                    return "head"
+                contract = inst["contract"]
+            else:
+                contract = body[1]
+                if contracts[contract]["retired"]:
+                    return "retired"
+            scope = delegations[p[4]]["scope"] if 4 in p else None
+            if scope is not None and (22 not in scope[1] or (7 in scope and contract not in scope[7])):
+                return "authority"
+            return None
+
+        def run_call(name, p, now, expect):
+            """Runs the contract as the home would at `now`; returns the accept."""
+            body = p[7]
+            contract = instances[body[2]]["contract"] if 2 in body else body[1]
+            inp = contract_input(p, now)
+            outcome, output, fuel, reason = w.run(modules[contract], inp, hash_name)
+            checked = check_contract_output(output, ledger_id, children=True) if outcome == "ok" else (outcome,)
+            verdict = checked[0]
+            assert verdict == expect, f"{name}: {verdict}, expected {expect}"
+            runs.append({"name": name, "after": len(statements), "contract": contract.hex(), "input": inp.hex(),
+                         "outcome": outcome, "output": output.hex(), "fuel": fuel, "verdict": verdict,
+                         **({"reason": reason.hex()} if reason else {})})
+            return checked[1] if verdict == "accept" else None
+
+        def children_rule(p, accept):
+            if 6 not in accept:
+                return None
+            body = p[7]
+            contract = instances[body[2]]["contract"] if 2 in body else body[1]
+            if contracts[contract]["retired"]:
+                return "retired"
+            if 2 in body and instances[body[2]]["depth"] >= MAX_DEPTH:
+                return "depth"
+            return None
+
+        def call(name, signer, actor, body, delegation):
+            """A call the rules and the contract accept: registered, and
+            applied, children included."""
+            p = payload(actor, 22, body, delegation)
+            assert rule(p) is None, (name, rule(p))
+            now = t0 + 1000 + len(statements)
+            accept = run_call(name, p, now, "accept")
+            assert children_rule(p, accept) is None, name
+            statement_id = add(name, signer, p)
+            index = len(statements) - 1
+            if 2 in body:
+                target = body[2]
+            else:
+                target = statement_id
+                instances[target] = {"contract": body[1], "parties": {}, "status": None, "history": [],
+                                     "parent": None, "depth": 0, "created_by": None, "position": None}
+            inst = instances[target]
+            inst.update(head=index, state=accept[1], final=accept.get(5, False))
+            inst["history"].append(index)
+            if 2 in accept:
+                inst["status"] = accept[2]
+            if 3 in accept:
+                inst["parties"] = accept[3]
+            made = []
+            for position, child in enumerate(accept.get(6, [])):
+                child_id = lg.h(dcbor([statement_id, position]))
+                assert child_id not in instances
+                instances[child_id] = {"contract": inst["contract"], "head": index, "state": child[1],
+                                       "status": child.get(2), "parties": child.get(3, {}), "final": False,
+                                       "history": [index], "parent": target, "depth": inst["depth"] + 1,
+                                       "created_by": index, "position": position}
+                children.append({"call": statement_id.hex(), "position": position, "id": child_id.hex()})
+                made.append(child_id)
+            return statement_id, made
+
+        def refused_call(name, signer, actor, body, delegation, why, expect=None, malformed=False):
+            """A call that is refused: by the rules before the contract runs
+            (`why`, no `expect`), or after it, `expect` naming its verdict:
+            refused for that verdict, or (an accept) by the children rules."""
+            p = payload(actor, 22, body, delegation)
+            if not malformed:
+                assert rule(p) == (why if expect is None else None), (name, rule(p))
+            if expect is not None:
+                accept = run_call(name, p, t0 + 1000 + len(statements), expect)
+                if accept is not None:
+                    assert children_rule(p, accept) == why, (name, children_rule(p, accept))
+            refuse(name, signer, p, why, malformed)
+
+        def consent(party_name, instance, function, args, head):
+            """A consent from a party ledger: its record, evidence bundle, and
+            the call's citation of it."""
+            metadata = {"ledger": ledger_id, "instance": instance, "function": function,
+                        "arguments": lg.h(dcbor(args)), "head": head, "until": t0 + 7 * day}
+            record, bundle = party[party_name].consent(metadata)
+            digest = lg.h(bundle)
+            bundle_of[digest] = bundle
+            signer = {1: 0}
+            consents.append({"party": party_name, "ledger": party[party_name].id.hex(), "record": record.hex(),
+                             "metadata": dcbor(metadata).hex(), "bundle": bundle.hex(), "bundle_hash": digest.hex(),
+                             "signer": dcbor(signer).hex()})
+            return [party[party_name].id, record, digest, signer]
+
+        def on(instance, function, args, refs=None, head=None):
+            body = {2: instance, 3: function, 4: args, 5: instances[instance]["head"] if head is None else head}
+            if refs:
+                body[6] = sorted(refs, key=lambda r: r[0])
+            return body
+
+        genesis = {0: 1, 1: 1, 5: t0, 6: bytes([0xE0]) * 16, 7: {
+            1: hash_id, 2: "Cirraya Split Home", 3: ed_public(keys["org_root"]), 4: ed_public(keys["log"])}}
+        encoded, ledger_id = lg.statement(keys["org_root"], genesis)
+        statements.append({"name": "genesis", "signer": "org_root", "encoded": encoded.hex(),
+                           "payload": dcbor(genesis).hex(), "statement_id": ledger_id.hex()})
+        payloads.append(genesis)
+        org = ledger_id
+        home = ledger_id
+        signers[org] = {1: 0}
+
+        def actor(name, signer_key, kind, label):
+            actor_id = add(name, "org_root", payload(org, 2, {1: kind, 2: label, 3: ed_public(keys[signer_key])}))
+            actors[actor_id] = {"index": len(statements) - 1}
+            signers[actor_id] = {1: kind}
+            return actor_id
+
+        registrar = actor("register the registrar", "registrar", 3, "Contract Registrar")
+        clerk = actor("register a clerk", "clerk", 1, "Contracts Clerk")
+
+        def deploy(name, code, interface, label):
+            contract_id = add(name, "org_root", payload(org, 21, {
+                1: code, 2: interface, 3: "wasm", 4: "tools/testvectors 1",
+                5: b"hand-assembled: see tools/testvectors/test_contracts.py and generate.py", 6: label}))
+            contracts[contract_id] = {"history": [len(statements) - 1], "retired": False}
+            modules[contract_id] = w.load(code)
+            return contract_id
+
+        k_split = deploy("deploy the splitting contract", split_code, test_contracts.SPLIT_FUNCTIONS,
+                         "Splitting receivable")
+        k_oracle = deploy("deploy the oracle contract", oracle_code, {"propose": 1, "update": 2},
+                          "Oracle test contract")
+
+        def delegate(name, grantee, scope):
+            d = add(name, "org_root", payload(org, 5, {1: grantee, 2: scope}))
+            delegations[d] = {"index": len(statements) - 1, "grantor": org, "parent": None, "scope": scope}
+            return d
+
+        d_registrar = delegate("delegate calls on both contracts to the registrar", registrar,
+                               {1: [22], 7: sorted([k_split, k_oracle])})
+        d_clerk = delegate("delegate calls on the oracle contract to the clerk", clerk, {1: [22], 7: [k_oracle]})
+
+        def by_registrar(name, body):
+            return call(name, "registrar", registrar, body, d_registrar)
+
+        def refused_by_registrar(name, body, why, expect=None, malformed=False):
+            refused_call(name, "registrar", registrar, body, d_registrar, why, expect, malformed)
+
+        supplier, tier2_a, tier2_b = ledger_of["Supplier"], ledger_of["Tier-2 A"], ledger_of["Tier-2 B"]
+        tier3_c, tier3_d, bank = ledger_of["Tier-3 C"], ledger_of["Tier-3 D"], ledger_of["Bank"]
+
+        # The receivable R1, split twice: tier 1 to tier 2, then tier 2 to
+        # tier 3; a tier-3 part moves on.
+        r1, _ = by_registrar("issue a receivable", {1: k_split, 3: "issue", 4: [supplier, 1_000_000]})
+        parts = [[tier2_a, 600_000], [tier2_b, 400_000]]
+        refused_by_registrar("split without the holder's consent", on(r1, "split", parts), "contract", "needs")
+        refused_by_registrar("split into parts that do not add up", on(r1, "split", [[tier2_a, 600_000]], refs=[
+            consent("Supplier", r1, "split", [[tier2_a, 600_000]], instances[r1]["head"])]), "contract", "aborted")
+        refused_by_registrar("split with a part of zero", on(r1, "split", [[tier2_a, 0], [tier2_b, 1_000_000]]),
+                             "contract", "aborted")
+        split1, (a, b) = by_registrar("split the receivable in two", on(r1, "split", parts, refs=[
+            consent("Supplier", r1, "split", parts, instances[r1]["head"])]))
+        refused_by_registrar("transfer the split receivable", on(r1, "transfer", bank), "final")
+        refused_by_registrar("transfer a third part, which the split did not make",
+                             on(lg.h(dcbor([split1, 2])), "transfer", bank, head=instances[a]["head"]),
+                             "no such instance")
+        refused_by_registrar("split a part at its parent's old head",
+                             on(a, "split", [[tier3_c, 600_000]], head=instances[r1]["history"][0]), "head")
+        refused_call("the clerk, delegated for the oracle contract only, transfers a part", "clerk", clerk,
+                     on(b, "transfer", bank), d_clerk, "authority")
+        parts = [[tier3_c, 250_000], [tier3_d, 350_000]]
+        _, (c, d) = by_registrar("split a tier-2 part", on(a, "split", parts, refs=[
+            consent("Tier-2 A", a, "split", parts, instances[a]["head"])]))
+        by_registrar("transfer a tier-3 part to the bank", on(c, "transfer", bank, refs=[
+            consent("Tier-3 C", c, "transfer", bank, instances[c]["head"])]))
+        refused_by_registrar("transfer it again at its old head", on(c, "transfer", tier3_c,
+                             head=instances[c]["history"][0]), "head")
+
+        # R2, never split: its evidence verifies under the rules of v0.6.
+        r2, _ = by_registrar("issue a second receivable", {1: k_split, 3: "issue", 4: [supplier, 5_000]})
+        by_registrar("transfer the second receivable to the bank", on(r2, "transfer", bank, refs=[
+            consent("Supplier", r2, "transfer", bank, instances[r2]["head"])]))
+
+        # R3, held by the home (no consents), split one part at a time down
+        # to the depth limit.
+        r3, _ = by_registrar("issue a receivable to the home", {1: k_split, 3: "issue", 4: [home, 100]})
+        level = r3
+        for depth in range(1, MAX_DEPTH + 1):
+            _, (level,) = by_registrar(f"split it to depth {depth}", on(level, "split", [[home, 100]]))
+        refused_by_registrar("split at depth 8", on(level, "split", [[home, 100]]), "depth", "accept")
+        by_registrar("transfer the part at depth 8", on(level, "transfer", supplier))
+
+        # R4: 17 parts are too many; 16 are allowed.
+        r4, _ = by_registrar("issue a receivable of 17", {1: k_split, 3: "issue", 4: [home, 17]})
+        refused_by_registrar("split into 17 parts", on(r4, "split", [[ledger_of["Bank"], 1]] * 17),
+                             "contract", "malformed")
+        sixteen = [[bytes([0x60 + i]) * 32, 1] for i in range(15)] + [[bank, 2]]
+        by_registrar("split into 16 parts", on(r4, "split", sixteen))
+
+        # The oracle contract: a creation that makes children, malformed
+        # children, a parent that carries on, a call on a child, and a retire.
+        def out(value) -> bytes:
+            return dcbor(value)
+
+        o1, (o1c0, o1c1) = call("the clerk creates an instance with two children", "clerk", clerk, {
+            1: k_oracle, 3: "propose", 4: out([1, {1: "parent", 2: "open", 3: {"buyer": home}, 6: [
+                {1: "first"}, {1: {"second": 2}, 2: "draft", 3: {"bank": bank, "buyer": home}}]}])}, d_clerk)
+        malformed = {
+            "no children": out([1, {1: 0, 6: []}]),
+            "17 children": out([1, {1: 0, 6: [{1: i} for i in range(17)]}]),
+            "children that are not an array": out([1, {1: 0, 6: {1: 0}}]),
+            "a child without a state": out([1, {1: 0, 6: [{2: "draft"}]}]),
+            "a child with events": out([1, {1: 0, 6: [{1: 0, 4: [["made", None]]}]}]),
+            "a final child": out([1, {1: 0, 6: [{1: 0, 5: True}]}]),
+            "a child with an empty status": out([1, {1: 0, 6: [{1: 0, 2: ""}]}]),
+            "a child with no parties": out([1, {1: 0, 6: [{1: 0, 3: {}}]}]),
+            "a child whose party is not a ledger id": out([1, {1: 0, 6: [{1: 0, 3: {"bank": b"short"}}]}]),
+            "a child that is not a map": out([1, {1: 0, 6: [0]}]),
+        }
+        for what, output in malformed.items():
+            refused_by_registrar(f"the contract writes {what}", on(o1, "update", output), "contract", "malformed")
+        _, (o1c2,) = by_registrar("the parent makes a third child and carries on", on(o1, "update", out(
+            [1, {1: "parent, again", 4: [["child", 2]], 6: [{1: "third", 2: "draft"}]}])))
+        by_registrar("the parent carries on", on(o1, "update", None))
+        by_registrar("a call on the first child, which sees its parent", on(o1c0, "update", None))
+        add("retire the oracle contract", "org_root", payload(org, 23, {1: k_oracle, 2: "superseded"}))
+        contracts[k_oracle]["history"].append(len(statements) - 1)
+        contracts[k_oracle]["retired"] = True
+        refused_by_registrar("make a child on a retired contract", on(o1, "update", out([1, {1: 0, 6: [{1: 0}]}])),
+                             "retired", "accept")
+        by_registrar("the parent carries on after the retire", on(o1, "update", None))
+        by_registrar("its second child carries on too", on(o1c1, "update", out([1, {1: "done", 5: True}])))
+
+        # The state, its commitment, and the checkpoint over everything.
+        entries = [encode_log_entry(bytes.fromhex(st["statement_id"]), t0 + 1000 + i, bytes.fromhex(st["encoded"]))
+                   for i, st in enumerate(statements)]
+        leaves = {org: [1, org, [0]]}
+        for actor_id, info in actors.items():
+            leaves[actor_id] = [1, actor_id, [info["index"]]]
+        for d_id, info in delegations.items():
+            leaves[d_id] = [2, d_id, [info["index"]]]
+        for k_id, info in contracts.items():
+            leaves[k_id] = [4, k_id, info["history"]]
+        for i_id, info in instances.items():
+            leaves[i_id] = [5, i_id, info["history"]]
+        sorted_leaves = sorted(leaves.values(), key=lambda x: x[1])
+        commitment_index = len(entries)
+        commitment_id = append_state_commitment(lg, keys["log"], ledger_id, entries, sorted_leaves,
+                                                t0 + 1000 + commitment_index)
+        checkpoint, root = sign_log_checkpoint(lg, keys["log"], ledger_id, entries, t0 + 1000 + commitment_index)
+
+        def instance_evidence(subject):
+            """The subject's evidence bundle (section 11), with its ancestors'
+            histories up to each creating call, and its contract evidence."""
+            inst = instances[subject]
+            events = set(inst["history"])
+            node = inst
+            while node["parent"] is not None:
+                parent = instances[node["parent"]]
+                events |= {i for i in parent["history"] if i <= node["created_by"]}
+                node = parent
+            events = sorted(events)
+            involved = []
+
+            def involve(object_id):
+                if object_id not in involved:
+                    involved.append(object_id)
+
+            involve(subject)
+            involve(inst["contract"])
+            for i in events:
+                p = payloads[i]
+                involve(p[3])
+                delegation = p.get(4)
+                while delegation is not None:
+                    involve(delegation)
+                    involve(delegations[delegation]["grantor"])
+                    delegation = delegations[delegation]["parent"]
+            needed = {0, commitment_index, *events}
+            for object_id in involved:
+                needed |= set(leaves[object_id][2])
+            work = sorted(needed - {0, commitment_index})
+            while work:
+                p = payloads[work.pop()]
+                deps = []
+                if p[3] != org:
+                    deps.append(actors[p[3]]["index"])
+                if 4 in p:
+                    deps.append(delegations[p[4]]["index"])
+                body = p[7]
+                if p[1] == 2 and 4 in body:
+                    deps.append(actors[body[4]]["index"])
+                elif p[1] == 5:
+                    deps.append(actors[body[1]]["index"])
+                elif p[1] == 22:
+                    contract = body[1] if 1 in body else instances[body[2]]["contract"]
+                    deps.append(contracts[contract]["history"][0])
+                elif p[1] == 23:
+                    deps.append(contracts[body[1]]["history"][0])
+                for dep in deps:
+                    if dep not in needed:
+                        needed.add(dep)
+                        work.append(dep)
+            proofs = [[leaves[i], smt_proof(lg, sorted_leaves, i)] for i in involved]
+            bundle = make_bundle(lg, keys["log"], entries, checkpoint, root, subject, needed, proofs)
+            pins = []
+            for i in events:
+                for ref in payloads[i][7].get(6, []) if payloads[i][1] == 22 else []:
+                    if ref[2] not in pins:
+                        pins.append(ref[2])
+            evidence = {0: 1, 1: bundle}
+            if pins:
+                evidence[2] = [bundle_of[h] for h in pins]
+            ancestors = []
+            node = inst
+            while node["parent"] is not None:
+                ancestors.insert(0, {"id": node["parent"].hex(), "until": node["created_by"]})
+                node = instances[node["parent"]]
+            return {"subject": subject.hex(), "depth": inst["depth"], "ancestors": ancestors, "events": events,
+                    "entries": sorted(needed), "involved": [i.hex() for i in involved],
+                    "pins": [h.hex() for h in pins],
+                    "contract_evidence": dcbor(evidence).hex()}
+
+        ledgers.append({
+            "hash": hash_id,
+            "ledger_id": ledger_id.hex(),
+            "parties": {name: value.hex() for name, value in ledger_of.items()},
+            "statements": statements,
+            "refused": refused,
+            "runs": runs,
+            "consents": consents,
+            "children": children,
+            "contracts": [{"id": k.hex(), "retired": v["retired"], "history": v["history"]}
+                          for k, v in contracts.items()],
+            "instances": [{"id": k.hex(), "contract": v["contract"].hex(), "head": v["head"],
+                           "state": dcbor(v["state"]).hex(), "status": v["status"],
+                           "parties": {r: l.hex() for r, l in v["parties"].items()}, "final": v["final"],
+                           "history": v["history"], "depth": v["depth"],
+                           "parent": v["parent"].hex() if v["parent"] is not None else None,
+                           "created_by": v["created_by"], "position": v["position"]}
+                          for k, v in instances.items()],
+            "log_entries": [e.hex() for e in entries],
+            "state_leaves": [{"kind": leaf[0], "id": leaf[1].hex(), "history": leaf[2]} for leaf in sorted_leaves],
+            "state_root": smt_root(lg, sorted_leaves).hex(),
+            "state_commitment": {"index": commitment_index, "id": commitment_id.hex()},
+            "checkpoint": checkpoint.hex(),
+            "evidence": {
+                "never split": instance_evidence(r2),
+                "tier-3 part": instance_evidence(c),
+                "child of a parent that carried on": instance_evidence(o1c0),
+            },
+        })
+
+    document = {
+        "description": "CexChain protocol objects added in specification revision v0.7 (instances created by a "
+                       "call), built by an independent Python encoder from spec/cexchain.cddl and run by the "
+                       "reference interpreter tools/testvectors/wasm_ref.py. Two hand-assembled contracts: the "
+                       "splitting contract (split_contract in tools/testvectors/test_contracts.py: a receivable "
+                       "[amount, tier] held by {holder}, which splits into child parts and needs the holder's "
+                       "consent unless the holder is the home) and the v0.6 oracle contract (its byte-string "
+                       "arguments are its output; text aborts; anything else accepts with HASH(input) as the "
+                       "state). A registrar (a device; scope key 7: both contracts) and a clerk (a person; the "
+                       "oracle contract only) make calls; consents come from real party ledgers (on the home's "
+                       "hash), each with its complete evidence bundle. Statements are registered at t0 + 1000 + "
+                       "index; refused statements either break the CDDL (`malformed`) or are validated against "
+                       "the state after the first `after` statements, at t0 + 1000 + after; `why` names the "
+                       "rule (final, head, authority, depth, retired) or `contract` when the contract's run "
+                       "refuses it (its run says how). `runs` lists every contract run: the contract, the "
+                       "input the home builds (a child's instance view has key 6, [parent, depth]), and the "
+                       "outcome, output, fuel, and verdict. `children` lists each child's id, HASH([call, "
+                       "position]). `instances` gives each instance's final state (encoded), status, parties, "
+                       "head, finality, history, depth, parent, creating call's index, and position. "
+                       "`log_entries` holds the whole log, ending with the state commitment over "
+                       "`state_leaves`; `checkpoint` covers it. `evidence` holds the contract evidence (with "
+                       "the instance's evidence bundle) of three instances: one never split, a tier-3 part "
+                       "(with its ancestors' histories up to each split), and a child whose parent carried on "
+                       "after creating it; each with its depth, its ancestors (and the index of the call that "
+                       "made the next generation), the calls it shows (`events`), the log indices it holds "
+                       "(`entries`), the objects it proves (`involved`: the instance, its contract, then each "
+                       "event's signer, delegations, and grantors, in log order), and the consent bundles' "
+                       "hashes (`pins`). Signatures are Ed25519 (deterministic); keys are throwaway: seed = "
+                       "SHA-256(\"CexChain test key: <name>\"), and for party ledgers \"<name> root\" and "
+                       "\"<name> log\".",
+        "t0": t0,
+        "max_depth": MAX_DEPTH,
+        "contracts": {"split": split_code.hex(), "oracle": oracle_code.hex()},
+        "seeds": seeds,
+        "ledgers": ledgers,
+    }
+    (OUT / "protocol-v0.7.json").write_text(json.dumps(document, indent=1) + "\n")
+    first = ledgers[0]
+    print(f"wrote protocol vectors for {len(ledgers)} ledgers to testvectors/protocol-v0.7.json: "
+          f"{len(first['statements'])} statements, {len(first['refused'])} refused, {len(first['runs'])} "
+          f"contract runs, {len(first['children'])} children, {len(first['consents'])} consents")
 
 
 # ---------------------------------------------------------------------------
@@ -2321,6 +2911,7 @@ def main() -> None:
     generate_protocol_v04()
     generate_protocol_v05()
     generate_protocol_v06()
+    generate_protocol_v07()
     generate_vm_v1()
 
 
