@@ -164,6 +164,8 @@
     "val.yes": "yes",
     "val.no": "no",
     "val.refused": "refused",
+    "val.none": "none",
+    "val.pending_approval": "pending approval",
 
     # Fields. Their forms are how the contract text refers to them.
     "field.holder": {"word": "holder", "forms": {"subject": "the holder", "object": "the holder"}},
@@ -176,6 +178,8 @@
     "field.customer_location": {"word": "customer location",
                                  "forms": {"object": "the customer location"}},
     "field.cooling_period": {"word": "cooling period", "forms": {"object": "the cooling period"}},
+    "field.payee": {"word": "payee", "forms": {"subject": "the payee", "object": "the payee"}},
+    "field.portion": {"word": "portion", "forms": {"object": "the portion"}},
 
     # States.
     "state.active": "active",
@@ -187,6 +191,8 @@
     "state.suspended": "suspended",
     "state.terminated": "terminated",
     "state.cancelled": "cancelled",
+    "state.disputed": "disputed",
+    "state.redeemed": "redeemed",
 
     # Who acts.
     "actor.person": {"word": "person", "forms": {"plural": "people"}},
@@ -199,11 +205,13 @@
     "role.supplier": {"word": "supplier", "forms": {"subject": "the supplier", "object": "the supplier"}},
     "role.bank": {"word": "bank", "forms": {"subject": "the bank", "object": "the bank"}},
     "role.issuer": {"word": "issuer", "forms": {"subject": "the issuer", "object": "the issuer"}},
+    "role.counterparty": {"word": "counterparty", "forms": {"subject": "the counterparty", "object": "the counterparty"}},
 
     # Built-in expressions.
     "expr.sum_of": "sum of …",
     "expr.count_of": "count of …",
-    "expr.at_most": "at most …"
+    "expr.at_most": "at most …",
+    "expr.previous_state": "previous state"
   },
 
   "messages": {
@@ -337,6 +345,11 @@
     "check.permit": "{text}: the only line of this kind in edition 1 is AI agent can propose",
     "check.subject": "{text}: inside an action only the contract acts; a party's duty belongs in a when rule (when due issuer pays)",
     "check.threshold-amount": "{text} compares the amount of {action}, which has no one amount: give it one input of money (with amount HKD) or the instance an amount field, or compare a field instead (requires amount > HKD 100)",
+    "check.standard-by": "{action} is a built-in action, started by {party} under its standard terms; to have another party start it, copy it under a name of your own (cexchain bo stdlib show {action})",
+    "check.standard-to": "{action} has no counterparty under its standard terms, so it takes no to; to give it one, copy it under a name of your own (cexchain bo stdlib show {action})",
+    "check.standard-change": "{text}: the state changes of {action}, and the fields its standard terms change, are the standard terms'; to change them, copy it under a name of your own (cexchain bo stdlib show {action})",
+    "check.standard-field": "the standard terms of {action} use the field {field}, which each instance must hold and actions may change: declare it in the kind's block, with its type",
+    "check.standard-unreachable": "{action} can never start: under its standard terms it starts only from {states}, which no instance of this contract ever reaches",
     "check.when-event": "{text} is not a time: a when rule fires at a date (when due), N before due, or overdue N",
     "check.when-person": "{text} asks for a person, but the keeper (a device) fires a when rule: nobody confirms it in person or proposes it",
     "check.needs-due": "{text} counts from a due date, which the instance does not have: declare due date in the kind's block (a service with a recurring price is due at the end of each period)",
@@ -361,6 +374,8 @@
     "check.test-expect": "{text} is not an outcome a step can expect: write a state of the contract (-> signed), refused (-> refused, or with its reason in quotes), or the consent the call waits for (-> consent of bank)",
     "check.test-expect-step": "an expectation (->) follows the step it is about, once",
     "check.test-reason": "{text}: only refused takes a reason",
+    "check.test-proposal": "-> pending approval: only a call by AI agent to an action an AI agent may only propose (AI agent can propose) is kept as a proposal, and {action} is not such an action",
+    "check.test-needs-to": "{action} takes its counterparty from each call: write to PARTY (supplier transfer to factor1)",
     "build.fragment": "this file has no contract line, so it is a fragment: only a contract (contract NAME) compiles",
     "build.standard-action": "{action} is a built-in action: its template comes with the standard library, in a later version of the compiler; for now, declare an action of your own (can NAME by PARTY)",
     "build.executor": "{action} asks an executor to act outside the ledger, which comes in step 6b: deployed code never changes, so it cannot be compiled before then",
@@ -390,6 +405,10 @@
     "run.requires": "requirement {number} of {action} is not met",
     "run.in-person": "{action} needs a person who proves presence (a passkey or a hardware key)",
     "run.party": "{party} is not bound to a ledger yet",
+    "run.empty": "there is no {party} now",
+    "run.pending": "the instance already keeps 16 proposals awaiting approval",
+    "run.proposal": "no proposal awaiting approval has that function and those arguments",
+    "run.approve": "{action} was proposed by an AI agent: a person who proves presence must approve it",
     "fmt.unstable": "written in {language}, the source would read differently here: a name the contract gives, or a word, would read together with the words around it as another word of {language}; nothing was formatted: rename the name or reword the line, or format into another language",
     "fmt.internal": "laid out canonically, the source would read differently here, so nothing was formatted; this is a bug in the formatter: please report it",
     "bo.truncated": "more problems were found; only the first {limit} are shown"
@@ -415,6 +434,7 @@
     "field-given": "{field}: {type}, given when an instance is created.",
     "field-party": "{field}: {type}; each instance starts with {party.object}, and actions may change it.",
     "field-constant": "{field}: {value}, the same for every instance.",
+    "field-empty": "{field}: {type}; each instance starts with none, and actions set it.",
     "creation": "Creating an instance (function {function}) names the ledgers of the parties bound at creation and sets the fields given at creation. It needs no party's consent: the parties agree through the actions below.",
     "state-first": "An instance starts in the state {state}.",
     "states-all": "Its states are {states}.",
@@ -424,12 +444,15 @@
     "actions-note": "A call that does not meet one of an action's requirements is refused, and the instance does not change. A missing consent is not a refusal: the call waits for it.",
     "action-function": "{action} (function {function})",
     "action-standard": "A built-in action of Bo: its standard terms (who starts it, who consents, the states it needs and changes) come with Bo's standard library in a later version, so this text states only the clauses the contract writes.",
+    "action-terms": "A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show {function}): the clauses marked R19 state them, after the contract's own clauses.",
+    "action-home": "Started by the home ledger on its own word: no party's consent is needed.",
     "action-by": "Started by {party.object}, whose agreement it needs.",
     "action-to": "Its counterparty is {party.object}.",
     "action-inputs": "The call gives {inputs}.",
     "input": "{input} ({type})",
     "consent-binds": "It needs the consent of {party.object}. The first such call names the ledger of {party.object} and binds {party.object} to it; later calls may leave it out or name the same ledger.",
     "consent-taken": "It needs the consent of whichever party is {field.object} before the call, since the action changes {field.object}.",
+    "consent-call": "It needs the consent of {party.object}, whose ledger each call names (the argument {input}).",
     "requirement": "Requirement {number}: {need}.",
     "requirement-if": "Requirement {number}: if {guard}, {need}.",
     "need-consent": "the consent of {party.object}",
@@ -441,6 +464,7 @@
     "set": "It sets {field} to {value}.",
     "transition": "The instance becomes {state}.",
     "transition-from": "If the instance is {from}, it becomes {state}; otherwise the call is refused.",
+    "transition-previous": "If the instance is {from}, it returns to the state it was in before it became {from}; otherwise the call is refused.",
     "each": "For each {item} in {list}:",
     "do": "It also does this: {action}.",
     "do-executor": "An executor must {action}, outside the ledger, and report the result.",
@@ -450,7 +474,8 @@
     "action-by-party": "{action} by {party.object}",
     "action-with": "{action}, with {inputs}",
     "agents-delegation": "An AI agent may start it within its delegation.",
-    "agents-propose": "An AI agent may only propose it: it takes effect once a person approves it, and every requirement is checked again then.",
+    "agents-propose": "An AI agent may only propose it: its call is kept as a proposal, which takes effect only when a person who proves presence approves it; every requirement is checked then.",
+    "approve": "approve (function {function}): a person who proves presence approves a proposal an AI agent made, naming its function and arguments. The proposal then runs as its action does, started by that action's starter, with every requirement checked. An instance keeps at most 16 proposals.",
     "action-executor": "An executor carries it out outside the ledger and reports the result.",
     "due-field": "An instance is due on {field.object}.",
     "due-period": "An instance is due at the end of each paid period.",
@@ -494,6 +519,7 @@
     "cond-before-due": "{duration} before it is due",
     "cond-within": "within {duration}",
     "op-not": "it is not so that {operand}",
+    "op-not-equals": "{left} is not {right}",
     "op-and": "{left} and {right}",
     "op-or": "{left} or {right}",
     "op-equals": "{left} is {right}",
@@ -553,6 +579,7 @@
     "outcome-no-instance": "refused by the ledger: there is no instance, since its creation was not accepted",
     "outcome-final-instance": "refused by the ledger: the instance is final and takes no more calls",
     "outcome-broken": "the contract's code did not run as compiled code does ({detail}); this is a bug in the compiler: please report it",
+    "outcome-proposed": "kept as a proposal of {action}, which waits for a person's approval; the instance does not change",
     "expect-accepted": "the call is accepted",
     "expect-state": "the call is accepted, and the instance is {state}",
     "expect-refused": "the call is refused",
@@ -560,7 +587,13 @@
     "expect-waits": "the call waits for the consent of {parties}",
     "expect-waits-home": "the call waits for {party} to make it",
     "expect-waits-both": "the call waits for the consent of {parties}, and for {party} to make it",
-    "rule-R1": "A field the vocabulary defines has the vocabulary's type: holder and pledgee a party, due a date, tier a number, customer location a text, cooling period a duration.",
+    "expect-proposed": "the call is kept as a proposal, pending approval",
+    "stdlib-starter": "started by {party.object}",
+    "stdlib-home": "started by the home ledger, on its own word",
+    "stdlib-counterparty": "to a counterparty, who consents",
+    "stdlib-states": "{from} → {to}",
+    "stdlib-terms": "The standard terms of {action}:",
+    "rule-R1": "A field the vocabulary defines has the vocabulary's type: holder, pledgee, and payee a party, due a date, tier a number, customer location a text, cooling period a duration.",
     "rule-R2": "A field given a party holds a party: each instance starts with that party, and actions may change it.",
     "rule-R3": "A role the contract first names as an action's counterparty (after to) is bound to a ledger by that action, with its consent; every other role is bound to a ledger when an instance is created.",
     "rule-R4": "An instance starts in the one state that no state change leads to; if there is none, in the state active.",
@@ -577,6 +610,10 @@
     "rule-R15": "Parts are a list of amounts in the unit of the instance's amount.",
     "rule-R16": "A list holds at most 16 items, unless at most N says otherwise.",
     "rule-R17": "A product or quotient of money, quantities, or rates is rounded to the smallest unit, half up (away from zero).",
-    "rule-R18": "A name nothing declares, compared with a text, is that text."
+    "rule-R18": "A name nothing declares, compared with a text, is that text.",
+    "rule-R19": "A built-in action has the standard terms Bo's standard library gives it (cexchain bo stdlib show ACTION): who starts it, whose consent it needs, the states it starts from and leads to, and what it changes. The contract's own clauses come first and add to them; R8 adds no consent to the standard terms.",
+    "rule-R20": "The pledgee and the payee, used by an action (the standard terms of a built-in action included) but not declared by the contract, are fields of each instance, holding no party until an action sets them.",
+    "rule-R21": "An action whose counterparty (after to) is counterparty, a party the contract does not declare, takes its counterparty from each call (the argument counterparty) and needs its consent; so does a built-in action with a counterparty when the contract writes no to.",
+    "rule-R22": "A bare 0 compared with, added to, or taken from money, a quantity, a rate, or a duration is zero of it."
   }
 }

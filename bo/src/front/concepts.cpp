@@ -157,6 +157,12 @@ constexpr Concept unsorted_concepts[] = {
     {"val.no", value, 0},
     // A test's expectation that a step is refused (`-> refused`).
     {"val.refused", value, 0},
+    // No party: what a party field holds before an action sets it
+    // (`pledgee = none`; milestone 11).
+    {"val.none", value, 0},
+    // A test's expectation that an AI agent's call is kept as a proposal
+    // (`-> pending approval`).
+    {"val.pending_approval", value, 0},
     // Fields.
     {"field.holder", field, 0},
     {"field.amount", field, 0},
@@ -167,6 +173,10 @@ constexpr Concept unsorted_concepts[] = {
     {"field.parts", field, 0},
     {"field.customer_location", field, 0},
     {"field.cooling_period", field, 0},
+    // Who a receivable's payment went to (the standard library's pay), and
+    // the part of a warehouse receipt redeemed.
+    {"field.payee", field, 0},
+    {"field.portion", field, 0},
     // States.
     {"state.active", state, 0},
     {"state.proposed", state, 0},
@@ -177,6 +187,8 @@ constexpr Concept unsorted_concepts[] = {
     {"state.suspended", state, 0},
     {"state.terminated", state, 0},
     {"state.cancelled", state, 0},
+    {"state.disputed", state, 0},
+    {"state.redeemed", state, 0},
     // Who acts.
     {"actor.person", actor, 0},
     {"actor.ai_agent", actor, 0},
@@ -187,10 +199,16 @@ constexpr Concept unsorted_concepts[] = {
     {"role.supplier", role, 0},
     {"role.bank", role, 0},
     {"role.issuer", role, 0},
+    // The party an action names after `to`: in the standard library's terms,
+    // and, when the contract does not declare it, named by each call (R21).
+    {"role.counterparty", role, 0},
     // Built-in expressions.
     {"expr.sum_of", expression, 1},
     {"expr.count_of", expression, 1},
     {"expr.at_most", expression, 1},
+    // `frozen -> previous state`: the state the instance was in before it
+    // entered its current one.
+    {"expr.previous_state", expression, 0},
 };
 
 constexpr std::size_t concept_count = std::size(unsorted_concepts);
@@ -357,6 +375,12 @@ constexpr MessageSpec unsorted_messages[] = {
     {"check.permit", Severity::error, "text"},
     {"check.subject", Severity::error, "text"},
     {"check.threshold-amount", Severity::error, "text action"},
+    // Checking: built-in actions and their standard terms (milestone 11).
+    {"check.standard-by", Severity::error, "action party"},
+    {"check.standard-to", Severity::error, "action"},
+    {"check.standard-change", Severity::error, "action text"},
+    {"check.standard-field", Severity::error, "action field"},
+    {"check.standard-unreachable", Severity::error, "action states"},
     // Checking: time rules.
     {"check.when-event", Severity::error, "text"},
     {"check.when-person", Severity::error, "text"},
@@ -385,6 +409,8 @@ constexpr MessageSpec unsorted_messages[] = {
     {"check.test-expect", Severity::error, "text"},
     {"check.test-expect-step", Severity::error, ""},
     {"check.test-reason", Severity::error, "text"},
+    {"check.test-proposal", Severity::error, "action"},
+    {"check.test-needs-to", Severity::error, "action"},
     // Building (lowering a checked model to code).
     {"build.fragment", Severity::error, ""},
     {"build.standard-action", Severity::error, "action"},
@@ -417,6 +443,10 @@ constexpr MessageSpec unsorted_messages[] = {
     {"run.requires", Severity::error, "action number"},
     {"run.in-person", Severity::error, "action"},
     {"run.party", Severity::error, "party"},
+    {"run.empty", Severity::error, "party"},
+    {"run.pending", Severity::error, ""},
+    {"run.proposal", Severity::error, ""},
+    {"run.approve", Severity::error, "action"},
     // The formatter (bo fmt).
     {"fmt.unstable", Severity::error, "language"},
     {"fmt.internal", Severity::error, ""},
@@ -460,6 +490,7 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"field-given", "field type"},
     {"field-party", "field type party"},
     {"field-constant", "field value"},
+    {"field-empty", "field type"},
     {"creation", "function"},
     // States.
     {"state-first", "state"},
@@ -471,12 +502,15 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"actions-note", ""},
     {"action-function", "action function"},
     {"action-standard", "action"},
+    {"action-terms", "action function"},
+    {"action-home", ""},
     {"action-by", "party"},
     {"action-to", "party"},
     {"action-inputs", "inputs"},
     {"input", "input type"},
     {"consent-binds", "party"},
     {"consent-taken", "field"},
+    {"consent-call", "party input"},
     {"requirement", "number need"},
     {"requirement-if", "number guard need"},
     {"need-consent", "party"},
@@ -488,6 +522,7 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"set", "field value"},
     {"transition", "state"},
     {"transition-from", "from state"},
+    {"transition-previous", "from"},
     {"each", "item list"},
     {"do", "action"},
     {"do-executor", "action"},
@@ -498,6 +533,7 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"action-with", "action inputs"},
     {"agents-delegation", ""},
     {"agents-propose", ""},
+    {"approve", "function"},
     {"action-executor", ""},
     // Time rules.
     {"due-field", "field"},
@@ -545,6 +581,7 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"cond-before-due", "duration"},
     {"cond-within", "duration"},
     {"op-not", "operand"},
+    {"op-not-equals", "left right"},
     {"op-and", "left right"},
     {"op-or", "left right"},
     {"op-equals", "left right"},
@@ -606,6 +643,7 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"outcome-no-instance", ""},
     {"outcome-final-instance", ""},
     {"outcome-broken", "detail"},
+    {"outcome-proposed", "action"},
     {"expect-accepted", ""},
     {"expect-state", "state"},
     {"expect-refused", ""},
@@ -613,6 +651,13 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"expect-waits", "parties"},
     {"expect-waits-home", "party"},
     {"expect-waits-both", "parties party"},
+    {"expect-proposed", ""},
+    // The standard library (bo stdlib).
+    {"stdlib-starter", "party"},
+    {"stdlib-home", ""},
+    {"stdlib-counterparty", ""},
+    {"stdlib-states", "from to"},
+    {"stdlib-terms", "action"},
     // What each recognition rule infers (rule_specs).
     {"rule-R1", ""},
     {"rule-R2", ""},
@@ -632,6 +677,10 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"rule-R16", ""},
     {"rule-R17", ""},
     {"rule-R18", ""},
+    {"rule-R19", ""},
+    {"rule-R20", ""},
+    {"rule-R21", ""},
+    {"rule-R22", ""},
 };
 
 constexpr auto sorted_sentences = [] {
@@ -666,6 +715,10 @@ constexpr RuleSpec rules[] = {
     {"R16", "list-bound"},        // lists: at most 16 items (plan 5.1, item 8)
     {"R17", "rounding"},          // products and quotients round half up (U5)
     {"R18", "bare-text"},         // an undeclared name compared with text is text
+    {"R19", "standard-terms"},    // a built-in action has the standard library's terms
+    {"R20", "standard-fields"},   // fields the standard terms use: added, empty at first
+    {"R21", "counterparty"},      // an undeclared counterparty: each call names it
+    {"R22", "zero"},              // a bare 0 is zero of any amount
 };
 
 template <class T, std::size_t N, class Key>

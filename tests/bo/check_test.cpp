@@ -189,7 +189,7 @@ TEST_CASE("every check has an error golden, and every rule is seen", "[bo][check
         CHECK(find_rule(models.substr(at + 1, end - at - 1)) != nullptr);
         at = end;
     }
-    CHECK(rule_specs().size() == 18);
+    CHECK(rule_specs().size() == 22);
     CHECK(rule_specs().front().id == "R1");
 }
 
@@ -342,11 +342,19 @@ TEST_CASE("states: collected, the first one, and reachable", "[bo][check]") {
     CHECK(check_codes("contract C\nparties we\nrecord R\n  n number\n"
                       "can a by we\n  x -> y\ncan b by we\n  y -> x\n") ==
           "check.unreachable-state check.unreachable-state");
-    // A state used as a condition (R7); one only a vocabulary action could
-    // reach is left to the standard library (milestone 11).
-    CHECK(check_codes("contract C\nparties we\nasset A\n  n number\ncan pledge\n"
+    // A state used as a condition (R7); one only a vocabulary action whose
+    // standard terms come later could reach is not reported.
+    CHECK(check_codes("contract C\nparties we\nasset A\n  n number\ncan refund\n"
                       "  requires not frozen\n")
               .empty());
+    // The standard terms' states are known (R19): those they reach are the
+    // contract's, and no other.
+    CHECK(model_of("contract C\nparties we\nasset A\n  holder we\ncan pledge\n"
+                   "  requires not frozen\ncan freeze\n")
+              .find("state state.active first{R4}\nstate state.pledged{R19}\n"
+                    "state state.frozen{R19}\n") != std::string::npos);
+    CHECK(check_codes("contract C\nparties we\nasset A\n  holder we\ncan pledge\n"
+                      "  requires not frozen\n") == "check.unreachable-state");
     // A transition names states, not parties.
     CHECK(check_codes("contract C\nparties we\nrecord R\n  n number\ncan go by we\n  -> we\n") ==
           "check.type");
@@ -355,12 +363,12 @@ TEST_CASE("states: collected, the first one, and reachable", "[bo][check]") {
 TEST_CASE("roles: bound at creation, or by the first to (U4)", "[bo][check]") {
     const std::string model =
         model_of("contract C\nparties issuer, supplier, bank\nasset A\n  holder supplier\n"
-                 "can release by bank\ncan pledge to bank\n");
+                 "can audit by bank\n  -> active\ncan pledge to bank\n");
     // The bank is named after `by` first: bound at creation.
     CHECK(model.find("party role.bank bound=creation{R3}") != std::string::npos);
     const std::string later =
         model_of("contract C\nparties issuer, supplier, bank\nasset A\n  holder supplier\n"
-                 "can pledge to bank\ncan release by bank\n");
+                 "can pledge to bank\ncan audit by bank\n  -> active\n");
     CHECK(later.find("party role.bank bound=act.pledge{R3}") != std::string::npos);
     CHECK(later.find("  consent role.bank{R3}\n") != std::string::npos);
     // A name of the contract's own is a party too.

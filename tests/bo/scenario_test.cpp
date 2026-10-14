@@ -99,6 +99,12 @@ std::vector<std::pair<std::string, std::filesystem::path>> cases() {
         {"failing", golden_dir / "test/failing/source.bo"},
         {"loan", golden_dir / "check-tests/source.bo"},
         {"supply-agreement", source_dir / "deploy/demo/supply-agreement.bo"},
+        // The standard library (milestone 11): the spec's ReceivableFinancing,
+        // the native assets' flows, and an AI agent's proposal.
+        {"receivable-financing", golden_dir / "test/receivable-financing/source.bo"},
+        {"receivable", golden_dir / "test/receivable/source.bo"},
+        {"warehouse-receipt", golden_dir / "test/warehouse-receipt/source.bo"},
+        {"standard", golden_dir / "check-standard/source.bo"},
     };
 }
 
@@ -162,9 +168,11 @@ TEST_CASE("bo test: the goldens", "[bo][test]") {
         }
         // The same twice; every report ends with its count.
         CHECK(dump(*t.compiled.model, tested(source).results) == texts[0].second);
+        const std::size_t total = t.results.tests.size();
         CHECK(texts[1].second.ends_with(
-            std::to_string(t.results.tests.size()) + " tests: " + std::to_string(t.results.passed) +
-            " passed, " + std::to_string(t.results.failed) + " failed.\n"));
+            (total == 1 ? std::string("1 test: ") : std::to_string(total) + " tests: ") +
+            std::to_string(t.results.passed) + " passed, " + std::to_string(t.results.failed) +
+            " failed.\n"));
         // Only the failing case fails.
         CHECK((t.results.failed > 0) == (name == "failing"));
     }

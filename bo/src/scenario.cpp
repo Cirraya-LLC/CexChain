@@ -117,6 +117,31 @@ const m::Action* find_action(const m::Model& model, const m::Step& step) {
     return nullptr;
 }
 
+/// The action with this wire name (as compiled code names it).
+const m::Action* action_named(const m::Model& model, std::string_view wire) {
+    for (const m::Action& a : model.actions) {
+        if (wire_name(a.word, a.name) == wire) {
+            return &a;
+        }
+    }
+    return nullptr;
+}
+
+/// The first proposal the instance keeps: [function, arguments].
+const cbor::Array* first_proposal(const std::optional<protocol::ContractInstanceView>& instance) {
+    if (!instance) {
+        return nullptr;
+    }
+    const cbor::Value* pending = instance->state.find("pending");
+    const cbor::Array* list = pending != nullptr ? pending->as_array() : nullptr;
+    if (list == nullptr || list->empty()) {
+        return nullptr;
+    }
+    const cbor::Array* entry = list->front().as_array();
+    return entry != nullptr && entry->size() == 2 && entry->front().as_text() != nullptr ? entry
+                                                                                         : nullptr;
+}
+
 /// One test's ledger: its instance, as the home keeps it.
 struct Ledger {
     Id home;
@@ -176,8 +201,12 @@ Id Runner::ledger_of(const m::TestParty& p, const Ledger& l) {
 }
 
 std::optional<Id> Runner::starter_of(const m::Action& a, const Ledger& l) const {
-    if (!a.by || !l.instance) {
+    if (!l.instance) {
         return std::nullopt;
+    }
+    if (!a.by) {
+        // A built-in action without a starter is the home's own word.
+        return a.word != nullptr ? std::optional<Id>(l.home) : std::nullopt;
     }
     // A role, or a field holding a party: the instance's parties name both.
     const auto it = l.instance->parties.find(wire_name(a.by->concept_entry, a.by->name));
@@ -212,6 +241,20 @@ cbor::Value Runner::arguments(const m::Step& step, const m::Action* action, cons
         }
         return out.empty() ? cbor::Value::null() : canonical(std::move(out));
     }
+    if (step.approve) {
+        // {"function": NAME, "arguments": ARGS}: the first proposal kept.
+        const cbor::Array* proposal = first_proposal(l.instance);
+        return canonical(
+            cbor::Map{{cbor::Value::text("function"),
+                       proposal != nullptr ? proposal->front() : cbor::Value::text("")},
+                      {cbor::Value::text("arguments"),
+                       proposal != nullptr ? proposal->back() : cbor::Value::null()}});
+    }
+    // R21: a counterparty each call names, as the argument counterparty.
+    if (action != nullptr && action->to && action->to->refers == m::Refers::input && step.to) {
+        given.push_back({cbor::Value::text(wire_name(action->to->concept_entry, action->to->name)),
+                         cbor::Value::bytes(ledger_of(*step.to, l).bytes())});
+    }
     // The role the action binds (R3), under its name: the step's `to`.
     if (action != nullptr && action->to && step.to) {
         const std::string role = m::key(action->to->concept_entry, action->to->name);
@@ -235,7 +278,11 @@ void Runner::accept(const m::Step& step, const protocol::ContractAccept& a, Ledg
         r.state = *state->as_text();
     }
     for (const protocol::ContractEvent& e : a.events) {
-        r.events.push_back(e.name);
+        const std::string* action = e.data.as_text();
+        r.events.push_back(action != nullptr ? e.name + ":" + *action : e.name);
+        if (e.name == "propose" && action != nullptr) {
+            r.proposed = *action;
+        }
     }
     r.final = a.final;
     if (step.creation) {
@@ -260,6 +307,12 @@ void Runner::run_step(const m::Step& step, Ledger& l, StepResult& r) {
         return;
     }
     const m::Action* action = step.creation ? nullptr : find_action(model_, step);
+    // An approval is started by the proposed action's starter.
+    const m::Action* starts = action;
+    if (step.approve) {
+        const cbor::Array* proposal = first_proposal(l.instance);
+        starts = proposal != nullptr ? action_named(model_, *proposal->front().as_text()) : nullptr;
+    }
     const Id subject = ledger_of(step.subject, l);
     const ContractSigner own = signer_of(step);
     // Who does not consent: those the step expects the call to wait for,
@@ -273,8 +326,8 @@ void Runner::run_step(const m::Step& step, Ledger& l, StepResult& r) {
     std::ranges::sort(r.expected_waits, id_less);
     const auto [first, last] = std::ranges::unique(r.expected_waits);
     r.expected_waits.erase(first, last);
-    if (action != nullptr) {
-        if (const std::optional<Id> starter = starter_of(*action, l);
+    if (starts != nullptr) {
+        if (const std::optional<Id> starter = starter_of(*starts, l);
             starter && *starter != subject) {
             withheld.insert(hex(*starter));
         }
@@ -285,8 +338,9 @@ void Runner::run_step(const m::Step& step, Ledger& l, StepResult& r) {
     std::vector<std::pair<Id, ContractSigner>> given;
     for (std::size_t round = 0; round < max_rounds; ++round) {
         protocol::ContractInput input;
-        input.function = step.creation ? std::string(m::creation_function(model_))
-                                       : wire_name(step.word, step.name);
+        input.function = step.creation  ? std::string(m::creation_function(model_))
+                         : step.approve ? std::string(m::approve_function)
+                                        : wire_name(step.word, step.name);
         input.arguments = args;
         input.home = l.home;
         input.contract = contract_;
@@ -402,6 +456,8 @@ bool passes(const m::Step& step, const StepResult& r) {
                r.happened == Happened::final_instance;
     case m::Expectation::waits:
         return r.happened == Happened::waits && r.waits == r.expected_waits;
+    case m::Expectation::proposed:
+        return r.happened == Happened::accepted && !r.proposed.empty();
     }
     return false;
 }
@@ -719,6 +775,8 @@ std::string expectation_text(const m::Step& step, const StepResult& result,
         return say("expect-refused", {}, language);
     case m::Expectation::waits:
         return waits_words(results, result.expected_waits, result.home, "expect-", language);
+    case m::Expectation::proposed:
+        return say("expect-proposed", {}, language);
     }
     return say("expect-accepted", {}, language);
 }
@@ -727,6 +785,12 @@ std::string outcome_text(const StepResult& result, const TestResults& results,
                          const Pack* language) {
     switch (result.happened) {
     case Happened::accepted: {
+        if (!result.proposed.empty()) {
+            const Concept* c = find_concept("act." + result.proposed);
+            return say("outcome-proposed",
+                       {{"action", c != nullptr ? spell(c->id, language) : result.proposed}},
+                       language);
+        }
         const std::string state = state_word(result.state, language);
         std::string out = result.consents.empty()
                               ? say("outcome-accepted", {{"state", state}}, language)
@@ -764,8 +828,9 @@ const ExplainedClause* refusal_clause(const Explained& text, const m::Model& mod
     if (result.happened != Happened::refused) {
         return nullptr;
     }
-    const std::string function =
-        step.creation ? std::string(m::creation_function(model)) : wire_name(step.word, step.name);
+    const std::string function = step.creation  ? std::string(m::creation_function(model))
+                                 : step.approve ? std::string(m::approve_function)
+                                                : wire_name(step.word, step.name);
     // "bo:CODE VALUES": the code, then the action and a number.
     std::string_view reason = result.reason;
     std::string_view code;

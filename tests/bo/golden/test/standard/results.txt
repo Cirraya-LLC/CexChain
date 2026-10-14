@@ -1,0 +1,7 @@
+test "a receipt pledged, released, and redeemed" passed home=role.we
+  step 1 passed 2026-01-01 accepted active event=active; fuel 6256
+  step 2 passed 2026-01-01 accepted pledged event=pledged consents depositor bank1; fuel 11312 14666
+  step 3 passed 2026-01-01 accepted pledged event=propose:release consents bank1; fuel 11757 14845
+  step 4 passed 2026-01-01 accepted active event=approve:release event=active consents bank1; fuel 13586 16517
+  step 5 passed 2026-01-01 accepted redeemed event=redeemed final consents depositor; fuel 11936 14203
+1 tests: 1 passed, 0 failed

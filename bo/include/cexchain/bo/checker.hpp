@@ -12,8 +12,9 @@
 #include <cexchain/bo/model.hpp>
 #include <cexchain/bo/pack.hpp>
 
-/// The checker (passes 4 and 5 of the plan, without the standard library):
-/// a parsed tree to the checked model of model.hpp, and every problem found.
+/// The checker (passes 4 and 5 of the plan): a parsed tree, with the
+/// standard library's terms of its built-in actions (stdlib.hpp), to the
+/// checked model of model.hpp, and every problem found.
 ///
 /// What it reads:
 ///   - the contract's name (a file without one is a fragment: a warning),
@@ -24,11 +25,13 @@
 ///     with that party and may change (R2). A vocabulary field has the
 ///     vocabulary's type (R1);
 ///   - states, collected from the state changes (R5); the first state (R4);
-///   - actions (`can`): the vocabulary's, whose templates the standard
-///     library adds in milestone 11, and the contract's own, which need
-///     `by`; their inputs; their blocks, typed;
+///   - actions (`can`): the vocabulary's, which get the standard library's
+///     terms (R19) after the lines the contract writes under them, with the
+///     contract's counterparty (`to`) or one each call names (R21), and the
+///     fields the terms use (R20); and the contract's own, which need `by`;
+///     their inputs; their blocks, typed;
 ///   - time rules (`when`): an event that is a time, and duties (R9).
-/// What it checks (spec section 9, without the standard library):
+/// What it checks (spec section 9):
 ///   - names: every name declared once and used where declared;
 ///   - types and units: money only with money of the same currency,
 ///     quantities only within a dimension, months never with days, rates,
@@ -36,11 +39,17 @@
 ///     values only (no amount finer than its smallest unit; no overflow);
 ///   - termination: `each` only over bounded lists, and no recursion;
 ///   - consents: changing a field that holds a party needs its consent (R8);
-///   - every state reachable from the first;
+///   - every state reachable from the first (a state the standard terms
+///     name but no instance reaches is none of the contract's), and every
+///     built-in action able to start;
+///   - built-in actions: their starter and counterparty, their state
+///     changes, and the fields their terms set are the terms'; the fields
+///     their terms need are the instance's;
 ///   - thresholds (R6), presence (R13), agents (R14), and the places of
 ///     each (`in person` never in a time rule).
 /// Executor clauses (R10) are accepted with a warning: they come in 6b.
-/// `test` blocks are milestone 10's, and are not checked yet.
+/// `test` blocks: their steps, parties, values, and expectations (a state of
+/// the contract, a refusal, a wait, or an AI agent's proposal).
 namespace cexchain::bo {
 
 struct Checked {

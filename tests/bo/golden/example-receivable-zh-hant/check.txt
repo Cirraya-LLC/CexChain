@@ -7,11 +7,23 @@ kind kind.asset Receivable
 field field.amount instance money cur.HKD
 field field.due instance date
 field field.holder instance party = role.supplier{R2}
+field field.pledgee instance party optional empty{R20}
 due field
 state state.active first{R4}
-can act.pledge standard to=role.bank agents=delegation{R14}
+state state.pledged{R19}
+can act.pledge standard by=field.holder{R19} to=role.bank agents=delegation{R14}
   consent role.bank{R3}
   requires cond.in_person{R13} guard=(cond.over (money cur.HKD 5000000){R6})
-can act.transfer standard agents=delegation{R14}
+  terms{R19}
+    requires (not (= role.bank field.holder))
+    transition state.active -> state.pledged
+    set field.pledgee role.bank
+can act.transfer standard by=field.holder{R19} to=role.counterparty{R21} agents=delegation{R14}
+  input role.counterparty instance party{R21}
+  consent role.counterparty{R21}
+  terms{R19}
+    requires (not (= role.counterparty field.holder))
+    transition state.active -> state.active
+    set field.holder role.counterparty
 when field.due
   do subject=role.issuer act.pay obligation{R9}

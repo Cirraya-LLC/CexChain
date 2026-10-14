@@ -15,7 +15,9 @@
 # their code; the source laid out canonically and written in each language
 # (bo fmt), which builds to the same code and explains to the same text; and
 # the test blocks run as a ledger runs calls (bo test), with the same results
-# from every language.
+# from every language; the standard library (bo stdlib) and a receivable
+# built with it, through four ledgers: pledged to a bank with the consents of
+# the supplier and the bank, released, sold to a factor, paid, and confirmed.
 # Usage: bo.sh CEXCHAIN
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO (from lines ${BASH_LINENO[*]}): $BASH_COMMAND" >&2' ERR
@@ -60,7 +62,7 @@ start_server() {
 }
 
 echo "== help and completion"
-for command in "bo check" "bo build" "bo explain" "bo fmt" "bo test" "bo packs list" "bo packs show" "bo packs check"; do
+for command in "bo check" "bo build" "bo explain" "bo fmt" "bo test" "bo packs list" "bo packs show" "bo packs check" "bo stdlib list" "bo stdlib show"; do
     # shellcheck disable=SC2086
     run $command --help > out.txt
     contains -F "cexchain $command" out.txt || fail "help for $command"
@@ -69,7 +71,8 @@ done
 run --help > out.txt
 contains -F "bo packs list" out.txt || fail "overview lists bo"
 run completion bash > out.txt
-contains -F '"bo") words="build check explain fmt packs test"' out.txt || fail "completion: bo"
+contains -F '"bo") words="build check explain fmt packs stdlib test"' out.txt || fail "completion: bo"
+contains -F '"bo stdlib") words="list show"' out.txt || fail "completion: bo stdlib"
 contains -F -- "--write" out.txt || fail "completion: bo fmt"
 contains -F 'deploy evidence explain fetch' out.txt || fail "completion: contract explain"
 contains -F -- "--bundle-out" out.txt || fail "completion: bo build"
@@ -99,7 +102,7 @@ for hash in SHA-256 SM3; do
     diff expected.txt digests.txt > /dev/null || fail "digests ($hash) differ from $GOLDEN"
 done
 json 'd[1]["keywords"], d[1]["words"], d[1]["official"], d[1]["separation"]' < list.json > out.txt
-contains -Fx "18 126 True none" out.txt || fail "facts"
+contains -Fx "18 134 True none" out.txt || fail "facts"
 
 run bo packs show zh-Hant-HK > out.txt
 contains -F "prefixes     可 (kw.can), 須 (kw.requires), 當 (kw.when), 如 (kw.if)" out.txt || fail "prefixes"
@@ -114,7 +117,7 @@ run bo packs show zh-Hans-CN --json > show.json
 json 'd["keywords"]["kw.each"], d["vocabulary"]["unit.item"]["category"], d["reading"]["multipliers"]["万"]' < show.json > out.txt
 contains -Fx "['逐个'] unit 10000" out.txt || fail "show --json"
 json 'len(d["messages"]), len(d["sentences"])' < show.json > out.txt
-contains -Fx "186 182" out.txt || fail "messages and sentences"
+contains -Fx "197 200" out.txt || fail "messages and sentences"
 expect_exit 1 bo packs show fr
 contains -F "no pack fr" out.txt || fail "unknown pack"
 expect_exit 1 bo packs show en --section nope
@@ -144,7 +147,7 @@ cat > company.pack <<'EOF'
 }
 EOF
 run bo packs check company.pack > out.txt
-contains -F "warning: pack acme-terms does not spell 123 of the 126 words" out.txt || fail "partial"
+contains -F "warning: pack acme-terms does not spell 131 of the 134 words" out.txt || fail "partial"
 contains -F "company.pack: pack acme-terms version 3 (community): 18 keywords, 3 words" out.txt || fail "check ok"
 contains -F "ok: the packs read" out.txt || fail "ok"
 run bo packs list --pack company.pack > out.txt
@@ -644,7 +647,8 @@ contains -F "測試須以建立實例開始" out.txt || fail "test: the problem 
 expect_exit 2 bo test nostart.bo --json
 json 'd["ok"], d["built"], "tests" in d, d["diagnostics"][0]["code"]' < out.txt > codes.txt
 contains -Fx "False False False check.test-start" codes.txt || fail "test --json: not built"
-expect_exit 2 bo test "$GOLDENS/example-receivable-en/source.bo"
+printf 'contract A\nparties we\n\nasset R\n  amount HKD\n  holder we\n\ncan refund by we\n' > refund.bo
+expect_exit 2 bo test refund.bo
 contains -F "(build.standard-action)" out.txt || fail "test: a contract that does not build"
 # A file without tests: nothing to run.
 printf 'contract A\nparties we\n\ncan go by we\n  -> active\n' > notests.bo
@@ -878,5 +882,147 @@ run contract verify u.cbor --ledger-id "$D_ID" --json | json '"source" in d, d["
 expect_exit 3 contract verify u.cbor --ledger-id "$D_ID" --require-rebuild
 contains -F "not Bo" out.txt || fail "--require-rebuild on wasm"
 for fn in d s; do "$fn" audit | contains 'audit passed' || fail "audit"; done
+
+echo "== bo stdlib: the built-in actions, written in Bo"
+run bo stdlib list > out.txt
+[ "$(wc -l < out.txt)" -eq 11 ] || fail "stdlib list: eleven actions"
+contains -Fx "pledge           pledge: started by the holder; to a counterparty, who consents; active → pledged" out.txt || fail "stdlib list: pledge"
+contains -Fx "pay              pay: started by the home ledger, on its own word; active, pledged, disputed → paid" out.txt || fail "stdlib list: pay"
+contains -Fx "unfreeze         unfreeze: started by the home ledger, on its own word; frozen → previous state" out.txt || fail "stdlib list: unfreeze"
+run bo stdlib list --language zh-Hant-HK > out.txt
+contains -Fx "pledge           質押: 由持有人發起；予相對方，須經其同意；正常 → 已質押" out.txt || fail "stdlib list: zh-Hant"
+CEXCHAIN_LANGUAGE=zh-Hans run bo stdlib list --json > list.json
+json '[(a["function"], a["word"], a["starter"], a["counterparty"], a["from"], a["to"]) for a in d][4]' < list.json > out.txt
+contains -Fx "('redeem', '赎回', 'field.holder', False, ['state.active', 'state.pledged'], ['state.redeemed'])" out.txt || fail "stdlib list --json"
+run bo stdlib show pledge > out.txt
+contains -Fx "can pledge to counterparty by holder" out.txt || fail "stdlib show: the source"
+contains -Fx "  pledgee = counterparty" out.txt || fail "stdlib show: the pledgee"
+contains -Fx "The standard terms of pledge:" out.txt || fail "stdlib show: the terms"
+contains -Fx "  Started by the holder, whose agreement it needs. [R19]" out.txt || fail "stdlib show: the starter"
+contains -Fx "  If the instance is active, it becomes pledged; otherwise the call is refused. [R19]" out.txt || fail "stdlib show: the state change"
+run bo stdlib show 質押 --language zh-Hant-HK > out.txt
+contains -Fx "可質押 予 相對方 由 持有人" out.txt || fail "stdlib show: zh-Hant source"
+contains -Fx "  須經相對方同意；每次調用均須指明其賬本（參數 counterparty）。〔R21〕" out.txt || fail "stdlib show: zh-Hant terms"
+run bo stdlib show confirm_payment --json > show.json
+json 'd["function"], d["action"], d["source"], [c["rules"] for c in d["terms"]][0]' < show.json > out.txt
+contains -F "confirm_payment act.confirm_payment can confirm payment by payee" out.txt || fail "stdlib show --json"
+expect_exit 1 bo stdlib show refund
+contains -F "no built-in action refund" out.txt || fail "stdlib show: no terms"
+expect_exit 1 bo stdlib show
+expect_exit 1 bo stdlib list --language fr
+# A built-in action copied under a name of the contract's own, and changed:
+# the contract's own action, built like any other.
+{ printf 'contract Lodging\nparties issuer, supplier\n\nasset Receivable\n  amount HKD\n  holder supplier\n\n'
+  run bo stdlib show pledge --json | json 'd["source"].replace("can pledge", "can lodge", 1)'
+  printf '  requires in person\n\ntest\n  issuer issue with amount = HKD 10\n'
+  printf '  supplier lodge to bank1 -> refused "bo:in-person lodge"\n'
+  printf '  supplier lodge to bank1 in person -> pledged\n'; } > lodging.bo
+run bo check lodging.bo --stage model > out.txt
+contains -F "can lodge own by=field.holder to=role.counterparty{R21}" out.txt || fail "the copy is the contract's own"
+run bo test lodging.bo | contains -Fx "1 test: 1 passed, 0 failed." || fail "the copy runs"
+
+echo "== the standard library: a receivable through four ledgers"
+# The issuer's ledger is the receivable's home; the supplier holds it; the
+# bank lends against it; a factor buys it. The bank's ledger is on SM3.
+cat > receivable.bo <<'EOF'
+contract ReceivableFinancing
+parties issuer, supplier, bank
+
+asset Receivable
+  amount HKD
+  due date
+  holder supplier
+
+can pledge to bank
+  over 5_000_000 requires in person
+can release
+can transfer
+can pay
+can confirm payment
+when due issuer pays
+EOF
+run bo test receivable.bo | contains -F "This file has no tests" || fail "receivable: no tests"
+H="$WORK/issuer"; P="$WORK/supplier"; B="$WORK/bank"; F="$WORK/factor"
+h() { run "$@" --ledger "$H"; }
+for org in issuer supplier factor; do
+    run key generate --out "$org-root.key" > /dev/null
+    run key generate --out "$org-log.key" > /dev/null
+done
+run key generate --alg sm2-sm3 --out bank-root.key > /dev/null
+run key generate --alg sm2-sm3 --out bank-log.key > /dev/null
+run init --org "Issuer" --root-key issuer-root.key --log-key issuer-log.key --ledger "$H" > /dev/null
+run init --org "Supplier" --root-key supplier-root.key --log-key supplier-log.key --ledger "$P" > /dev/null
+run init --org "Bank" --root-key bank-root.key --log-key bank-log.key --hash sm3 --ledger "$B" > /dev/null
+run init --org "Factor" --root-key factor-root.key --log-key factor-log.key --ledger "$F" > /dev/null
+H_ID="$(h status --json | json 'd["ledger_id"]')"
+P_ID="$(run status --ledger "$P" --json | json 'd["ledger_id"]')"
+B_ID="$(run status --ledger "$B" --json | json 'd["ledger_id"]')"
+F_ID="$(run status --ledger "$F" --json | json 'd["ledger_id"]')"
+RC="$(h contract deploy --bo receivable.bo --as issuer-root.key --json 2> /dev/null | json 'd["contract"]["id"]')"
+h contract show "$RC" | contains -F "rebuild:    rebuilds" || fail "receivable: deployed"
+# HKD 3,000,000.00, due on 30 June 2027 (+08:00).
+DUE="$(python3 -c 'import datetime as t; print(int(t.datetime(2027, 6, 30, tzinfo=t.timezone(t.timedelta(hours=8))).timestamp() * 1000))')"
+RI="$(h contract create "$RC" issue --args "{\"fields\": {\"amount\": 300000000, \"due\": $DUE}, \"parties\": {\"issuer\": h'$H_ID', \"supplier\": h'$P_ID'}}" \
+    --as issuer-root.key --json | json 'd["instance"]["id"]')"
+h contract instance "$RI" --json | json 'd["status"], sorted(d["parties"])' | contains -Fx "active ['holder', 'issuer', 'supplier']" || fail "receivable: issued"
+run key generate --out issuer-registrar.key > /dev/null
+run key public issuer-registrar.key --out issuer-registrar.pub > /dev/null
+RR="$(h actor add --as issuer-root.key --kind device --name "Registrar" --key issuer-registrar.pub --json | json 'd["actor"]["id"]')"
+h delegation grant --as issuer-root.key --to "$RR" --allow contract-call --contracts "$RC" > /dev/null
+dir_of() { case "$1" in supplier) echo "$P" ;; bank) echo "$B" ;; factor) echo "$F" ;; esac; }
+id_of() { case "$1" in supplier) echo "$P_ID" ;; bank) echo "$B_ID" ;; factor) echo "$F_ID" ;; esac; }
+for org in supplier bank factor; do
+    h peer add "$org" --ledger-id "$(id_of "$org")" > /dev/null
+    h token create "$org" --scope peer --out "$org.token" > /dev/null
+done
+start_server issuer.json --ledger "$H" --log-key issuer-log.key --registrar-key issuer-registrar.key
+H_URL="$(json 'd["url"]' < issuer.json)"
+for org in supplier bank factor; do
+    run peer add issuer --ledger-id "$H_ID" --url "$H_URL" --token-file "$org.token" --ledger "$(dir_of "$org")" > /dev/null
+done
+# org CALL: the organization consents to the held call, on its own ledger, and sends it.
+consent_to() {
+    local org="$1" call="$2"
+    run contract consent --peer issuer --call "$call" --as "$org-root.key" --log-key "$org-log.key" \
+        --out "$org-$call.cbor" --ledger "$(dir_of "$org")" > /dev/null
+    run contract send "$org-$call.cbor" --peer issuer --ledger "$(dir_of "$org")" > /dev/null
+}
+status_of() { h contract instance "$RI" --json | json 'd["status"]'; }
+# The supplier pledges it to its bank: the registrar waits for both consents.
+run contract propose "$RI" pledge --args "{\"bank\": h'$B_ID'}" --peer issuer --ledger "$P" --json > proposed.json
+json 'd["status"], sorted(d["missing"]) == sorted(["'"$P_ID"'", "'"$B_ID"'"])' < proposed.json | contains -Fx "waiting True" || fail "pledge: both consents"
+CALL="$(json 'd["call"]' < proposed.json)"
+consent_to supplier "$CALL"
+[ "$(status_of)" = active ] || fail "pledge: not without the bank"
+consent_to bank "$CALL"
+[ "$(status_of)" = pledged ] || fail "pledge: recorded"
+h contract instance "$RI" --json | json 'd["parties"]["pledgee"] == "'"$B_ID"'", d["parties"]["bank"] == "'"$B_ID"'"' | contains -Fx "True True" || fail "pledge: the pledgee"
+# No second pledge, and no transfer while pledged.
+h contract call "$RI" pledge --args "{\"bank\": h'$B_ID'}" --as issuer-root.key --dry-run | contains -F "bo:state pledge" || fail "no second pledge"
+h contract call "$RI" transfer --args "{\"counterparty\": h'$F_ID'}" --as issuer-root.key --dry-run | contains -F "bo:state transfer" || fail "no transfer while pledged"
+# The bank releases its pledge.
+CALL="$(run contract propose "$RI" release --peer issuer --ledger "$B" --json | json 'd["call"]')"
+consent_to bank "$CALL"
+[ "$(status_of)" = active ] || fail "release"
+h contract instance "$RI" --json | json '"pledgee" in d["parties"]' | contains -Fx False || fail "release: no pledgee"
+# The supplier sells it to the factor: both consent.
+CALL="$(run contract propose "$RI" transfer --args "{\"counterparty\": h'$F_ID'}" --peer issuer --ledger "$P" --json | json 'd["call"]')"
+consent_to supplier "$CALL"
+consent_to factor "$CALL"
+h contract instance "$RI" --json | json 'd["status"], d["parties"]["holder"] == "'"$F_ID"'"' | contains -Fx "active True" || fail "transfer: the factor holds it"
+# The issuer pays, on its own word; the factor, the payee, confirms.
+h contract call "$RI" pay --as issuer-root.key --json | json 'd["instance"]["status"], d["instance"]["parties"]["payee"] == "'"$F_ID"'"' | contains -Fx "paid True" || fail "pay: to the holder"
+CALL="$(run contract propose "$RI" confirm_payment --peer issuer --ledger "$F" --json | json 'd["call"]')"
+consent_to factor "$CALL"
+[ "$(status_of)" = settled ] || fail "confirm payment"
+# The factor verifies the whole history offline: the code rebuilds from its source.
+run contract fetch --peer issuer --instance "$RI" --out receivable.cbor --ledger "$F" > /dev/null
+run contract verify receivable.cbor --ledger-id "$H_ID" > verify.txt
+contains -F "  Status       settled" verify.txt || fail "verify: settled"
+contains -F "FINAL: it takes no more calls" verify.txt || fail "verify: final"
+contains -F "rebuilds: the source rebuilds to the deployed code" verify.txt || fail "verify: rebuilds"
+contains -F "VERIFICATION FAILED" verify.txt && fail "verify: verified"
+run contract explain "$RC" --ledger "$H" | contains -F "4.1.5 Requirement 2: the bank is not the holder. [R19]" || fail "explain: the standard terms"
+for dir in "$H" "$P" "$B" "$F"; do run audit --ledger "$dir" | contains 'audit passed' || fail "audit"; done
 
 echo "bo: all checks passed"

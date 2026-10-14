@@ -574,6 +574,9 @@ private:
     const m::Action* action_ = nullptr;
     std::uint32_t requirement_ = 0;
     std::string function_;
+    /// While the standard terms of an action are written: every clause is
+    /// marked with their rule (R19).
+    std::string_view terms_rule_;
 
     // --- Clauses and sections.
 
@@ -595,10 +598,12 @@ private:
         c.number = parent + "." + std::to_string(++counter);
         c.kind = kind;
         c.text = std::move(text);
-        c.rules.assign(rules.begin(), rules.end());
+        Rules all = rules;
+        note(all, terms_rule_);
+        c.rules.assign(all.begin(), all.end());
         c.function = function_;
         c.requirement = requirement;
-        used_.insert(rules.begin(), rules.end());
+        used_.insert(all.begin(), all.end());
         list.push_back(std::move(c));
         return list.back().number;
     }
@@ -700,6 +705,15 @@ private:
             if (e.operands.size() == 1 && state_condition(e.operands[0])) {
                 note(rules, e.operands[0].rule);
                 return w_.say("cond-not-state", {{"state", plain(state_text(e.operands[0]))}});
+            }
+            if (e.operands.size() == 1 && e.operands[0].kind == ExprKind::binary &&
+                e.operands[0].op == Operator::equals && e.operands[0].operands.size() == 2) {
+                // not a = b: a is not b.
+                const m::Expr& eq = e.operands[0];
+                note(rules, eq.rule);
+                return w_.say("op-not-equals",
+                              {{"left", plain(expr(eq.operands[0], rules, level_compare + 1))},
+                               {"right", plain(expr(eq.operands[1], rules, level_compare + 1))}});
             }
             return w_.say("op-not",
                           {{"operand", plain(e.operands.empty()
@@ -942,6 +956,8 @@ private:
             if (f.kind == m::FieldKind::constant) {
                 text = w_.say("field-constant",
                               {{"field", name}, {"value", plain(field_value(f, rules))}});
+            } else if (f.empty_at_start) {
+                text = w_.say("field-empty", {{"field", name}, {"type", plain(type_text(f.type))}});
             } else if (f.type.kind == TypeKind::party && f.value) {
                 text = w_.say("field-party", {{"field", name},
                                               {"type", plain(type_text(f.type))},
@@ -1132,7 +1148,14 @@ private:
                         Rules rules;
                         const Phrase to = plain(state_text(t.to));
                         std::string text;
-                        if (t.from.empty()) {
+                        if (is(t.to.concept_entry, "expr.previous_state")) {
+                            std::vector<std::string> from;
+                            for (const m::Expr& f : t.from) {
+                                from.push_back(state_text(f));
+                            }
+                            text = w_.say("transition-previous",
+                                          {{"from", plain(w_.join(from, false))}});
+                        } else if (t.from.empty()) {
                             text = w_.say("transition", {{"state", to}});
                         } else {
                             std::vector<std::string> from;
@@ -1249,7 +1272,12 @@ private:
             }
             const std::string number = add(s.clauses, s.number, n, "action", title, {});
             std::size_t k = 0;
-            if (a.word != nullptr) {
+            if (a.terms) {
+                add(s.clauses, number, k, "standard",
+                    w_.say("action-terms",
+                           {{"action", plain(name)}, {"function", plain(function_)}}),
+                    {});
+            } else if (a.word != nullptr) {
                 add(s.clauses, number, k, "standard",
                     w_.say("action-standard", {{"action", plain(name)}}), {});
             }
@@ -1258,8 +1286,13 @@ private:
                 note(rules, a.by->rule);
                 add(s.clauses, number, k, "by", w_.say("action-by", {{"party", party(*a.by)}}),
                     rules);
+            } else if (a.terms) {
+                // The home's own word (R19).
+                Rules rules;
+                note(rules, "R19");
+                add(s.clauses, number, k, "by", w_.say("action-home"), rules);
             }
-            if (a.to && !binds(a, *a.to)) {
+            if (a.to && !binds(a, *a.to) && a.to->refers != Refers::input) {
                 Rules rules;
                 note(rules, a.to->rule);
                 add(s.clauses, number, k, "to", w_.say("action-to", {{"party", party(*a.to)}}),
@@ -1278,7 +1311,15 @@ private:
                     w_.say("action-inputs", {{"inputs", plain(w_.parts(items))}}), rules);
             }
             consents(a.consents, s.clauses, number, k);
-            statements(a.body, s.clauses, number, k);
+            if (a.terms) {
+                const auto split = a.body.begin() + static_cast<std::ptrdiff_t>(a.terms_from);
+                statements(std::vector<m::Statement>(a.body.begin(), split), s.clauses, number, k);
+                terms_rule_ = "R19";
+                statements(std::vector<m::Statement>(split, a.body.end()), s.clauses, number, k);
+                terms_rule_ = {};
+            } else {
+                statements(a.body, s.clauses, number, k);
+            }
             {
                 Rules rules;
                 std::string text;
@@ -1298,6 +1339,22 @@ private:
         }
         action_ = nullptr;
         function_.clear();
+        if (m::has_proposals(model_)) {
+            // approve: a person approves an AI agent's proposal.
+            function_ = std::string(m::approve_function);
+            const std::string name = w_.word(find_concept("act.approve")).text;
+            const std::string title =
+                name == function_ ? name
+                                  : w_.say("action-function", {{"action", plain(name)},
+                                                               {"function", plain(function_)}});
+            const std::string number = add(s.clauses, s.number, n, "action", title, {});
+            std::size_t k = 0;
+            Rules rules;
+            note(rules, "R14");
+            add(s.clauses, number, k, "approve",
+                w_.say("approve", {{"function", plain(function_)}}), rules);
+            function_.clear();
+        }
     }
 
     /// True if the action binds the party it names after `to` (R3).
@@ -1317,6 +1374,11 @@ private:
             if (c.party.refers == Refers::field) {
                 // R8: the party the field holds before the call.
                 text = w_.say("consent-taken", {{"field", party(c.party)}});
+            } else if (c.party.refers == Refers::input) {
+                // R21: the counterparty each call names.
+                text = w_.say("consent-call",
+                              {{"party", party(c.party)},
+                               {"input", plain(wire_name(c.party.concept_entry, c.party.name))}});
             } else {
                 text = w_.say("consent-binds", {{"party", party(c.party)}});
             }

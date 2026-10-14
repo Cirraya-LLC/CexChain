@@ -15,7 +15,7 @@ can bill own by=role.we agents=delegation{R14}
   requires (> term (duration time.day 30))
   requires (< note "a")
   requires field.amount
-  requires (= field.amount 0)
+  requires (= field.amount 7)
   requires (= count 1.5)
   requires (> field.amount (money cur.HKD 0.001))
   requires (> count 10000000000000000000)

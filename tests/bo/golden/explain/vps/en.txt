@@ -44,7 +44,10 @@ A call that does not meet one of an action's requirements is refused, and the in
   4.4.1 A built-in action of Bo: its standard terms (who starts it, who consents, the states it needs and changes) come with Bo's standard library in a later version, so this text states only the clauses the contract writes.
   4.4.2 Started by us, whose agreement it needs.
   4.4.3 Requirement 1: if the amount is over HKD 100, we must prove presence in person, with a passkey or a hardware key. [R6, R13]
-  4.4.4 An AI agent may only propose it: it takes effect once a person approves it, and every requirement is checked again then.
+  4.4.4 An AI agent may only propose it: its call is kept as a proposal, which takes effect only when a person who proves presence approves it; every requirement is checked then.
+
+4.5 approve
+  4.5.1 approve (function approve): a person who proves presence approves a proposal an AI agent made, naming its function and arguments. The proposal then runs as its action does, started by that action's starter, with every requirement checked. An instance keeps at most 16 proposals. [R14]
 
 5. Time rules
 5.1 An instance is due at the end of each paid period. [R11]

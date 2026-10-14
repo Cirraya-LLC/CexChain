@@ -16,17 +16,20 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <optional>
 #include <set>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
 
 #include <cexchain/bo/checker.hpp>
+#include <cexchain/bo/stdlib.hpp>
 #include <cexchain/bo/values.hpp>
 
 #include "internal.hpp"
@@ -67,6 +70,14 @@ constexpr std::string_view rule_parts = "R15";
 constexpr std::string_view rule_list_bound = "R16";
 constexpr std::string_view rule_rounding = "R17";
 constexpr std::string_view rule_bare_text = "R18";
+constexpr std::string_view rule_standard_terms = "R19";
+constexpr std::string_view rule_standard_fields = "R20";
+constexpr std::string_view rule_counterparty = "R21";
+constexpr std::string_view rule_zero = "R22";
+
+/// The fields the standard terms may add to an instance (R20): parties
+/// that hold the asset in some way, none until an action sets them.
+constexpr std::string_view standard_fields[] = {"field.pledgee", "field.payee"};
 
 bool is(const Concept* c, std::string_view id) noexcept {
     return c != nullptr && c->id == id;
@@ -196,7 +207,7 @@ bool ordered(TypeKind kind) noexcept {
 
 /// The vocabulary's fields whose type the vocabulary fixes (R1).
 std::optional<Type> vocabulary_type(const Concept* word) {
-    if (is(word, "field.holder") || is(word, "field.pledgee")) {
+    if (is(word, "field.holder") || is(word, "field.pledgee") || is(word, "field.payee")) {
         return of(TypeKind::party);
     }
     if (is(word, "field.due")) {
@@ -219,7 +230,7 @@ Type vocabulary_expected(const Concept* word) {
     if (std::optional<Type> fixed = vocabulary_type(word)) {
         return *fixed;
     }
-    if (is(word, "field.quantity")) {
+    if (is(word, "field.quantity") || is(word, "field.portion")) {
         return of(TypeKind::quantity);
     }
     if (is(word, "field.parts")) {
@@ -229,7 +240,7 @@ Type vocabulary_expected(const Concept* word) {
 }
 
 bool vocabulary_accepts(const Concept* word, const Type& t) {
-    if (is(word, "field.amount")) {
+    if (is(word, "field.amount") || is(word, "field.portion")) {
         return t.kind == TypeKind::money || t.kind == TypeKind::quantity;
     }
     if (is(word, "field.cooling_period")) {
@@ -287,6 +298,248 @@ bool executor_action(const Concept* word, const Concept* kind) {
     return is(kind, "kind.service") && std::ranges::contains(service_changes, word->id);
 }
 
+// ---------------------------------------------------------------------------
+// The tree's statements and expressions, walked (for the standard terms).
+
+/// The key of a word or a name.
+std::string expr_key(const ast::Expr& e) {
+    return m::key(e.kind == ExprKind::word ? e.concept_entry : nullptr, e.name);
+}
+
+/// Calls `f` on every statement of `list`, nested ones included, in order.
+template <class List, class F>
+void each_statement(List& list, const F& f) {
+    for (auto& s : list) {
+        f(s);
+        std::visit(
+            [&](auto& node) {
+                using N = std::remove_cvref_t<decltype(node)>;
+                if constexpr (std::is_same_v<N, ast::If>) {
+                    each_statement(node.then, f);
+                    each_statement(node.otherwise, f);
+                } else if constexpr (std::is_same_v<N, ast::Each>) {
+                    each_statement(node.body, f);
+                }
+            },
+            s.node);
+    }
+}
+
+/// Calls `f` on each expression a statement holds itself (not its nested
+/// statements'), and on every expression within them.
+template <class Statement, class F>
+void each_expression(Statement& s, const F& f) {
+    const auto all = [&](auto& e, const auto& self) -> void {
+        f(e);
+        for (auto& o : e.operands) {
+            self(o, self);
+        }
+    };
+    const auto one = [&](auto& e) {
+        all(e, all);
+    };
+    std::visit(
+        [&](auto& node) {
+            using N = std::remove_cvref_t<decltype(node)>;
+            if constexpr (std::is_same_v<N, ast::Requires>) {
+                one(node.condition);
+                if (node.guard) {
+                    one(*node.guard);
+                }
+            } else if constexpr (std::is_same_v<N, ast::Permit>) {
+                one(node.who);
+                one(node.action);
+            } else if constexpr (std::is_same_v<N, ast::If>) {
+                one(node.condition);
+            } else if constexpr (std::is_same_v<N, ast::Each>) {
+                one(node.list);
+            } else if constexpr (std::is_same_v<N, ast::Set>) {
+                one(node.target);
+                one(node.value);
+            } else if constexpr (std::is_same_v<N, ast::Transition>) {
+                for (auto& from : node.from) {
+                    one(from);
+                }
+                one(node.to);
+            } else if constexpr (std::is_same_v<N, ast::Do>) {
+                if (node.subject) {
+                    one(*node.subject);
+                }
+                one(node.action);
+                for (auto& a : node.args) {
+                    one(a);
+                }
+                if (node.to) {
+                    one(*node.to);
+                }
+                if (node.by) {
+                    one(*node.by);
+                }
+                for (auto& w : node.with) {
+                    one(w.target);
+                    one(w.value);
+                }
+            } else if constexpr (std::is_same_v<N, ast::Expect>) {
+                one(node.outcome);
+            }
+        },
+        s.node);
+}
+
+/// Calls `f` on every expression of a `can` clause (its action, by, to,
+/// inputs, and body), nested ones included.
+template <class F>
+void each_can_expression(const ast::Can& c, const F& f) {
+    const auto all = [&](const ast::Expr& e, const auto& self) -> void {
+        f(e);
+        for (const ast::Expr& o : e.operands) {
+            self(o, self);
+        }
+    };
+    if (c.by) {
+        all(*c.by, all);
+    }
+    if (c.to) {
+        all(*c.to, all);
+    }
+    for (const ast::Field& input : c.inputs) {
+        all(input.head, all);
+        for (const ast::Expr& v : input.values) {
+            all(v, all);
+        }
+    }
+    each_statement(c.body, [&](const ast::Statement& s) { each_expression(s, f); });
+}
+
+/// The states an action of the tree can start from, by its top-level lines,
+/// as model::entry_states reads them: nullopt for any state.
+std::optional<std::set<std::string>> tree_entry_states(const std::vector<ast::Statement>& list) {
+    std::optional<std::set<std::string>> allowed;
+    const auto narrow = [&](std::set<std::string> states) {
+        if (!allowed) {
+            allowed = std::move(states);
+            return;
+        }
+        std::set<std::string> both;
+        std::ranges::set_intersection(*allowed, states, std::inserter(both, both.begin()));
+        allowed = std::move(both);
+    };
+    const auto states_of = [](const ast::Expr& e, std::set<std::string>& out, const auto& self) {
+        if (word_in(e, Category::state)) {
+            out.insert(std::string(e.concept_entry->id));
+            return true;
+        }
+        if (e.kind == ExprKind::binary && e.op == Operator::logical_or && e.operands.size() == 2) {
+            return self(e.operands[0], out, self) && self(e.operands[1], out, self);
+        }
+        return false;
+    };
+    for (const ast::Statement& s : list) {
+        if (const auto* t = std::get_if<ast::Transition>(&s.node)) {
+            if (!t->from.empty()) {
+                std::set<std::string> from;
+                for (const ast::Expr& f : t->from) {
+                    if (word_in(f, Category::state)) {
+                        from.insert(std::string(f.concept_entry->id));
+                    }
+                }
+                narrow(std::move(from));
+            }
+            break;
+        }
+        if (const auto* r = std::get_if<ast::Requires>(&s.node); r != nullptr && !r->guard) {
+            std::set<std::string> states;
+            if (states_of(r->condition, states, states_of)) {
+                narrow(std::move(states));
+            }
+            continue;
+        }
+        bool changes = false;
+        const std::vector<ast::Statement> one{s};
+        each_statement(one, [&](const ast::Statement& n) {
+            changes = changes || std::holds_alternative<ast::Transition>(n.node);
+        });
+        if (changes) {
+            break;
+        }
+    }
+    return allowed;
+}
+
+/// Places a model's expressions and statements at one place: the standard
+/// terms' are the library's source, so the model puts them at the contract's
+/// `can` line.
+void respan(m::Expr& e, const Span& at) {
+    e.span = at;
+    for (m::Expr& o : e.operands) {
+        respan(o, at);
+    }
+}
+
+void respan(std::vector<m::Statement>& list, const Span& at) {
+    for (m::Statement& s : list) {
+        std::visit(
+            [&](auto& node) {
+                using N = std::remove_cvref_t<decltype(node)>;
+                node.span = at;
+                if constexpr (std::is_same_v<N, m::Requires>) {
+                    respan(node.condition, at);
+                    if (node.guard) {
+                        respan(*node.guard, at);
+                    }
+                } else if constexpr (std::is_same_v<N, m::If>) {
+                    respan(node.condition, at);
+                    respan(node.then, at);
+                    respan(node.otherwise, at);
+                } else if constexpr (std::is_same_v<N, m::Each>) {
+                    respan(node.list, at);
+                    respan(node.body, at);
+                } else if constexpr (std::is_same_v<N, m::Set>) {
+                    respan(node.target, at);
+                    respan(node.value, at);
+                } else if constexpr (std::is_same_v<N, m::Transition>) {
+                    for (m::Expr& f : node.from) {
+                        respan(f, at);
+                    }
+                    respan(node.to, at);
+                } else if constexpr (std::is_same_v<N, m::Do>) {
+                    if (node.subject) {
+                        respan(*node.subject, at);
+                    }
+                    respan(node.action, at);
+                    for (m::Expr& a : node.args) {
+                        respan(a, at);
+                    }
+                    if (node.to) {
+                        respan(*node.to, at);
+                    }
+                    if (node.by) {
+                        respan(*node.by, at);
+                    }
+                    for (m::Set& w : node.with) {
+                        w.span = at;
+                        respan(w.target, at);
+                        respan(w.value, at);
+                    }
+                }
+            },
+            s.node);
+    }
+}
+
+/// R22: a bare 0 beside money, a quantity, a rate, or a duration is zero of
+/// it.
+void zero_of(m::Expr& zero, const m::Expr& other) {
+    const TypeKind kind = other.type.kind;
+    if (zero.kind == ExprKind::literal && zero.literal.kind == ast::LiteralKind::number &&
+        zero.literal.number.digits == 0 && zero.type.kind == TypeKind::number &&
+        (kind == TypeKind::money || kind == TypeKind::quantity || kind == TypeKind::rate ||
+         kind == TypeKind::duration)) {
+        zero.type = other.type;
+        zero.rule = rule_zero;
+    }
+}
+
 /// Where an expression stands, which decides the words it may use.
 enum class Place : std::uint8_t {
     declaration, ///< a field's value, an input's type
@@ -321,13 +574,26 @@ public:
     m::Model run(const ast::File& file);
 
 private:
-    // --- Problems.
+    // --- Problems. While the standard terms of an action are checked (they
+    // are the library's source, not the contract's), a problem is placed at
+    // the contract's `can` line.
     void error(const Span& span, std::string_view code, detail::Args args) {
-        diagnostics_.add(span, code, args);
+        if (in_terms_) {
+            // Once per problem: the terms may repeat a word of the contract's.
+            std::string key = std::string(code);
+            for (const auto& [name, value] : args) {
+                key += "\n" + std::string(name) + "=" + std::string(value);
+            }
+            if (!terms_problems_.insert(std::to_string(terms_site_.offset) + key).second) {
+                return;
+            }
+        }
+        diagnostics_.add(in_terms_ ? terms_site_ : span, code, args);
     }
     [[nodiscard]] std::string written(const Span& span) const {
-        const std::size_t from = std::min<std::size_t>(span.offset, source_.size());
-        return detail::quote(source_.substr(from, span.length));
+        const std::string_view text = in_terms_ ? standard_library().source : source_;
+        const std::size_t from = std::min<std::size_t>(span.offset, text.size());
+        return detail::quote(text.substr(from, span.length));
     }
 
     // --- Declarations.
@@ -340,8 +606,12 @@ private:
     std::optional<m::Field> read_field(const ast::Field& f, bool input);
     std::optional<Declared> as_type(const ast::Expr& e);
     void complete_parts(m::Field& field);
+    void prepare_terms();
     void declare_actions();
     void collect_states(const std::vector<ast::Statement>& list);
+    void collect_terms_states(const std::vector<ast::Statement>& list);
+    void reach_terms();
+    void finish_terms();
     std::optional<std::string> state_key(const ast::Expr& e);
     void choose_first_state();
     void bind_roles();
@@ -353,6 +623,7 @@ private:
 
     // --- Actions and rules.
     void check_can(const ast::Can& c, std::size_t index);
+    void check_to(const ast::Expr& to, m::Action& a, const std::string& action);
     void check_when(const ast::When& w);
     std::vector<m::Statement> statements(const std::vector<ast::Statement>& list);
     m::Set set_statement(const ast::Set& s);
@@ -420,12 +691,37 @@ private:
     // that `do X with ...` can name them); actions declared twice.
     std::map<std::string, std::vector<m::Field>, std::less<>> inputs_;
     std::set<std::size_t> duplicate_actions_;
-    bool any_standard_ = false;
+    /// A vocabulary action without the standard library's terms: its states
+    /// are unknown, so vocabulary states are not reported unreachable.
+    bool any_unterms_ = false;
+
+    // The standard library's terms of the contract's built-in actions (R19),
+    // by the index of their `can`: copies of the library's clause, with the
+    // contract's counterparty in place of `counterparty`.
+    struct Terms {
+        const ast::Can* source = nullptr;
+        std::optional<ast::Expr> by;
+        /// The counterparty, if the terms have one: the contract's `to`, or
+        /// `counterparty` itself (named by each call, R21).
+        std::optional<ast::Expr> to;
+        std::vector<ast::Field> inputs;
+        std::vector<ast::Statement> body;
+        /// The fields the terms set.
+        std::set<std::string> sets;
+    };
+    std::map<std::size_t, Terms> terms_;
+    /// While the terms are checked: problems go to the `can` line, once.
+    bool in_terms_ = false;
+    Span terms_site_;
+    std::set<std::string> terms_problems_;
 
     // States: the state changes, as keys; vocabulary states named elsewhere.
+    // A state change of the standard terms (`standard`) adds its states only
+    // if an instance can reach them.
     struct Edge {
         std::vector<std::string> from;
         std::string to;
+        bool standard = false;
     };
     std::vector<Edge> edges_;
     std::map<std::string, Span, std::less<>> state_mentions_;
@@ -625,9 +921,16 @@ std::optional<m::Field> Checker::read_field(const ast::Field& f, const bool inpu
     const bool party = (word_in(first, Category::role) && first.concept_entry != nullptr) ||
                        (first.kind == ExprKind::name && global(first.name) != nullptr &&
                         global(first.name)->refers == Refers::party);
+    const Decl* like = word_in(first, Category::field) ? global(first.concept_entry->id)
+                       : first.kind == ExprKind::name  ? global(first.name)
+                                                       : nullptr;
     if (std::optional<Declared> declared_type = as_type(first)) {
         out.type = declared_type->type;
         out.rule = declared_type->rule;
+    } else if (input && f.values.size() == 1 && like != nullptr && like->refers == Refers::field &&
+               model_.fields[like->index].kind == m::FieldKind::instance) {
+        // An input of an instance field's type: with portion quantity.
+        out.type = model_.fields[like->index].type;
     } else if (input) {
         error(f.span, "check.field-needs-type", {{"field", field_key}});
         return out;
@@ -725,30 +1028,211 @@ void Checker::read_kind() {
     }
 }
 
+void Checker::prepare_terms() {
+    // R19: each built-in action with terms in the standard library gets a
+    // copy of them, the contract's counterparty in place of `counterparty`.
+    const StandardLibrary& library = standard_library();
+    std::set<std::string> seen;
+    for (std::size_t i = 0; i < cans_.size(); ++i) {
+        const ast::Can& c = *cans_[i];
+        const Concept* word = c.action.kind == ExprKind::word ? c.action.concept_entry : nullptr;
+        // A second `can` of an action is reported as declared twice.
+        if (word == nullptr || !seen.insert(std::string(word->id)).second) {
+            continue;
+        }
+        const ast::Can* source = library.find(word->id);
+        if (source == nullptr) {
+            any_unterms_ = true;
+            continue;
+        }
+        const std::string action(word->id);
+        Terms terms;
+        terms.source = source;
+        terms.inputs = source->inputs;
+        terms.body = source->body;
+        if (source->by) {
+            terms.by = *source->by;
+            if (c.by && expr_key(*c.by) != expr_key(*source->by)) {
+                error(c.by->span, "check.standard-by",
+                      {{"action", action}, {"party", expr_key(*source->by)}});
+            }
+        }
+        if (c.to && !source->to) {
+            error(c.to->span, "check.standard-to", {{"action", action}});
+        }
+        if (c.to && !word_is(*c.to, "role.counterparty")) {
+            // The counterparty must be one of the contract's parties (else
+            // the `to` reports it, and the terms are left out).
+            const Decl* d = global(expr_key(*c.to));
+            if (d == nullptr || d->refers != Refers::party) {
+                any_unterms_ = true;
+                continue;
+            }
+        }
+        if (source->to) {
+            terms.to = c.to ? *c.to : *source->to;
+            if (c.to) {
+                each_statement(terms.body, [&](ast::Statement& s) {
+                    each_expression(s, [&](ast::Expr& e) {
+                        if (word_is(e, "role.counterparty")) {
+                            const Span span = e.span;
+                            e = *c.to;
+                            e.span = span;
+                        }
+                    });
+                });
+            }
+        }
+        // The fields the terms set, and those an instance must hold for them
+        // (other than their inputs, and the fields R20 adds).
+        each_statement(source->body, [&](const ast::Statement& s) {
+            if (const auto* set = std::get_if<ast::Set>(&s.node)) {
+                terms.sets.insert(expr_key(set->target));
+            }
+        });
+        std::set<std::string> inputs;
+        for (const ast::Field& f : source->inputs) {
+            inputs.insert(expr_key(f.head));
+        }
+        std::vector<std::string> needed;
+        each_can_expression(*source, [&](const ast::Expr& e) {
+            if (!word_in(e, Category::field)) {
+                return;
+            }
+            const std::string id(e.concept_entry->id);
+            if (!inputs.contains(id) && !std::ranges::contains(standard_fields, id) &&
+                !std::ranges::contains(needed, id)) {
+                needed.push_back(id);
+            }
+        });
+        bool usable = true;
+        for (const std::string& f : needed) {
+            const Decl* d = global(f);
+            if (d == nullptr || d->refers != Refers::field ||
+                model_.fields[d->index].kind != m::FieldKind::instance) {
+                error(c.action.span, "check.standard-field", {{"action", action}, {"field", f}});
+                usable = false;
+                break;
+            }
+        }
+        // The contract's own lines add to the terms: they change neither the
+        // state nor a field the terms set.
+        each_statement(c.body, [&](const ast::Statement& s) {
+            const Span* span = nullptr;
+            if (const auto* t = std::get_if<ast::Transition>(&s.node)) {
+                span = &t->span;
+            } else if (const auto* set = std::get_if<ast::Set>(&s.node);
+                       set != nullptr && terms.sets.contains(expr_key(set->target))) {
+                span = &set->span;
+            }
+            if (span != nullptr) {
+                error(*span, "check.standard-change",
+                      {{"action", action}, {"text", written(*span)}});
+            }
+        });
+        if (!usable) {
+            any_unterms_ = true;
+            continue;
+        }
+        terms_.emplace(i, std::move(terms));
+    }
+    // R20: the pledgee and the payee, used by the terms or by an action of
+    // the contract's (a copy of the terms, say) but not declared, none at
+    // first.
+    for (const std::string_view id : standard_fields) {
+        if (global(id) != nullptr) {
+            continue;
+        }
+        bool used = false;
+        const auto mentions = [&](const ast::Expr& e) {
+            used = used || word_is(e, id);
+        };
+        for (const auto& [i, terms] : terms_) {
+            each_statement(terms.body,
+                           [&](const ast::Statement& s) { each_expression(s, mentions); });
+            if (terms.by) {
+                mentions(*terms.by);
+            }
+        }
+        for (const ast::Can* c : cans_) {
+            each_can_expression(*c, mentions);
+        }
+        if (!used) {
+            continue;
+        }
+        m::Field f;
+        f.word = find_concept(id);
+        f.type = of(TypeKind::party);
+        f.rule = rule_standard_fields;
+        f.optional = true;
+        f.empty_at_start = true;
+        globals_.emplace(std::string(id), Decl{Refers::field, model_.fields.size()});
+        model_.fields.push_back(std::move(f));
+    }
+}
+
 void Checker::declare_actions() {
     place_ = Place::declaration;
     for (std::size_t i = 0; i < cans_.size(); ++i) {
         const ast::Can& c = *cans_[i];
         const Concept* word = c.action.kind == ExprKind::word ? c.action.concept_entry : nullptr;
         const std::string action = m::key(word, c.action.name);
-        any_standard_ = any_standard_ || word != nullptr;
         if (!declare(action, Refers::action, i, c.action.span)) {
             duplicate_actions_.insert(i);
             continue;
         }
         std::vector<m::Field> inputs;
         std::set<std::string> seen;
-        for (const ast::Field& f : c.inputs) {
+        const auto add = [&](const ast::Field& f) {
             std::optional<m::Field> input = read_field(f, true);
             if (!input) {
-                continue;
+                return;
+            }
+            if (in_terms_) {
+                if (input->rule.empty()) {
+                    input->rule = rule_standard_terms;
+                }
+                input->span = c.action.span;
+                if (input->value) {
+                    respan(*input->value, c.action.span);
+                }
+                for (m::Expr& more : input->more) {
+                    respan(more, c.action.span);
+                }
             }
             const std::string input_key = m::key(input->word, input->name);
             if (global(input_key) != nullptr || !seen.insert(input_key).second) {
                 error(f.head.span, "check.duplicate", {{"name", input_key}});
-                continue;
+                return;
             }
             inputs.push_back(std::move(*input));
+        };
+        for (const ast::Field& f : c.inputs) {
+            add(f);
+        }
+        const auto terms = terms_.find(i);
+        if (terms != terms_.end()) {
+            in_terms_ = true;
+            terms_site_ = c.action.span;
+            for (const ast::Field& f : terms->second.inputs) {
+                add(f);
+            }
+            in_terms_ = false;
+        }
+        // R21: a counterparty the contract does not declare is named by each
+        // call, as an input.
+        const ast::Expr* to = c.to ? &*c.to
+                              : terms != terms_.end() && terms->second.to.has_value()
+                                  ? &*terms->second.to
+                                  : nullptr;
+        if (to != nullptr && word_is(*to, "role.counterparty") &&
+            global("role.counterparty") == nullptr && seen.insert("role.counterparty").second) {
+            m::Field input;
+            input.span = c.to ? to->span : c.action.span;
+            input.word = to->concept_entry;
+            input.type = of(TypeKind::party);
+            input.rule = rule_counterparty;
+            inputs.push_back(std::move(input));
         }
         inputs_.emplace(action, std::move(inputs));
     }
@@ -796,13 +1280,100 @@ void Checker::collect_states(const std::vector<ast::Statement>& list) {
     }
 }
 
+void Checker::collect_terms_states(const std::vector<ast::Statement>& list) {
+    // The terms name vocabulary states only. A state change without FROM
+    // starts from the states the action can start from.
+    const std::optional<std::set<std::string>> entry = tree_entry_states(list);
+    each_statement(list, [&](const ast::Statement& s) {
+        const auto* t = std::get_if<ast::Transition>(&s.node);
+        if (t == nullptr || !word_in(t->to, Category::state)) {
+            return; // `previous state` leads back where an instance has been
+        }
+        Edge edge;
+        edge.standard = true;
+        for (const ast::Expr& from : t->from) {
+            if (word_in(from, Category::state)) {
+                edge.from.emplace_back(from.concept_entry->id);
+            }
+        }
+        if (t->from.empty() && entry) {
+            edge.from.assign(entry->begin(), entry->end());
+        }
+        edge.to = std::string(t->to.concept_entry->id);
+        edges_.push_back(std::move(edge));
+    });
+}
+
+void Checker::reach_terms() {
+    // The states the terms can reach from the first state become states of
+    // the contract (R19); the others are none of its states.
+    if (terms_.empty()) {
+        return;
+    }
+    std::set<std::string> reached;
+    for (const m::State& s : model_.states) {
+        if (s.first) {
+            reached.insert(m::key(s.word, s.name));
+        }
+    }
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (const Edge& edge : edges_) {
+            const bool from = edge.from.empty()
+                                  ? !reached.empty()
+                                  : std::ranges::any_of(edge.from, [&](const std::string& k) {
+                                        return reached.contains(k);
+                                    });
+            if (from && reached.insert(edge.to).second) {
+                changed = true;
+            }
+        }
+    }
+    for (const Edge& edge : edges_) {
+        if (!edge.standard) {
+            continue;
+        }
+        std::vector<std::string> keys = edge.from;
+        keys.push_back(edge.to);
+        for (const std::string& k : keys) {
+            if (reached.contains(k) && global(k) == nullptr) {
+                globals_.emplace(k, Decl{Refers::state, model_.states.size()});
+                model_.states.push_back(
+                    m::State{Span{}, find_concept(k), {}, false, rule_standard_terms});
+            }
+        }
+    }
+    // An action whose terms start only from states no instance reaches can
+    // never start.
+    for (const auto& [i, terms] : terms_) {
+        const std::optional<std::set<std::string>> entry = tree_entry_states(terms.body);
+        if (!entry || entry->empty() || std::ranges::any_of(*entry, [&](const std::string& k) {
+                return reached.contains(k);
+            })) {
+            continue;
+        }
+        std::string states;
+        for (const std::string& k : *entry) {
+            states += (states.empty() ? "" : ", ") + k;
+        }
+        const ast::Can& c = *cans_[i];
+        error(c.action.span, "check.standard-unreachable",
+              {{"action", expr_key(c.action)}, {"states", states}});
+    }
+}
+
 void Checker::choose_first_state() {
-    // R4: the one state no state change leads to; with none, active.
+    // R4: the one state no state change leads to; with none, active. The
+    // standard terms' state changes start from no first state of their own:
+    // they assume an asset starts active.
     std::set<std::string> targets;
     std::set<std::string> sources;
     for (const Edge& edge : edges_) {
         targets.insert(edge.to);
-        sources.insert(edge.from.begin(), edge.from.end());
+        if (!edge.standard) {
+            sources.insert(edge.from.begin(), edge.from.end());
+        }
     }
     std::vector<std::size_t> candidates;
     for (std::size_t i = 0; i < model_.states.size(); ++i) {
@@ -923,9 +1494,18 @@ void Checker::bind_roles() {
                 }
             }
         } else if (can != nullptr) {
-            if (can->to) {
+            // The counterparty: the contract's `to`, or its terms' (R19).
+            const ast::Expr* counterparty = can->to ? &*can->to : nullptr;
+            if (counterparty == nullptr) {
+                const auto at =
+                    static_cast<std::size_t>(std::ranges::find(cans_, can) - cans_.begin());
+                if (const auto t = terms_.find(at); t != terms_.end() && t->second.to) {
+                    counterparty = &*t->second.to;
+                }
+            }
+            if (counterparty != nullptr) {
                 std::vector<std::string> to;
-                mentions(*can->to, to);
+                mentions(*counterparty, to);
                 if (to.size() == 1 && !seen.contains(to[0])) {
                     if (const Decl* d = global(to[0]); d != nullptr && d->refers == Refers::party) {
                         m::Party& party = model_.parties[d->index];
@@ -1120,24 +1700,75 @@ void Checker::check_can(const ast::Can& c, std::size_t index) {
     action_ = &a;
     action_key_ = action;
     consents_ = &a.consents;
+    // R19: a built-in action's terms from the standard library.
+    const auto terms = duplicate ? terms_.end() : terms_.find(index);
+    a.terms = terms != terms_.end();
+    const auto in_terms = [&](bool on) {
+        in_terms_ = on;
+        terms_site_ = c.action.span;
+    };
     if (c.by) {
         a.by = value(*c.by);
         expect_kind(*a.by, TypeKind::party);
+    } else if (a.terms && terms->second.by) {
+        in_terms(true);
+        a.by = value(*terms->second.by);
+        expect_kind(*a.by, TypeKind::party);
+        a.by->rule = rule_standard_terms;
+        respan(*a.by, c.action.span);
+        in_terms(false);
     }
     if (c.to) {
-        a.to = value(*c.to);
-        expect_kind(*a.to, TypeKind::party);
-        // R3: the role this action binds consents to being bound.
-        const std::string party = m::key(a.to->concept_entry, a.to->name);
-        if (const Decl* d = global(party); d != nullptr && d->refers == Refers::party &&
-                                           model_.parties[d->index].bound_by == action) {
-            a.consents.push_back(m::Consent{c.to->span, *a.to, rule_role_binding});
+        check_to(*c.to, a, action);
+    } else if (a.terms && terms->second.to) {
+        in_terms(true);
+        const std::size_t before = a.consents.size();
+        check_to(*terms->second.to, a, action);
+        respan(*a.to, c.action.span);
+        for (std::size_t k = before; k < a.consents.size(); ++k) {
+            a.consents[k].span = c.action.span;
+            respan(a.consents[k].party, c.action.span);
         }
+        in_terms(false);
     }
     if (!c.by && a.word == nullptr) {
         error(c.action.span, "check.needs-by", {{"action", action}});
     }
     a.body = statements(c.body);
+    if (a.terms) {
+        // The contract's own lines first, then the terms (R8 adds no
+        // consent to them). A state change from states no instance reaches
+        // leaves them out.
+        a.terms_from = a.body.size();
+        in_terms(true);
+        consents_ = nullptr;
+        std::vector<m::Statement> more = statements(terms->second.body);
+        respan(more, c.action.span);
+        consents_ = &a.consents;
+        in_terms(false);
+        const auto prune = [&](std::vector<m::Statement>& list, const auto& self) -> void {
+            for (m::Statement& st : list) {
+                if (auto* t = std::get_if<m::Transition>(&st.node)) {
+                    const auto unreached = [&](const m::Expr& f) {
+                        const Decl* d = global(m::key(f.concept_entry, f.name));
+                        return d == nullptr || d->refers != Refers::state;
+                    };
+                    if (!std::ranges::all_of(t->from, unreached)) {
+                        std::erase_if(t->from, unreached);
+                    }
+                } else if (auto* i = std::get_if<m::If>(&st.node)) {
+                    self(i->then, self);
+                    self(i->otherwise, self);
+                } else if (auto* e = std::get_if<m::Each>(&st.node)) {
+                    self(e->body, self);
+                }
+            }
+        };
+        prune(more, prune);
+        for (m::Statement& st : more) {
+            a.body.push_back(std::move(st));
+        }
+    }
     if (!a.agents_propose) {
         a.agents_rule = rule_agents;
     }
@@ -1153,6 +1784,23 @@ void Checker::check_can(const ast::Can& c, std::size_t index) {
     place_ = Place::declaration;
     if (!duplicate) {
         model_.actions.push_back(std::move(a));
+    }
+}
+
+void Checker::check_to(const ast::Expr& to, m::Action& a, const std::string& action) {
+    a.to = value(to);
+    expect_kind(*a.to, TypeKind::party);
+    if (a.to->refers == Refers::input) {
+        // R21: each call names the counterparty, which consents.
+        a.consents.push_back(m::Consent{to.span, *a.to, rule_counterparty});
+        a.to->rule = rule_counterparty;
+        return;
+    }
+    // R3: the role this action binds consents to being bound.
+    const std::string party = m::key(a.to->concept_entry, a.to->name);
+    if (const Decl* d = global(party);
+        d != nullptr && d->refers == Refers::party && model_.parties[d->index].bound_by == action) {
+        a.consents.push_back(m::Consent{to.span, *a.to, rule_role_binding});
     }
 }
 
@@ -1262,8 +1910,14 @@ std::vector<m::Statement> Checker::statements(const std::vector<ast::Statement>&
                                node.from.push_back(value(from));
                                expect_kind(node.from.back(), TypeKind::state);
                            }
-                           node.to = value(t.to);
-                           expect_kind(node.to, TypeKind::state);
+                           if (word_is(t.to, "expr.previous_state")) {
+                               // Back to the state before the current one.
+                               node.to = plain(t.to);
+                               node.to.type = of(TypeKind::state);
+                           } else {
+                               node.to = value(t.to);
+                               expect_kind(node.to, TypeKind::state);
+                           }
                            out.push_back(m::Statement{std::move(node)});
                        },
                        [&](const ast::Do& d) { out.push_back(m::Statement{do_action(d)}); },
@@ -1278,7 +1932,13 @@ m::Set Checker::set_statement(const ast::Set& s) {
     m::Set out;
     out.span = s.span;
     out.target = value(s.target);
-    out.value = value(s.value);
+    if (word_is(s.value, "val.none")) {
+        // No party: a party field may be set to none.
+        out.value = plain(s.value);
+        out.value.type = of(TypeKind::party);
+    } else {
+        out.value = value(s.value);
+    }
     if (out.target.refers != Refers::field) {
         if (known(out.target.type)) {
             error(s.target.span, "check.set-target", {{"text", written(s.target.span)}});
@@ -1403,19 +2063,47 @@ void Checker::check_states() {
     }
     for (const m::State& s : model_.states) {
         const std::string k = m::key(s.word, s.name);
-        // A vocabulary state may be reached by a vocabulary action's
-        // template (milestone 11).
-        if (reached.contains(k) || unclear_.contains(k) || (s.word != nullptr && any_standard_)) {
+        // A vocabulary state may be reached by a vocabulary action whose
+        // standard terms come later.
+        if (reached.contains(k) || unclear_.contains(k) || (s.word != nullptr && any_unterms_)) {
             continue;
         }
         error(s.span, "check.unreachable-state", {{"state", k}});
     }
-    if (!any_standard_) {
+    if (!any_unterms_) {
         for (const auto& [k, span] : state_mentions_) {
             if (global(k) == nullptr) {
                 error(span, "check.unreachable-state", {{"state", k}});
             }
         }
+    }
+}
+
+void Checker::finish_terms() {
+    // A party field some action sets to none may hold no party.
+    const auto mark = [&](const std::vector<m::Statement>& list, const auto& self) -> void {
+        for (const m::Statement& st : list) {
+            if (const auto* set = std::get_if<m::Set>(&st.node)) {
+                const Decl* d = global(m::key(set->target.concept_entry, set->target.name));
+                if (set->value.kind == ExprKind::word && is(set->value.concept_entry, "val.none") &&
+                    set->target.refers == Refers::field && d != nullptr &&
+                    d->refers == Refers::field &&
+                    model_.fields[d->index].type.kind == TypeKind::party) {
+                    model_.fields[d->index].optional = true;
+                }
+            } else if (const auto* i = std::get_if<m::If>(&st.node)) {
+                self(i->then, self);
+                self(i->otherwise, self);
+            } else if (const auto* e = std::get_if<m::Each>(&st.node)) {
+                self(e->body, self);
+            }
+        }
+    };
+    for (const m::Action& a : model_.actions) {
+        mark(a.body, mark);
+    }
+    for (const m::TimeRule& r : model_.rules) {
+        mark(r.body, mark);
     }
 }
 
@@ -1542,7 +2230,9 @@ m::Step Checker::test_step(const ast::Do& d, const bool first, std::optional<std
         }
     }
     step.creation = action == creation;
-    if (!step.creation && declared == nullptr) {
+    // `PARTY approve`: a person approves the first proposal an AI agent made.
+    step.approve = declared == nullptr && is(word, "act.approve") && m::has_proposals(model_);
+    if (!step.creation && !step.approve && declared == nullptr) {
         if (is(word, "act.issue") || is(word, "act.create")) {
             error(d.action.span, "check.test-creation",
                   {{"text", written(d.action.span)}, {"action", creation}});
@@ -1568,8 +2258,12 @@ m::Step Checker::test_step(const ast::Do& d, const bool first, std::optional<std
         }
     }
 
-    // The counterparty: a role bound at creation is that role's ledger.
-    if (d.to && (step.creation || declared != nullptr)) {
+    // The counterparty: a role bound at creation is that role's ledger; one
+    // each call names (R21) must be given.
+    if (!d.to && declared != nullptr && declared->to && declared->to->refers == Refers::input) {
+        error(d.action.span, "check.test-needs-to", {{"action", action}});
+    }
+    if (d.to && (step.creation || step.approve || declared != nullptr)) {
         const m::Expr* role = declared != nullptr && declared->to ? &*declared->to : nullptr;
         if (role == nullptr) {
             error(d.to->span, "check.test-to", {{"action", step.creation ? creation : action}});
@@ -1630,17 +2324,21 @@ void Checker::test_with(const ast::Do& d, m::Step& step, const m::Action* action
     // What the step must give: the action's inputs, or at creation every
     // field given at creation (not a party field, which starts with its
     // role, R2).
-    const bool known_action = step.creation || action != nullptr;
+    const bool known_action = step.creation || step.approve || action != nullptr;
     std::vector<const m::Field*> expected;
     if (step.creation) {
         for (const m::Field& f : model_.fields) {
-            if (f.kind == m::FieldKind::instance && !(f.type.kind == TypeKind::party && f.value)) {
+            if (f.kind == m::FieldKind::instance && !(f.type.kind == TypeKind::party && f.value) &&
+                !f.empty_at_start) {
                 expected.push_back(&f);
             }
         }
     } else if (action != nullptr) {
         for (const m::Field& f : action->inputs) {
-            expected.push_back(&f);
+            // A counterparty each call names (R21) is the step's `to`.
+            if (f.rule != rule_counterparty) {
+                expected.push_back(&f);
+            }
         }
     }
     std::set<std::string> given;
@@ -1696,11 +2394,24 @@ void Checker::test_expect(const ast::Expect& e, m::Step& step) {
     if (e.reason) {
         error(e.span, "check.test-reason", {{"text", written(e.span)}});
     }
+    if (word_is(o, "val.pending_approval")) {
+        // An AI agent's call to an action it may only propose.
+        const m::Action* proposed = nullptr;
+        for (const m::Action& a : model_.actions) {
+            if (m::key(a.word, a.name) == m::key(step.word, step.name)) {
+                proposed = &a;
+            }
+        }
+        step.expect = m::Expectation::proposed;
+        if (proposed == nullptr || !proposed->agents_propose || !step.agent) {
+            error(e.span, "check.test-proposal", {{"action", m::key(step.word, step.name)}});
+        }
+        return;
+    }
     if (word_in(o, Category::state)) {
-        // A vocabulary state may be reached by a vocabulary action's
-        // template (milestone 11).
+        // Only a state of the contract: one an instance can reach.
         const Decl* d = global(o.concept_entry->id);
-        if ((d != nullptr && d->refers == Refers::state) || any_standard_) {
+        if (d != nullptr && d->refers == Refers::state) {
             step.expect = m::Expectation::state;
             step.state_word = o.concept_entry;
             return;
@@ -1966,6 +2677,12 @@ void Checker::word_value(const ast::Expr& e, m::Expr& out) {
     switch (c->category) {
     case Category::role:
         out.type = of(TypeKind::party);
+        if (const Local* l = local(id)) {
+            // R21: a counterparty each call names, as an input.
+            out.refers = l->refers;
+            out.type = l->type;
+            return;
+        }
         if (const Decl* d = global(id); d != nullptr && d->refers == Refers::party) {
             out.refers = Refers::party;
         } else if (parties_ != nullptr) {
@@ -2009,7 +2726,9 @@ void Checker::word_value(const ast::Expr& e, m::Expr& out) {
     case Category::state:
         out.refers = Refers::state;
         out.type = of(TypeKind::state);
-        if (global(id) == nullptr && !state_mentions_.contains(id)) {
+        // A state the terms name but no instance reaches is never the
+        // instance's: not a problem of the contract's.
+        if (!in_terms_ && global(id) == nullptr && !state_mentions_.contains(id)) {
             state_mentions_.emplace(id, e.span);
         }
         return;
@@ -2073,11 +2792,11 @@ void Checker::threshold(const ast::Expr& e, m::Expr& out) {
         out.operands.push_back(std::move(n));
         return;
     }
-    const bool standard = action_ != nullptr && action_->word != nullptr;
+    const bool standard = action_ != nullptr && action_->word != nullptr && !action_->terms;
     if (!bare && standard && amounts_ == 0 &&
         (n.type.kind == TypeKind::money || n.type.kind == TypeKind::quantity || !known(n.type))) {
-        // The amount of a vocabulary action comes from its template
-        // (milestone 11), which must agree.
+        // The amount of a vocabulary action without standard terms yet comes
+        // with its terms, which must agree.
         out.rule = rule_threshold;
         out.operands.push_back(std::move(n));
         return;
@@ -2435,6 +3154,20 @@ void Checker::binary_value(const ast::Expr& e, m::Expr& out) {
     case Operator::greater:
     case Operator::greater_equal:
     case Operator::member: {
+        if (e.op == Operator::equals && (word_is(a, "val.none") || word_is(b, "val.none"))) {
+            // A party field that holds no party: pledgee = none.
+            const bool left_none = word_is(a, "val.none");
+            m::Expr other = value(left_none ? b : a);
+            m::Expr none = plain(left_none ? a : b);
+            none.type = of(TypeKind::party);
+            if (known(other.type) && other.type.kind != TypeKind::party) {
+                mismatch(e, left_none ? none.type : other.type, left_none ? other.type : none.type);
+            }
+            out.type = of(TypeKind::yes_no);
+            out.operands.push_back(left_none ? std::move(none) : std::move(other));
+            out.operands.push_back(left_none ? std::move(other) : std::move(none));
+            return;
+        }
         // R18: an undeclared name compared with a text is that text.
         m::Expr left;
         m::Expr right;
@@ -2454,6 +3187,10 @@ void Checker::binary_value(const ast::Expr& e, m::Expr& out) {
                 right = value(b);
             }
         }
+        if (e.op != Operator::member) {
+            zero_of(left, right);
+            zero_of(right, left);
+        }
         out.type = compare(e, left, right);
         out.operands.push_back(std::move(left));
         out.operands.push_back(std::move(right));
@@ -2465,6 +3202,10 @@ void Checker::binary_value(const ast::Expr& e, m::Expr& out) {
     case Operator::divide:
         out.operands.push_back(value(a));
         out.operands.push_back(value(b));
+        if (e.op == Operator::plus || e.op == Operator::minus) {
+            zero_of(out.operands[0], out.operands[1]);
+            zero_of(out.operands[1], out.operands[0]);
+        }
         out.type = arithmetic(e, out);
         return;
     case Operator::none:
@@ -2517,6 +3258,7 @@ m::Model Checker::run(const ast::File& file) {
 
     declare_parties();
     read_kind();
+    prepare_terms();
     declare_actions();
     for (const ast::Can* c : cans_) {
         collect_states(c->body);
@@ -2524,7 +3266,11 @@ m::Model Checker::run(const ast::File& file) {
     for (const ast::When* w : whens_) {
         collect_states(w->body);
     }
+    for (const auto& [i, terms] : terms_) {
+        collect_terms_states(terms.body);
+    }
     choose_first_state();
+    reach_terms();
     bind_roles();
     find_due();
     read_charges();
@@ -2534,6 +3280,7 @@ m::Model Checker::run(const ast::File& file) {
     for (const ast::When* w : whens_) {
         check_when(*w);
     }
+    finish_terms();
     check_states();
     check_recursion();
     check_tests();

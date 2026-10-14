@@ -232,6 +232,12 @@ struct Field {
     /// Further parts after commas: labelled prices (overage per GB HKD 0.10).
     std::vector<Expr> more;
     std::string_view rule;
+    /// A party field that may hold no party (`none`): one an action sets to
+    /// none, or one the standard terms add (R20).
+    bool optional = false;
+    /// R20: added by the standard terms; each instance starts with none, so
+    /// it is not given at creation.
+    bool empty_at_start = false;
 };
 
 /// A line of a charge's block (`rate 6%`, `applies to ...`, `added`,
@@ -270,9 +276,8 @@ struct Consent {
     std::string_view rule;
 };
 
-/// `can ACTION`: a vocabulary action (its template comes from the standard
-/// library, milestone 11, and adds to what is written here) or the
-/// contract's own.
+/// `can ACTION`: a vocabulary action (the standard library's terms for it, if
+/// it has some, follow the contract's own lines: R19) or the contract's own.
 struct Action {
     Span span;
     const Concept* word = nullptr;
@@ -289,6 +294,10 @@ struct Action {
     /// R10: the action asks an executor to act outside the ledger.
     bool executor = false;
     std::string_view executor_rule;
+    /// R19: a vocabulary action with the standard library's terms. Its body
+    /// is the contract's own lines, then, from `terms_from` on, the terms'.
+    bool terms = false;
+    std::uint64_t terms_from = 0;
 };
 
 /// `when EVENT`: a time rule. The event is a date (`due`) or a condition on
@@ -312,10 +321,11 @@ enum class Expectation : std::uint8_t {
     state,    ///< `-> STATE`: accepted, and the instance is then in STATE
     refused,  ///< `-> refused ["REASON"]`: refused (with that reason)
     waits,    ///< `-> consent of PARTY`: the call waits for those parties' consent
+    proposed, ///< `-> pending approval`: an AI agent's call, kept as a proposal
 };
 
-inline constexpr std::array<std::string_view, 4> expectation_names{"accepted", "state", "refused",
-                                                                   "waits"};
+inline constexpr std::array<std::string_view, 5> expectation_names{"accepted", "state", "refused",
+                                                                   "waits", "proposed"};
 
 /// A party a test names: one of the contract's roles (a role word or a
 /// name of `parties`), or a ledger only the test names (`bank1`). Each is a
@@ -341,6 +351,8 @@ struct Step {
     const Concept* word = nullptr;
     std::string name;
     bool creation = false;
+    /// `PARTY approve`: approves the first proposal the instance keeps.
+    bool approve = false;
     std::optional<TestParty> to;
     /// The values given, typed: the action's inputs, or at creation the
     /// fields given at creation. Each is a literal (or yes, no, a list).
@@ -430,5 +442,16 @@ struct Model {
 /// The name of the function that creates an instance: `issue` for an
 /// asset, `create` otherwise.
 [[nodiscard]] std::string_view creation_function(const Model& model) noexcept;
+
+/// True if some action lets AI agents only propose it, so that compiled code
+/// keeps proposals and has a function `approve`.
+[[nodiscard]] bool has_proposals(const Model& model) noexcept;
+
+/// True if a transition goes back to the state before (`previous state`),
+/// so that compiled code keeps that state.
+[[nodiscard]] bool uses_previous(const Model& model) noexcept;
+
+/// The name of the function that approves a proposal.
+inline constexpr std::string_view approve_function = "approve";
 
 } // namespace cexchain::bo::model

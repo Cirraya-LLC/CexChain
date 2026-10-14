@@ -111,6 +111,9 @@ struct StepResult {
     std::string reason;
     /// The calls run, in order: without consents, then with those given.
     std::vector<TestCall> calls;
+    /// Accepted as an AI agent's proposal of this action (its function's
+    /// name), awaiting approval: the instance did not change.
+    std::string proposed;
 };
 
 struct TestResult {

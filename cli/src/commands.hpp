@@ -169,5 +169,7 @@ int cmd_bo_test(const Args& args);
 int cmd_bo_packs_list(const Args& args);
 int cmd_bo_packs_show(const Args& args);
 int cmd_bo_packs_check(const Args& args);
+int cmd_bo_stdlib_list(const Args& args);
+int cmd_bo_stdlib_show(const Args& args);
 
 } // namespace cexchain::cli

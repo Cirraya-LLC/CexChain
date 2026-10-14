@@ -690,9 +690,24 @@ TEST_CASE("bo build: one contract in any language compiles to the same bytes", "
                               {"countersign", protocol::FunctionKind::call},
                               {"create", protocol::FunctionKind::create},
                               {"sign", protocol::FunctionKind::call}});
-    // The spec's examples (which need the standard library or later
-    // milestones) are refused the same way in every language.
-    for (const std::string_view example : {"receivable", "ip-pool", "split", "vps", "tax"}) {
+    // The spec's receivable builds (with the standard library), to the same
+    // code in every language.
+    const auto example_source = [&](std::string_view example, std::string_view language) {
+        return read_text(golden_dir / std::format("example-{}-{}", example, language) /
+                         "source.bo");
+    };
+    const bo::Build receivable = build_text(example_source("receivable", "en"));
+    for (const std::string_view language : {"zh-hant", "zh-hans", "mixed"}) {
+        INFO(language);
+        CHECK(build_text(example_source("receivable", language)).code == receivable.code);
+    }
+    CHECK(receivable.interface == std::map<std::string, protocol::FunctionKind>{
+                                      {"issue", protocol::FunctionKind::create},
+                                      {"pledge", protocol::FunctionKind::call},
+                                      {"transfer", protocol::FunctionKind::call}});
+    // The others (which need later milestones) are refused the same way in
+    // every language.
+    for (const std::string_view example : {"ip-pool", "split", "vps", "tax"}) {
         std::string first;
         for (const std::string_view language : {"en", "zh-hant", "zh-hans", "mixed"}) {
             const std::string source = read_text(
@@ -763,8 +778,12 @@ TEST_CASE("bo build: values, units, dates, texts, and yes or no", "[bo][build]")
 
 TEST_CASE("bo build: what this version does not compile yet", "[bo][build]") {
     const std::string head = "contract C\nparties we, customer\n\n";
-    // The vocabulary's actions come with the standard library (M11).
-    CHECK(build_codes(head + "asset Note\n  amount HKD\n  holder we\n\ncan transfer\n") ==
+    // A vocabulary action builds with its standard terms (M11); one whose
+    // terms come later does not.
+    CHECK(
+        vm::load(build_text(head + "asset Note\n  amount HKD\n  holder we\n\ncan transfer\n").code)
+            .has_value());
+    CHECK(build_codes(head + "asset Note\n  amount HKD\n  holder we\n\ncan refund by we\n") ==
           "build.standard-action");
     // Time rules (M12), charges and lists (M13), agents' proposals.
     CHECK(build_codes(head + "record R\n  ends date\n\ncan go by we\n  -> active\nwhen ends\n"
@@ -774,8 +793,8 @@ TEST_CASE("bo build: what this version does not compile yet", "[bo][build]") {
     CHECK(build_codes(head + "record R\n  amount HKD\n\ncan go by we with rows list HKD\n"
                              "  each row in rows\n    requires row > HKD 0\n") ==
           "build.unsupported build.unsupported");
-    CHECK(build_codes(head + "can go by we\n  AI agent can propose\n  -> active\n") ==
-          "build.unsupported");
+    CHECK(vm::load(build_text(head + "can go by we\n  AI agent can propose\n  -> active\n").code)
+              .has_value());
     CHECK(build_codes(head + "can go by we\n  -> active\ncan stop by we\n  go\n") ==
           "build.unsupported");
     CHECK(build_codes(head + "service S\n  price monthly HKD 120\n\ncan go by we\n"
@@ -912,6 +931,10 @@ TEST_CASE("bo build: write the runs for the Python reference", "[.codegen-refere
              {"check-agreement", golden_dir / "check-agreement" / "source.bo"},
              {"deal", golden_dir / "test" / "failing" / "source.bo"},
              {"loan-tests", golden_dir / "check-tests" / "source.bo"},
+             {"receivable-financing", golden_dir / "test" / "receivable-financing" / "source.bo"},
+             {"receivable", golden_dir / "test" / "receivable" / "source.bo"},
+             {"warehouse-receipt", golden_dir / "test" / "warehouse-receipt" / "source.bo"},
+             {"standard", golden_dir / "check-standard" / "source.bo"},
              {"supply-agreement", golden_dir.parent_path().parent_path().parent_path() / "deploy" /
                                       "demo" / "supply-agreement.bo"}}) {
         const std::string text = read_text(file);

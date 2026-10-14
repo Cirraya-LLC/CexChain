@@ -1,0 +1,22 @@
+# Built-in actions: who starts them and their counterparty are the standard
+# terms', and so are their state changes and the fields they set; their
+# fields must be the instance's; and they must be able to start.
+contract Errors
+parties we, supplier, bank
+
+asset A
+  amount HKD
+  holder supplier
+
+can pledge to bank by bank
+can release to bank
+can transfer
+  -> frozen
+  holder = we
+can redeem
+can dispute
+
+test "steps"
+  we issue with amount = HKD 1
+  supplier transfer
+  supplier transfer to factor1 by AI agent -> pending approval

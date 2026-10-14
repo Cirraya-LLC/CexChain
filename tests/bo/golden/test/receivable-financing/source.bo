@@ -1,0 +1,40 @@
+# The spec's ReceivableFinancing example (bo-1.0, section 8), with its tests:
+# pledge and transfer are built-in actions, with the standard library's terms.
+contract ReceivableFinancing
+parties issuer, supplier, bank
+
+asset Receivable
+  amount HKD
+  due date
+  holder supplier
+
+can pledge to bank
+  over 5_000_000 requires in person
+can transfer
+when due issuer pays
+
+test "the supplier pledges the receivable to its bank"
+  issuer issue with amount = HKD 3_000_000, due = 2027-06-30
+  supplier pledge to bank1 -> pledged
+  supplier pledge to bank2 -> refused
+  supplier transfer to factor1 -> refused
+
+test "the bank's consent is needed"
+  issuer issue with amount = HKD 3_000_000, due = 2027-06-30
+  supplier pledge to bank1 -> consent of bank1
+
+test "only the holder pledges"
+  issuer issue with amount = HKD 3_000_000, due = 2027-06-30
+  bank1 pledge to bank1 -> consent of supplier
+
+test "over HKD 5,000,000 the holder proves presence"
+  issuer issue with amount = HKD 8_000_000, due = 2027-06-30
+  supplier pledge to bank1 -> refused "bo:in-person pledge"
+  supplier pledge to bank1 in person -> pledged
+
+test "the supplier sells the receivable, and the buyer pledges it"
+  issuer issue with amount = HKD 3_000_000, due = 2027-06-30
+  supplier transfer to supplier -> refused "bo:requires transfer 1"
+  supplier transfer to factor1 -> active
+  supplier pledge to bank1 -> consent of factor1
+  factor1 pledge to bank1 -> pledged

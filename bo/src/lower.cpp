@@ -172,6 +172,11 @@ struct FieldSlot {
     wasm::Global second{};
     /// A party field that starts with a role (R2): that role.
     std::optional<std::size_t> starts_with;
+    /// A party field that may hold no party (its ledger's address is 0
+    /// then, and the state holds null).
+    bool optional = false;
+    /// R20: not given at creation; each instance starts with none.
+    bool empty_at_start = false;
 };
 
 struct RoleSlot {
@@ -195,12 +200,18 @@ struct ActionInfo {
     std::optional<std::size_t> binds;
     std::size_t transitions = 0;
     wasm::Func function{};
+    /// AI agents may only propose it: `function` reads the call and runs
+    /// `core`, which `approve` runs too, with the proposal's arguments.
+    wasm::Func core{};
 };
 
 /// One function being written.
 struct Ctx {
     FunctionBuilder* b = nullptr;
     const ActionInfo* action = nullptr;
+    /// The arguments' item, for an action's core (a parameter); otherwise
+    /// the call's (input key 2).
+    std::optional<Local> args;
     /// Inputs by key: the value's local, and a text's length.
     std::map<std::string, std::pair<Local, Local>> inputs;
     /// The starter's signer (0 while its consent is missing).
@@ -261,6 +272,13 @@ private:
     void emit_entry(wasm::Func entry);
     void emit_creation(wasm::Func f);
     void emit_action(const ActionInfo& action);
+    void emit_core(const ActionInfo& action);
+    void emit_approve(wasm::Func f);
+    void entry_check(Ctx& c);
+    void party_raw(Ctx& c, const m::Expr& e);
+    void ledger_equals(Ctx& c, const m::Expr& x, const m::Expr& y);
+    void consent_of(Ctx& c, const m::Expr& party);
+    [[nodiscard]] bool may_be_empty(const m::Expr& e) const;
     [[nodiscard]] wasm::Func load_instance();
     [[nodiscard]] wasm::Func write_accept();
     void finish(FunctionBuilder& b);
@@ -274,6 +292,9 @@ private:
     void arithmetic(Ctx& c, const m::Expr& e);
     void in_person(Ctx& c);
     void record_event(FunctionBuilder& b, std::size_t state);
+    void record_event_at(FunctionBuilder& b, Local state);
+    void write_pending(FunctionBuilder& b);
+    void write_event(FunctionBuilder& b);
 
     std::string_view source_;
     const m::Model& model_;
@@ -292,6 +313,11 @@ private:
     std::vector<ActionInfo> actions_;
     std::size_t max_transitions_ = 1;
     wasm::Func creation_function_{};
+    /// The contract goes back to a previous state (`previous state`), or
+    /// keeps AI agents' proposals: its instances' state holds them too.
+    bool previous_used_ = false;
+    bool proposals_ = false;
+    wasm::Func approve_function_{};
 
     // Written in the second pass.
     wasm::Global state_{};
@@ -301,6 +327,21 @@ private:
     std::uint32_t final_table_ = 0;
     std::optional<wasm::Func> load_instance_;
     std::optional<wasm::Func> write_accept_;
+    /// The state before the current one, as its index plus 1 (0: none).
+    wasm::Global previous_{};
+    /// The instance's proposals (the state's "pending" array item, or 0);
+    /// the one an approval removes (its index plus 1, or 0); and the one a
+    /// proposal adds (its function's name, and its arguments' item, or 0).
+    wasm::Global pending_{};
+    wasm::Global drop_{};
+    wasm::Global add_name_{};
+    wasm::Global add_length_{};
+    wasm::Global add_args_{};
+    /// An event besides the state changes: 1 propose, 2 approve (0 none),
+    /// and the action's name.
+    wasm::Global event_kind_{};
+    wasm::Global event_name_{};
+    wasm::Global event_length_{};
 };
 
 // ---------------------------------------------------------------------------
@@ -332,6 +373,8 @@ void Lowering::plan_fields() {
         slot.wire = wire_name(f.word, f.name);
         slot.key = text_cbor(slot.wire);
         slot.rep = rep_of(f.type);
+        slot.optional = f.optional && slot.rep == Rep::ledger;
+        slot.empty_at_start = f.empty_at_start && slot.rep == Rep::ledger;
         if (slot.rep == Rep::none) {
             unsupported(f.span, feature_of(f.type));
         }
@@ -454,9 +497,9 @@ std::optional<std::pair<Span, std::string>> Lowering::unsupported_in(const m::Ex
         case Refers::party:
             return role_index_.contains(key) ? std::nullopt : no(key);
         case Refers::state:
-            return e.type.kind == TypeKind::yes_no && state_index_.contains(key)
-                       ? std::nullopt
-                       : no(feature_of(e.type));
+            // A state no instance reaches (named by the standard terms) is
+            // never the instance's.
+            return e.type.kind == TypeKind::yes_no ? std::nullopt : no(feature_of(e.type));
         case Refers::item:
             return no("kw.each");
         case Refers::action:
@@ -465,7 +508,8 @@ std::optional<std::pair<Span, std::string>> Lowering::unsupported_in(const m::Ex
             break;
         }
         if (is(e.concept_entry, "val.yes") || is(e.concept_entry, "val.no") ||
-            is(e.concept_entry, "time.now") || is(e.concept_entry, "time.today") ||
+            is(e.concept_entry, "val.none") || is(e.concept_entry, "time.now") ||
+            is(e.concept_entry, "time.today") ||
             (is(e.concept_entry, "cond.in_person") && action != nullptr)) {
             return std::nullopt;
         }
@@ -543,60 +587,66 @@ void Lowering::support(ActionInfo& action, const std::vector<m::Statement>& list
         }
     };
     for (const m::Statement& s : list) {
-        std::visit(Overloaded{
-                       [&](const m::Requires& r) {
-                           if (r.guard) {
-                               check(*r.guard, false);
-                           }
-                           check(r.condition, true);
-                       },
-                       [&](const m::If& i) {
-                           check(i.condition, false);
-                           support(action, i.then);
-                           support(action, i.otherwise);
-                       },
-                       [&](const m::Each& e) { unsupported(e.span, "kw.each"); },
-                       [&](const m::Reject& r) {
-                           if (r.message.starts_with("bo:")) {
-                               error(r.span, "build.reject-text",
-                                     {{"text", quote(source_, r.span)}});
-                           }
-                       },
-                       [&](const m::Set& st) {
-                           const std::string key = m::key(st.target.concept_entry, st.target.name);
-                           if (st.target.refers != Refers::field || !field_index_.contains(key)) {
-                               unsupported(st.span, feature_of(st.target.type));
-                               return;
-                           }
-                           check(st.value, false);
-                       },
-                       [&](const m::Transition& t) {
-                           ++action.transitions;
-                           for (const m::Expr& f : t.from) {
-                               if (!state_index_.contains(m::key(f.concept_entry, f.name))) {
-                                   unsupported(f.span, "type.unknown");
-                               }
-                           }
-                           if (!state_index_.contains(m::key(t.to.concept_entry, t.to.name))) {
-                               unsupported(t.to.span, "type.unknown");
-                           }
-                       },
-                       [&](const m::Do& d) {
-                           const std::string key = m::key(d.action.concept_entry, d.action.name);
-                           if (d.executor) {
-                               error(d.span, "build.executor", {{"action", key}});
-                           } else {
-                               unsupported(d.span, key);
-                           }
-                       },
-                   },
-                   s.node);
+        std::visit(
+            Overloaded{
+                [&](const m::Requires& r) {
+                    if (r.guard) {
+                        check(*r.guard, false);
+                    }
+                    check(r.condition, true);
+                },
+                [&](const m::If& i) {
+                    check(i.condition, false);
+                    support(action, i.then);
+                    support(action, i.otherwise);
+                },
+                [&](const m::Each& e) { unsupported(e.span, "kw.each"); },
+                [&](const m::Reject& r) {
+                    if (r.message.starts_with("bo:")) {
+                        error(r.span, "build.reject-text", {{"text", quote(source_, r.span)}});
+                    }
+                },
+                [&](const m::Set& st) {
+                    const std::string key = m::key(st.target.concept_entry, st.target.name);
+                    if (st.target.refers != Refers::field || !field_index_.contains(key)) {
+                        unsupported(st.span, feature_of(st.target.type));
+                        return;
+                    }
+                    check(st.value, false);
+                },
+                [&](const m::Transition& t) {
+                    ++action.transitions;
+                    for (const m::Expr& f : t.from) {
+                        if (!state_index_.contains(m::key(f.concept_entry, f.name))) {
+                            unsupported(f.span, "type.unknown");
+                        }
+                    }
+                    if (is(t.to.concept_entry, "expr.previous_state")) {
+                        previous_used_ = true;
+                    } else if (!state_index_.contains(m::key(t.to.concept_entry, t.to.name))) {
+                        unsupported(t.to.span, "type.unknown");
+                    }
+                },
+                [&](const m::Do& d) {
+                    const std::string key = m::key(d.action.concept_entry, d.action.name);
+                    if (d.executor) {
+                        error(d.span, "build.executor", {{"action", key}});
+                    } else {
+                        unsupported(d.span, key);
+                    }
+                },
+            },
+            s.node);
     }
 }
 
 void Lowering::plan_actions() {
     creation_ = std::string(m::creation_function(model_));
     std::set<std::string> names{creation_};
+    proposals_ = m::has_proposals(model_);
+    if (proposals_) {
+        names.emplace(m::approve_function);
+    }
     for (const m::Action& a : model_.actions) {
         ActionInfo info;
         info.action = &a;
@@ -604,11 +654,8 @@ void Lowering::plan_actions() {
         info.wire = wire_name(a.word, a.name);
         if (a.executor) {
             error(a.span, "build.executor", {{"action", info.key}});
-        } else if (a.word != nullptr) {
+        } else if (a.word != nullptr && !a.terms) {
             error(a.span, "build.standard-action", {{"action", info.key}});
-        }
-        if (a.agents_propose) {
-            unsupported(a.span, "actor.ai_agent");
         }
         if (!names.insert(info.wire).second) {
             error(a.span, "build.name-taken", {{"name", info.wire}});
@@ -653,7 +700,8 @@ void Lowering::plan_actions() {
             check(c.party);
         }
         support(info, a.body);
-        if (info.transitions > max_build_events) {
+        // An approval reports one more event: approve.
+        if (info.transitions + (a.agents_propose ? 1 : 0) > max_build_events) {
             error(a.span, "build.too-many-events",
                   {{"action", info.key}, {"limit", std::to_string(max_build_events)}});
         }
@@ -679,7 +727,13 @@ void Lowering::plan() {
         error(Span{}, "build.fragment", {});
     }
     for (const m::TimeRule& r : model_.rules) {
-        error(r.span, "build.time-rule", {{"text", quote(source_, r.span)}});
+        // A rule that only states duties (R9) calls nothing: no code.
+        const bool duties =
+            r.body.empty() && r.consents.empty() &&
+            std::ranges::all_of(r.actions, [](const m::Do& d) { return d.obligation; });
+        if (!duties) {
+            error(r.span, "build.time-rule", {{"text", quote(source_, r.span)}});
+        }
     }
     for (const m::Charge& c : model_.charges) {
         unsupported(c.span, c.kind != nullptr ? std::string(c.kind->id) : "charge.charge");
@@ -836,8 +890,71 @@ wasm::Func Lowering::load_instance() {
         b.get(fields);
         push_key(b, slot.key);
         b.call(map_get);
-        expect(b, slot.rep, input);
+        if (slot.optional) {
+            // No party: null.
+            b.tee(p).op(i32_eqz).op(i32_eqz);
+            {
+                const Label present = b.if_(I32);
+                b.get(p).load(i32_load8_u).u32(0xF6).op(i32_eq);
+                b.else_(present);
+                b.i32(0);
+                b.end(present);
+            }
+            {
+                const Label none = b.if_(I32);
+                b.i32(0);
+                b.else_(none);
+                b.get(p);
+                expect(b, Rep::ledger, input);
+                b.end(none);
+            }
+        } else {
+            expect(b, slot.rep, input);
+        }
         store(b, slot);
+    }
+    if (previous_used_) {
+        // The state before the current one, by name, or null.
+        b.get(st);
+        push_key(b, text_cbor("previous"));
+        b.call(map_get).tee(p).op(i32_eqz);
+        {
+            const Label missing = b.if_();
+            b.call(rt_.fail(rt::Reason::input));
+            b.end(missing);
+        }
+        b.get(p).load(i32_load8_u).u32(0xF6).op(i32_ne);
+        {
+            const Label some = b.if_();
+            b.get(p);
+            expect(b, Rep::text, input);
+            b.set(n).set(p);
+            const Label found = b.block();
+            for (std::size_t i = 0; i < states_.size(); ++i) {
+                const std::string& wire = states_[i].wire;
+                b.get(p).get(n).u32(intern(wire)).u32(static_cast<std::uint32_t>(wire.size()));
+                b.call(rt_.get(Routine::bytes_eq));
+                const Label same = b.if_();
+                b.u32(static_cast<std::uint32_t>(i + 1)).global_set(previous_).br(found);
+                b.end(same);
+            }
+            b.call(rt_.fail(rt::Reason::input));
+            b.end(found);
+            b.end(some);
+        }
+    }
+    if (proposals_) {
+        // The proposals: an array of [function, arguments].
+        b.get(st);
+        push_key(b, text_cbor("pending"));
+        b.call(map_get).tee(p).op(i32_eqz);
+        b.get(p).load(i32_load8_u).u32(0xE0).op(i32_and).u32(0x80).op(i32_ne).op(i32_or);
+        {
+            const Label other = b.if_();
+            b.call(rt_.fail(rt::Reason::input));
+            b.end(other);
+        }
+        b.get(p).global_set(pending_);
     }
     b.get(instance);
     push_key(b, uint_key(5));
@@ -878,13 +995,23 @@ wasm::Func Lowering::write_accept() {
     b.get(index).load(i32_load8_u, final_table_).set(final);
     std::size_t party_fields = 0;
     for (const FieldSlot& slot : fields_) {
-        party_fields += slot.rep == Rep::ledger ? 1 : 0;
+        party_fields += slot.rep == Rep::ledger && !slot.optional ? 1 : 0;
     }
     b.u32(static_cast<std::uint32_t>(party_fields)).set(parties);
     for (const RoleSlot& role : roles_) {
         b.global_get(role.ledger).op(i32_eqz).op(i32_eqz).get(parties).op(i32_add).set(parties);
     }
+    // A party field that holds no party is no party of the instance.
+    for (const FieldSlot& slot : fields_) {
+        if (slot.optional) {
+            b.global_get(slot.first).op(i32_eqz).op(i32_eqz).get(parties).op(i32_add).set(parties);
+        }
+    }
     b.global_get(events_).set(events);
+    if (proposals_) {
+        // A proposal or an approval: one more event.
+        b.global_get(event_kind_).op(i32_eqz).op(i32_eqz).get(events).op(i32_add).set(events);
+    }
     // [1, {1: state, 2: status, ? 3: parties, ? 4: events, ? 5: true}]
     b.i32(4).i64(2).call(head);
     b.i64(1).call(out_int);
@@ -892,10 +1019,11 @@ wasm::Func Lowering::write_accept() {
     b.get(events).op(i32_eqz).op(i32_eqz).op(i32_add).get(final).op(i32_add);
     b.op(i64_extend_i32_u).set(count);
     b.i32(5).get(count).call(head);
-    // 1: {"state": NAME, "fields": {...}}, keys in canonical order.
+    // 1: {"state": NAME, "fields": {...}, ? "pending": [...], ? "previous":
+    // NAME or null}, keys in canonical order.
     b.i64(1).call(out_int);
     b.global_get(rt_.var(rt::Var::out)).set(mark);
-    b.i32(5).i64(2).call(head);
+    b.i32(5).i64(2 + (proposals_ ? 1 : 0) + (previous_used_ ? 1 : 0)).call(head);
     push_key(b, text_cbor("state"));
     b.call(out_raw);
     state_name(b, index);
@@ -910,8 +1038,35 @@ wasm::Func Lowering::write_accept() {
     for (const FieldSlot* slot : sorted) {
         push_key(b, slot->key);
         b.call(out_raw);
+        if (slot->optional) {
+            b.global_get(slot->first).op(i32_eqz);
+            const Label none = b.if_();
+            b.call(rt_.get(Routine::out_null));
+            b.else_(none);
+            load(b, *slot);
+            out_value(b, slot->rep);
+            b.end(none);
+            continue;
+        }
         load(b, *slot);
         out_value(b, slot->rep);
+    }
+    if (proposals_) {
+        push_key(b, text_cbor("pending"));
+        b.call(out_raw);
+        write_pending(b);
+    }
+    if (previous_used_) {
+        push_key(b, text_cbor("previous"));
+        b.call(out_raw);
+        b.global_get(previous_).op(i32_eqz);
+        const Label none = b.if_();
+        b.call(rt_.get(Routine::out_null));
+        b.else_(none);
+        b.global_get(previous_).i32(1).op(i32_sub).set(index);
+        state_name(b, index);
+        b.global_get(state_).set(index);
+        b.end(none);
     }
     // A state holds at most 64 KiB (spec section 15).
     b.global_get(rt_.var(rt::Var::out)).get(mark).op(i32_sub);
@@ -936,7 +1091,7 @@ wasm::Func Lowering::write_accept() {
         }
         for (const FieldSlot& slot : fields_) {
             if (slot.rep == Rep::ledger) {
-                entries.push_back({&slot.key, {slot.first, false}});
+                entries.push_back({&slot.key, {slot.first, slot.optional}});
             }
         }
         std::ranges::sort(entries,
@@ -958,15 +1113,25 @@ wasm::Func Lowering::write_accept() {
         }
         b.end(some);
     }
-    // 4: each state change: [state, null].
+    // 4: each state change: [state, null] (after a proposal's or an
+    // approval's: [propose or approve, ACTION]).
     b.get(events);
     {
         const Label some = b.if_();
         b.i64(4).call(out_int);
         b.i32(4).get(events).op(i64_extend_i32_u).call(head);
+        if (proposals_) {
+            write_event(b);
+        }
         const Label done = b.block();
         const Label next = b.loop();
-        b.get(i).get(events).op(i32_ge_u).br_if(done);
+        b.get(i);
+        if (proposals_) {
+            b.global_get(events_);
+        } else {
+            b.get(events);
+        }
+        b.op(i32_ge_u).br_if(done);
         b.i32(4).i64(2).call(head);
         b.get(i).i32(2).op(i32_shl).load(i32_load, events_area_).set(index);
         state_name(b, index);
@@ -1004,6 +1169,88 @@ void Lowering::record_event(FunctionBuilder& b, const std::size_t state) {
     b.global_get(events_).i32(1).op(i32_add).global_set(events_);
 }
 
+void Lowering::record_event_at(FunctionBuilder& b, const Local state) {
+    b.global_get(events_).i32(2).op(i32_shl).get(state).store(i32_store, events_area_);
+    b.global_get(events_).i32(1).op(i32_add).global_set(events_);
+}
+
+void Lowering::write_pending(FunctionBuilder& b) {
+    // The proposals kept, but the one an approval took, then the one a
+    // proposal adds: [function, arguments] each.
+    const Local q = b.local(I32);
+    const Local n = b.local(I32);
+    const Local k = b.local(I32);
+    const Local next = b.local(I32);
+    const wasm::Func head = rt_.get(Routine::out_head);
+    const wasm::Func item_end = rt_.get(Routine::item_end);
+    const wasm::Func out_raw = rt_.get(Routine::out_raw);
+    b.global_get(pending_);
+    {
+        const Label some = b.if_(I32);
+        b.global_get(pending_).call(rt_.get(Routine::head_arg)).op(i32_wrap_i64);
+        b.else_(some);
+        b.i32(0);
+        b.end(some);
+    }
+    b.set(n);
+    b.i32(4).get(n);
+    b.global_get(drop_).op(i32_eqz).op(i32_eqz).op(i32_sub);
+    b.global_get(add_args_).op(i32_eqz).op(i32_eqz).op(i32_add);
+    b.op(i64_extend_i32_u).call(head);
+    b.get(n);
+    {
+        const Label some = b.if_();
+        b.global_get(pending_).call(rt_.get(Routine::content)).set(q);
+        const Label done = b.block();
+        const Label loop = b.loop();
+        b.get(k).get(n).op(i32_ge_u).br_if(done);
+        b.get(q).call(item_end).set(next);
+        b.get(k).i32(1).op(i32_add).global_get(drop_).op(i32_ne);
+        {
+            const Label kept = b.if_();
+            b.get(q).get(next).get(q).op(i32_sub).call(out_raw);
+            b.end(kept);
+        }
+        b.get(next).set(q);
+        b.get(k).i32(1).op(i32_add).set(k).br(loop);
+        b.end(loop);
+        b.end(done);
+        b.end(some);
+    }
+    b.global_get(add_args_);
+    {
+        const Label added = b.if_();
+        b.i32(4).i64(2).call(head);
+        b.global_get(add_name_).global_get(add_length_).call(rt_.get(Routine::out_text));
+        b.global_get(add_args_);
+        b.global_get(add_args_).call(item_end).global_get(add_args_).op(i32_sub);
+        b.call(out_raw);
+        b.end(added);
+    }
+}
+
+void Lowering::write_event(FunctionBuilder& b) {
+    // [propose, ACTION] or [approve, ACTION].
+    b.global_get(event_kind_);
+    const Label some = b.if_();
+    b.i32(4).i64(2).call(rt_.get(Routine::out_head));
+    const wasm::Func out_text = rt_.get(Routine::out_text);
+    b.global_get(event_kind_).i32(1).op(i32_eq);
+    {
+        constexpr std::string_view propose_event = "propose";
+        const Label propose = b.if_();
+        b.u32(intern(propose_event)).u32(static_cast<std::uint32_t>(propose_event.size()));
+        b.call(out_text);
+        b.else_(propose);
+        b.u32(intern(m::approve_function))
+            .u32(static_cast<std::uint32_t>(m::approve_function.size()));
+        b.call(out_text);
+        b.end(propose);
+    }
+    b.global_get(event_name_).global_get(event_length_).call(rt_.get(Routine::out_text));
+    b.end(some);
+}
+
 void Lowering::emit_entry(const wasm::Func entry) {
     FunctionBuilder b = module_.begin(entry);
     const Local p = b.local(I32);
@@ -1015,6 +1262,9 @@ void Lowering::emit_entry(const wasm::Func entry) {
     std::vector<std::pair<std::string, wasm::Func>> functions{{creation_, creation_function_}};
     for (const ActionInfo& a : actions_) {
         functions.emplace_back(a.wire, a.function);
+    }
+    if (proposals_) {
+        functions.emplace_back(std::string(m::approve_function), approve_function_);
     }
     std::ranges::sort(functions, {}, &std::pair<std::string, wasm::Func>::first);
     for (const auto& [name, f] : functions) {
@@ -1042,7 +1292,8 @@ void Lowering::emit_creation(const wasm::Func f) {
     }
     std::vector<const FieldSlot*> fields;
     for (const FieldSlot& slot : fields_) {
-        if (!slot.starts_with) {
+        // Not a party field that starts with a role (R2) or with none (R20).
+        if (!slot.starts_with && !slot.empty_at_start) {
             fields.push_back(&slot);
         }
     }
@@ -1113,7 +1364,11 @@ void Lowering::arguments(Ctx& c) {
     const m::Action& a = *c.action->action;
     const Local args = b.local(I32);
     const wasm::Func map_get = rt_.get(Routine::map_get);
-    call_item(b, 2);
+    if (c.args) {
+        b.get(*c.args);
+    } else {
+        call_item(b, 2);
+    }
     b.set(args);
     if (a.inputs.empty() && !c.action->binds) {
         b.get(args).load(i32_load8_u).u32(0xF6).op(i32_ne);
@@ -1202,8 +1457,50 @@ void Lowering::arguments(Ctx& c) {
     }
 }
 
+void Lowering::entry_check(Ctx& c) {
+    // A built-in action is refused first in a state it cannot start from.
+    const m::Action& a = *c.action->action;
+    if (!a.terms) {
+        return;
+    }
+    const std::optional<std::set<std::string>> entry = m::entry_states(a);
+    if (!entry) {
+        return;
+    }
+    std::vector<std::uint32_t> indices;
+    for (const std::string& k : *entry) {
+        if (const auto it = state_index_.find(k); it != state_index_.end()) {
+            indices.push_back(static_cast<std::uint32_t>(it->second));
+        }
+    }
+    if (indices.empty()) {
+        return;
+    }
+    FunctionBuilder& b = *c.b;
+    for (std::size_t i = 0; i < indices.size(); ++i) {
+        b.global_get(state_).u32(indices[i]).op(i32_eq);
+        if (i > 0) {
+            b.op(i32_or);
+        }
+    }
+    b.op(i32_eqz);
+    const Label other = b.if_();
+    refuse(b, "bo:state " + c.action->wire);
+    b.end(other);
+}
+
 void Lowering::emit_action(const ActionInfo& info) {
     FunctionBuilder b = module_.begin(info.function);
+    const m::Action& a = *info.action;
+    if (a.agents_propose) {
+        // The call's arguments, run as a call (not an approval).
+        b.call(load_instance());
+        call_item(b, 2);
+        b.i32(0).call(info.core);
+        module_.define(std::move(b));
+        emit_core(info);
+        return;
+    }
     Ctx c;
     c.b = &b;
     c.action = &info;
@@ -1211,22 +1508,191 @@ void Lowering::emit_action(const ActionInfo& info) {
     c.t32 = b.local(I32);
     c.t64 = b.local(I64);
     c.t64b = b.local(I64);
-    const m::Action& a = *info.action;
     b.call(load_instance());
+    entry_check(c);
     arguments(c);
     const wasm::Func consent = rt_.get(Routine::consent);
-    // The starter agrees through the call (the home) or its consent.
+    // The starter agrees through the call (the home) or its consent. A
+    // built-in action without one is the home's own word: its caller signs.
     if (a.by) {
         value(c, *a.by);
         b.call(consent).set(c.signer);
+    } else if (a.word != nullptr) {
+        call_item(b, 3);
+        b.call(rt_.get(Routine::content)).call(consent).set(c.signer);
     }
-    // R3, R8: the consents the action needs.
+    // R3, R8, R21: the consents the action needs.
     for (const m::Consent& k : a.consents) {
-        value(c, k.party);
-        b.call(consent).op(drop);
+        consent_of(c, k.party);
     }
     statements(c, a.body);
     finish(b);
+    module_.define(std::move(b));
+}
+
+void Lowering::emit_core(const ActionInfo& info) {
+    // AI agents may only propose this action (U3): an agent's call is kept
+    // as a proposal; approve runs it again, with the proposal's arguments,
+    // and then its starter must be a person who proves presence.
+    FunctionBuilder b = module_.begin(info.core);
+    Ctx c;
+    c.b = &b;
+    c.action = &info;
+    c.args = b.param(0);
+    const Local approving = b.param(1);
+    c.signer = b.local(I32);
+    c.t32 = b.local(I32);
+    c.t64 = b.local(I64);
+    c.t64b = b.local(I64);
+    const m::Action& a = *info.action;
+    entry_check(c);
+    arguments(c);
+    const wasm::Func consent = rt_.get(Routine::consent);
+    if (a.by) {
+        value(c, *a.by);
+        b.call(consent).set(c.signer);
+    } else {
+        call_item(b, 3);
+        b.call(rt_.get(Routine::content)).call(consent).set(c.signer);
+    }
+    const std::uint8_t key_kind[] = {0x01};
+    b.get(approving);
+    {
+        const Label approval = b.if_();
+        // A missing consent leaves the approval waiting for it.
+        b.get(c.signer);
+        {
+            const Label known = b.if_();
+            b.get(c.signer).call(rt_.get(Routine::in_person)).op(i32_eqz);
+            const Label absent = b.if_();
+            refuse(b, "bo:approve " + info.wire);
+            b.end(absent);
+            b.end(known);
+        }
+        b.i32(2).global_set(event_kind_);
+        b.else_(approval);
+        // An AI agent's signer (kind 2): the call becomes a proposal.
+        b.get(c.signer);
+        {
+            const Label known = b.if_();
+            b.get(c.signer).u32(intern(ByteView(key_kind))).i32(1);
+            b.call(rt_.get(Routine::map_get)).tee(c.t32);
+            b.op(i32_eqz).op(i32_eqz);
+            {
+                const Label kind = b.if_(I32);
+                b.get(c.t32).load(i32_load8_u).i32(2).op(i32_eq);
+                b.else_(kind);
+                b.i32(0);
+                b.end(kind);
+            }
+            const Label agent = b.if_();
+            b.global_get(pending_).call(rt_.get(Routine::head_arg));
+            b.i64(static_cast<std::int64_t>(rt::max_needs)).op(i64_ge_u);
+            {
+                const Label full = b.if_();
+                refuse(b, "bo:pending");
+                b.end(full);
+            }
+            b.u32(intern(info.wire)).global_set(add_name_);
+            b.u32(static_cast<std::uint32_t>(info.wire.size())).global_set(add_length_);
+            b.get(*c.args).global_set(add_args_);
+            b.i32(1).global_set(event_kind_);
+            b.u32(intern(info.wire)).global_set(event_name_);
+            b.u32(static_cast<std::uint32_t>(info.wire.size())).global_set(event_length_);
+            b.call(write_accept()).return_();
+            b.end(agent);
+            b.end(known);
+        }
+        b.end(approval);
+    }
+    b.u32(intern(info.wire)).global_set(event_name_);
+    b.u32(static_cast<std::uint32_t>(info.wire.size())).global_set(event_length_);
+    for (const m::Consent& k : a.consents) {
+        consent_of(c, k.party);
+    }
+    statements(c, a.body);
+    finish(b);
+    module_.define(std::move(b));
+}
+
+void Lowering::emit_approve(const wasm::Func f) {
+    // approve {"function": NAME, "arguments": ARGS}: the first proposal
+    // with that function and those arguments, run as its action.
+    FunctionBuilder b = module_.begin(f);
+    const Local args = b.local(I32);
+    const Local name = b.local(I32);
+    const Local length = b.local(I32);
+    const Local given = b.local(I32);
+    const Local q = b.local(I32);
+    const Local n = b.local(I32);
+    const Local k = b.local(I32);
+    const Local x = b.local(I32);
+    const wasm::Func map_get = rt_.get(Routine::map_get);
+    const wasm::Func item_end = rt_.get(Routine::item_end);
+    const wasm::Func content = rt_.get(Routine::content);
+    const wasm::Func head_arg = rt_.get(Routine::head_arg);
+    const wasm::Func bytes_eq = rt_.get(Routine::bytes_eq);
+    b.call(load_instance());
+    call_item(b, 2);
+    b.tee(args).load(i32_load8_u).u32(0xE0).op(i32_and).u32(0xA0).op(i32_ne);
+    b.get(args).call(head_arg).i64(2).op(i64_ne).op(i32_or);
+    {
+        const Label other = b.if_();
+        refuse(b, "bo:arguments");
+        b.end(other);
+    }
+    b.get(args);
+    push_key(b, text_cbor("function"));
+    b.call(map_get);
+    expect(b, Rep::text, "bo:argument function");
+    b.set(length).set(name);
+    b.get(args);
+    push_key(b, text_cbor("arguments"));
+    b.call(map_get).tee(given).op(i32_eqz);
+    {
+        const Label missing = b.if_();
+        refuse(b, "bo:argument arguments");
+        b.end(missing);
+    }
+    b.global_get(pending_).call(head_arg).op(i32_wrap_i64).set(n);
+    b.global_get(pending_).call(content).set(q);
+    {
+        const Label found = b.block();
+        const Label next = b.loop();
+        b.get(k).get(n).op(i32_ge_u);
+        {
+            const Label none = b.if_();
+            refuse(b, "bo:proposal");
+            b.end(none);
+        }
+        // [function, arguments]: the same function, and the same bytes.
+        b.get(q).call(content).tee(x).call(content);
+        b.get(x).call(head_arg).op(i32_wrap_i64).get(name).get(length).call(bytes_eq);
+        {
+            const Label same = b.if_();
+            b.get(x).call(item_end).tee(x);
+            b.get(x).call(item_end).get(x).op(i32_sub);
+            b.get(given).get(given).call(item_end).get(given).op(i32_sub);
+            b.call(bytes_eq).br_if(found);
+            b.end(same);
+        }
+        b.get(q).call(item_end).set(q);
+        b.get(k).i32(1).op(i32_add).set(k).br(next);
+        b.end(next);
+        b.end(found);
+    }
+    b.get(k).i32(1).op(i32_add).global_set(drop_);
+    for (const ActionInfo& a : actions_) {
+        if (!a.action->agents_propose) {
+            continue;
+        }
+        b.get(name).get(length).u32(intern(a.wire)).u32(static_cast<std::uint32_t>(a.wire.size()));
+        b.call(bytes_eq);
+        const Label same = b.if_();
+        b.get(given).i32(1).call(a.core).return_();
+        b.end(same);
+    }
+    refuse(b, "bo:proposal");
     module_.define(std::move(b));
 }
 
@@ -1255,7 +1721,12 @@ void Lowering::statements(Ctx& c, const std::vector<m::Statement>& list) {
                 [&](const m::Set& st) {
                     const FieldSlot& slot =
                         fields_[field_index_.at(m::key(st.target.concept_entry, st.target.name))];
-                    value(c, st.value);
+                    // A field that may hold no party takes none, or another's none.
+                    if (slot.optional) {
+                        party_raw(c, st.value);
+                    } else {
+                        value(c, st.value);
+                    }
                     store(b, slot);
                 },
                 [&](const m::Transition& t) { transition(c, t); },
@@ -1276,8 +1747,7 @@ void Lowering::requirement(Ctx& c, const m::Requires& r) {
     const m::Expr& e = r.condition;
     if (e.kind == ExprKind::apply && is(e.concept_entry, "cond.consent_of")) {
         // Asks for the consent; a missing one leaves the call needing it.
-        value(c, e.operands[0]);
-        b.call(rt_.get(Routine::consent)).op(drop);
+        consent_of(c, e.operands[0]);
     } else if (e.kind == ExprKind::word && is(e.concept_entry, "cond.in_person")) {
         // R13: the starter's signer, once its consent is there.
         b.get(c.signer);
@@ -1317,9 +1787,84 @@ void Lowering::transition(Ctx& c, const m::Transition& t) {
         refuse(b, "bo:state " + c.action->wire);
         b.end(other);
     }
+    if (is(t.to.concept_entry, "expr.previous_state")) {
+        // Back to the state before the current one; none refuses.
+        b.global_get(previous_).op(i32_eqz);
+        {
+            const Label none = b.if_();
+            refuse(b, "bo:state " + c.action->wire);
+            b.end(none);
+        }
+        b.global_get(previous_).i32(1).op(i32_sub).set(c.t32);
+        b.global_get(state_).i32(1).op(i32_add).global_set(previous_);
+        b.get(c.t32).global_set(state_);
+        record_event_at(b, c.t32);
+        return;
+    }
     const std::size_t to = state_index_.at(m::key(t.to.concept_entry, t.to.name));
+    if (previous_used_) {
+        b.global_get(state_).i32(1).op(i32_add).global_set(previous_);
+    }
     b.u32(static_cast<std::uint32_t>(to)).global_set(state_);
     record_event(b, to);
+}
+
+bool Lowering::may_be_empty(const m::Expr& e) const {
+    if (e.kind == ExprKind::word && is(e.concept_entry, "val.none")) {
+        return true;
+    }
+    if (e.refers != Refers::field) {
+        return false;
+    }
+    const auto it = field_index_.find(m::key(e.concept_entry, e.name));
+    return it != field_index_.end() && fields_[it->second].optional;
+}
+
+void Lowering::party_raw(Ctx& c, const m::Expr& e) {
+    // A ledger's address, 0 for no party: none, or a field holding none.
+    FunctionBuilder& b = *c.b;
+    if (e.kind == ExprKind::word && is(e.concept_entry, "val.none")) {
+        b.i32(0);
+        return;
+    }
+    if (may_be_empty(e)) {
+        load(b, fields_[field_index_.at(m::key(e.concept_entry, e.name))]);
+        return;
+    }
+    value(c, e);
+}
+
+void Lowering::ledger_equals(Ctx& c, const m::Expr& x, const m::Expr& y) {
+    // No party equals no party only.
+    FunctionBuilder& b = *c.b;
+    const Local left = b.local(I32);
+    const Local right = b.local(I32);
+    party_raw(c, x);
+    b.set(left);
+    party_raw(c, y);
+    b.set(right);
+    b.get(left).op(i32_eqz).get(right).op(i32_eqz).op(i32_or);
+    const Label empty = b.if_(I32);
+    b.get(left).get(right).op(i32_eq);
+    b.else_(empty);
+    b.get(left).i32(32).get(right).i32(32).call(rt_.get(Routine::bytes_eq));
+    b.end(empty);
+}
+
+void Lowering::consent_of(Ctx& c, const m::Expr& party) {
+    // A field that holds no party has nobody to ask.
+    FunctionBuilder& b = *c.b;
+    const wasm::Func consent = rt_.get(Routine::consent);
+    if (!may_be_empty(party)) {
+        value(c, party);
+        b.call(consent).op(drop);
+        return;
+    }
+    party_raw(c, party);
+    b.tee(c.t32);
+    const Label some = b.if_();
+    b.get(c.t32).call(consent).op(drop);
+    b.end(some);
 }
 
 void Lowering::in_person(Ctx& c) {
@@ -1344,6 +1889,16 @@ void Lowering::reference(Ctx& c, const m::Expr& e) {
             --c.depth;
             return;
         }
+        if (const FieldSlot& slot = fields_[field_index_.at(key)]; slot.optional) {
+            // A party field that holds no party: nobody to name.
+            load(b, slot);
+            b.tee(c.t32).op(i32_eqz);
+            const Label none = b.if_();
+            refuse(b, "bo:empty " + slot.wire);
+            b.end(none);
+            b.get(c.t32);
+            return;
+        }
         load(b, fields_[field_index_.at(key)]);
         return;
     case Refers::input: {
@@ -1364,8 +1919,12 @@ void Lowering::reference(Ctx& c, const m::Expr& e) {
         return;
     }
     case Refers::state:
-        // R7: the instance is in that state.
-        b.global_get(state_).u32(static_cast<std::uint32_t>(state_index_.at(key))).op(i32_eq);
+        // R7: the instance is in that state (never in one it cannot reach).
+        if (const auto it = state_index_.find(key); it != state_index_.end()) {
+            b.global_get(state_).u32(static_cast<std::uint32_t>(it->second)).op(i32_eq);
+        } else {
+            b.i32(0);
+        }
         return;
     case Refers::item:
     case Refers::action:
@@ -1374,6 +1933,10 @@ void Lowering::reference(Ctx& c, const m::Expr& e) {
     }
     if (is(e.concept_entry, "val.yes") || is(e.concept_entry, "val.no")) {
         b.i32(is(e.concept_entry, "val.yes") ? 1 : 0);
+        return;
+    }
+    if (is(e.concept_entry, "val.none")) {
+        b.i32(0);
         return;
     }
     if (is(e.concept_entry, "time.now") || is(e.concept_entry, "time.today")) {
@@ -1476,6 +2039,10 @@ void Lowering::binary(Ctx& c, const m::Expr& e) {
     case Operator::greater:
     case Operator::greater_equal: {
         const Rep rep = rep_of(x.type);
+        if (rep == Rep::ledger && (may_be_empty(x) || may_be_empty(y))) {
+            ledger_equals(c, x, y);
+            return;
+        }
         value(c, x);
         if (rep == Rep::ledger) {
             b.i32(32);
@@ -1600,6 +2167,15 @@ void Lowering::emit() {
     for (RoleSlot& role : roles_) {
         role.ledger = module_.add_global(I32, 0);
     }
+    if (previous_used_) {
+        previous_ = module_.add_global(I32, 0);
+    }
+    if (proposals_) {
+        for (wasm::Global* g : {&pending_, &drop_, &add_name_, &add_length_, &add_args_,
+                                &event_kind_, &event_name_, &event_length_}) {
+            *g = module_.add_global(I32, 0);
+        }
+    }
     events_area_ = module_.reserve(static_cast<std::uint32_t>(4 * max_transitions_), 4);
     Bytes names;
     Bytes finals;
@@ -1620,11 +2196,20 @@ void Lowering::emit() {
     creation_function_ = module_.declare({});
     for (ActionInfo& a : actions_) {
         a.function = module_.declare({});
+        if (a.action->agents_propose) {
+            a.core = module_.declare({{I32, I32}, {}});
+        }
+    }
+    if (proposals_) {
+        approve_function_ = module_.declare({});
     }
     emit_entry(entry);
     emit_creation(creation_function_);
     for (const ActionInfo& a : actions_) {
         emit_action(a);
+    }
+    if (proposals_) {
+        emit_approve(approve_function_);
     }
     module_.entry(entry);
 }
@@ -1649,6 +2234,9 @@ Lowered Lowering::run() {
     build.interface.emplace(creation_, protocol::FunctionKind::create);
     for (const ActionInfo& a : actions_) {
         build.interface.emplace(a.wire, protocol::FunctionKind::call);
+    }
+    if (proposals_) {
+        build.interface.emplace(std::string(m::approve_function), protocol::FunctionKind::call);
     }
     out.build = std::move(build);
     return out;

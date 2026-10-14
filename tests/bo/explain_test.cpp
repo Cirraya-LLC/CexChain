@@ -105,6 +105,10 @@ std::vector<Case> cases() {
     }
     out.push_back({"check-agreement", {golden_dir / "check-agreement/source.bo"}});
     out.push_back({"recognized", {golden_dir / "check-recognized/source.bo"}});
+    // The standard library's terms (milestone 11).
+    out.push_back({"receivable-flow", {golden_dir / "test/receivable/source.bo"}});
+    out.push_back({"warehouse-receipt", {golden_dir / "test/warehouse-receipt/source.bo"}});
+    out.push_back({"standard", {golden_dir / "check-standard/source.bo"}});
     return out;
 }
 
@@ -164,7 +168,7 @@ TEST_CASE("the contract text's goldens, the same from every spelling", "[bo][exp
             }
         }
     }
-    CHECK(texts == 27);
+    CHECK(texts == 36);
 }
 
 TEST_CASE("the contract text says what compiled code decides", "[bo][explain]") {

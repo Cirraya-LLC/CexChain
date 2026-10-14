@@ -31,28 +31,39 @@
 ///     epoch, a duration of milliseconds (days, weeks) or of months; a party is
 ///     a 32-byte ledger id; a text, a text; yes or no, false or true. Null
 ///     stands for a function that takes nothing. Anything else is refused;
-///   - keeps the instance's state as {"state": NAME, "fields": {...}}, and
-///     reports the state's name as the status, the parties (the roles bound
-///     so far and every field that holds a party), each state change as an
-///     event [state, null], and the instance as final when it reaches a state
-///     no action can leave;
+///   - keeps the instance's state as {"state": NAME, "fields": {...}} (plus
+///     "pending", the proposals AI agents made, and "previous", the state
+///     before the current one, when the contract uses them), and reports the
+///     state's name as the status, the parties (the roles bound so far and
+///     every field that holds a party; one that holds none, null in the
+///     state, is no party), each state change as an event [state, null]
+///     (after [propose, ACTION] or [approve, ACTION] for a proposal or an
+///     approval), and the instance as final when it reaches a state no action
+///     can leave;
 ///   - asks for the consents an action needs ([2, needs]): of its starter
-///     (`by`), of the role it binds (R3), of a party a field it changes held
-///     (R8), and of every party a reached `requires consent of` names. The
+///     (`by`; a built-in action without one is the home's own word), of the
+///     role it binds (R3) or the counterparty each call names (R21), of a
+///     party a field it changes held (R8), and of every party a reached
+///     `requires consent of` names (nobody, for a field that holds none). The
 ///     home's own consent is the call itself;
 ///   - refuses a call with "bo:CODE VALUES" (render_reason in messages.hpp)
-///     or with the text of a `reject`.
+///     or with the text of a `reject`. A built-in action is refused first, in
+///     a state it cannot start from (bo:state ACTION).
 /// It depends only on the model's concepts and names, never on spellings or
 /// places, so a contract written in any language gives the same bytes.
 ///
-/// What this version compiles (milestone 6): creation, the contract's own
-/// actions with inputs, fields, states, `requires` (with a guard), `if` and
-/// `otherwise`, `reject`, consents, `in person`, and expressions over
-/// numbers, money, quantities, rates, dates, durations, texts, yes or no, and
-/// parties. Anything else is reported (build.*) and nothing is built: the
-/// vocabulary's actions (the standard library, milestone 11), executors (6b),
-/// `when` rules (milestone 12), lists, `each`, and charges (milestone 13),
-/// agents' proposals, and actions done inside actions.
+/// What this version compiles (milestones 6 and 11): creation, the
+/// contract's own actions with inputs, the vocabulary's actions with the
+/// standard library's terms (R19), fields (party fields that may hold none
+/// among them), states (and a return to the previous one), `requires` (with
+/// a guard), `if` and `otherwise`, `reject`, consents, `in person`, agents'
+/// proposals with the function `approve`, `when` rules that only state
+/// duties (R9: no code), and expressions over numbers, money, quantities,
+/// rates, dates, durations, texts, yes or no, and parties. Anything else is
+/// reported (build.*) and nothing is built: the built-in actions whose
+/// terms come later, executors (6b), `when` rules that call (milestone 12),
+/// lists, `each`, and charges (milestone 13), and actions done inside
+/// actions.
 namespace cexchain::bo {
 
 /// Limits of a compiled contract (spec section 15, and what keeps its

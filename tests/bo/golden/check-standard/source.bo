@@ -1,0 +1,31 @@
+# The standard library's terms (R19) on a warehouse receipt: the fields they
+# add (R20), a counterparty each call names (R21), zero of a quantity (R22),
+# the state before (unfreeze), a line the contract adds, an AI agent that
+# only proposes, and a copy of pledge under a name of the contract's own.
+contract WarehouseReceipt
+parties we, depositor, bank
+
+asset Receipt
+  quantity kg
+  holder depositor
+
+can transfer
+can pledge to bank
+  requires in person
+can release
+  AI agent can propose
+can redeem
+can freeze
+can unfreeze
+can cancel
+can lodge to counterparty by holder
+  requires not counterparty = holder
+  active -> pledged
+  pledgee = counterparty
+
+test "a receipt pledged, released, and redeemed"
+  we issue with quantity = 600 kg
+  depositor pledge to bank1 in person -> pledged
+  bank1 release by AI agent -> pending approval
+  bank1 approve in person -> active
+  depositor redeem with portion = 600 kg -> redeemed

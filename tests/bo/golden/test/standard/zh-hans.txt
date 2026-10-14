@@ -1,0 +1,13 @@
+测试 “a receipt pledged, released, and redeemed”：通过
+  第 1 步（第 27 行）通过：we issue with quantity = 600 kg
+    结果：调用被接受，实例现为正常。
+  第 2 步（第 28 行）通过：depositor pledge to bank1 in person -> pledged
+    结果：经 depositor 和 bank1 同意，调用被接受，实例现为已质押。
+  第 3 步（第 29 行）通过：bank1 release by AI agent -> pending approval
+    结果：调用保留为解除质押的提议，正在等待真人批准；实例保持不变。
+  第 4 步（第 30 行）通过：bank1 approve in person -> active
+    结果：经 bank1 同意，调用被接受，实例现为正常。
+  第 5 步（第 31 行）通过：depositor redeem with portion = 600 kg -> redeemed
+    结果：经 depositor 同意，调用被接受，实例现为已赎回；这是最终状态，实例不再接受调用。
+
+共 1 个测试：1 个通过，0 个失败。

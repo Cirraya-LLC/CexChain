@@ -31,6 +31,7 @@
 #include <cexchain/bo/parser.hpp>
 #include <cexchain/bo/scenario.hpp>
 #include <cexchain/bo/source.hpp>
+#include <cexchain/bo/stdlib.hpp>
 #include <cexchain/bo/values.hpp>
 #include <cexchain/crypto/openssl.hpp>
 
@@ -473,6 +474,7 @@ Json expectation_json(const bo::model::Step& step, const bo::StepResult& r,
         out["parties"] = ledger_keys(results, r.expected_waits);
         break;
     case bo::model::Expectation::accepted:
+    case bo::model::Expectation::proposed:
         break;
     }
     return out;
@@ -508,6 +510,9 @@ Json step_json(const bo::model::Model& model, const bo::Explained& text,
         result["events"] = r.events;
         result["final"] = r.final;
         result["consents"] = ledger_keys(results, r.consents);
+        if (!r.proposed.empty()) {
+            result["proposed"] = r.proposed;
+        }
         break;
     }
     case bo::Happened::waits:
@@ -787,6 +792,144 @@ int cmd_bo_fmt(const Args& args) {
         std::print("{}", *formatted.source);
     }
     return status;
+}
+
+// --- bo stdlib.
+
+/// Words of a list, joined as the language joins them.
+std::string joined(const std::vector<std::string>& items, const bo::Pack* language) {
+    std::string out;
+    const std::string separator = bo::sentence("list-separator", {}, language);
+    for (const std::string& item : items) {
+        out += (out.empty() ? "" : separator) + item;
+    }
+    return out;
+}
+
+/// A built-in action's terms in short: who starts it, its counterparty,
+/// and its states, in a language.
+std::string standard_summary(const bo::StandardAction& a, const bo::Pack* language) {
+    std::vector<std::string> parts;
+    if (a.starter != nullptr) {
+        // The sentence asks for the word's object form ("the holder").
+        const bo::Word* word = language != nullptr ? language->word(a.starter->id) : nullptr;
+        if (word == nullptr) {
+            word = bo::english_pack().word(a.starter->id);
+        }
+        std::string party = bo::spell(a.starter->id, language);
+        if (word != nullptr) {
+            if (const auto it = word->forms.find("object"); it != word->forms.end()) {
+                party = it->second;
+            }
+        }
+        const std::pair<std::string_view, std::string> values[] = {{"party", party},
+                                                                   {"party.object", party}};
+        parts.push_back(bo::sentence("stdlib-starter", values, language));
+    } else {
+        parts.push_back(bo::sentence("stdlib-home", {}, language));
+    }
+    if (a.counterparty) {
+        parts.push_back(bo::sentence("stdlib-counterparty", {}, language));
+    }
+    std::vector<std::string> from;
+    std::vector<std::string> to;
+    for (const bo::Concept* c : a.from) {
+        from.push_back(bo::spell(c->id, language));
+    }
+    for (const bo::Concept* c : a.to) {
+        to.push_back(bo::spell(c->id, language));
+    }
+    const std::pair<std::string_view, std::string> states[] = {{"from", joined(from, language)},
+                                                               {"to", joined(to, language)}};
+    parts.push_back(bo::sentence("stdlib-states", states, language));
+    std::string out;
+    const std::string separator = bo::sentence("value-separator", {}, language);
+    for (const std::string& part : parts) {
+        out += (out.empty() ? "" : separator) + part;
+    }
+    return out;
+}
+
+Json concept_ids(const std::vector<const bo::Concept*>& concepts) {
+    Json out = Json::array();
+    for (const bo::Concept* c : concepts) {
+        out.push_back(c->id);
+    }
+    return out;
+}
+
+int cmd_bo_stdlib_list(const Args& args) {
+    const bo::Pack* language = message_language(args, {});
+    Json out = Json::array();
+    for (const bo::StandardAction& a : bo::standard_actions()) {
+        const std::string word = bo::spell(a.action->id, language);
+        const std::string summary = standard_summary(a, language);
+        if (args.json()) {
+            out.push_back({{"function", a.function},
+                           {"action", a.action->id},
+                           {"word", word},
+                           {"starter", a.starter != nullptr ? Json(a.starter->id) : Json(nullptr)},
+                           {"counterparty", a.counterparty},
+                           {"from", concept_ids(a.from)},
+                           {"to", concept_ids(a.to)},
+                           {"summary", summary}});
+            continue;
+        }
+        std::println("{:<16} {}: {}", a.function, word, summary);
+    }
+    if (args.json()) {
+        print_json(out);
+    }
+    return exit_ok;
+}
+
+int cmd_bo_stdlib_show(const Args& args) {
+    const bo::Pack* language = message_language(args, {});
+    const std::string& name = args.positional().front();
+    const bo::PackSet set = pack_set(args);
+    const bo::Concept* action = bo::standard_action(name, set);
+    if (action == nullptr) {
+        throw UsageError{"the standard library has no built-in action " + name +
+                         " (bo stdlib list shows them)"};
+    }
+    const std::optional<std::string> source = bo::standard_terms_source(action, language);
+    if (!source) {
+        throw CommandError{"the standard library's terms of " + name + " cannot be written in " +
+                           language->id};
+    }
+    const std::vector<bo::ExplainedClause> terms = bo::standard_terms_text(action, language);
+    const auto mark = [&](const bo::ExplainedClause& c) {
+        if (c.rules.empty()) {
+            return std::string();
+        }
+        std::vector<std::string> ids(c.rules.begin(), c.rules.end());
+        const std::pair<std::string_view, std::string> values[] = {
+            {"rules", joined(ids, language)}};
+        return bo::sentence("mark", values, language);
+    };
+    if (args.json()) {
+        Json clauses = Json::array();
+        for (const bo::ExplainedClause& c : terms) {
+            clauses.push_back({{"kind", c.kind}, {"text", c.text}, {"rules", c.rules}});
+        }
+        print_json({{"function", bo::wire_name(action, {})},
+                    {"action", action->id},
+                    {"word", bo::spell(action->id, language)},
+                    {"language", language->id},
+                    {"source", *source},
+                    {"terms", clauses}});
+        return exit_ok;
+    }
+    std::print("{}", *source);
+    const std::pair<std::string_view, std::string> header[] = {
+        {"action", bo::spell(action->id, language)}};
+    std::println("\n{}", bo::sentence("stdlib-terms", header, language));
+    for (const bo::ExplainedClause& c : terms) {
+        // "4.6.4.1": one level below the action's clauses (4.6.4).
+        const auto depth = static_cast<std::size_t>(std::ranges::count(c.number, '.'));
+        std::println("{}{}{}", std::string(2 * (depth > 1 ? depth - 1 : 1), ' '), c.text, mark(c));
+    }
+    return exit_ok;
 }
 
 int cmd_bo_packs_list(const Args& args) {

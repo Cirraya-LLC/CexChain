@@ -1,0 +1,68 @@
+edition 1
+contract WarehouseReceipt
+party role.we bound=creation{R3}
+party depositor bound=creation{R3}
+party role.bank bound=act.pledge{R3}
+kind kind.asset Receipt
+field field.quantity instance quantity mass
+field field.holder instance party = depositor{R2}
+field field.pledgee instance party optional empty{R20}
+state state.active first{R4}
+state state.pledged{R5}
+state state.redeemed{R19}
+state state.frozen{R19}
+state state.cancelled{R19}
+can act.transfer standard by=field.holder{R19} to=role.counterparty{R21} agents=delegation{R14}
+  input role.counterparty instance party{R21}
+  consent role.counterparty{R21}
+  terms{R19}
+    requires (not (= role.counterparty field.holder))
+    transition state.active -> state.active
+    set field.holder role.counterparty
+can act.pledge standard by=field.holder{R19} to=role.bank agents=delegation{R14}
+  consent role.bank{R3}
+  requires cond.in_person{R13}
+  terms{R19}
+    requires (not (= role.bank field.holder))
+    transition state.active -> state.pledged
+    set field.pledgee role.bank
+can act.release standard by=field.pledgee{R19} agents=propose
+  terms{R19}
+    transition state.pledged -> state.active
+    set field.pledgee val.none
+can act.redeem standard by=field.holder{R19} agents=delegation{R14}
+  input field.portion instance quantity mass{R19}
+  terms{R19}
+    requires (or state.active{R7} state.pledged{R7})
+    if state.pledged{R7}
+      requires (cond.consent_of field.pledgee)
+    requires (> field.portion 0{R22})
+    requires (<= field.portion field.quantity)
+    set field.quantity (- field.quantity field.portion)
+    if (= field.quantity 0{R22})
+      set field.pledgee val.none
+      transition -> state.redeemed
+can act.freeze standard agents=delegation{R14}
+  terms{R19}
+    transition state.active state.pledged -> state.frozen
+can act.unfreeze standard agents=delegation{R14}
+  terms{R19}
+    transition state.frozen -> expr.previous_state
+can act.cancel standard by=field.holder{R19} agents=delegation{R14}
+  terms{R19}
+    transition state.active -> state.cancelled
+can lodge own by=field.holder to=role.counterparty{R21} agents=delegation{R14}
+  input role.counterparty instance party{R21}
+  consent role.counterparty{R21}
+  consent field.pledgee{R8}
+  requires (not (= role.counterparty field.holder))
+  transition state.active -> state.pledged
+  set field.pledgee role.counterparty
+test "a receipt pledged, released, and redeemed"
+  step role.we act.issue creation expect=accepted
+    set field.quantity (quantity unit.kg 600)
+  step depositor act.pledge to=ledger:bank1 in_person expect=state state.pledged
+  step ledger:bank1 act.release agent expect=proposed
+  step ledger:bank1 act.approve in_person expect=state state.active
+  step depositor act.redeem expect=state state.redeemed
+    set field.portion (quantity unit.kg 600)

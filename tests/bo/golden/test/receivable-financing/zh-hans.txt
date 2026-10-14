@@ -1,0 +1,45 @@
+测试 “the supplier pledges the receivable to its bank”：通过
+  第 1 步（第 17 行）通过：issuer issue with amount = HKD 3_000_000, due = 2027-06-30
+    结果：调用被接受，实例现为正常。
+  第 2 步（第 18 行）通过：supplier pledge to bank1 -> pledged
+    结果：经供应商和 bank1 同意，调用被接受，实例现为已质押；这是最终状态，实例不再接受调用。
+  第 3 步（第 19 行）通过：supplier pledge to bank2 -> refused
+    结果：账本拒绝调用：实例已处于最终状态，不再接受调用。
+  第 4 步（第 20 行）通过：supplier transfer to factor1 -> refused
+    结果：账本拒绝调用：实例已处于最终状态，不再接受调用。
+
+测试 “the bank's consent is needed”：通过
+  第 1 步（第 23 行）通过：issuer issue with amount = HKD 3_000_000, due = 2027-06-30
+    结果：调用被接受，实例现为正常。
+  第 2 步（第 24 行）通过：supplier pledge to bank1 -> consent of bank1
+    结果：调用正在等待 bank1 同意。
+
+测试 “only the holder pledges”：通过
+  第 1 步（第 27 行）通过：issuer issue with amount = HKD 3_000_000, due = 2027-06-30
+    结果：调用被接受，实例现为正常。
+  第 2 步（第 28 行）通过：bank1 pledge to bank1 -> consent of supplier
+    结果：调用正在等待供应商同意。
+
+测试 “over HKD 5,000,000 the holder proves presence”：通过
+  第 1 步（第 31 行）通过：issuer issue with amount = HKD 8_000_000, due = 2027-06-30
+    结果：调用被接受，实例现为正常。
+  第 2 步（第 32 行）通过：supplier pledge to bank1 -> refused "bo:in-person pledge"
+    结果：调用被拒绝，因为质押 需要本人以通行密钥或硬件密钥证明本人在场（bo:in-person pledge）。
+    合约条款 4.1.4：要求 1：如果金额超过港元 5,000,000，持有人须以通行密钥或硬件密钥证明本人在场。
+  第 3 步（第 33 行）通过：supplier pledge to bank1 in person -> pledged
+    结果：经供应商和 bank1 同意，调用被接受，实例现为已质押；这是最终状态，实例不再接受调用。
+
+测试 “the supplier sells the receivable, and the buyer pledges it”：通过
+  第 1 步（第 36 行）通过：issuer issue with amount = HKD 3_000_000, due = 2027-06-30
+    结果：调用被接受，实例现为正常。
+  第 2 步（第 37 行）通过：supplier transfer to supplier -> refused "bo:requires transfer 1"
+    结果：调用被拒绝，因为转让 的第 1 项要求未满足（bo:requires transfer 1）。
+    合约条款 4.2.5：要求 1：相对方不是持有人。
+  第 3 步（第 38 行）通过：supplier transfer to factor1 -> active
+    结果：经供应商和 factor1 同意，调用被接受，实例现为正常。
+  第 4 步（第 39 行）通过：supplier pledge to bank1 -> consent of factor1
+    结果：调用正在等待 factor1 同意。
+  第 5 步（第 40 行）通过：factor1 pledge to bank1 -> pledged
+    结果：经 factor1 和 bank1 同意，调用被接受，实例现为已质押；这是最终状态，实例不再接受调用。
+
+共 5 个测试：5 个通过，0 个失败。

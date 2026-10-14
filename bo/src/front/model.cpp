@@ -301,6 +301,12 @@ void field_line(std::string& out, std::string_view label, const model::Field& f,
     if (f.value) {
         line += " = " + text(*f.value);
     }
+    if (f.optional) {
+        line += " optional";
+    }
+    if (f.empty_at_start) {
+        line += " empty";
+    }
     add_line(out, depth, ruled(std::move(line), f.rule));
     for (const model::Expr& more : f.more) {
         add_line(out, depth + 1, "more " + text(more) + " : " + encode(more.type));
@@ -357,6 +363,7 @@ void test_lines(std::string& out, const model::Test& t) {
             }
             break;
         case model::Expectation::accepted:
+        case model::Expectation::proposed:
             break;
         }
         add_line(out, 1, line);
@@ -479,6 +486,35 @@ std::optional<std::string> action_amount(const Model& model, const Action& actio
 
 std::string_view creation_function(const Model& model) noexcept {
     return model.kind != nullptr && model.kind->id == "kind.asset" ? "issue" : "create";
+}
+
+bool has_proposals(const Model& model) noexcept {
+    return std::ranges::any_of(model.actions, [](const Action& a) { return a.agents_propose; });
+}
+
+namespace {
+
+bool goes_back(const std::vector<Statement>& list) {
+    return std::ranges::any_of(list, [](const Statement& s) {
+        if (const auto* t = std::get_if<Transition>(&s.node)) {
+            return t->to.kind == ast::ExprKind::word && t->to.concept_entry != nullptr &&
+                   t->to.concept_entry->id == "expr.previous_state";
+        }
+        if (const auto* i = std::get_if<If>(&s.node)) {
+            return goes_back(i->then) || goes_back(i->otherwise);
+        }
+        if (const auto* e = std::get_if<Each>(&s.node)) {
+            return goes_back(e->body);
+        }
+        return false;
+    });
+}
+
+} // namespace
+
+bool uses_previous(const Model& model) noexcept {
+    return std::ranges::any_of(model.actions, [](const Action& a) { return goes_back(a.body); }) ||
+           std::ranges::any_of(model.rules, [](const TimeRule& r) { return goes_back(r.body); });
 }
 
 } // namespace model
@@ -606,7 +642,14 @@ std::string dump(const model::Model& m) {
             field_line(out, "input", f, 1);
         }
         consent_lines(out, a.consents, 1);
-        statements(out, a.body, 1);
+        if (!a.terms) {
+            statements(out, a.body, 1);
+            continue;
+        }
+        const auto split = a.body.begin() + static_cast<std::ptrdiff_t>(a.terms_from);
+        statements(out, std::vector<model::Statement>(a.body.begin(), split), 1);
+        add_line(out, 1, "terms{R19}");
+        statements(out, std::vector<model::Statement>(split, a.body.end()), 2);
     }
     for (const model::TimeRule& r : m.rules) {
         add_line(out, 0, "when " + text(r.event));

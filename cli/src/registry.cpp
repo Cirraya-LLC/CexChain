@@ -1875,6 +1875,46 @@ std::vector<CommandSpec> build() {
          "   \"messages\": {...}, \"sentences\": {...}}\n"
          "bo packs show en --json lists every concept id; the official packs in the source\n"
          "tree (bo/packs/) are complete examples.\n\n" CEXCHAIN_BO_PACKS_HELP},
+        {{"bo", "stdlib", "list"},
+         "List the built-in actions of Bo's standard library, with who starts each and its states",
+         "Bo language",
+         "",
+         0,
+         0,
+         with({language_option}),
+         cmd_bo_stdlib_list,
+         "Bo's standard library (bo/stdlib/edition1.bo, compiled in) writes the built-in\n"
+         "actions in Bo itself: transfer, pledge, release, enforce, redeem, pay, confirm\n"
+         "payment, dispute, freeze, unfreeze, and cancel, with the semantics of CexChain's\n"
+         "native assets (spec section 13). A contract that writes can pledge to bank gets the\n"
+         "library's pledge (rule R19): started by the holder, with the consent of the holder\n"
+         "and the bank, only from active, recording the bank as the pledgee. The lines the\n"
+         "contract writes under it add to the terms and are checked first; without to, each\n"
+         "call names the counterparty (R21). To change a built-in action, copy it under a name\n"
+         "of your own (bo stdlib show ACTION prints it).\n\n"
+         "Each line: the function, the action's word in --language, who starts it (or the\n"
+         "home, on its own word), its counterparty, and the states it starts from and leads\n"
+         "to. With --json: each action's function, concept, starter, counterparty, and states.\n\n"
+         "  cexchain bo stdlib list\n"
+         "  cexchain bo stdlib list --language zh-Hant-HK --json\n\n" CEXCHAIN_BO_PACKS_HELP},
+        {{"bo", "stdlib", "show"},
+         "Show a built-in action's terms: its Bo source, to copy, and its contract text",
+         "Bo language",
+         "ACTION",
+         1,
+         1,
+         with({pack_option, language_option}),
+         cmd_bo_stdlib_show,
+         "ACTION is a built-in action's word in any language (pledge, 質押, 质押) or its\n"
+         "function (confirm_payment). Prints the action's terms as Bo source, in --language,\n"
+         "without the library's comments, and then the contract text that states them, each\n"
+         "clause with its rules (R19 marks the standard terms). To change a built-in action,\n"
+         "copy the source into a contract and give the action a name of your own: it is then\n"
+         "the contract's own action, checked and explained like any other. With --json: the\n"
+         "source, and each clause of the text with its kind and rules.\n\n"
+         "  cexchain bo stdlib show pledge\n"
+         "  cexchain bo stdlib show 質押 --language zh-Hant-HK\n"
+         "  cexchain bo stdlib show confirm_payment --json\n\n" CEXCHAIN_BO_PACKS_HELP},
 #endif
         // ------------------------------------------------------------------
         {{"mcp"},

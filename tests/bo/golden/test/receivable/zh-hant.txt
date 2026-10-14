@@ -1,0 +1,75 @@
+測試 「pledge, release, transfer, pay, dispute, confirm」：通過
+  第 1 步（第 25 行）通過：issuer issue with amount = HKD 1_000_000, due = 2027-06-30
+    結果：調用獲接納，實例現為正常。
+  第 2 步（第 26 行）通過：supplier pledge to bank1 -> pledged
+    結果：經供應商及 bank1 同意，調用獲接納，實例現為已質押。
+  第 3 步（第 27 行）通過：supplier pledge to bank2 -> refused "bo:state pledge"
+    結果：調用被拒絕，因為實例目前的狀態不容許 質押（bo:state pledge）。
+    合約條文 4.2.6：如實例處於正常狀態，即轉為已質押狀態；否則拒絕調用。
+  第 4 步（第 28 行）通過：supplier transfer to factor1 -> refused "bo:state transfer"
+    結果：調用被拒絕，因為實例目前的狀態不容許 轉讓（bo:state transfer）。
+    合約條文 4.1.6：如實例處於正常狀態，即轉為正常狀態；否則拒絕調用。
+  第 5 步（第 29 行）通過：bank1 release -> active
+    結果：經 bank1 同意，調用獲接納，實例現為正常。
+  第 6 步（第 30 行）通過：supplier transfer to factor1 -> active
+    結果：經供應商及 factor1 同意，調用獲接納，實例現為正常。
+  第 7 步（第 31 行）通過：supplier transfer to factor2 -> consent of factor1
+    結果：調用正等待 factor1 同意。
+  第 8 步（第 32 行）通過：issuer pay -> paid
+    結果：調用獲接納，實例現為已支付。
+  第 9 步（第 33 行）通過：factor1 dispute -> disputed
+    結果：經 factor1 同意，調用獲接納，實例現為爭議中。
+  第 10 步（第 34 行）通過：issuer pay -> paid
+    結果：調用獲接納，實例現為已支付。
+  第 11 步（第 35 行）通過：factor1 confirm payment -> settled
+    結果：經 factor1 同意，調用獲接納，實例現為已結清；此為最終狀態，實例不再接受調用。
+  第 12 步（第 36 行）通過：issuer freeze -> refused
+    結果：賬本拒絕調用：實例已處於最終狀態，不再接受調用。
+
+測試 「paid to the pledgee, under a freeze」：通過
+  第 1 步（第 39 行）通過：issuer issue with amount = HKD 1_000_000, due = 2027-06-30
+    結果：調用獲接納，實例現為正常。
+  第 2 步（第 40 行）通過：supplier pledge to bank1 -> pledged
+    結果：經供應商及 bank1 同意，調用獲接納，實例現為已質押。
+  第 3 步（第 41 行）通過：issuer freeze -> frozen
+    結果：調用獲接納，實例現為已凍結。
+  第 4 步（第 42 行）通過：bank1 release -> refused "bo:state release"
+    結果：調用被拒絕，因為實例目前的狀態不容許 解除質押（bo:state release）。
+    合約條文 4.3.3：如實例處於已質押狀態，即轉為正常狀態；否則拒絕調用。
+  第 5 步（第 43 行）通過：issuer pay -> refused "bo:state pay"
+    結果：調用被拒絕，因為實例目前的狀態不容許 支付（bo:state pay）。
+    合約條文 4.5.3：如實例處於正常、已質押或爭議中狀態，即轉為已支付狀態；否則拒絕調用。
+  第 6 步（第 44 行）通過：issuer unfreeze -> pledged
+    結果：調用獲接納，實例現為已質押。
+  第 7 步（第 45 行）通過：issuer pay -> paid
+    結果：調用獲接納，實例現為已支付。
+  第 8 步（第 46 行）通過：supplier confirm payment -> consent of bank1
+    結果：調用正等待 bank1 同意。
+  第 9 步（第 47 行）通過：bank1 confirm payment -> settled
+    結果：經 bank1 同意，調用獲接納，實例現為已結清；此為最終狀態，實例不再接受調用。
+
+測試 「the bank enforces its pledge」：通過
+  第 1 步（第 50 行）通過：issuer issue with amount = HKD 1_000_000, due = 2027-06-30
+    結果：調用獲接納，實例現為正常。
+  第 2 步（第 51 行）通過：supplier pledge to bank1 -> pledged
+    結果：經供應商及 bank1 同意，調用獲接納，實例現為已質押。
+  第 3 步（第 52 行）通過：supplier cancel -> refused "bo:state cancel"
+    結果：調用被拒絕，因為實例目前的狀態不容許 註銷（bo:state cancel）。
+    合約條文 4.10.3：如實例處於正常狀態，即轉為已註銷狀態；否則拒絕調用。
+  第 4 步（第 53 行）通過：bank1 enforce -> active
+    結果：經 bank1 同意，調用獲接納，實例現為正常。
+  第 5 步（第 54 行）通過：bank1 pledge to bank2 -> pledged
+    結果：經 bank2 及 bank1 同意，調用獲接納，實例現為已質押。
+
+測試 「cancelled」：通過
+  第 1 步（第 57 行）通過：issuer issue with amount = HKD 1_000_000, due = 2027-06-30
+    結果：調用獲接納，實例現為正常。
+  第 2 步（第 58 行）通過：issuer unfreeze -> refused "bo:state unfreeze"
+    結果：調用被拒絕，因為實例目前的狀態不容許 解凍（bo:state unfreeze）。
+    合約條文 4.9.3：如實例處於已凍結狀態，即回復至轉為已凍結狀態之前的狀態；否則拒絕調用。
+  第 3 步（第 59 行）通過：supplier cancel -> cancelled
+    結果：經供應商同意，調用獲接納，實例現為已註銷；此為最終狀態，實例不再接受調用。
+  第 4 步（第 60 行）通過：supplier transfer to factor1 -> refused
+    結果：賬本拒絕調用：實例已處於最終狀態，不再接受調用。
+
+共 4 個測試：4 個通過，0 個失敗。

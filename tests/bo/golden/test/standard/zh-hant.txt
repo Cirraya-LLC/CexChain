@@ -1,0 +1,13 @@
+測試 「a receipt pledged, released, and redeemed」：通過
+  第 1 步（第 27 行）通過：we issue with quantity = 600 kg
+    結果：調用獲接納，實例現為正常。
+  第 2 步（第 28 行）通過：depositor pledge to bank1 in person -> pledged
+    結果：經 depositor 及 bank1 同意，調用獲接納，實例現為已質押。
+  第 3 步（第 29 行）通過：bank1 release by AI agent -> pending approval
+    結果：調用保留為解除質押的提議，正等待真人批准；實例維持不變。
+  第 4 步（第 30 行）通過：bank1 approve in person -> active
+    結果：經 bank1 同意，調用獲接納，實例現為正常。
+  第 5 步（第 31 行）通過：depositor redeem with portion = 600 kg -> redeemed
+    結果：經 depositor 同意，調用獲接納，實例現為已贖回；此為最終狀態，實例不再接受調用。
+
+共 1 個測試：1 個通過，0 個失敗。

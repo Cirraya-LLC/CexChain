@@ -15,7 +15,7 @@ can bill by we
   requires term > 30 days
   requires note < "a"
   requires amount
-  requires amount = 0
+  requires amount = 7
   requires count = 1.5
   requires amount > HKD 0.001
   requires count > 10000000000000000000

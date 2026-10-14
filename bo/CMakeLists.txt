@@ -62,6 +62,7 @@ add_library(cexchain_bo_front
     src/front/parser.cpp
     src/front/source.cpp
     src/front/spelling.cpp
+    src/front/stdlib.cpp
     src/front/values.cpp)
 add_library(cexchain::bo_front ALIAS cexchain_bo_front)
 target_include_directories(cexchain_bo_front PUBLIC
@@ -94,11 +95,18 @@ else()
         string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," bytes "${bytes}")
         file(WRITE "${generated}/${pack}.pack.inc" "${bytes}\n")
     endforeach()
+    set(source "${CMAKE_CURRENT_SOURCE_DIR}/stdlib/edition1.bo")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${source}")
+    file(READ "${source}" bytes HEX)
+    string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," bytes "${bytes}")
+    file(WRITE "${generated}/edition1.bo.inc" "${bytes}\n")
     target_compile_definitions(cexchain_bo_front PRIVATE CEXCHAIN_BO_EMBED=0)
     target_include_directories(cexchain_bo_front PRIVATE "${generated}")
 endif()
-# Rebuild the embedding source whenever a pack changes.
+# Rebuild the embedding sources whenever a pack or the standard library changes.
 set_source_files_properties(src/front/official.cpp PROPERTIES OBJECT_DEPENDS "${pack_files}")
+set_source_files_properties(src/front/stdlib.cpp PROPERTIES OBJECT_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/stdlib/edition1.bo")
 
 if(CEXCHAIN_BO STREQUAL "OFF")
     message(STATUS "Bo compiler: off (CEXCHAIN_BO=OFF); only its front end is built")

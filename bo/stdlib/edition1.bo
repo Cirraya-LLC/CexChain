@@ -1,0 +1,82 @@
+bo 1
+# The standard library of Bo, edition 1: the built-in actions on assets, with
+# the semantics of CexChain's native assets (spec section 13). A contract that
+# writes `can pledge to bank` gets the pledge below, with the bank as its
+# counterparty; the lines the contract writes under `can pledge` add to it and
+# are checked first. Without `to`, each call names the counterparty (R21). To
+# change a built-in action, copy it under a name of your own:
+# `cexchain bo stdlib show pledge` prints it, in any language.
+#
+# The fields these terms use: holder (a party; every asset has one), quantity
+# (redeem), and pledgee and payee, which Bo adds to each instance, holding no
+# party until an action sets them (R20). An action can start only from the
+# states its terms name; a state the contract never reaches is left out.
+
+# The holder hands the asset over: the counterparty becomes its holder. Both
+# consent, the holder by starting it. Not while pledged.
+can transfer to counterparty by holder
+  requires not counterparty = holder
+  active -> active
+  holder = counterparty
+
+# The holder pledges the asset to the counterparty, which becomes its pledgee.
+# Both consent. Only an active asset can be pledged: no second pledge.
+can pledge to counterparty by holder
+  requires not counterparty = holder
+  active -> pledged
+  pledgee = counterparty
+
+# The pledgee gives its pledge up.
+can release by pledgee
+  pledged -> active
+  pledgee = none
+
+# The pledgee takes the asset: it becomes the holder. The holder agreed to
+# this when it pledged the asset, so only the pledgee consents.
+can enforce by pledgee
+  pledged -> active
+  holder = pledgee
+  pledgee = none
+
+# The holder takes goods out (a warehouse receipt); the pledgee consents while
+# the receipt is pledged. When nothing remains, it is redeemed.
+can redeem by holder with portion quantity
+  requires active or pledged
+  if pledged requires consent of pledgee
+  requires portion > 0
+  requires portion <= quantity
+  quantity = quantity - portion
+  if quantity = 0
+    pledgee = none
+    -> redeemed
+
+# The debtor says it paid (a receivable), on the home's own word: the payee is
+# the pledgee if there is one, else the holder, and stays the same when the
+# debtor pays again after a dispute.
+can pay
+  active, pledged, disputed -> paid
+  if payee = none
+    if pledgee = none
+      payee = holder
+    otherwise
+      payee = pledgee
+
+# The payee confirms it was paid.
+can confirm payment by payee
+  paid, disputed -> settled
+
+# The payee says it was not paid.
+can dispute by payee
+  paid -> disputed
+
+# The home freezes the asset on its own word, such as under a court order.
+can freeze
+  active, pledged, paid, disputed -> frozen
+
+# The home unfreezes it: it returns to the state it was frozen in.
+can unfreeze
+  frozen -> previous state
+
+# The holder cancels the asset.
+can cancel by holder
+  active -> cancelled

@@ -110,7 +110,7 @@ The `cexchain` tool controls every part of a ledger:
 | Other organizations | `peer add`, `peer list`, `peer show`, `peer remove`, `access request`, `access send`, `access inbox`, `access grant`, `access fetch`, `access accept`, `access receipt`, `access list` |
 | Ownership assets | `asset issue`, `asset show`, `asset list`, `asset record`, `asset evidence`, `asset consent`, `asset withdraw`, `asset send`, `asset fetch`, `asset verify` |
 | Contracts | `contract deploy`, `contract show`, `contract list`, `contract retire`, `contract create`, `contract call`, `contract instance`, `contract instances`, `contract evidence`, `contract propose`, `contract pending`, `contract consent`, `contract withdraw`, `contract send`, `contract fetch`, `contract verify`, `contract explain` |
-| Bo language | `bo check`, `bo build`, `bo explain`, `bo fmt`, `bo test`, `bo packs list`, `bo packs show`, `bo packs check` (in builds with the Bo compiler); `contract deploy --bo` |
+| Bo language | `bo check`, `bo build`, `bo explain`, `bo fmt`, `bo test`, `bo stdlib list`, `bo stdlib show`, `bo packs list`, `bo packs show`, `bo packs check` (in builds with the Bo compiler); `contract deploy --bo` |
 
 - Every command takes `--help`, and `--json` for scripting.
 - `cexchain help --json` describes every command and option in machine-readable form.
@@ -546,8 +546,9 @@ event, and the instance as final once no action can leave its state; and it refu
 text of a `reject` or with `bo:CODE` (`bo:requires sign 2`), which tools show in the reader's
 language. The same contract in English, Traditional Chinese, Simplified Chinese, or mixed
 compiles to the same bytes; `tests/bo/golden/build/` holds a two-party agreement in each, and the
-fuel of each of its calls. What later steps bring (the vocabulary's actions, `when` rules,
-lists, charges, executors) is refused with a message for now. `testvectors/bo-v1.json`
+fuel of each of its calls. The vocabulary's asset actions compile with the standard library's
+terms (below). What later steps bring (`when` rules that call actions, lists, charges,
+executors, and the built-in actions whose terms come later) is refused with a message for now. `testvectors/bo-v1.json`
 (`tools/testvectors/bo_vectors.py`) pins sources, code, and outcomes, checked on both
 interpreters.
 
@@ -665,6 +666,43 @@ language the contract and its tests are written in. Exit status 3 if a test fail
 cexchain bo test agreement.bo
 cexchain bo test agreement.bo --language zh-Hans-CN --json
 ```
+
+### The standard library
+
+The built-in business actions are written in Bo itself, in a standard library compiled into the
+compiler (`bo/stdlib/edition1.bo`): transfer, pledge, release, enforce, redeem, pay, confirm
+payment, dispute, freeze, unfreeze, and cancel, with the semantics of CexChain's native assets
+(spec section 13). A contract that writes `can pledge to bank` gets the library's pledge: the
+holder starts it, the holder and the bank consent, only an active asset can be pledged (so no
+second pledge), and the bank becomes the pledgee. The lines a contract writes under a built-in
+action add to its terms and are checked first (`over 5_000_000 requires in person`); without
+`to`, each call names the counterparty, who consents. The contract text states every standard
+term, marked R19. To change a built-in action, copy it under a name of your own: it is then the
+contract's own action.
+
+```sh
+cexchain bo stdlib list                                  # who starts each, and its states
+cexchain bo stdlib show pledge                           # its source, to copy, and its text
+cexchain bo stdlib show 質押 --language zh-Hant-HK
+```
+
+```
+can pledge to counterparty by holder
+  requires not counterparty = holder
+  active -> pledged
+  pledgee = counterparty
+```
+
+Each instance then keeps the pledgee and the payee (none until an action sets them), and an
+unfrozen asset returns to the state it was frozen in (`frozen -> previous state`). Run on the
+same calls, a Bo receivable and a Bo warehouse receipt built from the library give the native
+rules' states, holders, pledgees, payees, quantities, consents, and refusals
+(`tests/bo/assets_test.cpp`).
+
+An action can let AI agents only propose it (`AI agent can propose`): an agent's call is then
+kept with the instance as a proposal, and a person who proves presence approves it with the
+function `approve`, which runs it with every requirement checked. In a test, `bank1 release by
+AI agent -> pending approval`, then `bank1 approve in person -> active`.
 
 ## AI agents (MCP)
 
