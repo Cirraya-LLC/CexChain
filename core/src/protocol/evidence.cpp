@@ -441,7 +441,8 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
 
     // Replay the included statements under the ledger rules, noting each
     // proof of presence against the credentials of the moment, and what the
-    // contract made of each call on the bundle's instance.
+    // contract made of each call (on the bundle's instance, or, for a child,
+    // on its ancestors).
     std::map<std::uint64_t, PresenceCheck> presence;
     std::map<std::uint64_t, ContractAccept> outcomes;
     for (const Included& item : included) {
@@ -460,9 +461,7 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
             return verification_failure(
                 "an included statement fails the ledger rules or depends on a missing statement");
         }
-        if (const auto* call = std::get_if<ContractCallBody>(&item.statement.statement.body);
-            call != nullptr && (call->instance ? *call->instance == bundle.record
-                                               : item.statement.id == bundle.record)) {
+        if (std::holds_alternative<ContractCallBody>(item.statement.statement.body)) {
             CEXCHAIN_TRY(ContractRun run, state->run_contract(provider, item.statement,
                                                               item.log_entry.registered_at));
             if (const ContractAccept* accept = run.accepted()) {
@@ -502,7 +501,12 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
     if (record == nullptr && instance == nullptr) {
         return verification_failure("the bundle does not include the record's registration");
     }
-    const IndexList& history = record != nullptr ? record->history : instance->history;
+    // The events to show: the record's, or the instance's calls; for a child,
+    // its ancestors' first, up to each call that created the next generation
+    // (v0.7). Replaying them made the child, at its position, from its
+    // parent's call: it exists in the replayed state only so.
+    const std::vector<std::uint64_t> history =
+        record != nullptr ? record->history.to_vector() : instance_events(*state, *instance);
 
     EvidenceReport report;
     report.ledger_id = state->ledger_id();
@@ -546,7 +550,33 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
             .status = instance->status,
             .parties = instance->parties,
             .final = instance->final,
+            .created_by = instance->created_by,
+            .parent = instance->parent ? std::optional<Id>(instance->parent->id()) : std::nullopt,
+            .position = instance->position,
+            .depth = instance->depth,
+            .ancestors = {},
+            .first_own_event = static_cast<std::size_t>(
+                std::ranges::lower_bound(history, instance->created_by) - history.begin()),
         };
+        for (const InstanceAncestor& a : instance_ancestors(*state, *instance)) {
+            AncestorReport ancestor{
+                .id = a.instance->id,
+                .depth = a.instance->depth,
+                .parent =
+                    a.instance->parent ? std::optional<Id>(a.instance->parent->id()) : std::nullopt,
+                .position = a.instance->position,
+                .created_by = a.instance->created_by,
+                .until = a.until,
+                .events = {},
+            };
+            for (std::size_t i = 0; i < history.size(); ++i) {
+                if (history[i] >= a.instance->created_by && history[i] <= a.until &&
+                    std::ranges::binary_search(a.instance->history, history[i])) {
+                    ancestor.events.push_back(i);
+                }
+            }
+            report.instance->ancestors.push_back(std::move(ancestor));
+        }
         if (instance->status) {
             report.state = *instance->status;
         }

@@ -1694,7 +1694,7 @@ void run_calls(const bo::Build& build, const m::Model& model, Choices& c) {
                         "a bill's total is not its price and added charges");
             }
             if (!instance) {
-                instance = protocol::ContractInstanceView{ledger(0x1D), 0, {}, {}, {}};
+                instance = protocol::ContractInstanceView{ledger(0x1D), 0, {}, {}, {}, {}, 0};
             }
             instance->head += 1;
             instance->state = accept->state;

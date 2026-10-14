@@ -164,7 +164,9 @@ public:
     /// How a statement's registered signer appears to contracts.
     [[nodiscard]] Result<ContractSigner> contract_signer(const Statement& statement) const;
 
-    /// The log index of a registered statement.
+    /// The log index of a registered statement. An instance's id is its
+    /// creation's statement id only if no call made it a child (v0.7): find
+    /// the call that created an instance by `InstanceState::created_by`.
     [[nodiscard]] std::optional<std::uint64_t> statement_index(const Id& id) const;
 
     /// Every actor, delegation, and record, in the order the log created
@@ -196,9 +198,11 @@ private:
     [[nodiscard]] std::optional<std::string> record_type_of(const Statement& statement) const;
     /// The contract that a call or retire acts on, if any.
     [[nodiscard]] std::optional<Id> contract_of(const Statement& statement) const;
-    /// Runs a call's contract and requires it to accept.
+    /// Runs a call's contract and requires it to accept, and any children it
+    /// creates to be allowed (v0.7: the contract not retired, the instance
+    /// below the depth limit).
     [[nodiscard]] Result<ContractRun> accepted_run(const crypto::Provider& provider,
-                                                   const SignedStatement& call,
+                                                   const SignedStatement& signed_call,
                                                    Timestamp now) const;
 
     Id ledger_id_;
@@ -222,5 +226,25 @@ private:
     NonceSet nonces_;
     std::vector<IdKey> changes_;
 };
+
+/// An ancestor of a child instance, and the log index of its call that
+/// created the next generation (v0.7).
+struct InstanceAncestor {
+    const InstanceState* instance = nullptr;
+    std::uint64_t until = 0;
+};
+
+/// The ancestors of `instance` in `state`, oldest first: none unless a call
+/// made it a child. Stops at an ancestor `state` lacks, which a state built
+/// by the rules never does.
+[[nodiscard]] std::vector<InstanceAncestor> instance_ancestors(const LedgerState& state,
+                                                               const InstanceState& instance);
+
+/// The log indices of the calls an instance's evidence shows, ascending:
+/// each ancestor's calls up to the one that created the next generation,
+/// then the instance's own (spec section 15, "Contract evidence"). For an
+/// instance without a parent, its history.
+[[nodiscard]] std::vector<std::uint64_t> instance_events(const LedgerState& state,
+                                                         const InstanceState& instance);
 
 } // namespace cexchain::protocol

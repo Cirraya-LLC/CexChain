@@ -40,7 +40,7 @@ cbor::Value arguments_for(const protocol::ContractOutput& output) {
 }
 
 protocol::ContractAccept accept(std::string status, std::optional<protocol::Parties> parties = {}) {
-    return {cbor::Value::text("state: " + status), status, std::move(parties), {}, false};
+    return {cbor::Value::text("state: " + status), status, std::move(parties), {}, false, {}};
 }
 
 const protocol::Nonce salt{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
@@ -253,7 +253,7 @@ TEST_CASE("contracts are retired, instances become final, and a reopened ledger 
     const protocol::Id grant =
         d.home.grant(d.home.org(), d.home.org_id(), std::nullopt, clerk, limited);
     auto close = d.call("close", arguments_for(protocol::ContractAccept{
-                                     cbor::Value::null(), "closed", std::nullopt, {}, true}));
+                                     cbor::Value::null(), "closed", std::nullopt, {}, true, {}}));
     CHECK(d.home.rejected(clerk_key, d.home.statement(clerk, grant, close)) == Errc::rejected);
 
     // The organization retires the contract: no new instances, but the

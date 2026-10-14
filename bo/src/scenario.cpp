@@ -348,7 +348,7 @@ void Runner::accept(const m::Step& step, const protocol::ContractAccept& a, Ledg
     }
     r.final = a.final;
     if (step.creation) {
-        l.instance = protocol::ContractInstanceView{instance_id_, 0, {}, {}, {}};
+        l.instance = protocol::ContractInstanceView{instance_id_, 0, {}, {}, {}, {}, 0};
     }
     l.instance->head += 1;
     l.instance->state = a.state;

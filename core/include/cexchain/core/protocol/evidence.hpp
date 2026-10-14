@@ -120,6 +120,24 @@ struct RecordEvent {
     std::optional<ContractAccept> outcome;
 };
 
+/// An ancestor of a child instance (v0.7), as the child's evidence shows it:
+/// up to the call that created the next generation, and no further.
+struct AncestorReport {
+    Id id;
+    std::uint32_t depth = 0;
+    /// Its parent and its position among that call's children, if a call
+    /// made it a child too.
+    std::optional<Id> parent;
+    std::uint32_t position = 0;
+    /// The call that created it, and its call that created the next
+    /// generation.
+    std::uint64_t created_by = 0;
+    std::uint64_t until = 0;
+    /// Its calls from `created_by` to `until`, as positions in the report's
+    /// `events`.
+    std::vector<std::size_t> events;
+};
+
 /// A contract instance as of the checkpoint (spec section 15).
 struct InstanceReport {
     Id contract;
@@ -140,6 +158,18 @@ struct InstanceReport {
     std::optional<std::string> status;
     Parties parties;
     bool final = false;
+    /// The call that created it: a creation, or its parent's call (v0.7).
+    std::uint64_t created_by = 0;
+    /// For a child (v0.7): its parent, its position among the children of
+    /// the call that created it, its depth (0 without a parent), and its
+    /// ancestors, oldest first.
+    std::optional<Id> parent;
+    std::uint32_t position = 0;
+    std::uint32_t depth = 0;
+    std::vector<AncestorReport> ancestors;
+    /// The report's `events` are the ancestors' calls, then the instance's
+    /// own from this position on (the call that created it, first).
+    std::size_t first_own_event = 0;
 };
 
 enum class AttachmentStatus : std::uint8_t {
@@ -180,6 +210,8 @@ struct EvidenceReport {
     std::optional<cbor::Value> metadata;
     /// If the bundle is about a contract instance.
     std::optional<InstanceReport> instance;
+    /// The record's events, or the instance's calls (for a child, its
+    /// ancestors' first), oldest first.
     std::vector<RecordEvent> events;
     std::vector<RecordField> disclosed_fields;
     std::vector<AttachmentCheck> attachments;
@@ -193,9 +225,10 @@ struct EvidenceReport {
 
 /// The objects whose complete history a bundle about `record` must prove:
 /// the record (or instance, and then its contract), and for each of its
-/// events (`events`, the statements in its history) the signer, an agent
+/// events (`events`, the statements in its history; for a child instance,
+/// its ancestors' calls first, see `instance_events`) the signer, an agent
 /// signer's accountable person, and every delegation in the chain with its
-/// grantor. In first-seen order.
+/// grantor. In first-seen order. Never an instance's ancestors (v0.7).
 [[nodiscard]] std::vector<Id> involved_objects(const LedgerState& state, const Id& record,
                                                std::span<const Statement> events);
 

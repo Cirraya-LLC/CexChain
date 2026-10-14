@@ -1682,7 +1682,12 @@ Result<protocol::EvidenceBundle> Ledger::export_evidence(LogKeys log_keys,
     if (record == nullptr && instance == nullptr) {
         return fail(Errc::not_found, "no record with this id");
     }
-    const protocol::IndexList& history = record != nullptr ? record->history : instance->history;
+    // Its statements: a record's, or an instance's calls, for a child its
+    // ancestors' up to each call that created the next generation (spec
+    // v0.7). The ancestors get no state proofs: their later calls stay out.
+    const std::vector<std::uint64_t> history = record != nullptr
+                                                   ? record->history.to_vector()
+                                                   : protocol::instance_events(state, *instance);
     // Everything about it must be covered by the latest checkpoint (which
     // also rules out what is not durable yet).
     const auto& checkpoint = impl_->latest_checkpoint;

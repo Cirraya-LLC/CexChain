@@ -171,8 +171,15 @@ Result<ContractRun> LedgerState::run_contract(const crypto::Provider& provider,
             return fail(Errc::not_found, "the instance does not exist");
         }
         contract = this->contract(instance->contract);
-        input.instance = ContractInstanceView{*call->instance, instance->head, instance->state,
-                                              instance->status, instance->parties};
+        input.instance = ContractInstanceView{
+            .id = *call->instance,
+            .head = instance->head,
+            .state = instance->state,
+            .status = instance->status,
+            .parties = instance->parties,
+            .parent = instance->parent ? std::optional<Id>(instance->parent->id()) : std::nullopt,
+            .depth = instance->depth,
+        };
     } else if (call->contract) {
         contract = this->contract(*call->contract);
     }
@@ -200,8 +207,9 @@ Result<ContractRun> LedgerState::run_contract(const crypto::Provider& provider,
 }
 
 Result<ContractRun> LedgerState::accepted_run(const crypto::Provider& provider,
-                                              const SignedStatement& call, Timestamp now) const {
-    CEXCHAIN_TRY(ContractRun run, run_contract(provider, call, now));
+                                              const SignedStatement& signed_call,
+                                              Timestamp now) const {
+    CEXCHAIN_TRY(ContractRun run, run_contract(provider, signed_call, now));
     if (run.outcome.trap == vm::Trap::aborted) {
         return fail(Errc::rejected, "the contract rejected the call");
     }
@@ -211,8 +219,25 @@ Result<ContractRun> LedgerState::accepted_run(const crypto::Provider& provider,
     if (run.malformed) {
         return fail(Errc::rejected, "the contract's output is not well formed");
     }
-    if (run.accepted() == nullptr) {
+    const ContractAccept* accept = run.accepted();
+    if (accept == nullptr) {
         return fail(Errc::rejected, "the contract needs more consents for the call");
+    }
+    // Children (v0.7): only a contract that is not retired creates them, and
+    // only below the depth limit. A creation's instance has depth 0.
+    if (!accept->children.empty()) {
+        const auto& call = std::get<ContractCallBody>(signed_call.statement.body);
+        const InstanceState* instance = call.instance ? this->instance(*call.instance) : nullptr;
+        const ContractState* contract =
+            instance != nullptr ? this->contract(instance->contract)
+                                : (call.contract ? this->contract(*call.contract) : nullptr);
+        if (contract == nullptr || contract->retired) {
+            return fail(Errc::rejected, "a retired contract creates no more instances, children "
+                                        "included");
+        }
+        if (instance != nullptr && instance->depth >= max_instance_depth) {
+            return fail(Errc::rejected, "an instance at depth 8 creates no children");
+        }
     }
     return run;
 }
@@ -911,6 +936,7 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
                     InstanceState instance;
                     instance.id = id;
                     instance.contract = *b.contract;
+                    instance.created_by = index;
                     instances_.insert_or_assign(key_of(id), std::move(instance));
                 }
                 InstanceState& instance = instances_.at(key_of(target));
@@ -925,6 +951,29 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
                 instance.final = accept.final;
                 instance.history.push_back(index);
                 changes_.push_back(key_of(target));
+                // Then its children, in order (v0.7): the parent's contract,
+                // this call as their creation and head.
+                const CompactId contract = instance.contract;
+                const std::uint32_t depth = instance.depth + 1;
+                for (std::size_t position = 0; position < accept.children.size(); ++position) {
+                    CEXCHAIN_TRY(const Id child_id,
+                                 child_instance_id(provider, hash_, id, position));
+                    ContractChild& from = accept.children[position];
+                    InstanceState child;
+                    child.id = child_id;
+                    child.contract = contract;
+                    child.head = index;
+                    child.state = std::move(from.state);
+                    child.status = std::move(from.status);
+                    child.parties = std::move(from.parties);
+                    child.history.push_back(index);
+                    child.created_by = index;
+                    child.parent = CompactId(target);
+                    child.position = static_cast<std::uint32_t>(position);
+                    child.depth = depth;
+                    instances_.insert_or_assign(key_of(child_id), std::move(child));
+                    changes_.push_back(key_of(child_id));
+                }
                 return {};
             },
             [&](const ContractRetireBody& b) -> Status {
@@ -947,6 +996,41 @@ std::vector<Id> LedgerState::take_changes() {
         }
     }
     changes_.clear();
+    return out;
+}
+
+std::vector<InstanceAncestor> instance_ancestors(const LedgerState& state,
+                                                 const InstanceState& instance) {
+    std::vector<InstanceAncestor> out;
+    const InstanceState* node = &instance;
+    // A depth beyond the limit, or a cycle, is impossible under the rules.
+    while (node->parent && out.size() < max_instance_depth) {
+        const InstanceState* parent = state.instance(node->parent->id());
+        if (parent == nullptr) {
+            break;
+        }
+        out.push_back({parent, node->created_by});
+        node = parent;
+    }
+    std::ranges::reverse(out);
+    return out;
+}
+
+std::vector<std::uint64_t> instance_events(const LedgerState& state,
+                                           const InstanceState& instance) {
+    std::vector<std::uint64_t> out;
+    for (const InstanceAncestor& a : instance_ancestors(state, instance)) {
+        for (const std::uint64_t index : a.instance->history) {
+            if (index <= a.until) {
+                out.push_back(index);
+            }
+        }
+    }
+    out.insert(out.end(), instance.history.begin(), instance.history.end());
+    // Each generation's creating call is also the last of its parent's.
+    std::ranges::sort(out);
+    const auto repeated = std::ranges::unique(out);
+    out.erase(repeated.begin(), repeated.end());
     return out;
 }
 

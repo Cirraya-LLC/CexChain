@@ -20,6 +20,7 @@ add_executable(cexchain_tests
     ledger/assets_test.cpp
     ledger/contracts_test.cpp
     ledger/backup_test.cpp
+    ledger/children_test.cpp
     ledger/concurrency_test.cpp
     ledger/evidence_test.cpp
     ledger/ledger_test.cpp

@@ -567,7 +567,8 @@ void contract_seeds(const Seeds& seeds) {
                                            "proposed",
                                            protocol::Parties{{"supplier", supplier.id()}},
                                            {},
-                                           false});
+                                           false,
+                                           {}});
     const auto created = home.submit(create);
     seeds.write("protocol_parse_fuzz", "statement-contract-create", created.encoded);
 
@@ -575,7 +576,7 @@ void contract_seeds(const Seeds& seeds) {
     sign.instance = created.id;
     sign.function = "sign";
     sign.arguments = arguments(protocol::ContractAccept{
-        cbor::Value::text("signed"), "effective", std::nullopt, {}, false});
+        cbor::Value::text("signed"), "effective", std::nullopt, {}, false, {}});
     sign.head = home.ledger->state().instance(created.id)->head;
     const auto digest = must(
         protocol::contract_arguments_digest(home.provider, crypto::HashAlg::sha256, sign.arguments),

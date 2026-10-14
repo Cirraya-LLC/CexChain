@@ -58,7 +58,8 @@ check_contract_consent(const crypto::Provider& provider, const ContractConsentRe
                        crypto::HashAlg home_hash, Timestamp at,
                        std::span<const crypto::PublicKey> trusted_witnesses = {});
 
-/// One call on an instance, with its consents.
+/// One call on the instance (for a child, or on one of its ancestors), with
+/// its consents.
 struct ContractStep {
     /// The call's event in the instance report's `events`.
     std::size_t event = 0;
@@ -68,14 +69,16 @@ struct ContractStep {
 struct ContractReport {
     /// The instance's own report: complete, with the instance in `instance`.
     EvidenceReport instance;
-    /// Its calls, oldest first.
+    /// Its calls, oldest first; for a child, its ancestors' calls up to each
+    /// one that created the next generation come first (v0.7).
     std::vector<ContractStep> steps;
 };
 
 /// Verifies contract evidence: the instance bundle for the home ledger
 /// (`options.expected_ledger`, if set), completely; and every consent its
-/// calls cite, against the bundle each pins. A bundle that no call pins, or a
-/// call whose consent is missing, fails it.
+/// calls cite, against the bundle each pins. For a child, its ancestors'
+/// calls are its calls here, consents and all (v0.7). A bundle that no call
+/// pins, or a call whose consent is missing, fails it.
 [[nodiscard]] Result<ContractReport> verify_contract_evidence(const crypto::Provider& provider,
                                                               ByteView encoded,
                                                               const VerifyOptions& options = {});

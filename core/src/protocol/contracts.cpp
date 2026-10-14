@@ -80,24 +80,56 @@ Result<ContractNeeds> decode_needs(const cbor::Value& value, const Id& home) {
     return needs;
 }
 
-Result<ContractAccept> decode_accept(const cbor::Value& value) {
-    CEXCHAIN_TRY(MapReader reader, MapReader::open(value));
-    ContractAccept accept;
+/// Keys 1 to 3 of an accept or a child: the state (at most 65,536 bytes
+/// encoded), the status (1 to 64 bytes), and the parties.
+struct InstanceFields {
+    cbor::Value state;
+    std::optional<std::string> status;
+    std::optional<Parties> parties;
+};
+
+Result<InstanceFields> decode_instance_fields(MapReader& reader) {
+    InstanceFields out;
     CEXCHAIN_TRY(const cbor::Value* state, reader.need(1));
     CEXCHAIN_TRY(Bytes encoded_state, cbor::encode(*state));
     if (encoded_state.size() > max_contract_value) {
         return fail(Errc::malformed, "an instance's state is at most 65,536 bytes");
     }
-    accept.state = *state;
+    out.state = *state;
     if (const cbor::Value* status = reader.get(2)) {
         if (!text_within(status->as_text(), max_contract_status)) {
             return fail(Errc::malformed, "an instance's status is 1 to 64 bytes");
         }
-        accept.status = *status->as_text();
+        out.status = *status->as_text();
     }
     if (const cbor::Value* parties = reader.get(3)) {
-        CEXCHAIN_TRY(accept.parties, decode_parties(*parties));
+        CEXCHAIN_TRY(out.parties, decode_parties(*parties));
     }
+    return out;
+}
+
+/// A child is `{1: state, ? 2: status, ? 3: parties}` and nothing else: no
+/// events, never final (v0.7).
+Result<ContractChild> decode_child(const cbor::Value& value) {
+    auto reader = MapReader::open(value);
+    if (!reader) {
+        return fail(Errc::malformed, "a child is a map");
+    }
+    CEXCHAIN_TRY(InstanceFields fields, decode_instance_fields(*reader));
+    if (!reader->finish()) {
+        return fail(Errc::malformed, "a child holds only its state, status, and parties");
+    }
+    return ContractChild{std::move(fields.state), std::move(fields.status),
+                         std::move(fields.parties).value_or(Parties{})};
+}
+
+Result<ContractAccept> decode_accept(const cbor::Value& value) {
+    CEXCHAIN_TRY(MapReader reader, MapReader::open(value));
+    ContractAccept accept;
+    CEXCHAIN_TRY(InstanceFields fields, decode_instance_fields(reader));
+    accept.state = std::move(fields.state);
+    accept.status = std::move(fields.status);
+    accept.parties = std::move(fields.parties);
     if (const cbor::Value* events = reader.get(4)) {
         const cbor::Array* items = events->as_array();
         if (items == nullptr || items->empty() || items->size() > max_contract_events) {
@@ -117,6 +149,16 @@ Result<ContractAccept> decode_accept(const cbor::Value& value) {
             return fail(Errc::malformed, "an instance's finality is encoded only as true");
         }
         accept.final = true;
+    }
+    if (const cbor::Value* children = reader.get(6)) {
+        const cbor::Array* items = children->as_array();
+        if (items == nullptr || items->empty() || items->size() > max_contract_children) {
+            return fail(Errc::malformed, "a call creates 1 to 16 children");
+        }
+        for (const cbor::Value& item : *items) {
+            CEXCHAIN_TRY(ContractChild child, decode_child(item));
+            accept.children.push_back(std::move(child));
+        }
     }
     CEXCHAIN_CHECK(reader.finish());
     return accept;
@@ -179,8 +221,30 @@ Result<Bytes> encode_contract_output(const ContractOutput& output) {
     if (accept.final) {
         map.push_back(entry(5, cbor::Value::boolean(true)));
     }
+    if (!accept.children.empty()) {
+        cbor::Array children;
+        for (const ContractChild& child : accept.children) {
+            cbor::Map fields{entry(1, child.state)};
+            if (child.status) {
+                fields.push_back(entry(2, cbor::Value::text(*child.status)));
+            }
+            if (!child.parties.empty()) {
+                fields.push_back(entry(3, parties_value(child.parties)));
+            }
+            children.push_back(cbor::Value::map(std::move(fields)));
+        }
+        map.push_back(entry(6, cbor::Value::array(std::move(children))));
+    }
     return cbor::encode(cbor::Value::array(
         {cbor::Value::unsigned_integer(output_accept), cbor::Value::map(std::move(map))}));
+}
+
+Result<Id> child_instance_id(const crypto::Provider& provider, crypto::HashAlg hash, const Id& call,
+                             std::uint64_t position) {
+    CEXCHAIN_TRY(Bytes encoded,
+                 cbor::encode(cbor::Value::array(
+                     {cbor::Value::bytes(call.bytes()), cbor::Value::unsigned_integer(position)})));
+    return provider.digest(hash, encoded);
 }
 
 Result<Bytes> encode_contract_input(const ContractInput& input) {
@@ -202,6 +266,10 @@ Result<Bytes> encode_contract_input(const ContractInput& input) {
         }
         if (!v.parties.empty()) {
             view.push_back(entry(5, parties_value(v.parties)));
+        }
+        if (v.parent) {
+            view.push_back(entry(6, cbor::Value::array({cbor::Value::bytes(v.parent->bytes()),
+                                                        cbor::Value::unsigned_integer(v.depth)})));
         }
         map.push_back(entry(5, cbor::Value::map(std::move(view))));
     }

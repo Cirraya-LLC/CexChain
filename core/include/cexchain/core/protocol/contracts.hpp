@@ -24,8 +24,10 @@
 /// Contracts (D-053, spec v0.6, section 15): modules deployed on a ledger,
 /// their home, that govern instances. A call is registered only if its
 /// contract, run on the call's input, accepts it, so every replay runs it
-/// again and reaches the same instance state. See `contract-input`,
-/// `contract-output`, and `contract-consent` in spec/cexchain.cddl.
+/// again and reaches the same instance state. Since v0.7 an accepted call may
+/// also create instances, its children. See `contract-input`,
+/// `contract-output`, `contract-child`, and `contract-consent` in
+/// spec/cexchain.cddl.
 namespace cexchain::protocol {
 
 /// A party's consent to a call, on its own ledger: "given", which may become
@@ -35,6 +37,12 @@ inline constexpr std::string_view contract_consent_type = "cexchain.contract-con
 inline constexpr std::size_t max_contract_parties = 64;
 inline constexpr std::size_t max_contract_events = 64;
 inline constexpr std::size_t max_contract_status = 64;
+/// An accepted call creates at most this many children (v0.7).
+inline constexpr std::size_t max_contract_children = 16;
+/// An instance a creation makes has depth 0, a child its parent's plus 1, at
+/// most this (v0.7): a call that creates children on an instance of this
+/// depth is refused.
+inline constexpr std::uint32_t max_instance_depth = 8;
 
 struct ContractState {
     CompactId id;
@@ -56,14 +64,24 @@ using Parties = std::map<std::string, Id>;
 struct InstanceState {
     CompactId id;
     CompactId contract;
-    /// The log index of its latest call (at first, its creation).
+    /// The log index of its latest call (at first, the call that created it).
     std::uint64_t head = 0;
     cbor::Value state;
     std::optional<std::string> status;
     Parties parties;
     bool final = false;
-    /// Its creation and every call, in order.
+    /// The call that created it and every call on it, in order.
     IndexList history;
+    /// The log index of the call that created it: a creation, whose id is
+    /// the instance's, or a call that made it a child (v0.7), whose id is
+    /// not. Always `history.front()`.
+    std::uint64_t created_by = 0;
+    /// For a child (v0.7): the instance whose call created it, and its index
+    /// among that call's children.
+    std::optional<CompactId> parent;
+    std::uint32_t position = 0;
+    /// 0 without a parent, else the parent's depth plus 1.
+    std::uint32_t depth = 0;
 };
 
 struct ContractEvent {
@@ -71,6 +89,17 @@ struct ContractEvent {
     cbor::Value data;
 
     friend bool operator==(const ContractEvent&, const ContractEvent&) = default;
+};
+
+/// An instance an accepted call creates (`contract-child`, v0.7).
+struct ContractChild {
+    cbor::Value state;
+    /// None when absent.
+    std::optional<std::string> status;
+    /// None when empty (an encoded child never has an empty map).
+    Parties parties;
+
+    friend bool operator==(const ContractChild&, const ContractChild&) = default;
 };
 
 /// An accepted call's effect on its instance.
@@ -81,6 +110,9 @@ struct ContractAccept {
     std::optional<Parties> parties;
     std::vector<ContractEvent> events;
     bool final = false;
+    /// New instances of the contract, created after the instance changed
+    /// (v0.7): at most 16.
+    std::vector<ContractChild> children;
 
     friend bool operator==(const ContractAccept&, const ContractAccept&) = default;
 };
@@ -102,6 +134,13 @@ using ContractOutput = std::variant<ContractAccept, ContractNeeds>;
 /// Encodes an output, as a contract would write it.
 [[nodiscard]] Result<Bytes> encode_contract_output(const ContractOutput& output);
 
+/// The id of the child at `position` (from 0) among those the call `call`
+/// created: HASH(deterministic-CBOR([call, position])) under the home's
+/// hash (`child-id-input`, v0.7). It never equals a statement id, whose
+/// preimage is a COSE Sig_structure.
+[[nodiscard]] Result<Id> child_instance_id(const crypto::Provider& provider, crypto::HashAlg hash,
+                                           const Id& call, std::uint64_t position);
+
 /// An instance as the input shows it to its contract.
 struct ContractInstanceView {
     Id id;
@@ -109,6 +148,9 @@ struct ContractInstanceView {
     cbor::Value state;
     std::optional<std::string> status;
     Parties parties;
+    /// For a child only (v0.7): its parent and depth, view key 6.
+    std::optional<Id> parent;
+    std::uint32_t depth = 0;
 };
 
 /// What a call's contract reads (`contract-input`).

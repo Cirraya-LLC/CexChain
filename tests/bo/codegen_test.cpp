@@ -256,7 +256,7 @@ public:
         Outcome out = run(std::move(label), std::move(*bytes), input);
         if (const protocol::ContractAccept* accept = out.accepted()) {
             if (function.empty()) {
-                instance_ = protocol::ContractInstanceView{ledger(0x1D), 1, {}, {}, {}};
+                instance_ = protocol::ContractInstanceView{ledger(0x1D), 1, {}, {}, {}, {}, 0};
             }
             instance_->head += 1;
             instance_->state = accept->state;

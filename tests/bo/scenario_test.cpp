@@ -430,9 +430,13 @@ test "two days paused"
             std::get<protocol::ContractAccept>(*only(fee).steps[0].calls[0].output);
         in.function = "when.rule";
         in.arguments = cbor::Value::null();
-        in.instance =
-            protocol::ContractInstanceView{only(fee).steps[0].calls[0].input.contract, 1,
-                                           created.state, created.status, *created.parties};
+        in.instance = protocol::ContractInstanceView{only(fee).steps[0].calls[0].input.contract,
+                                                     1,
+                                                     created.state,
+                                                     created.status,
+                                                     *created.parties,
+                                                     {},
+                                                     0};
         in.time = static_cast<protocol::Timestamp>(time);
         const auto bytes = protocol::encode_contract_input(in);
         REQUIRE(bytes.has_value());

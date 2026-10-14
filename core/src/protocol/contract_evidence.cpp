@@ -179,7 +179,8 @@ Result<ContractReport> verify_contract_evidence(const crypto::Provider& provider
     }
     for (const auto& [key, bundle] : bundles) {
         if (!bundle.second) {
-            return verification_failure("a consent bundle is pinned by no call of the instance");
+            return verification_failure(
+                "a consent bundle is pinned by no call of the instance or of its ancestors");
         }
     }
     return out;
