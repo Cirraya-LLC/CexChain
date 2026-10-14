@@ -1,6 +1,6 @@
 # The CexChain protocol
 
-Revision v0.6 (draft). Wire protocol version 1.
+Revision v0.7 (draft). Wire protocol version 1.
 
 This document explains the protocol in prose. The normative definitions are:
 
@@ -51,7 +51,7 @@ Two organizations exchange records through the same mechanism (section 12): each
 
 **Ownership assets** (section 13), such as receivables and warehouse receipts, live on their issuer's ledger. Each change of hands needs the consent of every party involved, given on that party's own ledger. The issuer's ledger refuses a second pledge, and witnesses stop it from showing different banks different histories.
 
-**Contracts** (sections 14 and 15) are deterministic WebAssembly modules on a ledger. They govern business objects, called instances, whose every call the contract must accept. The parties consent on their own ledgers, as with assets, and any verifier replays the calls with the same result.
+**Contracts** (sections 14 and 15) are deterministic WebAssembly modules on a ledger. They govern business objects, called instances, whose every call the contract must accept. The parties consent on their own ledgers, as with assets, and any verifier replays the calls with the same result. A call may also create instances, such as the parts a receivable is split into.
 
 **Machine by default.** A signature shows only that a key was used. A statement counts as a person's action only if it carries proof of presence (section 7).
 
@@ -272,7 +272,7 @@ A leaf's history lists every log index that created or changed the object:
 - delegations: grant and revocation;
 - records: every statement about them;
 - contracts: deploy and retire;
-- instances: creation and every call.
+- instances: creation and every call. An instance created by another's call (section 15) starts with that call, which its parent's history lists too.
 
 Each key has exactly one position, and leaf and node hashes are domain-separated. So one root cannot give two histories for one id.
 
@@ -305,7 +305,7 @@ Once a witness has followed a log key rotation, it accepts only the new key. A l
 An evidence bundle (`evidence-bundle`) holds:
 
 - the record id, or an instance's id (section 15);
-- log entries with their receipts, in ascending order, starting with genesis: the record's statements and every statement they depend on (signers' registrations and key rotations, delegation chains, referenced actors), and every rotation of the organization's keys below the checkpoint's size;
+- log entries with their receipts, in ascending order, starting with genesis: the record's statements and every statement they depend on (signers' registrations and key rotations, delegation chains, referenced actors), and every rotation of the organization's keys below the checkpoint's size. For an instance created by a call, also its ancestors' calls up to the one that created each next generation (section 15);
 - the signed checkpoint all receipts lead to, and witness cosignatures of it;
 - optional field disclosures and attachment openings (salts; the contents travel alongside);
 - state proofs for every involved object.
@@ -321,7 +321,7 @@ A verifier MUST:
 7. If the last entry the checkpoint covers is a state commitment (included with its receipt):
    - check it as replay would;
    - verify every state proof against its root;
-   - for the record and each involved object, require a proof whose leaf equals that object's leaf in the replayed state. The involved objects are each event's signer, an agent signer's responsible person, and every delegation in the chain with its grantor; for an instance, also its contract.
+   - for the record and each involved object, require a proof whose leaf equals that object's leaf in the replayed state. The involved objects are each event's signer, an agent signer's responsible person, and every delegation in the chain with its grantor; for an instance, also its contract. For an instance created by a call, its ancestors' included calls count as events too, and the ancestors themselves need no proof (section 15).
 
    Only then is the report **complete**: nothing, such as a later revocation, was left out.
 
@@ -384,6 +384,8 @@ An **asset** is a record of an asset type whose holder can change: a receivable,
 | `cexchain.warehouse-receipt/1` | `holder` (the depositor's ledger), `quantity` (≥ 1), `unit` (1 to 16 bytes) | active, pledged, frozen; redeemed, cancelled (final) |
 
 Other metadata keys are allowed. Confidential terms (contracts, invoices, the goods) belong in fields and attachments, disclosed selectively. A new asset is active, held by `holder`.
+
+**Splitting.** These assets do not split. A receivable that is split into parts for transfer along a supply chain is a contract instance whose parts are its children (section 15, v0.7). Nothing converts between the two.
 
 **The head.** An asset's head is the log index of its registration or of its latest asset action (endorsements do not count). Every action and every consent names the head it follows. A consent therefore applies only to the asset as its party saw it, and only once.
 
@@ -560,13 +562,15 @@ The input and output are bytes to the execution layer. Their contents, determini
 
 ## 15. Contracts
 
-*Draft for revision v0.6.*
+*Draft for revision v0.6; v0.7 adds instances created by a call.*
 
 A **contract** is a module, in the profile of section 14, deployed on a ledger: its **home**. An **instance** is one business object the contract governs, such as an agreement, a bill, or an order. Like an asset (section 13), an instance lives on its home ledger only:
 - only the home records its calls, and only if the contract accepts them;
 - its **parties** are organizations, named by ledger id under roles such as `supplier` or `bank`;
 - a party other than the home consents on its own ledger;
 - every verifier replays the calls with the same contract and reaches the same result.
+
+A call may also create instances of its contract, called **children**, such as the parts a receivable is split into (v0.7).
 
 **Statements.**
 
@@ -609,7 +613,8 @@ The **arguments** are any CBOR value, at most 65,536 bytes encoded. Whoever hold
 - for a creation: the contract exists and is not retired, the function is in its interface with kind 1, and the call cites no consents;
 - otherwise: the instance exists and is not final, the head is its head, and the function is in its contract's interface with kind 2;
 - the consents, if any, are 1 to 16, strictly ascending by ledger, and none is from the home;
-- the contract, run on the call's input (below), succeeds with an `accept` output.
+- the contract, run on the call's input (below), succeeds with an `accept` output;
+- if the accept creates children (key 6, v0.7): the contract is not retired, and the instance the call acts on, or creates, has a depth below 8.
 
 A contract-deploy MUST be refused unless its code loads and its interface is well formed. A contract-retire MUST name a contract that exists and is not retired.
 
@@ -623,7 +628,7 @@ A contract-deploy MUST be refused unless its code loads and its interface is wel
 | 2 | the arguments |
 | 3 | the home ledger's id |
 | 4 | the contract's id |
-| 5 | the instance, absent for a creation: `{1: id, 2: head, 3: state, ? 4: status, ? 5: parties}` |
+| 5 | the instance, absent for a creation: `{1: id, 2: head, 3: state, ? 4: status, ? 5: parties, ? 6: [parent, depth]}`; key 6 only for a child (v0.7) |
 | 6 | the caller: `[actor, signer]` |
 | 7 | the call's registration time |
 | 8 | the consents, if any, in the call's order: `[ledger, signer]` each |
@@ -636,15 +641,27 @@ A **signer** describes who signed a statement: `{1: kind, ? 2: presence, ? 3: mo
 So a contract can require that a person approved in person, or that an agent's step is confirmed by a person.
 
 **The output** is a deterministic CBOR array, written with `output_write`:
-- `[1, accept]` accepts the call. `accept` is `{1: state, ? 2: status, ? 3: parties, ? 4: events, ? 5: true}`:
+- `[1, accept]` accepts the call. `accept` is `{1: state, ? 2: status, ? 3: parties, ? 4: events, ? 5: true, ? 6: children}`:
   - **state:** any CBOR value, at most 65,536 bytes encoded, kept by the home and given to the next call;
   - **status:** 1 to 64 bytes, shown in reports and lists, such as `proposed` or `effective`;
   - **parties:** a map from roles (1 to 64 bytes) to ledger ids, at most 64. It replaces the instance's parties; when absent, they stay as they were (none after a creation);
   - **events:** at most 64 `[name, data]` pairs, with names of 1 to 64 bytes, shown in reports;
-  - **key 5:** the instance is **final** and takes no more calls.
+  - **key 5:** the instance is **final** and takes no more calls;
+  - **children** (v0.7): 1 to 16 new instances, each `{1: state, ? 2: status, ? 3: parties}` with the limits above; see "Instances created by a call" below.
 - `[2, needs]` asks for consents. `needs` lists the ledgers whose consents the call lacks: 1 to 16, strictly ascending, none the home.
 
 An output is well formed only if it is deterministic CBOR within the limits of section 2 and matches `contract-output`. The call is refused on a trap (`abort` is how a contract rejects a call, with its reason), on a `needs` output, and on an output that is not well formed. The contract is deterministic, so the home runs it first without consents to learn whom to ask. A role may name the home itself: the home agrees through the call it signs, so it never consents to its own calls.
+
+**Instances created by a call** (v0.7). An accepted call may create up to 16 children (output key 6), such as the parts a receivable is split into. The instance the call acts on, or the one it creates, is their **parent**.
+- **Id.** A child's id is `HASH(deterministic-CBOR([call, position]))` under the home's hash. `call` is the creating call's statement id, and `position` the child's index in key 6, from 0. A statement id hashes a COSE `Sig_structure` instead, so a child id never equals a statement id.
+- **Start.** A child has its parent's contract. Its state, status, and parties are its keys 1 to 3; without status or parties it has none, like a new instance. Its head is the creating call's log index, as is its parent's after the call. It is not final.
+- **Depth.** An instance created by a creation has depth 0, and a child its parent's depth plus 1, at most 8. So an instance has at most 8 ancestors, and its evidence stays bounded.
+- **Order.** The home applies the accept to the parent as to any call (state, status, parties, finality), then creates the children in order. A parent may keep its state and take more calls, or end (key 5). A split normally ends it, so that only the parts carry its value.
+- **Retired contracts** create no more instances, neither by a creation nor as children. Calls that create none carry on.
+- **Calls on a child** are calls on an instance: its id, its head, a function of kind 2, and consents that name the child. Under scope key 7, a call on a child acts on its contract.
+- **Final instances** take no more calls. They stay in the state, and their evidence can still be fetched and verified. A parent's end does not end its children, nor a child's its parent.
+- **What the contract sees.** For a call on a child, the instance view (input key 5) carries key 6, `[parent, depth]`, so a contract can refuse to split at the depth limit with its own reason. For other instances the view has no key 6, and the input is as in v0.6.
+- **Consents** are unchanged: at most 16 per call, none from the home. A split that needs the consents of the holder and of every recipient therefore has at most 15 recipients besides the holder.
 
 **Consents.** A party consents with a `cexchain.contract-consent/1` record on its own ledger (state given, which may become withdrawn), under its own delegations and with proof of presence if a person approved. Its metadata names the terms:
 - `ledger` (the home), `instance`, `function`, and `head`;
@@ -656,9 +673,9 @@ A creation takes no consents: an instance starts as the home's proposal, and bin
 
 A call cites each consent as `[ledger, record, bundle, signer]`: the party's ledger, the consent record, the hash under the home's hash of the consent's evidence bundle, and the signer of the consent's registration. The bundles are not in the log, so the ledger rules see only the citations, and the contract decides on the signers they claim. Before recording a call, the home MUST check each consent bundle as a verifier does (step 3 below), and MUST keep the bundles it cites.
 
-**Contract evidence** (`contract-evidence`) is the instance's evidence bundle with every consent bundle its calls cite. The instance's bundle includes the deploy (and so the code), any retire, and every call on the instance. A verifier MUST:
+**Contract evidence** (`contract-evidence`) is the instance's evidence bundle with every consent bundle its calls cite. The instance's bundle includes the deploy (and so the code), any retire, and every call on the instance. For a child, it also includes its **ancestors' histories** (v0.7): for each ancestor, its creation and every call on it up to and including the call that created the next generation. "Its calls" then include these, consents and all. A verifier MUST:
 1. verify the instance's bundle for the expected home ledger (section 11) and require it to be complete;
-2. replay it, running the contract for each call, to reach the instance's state, status, parties, and whether it is final;
+2. replay it, running the contract for each call, the ancestors' included, to reach the instance's state, status, parties, and whether it is final. For a child, the replay also shows that each generation is the child its creating call's output made at its position, with that output's state, status, and parties, within the depth limit: otherwise the instance would not exist in the replayed state;
 3. for each consent citation, find the bundle with that hash and check that:
    - it verifies, completely, for the cited ledger;
    - it is about the cited record, a live `cexchain.contract-consent/1` record (given, not revoked);
@@ -667,9 +684,11 @@ A call cites each consent as `[ledger, record, bundle, signer]`: the party's led
    - the record's registration was signed as the citation claims (kind, presence method, and model);
 4. refuse bundles that no citation pins, and citations without a bundle.
 
-The report shows each call: the function and arguments, the outcome (status and events), who called and who consented, under whose authority, whether a person proved presence, and any AI provenance.
+The report shows each call: the function and arguments, the outcome (status and events), who called and who consented, under whose authority, whether a person proved presence, and any AI provenance. For a child, it shows the ancestors first, each with its depth and its calls up to the one that created the next generation.
 
-**Not yet.** Evidence from other ledgers as input, requests to executors (see the Bo specification), instances created by a call (splitting), and migration to a new version are planned for later revisions.
+**Evidence for a child** leaves out its ancestors' later calls, and the siblings' calls. So it need not prove the ancestors' leaves, which list those later calls, and the home's bundles carry no proof for them. Their histories up to each creating call are still complete. Every call names the head it follows, so a call left out breaks the chain, and the creating calls are those the instance's id derives from. The involved objects (section 11, step 7) include those of the ancestors' calls, so their signers and delegations are proven complete like the instance's own.
+
+**Not yet.** Evidence from other ledgers as input, requests to executors (see the Bo specification), and migration to a new version are planned for later revisions.
 
 ## 16. The HTTP API
 
@@ -744,6 +763,10 @@ A server holds the log key to sign checkpoints, receipts, and evidence. Across a
   - Every call is bounded by fuel, call depth, and memory (section 14), so a contract cannot stall the home or a verifier.
   - Code is immutable, but it can be wrong. Verifiers show which contract, and which source, an instance runs, and rebuild a Bo contract's code from its source. Parties should read the code (or its Bo source) before consenting.
   - Consent signers are claimed in the call and checked only by verifiers that hold the consent bundles, so parties SHOULD verify contract evidence, not just the home's log.
+- **Children** (v0.7).
+  - A child's evidence shows its ancestors' calls up to each creating call: the parent's states and parties, the arguments of the split, and the first state and parties of every sibling. So a part's holder, and anyone it shows the part to, sees the other parts' holders and amounts. This is accepted for v1; commitments or zero-knowledge proofs may hide siblings later. The evidence does not show the siblings' later calls, nor the ancestors' calls after each split.
+  - The protocol does not know amounts: a contract that splits must conserve them. A verifier that relies on a part SHOULD check, in the replayed split, that the parts add up to the parent's amount, or rely on a contract whose source it has read and rebuilt.
+  - Depth is capped at 8, so a part's evidence carries at most 8 ancestors' histories.
 
 ## 18. Test vectors
 
@@ -760,6 +783,7 @@ A server holds the log key to sign checkpoints, receipts, and evidence. Across a
 | `protocol-v0.4.json` | log and root key rotation, the checkpoint and state commitment under the new key, a cosign request with key rotations |
 | `protocol-v0.5.json` | assets: a receivable and a warehouse receipt through every action, consent metadata, actions the rules refuse, and asset evidence |
 | `protocol-v0.6.json` | contracts (section 15): a test contract deployed, instances created and called, with each call's input and output, consent metadata, calls the rules refuse, and contract evidence |
+| `protocol-v0.7.json` | instances created by a call (section 15): a splitting contract and the v0.6 test contract; children and their ids, calls on a child and a grandchild, splits down to the depth limit, children the rules refuse (too many, too deep, malformed, on a retired contract, on a final parent), the state tree, and signed evidence bundles: an instance, a tier-3 part with its ancestors and real consent bundles from other ledgers, and a child whose parent carried on |
 | `vm-v1.json` | contract execution (section 14): modules in and out of the profile, invocations with their outputs, traps, and fuel, and random integer programs, all from an independent reference interpreter (`tools/testvectors/wasm_ref.py`) |
 
-`tools/testvectors/generate.py` regenerates them with Python's `cryptography` and `cbor2`, and OpenSSL, independently of the C++ code. `test-contracts.json` is not part of the protocol: it holds contracts for tests of the reference server (a contract that decides by how many consents a call cites), from `tools/testvectors/test_contracts.py`.
+`tools/testvectors/generate.py` regenerates them with Python's `cryptography` and `cbor2`, and OpenSSL, independently of the C++ code. `test-contracts.json` is not part of the protocol: it holds contracts for tests of the reference server (a contract that decides by how many consents a call cites, and the splitting contract of `protocol-v0.7.json`), from `tools/testvectors/test_contracts.py`.

@@ -1,7 +1,7 @@
 ; SPDX-License-Identifier: Apache-2.0
 ; Copyright 2026 Cirraya
 ;
-; The CexChain protocol (RFC 8610 CDDL). Specification revision v0.6 (draft); the
+; The CexChain protocol (RFC 8610 CDDL). Specification revision v0.7 (draft); the
 ; wire protocol version (statement key 0) is 1.
 ;
 ; Revision history:
@@ -28,6 +28,11 @@
 ;         leaves for contracts and instances, the contract input and output,
 ;         the contract-consent record type, and contract evidence. Earlier
 ;         objects remain valid.
+;   v0.7  instances created by a call (draft): accept key 6 creates up to 16
+;         children, identified by child-id-input; instance-view key 6 for a
+;         call on a child; at most 8 generations; a child's state leaf and
+;         contract evidence with its ancestors' histories. Earlier objects
+;         remain valid.
 ;
 ; Every structure is encoded as deterministic CBOR (RFC 8949 section 4.2.1) in
 ; the CexChain profile: no floats, no indefinite lengths, no duplicate keys.
@@ -525,8 +530,10 @@ inclusion-proof = [
 ;      proof against its state root (at most one per object), and for the
 ;      record and each object involved in its events (the signer, an agent
 ;      signer's accountable person, and every delegation in the chain with
-;      its grantor) requires a proof whose leaf equals that object's leaf in
-;      the replayed state. Then nothing was omitted: the report is complete.
+;      its grantor; for an instance, its contract; for a child, the events
+;      of its ancestors' included calls too, but no ancestor itself)
+;      requires a proof whose leaf equals that object's leaf in the replayed
+;      state. Then nothing was omitted: the report is complete.
 ;      Without that commitment, a bundle cannot rule out omissions (such as
 ;      a later revocation).
 
@@ -543,7 +550,8 @@ inclusion-proof = [
 ; with every rotation of its root key and of the log key (v0.4), so a
 ; complete bundle shows them all.
 ; Contracts list their deploy and retire (v0.6); instances their creation
-; and every call.
+; and every call. A child (v0.7) starts with the call that created it, which
+; its parent's history lists too.
 state-leaf = [
   kind: 1 / 2 / 3 / 4 / 5,     ; actor, delegation, record, contract, instance
   id,
@@ -556,7 +564,8 @@ state-proof = [state-leaf, siblings: [* bstr]]   ; at most 256 siblings
 evidence-bundle = {
   0 => 1,                      ; bundle format version
   1 => id,                     ; the record (statement_id of its registration),
-                               ; or an instance (v0.6)
+                               ; or an instance (v0.6): a child's id is no
+                               ; statement_id (v0.7, child-id-input)
   2 => [+ evidence-entry],     ; ascending log index, starting with genesis
   3 => bstr,                   ; the signed checkpoint the receipts lead to
   ? 4 => [+ bstr],             ; witness cosignatures on that checkpoint
@@ -732,6 +741,7 @@ instance-view = {
   3 => any,                    ; its state
   ? 4 => tstr,                 ; its status
   ? 5 => parties,
+  ? 6 => [parent: id, depth: 1..8], ; v0.7: exactly for a child
 }
 parties = { + tstr => id }     ; role (1-64 bytes) => ledger, at most 64
 
@@ -747,7 +757,26 @@ contract-accept = {
   ? 3 => parties,              ; replaces the parties; absent keeps them
   ? 4 => [1*64 [name: tstr, data: any]], ; events, names 1-64 bytes
   ? 5 => true,                 ; final: the instance takes no more calls
+  ? 6 => [1*16 contract-child], ; v0.7: new instances of the contract
 }
+
+; An instance created by a call (v0.7; spec section 15, "Instances created by
+; a call"), a child of the instance the call acts on or creates. The home
+; applies the accept to the parent first, then creates the children in
+; order. A child has its parent's contract; its head is the creating call's
+; log index; it is not final. Its depth is its parent's plus 1 (an instance
+; a creation makes has depth 0), at most 8. A call that creates children is
+; refused if the contract is retired or the parent's depth is 8.
+contract-child = {
+  1 => any,                    ; its first state, at most 65,536 bytes encoded
+  ? 2 => tstr,                 ; its status, 1-64 bytes; absent: none
+  ? 3 => parties,              ; its parties; absent: none
+}
+; A child's id is HASH (the home's) of this, deterministically encoded.
+child-id-input = [
+  call: id,                    ; the creating contract-call's statement_id
+  position: 0..15,             ; the child's index in accept key 6
+]
 
 ; Metadata of a cexchain.contract-consent/1 record (initial state "given",
 ; which may become "withdrawn"), on the consenting party's ledger. It is
@@ -765,10 +794,15 @@ contract-consent = {
 
 ; Everything needed to verify an instance offline: its bundle from the home
 ; ledger (with the deploy, any retire, and every call), and every consent
-; bundle its calls cite (each once, in any order). A verifier:
+; bundle its calls cite (each once, in any order). For a child (v0.7), the
+; bundle also holds each ancestor's creation and its calls up to the one
+; that created the next generation, and their consents count as its calls';
+; it carries no state proofs for the ancestors (their later calls are left
+; out), but the involved objects include their calls' signers and
+; delegations. A verifier:
 ;   1. verifies the instance bundle for the home ledger; it must be complete;
-;   2. replays it, running the contract for each call, to the instance's
-;      state, status, parties, and finality;
+;   2. replays it, running the contract for each call (the ancestors'
+;      included), to the instance's state, status, parties, and finality;
 ;   3. for each contract-consent-ref, takes the bundle whose HASH (the home's)
 ;      it names, and requires that bundle to verify for the cited ledger,
 ;      completely; to be about the cited record, a live (given, not revoked)
