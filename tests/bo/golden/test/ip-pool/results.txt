@@ -1,0 +1,19 @@
+test "一个地址一次只分配给一个客户" passed home=role.we
+  step 1 passed 2027-10-01 accepted active event=active; fuel 5831
+  step 2 passed 2027-10-01 accepted allocated event=allocated consents 客户A; fuel 9347 11422
+  step 3 passed 2027-10-01 refused "bo:state allocate"; fuel 8955
+  step 4 passed 2027-10-09 accepted cooling event=cooling; fuel 10767
+test "收回后冷却 30 天，期内不得再分配" passed home=role.we
+  step 1 passed 2027-10-01 accepted active event=active; fuel 5831
+  step 2 passed 2027-10-01 accepted allocated event=allocated consents 客户A; fuel 9347 11422
+  step 3 passed 2027-10-09 accepted cooling event=cooling; fuel 10767
+  step 4 passed 2027-11-07 refused "bo:requires allocate 1"; fuel 9542
+  step 5 passed 2027-11-08 accepted allocated event=allocated consents 客户B; fuel 9966 12042
+  step 6 passed 2027-12-01 accepted cooling event=cooling; fuel 10767
+  step 7 passed 2028-01-01 accepted allocated event=allocated consents 客户A; fuel 9966 12042
+test "分配须经客户同意，收回由本公司发起" passed home=role.we
+  step 1 passed 2026-01-01 accepted active event=active; fuel 5831
+  step 2 passed 2026-01-01 waits 客户A; fuel 9347
+  step 3 passed 2026-01-01 accepted allocated event=allocated consents 客户A; fuel 9347 11422
+  step 4 passed 2026-01-01 waits role.we; fuel 10767
+3 tests: 3 passed, 0 failed

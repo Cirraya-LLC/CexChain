@@ -546,9 +546,10 @@ event, and the instance as final once no action can leave its state; and it refu
 text of a `reject` or with `bo:CODE` (`bo:requires sign 2`), which tools show in the reader's
 language. The same contract in English, Traditional Chinese, Simplified Chinese, or mixed
 compiles to the same bytes; `tests/bo/golden/build/` holds a two-party agreement in each, and the
-fuel of each of its calls. The vocabulary's asset actions compile with the standard library's
-terms (below). What later steps bring (`when` rules that call actions, lists, charges,
-executors, and the built-in actions whose terms come later) is refused with a message for now. `testvectors/bo-v1.json`
+fuel of each of its calls. The vocabulary's asset, service-state, and resource actions compile
+with the standard library's terms, and `when` rules compile to functions a keeper calls (both
+below). What later steps bring (lists, charges, executors, and the built-in actions whose terms
+come later) is refused with a message for now. `testvectors/bo-v1.json`
 (`tools/testvectors/bo_vectors.py`) pins sources, code, and outcomes, checked on both
 interpreters.
 
@@ -672,7 +673,8 @@ cexchain bo test agreement.bo --language zh-Hans-CN --json
 The built-in business actions are written in Bo itself, in a standard library compiled into the
 compiler (`bo/stdlib/edition1.bo`): transfer, pledge, release, enforce, redeem, pay, confirm
 payment, dispute, freeze, unfreeze, and cancel, with the semantics of CexChain's native assets
-(spec section 13). A contract that writes `can pledge to bank` gets the library's pledge: the
+(spec section 13); suspend, resume, and terminate, on the home's own word; and allocate and
+reclaim for resources. A contract that writes `can pledge to bank` gets the library's pledge: the
 holder starts it, the holder and the bank consent, only an active asset can be pledged (so no
 second pledge), and the bank becomes the pledgee. The lines a contract writes under a built-in
 action add to its terms and are checked first (`over 5_000_000 requires in person`); without
@@ -703,6 +705,50 @@ An action can let AI agents only propose it (`AI agent can propose`): an agent's
 kept with the instance as a proposal, and a person who proves presence approves it with the
 function `approve`, which runs it with every requirement checked. In a test, `bank1 release by
 AI agent -> pending approval`, then `bank1 approve in person -> active`.
+
+### Time rules and keepers
+
+A ledger acts only on calls, so a `when` rule compiles to a function of its own, `when.ACTION`
+(`when.suspend`), that anyone the home delegates may call: a *keeper*, usually a device of the
+home that calls it on a schedule. The rule applies only once the ledger's registration time
+reaches the rule's time, and once for each such time; an earlier call is refused, and nothing
+is recorded. The rule is the contract's own word: the actions it does need only the consents the
+contract states, not their starters'. Its event records the time it applied at and how late the
+call came. A rule fires at:
+
+| Event | Fires | Example |
+|---|---|---|
+| a date | on that day | `when due + 1 month` (month ends clamp: 31 January plus a month is the end of February) |
+| N before due | from N before the due date | `when 7 days before due` |
+| overdue, overdue N | the day after the due date; N after it | `when overdue 3 days suspend` |
+| a state held N | N after the instance entered the state | `when suspended 30 days terminate` |
+
+Any of these may be joined to other conditions with `and` (`when 7 days before due and active`).
+`when due issuer pays` names a party's duty: it says when an instance is due and overdue, and
+nothing is called. In actions, `within 14 days` means less than 14 days since the instance last
+changed state; `overdue`, `overdue N`, and `N before due` hold from those times on. Dates and days
+are counted at a fixed offset from UTC, all year: `UTC offset "-05:00"` in the kind's block, or
++08:00 (R25). A resource allocated with the standard library goes to one holder at a time: each
+allocation names it, with its consent (R23), and after a reclaim it cools for its cooling period
+before it is allocated again.
+
+```sh
+# The keeper: a device whose delegation covers this contract's calls only.
+cexchain actor add --as root.key --kind device --name Keeper --key keeper.pub
+cexchain delegation grant --as root.key --to <keeper> --allow contract-call --contracts <contract>
+# Has the rule's time come? Ask at any time; a dry run records nothing.
+cexchain contract call <instance> when.suspend --as keeper.key --dry-run --at 2027-07-03
+# On its schedule (cron, say), the keeper calls each rule; one whose time has not come is refused.
+cexchain contract call <instance> when.suspend --as keeper.key
+```
+
+A keeper that is sometimes off (a personal computer) fires late, never early, and the event
+shows how late. In tests, the keeper is a step: `keeper suspend at 2027-07-02 -> refused
+"bo:when when.suspend"`, then `keeper suspend at 2027-07-03 -> suspended`; it calls, as a device
+of the home, the rule that does that action (for a rule that does none, the state its first state
+change leads to, such as `keeper closed`).
+Nothing yet stops one IP address from being in two instances of a contract: unique keys across
+instances come later.
 
 ## AI agents (MCP)
 

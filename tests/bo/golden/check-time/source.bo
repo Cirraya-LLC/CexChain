@@ -1,0 +1,32 @@
+# Time rules (milestone 12): each kind of time a rule fires at, conditions on
+# time in actions, a written UTC offset, and the keeper's steps.
+contract Membership
+parties we, customer
+
+record Plan
+  due date
+  fee HKD
+  UTC offset "+09:00"
+
+can prolong by customer with until date
+  requires 30 days before due
+  requires not overdue 10 days
+  due = until
+can settle by customer
+  requires within 14 days
+  active, suspended -> settled
+when due customer pays
+when 7 days before due and active
+  fee = fee + HKD 10
+when overdue suspend
+when suspended 1 month terminate
+when 2027-12-31
+  -> closed
+
+test "the keeper calls each rule once its time has come"
+  we create with due = 2027-06-30, fee = HKD 100 at 2027-06-01
+  keeper suspend at 2027-06-30 -> refused "bo:when when.suspend"
+  keeper suspend at 2027-07-01 -> suspended
+  keeper terminate at 2027-07-31 -> refused "bo:when when.terminate"
+  keeper terminate at 2027-08-01 -> terminated
+  keeper closed at 2027-12-31 -> closed

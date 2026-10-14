@@ -210,6 +210,9 @@ struct Party {
     /// Binding::action: the action's key (act.pledge, or a name).
     std::string bound_by;
     std::string_view rule;
+    /// R23: bound again by each call of the action that binds it (a
+    /// resource's allocate), not only by the first.
+    bool each_call = false;
 };
 
 enum class FieldKind : std::uint8_t {
@@ -298,10 +301,16 @@ struct Action {
     /// is the contract's own lines, then, from `terms_from` on, the terms'.
     bool terms = false;
     std::uint64_t terms_from = 0;
+    /// A built-in action that only the contract's time rules do (no `can`
+    /// declares it): compiled code has no function of its own for it.
+    bool rule_only = false;
 };
 
 /// `when EVENT`: a time rule. The event is a date (`due`) or a condition on
-/// time (`7 days before due`, `overdue 3 days`).
+/// time (`7 days before due`, `overdue 3 days`, `suspended 30 days`), with
+/// other conditions joined by `and` (trigger_of finds its time). Unless it
+/// only states duties (R9), compiled code gives it a function that a keeper
+/// calls once its time has come (R24; rule_functions names them).
 struct TimeRule {
     Span span;
     Expr event;
@@ -353,6 +362,10 @@ struct Step {
     bool creation = false;
     /// `PARTY approve`: approves the first proposal the instance keeps.
     bool approve = false;
+    /// `keeper ACTION`: the keeper calls the time rule `rule` (an index of
+    /// Model::rules), the one whose function does ACTION.
+    bool keeper = false;
+    std::uint64_t rule = 0;
     std::optional<TestParty> to;
     /// The values given, typed: the action's inputs, or at creation the
     /// fields given at creation. Each is a literal (or yes, no, a list).
@@ -407,6 +420,10 @@ struct Model {
     std::vector<TimeRule> rules;
     DueKind due = DueKind::none;
     std::string_view due_rule;
+    /// The contract's offset from UTC, in milliseconds east (U6): its `UTC
+    /// offset`, else +08:00 (R25, `offset_rule`).
+    std::int64_t utc_offset_ms = 8 * 3'600'000;
+    std::string_view offset_rule;
     /// The `test` blocks, in source order.
     std::vector<Test> tests;
 };
@@ -453,5 +470,60 @@ struct Model {
 
 /// The name of the function that approves a proposal.
 inline constexpr std::string_view approve_function = "approve";
+
+// ---------------------------------------------------------------------------
+// Time rules (milestone 12).
+
+enum class TriggerKind : std::uint8_t {
+    date,       ///< a date: `when due`, `when start + 3 days`
+    before_due, ///< `when 7 days before due`: the due date less N
+    overdue,    ///< `when overdue` (the day after the due date) or `overdue N` (due + N)
+    held,       ///< `when suspended 30 days`: N after the instance entered the state
+};
+
+inline constexpr std::array<std::string_view, 4> trigger_kind_names{"date", "before_due", "overdue",
+                                                                    "held"};
+
+/// The time a rule's event names, as pointers into the event.
+struct Trigger {
+    TriggerKind kind = TriggerKind::date;
+    /// date: the date; before_due, held, and overdue N: the duration (null
+    /// for a bare `overdue`).
+    const Expr* value = nullptr;
+    /// held: the state.
+    const Expr* state = nullptr;
+    /// The event's other conditions: the other operands of the `and`s that
+    /// join the trigger to them, in order.
+    std::vector<const Expr*> conditions;
+};
+
+/// The one time an event names: a date (without now or today), or one of
+/// the forms above, alone or joined to other conditions by `and`. Nullopt if
+/// it names none, more than one, or one inside `or` or `not`.
+[[nodiscard]] std::optional<Trigger> trigger_of(const Expr& event);
+
+/// True if a yes-or-no expression is one of the trigger forms (not a date).
+[[nodiscard]] bool is_trigger(const Expr& e) noexcept;
+
+/// True if a rule does something besides stating duties (R9): an action, or
+/// a block. Only such a rule has a function.
+[[nodiscard]] bool rule_runs(const TimeRule& rule) noexcept;
+
+/// The function compiled code gives each time rule, in the model's order
+/// (empty for a rule that only states duties): "when." and the first action
+/// it does, else the state its first state change leads to, else "rule";
+/// ".2", ".3", ... when that name is taken by an earlier rule.
+[[nodiscard]] std::vector<std::string> rule_functions(const Model& model);
+
+/// The actions a rule does, in order (its line's, then its block's, depth
+/// first): each a Do that states no duty and asks no executor.
+[[nodiscard]] std::vector<const Do*> rule_actions(const TimeRule& rule);
+
+/// The model's action a rule's Do names, if any.
+[[nodiscard]] const Action* action_of(const Model& model, const Do& d) noexcept;
+
+/// True if compiled code keeps the time the instance last changed state
+/// (`since`): some expression asks `within N`, or how long a state is held.
+[[nodiscard]] bool uses_since(const Model& model) noexcept;
 
 } // namespace cexchain::bo::model

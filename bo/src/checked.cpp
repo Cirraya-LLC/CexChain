@@ -33,6 +33,7 @@ namespace {
 // lookup from inside the templates finds them all.
 cbor::Value to_value(bool flag);
 cbor::Value to_value(std::uint64_t number);
+cbor::Value to_value(std::int64_t number);
 cbor::Value to_value(const std::string& text);
 cbor::Value to_value(std::string_view text);
 cbor::Value to_value(const Span& span);
@@ -63,6 +64,10 @@ cbor::Value to_value(const bool flag) {
 
 cbor::Value to_value(const std::uint64_t number) {
     return cbor::Value::unsigned_integer(number);
+}
+
+cbor::Value to_value(const std::int64_t number) {
+    return cbor::Value::integer(number);
 }
 
 cbor::Value to_value(const std::string& text) {

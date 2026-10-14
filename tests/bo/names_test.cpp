@@ -132,7 +132,7 @@ TEST_CASE("a checked model, written member by member", "[bo][names]") {
     const cbor::Value value = to_cbor(checked.model);
     // Model's members by name, in declaration order.
     const cbor::Map& map = *value.as_map();
-    REQUIRE(map.size() == 13);
+    REQUIRE(map.size() == 15);
     CHECK(*map[0].key.as_text() == "edition");
     CHECK(*map[1].key.as_text() == "name");
     CHECK(*map[1].value.as_text() == "ReceivableFinancing");

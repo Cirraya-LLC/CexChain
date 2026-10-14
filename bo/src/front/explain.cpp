@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <format>
 #include <optional>
 #include <set>
 #include <span>
@@ -706,6 +707,24 @@ private:
                 note(rules, e.operands[0].rule);
                 return w_.say("cond-not-state", {{"state", plain(state_text(e.operands[0]))}});
             }
+            if (e.operands.size() == 1 && e.operands[0].kind == ExprKind::word &&
+                is(e.operands[0].concept_entry, "cond.overdue")) {
+                return w_.say("cond-not-overdue");
+            }
+            if (e.operands.size() == 1 && e.operands[0].kind == ExprKind::phrase &&
+                e.operands[0].operands.size() == 2 &&
+                e.operands[0].operands[0].kind == ExprKind::word &&
+                is(e.operands[0].operands[0].concept_entry, "cond.overdue")) {
+                return w_.say("cond-not-overdue-by",
+                              {{"duration", plain(expr(e.operands[0].operands[1], rules))}});
+            }
+            if (e.operands.size() == 1 && e.operands[0].kind == ExprKind::apply &&
+                is(e.operands[0].concept_entry, "cond.within") &&
+                e.operands[0].operands.size() == 1) {
+                // not within N: N or more since the last change of state.
+                return w_.say("cond-not-within",
+                              {{"duration", plain(expr(e.operands[0].operands[0], rules))}});
+            }
             if (e.operands.size() == 1 && e.operands[0].kind == ExprKind::binary &&
                 e.operands[0].op == Operator::equals && e.operands[0].operands.size() == 2) {
                 // not a = b: a is not b.
@@ -811,6 +830,11 @@ private:
             is(ops[0].concept_entry, "cond.overdue")) {
             return w_.say("cond-overdue-by", {{"duration", plain(expr(ops[1], rules))}});
         }
+        if (ops.size() == 2 && ops[0].refers == Refers::state) {
+            // suspended 30 days: the state, held that long.
+            return w_.say("cond-held", {{"state", plain(state_text(ops[0]))},
+                                        {"duration", plain(expr(ops[1], rules))}});
+        }
         if (const std::size_t n = ops.size(); n >= 3 && ops[n - 3].kind == ExprKind::word &&
                                               is(ops[n - 3].concept_entry, "price.per") &&
                                               word_is(n - 2, Category::unit)) {
@@ -838,6 +862,17 @@ private:
     std::string binary_text(const m::Expr& e, Rules& rules) {
         if (e.operands.size() != 2) {
             return {};
+        }
+        if (e.op == Operator::logical_and && (e.operands[0].type.kind == TypeKind::date ||
+                                              e.operands[1].type.kind == TypeKind::date)) {
+            // A rule's date joined to conditions: from that day on.
+            const auto side = [&](const m::Expr& o) {
+                return o.type.kind == TypeKind::date
+                           ? w_.say("cond-from-date", {{"date", plain(expr(o, rules))}})
+                           : expr(o, rules, level_and);
+            };
+            return w_.say("op-and", {{"left", plain(side(e.operands[0]))},
+                                     {"right", plain(side(e.operands[1]))}});
         }
         if (std::vector<const m::Expr*> states;
             e.op == Operator::logical_or && state_alternatives(e, states)) {
@@ -909,7 +944,11 @@ private:
                 text = w_.say("party-creation", {{"party", who}});
             } else {
                 const Concept* by = find_concept(p.bound_by);
-                text = w_.say("party-action",
+                if (p.each_call) {
+                    // R23: each allocation binds it again.
+                    note(rules, "R23");
+                }
+                text = w_.say(p.each_call ? "party-each" : "party-action",
                               {{"party", who}, {"action", plain(label(by, p.bound_by))}});
             }
             add(s.clauses, s.number, n, "party", std::move(text), rules);
@@ -970,6 +1009,62 @@ private:
         add(s.clauses, s.number, n, "creation",
             w_.say("creation", {{"function", plain(std::string(m::creation_function(model_)))}}),
             {});
+        if (dated()) {
+            // U6: the contract's offset from UTC, fixed (R25 unless written).
+            Rules rules;
+            note(rules, model_.offset_rule);
+            const std::int64_t minutes = model_.utc_offset_ms / 60'000;
+            const std::int64_t whole = minutes < 0 ? -minutes : minutes;
+            add(s.clauses, s.number, n, "utc-offset",
+                w_.say("utc-offset",
+                       {{"offset", plain(std::format("{}{:02}:{:02}", minutes < 0 ? '-' : '+',
+                                                     whole / 60, whole % 60))}}),
+                rules);
+        }
+    }
+
+    /// True if the contract counts in local days or calendar months: a time
+    /// rule, a date, or a duration in months or years, anywhere.
+    [[nodiscard]] bool dated() const {
+        if (!model_.rules.empty()) {
+            return true;
+        }
+        const auto local = [](const m::Type& t) {
+            return t.kind == TypeKind::date || (t.kind == TypeKind::duration && t.calendar);
+        };
+        const auto in = [&](const m::Expr& e, const auto& self) -> bool {
+            return local(e.type) ||
+                   std::ranges::any_of(e.operands, [&](const m::Expr& o) { return self(o, self); });
+        };
+        const auto walk = [&](const std::vector<m::Statement>& list, const auto& self) -> bool {
+            return std::ranges::any_of(list, [&](const m::Statement& st) {
+                return std::visit(
+                    Overloaded{
+                        [&](const m::Requires& r) {
+                            return in(r.condition, in) || (r.guard && in(*r.guard, in));
+                        },
+                        [&](const m::If& i) {
+                            return in(i.condition, in) || self(i.then, self) ||
+                                   self(i.otherwise, self);
+                        },
+                        [&](const m::Each& e) { return in(e.list, in) || self(e.body, self); },
+                        [&](const m::Reject&) { return false; },
+                        [&](const m::Set& set) { return in(set.value, in); },
+                        [&](const m::Transition&) { return false; },
+                        [&](const m::Do&) { return false; },
+                    },
+                    st.node);
+            });
+        };
+        return std::ranges::any_of(model_.fields,
+                                   [&](const m::Field& f) {
+                                       return local(f.type) || (f.value && in(*f.value, in));
+                                   }) ||
+               std::ranges::any_of(model_.actions, [&](const m::Action& a) {
+                   return std::ranges::any_of(a.inputs,
+                                              [&](const m::Field& f) { return local(f.type); }) ||
+                          walk(a.body, walk);
+               });
     }
 
     // --- Charges.
@@ -1245,6 +1340,9 @@ private:
             text = w_.say("do-duty", {{"party", party(*d.subject)}, {"action", plain(action)}});
         } else if (d.executor) {
             text = w_.say("do-executor", {{"action", plain(action)}});
+        } else if (function_.starts_with("when.") && m::action_of(model_, d) != nullptr) {
+            // A time rule does an action under that action's clauses.
+            text = w_.say("do-rule", {{"action", plain(action)}});
         } else {
             text = w_.say("do", {{"action", plain(action)}});
         }
@@ -1281,16 +1379,20 @@ private:
                 add(s.clauses, number, k, "standard",
                     w_.say("action-standard", {{"action", plain(name)}}), {});
             }
+            if (a.rule_only) {
+                add(s.clauses, number, k, "rule-only", w_.say("action-rule-only"), {});
+            }
             if (a.by) {
                 Rules rules;
                 note(rules, a.by->rule);
                 add(s.clauses, number, k, "by", w_.say("action-by", {{"party", party(*a.by)}}),
                     rules);
-            } else if (a.terms) {
-                // The home's own word (R19).
+            } else if (a.terms && !a.rule_only) {
+                // The home's own word (R19); a counterparty may still consent.
                 Rules rules;
                 note(rules, "R19");
-                add(s.clauses, number, k, "by", w_.say("action-home"), rules);
+                add(s.clauses, number, k, "by",
+                    w_.say(a.consents.empty() ? "action-home" : "action-home-start"), rules);
             }
             if (a.to && !binds(a, *a.to) && a.to->refers != Refers::input) {
                 Rules rules;
@@ -1320,7 +1422,7 @@ private:
             } else {
                 statements(a.body, s.clauses, number, k);
             }
-            {
+            if (!a.rule_only) {
                 Rules rules;
                 std::string text;
                 if (a.agents_propose) {
@@ -1379,11 +1481,23 @@ private:
                 text = w_.say("consent-call",
                               {{"party", party(c.party)},
                                {"input", plain(wire_name(c.party.concept_entry, c.party.name))}});
+            } else if (each_call(c.party)) {
+                // R23: each call binds it again.
+                note(rules, "R23");
+                text = w_.say("consent-rebinds", {{"party", party(c.party)}});
             } else {
                 text = w_.say("consent-binds", {{"party", party(c.party)}});
             }
             add(out, parent, n, "consent", std::move(text), rules);
         }
+    }
+
+    /// True if a party is a role each call of its action binds again (R23).
+    [[nodiscard]] bool each_call(const m::Expr& p) const {
+        const std::string key = m::key(p.concept_entry, p.name);
+        return std::ranges::any_of(model_.parties, [&](const m::Party& party) {
+            return party.each_call && m::key(party.role, party.name) == key;
+        });
     }
 
     // --- Time rules.
@@ -1402,8 +1516,12 @@ private:
             note(rules, model_.due_rule);
             add(s.clauses, s.number, n, "due", w_.say("due-period"), rules);
         }
-        for (const m::TimeRule& r : model_.rules) {
+        const std::vector<std::string> functions = m::rule_functions(model_);
+        for (std::size_t i = 0; i < model_.rules.size(); ++i) {
+            const m::TimeRule& r = model_.rules[i];
             requirement_ = 0;
+            // Its clauses are its function's (requirements numbered from 1).
+            function_ = functions[i];
             Rules rules;
             const std::string event = expr(r.event, rules);
             const std::string text = r.event.type.kind == TypeKind::date
@@ -1411,12 +1529,20 @@ private:
                                          : w_.say("when", {{"event", plain(event)}});
             const std::string number = add(s.clauses, s.number, n, "when", text, rules);
             std::size_t k = 0;
+            if (!function_.empty()) {
+                // R24: a keeper calls it once its time has come.
+                Rules keeper;
+                note(keeper, "R24");
+                add(s.clauses, number, k, "keeper",
+                    w_.say("when-keeper", {{"function", plain(function_)}}), keeper);
+            }
             consents(r.consents, s.clauses, number, k);
             for (const m::Do& d : r.actions) {
                 act(d, s.clauses, number, k);
             }
             statements(r.body, s.clauses, number, k);
         }
+        function_.clear();
     }
 
     // --- The rules, and the whole text.

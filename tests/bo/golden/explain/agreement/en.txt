@@ -12,6 +12,7 @@ Bo wrote this text from the contract's source (Bo edition 1). A clause marked wi
 2.3 amount: money in HKD, given when an instance is created.
 2.4 starts: a date, given when an instance is created.
 2.5 Creating an instance (function create) names the ledgers of the parties bound at creation and sets the fields given at creation. It needs no party's consent: the parties agree through the actions below.
+2.6 Dates and days are counted at UTC+08:00 all year, with no daylight saving; a month after a day the next month lacks (31 January plus a month) ends on that month's last day. [R25]
 
 3. States
 3.1 An instance starts in the state proposed. [R4]
@@ -62,3 +63,4 @@ A call that does not meet one of an action's requirements is refused, and the in
 [R13] In person asks the party that starts the action to prove presence with a passkey or a hardware key.
 [R14] An AI agent may start an action within its delegation, unless the action says AI agent can propose; then the agent only proposes, and a person approves.
 [R17] A product or quotient of money, quantities, or rates is rounded to the smallest unit, half up (away from zero).
+[R25] A contract that names no UTC offset counts dates and days at UTC+08:00.

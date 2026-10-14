@@ -47,8 +47,8 @@ inline constexpr std::int64_t rate_one = 1'000'000;
 inline constexpr std::uint64_t day_ms = 86'400'000;
 /// Calendar durations are counted in months; ten thousand years at most.
 inline constexpr std::uint64_t max_months = 120'000;
-/// The contract's offset from UTC (U6), in milliseconds east: +08:00 in
-/// edition 1, which has no syntax to choose another yet.
+/// The contract's offset from UTC (U6), in milliseconds east, when it names
+/// none (R25): +08:00. A contract names another with `UTC offset "-05:00"`.
 inline constexpr std::int64_t default_offset_ms = 8 * 3'600'000;
 
 struct Exact {
@@ -62,9 +62,11 @@ struct Exact {
 [[nodiscard]] Exact exact(const Decimal& value, std::uint64_t factor) noexcept;
 
 /// A literal's value in its smallest unit, as compiled code keeps it (dates
-/// at local midnight under default_offset_ms); nullopt for a text, or for a
-/// value that is not exact or does not fit (the checker reports those).
-[[nodiscard]] std::optional<std::int64_t> literal_value(const ast::Literal& literal) noexcept;
+/// at local midnight under the contract's offset, milliseconds east);
+/// nullopt for a text, or for a value that is not exact or does not fit (the
+/// checker reports those).
+[[nodiscard]] std::optional<std::int64_t>
+literal_value(const ast::Literal& literal, std::int64_t offset_ms = default_offset_ms) noexcept;
 
 /// Days from 1970-01-01 to a date of the proleptic Gregorian calendar.
 [[nodiscard]] std::int64_t days_from_civil(std::int64_t year, std::int64_t month,

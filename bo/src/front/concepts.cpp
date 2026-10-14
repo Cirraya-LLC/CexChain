@@ -177,6 +177,9 @@ constexpr Concept unsorted_concepts[] = {
     // the part of a warehouse receipt redeemed.
     {"field.payee", field, 0},
     {"field.portion", field, 0},
+    // The contract's offset from UTC (U6, milestone 12): a constant text
+    // such as "+08:00" in the kind's block.
+    {"field.utc_offset", field, 0},
     // States.
     {"state.active", state, 0},
     {"state.proposed", state, 0},
@@ -189,10 +192,17 @@ constexpr Concept unsorted_concepts[] = {
     {"state.cancelled", state, 0},
     {"state.disputed", state, 0},
     {"state.redeemed", state, 0},
+    // A resource's states (the standard library's allocate and reclaim):
+    // held by a customer, and waiting out its cooling period after a reclaim.
+    {"state.allocated", state, 0},
+    {"state.cooling", state, 0},
     // Who acts.
     {"actor.person", actor, 0},
     {"actor.ai_agent", actor, 0},
     {"actor.device", actor, 0},
+    // The device that calls a contract's time rules when their time comes
+    // (a test step `keeper suspend`; milestone 12).
+    {"actor.keeper", actor, 0},
     // Common roles.
     {"role.we", role, 0},
     {"role.customer", role, 0},
@@ -385,6 +395,8 @@ constexpr MessageSpec unsorted_messages[] = {
     {"check.when-event", Severity::error, "text"},
     {"check.when-person", Severity::error, "text"},
     {"check.needs-due", Severity::error, "text"},
+    {"check.when-action", Severity::error, "action"},
+    {"check.utc-offset", Severity::error, "text"},
     // Checking: charges.
     {"check.charge-field", Severity::error, "text"},
     {"check.charge-rate", Severity::error, "name"},
@@ -411,6 +423,8 @@ constexpr MessageSpec unsorted_messages[] = {
     {"check.test-reason", Severity::error, "text"},
     {"check.test-proposal", Severity::error, "action"},
     {"check.test-needs-to", Severity::error, "action"},
+    {"check.test-rule", Severity::error, "action"},
+    {"check.test-keeper", Severity::error, "text"},
     // Building (lowering a checked model to code).
     {"build.fragment", Severity::error, ""},
     {"build.standard-action", Severity::error, "action"},
@@ -447,6 +461,8 @@ constexpr MessageSpec unsorted_messages[] = {
     {"run.pending", Severity::error, ""},
     {"run.proposal", Severity::error, ""},
     {"run.approve", Severity::error, "action"},
+    {"run.when", Severity::error, "rule"},
+    {"run.fired", Severity::error, "rule"},
     // The formatter (bo fmt).
     {"fmt.unstable", Severity::error, "language"},
     {"fmt.internal", Severity::error, ""},
@@ -484,6 +500,7 @@ constexpr SentenceSpec unsorted_sentences[] = {
     // Parties.
     {"party-creation", "party"},
     {"party-action", "party action"},
+    {"party-each", "party action"},
     // What each instance records.
     {"instance-kind", "kind name"},
     {"instance-none", ""},
@@ -504,11 +521,14 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"action-standard", "action"},
     {"action-terms", "action function"},
     {"action-home", ""},
+    {"action-home-start", ""},
+    {"action-rule-only", ""},
     {"action-by", "party"},
     {"action-to", "party"},
     {"action-inputs", "inputs"},
     {"input", "input type"},
     {"consent-binds", "party"},
+    {"consent-rebinds", "party"},
     {"consent-taken", "field"},
     {"consent-call", "party input"},
     {"requirement", "number need"},
@@ -527,6 +547,7 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"do", "action"},
     {"do-executor", "action"},
     {"do-duty", "party action"},
+    {"do-rule", "action"},
     {"action-args", "action args"},
     {"action-to-party", "action party"},
     {"action-by-party", "action party"},
@@ -540,6 +561,8 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"due-period", ""},
     {"when", "event"},
     {"when-date", "date"},
+    {"when-keeper", "function"},
+    {"utc-offset", "offset"},
     // Charges.
     {"charge", "kind name"},
     {"charge-rate", "rate"},
@@ -580,6 +603,11 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"cond-overdue-by", "duration"},
     {"cond-before-due", "duration"},
     {"cond-within", "duration"},
+    {"cond-held", "state duration"},
+    {"cond-not-within", "duration"},
+    {"cond-from-date", "date"},
+    {"cond-not-overdue", ""},
+    {"cond-not-overdue-by", "duration"},
     {"op-not", "operand"},
     {"op-not-equals", "left right"},
     {"op-and", "left right"},
@@ -681,6 +709,9 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"rule-R20", ""},
     {"rule-R21", ""},
     {"rule-R22", ""},
+    {"rule-R23", ""},
+    {"rule-R24", ""},
+    {"rule-R25", ""},
 };
 
 constexpr auto sorted_sentences = [] {
@@ -719,6 +750,9 @@ constexpr RuleSpec rules[] = {
     {"R20", "standard-fields"},   // fields the standard terms use: added, empty at first
     {"R21", "counterparty"},      // an undeclared counterparty: each call names it
     {"R22", "zero"},              // a bare 0 is zero of any amount
+    {"R23", "each-allocation"},   // allocate binds its role again on each call
+    {"R24", "keeper"},            // a time rule: a function a keeper calls in time
+    {"R25", "utc-offset"},        // dates and days at UTC+08:00 unless written (U6)
 };
 
 template <class T, std::size_t N, class Key>

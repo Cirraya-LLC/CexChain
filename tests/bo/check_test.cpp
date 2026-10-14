@@ -189,7 +189,7 @@ TEST_CASE("every check has an error golden, and every rule is seen", "[bo][check
         CHECK(find_rule(models.substr(at + 1, end - at - 1)) != nullptr);
         at = end;
     }
-    CHECK(rule_specs().size() == 22);
+    CHECK(rule_specs().size() == 25);
     CHECK(rule_specs().front().id == "R1");
 }
 
@@ -332,7 +332,7 @@ TEST_CASE("states: collected, the first one, and reachable", "[bo][check]") {
     // A cycle with active: active is first.
     const std::string cycle = model_of("contract C\nparties we\nrecord R\n  n number\n"
                                        "can stop by we\n  active -> suspended\n"
-                                       "can resume by we\n  suspended -> active\n");
+                                       "can restart by we\n  suspended -> active\n");
     CHECK(cycle.find("state state.active first{R4}\nstate state.suspended{R5}\n") !=
           std::string::npos);
     // From any state: `-> closed`.

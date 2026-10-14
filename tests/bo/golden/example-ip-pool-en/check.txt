@@ -1,10 +1,22 @@
 edition 1
 contract IP地址池
 party role.we bound=creation{R3}
-party role.customer bound=act.allocate{R3}
+party role.customer bound=act.allocate{R3} each_call{R23}
 kind kind.resource IP地址
+field 地址 instance text
 field field.cooling_period constant duration = (duration time.day 30)
+field field.holder instance party optional empty{R20}
 state state.active first{R4}
+state state.cooling{R19}
+state state.allocated{R19}
 can act.allocate standard to=role.customer agents=delegation{R14}
   consent role.customer{R3}
+  terms{R19}
+    if state.cooling{R7}
+      requires (not (cond.within field.cooling_period))
+    transition state.active state.cooling -> state.allocated
+    set field.holder role.customer
 can act.reclaim standard by=role.we agents=delegation{R14}
+  terms{R19}
+    transition state.allocated -> state.cooling
+    set field.holder val.none

@@ -1,0 +1,39 @@
+Test "一个地址一次只分配给一个客户": passed
+  Step 1 (line 16) passed: 本公司 创建 附带 地址 = "203.0.113.7" 时间 2027-10-01
+    Result: accepted, and the instance is active.
+  Step 2 (line 17) passed: 本公司 分配 给 客户A -> 已分配
+    Result: accepted with the consent of 客户A, and the instance is allocated.
+  Step 3 (line 18) passed: 本公司 分配 给 客户B -> 被拒绝 "bo:state allocate"
+    Result: refused, since allocate is not possible in the instance's current state (bo:state allocate).
+    The contract text, 4.1.5: If the instance is active or cooling, it becomes allocated; otherwise the call is refused.
+  Step 4 (line 19) passed: 本公司 收回 时间 2027-10-09 -> 冷却中
+    Result: accepted, and the instance is cooling.
+
+Test "收回后冷却 30 天，期内不得再分配": passed
+  Step 1 (line 22) passed: 本公司 创建 附带 地址 = "203.0.113.7" 时间 2027-10-01
+    Result: accepted, and the instance is active.
+  Step 2 (line 23) passed: 本公司 分配 给 客户A -> 已分配
+    Result: accepted with the consent of 客户A, and the instance is allocated.
+  Step 3 (line 24) passed: 本公司 收回 时间 2027-10-09 -> 冷却中
+    Result: accepted, and the instance is cooling.
+  Step 4 (line 25) passed: 本公司 分配 给 客户B 时间 2027-11-07 -> 被拒绝 "bo:requires allocate 1"
+    Result: refused, since requirement 1 of allocate is not met (bo:requires allocate 1).
+    The contract text, 4.1.4.1: Requirement 1: the cooling period or more has passed since the instance last changed state.
+  Step 5 (line 26) passed: 本公司 分配 给 客户B 时间 2027-11-08 -> 已分配
+    Result: accepted with the consent of 客户B, and the instance is allocated.
+  Step 6 (line 27) passed: 本公司 收回 时间 2027-12-01 -> 冷却中
+    Result: accepted, and the instance is cooling.
+  Step 7 (line 28) passed: 本公司 分配 给 客户A 时间 2028-01-01 -> 已分配
+    Result: accepted with the consent of 客户A, and the instance is allocated.
+
+Test "分配须经客户同意，收回由本公司发起": passed
+  Step 1 (line 31) passed: 本公司 创建 附带 地址 = "203.0.113.7"
+    Result: accepted, and the instance is active.
+  Step 2 (line 32) passed: 本公司 分配 给 客户A -> 经 客户A 同意
+    Result: the call waits for the consent of 客户A.
+  Step 3 (line 33) passed: 本公司 分配 给 客户A -> 已分配
+    Result: accepted with the consent of 客户A, and the instance is allocated.
+  Step 4 (line 34) passed: 客户A 收回 -> 经 本公司 同意
+    Result: the call waits for us to make it.
+
+3 tests: 3 passed, 0 failed.

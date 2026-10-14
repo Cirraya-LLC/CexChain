@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <iterator>
 #include <limits>
@@ -74,10 +75,12 @@ constexpr std::string_view rule_standard_terms = "R19";
 constexpr std::string_view rule_standard_fields = "R20";
 constexpr std::string_view rule_counterparty = "R21";
 constexpr std::string_view rule_zero = "R22";
+constexpr std::string_view rule_utc_offset = "R25";
 
 /// The fields the standard terms may add to an instance (R20): parties
-/// that hold the asset in some way, none until an action sets them.
-constexpr std::string_view standard_fields[] = {"field.pledgee", "field.payee"};
+/// that hold the asset in some way, none until an action sets them; a
+/// resource's holder too (it has none while in the pool).
+constexpr std::string_view standard_fields[] = {"field.pledgee", "field.payee", "field.holder"};
 
 bool is(const Concept* c, std::string_view id) noexcept {
     return c != nullptr && c->id == id;
@@ -235,6 +238,9 @@ Type vocabulary_expected(const Concept* word) {
     }
     if (is(word, "field.parts")) {
         return of(TypeKind::list);
+    }
+    if (is(word, "field.utc_offset")) {
+        return of(TypeKind::text);
     }
     return of(TypeKind::money);
 }
@@ -606,6 +612,9 @@ private:
     std::optional<m::Field> read_field(const ast::Field& f, bool input);
     std::optional<Declared> as_type(const ast::Expr& e);
     void complete_parts(m::Field& field);
+    void read_utc_offset(const ast::Field& f);
+    [[nodiscard]] bool added_field(std::string_view id) const;
+    void add_rule_actions();
     void prepare_terms();
     void declare_actions();
     void collect_states(const std::vector<ast::Statement>& list);
@@ -673,7 +682,9 @@ private:
     detail::Diagnostics& diagnostics_;
     m::Model model_;
 
-    // The tree's clauses, by kind.
+    // The tree's clauses, by kind. The `can`s include one for each built-in
+    // action only time rules do (`rule_only_`, their indices), kept in
+    // `synthetic_`.
     const ast::Contract* contract_ = nullptr;
     const ast::Parties* parties_ = nullptr;
     const ast::Block* kind_ = nullptr;
@@ -682,6 +693,9 @@ private:
     std::vector<const ast::When*> whens_;
     std::vector<const ast::Test*> tests_;
     std::vector<const ast::Clause*> clauses_;
+    std::deque<ast::Can> synthetic_;
+    std::set<std::size_t> rule_only_;
+    bool offset_read_ = false;
 
     // Names: parties, fields, actions, and states by key; inputs and each
     // names in frames.
@@ -1017,6 +1031,10 @@ void Checker::read_kind() {
     model_.kind_name = kind_->name.name;
     place_ = Place::declaration;
     for (const ast::Field& f : kind_->fields) {
+        if (word_is(f.head, "field.utc_offset")) {
+            read_utc_offset(f);
+            continue;
+        }
         std::optional<m::Field> field = read_field(f, false);
         if (!field) {
             continue;
@@ -1025,6 +1043,86 @@ void Checker::read_kind() {
                     f.head.span)) {
             model_.fields.push_back(std::move(*field));
         }
+    }
+}
+
+void Checker::read_utc_offset(const ast::Field& f) {
+    // U6: `UTC offset "+08:00"`, a fixed offset, with no daylight saving.
+    if (offset_read_) {
+        error(f.head.span, "check.duplicate", {{"name", std::string("field.utc_offset")}});
+        return;
+    }
+    offset_read_ = true;
+    const auto offset = [&]() -> std::optional<std::int64_t> {
+        if (f.values.size() != 1 || f.values[0].kind != ExprKind::literal ||
+            f.values[0].literal.kind != ast::LiteralKind::text) {
+            return std::nullopt;
+        }
+        const std::string& t = f.values[0].literal.text;
+        const auto digit = [&](std::size_t i) {
+            return t[i] >= '0' && t[i] <= '9';
+        };
+        if (t.size() != 6 || (t[0] != '+' && t[0] != '-') || !digit(1) || !digit(2) ||
+            t[3] != ':' || !digit(4) || !digit(5)) {
+            return std::nullopt;
+        }
+        const std::int64_t hours = (t[1] - '0') * 10 + (t[2] - '0');
+        const std::int64_t minutes = (t[4] - '0') * 10 + (t[5] - '0');
+        if (minutes > 59 || hours * 60 + minutes > 14 * 60) {
+            return std::nullopt;
+        }
+        return (t[0] == '-' ? -1 : 1) * (hours * 60 + minutes) * 60'000;
+    }();
+    if (!offset) {
+        error(f.span, "check.utc-offset", {{"text", written(f.span)}});
+        return;
+    }
+    model_.utc_offset_ms = *offset;
+    model_.offset_rule = {};
+}
+
+bool Checker::added_field(std::string_view id) const {
+    if (id == "field.holder") {
+        return is(model_.kind, "kind.resource");
+    }
+    return std::ranges::contains(standard_fields, id);
+}
+
+void Checker::add_rule_actions() {
+    // A built-in action with standard terms that a time rule does but no
+    // `can` declares: the rule does it under its terms (R24), and nothing
+    // else can (rule_only).
+    std::set<std::string> declared;
+    for (const ast::Can* c : cans_) {
+        if (c->action.kind == ExprKind::word && c->action.concept_entry != nullptr) {
+            declared.insert(std::string(c->action.concept_entry->id));
+        }
+    }
+    const StandardLibrary& library = standard_library();
+    const auto consider = [&](const ast::Do& d) {
+        if (d.subject || !word_in(d.action, Category::action)) {
+            return;
+        }
+        const Concept* word = d.action.concept_entry;
+        if (executor_action(word, model_.kind) || library.find(word->id) == nullptr ||
+            !declared.insert(std::string(word->id)).second) {
+            return;
+        }
+        ast::Can& c = synthetic_.emplace_back();
+        c.span = d.span;
+        c.action = d.action;
+        rule_only_.insert(cans_.size());
+        cans_.push_back(&c);
+    };
+    for (const ast::When* w : whens_) {
+        for (const ast::Do& d : w->actions) {
+            consider(d);
+        }
+        each_statement(w->body, [&](const ast::Statement& s) {
+            if (const auto* d = std::get_if<ast::Do>(&s.node)) {
+                consider(*d);
+            }
+        });
     }
 }
 
@@ -1100,16 +1198,18 @@ void Checker::prepare_terms() {
                 return;
             }
             const std::string id(e.concept_entry->id);
-            if (!inputs.contains(id) && !std::ranges::contains(standard_fields, id) &&
-                !std::ranges::contains(needed, id)) {
+            if (!inputs.contains(id) && !added_field(id) && !std::ranges::contains(needed, id)) {
                 needed.push_back(id);
             }
         });
         bool usable = true;
         for (const std::string& f : needed) {
+            // A field the terms only read may be the same for every instance
+            // (a resource's cooling period).
             const Decl* d = global(f);
             if (d == nullptr || d->refers != Refers::field ||
-                model_.fields[d->index].kind != m::FieldKind::instance) {
+                (terms.sets.contains(f) &&
+                 model_.fields[d->index].kind != m::FieldKind::instance)) {
                 error(c.action.span, "check.standard-field", {{"action", action}, {"field", f}});
                 usable = false;
                 break;
@@ -1136,11 +1236,11 @@ void Checker::prepare_terms() {
         }
         terms_.emplace(i, std::move(terms));
     }
-    // R20: the pledgee and the payee, used by the terms or by an action of
-    // the contract's (a copy of the terms, say) but not declared, none at
-    // first.
+    // R20: the pledgee and the payee (and a resource's holder), used by the
+    // terms or by an action of the contract's (a copy of the terms, say) but
+    // not declared, none at first.
     for (const std::string_view id : standard_fields) {
-        if (global(id) != nullptr) {
+        if (global(id) != nullptr || !added_field(id)) {
             continue;
         }
         bool used = false;
@@ -1532,6 +1632,18 @@ void Checker::bind_roles() {
         }
         seen.insert(named.begin(), named.end());
     }
+    // R23: a resource goes to one holder at a time, so the role a built-in
+    // allocate binds is bound again by each allocation.
+    for (std::size_t i = 0; i < cans_.size(); ++i) {
+        if (!terms_.contains(i) || !word_is(cans_[i]->action, "act.allocate")) {
+            continue;
+        }
+        for (m::Party& p : model_.parties) {
+            if (p.binding == m::Binding::action && p.bound_by == "act.allocate") {
+                p.each_call = true;
+            }
+        }
+    }
 }
 
 void Checker::find_due() {
@@ -1703,6 +1815,7 @@ void Checker::check_can(const ast::Can& c, std::size_t index) {
     // R19: a built-in action's terms from the standard library.
     const auto terms = duplicate ? terms_.end() : terms_.find(index);
     a.terms = terms != terms_.end();
+    a.rule_only = rule_only_.contains(index);
     const auto in_terms = [&](bool on) {
         in_terms_ = on;
         terms_site_ = c.action.span;
@@ -1804,18 +1917,24 @@ void Checker::check_to(const ast::Expr& to, m::Action& a, const std::string& act
     }
 }
 
-/// True if an event is a time: it names due, overdue, a time before due,
-/// within, now, or today, or it is a date.
-bool timed(const m::Expr& e) {
-    if (e.type.kind == TypeKind::date) {
-        return true;
-    }
-    const Concept* c = e.concept_entry;
-    if (is(c, "cond.overdue") || is(c, "cond.before_due") || is(c, "cond.within") ||
-        is(c, "time.now") || is(c, "time.today")) {
-        return true;
-    }
-    return std::ranges::any_of(e.operands, [](const m::Expr& o) { return timed(o); });
+/// True if a statement of an action's asks a person to prove presence.
+bool asks_presence(const std::vector<m::Statement>& list) {
+    const auto in = [](const m::Expr& e, const auto& self) -> bool {
+        return (e.kind == ExprKind::word && is(e.concept_entry, "cond.in_person")) ||
+               std::ranges::any_of(e.operands, [&](const m::Expr& o) { return self(o, self); });
+    };
+    return std::ranges::any_of(list, [&](const m::Statement& s) {
+        if (const auto* r = std::get_if<m::Requires>(&s.node)) {
+            return in(r->condition, in) || (r->guard && in(*r->guard, in));
+        }
+        if (const auto* i = std::get_if<m::If>(&s.node)) {
+            return in(i->condition, in) || asks_presence(i->then) || asks_presence(i->otherwise);
+        }
+        if (const auto* e = std::get_if<m::Each>(&s.node)) {
+            return asks_presence(e->body);
+        }
+        return false;
+    });
 }
 
 void Checker::check_when(const ast::When& w) {
@@ -1828,8 +1947,9 @@ void Checker::check_when(const ast::When& w) {
         r.event.type = of(TypeKind::yes_no);
         r.event.rule = rule_state_condition;
     }
-    if (known(r.event.type) && !(r.event.type.kind == TypeKind::date ||
-                                 (r.event.type.kind == TypeKind::yes_no && timed(r.event)))) {
+    // The one time the rule fires at (a date, N before due, overdue, a state
+    // held N), with any other conditions joined by `and`.
+    if (known(r.event.type) && !m::trigger_of(r.event)) {
         error(w.event.span, "check.when-event", {{"text", written(w.event.span)}});
     }
     place_ = Place::rule;
@@ -1838,6 +1958,19 @@ void Checker::check_when(const ast::When& w) {
         r.actions.push_back(do_action(d));
     }
     r.body = statements(w.body);
+    // The actions the rule does: the keeper's call gives no arguments, and
+    // nobody proves presence in it.
+    for (const m::Do* d : m::rule_actions(r)) {
+        const m::Action* a = m::action_of(model_, *d);
+        if (a == nullptr) {
+            continue;
+        }
+        if (a->to || !a->inputs.empty() || !d->args.empty() || !d->with.empty() || d->to || d->by) {
+            error(d->span, "check.when-action", {{"action", m::key(a->word, a->name)}});
+        } else if (asks_presence(a->body)) {
+            error(d->span, "check.when-person", {{"text", written(d->span)}});
+        }
+    }
     frames_.pop_back();
     consents_ = nullptr;
     place_ = Place::declaration;
@@ -2223,16 +2356,31 @@ m::Step Checker::test_step(const ast::Do& d, const bool first, std::optional<std
     }
     const std::string action = m::key(word, step.name);
     const std::string creation = creation_word();
+    // `keeper ACTION`: the keeper calls the time rule that does ACTION.
+    step.keeper = d.subject && word_is(*d.subject, "actor.keeper");
     const m::Action* declared = nullptr;
     for (const m::Action& a : model_.actions) {
-        if (m::key(a.word, a.name) == action) {
+        // An action only time rules do is no step's.
+        if (m::key(a.word, a.name) == action && !step.keeper && !a.rule_only) {
             declared = &a;
         }
     }
-    step.creation = action == creation;
+    step.creation = !step.keeper && action == creation;
     // `PARTY approve`: a person approves the first proposal an AI agent made.
-    step.approve = declared == nullptr && is(word, "act.approve") && m::has_proposals(model_);
-    if (!step.creation && !step.approve && declared == nullptr) {
+    step.approve =
+        !step.keeper && declared == nullptr && is(word, "act.approve") && m::has_proposals(model_);
+    if (step.keeper) {
+        const std::vector<std::string> functions = m::rule_functions(model_);
+        const auto rule = std::ranges::find(functions, "when." + wire_name(word, step.name));
+        if (rule == functions.end()) {
+            error(d.action.span, "check.test-rule", {{"action", action}});
+        } else {
+            step.rule = static_cast<std::uint64_t>(rule - functions.begin());
+        }
+        if (d.to || d.by || !d.with.empty()) {
+            error(d.span, "check.test-keeper", {{"text", written(d.span)}});
+        }
+    } else if (!step.creation && !step.approve && declared == nullptr) {
         if (is(word, "act.issue") || is(word, "act.create")) {
             error(d.action.span, "check.test-creation",
                   {{"text", written(d.action.span)}, {"action", creation}});
@@ -2246,8 +2394,12 @@ m::Step Checker::test_step(const ast::Do& d, const bool first, std::optional<std
         error(d.span, "check.test-start", {{"action", creation}});
     }
 
-    // Who acts: at creation, the home; `we`, if the contract has it.
-    if (d.subject) {
+    // Who acts: at creation, the home; `we`, if the contract has it. The
+    // keeper is the home's device.
+    if (step.keeper) {
+        step.subject.span = d.subject->span;
+        step.subject.word = d.subject->concept_entry;
+    } else if (d.subject) {
         if (std::optional<m::TestParty> p = test_party(*d.subject)) {
             step.subject = std::move(*p);
             const Decl* we = global("role.we");
@@ -2280,7 +2432,7 @@ m::Step Checker::test_step(const ast::Do& d, const bool first, std::optional<std
     }
 
     // Who signs: by AI agent, or in person; and when.
-    if (d.by) {
+    if (d.by && !step.keeper) {
         if (word_is(*d.by, "actor.ai_agent")) {
             step.agent = true;
         } else {
@@ -2294,7 +2446,7 @@ m::Step Checker::test_step(const ast::Do& d, const bool first, std::optional<std
             const std::optional<std::int64_t> when =
                 date != nullptr && date->kind == ExprKind::literal &&
                         date->literal.kind == ast::LiteralKind::date
-                    ? literal_value(date->literal)
+                    ? literal_value(date->literal, model_.utc_offset_ms)
                     : std::nullopt;
             if (!when || *when < 0) {
                 error(a.span, "check.test-time", {{"text", written(a.span)}});
@@ -2306,8 +2458,10 @@ m::Step Checker::test_step(const ast::Do& d, const bool first, std::optional<std
             } else {
                 clock = when;
             }
-        } else if (word_is(a, "cond.in_person") && !step.in_person) {
+        } else if (word_is(a, "cond.in_person") && !step.in_person && !step.keeper) {
             step.in_person = true;
+        } else if (step.keeper) {
+            error(d.span, "check.test-keeper", {{"text", written(d.span)}});
         } else {
             error(a.span, "check.test-step", {{"text", written(a.span)}});
         }
@@ -2315,7 +2469,9 @@ m::Step Checker::test_step(const ast::Do& d, const bool first, std::optional<std
     if (step.in_person && step.agent) {
         error(d.span, "check.test-signer", {{"text", written(d.span)}});
     }
-    test_with(d, step, declared, step.creation ? creation : action);
+    if (!step.keeper) {
+        test_with(d, step, declared, step.creation ? creation : action);
+    }
     return step;
 }
 
@@ -2954,6 +3110,20 @@ void Checker::phrase_value(const ast::Expr& e, m::Expr& out) {
         out.type = of(TypeKind::yes_no);
         return;
     }
+    // suspended 30 days: the instance has been in the state that long.
+    if (in_call() && ops.size() == 2 &&
+        (word_in(head, Category::state) || head.kind == ExprKind::name)) {
+        if (const Decl* d = global(expr_key(head)); d != nullptr && d->refers == Refers::state) {
+            m::Expr state = plain(head);
+            state.refers = Refers::state;
+            state.type = of(TypeKind::state);
+            out.operands.push_back(std::move(state));
+            out.operands.push_back(value(ops[1]));
+            expect_kind(out.operands.back(), TypeKind::duration);
+            out.type = of(TypeKind::yes_no);
+            return;
+        }
+    }
     // according to customer location: what a charge depends on.
     if (word_is(head, "charge.by") && (place_ == Place::declaration || place_ == Place::charge)) {
         if (ops.size() != 2) {
@@ -3143,6 +3313,28 @@ void Checker::binary_value(const ast::Expr& e, m::Expr& out) {
     const ast::Expr& b = e.operands[1];
     switch (e.op) {
     case Operator::logical_and:
+        if (place_ == Place::event) {
+            // when due + 1 month and active: a rule's date (the time it
+            // fires at) joined to conditions; trigger_of takes one date.
+            for (const ast::Expr* o : {&a, &b}) {
+                m::Expr v = value(*o);
+                if (v.type.kind == TypeKind::state) {
+                    v.type = of(TypeKind::yes_no);
+                    v.rule = rule_state_condition;
+                } else if (known(v.type) && v.type.kind != TypeKind::yes_no &&
+                           v.type.kind != TypeKind::date) {
+                    error(o->span, "check.type",
+                          {{"text", written(o->span)},
+                           {"type", encode(v.type)},
+                           {"expected_type", encode(of(TypeKind::yes_no))}});
+                    v.type = of(TypeKind::unknown);
+                }
+                out.operands.push_back(std::move(v));
+            }
+            out.type = of(TypeKind::yes_no);
+            return;
+        }
+        [[fallthrough]];
     case Operator::logical_or:
         out.operands.push_back(condition(a));
         out.operands.push_back(condition(b));
@@ -3256,8 +3448,10 @@ m::Model Checker::run(const ast::File& file) {
         error(!cans_.empty() ? cans_.front()->span : whens_.front()->span, "check.no-parties", {});
     }
 
+    model_.offset_rule = rule_utc_offset;
     declare_parties();
     read_kind();
+    add_rule_actions();
     prepare_terms();
     declare_actions();
     for (const ast::Can* c : cans_) {

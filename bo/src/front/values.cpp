@@ -87,7 +87,8 @@ std::int64_t days_from_civil(std::int64_t year, const std::int64_t month,
     return era * 146'097 + doe - 719'468;
 }
 
-std::optional<std::int64_t> literal_value(const ast::Literal& l) noexcept {
+std::optional<std::int64_t> literal_value(const ast::Literal& l,
+                                          const std::int64_t offset_ms) noexcept {
     switch (l.kind) {
     case ast::LiteralKind::number:
         return scaled(l.number, 1);
@@ -125,8 +126,7 @@ std::optional<std::int64_t> literal_value(const ast::Literal& l) noexcept {
         if (l.date.day > lengths[m - 1] + (m == 2 && leap ? 1 : 0)) {
             return std::nullopt;
         }
-        return days_from_civil(y, m, l.date.day) * static_cast<std::int64_t>(day_ms) -
-               default_offset_ms;
+        return days_from_civil(y, m, l.date.day) * static_cast<std::int64_t>(day_ms) - offset_ms;
     }
     case ast::LiteralKind::text:
         return std::nullopt;

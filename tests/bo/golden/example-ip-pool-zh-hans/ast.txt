@@ -2,6 +2,7 @@ edition 1
 contract IP地址池
 parties role.we role.customer
 block kind.resource IP地址
+  field 地址 type.text
   field field.cooling_period (duration time.day 30)
 can act.allocate to=role.customer
 can act.reclaim by=role.we

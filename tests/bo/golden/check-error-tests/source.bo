@@ -12,6 +12,9 @@ can amend by we with new_amount HKD
   amount = new_amount
 can lend by we to customer
   signed -> lent
+can close by we
+  lent -> closed
+when starts + 1 year close
 
 test "order"
   -> signed
@@ -47,3 +50,8 @@ test "what"
 
 test "what"
   we create
+
+test "keeper"
+  we create with amount = HKD 5, starts = 2027-01-01
+  keeper fly
+  keeper close to bank1

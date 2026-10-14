@@ -34,6 +34,7 @@
 #include <cexchain/bo/scenario.hpp>
 #include <cexchain/bo/values.hpp>
 #include <cexchain/core/protocol/contracts.hpp>
+#include <cexchain/core/vm.hpp>
 #include <cexchain/crypto/openssl.hpp>
 
 using namespace cexchain;
@@ -105,6 +106,11 @@ std::vector<std::pair<std::string, std::filesystem::path>> cases() {
         {"receivable", golden_dir / "test/receivable/source.bo"},
         {"warehouse-receipt", golden_dir / "test/warehouse-receipt/source.bo"},
         {"standard", golden_dir / "check-standard/source.bo"},
+        // Time rules and the keeper (milestone 12): the spec's "3 days
+        // overdue, suspend", every kind of time, and the IP pool.
+        {"time", golden_dir / "test/time/source.bo"},
+        {"membership", golden_dir / "check-time/source.bo"},
+        {"ip-pool", golden_dir / "test/ip-pool/source.bo"},
     };
 }
 
@@ -347,6 +353,93 @@ TEST_CASE("bo test: time, from 2026-01-01 or the first at, never going back", "[
                                           "  customer accept at 2027-06-01 -> refused "
                                           "\"bo:requires accept 2\"\n"));
     CHECK(only(late).passed);
+}
+
+TEST_CASE("bo test: time rules, the keeper, a UTC offset, and month ends", "[bo][test]") {
+    // Due on 31 January at UTC-05:00: a month later is the end of February
+    // (U6), and days are counted at -05:00.
+    constexpr std::string_view source = R"(contract Rent
+parties we, customer
+
+record Lease
+  due date
+  fee HKD
+  UTC offset "-05:00"
+
+can pause by we
+  active -> paused
+when due + 1 month and active
+  fee = fee + HKD 10
+when paused 2 days
+  -> ended
+
+test "two days paused"
+  we create with due = 2027-01-31, fee = HKD 100 at 2027-01-01
+  we pause at 2027-02-28
+  keeper ended at 2027-03-01 -> refused "bo:when when.ended"
+  keeper ended at 2027-03-02 -> ended
+)";
+    const Tested t = tested(source);
+    REQUIRE(t.compiled.model->utc_offset_ms == -5 * 3'600'000);
+    CHECK(t.compiled.model->offset_rule.empty());
+    const TestResult& r = only(t);
+    CHECK(r.passed);
+    constexpr std::int64_t day = 86'400'000;
+    constexpr std::int64_t offset = -5 * 3'600'000;
+    // Local midnights at -05:00.
+    CHECK(r.steps[1].time == days_from_civil(2027, 2, 28) * day - offset);
+    // The rule that only sets a field has a function, which no step can name
+    // (a step names the action a rule does, or its state change's target).
+    CHECK(t.compiled.build->interface.contains("when.rule"));
+    CHECK(t.compiled.build->interface.contains("when.ended"));
+    // The keeper's call: the rule's function, no arguments, a device.
+    const TestCall& kept = r.steps[3].calls.back();
+    CHECK(kept.input.function == "when.ended");
+    CHECK(kept.input.arguments.is_null());
+    CHECK(kept.input.caller_signer.kind == 3);
+    CHECK(kept.input.caller == r.steps[0].calls[0].input.caller);
+    // The state keeps the time each rule last applied for, and when the
+    // instance last changed state; the event says when the rule applied.
+    const auto* accept = std::get_if<protocol::ContractAccept>(&*kept.output);
+    REQUIRE(accept != nullptr);
+    const std::int64_t at = days_from_civil(2027, 3, 2) * day - offset;
+    CHECK(*accept->state.find("since")->as_int64() == at);
+    CHECK(*accept->state.find("fired")->find("when.ended")->as_int64() == at);
+    CHECK(accept->state.find("fired")->find("when.rule")->is_null());
+    REQUIRE(accept->events.size() == 2);
+    CHECK(accept->events[0].name == "when");
+    CHECK(*accept->events[0].data.find("time")->as_int64() == at);
+    CHECK(*accept->events[0].data.find("late")->as_int64() == 0);
+    CHECK(accept->events[1].name == "ended");
+    // The fee rule's time: 28 February at -05:00, not the 31st of a month
+    // that has none.
+    const Tested fee = tested(std::string(source.substr(0, source.find("test \""))) +
+                              "test\n"
+                              "  we create with due = 2027-01-31, fee = HKD 100\n");
+    const model::Model& m = *fee.compiled.model;
+    const Build& b = *fee.compiled.build;
+    // Run the rule by hand: on 27 February it is not due; on the 28th it is.
+    const auto run_at = [&](std::int64_t time) {
+        protocol::ContractInput in = only(fee).steps[0].calls[0].input;
+        const auto created =
+            std::get<protocol::ContractAccept>(*only(fee).steps[0].calls[0].output);
+        in.function = "when.rule";
+        in.arguments = cbor::Value::null();
+        in.instance =
+            protocol::ContractInstanceView{only(fee).steps[0].calls[0].input.contract, 1,
+                                           created.state, created.status, *created.parties};
+        in.time = static_cast<protocol::Timestamp>(time);
+        const auto bytes = protocol::encode_contract_input(in);
+        REQUIRE(bytes.has_value());
+        const auto module = vm::load(b.code);
+        REQUIRE(module.has_value());
+        auto outcome = vm::run(*module, *bytes, provider(), crypto::HashAlg::sha256);
+        REQUIRE(outcome.has_value());
+        return std::string(outcome->abort_reason.begin(), outcome->abort_reason.end());
+    };
+    CHECK(m.rules.size() == 2);
+    CHECK(run_at(days_from_civil(2027, 2, 28) * day - offset - 1) == "bo:when when.rule");
+    CHECK(run_at(days_from_civil(2027, 2, 28) * day - offset).empty());
 }
 
 TEST_CASE("bo test: the ledger's own refusals, and a test that stops at its first failure",

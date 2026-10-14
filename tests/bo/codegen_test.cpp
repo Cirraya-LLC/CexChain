@@ -706,8 +706,8 @@ TEST_CASE("bo build: one contract in any language compiles to the same bytes", "
                                       {"pledge", protocol::FunctionKind::call},
                                       {"transfer", protocol::FunctionKind::call}});
     // The others (which need later milestones) are refused the same way in
-    // every language.
-    for (const std::string_view example : {"ip-pool", "split", "vps", "tax"}) {
+    // every language. The IP pool builds since milestone 12.
+    for (const std::string_view example : {"split", "vps", "tax"}) {
         std::string first;
         for (const std::string_view language : {"en", "zh-hant", "zh-hans", "mixed"}) {
             const std::string source = read_text(
@@ -785,9 +785,14 @@ TEST_CASE("bo build: what this version does not compile yet", "[bo][build]") {
             .has_value());
     CHECK(build_codes(head + "asset Note\n  amount HKD\n  holder we\n\ncan refund by we\n") ==
           "build.standard-action");
-    // Time rules (M12), charges and lists (M13), agents' proposals.
-    CHECK(build_codes(head + "record R\n  ends date\n\ncan go by we\n  -> active\nwhen ends\n"
-                             "  -> active\n") == "build.time-rule");
+    // Time rules build (M12), but a service's period ends, which its executors
+    // track (6b); charges and lists (M13); agents' proposals.
+    CHECK(vm::load(build_text(head + "record R\n  ends date\n\ncan go by we\n  -> active\n"
+                                     "when ends\n  -> active\n")
+                       .code)
+              .has_value());
+    CHECK(build_codes(head + "service S\n  price monthly HKD 120\n\ncan go by we\n  -> active\n"
+                             "when overdue\n  -> active\n") == "build.time-rule");
     CHECK(build_codes(head + "record R\n  tags list text\n\ncan go by we\n  -> active\n") ==
           "build.unsupported");
     CHECK(build_codes(head + "record R\n  amount HKD\n\ncan go by we with rows list HKD\n"
@@ -935,6 +940,10 @@ TEST_CASE("bo build: write the runs for the Python reference", "[.codegen-refere
              {"receivable", golden_dir / "test" / "receivable" / "source.bo"},
              {"warehouse-receipt", golden_dir / "test" / "warehouse-receipt" / "source.bo"},
              {"standard", golden_dir / "check-standard" / "source.bo"},
+             // Time rules and the keeper (milestone 12).
+             {"time", golden_dir / "test" / "time" / "source.bo"},
+             {"membership", golden_dir / "check-time" / "source.bo"},
+             {"ip-pool", golden_dir / "test" / "ip-pool" / "source.bo"},
              {"supply-agreement", golden_dir.parent_path().parent_path().parent_path() / "deploy" /
                                       "demo" / "supply-agreement.bo"}}) {
         const std::string text = read_text(file);

@@ -109,6 +109,10 @@ std::vector<Case> cases() {
     out.push_back({"receivable-flow", {golden_dir / "test/receivable/source.bo"}});
     out.push_back({"warehouse-receipt", {golden_dir / "test/warehouse-receipt/source.bo"}});
     out.push_back({"standard", {golden_dir / "check-standard/source.bo"}});
+    // Time rules and the keeper (milestone 12).
+    out.push_back({"time", {golden_dir / "test/time/source.bo"}});
+    out.push_back({"membership", {golden_dir / "check-time/source.bo"}});
+    out.push_back({"ip-pool-tests", {golden_dir / "test/ip-pool/source.bo"}});
     return out;
 }
 
@@ -168,7 +172,7 @@ TEST_CASE("the contract text's goldens, the same from every spelling", "[bo][exp
             }
         }
     }
-    CHECK(texts == 36);
+    CHECK(texts == 45);
 }
 
 TEST_CASE("the contract text says what compiled code decides", "[bo][explain]") {
@@ -310,7 +314,7 @@ TEST_CASE("Chinese text sets Latin words and numbers apart, never inside a name"
         explain(model_of(golden_dir / "example-ip-pool-en/source.bo"), language("zh-Hans-CN"));
     CHECK(pool.title == "合约 IP地址池");
     CHECK(clauses_of(pool, "kind")[0]->text == "每个实例为一项资源，名为 IP地址。");
-    CHECK(clauses_of(pool, "field")[0]->text == "冷却期：30 天，所有实例都相同。");
+    CHECK(clauses_of(pool, "field")[1]->text == "冷却期：30 天，所有实例都相同。");
 }
 
 TEST_CASE("a pack without sentences writes them in English, with its own words", "[bo][explain]") {

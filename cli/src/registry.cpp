@@ -84,6 +84,10 @@ const OptionSpec args_cbor_option{"args-cbor", "FILE",
                                   "The arguments as a file of CBOR, instead of --args"};
 const OptionSpec dry_run_option{"dry-run", "",
                                 "Run the contract here and show what it would do; record nothing"};
+const OptionSpec at_option{
+    "at", "TIME",
+    "With --dry-run: run as if the ledger registered the call at TIME (YYYY-MM-DD for its UTC "
+    "midnight, or YYYY-MM-DDTHH:MM:SSZ), say to see when a time rule applies"};
 const OptionSpec json_option{"json", "", "Print machine-readable JSON"};
 
 /// How contract commands take arguments.
@@ -1412,7 +1416,8 @@ std::vector<CommandSpec> build() {
          signing({args_option,
                   args_cbor_option,
                   {"reference", "TEXT", "A reference, such as an order number"},
-                  dry_run_option}),
+                  dry_run_option,
+                  at_option}),
          cmd_contract_create,
          "FUNCTION is one the contract declared to create instances. The instance starts as this\n"
          "ledger's proposal, with the parties the contract names: a creation takes no consents.\n"
@@ -1428,14 +1433,19 @@ std::vector<CommandSpec> build() {
                   {"reference", "TEXT", "A reference, such as an invoice number"},
                   {"consent", "FILE", "A party's consent (its evidence, from contract consent)",
                    false, true},
-                  dry_run_option}),
+                  dry_run_option,
+                  at_option}),
          cmd_contract_call,
          "The contract runs here first, as the ledger will run it: the call is recorded only if\n"
          "the contract accepts it. If it needs other parties' consents, pass each party's consent\n"
          "with --consent, or propose the call to this ledger's registrar (contract propose), "
          "which\n"
          "collects them online. A consent names the instance's head, so it counts "
-         "once.\n\n" CEXCHAIN_ARGUMENTS_HELP},
+         "once.\n\n"
+         "A Bo contract's time rules are functions too (when.suspend, ...): a keeper, such as a\n"
+         "device whose delegation names the contract (delegation grant --contracts), calls them\n"
+         "on a schedule; one whose time has not come is refused, and nothing is recorded. Try\n"
+         "one first with --dry-run --at TIME.\n\n" CEXCHAIN_ARGUMENTS_HELP},
         {{"contract", "instance"},
          "Show an instance: its status, parties, state, and calls",
          "Contracts",
@@ -1809,9 +1819,12 @@ std::vector<CommandSpec> build() {
          "the contract does not declare (bank1) is a ledger only the test names, which to may\n"
          "bind a role to. Values are written as in the source (HKD 5_000, 2027-01-06, 30 days,\n"
          "\"text\", yes). A step happens at the time of the step before it, or on the day at\n"
-         "names (local midnight, +08:00); a test starts on 2026-01-01, or on its first at date\n"
-         "if that is earlier. in person signs as a person who proves presence, by AI agent as\n"
-         "an AI agent, and otherwise the organization signs.\n\n"
+         "names (local midnight at the contract's UTC offset, +08:00 unless it names one); a\n"
+         "test starts on 2026-01-01, or on its first at date if that is earlier. in person signs\n"
+         "as a person who proves presence, by AI agent as an AI agent, and otherwise the\n"
+         "organization signs. keeper ACTION [at DATE] calls the time rule that does ACTION\n"
+         "(when.ACTION), as the home's keeper, a device: keeper suspend at 2027-07-03 ->\n"
+         "suspended; before its time it is refused (bo:when when.suspend).\n\n"
          "Consents: a call runs first without any, as the home runs it to learn whom to ask;\n"
          "then every party the contract asks consents, and it runs again. Parties that do not\n"
          "consent: those the expectation names (-> consent of bank), and, when the step's party\n"

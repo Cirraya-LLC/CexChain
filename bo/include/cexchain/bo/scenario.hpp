@@ -15,6 +15,7 @@
 #include <cexchain/bo/lower.hpp>
 #include <cexchain/bo/model.hpp>
 #include <cexchain/bo/pack.hpp>
+#include <cexchain/bo/values.hpp>
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/crypto.hpp>
 #include <cexchain/core/protocol/contracts.hpp>
@@ -144,8 +145,8 @@ struct TestResults {
 };
 
 /// When a test starts, unless its first `at` date is earlier: 2026-01-01,
-/// local midnight (+08:00).
-[[nodiscard]] std::int64_t test_start_ms() noexcept;
+/// local midnight at the contract's offset (+08:00 unless it names one).
+[[nodiscard]] std::int64_t test_start_ms(std::int64_t offset_ms = default_offset_ms) noexcept;
 
 /// A test ledger's id: SHA-256("cexchain-bo-test ledger " + key).
 [[nodiscard]] protocol::Id test_ledger_id(std::string_view key, const crypto::Provider& provider);

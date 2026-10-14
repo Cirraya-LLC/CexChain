@@ -18,6 +18,7 @@
 
 #include <cexchain/bo/checker.hpp>
 #include <cexchain/bo/messages.hpp>
+#include <cexchain/bo/values.hpp>
 
 namespace cexchain::bo {
 
@@ -334,6 +335,9 @@ void test_lines(std::string& out, const model::Test& t) {
         if (s.creation) {
             line += " creation";
         }
+        if (s.keeper) {
+            line += std::format(" rule={}", s.rule + 1);
+        }
         if (s.to) {
             line += " to=" + party_text(*s.to);
         }
@@ -440,11 +444,58 @@ std::optional<std::set<std::string>> entry_states(const Action& action) {
     return allowed;
 }
 
+namespace {
+
+/// The states a time rule can fire from (nullopt: any): the state a held
+/// trigger names, narrowed by what the rule does first.
+std::optional<std::set<std::string>> rule_entry_states(const Model& model, const TimeRule& rule) {
+    std::optional<std::set<std::string>> allowed;
+    if (const std::optional<Trigger> t = trigger_of(rule.event);
+        t && t->kind == TriggerKind::held && t->state != nullptr) {
+        allowed = std::set<std::string>{key(t->state->concept_entry, t->state->name)};
+    }
+    std::optional<std::set<std::string>> first;
+    const auto line = std::ranges::find_if(
+        rule.actions, [](const Do& d) { return !d.obligation && !d.executor; });
+    if (line != rule.actions.end()) {
+        if (const Action* a = action_of(model, *line)) {
+            first = entry_states(*a);
+        }
+    } else {
+        Action body;
+        body.body = rule.body;
+        first = entry_states(body);
+    }
+    if (!first) {
+        return allowed;
+    }
+    if (!allowed) {
+        return first;
+    }
+    std::set<std::string> both;
+    std::ranges::set_intersection(*allowed, *first, std::inserter(both, both.begin()));
+    return both;
+}
+
+} // namespace
+
 std::vector<bool> final_states(const Model& model) {
     std::set<std::string> open;
     bool any = false;
     for (const Action& a : model.actions) {
         const auto allowed = entry_states(a);
+        if (!allowed) {
+            any = true;
+            break;
+        }
+        open.insert(allowed->begin(), allowed->end());
+    }
+    // A state a time rule can fire from takes the keeper's calls.
+    for (const TimeRule& r : model.rules) {
+        if (any || !rule_runs(r)) {
+            continue;
+        }
+        const auto allowed = rule_entry_states(model, r);
         if (!allowed) {
             any = true;
             break;
@@ -515,6 +566,258 @@ bool goes_back(const std::vector<Statement>& list) {
 bool uses_previous(const Model& model) noexcept {
     return std::ranges::any_of(model.actions, [](const Action& a) { return goes_back(a.body); }) ||
            std::ranges::any_of(model.rules, [](const TimeRule& r) { return goes_back(r.body); });
+}
+
+namespace {
+
+bool word_is(const Expr& e, std::string_view id) noexcept {
+    return e.kind == ast::ExprKind::word && e.concept_entry != nullptr && e.concept_entry->id == id;
+}
+
+bool mentions_now(const Expr& e) noexcept {
+    return word_is(e, "time.now") || word_is(e, "time.today") ||
+           std::ranges::any_of(e.operands, [](const Expr& o) { return mentions_now(o); });
+}
+
+bool holds_trigger(const Expr& e) noexcept {
+    return is_trigger(e) ||
+           std::ranges::any_of(e.operands, [](const Expr& o) { return holds_trigger(o); });
+}
+
+void and_operands(const Expr& e, std::vector<const Expr*>& out) {
+    if (e.kind == ast::ExprKind::binary && e.op == ast::Operator::logical_and &&
+        e.operands.size() == 2) {
+        and_operands(e.operands[0], out);
+        and_operands(e.operands[1], out);
+        return;
+    }
+    out.push_back(&e);
+}
+
+/// Calls `f` on every Do of a list, nested ones included, in order.
+template <class F>
+void each_do(const std::vector<Statement>& list, const F& f) {
+    for (const Statement& s : list) {
+        if (const auto* d = std::get_if<Do>(&s.node)) {
+            f(*d);
+        } else if (const auto* i = std::get_if<If>(&s.node)) {
+            each_do(i->then, f);
+            each_do(i->otherwise, f);
+        } else if (const auto* e = std::get_if<Each>(&s.node)) {
+            each_do(e->body, f);
+        }
+    }
+}
+
+/// The first state change of a list, nested ones included.
+const Transition* first_transition(const std::vector<Statement>& list) {
+    for (const Statement& s : list) {
+        if (const auto* t = std::get_if<Transition>(&s.node)) {
+            return t;
+        }
+        if (const auto* i = std::get_if<If>(&s.node)) {
+            if (const Transition* t = first_transition(i->then)) {
+                return t;
+            }
+            if (const Transition* t = first_transition(i->otherwise)) {
+                return t;
+            }
+        } else if (const auto* e = std::get_if<Each>(&s.node)) {
+            if (const Transition* t = first_transition(e->body)) {
+                return t;
+            }
+        }
+    }
+    return nullptr;
+}
+
+/// Calls `f` on every expression of a list of statements, nested ones
+/// included; returns true as soon as `f` does.
+template <class F>
+bool any_expression(const std::vector<Statement>& list, const F& f) {
+    const auto in = [&](const Expr& e, const auto& self) -> bool {
+        return f(e) ||
+               std::ranges::any_of(e.operands, [&](const Expr& o) { return self(o, self); });
+    };
+    const auto walk = [&](const Expr& e) {
+        return in(e, in);
+    };
+    for (const Statement& s : list) {
+        const bool found = std::visit(
+            Overloaded{
+                [&](const Requires& r) { return walk(r.condition) || (r.guard && walk(*r.guard)); },
+                [&](const If& i) {
+                    return walk(i.condition) || any_expression(i.then, f) ||
+                           any_expression(i.otherwise, f);
+                },
+                [&](const Each& e) { return walk(e.list) || any_expression(e.body, f); },
+                [&](const Reject&) { return false; },
+                [&](const Set& st) { return walk(st.value); },
+                [&](const Transition&) { return false; },
+                [&](const Do& d) {
+                    return std::ranges::any_of(d.args, walk) ||
+                           std::ranges::any_of(d.with, [&](const Set& w) { return walk(w.value); });
+                },
+            },
+            s.node);
+        if (found) {
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
+
+bool is_trigger(const Expr& e) noexcept {
+    if (e.type.kind != TypeKind::yes_no) {
+        return false;
+    }
+    if (word_is(e, "cond.overdue")) {
+        return true;
+    }
+    if (e.kind == ast::ExprKind::apply && e.concept_entry != nullptr &&
+        e.concept_entry->id == "cond.before_due" && e.operands.size() == 1) {
+        return true;
+    }
+    if (e.kind == ast::ExprKind::phrase && e.operands.size() == 2) {
+        return word_is(e.operands[0], "cond.overdue") ||
+               (e.operands[0].refers == Refers::state &&
+                e.operands[1].type.kind == TypeKind::duration);
+    }
+    return false;
+}
+
+std::optional<Trigger> trigger_of(const Expr& event) {
+    if (event.type.kind == TypeKind::date) {
+        if (mentions_now(event)) {
+            return std::nullopt;
+        }
+        return Trigger{TriggerKind::date, &event, nullptr, {}};
+    }
+    std::vector<const Expr*> operands;
+    and_operands(event, operands);
+    std::optional<Trigger> out;
+    std::vector<const Expr*> conditions;
+    for (const Expr* e : operands) {
+        if (e->type.kind == TypeKind::date) {
+            // A date joined to conditions: the time the rule fires at.
+            if (out || mentions_now(*e)) {
+                return std::nullopt;
+            }
+            out = Trigger{TriggerKind::date, e, nullptr, {}};
+            continue;
+        }
+        if (!is_trigger(*e)) {
+            if (holds_trigger(*e)) {
+                return std::nullopt;
+            }
+            conditions.push_back(e);
+            continue;
+        }
+        if (out) {
+            return std::nullopt;
+        }
+        if (word_is(*e, "cond.overdue")) {
+            out = Trigger{TriggerKind::overdue, nullptr, nullptr, {}};
+        } else if (e->kind == ast::ExprKind::apply) {
+            out = Trigger{TriggerKind::before_due, &e->operands[0], nullptr, {}};
+        } else if (word_is(e->operands[0], "cond.overdue")) {
+            out = Trigger{TriggerKind::overdue, &e->operands[1], nullptr, {}};
+        } else {
+            out = Trigger{TriggerKind::held, &e->operands[1], &e->operands[0], {}};
+        }
+    }
+    if (out) {
+        out->conditions = std::move(conditions);
+    }
+    return out;
+}
+
+bool rule_runs(const TimeRule& rule) noexcept {
+    return !rule.body.empty() || !rule.consents.empty() ||
+           std::ranges::any_of(rule.actions, [](const Do& d) { return !d.obligation; });
+}
+
+std::vector<const Do*> rule_actions(const TimeRule& rule) {
+    std::vector<const Do*> out;
+    for (const Do& d : rule.actions) {
+        if (!d.obligation && !d.executor) {
+            out.push_back(&d);
+        }
+    }
+    each_do(rule.body, [&](const Do& d) {
+        if (!d.obligation && !d.executor) {
+            out.push_back(&d);
+        }
+    });
+    return out;
+}
+
+const Action* action_of(const Model& model, const Do& d) noexcept {
+    const std::string k =
+        key(d.action.kind == ast::ExprKind::word ? d.action.concept_entry : nullptr, d.action.name);
+    for (const Action& a : model.actions) {
+        if (key(a.word, a.name) == k) {
+            return &a;
+        }
+    }
+    return nullptr;
+}
+
+std::vector<std::string> rule_functions(const Model& model) {
+    std::vector<std::string> out;
+    std::set<std::string> used;
+    for (const TimeRule& r : model.rules) {
+        if (!rule_runs(r)) {
+            out.emplace_back();
+            continue;
+        }
+        std::optional<std::string> what;
+        const auto name_of = [&](const Do& d) {
+            if (!what && !d.obligation) {
+                what = wire_name(d.action.kind == ast::ExprKind::word ? d.action.concept_entry
+                                                                      : nullptr,
+                                 d.action.name);
+            }
+        };
+        for (const Do& d : r.actions) {
+            name_of(d);
+        }
+        each_do(r.body, name_of);
+        if (!what) {
+            if (const Transition* t = first_transition(r.body)) {
+                what = word_is(t->to, "expr.previous_state")
+                           ? std::string("previous")
+                           : wire_name(t->to.concept_entry, t->to.name);
+            }
+        }
+        const std::string base = "when." + what.value_or("rule");
+        std::string name = base;
+        for (int n = 2; !used.insert(name).second; ++n) {
+            name = base + "." + std::to_string(n);
+        }
+        out.push_back(std::move(name));
+    }
+    return out;
+}
+
+bool uses_since(const Model& model) noexcept {
+    const auto asks = [](const Expr& e) {
+        return (e.kind == ast::ExprKind::apply && e.concept_entry != nullptr &&
+                e.concept_entry->id == "cond.within") ||
+               (is_trigger(e) && e.kind == ast::ExprKind::phrase &&
+                e.operands[0].refers == Refers::state);
+    };
+    const auto in = [&](const Expr& e, const auto& self) -> bool {
+        return asks(e) ||
+               std::ranges::any_of(e.operands, [&](const Expr& o) { return self(o, self); });
+    };
+    return std::ranges::any_of(model.actions,
+                               [&](const Action& a) { return any_expression(a.body, asks); }) ||
+           std::ranges::any_of(model.rules, [&](const TimeRule& r) {
+               return rule_runs(r) && (in(r.event, in) || any_expression(r.body, asks));
+           });
 }
 
 } // namespace model
@@ -589,8 +892,21 @@ std::string dump(const model::Model& m) {
     for (const model::Party& p : m.parties) {
         std::string binding =
             p.binding == model::Binding::creation ? std::string("creation") : p.bound_by;
+        std::string line =
+            "party " + model::key(p.role, p.name) + " " + ruled("bound=" + binding, p.rule);
+        if (p.each_call) {
+            line += " each_call{R23}";
+        }
+        add_line(out, 0, line);
+    }
+    if (m.offset_rule.empty() || !m.rules.empty()) {
+        // U6: written, or the default (R25) for a contract with time rules.
+        const std::int64_t minutes = m.utc_offset_ms / 60'000;
+        const std::int64_t whole = minutes < 0 ? -minutes : minutes;
         add_line(out, 0,
-                 "party " + model::key(p.role, p.name) + " " + ruled("bound=" + binding, p.rule));
+                 ruled(std::format("utc_offset {}{:02}:{:02}", minutes < 0 ? '-' : '+', whole / 60,
+                                   whole % 60),
+                       m.offset_rule));
     }
     if (m.kind != nullptr) {
         add_line(out, 0, "kind " + std::string(m.kind->id) + " " + m.kind_name);
@@ -637,6 +953,9 @@ std::string dump(const model::Model& m) {
         if (a.executor) {
             line += " " + ruled("executor", a.executor_rule);
         }
+        if (a.rule_only) {
+            line += " rule_only";
+        }
         add_line(out, 0, line);
         for (const model::Field& f : a.inputs) {
             field_line(out, "input", f, 1);
@@ -651,8 +970,16 @@ std::string dump(const model::Model& m) {
         add_line(out, 1, "terms{R19}");
         statements(out, std::vector<model::Statement>(split, a.body.end()), 2);
     }
-    for (const model::TimeRule& r : m.rules) {
-        add_line(out, 0, "when " + text(r.event));
+    const std::vector<std::string> functions = model::rule_functions(m);
+    for (std::size_t i = 0; i < m.rules.size(); ++i) {
+        const model::TimeRule& r = m.rules[i];
+        std::string line = "when " + text(r.event);
+        if (const auto t = model::trigger_of(r.event); t && !functions[i].empty()) {
+            line += " trigger=" +
+                    std::string(model::trigger_kind_names[static_cast<std::size_t>(t->kind)]) +
+                    " function=" + functions[i] + "{R24}";
+        }
+        add_line(out, 0, line);
         consent_lines(out, r.consents, 1);
         for (const model::Do& d : r.actions) {
             do_lines(out, d, 1);

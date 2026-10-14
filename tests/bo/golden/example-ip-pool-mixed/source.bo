@@ -2,6 +2,7 @@ contract IP地址池
 参与方 we, 客戶
 
 resource IP地址
+  地址 文本
   冷却期 30 days
 
 可allocate 予 customer

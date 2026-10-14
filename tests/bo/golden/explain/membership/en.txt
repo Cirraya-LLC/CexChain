@@ -1,0 +1,79 @@
+Contract Membership
+
+Bo wrote this text from the contract's source (Bo edition 1). A clause marked with a rule, such as [R3], states what Bo inferred by that rule instead of reading it in the source; the last section explains each rule.
+
+1. Parties
+1.1 we: bound to a ledger when an instance is created. [R3]
+1.2 customer: bound to a ledger when an instance is created. [R3]
+
+2. Each instance
+2.1 Each instance is a record named Plan.
+2.2 due: a date, given when an instance is created.
+2.3 fee: money in HKD, given when an instance is created.
+2.4 Creating an instance (function create) names the ledgers of the parties bound at creation and sets the fields given at creation. It needs no party's consent: the parties agree through the actions below.
+2.5 Dates and days are counted at UTC+09:00 all year, with no daylight saving; a month after a day the next month lacks (31 January plus a month) ends on that month's last day.
+
+3. States
+3.1 An instance starts in the state active. [R4]
+3.2 Its states are active, suspended, settled, closed, and terminated. [R5]
+3.3 No state is final: some action can start from any state.
+3.4 Each change of state, the first state included, is recorded as an event.
+
+4. Actions
+A call that does not meet one of an action's requirements is refused, and the instance does not change. A missing consent is not a refusal: the call waits for it.
+
+4.1 prolong
+  4.1.1 Started by the customer, whose agreement it needs.
+  4.1.2 The call gives until (a date).
+  4.1.3 Requirement 1: it is no earlier than 30 days before the due date.
+  4.1.4 Requirement 2: the instance is less than 10 days overdue (counted from its due date).
+  4.1.5 It sets the due date to until.
+  4.1.6 An AI agent may start it within its delegation. [R14]
+
+4.2 settle
+  4.2.1 Started by the customer, whose agreement it needs.
+  4.2.2 Requirement 1: less than 14 days has passed since the instance last changed state.
+  4.2.3 If the instance is active or suspended, it becomes settled; otherwise the call is refused.
+  4.2.4 An AI agent may start it within its delegation. [R14]
+
+4.3 suspend
+  4.3.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show suspend): the clauses marked R19 state them, after the contract's own clauses.
+  4.3.2 Only the contract's time rules do this action: no call starts it directly.
+  4.3.3 If the instance is active, it becomes suspended; otherwise the call is refused. [R19]
+
+4.4 terminate
+  4.4.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show terminate): the clauses marked R19 state them, after the contract's own clauses.
+  4.4.2 Only the contract's time rules do this action: no call starts it directly.
+  4.4.3 If the instance is active or suspended, it becomes terminated; otherwise the call is refused. [R19]
+
+5. Time rules
+5.1 An instance is due on the due date.
+
+5.2 On the due date:
+  5.2.1 Duty: the customer must pay. It sets when an instance is due and overdue; nothing is called. [R9]
+
+5.3 When it is no earlier than 7 days before the due date and the instance is active: [R7]
+  5.3.1 Function when.rule: a keeper calls it once this time has come. An earlier call is refused; the rule applies once for each such time, and its event records how late the call came. [R24]
+  5.3.2 It sets fee to fee + HKD 10.
+
+5.4 When the instance is overdue (its due date has passed):
+  5.4.1 Function when.suspend: a keeper calls it once this time has come. An earlier call is refused; the rule applies once for each such time, and its event records how late the call came. [R24]
+  5.4.2 It does suspend, under that action's clauses.
+
+5.5 When the instance has been suspended for 1 month or more:
+  5.5.1 Function when.terminate: a keeper calls it once this time has come. An earlier call is refused; the rule applies once for each such time, and its event records how late the call came. [R24]
+  5.5.2 It does terminate, under that action's clauses.
+
+5.6 On 31 December 2027:
+  5.6.1 Function when.closed: a keeper calls it once this time has come. An earlier call is refused; the rule applies once for each such time, and its event records how late the call came. [R24]
+  5.6.2 The instance becomes closed.
+
+6. Rules Bo applied
+[R3] A role the contract first names as an action's counterparty (after to) is bound to a ledger by that action, with its consent; every other role is bound to a ledger when an instance is created.
+[R4] An instance starts in the one state that no state change leads to; if there is none, in the state active.
+[R5] The states of an instance are those its state changes name.
+[R7] A state used as a condition means the instance is in that state.
+[R9] A time rule whose action names a party states that party's duty: it sets when an instance is due and overdue, and nothing is called.
+[R14] An AI agent may start an action within its delegation, unless the action says AI agent can propose; then the agent only proposes, and a person approves.
+[R19] A built-in action has the standard terms Bo's standard library gives it (cexchain bo stdlib show ACTION): who starts it, whose consent it needs, the states it starts from and leads to, and what it changes. The contract's own clauses come first and add to them; R8 adds no consent to the standard terms.
+[R24] A ledger acts only on calls, so each time rule is a function that anyone the home delegates may call: a keeper, usually a device of the home calling it on a schedule. The ledger's registration time decides: the rule applies only once its time has come, and once for each such time; an earlier call is refused, and a later one is recorded with how late it came. The rule is the contract's own word: it needs only the consents it states, not those of the parties that start the actions it does.

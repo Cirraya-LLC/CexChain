@@ -64,6 +64,8 @@ struct CallOptions {
     /// Ignored in a dry run.
     std::optional<PresenceRequest> presence;
     bool dry_run = false;
+    /// A dry run's registration time instead of now (--at).
+    std::optional<protocol::Timestamp> at;
 };
 
 struct CallAttempt {

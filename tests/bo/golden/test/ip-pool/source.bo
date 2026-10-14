@@ -1,0 +1,34 @@
+# The spec's IP pool example (bo-1.0, section 8), with its tests: allocate and
+# reclaim are built-in actions with the standard library's terms. An address
+# belongs to one customer at a time (each allocation names it, R23), and after
+# a reclaim it cools for 30 days before it is allocated again.
+合约 IP地址池
+参与方 本公司, 客户
+
+资源 IP地址
+  地址 文本
+  冷却期 30天
+
+可分配 给 客户
+可收回 由 本公司
+
+测试 "一个地址一次只分配给一个客户"
+  本公司 创建 附带 地址 = "203.0.113.7" 时间 2027-10-01
+  本公司 分配 给 客户A -> 已分配
+  本公司 分配 给 客户B -> 被拒绝 "bo:state allocate"
+  本公司 收回 时间 2027-10-09 -> 冷却中
+
+测试 "收回后冷却 30 天，期内不得再分配"
+  本公司 创建 附带 地址 = "203.0.113.7" 时间 2027-10-01
+  本公司 分配 给 客户A -> 已分配
+  本公司 收回 时间 2027-10-09 -> 冷却中
+  本公司 分配 给 客户B 时间 2027-11-07 -> 被拒绝 "bo:requires allocate 1"
+  本公司 分配 给 客户B 时间 2027-11-08 -> 已分配
+  本公司 收回 时间 2027-12-01 -> 冷却中
+  本公司 分配 给 客户A 时间 2028-01-01 -> 已分配
+
+测试 "分配须经客户同意，收回由本公司发起"
+  本公司 创建 附带 地址 = "203.0.113.7"
+  本公司 分配 给 客户A -> 经 客户A 同意
+  本公司 分配 给 客户A -> 已分配
+  客户A 收回 -> 经 本公司 同意

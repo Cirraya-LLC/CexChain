@@ -1,0 +1,27 @@
+test "3 days overdue, the instance is suspended" passed home=role.we
+  step 1 passed 2027-06-01 accepted active event=active; fuel 6579
+  step 2 passed 2027-07-02 refused "bo:when when.suspend"; fuel 10114
+  step 3 passed 2027-07-03 accepted suspended event=when:when.suspend late=0 event=suspended; fuel 12652
+  step 4 passed 2027-07-03 refused "bo:fired when.suspend"; fuel 10213
+test "a keeper that comes late still suspends, and the event says how late" passed home=role.we
+  step 1 passed 2027-06-01 accepted active event=active; fuel 6579
+  step 2 passed 2027-07-10 accepted suspended event=when:when.suspend late=604800000 event=suspended; fuel 12729
+test "once for each time: reopened, it stays open until the due date moves" passed home=role.we
+  step 1 passed 2027-06-01 accepted active event=active; fuel 6579
+  step 2 passed 2027-07-03 accepted suspended event=when:when.suspend late=0 event=suspended; fuel 12652
+  step 3 passed 2027-07-03 accepted active event=active; fuel 12265
+  step 4 passed 2027-07-04 refused "bo:fired when.suspend"; fuel 10452
+  step 5 passed 2027-07-04 accepted active; fuel 12907
+  step 6 passed 2027-08-02 refused "bo:when when.suspend"; fuel 10446
+  step 7 passed 2027-08-03 accepted suspended event=when:when.suspend late=0 event=suspended; fuel 12988
+test "30 days suspended, it ends" passed home=role.we
+  step 1 passed 2027-06-01 accepted active event=active; fuel 6579
+  step 2 passed 2027-07-03 accepted suspended event=when:when.suspend late=0 event=suspended; fuel 12652
+  step 3 passed 2027-08-01 refused "bo:when when.terminate"; fuel 10308
+  step 4 passed 2027-08-02 accepted terminated event=when:when.terminate late=0 event=terminated; fuel 13016
+  step 5 passed 2027-08-02 refused "bo:state settle"; fuel 10727
+test "paid in time: nothing to suspend" passed home=role.we
+  step 1 passed 2027-06-01 accepted active event=active; fuel 6579
+  step 2 passed 2027-06-29 accepted settled event=settled consents role.customer; fuel 10673 12768
+  step 3 passed 2027-07-03 refused "bo:state suspend"; fuel 10238
+5 tests: 5 passed, 0 failed

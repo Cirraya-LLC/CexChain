@@ -2,12 +2,14 @@ edition 1
 contract Tests
 party role.we bound=creation{R3}
 party role.customer bound=creation{R3}
+utc_offset +08:00{R25}
 kind kind.record Terms
 field field.amount instance money cur.HKD
 field starts instance date
 state state.proposed first{R4}
 state signed{R5}
 state lent{R5}
+state closed{R5}
 can sign own by=role.customer agents=delegation{R14}
   transition state.proposed -> signed
 can amend own by=role.we agents=delegation{R14}
@@ -15,6 +17,10 @@ can amend own by=role.we agents=delegation{R14}
   set field.amount new_amount
 can lend own by=role.we to=role.customer agents=delegation{R14}
   transition signed -> lent
+can close own by=role.we agents=delegation{R14}
+  transition lent -> closed
+when (+ starts (duration time.year 1)) trigger=date function=when.close{R24}
+  do close
 test "order"
   step role.customer sign expect=accepted
   step role.we act.create creation expect=accepted
@@ -54,31 +60,39 @@ test "what"
   step role.customer sign expect=state signed
 test "what"
   step role.we act.create creation expect=accepted
-17:3 error check.test-expect-step: an expectation (->) follows the step it is about, once
-18:3 error check.test-start: a test begins by creating its instance: PARTY create with FIELD = VALUE, ...; the party that creates it is the home, whose ledger runs the contract
-19:6 error check.test-again: a test creates its instance once, in its first step
-22:3 error check.test-home: an instance is created by its home, we: the role we names the ledger that runs the contract
-23:6 error check.test-creation: issue: an instance of this contract is created with create (issue for an asset, create otherwise)
-24:6 error check.test-action: frobnicate is not an action of this contract: a step does one of the actions it declares (can ...), or creates the instance
-25:3 error check.test-party: amount is not a party: a step names one of the contract's parties, or a ledger that only tests name (bank1)
-26:3 error check.unknown-party: bank is not one of the contract's parties: add it to the parties line
-27:20 error check.test-to: sign has no counterparty, so a step that does it names none: drop to
-28:14 error check.test-counterparty: the counterparty of lend is customer, bound to a ledger when the instance is created: write to customer
-29:20 error check.test-signer: person: a step is by AI agent (an agent signs it) or in person (a person proves presence), not both, and by names nobody else
-30:3 error check.test-signer: customer sign by AI agent in person: a step is by AI agent (an agent signs it) or in person (a person proves presence), not both, and by names nobody else
-34:17 error check.test-step: yes: besides to and with, a step takes at DATE, in person, and by AI agent, each once
-35:17 error check.test-time: at 1969-05-01: at takes a date after 1970-01-01 (at 2027-01-06)
-36:17 error check.test-time-back: at 2026-01-01 is earlier than a step before it: time never goes back in a test
-37:17 error check.test-time: at amount: at takes a date after 1970-01-01 (at 2027-01-06)
-40:27 error check.type: 5 is a number, but money in HKD is needed here
-40:39 error check.test-value: starts: a test gives each value as written: a number, an amount, a quantity, a date, a duration, a rate, a text, or yes or no
-41:6 error check.test-missing: amend needs new_amount: give it with new_amount = VALUE
-41:17 error check.unknown-input: amend has no input nothing
-42:6 error check.test-missing: amend needs new_amount: give it with new_amount = VALUE
-43:37 error check.duplicate: new_amount is declared twice; a name has one meaning in a contract
-44:20 error check.test-expect: HKD 5 is not an outcome a step can expect: write a state of the contract (-> signed), refused (-> refused, or with its reason in quotes), or the consent the call waits for (-> consent of bank)
-45:17 error check.test-reason: -> signed "why": only refused takes a reason
-46:3 error check.test-expect-step: an expectation (->) follows the step it is about, once
-48:6 error check.duplicate: what is declared twice; a name has one meaning in a contract
-49:6 error check.test-missing: create needs amount: give it with amount = VALUE
-49:6 error check.test-missing: create needs starts: give it with starts = VALUE
+test "keeper"
+  step role.we act.create creation expect=accepted
+    set field.amount (money cur.HKD 5)
+    set starts 2027-01-01
+  step actor.keeper fly rule=1 expect=accepted
+  step actor.keeper close rule=1 expect=accepted
+20:3 error check.test-expect-step: an expectation (->) follows the step it is about, once
+21:3 error check.test-start: a test begins by creating its instance: PARTY create with FIELD = VALUE, ...; the party that creates it is the home, whose ledger runs the contract
+22:6 error check.test-again: a test creates its instance once, in its first step
+25:3 error check.test-home: an instance is created by its home, we: the role we names the ledger that runs the contract
+26:6 error check.test-creation: issue: an instance of this contract is created with create (issue for an asset, create otherwise)
+27:6 error check.test-action: frobnicate is not an action of this contract: a step does one of the actions it declares (can ...), or creates the instance
+28:3 error check.test-party: amount is not a party: a step names one of the contract's parties, or a ledger that only tests name (bank1)
+29:3 error check.unknown-party: bank is not one of the contract's parties: add it to the parties line
+30:20 error check.test-to: sign has no counterparty, so a step that does it names none: drop to
+31:14 error check.test-counterparty: the counterparty of lend is customer, bound to a ledger when the instance is created: write to customer
+32:20 error check.test-signer: person: a step is by AI agent (an agent signs it) or in person (a person proves presence), not both, and by names nobody else
+33:3 error check.test-signer: customer sign by AI agent in person: a step is by AI agent (an agent signs it) or in person (a person proves presence), not both, and by names nobody else
+37:17 error check.test-step: yes: besides to and with, a step takes at DATE, in person, and by AI agent, each once
+38:17 error check.test-time: at 1969-05-01: at takes a date after 1970-01-01 (at 2027-01-06)
+39:17 error check.test-time-back: at 2026-01-01 is earlier than a step before it: time never goes back in a test
+40:17 error check.test-time: at amount: at takes a date after 1970-01-01 (at 2027-01-06)
+43:27 error check.type: 5 is a number, but money in HKD is needed here
+43:39 error check.test-value: starts: a test gives each value as written: a number, an amount, a quantity, a date, a duration, a rate, a text, or yes or no
+44:6 error check.test-missing: amend needs new_amount: give it with new_amount = VALUE
+44:17 error check.unknown-input: amend has no input nothing
+45:6 error check.test-missing: amend needs new_amount: give it with new_amount = VALUE
+46:37 error check.duplicate: new_amount is declared twice; a name has one meaning in a contract
+47:20 error check.test-expect: HKD 5 is not an outcome a step can expect: write a state of the contract (-> signed), refused (-> refused, or with its reason in quotes), or the consent the call waits for (-> consent of bank)
+48:17 error check.test-reason: -> signed "why": only refused takes a reason
+49:3 error check.test-expect-step: an expectation (->) follows the step it is about, once
+51:6 error check.duplicate: what is declared twice; a name has one meaning in a contract
+52:6 error check.test-missing: create needs amount: give it with amount = VALUE
+52:6 error check.test-missing: create needs starts: give it with starts = VALUE
+56:10 error check.test-rule: no when rule does fly: a keeper step names the action a when rule does (keeper suspend)
+57:3 error check.test-keeper: keeper close to bank1: the keeper calls a when rule with nothing else: no to, with, in person, or by AI agent

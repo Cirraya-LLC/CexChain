@@ -1,0 +1,60 @@
+测试 “3 days overdue, the instance is suspended”：通过
+  第 1 步（第 22 行）通过：we create with due = 2027-06-30 at 2027-06-01
+    结果：调用被接受，实例现为正常。
+  第 2 步（第 23 行）通过：keeper suspend at 2027-07-02 -> refused "bo:when when.suspend"
+    结果：调用被拒绝，因为 when.suspend 尚不适用：时间未到，或条件不成立（bo:when when.suspend）。
+    合约条款 5.2：当实例已逾期 3 天或以上（从到期日起算）时：
+  第 3 步（第 24 行）通过：keeper suspend at 2027-07-03 -> suspended
+    结果：调用被接受，实例现为已暂停。
+  第 4 步（第 25 行）通过：keeper suspend -> refused "bo:fired when.suspend"
+    结果：调用被拒绝，因为 when.suspend 已就此时间适用过（bo:fired when.suspend）。
+    合约条款 5.2：当实例已逾期 3 天或以上（从到期日起算）时：
+
+测试 “a keeper that comes late still suspends, and the event says how late”：通过
+  第 1 步（第 28 行）通过：we create with due = 2027-06-30 at 2027-06-01
+    结果：调用被接受，实例现为正常。
+  第 2 步（第 29 行）通过：keeper suspend at 2027-07-10 -> suspended
+    结果：调用被接受，实例现为已暂停。
+
+测试 “once for each time: reopened, it stays open until the due date moves”：通过
+  第 1 步（第 32 行）通过：we create with due = 2027-06-30 at 2027-06-01
+    结果：调用被接受，实例现为正常。
+  第 2 步（第 33 行）通过：keeper suspend at 2027-07-03 -> suspended
+    结果：调用被接受，实例现为已暂停。
+  第 3 步（第 34 行）通过：we reopen -> active
+    结果：调用被接受，实例现为正常。
+  第 4 步（第 35 行）通过：keeper suspend at 2027-07-04 -> refused "bo:fired when.suspend"
+    结果：调用被拒绝，因为 when.suspend 已就此时间适用过（bo:fired when.suspend）。
+    合约条款 5.2：当实例已逾期 3 天或以上（从到期日起算）时：
+  第 5 步（第 36 行）通过：we extend with until = 2027-07-31 -> active
+    结果：调用被接受，实例现为正常。
+  第 6 步（第 37 行）通过：keeper suspend at 2027-08-02 -> refused "bo:when when.suspend"
+    结果：调用被拒绝，因为 when.suspend 尚不适用：时间未到，或条件不成立（bo:when when.suspend）。
+    合约条款 5.2：当实例已逾期 3 天或以上（从到期日起算）时：
+  第 7 步（第 38 行）通过：keeper suspend at 2027-08-03 -> suspended
+    结果：调用被接受，实例现为已暂停。
+
+测试 “30 days suspended, it ends”：通过
+  第 1 步（第 41 行）通过：we create with due = 2027-06-30 at 2027-06-01
+    结果：调用被接受，实例现为正常。
+  第 2 步（第 42 行）通过：keeper suspend at 2027-07-03 -> suspended
+    结果：调用被接受，实例现为已暂停。
+  第 3 步（第 43 行）通过：keeper terminate at 2027-08-01 -> refused "bo:when when.terminate"
+    结果：调用被拒绝，因为 when.terminate 尚不适用：时间未到，或条件不成立（bo:when when.terminate）。
+    合约条款 5.3：当实例处于已暂停状态已满 30 天时：
+  第 4 步（第 44 行）通过：keeper terminate at 2027-08-02 -> terminated
+    结果：调用被接受，实例现为已终止。
+  第 5 步（第 45 行）通过：customer settle -> refused "bo:state settle"
+    结果：调用被拒绝，因为实例当前的状态不允许 settle（bo:state settle）。
+    合约条款 4.1.2：如果实例处于正常或已暂停状态，即转为已结清状态；否则拒绝调用。
+
+测试 “paid in time: nothing to suspend”：通过
+  第 1 步（第 48 行）通过：we create with due = 2027-06-30 at 2027-06-01
+    结果：调用被接受，实例现为正常。
+  第 2 步（第 49 行）通过：customer settle at 2027-06-29 -> settled
+    结果：经客户同意，调用被接受，实例现为已结清。
+  第 3 步（第 50 行）通过：keeper suspend at 2027-07-03 -> refused "bo:state suspend"
+    结果：调用被拒绝，因为实例当前的状态不允许 暂停（bo:state suspend）。
+    合约条款 4.4.3：如果实例处于正常状态，即转为已暂停状态；否则拒绝调用。
+
+共 5 个测试：5 个通过，0 个失败。

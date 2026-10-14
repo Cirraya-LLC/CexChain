@@ -181,8 +181,11 @@ CallAttempt attempt_call(Session& session, const crypto::Signer& signer,
     attempt.statement =
         session.sign(signer, std::move(body), options.delegation, options.provenance,
                      options.dry_run ? std::nullopt : options.presence);
-    attempt.run = unwrap(session.state().run_contract(session.provider(), attempt.statement,
-                                                      ledger::SystemClock{}.now()),
+    // A dry run may name the time (a keeper's question: has the rule's time
+    // come at TIME?); a recorded call runs at the time the ledger records.
+    const protocol::Timestamp time =
+        options.dry_run && options.at ? *options.at : ledger::SystemClock{}.now();
+    attempt.run = unwrap(session.state().run_contract(session.provider(), attempt.statement, time),
                          "running the contract");
     if (!options.dry_run && attempt.run.accepted() != nullptr) {
         attempt.recorded = session.submit_signed(attempt.statement, std::nullopt, bundles);

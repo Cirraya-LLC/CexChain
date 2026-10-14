@@ -124,6 +124,7 @@ std::string_view standard_showcase() {
                           "asset Asset\n"
                           "  holder supplier\n"
                           "  quantity item\n"
+                          "  cooling period 30 days\n"
                           "\n";
         for (const ast::Can* can : standard_library().templates) {
             const Pack& english = english_pack();

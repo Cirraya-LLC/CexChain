@@ -17,7 +17,10 @@
 # the test blocks run as a ledger runs calls (bo test), with the same results
 # from every language; the standard library (bo stdlib) and a receivable
 # built with it, through four ledgers: pledged to a bank with the consents of
-# the supplier and the bank, released, sold to a factor, paid, and confirmed.
+# the supplier and the bank, released, sold to a factor, paid, and confirmed;
+# time rules (3 days overdue, suspend) and the IP pool, tested, built, and
+# explained; and a keeper, a device whose delegation names one contract,
+# calling a rule on a ledger once its time has come.
 # Usage: bo.sh CEXCHAIN
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO (from lines ${BASH_LINENO[*]}): $BASH_COMMAND" >&2' ERR
@@ -102,7 +105,7 @@ for hash in SHA-256 SM3; do
     diff expected.txt digests.txt > /dev/null || fail "digests ($hash) differ from $GOLDEN"
 done
 json 'd[1]["keywords"], d[1]["words"], d[1]["official"], d[1]["separation"]' < list.json > out.txt
-contains -Fx "18 134 True none" out.txt || fail "facts"
+contains -Fx "18 138 True none" out.txt || fail "facts"
 
 run bo packs show zh-Hant-HK > out.txt
 contains -F "prefixes     可 (kw.can), 須 (kw.requires), 當 (kw.when), 如 (kw.if)" out.txt || fail "prefixes"
@@ -117,7 +120,7 @@ run bo packs show zh-Hans-CN --json > show.json
 json 'd["keywords"]["kw.each"], d["vocabulary"]["unit.item"]["category"], d["reading"]["multipliers"]["万"]' < show.json > out.txt
 contains -Fx "['逐个'] unit 10000" out.txt || fail "show --json"
 json 'len(d["messages"]), len(d["sentences"])' < show.json > out.txt
-contains -Fx "197 200" out.txt || fail "messages and sentences"
+contains -Fx "203 215" out.txt || fail "messages and sentences"
 expect_exit 1 bo packs show fr
 contains -F "no pack fr" out.txt || fail "unknown pack"
 expect_exit 1 bo packs show en --section nope
@@ -147,7 +150,7 @@ cat > company.pack <<'EOF'
 }
 EOF
 run bo packs check company.pack > out.txt
-contains -F "warning: pack acme-terms does not spell 131 of the 134 words" out.txt || fail "partial"
+contains -F "warning: pack acme-terms does not spell 135 of the 138 words" out.txt || fail "partial"
 contains -F "company.pack: pack acme-terms version 3 (community): 18 keywords, 3 words" out.txt || fail "check ok"
 contains -F "ok: the packs read" out.txt || fail "ok"
 run bo packs list --pack company.pack > out.txt
@@ -468,7 +471,7 @@ contains -Fx "True en Contract Agreement ['parties', 'instance', 'states', 'acti
 json '[(c["function"], c["requirement"], c["rules"]) for s in d["sections"] for c in s["clauses"] if c["kind"] == "requirement"]' < explain.json > out.txt
 contains -Fx "[('amend', 1, ['R7']), ('amend', 2, []), ('amend', 3, []), ('sign', 1, ['R6', 'R13']), ('sign', 2, []), ('close', 1, [])]" out.txt || fail "requirements in json"
 json '[r["id"] for r in d["rules"]], d["text"] == open("'"$TEXTS"'/agreement/en.txt").read()' < explain.json > out.txt
-contains -Fx "['R3', 'R4', 'R5', 'R6', 'R7', 'R13', 'R14', 'R17'] True" out.txt || fail "rules in json"
+contains -Fx "['R3', 'R4', 'R5', 'R6', 'R7', 'R13', 'R14', 'R17', 'R25'] True" out.txt || fail "rules in json"
 # R18: a name compared with a text is that text, shown in quotation marks.
 run bo explain tax.bo > text.txt 2> warnings.txt
 contains -F '  2.1.2 It applies when the customer location is "中国内地". [R18]' text.txt || fail "R18 in quotes"
@@ -885,7 +888,7 @@ for fn in d s; do "$fn" audit | contains 'audit passed' || fail "audit"; done
 
 echo "== bo stdlib: the built-in actions, written in Bo"
 run bo stdlib list > out.txt
-[ "$(wc -l < out.txt)" -eq 11 ] || fail "stdlib list: eleven actions"
+[ "$(wc -l < out.txt)" -eq 16 ] || fail "stdlib list: sixteen actions"
 contains -Fx "pledge           pledge: started by the holder; to a counterparty, who consents; active → pledged" out.txt || fail "stdlib list: pledge"
 contains -Fx "pay              pay: started by the home ledger, on its own word; active, pledged, disputed → paid" out.txt || fail "stdlib list: pay"
 contains -Fx "unfreeze         unfreeze: started by the home ledger, on its own word; frozen → previous state" out.txt || fail "stdlib list: unfreeze"
@@ -1024,5 +1027,91 @@ contains -F "rebuilds: the source rebuilds to the deployed code" verify.txt || f
 contains -F "VERIFICATION FAILED" verify.txt && fail "verify: verified"
 run contract explain "$RC" --ledger "$H" | contains -F "4.1.5 Requirement 2: the bank is not the holder. [R19]" || fail "explain: the standard terms"
 for dir in "$H" "$P" "$B" "$F"; do run audit --ledger "$dir" | contains 'audit passed' || fail "audit"; done
+
+echo "== time rules: functions a keeper calls once their time has come"
+# The spec's "3 days overdue, suspend": its tests, its code, and its text.
+cp "$GOLDENS/test/time/source.bo" hosting.bo
+run bo test hosting.bo > out.txt
+contains -Fx "5 tests: 5 passed, 0 failed." out.txt || fail "time: the tests"
+contains -F "Result: refused, since when.suspend does not apply yet: its time has not come, or its conditions do not hold (bo:when when.suspend)." out.txt || fail "time: refused before its time"
+contains -F "The contract text, 5.2: When the instance is 3 days overdue or more (counted from its due date):" out.txt || fail "time: the rule's clause"
+run bo test hosting.bo --json | json '[e for t in d["tests"] for s in t["steps"] for e in s["result"].get("events", []) if e.startswith("when:")]' > out.txt
+contains -F "'when:when.suspend late=604800000'" out.txt || fail "time: how late the keeper came"
+CEXCHAIN_LANGUAGE=zh-Hant-HK run bo test hosting.bo | contains -F "when.suspend 尚未適用：其時間未到，或其條件不成立（bo:when when.suspend）" || fail "time: zh-Hant"
+run bo build hosting.bo | contains -F "functions  create (creates), extend, reopen, settle, when.suspend, when.terminate" || fail "time: the functions"
+run bo explain hosting.bo > text.txt
+diff "$TEXTS/time/en.txt" text.txt > /dev/null || fail "time: the text"
+contains -Fx "  5.2.1 Function when.suspend: a keeper calls it once this time has come. An earlier call is refused; the rule applies once for each such time, and its event records how late the call came. [R24]" text.txt || fail "time: the keeper's clause"
+run bo explain hosting.bo --language zh-Hans-CN | contains -F "函数 when.suspend：时间一到，调度器就会调用。" || fail "time: zh-Hans"
+for language in zh-Hant-HK zh-Hans-CN; do
+    run bo fmt hosting.bo --language "$language" > hosting-other.bo
+    run bo test hosting-other.bo | contains -Fx "5 tests: 5 passed, 0 failed." || fail "time: tests in $language"
+done
+# The spec's IP pool: it builds, explains, and its tests pass. Nothing yet
+# stops one address being in two instances (unique keys come later).
+cp "$GOLDENS/test/ip-pool/source.bo" pool.bo
+run bo test pool.bo | contains -Fx "3 tests: 3 passed, 0 failed." || fail "pool: the tests"
+run bo build pool.bo | contains -F "functions  allocate, create (creates), reclaim" || fail "pool: the functions"
+run bo explain pool.bo --language zh-Hans-CN > out.txt
+contains -Fx "1.2 客户：由每次分配确定账本，并须经客户同意。〔R3、R23〕" out.txt || fail "pool: R23"
+contains -Fx "    4.1.4.1 要求 1：实例上次转换状态至今已满冷却期。〔R19〕" out.txt || fail "pool: the cooling period"
+# Errors in the reader's language.
+printf 'contract T\nparties we\nrecord R\n  due date\n  UTC offset "8"\nwhen due\n  -> closed\n\ntest\n  we create with due = 2027-01-01\n  keeper fly\n' > time-errors.bo
+expect_exit 2 bo check time-errors.bo
+contains -F "(check.utc-offset)" out.txt || fail "errors: the offset"
+contains -F "no when rule does fly" out.txt || fail "errors: the keeper's step"
+
+echo "== a keeper, end to end: a device whose delegation names only the contract"
+K="$WORK/hosting"
+k() { run "$@" --ledger "$K"; }
+run key generate --out k-root.key > /dev/null
+run key generate --out k-log.key > /dev/null
+run init --org "Hosting Company" --root-key k-root.key --log-key k-log.key --ledger "$K" > /dev/null
+K_ID="$(k status --json | json 'd["ledger_id"]')"
+KC="$(k contract deploy --bo hosting.bo --as k-root.key --json 2> /dev/null | json 'd["contract"]["id"]')"
+# Due on 1 March 2026 (+08:00), long past: 3 days later it is suspended.
+DUE="$(python3 -c 'import datetime as t; print(int(t.datetime(2026, 3, 1, tzinfo=t.timezone(t.timedelta(hours=8))).timestamp() * 1000))')"
+CUSTOMER="$(python3 -c 'print("c5" * 32)')"
+create_hosting() {
+    k contract create "$1" create --args "{\"fields\": {\"due\": $DUE}, \"parties\": {\"customer\": h'$CUSTOMER', \"we\": h'$K_ID'}}" \
+        --as k-root.key --json | json 'd["instance"]["id"]'
+}
+KI="$(create_hosting "$KC")"
+# Before its time, a dry run says so; --at asks when the rule applies.
+k contract call "$KI" when.suspend --as k-root.key --dry-run --at 2026-03-03 | contains -F "(bo:when when.suspend)" || fail "keeper: refused before its time"
+k contract call "$KI" when.suspend --as k-root.key --dry-run --at 2026-03-04 --json > dry.json
+json 'd["verdict"], d["status"], d["events"][0]["name"], d["events"][0]["data"]' < dry.json > out.txt
+contains -Fx "accept suspended when {\"late\": 28800000, \"rule\": \"when.suspend\", \"time\": 1772553600000}" out.txt || fail "keeper: --at"
+expect_exit 1 contract call "$KI" when.suspend --as k-root.key --at 2026-03-04 --ledger "$K"
+contains -F -- "--at needs --dry-run" out.txt || fail "keeper: --at without --dry-run"
+run contract call --help | contains -F "with --dry-run --at TIME" || fail "keeper: help"
+# The keeper: a device with a delegation for this contract's calls only
+# (scope key 7). Its schedule (cron, say) calls every rule; a rule whose
+# time has not come is refused, and nothing is recorded.
+run key generate --out keeper.key > /dev/null
+run key public keeper.key --out keeper.pub > /dev/null
+KEEPER="$(k actor add --as k-root.key --kind device --name "Keeper" --key keeper.pub --json | json 'd["actor"]["id"]')"
+k delegation grant --as k-root.key --to "$KEEPER" --allow contract-call --contracts "$KC" > /dev/null
+HEAD_BEFORE="$(k contract instance "$KI" --json | json 'd["head"]')"
+expect_exit 2 contract call "$KI" when.terminate --as keeper.key --ledger "$K"
+contains -F "(bo:when when.terminate)" out.txt || fail "keeper: terminate is not due"
+[ "$(k contract instance "$KI" --json | json 'd["head"]')" = "$HEAD_BEFORE" ] || fail "keeper: nothing recorded"
+k contract call "$KI" when.suspend --as keeper.key --json | json 'd["instance"]["status"]' | contains -Fx suspended || fail "keeper: suspended"
+k contract instance "$KI" --json | json 'd["calls"][-1]["function"], d["calls"][-1]["by"]["name"]' | contains -Fx "when.suspend Keeper" || fail "keeper: its call"
+expect_exit 2 contract call "$KI" when.suspend --as keeper.key --ledger "$K"
+contains -F "(bo:fired when.suspend)" out.txt || fail "keeper: once for each time"
+# Its delegation names this contract only: another contract's rules are not its to call.
+KC2="$(k contract deploy --bo hosting.bo --as k-root.key --json 2> /dev/null | json 'd["contract"]["id"]')"
+KI2="$(create_hosting "$KC2")"
+expect_exit 2 contract call "$KI2" when.suspend --as keeper.key --ledger "$K"
+contains -iF "delegation" out.txt || fail "keeper: scope key 7"
+# Offline: the evidence shows the keeper's call, its event, and the code rebuilt.
+k contract evidence "$KI" --log-key k-log.key --out hosting.cbor > /dev/null
+run contract verify hosting.cbor --ledger-id "$K_ID" > verify.txt
+contains -F "  Status       suspended" verify.txt || fail "keeper: verify status"
+contains -F "when.suspend" verify.txt || fail "keeper: verify the call"
+contains -F "rebuilds: the source rebuilds to the deployed code" verify.txt || fail "keeper: verify rebuilds"
+contains -F "VERIFICATION FAILED" verify.txt && fail "keeper: verified"
+run audit --ledger "$K" | contains 'audit passed' || fail "keeper: audit"
 
 echo "bo: all checks passed"

@@ -1,0 +1,17 @@
+测试 “the keeper calls each rule once its time has come”：通过
+  第 1 步（第 27 行）通过：we create with due = 2027-06-30, fee = HKD 100 at 2027-06-01
+    结果：调用被接受，实例现为正常。
+  第 2 步（第 28 行）通过：keeper suspend at 2027-06-30 -> refused "bo:when when.suspend"
+    结果：调用被拒绝，因为 when.suspend 尚不适用：时间未到，或条件不成立（bo:when when.suspend）。
+    合约条款 5.4：当实例已逾期（已过到期日）时：
+  第 3 步（第 29 行）通过：keeper suspend at 2027-07-01 -> suspended
+    结果：调用被接受，实例现为已暂停。
+  第 4 步（第 30 行）通过：keeper terminate at 2027-07-31 -> refused "bo:when when.terminate"
+    结果：调用被拒绝，因为 when.terminate 尚不适用：时间未到，或条件不成立（bo:when when.terminate）。
+    合约条款 5.5：当实例处于已暂停状态已满 1 个月时：
+  第 5 步（第 31 行）通过：keeper terminate at 2027-08-01 -> terminated
+    结果：调用被接受，实例现为已终止。
+  第 6 步（第 32 行）通过：keeper closed at 2027-12-31 -> closed
+    结果：调用被接受，实例现为 closed。
+
+共 1 个测试：1 个通过，0 个失败。

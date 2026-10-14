@@ -2,6 +2,7 @@ edition 1
 contract VPS服務
 party role.we bound=creation{R3}
 party role.customer bound=creation{R3}
+utc_offset +08:00{R25}
 kind kind.service VPS
 field price.price constant recurring time.monthly money cur.HKD = (phrase time.monthly (money cur.HKD 120))
 field price.traffic constant recurring time.monthly quantity data = (phrase time.monthly (quantity unit.TB 2))
@@ -16,11 +17,11 @@ can act.renew standard by=role.customer agents=delegation{R14}
 can act.upgrade standard by=role.customer agents=delegation{R14} executor{R10}
 can act.refund standard by=role.we agents=propose
   requires cond.in_person{R13} guard=(cond.over (money cur.HKD 100)){R6}
-when (cond.before_due (duration time.day 7))
+when (cond.before_due (duration time.day 7)) trigger=before_due function=when.notify{R24}
   do act.notify role.customer executor{R10}
-when (phrase cond.overdue (duration time.day 3))
+when (phrase cond.overdue (duration time.day 3)) trigger=overdue function=when.suspend{R24}
   do act.suspend executor{R10}
-when (phrase cond.overdue (duration time.day 30))
+when (phrase cond.overdue (duration time.day 30)) trigger=overdue function=when.terminate{R24}
   do act.terminate executor{R10}
   do act.reclaim IP executor{R10}
 11:5 warning check.needs-executor: subscribe asks an executor to act outside the ledger, which comes in step 6b: bo check accepts it, and bo build will refuse it until then

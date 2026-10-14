@@ -203,12 +203,31 @@ struct ActionInfo {
     /// AI agents may only propose it: `function` reads the call and runs
     /// `core`, which `approve` runs too, with the proposal's arguments.
     wasm::Func core{};
+    /// Only time rules do it: no function of its own.
+    bool rule_only = false;
+};
+
+/// A time rule with code (R24): its function, the time it applies at, and
+/// the time it last applied for.
+struct RuleInfo {
+    const m::TimeRule* rule = nullptr;
+    std::string wire;
+    Bytes key;
+    m::Trigger trigger;
+    std::size_t transitions = 0;
+    wasm::Func function{};
+    /// The time it last applied for (i64), and whether it has (i32).
+    wasm::Global fired{};
+    wasm::Global fired_set{};
 };
 
 /// One function being written.
 struct Ctx {
     FunctionBuilder* b = nullptr;
+    /// The action whose lines are written; null for a time rule's own.
     const ActionInfo* action = nullptr;
+    /// Whose refusals they are: the action's or the time rule's function.
+    std::string wire;
     /// The arguments' item, for an action's core (a parameter); otherwise
     /// the call's (input key 2).
     std::optional<Local> args;
@@ -247,10 +266,12 @@ private:
     void plan_roles();
     void plan_states();
     void plan_actions();
+    void plan_rules();
     void plan_finals();
     [[nodiscard]] std::optional<std::pair<Span, std::string>>
     unsupported_in(const m::Expr& e, const ActionInfo* action, bool consent_ok, int depth) const;
-    void support(ActionInfo& action, const std::vector<m::Statement>& list);
+    void support(ActionInfo& action, const std::vector<m::Statement>& list, bool rule = false);
+    [[nodiscard]] const ActionInfo* action_info(const m::Do& d) const;
     [[nodiscard]] const m::Field* constant(const std::string& key) const;
     [[nodiscard]] std::optional<std::string> amount_of(const ActionInfo& action) const;
     void name_check(const std::string& wire, const Span& span, std::size_t limit);
@@ -274,6 +295,12 @@ private:
     void emit_action(const ActionInfo& action);
     void emit_core(const ActionInfo& action);
     void emit_approve(wasm::Func f);
+    void emit_rule(const RuleInfo& rule);
+    void run_action(Ctx& c, const m::Do& d);
+    void now(Ctx& c);
+    void due(Ctx& c);
+    void shift(Ctx& c, const m::Expr& duration, bool earlier);
+    void moment(Ctx& c, const m::Trigger& trigger);
     void entry_check(Ctx& c);
     void party_raw(Ctx& c, const m::Expr& e);
     void ledger_equals(Ctx& c, const m::Expr& x, const m::Expr& y);
@@ -295,6 +322,7 @@ private:
     void record_event_at(FunctionBuilder& b, Local state);
     void write_pending(FunctionBuilder& b);
     void write_event(FunctionBuilder& b);
+    void write_rule_event(FunctionBuilder& b);
 
     std::string_view source_;
     const m::Model& model_;
@@ -318,6 +346,10 @@ private:
     bool previous_used_ = false;
     bool proposals_ = false;
     wasm::Func approve_function_{};
+    /// The time rules with code; whether the instance keeps the time it
+    /// last changed state (`within`, a state held N).
+    std::vector<RuleInfo> rules_;
+    bool since_used_ = false;
 
     // Written in the second pass.
     wasm::Global state_{};
@@ -342,6 +374,14 @@ private:
     wasm::Global event_kind_{};
     wasm::Global event_name_{};
     wasm::Global event_length_{};
+    /// When the instance last changed state (i64); a time rule's event: 1
+    /// once it applies (i32), its function's name, its time, how late.
+    wasm::Global since_{};
+    wasm::Global rule_event_{};
+    wasm::Global rule_name_{};
+    wasm::Global rule_length_{};
+    wasm::Global rule_time_{};
+    wasm::Global rule_late_{};
 };
 
 // ---------------------------------------------------------------------------
@@ -510,7 +550,8 @@ std::optional<std::pair<Span, std::string>> Lowering::unsupported_in(const m::Ex
         if (is(e.concept_entry, "val.yes") || is(e.concept_entry, "val.no") ||
             is(e.concept_entry, "val.none") || is(e.concept_entry, "time.now") ||
             is(e.concept_entry, "time.today") ||
-            (is(e.concept_entry, "cond.in_person") && action != nullptr)) {
+            (is(e.concept_entry, "cond.in_person") && action != nullptr) ||
+            (is(e.concept_entry, "cond.overdue") && model_.due == m::DueKind::field)) {
             return std::nullopt;
         }
         return no(e.concept_entry != nullptr ? std::string(e.concept_entry->id)
@@ -520,11 +561,21 @@ std::optional<std::pair<Span, std::string>> Lowering::unsupported_in(const m::Ex
         if (is(e.concept_entry, "cond.over") && action != nullptr && amount_of(*action)) {
             return all(false);
         }
+        // Times: N before the due date, less than N since the last change.
+        if ((is(e.concept_entry, "cond.before_due") && model_.due == m::DueKind::field) ||
+            is(e.concept_entry, "cond.within")) {
+            return all(false);
+        }
         if (is(e.concept_entry, "cond.consent_of") && consent_ok) {
             return all(false);
         }
         return no(e.concept_entry != nullptr ? std::string(e.concept_entry->id) : "cond.over");
     case ExprKind::phrase:
+        // overdue N; a state held N.
+        if (m::is_trigger(e) &&
+            (e.operands[0].refers == Refers::state || model_.due == m::DueKind::field)) {
+            return unsupported_in(e.operands[1], action, false, depth);
+        }
         return no(!e.operands.empty() && e.operands[0].concept_entry != nullptr
                       ? std::string(e.operands[0].concept_entry->id)
                       : "price.per");
@@ -580,9 +631,21 @@ std::optional<std::pair<Span, std::string>> Lowering::unsupported_in(const m::Ex
     return no("type.unknown");
 }
 
-void Lowering::support(ActionInfo& action, const std::vector<m::Statement>& list) {
+const ActionInfo* Lowering::action_info(const m::Do& d) const {
+    const std::string key =
+        m::key(d.action.kind == ExprKind::word ? d.action.concept_entry : nullptr, d.action.name);
+    for (const ActionInfo& a : actions_) {
+        if (a.key == key) {
+            return &a;
+        }
+    }
+    return nullptr;
+}
+
+void Lowering::support(ActionInfo& action, const std::vector<m::Statement>& list, const bool rule) {
+    // A time rule's own lines (`rule`) are no action's.
     const auto check = [&](const m::Expr& e, bool consent_ok) {
-        if (auto found = unsupported_in(e, &action, consent_ok, 0)) {
+        if (auto found = unsupported_in(e, rule ? nullptr : &action, consent_ok, 0)) {
             unsupported(found->first, std::move(found->second));
         }
     };
@@ -597,8 +660,8 @@ void Lowering::support(ActionInfo& action, const std::vector<m::Statement>& list
                 },
                 [&](const m::If& i) {
                     check(i.condition, false);
-                    support(action, i.then);
-                    support(action, i.otherwise);
+                    support(action, i.then, rule);
+                    support(action, i.otherwise, rule);
                 },
                 [&](const m::Each& e) { unsupported(e.span, "kw.each"); },
                 [&](const m::Reject& r) {
@@ -631,6 +694,13 @@ void Lowering::support(ActionInfo& action, const std::vector<m::Statement>& list
                     const std::string key = m::key(d.action.concept_entry, d.action.name);
                     if (d.executor) {
                         error(d.span, "build.executor", {{"action", key}});
+                    } else if (rule && d.obligation) {
+                        // A duty (R9): no call.
+                    } else if (const ActionInfo* done = rule ? action_info(d) : nullptr) {
+                        // A time rule does an action: its state changes count.
+                        action.transitions += done->transitions;
+                    } else if (rule && d.action.kind == ExprKind::word) {
+                        error(d.span, "build.standard-action", {{"action", key}});
                     } else {
                         unsupported(d.span, key);
                     }
@@ -652,6 +722,7 @@ void Lowering::plan_actions() {
         info.action = &a;
         info.key = m::key(a.word, a.name);
         info.wire = wire_name(a.word, a.name);
+        info.rule_only = a.rule_only;
         if (a.executor) {
             error(a.span, "build.executor", {{"action", info.key}});
         } else if (a.word != nullptr && !a.terms) {
@@ -713,6 +784,70 @@ void Lowering::plan_actions() {
     }
 }
 
+namespace {
+
+/// True if an expression reads the due date: the field, overdue, or N
+/// before due.
+bool reads_due(const m::Expr& e) {
+    return is(e.concept_entry, "field.due") || is(e.concept_entry, "cond.overdue") ||
+           is(e.concept_entry, "cond.before_due") ||
+           std::ranges::any_of(e.operands, [](const m::Expr& o) { return reads_due(o); });
+}
+
+} // namespace
+
+void Lowering::plan_rules() {
+    // R24: each time rule with code is a function a keeper calls once its
+    // time has come (the duties of R9 have none).
+    const std::vector<std::string> names = m::rule_functions(model_);
+    for (std::size_t i = 0; i < model_.rules.size(); ++i) {
+        const m::TimeRule& r = model_.rules[i];
+        if (!m::rule_runs(r)) {
+            continue;
+        }
+        std::optional<m::Trigger> trigger = m::trigger_of(r.event);
+        // A service is due at the end of each paid period (R11), which its
+        // executors track (6b).
+        if (!trigger || (model_.due != m::DueKind::field && reads_due(r.event))) {
+            error(r.span, "build.time-rule", {{"text", quote(source_, r.span)}});
+            continue;
+        }
+        RuleInfo info;
+        info.rule = &r;
+        info.wire = names[i];
+        info.key = text_cbor(info.wire);
+        info.trigger = std::move(*trigger);
+        name_check(info.wire, r.span, max_build_name);
+        if (auto found = unsupported_in(r.event, nullptr, false, 0)) {
+            unsupported(found->first, std::move(found->second));
+        }
+        for (const m::Consent& k : r.consents) {
+            if (auto found = unsupported_in(k.party, nullptr, false, 0)) {
+                unsupported(found->first, std::move(found->second));
+            }
+        }
+        // What it does: its line's actions, then its block.
+        ActionInfo own;
+        own.wire = info.wire;
+        for (const m::Do& d : r.actions) {
+            support(own, {m::Statement{d}}, true);
+        }
+        support(own, r.body, true);
+        info.transitions = own.transitions;
+        // Its event, and each state change.
+        if (info.transitions + 1 > max_build_events) {
+            error(r.span, "build.too-many-events",
+                  {{"action", info.wire}, {"limit", std::to_string(max_build_events)}});
+        }
+        max_transitions_ = std::max(max_transitions_, info.transitions);
+        rules_.push_back(std::move(info));
+    }
+    if (!rules_.empty() && actions_.size() + 1 <= max_build_functions &&
+        actions_.size() + rules_.size() + 1 > max_build_functions) {
+        error(Span{}, "build.too-many-functions", {{"limit", std::to_string(max_build_functions)}});
+    }
+}
+
 void Lowering::plan_finals() {
     // A state is final when no action can start from it.
     const std::vector<bool> finals = m::final_states(model_);
@@ -726,15 +861,6 @@ void Lowering::plan() {
     if (model_.name.empty()) {
         error(Span{}, "build.fragment", {});
     }
-    for (const m::TimeRule& r : model_.rules) {
-        // A rule that only states duties (R9) calls nothing: no code.
-        const bool duties =
-            r.body.empty() && r.consents.empty() &&
-            std::ranges::all_of(r.actions, [](const m::Do& d) { return d.obligation; });
-        if (!duties) {
-            error(r.span, "build.time-rule", {{"text", quote(source_, r.span)}});
-        }
-    }
     for (const m::Charge& c : model_.charges) {
         unsupported(c.span, c.kind != nullptr ? std::string(c.kind->id) : "charge.charge");
     }
@@ -742,6 +868,8 @@ void Lowering::plan() {
     plan_roles();
     plan_states();
     plan_actions();
+    plan_rules();
+    since_used_ = m::uses_since(model_);
     if (!states_.empty()) {
         plan_finals();
     }
@@ -943,6 +1071,44 @@ wasm::Func Lowering::load_instance() {
             b.end(some);
         }
     }
+    if (since_used_) {
+        // When the instance last changed state.
+        b.get(st);
+        push_key(b, text_cbor("since"));
+        b.call(map_get);
+        expect(b, Rep::i64, input);
+        b.global_set(since_);
+    }
+    if (!rules_.empty()) {
+        // For each time rule, the time it last applied for, or null.
+        const Local fired = b.local(I32);
+        b.get(st);
+        push_key(b, text_cbor("fired"));
+        b.call(map_get).tee(fired).op(i32_eqz);
+        b.get(fired).load(i32_load8_u).u32(0xE0).op(i32_and).u32(0xA0).op(i32_ne).op(i32_or);
+        {
+            const Label other = b.if_();
+            b.call(rt_.fail(rt::Reason::input));
+            b.end(other);
+        }
+        for (const RuleInfo& rule : rules_) {
+            b.get(fired);
+            push_key(b, rule.key);
+            b.call(map_get).tee(p).op(i32_eqz);
+            {
+                const Label missing = b.if_();
+                b.call(rt_.fail(rt::Reason::input));
+                b.end(missing);
+            }
+            b.get(p).load(i32_load8_u).u32(0xF6).op(i32_ne);
+            const Label applied = b.if_();
+            b.get(p);
+            expect(b, Rep::i64, input);
+            b.global_set(rule.fired);
+            b.i32(1).global_set(rule.fired_set);
+            b.end(applied);
+        }
+    }
     if (proposals_) {
         // The proposals: an array of [function, arguments].
         b.get(st);
@@ -1012,6 +1178,10 @@ wasm::Func Lowering::write_accept() {
         // A proposal or an approval: one more event.
         b.global_get(event_kind_).op(i32_eqz).op(i32_eqz).get(events).op(i32_add).set(events);
     }
+    if (!rules_.empty()) {
+        // A time rule applied: one more event.
+        b.global_get(rule_event_).get(events).op(i32_add).set(events);
+    }
     // [1, {1: state, 2: status, ? 3: parties, ? 4: events, ? 5: true}]
     b.i32(4).i64(2).call(head);
     b.i64(1).call(out_int);
@@ -1023,7 +1193,36 @@ wasm::Func Lowering::write_accept() {
     // NAME or null}, keys in canonical order.
     b.i64(1).call(out_int);
     b.global_get(rt_.var(rt::Var::out)).set(mark);
-    b.i32(5).i64(2 + (proposals_ ? 1 : 0) + (previous_used_ ? 1 : 0)).call(head);
+    b.i32(5)
+        .i64(2 + (proposals_ ? 1 : 0) + (previous_used_ ? 1 : 0) + (rules_.empty() ? 0 : 1) +
+             (since_used_ ? 1 : 0))
+        .call(head);
+    if (!rules_.empty()) {
+        // "fired": {RULE: the time it last applied for, or null}.
+        push_key(b, text_cbor("fired"));
+        b.call(out_raw);
+        b.i32(5).i64(static_cast<std::int64_t>(rules_.size())).call(head);
+        std::vector<const RuleInfo*> sorted;
+        for (const RuleInfo& rule : rules_) {
+            sorted.push_back(&rule);
+        }
+        std::ranges::sort(sorted, {}, &RuleInfo::key);
+        for (const RuleInfo* rule : sorted) {
+            push_key(b, rule->key);
+            b.call(out_raw);
+            b.global_get(rule->fired_set);
+            const Label applied = b.if_();
+            b.global_get(rule->fired).call(out_int);
+            b.else_(applied);
+            b.call(rt_.get(Routine::out_null));
+            b.end(applied);
+        }
+    }
+    if (since_used_) {
+        push_key(b, text_cbor("since"));
+        b.call(out_raw);
+        b.global_get(since_).call(out_int);
+    }
     push_key(b, text_cbor("state"));
     b.call(out_raw);
     state_name(b, index);
@@ -1123,10 +1322,13 @@ wasm::Func Lowering::write_accept() {
         if (proposals_) {
             write_event(b);
         }
+        if (!rules_.empty()) {
+            write_rule_event(b);
+        }
         const Label done = b.block();
         const Label next = b.loop();
         b.get(i);
-        if (proposals_) {
+        if (proposals_ || !rules_.empty()) {
             b.global_get(events_);
         } else {
             b.get(events);
@@ -1251,6 +1453,31 @@ void Lowering::write_event(FunctionBuilder& b) {
     b.end(some);
 }
 
+void Lowering::write_rule_event(FunctionBuilder& b) {
+    // [when, {"late": ms, "rule": FUNCTION, "time": ms}]: the time it
+    // applies at, and how much later the call came.
+    b.global_get(rule_event_);
+    const Label some = b.if_();
+    const wasm::Func head = rt_.get(Routine::out_head);
+    const wasm::Func out_raw = rt_.get(Routine::out_raw);
+    const wasm::Func out_int = rt_.get(Routine::out_int);
+    b.i32(4).i64(2).call(head);
+    constexpr std::string_view when_event = "when";
+    b.u32(intern(when_event)).u32(static_cast<std::uint32_t>(when_event.size()));
+    b.call(rt_.get(Routine::out_text));
+    b.i32(5).i64(3).call(head);
+    push_key(b, text_cbor("late"));
+    b.call(out_raw);
+    b.global_get(rule_late_).call(out_int);
+    push_key(b, text_cbor("rule"));
+    b.call(out_raw);
+    b.global_get(rule_name_).global_get(rule_length_).call(rt_.get(Routine::out_text));
+    push_key(b, text_cbor("time"));
+    b.call(out_raw);
+    b.global_get(rule_time_).call(out_int);
+    b.end(some);
+}
+
 void Lowering::emit_entry(const wasm::Func entry) {
     FunctionBuilder b = module_.begin(entry);
     const Local p = b.local(I32);
@@ -1261,10 +1488,15 @@ void Lowering::emit_entry(const wasm::Func entry) {
     b.set(n).set(p);
     std::vector<std::pair<std::string, wasm::Func>> functions{{creation_, creation_function_}};
     for (const ActionInfo& a : actions_) {
-        functions.emplace_back(a.wire, a.function);
+        if (!a.rule_only) {
+            functions.emplace_back(a.wire, a.function);
+        }
     }
     if (proposals_) {
         functions.emplace_back(std::string(m::approve_function), approve_function_);
+    }
+    for (const RuleInfo& r : rules_) {
+        functions.emplace_back(r.wire, r.function);
     }
     std::ranges::sort(functions, {}, &std::pair<std::string, wasm::Func>::first);
     for (const auto& [name, f] : functions) {
@@ -1355,6 +1587,11 @@ void Lowering::emit_creation(const wasm::Func f) {
     }
     b.i32(0).global_set(state_);
     record_event(b, 0);
+    if (since_used_) {
+        call_item(b, 7);
+        expect(b, Rep::i64, rt::text_of(rt::Reason::input));
+        b.global_set(since_);
+    }
     b.call(write_accept());
     module_.define(std::move(b));
 }
@@ -1424,7 +1661,20 @@ void Lowering::arguments(Ctx& c) {
         b.set(value);
         c.inputs.emplace(m::key(input.word, input.name), std::pair{value, length});
     }
-    if (c.action->binds) {
+    if (c.action->binds && roles_[*c.action->binds].party->each_call) {
+        // R23: each call names the role's ledger, and binds the role to it.
+        const RoleSlot& role = roles_[*c.action->binds];
+        const std::string reason = "bo:argument " + role.wire;
+        b.get(given).op(i32_eqz);
+        {
+            const Label missing = b.if_();
+            refuse(b, reason);
+            b.end(missing);
+        }
+        b.get(given);
+        expect(b, Rep::ledger, reason);
+        b.global_set(role.ledger);
+    } else if (c.action->binds) {
         // R3: the role is bound now, by the argument under its name; once
         // bound, the argument may repeat it.
         const RoleSlot& role = roles_[*c.action->binds];
@@ -1485,7 +1735,7 @@ void Lowering::entry_check(Ctx& c) {
     }
     b.op(i32_eqz);
     const Label other = b.if_();
-    refuse(b, "bo:state " + c.action->wire);
+    refuse(b, "bo:state " + c.wire);
     b.end(other);
 }
 
@@ -1504,6 +1754,7 @@ void Lowering::emit_action(const ActionInfo& info) {
     Ctx c;
     c.b = &b;
     c.action = &info;
+    c.wire = info.wire;
     c.signer = b.local(I32);
     c.t32 = b.local(I32);
     c.t64 = b.local(I64);
@@ -1538,6 +1789,7 @@ void Lowering::emit_core(const ActionInfo& info) {
     Ctx c;
     c.b = &b;
     c.action = &info;
+    c.wire = info.wire;
     c.args = b.param(0);
     const Local approving = b.param(1);
     c.signer = b.local(I32);
@@ -1730,7 +1982,13 @@ void Lowering::statements(Ctx& c, const std::vector<m::Statement>& list) {
                     store(b, slot);
                 },
                 [&](const m::Transition& t) { transition(c, t); },
-                [&](const m::Do&) { BO_ASSERT(false); },
+                [&](const m::Do& d) {
+                    // Only in a time rule: an action it does (a duty, none).
+                    BO_ASSERT(!d.executor);
+                    if (!d.obligation) {
+                        run_action(c, d);
+                    }
+                },
             },
             s.node);
     }
@@ -1754,14 +2012,14 @@ void Lowering::requirement(Ctx& c, const m::Requires& r) {
         const Label known = b.if_();
         b.get(c.signer).call(rt_.get(Routine::in_person)).op(i32_eqz);
         const Label absent = b.if_();
-        refuse(b, "bo:in-person " + c.action->wire);
+        refuse(b, "bo:in-person " + c.wire);
         b.end(absent);
         b.end(known);
     } else {
         value(c, e);
         b.op(i32_eqz);
         const Label failed = b.if_();
-        const std::string prefix = "bo:requires " + c.action->wire + " ";
+        const std::string prefix = "bo:requires " + c.wire + " ";
         b.u32(intern(prefix)).u32(static_cast<std::uint32_t>(prefix.size())).i64(number);
         b.call(rt_.get(Routine::fail_numbered)).unreachable();
         b.end(failed);
@@ -1784,15 +2042,20 @@ void Lowering::transition(Ctx& c, const m::Transition& t) {
         }
         b.op(i32_eqz);
         const Label other = b.if_();
-        refuse(b, "bo:state " + c.action->wire);
+        refuse(b, "bo:state " + c.wire);
         b.end(other);
+    }
+    if (since_used_) {
+        // The instance changes state now.
+        now(c);
+        b.global_set(since_);
     }
     if (is(t.to.concept_entry, "expr.previous_state")) {
         // Back to the state before the current one; none refuses.
         b.global_get(previous_).op(i32_eqz);
         {
             const Label none = b.if_();
-            refuse(b, "bo:state " + c.action->wire);
+            refuse(b, "bo:state " + c.wire);
             b.end(none);
         }
         b.global_get(previous_).i32(1).op(i32_sub).set(c.t32);
@@ -1807,6 +2070,165 @@ void Lowering::transition(Ctx& c, const m::Transition& t) {
     }
     b.u32(static_cast<std::uint32_t>(to)).global_set(state_);
     record_event(b, to);
+}
+
+void Lowering::now(Ctx& c) {
+    // The call's registration time (input key 7).
+    call_item(*c.b, 7);
+    expect(*c.b, Rep::i64, rt::text_of(rt::Reason::input));
+}
+
+void Lowering::due(Ctx& c) {
+    // The instance's due date (a field, or the same for every instance).
+    m::Expr field;
+    field.kind = ExprKind::word;
+    field.concept_entry = find_concept("field.due");
+    field.refers = Refers::field;
+    field.type.kind = TypeKind::date;
+    reference(c, field);
+}
+
+void Lowering::shift(Ctx& c, const m::Expr& duration, const bool earlier) {
+    // [time] -> [time]: so long later (or earlier); months by the calendar.
+    FunctionBuilder& b = *c.b;
+    value(c, duration);
+    if (earlier) {
+        b.call(rt_.get(Routine::neg));
+    }
+    if (duration.type.calendar) {
+        b.i64(model_.utc_offset_ms).call(rt_.get(Routine::add_months));
+    } else {
+        b.call(rt_.get(Routine::add));
+    }
+}
+
+void Lowering::moment(Ctx& c, const m::Trigger& trigger) {
+    // The time a rule's event names.
+    FunctionBuilder& b = *c.b;
+    switch (trigger.kind) {
+    case m::TriggerKind::date:
+        value(c, *trigger.value);
+        return;
+    case m::TriggerKind::before_due:
+        due(c);
+        shift(c, *trigger.value, true);
+        return;
+    case m::TriggerKind::overdue:
+        // Overdue: from the day after the due date; overdue N: from N after it.
+        due(c);
+        if (trigger.value != nullptr) {
+            shift(c, *trigger.value, false);
+        } else {
+            b.i64(static_cast<std::int64_t>(day_ms)).call(rt_.get(Routine::add));
+        }
+        return;
+    case m::TriggerKind::held:
+        b.global_get(since_);
+        shift(c, *trigger.value, false);
+        return;
+    }
+}
+
+void Lowering::run_action(Ctx& c, const m::Do& d) {
+    // A time rule does an action: the action's requirements, consents, and
+    // changes, as the contract's own word (no starter's agreement, R24).
+    const ActionInfo* info = action_info(d);
+    BO_ASSERT(info != nullptr);
+    const ActionInfo* outer = c.action;
+    const std::string wire = c.wire;
+    const std::uint32_t count = c.requires_count;
+    c.action = info;
+    c.wire = info->wire;
+    c.requires_count = 0;
+    entry_check(c);
+    for (const m::Consent& k : info->action->consents) {
+        consent_of(c, k.party);
+    }
+    statements(c, info->action->body);
+    c.action = outer;
+    c.wire = wire;
+    c.requires_count = count;
+}
+
+void Lowering::emit_rule(const RuleInfo& info) {
+    FunctionBuilder b = module_.begin(info.function);
+    Ctx c;
+    c.b = &b;
+    c.wire = info.wire;
+    c.signer = b.local(I32);
+    c.t32 = b.local(I32);
+    c.t64 = b.local(I64);
+    c.t64b = b.local(I64);
+    const Local args = b.local(I32);
+    const Local at = b.local(I64);
+    const Local time = b.local(I64);
+    const m::TimeRule& r = *info.rule;
+    b.call(load_instance());
+    // No arguments: null, or an empty map.
+    call_item(b, 2);
+    b.tee(args).load(i32_load8_u).u32(0xF6).op(i32_ne);
+    b.get(args).load(i32_load8_u).u32(0xA0).op(i32_ne).op(i32_and);
+    {
+        const Label other = b.if_();
+        refuse(b, "bo:arguments");
+        b.end(other);
+    }
+    // Its time has come (the registration time decides), and its
+    // conditions hold; a held state is the instance's.
+    const std::string not_yet = "bo:when " + info.wire;
+    if (info.trigger.kind == m::TriggerKind::held) {
+        const std::size_t state =
+            state_index_.at(m::key(info.trigger.state->concept_entry, info.trigger.state->name));
+        b.global_get(state_).u32(static_cast<std::uint32_t>(state)).op(i32_ne);
+        const Label other = b.if_();
+        refuse(b, not_yet);
+        b.end(other);
+    }
+    now(c);
+    b.set(time);
+    moment(c, info.trigger);
+    b.tee(at).get(time).op(i64_gt_s);
+    {
+        const Label early = b.if_();
+        refuse(b, not_yet);
+        b.end(early);
+    }
+    for (const m::Expr* condition : info.trigger.conditions) {
+        value(c, *condition);
+        b.op(i32_eqz);
+        const Label other = b.if_();
+        refuse(b, not_yet);
+        b.end(other);
+    }
+    // Once for each time.
+    b.global_get(info.fired_set);
+    {
+        const Label applied = b.if_();
+        b.global_get(info.fired).get(at).op(i64_eq);
+        const Label same = b.if_();
+        refuse(b, "bo:fired " + info.wire);
+        b.end(same);
+        b.end(applied);
+    }
+    // Its event first: the rule, its time, and how late the call came.
+    b.i32(1).global_set(rule_event_);
+    b.u32(intern(info.wire)).global_set(rule_name_);
+    b.u32(static_cast<std::uint32_t>(info.wire.size())).global_set(rule_length_);
+    b.get(at).global_set(rule_time_);
+    b.get(time).get(at).call(rt_.get(Routine::sub)).global_set(rule_late_);
+    for (const m::Consent& k : r.consents) {
+        consent_of(c, k.party);
+    }
+    for (const m::Do& d : r.actions) {
+        if (!d.obligation) {
+            run_action(c, d);
+        }
+    }
+    statements(c, r.body);
+    b.get(at).global_set(info.fired);
+    b.i32(1).global_set(info.fired_set);
+    finish(b);
+    module_.define(std::move(b));
 }
 
 bool Lowering::may_be_empty(const m::Expr& e) const {
@@ -1944,10 +2366,18 @@ void Lowering::reference(Ctx& c, const m::Expr& e) {
         expect(b, Rep::i64, rt::text_of(rt::Reason::input));
         if (is(e.concept_entry, "time.today")) {
             // The local midnight that starts the day (U6).
-            b.tee(c.t64).i64(default_offset_ms).call(rt_.get(Routine::local_days));
+            b.tee(c.t64).i64(model_.utc_offset_ms).call(rt_.get(Routine::local_days));
             b.set(c.t64b).op(drop);
             b.get(c.t64).get(c.t64b).op(i64_sub);
         }
+        return;
+    }
+    if (is(e.concept_entry, "cond.overdue")) {
+        // Overdue: from the day after the due date on.
+        now(c);
+        due(c);
+        b.i64(static_cast<std::int64_t>(day_ms)).call(rt_.get(Routine::add));
+        b.op(i64_ge_s);
         return;
     }
     if (is(e.concept_entry, "cond.in_person")) {
@@ -1964,7 +2394,7 @@ void Lowering::value(Ctx& c, const m::Expr& e) {
         if (e.literal.kind == ast::LiteralKind::text) {
             b.u32(intern(e.literal.text)).u32(static_cast<std::uint32_t>(e.literal.text.size()));
         } else {
-            b.i64(literal_value(e.literal).value_or(0));
+            b.i64(literal_value(e.literal, model_.utc_offset_ms).value_or(0));
         }
         return;
     case ExprKind::name:
@@ -1972,6 +2402,22 @@ void Lowering::value(Ctx& c, const m::Expr& e) {
         reference(c, e);
         return;
     case ExprKind::apply: {
+        if (is(e.concept_entry, "cond.before_due")) {
+            // From N before the due date on.
+            now(c);
+            due(c);
+            shift(c, e.operands[0], true);
+            b.op(i64_ge_s);
+            return;
+        }
+        if (is(e.concept_entry, "cond.within")) {
+            // Less than N since the instance last changed state.
+            now(c);
+            b.global_get(since_);
+            shift(c, e.operands[0], false);
+            b.op(i64_lt_s);
+            return;
+        }
         // cond.over (R6): the action's amount is over the threshold.
         const std::string amount = *amount_of(*c.action);
         m::Expr ref;
@@ -2004,6 +2450,28 @@ void Lowering::value(Ctx& c, const m::Expr& e) {
         binary(c, e);
         return;
     case ExprKind::phrase:
+        if (m::is_trigger(e) && e.operands[0].refers == Refers::state) {
+            // In the state, and for at least N since it entered it.
+            reference(c, e.operands[0]);
+            const Label in_state = b.if_(I32);
+            now(c);
+            b.global_get(since_);
+            shift(c, e.operands[1], false);
+            b.op(i64_ge_s);
+            b.else_(in_state);
+            b.i32(0);
+            b.end(in_state);
+            return;
+        }
+        if (m::is_trigger(e)) {
+            // Overdue N: from N after the due date on.
+            now(c);
+            due(c);
+            shift(c, e.operands[1], false);
+            b.op(i64_ge_s);
+            return;
+        }
+        break;
     case ExprKind::list:
         break;
     }
@@ -2101,13 +2569,13 @@ void Lowering::arithmetic(Ctx& c, const m::Expr& e) {
             if (e.op == Operator::minus) {
                 b.call(rt_.get(Routine::neg));
             }
-            b.i64(default_offset_ms).call(rt_.get(Routine::add_months));
+            b.i64(model_.utc_offset_ms).call(rt_.get(Routine::add_months));
             return;
         }
         if (xk == TypeKind::duration && yk == TypeKind::date && x.type.calendar) {
             value(c, y);
             value(c, x);
-            b.i64(default_offset_ms).call(rt_.get(Routine::add_months));
+            b.i64(model_.utc_offset_ms).call(rt_.get(Routine::add_months));
             return;
         }
         value(c, x);
@@ -2176,6 +2644,20 @@ void Lowering::emit() {
             *g = module_.add_global(I32, 0);
         }
     }
+    if (since_used_) {
+        since_ = module_.add_global(I64, 0);
+    }
+    if (!rules_.empty()) {
+        for (RuleInfo& r : rules_) {
+            r.fired = module_.add_global(I64, 0);
+            r.fired_set = module_.add_global(I32, 0);
+        }
+        for (wasm::Global* g : {&rule_event_, &rule_name_, &rule_length_}) {
+            *g = module_.add_global(I32, 0);
+        }
+        rule_time_ = module_.add_global(I64, 0);
+        rule_late_ = module_.add_global(I64, 0);
+    }
     events_area_ = module_.reserve(static_cast<std::uint32_t>(4 * max_transitions_), 4);
     Bytes names;
     Bytes finals;
@@ -2195,6 +2677,9 @@ void Lowering::emit() {
     const wasm::Func entry = module_.declare({});
     creation_function_ = module_.declare({});
     for (ActionInfo& a : actions_) {
+        if (a.rule_only) {
+            continue;
+        }
         a.function = module_.declare({});
         if (a.action->agents_propose) {
             a.core = module_.declare({{I32, I32}, {}});
@@ -2203,13 +2688,21 @@ void Lowering::emit() {
     if (proposals_) {
         approve_function_ = module_.declare({});
     }
+    for (RuleInfo& r : rules_) {
+        r.function = module_.declare({});
+    }
     emit_entry(entry);
     emit_creation(creation_function_);
     for (const ActionInfo& a : actions_) {
-        emit_action(a);
+        if (!a.rule_only) {
+            emit_action(a);
+        }
     }
     if (proposals_) {
         emit_approve(approve_function_);
+    }
+    for (const RuleInfo& r : rules_) {
+        emit_rule(r);
     }
     module_.entry(entry);
 }
@@ -2233,10 +2726,15 @@ Lowered Lowering::run() {
     build.code = std::move(*code);
     build.interface.emplace(creation_, protocol::FunctionKind::create);
     for (const ActionInfo& a : actions_) {
-        build.interface.emplace(a.wire, protocol::FunctionKind::call);
+        if (!a.rule_only) {
+            build.interface.emplace(a.wire, protocol::FunctionKind::call);
+        }
     }
     if (proposals_) {
         build.interface.emplace(std::string(m::approve_function), protocol::FunctionKind::call);
+    }
+    for (const RuleInfo& r : rules_) {
+        build.interface.emplace(r.wire, protocol::FunctionKind::call);
     }
     out.build = std::move(build);
     return out;

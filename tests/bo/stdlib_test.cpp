@@ -96,10 +96,11 @@ TEST_CASE("the standard library reads, as compiled in, in every language", "[bo]
         actions.emplace_back(can->action.concept_entry->id);
         CHECK(library.find(can->action.concept_entry->id) == can);
     }
-    CHECK(actions == std::vector<std::string>{"act.transfer", "act.pledge", "act.release",
-                                              "act.enforce", "act.redeem", "act.pay",
-                                              "act.confirm_payment", "act.dispute", "act.freeze",
-                                              "act.unfreeze", "act.cancel"});
+    CHECK(actions ==
+          std::vector<std::string>{"act.transfer", "act.pledge", "act.release", "act.enforce",
+                                   "act.redeem", "act.pay", "act.confirm_payment", "act.dispute",
+                                   "act.freeze", "act.unfreeze", "act.cancel", "act.suspend",
+                                   "act.resume", "act.terminate", "act.allocate", "act.reclaim"});
     CHECK(library.find("act.refund") == nullptr);
     CHECK(library.find("act.issue") == nullptr);
 }
@@ -107,7 +108,7 @@ TEST_CASE("the standard library reads, as compiled in, in every language", "[bo]
 TEST_CASE("every built-in action's terms, in short", "[bo][stdlib]") {
     // A contract declaring them all checks, every action with its terms.
     const model::Model& m = standard_model();
-    REQUIRE(m.actions.size() == 11);
+    REQUIRE(m.actions.size() == 16);
     for (const model::Action& a : m.actions) {
         INFO(a.word->id);
         CHECK(a.terms);
@@ -139,7 +140,12 @@ TEST_CASE("every built-in action's terms, in short", "[bo][stdlib]") {
                        "freeze: home state.active state.pledged state.paid state.disputed -> "
                        "state.frozen",
                        "unfreeze: home state.frozen -> expr.previous_state",
-                       "cancel: field.holder state.active -> state.cancelled"});
+                       "cancel: field.holder state.active -> state.cancelled",
+                       "suspend: home state.active -> state.suspended",
+                       "resume: home state.suspended -> state.active",
+                       "terminate: home state.active state.suspended -> state.terminated",
+                       "allocate: home to state.active state.cooling -> state.allocated",
+                       "reclaim: home state.allocated -> state.cooling"});
 }
 
 namespace {

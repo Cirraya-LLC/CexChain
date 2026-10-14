@@ -265,6 +265,13 @@ int record_call(const Args& args, Session& session, protocol::ContractCallBody b
     if (!options.dry_run) {
         options.presence = presence_request(args);
     }
+    if (const auto at = args.get("at")) {
+        if (!options.dry_run) {
+            throw UsageError{"--at needs --dry-run: a recorded call runs at the time the ledger "
+                             "registers it"};
+        }
+        options.at = parse_time(*at);
+    }
     const CallAttempt attempt = attempt_call(session, *signer, std::move(body), bundles, options);
     const protocol::ContractRun& run = attempt.run;
     const auto& call = std::get<protocol::ContractCallBody>(attempt.statement.statement.body);

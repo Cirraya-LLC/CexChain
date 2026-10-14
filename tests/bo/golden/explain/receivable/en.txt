@@ -14,6 +14,7 @@ Bo wrote this text from the contract's source (Bo edition 1). A clause marked wi
 2.4 holder: a party; each instance starts with the supplier, and actions may change it. [R2]
 2.5 pledgee: a party; each instance starts with none, and actions set it. [R20]
 2.6 Creating an instance (function issue) names the ledgers of the parties bound at creation and sets the fields given at creation. It needs no party's consent: the parties agree through the actions below.
+2.7 Dates and days are counted at UTC+08:00 all year, with no daylight saving; a month after a day the next month lacks (31 January plus a month) ends on that month's last day. [R25]
 
 3. States
 3.1 An instance starts in the state active. [R4]
@@ -59,5 +60,6 @@ A call that does not meet one of an action's requirements is refused, and the in
 [R13] In person asks the party that starts the action to prove presence with a passkey or a hardware key.
 [R14] An AI agent may start an action within its delegation, unless the action says AI agent can propose; then the agent only proposes, and a person approves.
 [R19] A built-in action has the standard terms Bo's standard library gives it (cexchain bo stdlib show ACTION): who starts it, whose consent it needs, the states it starts from and leads to, and what it changes. The contract's own clauses come first and add to them; R8 adds no consent to the standard terms.
-[R20] The pledgee and the payee, used by an action (the standard terms of a built-in action included) but not declared by the contract, are fields of each instance, holding no party until an action sets them.
+[R20] The pledgee and the payee, and a resource's holder, used by an action (the standard terms of a built-in action included) but not declared by the contract, are fields of each instance, holding no party until an action sets them.
 [R21] An action whose counterparty (after to) is counterparty, a party the contract does not declare, takes its counterparty from each call (the argument counterparty) and needs its consent; so does a built-in action with a counterparty when the contract writes no to.
+[R25] A contract that names no UTC offset counts dates and days at UTC+08:00.

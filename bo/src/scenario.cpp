@@ -76,19 +76,19 @@ cbor::Value canonical(cbor::Map entries) {
 }
 
 /// A value a test gives, as compiled code reads it.
-cbor::Value encode_value(const m::Expr& e) {
+cbor::Value encode_value(const m::Expr& e, const std::int64_t offset_ms) {
     switch (e.kind) {
     case ast::ExprKind::literal:
         if (e.literal.kind == ast::LiteralKind::text) {
             return cbor::Value::text(e.literal.text);
         }
-        return cbor::Value::integer(literal_value(e.literal).value_or(0));
+        return cbor::Value::integer(literal_value(e.literal, offset_ms).value_or(0));
     case ast::ExprKind::word:
         return cbor::Value::boolean(e.concept_entry != nullptr && e.concept_entry->id == "val.yes");
     case ast::ExprKind::list: {
         cbor::Array items;
         for (const m::Expr& o : e.operands) {
-            items.push_back(encode_value(o));
+            items.push_back(encode_value(o, offset_ms));
         }
         return cbor::Value::array(std::move(items));
     }
@@ -98,6 +98,10 @@ cbor::Value encode_value(const m::Expr& e) {
 }
 
 ContractSigner signer_of(const m::Step& step) {
+    if (step.keeper) {
+        // The home's keeper: a device.
+        return ContractSigner{3, std::nullopt, std::nullopt};
+    }
     if (step.in_person) {
         return ContractSigner{1, protocol::PresenceMethod::webauthn, std::nullopt};
     }
@@ -152,7 +156,7 @@ struct Ledger {
 class Runner {
 public:
     Runner(const m::Model& model, const vm::Module& module, const crypto::Provider& provider)
-        : model_(model), module_(module), provider_(provider),
+        : model_(model), module_(module), provider_(provider), rules_(m::rule_functions(model)),
           contract_(hash_of(contract_seed, provider)), actor_(hash_of(actor_seed, provider)),
           instance_id_(hash_of(instance_seed, provider)) {}
 
@@ -176,6 +180,8 @@ private:
     const m::Model& model_;
     const vm::Module& module_;
     const crypto::Provider& provider_;
+    /// The time rules' functions (R24).
+    std::vector<std::string> rules_;
     Id contract_;
     Id actor_;
     Id instance_id_;
@@ -220,7 +226,7 @@ cbor::Value Runner::arguments(const m::Step& step, const m::Action* action, cons
     cbor::Map given;
     for (const m::Set& w : step.with) {
         given.push_back({cbor::Value::text(wire_name(w.target.concept_entry, w.target.name)),
-                         encode_value(w.value)});
+                         encode_value(w.value, model_.utc_offset_ms)});
     }
     if (step.creation) {
         // {"fields": {...}, "parties": {role: ledger}}: every role bound at
@@ -279,6 +285,14 @@ void Runner::accept(const m::Step& step, const protocol::ContractAccept& a, Ledg
     }
     for (const protocol::ContractEvent& e : a.events) {
         const std::string* action = e.data.as_text();
+        // A time rule's event: its function, and how late the call came.
+        const cbor::Value* rule = e.data.find("rule");
+        const cbor::Value* late = e.data.find("late");
+        if (rule != nullptr && rule->as_text() != nullptr && late != nullptr && late->as_int64()) {
+            r.events.push_back(e.name + ":" + *rule->as_text() +
+                               " late=" + std::to_string(*late->as_int64()));
+            continue;
+        }
         r.events.push_back(action != nullptr ? e.name + ":" + *action : e.name);
         if (e.name == "propose" && action != nullptr) {
             r.proposed = *action;
@@ -306,14 +320,15 @@ void Runner::run_step(const m::Step& step, Ledger& l, StepResult& r) {
         r.happened = Happened::final_instance;
         return;
     }
-    const m::Action* action = step.creation ? nullptr : find_action(model_, step);
+    const m::Action* action = step.creation || step.keeper ? nullptr : find_action(model_, step);
     // An approval is started by the proposed action's starter.
     const m::Action* starts = action;
     if (step.approve) {
         const cbor::Array* proposal = first_proposal(l.instance);
         starts = proposal != nullptr ? action_named(model_, *proposal->front().as_text()) : nullptr;
     }
-    const Id subject = ledger_of(step.subject, l);
+    // The keeper is the home's device.
+    const Id subject = step.keeper ? l.home : ledger_of(step.subject, l);
     const ContractSigner own = signer_of(step);
     // Who does not consent: those the step expects the call to wait for,
     // and whoever starts the action if the subject does not.
@@ -340,6 +355,7 @@ void Runner::run_step(const m::Step& step, Ledger& l, StepResult& r) {
         protocol::ContractInput input;
         input.function = step.creation  ? std::string(m::creation_function(model_))
                          : step.approve ? std::string(m::approve_function)
+                         : step.keeper  ? rules_.at(step.rule)
                                         : wire_name(step.word, step.name);
         input.arguments = args;
         input.home = l.home;
@@ -473,10 +489,11 @@ TestResult Runner::run(const m::Test& test) {
     out.home = l.home;
     // The test starts on the default day, or on its first `at` date if
     // that is earlier, so that time never goes back.
-    std::int64_t clock = test_start_ms();
+    std::int64_t clock = test_start_ms(model_.utc_offset_ms);
     for (const m::Step& s : test.steps) {
         if (s.at) {
-            clock = std::min(clock, literal_value(s.at->literal).value_or(clock));
+            clock =
+                std::min(clock, literal_value(s.at->literal, model_.utc_offset_ms).value_or(clock));
             break;
         }
     }
@@ -485,7 +502,8 @@ TestResult Runner::run(const m::Test& test) {
         const m::Step& step = test.steps[i];
         StepResult& r = out.steps[i];
         if (step.at) {
-            clock = std::max(clock, literal_value(step.at->literal).value_or(clock));
+            clock = std::max(clock,
+                             literal_value(step.at->literal, model_.utc_offset_ms).value_or(clock));
         }
         r.time = clock;
         r.home = l.home;
@@ -661,10 +679,10 @@ std::string state_word(std::string_view state, const Pack* language) {
     return std::string(state);
 }
 
-/// A time as the canonical dump writes it: the day at +08:00, and the time
-/// of day if it is not midnight.
-std::string time_text(std::int64_t ms) {
-    const std::int64_t local = ms + default_offset_ms;
+/// A time as the canonical dump writes it: the day at the contract's
+/// offset, and the time of day if it is not midnight.
+std::string time_text(std::int64_t ms, const std::int64_t offset_ms) {
+    const std::int64_t local = ms + offset_ms;
     const std::int64_t day = 86'400'000;
     std::int64_t days = local / day;
     std::int64_t rest = local % day;
@@ -696,8 +714,8 @@ const TestLedger* TestResults::ledger(const Id& id) const noexcept {
     return it == ledgers.end() ? nullptr : &*it;
 }
 
-std::int64_t test_start_ms() noexcept {
-    return days_from_civil(2026, 1, 1) * 86'400'000 - default_offset_ms;
+std::int64_t test_start_ms(const std::int64_t offset_ms) noexcept {
+    return days_from_civil(2026, 1, 1) * 86'400'000 - offset_ms;
 }
 
 Id test_ledger_id(std::string_view key, const crypto::Provider& provider) {
@@ -828,9 +846,12 @@ const ExplainedClause* refusal_clause(const Explained& text, const m::Model& mod
     if (result.happened != Happened::refused) {
         return nullptr;
     }
+    const std::vector<std::string> rules = m::rule_functions(model);
     const std::string function = step.creation  ? std::string(m::creation_function(model))
                                  : step.approve ? std::string(m::approve_function)
-                                                : wire_name(step.word, step.name);
+                                 : step.keeper && step.rule < rules.size()
+                                     ? rules[step.rule]
+                                     : wire_name(step.word, step.name);
     // "bo:CODE VALUES": the code, then the action and a number.
     std::string_view reason = result.reason;
     std::string_view code;
@@ -866,6 +887,10 @@ const ExplainedClause* refusal_clause(const Explained& text, const m::Model& mod
                 return &c;
             }
             if (code == "state" && c.function == action && c.kind == "transition") {
+                return &c;
+            }
+            // A time rule whose time has not come, or that already applied.
+            if ((code == "when" || code == "fired") && c.function == action && c.kind == "when") {
                 return &c;
             }
             if (code.empty() && c.function == function && c.kind == "reject" &&
@@ -966,7 +991,7 @@ std::string dump(const m::Model& model, const TestResults& results) {
             std::string line = std::format("  step {} {}", j + 1,
                                            step_status_names[static_cast<std::size_t>(r.status)]);
             if (r.status != StepStatus::skipped) {
-                line += " " + time_text(r.time) + " " +
+                line += " " + time_text(r.time, model.utc_offset_ms) + " " +
                         std::string(happened_names[static_cast<std::size_t>(r.happened)]);
             }
             switch (r.happened) {

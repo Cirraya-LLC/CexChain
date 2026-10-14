@@ -10,18 +10,21 @@
 4:10 name IP地址 | IP地址
 4:14 newline
 5:1 indent
-5:3 word field.cooling_period | 冷却期
-5:7 duration time.day 30 | 30 days
-5:14 newline
-7:1 dedent
-7:1 word kw.can | 可
-7:2 word act.allocate | allocate
-7:11 word kw.to | 予
-7:13 word role.customer | customer
-7:21 newline
-8:1 word kw.can | can
-8:5 word act.reclaim | 收回
-8:8 word kw.by | 由
-8:10 word role.we form=object | us
-8:12 newline
-9:1 end
+5:3 name 地址 | 地址
+5:6 word type.text | 文本
+5:8 newline
+6:3 word field.cooling_period | 冷却期
+6:7 duration time.day 30 | 30 days
+6:14 newline
+8:1 dedent
+8:1 word kw.can | 可
+8:2 word act.allocate | allocate
+8:11 word kw.to | 予
+8:13 word role.customer | customer
+8:21 newline
+9:1 word kw.can | can
+9:5 word act.reclaim | 收回
+9:8 word kw.by | 由
+9:10 word role.we form=object | us
+9:12 newline
+10:1 end

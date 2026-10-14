@@ -2,6 +2,7 @@ contract IP地址池
 parties we, customer
 
 resource IP地址
+  地址 text
   cooling period 30 days
 
 can allocate to customer
