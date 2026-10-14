@@ -745,7 +745,10 @@ amount the part and its holder the recipient in the same place, `with` setting o
 Bo adds start empty, and the part starts in the first state. A part's evidence carries the
 history of the instances it came from, the other parts of each split included, which the
 contract text states. In tests, a step acts on the part its party holds (or names the holder:
-`issuer pay forge`), and the report names parts by path (part 1.2).
+`issuer pay forge`), and the report names parts by path (part 1.2). `deploy/demo/multi-tier-split.sh`
+runs a core enterprise's receivable down a supply chain across six organizations, two of them on
+SM3: split to two tier-2 suppliers who are parties of nothing yet, split again to tier 3, pledged
+to a bank that verifies the chain offline first, and paid at maturity.
 
 ```sh
 cexchain contract propose <receivable> split --peer core \

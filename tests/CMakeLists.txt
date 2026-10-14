@@ -161,6 +161,9 @@ if(TARGET cexchain_bo)
     # The contract demo is written in Bo.
     add_test(NAME demo_supply_agreement
         COMMAND bash ${PROJECT_SOURCE_DIR}/deploy/demo/supply-agreement.sh $<TARGET_FILE:cexchain>)
+    # Multi-tier supply-chain finance: a receivable split down a supply chain.
+    add_test(NAME demo_multi_tier_split
+        COMMAND bash ${PROJECT_SOURCE_DIR}/deploy/demo/multi-tier-split.sh $<TARGET_FILE:cexchain>)
 endif()
 
 # Keys on tokens (HSMs, USB keys), when SoftHSM is installed to stand in.
