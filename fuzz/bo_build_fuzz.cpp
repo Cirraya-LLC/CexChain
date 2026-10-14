@@ -238,6 +238,12 @@ struct GAction {
     std::string name;
     std::vector<GInput> inputs;
     std::optional<Tok> to;
+    /// A built-in action (its concept), with the standard library's terms.
+    std::string word;
+    /// Its counterparty is named by each call (R21): a step always names one.
+    bool open_to = false;
+    /// AI agents may only propose it.
+    bool proposes = false;
 };
 
 class Generator {
@@ -642,17 +648,69 @@ std::vector<std::pair<int, Line>> Generator::contract() {
             }
         }
         out.push_back({0, head});
-        actions_.push_back({std::format("a{}", a), inputs_,
-                            head.size() > 4 && head[4].concept_id == "kw.to"
-                                ? std::optional<Tok>(head[5])
-                                : std::nullopt});
+        GAction made;
+        made.name = std::format("a{}", a);
+        made.inputs = inputs_;
+        if (head.size() > 4 && head[4].concept_id == "kw.to") {
+            made.to = head[5];
+        }
+        actions_.push_back(std::move(made));
+        if (c_.one_in(4)) {
+            // AI agents only propose it; a person approves (U3).
+            out.push_back({2, {word("actor.ai_agent"), word("kw.can"), word("act.propose")}});
+            actions_.back().proposes = true;
+        }
         in_action_ = true;
         statements(2, 2, out);
         in_action_ = false;
     }
-    // Now and then, what this version does not compile.
+    // Built-in actions with the standard library's terms (milestone 11), when
+    // the instance has a holder: in groups whose states lead to each other.
+    const bool holder =
+        std::ranges::any_of(fields_, [](const GField& f) { return f.name == "holder"; });
+    if (holder) {
+        static constexpr std::string_view groups[][3] = {
+            {"act.pledge", "act.release", "act.enforce"},
+            {"act.pay", "act.dispute", "act.confirm_payment"},
+            {"act.freeze", "act.unfreeze", ""},
+            {"act.transfer", "", ""},
+            {"act.cancel", "", ""}};
+        for (const auto& group : groups) {
+            if (!c_.one_in(2)) {
+                continue;
+            }
+            for (const std::string_view id : group) {
+                if (id.empty()) {
+                    continue;
+                }
+                GAction action;
+                action.word = std::string(id);
+                action.name = std::string(id.substr(4));
+                Line head{word("kw.can"), word(action.word)};
+                if (id == "act.pledge" || id == "act.transfer") {
+                    if (c_.one_in(2)) {
+                        action.to = roles_[c_.below(static_cast<std::uint32_t>(roles_.size()))];
+                        head.push_back(word("kw.to"));
+                        head.push_back(*action.to);
+                    } else {
+                        action.to = raw("bank1");
+                        action.open_to = true;
+                    }
+                }
+                out.push_back({0, head});
+                if (c_.one_in(3)) {
+                    out.push_back(
+                        {2, {word("actor.ai_agent"), word("kw.can"), word("act.propose")}});
+                    action.proposes = true;
+                }
+                actions_.push_back(std::move(action));
+            }
+        }
+    }
+    // Now and then, what this version does not compile: a built-in action
+    // whose terms come later.
     if (c_.one_in(16)) {
-        out.push_back({0, {word("kw.can"), word("act.transfer")}});
+        out.push_back({0, {word("kw.can"), word("act.refund"), word("kw.by"), roles_.front()}});
     }
     tests(out);
     return out;
@@ -667,8 +725,9 @@ Tok Generator::test_party() {
 /// A step doing an action: its party, its counterparty, its inputs, when,
 /// how it is signed, and what it expects.
 Line Generator::step(const GAction& a, int& month, int& day) {
-    Line line{test_party(), raw(a.name)};
-    if (a.to && !c_.one_in(4)) {
+    Line line{test_party(), a.word.empty() ? raw(a.name) : word(a.word)};
+    const bool propose = a.proposes && c_.one_in(3);
+    if (a.to && (a.open_to || !c_.one_in(4))) {
         line.push_back(word("kw.to"));
         // Now and then another party, which a role bound at creation refuses.
         line.push_back(c_.one_in(4) ? test_party() : *a.to);
@@ -701,7 +760,7 @@ Line Generator::step(const GAction& a, int& month, int& day) {
         line.push_back(apply("time.at", {raw(std::format("{}-{:02}-{:02}", 2026 + month / 12,
                                                          1 + month % 12, day))}));
     }
-    switch (c_.below(4)) {
+    switch (propose ? 1 : c_.below(4)) {
     case 0:
         line.push_back(word("cond.in_person"));
         break;
@@ -714,6 +773,12 @@ Line Generator::step(const GAction& a, int& month, int& day) {
     }
     if (!with_first) {
         line.insert(line.end(), with.begin(), with.end());
+    }
+    if (propose) {
+        // Kept as a proposal, awaiting a person's approval.
+        line.push_back(raw("->"));
+        line.push_back(word("val.pending_approval"));
+        return line;
     }
     switch (c_.below(8)) {
     case 0:
@@ -773,7 +838,18 @@ void Generator::tests(std::vector<std::pair<int, Line>>& out) {
         out.push_back({2, create});
         int month = static_cast<int>(c_.below(12));
         int day = 1 + static_cast<int>(c_.below(28));
+        const bool proposals =
+            std::ranges::any_of(actions_, [](const GAction& a) { return a.proposes; });
         for (std::uint32_t k = 0, n = 1 + c_.below(6); k < n; ++k) {
+            if (proposals && c_.one_in(4)) {
+                // A person approves the first proposal kept.
+                Line approve{test_party(), word("act.approve")};
+                if (c_.one_in(2)) {
+                    approve.push_back(word("cond.in_person"));
+                }
+                out.push_back({2, approve});
+                continue;
+            }
             out.push_back({2, step(actions_[c_.below(static_cast<std::uint32_t>(actions_.size()))],
                                    month, day)});
         }
@@ -846,6 +922,8 @@ std::size_t tests_run = 0;
 std::size_t steps_run = 0;
 std::map<std::string, std::size_t> happenings;
 std::size_t built = 0;
+/// Builds with a built-in action's standard terms (milestone 11).
+std::size_t standard_built = 0;
 std::size_t generated_checked = 0;
 std::size_t accepted = 0;
 std::size_t needed = 0;
@@ -926,7 +1004,8 @@ void run_calls(const bo::Build& build, const m::Model& model, Choices& c) {
             cbor::Map fields;
             for (const m::Field& f : model.fields) {
                 const bool from_role = f.type.kind == m::TypeKind::party && f.value;
-                if (f.kind == m::FieldKind::instance && !from_role && !c.one_in(30)) {
+                if (f.kind == m::FieldKind::instance && !from_role && !f.empty_at_start &&
+                    !c.one_in(30)) {
                     fields.push_back({cbor::Value::text(bo::wire_name(f.word, f.name)),
                                       random_value(f.type, c)});
                 }
@@ -945,6 +1024,18 @@ void run_calls(const bo::Build& build, const m::Model& model, Choices& c) {
                                  ? std::string("nothing")
                                  : functions[c.below(static_cast<std::uint32_t>(functions.size()))];
             input.instance = instance;
+            if (input.function == bo::model::approve_function && !c.one_in(10)) {
+                // The first proposal kept, as approve names one.
+                const cbor::Value* pending = instance->state.find("pending");
+                const cbor::Array* list = pending != nullptr ? pending->as_array() : nullptr;
+                if (list != nullptr && !list->empty() && list->front().as_array() != nullptr &&
+                    list->front().as_array()->size() == 2) {
+                    arguments.push_back(
+                        {cbor::Value::text("function"), list->front().as_array()->front()});
+                    arguments.push_back(
+                        {cbor::Value::text("arguments"), list->front().as_array()->back()});
+                }
+            }
             for (const m::Action& a : model.actions) {
                 if (bo::wire_name(a.word, a.name) != input.function) {
                     continue;
@@ -1050,6 +1141,7 @@ std::string run_scenarios(const bo::Build& build, const m::Model& model, std::st
             if (r.status != bo::StepStatus::skipped) {
                 ++steps_run;
                 ++happenings[std::string(bo::happened_names[static_cast<std::size_t>(r.happened)])];
+                happenings["(proposals)"] += r.proposed.empty() ? 0U : 1U;
             }
             if (r.happened == bo::Happened::refused) {
                 require(
@@ -1099,6 +1191,10 @@ void build_and_run(std::string_view source, Choices& c,
     if (first.lowered.build) {
         require(first.lowered.diagnostics.empty(), "a build with problems");
         ++built;
+        standard_built += std::ranges::any_of(first.checked->model.actions,
+                                              [](const m::Action& a) { return a.terms; })
+                              ? 1U
+                              : 0U;
         run_calls(*first.lowered.build, first.checked->model, c);
     }
 }
@@ -1281,6 +1377,7 @@ int main(int argc, char** argv) {
                 "failures\n",
                 replayed, static_cast<unsigned long long>(done), generated_checked,
                 static_cast<long long>(elapsed.count()), built, runs_done, formatted);
+    std::printf("builds with the standard library's terms: %zu\n", standard_built);
     std::printf("calls: %zu accepted, %zu needing consents, refused:", accepted, needed);
     for (const auto& [reason, count] : refusals) {
         std::printf(" %s %zu", reason.c_str(), count);

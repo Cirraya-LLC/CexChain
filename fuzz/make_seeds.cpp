@@ -30,6 +30,7 @@
 #if defined(CEXCHAIN_HAVE_BO_FRONT)
 #include <cexchain/bo/pack.hpp>
 #include <cexchain/bo/source.hpp>
+#include <cexchain/bo/stdlib.hpp>
 #endif
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/cbor.hpp>
@@ -668,6 +669,12 @@ void bo_seeds(const Seeds& seeds) {
         seeds.write("bo_check_fuzz", "test-" + entry.path().filename().string() + ".bo",
                     text.str());
     }
+
+    // The standard library (milestone 11), and a contract that declares all
+    // its actions: built-in actions with their terms.
+    seeds.write("bo_parse_fuzz", "stdlib-edition1.bo", bo::standard_library().source);
+    seeds.write("bo_check_fuzz", "stdlib-edition1.bo", bo::standard_library().source);
+    seeds.write("bo_check_fuzz", "stdlib-showcase.bo", bo::standard_showcase());
 
     // Deploys' source bundles: each golden source (the compiled agreement in
     // four spellings among them) with the official packs, under SHA-256 and
