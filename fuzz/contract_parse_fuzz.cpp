@@ -6,7 +6,7 @@
 // 15). Decoding must never crash, whatever decodes must encode back to the
 // same bytes, and verifying arbitrary evidence must fail cleanly. Outputs may
 // create children, and evidence may be about a child, with its ancestors'
-// calls (v0.7).
+// calls (v0.7). Verified evidence is rendered as every verifier shows it.
 
 #include <algorithm>
 #include <cstddef>
@@ -17,6 +17,7 @@
 #include <cexchain/core/protocol/contract_evidence.hpp>
 #include <cexchain/core/protocol/contracts.hpp>
 #include <cexchain/crypto/openssl.hpp>
+#include <cexchain/verifier/report.hpp>
 
 namespace protocol = cexchain::protocol;
 namespace cbor = cexchain::cbor;
@@ -56,6 +57,18 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
                     i.ancestors[a].until ==
                     (a + 1 < i.ancestors.size() ? i.ancestors[a + 1].created_by : i.created_by));
             }
+            // Each call names the instances it created, one per child.
+            for (const protocol::RecordEvent& e : report->instance.events) {
+                require(e.children.size() == (e.outcome ? e.outcome->children.size() : 0));
+            }
+            // The reports render, with the chain only for a child.
+            const auto json = cexchain::verifier::contract_report_json(*report, false);
+            require(json["calls"].size() == report->steps.size());
+            require(json["instance"].contains("ancestors") == i.parent.has_value());
+            require(!json.dump(-1, ' ', false, cexchain::verifier::Json::error_handler_t::replace)
+                         .empty());
+            const std::string text = cexchain::verifier::contract_report_text(*report, false);
+            require(text.contains("Ancestors") || !i.parent);
         }
     }
     // A home ledger id the outputs may not name.

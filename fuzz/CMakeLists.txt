@@ -22,7 +22,7 @@ cexchain_add_fuzzer(access_parse_fuzz)
 cexchain_add_fuzzer(asset_parse_fuzz cexchain::crypto_openssl)
 cexchain_add_fuzzer(webauthn_registration_fuzz cexchain::crypto_openssl)
 cexchain_add_fuzzer(vm_fuzz cexchain::crypto_openssl)
-cexchain_add_fuzzer(contract_parse_fuzz cexchain::crypto_openssl)
+cexchain_add_fuzzer(contract_parse_fuzz cexchain::crypto_openssl cexchain::verifier)
 # The Bo compiler's front end: everything that reads untrusted source.
 if(TARGET cexchain_bo_front)
     cexchain_add_fuzzer(bo_pack_fuzz cexchain::bo_front)
