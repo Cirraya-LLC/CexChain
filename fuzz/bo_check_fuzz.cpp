@@ -17,8 +17,14 @@
 //   - the contract text (explain, milestone 8) is written for every model, in
 //     each official language: valid UTF-8, every clause in the text, every
 //     rule it marks a rule of the edition and explained in its last section,
-//     and the same text twice.
+//     and the same text twice;
+//   - test blocks (milestone 10): every step's places lie in the source; a
+//     party is a role word, or a name; what a step expects carries what that
+//     expectation needs (a state, a reason only with refused); `at` is a
+//     date; only the creation word creates; and in a model without errors,
+//     every test begins by creating its instance, once.
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -241,6 +247,54 @@ public:
             statements(r.body, 1);
         }
         rule(model.due_rule);
+        for (const m::Test& t : model.tests) {
+            test(t);
+        }
+    }
+
+    /// A party a step names (none, after an error).
+    void party(const m::TestParty& p) const {
+        place(p.span);
+        if (p.word != nullptr && (p.word->category != bo::Category::role || !p.name.empty())) {
+            std::abort();
+        }
+    }
+
+    void test(const m::Test& t) const {
+        place(t.span);
+        for (const m::Step& s : t.steps) {
+            place(s.span);
+            place(s.expect_span);
+            party(s.subject);
+            if (s.to) {
+                party(*s.to);
+            }
+            for (const m::TestParty& p : s.waits) {
+                party(p);
+            }
+            for (const m::Set& w : s.with) {
+                expr(w.target, 1);
+                expr(w.value, 1);
+            }
+            if (s.at) {
+                expr(*s.at, 1);
+                if (s.at->kind != bo::ast::ExprKind::literal ||
+                    s.at->literal.kind != bo::ast::LiteralKind::date) {
+                    std::abort();
+                }
+            }
+            const bool state = s.expect == m::Expectation::state;
+            if (state != (s.state_word != nullptr || !s.state_name.empty()) ||
+                (s.state_word != nullptr && !s.state_name.empty()) ||
+                (s.reason && s.expect != m::Expectation::refused) ||
+                (!s.waits.empty() && s.expect != m::Expectation::waits)) {
+                std::abort();
+            }
+            if (s.creation &&
+                (s.word == nullptr || (s.word->id != "act.issue" && s.word->id != "act.create"))) {
+                std::abort();
+            }
+        }
     }
 
 private:
@@ -277,6 +331,22 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     const std::string text = bo::dump(checked, nullptr);
     if (bo::dump(bo::check(source, parsed.file), nullptr) != text) {
         std::abort();
+    }
+    // A model without errors: every test creates its instance first, once.
+    if (!bo::has_errors(lexed.diagnostics) && parsed.diagnostics.empty() &&
+        !bo::has_errors(checked.diagnostics)) {
+        for (const m::Test& t : checked.model.tests) {
+            if (t.steps.empty() || !t.steps.front().creation ||
+                std::count_if(t.steps.begin(), t.steps.end(),
+                              [](const m::Step& s) { return s.creation; }) != 1) {
+                std::abort();
+            }
+            for (const m::Step& s : t.steps) {
+                if (s.subject.word == nullptr && s.subject.name.empty()) {
+                    std::abort();
+                }
+            }
+        }
     }
     for (const bo::Pack& language : bo::official_packs()) {
         const bo::Explained e = bo::explain(checked.model, &language);

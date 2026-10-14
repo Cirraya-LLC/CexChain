@@ -20,7 +20,15 @@
 //     asks for consents, or refuses with a reason that is the compiler's
 //     own (bo:..., which renders in every official language) or a `reject`
 //     text of the contract; it never traps otherwise (no out of fuel, no
-//     out of bounds, no unreachable).
+//     out of bounds, no unreachable);
+//   - its test blocks (generated: a creation, then steps with parties,
+//     counterparties, inputs, dates, signers, and expectations) run as `bo
+//     test` runs them: no step breaks (does what compiled code never does),
+//     a test stops at its first failure, every refusal is a reason the
+//     compiler or the contract gives, every call cites its consents as a
+//     ledger does (ascending, never the home's), the results are the same
+//     twice, in English and mixed, and formatted into any language, and the
+//     report is written in each official language.
 //
 // Why not libFuzzer: lowering is in cexchain::bo, which needs C++26 static
 // reflection (GCC 16 only), and libFuzzer needs Clang. So this target is
@@ -63,6 +71,7 @@
 #include <cexchain/bo/messages.hpp>
 #include <cexchain/bo/pack.hpp>
 #include <cexchain/bo/parser.hpp>
+#include <cexchain/bo/scenario.hpp>
 #include <cexchain/bo/values.hpp>
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/cbor.hpp>
@@ -225,6 +234,12 @@ struct GInput {
     T type = T::text;
 };
 
+struct GAction {
+    std::string name;
+    std::vector<GInput> inputs;
+    std::optional<Tok> to;
+};
+
 class Generator {
 public:
     explicit Generator(Choices& c) : c_(c) {}
@@ -239,6 +254,9 @@ private:
     Line condition(int depth);
     void statements(int indent, int depth, std::vector<std::pair<int, Line>>& out);
     Tok state(std::size_t i) { return i < vocabulary_states_ ? word(states_[i]) : raw(states_[i]); }
+    Tok test_party();
+    Line step(const GAction& a, int& month, int& day);
+    void tests(std::vector<std::pair<int, Line>>& out);
 
     Choices& c_;
     std::vector<Tok> roles_;
@@ -249,6 +267,8 @@ private:
     std::size_t used_states_ = 1;
     bool in_action_ = false;
     int rejects_ = 0;
+    bool asset_ = false;
+    std::vector<GAction> actions_;
 };
 
 Tok Generator::type_word(const T t) {
@@ -563,6 +583,7 @@ std::vector<std::pair<int, Line>> Generator::contract() {
     out.push_back({0, line});
     // The kind and its fields.
     const bool asset = c_.one_in(3);
+    asset_ = asset;
     out.push_back({0, {word(asset ? "kind.asset" : "kind.record"), raw("Thing")}});
     if (c_.one_in(2)) {
         fields_.push_back({"amount", T::money, false, {}});
@@ -621,6 +642,10 @@ std::vector<std::pair<int, Line>> Generator::contract() {
             }
         }
         out.push_back({0, head});
+        actions_.push_back({std::format("a{}", a), inputs_,
+                            head.size() > 4 && head[4].concept_id == "kw.to"
+                                ? std::optional<Tok>(head[5])
+                                : std::nullopt});
         in_action_ = true;
         statements(2, 2, out);
         in_action_ = false;
@@ -629,7 +654,130 @@ std::vector<std::pair<int, Line>> Generator::contract() {
     if (c_.one_in(16)) {
         out.push_back({0, {word("kw.can"), word("act.transfer")}});
     }
+    tests(out);
     return out;
+}
+
+/// A party a test names: a role, or a ledger only tests name.
+Tok Generator::test_party() {
+    const std::uint32_t pick = c_.below(static_cast<std::uint32_t>(roles_.size()) + 2);
+    return pick < roles_.size() ? roles_[pick] : raw(std::format("bank{}", pick - roles_.size()));
+}
+
+/// A step doing an action: its party, its counterparty, its inputs, when,
+/// how it is signed, and what it expects.
+Line Generator::step(const GAction& a, int& month, int& day) {
+    Line line{test_party(), raw(a.name)};
+    if (a.to && !c_.one_in(4)) {
+        line.push_back(word("kw.to"));
+        // Now and then another party, which a role bound at creation refuses.
+        line.push_back(c_.one_in(4) ? test_party() : *a.to);
+    }
+    Line with;
+    if (!a.inputs.empty()) {
+        with.push_back(word("kw.with"));
+        for (std::size_t i = 0; i < a.inputs.size(); ++i) {
+            if (i > 0) {
+                with.push_back(raw(","));
+            }
+            with.push_back(raw(a.inputs[i].name));
+            with.push_back(raw("="));
+            const Line v = literal(a.inputs[i].type);
+            with.insert(with.end(), v.begin(), v.end());
+        }
+    }
+    const bool with_first = c_.one_in(2);
+    if (with_first) {
+        line.insert(line.end(), with.begin(), with.end());
+    }
+    if (c_.one_in(3)) {
+        // Time only goes on.
+        if (c_.one_in(2)) {
+            month += 1 + static_cast<int>(c_.below(3));
+            day = 1 + static_cast<int>(c_.below(28));
+        } else {
+            day += static_cast<int>(c_.below(static_cast<std::uint32_t>(29 - day)));
+        }
+        line.push_back(apply("time.at", {raw(std::format("{}-{:02}-{:02}", 2026 + month / 12,
+                                                         1 + month % 12, day))}));
+    }
+    switch (c_.below(4)) {
+    case 0:
+        line.push_back(word("cond.in_person"));
+        break;
+    case 1:
+        line.push_back(word("kw.by"));
+        line.push_back(word("actor.ai_agent"));
+        break;
+    default:
+        break;
+    }
+    if (!with_first) {
+        line.insert(line.end(), with.begin(), with.end());
+    }
+    switch (c_.below(8)) {
+    case 0:
+        // A state some state change names.
+        if (used_states_ > 1) {
+            line.push_back(raw("->"));
+            line.push_back(state(c_.below(static_cast<std::uint32_t>(used_states_))));
+        }
+        break;
+    case 1:
+        line.push_back(raw("->"));
+        line.push_back(word("val.refused"));
+        break;
+    case 2:
+        line.push_back(raw("->"));
+        line.push_back(word("val.refused"));
+        line.push_back(
+            raw(rejects_ > 0 && c_.one_in(2)
+                    ? std::format("\"no {}\"", 1 + c_.below(static_cast<std::uint32_t>(rejects_)))
+                    : std::format("\"bo:requires {} 1\"", a.name)));
+        break;
+    case 3:
+        line.push_back(raw("->"));
+        line.push_back(apply("cond.consent_of", {test_party()}));
+        break;
+    default:
+        break;
+    }
+    return line;
+}
+
+/// Test blocks: each creates the instance, then does some actions.
+void Generator::tests(std::vector<std::pair<int, Line>>& out) {
+    const std::uint32_t count = c_.below(4);
+    for (std::uint32_t t = 0; t < count; ++t) {
+        out.push_back({0, {word("kw.test"), raw(std::format("\"t{}\"", t))}});
+        // The home creates it: we, if the contract has that role.
+        Tok home = roles_.front();
+        for (const Tok& r : roles_) {
+            if (r.concept_id == "role.we") {
+                home = r;
+            }
+        }
+        Line create{home, word(asset_ ? "act.issue" : "act.create")};
+        bool first = true;
+        for (const GField& f : fields_) {
+            if (f.constant || f.type == T::party) {
+                continue;
+            }
+            create.push_back(first ? word("kw.with") : raw(","));
+            first = false;
+            create.push_back(f.name == "amount" ? word("field.amount") : raw(f.name));
+            create.push_back(raw("="));
+            const Line v = literal(f.type);
+            create.insert(create.end(), v.begin(), v.end());
+        }
+        out.push_back({2, create});
+        int month = static_cast<int>(c_.below(12));
+        int day = 1 + static_cast<int>(c_.below(28));
+        for (std::uint32_t k = 0, n = 1 + c_.below(6); k < n; ++k) {
+            out.push_back({2, step(actions_[c_.below(static_cast<std::uint32_t>(actions_.size()))],
+                                   month, day)});
+        }
+    }
 }
 
 std::string write(const std::vector<std::pair<int, Line>>& lines, Choices* languages) {
@@ -694,6 +842,9 @@ protocol::Id ledger(const std::uint8_t fill) {
 }
 
 std::size_t runs_done = 0;
+std::size_t tests_run = 0;
+std::size_t steps_run = 0;
+std::map<std::string, std::size_t> happenings;
 std::size_t built = 0;
 std::size_t generated_checked = 0;
 std::size_t accepted = 0;
@@ -872,6 +1023,60 @@ void run_calls(const bo::Build& build, const m::Model& model, Choices& c) {
     }
 }
 
+/// Runs a model's tests on its build, as `bo test` does, and checks what
+/// happened; returns the results as canonical text.
+std::string run_scenarios(const bo::Build& build, const m::Model& model, std::string_view source) {
+    if (model.tests.empty()) {
+        return {};
+    }
+    const bo::TestResults results = bo::run_tests(model, build, provider());
+    const std::string text = bo::dump(model, results);
+    require(bo::dump(model, bo::run_tests(model, build, provider())) == text,
+            "running the tests twice differs", source);
+    require(results.tests.size() == model.tests.size(), "a test without its results");
+    std::set<std::string> rejects;
+    for (const m::Action& a : model.actions) {
+        collect_rejects(a.body, rejects);
+    }
+    for (std::size_t t = 0; t < results.tests.size(); ++t) {
+        const bo::TestResult& test = results.tests[t];
+        require(test.steps.size() == model.tests[t].steps.size(), "a step without its result");
+        bool failed = false;
+        for (const bo::StepResult& r : test.steps) {
+            require(r.happened != bo::Happened::broken, "a step broke",
+                    r.reason + "\n" + std::string(source));
+            require(!failed || r.status == bo::StepStatus::skipped, "a step ran after a failure");
+            failed = failed || r.status == bo::StepStatus::failed;
+            if (r.status != bo::StepStatus::skipped) {
+                ++steps_run;
+                ++happenings[std::string(bo::happened_names[static_cast<std::size_t>(r.happened)])];
+            }
+            if (r.happened == bo::Happened::refused) {
+                require(
+                    r.reason.starts_with("bo:") ? bo::render_reason(r.reason, nullptr).has_value()
+                                                : rejects.contains(r.reason),
+                    "a refusal that is no reason of the compiler's or the contract's", r.reason);
+            }
+            for (const bo::TestCall& call : r.calls) {
+                const auto& consents = call.input.consents;
+                for (std::size_t k = 0; k < consents.size(); ++k) {
+                    require(!(consents[k].first == test.home), "a consent of the home's");
+                    require(k == 0 || std::ranges::lexicographical_compare(
+                                          consents[k - 1].first.bytes(), consents[k].first.bytes()),
+                            "consents out of order");
+                }
+            }
+        }
+        require(test.passed == !failed, "a test passed with a failing step");
+        ++tests_run;
+    }
+    for (const bo::Pack& language : bo::official_packs()) {
+        const std::string report = bo::test_report(model, results, source, &language);
+        require(!report.empty() && cbor::is_valid_utf8(report), "a report that is no text");
+    }
+    return text;
+}
+
 void build_and_run(std::string_view source, Choices& c,
                    const std::optional<std::string>& expected = std::nullopt) {
     const Compiled first = compile(source);
@@ -879,8 +1084,11 @@ void build_and_run(std::string_view source, Choices& c,
         require(!expected.has_value(), "a rendering does not check", source);
         return;
     }
-    const std::string result = result_of(first.lowered);
+    std::string result = result_of(first.lowered);
     require(result == result_of(compile(source).lowered), "lowering twice differs", source);
+    if (first.lowered.build) {
+        result += run_scenarios(*first.lowered.build, first.checked->model, source);
+    }
     if (expected) {
         require(result == *expected, "languages give different results", source);
     }
@@ -902,7 +1110,13 @@ std::string meaning_of(const Compiled& compiled) {
     for (const bo::Pack& language : bo::official_packs()) {
         out += bo::explain(compiled.checked->model, &language).text;
     }
-    return out + result_of(compiled.lowered);
+    out += result_of(compiled.lowered);
+    if (compiled.lowered.build) {
+        out +=
+            bo::dump(compiled.checked->model,
+                     bo::run_tests(compiled.checked->model, *compiled.lowered.build, provider()));
+    }
+    return out;
 }
 
 std::size_t formatted = 0;
@@ -954,7 +1168,10 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
         return 0;
     }
     ++generated_checked;
-    const std::string result = result_of(compiled.lowered);
+    std::string result = result_of(compiled.lowered);
+    if (compiled.lowered.build) {
+        result += run_scenarios(*compiled.lowered.build, compiled.checked->model, english);
+    }
     // The same contract, each word in a language chosen at random.
     Choices languages(data + 1, size - 1);
     const std::string mixed = write(lines, &languages);
@@ -1067,6 +1284,10 @@ int main(int argc, char** argv) {
     std::printf("calls: %zu accepted, %zu needing consents, refused:", accepted, needed);
     for (const auto& [reason, count] : refusals) {
         std::printf(" %s %zu", reason.c_str(), count);
+    }
+    std::printf("\ntests: %zu run, %zu steps:", tests_run, steps_run);
+    for (const auto& [what, count] : happenings) {
+        std::printf(" %s %zu", what.c_str(), count);
     }
     std::printf("\n");
     return 0;

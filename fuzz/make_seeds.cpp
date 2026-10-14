@@ -653,6 +653,21 @@ void bo_seeds(const Seeds& seeds) {
         seeds.write("bo_check_fuzz", "build-" + entry.path().filename().string() + ".bo",
                     text.str());
     }
+    // Test blocks (bo test): the tests' own cases, the agreement's and the
+    // demo's tests among the sources above.
+    for (const auto& entry : std::filesystem::directory_iterator(
+             std::filesystem::path(CEXCHAIN_BO_GOLDEN_DIR) / "test")) {
+        if (!std::filesystem::exists(entry.path() / "source.bo")) {
+            continue;
+        }
+        std::ifstream in(entry.path() / "source.bo", std::ios::binary);
+        std::stringstream text;
+        text << in.rdbuf();
+        seeds.write("bo_parse_fuzz", "test-" + entry.path().filename().string() + ".bo",
+                    text.str());
+        seeds.write("bo_check_fuzz", "test-" + entry.path().filename().string() + ".bo",
+                    text.str());
+    }
 
     // Deploys' source bundles: each golden source (the compiled agreement in
     // four spellings among them) with the official packs, under SHA-256 and
