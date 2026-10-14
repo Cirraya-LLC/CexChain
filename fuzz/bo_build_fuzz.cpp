@@ -32,6 +32,9 @@
 //     add up to the amount on instances that are parts at depths up to 8; a
 //     call that makes parts ends its instance, never at depth 8, and each
 //     part has its state, fields, status, and holder;
+//   - every call with arguments of its function's shape uses no more fuel
+//     than the function's bound (milestone 18; bo::bound_for), nor does any
+//     call a test makes (a step beyond it breaks);
 //   - its test blocks (generated: a creation, then steps with parties,
 //     counterparties, inputs, dates, signers, and expectations) run as `bo
 //     test` runs them: no step breaks (does what compiled code never does),
@@ -74,6 +77,7 @@
 #include <variant>
 #include <vector>
 
+#include <cexchain/bo/build.hpp>
 #include <cexchain/bo/checker.hpp>
 #include <cexchain/bo/explain.hpp>
 #include <cexchain/bo/format.hpp>
@@ -1522,6 +1526,10 @@ protocol::Id ledger(const std::uint8_t fill) {
 }
 
 std::size_t runs_done = 0;
+/// Calls checked against their fuel bound, and the highest share of its
+/// bound one used (in thousandths).
+std::size_t bounded_calls = 0;
+std::uint64_t tightest = 0;
 std::size_t tests_run = 0;
 std::size_t steps_run = 0;
 std::map<std::string, std::size_t> happenings;
@@ -1746,6 +1754,18 @@ void run_calls(const bo::Build& build, const m::Model& model, Choices& c) {
         require(outcome.has_value(), "vm::run failed");
 
         ++runs_done;
+        // The fuel bound (milestone 18) holds for arguments of the
+        // function's shape: refusals of other arguments aside.
+        const std::string why(outcome->abort_reason.begin(), outcome->abort_reason.end());
+        if (const auto bound = bo::bound_for(build, *encoded);
+            bound && !why.starts_with("bo:argument")) {
+            require(
+                outcome->fuel_used <= *bound, "a call used more fuel than its bound",
+                std::format("{} on {}: {} > {}", why, input.function, outcome->fuel_used, *bound));
+            ++bounded_calls;
+            tightest =
+                std::max(tightest, outcome->fuel_used * 1000 / std::max<std::uint64_t>(*bound, 1));
+        }
         if (outcome->trap) {
             const std::string reason(outcome->abort_reason.begin(), outcome->abort_reason.end());
             require(*outcome->trap == vm::Trap::aborted, "a compiled contract trapped",
@@ -2109,6 +2129,9 @@ int main(int argc, char** argv) {
     std::printf("builds with the standard library's terms: %zu; with lists %zu; with a bill "
                 "%zu (bills made by calls: %zu); issuing parts %zu (calls that made parts: %zu)\n",
                 standard_built, lists_built, bills_built, bills_made, parts_built, parts_made);
+    std::printf("calls checked against their fuel bound: %zu, the closest at %llu.%llu%% of it\n",
+                bounded_calls, static_cast<unsigned long long>(tightest / 10),
+                static_cast<unsigned long long>(tightest % 10));
     std::printf("calls: %zu accepted, %zu needing consents, refused:", accepted, needed);
     for (const auto& [reason, count] : refusals) {
         std::printf(" %s %zu", reason.c_str(), count);
