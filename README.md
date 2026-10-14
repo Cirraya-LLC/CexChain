@@ -4,7 +4,7 @@
 
 CexChain is a ledger protocol and node for trust between organizations. Every document, asset, and action can be independently verified by anyone, without relying on a platform operator. The action can come from a person or an AI agent.
 
-> **Status:** early development (specification v0.5: [the protocol in prose](spec/README.md), [`spec/cexchain.cddl`](spec/cexchain.cddl)). Interfaces and formats may still change.
+> **Status:** early development (specification v0.7: [the protocol in prose](spec/README.md), [`spec/cexchain.cddl`](spec/cexchain.cddl); the contract language: [`spec/bo.md`](spec/bo.md)). Interfaces and formats may still change.
 
 ## Why
 
@@ -461,9 +461,10 @@ the registrar give the ledger's reason before anything is signed.
 
 Bo is the language contracts are written in: a few keywords in English, Traditional Chinese
 (Hong Kong usage), and Simplified Chinese, freely mixed, and built-in business words (pledge,
-renew, suspend) with fixed meanings. Its compiler is being built: it reads every source through
-*language packs*, then lexes, parses, checks, and compiles a first subset of the language to
-contract code, which `contract deploy --bo` deploys with its source. Each pack maps Bo's concepts (`kw.can`,
+renew, suspend) with fixed meanings. Its reference is [`spec/bo.md`](spec/bo.md), with the
+conformance suite `testvectors/bo-v1.json`. The compiler reads every source through *language
+packs*, then lexes, parses, checks, and compiles it to contract code, which `contract deploy
+--bo` deploys with its source. Each pack maps Bo's concepts (`kw.can`,
 `act.pledge`, `unit.GB`) to one language's spellings, with its reading rules (words that attach
 without a space, as in `可質押` or `每GB`; full-width punctuation; `萬` and `億`; date forms), its
 messages, and the sentences of the contract text. A pack never changes what runs: the same
@@ -541,14 +542,15 @@ browser verifier never needs the compiler: verifying a contract replays its code
 
 Compiled contracts are WebAssembly modules in the contract profile, written by the compiler's own
 emitter, with a small runtime it adds as needed: reading the call's input (checked inside the
-contract to be deterministic CBOR, exactly as core decodes it), writing the output, checked 64-bit
+contract to be deterministic CBOR within the limits, as core decodes it; from codegen 2 on,
+texts are not checked again for UTF-8, which the ledger's input always is), writing the output, checked 64-bit
 arithmetic (an overflow refuses the call), multiply-divide on 128 bits with the rounding modes
 half up, half even, and down, civil dates at a fixed UTC offset with month ends clamped, and text
 comparison. Every routine runs to the same outcome, output, and fuel on the ledger's interpreter
 and on the independent Python interpreter (`ctest -R bo_reference`, with Python 3);
 `tests/bo/golden/runtime/fuel.txt` lists what each costs of a call's 10 million fuel.
 
-The compiler now lowers a first subset of Bo to such modules: creation, the contract's own
+The compiler lowers Bo to such modules: creation, the contract's own
 actions with their inputs, fields, states, `requires` (with a guard such as `over 1_000_000`),
 `if` and `otherwise`, `reject`, consents, and `in person`, over numbers, money, quantities,
 rates, dates, durations, texts, yes or no, and parties. Each action is a function named by its
@@ -567,8 +569,9 @@ fuel of each of its calls. The vocabulary's asset, service-state, and resource a
 with the standard library's terms, `when` rules compile to functions a keeper calls, and lists
 and charges compute bills (all below). What later steps bring (executors, and the built-in
 actions whose terms come later) is refused with a message for now. `testvectors/bo-v1.json`
-(`tools/testvectors/bo_vectors.py`) pins sources, code, and outcomes, checked on both
-interpreters.
+(`tools/testvectors/bo_vectors.py`) pins sources, bo-source bundles, interfaces, code, fuel
+bounds, and outcomes, checked on both interpreters, and the errors of sources that must not
+build.
 
 ```sh
 cexchain bo build agreement.bo                  # code, hash, compiler, and the source bundle
@@ -588,6 +591,32 @@ REBUILD" when the compiler the deploy names builds something else (the source is
 code's, and verification fails); "MALFORMED" when there is no usable bundle; or "not rebuilt"
 when another compiler, release, or codegen version built it (named, never called a forgery) or
 the build has no compiler. `contract verify --require-rebuild` accepts only "rebuilds".
+The compiler keeps writing earlier codegen versions (codegen 1 beside today's 2), so a deploy
+made with one still rebuilds.
+
+### Fuel
+
+A call has 10 million fuel. For each function, `bo build` computes the most fuel a call can use
+from the code's structure: each loop as often as the contract's bounds allow (lists, a bill's
+lines and charges, a split's parts and consents), each comparison and copy as large as the
+input allows, and reading the input as many items as the function's arguments, the state the
+contract writes, and the ledger's other fields can hold. The bound holds for every call whose
+arguments are of the function's shape. A contract a call could run out of fuel in does not build
+(`build.fuel`: two lists of 1,000 items compared item by item, say); one whose output could
+exceed what the code has for it (192 KiB: a large state split into many parts) builds with a
+warning (`build.output`). `bo build` shows the highest bound, `--fuel` each function's:
+
+```
+$ cexchain bo build agreement.bo --fuel
+  ...
+  fuel       at most 226,042 a call (amend), of 10,000,000; output at most 65,771 bytes (amend), of 196,608
+  function               fuel       reading     output
+  amend               226,042        63,080     65,771
+  ...
+```
+
+Every test of the compiler checks each call's fuel against its bound; calls at the language's
+limits use 40 to 70 percent of it (`tests/bo/golden/build/fuel-bounds.txt`).
 
 ### The contract text
 

@@ -11,6 +11,8 @@ Where this text and the CDDL disagree, the CDDL wins. The C++ code in this repos
 
 The key words MUST, MUST NOT, SHOULD, and MAY are used as in RFC 2119.
 
+Bo, the language contracts are written in, has its own reference: [`bo.md`](bo.md).
+
 ## Contents
 
 1. [Overview](#1-overview)
@@ -587,10 +589,10 @@ A call may also create instances of its contract, called **children**, such as t
 - **Source** (at most 262,144 bytes), so that anyone can rebuild the module and compare.
 - **Name** (1 to 256 bytes), for people.
 
-**Contracts written in Bo.** A deploy whose language is `bo` SHOULD carry, as its source, a **`bo-source` bundle** (`bo-source` in the CDDL): `{1: 1, 2: edition, 3: source, 4: [+ [id, version, digest]], ? 5: [+ pack]}`.
+**Contracts written in Bo.** Bo, the language CexChain's contracts are written in, is specified in [`bo.md`](bo.md). A deploy whose language is `bo` SHOULD carry, as its source, a **`bo-source` bundle** (`bo-source` in the CDDL): `{1: 1, 2: edition, 3: source, 4: [+ [id, version, digest]], ? 5: [+ pack]}`.
 - **Source:** the source as written (UTF-8, comments included) and the Bo edition it is written in. Whoever holds the deploy reads it, comments too.
 - **Packs:** every language pack the source was read with, by ascending id: its id, its version, and the hash under the home's hash of the pack's canonical CBOR. Packs that are not official are embedded in full (key 5, as their canonical CBOR, by ascending id); a reference without one names an official pack, which a Bo compiler carries in every released version. A pack maps spellings to concepts and never changes what runs, but it decides how the source reads, so the digests pin it.
-- **Compiler:** the compiler string names the compiler, its release, its codegen version, and the edition it reads: `cexchain-bo 0.0.1; codegen 1; edition 1`. The same codegen version builds the same bytes from the same source, in any language and on any machine.
+- **Compiler:** the compiler string names the compiler, its release, its codegen version, and the edition it reads: `cexchain-bo 0.0.1; codegen 2; edition 1`. The same codegen version builds the same bytes from the same source, in any language and on any machine, and a compiler keeps writing the codegen versions before its own, so that older deploys rebuild ([`bo.md`](bo.md), section 16).
 
 A verifier SHOULD rebuild the code: decode the bundle, find each pack (the official ones from its compiler, the others from the bundle) and check its digest, build the source, and compare the module, the interface, and the name with the deploy's. It reports one of:
 - **rebuilds:** the source builds to the deployed code;
@@ -785,5 +787,6 @@ A server holds the log key to sign checkpoints, receipts, and evidence. Across a
 | `protocol-v0.6.json` | contracts (section 15): a test contract deployed, instances created and called, with each call's input and output, consent metadata, calls the rules refuse, and contract evidence |
 | `protocol-v0.7.json` | instances created by a call (section 15): a splitting contract and the v0.6 test contract; children and their ids, calls on a child and a grandchild, splits down to the depth limit, children the rules refuse (too many, too deep, malformed, on a retired contract, on a final parent), the state tree, and signed evidence bundles: an instance, a tier-3 part with its ancestors and real consent bundles from other ledgers, and a child whose parent carried on |
 | `vm-v1.json` | contract execution (section 14): modules in and out of the profile, invocations with their outputs, traps, and fuel, and random integer programs, all from an independent reference interpreter (`tools/testvectors/wasm_ref.py`) |
+| `bo-v1.json` | the Bo language ([`bo.md`](bo.md), section 18): contracts' sources in each language, their interfaces and bo-source bundles, the code `cexchain-bo` builds and its bounds (informative), calls with their outcomes (normative), and sources that must not build with their errors' codes |
 
-`tools/testvectors/generate.py` regenerates them with Python's `cryptography` and `cbor2`, and OpenSSL, independently of the C++ code. `test-contracts.json` is not part of the protocol: it holds contracts for tests of the reference server (a contract that decides by how many consents a call cites, and the splitting contract of `protocol-v0.7.json`), from `tools/testvectors/test_contracts.py`.
+`tools/testvectors/generate.py` regenerates them with Python's `cryptography` and `cbor2`, and OpenSSL, independently of the C++ code; `tools/testvectors/bo_vectors.py` writes `bo-v1.json` from the Bo compiler's runs and checks each on the reference interpreter. `test-contracts.json` is not part of the protocol: it holds contracts for tests of the reference server (a contract that decides by how many consents a call cites, and the splitting contract of `protocol-v0.7.json`), from `tools/testvectors/test_contracts.py`.
