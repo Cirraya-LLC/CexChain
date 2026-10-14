@@ -5,11 +5,11 @@
 // random bytes rarely get past a signature, so the deeper checks (evidence
 // replay, access rules, backup restore, passkey registration) are reached
 // from real objects mutated, not from nothing. The contract interpreter and
-// the contract parsers start from testvectors/vm-v1.json and
-// protocol-v0.6.json, and so does the Bo runtime's CBOR reader (contract
-// inputs and outputs). A registrar's pending calls (node/contracts.hpp) are
-// built here as CBOR, without the node library. The Bo pack reader starts
-// from the official packs.
+// the contract parsers start from testvectors/vm-v1.json, protocol-v0.6.json,
+// and protocol-v0.7.json (children), and so does the Bo runtime's CBOR reader
+// (contract inputs and outputs). A registrar's pending calls
+// (node/contracts.hpp) are built here as CBOR, without the node library. The
+// Bo pack reader starts from the official packs.
 //
 //   make_seeds DIR    writes DIR/<target>/<name> for each target
 
@@ -609,6 +609,38 @@ void contract_seeds(const Seeds& seeds) {
     seeds.write("diagnostic_fuzz", "statement", signed_call.encoded);
 }
 
+/// Instances created by a call (v0.7): outputs with children (accepted and
+/// malformed), inputs of calls on children (instance view key 6), and the
+/// contract evidence of children, ancestors and their consents included,
+/// from protocol-v0.7.json (both hashes).
+void child_seeds(const Seeds& seeds) {
+    std::ifstream in(CEXCHAIN_TESTVECTORS_DIR "/protocol-v0.7.json");
+    if (!in) {
+        throw std::runtime_error("cannot read protocol-v0.7.json");
+    }
+    const auto doc = nlohmann::json::parse(in);
+    const crypto::openssl::Provider provider;
+    std::size_t n = 0;
+    std::size_t e = 0;
+    for (const auto& ledger : doc.at("ledgers")) {
+        for (const auto& run : ledger.at("runs")) {
+            const auto output = must(from_hex(run.at("output").get<std::string>()), "output");
+            const auto input = must(from_hex(run.at("input").get<std::string>()), "input");
+            seeds.write("contract_parse_fuzz", std::format("child-output-{:02}", n),
+                        ByteView(output));
+            seeds.write("bo_runtime_fuzz", std::format("child-input-{:02}", n++), ByteView(input));
+        }
+        for (const auto& [what, evidence] : ledger.at("evidence").items()) {
+            const auto encoded =
+                must(from_hex(evidence.at("contract_evidence").get<std::string>()), "evidence");
+            must(protocol::verify_contract_evidence(provider, encoded),
+                 "the vectors' child evidence must verify");
+            seeds.write("contract_parse_fuzz", std::format("child-evidence-{:02}", e++),
+                        ByteView(encoded));
+        }
+    }
+}
+
 /// The official language packs, as written and as CBOR (a source bundle
 /// embeds packs as CBOR); Bo sources, for the lexer, the parser, and the
 /// checker: the goldens, the spec's examples among them, in each language.
@@ -774,6 +806,7 @@ int main(int argc, char** argv) {
         text_seeds(seeds);
         vm_seeds(seeds);
         contract_seeds(seeds);
+        child_seeds(seeds);
         bo_seeds(seeds);
     } catch (const std::exception& e) {
         std::println(stderr, "error: {}", e.what());

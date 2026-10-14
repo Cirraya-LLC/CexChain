@@ -4,7 +4,9 @@
 // A contract's output comes from code anyone with a delegation can deploy,
 // and contract consents and evidence from other organizations (spec section
 // 15). Decoding must never crash, whatever decodes must encode back to the
-// same bytes, and verifying arbitrary evidence must fail cleanly.
+// same bytes, and verifying arbitrary evidence must fail cleanly. Outputs may
+// create children, and evidence may be about a child, with its ancestors'
+// calls (v0.7).
 
 #include <algorithm>
 #include <cstddef>
@@ -40,6 +42,20 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
         // evidence about an instance.
         if (const auto report = protocol::verify_contract_evidence(provider, input)) {
             require(report->instance.complete && report->instance.instance.has_value());
+            // A child's report shows one ancestor per generation, oldest
+            // first, its own calls after theirs, and one step per call.
+            const protocol::InstanceReport& i = *report->instance.instance;
+            require(i.ancestors.size() == i.depth && i.depth <= protocol::max_instance_depth);
+            require(i.parent.has_value() == !i.ancestors.empty());
+            require(i.first_own_event < report->instance.events.size());
+            require(report->instance.events[i.first_own_event].index == i.created_by);
+            require(report->steps.size() == report->instance.events.size());
+            for (std::size_t a = 0; a < i.ancestors.size(); ++a) {
+                require(i.ancestors[a].depth == a && !i.ancestors[a].events.empty());
+                require(
+                    i.ancestors[a].until ==
+                    (a + 1 < i.ancestors.size() ? i.ancestors[a + 1].created_by : i.created_by));
+            }
         }
     }
     // A home ledger id the outputs may not name.
@@ -49,6 +65,12 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
         require(again && std::ranges::equal(*again, input));
         if (const auto* needs = std::get_if<protocol::ContractNeeds>(&*output)) {
             require(!std::ranges::contains(needs->ledgers, home));
+        } else {
+            const auto& accept = std::get<protocol::ContractAccept>(*output);
+            require(accept.children.size() <= protocol::max_contract_children);
+            for (const protocol::ContractChild& child : accept.children) {
+                require(child.parties.size() <= protocol::max_contract_parties);
+            }
         }
     }
     if (const auto value = cbor::decode(input)) {
