@@ -25,3 +25,28 @@ can countersign 由 we
 可 close by 本公司
   须 经 客户 同意
   effective -> closed
+
+test "signed in person, countersigned, and closed"
+  we 建立 at 2026-10-14 連同 terms = "100 t of steel, monthly", amount = 港元 1_500_000, starts = 2027-01-01
+  本公司 amend with new_amount = HKD 2_000_000, new_start = 2027-01-08 -> 已提议
+  customer sign -> 被拒絕 "bo:in-person sign"
+  客户 sign 親身確認 -> signed
+  we amend 附带 new_amount = HKD 1, new_start = 2027-01-08 -> refused "bo:requires amend 1"
+  本公司 countersign -> effective
+  we close 时间 2027-06-30 -> closed
+  we close -> 被拒绝
+
+測試 "what one party cannot do alone"
+  本公司 create with terms = "100 t of steel, monthly", amount = HKD 500_000, starts = 2027-01-01
+  we amend with new_amount = 港元 600_000, new_start = 2027-01-01 -> 經 客户 同意
+  we amend with new_amount = HKD 900_000, new_start = 2027-01-01
+  -> 被拒絕 "an amendment may raise the amount by half at most"
+  we sign -> consent of 客戶
+  客户 countersign -> refused "bo:state countersign"
+  customer sign 由 AI 代理 -> signed
+  客戶 countersign -> 经 we 同意
+  本公司 close -> refused "bo:state close"
+
+测试 "too late to sign"
+  we 创建 with terms = "100 t of steel, monthly", 金額 = HKD 500_000, starts = 2027-01-01
+  customer sign 時間 2027-01-02 -> 被拒绝 "bo:requires sign 2"

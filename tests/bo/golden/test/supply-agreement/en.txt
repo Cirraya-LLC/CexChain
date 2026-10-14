@@ -1,0 +1,20 @@
+Test "signed by all three, then closed": passed
+  Step 1 (line 24) passed: we create at 2026-10-12 with goods = "Bearings 6204-2RS", pieces = 20_000, price = CNY 1_250_000, deliver_by = 2026-12-01
+    Result: accepted, and the instance is proposed.
+  Step 2 (line 25) passed: we sign -> signed
+    Result: accepted with the consent of the supplier and the bank, and the instance is signed.
+  Step 3 (line 26) passed: we close at 2026-12-01 -> closed
+    Result: accepted with the consent of the supplier, and the instance is closed; it is final and takes no more calls.
+
+Test "nobody signs alone": passed
+  Step 1 (line 29) passed: we create with goods = "Bearings 6204-2RS", pieces = 20_000, price = CNY 1_250_000, deliver_by = 2026-12-01
+    Result: accepted, and the instance is proposed.
+  Step 2 (line 30) passed: we sign -> consent of bank
+    Result: the call waits for the consent of the bank.
+  Step 3 (line 31) passed: supplier sign -> consent of we
+    Result: the call waits for us to make it.
+  Step 4 (line 32) passed: we close -> refused "bo:state close"
+    Result: refused, since close is not possible in the instance's current state (bo:state close).
+    The contract text, 4.2.3: If the instance is signed, it becomes closed; otherwise the call is refused.
+
+2 tests: 2 passed, 0 failed.

@@ -1,0 +1,20 @@
+測試 「signed by all three, then closed」：通過
+  第 1 步（第 24 行）通過：we create at 2026-10-12 with goods = "Bearings 6204-2RS", pieces = 20_000, price = CNY 1_250_000, deliver_by = 2026-12-01
+    結果：調用獲接納，實例現為已提議。
+  第 2 步（第 25 行）通過：we sign -> signed
+    結果：經供應商及銀行同意，調用獲接納，實例現為 signed。
+  第 3 步（第 26 行）通過：we close at 2026-12-01 -> closed
+    結果：經供應商同意，調用獲接納，實例現為 closed；此為最終狀態，實例不再接受調用。
+
+測試 「nobody signs alone」：通過
+  第 1 步（第 29 行）通過：we create with goods = "Bearings 6204-2RS", pieces = 20_000, price = CNY 1_250_000, deliver_by = 2026-12-01
+    結果：調用獲接納，實例現為已提議。
+  第 2 步（第 30 行）通過：we sign -> consent of bank
+    結果：調用正等待銀行同意。
+  第 3 步（第 31 行）通過：supplier sign -> consent of we
+    結果：調用正等待本公司提交。
+  第 4 步（第 32 行）通過：we close -> refused "bo:state close"
+    結果：調用被拒絕，因為實例目前的狀態不容許 close（bo:state close）。
+    合約條文 4.2.3：如實例處於 signed 狀態，即轉為 closed 狀態；否則拒絕調用。
+
+共 2 個測試：2 個通過，0 個失敗。

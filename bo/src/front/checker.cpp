@@ -359,6 +359,17 @@ private:
     m::Do do_action(const ast::Do& d);
     void check_states();
     void check_recursion();
+
+    // --- Tests.
+    void check_tests();
+    m::Step test_step(const ast::Do& d, bool first, std::optional<std::int64_t>& clock);
+    void test_with(const ast::Do& d, m::Step& step, const m::Action* action,
+                   const std::string& action_key);
+    void test_expect(const ast::Expect& e, m::Step& step);
+    std::optional<m::TestParty> test_party(const ast::Expr& e);
+    [[nodiscard]] std::string creation_word() const {
+        return is(model_.kind, "kind.asset") ? "act.issue" : "act.create";
+    }
     bool reaches(const std::string& from, const std::string& target,
                  std::set<std::string>& seen) const;
 
@@ -398,6 +409,7 @@ private:
     std::vector<const ast::Block*> charges_;
     std::vector<const ast::Can*> cans_;
     std::vector<const ast::When*> whens_;
+    std::vector<const ast::Test*> tests_;
     std::vector<const ast::Clause*> clauses_;
 
     // Names: parties, fields, actions, and states by key; inputs and each
@@ -1437,6 +1449,283 @@ void Checker::check_recursion() {
     }
 }
 
+// --- Tests (U8).
+
+/// A value a test gives as written: a literal, yes or no, or a list of them.
+bool test_value(const ast::Expr& e) {
+    if (e.kind == ExprKind::literal || word_is(e, "val.yes") || word_is(e, "val.no")) {
+        return true;
+    }
+    return e.kind == ExprKind::list &&
+           std::ranges::all_of(e.operands, [](const ast::Expr& o) { return test_value(o); });
+}
+
+std::optional<m::TestParty> Checker::test_party(const ast::Expr& e) {
+    m::TestParty p;
+    p.span = e.span;
+    if (word_in(e, Category::role)) {
+        p.word = e.concept_entry;
+        const Decl* d = global(e.concept_entry->id);
+        if (d == nullptr || d->refers != Refers::party) {
+            error(e.span, "check.unknown-party", {{"party", std::string(e.concept_entry->id)}});
+            return std::nullopt;
+        }
+        p.role = true;
+        return p;
+    }
+    if (e.kind == ExprKind::name) {
+        // A name nothing declares is a ledger only the test names.
+        p.name = e.name;
+        if (const Decl* d = global(e.name)) {
+            if (d->refers != Refers::party) {
+                error(e.span, "check.test-party", {{"text", written(e.span)}});
+                return std::nullopt;
+            }
+            p.role = true;
+        }
+        return p;
+    }
+    error(e.span, "check.test-party", {{"text", written(e.span)}});
+    return std::nullopt;
+}
+
+void Checker::check_tests() {
+    place_ = Place::declaration;
+    std::set<std::string> names;
+    for (const ast::Test* t : tests_) {
+        m::Test test;
+        test.span = t->span;
+        if (t->name) {
+            test.name = t->name->kind == ExprKind::literal ? t->name->literal.text : t->name->name;
+            if (!names.insert(test.name).second) {
+                error(t->name->span, "check.duplicate", {{"name", test.name}});
+            }
+        }
+        // The time of the steps so far: `at` never goes back.
+        std::optional<std::int64_t> clock;
+        // A step without an expectation yet, which a `->` line may give.
+        bool open = false;
+        for (const ast::Statement& s : t->steps) {
+            if (const auto* e = std::get_if<ast::Expect>(&s.node)) {
+                if (!open) {
+                    error(e->span, "check.test-expect-step", {});
+                    continue;
+                }
+                test_expect(*e, test.steps.back());
+                open = false;
+            } else if (const auto* d = std::get_if<ast::Do>(&s.node)) {
+                test.steps.push_back(test_step(*d, test.steps.empty(), clock));
+                open = true;
+            }
+        }
+        if (test.steps.empty()) {
+            error(t->span, "check.test-start", {{"action", creation_word()}});
+        }
+        model_.tests.push_back(std::move(test));
+    }
+}
+
+m::Step Checker::test_step(const ast::Do& d, const bool first, std::optional<std::int64_t>& clock) {
+    m::Step step;
+    step.span = d.span;
+    const Concept* word = d.action.kind == ExprKind::word ? d.action.concept_entry : nullptr;
+    step.word = word;
+    if (word == nullptr) {
+        step.name = d.action.name;
+    }
+    const std::string action = m::key(word, step.name);
+    const std::string creation = creation_word();
+    const m::Action* declared = nullptr;
+    for (const m::Action& a : model_.actions) {
+        if (m::key(a.word, a.name) == action) {
+            declared = &a;
+        }
+    }
+    step.creation = action == creation;
+    if (!step.creation && declared == nullptr) {
+        if (is(word, "act.issue") || is(word, "act.create")) {
+            error(d.action.span, "check.test-creation",
+                  {{"text", written(d.action.span)}, {"action", creation}});
+        } else {
+            error(d.action.span, "check.test-action", {{"action", action}});
+        }
+    }
+    if (step.creation && !first) {
+        error(d.action.span, "check.test-again", {{"action", creation}});
+    } else if (!step.creation && first) {
+        error(d.span, "check.test-start", {{"action", creation}});
+    }
+
+    // Who acts: at creation, the home; `we`, if the contract has it.
+    if (d.subject) {
+        if (std::optional<m::TestParty> p = test_party(*d.subject)) {
+            step.subject = std::move(*p);
+            const Decl* we = global("role.we");
+            if (step.creation && we != nullptr && we->refers == Refers::party &&
+                !is(step.subject.word, "role.we")) {
+                error(d.subject->span, "check.test-home", {{"party", std::string("role.we")}});
+            }
+        }
+    }
+
+    // The counterparty: a role bound at creation is that role's ledger.
+    if (d.to && (step.creation || declared != nullptr)) {
+        const m::Expr* role = declared != nullptr && declared->to ? &*declared->to : nullptr;
+        if (role == nullptr) {
+            error(d.to->span, "check.test-to", {{"action", step.creation ? creation : action}});
+        } else if (std::optional<m::TestParty> p = test_party(*d.to)) {
+            const std::string key = m::key(role->concept_entry, role->name);
+            const Decl* bound = global(key);
+            if (bound != nullptr && bound->refers == Refers::party &&
+                model_.parties[bound->index].binding == m::Binding::creation &&
+                m::key(p->word, p->name) != key) {
+                error(d.to->span, "check.test-counterparty", {{"action", action}, {"party", key}});
+            }
+            step.to = std::move(*p);
+        }
+    }
+
+    // Who signs: by AI agent, or in person; and when.
+    if (d.by) {
+        if (word_is(*d.by, "actor.ai_agent")) {
+            step.agent = true;
+        } else {
+            error(d.by->span, "check.test-signer", {{"text", written(d.by->span)}});
+        }
+    }
+    for (const ast::Expr& a : d.args) {
+        if (a.kind == ExprKind::apply && is(a.concept_entry, "time.at") && !step.at) {
+            const ast::Expr* date = a.operands.empty() ? nullptr : &a.operands[0];
+            // A ledger's times start at 1970-01-01T00:00Z.
+            const std::optional<std::int64_t> when =
+                date != nullptr && date->kind == ExprKind::literal &&
+                        date->literal.kind == ast::LiteralKind::date
+                    ? literal_value(date->literal)
+                    : std::nullopt;
+            if (!when || *when < 0) {
+                error(a.span, "check.test-time", {{"text", written(a.span)}});
+                continue;
+            }
+            step.at = value(*date);
+            if (clock && *when < *clock) {
+                error(a.span, "check.test-time-back", {{"text", written(a.span)}});
+            } else {
+                clock = when;
+            }
+        } else if (word_is(a, "cond.in_person") && !step.in_person) {
+            step.in_person = true;
+        } else {
+            error(a.span, "check.test-step", {{"text", written(a.span)}});
+        }
+    }
+    if (step.in_person && step.agent) {
+        error(d.span, "check.test-signer", {{"text", written(d.span)}});
+    }
+    test_with(d, step, declared, step.creation ? creation : action);
+    return step;
+}
+
+void Checker::test_with(const ast::Do& d, m::Step& step, const m::Action* action,
+                        const std::string& action_key) {
+    // What the step must give: the action's inputs, or at creation every
+    // field given at creation (not a party field, which starts with its
+    // role, R2).
+    const bool known_action = step.creation || action != nullptr;
+    std::vector<const m::Field*> expected;
+    if (step.creation) {
+        for (const m::Field& f : model_.fields) {
+            if (f.kind == m::FieldKind::instance && !(f.type.kind == TypeKind::party && f.value)) {
+                expected.push_back(&f);
+            }
+        }
+    } else if (action != nullptr) {
+        for (const m::Field& f : action->inputs) {
+            expected.push_back(&f);
+        }
+    }
+    std::set<std::string> given;
+    for (const ast::Set& s : d.with) {
+        m::Set item;
+        item.span = s.span;
+        item.target = plain(s.target);
+        item.target.refers = step.creation ? Refers::field : Refers::input;
+        const std::string target = m::key(
+            s.target.kind == ExprKind::word ? s.target.concept_entry : nullptr, s.target.name);
+        const m::Field* field = nullptr;
+        for (const m::Field* f : expected) {
+            if (m::key(f->word, f->name) == target) {
+                field = f;
+            }
+        }
+        if (known_action && field == nullptr) {
+            error(s.target.span, "check.unknown-input", {{"name", target}, {"action", action_key}});
+        } else if (!given.insert(target).second) {
+            error(s.target.span, "check.duplicate", {{"name", target}});
+        }
+        if (!test_value(s.value)) {
+            error(s.value.span, "check.test-value", {{"text", written(s.value.span)}});
+            item.value = plain(s.value);
+        } else {
+            item.value = value(s.value);
+            if (field != nullptr) {
+                item.target.type = field->type;
+                expect(item.value, field->type);
+            }
+        }
+        step.with.push_back(std::move(item));
+    }
+    if (!known_action) {
+        return;
+    }
+    for (const m::Field* f : expected) {
+        const std::string name = m::key(f->word, f->name);
+        if (!given.contains(name)) {
+            error(d.action.span, "check.test-missing", {{"action", action_key}, {"name", name}});
+        }
+    }
+}
+
+void Checker::test_expect(const ast::Expect& e, m::Step& step) {
+    step.expect_span = e.span;
+    const ast::Expr& o = e.outcome;
+    if (word_is(o, "val.refused")) {
+        step.expect = m::Expectation::refused;
+        step.reason = e.reason;
+        return;
+    }
+    if (e.reason) {
+        error(e.span, "check.test-reason", {{"text", written(e.span)}});
+    }
+    if (word_in(o, Category::state)) {
+        // A vocabulary state may be reached by a vocabulary action's
+        // template (milestone 11).
+        const Decl* d = global(o.concept_entry->id);
+        if ((d != nullptr && d->refers == Refers::state) || any_standard_) {
+            step.expect = m::Expectation::state;
+            step.state_word = o.concept_entry;
+            return;
+        }
+    } else if (o.kind == ExprKind::name) {
+        if (const Decl* d = global(o.name); d != nullptr && d->refers == Refers::state) {
+            step.expect = m::Expectation::state;
+            step.state_name = o.name;
+            return;
+        }
+    } else if (o.kind == ExprKind::apply && is(o.concept_entry, "cond.consent_of") &&
+               !o.operands.empty()) {
+        step.expect = m::Expectation::waits;
+        const ast::Expr& who = o.operands[0];
+        const std::vector<ast::Expr> one{who};
+        for (const ast::Expr& p : who.kind == ExprKind::list ? who.operands : one) {
+            if (std::optional<m::TestParty> party = test_party(p)) {
+                step.waits.push_back(std::move(*party));
+            }
+        }
+        return;
+    }
+    error(o.span, "check.test-expect", {{"text", written(o.span)}});
+}
+
 // --- Expressions.
 
 m::Expr Checker::plain(const ast::Expr& e) const {
@@ -2213,7 +2502,7 @@ m::Model Checker::run(const ast::File& file) {
                        },
                        [&](const ast::Can& c) { cans_.push_back(&c); },
                        [&](const ast::When& w) { whens_.push_back(&w); },
-                       [&](const ast::Test&) {},
+                       [&](const ast::Test& t) { tests_.push_back(&t); },
                    },
                    clause);
     }
@@ -2247,6 +2536,7 @@ m::Model Checker::run(const ast::File& file) {
     }
     check_states();
     check_recursion();
+    check_tests();
     return std::move(model_);
 }
 

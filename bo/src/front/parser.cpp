@@ -59,6 +59,8 @@ struct Known {
     const Concept* charge;
     const Concept* tax;
     const Concept* applies_to;
+    const Concept* at;
+    const Concept* in_person;
 };
 
 const Concept* concept_of(std::string_view id) noexcept {
@@ -69,13 +71,14 @@ const Concept* concept_of(std::string_view id) noexcept {
 
 const Known& known() {
     static const Known k{
-        concept_of("kw.contract"),   concept_of("kw.parties"), concept_of("kw.can"),
-        concept_of("kw.by"),         concept_of("kw.to"),      concept_of("kw.with"),
-        concept_of("kw.requires"),   concept_of("kw.when"),    concept_of("kw.if"),
-        concept_of("kw.otherwise"),  concept_of("kw.and"),     concept_of("kw.or"),
-        concept_of("kw.not"),        concept_of("kw.each"),    concept_of("kw.in"),
-        concept_of("kw.reject"),     concept_of("kw.test"),    concept_of("kw.use"),
-        concept_of("charge.charge"), concept_of("charge.tax"), concept_of("charge.applies_to"),
+        concept_of("kw.contract"),   concept_of("kw.parties"),     concept_of("kw.can"),
+        concept_of("kw.by"),         concept_of("kw.to"),          concept_of("kw.with"),
+        concept_of("kw.requires"),   concept_of("kw.when"),        concept_of("kw.if"),
+        concept_of("kw.otherwise"),  concept_of("kw.and"),         concept_of("kw.or"),
+        concept_of("kw.not"),        concept_of("kw.each"),        concept_of("kw.in"),
+        concept_of("kw.reject"),     concept_of("kw.test"),        concept_of("kw.use"),
+        concept_of("charge.charge"), concept_of("charge.tax"),     concept_of("charge.applies_to"),
+        concept_of("time.at"),       concept_of("cond.in_person"),
     };
     return k;
 }
@@ -236,8 +239,14 @@ private:
         }
         return is_symbol(t, Symbol::open);
     }
-    /// An operand that is not the beginning of an action.
+    /// An operand that is not the beginning of an action. In a test step's
+    /// `with`, a value also ends before `at DATE` and `in person`, which
+    /// belong to the step (`we create with amount = HKD 5 at 2027-01-06`).
     [[nodiscard]] bool starts_value() const {
+        if (step_with_ && peek().kind == TokenKind::word &&
+            (peek().concept_entry == known().at || peek().concept_entry == known().in_person)) {
+            return false;
+        }
         return starts_operand(peek()) && !starts_action(pos_);
     }
     [[nodiscard]] bool starts_condition() const { return at_kw(known().not_) || starts_value(); }
@@ -471,6 +480,8 @@ private:
     std::size_t last_ = 0;
     std::size_t expr_depth_ = 0;
     bool failed_ = false;
+    /// Reading the values of a test step's `with`.
+    bool step_with_ = false;
     bool have_contract_ = false;
     bool have_parties_ = false;
 };
@@ -1171,7 +1182,9 @@ std::optional<ast::Do> Parser::action(bool step) {
                 return std::nullopt;
             }
             while (true) {
+                step_with_ = step;
                 std::optional<ast::Set> s = set_item();
+                step_with_ = false;
                 if (!s) {
                     return std::nullopt;
                 }

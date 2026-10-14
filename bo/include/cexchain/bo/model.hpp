@@ -302,6 +302,73 @@ struct TimeRule {
     std::vector<Consent> consents;
 };
 
+// ---------------------------------------------------------------------------
+// Tests (`test` blocks, U8): scenarios `bo test` runs on the compiled
+// contract as a ledger would. They are no part of the code.
+
+/// What a step expects.
+enum class Expectation : std::uint8_t {
+    accepted, ///< nothing written: the call is accepted, into any state
+    state,    ///< `-> STATE`: accepted, and the instance is then in STATE
+    refused,  ///< `-> refused ["REASON"]`: refused (with that reason)
+    waits,    ///< `-> consent of PARTY`: the call waits for those parties' consent
+};
+
+inline constexpr std::array<std::string_view, 4> expectation_names{"accepted", "state", "refused",
+                                                                   "waits"};
+
+/// A party a test names: one of the contract's roles (a role word or a
+/// name of `parties`), or a ledger only the test names (`bank1`). Each is a
+/// test ledger of its own, keyed by `key(word, name)`; a role an action
+/// binds stands, once bound, for the ledger it was bound to.
+struct TestParty {
+    Span span;
+    const Concept* word = nullptr;
+    std::string name;
+    /// One of the contract's parties; otherwise a ledger only tests name.
+    bool role = false;
+};
+
+/// A step: `SUBJECT ACTION [to PARTY] [by AI agent] [with INPUT = VALUE,
+/// ...] [at DATE] [in person] [-> EXPECTATION]`. The first step of a test
+/// creates its instance (`issue` for an asset, `create` otherwise), and its
+/// subject is the home, whose ledger runs the contract.
+struct Step {
+    Span span;
+    /// The party that acts.
+    TestParty subject;
+    /// The action, by its concept or its name; the creation's concept.
+    const Concept* word = nullptr;
+    std::string name;
+    bool creation = false;
+    std::optional<TestParty> to;
+    /// The values given, typed: the action's inputs, or at creation the
+    /// fields given at creation. Each is a literal (or yes, no, a list).
+    std::vector<Set> with;
+    /// `at DATE`: the day the step happens (a date literal).
+    std::optional<Expr> at;
+    /// `in person`: the subject is a person who proves presence.
+    bool in_person = false;
+    /// `by AI agent`: the subject's signer is an AI agent.
+    bool agent = false;
+    Expectation expect = Expectation::accepted;
+    Span expect_span;
+    /// Expectation::state: the state, a word or a name.
+    const Concept* state_word = nullptr;
+    std::string state_name;
+    /// Expectation::refused: the reason, as the contract gives it.
+    std::optional<std::string> reason;
+    /// Expectation::waits: the parties whose consent the call waits for.
+    std::vector<TestParty> waits;
+};
+
+struct Test {
+    Span span;
+    /// As written (a text or a name); empty if the test has none.
+    std::string name;
+    std::vector<Step> steps;
+};
+
 enum class DueKind : std::uint8_t {
     none,   ///< nothing is due
     field,  ///< the instance's `due` date field
@@ -328,6 +395,8 @@ struct Model {
     std::vector<TimeRule> rules;
     DueKind due = DueKind::none;
     std::string_view due_rule;
+    /// The `test` blocks, in source order.
+    std::vector<Test> tests;
 };
 
 /// The key of something with a concept or a name: the concept's id, or the

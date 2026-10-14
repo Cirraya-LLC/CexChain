@@ -9,9 +9,10 @@
 // from every language; roles bound by an action; values and expressions;
 // refusals and their texts in three languages; what this version does not
 // compile yet, and the limits. A hidden case writes every run for the Python
-// reference (CTest bo_codegen_reference: wasm_ref.py --check), and
-// testvectors/bo-v1.json (tools/testvectors/bo_vectors.py) pins code hashes
-// and runs. Set CEXCHAIN_UPDATE_GOLDENS=1 to rewrite build.txt.
+// reference (CTest bo_codegen_reference: wasm_ref.py --check), the runs of
+// the test blocks (bo test) included, and testvectors/bo-v1.json
+// (tools/testvectors/bo_vectors.py) pins code hashes and runs. Set CEXCHAIN_UPDATE_GOLDENS=1 to
+// rewrite build.txt.
 
 #include <algorithm>
 #include <cstddef>
@@ -33,12 +34,14 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
+#include <cexchain/bo/build.hpp>
 #include <cexchain/bo/checker.hpp>
 #include <cexchain/bo/lexer.hpp>
 #include <cexchain/bo/lower.hpp>
 #include <cexchain/bo/messages.hpp>
 #include <cexchain/bo/pack.hpp>
 #include <cexchain/bo/parser.hpp>
+#include <cexchain/bo/scenario.hpp>
 #include <cexchain/bo/values.hpp>
 #include <cexchain/bo/wasm.hpp>
 #include <cexchain/core/bytes.hpp>
@@ -780,7 +783,10 @@ TEST_CASE("bo build: what this version does not compile yet", "[bo][build]") {
     // A fragment, and limits.
     CHECK(build_codes("parties we\ncan go by we\n  -> active\n") == "build.fragment");
     CHECK(build_codes(head + "can go by we\n  reject \"bo:input\"\n") == "build.reject-text");
-    CHECK(build_codes(head + "can create by we\n  -> active\n") == "build.name-taken");
+    // `create` is the vocabulary's word for the creation (a test step's), so
+    // an action named so is a built-in one, and its name is the creation's.
+    CHECK(build_codes(head + "can create by we\n  -> active\n") ==
+          "build.standard-action build.name-taken");
     std::string long_name(70, 'a');
     CHECK(build_codes(head + "can " + long_name + " by we\n  -> active\n") ==
           "build.name-too-long");
@@ -897,6 +903,49 @@ TEST_CASE("bo build: write the runs for the Python reference", "[.codegen-refere
             run["fuel"] = o.run.fuel_used;
             run["reason"] = hex(o.run.abort_reason);
             runs.push_back(std::move(run));
+        }
+    }
+    // The test blocks' runs (bo test, milestone 10): every call each step
+    // made, under the contract it ran on.
+    for (const auto& [name, file] : std::vector<std::pair<std::string, std::filesystem::path>>{
+             {"agreement", build_dir / "agreement-en" / "source.bo"},
+             {"check-agreement", golden_dir / "check-agreement" / "source.bo"},
+             {"deal", golden_dir / "test" / "failing" / "source.bo"},
+             {"loan-tests", golden_dir / "check-tests" / "source.bo"},
+             {"supply-agreement", golden_dir.parent_path().parent_path().parent_path() / "deploy" /
+                                      "demo" / "supply-agreement.bo"}}) {
+        const std::string text = read_text(file);
+        const bo::Compiled compiled = bo::compile(text, *bo::make_pack_set({}).set);
+        REQUIRE(compiled.build.has_value());
+        REQUIRE(compiled.model.has_value());
+        const std::string code = hex(compiled.build->code);
+        if (modules.contains(name)) {
+            REQUIRE(modules[name] == code);
+        } else {
+            modules[name] = code;
+            sources[name] = nlohmann::ordered_json::array({{{"language", "en"}, {"text", text}}});
+        }
+        const bo::TestResults results = bo::run_tests(*compiled.model, *compiled.build, provider());
+        for (std::size_t t = 0; t < results.tests.size(); ++t) {
+            const bo::model::Test& test = compiled.model->tests[t];
+            for (std::size_t i = 0; i < results.tests[t].steps.size(); ++i) {
+                const std::vector<bo::TestCall>& calls = results.tests[t].steps[i].calls;
+                for (std::size_t k = 0; k < calls.size(); ++k) {
+                    const bo::TestCall& c = calls[k];
+                    nlohmann::ordered_json run{
+                        {"module", name},
+                        {"label", std::format("test \"{}\" step {}, call {}",
+                                              test.name.empty() ? std::to_string(t + 1) : test.name,
+                                              i + 1, k + 1)}};
+                    run["call"] = call_json(c.input);
+                    run["input"] = hex(c.encoded);
+                    run["outcome"] = c.run.trap ? std::string(vm::name(*c.run.trap)) : "ok";
+                    run["output"] = hex(c.run.output);
+                    run["fuel"] = c.run.fuel_used;
+                    run["reason"] = hex(c.run.abort_reason);
+                    runs.push_back(std::move(run));
+                }
+            }
         }
     }
     doc["modules"] = std::move(modules);

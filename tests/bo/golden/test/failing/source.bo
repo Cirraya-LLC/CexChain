@@ -1,0 +1,37 @@
+# Tests that fail, and how bo test says so: a step that ends in another
+# state, a refusal that does not come, a consent nobody asks for, another
+# reason; a test stops at its first failing step.
+contract Deal
+parties we, customer
+
+record Terms
+  price HKD
+
+can accept by customer
+  requires price > HKD 0
+  proposed -> accepted
+can withdraw by we
+  if price > HKD 1_000
+    reject "too large to withdraw"
+  proposed -> withdrawn
+
+test "accepted, not withdrawn"
+  we create with price = HKD 500
+  customer accept -> withdrawn
+  we withdraw
+
+test "nothing to refuse"
+  we create with price = HKD 500
+  we withdraw -> refused "too large to withdraw"
+
+test "a consent nobody asks for"
+  we create with price = HKD 5_000
+  customer accept -> consent of bank1
+
+test "another reason"
+  we create with price = HKD 5_000
+  we withdraw -> refused "bo:state withdraw"
+
+test
+  we create with price = HKD 5_000
+  customer accept

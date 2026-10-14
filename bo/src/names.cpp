@@ -46,6 +46,8 @@ static_assert(table_matches<model::FieldKind>(model::field_kind_names),
               "field_kind_names is out of date");
 static_assert(table_matches<model::DueKind>(model::due_kind_names),
               "due_kind_names is out of date");
+static_assert(table_matches<model::Expectation>(model::expectation_names),
+              "expectation_names is out of date");
 // operator_texts holds how each operator is written: one per enumerator.
 static_assert(detail::enumerator_count<ast::Operator>() == ast::operator_texts.size(),
               "operator_texts is out of date");

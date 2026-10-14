@@ -1,0 +1,17 @@
+test "accepted, not withdrawn" failed home=role.we
+  step 1 passed 2026-01-01 accepted proposed event=proposed; fuel 5898
+  step 2 failed 2026-01-01 accepted accepted event=accepted final consents role.customer; fuel 6768 8480
+  step 3 skipped
+test "nothing to refuse" failed home=role.we
+  step 1 passed 2026-01-01 accepted proposed event=proposed; fuel 5898
+  step 2 failed 2026-01-01 accepted withdrawn event=withdrawn final; fuel 7600
+test "a consent nobody asks for" failed home=role.we
+  step 1 passed 2026-01-01 accepted proposed event=proposed; fuel 5994
+  step 2 failed 2026-01-01 accepted accepted event=accepted final consents role.customer; fuel 6832 8576
+test "another reason" failed home=role.we
+  step 1 passed 2026-01-01 accepted proposed event=proposed; fuel 5994
+  step 2 failed 2026-01-01 refused "too large to withdraw"; fuel 6416
+test 5 passed home=role.we
+  step 1 passed 2026-01-01 accepted proposed event=proposed; fuel 5994
+  step 2 passed 2026-01-01 accepted accepted event=accepted final consents role.customer; fuel 6832 8576
+5 tests: 1 passed, 4 failed

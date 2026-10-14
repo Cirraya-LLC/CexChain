@@ -1,0 +1,20 @@
+Test "signed and closed": passed
+  Step 1 (line 17) passed: we create with terms = "steel", price = HKD 100
+    Result: accepted, and the instance is proposed.
+  Step 2 (line 18) passed: customer sign -> signed
+    Result: accepted with the consent of the customer, and the instance is signed.
+  Step 3 (line 19) passed: we close -> closed
+    Result: accepted, and the instance is closed; it is final and takes no more calls.
+
+Test "the customer cannot close": passed
+  Step 1 (line 22) passed: we create with terms = "steel", price = HKD 100
+    Result: accepted, and the instance is proposed.
+  Step 2 (line 23) passed: customer close -> refused "bo:state close"
+    Result: refused, since close is not possible in the instance's current state (bo:state close).
+    The contract text, 4.2.2: If the instance is signed, it becomes closed; otherwise the call is refused.
+  Step 3 (line 24) passed: customer sign -> signed
+    Result: accepted with the consent of the customer, and the instance is signed.
+  Step 4 (line 25) passed: customer close -> consent of we
+    Result: the call waits for us to make it.
+
+2 tests: 2 passed, 0 failed.

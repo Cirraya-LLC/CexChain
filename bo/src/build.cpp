@@ -73,6 +73,7 @@ Compiled compile(std::string_view source, const PackSet& packs) {
         append(out.diagnostics, checked.diagnostics);
         out.name = checked.model.name;
         if (!has_errors(out.diagnostics)) {
+            out.model = checked.model;
             Lowered lowered = lower(source, checked.model);
             append(out.diagnostics, lowered.diagnostics);
             out.build = std::move(lowered.build);

@@ -1,0 +1,49 @@
+测试 “signed in person, countersigned, and closed”：通过
+  第 1 步（第 33 行）通过：we create at 2026-10-14 with terms = "100 t of steel, monthly", amount = HKD 1_500_000, starts = 2027-01-01
+    结果：调用被接受，实例现为已提议。
+  第 2 步（第 34 行）通过：we amend with new_amount = HKD 2_000_000, new_start = 2027-01-08 -> proposed
+    结果：经客户同意，调用被接受，实例现为已提议。
+  第 3 步（第 35 行）通过：customer sign -> refused "bo:in-person sign"
+    结果：调用被拒绝，因为 sign 需要本人以通行密钥或硬件密钥证明本人在场（bo:in-person sign）。
+    合约条款 4.2.2：要求 1：如果金额超过港元 1,000,000，客户须以通行密钥或硬件密钥证明本人在场。
+  第 4 步（第 36 行）通过：customer sign in person -> signed
+    结果：经客户同意，调用被接受，实例现为 signed。
+  第 5 步（第 37 行）通过：we amend with new_amount = HKD 1, new_start = 2027-01-08 -> refused "bo:requires amend 1"
+    结果：调用被拒绝，因为 amend 的第 1 项要求未满足（bo:requires amend 1）。
+    合约条款 4.1.3：要求 1：实例处于已提议状态。
+  第 6 步（第 38 行）通过：we countersign -> effective
+    结果：调用被接受，实例现为 effective。
+  第 7 步（第 39 行）通过：we close at 2027-06-30 -> closed
+    结果：经客户同意，调用被接受，实例现为 closed；这是最终状态，实例不再接受调用。
+  第 8 步（第 40 行）通过：we close -> refused
+    结果：账本拒绝调用：实例已处于最终状态，不再接受调用。
+
+测试 “what one party cannot do alone”：通过
+  第 1 步（第 43 行）通过：we create with terms = "100 t of steel, monthly", amount = HKD 500_000, starts = 2027-01-01
+    结果：调用被接受，实例现为已提议。
+  第 2 步（第 44 行）通过：we amend with new_amount = HKD 600_000, new_start = 2027-01-01 -> consent of customer
+    结果：调用正在等待客户同意。
+  第 3 步（第 45 行）通过：we amend with new_amount = HKD 900_000, new_start = 2027-01-01 -> refused "an amendment may raise the amount by half at most"
+    结果：调用被拒绝，原因为“an amendment may raise the amount by half at most”。
+    合约条款 4.1.6.1：拒绝调用，原因为“an amendment may raise the amount by half at most”。
+  第 4 步（第 47 行）通过：we sign -> consent of customer
+    结果：调用正在等待客户同意。
+  第 5 步（第 48 行）通过：customer countersign -> refused "bo:state countersign"
+    结果：调用被拒绝，因为实例当前的状态不允许 countersign（bo:state countersign）。
+    合约条款 4.3.2：如果实例处于 signed 状态，即转为 effective 状态；否则拒绝调用。
+  第 6 步（第 49 行）通过：customer sign by AI agent -> signed
+    结果：经客户同意，调用被接受，实例现为 signed。
+  第 7 步（第 50 行）通过：customer countersign -> consent of we
+    结果：调用正在等待本公司提交。
+  第 8 步（第 51 行）通过：we close -> refused "bo:state close"
+    结果：调用被拒绝，因为实例当前的状态不允许 close（bo:state close）。
+    合约条款 4.4.3：如果实例处于 effective 状态，即转为 closed 状态；否则拒绝调用。
+
+测试 “too late to sign”：通过
+  第 1 步（第 54 行）通过：we create with terms = "100 t of steel, monthly", amount = HKD 500_000, starts = 2027-01-01
+    结果：调用被接受，实例现为已提议。
+  第 2 步（第 55 行）通过：customer sign at 2027-01-02 -> refused "bo:requires sign 2"
+    结果：调用被拒绝，因为 sign 的第 2 项要求未满足（bo:requires sign 2）。
+    合约条款 4.2.3：要求 2：调用时间早于 starts。
+
+共 3 个测试：3 个通过，0 个失败。

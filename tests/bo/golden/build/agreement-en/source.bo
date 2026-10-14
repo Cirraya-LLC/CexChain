@@ -28,3 +28,28 @@ can countersign by we
 can close by we
   requires consent of customer
   effective -> closed
+
+test "signed in person, countersigned, and closed"
+  we create at 2026-10-14 with terms = "100 t of steel, monthly", amount = HKD 1_500_000, starts = 2027-01-01
+  we amend with new_amount = HKD 2_000_000, new_start = 2027-01-08 -> proposed
+  customer sign -> refused "bo:in-person sign"
+  customer sign in person -> signed
+  we amend with new_amount = HKD 1, new_start = 2027-01-08 -> refused "bo:requires amend 1"
+  we countersign -> effective
+  we close at 2027-06-30 -> closed
+  we close -> refused
+
+test "what one party cannot do alone"
+  we create with terms = "100 t of steel, monthly", amount = HKD 500_000, starts = 2027-01-01
+  we amend with new_amount = HKD 600_000, new_start = 2027-01-01 -> consent of customer
+  we amend with new_amount = HKD 900_000, new_start = 2027-01-01
+  -> refused "an amendment may raise the amount by half at most"
+  we sign -> consent of customer
+  customer countersign -> refused "bo:state countersign"
+  customer sign by AI agent -> signed
+  customer countersign -> consent of we
+  we close -> refused "bo:state close"
+
+test "too late to sign"
+  we create with terms = "100 t of steel, monthly", amount = HKD 500_000, starts = 2027-01-01
+  customer sign at 2027-01-02 -> refused "bo:requires sign 2"

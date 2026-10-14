@@ -12,9 +12,10 @@
 # registrar, with a consent from a ledger on SM3, verified offline with the
 # rebuild check; the contract text (bo explain, contract explain) in each
 # language, the same from every spelling; and deploys whose source is not
-# their code; and the source laid out canonically and written in each
-# language (bo fmt), which builds to the same code and explains to the same
-# text.
+# their code; the source laid out canonically and written in each language
+# (bo fmt), which builds to the same code and explains to the same text; and
+# the test blocks run as a ledger runs calls (bo test), with the same results
+# from every language.
 # Usage: bo.sh CEXCHAIN
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO (from lines ${BASH_LINENO[*]}): $BASH_COMMAND" >&2' ERR
@@ -59,7 +60,7 @@ start_server() {
 }
 
 echo "== help and completion"
-for command in "bo check" "bo build" "bo explain" "bo fmt" "bo packs list" "bo packs show" "bo packs check"; do
+for command in "bo check" "bo build" "bo explain" "bo fmt" "bo test" "bo packs list" "bo packs show" "bo packs check"; do
     # shellcheck disable=SC2086
     run $command --help > out.txt
     contains -F "cexchain $command" out.txt || fail "help for $command"
@@ -68,7 +69,7 @@ done
 run --help > out.txt
 contains -F "bo packs list" out.txt || fail "overview lists bo"
 run completion bash > out.txt
-contains -F '"bo") words="build check explain fmt packs"' out.txt || fail "completion: bo"
+contains -F '"bo") words="build check explain fmt packs test"' out.txt || fail "completion: bo"
 contains -F -- "--write" out.txt || fail "completion: bo fmt"
 contains -F 'deploy evidence explain fetch' out.txt || fail "completion: contract explain"
 contains -F -- "--bundle-out" out.txt || fail "completion: bo build"
@@ -98,7 +99,7 @@ for hash in SHA-256 SM3; do
     diff expected.txt digests.txt > /dev/null || fail "digests ($hash) differ from $GOLDEN"
 done
 json 'd[1]["keywords"], d[1]["words"], d[1]["official"], d[1]["separation"]' < list.json > out.txt
-contains -Fx "18 125 True none" out.txt || fail "facts"
+contains -Fx "18 126 True none" out.txt || fail "facts"
 
 run bo packs show zh-Hant-HK > out.txt
 contains -F "prefixes     可 (kw.can), 須 (kw.requires), 當 (kw.when), 如 (kw.if)" out.txt || fail "prefixes"
@@ -113,7 +114,7 @@ run bo packs show zh-Hans-CN --json > show.json
 json 'd["keywords"]["kw.each"], d["vocabulary"]["unit.item"]["category"], d["reading"]["multipliers"]["万"]' < show.json > out.txt
 contains -Fx "['逐个'] unit 10000" out.txt || fail "show --json"
 json 'len(d["messages"]), len(d["sentences"])' < show.json > out.txt
-contains -Fx "169 152" out.txt || fail "messages and sentences"
+contains -Fx "186 182" out.txt || fail "messages and sentences"
 expect_exit 1 bo packs show fr
 contains -F "no pack fr" out.txt || fail "unknown pack"
 expect_exit 1 bo packs show en --section nope
@@ -143,7 +144,7 @@ cat > company.pack <<'EOF'
 }
 EOF
 run bo packs check company.pack > out.txt
-contains -F "warning: pack acme-terms does not spell 122 of the 125 words" out.txt || fail "partial"
+contains -F "warning: pack acme-terms does not spell 123 of the 126 words" out.txt || fail "partial"
 contains -F "company.pack: pack acme-terms version 3 (community): 18 keywords, 3 words" out.txt || fail "check ok"
 contains -F "ok: the packs read" out.txt || fail "ok"
 run bo packs list --pack company.pack > out.txt
@@ -395,6 +396,10 @@ contains -F "agreement.bo: warning: the source is deployed with its comments (4 
 run bo build agreement.bo --json > build.json
 json 'd["ok"], d["contract"], d["code_size"], d["code_hash"], d["compiler"], d["edition"], d["comments"]' < build.json > out.txt
 contains -Fx "True Agreement $GOLDEN_SIZE $GOLDEN_HASH $COMPILER 1 4" out.txt || fail "build --json"
+# The source as written (its tests included), and the bundle a deploy records.
+SOURCE_SIZE="$(wc -c < agreement.bo | tr -d ' ')"
+BUNDLE_SIZE="$(json 'd["bundle_size"]' < build.json)"
+json 'd["source_size"]' < build.json | contains -Fx "$SOURCE_SIZE" || fail "build --json: the source's size"
 json 'd["functions"]["create"], d["functions"]["sign"], [p["id"] for p in d["packs"] if p["official"]]' < build.json > out.txt
 contains -Fx "create call ['en', 'zh-Hans-CN', 'zh-Hant-HK']" out.txt || fail "functions and packs in json"
 # The packs' digests are those bo packs list shows.
@@ -578,6 +583,77 @@ expect_exit 1 bo fmt loose.bo --language fr
 expect_exit 1 bo fmt
 expect_exit 2 bo fmt no-such.bo
 
+echo "== bo test: the test blocks, run as a ledger runs calls"
+# The demo's agreement carries two tests: signed by all three and closed; and
+# nobody signs alone. Each runs on an instance of its own.
+cp "$SOURCE/deploy/demo/supply-agreement.bo" supply.bo
+run bo test supply.bo > report.txt
+contains -Fx 'Test "signed by all three, then closed": passed' report.txt || fail "test: passed"
+contains -Fx '  Step 2 (line 25) passed: we sign -> signed' report.txt || fail "test: a step as written"
+contains -Fx '    Result: accepted with the consent of the supplier and the bank, and the instance is signed.' report.txt || fail "test: implicit consents"
+contains -Fx '    Result: the call waits for the consent of the bank.' report.txt || fail "test: a consent withheld"
+contains -Fx '    Result: the call waits for us to make it.' report.txt || fail "test: the home starts sign"
+contains -Fx '    The contract text, 4.2.3: If the instance is signed, it becomes closed; otherwise the call is refused.' report.txt || fail "test: the clause of a refusal"
+contains -Fx "2 tests: 2 passed, 0 failed." report.txt || fail "test: the count"
+# In each language, the same results: the report in the reader's language.
+run bo test supply.bo --language zh-Hant-HK > report.txt
+contains -Fx '測試 「nobody signs alone」：通過' report.txt || fail "test: zh-Hant"
+contains -Fx '    結果：調用正等待銀行同意。' report.txt || fail "test: zh-Hant waits"
+CEXCHAIN_LANGUAGE=zh-Hans run bo test supply.bo > report.txt
+contains -Fx '共 2 个测试：2 个通过，0 个失败。' report.txt || fail "test: \$CEXCHAIN_LANGUAGE"
+run bo test supply.bo --json > test.json
+for language in zh-Hant-HK zh-Hans-CN; do
+    run bo fmt supply.bo --language "$language" > "supply-$language.bo"
+    run bo test "supply-$language.bo" --json > other.json
+    python3 - test.json other.json <<'PY' || fail "test: the same results in $language"
+import json, sys
+a, b = (json.load(open(f)) for f in sys.argv[1:3])
+strip = lambda d: [[(s["status"], s["result"]["outcome"], s["calls"]) for s in t["steps"]] for t in d["tests"]]
+assert strip(a) == strip(b) and a["ledgers"] == b["ledgers"]
+PY
+done
+json 'd["ok"], d["built"], d["total"], d["passed"], d["failed"], sorted(d["ledgers"])' < test.json > out.txt
+contains -Fx "True True 2 2 0 ['bank', 'supplier', 'we']" out.txt || fail "test --json"
+json '[(s["subject"], s["action"], s["result"]["outcome"], s["result"].get("parties")) for s in d["tests"][1]["steps"]]' < test.json > out.txt
+contains -Fx "[('we', 'create', 'accepted', None), ('we', 'sign', 'waits', ['bank']), ('supplier', 'sign', 'waits', ['we']), ('we', 'close', 'refused', None)]" out.txt || fail "test --json: steps"
+json 'd["tests"][1]["steps"][3]["result"]["reason"], d["tests"][1]["steps"][3]["result"]["clause"]["number"], len(d["tests"][0]["steps"][1]["calls"]), d["tests"][0]["steps"][1]["calls"][1]["consents"]' < test.json > out.txt
+contains -Fx "bo:state close 4.2.3 2 ['supplier', 'bank']" out.txt || fail "test --json: reason, clause, calls"
+# The agreement's tests, from each spelling: the same results.
+for spelling in en zh-hant zh-hans mixed; do
+    run bo test "$BUILDS/agreement-$spelling/source.bo" --json | json 'd["passed"], d["failed"]' > out.txt
+    contains -Fx "3 0" out.txt || fail "test: the agreement in $spelling"
+done
+# A failing test: exit status 3, what was expected and what happened.
+expect_exit 3 bo test "$GOLDENS/test/failing/source.bo"
+contains -Fx '  Step 2 (line 20) FAILED: customer accept -> withdrawn' out.txt || fail "test: a failing step"
+contains -Fx '    Expected: the call is accepted, and the instance is withdrawn.' out.txt || fail "test: expected"
+contains -Fx '  Step 3 (line 21) not run: we withdraw' out.txt || fail "test: stops at the first failure"
+contains -Fx "5 tests: 1 passed, 4 failed." out.txt || fail "test: failures counted"
+diff "$GOLDENS/test/failing/en.txt" out.txt > /dev/null || fail "test: the golden report"
+expect_exit 3 bo test "$GOLDENS/test/failing/source.bo" --json
+json 'd["ok"], d["failed"], [t["passed"] for t in d["tests"]]' < out.txt > result.txt
+contains -Fx "False 4 [False, False, False, False, True]" result.txt || fail "test --json: failing"
+# A source that does not build runs no tests: exit status 2, the problems
+# in the reader's language; a test block's own problems come from the checker.
+printf 'contract A\nparties we\n\nrecord R\n  amount HKD\n\ncan go by we\n  -> active\n\ntest\n  we go\n' > nostart.bo
+expect_exit 2 bo test nostart.bo
+contains -F "nostart.bo:11:3: error: a test begins by creating its instance" out.txt || fail "test: check.test-start"
+contains -Fx "nostart.bo: 1 error: the tests run once the contract builds" out.txt || fail "test: not run"
+CEXCHAIN_LANGUAGE=zh-Hant expect_exit 2 bo test nostart.bo
+contains -F "測試須以建立實例開始" out.txt || fail "test: the problem in Traditional Chinese"
+expect_exit 2 bo test nostart.bo --json
+json 'd["ok"], d["built"], "tests" in d, d["diagnostics"][0]["code"]' < out.txt > codes.txt
+contains -Fx "False False False check.test-start" codes.txt || fail "test --json: not built"
+expect_exit 2 bo test "$GOLDENS/example-receivable-en/source.bo"
+contains -F "(build.standard-action)" out.txt || fail "test: a contract that does not build"
+# A file without tests: nothing to run.
+printf 'contract A\nparties we\n\ncan go by we\n  -> active\n' > notests.bo
+run bo test notests.bo > out.txt
+contains -F "This file has no tests" out.txt || fail "test: none"
+expect_exit 1 bo test notests.bo --language fr
+expect_exit 1 bo test
+expect_exit 2 bo test no-such.bo
+
 echo "== contract deploy --bo: two organizations, the customer's ledger on SM3"
 D="$WORK/core"; S="$WORK/customer"
 d() { run "$@" --ledger "$D"; }
@@ -598,7 +674,7 @@ json 'd["contract"]["language"], d["contract"]["compiler"], d["contract"]["name"
 contains -Fx "bo $COMPILER Agreement $GOLDEN_HASH 1" out.txt || fail "deploy records the build"
 d contract show "$C" > show.txt
 contains -Fx "language:   bo (compiler: $COMPILER)" show.txt || fail "show: compiler"
-contains -F "            Bo, edition 1: 898 bytes of source; packs en 1, zh-Hans-CN 1, zh-Hant-HK 1" show.txt || fail "show: bundle"
+contains -F "            Bo, edition 1: $SOURCE_SIZE bytes of source; packs en 1, zh-Hans-CN 1, zh-Hant-HK 1" show.txt || fail "show: bundle"
 contains -F "rebuild:    rebuilds: the source rebuilds to the deployed code ($GOLDEN_SIZE bytes, SHA-256 ${GOLDEN_HASH:0:16}) with $COMPILER" show.txt || fail "show: rebuild"
 d contract show "$C" --json | json 'd["bo"]["status"], d["bo"]["failed"], d["bo"]["edition"], len(d["bo"]["packs"])' > out.txt
 contains -Fx "rebuilds False 1 3" out.txt || fail "show --json"
@@ -671,12 +747,12 @@ run contract verify e1.cbor --ledger-id "$D_ID" > verify.txt
 contains -F "  Contract     bo, compiled with $COMPILER" verify.txt || fail "verify: the contract"
 contains -F "  Status       effective" verify.txt || fail "verify: status"
 contains -F "consent of Customer (SM3)" verify.txt || fail "verify: the consent on SM3"
-contains -F "  Source       Bo, edition 1: 898 bytes of source; packs en 1, zh-Hans-CN 1, zh-Hant-HK 1" verify.txt || fail "verify: the source"
+contains -F "  Source       Bo, edition 1: $SOURCE_SIZE bytes of source; packs en 1, zh-Hans-CN 1, zh-Hant-HK 1" verify.txt || fail "verify: the source"
 contains -F "               rebuilds: the source rebuilds to the deployed code ($GOLDEN_SIZE bytes, SHA-256 ${GOLDEN_HASH:0:16})" verify.txt || fail "verify: rebuilds"
 contains -F "VERIFICATION FAILED" verify.txt && fail "verify: verified"
 run contract verify e1.cbor --ledger-id "$D_ID" --json > verify.json
 json 'd["verified"], d["source"]["status"], d["source"]["compiler"] == d["source"]["this_compiler"], d["source"]["bundle_size"]' < verify.json > out.txt
-contains -Fx "True rebuilds True 1042" out.txt || fail "verify --json"
+contains -Fx "True rebuilds True $BUNDLE_SIZE" out.txt || fail "verify --json"
 run contract verify e1.cbor --ledger-id "$D_ID" --require-rebuild > /dev/null
 # Closing, with the customer's consent carried as a file.
 HEAD="$(d contract instance "$I" --json | json 'd["head"]')"

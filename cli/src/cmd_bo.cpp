@@ -16,6 +16,7 @@
 #include <print>
 #include <string>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 #include <cexchain/bo/build.hpp>
@@ -28,7 +29,9 @@
 #include <cexchain/bo/names.hpp>
 #include <cexchain/bo/pack.hpp>
 #include <cexchain/bo/parser.hpp>
+#include <cexchain/bo/scenario.hpp>
 #include <cexchain/bo/source.hpp>
+#include <cexchain/bo/values.hpp>
 #include <cexchain/crypto/openssl.hpp>
 
 #include "bo_support.hpp"
@@ -437,6 +440,131 @@ void print_build(const protocol::ContractDeployBody& body, const Json& j) {
                  "source", j["bundle_size"].get<std::size_t>(), j["source_size"].get<std::size_t>(),
                  comments == 0 ? std::string() : std::format(", {} comment lines", comments),
                  j["edition"].get<std::uint64_t>(), packs, j["hash"].get<std::string>());
+}
+
+// --- bo test.
+
+/// A test ledger as JSON names it: a role's name in compiled code
+/// ("supplier"), or a name as written ("bank1").
+std::string ledger_key(const bo::TestResults& results, const protocol::Id& id) {
+    const bo::TestLedger* l = results.ledger(id);
+    return l == nullptr ? to_hex(id.bytes()) : bo::wire_name(l->word, l->name);
+}
+
+Json ledger_keys(const bo::TestResults& results, const std::vector<protocol::Id>& ids) {
+    Json out = Json::array();
+    for (const protocol::Id& id : ids) {
+        out.push_back(ledger_key(results, id));
+    }
+    return out;
+}
+
+Json expectation_json(const bo::model::Step& step, const bo::StepResult& r,
+                      const bo::TestResults& results) {
+    Json out = {{"outcome", bo::model::expectation_names[static_cast<std::size_t>(step.expect)]}};
+    switch (step.expect) {
+    case bo::model::Expectation::state:
+        out["state"] = bo::wire_name(step.state_word, step.state_name);
+        break;
+    case bo::model::Expectation::refused:
+        out["reason"] = step.reason ? Json(*step.reason) : Json(nullptr);
+        break;
+    case bo::model::Expectation::waits:
+        out["parties"] = ledger_keys(results, r.expected_waits);
+        break;
+    case bo::model::Expectation::accepted:
+        break;
+    }
+    return out;
+}
+
+Json call_json(const bo::TestCall& call, const bo::TestResults& results) {
+    std::vector<protocol::Id> consents;
+    for (const auto& [id, signer] : call.input.consents) {
+        consents.push_back(id);
+    }
+    std::string outcome = "aborted";
+    if (call.run.trap) {
+        outcome = std::string(vm::name(*call.run.trap));
+    } else if (call.output) {
+        outcome =
+            std::holds_alternative<protocol::ContractAccept>(*call.output) ? "accept" : "needs";
+    }
+    return {{"function", call.input.function},
+            {"time", call.input.time},
+            {"consents", ledger_keys(results, consents)},
+            {"outcome", outcome},
+            {"fuel", call.run.fuel_used},
+            {"input", to_hex(call.encoded)}};
+}
+
+Json step_json(const bo::model::Model& model, const bo::Explained& text,
+               const bo::model::Step& step, const bo::StepResult& r, const bo::TestResults& results,
+               std::size_t number, std::string_view source, const bo::Pack* language) {
+    Json result = {{"outcome", bo::happened_names[static_cast<std::size_t>(r.happened)]}};
+    switch (r.happened) {
+    case bo::Happened::accepted: {
+        result["state"] = r.state;
+        result["events"] = r.events;
+        result["final"] = r.final;
+        result["consents"] = ledger_keys(results, r.consents);
+        break;
+    }
+    case bo::Happened::waits:
+        result["parties"] = ledger_keys(results, r.waits);
+        break;
+    case bo::Happened::refused:
+    case bo::Happened::broken:
+        result["reason"] = r.reason;
+        break;
+    default:
+        break;
+    }
+    Json out = {{"number", number},
+                {"line", step.span.line},
+                {"text", bo::step_source(source, step)},
+                {"subject", bo::wire_name(step.subject.word, step.subject.name)},
+                {"action", step.creation ? std::string(bo::model::creation_function(model))
+                                         : bo::wire_name(step.word, step.name)},
+                {"status", bo::step_status_names[static_cast<std::size_t>(r.status)]},
+                {"time", r.time},
+                {"expected", expectation_json(step, r, results)}};
+    if (r.status == bo::StepStatus::skipped) {
+        out["result"] = nullptr;
+        return out;
+    }
+    result["message"] = bo::outcome_text(r, results, language);
+    const bo::ExplainedClause* clause = bo::refusal_clause(text, model, step, r);
+    result["clause"] = clause != nullptr ? Json{{"number", clause->number}, {"text", clause->text}}
+                                         : Json(nullptr);
+    out["result"] = result;
+    Json calls = Json::array();
+    for (const bo::TestCall& call : r.calls) {
+        calls.push_back(call_json(call, results));
+    }
+    out["calls"] = calls;
+    return out;
+}
+
+Json tests_json(const bo::model::Model& model, const bo::TestResults& results,
+                std::string_view source, const bo::Pack* language) {
+    const bo::Explained text = bo::explain(model, language);
+    Json out = Json::array();
+    for (std::size_t i = 0; i < model.tests.size() && i < results.tests.size(); ++i) {
+        const bo::model::Test& test = model.tests[i];
+        const bo::TestResult& result = results.tests[i];
+        Json steps = Json::array();
+        for (std::size_t j = 0; j < test.steps.size() && j < result.steps.size(); ++j) {
+            steps.push_back(step_json(model, text, test.steps[j], result.steps[j], results, j + 1,
+                                      source, language));
+        }
+        out.push_back({{"name", test.name.empty() ? Json(nullptr) : Json(test.name)},
+                       {"line", test.span.line},
+                       {"passed", result.passed},
+                       {"home", ledger_key(results, result.home)},
+                       {"steps", steps}});
+    }
+    return out;
 }
 
 } // namespace
@@ -904,6 +1032,63 @@ int cmd_bo_build(const Args& args) {
         }
     }
     return exit_ok;
+}
+
+int cmd_bo_test(const Args& args) {
+    const std::string file = args.positional().front();
+    const bo::PackSet set = pack_set(args);
+    const bo::Pack* language = message_language(args, given_packs(set));
+    const std::string source = read_text_file(file);
+    const bo::Compiled c = bo::compile(source, set);
+    // Tests deploy nothing: the note that comments are published is not
+    // theirs.
+    std::vector<bo::Diagnostic> problems;
+    for (const bo::Diagnostic& d : c.diagnostics) {
+        if (d.code != "build.comments") {
+            problems.push_back(d);
+        }
+    }
+    std::optional<bo::TestResults> results;
+    if (c.build && c.model) {
+        results = bo::run_tests(*c.model, *c.build, provider());
+    }
+    const bool ran = results.has_value();
+    const bool passed = ran && results->failed == 0;
+    const int status = !ran ? exit_failure : (passed ? exit_ok : exit_not_verified);
+    std::string report;
+    if (ran) {
+        report = bo::test_report(*c.model, *results, source, language);
+    }
+    if (args.json()) {
+        Json out = {{"file", file}, {"ok", passed}, {"built", ran}, {"contract", c.name}};
+        if (ran) {
+            out["tests"] = tests_json(*c.model, *results, source, language);
+            out["total"] = results->tests.size();
+            out["passed"] = results->passed;
+            out["failed"] = results->failed;
+            Json ledgers = Json::object();
+            for (const bo::TestLedger& l : results->ledgers) {
+                ledgers[bo::wire_name(l.word, l.name)] = to_hex(l.id.bytes());
+            }
+            out["ledgers"] = ledgers;
+            out["text"] = report;
+        }
+        out["diagnostics"] = diagnostics_json(problems, language);
+        print_json(out);
+        return status;
+    }
+    print_source_diagnostics(stderr, file, problems, language);
+    if (!ran) {
+        std::size_t errors = 0;
+        for (const bo::Diagnostic& d : problems) {
+            errors += d.severity() == bo::Severity::error ? 1U : 0U;
+        }
+        std::println("{}: {} error{}: the tests run once the contract builds", file, errors,
+                     errors == 1 ? "" : "s");
+        return status;
+    }
+    std::print("{}", report);
+    return status;
 }
 
 BoDeploy bo_deploy_body(const Args& args, const std::string& file,

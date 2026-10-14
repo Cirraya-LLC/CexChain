@@ -27,3 +27,28 @@
 可 close 由 本公司
   须 经 客户 同意
   effective -> closed
+
+测试 "signed in person, countersigned, and closed"
+  本公司 创建 时间 2026-10-14 附带 terms = "100 t of steel, monthly", 金额 = 港元 1_500_000, starts = 2027-01-01
+  本公司 amend 附带 new_amount = 港元 2_000_000, new_start = 2027-01-08 -> 已提议
+  客户 sign -> 被拒绝 "bo:in-person sign"
+  客户 sign 本人确认 -> signed
+  本公司 amend 附带 new_amount = 港元 1, new_start = 2027-01-08 -> 被拒绝 "bo:requires amend 1"
+  本公司 countersign -> effective
+  本公司 close 时间 2027-06-30 -> closed
+  本公司 close -> 被拒绝
+
+测试 "what one party cannot do alone"
+  本公司 创建 附带 terms = "100 t of steel, monthly", 金额 = 港元 500_000, starts = 2027-01-01
+  本公司 amend 附带 new_amount = 港元 600_000, new_start = 2027-01-01 -> 经 客户 同意
+  本公司 amend 附带 new_amount = 港元 900_000, new_start = 2027-01-01
+  -> 被拒绝 "an amendment may raise the amount by half at most"
+  本公司 sign -> 经 客户 同意
+  客户 countersign -> 被拒绝 "bo:state countersign"
+  客户 sign 由 AI 代理 -> signed
+  客户 countersign -> 经 本公司 同意
+  本公司 close -> 被拒绝 "bo:state close"
+
+测试 "too late to sign"
+  本公司 创建 附带 terms = "100 t of steel, monthly", 金额 = 港元 500_000, starts = 2027-01-01
+  客户 sign 时间 2027-01-02 -> 被拒绝 "bo:requires sign 2"

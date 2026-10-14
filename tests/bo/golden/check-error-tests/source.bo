@@ -1,0 +1,49 @@
+# Every problem a test block can have.
+contract Tests
+parties we, customer
+
+record Terms
+  amount HKD
+  starts date
+
+can sign by customer
+  proposed -> signed
+can amend by we with new_amount HKD
+  amount = new_amount
+can lend by we to customer
+  signed -> lent
+
+test "order"
+  -> signed
+  customer sign
+  we create with amount = HKD 5, starts = 2027-01-01
+
+test "who"
+  customer create with amount = HKD 5, starts = 2027-01-01
+  we issue
+  we frobnicate
+  amount sign
+  bank sign
+  customer sign to bank1
+  we lend to bank1
+  customer sign by person
+  customer sign by AI agent in person
+
+test "when"
+  we create at 2027-01-01 with amount = HKD 5, starts = 2027-01-01
+  customer sign yes
+  customer sign at 1969-05-01
+  customer sign at 2026-01-01
+  customer sign at amount
+
+test "what"
+  we create with amount = 5, starts = starts
+  we amend with nothing = HKD 1
+  we amend
+  we amend with new_amount = HKD 1, new_amount = HKD 2
+  customer sign -> HKD 5
+  customer sign -> signed "why"
+  -> signed
+
+test "what"
+  we create

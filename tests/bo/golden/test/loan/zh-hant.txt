@@ -1,0 +1,24 @@
+測試 「lent and repaid」：通過
+  第 1 步（第 18 行）通過：we create with amount = HKD 1_000
+    結果：調用獲接納，實例現為已提議。
+  第 2 步（第 19 行）通過：we lend to bank1 at 2027-01-06 in person -> lent
+    結果：經客戶及 bank1 同意，調用獲接納，實例現為 lent。
+  第 3 步（第 20 行）通過：bank1 repay by AI agent -> repaid
+    結果：經 bank1 同意，調用獲接納，實例現為 repaid；此為最終狀態，實例不再接受調用。
+
+測試 「unhappy」：通過
+  第 1 步（第 24 行）通過：we create at 2027-01-06 with amount = HKD 1_000
+    結果：調用獲接納，實例現為已提議。
+  第 2 步（第 25 行）通過：we lend to bank1 -> consent of (customer, bank1)
+    結果：調用正等待客戶及 bank1 同意。
+  第 3 步（第 26 行）通過：bank1 repay -> refused "bo:party bank"
+    結果：調用被拒絕，因為銀行 尚未確定賬本（bo:party bank）。
+  第 4 步（第 27 行）通過：customer lend to bank1 -> consent of we
+    結果：調用正等待本公司提交。
+  第 5 步（第 28 行）通過：we lend to bank1 -> lent
+    結果：經客戶及 bank1 同意，調用獲接納，實例現為 lent。
+  第 6 步（第 29 行）通過：we lend to bank1 -> refused
+    結果：調用被拒絕，因為實例目前的狀態不容許 lend（bo:state lend）。
+    合約條文 4.1.4：如實例處於已提議狀態，即轉為 lent 狀態；否則拒絕調用。
+
+共 2 個測試：2 個通過，0 個失敗。

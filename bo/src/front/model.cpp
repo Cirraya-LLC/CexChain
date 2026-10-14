@@ -314,6 +314,58 @@ void consent_lines(std::string& out, const std::vector<model::Consent>& consents
     }
 }
 
+std::string party_text(const model::TestParty& p) {
+    if (p.word != nullptr) {
+        return std::string(p.word->id);
+    }
+    return p.role ? p.name : "ledger:" + p.name;
+}
+
+void test_lines(std::string& out, const model::Test& t) {
+    add_line(out, 0, t.name.empty() ? std::string("test") : "test \"" + t.name + "\"");
+    for (const model::Step& s : t.steps) {
+        std::string line = "step " + party_text(s.subject) + " " + model::key(s.word, s.name);
+        if (s.creation) {
+            line += " creation";
+        }
+        if (s.to) {
+            line += " to=" + party_text(*s.to);
+        }
+        if (s.at) {
+            line += " at=" + text(*s.at);
+        }
+        if (s.in_person) {
+            line += " in_person";
+        }
+        if (s.agent) {
+            line += " agent";
+        }
+        line +=
+            " expect=" + std::string(model::expectation_names[static_cast<std::size_t>(s.expect)]);
+        switch (s.expect) {
+        case model::Expectation::state:
+            line += " " + model::key(s.state_word, s.state_name);
+            break;
+        case model::Expectation::refused:
+            if (s.reason) {
+                line += " \"" + *s.reason + "\"";
+            }
+            break;
+        case model::Expectation::waits:
+            for (const model::TestParty& p : s.waits) {
+                line += " " + party_text(p);
+            }
+            break;
+        case model::Expectation::accepted:
+            break;
+        }
+        add_line(out, 1, line);
+        for (const model::Set& w : s.with) {
+            set_line(out, w, 2);
+        }
+    }
+}
+
 } // namespace
 
 namespace model {
@@ -563,6 +615,9 @@ std::string dump(const model::Model& m) {
             do_lines(out, d, 1);
         }
         statements(out, r.body, 1);
+    }
+    for (const model::Test& t : m.tests) {
+        test_lines(out, t);
     }
     return out;
 }

@@ -110,7 +110,7 @@ The `cexchain` tool controls every part of a ledger:
 | Other organizations | `peer add`, `peer list`, `peer show`, `peer remove`, `access request`, `access send`, `access inbox`, `access grant`, `access fetch`, `access accept`, `access receipt`, `access list` |
 | Ownership assets | `asset issue`, `asset show`, `asset list`, `asset record`, `asset evidence`, `asset consent`, `asset withdraw`, `asset send`, `asset fetch`, `asset verify` |
 | Contracts | `contract deploy`, `contract show`, `contract list`, `contract retire`, `contract create`, `contract call`, `contract instance`, `contract instances`, `contract evidence`, `contract propose`, `contract pending`, `contract consent`, `contract withdraw`, `contract send`, `contract fetch`, `contract verify`, `contract explain` |
-| Bo language | `bo check`, `bo build`, `bo explain`, `bo fmt`, `bo packs list`, `bo packs show`, `bo packs check` (in builds with the Bo compiler); `contract deploy --bo` |
+| Bo language | `bo check`, `bo build`, `bo explain`, `bo fmt`, `bo test`, `bo packs list`, `bo packs show`, `bo packs check` (in builds with the Bo compiler); `contract deploy --bo` |
 
 - Every command takes `--help`, and `--json` for scripting.
 - `cexchain help --json` describes every command and option in machine-readable form.
@@ -634,6 +634,37 @@ reversible, though the contract is: a multiplier English lacks is written out (`
 `5_000_000`), and words become each language's first spelling (`pays`, then `支付`, then `pay`).
 Before printing anything, `bo fmt` reads its result again; if words would read together in the
 new language as another word, it says where and changes nothing.
+
+### Tests
+
+A contract carries its own tests: `test` blocks of steps, each a party, an action, and
+optionally what it gives, when, and how it is signed, then what should happen.
+
+```
+test "nobody signs alone"
+  we create with goods = "Bearings", pieces = 20_000, price = CNY 1_250_000, deliver_by = 2026-12-01
+  we sign -> consent of bank             # the call waits for the bank's consent
+  supplier sign -> consent of we         # we start sign: the supplier cannot alone
+  we close -> refused "bo:state close"   # not signed yet
+```
+
+`bo test` builds the contract and runs each test on an instance of its own, exactly as a ledger
+runs calls: every party a test names is a ledger of its own (a name the contract does not
+declare, such as `bank1`, is a ledger only the test names, to which `to bank1` binds a role);
+the first step creates the instance, and its party is the home. A call runs first without
+consents; every party the contract asks then consents, except those the step expects it to wait
+for and, when the step's party does not start the action, the party that does. `in person` signs
+as a person who proves presence, `by AI agent` as an agent; `at DATE` moves time on (a test
+starts on 2026-01-01). Expectations are a state (`-> signed`), a refusal (`-> refused`, or with
+the contract's reason in quotes), or a wait (`-> consent of bank`); a step without one expects
+an accept. The report shows each step as written and what happened, worded in `--language`, and
+for a refusal the clause of the contract text it comes from; the results are the same whatever
+language the contract and its tests are written in. Exit status 3 if a test fails.
+
+```sh
+cexchain bo test agreement.bo
+cexchain bo test agreement.bo --language zh-Hans-CN --json
+```
 
 ## AI agents (MCP)
 

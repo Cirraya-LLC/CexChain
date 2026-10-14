@@ -41,6 +41,9 @@ struct Compiled {
     /// lowering's on a model without errors; and, once it builds, a warning
     /// that comments are published.
     std::vector<Diagnostic> diagnostics;
+    /// Set if it checked without errors: the checked model (its tests
+    /// included, which `bo test` runs on the build).
+    std::optional<model::Model> model;
     /// Set if it built: the module (which vm::load accepts) and interface.
     std::optional<Build> build;
 };

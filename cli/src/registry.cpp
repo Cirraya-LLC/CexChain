@@ -1780,6 +1780,56 @@ std::vector<CommandSpec> build() {
          "  cexchain bo fmt agreement.bo --language zh-Hant-HK\n"
          "  cexchain bo fmt agreement.bo --language en --write\n"
          "  cexchain bo fmt agreement.bo --check --json\n\n" CEXCHAIN_BO_PACKS_HELP},
+        {{"bo", "test"},
+         "Run the test blocks of a Bo source: each scenario, step by step, as a ledger would",
+         "Bo language",
+         "FILE",
+         1,
+         1,
+         with({pack_option,
+               {"language", "LANG",
+                "The report (and messages) in en, zh-Hant-HK, zh-Hans-CN, or a given pack's "
+                "language (default: $CEXCHAIN_LANGUAGE, else en)"}}),
+         cmd_bo_test,
+         "Builds FILE as bo build does, then runs each of its test blocks on the compiled code\n"
+         "exactly as a ledger runs calls (each call's input and output as spec section 15\n"
+         "defines them). Each test creates its own instance and runs its steps in order; it\n"
+         "stops at the first step that fails. A test block:\n\n"
+         "  test \"nobody signs alone\"\n"
+         "    we create with goods = \"steel\", pieces = 9, price = CNY 2_500, deliver_by = "
+         "2027-03-31\n"
+         "    we sign -> consent of bank\n"
+         "    supplier sign -> consent of we\n"
+         "    we close -> refused \"bo:state close\"\n"
+         "    we sign at 2027-01-05 -> signed\n\n"
+         "A step is PARTY ACTION [to PARTY] [with INPUT = VALUE, ...] [at DATE] [in person]\n"
+         "[by AI agent] [-> EXPECTATION]. The first step creates the instance (issue for an\n"
+         "asset, create otherwise), and its party is the home, whose ledger runs the contract\n"
+         "(we, if the contract has that role). Every party is a test ledger of its own; a name\n"
+         "the contract does not declare (bank1) is a ledger only the test names, which to may\n"
+         "bind a role to. Values are written as in the source (HKD 5_000, 2027-01-06, 30 days,\n"
+         "\"text\", yes). A step happens at the time of the step before it, or on the day at\n"
+         "names (local midnight, +08:00); a test starts on 2026-01-01, or on its first at date\n"
+         "if that is earlier. in person signs as a person who proves presence, by AI agent as\n"
+         "an AI agent, and otherwise the organization signs.\n\n"
+         "Consents: a call runs first without any, as the home runs it to learn whom to ask;\n"
+         "then every party the contract asks consents, and it runs again. Parties that do not\n"
+         "consent: those the expectation names (-> consent of bank), and, when the step's party\n"
+         "is not the one that starts the action (by), the one that does (the home agrees only\n"
+         "by making a call itself). Expectations: -> STATE (accepted, and the instance is in\n"
+         "that state), -> refused, -> refused \"REASON\" (the reason exactly as the contract\n"
+         "gives it: a reject's text, or a code such as bo:requires sign 2), -> consent of PARTY\n"
+         "(the call waits for that consent; consent of (A, B) for two). A step without one\n"
+         "expects its call to be accepted.\n\n"
+         "The report shows each step as written, what it expected if it failed, what\n"
+         "happened (worded in --language), and for a refusal the clause of the contract text\n"
+         "it comes from. The results are the same whatever language the contract and its\n"
+         "tests are written in. Exit status 3 if a test fails, 2 if the source does not\n"
+         "build. With --json: each test and step, what it expected and what happened, and its\n"
+         "calls with their consents, fuel, and input.\n\n"
+         "  cexchain bo test agreement.bo\n"
+         "  cexchain bo test agreement.bo --language zh-Hant-HK\n"
+         "  cexchain bo test agreement.bo --json\n\n" CEXCHAIN_BO_PACKS_HELP},
         {{"bo", "packs", "list"},
          "List the language packs Bo source is read with, and their digests",
          "Bo language",

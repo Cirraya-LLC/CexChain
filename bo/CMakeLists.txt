@@ -119,6 +119,7 @@ else()
         src/runtime_cbor.cpp
         src/runtime_contract.cpp
         src/runtime_math.cpp
+        src/scenario.cpp
         src/tree.cpp
         src/wasm.cpp)
     add_library(cexchain::bo ALIAS cexchain_bo)

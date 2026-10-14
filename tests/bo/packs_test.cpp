@@ -244,7 +244,7 @@ TEST_CASE("a pack that misses a keyword is refused", "[bo][packs]") {
     // Vocabulary may be partial: a warning, and English fills in.
     const PackRead partial = read(TestPack{});
     REQUIRE(partial.pack);
-    CHECK(reports(partial.diagnostics, "pack.partial", {{"missing", "125"}, {"total", "125"}}));
+    CHECK(reports(partial.diagnostics, "pack.partial", {{"missing", "126"}, {"total", "126"}}));
 }
 
 TEST_CASE("one spelling with two meanings is refused, within a pack and across packs",

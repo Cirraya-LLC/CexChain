@@ -93,6 +93,10 @@ sed 's/^/   | /' supply-agreement.bo
 # the language packs it was read with, so anyone can rebuild the code and
 # compare. (The warning says the comments are published with it.)
 run bo build supply-agreement.bo 2>&1 | indent
+# The contract carries its own tests (its test blocks). bo test runs each on
+# an instance of its own, exactly as the ledger runs calls: who must consent,
+# what is refused and why.
+run bo test supply-agreement.bo | indent
 CONTRACT="$(run contract deploy --bo supply-agreement.bo --as core-root.key --ledger "$CORE" --json \
     2> /dev/null | field '["contract"]["id"]')"
 run contract show "$CONTRACT" --ledger "$CORE" | indent

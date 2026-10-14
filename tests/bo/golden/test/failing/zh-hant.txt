@@ -1,0 +1,37 @@
+測試 「accepted, not withdrawn」：於第 2 步失敗
+  第 1 步（第 19 行）通過：we create with price = HKD 500
+    結果：調用獲接納，實例現為已提議。
+  第 2 步（第 20 行）失敗：customer accept -> withdrawn
+    預期：調用獲接納，實例現為 withdrawn。
+    結果：經客戶同意，調用獲接納，實例現為 accepted；此為最終狀態，實例不再接受調用。
+  第 3 步（第 21 行）未有執行：we withdraw
+
+測試 「nothing to refuse」：於第 2 步失敗
+  第 1 步（第 24 行）通過：we create with price = HKD 500
+    結果：調用獲接納，實例現為已提議。
+  第 2 步（第 25 行）失敗：we withdraw -> refused "too large to withdraw"
+    預期：調用被拒絕，原因為「too large to withdraw」。
+    結果：調用獲接納，實例現為 withdrawn；此為最終狀態，實例不再接受調用。
+
+測試 「a consent nobody asks for」：於第 2 步失敗
+  第 1 步（第 28 行）通過：we create with price = HKD 5_000
+    結果：調用獲接納，實例現為已提議。
+  第 2 步（第 29 行）失敗：customer accept -> consent of bank1
+    預期：調用正等待 bank1 同意。
+    結果：經客戶同意，調用獲接納，實例現為 accepted；此為最終狀態，實例不再接受調用。
+
+測試 「another reason」：於第 2 步失敗
+  第 1 步（第 32 行）通過：we create with price = HKD 5_000
+    結果：調用獲接納，實例現為已提議。
+  第 2 步（第 33 行）失敗：we withdraw -> refused "bo:state withdraw"
+    預期：調用被拒絕，原因為「bo:state withdraw」。
+    結果：調用被拒絕，原因為「too large to withdraw」。
+    合約條文 4.2.2.1：拒絕調用，原因為「too large to withdraw」。
+
+測試 第 5 個：通過
+  第 1 步（第 36 行）通過：we create with price = HKD 5_000
+    結果：調用獲接納，實例現為已提議。
+  第 2 步（第 37 行）通過：customer accept
+    結果：經客戶同意，調用獲接納，實例現為 accepted；此為最終狀態，實例不再接受調用。
+
+共 5 個測試：1 個通過，4 個失敗。

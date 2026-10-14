@@ -1,0 +1,37 @@
+测试 “accepted, not withdrawn”：在第 2 步失败
+  第 1 步（第 19 行）通过：we create with price = HKD 500
+    结果：调用被接受，实例现为已提议。
+  第 2 步（第 20 行）失败：customer accept -> withdrawn
+    预期：调用被接受，实例现为 withdrawn。
+    结果：经客户同意，调用被接受，实例现为 accepted；这是最终状态，实例不再接受调用。
+  第 3 步（第 21 行）未执行：we withdraw
+
+测试 “nothing to refuse”：在第 2 步失败
+  第 1 步（第 24 行）通过：we create with price = HKD 500
+    结果：调用被接受，实例现为已提议。
+  第 2 步（第 25 行）失败：we withdraw -> refused "too large to withdraw"
+    预期：调用被拒绝，原因为“too large to withdraw”。
+    结果：调用被接受，实例现为 withdrawn；这是最终状态，实例不再接受调用。
+
+测试 “a consent nobody asks for”：在第 2 步失败
+  第 1 步（第 28 行）通过：we create with price = HKD 5_000
+    结果：调用被接受，实例现为已提议。
+  第 2 步（第 29 行）失败：customer accept -> consent of bank1
+    预期：调用正在等待 bank1 同意。
+    结果：经客户同意，调用被接受，实例现为 accepted；这是最终状态，实例不再接受调用。
+
+测试 “another reason”：在第 2 步失败
+  第 1 步（第 32 行）通过：we create with price = HKD 5_000
+    结果：调用被接受，实例现为已提议。
+  第 2 步（第 33 行）失败：we withdraw -> refused "bo:state withdraw"
+    预期：调用被拒绝，原因为“bo:state withdraw”。
+    结果：调用被拒绝，原因为“too large to withdraw”。
+    合约条款 4.2.2.1：拒绝调用，原因为“too large to withdraw”。
+
+测试 第 5 个：通过
+  第 1 步（第 36 行）通过：we create with price = HKD 5_000
+    结果：调用被接受，实例现为已提议。
+  第 2 步（第 37 行）通过：customer accept
+    结果：经客户同意，调用被接受，实例现为 accepted；这是最终状态，实例不再接受调用。
+
+共 5 个测试：1 个通过，4 个失败。

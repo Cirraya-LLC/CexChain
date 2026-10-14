@@ -13,3 +13,16 @@ can sign own by=role.customer agents=delegation{R14}
   transition state.proposed -> signed
 can close own by=role.we agents=delegation{R14}
   transition signed -> closed
+test "signed and closed"
+  step role.we act.create creation expect=accepted
+    set terms "steel"
+    set price.price (money cur.HKD 100)
+  step role.customer sign expect=state signed
+  step role.we close expect=state closed
+test "the customer cannot close"
+  step role.we act.create creation expect=accepted
+    set terms "steel"
+    set price.price (money cur.HKD 100)
+  step role.customer close expect=refused "bo:state close"
+  step role.customer sign expect=state signed
+  step role.customer close expect=waits role.we

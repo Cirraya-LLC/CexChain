@@ -87,11 +87,12 @@ std::string formatted(std::string_view source, const Pack* language) {
 }
 
 /// Every source the tests have: the goldens of each pass, the compiled
-/// agreement in four spellings, the formatter's own cases, and the demo.
+/// agreement in four spellings, the formatter's own cases, the tests' own
+/// cases, and the demo.
 std::vector<std::filesystem::path> all_sources() {
     std::vector<std::filesystem::path> out;
     for (const std::filesystem::path& dir :
-         {golden_dir, golden_dir / "build", golden_dir / "format"}) {
+         {golden_dir, golden_dir / "build", golden_dir / "format", golden_dir / "test"}) {
         for (const auto& entry : std::filesystem::directory_iterator(dir)) {
             if (std::filesystem::exists(entry.path() / "source.bo")) {
                 out.push_back(entry.path() / "source.bo");

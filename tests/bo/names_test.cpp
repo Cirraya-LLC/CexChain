@@ -118,7 +118,10 @@ TEST_CASE("a checked model, written member by member", "[bo][names]") {
     const std::string source = "contract ReceivableFinancing\nparties issuer, supplier, bank\n"
                                "asset Receivable\n  amount HKD\n  due date\n  holder supplier\n"
                                "can pledge to bank\n  over 5_000_000 requires in person\n"
-                               "when due issuer pays\n";
+                               "when due issuer pays\n"
+                               "test \"pledged\"\n"
+                               "  issuer issue with amount = HKD 100, due = 2027-01-01\n"
+                               "  supplier pledge to bank1 at 2027-01-06 in person -> pledged\n";
     const PackSetRead set = make_pack_set({});
     REQUIRE(set.set);
     const Lexicon lexicon(*set.set);
@@ -129,7 +132,7 @@ TEST_CASE("a checked model, written member by member", "[bo][names]") {
     const cbor::Value value = to_cbor(checked.model);
     // Model's members by name, in declaration order.
     const cbor::Map& map = *value.as_map();
-    REQUIRE(map.size() == 12);
+    REQUIRE(map.size() == 13);
     CHECK(*map[0].key.as_text() == "edition");
     CHECK(*map[1].key.as_text() == "name");
     CHECK(*map[1].value.as_text() == "ReceivableFinancing");
@@ -166,4 +169,17 @@ TEST_CASE("a checked model, written member by member", "[bo][names]") {
     CHECK(pays.find("obligation")->as_bool() == true);
     CHECK(*pays.find("rule")->as_text() == "R9");
     CHECK(*pays.find("subject")->find("refers")->as_text() == "party");
+    // Tests: steps, with what they expect by its name.
+    const cbor::Value& test = value.find("tests")->as_array()->at(0);
+    CHECK(*test.find("name")->as_text() == "pledged");
+    const cbor::Array& steps = *test.find("steps")->as_array();
+    REQUIRE(steps.size() == 2);
+    CHECK(steps[0].find("creation")->as_bool() == true);
+    CHECK(*steps[0].find("with")->as_array()->at(0).find("node")->as_text() == "set");
+    CHECK(*steps[1].find("expect")->as_text() == "state");
+    CHECK(*steps[1].find("state_word")->as_text() == "state.pledged");
+    CHECK(steps[1].find("in_person")->as_bool() == true);
+    CHECK(*steps[1].find("to")->find("name")->as_text() == "bank1");
+    CHECK(steps[1].find("to")->find("role")->as_bool() == false);
+    CHECK(*steps[1].find("at")->find("type")->as_text() == "date");
 }

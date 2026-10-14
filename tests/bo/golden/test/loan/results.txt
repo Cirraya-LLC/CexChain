@@ -1,0 +1,12 @@
+test "lent and repaid" passed home=role.we
+  step 1 passed 2026-01-01 accepted proposed event=proposed; fuel 6233
+  step 2 passed 2027-01-06 accepted lent event=lent consents role.customer bank1; fuel 9447 11938
+  step 3 passed 2027-01-06 accepted repaid event=repaid final consents bank1; fuel 9074 11449
+test "unhappy" passed home=role.we
+  step 1 passed 2027-01-06 accepted proposed event=proposed; fuel 6233
+  step 2 passed 2027-01-06 waits role.customer bank1; fuel 9361
+  step 3 passed 2027-01-06 refused "bo:party bank"; fuel 7838
+  step 4 passed 2027-01-06 waits role.we; fuel 9361 11852
+  step 5 passed 2027-01-06 accepted lent event=lent consents role.customer bank1; fuel 9361 11852
+  step 6 passed 2027-01-06 refused "bo:state lend"; fuel 9679
+2 tests: 2 passed, 0 failed
