@@ -3,22 +3,30 @@
 # Copyright 2026 Cirraya
 """Writes testvectors/bo-v1.json: the Bo compiler's conformance vectors.
 
-For each contract: its source (in each language it is written in), the code
-our compiler builds from it and the code's SHA-256 (informative: another
-compiler may build other code), its interface, and calls with their outcomes
+For each contract: its source (in each language it is written in), its name
+and interface, the bo-source bundle a deploy records (spec section 15), the
+code our compiler builds from it and the code's SHA-256, the code codegen 1
+built (informative: another compiler may build other code), each function's
+fuel and output bounds (informative), and calls with their outcomes
 (normative: any compiler's code must give the same outcomes, outputs, and
-refusals; fuel is our code's). The C++ codegen tests write the runs
-(tests/bo/codegen_test.cpp, the hidden case [.codegen-reference]); this
-script checks each of them before writing it:
+refusals; fuel is our code's). Then sources that must not build, with the
+codes of their errors and their lines (normative). The C++ codegen tests
+write them (tests/bo/codegen_test.cpp, the hidden case
+[.codegen-reference]); this script checks each before writing it:
   - the input, encoded again here from the call (cbor2 to read the parts, a
     deterministic encoder written from RFC 8949 section 4.2.1), equals the
     bytes core's protocol::encode_contract_input wrote;
   - the reference interpreter (wasm_ref.py) gives the same outcome, output,
     fuel, and reason;
   - the output decodes as contract-output, which the vectors also show
-    decoded.
+    decoded;
+  - the bundle decodes as a bo-source bundle holding the source as written,
+    and its pack digests are the SHA-256 of each official pack's canonical
+    CBOR, computed here from bo/packs/*.pack (diagnostic notation read by
+    this script) and equal to tests/bo/golden/pack-digests.txt.
 The C++ test "the conformance vectors" then rebuilds each source to the same
-code and replays each run.
+code, bundle, interface, and bounds, replays each run, and compiles each
+source that must not build to the same errors.
 
 Usage (from CexChain/, after a GCC build):
     python3 tools/testvectors/bo_vectors.py [--tests build/gcc-debug/tests/cexchain_bo_tests]
@@ -41,6 +49,67 @@ import wasm_ref as w
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 OUT = ROOT / "testvectors" / "bo-v1.json"
+PACKS = ROOT / "bo" / "packs"
+PACK_DIGESTS = ROOT / "tests" / "bo" / "golden" / "pack-digests.txt"
+
+
+def read_pack(text: str):
+    """A language pack: CBOR diagnostic notation as the packs use it (JSON's
+    values, with # comments to the end of a line and / ... / comments),
+    read without the C++ code."""
+    out = []
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if ch == '"':
+            j = i + 1
+            while text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            out.append(text[i:j + 1])
+            i = j + 1
+        elif ch == "#":
+            while i < len(text) and text[i] != "\n":
+                i += 1
+        elif ch == "/":
+            i = text.index("/", i + 1) + 1
+        else:
+            out.append(ch)
+            i += 1
+    return json.loads("".join(out))
+
+
+def official_packs() -> dict:
+    """Each official pack's id, version, and the SHA-256 of its canonical
+    CBOR, checked against the C++ golden."""
+    golden = {}
+    for line in PACK_DIGESTS.read_text(encoding="utf-8").splitlines():
+        pack_id, version, hash_name, digest = line.split()
+        if hash_name == "SHA-256":
+            golden[pack_id] = (int(version), digest)
+    packs = {}
+    for path in sorted(PACKS.glob("*.pack")):
+        pack = read_pack(path.read_text(encoding="utf-8"))
+        digest = hashlib.sha256(dcbor(pack)).hexdigest()
+        packs[pack["id"]] = (pack["version"], digest)
+        assert golden.get(pack["id"]) == (pack["version"], digest), \
+            f"{path.name}: digest {digest}, but the golden says {golden.get(pack['id'])}"
+    assert set(packs) == set(golden), "the packs and their goldens differ"
+    return packs
+
+
+def check_bundle(bundle: bytes, source: str, packs: dict) -> None:
+    """A bo-source bundle (spec section 15, `bo-source` in the CDDL), decoded
+    and checked: {1: 1, 2: edition, 3: source, 4: [+ [id, version, digest]]},
+    deterministic, every pack official (none embedded) at its digest."""
+    value = cbor2.loads(bundle)
+    assert dcbor(value) == bundle, "the bundle is not deterministic CBOR"
+    assert set(value) == {1, 2, 3, 4}, f"bundle keys {sorted(value)}"
+    assert value[1] == 1 and value[2] == 1, "format 1, edition 1"
+    assert value[3] == source, "the bundle holds another source"
+    refs = value[4]
+    assert refs == sorted(refs, key=lambda r: r[0].encode("utf-8")) and refs, "pack order"
+    for pack_id, version, digest in refs:
+        assert packs[pack_id] == (version, digest.hex()), f"pack {pack_id} {version}"
 
 
 def _head(major: int, n: int) -> bytes:
@@ -164,14 +233,26 @@ def main() -> int:
     # the tax contract's and the dinner's bills (their test blocks).
     doc["modules"] = {n: c for n, c in doc["modules"].items() if not n.startswith("vat-")}
     doc["runs"] = [r for r in doc["runs"] if not r["module"].startswith("vat-")]
+    packs = official_packs()
     contracts = {}
     for name, code_hex in doc["modules"].items():
         code = bytes.fromhex(code_hex)
+        deploy = doc["deploys"][name]
+        bundle = bytes.fromhex(deploy["bundle"])
+        check_bundle(bundle, doc["sources"][name][0]["text"], packs)
+        assert deploy["compiler"] == doc["compiler"]
         contracts[name] = {
             "name": name,
+            "contract": deploy["contract"],
             "sources": doc["sources"][name],
+            "interface": deploy["interface"],
+            "compiler": deploy["compiler"],
+            "bundle": deploy["bundle"],
+            "bundle_sha256": hashlib.sha256(bundle).hexdigest(),
             "code_sha256": hashlib.sha256(code).hexdigest(),
             "code": code_hex,
+            "codegen1_sha256": deploy["codegen1_sha256"],
+            "bounds": deploy["bounds"],
             "runs": [],
             "_module": w.load(code),
         }
@@ -199,19 +280,26 @@ def main() -> int:
 
     out = {
         "format": 1,
-        "description": "Bo compiler conformance vectors (D-053): sources, the code cexchain-bo "
-                       "builds (informative), and calls with their outcomes (normative; fuel is "
-                       "this code's). Inputs are contract-input (spec section 15) as the ledger "
-                       "encodes them; reasons and outputs are hex.",
-        "compiler": f"cexchain-bo; codegen {doc['codegen']}; edition 1",
+        "description": "Bo conformance vectors (spec/bo.md, section 18): for each contract its "
+                       "sources (in each language they are written in), name, interface, the "
+                       "bo-source bundle a deploy records (official packs, SHA-256 digests), "
+                       "and the code cexchain-bo builds, its codegen 1 code's hash, and its "
+                       "functions' fuel and output bounds (informative); calls with their "
+                       "outcomes (normative; fuel is this code's); and sources that must not "
+                       "build, with their errors' codes and lines (normative). Inputs are "
+                       "contract-input (spec section 15) as the ledger encodes them; reasons, "
+                       "outputs, bundles, and code are hex.",
+        "compiler": doc["compiler"],
+        "codegen": doc["codegen"],
         "contracts": [{k: v for k, v in c.items() if not k.startswith("_")}
                       for c in contracts.values()],
+        "errors": doc["errors"],
     }
     pathlib.Path(args.out).write_text(json.dumps(out, indent=1, ensure_ascii=False) + "\n",
                                       encoding="utf-8")
     runs = sum(len(c["runs"]) for c in contracts.values())
     print(f"{args.out}: {len(contracts)} contracts, {runs} runs, all identical on the reference "
-          f"interpreter")
+          f"interpreter; {len(doc['errors'])} sources that must not build")
     return 0
 
 
