@@ -43,12 +43,12 @@ struct Source {
     protocol::Id record;
 
     Source() {
-        record = w.ok(c.agent, agent_record(w, c, certificate));
+        record = w.ok(c.agent, agent_record(w, c, document_type));
         REQUIRE(w.ledger().checkpoint(w.log_key()));
         w.ok(c.bob, w.statement(c.bob_id, c.bob_delegation,
                                 protocol::RecordEndorseBody{record, "inspector"}));
-        w.ok(c.alice, w.statement(c.alice_id, c.alice_delegation,
-                                  protocol::RecordTransitionBody{record, "issued", "suspended"}));
+        w.ok(c.bob, w.statement(c.bob_id, c.bob_delegation,
+                                protocol::RecordEndorseBody{record, "reviewer"}));
         REQUIRE(w.ledger().checkpoint(w.log_key()));
         w.ok(c.bob, w.statement(c.bob_id, c.bob_delegation,
                                 protocol::RecordEndorseBody{record, "approver"}));
@@ -76,7 +76,7 @@ TEST_CASE("a reader picks up what another process appended", "[ledger][refresh]"
     World w;
     auto reader = open(w);
     Cast c = build_cast(w);
-    const auto record = w.ok(c.agent, agent_record(w, c, certificate));
+    const auto record = w.ok(c.agent, agent_record(w, c, document_type));
     REQUIRE(w.ledger().checkpoint(w.log_key()));
 
     const auto report = reader.refresh(w.fs(), false);
@@ -85,7 +85,7 @@ TEST_CASE("a reader picks up what another process appended", "[ledger][refresh]"
     CHECK(report->checkpoints == 1);
     CHECK(reader.size() == w.ledger().size());
     CHECK(*reader.root(reader.size()) == *w.ledger().root(w.ledger().size()));
-    CHECK(reader.state().record(record)->state == "issued");
+    CHECK(reader.state().record(record)->state == "registered");
     REQUIRE(reader.latest_checkpoint());
     CHECK(reader.latest_checkpoint()->encoded == w.ledger().latest_checkpoint()->encoded);
     // It saw the state commitment the checkpoint ends with, so it can prove.
@@ -107,7 +107,7 @@ TEST_CASE("writers take turns on one ledger", "[ledger][refresh]") {
     // The other process writes, refreshing first (as it would after taking
     // the lock); then the first one, likewise.
     REQUIRE(other.refresh(w.fs(), true));
-    const auto record = agent_record(w, c, certificate);
+    const auto record = agent_record(w, c, document_type);
     auto signed_record = protocol::sign_statement(c.agent, provider(), w.hash(), record);
     REQUIRE(signed_record);
     REQUIRE(other.submit(signed_record->encoded));
@@ -154,7 +154,7 @@ TEST_CASE("a refresh reads the durable size from the sync file's tail", "[ledger
     World w;
     Cast c = build_cast(w);
     auto reader = open(w);
-    w.ok(c.agent, agent_record(w, c, certificate));
+    w.ok(c.agent, agent_record(w, c, document_type));
     // A writer died while recording a sync: a torn entry at the end, then
     // a whole but damaged one.
     {

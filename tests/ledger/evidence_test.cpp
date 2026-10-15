@@ -8,6 +8,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cexchain/core/protocol/access.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/log.hpp>
 #include <cexchain/core/protocol/record.hpp>
@@ -21,8 +22,8 @@ using cexchain::Errc;
 
 namespace {
 
-/// A certificate issued by the agent, endorsed by bob, moved through two
-/// states, checkpointed, and cosigned by a witness.
+/// A document registered by the agent, endorsed by bob in three roles,
+/// checkpointed, and cosigned by a witness.
 struct Scenario {
     World w;
     Cast c = build_cast(w);
@@ -47,7 +48,7 @@ struct Scenario {
         REQUIRE(commitment);
 
         protocol::RecordRegisterBody body{
-            certificate,
+            document_type,
             Bytes(fields.root.bytes().begin(), fields.root.bytes().end()),
             fields.leaves.size(),
             {protocol::Attachment{"report.pdf", "application/pdf", attachment.size(),
@@ -62,10 +63,10 @@ struct Scenario {
 
         w.ok(c.bob, w.statement(c.bob_id, c.bob_delegation,
                                 protocol::RecordEndorseBody{record, "inspector"}));
-        w.ok(c.alice, w.statement(c.alice_id, c.alice_delegation,
-                                  protocol::RecordTransitionBody{record, "issued", "suspended"}));
-        w.ok(c.alice, w.statement(c.alice_id, c.alice_delegation,
-                                  protocol::RecordTransitionBody{record, "suspended", "issued"}));
+        w.ok(c.bob, w.statement(c.bob_id, c.bob_delegation,
+                                protocol::RecordEndorseBody{record, "approver"}));
+        w.ok(c.bob, w.statement(c.bob_id, c.bob_delegation,
+                                protocol::RecordEndorseBody{record, "witness"}));
         REQUIRE(w.ledger().checkpoint(w.log_key()));
     }
 
@@ -119,8 +120,8 @@ TEST_CASE("an evidence bundle verifies offline into a full report", "[evidence]"
     REQUIRE(report);
     CHECK(report->organization == "Test Org");
     CHECK(report->ledger_id == s.w.ledger().id());
-    CHECK(report->record_type == certificate);
-    CHECK(report->state == "issued");
+    CHECK(report->record_type == document_type);
+    CHECK(report->state == "registered");
     CHECK_FALSE(report->revoked);
     CHECK(report->trusted_cosignatures == 1);
     CHECK(report->untrusted_cosignatures == 0);
@@ -137,7 +138,8 @@ TEST_CASE("an evidence bundle verifies offline into a full report", "[evidence]"
     CHECK_FALSE(issued.authority[1].kind.has_value());
     CHECK(report->events[1].type == StatementType::record_endorse);
     CHECK(report->events[1].detail == "inspector");
-    CHECK(report->events[2].detail == "issued -> suspended");
+    CHECK(report->events[2].detail == "approver");
+    CHECK(report->events[3].detail == "witness");
 
     REQUIRE(report->disclosed_fields.size() == 1);
     CHECK(report->disclosed_fields[0].name == "result");
@@ -149,6 +151,28 @@ TEST_CASE("an evidence bundle verifies offline into a full report", "[evidence]"
     for (const auto& e : bundle.entries) {
         CHECK(protocol::decode_log_entry(e.entry)->statement_id != s.unrelated);
     }
+}
+
+TEST_CASE("a mechanism type's transition shows in its evidence", "[evidence]") {
+    // An access request, withdrawn: record-transition stays for the
+    // protocol's own types.
+    World w;
+    const protocol::Id request =
+        w.ok(w.org(), w.statement(w.org_id(), std::nullopt,
+                                  w.record_body(std::string(protocol::access_request_type))));
+    w.ok(w.org(), w.statement(w.org_id(), std::nullopt,
+                              protocol::RecordTransitionBody{request, "requested", "withdrawn"}));
+    REQUIRE(w.ledger().checkpoint(w.log_key()));
+    const auto exported = w.ledger().export_evidence(w.log_key(), request);
+    REQUIRE(exported);
+    protocol::VerifyOptions options;
+    options.expected_ledger = w.ledger().id();
+    const auto report = protocol::verify_bundle(provider(), encode(*exported), options);
+    REQUIRE(report);
+    CHECK(report->state == "withdrawn");
+    REQUIRE(report->events.size() == 2);
+    CHECK(report->events[1].type == StatementType::record_transition);
+    CHECK(report->events[1].detail == "requested -> withdrawn");
 }
 
 TEST_CASE("evidence verification catches tampering and omissions", "[evidence]") {
@@ -255,7 +279,7 @@ TEST_CASE("evidence verification catches tampering and omissions", "[evidence]")
 TEST_CASE("export needs a checkpoint covering the record", "[evidence]") {
     World w;
     Cast c = build_cast(w);
-    const protocol::Id record = w.ok(c.agent, agent_record(w, c, certificate));
+    const protocol::Id record = w.ok(c.agent, agent_record(w, c, document_type));
     CHECK(w.ledger().export_evidence(w.log_key(), record).error().code == Errc::not_found);
     REQUIRE(w.ledger().checkpoint(w.log_key()));
     CHECK(w.ledger().export_evidence(w.log_key(), record));

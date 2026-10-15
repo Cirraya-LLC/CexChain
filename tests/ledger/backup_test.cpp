@@ -47,7 +47,7 @@ cexchain::Result<ledger::BackupSummary> restore(const std::string& backup,
 TEST_CASE("a backup restores to the same ledger", "[ledger][backup]") {
     World w;
     Cast c = build_cast(w);
-    const auto record = w.ok(c.agent, agent_record(w, c, certificate));
+    const auto record = w.ok(c.agent, agent_record(w, c, document_type));
     REQUIRE(w.ledger().checkpoint(w.log_key()));
     w.ok(c.bob,
          w.statement(c.bob_id, c.bob_delegation, protocol::RecordEndorseBody{record, "inspector"}));
@@ -83,7 +83,7 @@ TEST_CASE("a backup restores to the same ledger", "[ledger][backup]") {
 TEST_CASE("an unsigned backup restores only the signed log", "[ledger][backup][security]") {
     World w;
     Cast c = build_cast(w);
-    const auto record = w.ok(c.agent, agent_record(w, c, certificate));
+    const auto record = w.ok(c.agent, agent_record(w, c, document_type));
     REQUIRE(w.ledger().checkpoint(w.log_key()));
     const std::uint64_t checkpointed = w.ledger().size();
     w.ok(c.bob,

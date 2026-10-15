@@ -78,7 +78,7 @@ private:
     std::filesystem::path root_;
 };
 
-/// A ledger with a certificate (fields and an attachment), an access
+/// A ledger with a document (fields and an attachment), an access
 /// request and a grant, checkpointed: the objects the protocol fuzzers
 /// verify.
 void ledger_seeds(const Seeds& seeds) {
@@ -122,8 +122,8 @@ void ledger_seeds(const Seeds& seeds) {
              "fields");
     const auto attachment =
         must(protocol::attachment_commitment(provider, hash, salt, report), "attachment");
-    const auto certificate = submit(protocol::RecordRegisterBody{
-        "cexchain.certificate/1",
+    const auto document = submit(protocol::RecordRegisterBody{
+        "example.document/1",
         Bytes(commitment.root.bytes().begin(), commitment.root.bytes().end()),
         commitment.leaves.size(),
         {{"report.pdf", "application/pdf", report.size(),
@@ -131,7 +131,7 @@ void ledger_seeds(const Seeds& seeds) {
         std::nullopt});
 
     const protocol::AccessRequest request{ledger.id(),
-                                          certificate,
+                                          document,
                                           "seed",
                                           clock.now() + 86'400'000,
                                           Bytes(32, 7),
@@ -151,7 +151,7 @@ void ledger_seeds(const Seeds& seeds) {
             std::move(metadata)});
     };
     const auto request_id = access_record(protocol::access_request_type, request_metadata);
-    const protocol::AccessGrant grant{ledger.id(),    request_id,    certificate,      {"result"},
+    const protocol::AccessGrant grant{ledger.id(),    request_id,    document,         {"result"},
                                       {"report.pdf"}, request.until, request.recipient};
     const auto grant_metadata = must(protocol::encode_access_grant(grant), "grant");
     seeds.write("access_parse_fuzz", "grant", must(cbor::encode(grant_metadata), "encode"));
@@ -173,7 +173,7 @@ void ledger_seeds(const Seeds& seeds) {
 
     // Evidence: plain, with a disclosure and an opening, and of the access
     // records (what check_access_* take).
-    auto bundle = must(ledger.export_evidence(log, certificate), "export");
+    auto bundle = must(ledger.export_evidence(log, document), "export");
     const Bytes plain = must(protocol::encode_bundle(bundle), "encode");
     seeds.write("protocol_parse_fuzz", "bundle", plain);
     bundle.disclosures.push_back(
@@ -209,9 +209,9 @@ void ledger_seeds(const Seeds& seeds) {
         {},
         std::nullopt});
     must(ledger.checkpoint(log2), "checkpoint");
-    seeds.write("protocol_parse_fuzz", "bundle-rotated",
-                must(protocol::encode_bundle(must(ledger.export_evidence(log2, certificate), "e")),
-                     "encode"));
+    seeds.write(
+        "protocol_parse_fuzz", "bundle-rotated",
+        must(protocol::encode_bundle(must(ledger.export_evidence(log2, document), "e")), "encode"));
     seeds.write(
         "protocol_parse_fuzz", "cosign-request-rotated",
         must(protocol::encode_cosign_request(must(ledger.cosign_request(witnessed), "request")),

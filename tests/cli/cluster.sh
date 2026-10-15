@@ -132,7 +132,7 @@ done
 run key generate --out root.key > /dev/null
 run key generate --out log.key > /dev/null
 LEDGER_ID="$(run init --ledger node1 --org "Cluster Org" --root-key root.key --log-key log.key --json | json 'd["ledger_id"]')"
-run record issue --ledger node1 --as root.key --type cexchain.certificate/1 --field n=0 > /dev/null
+run record issue --ledger node1 --as root.key --type example.document/1 --field n=0 > /dev/null
 run token create --ledger node1 ops --scope read,submit,admin --out ops.token > /dev/null
 run cluster init --help | contains 'Three members ride out the loss of one'
 expect_exit 2 cluster init --ledger node1 --id 1 --raft "127.0.0.1:${RPORT[1]}" --api "${API[1]}"
@@ -165,7 +165,7 @@ expect_exit 2 status --ledger node2
 client() { run "$@" --server "${API[$CLIENT_AT]}" --ledger-id "$LEDGER_ID" --cache "$WORK/cache"; }
 CLIENT_AT=3   # a follower: writes go to the leader
 for i in 1 2 3; do
-    client record issue --as root.key --type cexchain.certificate/1 --field "n=$i" > /dev/null
+    client record issue --as root.key --type example.document/1 --field "n=$i" > /dev/null
 done
 client checkpoint create > /dev/null
 WANT="$(size_of 1)"
@@ -177,7 +177,7 @@ for n in 1 2 3; do eventually 60 has_size "$n" "$WANT"; done
 LEADER="$(leader_of 2)"
 kill -9 "${PIDS[$LEADER]}"; wait "${PIDS[$LEADER]}" 2> /dev/null || true; unset "PIDS[$LEADER]"
 # Its files are still a member's: nothing writes to them outside the cluster.
-expect_exit 2 record issue --ledger "node$LEADER" --as root.key --type cexchain.certificate/1 --field n=x
+expect_exit 2 record issue --ledger "node$LEADER" --as root.key --type example.document/1 --field n=x
 contains 'cluster member' out.txt
 expect_exit 2 serve --ledger "node$LEADER" --listen 127.0.0.1:0
 contains 'serve it with --cluster' out.txt
@@ -192,7 +192,7 @@ done
 [ -n "$NEW" ] && [ "$NEW" != "None" ] && [ "$NEW" != "$LEADER" ] || fail "no new leader"
 # Acknowledged writes all survived; new ones go on.
 for i in 4 5; do
-    eventually 60 client record issue --as root.key --type cexchain.certificate/1 --field "n=$i"
+    eventually 60 client record issue --as root.key --type example.document/1 --field "n=$i"
 done
 client checkpoint create > /dev/null
 client record list --json | json 'len(d)' | contains -x 6
@@ -217,7 +217,7 @@ for _ in $(seq 1 300); do
     sleep 0.2
 done
 [ "$THAWED_LEADER" != "$FROZEN" ] || fail "no leader while the old one is frozen"
-eventually 60 client record issue --as root.key --type cexchain.certificate/1 --field n=frozen
+eventually 60 client record issue --as root.key --type example.document/1 --field n=frozen
 kill -CONT "${PIDS[$FROZEN]}"
 WANT="$(size_of "$THAWED_LEADER")"
 eventually 60 has_size "$FROZEN" "$WANT"
@@ -233,7 +233,7 @@ for _ in $(seq 1 300); do
     sleep 0.2
 done
 [ "$NEXT" != "$NEW" ] || fail "leadership did not move"
-eventually 60 client record issue --as root.key --type cexchain.certificate/1 --field n=6
+eventually 60 client record issue --as root.key --type example.document/1 --field n=6
 client audit | contains 'audit passed'
 
 echo "cluster end-to-end: ok"

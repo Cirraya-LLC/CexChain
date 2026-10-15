@@ -60,13 +60,14 @@ cexchain init --org "Example Factory" --root-key root.key --log-key log.key
 # Alice generates her own key and sends only its public half.
 cexchain key generate --out alice.key && cexchain key public alice.key --out alice.pub
 
-# Register her as an inspector and let her issue certificates.
+# Register her as an inspector and let her issue inspection reports, a record
+# type the factory names itself.
 cexchain actor add --as root.key --kind person --name "Alice" --key alice.pub
 cexchain delegation grant --as root.key --to <alice-id> \
-    --allow record-register,record-endorse --record-types cexchain.certificate/1 --days 30
+    --allow record-register,record-endorse --record-types example.org.inspection/1 --days 30
 
-# Issue a certificate; field values stay private until disclosed.
-cexchain record issue --as alice.key --type cexchain.certificate/1 \
+# Issue a report; field values stay private until disclosed.
+cexchain record issue --as alice.key --type example.org.inspection/1 \
     --field product="Flange DN50" --field result=pass --attach report.pdf
 cexchain record history <record-id>
 
@@ -287,7 +288,7 @@ with the record.
 ```sh
 export CEXCHAIN_SERVER=https://ledger.example.com CEXCHAIN_TOKEN=$(cat app.token)
 cexchain status --ledger-id LEDGER_ID        # the first use pins the ledger the URL serves
-cexchain record issue --as alice.key --type cexchain.certificate/1 --field result=pass
+cexchain record issue --as alice.key --type example.org.inspection/1 --field result=pass
 cexchain checkpoint create                    # the server signs (admin token); the client checks
 cexchain export RECORD --disclose result --vault-key vault.key --out evidence.cbor
 ```

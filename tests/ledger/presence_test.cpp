@@ -140,7 +140,7 @@ struct Fixture {
                                  alice_key);
         w.ok(w.org(), w.statement(w.org_id(), std::nullopt,
                                   protocol::ActorSetPresenceBody{alice, {passkey.credential()}}));
-        record = w.ok(w.org(), w.statement(w.org_id(), std::nullopt, w.record_body(certificate)));
+        record = w.ok(w.org(), w.statement(w.org_id(), std::nullopt, w.record_body(document_type)));
     }
 
     protocol::Id grant(bool require_presence) {
@@ -298,7 +298,7 @@ TEST_CASE("who may register passkeys, and for whom", "[presence]") {
           Errc::rejected);
     protocol::Scope scope = scope_of({StatementType::record_register});
     const auto delegation = f.w.grant(f.w.org(), f.w.org_id(), std::nullopt, agent, scope);
-    auto by_agent = f.w.statement(agent, delegation, f.w.record_body(certificate));
+    auto by_agent = f.w.statement(agent, delegation, f.w.record_body(document_type));
     by_agent.provenance = provenance();
     by_agent.presence = f.passkey.sign(challenge_for(f.w, by_agent, agent_key));
     CHECK(f.w.rejected(agent_key, by_agent) == Errc::rejected);

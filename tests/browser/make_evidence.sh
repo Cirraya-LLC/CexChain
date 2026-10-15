@@ -33,7 +33,7 @@ AGENT="$(run actor add --as alice.key --kind agent --name "Drafting Agent" --key
     --responsible "$ALICE" --model claude-opus-5-5 --model-version 2026-09 | id_from)"
 run delegation grant --as alice.key --to "$AGENT" --allow record-register --days 7 > /dev/null
 printf '%%PDF-1.7 inspection report' > report.pdf
-run record issue --as agent.key --type cexchain.certificate/1 --field product="Flange DN50" \
+run record issue --as agent.key --type example.document/1 --field product="Flange DN50" \
     --field result=pass --field "note=中文 ✓ <script>alert(1)</script>" --attach report.pdf \
     --meta product="Flange DN50" --inputs "inspection sheet #7" | id_from > record-id
 run record endorse "$(cat record-id)" --as alice.key --role inspector > /dev/null

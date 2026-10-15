@@ -72,7 +72,7 @@ for k in root log log2 root2 witness; do run key generate --out "$k.key" > /dev/
 run key public witness.key --out witness.pub > /dev/null
 run key public log.key --out log.pub > /dev/null
 LEDGER_ID="$(run init --org "Rotation Org" --root-key root.key --log-key log.key --json | json 'd["ledger_id"]')"
-FIRST="$(run record issue --as root.key --type cexchain.certificate/1 --field result=pass --json | json 'd["statement_id"]')"
+FIRST="$(run record issue --as root.key --type example.document/1 --field result=pass --json | json 'd["statement_id"]')"
 run checkpoint create --log-key log.key > /dev/null
 
 run ledger genesis --help | contains 'witness add-log --genesis'
@@ -113,8 +113,8 @@ run audit | contains 'audit passed'
 
 # --- Then the root key ------------------------------------------------------------
 run ledger rotate-root-key --as root.key --new-key root2.key | contains 'root key'
-expect_exit 2 record issue --as root.key --type cexchain.certificate/1 --field result=late
-SECOND="$(run record issue --as root2.key --type cexchain.certificate/1 --field result=again --json | json 'd["statement_id"]')"
+expect_exit 2 record issue --as root.key --type example.document/1 --field result=late
+SECOND="$(run record issue --as root2.key --type example.document/1 --field result=again --json | json 'd["statement_id"]')"
 run checkpoint create --log-key log2.key > /dev/null
 run ledger keys --json | json 'len(d["root_keys"])' | contains -x 2
 

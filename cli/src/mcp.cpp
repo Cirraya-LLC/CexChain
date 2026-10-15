@@ -535,7 +535,8 @@ private:
         add("cexchain_issue_record",
             "Issue a record (e.g. a quality certificate). Field values stay private until "
             "disclosed; only commitments are recorded.",
-            {{"record_type", {{"type", "string"}, {"description", "e.g. cexchain.certificate/1"}}},
+            {{"record_type",
+              {{"type", "string"}, {"description", "e.g. example.org.inspection/1"}}},
              {"fields",
               {{"type", "object"},
                {"additionalProperties", {{"type", "string"}}},

@@ -157,7 +157,7 @@ TEST_CASE("bundles prove that nothing was left out", "[state][evidence]") {
     scope.statement_types = {StatementType::record_endorse};
     const auto delegation = w.grant(w.org(), w.org_id(), std::nullopt, alice, scope);
     const auto record =
-        w.ok(w.org(), w.statement(w.org_id(), std::nullopt, w.record_body(certificate)));
+        w.ok(w.org(), w.statement(w.org_id(), std::nullopt, w.record_body(document_type)));
     w.ok(alice_key,
          w.statement(alice, delegation, protocol::RecordEndorseBody{record, "inspector"}));
     // Later: Alice is revoked, and so is the record.

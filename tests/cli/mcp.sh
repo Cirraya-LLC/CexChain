@@ -39,19 +39,19 @@ for k in root log alice agent; do run key generate --out "$k.key" > /dev/null; d
 LEDGER_ID="$(run init --ledger ledger --org "Cirraya Test Factory" --root-key root.key --log-key log.key | id_from)"
 ALICE="$(run actor add --ledger ledger --as root.key --kind person --name "Alice Inspector" --key alice.key | id_from)"
 run delegation grant --ledger ledger --as root.key --to "$ALICE" --allow actor-register,delegation-grant,record-register \
-    --record-types cexchain.certificate/1 --days 30 --may-delegate > /dev/null
+    --record-types example.document/1 --days 30 --may-delegate > /dev/null
 AGENT="$(run actor add --ledger ledger --as alice.key --kind agent --name "Drafting Agent" --key agent.key \
     --responsible "$ALICE" --model claude-opus-5-5 --model-version 2026-09 | id_from)"
 run delegation grant --ledger ledger --as alice.key --to "$AGENT" --allow record-register \
-    --record-types cexchain.certificate/1 --days 7 > /dev/null
+    --record-types example.document/1 --days 7 > /dev/null
 
 META='"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"test","version":"1"}}'
 cat > requests.jsonl <<JSON
 {"jsonrpc":"2.0","id":1,"method":"server/discover","params":{$META}}
 {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{$META}}
 {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{$META,"name":"cexchain_whoami","arguments":{}}}
-{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{$META,"name":"cexchain_issue_record","arguments":{"record_type":"cexchain.certificate/1","fields":{"product":"Flange DN50","result":"pass"},"inputs":"inspection sheet 2026-10-06 #7"}}}
-{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{$META,"name":"cexchain_issue_record","arguments":{"record_type":"cexchain.delivery/1","fields":{"item":"flanges"}}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{$META,"name":"cexchain_issue_record","arguments":{"record_type":"example.document/1","fields":{"product":"Flange DN50","result":"pass"},"inputs":"inspection sheet 2026-10-06 #7"}}}
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{$META,"name":"cexchain_issue_record","arguments":{"record_type":"example.note/1","fields":{"item":"flanges"}}}}
 {"jsonrpc":"2.0","id":6,"method":"tools/call","params":{$META,"name":"cexchain_record_types","arguments":{}}}
 {"jsonrpc":"2.0","id":7,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"1900-01-01"}}}
 {"jsonrpc":"2.0","id":8,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"legacy","version":"1"}}}
@@ -80,7 +80,7 @@ RECORD="$(line 4 | grep -oE '"record_id":"[0-9a-f]{64}"' | id_from)"
 [ -n "$RECORD" ] || fail "issue record id"
 line 5 | contains '"isError":true' || fail "out-of-scope issue must be refused"
 line 5 | contains 'no valid delegation' || fail "refusal reason"
-line 6 | contains 'cexchain.delivery/1' || fail "record types"
+line 6 | contains 'cexchain.contract-consent/1' || fail "record types"
 line 7 | contains '"code":-32022' || fail "unsupported version"
 line 8 | contains '"protocolVersion":"2025-06-18"' || fail "legacy initialize"
 line 9 | contains '"result":{}' || fail "legacy ping"

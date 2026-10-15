@@ -79,7 +79,7 @@ url_of() { json 'd["url"]' < "$1"; }
 run key generate --out root.key > /dev/null
 run key generate --out log.key > /dev/null
 run init --org "Service Org" --root-key root.key --log-key log.key > /dev/null
-run record issue --as root.key --type cexchain.certificate/1 --field result=pass > /dev/null
+run record issue --as root.key --type example.document/1 --field result=pass > /dev/null
 
 # --- Tokens ----------------------------------------------------------------------
 run token create replica --scope read --out replica.token | contains 'written to replica.token'
@@ -122,7 +122,7 @@ body_of GET "$URL/metrics" "$REPLICA_TOKEN" | contains '^cexchain_log_entries '
 # (Measured before writing: a checkpoint may land at any moment. The next
 # one after the write covers it and its own state commitment.)
 BEFORE="$(run status --json | json 'd["entries"]')"
-run record issue --as root.key --type cexchain.certificate/1 --field result=fail > /dev/null
+run record issue --as root.key --type example.document/1 --field result=fail > /dev/null
 WANT=$((BEFORE + 2))
 for _ in $(seq 1 150); do
     CHECKPOINTED="$(body_of GET "$URL/v1/status" "$REPLICA_TOKEN" | json '(d["checkpoint"] or {}).get("tree_size", 0)')"
@@ -153,11 +153,11 @@ run replica status --ledger "$REPLICA" --token-file replica.token --json | json 
 run replica status --json | json 'd["replica"]' | contains -x False
 run audit --ledger "$REPLICA" | contains 'audit passed'
 run record list --ledger "$REPLICA" --json | json 'len(d)' | contains -x 2
-expect_exit 2 record issue --ledger "$REPLICA" --as root.key --type cexchain.certificate/1 --field a=b
+expect_exit 2 record issue --ledger "$REPLICA" --as root.key --type example.document/1 --field a=b
 contains 'this ledger is a replica' out.txt
 expect_exit 2 checkpoint create --ledger "$REPLICA" --log-key log.key
 
-run record issue --as root.key --type cexchain.certificate/1 --field result=again > /dev/null
+run record issue --as root.key --type example.document/1 --field result=again > /dev/null
 # A replica takes only what a checkpoint covers: checkpoint, then sync.
 run checkpoint create --log-key log.key > /dev/null
 run replica sync --ledger "$REPLICA" --token-file replica.token --json > sync.json
@@ -206,7 +206,7 @@ expect_exit 2 backup verify truncated.cxb
 # --- Promotion -----------------------------------------------------------------
 run replica promote --ledger "$REPLICA" | contains 'must stay'
 expect_exit 2 replica promote --ledger "$REPLICA"
-run record issue --ledger "$REPLICA" --as root.key --type cexchain.certificate/1 --field promoted=yes > /dev/null
+run record issue --ledger "$REPLICA" --as root.key --type example.document/1 --field promoted=yes > /dev/null
 run audit --ledger "$REPLICA" | contains 'audit passed'
 
 # --- Graceful stop -------------------------------------------------------------

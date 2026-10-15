@@ -59,7 +59,7 @@ run init --org "Example Factory" --root-key f-root.key --log-key f-log.key --led
 run init --org "Example Bank" --root-key b-root.key --log-key b-log.key --ledger "$B" > /dev/null
 run init --org "Someone Else" --root-key o-root.key --log-key o-log.key --ledger "$WORK/other" > /dev/null
 printf 'test report: all dimensions within tolerance\n' > report.txt
-RECORD="$(f record issue --as f-root.key --type cexchain.certificate/1 --field product=Flange \
+RECORD="$(f record issue --as f-root.key --type example.document/1 --field product=Flange \
     --field result=pass --field price=1200 --attach report.txt --json | json 'd["record"]["id"]')"
 F_ID="$(f status --json | json 'd["ledger_id"]')"
 B_ID="$(b status --json | json 'd["ledger_id"]')"
@@ -91,7 +91,7 @@ f record show "$GRANT" | contains 'cexchain.access-grant/1'
 # The bank checks it all, gets the value and the file, and acknowledges.
 b access accept delivery.cbor --as b-root.key --log-key b-log.key --save-dir received \
     --out receipt.cbor > accepted.txt
-contains 'ACCEPTED: cexchain.certificate/1' accepted.txt
+contains 'ACCEPTED: example.document/1' accepted.txt
 contains '^  result = pass$' accepted.txt
 contains -v 'price' accepted.txt
 cmp report.txt received/report.txt || fail "the delivered report differs"

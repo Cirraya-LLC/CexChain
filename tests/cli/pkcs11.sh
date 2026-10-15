@@ -63,13 +63,13 @@ run actor set-presence "$ALICE" --as "$ROOT" --credential alice.ukey > /dev/null
 run actor show "$ALICE" | contains 'hardware key:  ESP256 .* (Bank UKey)'
 run delegation grant --as "$ROOT" --to "$ALICE" --allow record-register,record-endorse --days 1 --require-presence > /dev/null
 
-expect_exit 2 record issue --as "$ALICE_KEY" --type cexchain.certificate/1 --field result=pass
+expect_exit 2 record issue --as "$ALICE_KEY" --type example.document/1 --field result=pass
 contains 'requires proof of presence' out.txt
 # The presence key is a second key, unlocked by a person: never the signing
 # key, never one whose PIN is written into its URI.
-expect_exit 1 record issue --as "$ALICE_KEY" --type cexchain.certificate/1 --field result=pass --presence-key "$ALICE_KEY"
+expect_exit 1 record issue --as "$ALICE_KEY" --type example.document/1 --field result=pass --presence-key "$ALICE_KEY"
 contains 'must not be the signing key' out.txt
-expect_exit 1 record issue --as "$ALICE_KEY" --type cexchain.certificate/1 --field result=pass \
+expect_exit 1 record issue --as "$ALICE_KEY" --type example.document/1 --field result=pass \
     --presence-key "$ALICE_UKEY&pin-value=1234"
 contains 'remove pin-value' out.txt
 # URIs: an absolute module path, and each attribute once.
@@ -77,7 +77,7 @@ expect_exit 2 key public "pkcs11:token=CexChain;object=alice?module-path=libsoft
 contains 'absolute' out.txt
 expect_exit 2 key public "$ALICE_KEY&module-path=/tmp/other.so"
 contains 'repeats an attribute' out.txt
-RECORD="$(run record issue --as "$ALICE_KEY" --type cexchain.certificate/1 --field result=pass \
+RECORD="$(run record issue --as "$ALICE_KEY" --type example.document/1 --field result=pass \
     --presence-key "$ALICE_UKEY" | id_from)"
 run record endorse "$RECORD" --as "$ALICE_KEY" --role inspector --presence-key "$ALICE_UKEY" > /dev/null
 run record history "$RECORD" | contains 'presence proven'

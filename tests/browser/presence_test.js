@@ -99,10 +99,10 @@ function withPasskey(page, ...args) {
     assert.match(run("actor", "show", alice), /passkey: +ESP256 .* for localhost \(test laptop\)/);
 
     // Her delegation requires presence: her key alone does nothing.
-    assert.match(fails("record", "issue", "--as", "alice.key", "--type", "cexchain.certificate/1",
+    assert.match(fails("record", "issue", "--as", "alice.key", "--type", "example.document/1",
                        "--field", "result=pass"), /requires proof of presence/);
     const issued = JSON.parse(await withPasskey(page, "record", "issue", "--as", "alice.key", "--type",
-                                                "cexchain.certificate/1", "--field", "result=pass", "--presence",
+                                                "example.document/1", "--field", "result=pass", "--presence",
                                                 "--json"));
     const record = issued.record.id;
     await withPasskey(page, "record", "endorse", record, "--as", "alice.key", "--role", "inspector", "--presence");

@@ -27,8 +27,10 @@ using protocol::StatementType;
 
 inline constexpr protocol::Timestamp t0 = 1'791'244'800'000; // 2026-10-06T00:00:00Z
 inline constexpr protocol::Timestamp day = 86'400'000;
-inline const std::string certificate = "cexchain.certificate/1";
-inline const std::string delivery = "cexchain.delivery/1";
+/// Record types of the fixture's own choosing: the generic lifecycle (registered,
+/// no transitions, endorsed in any role, revocable).
+inline const std::string document_type = "example.document/1";
+inline const std::string note_type = "example.note/1";
 
 inline const crypto::Provider& provider() {
     static const crypto::openssl::Provider instance;
@@ -185,17 +187,17 @@ inline Cast build_cast(World& w) {
                 scope({StatementType::actor_register, StatementType::delegation_grant,
                        StatementType::delegation_revoke, StatementType::record_register,
                        StatementType::record_transition, StatementType::record_revoke},
-                      std::vector<std::string>{certificate, delivery}, true, t0 + day));
+                      std::vector<std::string>{document_type, note_type}, true, t0 + day));
     c.agent_id = w.register_actor(c.alice, c.alice_id, c.alice_delegation,
                                   protocol::ActorKind::agent, c.agent, c.alice_id);
     c.agent_delegation = w.grant(c.alice, c.alice_id, c.alice_delegation, c.agent_id,
                                  scope({StatementType::record_register},
-                                       std::vector<std::string>{certificate}, false, t0 + day));
+                                       std::vector<std::string>{document_type}, false, t0 + day));
     c.bob_id =
         w.register_actor(w.org(), w.org_id(), std::nullopt, protocol::ActorKind::person, c.bob);
     c.bob_delegation =
         w.grant(w.org(), w.org_id(), std::nullopt, c.bob_id,
-                scope({StatementType::record_endorse}, std::vector<std::string>{certificate}));
+                scope({StatementType::record_endorse}, std::vector<std::string>{document_type}));
     return c;
 }
 

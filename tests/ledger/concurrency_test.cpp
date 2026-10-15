@@ -22,13 +22,13 @@ using cexchain::Bytes;
 TEST_CASE("readers run alongside the writer", "[ledger][concurrency]") {
     World w;
     Cast c = build_cast(w);
-    const protocol::Id first_record = w.ok(c.agent, agent_record(w, c, certificate));
+    const protocol::Id first_record = w.ok(c.agent, agent_record(w, c, document_type));
     REQUIRE(w.ledger().checkpoint(w.log_key()));
 
     // Statements signed up front, submitted in batches with checkpoints.
     std::vector<Bytes> statements;
     for (int i = 0; i < 300; ++i) {
-        statements.push_back(w.sign(c.agent, agent_record(w, c, certificate)));
+        statements.push_back(w.sign(c.agent, agent_record(w, c, document_type)));
         w.clock().advance(1);
     }
 

@@ -782,7 +782,7 @@ TEST_CASE("a record's private data arrives with it, and is kept once", "[node][a
         s.issued_at = t0 + 1;
         s.nonce = p.entropy.bytes<16>();
         s.body = protocol::RecordRegisterBody{
-            "cexchain.certificate/1", Bytes(32, seed), 1, {}, std::nullopt};
+            "example.document/1", Bytes(32, seed), 1, {}, std::nullopt};
         return protocol::sign_statement(p.org, provider(), crypto::HashAlg::sha256, s);
     };
     auto sealed = [](std::uint8_t fill) {

@@ -49,13 +49,13 @@ struct Rotated {
     std::uint64_t root_rotation = 0;
 
     Rotated() {
-        first = w.ok(c.agent, agent_record(w, c, certificate));
+        first = w.ok(c.agent, agent_record(w, c, document_type));
         before = *w.ledger().checkpoint(w.log_key());
         const auto rotated = w.ok(w.org(), rotate_log(w, log2));
         log_rotation = *w.ledger().state().statement_index(rotated);
         const auto rooted = w.ok(w.org(), rotate_root(w, root2));
         root_rotation = *w.ledger().state().statement_index(rooted);
-        second = w.ok(c.agent, agent_record(w, c, certificate));
+        second = w.ok(c.agent, agent_record(w, c, document_type));
         REQUIRE(w.ledger().checkpoint(log2));
     }
 };
@@ -140,7 +140,7 @@ TEST_CASE("before the next checkpoint, receipts are still the old key's",
           "[ledger][rotation][evidence]") {
     World w;
     Cast c = build_cast(w);
-    const auto record = w.ok(c.agent, agent_record(w, c, certificate));
+    const auto record = w.ok(c.agent, agent_record(w, c, document_type));
     REQUIRE(w.ledger().checkpoint(w.log_key()));
     const KeyPair log2 = key("log 2");
     w.ok(w.org(), rotate_log(w, log2));
@@ -238,7 +238,7 @@ TEST_CASE("following rotations without the state", "[ledger][rotation]") {
 TEST_CASE("a witness follows key rotations", "[witness][rotation][security]") {
     World w;
     Cast c = build_cast(w);
-    w.ok(c.agent, agent_record(w, c, certificate));
+    w.ok(c.agent, agent_record(w, c, document_type));
     REQUIRE(w.ledger().checkpoint(w.log_key()));
     const auto keys = protocol::keys_from_genesis(provider(), *w.ledger().entry(0));
     REQUIRE(keys);
@@ -255,7 +255,7 @@ TEST_CASE("a witness follows key rotations", "[witness][rotation][security]") {
     const KeyPair root2 = key("root 2");
     w.ok(w.org(), rotate_root(w, root2));
     w.ok(root2, rotate_log(w, log2));
-    w.ok(c.agent, agent_record(w, c, certificate));
+    w.ok(c.agent, agent_record(w, c, document_type));
     REQUIRE(w.ledger().checkpoint(log2));
     const auto request = *w.ledger().cosign_request(log.size);
     REQUIRE(request.rotations.size() == 2);
@@ -294,7 +294,7 @@ TEST_CASE("a witness follows key rotations", "[witness][rotation][security]") {
     CHECK_FALSE(protocol::check_cosign_request(provider(), followed, replay));
 
     // Rotations it has followed are skipped when sent again.
-    w.ok(c.agent, agent_record(w, c, certificate));
+    w.ok(c.agent, agent_record(w, c, document_type));
     REQUIRE(w.ledger().checkpoint(log2));
     auto next = protocol::check_cosign_request(provider(), followed,
                                                *w.ledger().cosign_request(followed.size));

@@ -75,15 +75,15 @@ run status --cache "$CACHE" | contains 'Client Org'
 
 ALICE="$(run actor add --cache "$CACHE" --as root.key --kind person --name Alice --key alice.pub --json | json 'd["statement_id"]')"
 run actor list --cache "$CACHE" | contains 'Alice'
-run delegation grant --cache "$CACHE" --as root.key --to "$ALICE" --allow record-register,record-transition \
-    --record-types cexchain.certificate/1 > /dev/null
-RECORD="$(run record issue --cache "$CACHE" --as alice.key --type cexchain.certificate/1 \
+run delegation grant --cache "$CACHE" --as root.key --to "$ALICE" --allow record-register,record-endorse \
+    --record-types example.document/1 > /dev/null
+RECORD="$(run record issue --cache "$CACHE" --as alice.key --type example.document/1 \
     --field result=pass --field batch=B-7 --json | json 'd["statement_id"]')"
 # The private data went to the server's vault with the record.
 [ -f "primary/vault/records/$RECORD.cbor" ] || fail "the server did not keep the record's private data"
 run record fields "$RECORD" --cache "$CACHE" --vault-key primary/vault/vault.key | contains 'B-7'
-run record transition "$RECORD" --cache "$CACHE" --as alice.key --to suspended > /dev/null
-run record show "$RECORD" --cache "$CACHE" --json | json 'd["state"]' | contains -x suspended
+run record endorse "$RECORD" --cache "$CACHE" --as alice.key --role reviewer > /dev/null
+run record show "$RECORD" --cache "$CACHE" --json | json '[e["role"] for e in d["endorsements"]]' | contains -x "\['reviewer'\]"
 run log list --cache "$CACHE" --json | json 'len(d)' | contains -x 5
 
 # The server signs what the log key signs; this client checks it.
@@ -100,9 +100,9 @@ run audit --cache "$CACHE" | contains 'audit passed'
 
 # A read token cannot write; the mirror itself is never written to directly.
 CEXCHAIN_TOKEN="$(cat reader.token)" expect_exit 2 record issue --cache "$CACHE" --as alice.key \
-    --type cexchain.certificate/1 --field result=fail
+    --type example.document/1 --field result=fail
 contains 'refused' out.txt
-expect_exit 2 record issue --ledger "$CACHE/$LEDGER_ID" --as alice.key --type cexchain.certificate/1 \
+expect_exit 2 record issue --ledger "$CACHE/$LEDGER_ID" --as alice.key --type example.document/1 \
     --field result=fail
 contains 'replica' out.txt
 expect_exit 2 checkpoint cosign-request --cache "$CACHE" --peer nobody --send
@@ -120,9 +120,9 @@ contains 'not the one expected' out.txt
 
 # A fork of this ledger: same id, a different history after the copy.
 cp -R primary fork
-run record issue --ledger fork --as root.key --type cexchain.certificate/1 --field result=forked > /dev/null
+run record issue --ledger fork --as root.key --type example.document/1 --field result=forked > /dev/null
 run checkpoint create --ledger fork --log-key log.key > /dev/null
-run record issue --cache "$CACHE" --as alice.key --type cexchain.certificate/1 --field result=real > /dev/null
+run record issue --cache "$CACHE" --as alice.key --type example.document/1 --field result=real > /dev/null
 run checkpoint create --cache "$CACHE" > /dev/null
 start_server fork.json --ledger fork
 FORK_URL="$(json 'd["url"]' < fork.json)"

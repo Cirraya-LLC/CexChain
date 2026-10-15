@@ -465,7 +465,7 @@ std::vector<CommandSpec> build() {
          "",
          0,
          0,
-         signing({{"type", "TYPE", "Record type, e.g. cexchain.certificate/1", true},
+         signing({{"type", "TYPE", "Record type, e.g. example.org.inspection/1", true},
                   {"field", "NAME=VALUE", "A field (private until disclosed)", true, true},
                   {"meta", "NAME=VALUE", "Public metadata", false, true},
                   {"attach", "FILE", "Attach a file (committed by hash)", false, true}}),

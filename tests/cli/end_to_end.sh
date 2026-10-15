@@ -98,13 +98,13 @@ contains 'is a public key' out.txt
 ALICE="$(run actor add --as root.key --kind person --name "Alice Inspector" --key alice.pub | id_from)"
 GRANT="$(run delegation grant --as root.key --to "${ALICE:0:10}" \
     --allow actor-register,actor-rotate-key,delegation-grant,delegation-revoke,record-register,record-endorse,record-transition \
-    --record-types cexchain.certificate/1 --days 30 --may-delegate | id_from)"
+    --record-types example.document/1 --days 30 --may-delegate | id_from)"
 expect_exit 1 actor add --as alice.key --kind agent --name "Drafting Agent" --key agent.key --model m
 contains 'responsible' out.txt
 AGENT="$(run actor add --as alice.key --kind agent --name "Drafting Agent" --key agent.key \
     --responsible "$ALICE" --model claude-opus-5-5 --model-version 2026-09 --runtime "ci-runner" | id_from)"
 AGENT_GRANT="$(run delegation grant --as alice.key --to "$AGENT" --allow record-register \
-    --record-types cexchain.certificate/1 --days 7 --json | json 'd["delegation"]["id"]')"
+    --record-types example.document/1 --days 7 --json | json 'd["delegation"]["id"]')"
 BOB="$(run actor add --as root.key --kind person --name "Bob Receiver" --key bob.key | id_from)"
 
 run actor list | contains 'claude-opus-5-5'
@@ -119,18 +119,18 @@ run delegation show "$AGENT_GRANT" | contains 'authority:     Alice Inspector <-
 run delegation show "$GRANT" --json | json 'd["scope"]["may_delegate"]' | contains -x True
 
 # --- Records -------------------------------------------------------------------
-run record types | contains 'issued -> suspended'
-run record types --json | json '[t["name"] for t in d]' | contains 'cexchain.delivery/1'
+run record types | contains 'requested -> withdrawn'
+run record types --json | json '[t["name"] for t in d]' | contains 'cexchain.contract-consent/1'
 printf '%%PDF-1.7 inspection report' > report.pdf
-RECORD="$(run record issue --as agent.key --type cexchain.certificate/1 \
+RECORD="$(run record issue --as agent.key --type example.document/1 \
     --field product="Flange DN50" --field batch=B-2026-1006 --field result=pass \
     --attach report.pdf --meta product="Flange DN50" --inputs "inspection sheet #7" | id_from)"
-run record list | contains 'cexchain.certificate/1'
+run record list | contains 'example.document/1'
 run record show "${RECORD:0:8}" > record.txt
-contains 'state:      issued' record.txt
+contains 'state:      registered' record.txt
 contains 'metadata:   product = Flange DN50' record.txt
 contains 'attachment: report.pdf (application/pdf, 26 bytes)' record.txt
-run record show "$RECORD" --json | json 'd["next_states"]' | contains suspended
+run record show "$RECORD" --json | json 'd["next_states"]' | contains -x '\[\]'
 run record show "$RECORD" --json | json 'all(isinstance(i, int) for i in d["history"]) and len(d["history"]) >= 1' | contains -x True
 run record show "$RECORD" --json | json 'len(d["field_root"]) == 64' | contains -x True
 run record fields "$RECORD" | contains -x 'result = pass'
@@ -139,7 +139,7 @@ run record fields "$RECORD" --json | json 'd["fields"]["batch"]' | contains -x B
 # Proof of presence. (Passkey ceremonies themselves run in tests/browser.)
 expect_exit 2 record endorse "$RECORD" --as alice.key --role approver --presence --no-browser
 contains 'has no passkey registered' out.txt
-expect_exit 1 record issue --as agent.key --type cexchain.certificate/1 --field result=pass --presence --no-browser
+expect_exit 1 record issue --as agent.key --type example.document/1 --field result=pass --presence --no-browser
 contains 'only people prove presence' out.txt
 run key generate --out carol.key > /dev/null
 CAROL="$(run actor add --as root.key --kind person --name "Carol Approver" --key carol.key | id_from)"
@@ -155,22 +155,22 @@ expect_exit 1 actor set-presence "$CAROL" --as root.key
 run presence enroll --help | contains 'Touch ID'
 
 # Out of scope: the agent may not endorse, Bob has no delegation, and a
-# delivery is outside the agent's record types.
+# note is outside the agent's record types.
 expect_exit 2 record endorse "$RECORD" --as agent.key --role inspector
 expect_exit 2 record endorse "$RECORD" --as bob.key --role inspector
 contains 'no valid delegation' out.txt
-expect_exit 2 record issue --as agent.key --type cexchain.delivery/1 --field item=flanges
+expect_exit 2 record issue --as agent.key --type example.note/1 --field item=flanges
 
 run record endorse "$RECORD" --as alice.key --role inspector > /dev/null
-run record transition "$RECORD" --as alice.key --to suspended > /dev/null
-run record show "$RECORD" | contains 'state:      suspended'
-expect_exit 2 record transition "$RECORD" --as alice.key --to delivered
-run record transition "$RECORD" --as alice.key --to issued --json | json 'd["to"]' | contains -x issued
+# A user's type has no transitions (the protocol's own types have theirs, below).
+expect_exit 2 record transition "$RECORD" --as alice.key --to suspended
+contains 'does not allow this transition' out.txt
+run record show "$RECORD" | contains 'state:      registered'
 run record history "$RECORD" > history.txt
 contains 'AI provenance: model claude-opus-5-5 2026-09, via cli:cexchain, inputs committed' history.txt
 contains 'responsible: Alice Inspector' history.txt
 contains 'authorized by Alice Inspector <- Cirraya Test Factory' history.txt
-run record history "$RECORD" --json | json 'len(d)' | contains -x 4
+run record history "$RECORD" --json | json 'len(d)' | contains -x 2
 
 # --- Vault ---------------------------------------------------------------------
 # Private field values are sealed to the vault key: nothing readable on disk.
@@ -207,6 +207,14 @@ run record fields "$RECORD" | contains -x 'result = pass'
 run init --ledger ledger2 --org "Second Site" --root-key root.key --log-key log.key \
     --vault-public-key offhost.key.pub | contains 'kept elsewhere'
 [ ! -f ledger2/vault/vault.key ] || fail "an external vault key is not copied to the host"
+# The protocol's own record types keep their transitions: an access request
+# is withdrawn.
+REQUEST="$(run record issue --ledger ledger2 --as root.key --type cexchain.access-request/1 \
+    --field purpose=test | id_from)"
+run record show "$REQUEST" --ledger ledger2 --json | json 'd["next_states"]' | contains -x "\['withdrawn'\]"
+run record transition "$REQUEST" --ledger ledger2 --as root.key --to withdrawn --json \
+    | json 'd["to"]' | contains -x withdrawn
+run record show "$REQUEST" --ledger ledger2 | contains 'state:      withdrawn'
 
 # --- Checkpoints, proofs, receipts, and the log --------------------------------------
 expect_exit 2 export "$RECORD" --log-key log.key --out bundle.cbor
@@ -239,7 +247,7 @@ contains 'AI agent: claude-opus-5-5; responsible: Alice Inspector; via cli:cexch
 contains 'authorized by Alice Inspector <- Cirraya Test Factory' report.txt
 contains 'endorsed as inspector' report.txt
 contains 'report.pdf (application/pdf, 26 bytes): matches' report.txt
-contains 'State        issued' report.txt
+contains 'State        registered' report.txt
 run verify bundle.cbor --ledger-id "$LEDGER_ID" --witness witness.pub --json > report.json
 json 'd["verified"] and d["disclosed_fields"]["result"] == "pass"' < report.json | contains -x True
 json 'd["events"][0]["actor"]["model"]' < report.json | contains -x claude-opus-5-5
@@ -311,8 +319,8 @@ contains 'INCONSISTENT HISTORY' out.txt
 run witness cosign request2.cbor --dir witness --key witness.key --out again.cbor | contains 'cosigned'
 # A request whose proof starts at a size the witness has moved past is a
 # conflict, not an attack: the operator asks again from the witness's size.
-run record transition "$RECORD" --as alice.key --to suspended > /dev/null
-run record transition "$RECORD" --as alice.key --to issued > /dev/null
+run record endorse "$RECORD" --as alice.key --role reviewer > /dev/null
+run record endorse "$RECORD" --as alice.key --role auditor > /dev/null
 run checkpoint create --log-key log.key > /dev/null
 run checkpoint cosign-request --witness witness.pub --from 1 --out stale.cbor > /dev/null
 expect_exit 2 witness cosign stale.cbor --dir witness --key witness.key --out nope.cbor
@@ -328,7 +336,7 @@ contains 'does not belong to any actor' out.txt
 run actor show "$ALICE" | contains 'key rotations: #'
 
 run delegation revoke "$AGENT_GRANT" --as alice2.key --reason "pilot over" > /dev/null
-expect_exit 2 record issue --as agent.key --type cexchain.certificate/1 --field result=pass
+expect_exit 2 record issue --as agent.key --type example.document/1 --field result=pass
 run delegation list --all | contains '\[revoked\]'
 
 run actor revoke "$BOB" --as root.key --reason "left the company" > /dev/null

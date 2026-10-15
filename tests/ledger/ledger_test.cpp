@@ -11,6 +11,8 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators_all.hpp>
 
+#include <cexchain/core/protocol/access.hpp>
+#include <cexchain/core/protocol/contracts.hpp>
 #include <cexchain/core/protocol/log.hpp>
 #include <cexchain/core/protocol/statement.hpp>
 #include <cexchain/crypto/openssl.hpp>
@@ -37,20 +39,31 @@ TEST_CASE("a full record lifecycle, checkpoint, receipts, and replay", "[ledger]
     World w(hash);
     Cast c = build_cast(w);
 
-    const protocol::Id record = w.ok(c.agent, agent_record(w, c, certificate));
+    const protocol::Id record = w.ok(c.agent, agent_record(w, c, document_type));
     const protocol::RecordState* state = w.ledger().state().record(record);
     REQUIRE(state != nullptr);
-    CHECK(state->state == "issued");
+    CHECK(state->state == "registered");
     CHECK(state->registrant == c.agent_id);
 
+    // A user's type: endorsed in any role, no transitions.
     w.ok(c.bob,
          w.statement(c.bob_id, c.bob_delegation, protocol::RecordEndorseBody{record, "inspector"}));
-    w.ok(c.alice, w.statement(c.alice_id, c.alice_delegation,
-                              protocol::RecordTransitionBody{record, "issued", "suspended"}));
-    w.ok(c.alice, w.statement(c.alice_id, c.alice_delegation,
-                              protocol::RecordTransitionBody{record, "suspended", "issued"}));
-    CHECK(w.ledger().state().record(record)->endorsements.size() == 1);
-    CHECK(w.ledger().state().record(record)->state == "issued");
+    w.ok(c.bob,
+         w.statement(c.bob_id, c.bob_delegation, protocol::RecordEndorseBody{record, "approver"}));
+    CHECK(w.rejected(c.alice, w.statement(c.alice_id, c.alice_delegation,
+                                          protocol::RecordTransitionBody{
+                                              record, "registered", "done"})) == Errc::rejected);
+    CHECK(w.ledger().state().record(record)->endorsements.size() == 2);
+    CHECK(w.ledger().state().record(record)->state == "registered");
+
+    // A mechanism type moves through its own lifecycle: an access request is
+    // withdrawn.
+    const protocol::Id request =
+        w.ok(w.org(), w.statement(w.org_id(), std::nullopt,
+                                  w.record_body(std::string(protocol::access_request_type))));
+    w.ok(w.org(), w.statement(w.org_id(), std::nullopt,
+                              protocol::RecordTransitionBody{request, "requested", "withdrawn"}));
+    CHECK(w.ledger().state().record(request)->state == "withdrawn");
 
     // Checkpoint, then receipts for every entry verify against it.
     auto checkpoint = w.ledger().checkpoint(w.log_key());
@@ -74,8 +87,9 @@ TEST_CASE("a full record lifecycle, checkpoint, receipts, and replay", "[ledger]
     CHECK(reopened->size() == w.ledger().size());
     CHECK(*reopened->root(reopened->size()) == *w.ledger().root(w.ledger().size()));
     CHECK(reopened->state().actors().size() == w.ledger().state().actors().size());
-    CHECK(reopened->state().record(record)->state == "issued");
-    CHECK(reopened->state().record(record)->endorsements.size() == 1);
+    CHECK(reopened->state().record(record)->state == "registered");
+    CHECK(reopened->state().record(record)->endorsements.size() == 2);
+    CHECK(reopened->state().record(request)->state == "withdrawn");
     REQUIRE(reopened->latest_checkpoint());
     CHECK(reopened->latest_checkpoint()->encoded == checkpoint->encoded);
 }
@@ -90,29 +104,28 @@ TEST_CASE("signers must be registered, current, and authorized", "[ledger][engin
         Bytes bytes(fake.bytes().begin(), fake.bytes().end());
         bytes[0] ^= 1;
         fake = *protocol::to_id(bytes);
-        CHECK(w.rejected(mallory, w.statement(fake, std::nullopt, w.record_body(certificate))) ==
+        CHECK(w.rejected(mallory, w.statement(fake, std::nullopt, w.record_body(document_type))) ==
               Errc::not_found);
     }
     SECTION("wrong key") {
         CHECK(w.rejected(c.bob, w.statement(c.alice_id, c.alice_delegation,
-                                            w.record_body(certificate))) == Errc::rejected);
+                                            w.record_body(document_type))) == Errc::rejected);
     }
     SECTION("no delegation, or someone else's") {
         CHECK(w.rejected(c.alice, w.statement(c.alice_id, std::nullopt,
-                                              w.record_body(certificate))) == Errc::rejected);
+                                              w.record_body(document_type))) == Errc::rejected);
         CHECK(w.rejected(c.alice, w.statement(c.alice_id, c.bob_delegation,
-                                              w.record_body(certificate))) == Errc::rejected);
+                                              w.record_body(document_type))) == Errc::rejected);
     }
     SECTION("outside the delegated statement or record types") {
         CHECK(w.rejected(c.bob, w.statement(c.bob_id, c.bob_delegation,
-                                            w.record_body(certificate))) == Errc::rejected);
-        CHECK(w.rejected(c.agent, agent_record(w, c, delivery)) == Errc::rejected);
+                                            w.record_body(document_type))) == Errc::rejected);
+        CHECK(w.rejected(c.agent, agent_record(w, c, note_type)) == Errc::rejected);
         CHECK(w.rejected(c.alice, w.statement(c.alice_id, c.alice_delegation,
-                                              w.record_body("cexchain.agreement/1"))) ==
-              Errc::rejected);
+                                              w.record_body("example.other/1"))) == Errc::rejected);
     }
     SECTION("agents must name their model") {
-        auto s = agent_record(w, c, certificate);
+        auto s = agent_record(w, c, document_type);
         s.provenance.reset();
         CHECK(w.rejected(c.agent, s) == Errc::rejected);
         s.provenance = protocol::Provenance{};
@@ -120,7 +133,7 @@ TEST_CASE("signers must be registered, current, and authorized", "[ledger][engin
     }
     SECTION("the organization acts without delegation") {
         CHECK(w.rejected(w.org(), w.statement(w.org_id(), c.alice_delegation,
-                                              w.record_body(certificate))) == Errc::rejected);
+                                              w.record_body(document_type))) == Errc::rejected);
         w.ok(w.org(), w.statement(w.org_id(), std::nullopt, w.record_body("custom.type/1")));
     }
 }
@@ -135,7 +148,7 @@ TEST_CASE("delegations only narrow, and revocation and expiry cascade", "[ledger
                          w.statement(c.alice_id, c.alice_delegation,
                                      protocol::DelegationGrantBody{
                                          c.bob_id, scope({StatementType::actor_revoke},
-                                                         std::vector<std::string>{certificate},
+                                                         std::vector<std::string>{document_type},
                                                          false, t0 + day)})) == Errc::rejected);
         // Record types beyond alice's scope, or unrestricted.
         CHECK(w.rejected(c.alice, w.statement(c.alice_id, c.alice_delegation,
@@ -148,37 +161,37 @@ TEST_CASE("delegations only narrow, and revocation and expiry cascade", "[ledger
                          w.statement(c.alice_id, c.alice_delegation,
                                      protocol::DelegationGrantBody{
                                          c.bob_id, scope({StatementType::record_register},
-                                                         std::vector<std::string>{certificate},
+                                                         std::vector<std::string>{document_type},
                                                          false, t0 + 2 * day)})) == Errc::rejected);
         // The agent may not delegate at all.
         CHECK(w.rejected(c.agent, [&] {
             auto s = w.statement(
                 c.agent_id, c.agent_delegation,
-                protocol::DelegationGrantBody{c.bob_id, scope({StatementType::record_register},
-                                                              std::vector<std::string>{certificate},
-                                                              false, t0 + day)});
+                protocol::DelegationGrantBody{
+                    c.bob_id, scope({StatementType::record_register},
+                                    std::vector<std::string>{document_type}, false, t0 + day)});
             s.provenance = provenance();
             return s;
         }()) == Errc::rejected);
     }
     SECTION("revoking a delegation cuts off everything below it") {
-        w.ok(c.agent, agent_record(w, c, certificate));
+        w.ok(c.agent, agent_record(w, c, document_type));
         w.ok(w.org(), w.statement(w.org_id(), std::nullopt,
                                   protocol::DelegationRevokeBody{c.alice_delegation, "test"}));
-        CHECK(w.rejected(c.agent, agent_record(w, c, certificate)) == Errc::rejected);
+        CHECK(w.rejected(c.agent, agent_record(w, c, document_type)) == Errc::rejected);
         CHECK(w.rejected(c.alice, w.statement(c.alice_id, c.alice_delegation,
-                                              w.record_body(certificate))) == Errc::rejected);
+                                              w.record_body(document_type))) == Errc::rejected);
     }
     SECTION("revoking a grantor cuts off its delegates") {
         w.ok(w.org(),
              w.statement(w.org_id(), std::nullopt, protocol::ActorRevokeBody{c.alice_id, "left"}));
-        CHECK(w.rejected(c.agent, agent_record(w, c, certificate)) == Errc::rejected);
+        CHECK(w.rejected(c.agent, agent_record(w, c, document_type)) == Errc::rejected);
         CHECK(w.rejected(c.alice, w.statement(c.alice_id, c.alice_delegation,
-                                              w.record_body(certificate))) == Errc::rejected);
+                                              w.record_body(document_type))) == Errc::rejected);
     }
     SECTION("an expired delegation chain authorizes nothing") {
         w.clock().set(t0 + day + 1);
-        CHECK(w.rejected(c.agent, agent_record(w, c, certificate)) == Errc::rejected);
+        CHECK(w.rejected(c.agent, agent_record(w, c, document_type)) == Errc::rejected);
     }
     SECTION("only the grantor or the organization revokes a delegation") {
         CHECK(w.rejected(c.bob, w.statement(c.bob_id, c.bob_delegation,
@@ -188,14 +201,14 @@ TEST_CASE("delegations only narrow, and revocation and expiry cascade", "[ledger
         w.ok(c.alice,
              w.statement(c.alice_id, c.alice_delegation,
                          protocol::DelegationRevokeBody{c.agent_delegation, std::nullopt}));
-        CHECK(w.rejected(c.agent, agent_record(w, c, certificate)) == Errc::rejected);
+        CHECK(w.rejected(c.agent, agent_record(w, c, document_type)) == Errc::rejected);
     }
 }
 
 TEST_CASE("record lifecycle rules", "[ledger][engine]") {
     World w;
     Cast c = build_cast(w);
-    const protocol::Id record = w.ok(c.agent, agent_record(w, c, certificate));
+    const protocol::Id record = w.ok(c.agent, agent_record(w, c, document_type));
     auto endorse = [&](const std::string& role) {
         return w.statement(c.bob_id, c.bob_delegation, protocol::RecordEndorseBody{record, role});
     };
@@ -203,17 +216,39 @@ TEST_CASE("record lifecycle rules", "[ledger][engine]") {
         return w.statement(c.alice_id, c.alice_delegation,
                            protocol::RecordTransitionBody{record, from, to});
     };
+    auto revoke = [&] {
+        return w.statement(c.alice_id, c.alice_delegation,
+                           protocol::RecordRevokeBody{record, "superseded"});
+    };
 
-    CHECK(w.rejected(c.bob, endorse("receiver")) == Errc::rejected); // not a certificate role
+    // A user's type has the generic lifecycle: any role, once per actor and
+    // role; no transitions; revocable.
+    w.ok(c.bob, endorse("receiver"));
     w.ok(c.bob, endorse("inspector"));
     CHECK(w.rejected(c.bob, endorse("inspector")) == Errc::rejected); // once per role
-    CHECK(w.rejected(c.alice, transition("suspended", "issued")) == Errc::rejected); // wrong state
-    CHECK(w.rejected(c.alice, transition("issued", "delivered")) == Errc::rejected); // not allowed
-    w.ok(c.alice, transition("issued", "suspended"));
-    w.ok(c.alice, w.statement(c.alice_id, c.alice_delegation,
-                              protocol::RecordRevokeBody{record, "superseded"}));
-    CHECK(w.rejected(c.alice, transition("suspended", "issued")) == Errc::rejected); // revoked
-    CHECK(w.rejected(c.bob, endorse("approver")) == Errc::rejected);
+    CHECK(w.rejected(c.alice, transition("registered", "suspended")) == Errc::rejected); // none
+    CHECK(w.rejected(c.alice, transition("issued", "suspended")) == Errc::rejected); // wrong state
+    w.ok(c.alice, revoke());
+    CHECK(w.rejected(c.bob, endorse("approver")) == Errc::rejected); // revoked
+    CHECK(w.rejected(c.alice, revoke()) == Errc::rejected);
+
+    // A mechanism type takes only its own transitions, from its current
+    // state, and no endorsements.
+    const protocol::Id consent =
+        w.ok(w.org(), w.statement(w.org_id(), std::nullopt,
+                                  w.record_body(std::string(protocol::contract_consent_type))));
+    auto move = [&](const std::string& from, const std::string& to) {
+        return w.statement(w.org_id(), std::nullopt,
+                           protocol::RecordTransitionBody{consent, from, to});
+    };
+    CHECK(w.rejected(w.org(), w.statement(w.org_id(), std::nullopt,
+                                          protocol::RecordEndorseBody{consent, "party"})) ==
+          Errc::rejected);
+    CHECK(w.rejected(w.org(), move("given", "revoked")) == Errc::rejected);   // not allowed
+    CHECK(w.rejected(w.org(), move("withdrawn", "given")) == Errc::rejected); // wrong state
+    w.ok(w.org(), move("given", "withdrawn"));
+    CHECK(w.rejected(w.org(), move("withdrawn", "given")) == Errc::rejected); // final
+    CHECK(w.ledger().state().record(consent)->state == "withdrawn");
 
     protocol::Id missing = record;
     Bytes bytes(missing.bytes().begin(), missing.bytes().end());
@@ -244,20 +279,20 @@ TEST_CASE("keys, ledgers, time, and resubmission", "[ledger][engine]") {
         w.ok(c.alice, w.statement(c.alice_id, std::nullopt,
                                   protocol::ActorRotateKeyBody{c.alice_id, new_key.public_key()}));
         CHECK(w.rejected(c.alice, w.statement(c.alice_id, c.alice_delegation,
-                                              w.record_body(certificate))) == Errc::rejected);
-        w.ok(new_key, w.statement(c.alice_id, c.alice_delegation, w.record_body(certificate)));
+                                              w.record_body(document_type))) == Errc::rejected);
+        w.ok(new_key, w.statement(c.alice_id, c.alice_delegation, w.record_body(document_type)));
     }
     SECTION("statements for another ledger or from the future are refused") {
-        auto s = w.statement(w.org_id(), std::nullopt, w.record_body(certificate));
+        auto s = w.statement(w.org_id(), std::nullopt, w.record_body(document_type));
         s.ledger_id = c.alice_id;
         CHECK(w.rejected(w.org(), s) == Errc::rejected);
-        auto future = w.statement(w.org_id(), std::nullopt, w.record_body(certificate));
+        auto future = w.statement(w.org_id(), std::nullopt, w.record_body(document_type));
         future.issued_at = w.clock().now() + protocol::max_clock_skew_ms + 1;
         CHECK(w.rejected(w.org(), future) == Errc::rejected);
     }
     SECTION("resubmission is idempotent") {
         const Bytes bytes =
-            w.sign(w.org(), w.statement(w.org_id(), std::nullopt, w.record_body(certificate)));
+            w.sign(w.org(), w.statement(w.org_id(), std::nullopt, w.record_body(document_type)));
         auto first = w.ledger().submit(bytes);
         REQUIRE(first);
         CHECK(first->newly_registered);
@@ -283,8 +318,8 @@ TEST_CASE("a ledger refuses a log behind or different from its signed checkpoint
     Cast c = build_cast(w);
     const std::uint64_t early_size = w.ledger().size();
     std::vector<Bytes> entries;
-    w.ok(c.agent, agent_record(w, c, certificate));
-    w.ok(c.agent, agent_record(w, c, certificate));
+    w.ok(c.agent, agent_record(w, c, document_type));
+    w.ok(c.agent, agent_record(w, c, document_type));
     REQUIRE(w.ledger().checkpoint(w.log_key()));
     for (std::uint64_t i = 0; i < w.ledger().size(); ++i) {
         entries.push_back(*w.ledger().entry(i));
@@ -345,7 +380,7 @@ TEST_CASE("the ledger survives crashes at any point", "[ledger][engine][simulati
             REQUIRE(crashing);
             for (int i = 0; i < 8; ++i) {
                 auto registration =
-                    crashing->submit(w.sign(c.agent, agent_record(w, c, certificate)));
+                    crashing->submit(w.sign(c.agent, agent_record(w, c, document_type)));
                 if (!registration) {
                     break;
                 }
@@ -366,7 +401,7 @@ TEST_CASE("the ledger survives crashes at any point", "[ledger][engine][simulati
         for (const protocol::Id& id : acknowledged) {
             CHECK(recovered->state().record(id) != nullptr);
         }
-        CHECK(recovered->submit(w.sign(c.agent, agent_record(w, c, certificate))));
+        CHECK(recovered->submit(w.sign(c.agent, agent_record(w, c, document_type))));
         CHECK(recovered->checkpoint(w.log_key()));
     }
 }
@@ -374,7 +409,7 @@ TEST_CASE("the ledger survives crashes at any point", "[ledger][engine][simulati
 TEST_CASE("a batch is validated in order and made durable at once", "[ledger][engine][batch]") {
     World w;
     Cast c = build_cast(w);
-    const Bytes first = w.sign(c.agent, agent_record(w, c, certificate));
+    const Bytes first = w.sign(c.agent, agent_record(w, c, document_type));
     REQUIRE(w.ledger().submit(first));
     const std::uint64_t size_before = w.ledger().size();
 
@@ -391,8 +426,8 @@ TEST_CASE("a batch is validated in order and made durable at once", "[ledger][en
     const Bytes rotate =
         w.sign(dana, w.statement(dana_id, std::nullopt,
                                  protocol::ActorRotateKeyBody{dana_id, dana2.public_key()}));
-    const Bytes record = w.sign(c.agent, agent_record(w, c, certificate));
-    Bytes forged = w.sign(c.agent, agent_record(w, c, certificate));
+    const Bytes record = w.sign(c.agent, agent_record(w, c, document_type));
+    Bytes forged = w.sign(c.agent, agent_record(w, c, document_type));
     forged[forged.size() - 3] ^= 1;
     // Signed with the new key before the rotation applies: refused.
     const Bytes too_early = w.sign(
@@ -447,7 +482,7 @@ TEST_CASE("batches survive crashes at any point", "[ledger][engine][simulation][
             for (int round = 0; round < 6; ++round) {
                 std::vector<Bytes> signed_statements;
                 for (std::uint64_t i = 0; i < 1 + entropy.below(12); ++i) {
-                    signed_statements.push_back(w.sign(c.agent, agent_record(w, c, certificate)));
+                    signed_statements.push_back(w.sign(c.agent, agent_record(w, c, document_type)));
                 }
                 // A repeat within the batch is acknowledged only if the
                 // batch was written.
@@ -478,7 +513,7 @@ TEST_CASE("batches survive crashes at any point", "[ledger][engine][simulation][
         for (const protocol::Id& id : acknowledged) {
             CHECK(recovered->state().record(id) != nullptr);
         }
-        CHECK(recovered->submit(w.sign(c.agent, agent_record(w, c, certificate))));
+        CHECK(recovered->submit(w.sign(c.agent, agent_record(w, c, document_type))));
     }
 }
 
@@ -489,7 +524,7 @@ TEST_CASE("receipts share one signature per checkpoint; checkpoints are found by
     REQUIRE(w.ledger().checkpoint(w.log_key()));
     const auto first = *w.ledger().latest_checkpoint();
     w.clock().advance(10);
-    static_cast<void>(w.ok(c.agent, agent_record(w, c, certificate)));
+    static_cast<void>(w.ok(c.agent, agent_record(w, c, document_type)));
     REQUIRE(w.ledger().checkpoint(w.log_key()));
     const auto second = *w.ledger().latest_checkpoint();
 

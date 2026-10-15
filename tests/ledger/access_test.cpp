@@ -37,7 +37,7 @@ Certificate issue_certificate(World& w) {
     auto attachment = protocol::attachment_commitment(provider(), w.hash(), salt_a, report_content);
     REQUIRE(attachment);
     protocol::RecordRegisterBody body{
-        certificate,
+        document_type,
         Bytes(commitment->root.bytes().begin(), commitment->root.bytes().end()),
         commitment->leaves.size(),
         {{"report.pdf", "application/pdf", report_content.size(),
