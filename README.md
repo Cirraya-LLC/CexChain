@@ -13,7 +13,7 @@ Like a spreadsheet, CexChain knows nothing of what you keep in it: there are no 
 purchase orders, invoices, or certificates. Those are things you define, and the
 [examples](examples/) show how such things are built.
 
-> **Status:** early development (specification v0.9 draft: [the protocol in prose](spec/README.md), [`spec/cexchain.cddl`](spec/cexchain.cddl); the contract language: [`spec/bo.md`](spec/bo.md)). Interfaces and formats may still change. Planned, not built yet: executors, optional vocabulary packs for industry words, a local web console, installers, and a public witness service.
+> **Status:** early development (specification v0.9 draft: [the protocol in prose](spec/README.md), [`spec/cexchain.cddl`](spec/cexchain.cddl); the contract language: [`spec/bo.md`](spec/bo.md)). Interfaces and formats may still change. Planned, not built yet: the executor runtime with its connectors, the keeper daemon, optional vocabulary packs for industry words, a local web console, installers, and a public witness service.
 
 ## Why
 
@@ -47,10 +47,11 @@ purchase orders, invoices, or certificates. Those are things you define, and the
   whose delegation. A person's action carries proof of presence (a passkey, or a USB key and
   its PIN); anything without it is attributed to a machine. AI agents act through MCP with
   their own keys and delegations, their model recorded, and a person accountable for them.
-- **Executors (coming).** Contracts decide; executors will act on the outside world (send a
-  notice, call another system) and report signed results. The protocol's requests and answers
-  are specified (spec v0.8) and implemented in the core; the node's side and the executors
-  are being built.
+- **Requests and executors.** Contracts decide; they never act on the outside world. A call may
+  ask for work outside the ledger (send a notice, call another system): a *request*, which an
+  executor (a device or an AI agent with a narrow delegation) or a person answers with a signed
+  call: done, failed, or expired. Every request and answer is in the instance's evidence. The
+  executor runtime that runs connectors, and the keeper daemon, are being built.
 
 ## Who it is for
 
@@ -205,6 +206,8 @@ The `cexchain` tool controls every part of a ledger:
 | Backups | `backup create`, `backup verify`, `backup restore` |
 | Other organizations | `peer add`, `peer list`, `peer show`, `peer remove`, `access request`, `access send`, `access inbox`, `access grant`, `access fetch`, `access accept`, `access receipt`, `access list` |
 | Contracts | `contract deploy`, `contract show`, `contract list`, `contract retire`, `contract create`, `contract call`, `contract instance`, `contract instances`, `contract evidence`, `contract propose`, `contract pending`, `contract consent`, `contract withdraw`, `contract send`, `contract fetch`, `contract verify`, `contract explain` |
+| Requests | `request list`, `request show`, `request answer`, `request cancel`, `request wait` |
+| Executors | `executor add`, `executor list`, `executor show`, `executor revoke` |
 | Bo language | `bo check`, `bo build`, `bo explain`, `bo fmt`, `bo test`, `bo stdlib list`, `bo stdlib show`, `bo packs list`, `bo packs show`, `bo packs check` (in builds with the Bo compiler); `contract deploy --bo` |
 
 - Every command takes `--help`, and `--json` for scripting.
@@ -516,6 +519,30 @@ cexchain contract verify part.cbor --ledger-id <home-ledger-id>   # its ancestor
 
 The ledger refuses a call that creates parts on a retired contract or at depth 8; `--dry-run` and
 the registrar give the ledger's reason before anything is signed.
+
+A call may also make *requests* (spec v0.8): work for an executor outside the ledger, each with a
+kind (such as `notify`), params, a deadline, and the function an answer calls. A request stays
+open until one answer closes it: done, failed, or expired (once its deadline has come); a late
+answer is recorded as late, and the contract reacts to each answer, perhaps asking again. An
+executor is a device or an AI agent whose delegation covers calls on some contracts, of their
+reply functions, answering requests of some kinds only (scope keys 7 to 9), so its key can do
+nothing else:
+
+```sh
+cexchain executor add Notifier --contract <contract> --kinds notify --key-out notifier.key --as root.key
+cexchain request list --open                      # what contracts asked for, and what is overdue
+cexchain request answer <request> --done --args '{"ref": "N-1"}' --as notifier.key
+cexchain request answer <request> --failed --reason unavailable --as clerk.key   # by hand
+cexchain request cancel <request> --as clerk.key  # answered failed, reason cancelled
+cexchain contract verify instance.cbor --ledger-id <home-ledger-id> --require-answered
+```
+
+`contract verify` shows each call's requests and the answer it gives (who gave it, under which
+delegation, how late), and the open requests, overdue once the checkpoint's time has passed their
+deadline; `--require-answered` fails evidence with overdue requests. A server lists requests for
+executors at `GET /v1/requests`, as a long poll (`request wait` asks it), under an `executor`
+token that submits answers and nothing else; what it lists is a hint, and an executor checks a
+request in the instance's verified evidence before acting on it.
 
 **Relying on an instance's state.** When a party acts on an instance's state, say that a thing is
 not already promised to someone else, it waits until the call that put it there is in a
@@ -944,7 +971,10 @@ organization's registrar they review the calls it holds and the instance itself
 (`cexchain_propose_contract_call`), and consent on their own ledger
 (`cexchain_consent_contract_call`). A consent travels as evidence, so start the server with the
 ledger's `--log-key` to let the agent consent. Arguments are CBOR diagnostic notation, as on the
-command line. `cexchain mcp --help` lists every tool.
+command line. An agent can also be an executor: it lists the requests contracts made
+(`cexchain_list_requests`, `cexchain_get_request`) and answers those its delegation covers
+(`cexchain_answer_request`), each answer recorded with its provenance. `cexchain mcp --help`
+lists every tool.
 
 ## Examples
 
