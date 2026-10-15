@@ -719,7 +719,15 @@ Status LedgerState::check_rules(const crypto::Provider& provider, const Statemen
                 }
                 return {};
             },
-            [&](const RecordRegisterBody&) -> Status { return {}; },
+            [&](const RecordRegisterBody& b) -> Status {
+                // Spec v0.9: only the protocol registers its own types.
+                if (is_reserved_record_type(b.record_type)) {
+                    return fail(Errc::rejected,
+                                "the record type is reserved: types beginning with \"cexchain.\" "
+                                "are the protocol's own");
+                }
+                return {};
+            },
             [&](const RecordEndorseBody& b) -> Status {
                 auto target = active_record(b.record);
                 if (!target) {

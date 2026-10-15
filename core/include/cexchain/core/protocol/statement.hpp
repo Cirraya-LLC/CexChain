@@ -35,8 +35,8 @@ enum class StatementType : std::uint8_t {
     record_endorse = 17,
     record_transition = 18,
     record_revoke = 19,
-    // 20 is reserved (asset-action in v0.5 to v0.8): it does not parse, and
-    // is never reused.
+    // 20 is reserved (spec v0.5 to v0.8; removed in v0.9): it does not
+    // parse, and is never reused.
     contract_deploy = 21,
     contract_call = 22,
     contract_retire = 23,

@@ -8,11 +8,8 @@
 // the log, the state commitment, and the checkpoint. The second replays the
 // log under the rules, with every refusal of the generic lifecycle and of the
 // mechanism types in place. The third covers what v0.9 removed: statement
-// type 20 and the record types under the reserved "cexchain." prefix. Core
-// keeps them until milestone G3 of D-054, so until then the third case skips
-// what core does not refuse yet, naming each object.
+// type 20, and the record types under the reserved "cexchain." prefix.
 
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <map>
@@ -42,11 +39,6 @@ using cexchain::test::hex;
 using cexchain::test::load_vectors;
 
 namespace {
-
-/// Whether core implements v0.9's removals: statement type 20 unknown, the
-/// industry record types gone, the "cexchain." prefix reserved. Milestone G3
-/// of D-054 sets it; the third case then requires every refusal it now skips.
-constexpr bool core_is_v09 = false;
 
 const crypto::Provider& provider() {
     static const crypto::openssl::Provider instance;
@@ -84,7 +76,7 @@ std::string refusal_words(const std::string& why) {
     return words.at(why);
 }
 
-/// Refusals for what v0.9 removed, which core makes from milestone G3.
+/// Refusals for what v0.9 removed, which the third case checks.
 bool removed_in_v09(const std::string& why) {
     return why == "reserved type" || why == "unknown type";
 }
@@ -309,28 +301,34 @@ TEST_CASE("v0.9 generic core: replay, and the lifecycles' refusals in place",
 
 TEST_CASE("v0.9 generic core: statement type 20 and the reserved prefix",
           "[protocol][vectors][v09]") {
-    // What core still accepts that v0.9 refuses: until milestone G3 the case
-    // skips with this list; from G3 on (core_is_v09) each is a failure.
-    std::vector<std::string> pending;
-    auto expect = [&](bool ok, const std::string& what) {
-        if (ok) {
-            return;
-        }
-        if (core_is_v09) {
-            FAIL_CHECK(what);
-        } else if (std::ranges::find(pending, what) == pending.end()) {
-            pending.push_back(what);
-        }
-    };
-
     // The removed types are no longer built in; only the four mechanism
-    // types are.
+    // types are, and only types under the prefix that are not one of them
+    // are reserved.
     for (const auto& removed : vectors()["removed_types"]) {
-        expect(protocol::find_record_type(text(removed)) == nullptr,
-               text(removed) + " is still built in");
+        INFO(text(removed));
+        CHECK(protocol::find_record_type(text(removed)) == nullptr);
+        CHECK(protocol::is_reserved_record_type(text(removed)));
     }
-    expect(protocol::builtin_record_types().size() == vectors()["mechanism_types"].size(),
-           "core has more built-in record types than the four mechanism types");
+    // Each mechanism type with its lifecycle, as the independent encoder
+    // states it; none takes endorsements.
+    REQUIRE(protocol::builtin_record_types().size() == vectors()["mechanism_types"].size());
+    for (const auto& mechanism : vectors()["mechanism_types"]) {
+        const std::string name = text(mechanism["type"]);
+        INFO(name);
+        const protocol::RecordType* type = protocol::find_record_type(name);
+        REQUIRE(type != nullptr);
+        CHECK_FALSE(protocol::is_reserved_record_type(name));
+        CHECK(type->initial_state == text(mechanism["initial"]));
+        std::vector<std::pair<std::string, std::string>> transitions;
+        for (const protocol::Transition& t : type->transitions) {
+            transitions.emplace_back(t.from, t.to);
+        }
+        CHECK(transitions ==
+              mechanism["transitions"].get<std::vector<std::pair<std::string, std::string>>>());
+        CHECK(type->roles.empty());
+    }
+    CHECK(text(vectors()["generic_lifecycle"]["initial"]) == protocol::generic_initial_state);
+    CHECK(text(vectors()["reserved_prefix"]) == protocol::reserved_type_prefix);
 
     for (const auto& ledger : vectors()["ledgers"]) {
         const auto hash = ledger_hash(ledger);
@@ -343,14 +341,17 @@ TEST_CASE("v0.9 generic core: statement type 20 and the reserved prefix",
                 continue;
             }
             ++malformed;
+            INFO(text(st["name"]));
             CHECK(text(st["why"]) == "unknown type");
             const auto parsed =
                 protocol::parse_statement(provider(), hex(text(st["encoded"])), hash);
             const auto decoded = protocol::decode_payload(hex(text(st["payload"])));
-            expect(!parsed && !decoded &&
-                       std::string(parsed.error().detail).find(refusal_words("unknown type")) !=
-                           std::string::npos,
-                   text(st["name"]) + " parses");
+            REQUIRE_FALSE(parsed);
+            REQUIRE_FALSE(decoded);
+            CHECK(std::string(parsed.error().detail).find(refusal_words("unknown type")) !=
+                  std::string::npos);
+            CHECK(std::string(decoded.error().detail).find(refusal_words("unknown type")) !=
+                  std::string::npos);
         }
         CHECK(malformed == 3);
 
@@ -366,21 +367,14 @@ TEST_CASE("v0.9 generic core: statement type 20 and the reserved prefix",
                     continue;
                 }
                 ++reserved;
+                INFO(r.name);
                 const auto valid = now.validate(provider(), r.statement, r.at);
-                expect(!valid && std::string(valid.error().detail).find(refusal_words(r.why)) !=
-                                     std::string::npos,
-                       r.name + " is accepted");
+                REQUIRE_FALSE(valid);
+                INFO(std::string(valid.error().detail));
+                CHECK(std::string(valid.error().detail).find(refusal_words(r.why)) !=
+                      std::string::npos);
             }
         }));
         CHECK(reserved == 8);
-    }
-
-    if (!pending.empty()) {
-        std::string list;
-        for (const std::string& what : pending) {
-            list += "\n  - " + what;
-        }
-        SKIP("Until milestone G3 of D-054, core keeps what spec v0.9 removed (" << pending.size()
-                                                                                << "):" << list);
     }
 }

@@ -481,8 +481,10 @@ private:
             });
 
         add("cexchain_record_types",
-            "Built-in record types with their initial state, allowed transitions, and "
-            "endorsement roles.",
+            "The protocol's own record types (access and consents) with their initial state, "
+            "allowed transitions, and endorsement roles. Any other type is the registrant's "
+            "own, with the generic lifecycle (registered, no transitions, any role); other "
+            "names beginning with \"cexchain.\" are reserved.",
             json::object(), json::array(), read_only, [](const Tool&, const json&) {
                 json types = json::array();
                 for (const protocol::RecordType& t : protocol::builtin_record_types()) {

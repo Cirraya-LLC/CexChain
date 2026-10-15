@@ -530,7 +530,7 @@ std::vector<CommandSpec> build() {
          signing({reason_option}),
          cmd_record_revoke},
         {{"record", "types"},
-         "List built-in record types and their lifecycles",
+         "List the protocol's own record types and their lifecycles",
          "Records",
          "",
          0,

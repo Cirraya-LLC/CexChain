@@ -205,6 +205,51 @@ TEST_CASE("delegations only narrow, and revocation and expiry cascade", "[ledger
     }
 }
 
+TEST_CASE("the cexchain. record type prefix is reserved", "[ledger][engine]") {
+    World w;
+    auto register_type = [&](const std::string& type) {
+        return w.submit(w.org(), w.statement(w.org_id(), std::nullopt, w.record_body(type)));
+    };
+    // Spec v0.9: the protocol's own types, and nothing else, under the
+    // prefix; types it once built in are refused like an invented one.
+    for (const std::string type :
+         {"cexchain.certificate/1", "cexchain.receivable/1", "cexchain.asset-consent/1",
+          "cexchain.document/1", "cexchain.access-request/2", "cexchain."}) {
+        INFO(type);
+        const auto refused = register_type(type);
+        REQUIRE_FALSE(refused);
+        CHECK(refused.error().code == Errc::rejected);
+        CHECK(std::string(refused.error().detail).find("reserved") != std::string::npos);
+    }
+    for (const std::string_view type :
+         {protocol::access_request_type, protocol::access_grant_type, protocol::access_receipt_type,
+          protocol::contract_consent_type}) {
+        INFO(type);
+        CHECK(register_type(std::string(type)));
+    }
+    // The nine bytes exactly, case-sensitive.
+    for (const std::string type :
+         {"cexchain", "cexchain-example.note/1", "Cexchain.note/1", "CEXCHAIN.note/1",
+          "example.cexchain.note/1", "cexchainx.note/1"}) {
+        INFO(type);
+        CHECK(register_type(type));
+    }
+    // Registrations only: a scope may name a reserved type (it covers
+    // nothing anyone can register).
+    const KeyPair alice = key("alice");
+    const protocol::Id alice_id =
+        w.register_actor(w.org(), w.org_id(), std::nullopt, protocol::ActorKind::person, alice);
+    const protocol::Id delegation =
+        w.grant(w.org(), w.org_id(), std::nullopt, alice_id,
+                scope({StatementType::record_register},
+                      std::vector<std::string>{"cexchain.document/1", document_type}));
+    const auto refused =
+        w.submit(alice, w.statement(alice_id, delegation, w.record_body("cexchain.document/1")));
+    REQUIRE_FALSE(refused);
+    CHECK(std::string(refused.error().detail).find("reserved") != std::string::npos);
+    w.ok(alice, w.statement(alice_id, delegation, w.record_body(document_type)));
+}
+
 TEST_CASE("record lifecycle rules", "[ledger][engine]") {
     World w;
     Cast c = build_cast(w);

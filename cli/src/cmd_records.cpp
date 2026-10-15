@@ -254,9 +254,11 @@ int cmd_record_types(const Args& args) {
         }
         std::println("  roles:       {}\n", roles);
     }
-    std::println("Any other type name is accepted with a generic lifecycle: it starts in \"{}\",\n"
-                 "has no transitions, and may be endorsed in any role.",
-                 protocol::generic_initial_state);
+    std::println("Any other type name is the registrant's own, with the generic lifecycle: it\n"
+                 "starts in \"{}\", has no transitions, may be endorsed in any role (once per\n"
+                 "actor and role), and may be revoked. Other names beginning with \"{}\" are\n"
+                 "reserved for the protocol.",
+                 protocol::generic_initial_state, protocol::reserved_type_prefix);
     return exit_ok;
 }
 

@@ -10,30 +10,6 @@ namespace cexchain::protocol {
 
 namespace {
 
-// Quality certificate / certificate of conformity (质检报告 / 合格证).
-constexpr std::array certificate_transitions{
-    Transition{"issued", "suspended"},
-    Transition{"suspended", "issued"},
-};
-constexpr std::array<std::string_view, 2> certificate_roles{"inspector", "approver"};
-
-// Delivery note with proof of delivery (送货单 / 签收单).
-constexpr std::array delivery_transitions{
-    Transition{"dispatched", "delivered"},
-    Transition{"dispatched", "rejected"},
-    Transition{"delivered", "disputed"},
-    Transition{"disputed", "delivered"},
-};
-constexpr std::array<std::string_view, 2> delivery_roles{"carrier", "receiver"};
-
-// Agreement between parties (协议).
-constexpr std::array agreement_transitions{
-    Transition{"proposed", "effective"},
-    Transition{"proposed", "withdrawn"},
-    Transition{"effective", "terminated"},
-};
-constexpr std::array<std::string_view, 2> agreement_roles{"party", "witness"};
-
 // Access across organizations (D-046): a request on the asker's ledger, a
 // grant on the granter's (ended by revoking it), a receipt on the asker's.
 constexpr std::array access_request_transitions{
@@ -48,9 +24,6 @@ constexpr std::array consent_transitions{
 };
 
 constexpr std::array types{
-    RecordType{"cexchain.certificate/1", "issued", certificate_transitions, certificate_roles},
-    RecordType{"cexchain.delivery/1", "dispatched", delivery_transitions, delivery_roles},
-    RecordType{"cexchain.agreement/1", "proposed", agreement_transitions, agreement_roles},
     RecordType{"cexchain.access-request/1", "requested", access_request_transitions, no_roles},
     RecordType{"cexchain.access-grant/1", "granted", no_transitions, no_roles},
     RecordType{"cexchain.access-receipt/1", "received", no_transitions, no_roles},
@@ -75,6 +48,10 @@ const RecordType* find_record_type(std::string_view name) noexcept {
 
 std::span<const RecordType> builtin_record_types() noexcept {
     return types;
+}
+
+bool is_reserved_record_type(std::string_view name) noexcept {
+    return name.starts_with(reserved_type_prefix) && find_record_type(name) == nullptr;
 }
 
 } // namespace cexchain::protocol

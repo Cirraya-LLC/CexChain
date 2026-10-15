@@ -121,6 +121,12 @@ run delegation show "$GRANT" --json | json 'd["scope"]["may_delegate"]' | contai
 # --- Records -------------------------------------------------------------------
 run record types | contains 'requested -> withdrawn'
 run record types --json | json '[t["name"] for t in d]' | contains 'cexchain.contract-consent/1'
+run record types --json | json 'len(d)' | contains -x 4
+run record types | contains 'reserved for the protocol'
+# Spec v0.9: "cexchain." types are the protocol's own; the industry types
+# it once built in are refused like any other.
+expect_exit 2 record issue --as root.key --type cexchain.certificate/1 --field result=pass
+contains 'reserved' out.txt
 printf '%%PDF-1.7 inspection report' > report.pdf
 RECORD="$(run record issue --as agent.key --type example.document/1 \
     --field product="Flange DN50" --field batch=B-2026-1006 --field result=pass \
