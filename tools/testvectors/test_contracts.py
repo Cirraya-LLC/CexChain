@@ -197,6 +197,75 @@ SPLIT_CONSTANTS = [
 ]
 
 
+def _get(i):
+    return ("local.get", i)
+
+
+def _set(i):
+    return ("local.set", i)
+
+
+def _c(v):
+    return ("i32.const", v)
+
+
+def u64_function() -> dict:
+    """Function 7 (U64): the unsigned value of the item head at p, all 64
+    bits. Locals: additional information, bytes left, value."""
+    get, put, c = _get, _set, _c
+    return {"params": ["i32"], "results": ["i64"], "locals": ["i32", "i32", "i64"], "body": [
+        get(0), ("i32.load8_u", 0), c(31), ("i32.and",), put(1),
+        get(1), c(24), ("i32.lt_u",),
+        ("if", None), get(1), ("i64.extend_i32_u",), ("return",), ("end",),
+        c(1), get(1), c(24), ("i32.sub",), ("i32.shl",), put(2),
+        ("block", None), ("loop", None),
+        get(2), ("i32.eqz",), ("br_if", 1),
+        get(0), c(1), ("i32.add",), put(0),
+        get(3), ("i64.const", 8), ("i64.shl",), get(0), ("i64.load8_u", 0), ("i64.or",), put(3),
+        get(2), c(1), ("i32.sub",), put(2),
+        ("br", 0),
+        ("end",), ("end",),
+        get(3),
+    ]}
+
+
+def put_function() -> dict:
+    """Function 8 (PUT): copies len bytes from src to out; returns out + len."""
+    get = _get
+    return {"params": ["i32", "i32", "i32"], "results": ["i32"], "body": [
+        get(0), get(1), get(2), ("memory.copy",),
+        get(0), get(2), ("i32.add",),
+    ]}
+
+
+def head_function() -> dict:
+    """Function 9 (HEAD): writes a head of major type mt (shifted) and value v
+    at out, in its shortest form; returns where it ends. Locals: bytes after
+    the first, additional information, bytes left to write."""
+    get, put, c = _get, _set, _c
+    return {"params": ["i32", "i32", "i64"], "results": ["i32"], "locals": ["i32", "i32", "i32"], "body": [
+        get(2), ("i64.const", 24), ("i64.lt_u",),
+        ("if", None),
+        get(0), get(1), get(2), ("i32.wrap_i64",), ("i32.or",), ("i32.store8", 0),
+        get(0), c(1), ("i32.add",), ("return",),
+        ("end",),
+        c(1), put(3), c(24), put(4),
+        *[x for limit, n, info in ((0xFF, 2, 25), (0xFFFF, 4, 26), (0xFFFF_FFFF, 8, 27))
+          for x in (get(2), ("i64.const", limit), ("i64.gt_u",),
+                    ("if", None), c(n), put(3), c(info), put(4), ("end",))],
+        get(0), get(1), get(4), ("i32.or",), ("i32.store8", 0),
+        get(3), put(5),
+        ("block", None), ("loop", None),
+        get(5), ("i32.eqz",), ("br_if", 1),
+        get(0), get(5), ("i32.add",), get(2), ("i32.wrap_i64",), ("i32.store8", 0),
+        get(2), ("i64.const", 8), ("i64.shr_u",), put(2),
+        get(5), c(1), ("i32.sub",), put(5),
+        ("br", 0),
+        ("end",), ("end",),
+        get(0), c(1), ("i32.add",), get(3), ("i32.add",),
+    ]}
+
+
 def _constants() -> tuple[dict, bytes]:
     where, data = {}, b""
     for name, raw in SPLIT_CONSTANTS:
@@ -239,51 +308,7 @@ def split_contract() -> bytes:
     def fail(name):
         return [*const(name), ("call", 3), ("return",)]
 
-    # Function 7: the unsigned value of the item head at p, all 64 bits.
-    # Locals: additional information, bytes left, value.
-    u64 = {"params": ["i32"], "results": ["i64"], "locals": ["i32", "i32", "i64"], "body": [
-        get(0), ("i32.load8_u", 0), c(31), ("i32.and",), put(1),
-        get(1), c(24), ("i32.lt_u",),
-        ("if", None), get(1), ("i64.extend_i32_u",), ("return",), ("end",),
-        c(1), get(1), c(24), ("i32.sub",), ("i32.shl",), put(2),
-        ("block", None), ("loop", None),
-        get(2), ("i32.eqz",), ("br_if", 1),
-        get(0), c(1), ("i32.add",), put(0),
-        get(3), ("i64.const", 8), ("i64.shl",), get(0), ("i64.load8_u", 0), ("i64.or",), put(3),
-        get(2), c(1), ("i32.sub",), put(2),
-        ("br", 0),
-        ("end",), ("end",),
-        get(3),
-    ]}
-    # Function 8: copies len bytes from src to out; returns out + len.
-    put_fn = {"params": ["i32", "i32", "i32"], "results": ["i32"], "body": [
-        get(0), get(1), get(2), ("memory.copy",),
-        get(0), get(2), ("i32.add",),
-    ]}
-    # Function 9: writes a head of major type mt (shifted) and value v at out,
-    # in its shortest form; returns where it ends. Locals: bytes after the
-    # first, additional information, bytes left to write.
-    head = {"params": ["i32", "i32", "i64"], "results": ["i32"], "locals": ["i32", "i32", "i32"], "body": [
-        get(2), ("i64.const", 24), ("i64.lt_u",),
-        ("if", None),
-        get(0), get(1), get(2), ("i32.wrap_i64",), ("i32.or",), ("i32.store8", 0),
-        get(0), c(1), ("i32.add",), ("return",),
-        ("end",),
-        c(1), put(3), c(24), put(4),
-        *[x for limit, n, info in ((0xFF, 2, 25), (0xFFFF, 4, 26), (0xFFFF_FFFF, 8, 27))
-          for x in (get(2), ("i64.const", limit), ("i64.gt_u",),
-                    ("if", None), c(n), put(3), c(info), put(4), ("end",))],
-        get(0), get(1), get(4), ("i32.or",), ("i32.store8", 0),
-        get(3), put(5),
-        ("block", None), ("loop", None),
-        get(5), ("i32.eqz",), ("br_if", 1),
-        get(0), get(5), ("i32.add",), get(2), ("i32.wrap_i64",), ("i32.store8", 0),
-        get(2), ("i64.const", 8), ("i64.shr_u",), put(2),
-        get(5), c(1), ("i32.sub",), put(5),
-        ("br", 0),
-        ("end",), ("end",),
-        get(0), c(1), ("i32.add",), get(3), ("i32.add",),
-    ]}
+    u64, put_fn, head = u64_function(), put_function(), head_function()
     # Function 10: whether the 32 bytes at a equal those at b.
     eq32 = {"params": ["i32", "i32"], "results": ["i32"], "body": [
         get(0), ("i64.load", 0), get(1), ("i64.load", 0), ("i64.eq",),
@@ -542,6 +567,263 @@ def check_split(code: bytes) -> int:
     run("transfer", ledgers[3], [700, 3], consents=many)
     run("transfer", ledgers[3], [700, 3], consents=many[:15] + [holder])
     return cases + 2
+
+
+# ---------------------------------------------------------------------------
+# The requesting contract (spec section 15, "Requests and answers", v0.8)
+# ---------------------------------------------------------------------------
+
+REQUEST_FUNCTIONS = {"ask": 2, "open": 1, "result": 2, "when.due": 2}
+REQUEST_IN, REQUEST_OUT = 262_144, 1024
+STATUS_NAMES = {1: "done", 2: "failed", 3: "expired"}
+# Constant pieces of its outputs, and its reason, at the start of memory.
+REQUEST_CONSTANTS = [
+    ("events", b"\x04\x81\x82"),  # 4: [[
+    ("done", b"\x64done"),
+    ("failed", b"\x66failed"),
+    ("expired", b"\x67expired"),
+    ("reply", b"\x04\x66result"),  # 4: "result"
+    ("bad_request", b"bad request"),
+]
+
+
+def request_contract() -> bytes:
+    """A contract that makes requests and reacts to answers, with the
+    interface REQUEST_FUNCTIONS. Every function behaves alike; its arguments
+    decide:
+      - a byte string: the output is its content (any output, as the v0.6
+        oracle contract writes, so vectors reach every rule);
+      - a text string: it aborts, with the text as the reason;
+      - an array of specs [kind, params, after] (kind a text string, after an
+        unsigned integer): it accepts, making one request per spec, in order,
+        {1: kind, 2: params, 3: time + after (mod 2^64), 4: "result"}, time
+        being the call's registration time (input key 7). Any other spec
+        aborts with "bad request". It checks no kind, size, or count: the
+        ledger's limits apply;
+      - anything else: it accepts, making no request.
+    When it accepts, the state is [status, request id] for an answer (input
+    key 9), with the event [name, kind], name being done, failed, or expired;
+    for any other call, the instance's state as it was, or null for a
+    creation. Imports: input_size 0, input_read 1, output_write 2, abort 3."""
+    where, data = {}, b""
+    for name, raw in REQUEST_CONSTANTS:
+        where[name] = (len(data), len(raw))
+        data += raw
+    get, put, c = _get, _set, _c
+    # Function 10, the entry. Locals: 0 position, 1 entries left, 2 key,
+    # 3 arguments, 4 instance view, 5 request view, 6 output end, 7 specs,
+    # 8 specs left, 9 spec, 10 item, 11 item end, 12 request id, 13 kind,
+    # 14 status, 15 state; 16 time (i64).
+    P, N, KEY, ARGS, VIEW, REQ, OUT, K, I, S, Q, E, RID, RKIND, RSTATUS, STATE = range(16)
+    TIME = 16
+
+    def const(name):
+        return [c(where[name][0]), c(where[name][1])]
+
+    def put_const(name):
+        return [get(OUT), *const(name), ("call", PUT), put(OUT)]
+
+    def put_byte(value):
+        return [get(OUT), c(value), ("i32.store8", 0), get(OUT), c(1), ("i32.add",), put(OUT)]
+
+    def put_local_byte(local):
+        return [get(OUT), get(local), ("i32.store8", 0), get(OUT), c(1), ("i32.add",), put(OUT)]
+
+    def put_item(at):
+        """Copies the item at local `at` to the output; E is where it ends."""
+        return [get(at), ("call", SKIP), put(E),
+                get(OUT), get(at), get(E), get(at), ("i32.sub",), ("call", PUT), put(OUT)]
+
+    def walk_map(at, keys):
+        """Walks the map at local `at`, running keys[k] at each key k (one
+        byte) with P at its value."""
+        out = [get(at), ("call", ARG), put(N), get(at), get(at), ("call", HEAD_LENGTH), ("i32.add",), put(P),
+               ("block", None), ("loop", None),
+               get(N), ("i32.eqz",), ("br_if", 1),
+               get(P), ("i32.load8_u", 0), put(KEY),
+               get(P), c(1), ("i32.add",), put(P)]
+        for k, then in keys.items():
+            out += [get(KEY), c(k), ("i32.eq",), ("if", None), *then, ("end",)]
+        return out + [get(P), ("call", SKIP), put(P),
+                      get(N), c(1), ("i32.sub",), put(N),
+                      ("br", 0), ("end",), ("end",)]
+
+    def each_spec(body):
+        return [get(ARGS), get(ARGS), ("call", HEAD_LENGTH), ("i32.add",), put(S), get(K), put(I),
+                ("block", None), ("loop", None),
+                get(I), ("i32.eqz",), ("br_if", 1),
+                *body,
+                get(S), ("call", SKIP), put(S),
+                get(I), c(1), ("i32.sub",), put(I),
+                ("br", 0), ("end",), ("end",)]
+
+    def major(at):
+        return [get(at), ("i32.load8_u", 0), c(5), ("i32.shr_u",)]
+
+    def content(at):
+        """The content of the string at local `at`: (start, length)."""
+        return [get(at), get(at), ("call", HEAD_LENGTH), ("i32.add",), get(at), ("call", ARG)]
+
+    bad = [*const("bad_request"), ("call", 3), ("return",)]
+    check_specs = each_spec([
+        get(S), ("i32.load8_u", 0), c(0x83), ("i32.ne",),
+        ("if", None), *bad, ("end",),
+        get(S), c(1), ("i32.add",), put(Q),
+        *major(Q), c(3), ("i32.ne",),
+        ("if", None), *bad, ("end",),
+        get(Q), ("call", SKIP), ("call", SKIP), put(Q),
+        *major(Q), ("if", None), *bad, ("end",),
+    ])
+    write_specs = each_spec([
+        *put_byte(0xA4), *put_byte(0x01),
+        get(S), c(1), ("i32.add",), put(Q), *put_item(Q),
+        *put_byte(0x02), get(E), put(Q), *put_item(Q),
+        *put_byte(0x03),
+        get(OUT), c(0), get(TIME), get(E), ("call", U64), ("i64.add",), ("call", HEAD), put(OUT),
+        *put_const("reply"),
+    ])
+    answered = [
+        *walk_map(REQ, {1: [get(P), put(RID)], 2: [get(P), put(RKIND)], 6: [get(P), ("i32.load8_u", 0), put(RSTATUS)]}),
+        get(RSTATUS), c(1), ("i32.lt_u",), get(RSTATUS), c(3), ("i32.gt_u",), ("i32.or",),
+        ("if", None), ("unreachable",), ("end",),
+        *put_byte(0x82), *put_local_byte(RSTATUS), *put_byte(0x58), *put_byte(0x20),
+        get(OUT), get(RID), c(2), ("i32.add",), c(32), ("call", PUT), put(OUT),
+    ]
+    events = [
+        *put_const("events"),
+        *[x for status, name in STATUS_NAMES.items()
+          for x in (get(RSTATUS), c(status), ("i32.eq",), ("if", None), *put_const(name), ("end",))],
+        *put_item(RKIND),
+    ]
+    entry = {"locals": ["i32"] * 16 + ["i64"], "body": [
+        c(REQUEST_IN), ("call", 1),
+        c(REQUEST_IN), put(Q),
+        *walk_map(Q, {2: [get(P), put(ARGS)], 5: [get(P), put(VIEW)], 7: [get(P), ("call", U64), put(TIME)],
+                      9: [get(P), put(REQ)]}),
+        *major(ARGS), c(2), ("i32.eq",),
+        ("if", None), *content(ARGS), ("call", 2), ("return",), ("end",),
+        *major(ARGS), c(3), ("i32.eq",),
+        ("if", None), *content(ARGS), ("call", 3), ("return",), ("end",),
+        *major(ARGS), c(4), ("i32.eq",),
+        ("if", None), get(ARGS), ("call", ARG), put(K), ("end",),
+        *check_specs,
+        c(REQUEST_OUT), put(OUT),
+        *put_byte(0x82), *put_byte(0x01),
+        # The accept's map: the state, then events for an answer, then requests.
+        get(OUT), c(0xA1), get(REQ), c(0), ("i32.ne",), ("i32.add",), get(K), c(0), ("i32.ne",), ("i32.add",),
+        ("i32.store8", 0), get(OUT), c(1), ("i32.add",), put(OUT),
+        *put_byte(0x01),
+        get(REQ),
+        ("if", None),
+        *answered,
+        ("else",),
+        get(VIEW),
+        ("if", None),
+        *walk_map(VIEW, {3: [get(P), put(STATE)]}),
+        *put_item(STATE),
+        ("else",),
+        *put_byte(0xF6),
+        ("end",),
+        ("end",),
+        get(REQ), ("if", None), *events, ("end",),
+        get(K),
+        ("if", None),
+        *put_byte(0x07),
+        get(OUT), c(0x80), get(K), ("i64.extend_i32_u",), ("call", HEAD), put(OUT),
+        *write_specs,
+        ("end",),
+        c(REQUEST_OUT), get(OUT), c(REQUEST_OUT), ("i32.sub",), ("call", 2),
+    ]}
+    return w.assemble([arg_function(), head_length_function(), skip_function(), u64_function(), put_function(),
+                       head_function(), entry], imports=IMPORTS, memory=(8, 8), data=[(0, data)])
+
+
+def request_output(value: dict) -> tuple[str, bytes]:
+    """What the requesting contract does with the input `value` (a decoded
+    contract-input), computed independently: (outcome, output or reason)."""
+    arguments = value[2]
+    if isinstance(arguments, bytes):
+        return "ok", arguments
+    if isinstance(arguments, str):
+        return "aborted", arguments.encode()
+    specs = arguments if isinstance(arguments, list) else []
+    for spec in specs:
+        if not (isinstance(spec, list) and len(spec) == 3 and isinstance(spec[0], str)
+                and isinstance(spec[2], int) and not isinstance(spec[2], bool) and 0 <= spec[2] < 2**64):
+            return "aborted", b"bad request"
+    request = value.get(9)
+    if request is not None:
+        if request[6] not in STATUS_NAMES:
+            return "unreachable", b""
+        accept = {1: [request[6], request[1]], 4: [[STATUS_NAMES[request[6]], request[2]]]}
+    elif 5 in value:
+        accept = {1: value[5][3]}
+    else:
+        accept = {1: None}
+    if specs:
+        accept[7] = [{1: kind, 2: params, 3: (value[7] + after) % 2**64, 4: "result"} for kind, params, after in specs]
+    return "ok", cbor2.dumps([1, accept], canonical=True)
+
+
+def check_requests(code: bytes) -> int:
+    """Runs the requesting contract on inputs shaped like a home's, against
+    request_output; returns how many runs agreed."""
+    module = w.load(code)
+    home, contract, instance = bytes(32 * [1]), bytes(32 * [2]), bytes(32 * [3])
+    request_id, caller = bytes(32 * [4]), bytes(32 * [5])
+    now = 1_792_022_400_000
+    cases = [0]
+
+    def run(function, arguments, state=..., request=None, time=now, consents=0):
+        value = {1: function, 2: arguments, 3: home, 4: contract, 6: [caller, {1: 3}], 7: time}
+        if state is not ...:
+            value[5] = {1: instance, 2: 17, 3: state, 4: "active"}
+        if consents:
+            value[8] = [[bytes([0x40 + i]) * 32, {1: 0}] for i in range(consents)]
+        if request is not None:
+            value[9] = request
+        outcome, output, _, reason = w.run(module, cbor2.dumps(value, canonical=True))
+        expected = request_output(value)
+        got = (outcome, output if outcome == "ok" else reason)
+        assert got == expected, (function, arguments, state, request, got, expected)
+        cases[0] += 1
+
+    def view(status, kind="invoice", params=None, deadline=now + 86_400_000):
+        return {1: request_id, 2: kind, 3: params, 4: deadline, 5: now - 60_000, 6: status}
+
+    states = [..., None, 0, "x", {"k": [1, 2, {3: -4}]}, bytes(23), bytes(24), bytes(300), bytes(70_000),
+              [[1, 2], "three"], 2**64 - 1, -2**64]
+    afters = [0, 1, 23, 24, 255, 256, 65_535, 65_536, 2**32 - 1, 2**32, 31_622_400_000, 2**63, 2**64 - 1]
+    params = [None, 0, -5, "p", b"", bytes(23), bytes(24), bytes(256), bytes(4093), bytes(65_000),
+              {"bill": 1, "total": 12_500}, [1, [2, [3]]]]
+    kinds = ["a", "x" * 23, "x" * 24, "panel.suspend", "k" * 64, "k" * 300, "Invoice", ""]
+    for state in states:
+        for arguments in ([], None, 7, {"a": 1}, True, [["notify", None, 0]], b"", b"\x82\x01\xa1\x01\x00",
+                          "no such thing", ""):
+            run("ask", arguments, state)
+    for after in afters:
+        run("ask", [["invoice", {"bill": 1}, after]], 0)
+        run("open", [["invoice", None, after]], time=2**64 - 2)
+    for p in params:
+        run("ask", [["notify", p, 86_400_000], ["collect", p, 2]], "s")
+    for kind in kinds:
+        run("open", [[kind, kind, 5]])
+    for n in (1, 2, 15, 16, 17, 23, 24, 64, 65):
+        run("ask", [[f"k{i}", i, i] for i in range(n)], [n])
+    for spec in (5, "spec", [1, None, 0], ["k", None], ["k", None, 0, 0], ["k", None, -1], ["k", None, "x"],
+                 ["k", None, 2**64], ["k", None, True], [b"k", None, 0], {"k": 1}, ["k", None, None]):
+        run("ask", [spec], 0)
+        run("ask", [["first", None, 1], spec], 0)
+    for status in (1, 2, 3):
+        for kind, p in (("invoice", None), ("k" * 64, bytes(4093)), ("notify", {"about": "welcome"})):
+            for arguments in (None, {"digest": bytes(32), "ref": "INV-1"}, [["retry", p, 60_000]], b"\x82\x01\xa1\x01\x00",
+                              "not yet", [5]):
+                run("result", arguments, [2, bytes(32)], view(status, kind, p))
+        run("result", None, ..., view(status), consents=3)
+        run("open", [["a", 1, 1]], request=view(status))
+    for status in (0, 4, 23):
+        run("result", None, 0, view(status))
+    return cases[0]
 
 
 def check(code: bytes) -> list[dict]:

@@ -20,6 +20,7 @@ import argparse
 import hashlib
 import json
 import pathlib
+import re
 import subprocess
 import tempfile
 
@@ -1478,10 +1479,16 @@ def oracle_contract(w, entry_name="cexchain_call") -> bytes:
                       memory=(4, 4), entry_name=entry_name)
 
 
-def check_contract_output(output: bytes, home: bytes, children: bool = False):
+# Requests (v0.8): at most 16 per call, 64 open per instance, params of at
+# most 4,096 bytes, deadlines at most 366 days after the call.
+MAX_REQUESTS, MAX_OPEN, MAX_PARAMS, MAX_DEADLINE = 16, 64, 4096, 366 * 86_400_000
+REQUEST_KIND = re.compile(r"[a-z][a-z0-9._-]{0,63}")
+
+
+def check_contract_output(output: bytes, home: bytes, children: bool = False, requests: bool = False):
     """Section 15's rules for an output: ("accept", map), ("needs", ledgers),
     or ("malformed", why). `children`: the accept may create children (key 6,
-    v0.7)."""
+    v0.7); `requests`: it may make requests (key 7, v0.8)."""
     try:
         value = cbor2.loads(output)
         if dcbor(value) != output:
@@ -1520,8 +1527,8 @@ def check_contract_output(output: bytes, home: bytes, children: bool = False):
             return "malformed", "bad needs"
         return "needs", needs
     accept = value[1]
-    if (not isinstance(accept, dict) or 1 not in accept
-            or not set(accept) <= ({1, 2, 3, 4, 5, 6} if children else {1, 2, 3, 4, 5})):
+    allowed = {1, 2, 3, 4, 5} | ({6} if children else set()) | ({7} if requests else set())
+    if not isinstance(accept, dict) or 1 not in accept or not set(accept) <= allowed:
         return "malformed", "bad accept keys"
 
     def parties(p):
@@ -1547,6 +1554,21 @@ def check_contract_output(output: bytes, home: bytes, children: bool = False):
                 return "malformed", "bad child status"
             if 3 in kid and not parties(kid[3]):
                 return "malformed", "bad child parties"
+    if 7 in accept:
+        asked = accept[7]
+        if not isinstance(asked, list) or not 1 <= len(asked) <= MAX_REQUESTS:
+            return "malformed", "bad requests"
+        for request in asked:
+            if not isinstance(request, dict) or set(request) != {1, 2, 3, 4}:
+                return "malformed", "bad request keys"
+            if not isinstance(request[1], str) or not REQUEST_KIND.fullmatch(request[1]):
+                return "malformed", "bad request kind"
+            if len(dcbor(request[2])) > MAX_PARAMS:
+                return "malformed", "params too large"
+            if not isinstance(request[3], int) or isinstance(request[3], bool) or not 0 <= request[3] < 2**64:
+                return "malformed", "bad deadline"
+            if not text(request[4], 1, 64):
+                return "malformed", "bad reply"
     if 4 in accept:
         e = accept[4]
         if (not isinstance(e, list) or not 1 <= len(e) <= 64
@@ -2456,6 +2478,743 @@ def generate_protocol_v07() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Protocol v0.8 additions: requests and answers (spec section 15, "Requests
+# and answers"): accept key 7, request ids, contract-call key 8, input key 9,
+# scope keys 8 and 9, the limits, answers on final instances, and evidence
+# showing requests
+# ---------------------------------------------------------------------------
+
+def request_id(lg: Ledger, call: bytes, position: int) -> bytes:
+    """HASH(deterministic-CBOR(["request", call, position])) (request-id-input)."""
+    return lg.h(dcbor(["request", call, position]))
+
+
+def generate_protocol_v08() -> None:
+    import wasm_ref as w
+    import test_contracts
+
+    names = ("org_root", "log", "clerk", "agent", "executor", "billing", "keeper")
+    seeds = {name: hashlib.sha256(f"CexChain test key: {name}".encode()).hexdigest() for name in names}
+    keys = {name: ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(seed)) for name, seed in seeds.items()}
+    t0 = 1_792_022_400_000  # 2026-10-15T00:00:00Z
+    minute, hour, day = 60_000, 3_600_000, 86_400_000
+    model = "claude-opus-5-5"
+    code = test_contracts.request_contract()
+    module = w.load(code)
+    checks = test_contracts.check_requests(code)
+    interface = test_contracts.REQUEST_FUNCTIONS
+
+    ledgers = []
+    for hash_id in (-16, -65538):
+        lg = Ledger(hash_id)
+        hash_name = HASHES[hash_id]
+        statements, payloads, times, refused, runs, consents, children = [], [], [], [], [], [], []
+        contracts, instances, actors, delegations, requests = {}, {}, {}, {}, {}
+        signers = {}  # actor id -> the signer map a contract sees
+        disclosures = []
+        clock = [t0 + 1000]
+        customer = PartyLedger("Customer", hash_id, t0)
+        bank = hashlib.sha256(b"Bank ledger").digest()
+        bundle_of = {}  # HASH(bundle) under the home's hash -> bundle
+
+        def payload(signer_actor, body_type, body, delegation=None, provenance=None):
+            n = len(statements) + len(refused) + 1
+            out = {0: 1, 1: body_type, 2: ledger_id, 3: signer_actor, 5: clock[0] - 500, 6: n.to_bytes(16, "big"),
+                   7: body}
+            if delegation is not None:
+                out[4] = delegation
+            if provenance is not None:
+                out[9] = {1: provenance}
+            return out
+
+        def add(name, signer, p):
+            """Registers the statement now; the clock then moves a minute on."""
+            encoded, statement_id = lg.statement(keys[signer], p)
+            statements.append({"name": name, "signer": signer, "encoded": encoded.hex(), "payload": dcbor(p).hex(),
+                               "statement_id": statement_id.hex(), "registered_at": clock[0]})
+            payloads.append(p)
+            times.append(clock[0])
+            clock[0] += minute
+            return statement_id
+
+        def refuse(name, signer, p, why, malformed=False):
+            """`malformed`: the body breaks the CDDL, so the statement does not
+            even parse; otherwise the ledger rules refuse it at `at` (`why`)."""
+            encoded, _ = lg.statement(keys[signer], p)
+            refused.append({"name": name, "signer": signer, "encoded": encoded.hex(), "payload": dcbor(p).hex(),
+                            "after": len(statements), "at": clock[0], "malformed": malformed, "why": why})
+
+        def view(instance_id):
+            inst = instances[instance_id]
+            out = {1: instance_id, 2: inst["head"], 3: inst["state"]}
+            if inst["status"] is not None:
+                out[4] = inst["status"]
+            if inst["parties"]:
+                out[5] = inst["parties"]
+            if inst["parent"] is not None:
+                out[6] = [inst["parent"], inst["depth"]]
+            return out
+
+        def request_view(answer):
+            r = requests[answer[0]]
+            return {1: answer[0], 2: r["kind"], 3: r["params"], 4: r["deadline"], 5: r["asked_at"], 6: answer[1]}
+
+        def contract_input(p, now):
+            body = p[7]
+            inp = {1: body[3], 2: body[4], 3: ledger_id, 6: [p[3], signers[p[3]]], 7: now}
+            if 2 in body:
+                inp[4] = instances[body[2]]["contract"]
+                inp[5] = view(body[2])
+            else:
+                inp[4] = body[1]
+            if 6 in body:
+                inp[8] = [[ref[0], ref[3]] for ref in body[6]]
+            if 8 in body:
+                inp[9] = request_view(body[8])
+            return dcbor(inp)
+
+        def subset(child_scope, parent_scope, key):
+            return key not in parent_scope or (key in child_scope and set(child_scope[key]) <= set(parent_scope[key]))
+
+        def rules(p, now):
+            """Every rule of sections 5 and 15 that refuses the statement before
+            its contract runs, as far as these vectors reach."""
+            body, fails = p[7], []
+            scope = delegations[p[4]]["scope"] if 4 in p else None
+            if p[1] == 5:
+                if scope is not None:
+                    granted = body[2]
+                    if not (5 in scope and 5 in scope[1] and set(granted[1]) <= set(scope[1])
+                            and all(subset(granted, scope, key) for key in (7, 8, 9))):
+                        fails.append("narrowing")
+                return fails
+            if p[1] != 22:
+                return fails
+            answer, request = body.get(8), None
+            if 2 in body:
+                inst = instances.get(body[2])
+                if inst is None:
+                    return ["no such instance"]
+                if inst["final"] and answer is None:
+                    fails.append("final")
+                if body[5] != inst["head"]:
+                    fails.append("head")
+                contract = inst["contract"]
+                if interface.get(body[3]) != 2:
+                    fails.append("function")
+                if answer is not None:
+                    request = requests.get(answer[0])
+                    if request is None:
+                        fails.append("no such request")
+                    elif request["instance"] != body[2]:
+                        fails.append("other instance")
+                    else:
+                        if request["status"] is not None:
+                            fails.append("answered")
+                        if body[3] != request["reply"]:
+                            fails.append("answer function")
+                        if answer[1] == 3 and now < request["deadline"]:
+                            fails.append("early")
+                    if 6 in body:
+                        fails.append("consents")
+            else:
+                contract = body[1]
+                if contracts[contract]["retired"]:
+                    fails.append("retired")
+                if interface.get(body[3]) != 1 or 6 in body:
+                    fails.append("creation")
+            if scope is not None:
+                if (22 not in scope[1] or (7 in scope and contract not in scope[7])
+                        or (8 in scope and body[3] not in scope[8])
+                        or (9 in scope and (request is None or request["kind"] not in scope[9]))):
+                    fails.append("authority")
+            return fails
+
+        def accept_rules(p, accept, now):
+            """The rules that refuse an accepted call for what its accept does."""
+            body, fails = p[7], []
+            inst = instances[body[2]] if 2 in body else None
+            if 6 in accept:
+                contract = inst["contract"] if inst else body[1]
+                if contracts[contract]["retired"]:
+                    fails.append("retired")
+                if inst is not None and inst["depth"] >= MAX_DEPTH:
+                    fails.append("depth")
+            if inst is not None and inst["final"] and (6 in accept or 7 in accept):
+                fails.append("final")
+            if 7 in accept:
+                if any(not now < r[3] <= now + MAX_DEADLINE for r in accept[7]):
+                    fails.append("deadline")
+                if any(interface.get(r[4]) != 2 for r in accept[7]):
+                    fails.append("reply")
+                still_open = len(inst["open"]) - (1 if 8 in body else 0) if inst else 0
+                if still_open + len(accept[7]) > MAX_OPEN:
+                    fails.append("open")
+            return fails
+
+        def run_call(name, p, now, expect):
+            """Runs the contract as the home would at `now`; returns the accept."""
+            inp = contract_input(p, now)
+            outcome, output, fuel, reason = w.run(module, inp, hash_name)
+            checked = (check_contract_output(output, ledger_id, children=True, requests=True)
+                       if outcome == "ok" else (outcome,))
+            verdict = checked[0]
+            assert verdict == expect, f"{name}: {verdict}, expected {expect}"
+            runs.append({"name": name, "after": len(statements), "at": now, "input": inp.hex(), "outcome": outcome,
+                         "output": output.hex(), "fuel": fuel, "verdict": verdict,
+                         **({"reason": reason.hex()} if reason else {})})
+            return checked[1] if verdict == "accept" else None
+
+        def call(name, signer, actor, body, delegation, provenance=None):
+            """A call the rules and the contract accept: registered, and
+            applied, answers, children, and requests included."""
+            p = payload(actor, 22, body, delegation, provenance)
+            now = clock[0]
+            assert rules(p, now) == [], (name, rules(p, now))
+            accept = run_call(name, p, now, "accept")
+            assert accept_rules(p, accept, now) == [], (name, accept_rules(p, accept, now))
+            statement_id = add(name, signer, p)
+            index = len(statements) - 1
+            if 2 in body:
+                target = body[2]
+            else:
+                target = statement_id
+                instances[target] = {"contract": body[1], "parties": {}, "status": None, "history": [],
+                                     "parent": None, "depth": 0, "created_by": None, "position": None,
+                                     "final": False, "open": []}
+            inst = instances[target]
+            if 8 in body:
+                request = requests[body[8][0]]
+                request.update(status=body[8][1], answered_by=index, answered_at=now)
+                inst["open"].remove(body[8][0])
+            inst.update(head=index, state=accept[1], final=inst["final"] or accept.get(5, False))
+            inst["history"].append(index)
+            if 2 in accept:
+                inst["status"] = accept[2]
+            if 3 in accept:
+                inst["parties"] = accept[3]
+            made = []
+            for position, child in enumerate(accept.get(6, [])):
+                child_id = lg.h(dcbor([statement_id, position]))
+                instances[child_id] = {"contract": inst["contract"], "head": index, "state": child[1],
+                                       "status": child.get(2), "parties": child.get(3, {}), "final": False,
+                                       "history": [index], "parent": target, "depth": inst["depth"] + 1,
+                                       "created_by": index, "position": position, "open": []}
+                children.append({"call": statement_id.hex(), "position": position, "id": child_id.hex()})
+                made.append(child_id)
+            asked = []
+            for position, r in enumerate(accept.get(7, [])):
+                rid = request_id(lg, statement_id, position)
+                assert rid not in requests
+                requests[rid] = {"instance": target, "call": index, "call_id": statement_id, "position": position,
+                                 "kind": r[1], "params": r[2], "deadline": r[3], "reply": r[4], "asked_at": now,
+                                 "status": None, "answered_by": None, "answered_at": None}
+                inst["open"].append(rid)
+                asked.append(rid)
+            return statement_id, made, asked
+
+        def refused_call(name, signer, actor, body, delegation, why, expect=None, malformed=False, provenance=None):
+            """A call that is refused: by the rules before the contract runs
+            (`why`, no `expect`), or after it, `expect` naming its verdict:
+            refused for that verdict (`why` is then "contract"), or, for an
+            accept, by the rules on what it does."""
+            p = payload(actor, 22, body, delegation, provenance)
+            now = clock[0]
+            if not malformed:
+                assert rules(p, now) == ([why] if expect is None else []), (name, rules(p, now))
+            if expect is not None:
+                accept = run_call(name, p, now, expect)
+                if accept is not None:
+                    assert accept_rules(p, accept, now) == [why], (name, accept_rules(p, accept, now))
+                else:
+                    assert why == "contract", name
+            refuse(name, signer, p, why, malformed)
+
+        def consent(party, instance, function, args, head):
+            """A consent from a party ledger: its record, evidence bundle, and
+            the call's citation of it."""
+            metadata = {"ledger": ledger_id, "instance": instance, "function": function,
+                        "arguments": lg.h(dcbor(args)), "head": head, "until": t0 + 7 * day}
+            record, bundle = party.consent(metadata)
+            digest = lg.h(bundle)
+            bundle_of[digest] = bundle
+            signer = {1: 0}
+            consents.append({"party": party.name, "ledger": party.id.hex(), "record": record.hex(),
+                             "metadata": dcbor(metadata).hex(), "bundle": bundle.hex(), "bundle_hash": digest.hex(),
+                             "signer": dcbor(signer).hex()})
+            return [party.id, record, digest, signer]
+
+        def on(instance, function, args, refs=None, head=None, answer=None):
+            body = {2: instance, 3: function, 4: args, 5: instances[instance]["head"] if head is None else head}
+            if refs:
+                body[6] = sorted(refs, key=lambda r: r[0])
+            if answer is not None:
+                body[8] = answer
+            return body
+
+        def response(name, text):
+            """An outside system's response, kept by the executor: the answer
+            carries HASH(salt || response) under the home's hash (P8)."""
+            salt = hashlib.sha256(f"salt: {name}".encode()).digest()[:16]
+            raw = text.encode()
+            digest = lg.h(salt + raw)
+            disclosures.append({"name": name, "salt": salt.hex(), "response": raw.hex(), "digest": digest.hex()})
+            return digest
+
+        genesis = {0: 1, 1: 1, 5: t0, 6: bytes([0xE0]) * 16, 7: {
+            1: hash_id, 2: "Cirraya Service Home", 3: ed_public(keys["org_root"]), 4: ed_public(keys["log"])}}
+        encoded, ledger_id = lg.statement(keys["org_root"], genesis)
+        statements.append({"name": "genesis", "signer": "org_root", "encoded": encoded.hex(),
+                           "payload": dcbor(genesis).hex(), "statement_id": ledger_id.hex(), "registered_at": clock[0]})
+        payloads.append(genesis)
+        times.append(clock[0])
+        clock[0] += minute
+        org = ledger_id
+        signers[org] = {1: 0}
+
+        def actor(name, signer_key, kind, label, responsible=None):
+            body = {1: kind, 2: label, 3: ed_public(keys[signer_key])}
+            if responsible is not None:
+                body.update({4: responsible, 5: {1: model}})
+            actor_id = add(name, "org_root", payload(org, 2, body))
+            actors[actor_id] = {"index": len(statements) - 1, "responsible": responsible}
+            signers[actor_id] = {1: kind, 3: model} if kind == 2 else {1: kind}
+            return actor_id
+
+        clerk = actor("register a clerk", "clerk", 1, "Service Desk Clerk")
+        agent = actor("register a notice agent", "agent", 2, "Notice Agent", responsible=clerk)
+        executor = actor("register the panel executor", "executor", 3, "Panel Executor")
+        billing = actor("register the billing executor", "billing", 3, "Billing Executor")
+        keeper = actor("register the keeper", "keeper", 3, "Keeper")
+
+        k = add("deploy the requesting contract", "org_root", payload(org, 21, {
+            1: code, 2: interface, 3: "wasm", 4: "tools/testvectors 1",
+            5: b"hand-assembled: see request_contract in tools/testvectors/test_contracts.py", 6: "Requesting contract"}))
+        contracts[k] = {"history": [len(statements) - 1], "retired": False}
+
+        def delegate(name, signer, grantor, grantee, scope, under=None):
+            p = payload(grantor, 5, {1: grantee, 2: scope}, under)
+            assert rules(p, clock[0]) == [], name
+            d = add(name, signer, p)
+            delegations[d] = {"index": len(statements) - 1, "grantor": grantor, "parent": under, "scope": scope}
+            return d
+
+        def refused_grant(name, signer, grantor, grantee, scope, under=None, malformed=False):
+            p = payload(grantor, 5, {1: grantee, 2: scope}, under)
+            if not malformed:
+                assert rules(p, clock[0]) == ["narrowing"], name
+            refuse(name, signer, p, "malformed" if malformed else "narrowing", malformed)
+
+        kinds = ["invoice", "provision", "reclaim", "suspend"]
+        d_clerk = delegate("delegate the requesting contract to the clerk", "org_root", org, clerk,
+                           {1: [5, 22], 5: True, 7: [k]})
+        d_agent = delegate("the clerk lets the agent answer notices", "clerk", clerk, agent,
+                           {1: [22], 7: [k], 8: ["result"], 9: ["notify"]}, d_clerk)
+        d_exec = delegate("let the panel executor answer its kinds", "org_root", org, executor,
+                          {1: [5, 22], 5: True, 7: [k], 8: ["result"], 9: kinds})
+        d_billing = delegate("the panel executor lets the billing executor answer invoices", "executor", executor,
+                             billing, {1: [22], 7: [k], 8: ["result"], 9: ["invoice"]}, d_exec)
+        for what, scope in (("key 8 wider than its grantor's", {1: [22], 7: [k], 8: ["ask", "result"], 9: ["invoice"]}),
+                            ("no key 8 under a grantor with one", {1: [22], 7: [k], 9: ["invoice"]}),
+                            ("key 9 wider than its grantor's", {1: [22], 7: [k], 8: ["result"], 9: ["invoice", "notify"]}),
+                            ("no key 9 under a grantor with one", {1: [22], 7: [k], 8: ["result"]})):
+            refused_grant(f"the panel executor delegates with {what}", "executor", executor, billing, scope, d_exec)
+        d_keeper = delegate("let the keeper fire rules and expire requests", "org_root", org, keeper,
+                            {1: [22], 7: [k], 8: ["result", "when.due"]})
+        for what, scope in (("an empty key 8", {1: [22], 8: []}),
+                            ("key 8 out of order", {1: [22], 8: ["when.due", "result"]}),
+                            ("key 8 naming a function twice", {1: [22], 8: ["result", "result"]}),
+                            ("key 8 with an empty name", {1: [22], 8: [""]}),
+                            ("key 8 with a name of 65 bytes", {1: [22], 8: ["f" * 65]}),
+                            ("an empty key 9", {1: [22], 9: []}),
+                            ("key 9 with an upper-case kind", {1: [22], 9: ["Invoice"]}),
+                            ("key 9 with a kind that starts with a digit", {1: [22], 9: ["1st"]}),
+                            ("key 9 naming a kind twice", {1: [22], 9: ["invoice", "invoice"]}),
+                            ("key 9 with a kind of 65 bytes", {1: [22], 9: ["k" * 65]}),
+                            ("key 9 that is not text", {1: [22], 9: [1]})):
+            refused_grant(f"a scope with {what}", "org_root", org, keeper, scope, malformed=True)
+
+        def by_clerk(name, body):
+            return call(name, "clerk", clerk, body, d_clerk)
+
+        def refused_by_clerk(name, body, why, expect=None, malformed=False):
+            refused_call(name, "clerk", clerk, body, d_clerk, why, expect, malformed)
+
+        def by_executor(name, body):
+            return call(name, "executor", executor, body, d_exec)
+
+        def by_agent(name, body):
+            return call(name, "agent", agent, body, d_agent, provenance=model)
+
+        def by_keeper(name, body):
+            return call(name, "keeper", keeper, body, d_keeper)
+
+        def raw(accept) -> bytes:
+            """Arguments the contract writes as its output."""
+            return dcbor([1, accept])
+
+        def asked(kind, params, deadline, reply="result"):
+            return {1: kind, 2: params, 3: deadline, 4: reply}
+
+        # S1, a service: a device, an agent, a chain of two delegations, a
+        # keeper, and a person answer; a failure is retried; one expires, one
+        # comes late; two stay open, one of them overdue.
+        s1, _, (r1,) = by_clerk("open a service, asking for it to be provisioned", {1: k, 3: "open", 4: [
+            ["provision", {"plan": "vps-2c4g", "region": "hk"}, day]]})
+        terms = [["invoice", {"bill": 1, "currency": "HKD", "total": 12_500}, 3 * day],
+                 ["notify", {"about": "welcome", "to": customer.id}, day],
+                 ["collect", {"bill": 1, "total": 12_500}, 30 * day]]
+        _, _, (r2, r3, r4) = by_clerk("ask for an invoice, a welcome notice, and the payment, with the customer's consent",
+                                      on(s1, "ask", terms, refs=[consent(customer, s1, "ask", terms,
+                                                                         instances[s1]["head"])]))
+        refused_by_clerk("answer with a function that is not the request's reply", on(s1, "ask", None, answer=[r1, 1]),
+                         "answer function")
+        refused_by_clerk("answer citing a consent", on(s1, "result", None, answer=[r1, 1], refs=[
+            [bank, lg.h(b"bank consent"), lg.h(b"bank consent bundle"), {1: 0}]]), "consents")
+        refused_by_clerk("expire a request before its deadline", on(s1, "result", None, answer=[r1, 3]), "early")
+        refused_by_clerk("answer a request that does not exist", on(s1, "result", None, answer=[lg.h(b"nothing"), 1]),
+                         "no such request")
+        for what, answer in (("without a status", [r1]), ("with status 0", [r1, 0]), ("with status 4", [r1, 4]),
+                             ("naming a short id", [b"short", 1]), ("that is a map", {1: r1, 2: 1}),
+                             ("with a third item", [r1, 1, 0])):
+            refused_by_clerk(f"an answer {what}", on(s1, "result", None, answer=answer), "malformed", malformed=True)
+        refused_by_clerk("an answer on a creation", {1: k, 3: "open", 4: None, 8: [r1, 1]}, "malformed",
+                         malformed=True)
+        by_executor("the panel executor reports the server provisioned", on(s1, "result", {
+            "digest": response("provision", '{"id":"vm-4711","state":"running"}'), "ref": "vm-4711"}, answer=[r1, 1]))
+        refused_call("the panel executor answers it again", "executor", executor,
+                     on(s1, "result", None, answer=[r1, 1]), d_exec, "answered")
+        refused_call("the panel executor answers a notice, a kind outside its key 9", "executor", executor,
+                     on(s1, "result", None, answer=[r3, 1]), d_exec, "authority")
+        refused_call("the panel executor calls its reply without answering", "executor", executor,
+                     on(s1, "result", None), d_exec, "authority")
+        refused_call("the panel executor calls ask, outside its keys 8 and 9", "executor", executor,
+                     on(s1, "ask", []), d_exec, "authority")
+        stale = instances[s1]["head"]
+        _, _, (r5,) = by_agent("the agent reports the notice failed, and asks again", on(s1, "result", [
+            ["notify", {"about": "welcome", "attempt": 2, "to": customer.id}, day]], answer=[r3, 2]))
+        refused_call("the billing executor answers at the head before the agent's answer", "billing", billing,
+                     on(s1, "result", None, head=stale, answer=[r2, 1]), d_billing, "head")
+        call("the billing executor reports the invoice issued", "billing", billing, on(s1, "result", {
+            "digest": response("invoice", '{"invoice_id":"INV-2026-0001","total":"125.00"}'), "ref": "INV-2026-0001",
+            "total": 12_500}, answer=[r2, 1]), d_billing)
+        refused_by_clerk("the contract rejects an answer", on(s1, "result", "no payment has arrived", answer=[r4, 1]),
+                         "contract", "aborted")
+        refused_by_clerk("the contract asks for consents for an answer",
+                         on(s1, "result", dcbor([2, [customer.id]]), answer=[r4, 1]), "contract", "needs")
+        _, _, (r6,) = by_keeper("the keeper fires a rule that asks for a suspension", on(s1, "when.due", [
+            ["suspend", {"reason": "overdue"}, day]]))
+        refused_call("the keeper calls ask, outside its key 8", "keeper", keeper, on(s1, "ask", []), d_keeper,
+                     "authority")
+        refused_call("the keeper expires the second notice before its deadline", "keeper", keeper,
+                     on(s1, "result", None, answer=[r5, 3]), d_keeper, "early")
+        clock[0] += 2 * day
+        by_keeper("the keeper expires the second notice", on(s1, "result", None, answer=[r5, 3]))
+        by_executor("the panel executor reports the suspension, late", on(s1, "result", {
+            "digest": response("suspend", '{"id":"vm-4711","state":"suspended"}'), "ref": "vm-4711"},
+            answer=[r6, 1]))
+
+        # S2: a final instance takes answers to its open requests, and
+        # nothing else.
+        s2, _, _ = by_clerk("open a second service", {1: k, 3: "open", 4: None})
+        now = clock[0]
+        _, _, (r9, r10) = by_clerk("end it, asking for its address to be reclaimed and a notice", on(s2, "ask", raw({
+            1: "ended", 2: "terminated", 5: True, 7: [
+                asked("reclaim", {"ip": "203.0.113.9"}, now + day),
+                asked("notify", {"about": "terminated", "to": customer.id}, now + day)]})))
+        refused_by_clerk("call the final instance without answering", on(s2, "ask", []), "final")
+        refused_call("answer on the final instance, asking again", "executor", executor, on(s2, "result", [
+            ["reclaim", {"ip": "203.0.113.9"}, day]], answer=[r9, 1]), d_exec, "final", "accept")
+        refused_call("answer on the final instance, creating a child", "executor", executor, on(s2, "result", raw({
+            1: 0, 6: [{1: 0}]}), answer=[r9, 1]), d_exec, "final", "accept")
+        by_executor("the panel executor reports the address reclaimed, after the end",
+                    on(s2, "result", {"ref": "203.0.113.9"}, answer=[r9, 1]))
+        refused_call("the panel executor answers the reclaim again", "executor", executor,
+                     on(s2, "result", None, answer=[r9, 1]), d_exec, "answered")
+        by_agent("the agent reports the notice sent, after the end", on(s2, "result", {"channel": "email"},
+                                                                         answer=[r10, 1]))
+
+        # S3: the limits, 16 requests per call and 64 open.
+        s3, _, _ = by_clerk("open a third service", {1: k, 3: "open", 4: None})
+        refused_by_clerk("ask for 17 requests in one call", on(s3, "ask", [["ping", i, 7 * day] for i in range(17)]),
+                         "contract", "malformed")
+        pings = []
+        for batch in range(4):
+            pings += by_clerk(f"ask for 16 requests ({batch + 1} of 4)", on(s3, "ask", [
+                ["ping", 16 * batch + i, 7 * day] for i in range(16)]))[2]
+        refused_by_clerk("ask for a 65th open request", on(s3, "ask", [["ping", 64, 7 * day]]), "open", "accept")
+        by_clerk("answer a request at the limit, asking one more", on(s3, "result", [["ping", 65, 7 * day]],
+                                                                       answer=[pings[0], 1]))
+        refused_by_clerk("ask for a 65th open request again", on(s3, "ask", [["ping", 66, 7 * day]]), "open",
+                         "accept")
+
+        # S4: what a request may be.
+        s4, _, _ = by_clerk("open a fourth service", {1: k, 3: "open", 4: None})
+        now = clock[0]
+        for what, accept, why in (
+                ("a deadline at the call's registration time", {1: 0, 7: [asked("check", None, now)]}, "deadline"),
+                ("a deadline more than 366 days ahead", {1: 0, 7: [asked("check", None, now + MAX_DEADLINE + 1)]},
+                 "deadline"),
+                ("a reply that creates instances", {1: 0, 7: [asked("check", None, now + day, "open")]}, "reply"),
+                ("a reply outside the interface", {1: 0, 7: [asked("check", None, now + day, "close")]}, "reply")):
+            refused_by_clerk(f"ask with {what}", on(s4, "ask", raw(accept)), why, "accept")
+        good = asked("check", None, now + day)
+        for what, accept in (
+                ("no requests", {1: 0, 7: []}),
+                ("requests that are not an array", {1: 0, 7: {1: good}}),
+                ("a request that is not a map", {1: 0, 7: [["check", None, now + day, "result"]]}),
+                ("a request without a reply", {1: 0, 7: [{1: "check", 2: None, 3: now + day}]}),
+                ("a request with a fifth key", {1: 0, 7: [{**good, 5: 0}]}),
+                ("an empty kind", {1: 0, 7: [{**good, 1: ""}]}),
+                ("an upper-case kind", {1: 0, 7: [{**good, 1: "Invoice"}]}),
+                ("a kind that starts with a digit", {1: 0, 7: [{**good, 1: "1st"}]}),
+                ("a kind with a space", {1: 0, 7: [{**good, 1: "panel suspend"}]}),
+                ("a kind of 65 bytes", {1: 0, 7: [{**good, 1: "k" * 65}]}),
+                ("a kind that is not text", {1: 0, 7: [{**good, 1: 7}]}),
+                ("params of 4,097 bytes", {1: 0, 7: [{**good, 2: bytes(4094)}]}),
+                ("a deadline that is text", {1: 0, 7: [{**good, 3: "tomorrow"}]}),
+                ("a negative deadline", {1: 0, 7: [{**good, 3: -1}]}),
+                ("an empty reply", {1: 0, 7: [{**good, 4: ""}]}),
+                ("a reply of 65 bytes", {1: 0, 7: [{**good, 4: "r" * 65}]}),
+                ("a child with requests", {1: 0, 6: [{1: 0, 7: [good]}]})):
+            refused_by_clerk(f"the contract writes {what}", on(s4, "ask", raw(accept)), "contract", "malformed")
+        assert len(dcbor(bytes(4093))) == MAX_PARAMS
+        _, _, (_, _, r13, _) = by_clerk("ask at the limits: the earliest and latest deadlines, a kind of 64 bytes, "
+                                        "params of 4,096 bytes, another reply", on(s4, "ask", raw({1: "limits", 7: [
+                                            asked("check", None, now + 1),
+                                            asked("k" * 64, bytes(4093), now + MAX_DEADLINE),
+                                            asked("panel.suspend-2_b", {"plan": "vps-1c1g"}, now + day, "when.due"),
+                                            asked("ping", [], now + day)]})))
+        refused_by_clerk("answer a request whose reply is another function", on(s4, "result", None, answer=[r13, 1]),
+                         "answer function")
+        refused_by_clerk("answer another instance's request", on(s4, "result", None, answer=[r4, 1]),
+                         "other instance")
+        by_clerk("answer it with its reply", on(s4, "when.due", None, answer=[r13, 1]))
+
+        # S5: a creation that creates a child and makes a request, which is
+        # the new instance's, not the child's.
+        now = clock[0]
+        s5, (c1,), (r14,) = by_clerk("open a fifth service with a part, asking for a notice", {1: k, 3: "open", 4: raw({
+            1: "parent", 6: [{1: "part", 2: "draft"}],
+            7: [asked("notify", {"about": "parts", "to": customer.id}, now + day)]})})
+        refused_by_clerk("answer the parent's request on its part", on(c1, "result", None, answer=[r14, 1]),
+                         "other instance")
+        _, _, (r15,) = by_clerk("ask on the part", on(c1, "ask", [["provision", {"plan": "vps-1c1g"}, day]]))
+        by_executor("the panel executor provisions the part", on(c1, "result", {"ref": "vm-4712"}, answer=[r15, 1]))
+
+        # S1 again: two more requests; a person answers one by hand, and the
+        # other is overdue at the checkpoint.
+        _, _, (_, r8) = by_clerk("ask for an address to be reclaimed within the hour, and a review",
+                                 on(s1, "ask", [["reclaim", {"ip": "203.0.113.7"}, hour], ["review", {"bill": 1}, 7 * day]]))
+        by_clerk("the clerk answers the review by hand", on(s1, "result", {"note": "checked"}, answer=[r8, 1]))
+        clock[0] += 3 * hour
+
+        # The state, its commitment, and the checkpoint over everything.
+        entries = [encode_log_entry(bytes.fromhex(st["statement_id"]), times[i], bytes.fromhex(st["encoded"]))
+                   for i, st in enumerate(statements)]
+        leaves = {org: [1, org, [0]]}
+        for actor_id, info in actors.items():
+            leaves[actor_id] = [1, actor_id, [info["index"]]]
+        for d_id, info in delegations.items():
+            leaves[d_id] = [2, d_id, [info["index"]]]
+        for k_id, info in contracts.items():
+            leaves[k_id] = [4, k_id, info["history"]]
+        for i_id, info in instances.items():
+            leaves[i_id] = [5, i_id, info["history"]]
+        sorted_leaves = sorted(leaves.values(), key=lambda x: x[1])
+        checkpoint_time = clock[0]
+        commitment_index = len(entries)
+        commitment_id = append_state_commitment(lg, keys["log"], ledger_id, entries, sorted_leaves, checkpoint_time)
+        checkpoint, root = sign_log_checkpoint(lg, keys["log"], ledger_id, entries, checkpoint_time)
+
+        def request_json(rid):
+            r = requests[rid]
+            late = None if r["answered_at"] is None else max(0, r["answered_at"] - r["deadline"])
+            return {"id": rid.hex(), "instance": r["instance"].hex(), "call": r["call"], "call_id": r["call_id"].hex(),
+                    "position": r["position"], "kind": r["kind"], "params": dcbor(r["params"]).hex(),
+                    "deadline": r["deadline"], "reply": r["reply"], "asked_at": r["asked_at"], "status": r["status"],
+                    "answered_by": r["answered_by"], "answered_at": r["answered_at"], "late_by": late,
+                    "overdue": r["status"] is None and checkpoint_time >= r["deadline"]}
+
+        def instance_evidence(subject):
+            """The subject's evidence bundle (section 11), with its ancestors'
+            histories up to each creating call, its contract evidence, and
+            what its report shows of requests and answers."""
+            inst = instances[subject]
+            events = set(inst["history"])
+            node = inst
+            while node["parent"] is not None:
+                parent = instances[node["parent"]]
+                events |= {i for i in parent["history"] if i <= node["created_by"]}
+                node = parent
+            events = sorted(events)
+            involved = []
+
+            def involve(object_id):
+                if object_id not in involved:
+                    involved.append(object_id)
+
+            involve(subject)
+            involve(inst["contract"])
+            for i in events:
+                p = payloads[i]
+                involve(p[3])
+                if actors.get(p[3], {}).get("responsible") is not None:
+                    involve(actors[p[3]]["responsible"])
+                delegation = p.get(4)
+                while delegation is not None:
+                    involve(delegation)
+                    involve(delegations[delegation]["grantor"])
+                    delegation = delegations[delegation]["parent"]
+            needed = {0, commitment_index, *events}
+            for object_id in involved:
+                needed |= set(leaves[object_id][2])
+            work = sorted(needed - {0, commitment_index})
+            while work:
+                p = payloads[work.pop()]
+                deps = []
+                if p[3] != org:
+                    deps.append(actors[p[3]]["index"])
+                if 4 in p:
+                    deps.append(delegations[p[4]]["index"])
+                body = p[7]
+                if p[1] == 2 and 4 in body:
+                    deps.append(actors[body[4]]["index"])
+                elif p[1] == 5:
+                    deps.append(actors[body[1]]["index"])
+                elif p[1] == 22:
+                    contract = body[1] if 1 in body else instances[body[2]]["contract"]
+                    deps.append(contracts[contract]["history"][0])
+                elif p[1] == 23:
+                    deps.append(contracts[body[1]]["history"][0])
+                for dep in deps:
+                    if dep not in needed:
+                        needed.add(dep)
+                        work.append(dep)
+            proofs = [[leaves[i], smt_proof(lg, sorted_leaves, i)] for i in involved]
+            bundle = make_bundle(lg, keys["log"], entries, checkpoint, root, subject, needed, proofs)
+            pins = []
+            for i in events:
+                for ref in payloads[i][7].get(6, []) if payloads[i][1] == 22 else []:
+                    if ref[2] not in pins:
+                        pins.append(ref[2])
+            evidence = {0: 1, 1: bundle}
+            if pins:
+                evidence[2] = [bundle_of[h] for h in pins]
+            ancestors = []
+            node = inst
+            while node["parent"] is not None:
+                ancestors.insert(0, {"id": node["parent"].hex(), "until": node["created_by"]})
+                node = instances[node["parent"]]
+            calls = []
+            for i in events:
+                body = payloads[i][7]
+                target = body[2] if 2 in body else bytes.fromhex(statements[i]["statement_id"])
+                made = [rid.hex() for rid, r in requests.items() if r["call"] == i]
+                answer = None
+                if 8 in body:
+                    r = requests[body[8][0]]
+                    answer = {"request": body[8][0].hex(), "status": body[8][1],
+                              "late_by": max(0, times[i] - r["deadline"]), "actor": payloads[i][3].hex(),
+                              "signer": dcbor(signers[payloads[i][3]]).hex(),
+                              "delegation": payloads[i][4].hex() if 4 in payloads[i] else None}
+                calls.append({"index": i, "instance": target.hex(), "requests": made, "answer": answer})
+            own = [rid for rid, r in requests.items() if r["instance"] == subject]
+            return {"subject": subject.hex(), "depth": inst["depth"], "ancestors": ancestors, "events": events,
+                    "entries": sorted(needed), "involved": [i.hex() for i in involved],
+                    "pins": [h.hex() for h in pins], "calls": calls, "requests": [rid.hex() for rid in own],
+                    "open": [rid.hex() for rid in own if requests[rid]["status"] is None],
+                    "overdue": [rid.hex() for rid in own
+                                if requests[rid]["status"] is None and checkpoint_time >= requests[rid]["deadline"]],
+                    "contract_evidence": dcbor(evidence).hex()}
+
+        ledgers.append({
+            "hash": hash_id,
+            "ledger_id": ledger_id.hex(),
+            "parties": {"Customer": customer.id.hex(), "Bank": bank.hex()},
+            "actors": {name: value.hex() for name, value in (("clerk", clerk), ("agent", agent), ("executor", executor),
+                                                             ("billing", billing), ("keeper", keeper))},
+            "contract": k.hex(),
+            "statements": statements,
+            "refused": refused,
+            "runs": runs,
+            "consents": consents,
+            "children": children,
+            "requests": [request_json(rid) for rid in requests],
+            "disclosures": disclosures,
+            "instances": [{"id": i.hex(), "contract": v["contract"].hex(), "head": v["head"],
+                           "state": dcbor(v["state"]).hex(), "status": v["status"],
+                           "parties": {r: l.hex() for r, l in v["parties"].items()}, "final": v["final"],
+                           "history": v["history"], "depth": v["depth"],
+                           "parent": v["parent"].hex() if v["parent"] is not None else None,
+                           "created_by": v["created_by"], "position": v["position"],
+                           "open": [rid.hex() for rid in v["open"]]}
+                          for i, v in instances.items()],
+            "log_entries": [e.hex() for e in entries],
+            "state_leaves": [{"kind": leaf[0], "id": leaf[1].hex(), "history": leaf[2]} for leaf in sorted_leaves],
+            "state_root": smt_root(lg, sorted_leaves).hex(),
+            "state_commitment": {"index": commitment_index, "id": commitment_id.hex()},
+            "checkpoint": checkpoint.hex(),
+            "checkpoint_time": checkpoint_time,
+            "evidence": {
+                "a service": instance_evidence(s1),
+                "a final instance answered": instance_evidence(s2),
+                "a part whose parent asked": instance_evidence(c1),
+            },
+        })
+
+    document = {
+        "description": "CexChain protocol objects added in specification revision v0.8 (requests and answers), "
+                       "built by an independent Python encoder from spec/cexchain.cddl and run by the reference "
+                       "interpreter tools/testvectors/wasm_ref.py. The requesting contract (request_contract in "
+                       "tools/testvectors/test_contracts.py, interface `interface`) writes byte-string arguments as "
+                       "its output, aborts with text arguments, makes one request {1: kind, 2: params, 3: time + "
+                       "after, 4: \"result\"} per [kind, params, after] in array arguments, and otherwise makes "
+                       "none; for an answer (input key 9) its state becomes [status, request] and it records the "
+                       "event [done|failed|expired, kind]; otherwise the state stays (null for a creation). A clerk "
+                       "(a person), a notice agent (an AI agent under the clerk; scope keys 8 [result] and 9 "
+                       "[notify]), a panel executor (a device; keys 8 [result] and 9 [invoice, provision, reclaim, "
+                       "suspend]), a billing executor (under the panel executor; key 9 [invoice]), and a keeper (key 8 "
+                       "[result, when.due]) call five instances: a service whose requests are answered done, failed, "
+                       "and expired, on time and late, with two left open, one overdue; a final instance that takes "
+                       "answers; one at the limit of 64 open requests; one that tries what a request may be; and one "
+                       "whose creation makes a request and a part. Each statement registers at its `registered_at` "
+                       "(the log entries carry it); refused statements either break the CDDL (`malformed`) or are "
+                       "validated against the state after the first `after` statements, at `at`; `why` names the rule "
+                       "(answered, early, answer function, consents, no such request, other instance, final, head, "
+                       "authority, narrowing, deadline, reply, open) or `contract` when the contract's run refuses it "
+                       "(its run says how). `runs` lists every contract run: the input the home builds (key 9 for an "
+                       "answer), and the outcome, output, fuel, and verdict. `requests` lists every request: its id, "
+                       "HASH([\"request\", call, position]), its instance, the requesting call's index and statement "
+                       "id, its position, kind, params (encoded), deadline, reply, the time it was asked at, and its "
+                       "answer (status, index, time, and how late), and whether it is overdue at the checkpoint. "
+                       "`instances` gives each instance's final state, status, parties, head, finality, history, "
+                       "depth, parent, and its open requests. `disclosures` holds outside responses an executor kept, "
+                       "with their salts and HASH(salt || response), which answers carry. `log_entries` holds the "
+                       "whole log, ending with the state commitment over `state_leaves`; `checkpoint` (signed at "
+                       "`checkpoint_time`) covers it. `evidence` holds signed contract evidence for three instances "
+                       "(as in protocol-v0.7.json: entries, involved objects, consent pins) and what a report shows: "
+                       "per call, the requests it made and its answer (request, status, lateness, actor, signer, "
+                       "delegation); the instance's requests, the open ones, and those overdue at the checkpoint. "
+                       "`contract_checks` counts the inputs on which the contract agreed with an independent model. "
+                       "Signatures are Ed25519 (deterministic); keys are throwaway: seed = SHA-256(\"CexChain test "
+                       "key: <name>\"), and for the customer's ledger \"Customer root\" and \"Customer log\".",
+        "t0": t0,
+        "limits": {"requests": MAX_REQUESTS, "open": MAX_OPEN, "params": MAX_PARAMS, "deadline": MAX_DEADLINE},
+        "contract": code.hex(),
+        "interface": interface,
+        "contract_checks": checks,
+        "seeds": seeds,
+        "ledgers": ledgers,
+    }
+    (OUT / "protocol-v0.8.json").write_text(json.dumps(document, indent=1) + "\n")
+    first = ledgers[0]
+    print(f"wrote protocol vectors for {len(ledgers)} ledgers to testvectors/protocol-v0.8.json: "
+          f"{len(first['statements'])} statements, {len(first['refused'])} refused, {len(first['runs'])} "
+          f"contract runs, {len(first['requests'])} requests, {checks} contract checks")
+
+
+# ---------------------------------------------------------------------------
 # Contract execution (spec section 14): the deterministic WebAssembly profile,
 # from the independent reference interpreter in wasm_ref.py
 # ---------------------------------------------------------------------------
@@ -2912,6 +3671,7 @@ def main() -> None:
     generate_protocol_v05()
     generate_protocol_v06()
     generate_protocol_v07()
+    generate_protocol_v08()
     generate_vm_v1()
 
 
