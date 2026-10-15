@@ -65,6 +65,21 @@ Status check_narrowing(const Scope& parent, const Scope& child) {
             }
         }
     }
+    // Keys 8 and 9 (v0.8) narrow like record types: a grantor's list stays,
+    // as a subset.
+    if (parent.functions &&
+        (!child.functions || !std::ranges::all_of(*child.functions, [&](const std::string& f) {
+            return std::ranges::contains(*parent.functions, f);
+        }))) {
+        return fail(Errc::rejected, "delegated functions exceed the grantor's scope");
+    }
+    if (parent.request_kinds &&
+        (!child.request_kinds ||
+         !std::ranges::all_of(*child.request_kinds, [&](const std::string& k) {
+             return std::ranges::contains(*parent.request_kinds, k);
+         }))) {
+        return fail(Errc::rejected, "delegated request kinds exceed the grantor's scope");
+    }
     return {};
 }
 
@@ -132,6 +147,10 @@ const InstanceState* LedgerState::instance(const Id& id) const {
     return instances_.find(key_of(id));
 }
 
+const RequestState* LedgerState::request(const Id& id) const {
+    return requests_.find(key_of(id));
+}
+
 Result<ContractSigner> LedgerState::contract_signer(const Statement& statement) const {
     const ActorState* signer = statement.actor_id ? actor(*statement.actor_id) : nullptr;
     if (signer == nullptr) {
@@ -193,6 +212,21 @@ Result<ContractRun> LedgerState::run_contract(const crypto::Provider& provider,
     for (const ContractConsentRef& c : call->consents) {
         input.consents.emplace_back(c.ledger, c.signer);
     }
+    // An answer (v0.8) shows its request, with the answer's status.
+    if (call->answer) {
+        const RequestState* request = this->request(call->answer->request);
+        if (request == nullptr) {
+            return fail(Errc::not_found, "the request does not exist");
+        }
+        input.request = ContractRequestView{
+            .id = request->id,
+            .kind = request->kind,
+            .params = request->params,
+            .deadline = request->deadline,
+            .asked_at = request->asked_at,
+            .status = call->answer->status,
+        };
+    }
     ContractRun run;
     CEXCHAIN_TRY(run.input, encode_contract_input(input));
     CEXCHAIN_TRY(run.outcome, vm::run(*contract->module, run.input, provider, hash_));
@@ -223,7 +257,9 @@ Result<ContractRun> LedgerState::accepted_run(const crypto::Provider& provider,
     if (accept == nullptr) {
         return fail(Errc::rejected, "the contract needs more consents for the call");
     }
-    CEXCHAIN_CHECK(check_children(std::get<ContractCallBody>(signed_call.statement.body), *accept));
+    const auto& call = std::get<ContractCallBody>(signed_call.statement.body);
+    CEXCHAIN_CHECK(check_children(call, *accept));
+    CEXCHAIN_CHECK(check_requests(call, *accept, now));
     return run;
 }
 
@@ -244,6 +280,49 @@ Status LedgerState::check_children(const ContractCallBody& call,
     }
     if (instance != nullptr && instance->depth >= max_instance_depth) {
         return fail(Errc::rejected, "an instance at depth 8 creates no children");
+    }
+    // Only answers reach a final instance (v0.8), and they create none.
+    if (instance != nullptr && instance->final) {
+        return fail(Errc::rejected, "an answer on a final instance creates no children");
+    }
+    return {};
+}
+
+Status LedgerState::check_requests(const ContractCallBody& call, const ContractAccept& accept,
+                                   Timestamp now) const {
+    // Requests (v0.8) belong to the instance the call acts on, or creates.
+    if (accept.requests.empty()) {
+        return {};
+    }
+    const InstanceState* instance = call.instance ? this->instance(*call.instance) : nullptr;
+    const ContractState* contract =
+        instance != nullptr ? this->contract(instance->contract)
+                            : (call.contract ? this->contract(*call.contract) : nullptr);
+    if (contract == nullptr) {
+        return fail(Errc::not_found, "the contract does not exist");
+    }
+    if (instance != nullptr && instance->final) {
+        return fail(Errc::rejected, "an answer on a final instance makes no requests");
+    }
+    for (const ContractRequest& request : accept.requests) {
+        if (request.deadline <= now || request.deadline - now > max_request_deadline) {
+            return fail(Errc::rejected, "a request's deadline is after the call and at most 366 "
+                                        "days after it");
+        }
+        const auto reply = contract->interface.find(request.reply);
+        if (reply == contract->interface.end() || reply->second != FunctionKind::call) {
+            return fail(Errc::rejected, "a request's reply is a function of the contract that "
+                                        "acts on instances");
+        }
+    }
+    // An answer closes its request before the accept opens new ones.
+    std::size_t open = instance == nullptr ? 0 : instance->open_requests.size();
+    if (instance != nullptr && call.answer &&
+        std::ranges::contains(instance->open_requests, CompactId(call.answer->request))) {
+        --open;
+    }
+    if (open + accept.requests.size() > max_open_requests) {
+        return fail(Errc::rejected, "an instance has at most 64 open requests");
     }
     return {};
 }
@@ -364,7 +443,7 @@ Status LedgerState::validate(const crypto::Provider& provider,
                                         "verifies you (PIN or biometric), not only a touch");
         }
     }
-    if (auto s = check_rules(provider, statement, *signer); !s) {
+    if (auto s = check_rules(provider, statement, *signer, now); !s) {
         return s;
     }
     // A call is registered only if its contract accepts it (spec section 15).
@@ -426,6 +505,23 @@ Status LedgerState::check_authority(const Statement& statement, const ActorState
         !std::ranges::contains(*delegation->scope.contracts, *contract)) {
         return fail(Errc::rejected, "the delegation does not cover this contract");
     }
+    // Keys 8 and 9 (v0.8) restrict contract calls only: the function they
+    // name (a creation's too), and that they answer requests of the kinds.
+    if (const auto* call = std::get_if<ContractCallBody>(&statement.body)) {
+        if (delegation->scope.functions &&
+            !std::ranges::contains(*delegation->scope.functions, call->function)) {
+            return fail(Errc::rejected, "the delegation does not cover this function");
+        }
+        if (delegation->scope.request_kinds) {
+            const RequestState* request =
+                call->answer ? this->request(call->answer->request) : nullptr;
+            if (request == nullptr ||
+                !std::ranges::contains(*delegation->scope.request_kinds, request->kind)) {
+                return fail(Errc::rejected, "the delegation covers only answers to requests of "
+                                            "its kinds");
+            }
+        }
+    }
     for (const DelegationState* link = delegation; link != nullptr;
          link = link->parent ? this->delegation(*link->parent) : nullptr) {
         if (link->revoked) {
@@ -477,7 +573,7 @@ LedgerKeys LedgerState::keys() const {
 }
 
 Status LedgerState::check_rules(const crypto::Provider& provider, const Statement& statement,
-                                const ActorState& signer) const {
+                                const ActorState& signer, Timestamp now) const {
     auto active_record = [this](const Id& id) -> Result<const RecordState*> {
         const RecordState* r = record(id);
         if (r == nullptr) {
@@ -725,7 +821,9 @@ Status LedgerState::check_rules(const crypto::Provider& provider, const Statemen
                     if (instance == nullptr) {
                         return fail(Errc::not_found, "the instance does not exist");
                     }
-                    if (instance->final) {
+                    // A final instance takes only answers to its open
+                    // requests (v0.8).
+                    if (instance->final && !b.answer) {
                         return fail(Errc::rejected, "the instance is final");
                     }
                     if (*b.head != instance->head) {
@@ -733,6 +831,31 @@ Status LedgerState::check_rules(const crypto::Provider& provider, const Statemen
                     }
                     contract = this->contract(instance->contract);
                     kind = FunctionKind::call;
+                }
+                if (b.answer) {
+                    // An answer (v0.8): to an open request of this instance,
+                    // at most once, calling its reply, expiring it only at
+                    // its deadline, and citing no consents.
+                    const RequestState* request = this->request(b.answer->request);
+                    if (request == nullptr) {
+                        return fail(Errc::not_found, "the request does not exist");
+                    }
+                    if (!(request->instance == *b.instance)) {
+                        return fail(Errc::rejected, "the request belongs to another instance");
+                    }
+                    if (!request->open()) {
+                        return fail(Errc::rejected, "the request is already answered");
+                    }
+                    if (b.function != request->reply) {
+                        return fail(Errc::rejected, "an answer calls its request's reply");
+                    }
+                    if (b.answer->status == AnswerStatus::expired && now < request->deadline) {
+                        return fail(Errc::rejected,
+                                    "a request expires only once its deadline is reached");
+                    }
+                    if (!b.consents.empty()) {
+                        return fail(Errc::rejected, "an answer cites no consents");
+                    }
                 }
                 const auto function = contract->interface.find(b.function);
                 if (function == contract->interface.end()) {
@@ -946,6 +1069,14 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
                     instances_.insert_or_assign(key_of(id), std::move(instance));
                 }
                 InstanceState& instance = instances_.at(key_of(target));
+                // An answer (v0.8) first closes its request.
+                if (b.answer) {
+                    RequestState& request = requests_.at(key_of(b.answer->request));
+                    request.status = b.answer->status;
+                    request.answered_by = index;
+                    request.answered_at = now;
+                    std::erase(instance.open_requests, CompactId(b.answer->request));
+                }
                 instance.head = index;
                 instance.state = std::move(accept.state);
                 if (accept.status) {
@@ -954,7 +1085,9 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
                 if (accept.parties) {
                     instance.parties = std::move(*accept.parties);
                 }
-                instance.final = accept.final;
+                // Finality is permanent: an answer on a final instance
+                // leaves it final, whatever its accept says (v0.8).
+                instance.final = instance.final || accept.final;
                 instance.history.push_back(index);
                 changes_.push_back(key_of(target));
                 // Then its children, in order (v0.7): the parent's contract,
@@ -979,6 +1112,25 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
                     child.depth = depth;
                     instances_.insert_or_assign(key_of(child_id), std::move(child));
                     changes_.push_back(key_of(child_id));
+                }
+                // Then its requests, in order (v0.8): the instance's, open.
+                // They have no state leaf, so nothing changes for the tree.
+                // `instance` stays valid: instances never move (D-048).
+                for (std::size_t position = 0; position < accept.requests.size(); ++position) {
+                    CEXCHAIN_TRY(const Id made, request_id(provider, hash_, id, position));
+                    ContractRequest& from = accept.requests[position];
+                    RequestState request;
+                    request.id = made;
+                    request.instance = CompactId(target);
+                    request.call = index;
+                    request.position = static_cast<std::uint32_t>(position);
+                    request.kind = std::move(from.kind);
+                    request.params = std::move(from.params);
+                    request.deadline = from.deadline;
+                    request.reply = std::move(from.reply);
+                    request.asked_at = now;
+                    instance.open_requests.push_back(request.id);
+                    requests_.insert_or_assign(key_of(made), std::move(request));
                 }
                 return {};
             },

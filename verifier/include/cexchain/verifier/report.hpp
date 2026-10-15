@@ -71,8 +71,11 @@ using Json = nlohmann::ordered_json;
 /// final), and every call: who called under whose authority, the arguments,
 /// what the contract made of it, and each consent the call cites, verified
 /// on the consenting party's own ledger, with who gave it (a person present,
-/// a key alone, an AI agent and its model). Parties are named as their own
-/// ledgers declare themselves, where a consent of theirs shows it.
+/// a key alone, an AI agent and its model). Since v0.8 also the requests each
+/// call made, each answer with its request, status, and lateness, and the
+/// instance's requests, with the open ones and those overdue at the
+/// checkpoint's time. Parties are named as their own ledgers declare
+/// themselves, where a consent of theirs shows it.
 [[nodiscard]] Json contract_report_json(const protocol::ContractReport& report,
                                         bool ledger_checked);
 [[nodiscard]] std::string contract_report_text(const protocol::ContractReport& report,

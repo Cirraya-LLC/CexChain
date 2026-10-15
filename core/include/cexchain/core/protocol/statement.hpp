@@ -149,9 +149,22 @@ struct Scope {
     /// Contracts that calls and retires may act on (spec v0.6), strictly
     /// ascending; nullopt means any.
     std::optional<std::vector<Id>> contracts;
+    /// Functions that contract calls may name, creations included (key 8,
+    /// spec v0.8): names of 1 to 64 bytes; nullopt means any. Encoded
+    /// strictly ascending (by UTF-8 bytes), each once.
+    std::optional<std::vector<std::string>> functions;
+    /// Request kinds (key 9, spec v0.8): a contract call under the scope must
+    /// answer a request of one of these kinds; nullopt means any call.
+    /// Encoded strictly ascending, each once.
+    std::optional<std::vector<std::string>> request_kinds;
 
     friend bool operator==(const Scope&, const Scope&) = default;
 };
+
+/// A request's kind (spec v0.8): 1 to 64 bytes of lowercase ASCII letters,
+/// digits, '.', '_', and '-', starting with a letter (`request-kind`).
+inline constexpr std::size_t max_request_kind = 64;
+[[nodiscard]] bool is_request_kind(std::string_view kind) noexcept;
 
 struct DelegationGrantBody {
     Id grantee;
@@ -328,9 +341,30 @@ struct ContractConsentRef {
     friend bool operator==(const ContractConsentRef&, const ContractConsentRef&) = default;
 };
 
+/// What became of a request (spec v0.8), as its answer says.
+enum class AnswerStatus : std::uint8_t {
+    done = 1,
+    failed = 2,
+    /// Valid only once the answer's registration time reaches the deadline.
+    expired = 3,
+};
+
+[[nodiscard]] std::optional<AnswerStatus> answer_status_from(std::uint64_t value) noexcept;
+/// "done", "failed", or "expired".
+[[nodiscard]] std::string_view name(AnswerStatus status) noexcept;
+
+/// A call's answer to one of its instance's open requests (contract-call key
+/// 8, spec v0.8): `[request, status]`.
+struct ContractAnswer {
+    Id request;
+    AnswerStatus status = AnswerStatus::done;
+
+    friend bool operator==(const ContractAnswer&, const ContractAnswer&) = default;
+};
+
 /// Creates an instance (contract set, a creating function, no head, no
 /// consents; the instance's id is this statement's id) or acts on one
-/// (instance and head set).
+/// (instance and head set), possibly answering one of its requests (v0.8).
 struct ContractCallBody {
     std::optional<Id> contract;
     std::optional<Id> instance;
@@ -342,6 +376,9 @@ struct ContractCallBody {
     /// Strictly ascending by ledger.
     std::vector<ContractConsentRef> consents;
     std::optional<std::string> reference;
+    /// An answer (spec v0.8): only with an instance. Its function is then the
+    /// request's reply, and it cites no consents (ledger rules).
+    std::optional<ContractAnswer> answer;
 
     friend bool operator==(const ContractCallBody&, const ContractCallBody&) = default;
 };

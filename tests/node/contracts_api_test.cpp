@@ -100,7 +100,7 @@ cbor::Value outputs(const std::vector<protocol::ContractOutput>& list) {
 
 protocol::ContractAccept accept(std::string status, std::optional<protocol::Parties> parties = {},
                                 bool final = false) {
-    return {cbor::Value::text("state: " + status), status, std::move(parties), {}, final, {}};
+    return {cbor::Value::text("state: " + status), status, std::move(parties), {}, final, {}, {}};
 }
 
 protocol::ContractNeeds needs(std::vector<protocol::Id> ledgers) {

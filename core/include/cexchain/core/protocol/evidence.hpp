@@ -97,6 +97,37 @@ struct ActorSummary {
     bool revoked = false;
 };
 
+/// A request (v0.8) as an instance's evidence shows it, derived by replaying
+/// the calls in the bundle.
+struct RequestReport {
+    Id id;
+    /// The instance it belongs to.
+    Id instance;
+    /// The call that made it (log index), and its index in that call's
+    /// accept key 7.
+    std::uint64_t call = 0;
+    std::uint32_t position = 0;
+    std::string kind;
+    cbor::Value params;
+    Timestamp deadline = 0;
+    std::string reply;
+    /// Its call's registration time.
+    Timestamp asked_at = 0;
+    /// Set if an answer in the bundle closed it: its status, log index, and
+    /// registration time. For a child's ancestors, a later answer may be
+    /// left out of the bundle, so only an instance's own requests are known
+    /// to be open.
+    std::optional<AnswerStatus> status;
+    std::optional<std::uint64_t> answered_by;
+    Timestamp answered_at = 0;
+    /// The answer's registration time minus the deadline, when positive.
+    Timestamp late_by = 0;
+    /// Open, and the checkpoint's time has reached its deadline.
+    bool overdue = false;
+
+    friend bool operator==(const RequestReport&, const RequestReport&) = default;
+};
+
 struct RecordEvent {
     std::uint64_t index = 0;
     Timestamp registered_at = 0;
@@ -121,6 +152,12 @@ struct RecordEvent {
     /// For a contract call that created instances (v0.7): their ids, in the
     /// order of the outcome's children.
     std::vector<Id> children;
+    /// For a contract call that made requests (v0.8): their ids, in the order
+    /// of the outcome's requests.
+    std::vector<Id> requests;
+    /// For an answer (v0.8): the request it answered (closed by it), with
+    /// the answer's status and how late it was.
+    std::optional<RequestReport> answered;
 };
 
 /// An ancestor of a child instance (v0.7), as the child's evidence shows it:
@@ -173,6 +210,15 @@ struct InstanceReport {
     /// The report's `events` are the ancestors' calls, then the instance's
     /// own from this position on (the call that created it, first).
     std::size_t first_own_event = 0;
+    /// Its own requests (v0.8), in the order its calls made them, each open
+    /// or closed as of the checkpoint (the bundle is complete: every answer
+    /// is in it). An ancestor's requests are not the instance's.
+    std::vector<RequestReport> requests;
+
+    /// Its open requests, as positions in `requests`; and those of them that
+    /// are overdue at the checkpoint's time.
+    [[nodiscard]] std::vector<std::size_t> open_requests() const;
+    [[nodiscard]] std::vector<std::size_t> overdue_requests() const;
 };
 
 enum class AttachmentStatus : std::uint8_t {

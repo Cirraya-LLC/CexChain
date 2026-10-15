@@ -25,9 +25,10 @@
 /// their home, that govern instances. A call is registered only if its
 /// contract, run on the call's input, accepts it, so every replay runs it
 /// again and reaches the same instance state. Since v0.7 an accepted call may
-/// also create instances, its children. See `contract-input`,
-/// `contract-output`, `contract-child`, and `contract-consent` in
-/// spec/cexchain.cddl.
+/// also create instances, its children; since v0.8 it may make requests to
+/// executors, which they answer with calls of their own. See
+/// `contract-input`, `contract-output`, `contract-child`, `contract-request`,
+/// and `contract-consent` in spec/cexchain.cddl.
 namespace cexchain::protocol {
 
 /// A party's consent to a call, on its own ledger: "given", which may become
@@ -43,6 +44,16 @@ inline constexpr std::size_t max_contract_children = 16;
 /// most this (v0.7): a call that creates children on an instance of this
 /// depth is refused.
 inline constexpr std::uint32_t max_instance_depth = 8;
+/// An accepted call makes at most this many requests (v0.8).
+inline constexpr std::size_t max_contract_requests = 16;
+/// An instance has at most this many open requests (v0.8): a call whose
+/// accept would leave it more is refused.
+inline constexpr std::size_t max_open_requests = 64;
+/// A request's params, encoded, are at most this many bytes (v0.8).
+inline constexpr std::size_t max_request_params = 4096;
+/// A request's deadline is after its call's registration time and at most
+/// this far after it: 366 days, in milliseconds (v0.8).
+inline constexpr Timestamp max_request_deadline = 31'622'400'000;
 
 struct ContractState {
     CompactId id;
@@ -82,6 +93,38 @@ struct InstanceState {
     std::uint32_t position = 0;
     /// 0 without a parent, else the parent's depth plus 1.
     std::uint32_t depth = 0;
+    /// Its open requests (v0.8), in the order they were made: at most 64.
+    std::vector<CompactId> open_requests;
+};
+
+/// A request a call made (v0.8), open until an answer closes it. Requests
+/// have no state leaf: replaying the instance's calls derives them.
+struct RequestState {
+    CompactId id;
+    /// The instance it belongs to: the one its call acted on, or created.
+    CompactId instance;
+    /// The log index of the call that made it, and its index in that call's
+    /// accept key 7.
+    std::uint64_t call = 0;
+    std::uint32_t position = 0;
+    std::string kind;
+    cbor::Value params;
+    Timestamp deadline = 0;
+    std::string reply;
+    /// Its call's registration time.
+    Timestamp asked_at = 0;
+    /// Set once answered (closed): the answer's status, log index, and
+    /// registration time.
+    std::optional<AnswerStatus> status;
+    std::optional<std::uint64_t> answered_by;
+    Timestamp answered_at = 0;
+
+    [[nodiscard]] bool open() const noexcept { return !status.has_value(); }
+    /// How late its answer was: the answer's registration time minus the
+    /// deadline, when positive; 0 for an answer on time or an open request.
+    [[nodiscard]] Timestamp late_by() const noexcept {
+        return status && answered_at > deadline ? answered_at - deadline : 0;
+    }
 };
 
 struct ContractEvent {
@@ -102,6 +145,21 @@ struct ContractChild {
     friend bool operator==(const ContractChild&, const ContractChild&) = default;
 };
 
+/// A request to an executor that an accepted call makes (`contract-request`,
+/// v0.8): what to do, with what, by when, and the function its answer calls.
+struct ContractRequest {
+    /// 1 to 64 bytes: see `is_request_kind`.
+    std::string kind;
+    /// At most 4,096 bytes encoded.
+    cbor::Value params;
+    Timestamp deadline = 0;
+    /// The reply: a function of kind 2 in the contract's interface (a ledger
+    /// rule), 1 to 64 bytes.
+    std::string reply;
+
+    friend bool operator==(const ContractRequest&, const ContractRequest&) = default;
+};
+
 /// An accepted call's effect on its instance.
 struct ContractAccept {
     cbor::Value state;
@@ -113,6 +171,9 @@ struct ContractAccept {
     /// New instances of the contract, created after the instance changed
     /// (v0.7): at most 16.
     std::vector<ContractChild> children;
+    /// Requests to executors (v0.8), opened after the children are created:
+    /// at most 16. They belong to the instance the call acts on or creates.
+    std::vector<ContractRequest> requests;
 
     friend bool operator==(const ContractAccept&, const ContractAccept&) = default;
 };
@@ -141,6 +202,27 @@ using ContractOutput = std::variant<ContractAccept, ContractNeeds>;
 [[nodiscard]] Result<Id> child_instance_id(const crypto::Provider& provider, crypto::HashAlg hash,
                                            const Id& call, std::uint64_t position);
 
+/// The id of the request at `position` (from 0) among those the call `call`
+/// made: HASH(deterministic-CBOR(["request", call, position])) under the
+/// home's hash (`request-id-input`, v0.8). Its leading text keeps it apart
+/// from child ids, and statement ids hash a COSE Sig_structure. It is the
+/// request's idempotency key.
+[[nodiscard]] Result<Id> request_id(const crypto::Provider& provider, crypto::HashAlg hash,
+                                    const Id& call, std::uint64_t position);
+
+/// The request an answer answers, as the input shows it (`request-view`,
+/// input key 9, v0.8).
+struct ContractRequestView {
+    Id id;
+    std::string kind;
+    cbor::Value params;
+    Timestamp deadline = 0;
+    /// Its call's registration time.
+    Timestamp asked_at = 0;
+    /// The answer's status.
+    AnswerStatus status = AnswerStatus::done;
+};
+
 /// An instance as the input shows it to its contract.
 struct ContractInstanceView {
     Id id;
@@ -167,6 +249,8 @@ struct ContractInput {
     Timestamp time = 0;
     /// Each cited consent's ledger and signer, in the call's order.
     std::vector<std::pair<Id, ContractSigner>> consents;
+    /// For an answer only (v0.8): the request it answers, key 9.
+    std::optional<ContractRequestView> request;
 };
 
 [[nodiscard]] Result<Bytes> encode_contract_input(const ContractInput& input);

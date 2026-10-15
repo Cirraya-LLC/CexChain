@@ -151,6 +151,8 @@ public:
     [[nodiscard]] const AssetState* asset(const Id& id) const;
     [[nodiscard]] const ContractState* contract(const Id& id) const;
     [[nodiscard]] const InstanceState* instance(const Id& id) const;
+    /// A request any call made (v0.8), open or answered.
+    [[nodiscard]] const RequestState* request(const Id& id) const;
 
     /// Runs a contract call's contract as the home would register the call at
     /// `now`: the input built from this state, the outcome, and the output.
@@ -167,6 +169,16 @@ public:
     /// here, so that its answer is the ledger's.
     [[nodiscard]] Status check_children(const ContractCallBody& call,
                                         const ContractAccept& accept) const;
+
+    /// The rules for the requests an accepted run makes at `now` (v0.8):
+    /// each deadline after `now` and at most 366 days after it, each reply a
+    /// function of kind 2 in the contract's interface, at most 64 open
+    /// requests after the call (an answer closes its request first), and
+    /// none on an instance that was final before the call. Like
+    /// `check_children`, `validate` applies them after the run, and a dry run
+    /// checks them here.
+    [[nodiscard]] Status check_requests(const ContractCallBody& call, const ContractAccept& accept,
+                                        Timestamp now) const;
 
     /// How a statement's registered signer appears to contracts.
     [[nodiscard]] Result<ContractSigner> contract_signer(const Statement& statement) const;
@@ -186,6 +198,8 @@ public:
     [[nodiscard]] const IdMap<AssetState>& assets() const noexcept { return assets_; }
     [[nodiscard]] const IdMap<ContractState>& contracts() const noexcept { return contracts_; }
     [[nodiscard]] const IdMap<InstanceState>& instances() const noexcept { return instances_; }
+    /// Every request, in the order the log made them (v0.8).
+    [[nodiscard]] const IdMap<RequestState>& requests() const noexcept { return requests_; }
 
     /// The objects created or changed since the last call (possibly
     /// repeated), in order: what an incremental state tree must update.
@@ -197,7 +211,7 @@ private:
     [[nodiscard]] Status check_authority(const Statement& statement, const ActorState& signer,
                                          Timestamp now) const;
     [[nodiscard]] Status check_rules(const crypto::Provider& provider, const Statement& statement,
-                                     const ActorState& signer) const;
+                                     const ActorState& signer, Timestamp now) const;
     [[nodiscard]] Status check_new_key(const crypto::Provider& provider,
                                        const crypto::PublicKey& key) const;
     [[nodiscard]] bool is_log_key(const crypto::PublicKey& key) const;
@@ -206,8 +220,8 @@ private:
     /// The contract that a call or retire acts on, if any.
     [[nodiscard]] std::optional<Id> contract_of(const Statement& statement) const;
     /// Runs a call's contract and requires it to accept, and any children it
-    /// creates to be allowed (v0.7: the contract not retired, the instance
-    /// below the depth limit).
+    /// creates (v0.7: the contract not retired, the instance below the depth
+    /// limit) and requests it makes (v0.8) to be allowed.
     [[nodiscard]] Result<ContractRun> accepted_run(const crypto::Provider& provider,
                                                    const SignedStatement& signed_call,
                                                    Timestamp now) const;
@@ -227,6 +241,7 @@ private:
     IdMap<AssetState> assets_;
     IdMap<ContractState> contracts_;
     IdMap<InstanceState> instances_;
+    IdMap<RequestState> requests_;
     IdMap<std::uint64_t> statements_;
     /// (signer, nonce) of every statement: a payload is never accepted twice,
     /// even re-signed with a rotated key.

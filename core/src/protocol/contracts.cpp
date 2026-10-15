@@ -123,6 +123,39 @@ Result<ContractChild> decode_child(const cbor::Value& value) {
                          std::move(fields.parties).value_or(Parties{})};
 }
 
+/// A request is `{1: kind, 2: params, 3: deadline, 4: reply}` and nothing
+/// else (v0.8). Its deadline's window and its reply's kind are ledger rules.
+Result<ContractRequest> decode_request(const cbor::Value& value) {
+    auto reader = MapReader::open(value);
+    if (!reader) {
+        return fail(Errc::malformed, "a request is a map");
+    }
+    const cbor::Value* kind = reader->get(1);
+    const cbor::Value* params = reader->get(2);
+    const cbor::Value* deadline = reader->get(3);
+    const cbor::Value* reply = reader->get(4);
+    if (kind == nullptr || params == nullptr || deadline == nullptr || reply == nullptr ||
+        !reader->finish()) {
+        return fail(Errc::malformed, "a request holds exactly its kind, params, deadline, and "
+                                     "reply");
+    }
+    if (kind->as_text() == nullptr || !is_request_kind(*kind->as_text())) {
+        return fail(Errc::malformed, "a request's kind is 1 to 64 bytes of a-z, 0-9, '.', '_', "
+                                     "and '-', starting with a letter");
+    }
+    CEXCHAIN_TRY(Bytes encoded_params, cbor::encode(*params));
+    if (encoded_params.size() > max_request_params) {
+        return fail(Errc::malformed, "a request's params are at most 4,096 bytes");
+    }
+    if (!deadline->as_uint64()) {
+        return fail(Errc::malformed, "a request's deadline is a time in milliseconds");
+    }
+    if (!text_within(reply->as_text(), max_function_name)) {
+        return fail(Errc::malformed, "a request's reply is a function name of 1 to 64 bytes");
+    }
+    return ContractRequest{*kind->as_text(), *params, *deadline->as_uint64(), *reply->as_text()};
+}
+
 Result<ContractAccept> decode_accept(const cbor::Value& value) {
     CEXCHAIN_TRY(MapReader reader, MapReader::open(value));
     ContractAccept accept;
@@ -158,6 +191,16 @@ Result<ContractAccept> decode_accept(const cbor::Value& value) {
         for (const cbor::Value& item : *items) {
             CEXCHAIN_TRY(ContractChild child, decode_child(item));
             accept.children.push_back(std::move(child));
+        }
+    }
+    if (const cbor::Value* requests = reader.get(7)) {
+        const cbor::Array* items = requests->as_array();
+        if (items == nullptr || items->empty() || items->size() > max_contract_requests) {
+            return fail(Errc::malformed, "a call makes 1 to 16 requests");
+        }
+        for (const cbor::Value& item : *items) {
+            CEXCHAIN_TRY(ContractRequest request, decode_request(item));
+            accept.requests.push_back(std::move(request));
         }
     }
     CEXCHAIN_CHECK(reader.finish());
@@ -235,6 +278,16 @@ Result<Bytes> encode_contract_output(const ContractOutput& output) {
         }
         map.push_back(entry(6, cbor::Value::array(std::move(children))));
     }
+    if (!accept.requests.empty()) {
+        cbor::Array requests;
+        for (const ContractRequest& r : accept.requests) {
+            requests.push_back(
+                cbor::Value::map({entry(1, cbor::Value::text(r.kind)), entry(2, r.params),
+                                  entry(3, cbor::Value::unsigned_integer(r.deadline)),
+                                  entry(4, cbor::Value::text(r.reply))}));
+        }
+        map.push_back(entry(7, cbor::Value::array(std::move(requests))));
+    }
     return cbor::encode(cbor::Value::array(
         {cbor::Value::unsigned_integer(output_accept), cbor::Value::map(std::move(map))}));
 }
@@ -244,6 +297,14 @@ Result<Id> child_instance_id(const crypto::Provider& provider, crypto::HashAlg h
     CEXCHAIN_TRY(Bytes encoded,
                  cbor::encode(cbor::Value::array(
                      {cbor::Value::bytes(call.bytes()), cbor::Value::unsigned_integer(position)})));
+    return provider.digest(hash, encoded);
+}
+
+Result<Id> request_id(const crypto::Provider& provider, crypto::HashAlg hash, const Id& call,
+                      std::uint64_t position) {
+    CEXCHAIN_TRY(Bytes encoded, cbor::encode(cbor::Value::array(
+                                    {cbor::Value::text("request"), cbor::Value::bytes(call.bytes()),
+                                     cbor::Value::unsigned_integer(position)})));
     return provider.digest(hash, encoded);
 }
 
@@ -280,6 +341,18 @@ Result<Bytes> encode_contract_input(const ContractInput& input) {
                 {cbor::Value::bytes(ledger.bytes()), encode_contract_signer(signer)}));
         }
         map.push_back(entry(8, cbor::Value::array(std::move(consents))));
+    }
+    if (input.request) {
+        const ContractRequestView& r = *input.request;
+        map.push_back(entry(
+            9, cbor::Value::map({
+                   entry(1, cbor::Value::bytes(r.id.bytes())),
+                   entry(2, cbor::Value::text(r.kind)),
+                   entry(3, r.params),
+                   entry(4, cbor::Value::unsigned_integer(r.deadline)),
+                   entry(5, cbor::Value::unsigned_integer(r.asked_at)),
+                   entry(6, cbor::Value::unsigned_integer(static_cast<std::uint64_t>(r.status))),
+               })));
     }
     return cbor::encode(cbor::Value::map(std::move(map)));
 }

@@ -22,6 +22,7 @@ add_executable(cexchain_tests
     ledger/contracts_test.cpp
     ledger/backup_test.cpp
     ledger/children_test.cpp
+    ledger/requests_test.cpp
     ledger/concurrency_test.cpp
     ledger/evidence_test.cpp
     ledger/ledger_test.cpp
@@ -42,6 +43,7 @@ target_link_libraries(cexchain_tests PRIVATE
     cexchain::crypto_openssl
     cexchain::ledger
     cexchain::node
+    cexchain::verifier
     Catch2::Catch2WithMain
     nlohmann_json::nlohmann_json
     OpenSSL::Crypto)

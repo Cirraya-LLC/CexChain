@@ -113,6 +113,28 @@ Status check_scope(const Scope& scope) {
             }
         }
     }
+    // Keys 8 and 9 (v0.8): functions, and request kinds.
+    if (scope.functions) {
+        if (scope.functions->empty()) {
+            return fail(Errc::malformed, "function list must not be empty when present");
+        }
+        for (const std::string& function : *scope.functions) {
+            CEXCHAIN_CHECK(check_length(function, 1, max_function_name,
+                                        "a scope's function names are 1 to 64 bytes"));
+        }
+    }
+    if (scope.request_kinds) {
+        if (scope.request_kinds->empty()) {
+            return fail(Errc::malformed, "request kind list must not be empty when present");
+        }
+        for (const std::string& kind : *scope.request_kinds) {
+            if (!is_request_kind(kind)) {
+                return fail(Errc::malformed,
+                            "a request kind is 1 to 64 bytes of a-z, 0-9, '.', '_', and '-', "
+                            "starting with a letter");
+            }
+        }
+    }
     return {};
 }
 
@@ -325,6 +347,17 @@ Status check_body(const Body& body) {
                     (b.instance && b.instance->size() != id_size)) {
                     return fail(Errc::malformed, "contracts and instances are 32-byte ids");
                 }
+                // An answer (v0.8) acts on the instance whose request it
+                // answers: a creation never answers.
+                if (b.answer && !b.instance) {
+                    return fail(Errc::malformed, "an answer names an instance");
+                }
+                if (b.answer &&
+                    (b.answer->request.size() != id_size ||
+                     !answer_status_from(static_cast<std::uint64_t>(b.answer->status)))) {
+                    return fail(Errc::malformed,
+                                "an answer is a 32-byte request id and a status of 1 to 3");
+                }
                 CEXCHAIN_CHECK(check_length(b.function, 1, max_function_name,
                                             "a function name is 1 to 64 bytes"));
                 CEXCHAIN_TRY(Bytes arguments, cbor::encode(b.arguments));
@@ -427,6 +460,27 @@ Result<cbor::Value> encode_scope(const Scope& scope) {
             values.push_back(id_value(contract));
         }
         map.push_back(entry(7, cbor::Value::array(std::move(values))));
+    }
+    // Keys 8 and 9 (v0.8), sorted like record types: by UTF-8 bytes.
+    const auto text_list = [&](std::int64_t key, const std::vector<std::string>& list,
+                               std::string_view twice) -> Status {
+        std::vector<std::string> sorted = list;
+        std::ranges::sort(sorted);
+        if (std::ranges::adjacent_find(sorted) != sorted.end()) {
+            return fail(Errc::invalid_argument, twice);
+        }
+        cbor::Array values;
+        for (const std::string& text : sorted) {
+            values.push_back(text_value(text));
+        }
+        map.push_back(entry(key, cbor::Value::array(std::move(values))));
+        return {};
+    };
+    if (scope.functions) {
+        CEXCHAIN_CHECK(text_list(8, *scope.functions, "scope lists a function twice"));
+    }
+    if (scope.request_kinds) {
+        CEXCHAIN_CHECK(text_list(9, *scope.request_kinds, "scope lists a request kind twice"));
     }
     return cbor::Value::map(std::move(map));
 }
@@ -643,6 +697,12 @@ Result<cbor::Value> encode_body(const Body& body) {
                 if (b.reference) {
                     map.push_back(entry(7, text_value(*b.reference)));
                 }
+                if (b.answer) {
+                    map.push_back(
+                        entry(8, cbor::Value::array(
+                                     {id_value(b.answer->request),
+                                      uint_value(static_cast<std::uint64_t>(b.answer->status))})));
+                }
                 return cbor::Value::map(std::move(map));
             },
             [](const ContractRetireBody& b) -> Result<cbor::Value> {
@@ -742,6 +802,21 @@ Result<Scope> decode_scope(const cbor::Value& value) {
             list.push_back(std::move(id));
         }
         scope.contracts = std::move(list);
+    }
+    // Keys 8 and 9 (v0.8): text, strictly ascending; check_scope checks the
+    // entries.
+    for (const std::int64_t key : {8, 9}) {
+        const cbor::Value* names = reader.get(key);
+        if (names == nullptr) {
+            continue;
+        }
+        CEXCHAIN_TRY(std::vector<std::string> list, decode_text_list(*names));
+        if (std::ranges::adjacent_find(list, std::ranges::greater_equal{}) != list.end()) {
+            return fail(Errc::non_canonical,
+                        key == 8 ? "scope functions must be strictly ascending"
+                                 : "scope request kinds must be strictly ascending");
+        }
+        (key == 8 ? scope.functions : scope.request_kinds) = std::move(list);
     }
     CEXCHAIN_CHECK(reader.finish());
     return scope;
@@ -1016,6 +1091,22 @@ Result<Body> decode_body(StatementType type, const cbor::Value& value) {
             }
         }
         CEXCHAIN_TRY(b.reference, reader.opt_text(7));
+        if (const cbor::Value* answer = reader.get(8)) {
+            // [request, status] (v0.8); check_body requires an instance.
+            const cbor::Array* parts = answer->as_array();
+            if (parts == nullptr || parts->size() != 2) {
+                return fail(Errc::malformed, "an answer is [request, status]");
+            }
+            CEXCHAIN_TRY(Bytes request, detail::as_bytes_value((*parts)[0]));
+            CEXCHAIN_TRY(Id request_id, to_id(request));
+            CEXCHAIN_TRY(std::uint64_t status, detail::as_uint((*parts)[1]));
+            const auto known = answer_status_from(status);
+            if (!known) {
+                return fail(Errc::malformed, "an answer's status is 1 (done), 2 (failed), or 3 "
+                                             "(expired)");
+            }
+            b.answer = ContractAnswer{std::move(request_id), *known};
+        }
         body = std::move(b);
         break;
     }
@@ -1181,6 +1272,36 @@ StatementType type_of(const Body& body) noexcept {
             [](const ContractRetireBody&) { return StatementType::contract_retire; },
         },
         body);
+}
+
+std::optional<AnswerStatus> answer_status_from(std::uint64_t value) noexcept {
+    if (value >= 1 && value <= 3) {
+        return static_cast<AnswerStatus>(value);
+    }
+    return std::nullopt;
+}
+
+std::string_view name(AnswerStatus status) noexcept {
+    switch (status) {
+    case AnswerStatus::done:
+        return "done";
+    case AnswerStatus::failed:
+        return "failed";
+    case AnswerStatus::expired:
+        return "expired";
+    }
+    return "unknown";
+}
+
+bool is_request_kind(std::string_view kind) noexcept {
+    // [a-z][a-z0-9._-]{0,63}, written out: core takes no regex library.
+    if (kind.empty() || kind.size() > max_request_kind || kind.front() < 'a' ||
+        kind.front() > 'z') {
+        return false;
+    }
+    return std::ranges::all_of(kind, [](char c) {
+        return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-';
+    });
 }
 
 namespace {

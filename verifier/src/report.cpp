@@ -697,10 +697,53 @@ std::string signer_text(const protocol::RecordEvent& e) {
     return out;
 }
 
+/// A duration for people: "1 d 0 h 3 min", "2 h 5 min", "4 min 10 s", "350 ms".
+std::string duration_text(protocol::Timestamp ms) {
+    const protocol::Timestamp s = ms / 1000;
+    const protocol::Timestamp m = s / 60;
+    const protocol::Timestamp h = m / 60;
+    const protocol::Timestamp d = h / 24;
+    if (d > 0) {
+        return std::format("{} d {} h {} min", d, h % 24, m % 60);
+    }
+    if (h > 0) {
+        return std::format("{} h {} min", h, m % 60);
+    }
+    if (m > 0) {
+        return std::format("{} min {} s", m, s % 60);
+    }
+    return s > 0 ? std::format("{} s", s) : std::format("{} ms", ms);
+}
+
+/// A request's status (v0.8): "open", or its answer's.
+std::string request_status(const protocol::RequestReport& r) {
+    return r.status ? std::string(protocol::name(*r.status)) : std::string("open");
+}
+
+/// A request (v0.8), as the call that made it, or the instance, shows it.
+Json request_json(const protocol::RequestReport& r) {
+    return {{"id", hex_id(r.id)},
+            {"call", r.call},
+            {"position", r.position},
+            {"kind", r.kind},
+            {"params", cbor::diagnostic(r.params)},
+            {"params_cbor", encoded_hex(r.params)},
+            {"deadline", iso_time(r.deadline)},
+            {"reply", r.reply},
+            {"asked_at", iso_time(r.asked_at)},
+            {"status", request_status(r)},
+            {"answered_by", r.answered_by ? Json(*r.answered_by) : Json(nullptr)},
+            {"answered_at", r.answered_by ? Json(iso_time(r.answered_at)) : Json(nullptr)},
+            {"late_by_ms", r.late_by},
+            {"overdue", r.overdue}};
+}
+
 /// What a call made of its instance; `children`, the ids of the instances
-/// it created (v0.7), in order.
+/// it created (v0.7), in order; `request_ids`, those of the requests it made
+/// (v0.8).
 Json outcome_json(const PartyNames& names, const protocol::ContractAccept& a,
-                  std::span<const protocol::Id> children_ids) {
+                  std::span<const protocol::Id> children_ids,
+                  std::span<const protocol::Id> request_ids) {
     Json events = Json::array();
     for (const protocol::ContractEvent& e : a.events) {
         events.push_back({{"name", e.name}, {"data", cbor::diagnostic(e.data)}});
@@ -723,6 +766,40 @@ Json outcome_json(const PartyNames& names, const protocol::ContractAccept& a,
                  {"state", cbor::diagnostic(c.state)}});
         }
         out["children"] = std::move(children);
+    }
+    // Requests (v0.8), only where a call made some.
+    if (!a.requests.empty()) {
+        Json requests = Json::array();
+        for (std::size_t n = 0; n < a.requests.size(); ++n) {
+            const protocol::ContractRequest& r = a.requests[n];
+            requests.push_back(
+                {{"position", n},
+                 {"id", n < request_ids.size() ? Json(hex_id(request_ids[n])) : Json(nullptr)},
+                 {"kind", r.kind},
+                 {"params", cbor::diagnostic(r.params)},
+                 {"params_cbor", encoded_hex(r.params)},
+                 {"deadline", iso_time(r.deadline)},
+                 {"reply", r.reply}});
+        }
+        out["requests"] = std::move(requests);
+    }
+    return out;
+}
+
+/// The answer a call gives (v0.8), and the request it answers.
+Json answer_json(const protocol::RecordEvent& event) {
+    if (!event.contract_call || !event.contract_call->answer) {
+        return nullptr;
+    }
+    const protocol::ContractAnswer& a = *event.contract_call->answer;
+    Json out{{"request", hex_id(a.request)}, {"status", std::string(protocol::name(a.status))}};
+    if (event.answered) {
+        const protocol::RequestReport& r = *event.answered;
+        out["kind"] = r.kind;
+        out["asked_by"] = r.call;
+        out["deadline"] = iso_time(r.deadline);
+        out["late"] = r.late_by > 0;
+        out["late_by_ms"] = r.late_by;
     }
     return out;
 }
@@ -808,9 +885,25 @@ Json contract_report_json(const protocol::ContractReport& r, bool ledger_checked
              {"authority", std::move(authority)},
              {"presence", event.presence ? Json(presence_text(event)) : Json(nullptr)},
              {"provenance", event.provenance ? provenance_json(*event.provenance) : Json(nullptr)},
-             {"outcome",
-              event.outcome ? outcome_json(names, *event.outcome, event.children) : Json(nullptr)},
+             {"outcome", event.outcome
+                             ? outcome_json(names, *event.outcome, event.children, event.requests)
+                             : Json(nullptr)},
+             {"answer", answer_json(event)},
              {"consents", std::move(consents)}});
+    }
+    // Requests (v0.8): the instance's own, as of the checkpoint, and which are
+    // open, and overdue at the checkpoint's time.
+    Json requests = Json::array();
+    Json open = Json::array();
+    Json overdue = Json::array();
+    for (const protocol::RequestReport& request : i.requests) {
+        requests.push_back(request_json(request));
+        if (!request.status) {
+            open.push_back(hex_id(request.id));
+        }
+        if (request.overdue) {
+            overdue.push_back(hex_id(request.id));
+        }
     }
     Json out{{"verified", true},
              {"instance",
@@ -826,7 +919,10 @@ Json contract_report_json(const protocol::ContractReport& r, bool ledger_checked
                  {"name", optional_text(i.contract_name)},
                  {"language", i.language},
                  {"compiler", i.compiler},
-                 {"retired", i.contract_retired}}}}},
+                 {"retired", i.contract_retired}}},
+               {"requests", std::move(requests)},
+               {"open_requests", std::move(open)},
+               {"overdue_requests", std::move(overdue)}}},
              {"home",
               {{"id", hex_id(e.ledger_id)},
                {"organization", e.organization},
@@ -889,8 +985,12 @@ std::string contract_report_text(const protocol::ContractReport& r, bool ledger_
     if (!ledger_checked) {
         line("               ! not compared with an expected ledger id");
     }
+    // A final instance still takes answers to its open requests (v0.8).
     line(std::format("  Status       {}{}", i.status.value_or("(none)"),
-                     i.final ? " - FINAL: it takes no more calls" : ""));
+                     !i.final                    ? ""
+                     : i.open_requests().empty() ? " - FINAL: it takes no more calls"
+                                                 : " - FINAL: it takes only answers to its open "
+                                                   "requests"));
     if (i.parties.empty()) {
         line("  Parties      none");
     }
@@ -926,6 +1026,29 @@ std::string contract_report_text(const protocol::ContractReport& r, bool ledger_
         }
         if (event.outcome) {
             line("           outcome    " + outcome_text(names, *event.outcome, event.children));
+            // Requests it made (v0.8), each with its id.
+            for (std::size_t n = 0; n < event.outcome->requests.size(); ++n) {
+                const protocol::ContractRequest& made = event.outcome->requests[n];
+                line(std::format("           {} {} {}: {}, due {}, reply {}; params {}",
+                                 n == 0 ? "requests  " : "          ", n,
+                                 n < event.requests.size() ? short_id(event.requests[n]) : "?",
+                                 made.kind, format_time(made.deadline), made.reply,
+                                 shortened(cbor::diagnostic(made.params))));
+            }
+        }
+        // The answer it gives (v0.8): who gave it is the call's signer, above.
+        if (call.answer) {
+            std::string what = std::format("{}: {}", short_id(call.answer->request),
+                                           protocol::name(call.answer->status));
+            if (event.answered) {
+                const protocol::RequestReport& answered = *event.answered;
+                what =
+                    std::format("{} ({}, asked by #{}): {}", short_id(answered.id), answered.kind,
+                                answered.call, protocol::name(call.answer->status));
+                what += answered.late_by > 0 ? ", LATE by " + duration_text(answered.late_by)
+                                             : std::string(", on time");
+            }
+            line("           answers    " + what);
         }
         for (const protocol::ContractConsentCheck& c : step.consents) {
             const protocol::RecordEvent* given =
@@ -974,10 +1097,41 @@ std::string contract_report_text(const protocol::ContractReport& r, bool ledger_
             line("    none yet");
         }
     }
+    // Requests (v0.8): the instance's own, open ones listed with whether the
+    // checkpoint's time has reached their deadlines.
+    if (!i.requests.empty()) {
+        const auto open = i.open_requests();
+        const auto overdue = i.overdue_requests();
+        line(std::format("\n  Requests     {} made by its calls, {} answered, {} open{}",
+                         i.requests.size(), i.requests.size() - open.size(), open.size(),
+                         overdue.empty()
+                             ? std::string()
+                             : std::format(", {} OVERDUE at the checkpoint", overdue.size())));
+        for (const std::size_t n : open) {
+            const protocol::RequestReport& request = i.requests[n];
+            line(std::format("    {} {}, asked by #{}, due {}{}", short_id(request.id),
+                             request.kind, request.call, format_time(request.deadline),
+                             request.overdue ? " - OVERDUE" : ""));
+        }
+    }
+    if (i.parent) {
+        bool asked = false;
+        for (const protocol::RecordEvent& event : e.events) {
+            asked = asked || (!event.requests.empty() && event.index <= i.created_by);
+        }
+        if (asked) {
+            line(
+                "  Its ancestors' requests are shown with their calls: whether they were answered");
+            line("  later is not in this evidence.");
+        }
+    }
     line("\n  Verified: the instance's complete history is proven against its home's state");
     line("  commitment, and its contract was run again on every call, reaching the state");
     line("  above; each consent is verified on the consenting party's own ledger. Party names");
     line("  are as their own ledgers declare them; ledger ids are what bind them.");
+    if (!i.requests.empty()) {
+        line("  Its requests and answers are derived from those calls, so none is left out.");
+    }
     if (i.parent) {
         line("  Its ancestors' calls up to each one that created the next generation were run");
         line("  again too, consents and all: the instance is the part those calls created.");

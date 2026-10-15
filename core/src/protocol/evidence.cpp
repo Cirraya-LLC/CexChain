@@ -84,7 +84,48 @@ std::string event_detail(const Statement& statement) {
     return {};
 }
 
+/// A request (v0.8) as the replayed state has it, as of a checkpoint signed
+/// at `checkpoint_time`.
+RequestReport request_report(const RequestState& r, Timestamp checkpoint_time) {
+    return RequestReport{
+        .id = r.id,
+        .instance = r.instance,
+        .call = r.call,
+        .position = r.position,
+        .kind = r.kind,
+        .params = r.params,
+        .deadline = r.deadline,
+        .reply = r.reply,
+        .asked_at = r.asked_at,
+        .status = r.status,
+        .answered_by = r.answered_by,
+        .answered_at = r.answered_at,
+        .late_by = r.late_by(),
+        .overdue = r.open() && checkpoint_time >= r.deadline,
+    };
+}
+
 } // namespace
+
+std::vector<std::size_t> InstanceReport::open_requests() const {
+    std::vector<std::size_t> out;
+    for (std::size_t i = 0; i < requests.size(); ++i) {
+        if (!requests[i].status) {
+            out.push_back(i);
+        }
+    }
+    return out;
+}
+
+std::vector<std::size_t> InstanceReport::overdue_requests() const {
+    std::vector<std::size_t> out;
+    for (std::size_t i = 0; i < requests.size(); ++i) {
+        if (requests[i].overdue) {
+            out.push_back(i);
+        }
+    }
+    return out;
+}
 
 std::vector<Id> involved_objects(const LedgerState& state, const Id& record,
                                  std::span<const Statement> events) {
@@ -557,7 +598,16 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
             .ancestors = {},
             .first_own_event = static_cast<std::size_t>(
                 std::ranges::lower_bound(history, instance->created_by) - history.begin()),
+            .requests = {},
         };
+        // Its own requests (v0.8), derived by the replay: the bundle holds
+        // every call on the instance, so every request and every answer.
+        for (const auto& [key, request] : state->requests()) {
+            if (request.instance == instance->id) {
+                report.instance->requests.push_back(
+                    request_report(request, checkpoint.checkpoint.timestamp));
+            }
+        }
         for (const InstanceAncestor& a : instance_ancestors(*state, *instance)) {
             AncestorReport ancestor{
                 .id = a.instance->id,
@@ -595,8 +645,10 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
             registration = body;
             report.metadata = body->metadata;
         }
-        // The instances a call created (v0.7), by the ids derived from it.
+        // The instances a call created (v0.7), and the requests it made
+        // (v0.8), by the ids derived from it.
         std::vector<Id> children;
+        std::vector<Id> requests;
         if (const auto outcome = outcomes.find(index); outcome != outcomes.end()) {
             for (std::size_t n = 0; n < outcome->second.children.size(); ++n) {
                 auto child = child_instance_id(provider, state->hash(), it->statement.id, n);
@@ -604,6 +656,21 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
                     return std::unexpected(child.error());
                 }
                 children.push_back(*child);
+            }
+            for (std::size_t n = 0; n < outcome->second.requests.size(); ++n) {
+                auto request = request_id(provider, state->hash(), it->statement.id, n);
+                if (!request) {
+                    return std::unexpected(request.error());
+                }
+                requests.push_back(*request);
+            }
+        }
+        // An answer (v0.8): the request it closed, which the replay made.
+        std::optional<RequestReport> answered;
+        if (const auto* call = std::get_if<ContractCallBody>(&statement.body);
+            call && call->answer) {
+            if (const RequestState* request = state->request(call->answer->request)) {
+                answered = request_report(*request, checkpoint.checkpoint.timestamp);
             }
         }
         report.events.push_back(RecordEvent{
@@ -624,6 +691,8 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
                                  : std::nullopt,
             .outcome = outcomes.contains(index) ? std::optional(outcomes.at(index)) : std::nullopt,
             .children = std::move(children),
+            .requests = std::move(requests),
+            .answered = std::move(answered),
         });
     }
 
