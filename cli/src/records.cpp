@@ -332,4 +332,20 @@ protocol::Id issue_record(Session& session, const crypto::Signer& signer,
                           });
 }
 
+std::string_view record_type_purpose(std::string_view type) {
+    if (type == "cexchain.access-request/1") {
+        return "asking another ledger for a record (access request)";
+    }
+    if (type == "cexchain.access-grant/1") {
+        return "granting such a request (access grant)";
+    }
+    if (type == "cexchain.access-receipt/1") {
+        return "acknowledging what was delivered (access accept)";
+    }
+    if (type == "cexchain.contract-consent/1") {
+        return "consenting to a call on a contract instance elsewhere (contract consent)";
+    }
+    return {};
+}
+
 } // namespace cexchain::cli

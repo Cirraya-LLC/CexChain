@@ -481,10 +481,12 @@ private:
             });
 
         add("cexchain_record_types",
-            "The protocol's own record types (access and consents) with their initial state, "
-            "allowed transitions, and endorsement roles. Any other type is the registrant's "
-            "own, with the generic lifecycle (registered, no transitions, any role); other "
-            "names beginning with \"cexchain.\" are reserved.",
+            "Record types. A record is a document of any kind, and its type is a name the "
+            "registrant chooses (e.g. example.org.photo/1), with the generic lifecycle "
+            "(registered, no transitions, endorsed in any role, revocable). Lists the "
+            "protocol's own types (access requests, grants, and receipts; contract consents) "
+            "with what each is for, its initial state, transitions, and endorsement roles; "
+            "other names beginning with \"cexchain.\" are reserved.",
             json::object(), json::array(), read_only, [](const Tool&, const json&) {
                 json types = json::array();
                 for (const protocol::RecordType& t : protocol::builtin_record_types()) {
@@ -497,6 +499,7 @@ private:
                         roles.push_back(role);
                     }
                     types.push_back({{"type", t.name},
+                                     {"purpose", record_type_purpose(t.name)},
                                      {"initial_state", t.initial_state},
                                      {"transitions", transitions},
                                      {"roles", roles}});
@@ -535,10 +538,14 @@ private:
             });
 
         add("cexchain_issue_record",
-            "Issue a record (e.g. a quality certificate). Field values stay private until "
-            "disclosed; only commitments are recorded.",
+            "Issue a record: a document of any kind, of a type your organization names (a "
+            "report, a photo, a statement). Field values stay private until disclosed; only "
+            "commitments are recorded.",
             {{"record_type",
-              {{"type", "string"}, {"description", "e.g. example.org.inspection/1"}}},
+              {{"type", "string"},
+               {"description",
+                "A type name of your own, e.g. example.org.photo/1 (names beginning with "
+                "\"cexchain.\" are the protocol's)."}}},
              {"fields",
               {{"type", "object"},
                {"additionalProperties", {{"type", "string"}}},
@@ -571,7 +578,8 @@ private:
                             {"state", session.state().record(id)->state}};
             });
 
-        add("cexchain_endorse_record", "Endorse a record in a role (e.g. inspector, receiver).",
+        add("cexchain_endorse_record",
+            "Endorse a record in a role (any role name, e.g. author, reviewer, approver).",
             {{"record", {{"type", "string"}}},
              {"role", {{"type", "string"}}},
              {"inputs", inputs_property}},
@@ -615,10 +623,11 @@ private:
             });
 
         add("cexchain_get_instance",
-            "A contract instance (an agreement, an order): its status, parties, state, head "
-            "(which calls and consents must name), whether final, and every call with its "
-            "arguments and consents. A call may create parts of an instance (such as a "
-            "receivable split among suppliers): a part shows its parent, depth, position, and "
+            "A contract instance (one thing the contract's rules govern): its status, parties, "
+            "state, head (which calls and consents must name), whether final, and every call "
+            "with its arguments and consents. A call may create parts of an instance (such as "
+            "one thing divided among several holders): a part shows its parent, depth, "
+            "position, and "
             "ancestors, and an instance lists the parts its calls created (children). A part is "
             "called, proposed on, and verified like any instance.",
             {{"instance",
@@ -674,7 +683,7 @@ private:
              "value as it is. Default: null."}};
         const json reference_property = {
             {"type", "string"},
-            {"description", "A reference of your organization's, such as an order or approval "
+            {"description", "A reference of your organization's, such as a file or approval "
                             "number; recorded in the clear."}};
 
         add("cexchain_call_contract",

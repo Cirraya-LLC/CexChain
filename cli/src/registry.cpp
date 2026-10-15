@@ -111,7 +111,7 @@ const OptionSpec language_option{
 #endif
 /// What every Bo command says about where it exists.
 #define CEXCHAIN_BO_PACKS_HELP                                                                     \
-    "A language pack maps Bo's concepts (kw.can, act.pledge, unit.GB) to one language's\n"         \
+    "A language pack maps Bo's concepts (kw.can, act.transfer, unit.GB) to one language's\n"       \
     "spellings and gives its reading rules, messages, and sentences; it never changes what\n"      \
     "runs. The official packs (English, Traditional Chinese in Hong Kong usage, Simplified\n"      \
     "Chinese) are always read; a Bo deploy records each pack's digest (the hash of its\n"          \
@@ -202,8 +202,10 @@ std::vector<CommandSpec> build() {
          0,
          0,
          with({ledger_option,
-               {"org", "NAME", "Organization name", true},
-               {"root-key", "KEY", "Organization root key file", true},
+               {"name", "NAME",
+                "Whose ledger it is: a person's or an organization's name (required; or --org)"},
+               {"org", "NAME", "The same as --name"},
+               {"root-key", "KEY", "The owner's root key file", true},
                {"log-key", "KEY", "Log key file (signs checkpoints and receipts)", true},
                {"hash", "HASH", "sha256 (default) or sm3"},
                {"vault-public-key", "FILE",
@@ -213,7 +215,11 @@ std::vector<CommandSpec> build() {
          cmd_init,
          "Creates the ledger and its vault key: private record data (field values and salts)\n"
          "is sealed to <ledger>/vault.pub; reading it needs <ledger>/vault.key, encrypted with\n"
-         "your passphrase. Back the vault key up: without it, private data cannot be disclosed."},
+         "your passphrase. Back the vault key up: without it, private data cannot be disclosed.\n"
+         "\n"
+         "A ledger belongs to one owner, a person or an organization, named by --name and\n"
+         "identified by its root key, which registers the people, AI agents, and devices who\n"
+         "act on it. Keep the root key offline and act with keys it delegates to."},
         {{"status"},
          "Show the ledger's identity, size, and latest checkpoint",
          "Ledger",
@@ -396,7 +402,7 @@ std::vector<CommandSpec> build() {
          0,
          with({{"out", "FILE", "Write the credential file (public data) here", true},
                {"name", "NAME", "Your name, as the passkey will show it (passkeys only)"},
-               {"label", "TEXT", "A label, e.g. \"MacBook Touch ID\" or \"Bank UKey\""},
+               {"label", "TEXT", "A label, e.g. \"MacBook Touch ID\" or \"Office UKey\""},
                {"pkcs11", "URI", "Enroll this hardware key (a key on a USB key or smart card)"},
                no_browser_option}),
          cmd_presence_enroll,
@@ -465,10 +471,11 @@ std::vector<CommandSpec> build() {
          "",
          0,
          0,
-         signing({{"type", "TYPE", "Record type, e.g. example.org.inspection/1", true},
-                  {"field", "NAME=VALUE", "A field (private until disclosed)", true, true},
-                  {"meta", "NAME=VALUE", "Public metadata", false, true},
-                  {"attach", "FILE", "Attach a file (committed by hash)", false, true}}),
+         signing(
+             {{"type", "TYPE", "Record type: a name of your own, e.g. example.org.photo/1", true},
+              {"field", "NAME=VALUE", "A field (private until disclosed)", true, true},
+              {"meta", "NAME=VALUE", "Public metadata", false, true},
+              {"attach", "FILE", "Attach a file (committed by hash)", false, true}}),
          cmd_record_issue},
         {{"record", "list"},
          "List records",
@@ -511,7 +518,7 @@ std::vector<CommandSpec> build() {
          "RECORD",
          1,
          1,
-         signing({{"role", "ROLE", "e.g. inspector, receiver, party", true}}),
+         signing({{"role", "ROLE", "Any role name, e.g. author, reviewer, approver", true}}),
          cmd_record_endorse},
         {{"record", "transition"},
          "Move a record to a new state",
@@ -536,7 +543,11 @@ std::vector<CommandSpec> build() {
          0,
          0,
          {},
-         cmd_record_types},
+         cmd_record_types,
+         "Any other type is the registrant's own: a record's type is a name you choose\n"
+         "(such as example.org.photo/1), with the generic lifecycle. This command lists the\n"
+         "protocol's own types, which carry access requests, grants, and receipts, and\n"
+         "consents to contract calls."},
 
         // ------------------------------------------------------------------
         {{"checkpoint", "create"},
@@ -740,7 +751,7 @@ std::vector<CommandSpec> build() {
                 "rotation)"},
                {"name", "NAME", "A name for the ledger"}}),
          cmd_witness_add_log,
-         "A witness is an independent party (another company, an auditor, a regulator) that\n"
+         "A witness is an independent party (another person or organization, an auditor) that\n"
          "cosigns a ledger's checkpoints only if each extends the history it cosigned before.\n"
          "Learn the ledger id from the operator through a channel you trust, and check the\n"
          "genesis entry against it with --ledger-id."},
@@ -1222,8 +1233,8 @@ std::vector<CommandSpec> build() {
          "that are not official, in full). Anyone can then rebuild the code from the source and\n"
          "compare (contract show, contract verify). A .boc file must rebuild here to its code\n"
          "before it is deployed. Needs a build with the Bo compiler (GCC 16).\n\n"
-         "  cexchain contract deploy --bo agreement.bo --as root.key\n"
-         "  cexchain contract deploy agreement.wasm --function propose=create \\\n"
+         "  cexchain contract deploy --bo lending.bo --as root.key\n"
+         "  cexchain contract deploy rules.wasm --function propose=create \\\n"
          "      --function sign=call --compiler \"mytool 1.2\" --as root.key"},
         {{"contract", "show"},
          "Show a contract: its interface, code, and instances",
@@ -1262,14 +1273,14 @@ std::vector<CommandSpec> build() {
          "Its instances carry on under it until they are final. To change a contract, deploy a\n"
          "new version and create new instances of it."},
         {{"contract", "create"},
-         "Create an instance of a contract, such as an agreement or an order",
+         "Create an instance of a contract: one thing its rules govern",
          "Contracts",
          "CONTRACT FUNCTION",
          2,
          2,
          signing({args_option,
                   args_cbor_option,
-                  {"reference", "TEXT", "A reference, such as an order number"},
+                  {"reference", "TEXT", "A reference of your own, such as a file number"},
                   dry_run_option,
                   at_option}),
          cmd_contract_create,
@@ -1284,7 +1295,7 @@ std::vector<CommandSpec> build() {
          2,
          signing({args_option,
                   args_cbor_option,
-                  {"reference", "TEXT", "A reference, such as an invoice number"},
+                  {"reference", "TEXT", "A reference of your own, such as a file number"},
                   {"consent", "FILE", "A party's consent (its evidence, from contract consent)",
                    false, true},
                   dry_run_option,
@@ -1308,11 +1319,12 @@ std::vector<CommandSpec> build() {
          1,
          with({ledger_option}),
          cmd_contract_instance,
-         "A call may create instances of its contract, its parts (such as a receivable split\n"
-         "among suppliers): a part shows its parent, its position among the parts its parent's\n"
-         "call created, its depth (at most 8), and its ancestors, oldest first; an instance whose\n"
-         "calls created parts lists them. A part is an instance like any other: call it, propose\n"
-         "calls on it, and fetch or verify its evidence, which carries its ancestors' calls."},
+         "A call may create instances of its contract, its parts (such as one thing divided\n"
+         "among several holders): a part shows its parent, its position among the parts its\n"
+         "parent's call created, its depth (at most 8), and its ancestors, oldest first; an\n"
+         "instance whose calls created parts lists them. A part is an instance like any other:\n"
+         "call it, propose calls on it, and fetch or verify its evidence, which carries its\n"
+         "ancestors' calls."},
         {{"contract", "instances"},
          "List this ledger's contract instances",
          "Contracts",
@@ -1350,7 +1362,7 @@ std::vector<CommandSpec> build() {
                {"peer", "NAME", "The instance's home, a peer (to propose as one of its parties)"},
                args_option,
                args_cbor_option,
-               {"reference", "TEXT", "A reference, such as an invoice number"},
+               {"reference", "TEXT", "A reference of your own, such as a file number"},
                {"head", "N", "The instance's head (default: as its home shows it now)"},
                {"days", "N", "The proposal lapses after N days (1 to 30; default: 7)"}}),
          cmd_contract_propose,
@@ -1508,7 +1520,7 @@ std::vector<CommandSpec> build() {
          "(code), in the language of --language. Exit status 2 if there is an error;\n"
          "warnings (clauses that need executors, which come in step 6b) do not fail.\n\n"
          "The lexer reads lines and indentation (spaces only), # comments, words under the\n"
-         "packs' rules (可質押 is 可 + 質押; 每GB is 每 + GB; a word with two readings is an\n"
+         "packs' rules (可轉讓 is 可 + 轉讓; 每GB is 每 + GB; a word with two readings is an\n"
          "error, since Bo never guesses), names, numbers (5_000_000, 0.10, 500萬, full-width\n"
          "digits), money with its currency on either side (HKD 0.10), quantities (2TB, 3 噸,\n"
          "1個), durations (30日), percentages (5%), dates (2027-01-06, 2027年1月6日), texts in\n"
@@ -1518,8 +1530,8 @@ std::vector<CommandSpec> build() {
          "The parser reads the clauses: contract NAME; parties; a kind and its fields (asset\n"
          "Receivable, then amount HKD); can ACTION with by, to, with, and a block of requires,\n"
          "if/otherwise, each, reject, FIELD = VALUE, state changes (active -> suspended), and\n"
-         "actions; when EVENT ACTION; test blocks of steps (supplier pledge to bank at\n"
-         "2027-01-06) and expectations (-> pledged, -> refused). Conditions use not, and, or,\n"
+         "actions; when EVENT ACTION; test blocks of steps (owner lend to friend1 at\n"
+         "2027-01-06) and expectations (-> lent, -> refused). Conditions use not, and, or,\n"
          "the comparisons = < <= > >= and in, then + -, then * /. `use` is reserved.\n\n"
          "The checker reads the tree into a model: the parties and how each is bound (at\n"
          "creation, or by the action that first names it after to), the one kind of instance\n"
@@ -1532,7 +1544,7 @@ std::vector<CommandSpec> build() {
          "the action's one amount), and where in person may stand. What it infers carries the\n"
          "id of its rule (R1, R2, ...; the packs' sentences rule-R1 ... explain each).\n\n"
          "--stage lex prints one token per line: LINE:COLUMN KIND VALUE | as written. A word\n"
-         "is its concept (kw.can, act.pledge), the same in every language; a word with an\n"
+         "is its concept (kw.can, act.transfer), the same in every language; a word with an\n"
          "argument's place comes in pieces (consent of: piece=head; before due: piece=tail;\n"
          "經 ... 同意: piece=open and piece=close).\n\n"
          "--stage parse prints the tree: one clause or statement per line, expressions as\n"
@@ -1572,19 +1584,20 @@ std::vector<CommandSpec> build() {
          "clauses that need executors (step 6b) do not build. Exit status 2 if it does not\n"
          "build.\n\n"
          "Fuel. Each function's worst case comes from the code's structure: every loop bounded\n"
-         "by what the contract bounds (lists, a bill's lines and charges, a split's parts and\n"
-         "consents), sizes by the input's limits. It holds for any call whose arguments are of\n"
-         "the function's shape, on any state the contract writes. A contract any of whose\n"
-         "functions could need more than the 10,000,000 fuel a call has does not build\n"
-         "(build.fuel); one whose output could exceed the 196,608 bytes the code has for it\n"
-         "builds with a warning (build.output). The text shows the highest bound; --fuel shows\n"
-         "every function's: its fuel, the part reading the input takes, and its output.\n\n"
+         "by what the contract bounds (lists, the lines and charges of a bill it computes, the\n"
+         "parts and consents of a split), sizes by the input's limits. It holds for any call\n"
+         "whose arguments are of the function's shape, on any state the contract writes. A\n"
+         "contract any of whose functions could need more than the 10,000,000 fuel a call has\n"
+         "does not build (build.fuel); one whose output could exceed the 196,608 bytes the code\n"
+         "has for it builds with a warning (build.output). The text shows the highest bound;\n"
+         "--fuel shows every function's: its fuel, the part reading the input takes, and its\n"
+         "output.\n\n"
          "Without --out, nothing is written: it reports the code's size and hash. Deploy with\n"
          "contract deploy --bo FILE.bo (which builds again) or FILE.boc.\n\n"
-         "  cexchain bo build agreement.bo\n"
-         "  cexchain bo build agreement.bo --fuel\n"
-         "  cexchain bo build agreement.bo --out agreement.boc --hash sm3\n"
-         "  cexchain bo build agreement.bo --json\n\n" CEXCHAIN_BO_PACKS_HELP},
+         "  cexchain bo build contract.bo\n"
+         "  cexchain bo build contract.bo --fuel\n"
+         "  cexchain bo build contract.bo --out contract.boc --hash sm3\n"
+         "  cexchain bo build contract.bo --json\n\n" CEXCHAIN_BO_PACKS_HELP},
         {{"bo", "explain"},
          "Write the contract text of a Bo source, in English or Chinese, with every inferred rule",
          "Bo language",
@@ -1608,17 +1621,16 @@ std::vector<CommandSpec> build() {
          "an action, a consent an action needs, the first state, a threshold's unit) is\n"
          "spelled out in the clause and marked with its rule, such as [R3]; the last section\n"
          "explains each rule used. Texts are shown in quotation marks, including a name Bo\n"
-         "read as a text by rule R18 (customer location = mainland shows as: the customer\n"
-         "location is \"mainland\").\n\n"
+         "read as a text by rule R18 (color = red shows as: color is \"red\").\n\n"
          "The text depends only on the contract and the language: a contract written in\n"
          "English, in Chinese, or in both gives the same text, byte for byte. Problems go to\n"
          "stderr (warnings do not stop the text); exit status 2 if the source does not check.\n"
          "With --json: the text, and its sections and clauses, each with its number, its\n"
          "rules, and (for an action) its function. Once deployed, contract explain writes the\n"
          "same text from the deploy.\n\n"
-         "  cexchain bo explain agreement.bo\n"
-         "  cexchain bo explain agreement.bo --language zh-Hant-HK\n"
-         "  cexchain bo explain agreement.bo --language zh-Hans --json\n\n" CEXCHAIN_BO_PACKS_HELP},
+         "  cexchain bo explain contract.bo\n"
+         "  cexchain bo explain contract.bo --language zh-Hant-HK\n"
+         "  cexchain bo explain contract.bo --language zh-Hans --json\n\n" CEXCHAIN_BO_PACKS_HELP},
         {{"bo", "fmt"},
          "Lay out a Bo source canonically, or write it in one language",
          "Bo language",
@@ -1636,30 +1648,32 @@ std::vector<CommandSpec> build() {
          "(none before , and ) or after (), comments kept where they are (a comment after code\n"
          "two spaces after it), runs of blank lines as one, digits in ASCII, full-width\n"
          "punctuation (，、) kept without spaces around it, and\n"
-         "Chinese written as Chinese is: a prefix keyword joined to the word after it (可質押,\n"
-         "須親身確認), an attaching word to its neighbour (按發票, 30日內), a number to its\n"
+         "Chinese written as Chinese is: a prefix keyword joined to the word after it (可轉讓,\n"
+         "須親身確認), an attaching word to its neighbour (30日內), a number to its\n"
          "multiplier and its Chinese unit or currency (500萬港元, 30日); Latin words and numbers\n"
          "stand apart from Chinese by a space (每 GB).\n\n"
          "With --language, every keyword and word not already spelled in that language is\n"
-         "written in its first spelling there (a unit after a number other than 1 in its\n"
-         "plural form: 30 days), and a word with an argument is arranged as that language\n"
-         "spells it (consent of bank, 經 銀行 同意). Names the contract gives, texts in quotes,\n"
-         "and comments stay as written; a multiplier the language lacks is written out (500萬\n"
-         "is 5_000_000 in English). A contract written in Chinese can so be handed to an\n"
+         "written in its first spelling there (a unit after a number other than 1 in its plural\n"
+         "form: 30 days), and a word with an argument is arranged as that language spells it\n"
+         "(consent of counterparty, 經 相對方 同意). Names the contract gives, texts in quotes, "
+         "and\n"
+         "comments stay as written; a multiplier the language lacks is written out (500萬 is\n"
+         "5_000_000 in English). A contract written in Chinese can so be handed to an\n"
          "English-speaking counterparty as English source: it parses to the same tree, checks to\n"
          "the same model, builds to the same code, and explains to the same text. Formatting\n"
          "again changes nothing. The text is not reversible: forms and other spellings become\n"
-         "the first spelling (pays, then 支付, then pay), and multipliers stay written out.\n\n"
+         "the first spelling (transfers, then 轉讓, then transfer), and multipliers stay written\n"
+         "out.\n\n"
          "The result is read again before it is printed or written: it must give the same tree\n"
          "and comments. If a name the contract gives would read together with the new\n"
          "language's words, nothing is formatted (fmt.unstable says where). Source with errors\n"
          "is not formatted (exit status 2, problems on stderr). --check changes nothing and exits\n"
          "3 if FILE is not formatted (in that language, with --language); --write writes it\n"
          "back. With --json: ok, changed, written, the source, and any problems.\n\n"
-         "  cexchain bo fmt agreement.bo\n"
-         "  cexchain bo fmt agreement.bo --language zh-Hant-HK\n"
-         "  cexchain bo fmt agreement.bo --language en --write\n"
-         "  cexchain bo fmt agreement.bo --check --json\n\n" CEXCHAIN_BO_PACKS_HELP},
+         "  cexchain bo fmt contract.bo\n"
+         "  cexchain bo fmt contract.bo --language zh-Hant-HK\n"
+         "  cexchain bo fmt contract.bo --language en --write\n"
+         "  cexchain bo fmt contract.bo --check --json\n\n" CEXCHAIN_BO_PACKS_HELP},
         {{"bo", "test"},
          "Run the test blocks of a Bo source: each scenario, step by step, as a ledger would",
          "Bo language",
@@ -1675,39 +1689,38 @@ std::vector<CommandSpec> build() {
          "exactly as a ledger runs calls (each call's input and output as spec section 15\n"
          "defines them). Each test creates its own instance and runs its steps in order; it\n"
          "stops at the first step that fails. A test block:\n\n"
-         "  test \"nobody signs alone\"\n"
-         "    we create with goods = \"steel\", pieces = 9, price = CNY 2_500, deliver_by = "
-         "2027-03-31\n"
-         "    we sign -> consent of bank\n"
-         "    supplier sign -> consent of we\n"
-         "    we close -> refused \"bo:state close\"\n"
-         "    we sign at 2027-01-05 -> signed\n\n"
+         "  test \"only the holder brings it back\"\n"
+         "    owner create with name = \"Camera X100\"\n"
+         "    owner lend to friend1 -> lent\n"
+         "    owner lend to friend2 -> refused \"bo:state lend\"\n"
+         "    friend2 bring_back -> consent of friend1\n"
+         "    friend1 bring_back at 2027-01-05 -> active\n\n"
          "A step is PARTY ACTION [to PARTY] [with INPUT = VALUE, ...] [at DATE] [in person]\n"
          "[by AI agent] [-> EXPECTATION]. The first step creates the instance (issue for an\n"
          "asset, create otherwise), and its party is the home, whose ledger runs the contract\n"
          "(we, if the contract has that role). Every party is a test ledger of its own; a name\n"
-         "the contract does not declare (bank1) is a ledger only the test names, which to may\n"
+         "the contract does not declare (friend1) is a ledger only the test names, which to may\n"
          "bind a role to. Values are written as in the source (HKD 5_000, 2027-01-06, 30 days,\n"
          "\"text\", yes). A step happens at the time of the step before it, or on the day at\n"
          "names (local midnight at the contract's UTC offset, +08:00 unless it names one); a\n"
          "test starts on 2026-01-01, or on its first at date if that is earlier. in person signs\n"
          "as a person who proves presence, by AI agent as an AI agent, and otherwise the\n"
-         "organization signs. keeper ACTION [at DATE] calls the time rule that does ACTION\n"
+         "party itself signs. keeper ACTION [at DATE] calls the time rule that does ACTION\n"
          "(when.ACTION), as the home's keeper, a device: keeper suspend at 2027-07-03 ->\n"
          "suspended; before its time it is refused (bo:when when.suspend).\n\n"
          "Parts: once a split has made parts (each an instance of its own), a step acts on the\n"
-         "one its party holds, or is pledgee or payee of; or on the one the party it names\n"
-         "after the action holds (issuer pay smith1). Of those, the one that takes calls, else\n"
-         "the one final instance (a divided parent refuses). A party holding several fails the\n"
-         "step. Recipients are the test's parties: supplier split with parts = (HKD 600, HKD\n"
-         "400), recipients = (maker1, maker2) -> divided. The report names each part by its\n"
+         "one its party holds, or that another of its party fields names; or on the one the\n"
+         "party it names after the action holds (we cancel maker1). Of those, the one that takes\n"
+         "calls, else the one final instance (a divided parent refuses). A party holding several\n"
+         "fails the step. Recipients are the test's parties: owner split with parts = (HKD 600,\n"
+         "HKD 400), recipients = (maker1, maker2) -> divided. The report names each part by its\n"
          "path: part 1.2 is the second part of the first part.\n\n"
          "Consents: a call runs first without any, as the home runs it to learn whom to ask;\n"
          "then every party the contract asks consents, and it runs again. Parties that do not\n"
-         "consent: those the expectation names (-> consent of bank), and, when the step's party\n"
-         "is not the one that starts the action (by), the one that does (the home agrees only\n"
-         "by making a call itself). Expectations: -> STATE (accepted, and the instance is in\n"
-         "that state), -> refused, -> refused \"REASON\" (the reason exactly as the contract\n"
+         "consent: those the expectation names (-> consent of friend1), and, when the step's\n"
+         "party is not the one that starts the action (by), the one that does (the home agrees\n"
+         "only by making a call itself). Expectations: -> STATE (accepted, and the instance is\n"
+         "in that state), -> refused, -> refused \"REASON\" (the reason exactly as the contract\n"
          "gives it: a reject's text, or a code such as bo:requires sign 2), -> consent of PARTY\n"
          "(the call waits for that consent; consent of (A, B) for two). A step without one\n"
          "expects its call to be accepted.\n\n"
@@ -1718,9 +1731,9 @@ std::vector<CommandSpec> build() {
          "build. With --json: each test and step, what it expected and what happened (the\n"
          "part it acted on, and the parts a call made), and its calls with their consents,\n"
          "fuel, and input.\n\n"
-         "  cexchain bo test agreement.bo\n"
-         "  cexchain bo test agreement.bo --language zh-Hant-HK\n"
-         "  cexchain bo test agreement.bo --json\n\n" CEXCHAIN_BO_PACKS_HELP},
+         "  cexchain bo test contract.bo\n"
+         "  cexchain bo test contract.bo --language zh-Hant-HK\n"
+         "  cexchain bo test contract.bo --json\n\n" CEXCHAIN_BO_PACKS_HELP},
         {{"bo", "packs", "list"},
          "List the language packs Bo source is read with, and their digests",
          "Bo language",
@@ -1762,7 +1775,7 @@ std::vector<CommandSpec> build() {
          "   \"reading\": {\"separation\": \"none\", \"prefixes\": [...], \"attach\": [...],\n"
          "               \"punctuation\": {...}, \"multipliers\": {...}, \"dates\": {...}},\n"
          "   \"keywords\": {\"kw.can\": \"...\", ...},       every keyword\n"
-         "   \"vocabulary\": {\"act.pledge\": \"...\", ...},  any words; English fills in\n"
+         "   \"vocabulary\": {\"act.transfer\": \"...\", ...},  any words; English fills in\n"
          "   \"messages\": {...}, \"sentences\": {...}}\n"
          "bo packs show en --json lists every concept id; the official packs in the source\n"
          "tree (bo/packs/) are complete examples.\n\n" CEXCHAIN_BO_PACKS_HELP},
@@ -1774,13 +1787,12 @@ std::vector<CommandSpec> build() {
          0,
          with({language_option}),
          cmd_bo_stdlib_list,
-         "Bo's standard library (bo/stdlib/edition1.bo, compiled in) writes the built-in\n"
-         "actions in Bo itself, each with its standard terms: transfer, pledge, release,\n"
-         "enforce, redeem, pay, confirm payment, dispute, freeze, unfreeze, split, cancel,\n"
-         "suspend, resume, terminate, allocate, and reclaim. A contract that writes can pledge\n"
-         "to bank gets the library's pledge (rule R19): started by the holder, with the\n"
-         "consent of the holder and the bank, only from active, recording the bank as the\n"
-         "pledgee. The lines the contract writes under it add to the terms and are checked\n"
+         "Bo's standard library (bo/stdlib/edition1.bo, compiled in) writes the built-in actions\n"
+         "in Bo itself, each with its standard terms (transfer, cancel, suspend, resume,\n"
+         "terminate, and the others this command lists). A contract that writes can transfer to\n"
+         "counterparty gets the library's transfer (rule R19): started by the holder, with the\n"
+         "consent of the holder and the counterparty, only from active, making the counterparty\n"
+         "the holder. The lines the contract writes under it add to the terms and are checked\n"
          "first; without to, each call names the counterparty (R21). To change a built-in\n"
          "action, copy it under a name of your own (bo stdlib show ACTION prints it).\n\n"
          "Each line: the function, the action's word in --language, who starts it (or the\n"
@@ -1796,15 +1808,15 @@ std::vector<CommandSpec> build() {
          1,
          with({pack_option, language_option}),
          cmd_bo_stdlib_show,
-         "ACTION is a built-in action's word in any language (pledge, 質押, 质押) or its\n"
+         "ACTION is a built-in action's word in any language (transfer, 轉讓, 转让) or its\n"
          "function (confirm_payment). Prints the action's terms as Bo source, in --language,\n"
          "without the library's comments, and then the contract text that states them, each\n"
          "clause with its rules (R19 marks the standard terms). To change a built-in action,\n"
          "copy the source into a contract and give the action a name of your own: it is then\n"
          "the contract's own action, checked and explained like any other. With --json: the\n"
          "source, and each clause of the text with its kind and rules.\n\n"
-         "  cexchain bo stdlib show pledge\n"
-         "  cexchain bo stdlib show 質押 --language zh-Hant-HK\n"
+         "  cexchain bo stdlib show transfer\n"
+         "  cexchain bo stdlib show 轉讓 --language zh-Hant-HK\n"
          "  cexchain bo stdlib show confirm_payment --json\n\n" CEXCHAIN_BO_PACKS_HELP},
 #endif
         // ------------------------------------------------------------------
@@ -1918,7 +1930,7 @@ std::string command_help(const CommandSpec& spec) {
 
 std::string overview_help() {
     std::string out =
-        "cexchain - verifiable records for business, built for the age of AI agents\n\n"
+        "cexchain - register, move, and prove anything, under rules you define\n\n"
         "Usage: cexchain COMMAND [arguments] [options]\n"
         "Every command accepts --help and --json. Set CEXCHAIN_LEDGER to skip --ledger.\n"
         "IDs may be abbreviated to any unique prefix of 8 or more hex digits.\n"

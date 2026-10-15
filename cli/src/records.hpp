@@ -96,4 +96,8 @@ void save_hpke_key(const std::filesystem::path& path, const crypto::openssl::Hpk
 [[nodiscard]] Vault read_vault(const Session& session, const protocol::Id& record,
                                const Args& args);
 
+/// What one of the protocol's own record types is for, in a few words (the
+/// command that registers it in parentheses); empty for any other type.
+[[nodiscard]] std::string_view record_type_purpose(std::string_view type);
+
 } // namespace cexchain::cli

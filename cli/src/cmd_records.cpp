@@ -231,6 +231,7 @@ int cmd_record_types(const Args& args) {
             roles.push_back(role);
         }
         out.push_back({{"name", type.name},
+                       {"purpose", record_type_purpose(type.name)},
                        {"initial_state", type.initial_state},
                        {"transitions", std::move(transitions)},
                        {"roles", std::move(roles)}});
@@ -239,26 +240,33 @@ int cmd_record_types(const Args& args) {
         print_json(out);
         return exit_ok;
     }
+    std::println("A record is a document of any kind, and its type is a name its registrant\n"
+                 "chooses, such as example.org.photo/1 (by convention: your domain, a name, and\n"
+                 "a version). Every such type has the generic lifecycle: a record starts in\n"
+                 "\"{}\", has no transitions, may be endorsed in any role (once per actor and\n"
+                 "role), and may be revoked. Rules beyond that belong in a contract.\n\n"
+                 "The protocol's own types carry its mechanisms. Other names beginning with\n"
+                 "\"{}\" are reserved for the protocol.\n",
+                 protocol::generic_initial_state, protocol::reserved_type_prefix);
+    const auto list_or_none = [](const std::string& text) {
+        return text.empty() ? std::string("none") : text;
+    };
     for (const auto& type : out) {
         std::println("{}", type["name"].get<std::string>());
+        std::println("  for:         {}", type["purpose"].get<std::string>());
         std::println("  starts in:   {}", type["initial_state"].get<std::string>());
         std::string transitions;
         for (const auto& t : type["transitions"]) {
             transitions += (transitions.empty() ? "" : ", ") + t["from"].get<std::string>() +
                            " -> " + t["to"].get<std::string>();
         }
-        std::println("  transitions: {}", transitions);
+        std::println("  transitions: {}", list_or_none(transitions));
         std::string roles;
         for (const auto& role : type["roles"]) {
             roles += (roles.empty() ? "" : ", ") + role.get<std::string>();
         }
-        std::println("  roles:       {}\n", roles);
+        std::println("  endorsed in: {}", roles.empty() ? std::string("no role") : roles);
     }
-    std::println("Any other type name is the registrant's own, with the generic lifecycle: it\n"
-                 "starts in \"{}\", has no transitions, may be endorsed in any role (once per\n"
-                 "actor and role), and may be revoked. Other names beginning with \"{}\" are\n"
-                 "reserved for the protocol.",
-                 protocol::generic_initial_state, protocol::reserved_type_prefix);
     return exit_ok;
 }
 

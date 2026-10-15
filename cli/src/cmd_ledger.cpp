@@ -53,6 +53,11 @@ Json status_json(Session& session) {
 } // namespace
 
 int cmd_init(const Args& args) {
+    // --org is the older name of --name: either, not both.
+    if (args.has("name") && args.has("org")) {
+        throw UsageError{"give --name or --org, not both"};
+    }
+    const std::string owner = args.has("org") ? args.need("org") : args.need("name");
     const std::filesystem::path directory = args.ledger();
     if (std::filesystem::exists(directory) && !std::filesystem::is_empty(directory)) {
         throw CommandError{directory.string() + " exists and is not empty"};
@@ -77,8 +82,7 @@ int cmd_init(const Args& args) {
         vault_key.emplace(unwrap(crypto::openssl::HpkeKey::generate(), "generating the vault key"));
         vault_public.emplace(vault_key->public_key().begin(), vault_key->public_key().end());
     }
-    create_ledger(directory, *root, log, parse_hash(args.get("hash").value_or("sha256")),
-                  args.need("org"));
+    create_ledger(directory, *root, log, parse_hash(args.get("hash").value_or("sha256")), owner);
     Session session(directory);
     std::filesystem::create_directories(vault_directory(session) / "records");
     if (vault_key) {

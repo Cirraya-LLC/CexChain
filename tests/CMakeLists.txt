@@ -148,6 +148,10 @@ add_test(NAME client_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/client.sh $<TARGET_FILE:cexchain>)
 add_test(NAME cluster_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/cluster.sh $<TARGET_FILE:cexchain>)
+# The product's own texts are generic (D-054): no industry words in help,
+# completion, MCP descriptions, or the browser page.
+add_test(NAME generic_words
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/generic_words.sh $<TARGET_FILE:cexchain>)
 add_test(NAME rotation_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/rotation.sh $<TARGET_FILE:cexchain>)
 # The Bo commands exist where the compiler does.

@@ -84,7 +84,13 @@ run key show alice.pub | contains 'public key'
 run inspect alice.pub --json | json 'd["kind"]' | contains -x public-key
 
 # --- Ledger ------------------------------------------------------------------
-LEDGER_ID="$(run init --ledger ledger --org "Cirraya Test Factory" --root-key root.key --log-key log.key | id_from)"
+# A ledger belongs to a person or an organization: --name (or --org, the same).
+expect_exit 1 init --ledger ledger --root-key root.key --log-key log.key
+contains 'missing required option --name' out.txt
+expect_exit 1 init --ledger ledger --name A --org B --root-key root.key --log-key log.key
+contains 'not both' out.txt
+[ ! -e ledger ] || fail "a usage error creates nothing"
+LEDGER_ID="$(run init --ledger ledger --name "Cirraya Test Factory" --root-key root.key --log-key log.key | id_from)"
 expect_exit 2 init --ledger ledger --org Again --root-key root.key --log-key log.key
 expect_exit 1 status
 export CEXCHAIN_LEDGER="$WORK/ledger"
@@ -123,6 +129,10 @@ run record types | contains 'requested -> withdrawn'
 run record types --json | json '[t["name"] for t in d]' | contains 'cexchain.contract-consent/1'
 run record types --json | json 'len(d)' | contains -x 4
 run record types | contains 'reserved for the protocol'
+# Any other type is the user's own; the protocol's own say what they are for.
+run record types | contains 'type is a name its registrant'
+run record types | contains -x '  for:         consenting to a call on a contract instance elsewhere (contract consent)'
+run record types --json | json 'all(t["purpose"] for t in d)' | contains -x True
 # Spec v0.9: "cexchain." types are the protocol's own; the industry types
 # it once built in are refused like any other.
 expect_exit 2 record issue --as root.key --type cexchain.certificate/1 --field result=pass
