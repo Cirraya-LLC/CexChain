@@ -1,0 +1,63 @@
+# A receivable, financed by a bank and then sold. A core enterprise (the
+# issuer) owes its supplier for goods delivered, payable at maturity. The
+# supplier pledges the receivable to a bank for a loan; once the loan is
+# repaid, the bank releases it, and the supplier sells it to a factoring
+# company, which the issuer pays at maturity. The core enterprise's ledger
+# keeps the receivable; each party consents on its own ledger.
+contract ReceivableFinancing
+parties issuer, supplier
+
+asset Receivable
+  amount CNY
+  due date
+  holder supplier
+
+# The standard library's terms: the holder pledges, and the pledgee
+# consents; only an active receivable can be pledged, so never twice at once;
+# the pledgee releases its pledge; the holder sells it (transfer), and the
+# buyer consents, but not while it is pledged; the issuer says it paid, and
+# the payee (the pledgee, if any, else the holder) confirms. The contract's
+# own rule: above CNY 5,000,000 the holder proves presence in person.
+can pledge
+  over 5_000_000 requires in person
+can release
+can transfer
+can pay
+can confirm payment
+when due issuer pays
+
+# Its tests: bo test runs each on an instance of its own, as the ledger
+# would, every party a ledger of its own.
+test "pledged, refused a second pledge, released, sold, paid at maturity"
+  issuer issue with amount = CNY 1_250_000, due = 2027-04-06
+  supplier pledge to bank1 -> pledged
+  supplier pledge to bank2 -> refused "bo:state pledge"
+  supplier transfer to factor1 -> refused "bo:state transfer"
+  bank1 release -> active
+  supplier transfer to factor1 -> active
+  issuer pay at 2027-04-06 -> paid
+  factor1 confirm payment -> settled
+
+test "the bank consents to its pledge, the buyer to its purchase"
+  issuer issue with amount = CNY 1_250_000, due = 2027-04-06
+  supplier pledge to bank1 -> consent of bank1
+  supplier transfer to factor1 -> consent of factor1
+
+test "only the holder pledges or sells, and only the pledgee releases"
+  issuer issue with amount = CNY 1_250_000, due = 2027-04-06
+  bank1 pledge to bank1 -> consent of supplier
+  factor1 transfer to factor1 -> consent of supplier
+  supplier pledge to bank1 -> pledged
+  supplier release -> consent of bank1
+
+test "while pledged, the bank is the payee"
+  issuer issue with amount = CNY 1_250_000, due = 2027-04-06
+  supplier pledge to bank1 -> pledged
+  issuer pay -> paid
+  supplier confirm payment -> consent of bank1
+  bank1 confirm payment -> settled
+
+test "above CNY 5,000,000 the holder proves presence"
+  issuer issue with amount = CNY 8_000_000, due = 2027-04-06
+  supplier pledge to bank1 -> refused "bo:in-person pledge"
+  supplier pledge to bank1 in person -> pledged

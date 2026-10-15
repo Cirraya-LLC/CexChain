@@ -148,9 +148,6 @@ add_test(NAME assets_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/assets.sh $<TARGET_FILE:cexchain>)
 add_test(NAME contracts_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/contracts.sh $<TARGET_FILE:cexchain>)
-# The demos, so they keep working.
-add_test(NAME demo_supply_chain_finance
-    COMMAND bash ${PROJECT_SOURCE_DIR}/deploy/demo/supply-chain-finance.sh $<TARGET_FILE:cexchain>)
 add_test(NAME client_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/client.sh $<TARGET_FILE:cexchain>)
 add_test(NAME cluster_end_to_end
@@ -161,12 +158,15 @@ add_test(NAME rotation_end_to_end
 if(TARGET cexchain_bo)
     add_test(NAME bo_end_to_end
         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/bo.sh $<TARGET_FILE:cexchain>)
-    # The contract demo is written in Bo.
+    # The demos, so they keep working; they are written in Bo.
     add_test(NAME demo_supply_agreement
         COMMAND bash ${PROJECT_SOURCE_DIR}/deploy/demo/supply-agreement.sh $<TARGET_FILE:cexchain>)
     # Multi-tier supply-chain finance: a receivable split down a supply chain.
     add_test(NAME demo_multi_tier_split
         COMMAND bash ${PROJECT_SOURCE_DIR}/deploy/demo/multi-tier-split.sh $<TARGET_FILE:cexchain>)
+    # A receivable pledged to a bank, released, sold, and paid.
+    add_test(NAME demo_receivable_financing
+        COMMAND bash ${PROJECT_SOURCE_DIR}/deploy/demo/receivable-financing.sh $<TARGET_FILE:cexchain>)
 endif()
 
 # Keys on tokens (HSMs, USB keys), when SoftHSM is installed to stand in.

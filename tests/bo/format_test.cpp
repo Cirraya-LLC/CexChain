@@ -100,6 +100,7 @@ std::vector<std::filesystem::path> all_sources() {
         }
     }
     out.push_back(source_dir / "deploy/demo/supply-agreement.bo");
+    out.push_back(source_dir / "deploy/demo/receivable-financing.bo");
     std::ranges::sort(out);
     return out;
 }
