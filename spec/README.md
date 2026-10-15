@@ -1,6 +1,6 @@
 # The CexChain protocol
 
-Revision v0.7 (draft). Wire protocol version 1.
+Revision v0.8 (draft). Wire protocol version 1.
 
 This document explains the protocol in prose. The normative definitions are:
 
@@ -53,7 +53,7 @@ Two organizations exchange records through the same mechanism (section 12): each
 
 **Ownership assets** (section 13), such as receivables and warehouse receipts, live on their issuer's ledger. Each change of hands needs the consent of every party involved, given on that party's own ledger. The issuer's ledger refuses a second pledge, and witnesses stop it from showing different banks different histories.
 
-**Contracts** (sections 14 and 15) are deterministic WebAssembly modules on a ledger. They govern business objects, called instances, whose every call the contract must accept. The parties consent on their own ledgers, as with assets, and any verifier replays the calls with the same result. A call may also create instances, such as the parts a receivable is split into.
+**Contracts** (sections 14 and 15) are deterministic WebAssembly modules on a ledger. They govern business objects, called instances, whose every call the contract must accept. The parties consent on their own ledgers, as with assets, and any verifier replays the calls with the same result. A call may also create instances, such as the parts a receivable is split into, and ask **executors** to act outside the ledger: they answer with calls of their own, which the contract sees.
 
 **Machine by default.** A signature shows only that a key was used. A statement counts as a person's action only if it carries proof of presence (section 7).
 
@@ -172,6 +172,7 @@ A ledger accepts a statement only if every rule below holds at its registration 
   - presence, once required, stays required.
 - Chains have at most 16 delegations.
 - A scope may list contracts (scope key 7, v0.6). Calls and retires under it must then act on one of them, and a delegated scope's contracts are a subset of its grantor's (section 15).
+- A scope may list functions (scope key 8, v0.8): calls under it must name one of them. It may list request kinds (scope key 9, v0.8): calls under it must then be answers to requests of those kinds. A delegated scope's lists are subsets of its grantor's (section 15).
 
 **Bodies**
 
@@ -184,7 +185,7 @@ A ledger accepts a statement only if every rule below holds at its registration 
 - **Delegations.** Only the grantor or the organization may revoke a delegation. Revoking an actor or a delegation ends everything that depends on it, because authority is checked through the whole chain at every statement.
 - **Records.** Records follow their type's lifecycle (section 6). Transitions must start from the record's current state and be allowed by its type. Endorsement roles must be defined by the type, and an actor endorses a record at most once per role. A revoked record accepts no further statements.
 - **Assets.** An asset's registration must carry its type's metadata, and asset actions follow the rules of section 13. Assets refuse record-transition and record-revoke: they change only through asset actions. For authority, an asset action acts on the asset's record type.
-- **Contracts.** Deploys, calls, and retires follow the rules of section 15. A call is registered only if its contract, run on the call, accepts it.
+- **Contracts.** Deploys, calls, and retires follow the rules of section 15. A call is registered only if its contract, run on the call, accepts it. An answer (v0.8) answers an open request of its instance, at most once.
 
 ## 6. Records and private data
 
@@ -274,7 +275,7 @@ A leaf's history lists every log index that created or changed the object:
 - delegations: grant and revocation;
 - records: every statement about them;
 - contracts: deploy and retire;
-- instances: creation and every call. An instance created by another's call (section 15) starts with that call, which its parent's history lists too.
+- instances: creation and every call. An instance created by another's call (section 15) starts with that call, which its parent's history lists too. Requests and answers (v0.8) have no leaves of their own: the calls that make and answer them are in their instance's history.
 
 Each key has exactly one position, and leaf and node hashes are domain-separated. So one root cannot give two histories for one id.
 
@@ -564,7 +565,7 @@ The input and output are bytes to the execution layer. Their contents, determini
 
 ## 15. Contracts
 
-*Draft for revision v0.6; v0.7 adds instances created by a call.*
+*Draft for revision v0.6; v0.7 adds instances created by a call, and v0.8 requests and answers.*
 
 A **contract** is a module, in the profile of section 14, deployed on a ledger: its **home**. An **instance** is one business object the contract governs, such as an agreement, a bill, or an order. Like an asset (section 13), an instance lives on its home ledger only:
 - only the home records its calls, and only if the contract accepts them;
@@ -572,7 +573,7 @@ A **contract** is a module, in the profile of section 14, deployed on a ledger: 
 - a party other than the home consents on its own ledger;
 - every verifier replays the calls with the same contract and reaches the same result.
 
-A call may also create instances of its contract, called **children**, such as the parts a receivable is split into (v0.7).
+A call may also create instances of its contract, called **children**, such as the parts a receivable is split into (v0.7). And it may ask **executors** to act outside the ledger, with **requests** that they **answer** by calls of their own (v0.8).
 
 **Statements.**
 
@@ -608,19 +609,30 @@ The ledger rules do not rebuild: a home that deploys a source that is not its co
 - a contract and a function of kind 1, to **create** an instance, whose id is then the call's statement id; or
 - an instance, its **head**, and a function of kind 2. The head is the log index of the instance's latest call (at first, its creation).
 
+A call on an instance may also be an **answer** to one of its requests (body key 8, v0.8; see "Requests and answers" below).
+
 The **arguments** are any CBOR value, at most 65,536 bytes encoded. Whoever holds the instance's evidence sees them, so values a contract must check are disclosed to every verifier.
 
 **Ledger rules.** A contract-call MUST be refused unless:
-- exactly one of contract and instance is present, and the head is present exactly with an instance;
+- exactly one of contract and instance is present, and the head is present exactly with an instance; an answer (key 8, v0.8) names an instance;
 - for a creation: the contract exists and is not retired, the function is in its interface with kind 1, and the call cites no consents;
-- otherwise: the instance exists and is not final, the head is its head, and the function is in its contract's interface with kind 2;
+- otherwise: the instance exists, the head is its head, and the function is in its contract's interface with kind 2; the instance is not final, unless the call is an answer (v0.8);
 - the consents, if any, are 1 to 16, strictly ascending by ledger, and none is from the home;
+- for an answer (v0.8): the request is an open request of the instance, the function is the request's reply, the status is expired only if the registration time has reached the request's deadline, and the call cites no consents;
 - the contract, run on the call's input (below), succeeds with an `accept` output;
-- if the accept creates children (key 6, v0.7): the contract is not retired, and the instance the call acts on, or creates, has a depth below 8.
+- if the accept creates children (key 6, v0.7): the contract is not retired, and the instance the call acts on, or creates, has a depth below 8;
+- if the accept makes requests (key 7, v0.8): each deadline is after the call's registration time and at most 366 days (31,622,400,000 ms) after it, each reply is a function of kind 2 in the contract's interface, and the instance is left with at most 64 open requests;
+- if the instance was final before the call (an answer, v0.8): the accept makes no requests and creates no children.
 
 A contract-deploy MUST be refused unless its code loads and its interface is well formed. A contract-retire MUST name a contract that exists and is not retired.
 
 **Authority.** Delegations cover types 21 to 23 like any other type. Scope key 7, when present, lists the contracts the grantee may act on: a call or a retire must act on one of them, where a call on an instance acts on the instance's contract. A delegated scope's contracts are a subset of the grantor's. Key 7 does not restrict deploys.
+
+Two more scope keys (v0.8) restrict contract calls only:
+- **key 8, functions:** a call under it must name one of these functions, a creation's included;
+- **key 9, request kinds:** a call under it must be an answer to a request of one of these kinds.
+
+Each is a strictly ascending list of text: function names of 1 to 64 bytes, and request kinds (below). Like key 7, each narrows: when the grantor's scope has the key, a delegated scope must have it too, and list a subset of the grantor's. When it is absent, any function, or any call, is allowed.
 
 **The input** is a deterministic CBOR map, which the contract reads with `input_read`:
 
@@ -634,6 +646,7 @@ A contract-deploy MUST be refused unless its code loads and its interface is wel
 | 6 | the caller: `[actor, signer]` |
 | 7 | the call's registration time |
 | 8 | the consents, if any, in the call's order: `[ledger, signer]` each |
+| 9 | for an answer only (v0.8): the request, `{1: id, 2: kind, 3: params, 4: deadline, 5: asked at, 6: status}`, with the answer's status |
 
 A **signer** describes who signed a statement: `{1: kind, ? 2: presence, ? 3: model}`.
 - **Kind:** 0 for the organization; otherwise the actor's kind (person 1, agent 2, device 3).
@@ -643,13 +656,14 @@ A **signer** describes who signed a statement: `{1: kind, ? 2: presence, ? 3: mo
 So a contract can require that a person approved in person, or that an agent's step is confirmed by a person.
 
 **The output** is a deterministic CBOR array, written with `output_write`:
-- `[1, accept]` accepts the call. `accept` is `{1: state, ? 2: status, ? 3: parties, ? 4: events, ? 5: true, ? 6: children}`:
+- `[1, accept]` accepts the call. `accept` is `{1: state, ? 2: status, ? 3: parties, ? 4: events, ? 5: true, ? 6: children, ? 7: requests}`:
   - **state:** any CBOR value, at most 65,536 bytes encoded, kept by the home and given to the next call;
   - **status:** 1 to 64 bytes, shown in reports and lists, such as `proposed` or `effective`;
   - **parties:** a map from roles (1 to 64 bytes) to ledger ids, at most 64. It replaces the instance's parties; when absent, they stay as they were (none after a creation);
   - **events:** at most 64 `[name, data]` pairs, with names of 1 to 64 bytes, shown in reports;
-  - **key 5:** the instance is **final** and takes no more calls;
-  - **children** (v0.7): 1 to 16 new instances, each `{1: state, ? 2: status, ? 3: parties}` with the limits above; see "Instances created by a call" below.
+  - **key 5:** the instance is **final** and takes no more calls, except answers to its open requests (v0.8);
+  - **children** (v0.7): 1 to 16 new instances, each `{1: state, ? 2: status, ? 3: parties}` with the limits above; see "Instances created by a call" below;
+  - **requests** (v0.8): 1 to 16 requests to executors, each `{1: kind, 2: params, 3: deadline, 4: reply}`; see "Requests and answers" below.
 - `[2, needs]` asks for consents. `needs` lists the ledgers whose consents the call lacks: 1 to 16, strictly ascending, none the home.
 
 An output is well formed only if it is deterministic CBOR within the limits of section 2 and matches `contract-output`. The call is refused on a trap (`abort` is how a contract rejects a call, with its reason), on a `needs` output, and on an output that is not well formed. The contract is deterministic, so the home runs it first without consents to learn whom to ask. A role may name the home itself: the home agrees through the call it signs, so it never consents to its own calls.
@@ -661,9 +675,39 @@ An output is well formed only if it is deterministic CBOR within the limits of s
 - **Order.** The home applies the accept to the parent as to any call (state, status, parties, finality), then creates the children in order. A parent may keep its state and take more calls, or end (key 5). A split normally ends it, so that only the parts carry its value.
 - **Retired contracts** create no more instances, neither by a creation nor as children. Calls that create none carry on.
 - **Calls on a child** are calls on an instance: its id, its head, a function of kind 2, and consents that name the child. Under scope key 7, a call on a child acts on its contract.
-- **Final instances** take no more calls. They stay in the state, and their evidence can still be fetched and verified. A parent's end does not end its children, nor a child's its parent.
+- **Final instances** take no more calls, except answers to their open requests (v0.8). They stay in the state, and their evidence can still be fetched and verified. A parent's end does not end its children, nor a child's its parent.
 - **What the contract sees.** For a call on a child, the instance view (input key 5) carries key 6, `[parent, depth]`, so a contract can refuse to split at the depth limit with its own reason. For other instances the view has no key 6, and the input is as in v0.6.
 - **Consents** are unchanged: at most 16 per call, none from the home. A split that needs the consents of the holder and of every recipient therefore has at most 15 recipients besides the holder.
+
+**Requests and answers** (v0.8). A contract decides, but never acts on the world outside the ledger: replay could not repeat that. Instead, an accepted call may make **requests**, and an **executor** carries them out: an actor of the home, such as a device next to a control panel, an AI agent, or a person, which acts (provisions a server, sends a notice, issues an invoice in another system) and reports what happened with a call of its own, an **answer**. The contract then sees the answer and reacts. Requests are part of the contract's output, which every verifier recomputes by replay, so the log entry format does not change.
+- **A request** is `{1: kind, 2: params, 3: deadline, 4: reply}` in accept key 7, at most 16 per call:
+  - **kind:** what to do, 1 to 64 bytes of lowercase ASCII letters, digits, `.`, `_`, and `-`, starting with a letter: `invoice`, `notify`, `suspend`;
+  - **params:** what the executor needs, any CBOR value of at most 4,096 bytes encoded, within the privacy rules below;
+  - **deadline:** when the work is due, after the call's registration time and at most 366 days after it;
+  - **reply:** the function an answer calls, of kind 2 in the contract's interface.
+
+  A request belongs to the instance the call acts on, or, for a creation, to the instance it creates. Children (key 6) start with none. A request is **asked at** its call's registration time.
+- **Id.** A request's id is `HASH(deterministic-CBOR(["request", call, position]))` under the home's hash: `call` is the requesting call's statement id, and `position` the request's index in key 7, from 0. Its leading text keeps it apart from child ids (`[call, position]`), and statement ids hash a COSE `Sig_structure`. The id is the request's **idempotency key**: an executor MUST NOT carry out one id twice, and SHOULD give it to the outside system (as an invoice's reference, for instance) so that a retry after a crash is recognized there.
+- **Open requests.** A request is **open** until an answer to it is recorded; then it is **closed**, with the answer's status. An instance has at most 64 open requests: a call whose accept would leave it more is refused. An answer closes its request first, so an instance at the limit still takes an answer that makes one new request.
+- **An answer** is a contract-call on the instance with body key 8, `[request, status]`, the status being 1 **done**, 2 **failed**, or 3 **expired**. It calls the request's reply, and its arguments carry the result, as the contract defines it (at most 65,536 bytes, as for any call). Besides the rules of every call (the head, authority), an answer is refused unless:
+  - the request is one of the instance's, and open: a request is answered **at most once**;
+  - the function is the request's reply;
+  - for status 3, the registration time has reached the deadline. Done and failed are valid at any time: one registered after the deadline is **late**, and is recorded all the same;
+  - it cites no consents, and the contract accepts it. An answer the contract rejects, or for which it asks for consents, is refused, and the request stays open. A contract therefore never asks for consents for an answer: none could be given.
+- **What the contract sees.** For an answer, input key 9 shows the request: `{1: id, 2: kind, 3: params, 4: deadline, 5: asked at, 6: status}`, with the answer's status. So a contract need not keep its requests in its state, and it sees whether an answer is late and who gave it (input key 6). For any other call, the input has no key 9.
+- **Order.** The home closes the request, then applies the accept as for any call (state, status, parties, events, finality, children), then opens the requests the accept makes. An answer may make requests of its own: a retry after a failure, or the next step.
+- **Expiry.** Expiring is an answer like the others, given by whoever the delegations allow, typically a keeper (the actor that fires a contract's time rules). It SHOULD wait for a grace period after the deadline, so that a slow but real result is recorded rather than lost. An executor SHOULD NOT start work after a request's deadline.
+- **Final instances** take no calls except answers to their open requests. Such an answer may change the state, status, parties, and events, but it makes no requests and creates no children, and the instance stays final whatever its accept says. So a contract can end an instance and still learn whether the world followed: a service that ends asks a panel to reclaim its address, and the panel's answer arrives after the end.
+- **Who may answer:** any actor whose delegation covers the call, a person answering by hand included. Scope keys 8 and 9 keep executors and keepers to their work: an executor gets key 8 `["result"]` (its contract's reply) and key 9 with the kinds it serves, so that it can answer those requests and nothing else; a keeper gets key 8 with the contract's time rules and the reply, so that it can fire rules and expire requests, but not call the actions that are the home's own word.
+- **Executors verify before acting.** However an executor learns of requests (an API, a feed), it SHOULD act only on a request that it finds open by replaying contract evidence it has verified itself (below), against the home's ledger id and, for valuable work, the witnesses it trusts. Then a compromised API cannot make it act on a request that is not in the signed log.
+- **Privacy.** Requests and answers are visible to everyone who holds the instance's evidence, like arguments and states. Contracts MUST keep requests, and executors their answers, to what may be shown:
+
+  | Requests and answers may carry | They MUST NOT carry |
+  |---|---|
+  | kinds, ledger ids, values the contract already holds, amounts, dates, bills, and record and request ids | names, e-mail addresses, phone numbers, postal addresses, or any document's content |
+  | results: outside ids (such as an invoice number), statuses, amounts, reason codes, and salted digests of outside responses | secrets of any kind, or raw error texts from outside systems (they may name people) |
+
+  An executor keeps contact details in its own directory, keyed by ledger id. It keeps an outside system's response too, and puts in the answer only `HASH(salt || response)` under the home's hash, with a fresh 16-byte salt, as attachments do (section 6), so that it can disclose the response later, with proof. The ledger cannot check any of this; verifiers show what requests and answers carry.
 
 **Consents.** A party consents with a `cexchain.contract-consent/1` record on its own ledger (state given, which may become withdrawn), under its own delegations and with proof of presence if a person approved. Its metadata names the terms:
 - `ledger` (the home), `instance`, `function`, and `head`;
@@ -677,7 +721,7 @@ A call cites each consent as `[ledger, record, bundle, signer]`: the party's led
 
 **Contract evidence** (`contract-evidence`) is the instance's evidence bundle with every consent bundle its calls cite. The instance's bundle includes the deploy (and so the code), any retire, and every call on the instance. For a child, it also includes its **ancestors' histories** (v0.7): for each ancestor, its creation and every call on it up to and including the call that created the next generation. "Its calls" then include these, consents and all. A verifier MUST:
 1. verify the instance's bundle for the expected home ledger (section 11) and require it to be complete;
-2. replay it, running the contract for each call, the ancestors' included, to reach the instance's state, status, parties, and whether it is final. For a child, the replay also shows that each generation is the child its creating call's output made at its position, with that output's state, status, and parties, within the depth limit: otherwise the instance would not exist in the replayed state;
+2. replay it, running the contract for each call, the ancestors' included, to reach the instance's state, status, parties, whether it is final, and its requests (v0.8). For a child, the replay also shows that each generation is the child its creating call's output made at its position, with that output's state, status, and parties, within the depth limit: otherwise the instance would not exist in the replayed state;
 3. for each consent citation, find the bundle with that hash and check that:
    - it verifies, completely, for the cited ledger;
    - it is about the cited record, a live `cexchain.contract-consent/1` record (given, not revoked);
@@ -688,9 +732,16 @@ A call cites each consent as `[ledger, record, bundle, signer]`: the party's led
 
 The report shows each call: the function and arguments, the outcome (status and events), who called and who consented, under whose authority, whether a person proved presence, and any AI provenance. For a child, it shows the ancestors first, each with its depth and its calls up to the one that created the next generation.
 
+**Requests in evidence** (v0.8). They need no state leaf of their own: they are derived by replay from the calls in the instance's history, and a complete bundle holds every one of those calls. So complete evidence proves every request the instance made and every answer it took, and that none is missing. The report shows, besides each call:
+- for each call, the requests it made: id, kind, params, deadline, and reply;
+- for each answer, the request it answers, its status, and how late it is (its registration time minus the deadline, when positive); who answered, with kind, delegation, presence, and model, is shown as for every call;
+- at the end, the instance's open requests, each flagged **overdue** if the checkpoint's time has reached its deadline.
+
+A verifier MAY, when asked to, fail evidence that has overdue open requests. For a child, the requests its ancestors' included calls made belong to the ancestors: the report shows them with those calls, but cannot show whether they were answered later, since those calls are left out.
+
 **Evidence for a child** leaves out its ancestors' later calls, and the siblings' calls. So it need not prove the ancestors' leaves, which list those later calls, and the home's bundles carry no proof for them. Their histories up to each creating call are still complete. Every call names the head it follows, so a call left out breaks the chain, and the creating calls are those the instance's id derives from. The involved objects (section 11, step 7) include those of the ancestors' calls, so their signers and delegations are proven complete like the instance's own.
 
-**Not yet.** Evidence from other ledgers as input, requests to executors (see the Bo specification), and migration to a new version are planned for later revisions.
+**Not yet.** Evidence from other ledgers as input, and migration to a new version, are planned for later revisions.
 
 ## 16. The HTTP API
 
@@ -728,6 +779,8 @@ This section is informative. The reference implementation serves a ledger over H
 A call's id is SHA-256 of `[instance, head, function, arguments digest]`, so a consent's terms name exactly one held call. `GET /v1/contracts/calls` and `/v1/contracts/calls/{call}` show the held calls: all of them to read tokens, and to a peer those that concern its ledger (as a party, as asked, or as consented).
 
 `GET /v1/contracts` and `/v1/contracts/{contract}` list and show the contracts to read tokens: interface, language, compiler, name, whether retired, the number of instances, and, for one contract, its code's size and hash (the code is in the deploy statement). `GET /v1/contracts/instances/{instance}` returns the contract evidence, without private data, to the instance's current parties and to read tokens, as of a checkpoint that covers the instance's latest call; the server makes one if it must. For a part (v0.7), the evidence carries its ancestors' calls up to each one that created the next generation, with the consent bundles those calls cite, and goes to the part's current parties (a parent's parties see only the parent). Listing a parent's parts takes no route: its evidence shows each call's children, and the part's id is derived from the call (section 15).
+
+**Requests** (v0.8). An answer is submitted like any other statement, with `POST /v1/statements`. It cites no consents, so a registrar never holds one, and the proposal route takes none: its body names no request, and a final instance takes no proposals. An executor reads the requests it serves in contract evidence (`GET /v1/contracts/instances/{instance}`), and checks them there before acting (section 15). A route that lists open requests for executors, and a token scope for them, are planned; what they return is a hint, never evidence.
 
 A server holds the log key to sign checkpoints, receipts, and evidence. Across a rotation it may hold the old and new key, and signs with the one in effect.
 
@@ -769,6 +822,13 @@ A server holds the log key to sign checkpoints, receipts, and evidence. Across a
   - A child's evidence shows its ancestors' calls up to each creating call: the parent's states and parties, the arguments of the split, and the first state and parties of every sibling. So a part's holder, and anyone it shows the part to, sees the other parts' holders and amounts. This is accepted for v1; commitments or zero-knowledge proofs may hide siblings later. The evidence does not show the siblings' later calls, nor the ancestors' calls after each split.
   - The protocol does not know amounts: a contract that splits must conserve them. A verifier that relies on a part SHOULD check, in the replayed split, that the parts add up to the parent's amount, or rely on a contract whose source it has read and rebuilt.
   - Depth is capped at 8, so a part's evidence carries at most 8 ancestors' histories.
+- **Requests and answers** (v0.8).
+  - An answer is its signer's claim that the world followed, not proof of it. A false answer (a payment reported that was never made) is permanent and attributable to its signer, under its delegation: verifiers show who answered, with what authority and model, and whether a person did. Contracts MAY require a person's answer, or a second answer, for valuable kinds, and homes SHOULD reconcile answers against the outside systems.
+  - A compromised executor key can answer the open requests its delegation reaches, falsely. Scope keys 7 to 9 bound that to some contracts, functions, and request kinds; it cannot answer twice, make requests, call other functions, or prove presence. Revoking its delegation stops it at once.
+  - The ledger guarantees at most one answer per request, not that the work is done at most once: an executor that loses track of a request could act again. Executors use the request id as their idempotency key, outside too, and keep a journal.
+  - Deadlines, lateness, and expiry follow the home's clock, which is ordered but not anchored (see "Time"). The home decides when an answer is registered: it could hold a valid answer back until a keeper expires the request. An executor that keeps its signed answer can show that it was offered in time.
+  - A contract that refuses every answer to a request keeps it open, and a final instance with such a request takes answers forever. The limits (16 requests per call, 4,096 bytes of params, 64 open requests per instance) keep this, and replay, bounded.
+  - Requests and answers are visible to whoever holds the instance's evidence; section 15 says what they may carry. Outside responses are committed by salted digest, never carried.
 
 ## 18. Test vectors
 
@@ -786,7 +846,8 @@ A server holds the log key to sign checkpoints, receipts, and evidence. Across a
 | `protocol-v0.5.json` | assets: a receivable and a warehouse receipt through every action, consent metadata, actions the rules refuse, and asset evidence |
 | `protocol-v0.6.json` | contracts (section 15): a test contract deployed, instances created and called, with each call's input and output, consent metadata, calls the rules refuse, and contract evidence |
 | `protocol-v0.7.json` | instances created by a call (section 15): a splitting contract and the v0.6 test contract; children and their ids, calls on a child and a grandchild, splits down to the depth limit, children the rules refuse (too many, too deep, malformed, on a retired contract, on a final parent), the state tree, and signed evidence bundles: an instance, a tier-3 part with its ancestors and real consent bundles from other ledgers, and a child whose parent carried on |
+| `protocol-v0.8.json` | requests and answers (section 15): a requesting contract; requests and their ids; answers done, failed, and expired, by a device, an AI agent, a keeper, and a person by hand, on time and late, some making new requests; answers the rules refuse (a second answer, expired too early, an unknown request or another instance's, a function that is not the reply, consents cited, outside scope keys 8 and 9, rejected by the contract, malformed); the limits (17 requests in a call, a 65th open request, 4,096 bytes of params, deadlines, replies) and malformed requests; scope keys 8 and 9 and their narrowing; a final instance that takes answers and refuses the rest; requests on a creation that also creates a child; the state, the log, and signed evidence showing answered, open, and overdue requests, with an outside response committed by salted digest |
 | `vm-v1.json` | contract execution (section 14): modules in and out of the profile, invocations with their outputs, traps, and fuel, and random integer programs, all from an independent reference interpreter (`tools/testvectors/wasm_ref.py`) |
 | `bo-v1.json` | the Bo language ([`bo.md`](bo.md), section 18): contracts' sources in each language, their interfaces and bo-source bundles, the code `cexchain-bo` builds and its bounds (informative), calls with their outcomes (normative), and sources that must not build with their errors' codes |
 
-`tools/testvectors/generate.py` regenerates them with Python's `cryptography` and `cbor2`, and OpenSSL, independently of the C++ code; `tools/testvectors/bo_vectors.py` writes `bo-v1.json` from the Bo compiler's runs and checks each on the reference interpreter. `test-contracts.json` is not part of the protocol: it holds contracts for tests of the reference server (a contract that decides by how many consents a call cites, and the splitting contract of `protocol-v0.7.json`), from `tools/testvectors/test_contracts.py`.
+`tools/testvectors/generate.py` regenerates them with Python's `cryptography` and `cbor2`, and OpenSSL, independently of the C++ code; `tools/testvectors/bo_vectors.py` writes `bo-v1.json` from the Bo compiler's runs and checks each on the reference interpreter. `test-contracts.json` is not part of the protocol: it holds contracts for tests of the reference server (a contract that decides by how many consents a call cites, and the splitting contract of `protocol-v0.7.json`), from `tools/testvectors/test_contracts.py`, which also assembles the requesting contract of `protocol-v0.8.json`.

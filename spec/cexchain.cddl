@@ -1,7 +1,7 @@
 ; SPDX-License-Identifier: Apache-2.0
 ; Copyright 2026 Cirraya
 ;
-; The CexChain protocol (RFC 8610 CDDL). Specification revision v0.7 (draft); the
+; The CexChain protocol (RFC 8610 CDDL). Specification revision v0.8 (draft); the
 ; wire protocol version (statement key 0) is 1.
 ;
 ; Revision history:
@@ -33,6 +33,12 @@
 ;         call on a child; at most 8 generations; a child's state leaf and
 ;         contract evidence with its ancestors' histories. Earlier objects
 ;         remain valid.
+;   v0.8  requests and answers (draft): accept key 7 makes up to 16 requests
+;         to executors, identified by request-id-input; contract-call key 8
+;         answers one (done, failed, expired), and input key 9 shows it to
+;         the contract; scope keys 8 (functions) and 9 (request kinds); a
+;         final instance takes answers to its open requests. No new state
+;         leaf. Earlier objects remain valid.
 ;
 ; Every structure is encoded as deterministic CBOR (RFC 8949 section 4.2.1) in
 ; the CexChain profile: no floats, no indefinite lengths, no duplicate keys.
@@ -186,7 +192,16 @@ scope = {
                                ; on one of them (a call on an instance acts on
                                ; its contract); absent means any. Unique; a
                                ; delegated list is a subset of the grantor's.
+  ? 8 => [+ function-name],    ; functions (v0.8): contract calls must name one
+                               ; of them; absent means any.
+  ? 9 => [+ request-kind],     ; request kinds (v0.8): contract calls must be
+                               ; answers to requests of these kinds; absent
+                               ; means any call.
 }
+; Keys 7 to 9 are strictly ascending (ids bytewise, text by its UTF-8
+; bytes). They restrict contract calls only (key 7 retires too). When the
+; grantor's scope has one of them, a delegated scope must have it too, and
+; list a subset of the grantor's.
 
 ; Proof of human presence (machine by default: a statement without it shows
 ; only that the signer's key was used). A person registers credentials:
@@ -336,7 +351,8 @@ contract-deploy-body = {
   ? 6 => tstr,                 ; name, 1-256 bytes
 }
 ; Function names (UTF-8, 1-64 bytes), at most 256, at least one of kind 1.
-contract-interface = { + tstr => function-kind }
+contract-interface = { + function-name => function-kind }
+function-name = tstr .size (1..64)
 function-kind = &(create: 1, call: 2)
 
 ; The source of a contract written in Bo (v0.6; spec section 15, "Contracts
@@ -366,7 +382,9 @@ bo-pack = { + tstr => any }
 
 ; Either creates an instance (contract, a function of kind 1, no head, no
 ; consents; the instance id is this statement's id) or acts on one
-; (instance, its head, a function of kind 2).
+; (instance, its head, a function of kind 2). A call on an instance may
+; answer one of its open requests (key 8, v0.8): then its function is the
+; request's reply, it cites no consents, and the contract must accept it.
 contract-call-body = {
   ? 1 => id,                   ; contract: exactly for a creation
   ? 2 => id,                   ; instance: exactly otherwise
@@ -377,7 +395,17 @@ contract-call-body = {
   ? 6 => [1*16 contract-consent-ref], ; strictly ascending by ledger; none
                                ; from the home
   ? 7 => tstr,                 ; reference, 1-1024 bytes
+  ? 8 => answer,               ; v0.8: exactly with an instance
 }
+; An answer (v0.8; spec section 15, "Requests and answers"): the request,
+; open and of the instance the call acts on, and what became of it. Expired
+; is valid only once the call's registration time has reached the request's
+; deadline; done and failed at any time. A request is answered at most once.
+answer = [
+  request: id,                 ; its request-id-input's HASH
+  status: answer-status,
+]
+answer-status = &(done: 1, failed: 2, expired: 3)
 ; A party's consent, given on its own ledger.
 contract-consent-ref = [
   ledger: id,                  ; the party's ledger
@@ -734,6 +762,16 @@ contract-input = {
   6 => [actor: id, signer],    ; the caller
   7 => timestamp,              ; the call's registration time
   ? 8 => [+ [ledger: id, signer]], ; the consents, in the call's order
+  ? 9 => request-view,         ; v0.8: exactly for an answer
+}
+; The request an answer answers (v0.8), as its contract sees it.
+request-view = {
+  1 => id,                     ; the request
+  2 => request-kind,
+  3 => any,                    ; its params
+  4 => timestamp,              ; its deadline
+  5 => timestamp,              ; asked at: its call's registration time
+  6 => answer-status,          ; the answer's
 }
 instance-view = {
   1 => id,                     ; the instance
@@ -756,8 +794,11 @@ contract-accept = {
   ? 2 => tstr,                 ; status, 1-64 bytes
   ? 3 => parties,              ; replaces the parties; absent keeps them
   ? 4 => [1*64 [name: tstr, data: any]], ; events, names 1-64 bytes
-  ? 5 => true,                 ; final: the instance takes no more calls
+  ? 5 => true,                 ; final: the instance takes no more calls,
+                               ; except answers to its open requests (v0.8);
+                               ; it stays final whatever later accepts say
   ? 6 => [1*16 contract-child], ; v0.7: new instances of the contract
+  ? 7 => [1*16 contract-request], ; v0.8: requests to executors
 }
 
 ; An instance created by a call (v0.7; spec section 15, "Instances created by
@@ -776,6 +817,28 @@ contract-child = {
 child-id-input = [
   call: id,                    ; the creating contract-call's statement_id
   position: 0..15,             ; the child's index in accept key 6
+]
+
+; A request to an executor (v0.8; spec section 15, "Requests and answers"),
+; made by an accepted call. It belongs to the instance the call acts on, or
+; creates; children start with none. The call is refused unless each
+; deadline is after its registration time and at most 31,622,400,000 ms
+; (366 days) after it, each reply is a function of kind 2 in the contract's
+; interface, and the instance is left with at most 64 open requests; a call
+; on an instance that was already final (an answer) makes none.
+contract-request = {
+  1 => request-kind,
+  2 => any,                    ; params, at most 4,096 bytes encoded
+  3 => timestamp,              ; deadline
+  4 => function-name,          ; reply: the function an answer calls
+}
+request-kind = tstr .regexp "[a-z][a-z0-9._-]{0,63}"
+; A request's id is HASH (the home's) of this, deterministically encoded. It
+; is the request's idempotency key.
+request-id-input = [
+  "request",
+  call: id,                    ; the requesting contract-call's statement_id
+  position: 0..15,             ; the request's index in accept key 7
 ]
 
 ; Metadata of a cexchain.contract-consent/1 record (initial state "given",
@@ -802,7 +865,8 @@ contract-consent = {
 ; delegations. A verifier:
 ;   1. verifies the instance bundle for the home ledger; it must be complete;
 ;   2. replays it, running the contract for each call (the ancestors'
-;      included), to the instance's state, status, parties, and finality;
+;      included), to the instance's state, status, parties, and finality,
+;      and its requests, open and answered (v0.8);
 ;   3. for each contract-consent-ref, takes the bundle whose HASH (the home's)
 ;      it names, and requires that bundle to verify for the cited ledger,
 ;      completely; to be about the cited record, a live (given, not revoked)
