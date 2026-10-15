@@ -438,6 +438,12 @@ void text_seeds(const Seeds& seeds) {
                 "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nabcd\r\n0\r\n\r\n");
     seeds.write("http_parse_fuzz", "response",
                 "HTTP/1.1 404 Not Found\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}");
+    seeds.write("http_parse_fuzz", "requests-poll",
+                "GET /v1/requests?state=open&kind=notify,http.post&after=12&limit=50&wait=25 "
+                "HTTP/1.1\r\nHost: ledger\r\nAuthorization: Bearer cxt_x\r\n\r\n");
+    seeds.write("http_parse_fuzz", "requests-instance",
+                "GET /v1/requests?state=all&instance=" + std::string(64, 'a') +
+                    "&contract=" + std::string(64, '0') + " HTTP/1.1\r\nHost: ledger\r\n\r\n");
     seeds.write("pkcs11_uri_fuzz", "key",
                 "pkcs11:token=CexChain;object=alice;type=private?module-path=/usr/lib/"
                 "softhsm/libsofthsm2.so&pin-source=file:/run/pin");

@@ -13,6 +13,7 @@ add_library(cexchain_node
     src/http.cpp
     src/peers.cpp
     src/replica.cpp
+    src/request_query.cpp
     src/server.cpp
     src/tokens.cpp)
 add_library(cexchain::node ALIAS cexchain_node)

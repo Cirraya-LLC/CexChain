@@ -1,0 +1,98 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Cirraya
+
+#include "request_query.hpp"
+
+#include <algorithm>
+#include <charconv>
+
+#include <cexchain/core/bytes.hpp>
+#include <cexchain/core/protocol/statement.hpp>
+
+namespace cexchain::node::detail {
+
+namespace {
+
+std::optional<std::uint64_t> number(std::string_view text) {
+    std::uint64_t value = 0;
+    const auto [ptr, ec] = std::from_chars(text.data(), text.data() + text.size(), value);
+    if (ec != std::errc{} || ptr != text.data() + text.size() || text.empty()) {
+        return std::nullopt;
+    }
+    return value;
+}
+
+std::optional<protocol::Id> id(std::string_view hex) {
+    if (hex.size() != 64) {
+        return std::nullopt;
+    }
+    const auto bytes = from_hex(hex);
+    if (!bytes) {
+        return std::nullopt;
+    }
+    const auto parsed = protocol::to_id(*bytes);
+    return parsed ? std::optional<protocol::Id>(*parsed) : std::nullopt;
+}
+
+} // namespace
+
+std::variant<RequestQuery, QueryError> parse_request_query(const http::Request& r) {
+    RequestQuery q;
+    for (const auto& [name, value] : r.query) {
+        if (name == "state") {
+            if (value == "open") {
+                q.which = RequestQuery::Which::open;
+            } else if (value == "answered") {
+                q.which = RequestQuery::Which::answered;
+            } else if (value == "all") {
+                q.which = RequestQuery::Which::all;
+            } else {
+                return QueryError{"state is open, answered, or all"};
+            }
+        } else if (name == "kind") {
+            std::string_view rest = value;
+            while (true) {
+                const std::size_t comma = std::min(rest.find(','), rest.size());
+                const std::string_view kind = rest.substr(0, comma);
+                if (!protocol::is_request_kind(kind)) {
+                    return QueryError{"kind is one or more request kinds, comma-separated"};
+                }
+                q.kinds.emplace_back(kind);
+                if (comma == rest.size()) {
+                    break;
+                }
+                rest.remove_prefix(comma + 1);
+            }
+        } else if (name == "contract" || name == "instance") {
+            const auto parsed = id(value);
+            if (!parsed) {
+                return QueryError{"contract and instance are ids of 64 hex digits"};
+            }
+            (name == "contract" ? q.contract : q.instance) = *parsed;
+        } else if (name == "after") {
+            const auto after = number(value);
+            if (!after) {
+                return QueryError{"after is a number (the cursor of an earlier answer)"};
+            }
+            q.after = *after;
+        } else if (name == "limit") {
+            const auto limit = number(value);
+            if (!limit || *limit == 0 || *limit > max_request_limit) {
+                return QueryError{"limit is 1 to 1000"};
+            }
+            q.limit = *limit;
+        } else if (name == "wait") {
+            const auto wait = number(value);
+            if (!wait || *wait > max_request_wait) {
+                return QueryError{"wait is 0 to 25 seconds"};
+            }
+            q.wait = std::chrono::seconds(*wait);
+        } else {
+            return QueryError{
+                "the parameters are state, kind, contract, instance, after, limit, and wait"};
+        }
+    }
+    return q;
+}
+
+} // namespace cexchain::node::detail

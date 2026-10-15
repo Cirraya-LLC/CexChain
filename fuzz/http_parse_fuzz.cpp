@@ -6,7 +6,8 @@
 // the input, and a request it accepts must be consistent with its framing.
 // The input is also fed in pieces, as the server reads it: a request must
 // not be accepted (or refused) before all of it has arrived, nor differently
-// once more arrives after it.
+// once more arrives after it. A request's query is also read as the requests
+// route reads it (spec v0.8): whatever it accepts is within its limits.
 
 #include <algorithm>
 #include <cctype>
@@ -16,9 +17,13 @@
 #include <string>
 #include <string_view>
 
+#include <cexchain/core/protocol/statement.hpp>
 #include <cexchain/node/http.hpp>
 
+#include "request_query.hpp"
+
 namespace http = cexchain::node::http;
+namespace detail = cexchain::node::detail;
 
 namespace {
 
@@ -64,6 +69,17 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
             connections += is_field(name, "connection") ? 1 : 0;
         }
         require(lengths <= 1 && connections <= 1);
+        // GET /v1/requests: a query it takes is one the route can serve.
+        const auto query = detail::parse_request_query(r);
+        if (const auto* q = std::get_if<detail::RequestQuery>(&query)) {
+            require(q->limit >= 1 && q->limit <= detail::max_request_limit &&
+                    static_cast<std::uint64_t>(q->wait.count()) <= detail::max_request_wait);
+            for (const std::string& kind : q->kinds) {
+                require(cexchain::protocol::is_request_kind(kind));
+            }
+        } else {
+            require(!std::get<detail::QueryError>(query).message.empty() && !r.query.empty());
+        }
     } else if (error) {
         require(error->status >= 400 && error->status <= 505);
     }

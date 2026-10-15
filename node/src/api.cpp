@@ -30,6 +30,7 @@
 #include <cexchain/node/tokens.hpp>
 
 #include "files.hpp"
+#include "request_query.hpp"
 
 namespace cexchain::node {
 
@@ -283,92 +284,11 @@ bool is_sealed_vault(ByteView file) {
 constexpr std::size_t max_group = 4096;
 constexpr std::size_t max_group_bytes = 32 * 1024 * 1024;
 
-/// GET /v1/requests (v0.8): which requests an executor asks about. What the
-/// route answers is a hint: an executor checks a request in the instance's
-/// evidence before acting on it (spec section 15).
-struct RequestQuery {
-    enum class Which : std::uint8_t { open, answered, all };
-    Which which = Which::open;
-    /// Any kind if empty.
-    std::vector<std::string> kinds;
-    std::optional<protocol::Id> contract;
-    std::optional<protocol::Id> instance;
-    /// Only requests made or answered after the log's first `after` entries
-    /// (the `cursor` of an earlier answer).
-    std::uint64_t after = 0;
-    std::uint64_t limit = 100;
-    /// A long poll: if nothing matches, wait this long for something to.
-    std::chrono::seconds wait{0};
-};
+using detail::parse_request_query;
+using detail::RequestQuery;
 
-/// The longest a long poll waits: below the server's request timeout (30 s
-/// by default), after which the connection would be closed.
-constexpr std::uint64_t max_request_wait = 25;
-constexpr std::uint64_t max_request_limit = 1000;
 /// Long polls waiting at once; another one is answered at once.
 constexpr std::size_t max_waiters = 1024;
-
-std::variant<RequestQuery, http::Response> parse_request_query(const http::Request& r) {
-    RequestQuery q;
-    auto bad = [](std::string_view message) {
-        return error_response(400, "invalid_argument", message);
-    };
-    for (const auto& [name, value] : r.query) {
-        if (name == "state") {
-            if (value == "open") {
-                q.which = RequestQuery::Which::open;
-            } else if (value == "answered") {
-                q.which = RequestQuery::Which::answered;
-            } else if (value == "all") {
-                q.which = RequestQuery::Which::all;
-            } else {
-                return bad("state is open, answered, or all");
-            }
-        } else if (name == "kind") {
-            std::string_view rest = value;
-            while (true) {
-                const std::size_t comma = std::min(rest.find(','), rest.size());
-                const std::string_view kind = rest.substr(0, comma);
-                if (!protocol::is_request_kind(kind)) {
-                    return bad("kind is one or more request kinds, comma-separated");
-                }
-                q.kinds.emplace_back(kind);
-                if (comma == rest.size()) {
-                    break;
-                }
-                rest.remove_prefix(comma + 1);
-            }
-        } else if (name == "contract" || name == "instance") {
-            const auto id = id_from(value);
-            if (!id) {
-                return bad("contract and instance are ids of 64 hex digits");
-            }
-            (name == "contract" ? q.contract : q.instance) = *id;
-        } else if (name == "after") {
-            const auto after = number(r, "after");
-            if (!after) {
-                return bad("after is a number (the cursor of an earlier answer)");
-            }
-            q.after = *after;
-        } else if (name == "limit") {
-            const auto limit = number(r, "limit");
-            if (!limit || *limit == 0 || *limit > max_request_limit) {
-                return bad("limit is 1 to 1000");
-            }
-            q.limit = *limit;
-        } else if (name == "wait") {
-            const auto wait = number(r, "wait");
-            if (!wait || *wait > max_request_wait) {
-                return bad("wait is 0 to 25 seconds");
-            }
-            q.wait = std::chrono::seconds(*wait);
-        } else {
-            return bad(
-                "the parameters are state, kind, contract, instance, after, limit, and wait");
-        }
-    }
-    return q;
-}
 
 } // namespace
 
@@ -1314,8 +1234,8 @@ struct LedgerApi::State {
     /// once some do (a long poll).
     void requests_request(const http::Request& r, std::string principal, Done done) {
         auto parsed = parse_request_query(r);
-        if (auto* refusal = std::get_if<http::Response>(&parsed)) {
-            finish(done, principal, std::move(*refusal));
+        if (const auto* refusal = std::get_if<detail::QueryError>(&parsed)) {
+            finish(done, principal, error_response(400, "invalid_argument", refusal->message));
             return;
         }
         auto start = [this, q = std::get<RequestQuery>(std::move(parsed)),
