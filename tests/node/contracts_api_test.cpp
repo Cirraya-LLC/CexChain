@@ -562,6 +562,27 @@ TEST_CASE("a registrar refuses calls it cannot use, and drops what lapsed", "[no
     CHECK(api->ledger().state().instance(home.agreement)->status == "effective");
     CHECK(body_json(send(staff, "GET", "/v1/contracts/calls"))["calls"].empty());
     CHECK(std::filesystem::is_empty(node::pending_calls_directory(home.dir)));
+
+    // The ledger's rules for requests (v0.8) apply to what the registrar
+    // records: once the supplier consents, the contract accepts a call that
+    // asks for work due at once, and the registrar refuses it with the
+    // ledger's reason instead of signing it.
+    protocol::ContractAccept asking = accept("asked");
+    asking.requests.push_back({"provision", cbor::Value::null(), 1, "sign"});
+    const cbor::Value ask = outputs({needs({s}), asking});
+    REQUIRE(send(staff, "POST", "/v1/contracts/calls", proposal(*api, home, "sign", ask)).status ==
+            202);
+    const std::uint64_t moved = api->ledger().state().instance(home.agreement)->head;
+    const std::uint64_t size = api->ledger().size();
+    const auto asked = send(supplier_client, "POST", "/v1/contracts/consents",
+                            consent(supplier, home.id, crypto::HashAlg::sha256, home.agreement,
+                                    moved, "sign", ask, until));
+    INFO(text(asked));
+    CHECK(asked.status == 409);
+    CHECK(text(asked).find("the ledger refuses the call: a request's deadline") !=
+          std::string::npos);
+    CHECK(api->ledger().size() == size);
+    CHECK(api->ledger().state().instance(home.agreement)->status == "effective");
 }
 
 TEST_CASE("a contract call arrives with its consents, and only so", "[node][contracts]") {

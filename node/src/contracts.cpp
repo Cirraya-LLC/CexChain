@@ -832,8 +832,14 @@ Result<CallProgress> CallRegistrar::run(const crypto::Provider& provider,
         return progress;
     }
     // The contract accepts it; the ledger's rules for the children it would
-    // create (v0.7) apply after the run, so check them before signing.
-    if (const auto allowed = state.check_children(body, *run->accepted()); !allowed) {
+    // create (v0.7) and the requests it would make (v0.8) apply after the
+    // run, so check them before signing.
+    const protocol::ContractAccept& accept = *run->accepted();
+    Status allowed = state.check_children(body, accept);
+    if (allowed) {
+        allowed = state.check_requests(body, accept, now);
+    }
+    if (!allowed) {
         progress.verdict = CallProgress::Verdict::refused;
         progress.reason = "the ledger refuses the call: " + std::string(allowed.error().detail);
         return progress;

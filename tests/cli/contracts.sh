@@ -162,6 +162,16 @@ json 'len(d["needs"])' < dry.json | contains -x 2
 expect_exit 2 contract call "$I" sign --args "$SIGN" --as d-root.key --ledger "$D"
 contains 'needs the consent of' out.txt
 contains 'contract propose' out.txt
+# The ledger's rules for requests (v0.8) answer a dry run too: the contract
+# accepts a call asking for work due at once, and the ledger refuses it.
+ASK="[<<[1, {1: \"asked\", 2: \"asked\", 7: [{1: \"provision\", 2: null, 3: 1, 4: \"sign\"}]}]>>]"
+d contract call "$I" sign --args "$ASK" --as d-root.key --dry-run \
+    | contains "it would not be recorded: the ledger refuses the call: a request's deadline"
+d contract call "$I" sign --args "$ASK" --as d-root.key --dry-run --json \
+    | json 'd["verdict"]' | contains -x refuse
+expect_exit 2 contract call "$I" sign --args "$ASK" --as d-root.key --ledger "$D"
+contains "a request's deadline is after the call" out.txt
+d contract instance "$I" --json | json 'd["status"]' | contains -x proposed
 
 # --- The registrar, and delegations limited to contracts ----------------------------------
 run key generate --out registrar.key > /dev/null

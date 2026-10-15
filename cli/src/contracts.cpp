@@ -187,9 +187,15 @@ CallAttempt attempt_call(Session& session, const crypto::Signer& signer,
         options.dry_run && options.at ? *options.at : ledger::SystemClock{}.now();
     attempt.run = unwrap(session.state().run_contract(session.provider(), attempt.statement, time),
                          "running the contract");
+    // The ledger's rules that follow the run (children, v0.7; requests, v0.8),
+    // so that a dry run's answer is the ledger's.
     if (const protocol::ContractAccept* accept = attempt.run.accepted()) {
         const auto& call = std::get<protocol::ContractCallBody>(attempt.statement.statement.body);
-        if (const auto allowed = session.state().check_children(call, *accept); !allowed) {
+        Status allowed = session.state().check_children(call, *accept);
+        if (allowed) {
+            allowed = session.state().check_requests(call, *accept, time);
+        }
+        if (!allowed) {
             attempt.refused = "the ledger refuses the call: " + std::string(allowed.error().detail);
         }
     }
