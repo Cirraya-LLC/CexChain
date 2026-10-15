@@ -1,6 +1,6 @@
 # The CexChain protocol
 
-Revision v0.8 (draft). Wire protocol version 1.
+Revision v0.9 (draft). Wire protocol version 1.
 
 This document explains the protocol in prose. The normative definitions are:
 
@@ -12,6 +12,12 @@ Where this text and the CDDL disagree, the CDDL wins. The C++ code in this repos
 The key words MUST, MUST NOT, SHOULD, and MAY are used as in RFC 2119.
 
 Bo, the language contracts are written in, has its own reference: [`bo.md`](bo.md).
+
+**Changes in v0.9.** The protocol knows only generic primitives: actors and delegations, records, contracts and their instances, consents, access, witnesses, and evidence. Revision v0.9 removes:
+- statement type 20 (asset-action, v0.5), which is reserved and never reused: a decoder refuses it like any unknown type;
+- the record types of particular industries: certificates, deliveries, and agreements (v0.1), and receivables, warehouse receipts, and asset consents (v0.5), with their lifecycles, the asset rules, and asset evidence. The `cexchain.` record type prefix is reserved for the protocol's own mechanism types (section 6).
+
+A record's type is now its registrant's choice, with one generic lifecycle, and anything with rules of its own is a contract instance (sections 13 and 15). The wire protocol stays version 1, which was never released. A log that holds a type-20 statement or a removed record type therefore fails replay, so its ledger no longer opens; asset evidence no longer verifies; backups that carry asset consents are refused. That is accepted because nothing was released before v0.9: such logs exist only in tests, and keeping the types would bind every later version to them.
 
 ## Contents
 
@@ -27,7 +33,7 @@ Bo, the language contracts are written in, has its own reference: [`bo.md`](bo.m
 10. [Witnesses](#10-witnesses)
 11. [Evidence bundles and verification](#11-evidence-bundles-and-verification)
 12. [Access across organizations](#12-access-across-organizations)
-13. [Ownership assets](#13-ownership-assets)
+13. [Relying on an instance's state](#13-relying-on-an-instances-state)
 14. [Contract execution](#14-contract-execution)
 15. [Contracts](#15-contracts)
 16. [The HTTP API](#16-the-http-api)
@@ -36,7 +42,7 @@ Bo, the language contracts are written in, has its own reference: [`bo.md`](bo.m
 
 ## 1. Overview
 
-A **ledger** belongs to one organization. It records **statements**, which are signed claims by **actors**: people, AI agents, devices, and the organization itself. Statements register actors, delegate authority, and register, endorse, move, and revoke **records**. Records are business documents such as certificates, delivery notes, and agreements.
+A **ledger** belongs to one organization: a company, any other body, or a single person. This text calls a ledger's owner its organization throughout. A ledger records **statements**, which are signed claims by **actors**: people, AI agents, devices, and the organization itself. Statements register actors, delegate authority, and register, endorse, and revoke **records**. A record is a document of any type its owner names, such as an inspection report, a lease, or the receipt for a lent camera: the ledger commits to its fields and attachments and knows nothing of what they mean.
 
 The ledger appends each accepted statement to an append-only **log**, a Merkle tree (RFC 9162). It periodically signs a **checkpoint**, which commits to the tree's size and root. Anyone can then check, offline and without trusting the ledger's operator:
 
@@ -51,9 +57,7 @@ Documents stay off the ledger. The ledger holds salted commitments to field valu
 
 Two organizations exchange records through the same mechanism (section 12): each step is a statement on the acting organization's own ledger, checked by the other side with an evidence bundle.
 
-**Ownership assets** (section 13), such as receivables and warehouse receipts, live on their issuer's ledger. Each change of hands needs the consent of every party involved, given on that party's own ledger. The issuer's ledger refuses a second pledge, and witnesses stop it from showing different banks different histories.
-
-**Contracts** (sections 14 and 15) are deterministic WebAssembly modules on a ledger. They govern business objects, called instances, whose every call the contract must accept. The parties consent on their own ledgers, as with assets, and any verifier replays the calls with the same result. A call may also create instances, such as the parts a receivable is split into, and ask **executors** to act outside the ledger: they answer with calls of their own, which the contract sees.
+**Contracts** (sections 14 and 15) are deterministic WebAssembly modules on a ledger. Anything with rules of its own, such as a loan, a membership, or a booking, is an **instance** of a contract, which must accept its every call. Parties on other ledgers consent on their own ledgers, and any verifier replays the calls with the same result. A call may also create instances, such as the parts a thing is divided into, and ask **executors** to act outside the ledger: they answer with calls of their own, which the contract sees. Section 13 says when a party may rely on an instance's state.
 
 **Machine by default.** A signature shows only that a key was used. A statement counts as a person's action only if it carries proof of presence (section 7).
 
@@ -139,10 +143,12 @@ Statement types:
 | 17 | record-endorse | record, role |
 | 18 | record-transition | record, from state, to state |
 | 19 | record-revoke | record, reason |
-| 20 | asset-action | asset, action, head, counterparty, quantity, consents, reference (v0.5; section 13) |
+| 20 | reserved | asset-action in v0.5 to v0.8; removed in v0.9, never reused |
 | 21 | contract-deploy | code, interface, language, compiler, source, name (v0.6; section 15) |
 | 22 | contract-call | contract or instance, function, arguments, head, consents, reference (v0.6) |
 | 23 | contract-retire | contract, reason (v0.6) |
+
+Every other type, 20 included, is unknown: a decoder refuses a statement of an unknown type, and a scope that names one.
 
 ## 5. Ledger rules
 
@@ -183,8 +189,7 @@ A ledger accepts a statement only if every rule below holds at its registration 
   - Only people have presence credentials, and only people prove presence. A presence credential's key must not be the person's signing key, any actor's key, or a log key: it is a second key.
 - **The log key.** Only the organization rotates it (ledger-rotate-log-key), without a delegation. The new key must not be weak, must not be an actor's key, and must never have been a log key of this ledger.
 - **Delegations.** Only the grantor or the organization may revoke a delegation. Revoking an actor or a delegation ends everything that depends on it, because authority is checked through the whole chain at every statement.
-- **Records.** Records follow their type's lifecycle (section 6). Transitions must start from the record's current state and be allowed by its type. Endorsement roles must be defined by the type, and an actor endorses a record at most once per role. A revoked record accepts no further statements.
-- **Assets.** An asset's registration must carry its type's metadata, and asset actions follow the rules of section 13. Assets refuse record-transition and record-revoke: they change only through asset actions. For authority, an asset action acts on the asset's record type.
+- **Records.** A registration's type must not begin with `cexchain.` unless it is one of the protocol's mechanism types (v0.9; section 6). Records follow their type's lifecycle (section 6). Transitions must start from the record's current state and be allowed by its type, so a record of the generic lifecycle takes none. Endorsement roles must be allowed by the type: any role under the generic lifecycle, none for a mechanism type. An actor endorses a record at most once per role. A revoked record accepts no further statements.
 - **Contracts.** Deploys, calls, and retires follow the rules of section 15. A call is registered only if its contract, run on the call, accepts it. An answer (v0.8) answers an open request of its instance, at most once.
 
 ## 6. Records and private data
@@ -195,22 +200,25 @@ A ledger accepts a statement only if every rule below holds at its registration 
 
 **Public metadata.** A record may carry a map with text keys, which is disclosed in the clear (key 5 of `record-register-body`).
 
-**Built-in record types** define lifecycles:
+**Record types.** A record's type is any text its registrant chooses (key 1 of `record-register-body`). By convention it is `<owner's domain>.<name>/<version>`, such as `example.org.inspection/1`. The protocol gives every such type one **generic lifecycle**:
+- the initial state is `registered`, and there are no transitions;
+- any actor whose delegation covers the type may endorse the record in any role, once per role;
+- the record may be revoked.
 
-| Type | Initial state | Transitions | Roles |
+What a type's fields mean, which roles matter, and when a document stops counting are its owner's business. Anything with rules of its own, such as states that change or parties who must agree, is a contract instance (section 15), which may name records in its state.
+
+**Mechanism types.** Four types belong to the protocol's own mechanisms, each with its lifecycle. None takes endorsements:
+
+| Type | Initial state | Transitions | Used in |
 |---|---|---|---|
-| `cexchain.certificate/1` | issued | issued ⇄ suspended | inspector, approver |
-| `cexchain.delivery/1` | dispatched | dispatched → delivered, dispatched → rejected, delivered ⇄ disputed | carrier, receiver |
-| `cexchain.agreement/1` | proposed | proposed → effective, proposed → withdrawn, effective → terminated | party, witness |
-| `cexchain.access-request/1` | requested | requested → withdrawn | none |
-| `cexchain.access-grant/1` | granted | none (revoke the record) | none |
-| `cexchain.access-receipt/1` | received | none | none |
-| `cexchain.asset-consent/1` | given | given → withdrawn | none |
-| `cexchain.receivable/1` | active | asset actions only (section 13) | none |
-| `cexchain.warehouse-receipt/1` | active | asset actions only (section 13) | inspector, insurer |
-| `cexchain.contract-consent/1` | given | given → withdrawn | none |
+| `cexchain.access-request/1` | requested | requested → withdrawn | access (section 12) |
+| `cexchain.access-grant/1` | granted | none (revoke the record) | access |
+| `cexchain.access-receipt/1` | received | none | access |
+| `cexchain.contract-consent/1` | given | given → withdrawn | consents to contract calls (section 15) |
 
-Other record types use a generic lifecycle: initial state `registered`, no transitions, any role.
+**The `cexchain.` prefix is reserved** (v0.9). A registration whose type begins with the nine bytes `cexchain.` and is not one of the four is refused, so that nobody can pass off a type as the protocol's. This covers the types that earlier revisions built in and v0.9 removed: `cexchain.certificate/1`, `cexchain.delivery/1`, and `cexchain.agreement/1` (v0.1), and `cexchain.receivable/1`, `cexchain.warehouse-receipt/1`, and `cexchain.asset-consent/1` (v0.5). The rule applies to registrations only: a scope may list any type, and a type nobody can register covers nothing.
+
+Record-transition (type 18) stays for the mechanism types: it is how a party withdraws an access request or a consent. On a record of the generic lifecycle it is always refused.
 
 **The vault** is informative and local to an implementation. The reference implementation keeps each record's values and salts sealed with HPKE (RFC 9180, base mode, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, AES-256-GCM) to the ledger's vault key. Each sealed file is bound to its ledger and record.
 
@@ -337,108 +345,53 @@ A report states:
 
 ## 12. Access across organizations
 
-Two organizations, each with its own ledger, share a record in four steps. In the example, a bank (the requester) asks a factory (the granter):
+Two organizations, each with its own ledger, share a record in four steps: the **requester** asks the **granter** for a record on the granter's ledger.
 
 | Step | Record type | On whose ledger | Metadata (key 5) |
 |---|---|---|---|
-| Request | `cexchain.access-request/1` | the bank's | `ledger` (asked), `record`, `purpose`, `until`, `recipient` (X25519 key), optional `fields`, `attachments` |
-| Grant | `cexchain.access-grant/1` | the factory's | `ledger` (requester), `request`, `record`, `fields`, `attachments`, `until`, `recipient` |
-| Delivery | not a record: a `delivery` object | sent to the bank | grant evidence, and contents sealed with HPKE |
-| Receipt | `cexchain.access-receipt/1` | the bank's | `ledger` (granter), `grant`, `delivery` (SHA-256 of the delivery) |
+| Request | `cexchain.access-request/1` | the requester's | `ledger` (asked), `record`, `purpose`, `until`, `recipient` (X25519 key), optional `fields`, `attachments` |
+| Grant | `cexchain.access-grant/1` | the granter's | `ledger` (requester), `request`, `record`, `fields`, `attachments`, `until`, `recipient` |
+| Delivery | not a record: a `delivery` object | sent to the requester | grant evidence, and contents sealed with HPKE |
+| Receipt | `cexchain.access-receipt/1` | the requester's | `ledger` (granter), `grant`, `delivery` (SHA-256 of the delivery) |
 
 Each side learns the other's **ledger id** out of band and pins every bundle it receives to it. Because the steps are records, delegations decide who may request, grant, or acknowledge, and proof of presence shows when a person approved.
 
-- **Request.** The bank makes a fresh X25519 key for the request and records the request. It sends the request's evidence bundle. The factory checks the following:
-  - the bundle verifies for the bank's ledger and is complete;
-  - it is a live access request that names the factory's ledger;
+- **Request.** The requester makes a fresh X25519 key for the request and records the request. It sends the request's evidence bundle. The granter checks the following:
+  - the bundle verifies for the requester's ledger and is complete;
+  - it is a live access request that names the granter's ledger;
   - it has not expired.
 
   The report shows who asked, under whose authority, and whether they were present.
-- **Grant.** The factory records a grant for at most what was asked and until no later than the request's end.
-- **Delivery.** The factory builds `{1: 1, 2: grant bundle, 3: {1: enc, 2: ciphertext}}`. The ciphertext seals `delivery-contents` with HPKE to the request's key, with info `"CexChain delivery v1"` and the grant id as additional authenticated data. `delivery-contents` holds the record's bundle with only the granted disclosures and openings, and the granted attachments' contents.
-- **Acceptance.** The bank MUST check all of the following, and only then acknowledge:
-  1. the grant verifies for the factory's ledger, which is the ledger the request asked, and is complete;
-  2. the grant is live, and names the bank's ledger, its request, and its key;
+- **Grant.** The granter records a grant for at most what was asked and until no later than the request's end.
+- **Delivery.** The granter builds `{1: 1, 2: grant bundle, 3: {1: enc, 2: ciphertext}}`. The ciphertext seals `delivery-contents` with HPKE to the request's key, with info `"CexChain delivery v1"` and the grant id as additional authenticated data. `delivery-contents` holds the record's bundle with only the granted disclosures and openings, and the granted attachments' contents.
+- **Acceptance.** The requester MUST check all of the following, and only then acknowledge:
+  1. the grant verifies for the granter's ledger, which is the ledger the request asked, and is complete;
+  2. the grant is live, and names the requester's ledger, its request, and its key;
   3. the grant answers the request: the same record, fields and attachments the request asked for (or fewer), and an end no later than the request's;
   4. the grant has not expired;
   5. the contents open with the request's key;
-  6. the record bundle verifies for the factory's ledger at the grant bundle's checkpoint, is complete, and is the granted record, which is not revoked;
+  6. the record bundle verifies for the granter's ledger at the grant bundle's checkpoint, is complete, and is the granted record, which is not revoked;
   7. the record bundle discloses exactly the granted fields, each once;
   8. the delivery holds exactly the granted attachments, each opened and matching its commitment.
-- **Receipt.** The bank records the receipt and sends its evidence. The factory checks that the receipt comes from the ledger the grant was made to, names the factory's grant, and gives the hash of the delivery made under that grant. A stored receipt is never replaced by a different one.
+- **Receipt.** The requester records the receipt and sends its evidence. The granter checks that the receipt comes from the ledger the grant was made to, names the granter's grant, and gives the hash of the delivery made under that grant. A stored receipt is never replaced by a different one.
 - **Serving deliveries** (informative). A server hands out a delivery only to the peer it was granted to, and only while the grant is live and unexpired.
 
 Revoking a grant stops future deliveries. It cannot make a recipient forget, but the receipt makes access accountable.
 
-## 13. Ownership assets
+## 13. Relying on an instance's state
 
-An **asset** is a record of an asset type whose holder can change: a receivable, a warehouse receipt. The threat is no longer only tampering but double spending: pledging or selling one asset twice. CexChain prevents it without a shared chain:
+*Informative. Revisions v0.5 to v0.8 defined native ownership assets here, with statement type 20; v0.9 removed them (section 4). A receivable, a warehouse receipt, a ticket, or a booking is now a contract instance (section 15).*
 
-- **One home.** Each asset lives on exactly one ledger, its **home**: its issuer's (the debtor's for a receivable, the warehouse's for a receipt). Only the home changes it, and its rules refuse every change the asset's state does not allow. A second pledge breaks a rule, so a log that holds one fails replay.
-- **Parties are ledgers.** The holder, the pledgee, and the payee are other organizations, identified by ledger id. No party is the home ledger itself.
-- **Consent on the party's own ledger.** A party consents to an action by registering a `cexchain.asset-consent/1` record on its own ledger, under its own delegations, with proof of presence if a person approved. The home records the action only once every party it needs has consented to the same terms, and the action cites each consent.
-- **Witnesses** stop the home from showing different histories to different parties (section 10).
+A party often acts on what an instance's state says: a lender funds against a pledge the state records, a buyer pays once a transfer makes it the holder, a venue admits whoever holds a ticket. The protocol guarantees what an instance's history shows: one home, which records only calls its contract accepts; consents given on each party's own ledger and bound to the instance's head, so each is used once; and the same result for every verifier that replays the calls. It does not know what a state means: "pledged" is the contract's word, not the protocol's. A party that relies on an exclusive state therefore:
 
-**Types.** Their metadata (key 5 of the registration) is public to whoever holds the asset's evidence, and checked by the rules:
-
-| Type | Metadata | States |
-|---|---|---|
-| `cexchain.receivable/1` | `holder` (the first creditor's ledger), `amount` (≥ 1, in the currency's minor unit), `currency` (ISO 4217, three capital letters), `due` (ms) | active, pledged, frozen, paid, disputed; settled, cancelled (final) |
-| `cexchain.warehouse-receipt/1` | `holder` (the depositor's ledger), `quantity` (≥ 1), `unit` (1 to 16 bytes) | active, pledged, frozen; redeemed, cancelled (final) |
-
-Other metadata keys are allowed. Confidential terms (contracts, invoices, the goods) belong in fields and attachments, disclosed selectively. A new asset is active, held by `holder`.
-
-**Splitting.** These assets do not split. A receivable that is split into parts for transfer along a supply chain is a contract instance whose parts are its children (section 15, v0.7). Nothing converts between the two.
-
-**The head.** An asset's head is the log index of its registration or of its latest asset action (endorsements do not count). Every action and every consent names the head it follows. A consent therefore applies only to the asset as its party saw it, and only once.
-
-**Actions** (statement type 20, `asset-action`):
-
-| Action | Types | From | To | Consents from | Effect |
-|---|---|---|---|---|---|
-| transfer | both | active | active | the holder and `to` | the holder becomes `to` |
-| pledge | both | active | pledged | the holder and `to` | `to` becomes the pledgee |
-| release | both | pledged | active | the pledgee | no pledgee |
-| enforce | both | pledged | active | the pledgee | the pledgee becomes the holder; no pledgee |
-| redeem | receipt | active, pledged | unchanged, or redeemed when nothing remains | the holder, and the pledgee if pledged | the quantity falls by `quantity` |
-| pay | receivable | active, pledged, disputed | paid | none | the payee becomes the pledgee if there is one, otherwise the holder (kept when paid again after a dispute) |
-| confirm | receivable | paid, disputed | settled | the payee | |
-| dispute | receivable | paid | disputed | the payee | |
-| freeze | both | active, pledged, paid, disputed | frozen | none | remembers the state |
-| unfreeze | both | frozen | the remembered state | none | |
-| cancel | both | active | cancelled | the holder | |
-
-An asset action MUST be refused unless:
-
-- the asset exists, is of an asset type, and is not in a final state;
-- `head` is the asset's head;
-- the action is defined for the asset's type and allowed from its state;
-- `to` is present exactly for transfer and pledge, and is neither the home ledger nor the holder;
-- `quantity` is present exactly for redeem, at most the quantity remaining;
-- `consents` cites exactly one consent from each party the table names, ascending by ledger, and is absent for pay, freeze, and unfreeze.
-
-Pay, freeze, and unfreeze are the home's own word: a debtor's claim that it paid (which the payee confirms or disputes), or a freeze under a court order. Their `reference` says which.
-
-**Consents.** The consent's metadata (`asset-consent`) names the terms (home ledger, asset, action, head, and `to` and `quantity` where the action has them), an expiry `until`, and optionally a `reference`, such as a financing contract or a registry filing. A consent reference in an action is `[ledger, record, bundle]`: the party's ledger, the consent record, and the hash, under the home's hash, of the consent's evidence bundle the home verified. Before recording an action, the home MUST check each consent bundle as a verifier does (step 3 below), and MUST keep the bundles it pins.
-
-**Asset evidence** (`asset-evidence`) is the asset's evidence bundle with every consent bundle its actions pin. A verifier MUST:
-
-1. verify the asset bundle for the expected home ledger (section 11) and require it to be complete, since only a complete history shows the asset's current state (not pledged, say);
-2. replay the asset's actions to its current holder, pledgee, payee, state, and quantity;
-3. for each consent reference, find the bundle with that hash and check that it verifies for the referenced ledger, completely; is about the referenced record, a live `cexchain.asset-consent/1` record (state given, not revoked); carries the action's terms; and lapses no earlier than the action's registration time;
-4. refuse bundles that no reference pins, and references without a bundle.
-
-The report shows the chain of title: each action, who consented to it, under whose authority, whether a person proved presence, and any AI provenance.
-
-**Lending against an asset.** A lender MUST NOT fund until its pledge is in a checkpoint cosigned by witnesses it trusts. From then on, a second pledge is refused or detected:
-- a consent with an old head no longer matches;
-- a pledged asset cannot be pledged again;
-- a home that forks its log to show another lender an unpledged asset needs that lender's witnesses to cosign the fork, and a witness cosigns only one history. So lenders SHOULD require a common witness, such as a regulator or a third-party witness service. Two checkpoints of one size with different roots, both signed by the home's log key, also prove the home's misconduct.
+- **reads the rules:** it reads the contract the instance runs, or rebuilds its code from the source (section 15), and checks that the contract refuses what the party fears, such as a second pledge or a transfer without its consent;
+- **waits for witnesses:** it acts only once the call it relies on is in a checkpoint cosigned by witnesses it trusts, and only on the instance's contract evidence, verified and complete, at that checkpoint. From then on a conflicting call is refused or detected: a consent to an older head no longer matches, the contract refuses what its state does not allow, and a home that forks its log to show another party a different state needs that party's witnesses to cosign the fork, while a witness cosigns only one history;
+- **shares a witness:** parties that rely on one instance SHOULD require a common witness, such as a regulator or a witness service. Two checkpoints of one size with different roots, both signed by the home's log key, prove the home's misconduct.
 
 **Limits.**
-- A home can refuse to record an action (censorship). It cannot move an asset without its parties' consents, nor fork unseen.
-- The ledger cannot know whether goods exist: a warehouse could issue two receipts for the same goods. Every receipt it issued is in its log, for auditors and witnesses.
-- Legal registries of pledges and transfers are not replaced; a consent's `reference` can carry the filing number.
+- A home can refuse to record a call (censorship). It cannot record a call that its contract or the parties' consents do not allow, nor fork its log unseen.
+- The ledger cannot know whether goods, money, or seats exist: a home could make two instances for one thing. Every instance it made is in its log, for auditors and witnesses.
+- Legal registries are not replaced; a call's reference can carry a filing number.
 
 ## 14. Contract execution
 
@@ -567,13 +520,13 @@ The input and output are bytes to the execution layer. Their contents, determini
 
 *Draft for revision v0.6; v0.7 adds instances created by a call, and v0.8 requests and answers.*
 
-A **contract** is a module, in the profile of section 14, deployed on a ledger: its **home**. An **instance** is one business object the contract governs, such as an agreement, a bill, or an order. Like an asset (section 13), an instance lives on its home ledger only:
+A **contract** is a module, in the profile of section 14, deployed on a ledger: its **home**. An **instance** is one thing the contract governs, such as a loan, a lease, or a booking. An instance lives on its home ledger only:
 - only the home records its calls, and only if the contract accepts them;
-- its **parties** are organizations, named by ledger id under roles such as `supplier` or `bank`;
+- its **parties** are organizations (any of which may be one person, section 1), named by ledger id under roles the contract chooses, such as `owner` or `guest`;
 - a party other than the home consents on its own ledger;
 - every verifier replays the calls with the same contract and reaches the same result.
 
-A call may also create instances of its contract, called **children**, such as the parts a receivable is split into (v0.7). And it may ask **executors** to act outside the ledger, with **requests** that they **answer** by calls of their own (v0.8).
+A call may also create instances of its contract, called **children**, such as the parts a thing is divided into (v0.7). And it may ask **executors** to act outside the ledger, with **requests** that they **answer** by calls of their own (v0.8).
 
 **Statements.**
 
@@ -666,9 +619,9 @@ So a contract can require that a person approved in person, or that an agent's s
   - **requests** (v0.8): 1 to 16 requests to executors, each `{1: kind, 2: params, 3: deadline, 4: reply}`; see "Requests and answers" below.
 - `[2, needs]` asks for consents. `needs` lists the ledgers whose consents the call lacks: 1 to 16, strictly ascending, none the home.
 
-An output is well formed only if it is deterministic CBOR within the limits of section 2 and matches `contract-output`. The call is refused on a trap (`abort` is how a contract rejects a call, with its reason), on a `needs` output, and on an output that is not well formed. The contract is deterministic, so the home runs it first without consents to learn whom to ask. A role may name the home itself: the home agrees through the call it signs, so it never consents to its own calls.
+An output is well formed only if it is deterministic CBOR within the limits of section 2 and matches `contract-output`. The call is refused on a trap (`abort` is how a contract rejects a call, with its reason), on a `needs` output, and on an output that is not well formed. The contract is deterministic, so the home runs it first without consents to learn whom to ask. A role may name the home itself: the home agrees through the call it signs, so it never consents to its own calls. Section 13 says when a party may rely on an instance's state.
 
-**Instances created by a call** (v0.7). An accepted call may create up to 16 children (output key 6), such as the parts a receivable is split into. The instance the call acts on, or the one it creates, is their **parent**.
+**Instances created by a call** (v0.7). An accepted call may create up to 16 children (output key 6), such as the parts a thing is divided into. The instance the call acts on, or the one it creates, is their **parent**.
 - **Id.** A child's id is `HASH(deterministic-CBOR([call, position]))` under the home's hash. `call` is the creating call's statement id, and `position` the child's index in key 6, from 0. A statement id hashes a COSE `Sig_structure` instead, so a child id never equals a statement id.
 - **Start.** A child has its parent's contract. Its state, status, and parties are its keys 1 to 3; without status or parties it has none, like a new instance. Its head is the creating call's log index, as is its parent's after the call. It is not final.
 - **Depth.** An instance created by a creation has depth 0, and a child its parent's depth plus 1, at most 8. So an instance has at most 8 ancestors, and its evidence stays bounded.
@@ -679,15 +632,15 @@ An output is well formed only if it is deterministic CBOR within the limits of s
 - **What the contract sees.** For a call on a child, the instance view (input key 5) carries key 6, `[parent, depth]`, so a contract can refuse to split at the depth limit with its own reason. For other instances the view has no key 6, and the input is as in v0.6.
 - **Consents** are unchanged: at most 16 per call, none from the home. A split that needs the consents of the holder and of every recipient therefore has at most 15 recipients besides the holder.
 
-**Requests and answers** (v0.8). A contract decides, but never acts on the world outside the ledger: replay could not repeat that. Instead, an accepted call may make **requests**, and an **executor** carries them out: an actor of the home, such as a device next to a control panel, an AI agent, or a person, which acts (provisions a server, sends a notice, issues an invoice in another system) and reports what happened with a call of its own, an **answer**. The contract then sees the answer and reacts. Requests are part of the contract's output, which every verifier recomputes by replay, so the log entry format does not change.
+**Requests and answers** (v0.8). A contract decides, but never acts on the world outside the ledger: replay could not repeat that. Instead, an accepted call may make **requests**, and an **executor** carries them out: an actor of the home, such as a device next to a control panel, an AI agent, or a person, which acts (sends a notice, opens a door, records an entry in another system) and reports what happened with a call of its own, an **answer**. The contract then sees the answer and reacts. Requests are part of the contract's output, which every verifier recomputes by replay, so the log entry format does not change.
 - **A request** is `{1: kind, 2: params, 3: deadline, 4: reply}` in accept key 7, at most 16 per call:
-  - **kind:** what to do, 1 to 64 bytes of lowercase ASCII letters, digits, `.`, `_`, and `-`, starting with a letter: `invoice`, `notify`, `suspend`;
+  - **kind:** what to do, 1 to 64 bytes of lowercase ASCII letters, digits, `.`, `_`, and `-`, starting with a letter: `notify`, `provision`, `suspend`;
   - **params:** what the executor needs, any CBOR value of at most 4,096 bytes encoded, within the privacy rules below;
   - **deadline:** when the work is due, after the call's registration time and at most 366 days after it;
   - **reply:** the function an answer calls, of kind 2 in the contract's interface.
 
   A request belongs to the instance the call acts on, or, for a creation, to the instance it creates. Children (key 6) start with none. A request is **asked at** its call's registration time.
-- **Id.** A request's id is `HASH(deterministic-CBOR(["request", call, position]))` under the home's hash: `call` is the requesting call's statement id, and `position` the request's index in key 7, from 0. Its leading text keeps it apart from child ids (`[call, position]`), and statement ids hash a COSE `Sig_structure`. The id is the request's **idempotency key**: an executor MUST NOT carry out one id twice, and SHOULD give it to the outside system (as an invoice's reference, for instance) so that a retry after a crash is recognized there.
+- **Id.** A request's id is `HASH(deterministic-CBOR(["request", call, position]))` under the home's hash: `call` is the requesting call's statement id, and `position` the request's index in key 7, from 0. Its leading text keeps it apart from child ids (`[call, position]`), and statement ids hash a COSE `Sig_structure`. The id is the request's **idempotency key**: an executor MUST NOT carry out one id twice, and SHOULD give it to the outside system (as the reference of what it creates there, for instance) so that a retry after a crash is recognized there.
 - **Open requests.** A request is **open** until an answer to it is recorded; then it is **closed**, with the answer's status. An instance has at most 64 open requests: a call whose accept would leave it more is refused. An answer closes its request first, so an instance at the limit still takes an answer that makes one new request.
 - **An answer** is a contract-call on the instance with body key 8, `[request, status]`, the status being 1 **done**, 2 **failed**, or 3 **expired**. It calls the request's reply, and its arguments carry the result, as the contract defines it (at most 65,536 bytes, as for any call). Besides the rules of every call (the head, authority), an answer is refused unless:
   - the request is one of the instance's, and open: a request is answered **at most once**;
@@ -704,8 +657,8 @@ An output is well formed only if it is deterministic CBOR within the limits of s
 
   | Requests and answers may carry | They MUST NOT carry |
   |---|---|
-  | kinds, ledger ids, values the contract already holds, amounts, dates, bills, and record and request ids | names, e-mail addresses, phone numbers, postal addresses, or any document's content |
-  | results: outside ids (such as an invoice number), statuses, amounts, reason codes, and salted digests of outside responses | secrets of any kind, or raw error texts from outside systems (they may name people) |
+  | kinds, ledger ids, values the contract already holds, amounts, dates, and record and request ids | names, e-mail addresses, phone numbers, postal addresses, or any document's content |
+  | results: outside ids (such as another system's reference), statuses, amounts, reason codes, and salted digests of outside responses | secrets of any kind, or raw error texts from outside systems (they may name people) |
 
   An executor keeps contact details in its own directory, keyed by ledger id. It keeps an outside system's response too, and puts in the answer only `HASH(salt || response)` under the home's hash, with a fresh 16-byte salt, as attachments do (section 6), so that it can disclose the response later, with proof. The ledger cannot check any of this; verifiers show what requests and answers carry.
 
@@ -753,17 +706,15 @@ This section is informative. The reference implementation serves a ledger over H
 | Scope | Routes |
 |---|---|
 | none | `GET /healthz`, `GET /v1/checkpoint[?size=N]`, `GET /v1/consistency?old=&new=` |
-| read | `GET /metrics`, `/v1/status`, `/v1/entries?start=&count=`, `/v1/checkpoints`, `/v1/cosignatures`, `/v1/inclusion?index=&size=`, `/v1/statements/{id}`, `/v1/receipts/{index}`, `/v1/state/{id}`, `/v1/evidence/{record}`, `/v1/vault/public-key`, `/v1/vault/records/{record}`, `/v1/assets/{asset}`, `/v1/contracts?start=&count=`, `/v1/contracts/{contract}`, `/v1/contracts/instances/{instance}`, `/v1/contracts/calls`, `/v1/contracts/calls/{call}` |
+| read | `GET /metrics`, `/v1/status`, `/v1/entries?start=&count=`, `/v1/checkpoints`, `/v1/cosignatures`, `/v1/inclusion?index=&size=`, `/v1/statements/{id}`, `/v1/receipts/{index}`, `/v1/state/{id}`, `/v1/evidence/{record}`, `/v1/vault/public-key`, `/v1/vault/records/{record}`, `/v1/contracts?start=&count=`, `/v1/contracts/{contract}`, `/v1/contracts/instances/{instance}`, `/v1/contracts/calls`, `/v1/contracts/calls/{call}` |
 | submit | `POST /v1/statements`, `POST /v1/contracts/calls` |
 | admin | `POST /v1/checkpoint`, `POST /v1/cosignatures` |
-| peer | `POST /v1/access/requests`, `GET /v1/access/deliveries/{request}`, `POST /v1/access/receipts`, `POST /v1/witness/cosign`, `POST /v1/assets/consents`, `GET /v1/assets/{asset}` (the asset's current parties), `POST /v1/contracts/calls` and `GET /v1/contracts/instances/{instance}` (the instance's current parties), `GET /v1/contracts/calls`, `/v1/contracts/calls/{call}` (the calls that concern the peer), `POST /v1/contracts/consents` |
+| peer | `POST /v1/access/requests`, `GET /v1/access/deliveries/{request}`, `POST /v1/access/receipts`, `POST /v1/witness/cosign`, `POST /v1/contracts/calls` and `GET /v1/contracts/instances/{instance}` (the instance's current parties), `GET /v1/contracts/calls`, `/v1/contracts/calls/{call}` (the calls that concern the peer), `POST /v1/contracts/consents` |
 | read, admin | clusters: `GET /v1/cluster`; `POST /v1/cluster/members`, `/v1/cluster/members/remove`, `/v1/cluster/step-down` |
 
 **Clusters.** Several members can keep one ledger with Raft. Each group of statements is replicated as `{time, statements, sealed private data}` and applied by every member at that time, so their logs are identical. Checkpoints are signed by the leader and replicated as signed. The consent bundles a statement cites, and the calls a registrar holds, are replicated too, so a new leader carries on with them. A follower answers writes with 307 and the leader's API. Members authenticate their Raft messages with a shared secret. None of this changes the protocol: a cluster's log is one ledger's log.
 
-`POST /v1/statements` also takes `application/cexchain-submission+cbor`: `{1: signed statement, 2: sealed private data}`, a record's registration with its vault file. The server stores the file with the record, once: the same file again is accepted (a retry), a different one refused, so nobody can store other data for a record first. For an asset action or a contract call, the submission is `{1: signed statement, 3: [consent bundles]}`, one bundle per consent in the statement's order: the server checks every consent the statement cites against its bundle (sections 13 and 15; for a call, the signer each citation claims too) before registering it, and keeps the bundles. A statement that cites consents is refused without them.
-
-**Assets.** A server with a registrar key (an actor of the home with a delegation for asset actions) takes consents from its peers: `POST /v1/assets/consents` with a consent's evidence bundle, which must come from the peer's ledger. It checks the consent, holds it until every party the action needs has consented to the same terms, then signs and registers the action. It answers with the action once recorded, or with the parties still missing. A consent whose head is no longer the asset's, or that has lapsed, is dropped. `GET /v1/assets/{asset}` returns the asset evidence, without private data, to the asset's current holder, pledgee, and payee, and to read tokens. The evidence is as of a checkpoint that covers the asset's latest change; the server makes one if it must. Field values and attachments reach the parties through access (section 12) or out of band; a disclosure holds for the record whatever the checkpoint, so a holder can add the disclosures it has to later evidence.
+`POST /v1/statements` also takes `application/cexchain-submission+cbor`: `{1: signed statement, 2: sealed private data}`, a record's registration with its vault file. The server stores the file with the record, once: the same file again is accepted (a retry), a different one refused, so nobody can store other data for a record first. For a contract call, the submission is `{1: signed statement, 3: [consent bundles]}`, one bundle per consent in the statement's order: the server checks every consent the call cites against its bundle, and the signer each citation claims (section 15), before registering it, and keeps the bundles. A statement that cites consents is refused without them.
 
 **Contracts.** A server with a registrar key records the calls that need consents (an actor of the home with a delegation for type 22 whose scope covers the contract):
 
@@ -809,15 +760,13 @@ A server holds the log key to sign checkpoints, receipts, and evidence. Across a
 - **Cross-organization access.**
   - A delivery is sealed to a key made for one request. It is bound to its grant and checked against the granter's ledger.
   - Revocation cannot recall data already delivered.
-- **Assets.**
-  - Double-pledge safety across lenders rests on the witnesses they share (section 13). If two lenders share no witness, the home can show each of them a different history, in which each pledge is the only one.
-  - Every holder and pledgee sees an asset's chain of title and public metadata.
-  - Consents are machine actions unless they carry proof of presence. Verifiers report this and MAY require it.
 - **Contracts.**
   - A contract's code, arguments, states, and events are visible to whoever holds an instance's evidence. Private values belong in records, disclosed selectively.
   - Every call is bounded by fuel, call depth, and memory (section 14), so a contract cannot stall the home or a verifier.
   - Code is immutable, but it can be wrong. Verifiers show which contract, and which source, an instance runs, and rebuild a Bo contract's code from its source. Parties should read the code (or its Bo source) before consenting.
   - Consent signers are claimed in the call and checked only by verifiers that hold the consent bundles, so parties SHOULD verify contract evidence, not just the home's log.
+  - Consents are machine actions unless they carry proof of presence. Verifiers report this and MAY require it.
+  - Parties that rely on an exclusive state, such as a pledge, are safe from a home that shows them different histories only through the witnesses they share (section 13). If two lenders share no witness, the home can show each of them a history in which its pledge is the only one.
 - **Children** (v0.7).
   - A child's evidence shows its ancestors' calls up to each creating call: the parent's states and parties, the arguments of the split, and the first state and parties of every sibling. So a part's holder, and anyone it shows the part to, sees the other parts' holders and amounts. This is accepted for v1; commitments or zero-knowledge proofs may hide siblings later. The evidence does not show the siblings' later calls, nor the ancestors' calls after each split.
   - The protocol does not know amounts: a contract that splits must conserve them. A verifier that relies on a part SHOULD check, in the replayed split, that the parts add up to the parent's amount, or rely on a contract whose source it has read and rebuilt.
@@ -839,15 +788,17 @@ A server holds the log key to sign checkpoints, receipts, and evidence. Across a
 | `merkle-sha256.json`, `merkle-sm3.json` | RFC 9162 tree hashes, inclusion and consistency proofs |
 | `cose-sign1.json` | COSE_Sign1 in the CexChain profile |
 | `pkcs8.json` | encrypted private keys |
-| `protocol-v0.1.json` | statements, log entries, checkpoints, receipts |
+| `protocol-v0.1.json` | statements, log entries, checkpoints, receipts (encodings only: the statements are not a history the rules accept) |
 | `protocol-v0.2.json` | presence (passkey and hardware key), state trees and commitments, cosign requests |
 | `protocol-v0.3.json` | access metadata, and a delivery sealed by an independent HPKE implementation |
 | `protocol-v0.4.json` | log and root key rotation, the checkpoint and state commitment under the new key, a cosign request with key rotations |
-| `protocol-v0.5.json` | assets: a receivable and a warehouse receipt through every action, consent metadata, actions the rules refuse, and asset evidence |
 | `protocol-v0.6.json` | contracts (section 15): a test contract deployed, instances created and called, with each call's input and output, consent metadata, calls the rules refuse, and contract evidence |
 | `protocol-v0.7.json` | instances created by a call (section 15): a splitting contract and the v0.6 test contract; children and their ids, calls on a child and a grandchild, splits down to the depth limit, children the rules refuse (too many, too deep, malformed, on a retired contract, on a final parent), the state tree, and signed evidence bundles: an instance, a tier-3 part with its ancestors and real consent bundles from other ledgers, and a child whose parent carried on |
 | `protocol-v0.8.json` | requests and answers (section 15): a requesting contract; requests and their ids; answers done, failed, and expired, by a device, an AI agent, a keeper, and a person by hand, on time and late, some making new requests; answers the rules refuse (a second answer, expired too early, an unknown request or another instance's, a function that is not the reply, consents cited, outside scope keys 8 and 9, rejected by the contract, malformed); the limits (17 requests in a call, a 65th open request, 4,096 bytes of params, deadlines, replies) and malformed requests; scope keys 8 and 9 and their narrowing; a final instance that takes answers and refuses the rest; requests on a creation that also creates a child; the state, the log, and signed evidence showing answered, open, and overdue requests, with an outside response committed by salted digest |
+| `protocol-v0.9.json` | the generic core (v0.9): a record of a user's type endorsed in several roles, refused a transition and a repeated endorsement, and revoked; the four mechanism types through their lifecycles, refusing endorsements and transitions they do not define; statements of type 20 and a scope naming it, which do not parse; registrations of the six removed types, of an invented `cexchain.` type, and of a version the protocol does not define, refused; the state and the log under a checkpoint |
 | `vm-v1.json` | contract execution (section 14): modules in and out of the profile, invocations with their outputs, traps, and fuel, and random integer programs, all from an independent reference interpreter (`tools/testvectors/wasm_ref.py`) |
 | `bo-v1.json` | the Bo language ([`bo.md`](bo.md), section 18): contracts' sources in each language, their interfaces and bo-source bundles, the code `cexchain-bo` builds and its bounds (informative), calls with their outcomes (normative), and sources that must not build with their errors' codes |
+
+Revision v0.9 retired `protocol-v0.5.json` (native assets), and regenerated `protocol-v0.1.json`, `protocol-v0.2.json`, and `protocol-v0.4.json` with the user type `example.document/1` in place of the removed built-in types; nothing else in them changed.
 
 `tools/testvectors/generate.py` regenerates them with Python's `cryptography` and `cbor2`, and OpenSSL, independently of the C++ code; `tools/testvectors/bo_vectors.py` writes `bo-v1.json` from the Bo compiler's runs and checks each on the reference interpreter. `test-contracts.json` is not part of the protocol: it holds contracts for tests of the reference server (a contract that decides by how many consents a call cites, and the splitting contract of `protocol-v0.7.json`), from `tools/testvectors/test_contracts.py`, which also assembles the requesting contract of `protocol-v0.8.json`.
