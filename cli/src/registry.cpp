@@ -51,7 +51,7 @@ const std::set<std::string_view> local_only{"init",  "serve", "token",  "replica
                                             "vault", "peer",  "access", "mcp",     "cluster"};
 /// Single commands of other groups that need the directory (its peers).
 const std::set<std::pair<std::string_view, std::string_view>> local_only_commands{
-    {"asset", "send"}, {"asset", "fetch"}, {"contract", "send"}, {"contract", "fetch"}};
+    {"contract", "send"}, {"contract", "fetch"}};
 /// The cluster commands that talk to a member's API.
 std::vector<OptionSpec> cluster_api(std::vector<OptionSpec> extra) {
     std::vector<OptionSpec> options{
@@ -427,10 +427,10 @@ std::vector<CommandSpec> build() {
          cmd_delegation_grant,
          "Statement types: actor-register, actor-rotate-key, actor-revoke, actor-set-presence,\n"
          "delegation-grant, delegation-revoke, record-register, record-endorse,\n"
-         "record-transition, record-revoke, asset-action, contract-deploy, contract-call,\n"
-         "contract-retire. --contracts limits contract-call and contract-retire to those\n"
-         "contracts (a call on an instance acts on the instance's contract); a delegation\n"
-         "granted under it may name only some of them."},
+         "record-transition, record-revoke, contract-deploy, contract-call, contract-retire.\n"
+         "--contracts limits contract-call and contract-retire to those contracts (a call on\n"
+         "an instance acts on the instance's contract); a delegation granted under it may name\n"
+         "only some of them."},
         {{"delegation", "list"},
          "List delegations",
          "Delegations",
@@ -1189,150 +1189,6 @@ std::vector<CommandSpec> build() {
          cmd_access_list},
 
         // ------------------------------------------------------------------
-        {{"asset", "issue"},
-         "Issue an ownership asset: a receivable or a warehouse receipt",
-         "Ownership assets",
-         "KIND",
-         1,
-         1,
-         signing({{"holder", "PEER", "Who holds it: a peer's name or a ledger id", true},
-                  {"amount", "AMOUNT", "Receivables: the amount, e.g. 125000.00"},
-                  {"currency", "CODE", "Receivables: the ISO 4217 currency (default: CNY)"},
-                  {"due", "DATE", "Receivables: when it falls due (YYYY-MM-DD)"},
-                  {"quantity", "N", "Warehouse receipts: the quantity held"},
-                  {"unit", "UNIT", "Warehouse receipts: the unit, e.g. t, kg, bale"},
-                  {"title", "TEXT", "A public title"},
-                  {"field", "NAME=VALUE", "A field (private until disclosed)", true, true},
-                  {"meta", "NAME=VALUE", "More public metadata", false, true},
-                  {"attach", "FILE", "Attach a file (committed by hash)", false, true}}),
-         cmd_asset_issue,
-         "KIND is receivable or warehouse-receipt. The asset lives on this ledger (its home):\n"
-         "it changes only through asset actions, each with the consent of the parties it\n"
-         "concerns, given on their own ledgers. The holder, amount (or quantity), and due date\n"
-         "are public to whoever holds the asset's evidence; fields stay private until disclosed."},
-        {{"asset", "show"},
-         "Show an asset: its state, parties, and actions",
-         "Ownership assets",
-         "ASSET",
-         1,
-         1,
-         with({ledger_option}),
-         cmd_asset_show},
-        {{"asset", "list"},
-         "List this ledger's assets",
-         "Ownership assets",
-         "",
-         0,
-         0,
-         with({ledger_option,
-               {"type", "KIND", "Only receivable or warehouse-receipt"},
-               {"state", "STATE", "Only this state, e.g. pledged"},
-               {"holder", "PEER", "Only those this peer (or ledger id) holds"}}),
-         cmd_asset_list},
-        {{"asset", "record"},
-         "Record an action on one of this ledger's assets",
-         "Ownership assets",
-         "ACTION ASSET",
-         2,
-         2,
-         signing({{"to", "PEER", "The counterparty (transfer, pledge): a peer or a ledger id"},
-                  {"quantity", "N", "How much (redeem)"},
-                  {"reference", "TEXT", "A payment reference, a court order, a reason"},
-                  {"consent", "FILE", "A party's consent (its evidence, from asset consent)", false,
-                   true}}),
-         cmd_asset_record,
-         "ACTION is transfer, pledge, release, enforce, redeem, pay, confirm, dispute, freeze,\n"
-         "unfreeze, or cancel. Pay, freeze, and unfreeze are this organization's own word; every\n"
-         "other action needs the consent of each party it concerns (the holder, the counterparty,\n"
-         "the pledgee, the payee), given on their own ledgers and passed here with --consent. A\n"
-         "server with --registrar-key collects consents online instead."},
-        {{"asset", "evidence"},
-         "Write an asset's evidence, with the consents its actions pin",
-         "Ownership assets",
-         "ASSET",
-         1,
-         1,
-         with({ledger_option,
-               signing_log_key_option,
-               vault_key_option,
-               passphrase_file_option,
-               {"fields", "NAMES", "Disclose these fields, comma-separated (* for all)"},
-               {"attachments", "NAMES", "Open these attachments (* for all)"},
-               {"out", "FILE", "Where to write it", true}}),
-         cmd_asset_evidence,
-         "Give it to the holder, or to a bank considering the asset: asset verify checks it\n"
-         "offline. Disclosures do not depend on the checkpoint, so later evidence can carry them."},
-        {{"asset", "consent"},
-         "Consent, on this ledger, to an action on an asset on another ledger",
-         "Ownership assets",
-         "",
-         0,
-         0,
-         signing({{"peer", "NAME", "The asset's home, a peer (or give --home)"},
-                  {"home", "ID", "The asset's home ledger id (with --server)"},
-                  {"asset", "ID", "The asset (full hex id)", true},
-                  {"action", "ACTION",
-                   "transfer, pledge, release, enforce, redeem, confirm, "
-                   "dispute, or cancel",
-                   true},
-                  {"to", "PEER", "The counterparty (transfer, pledge): a peer or a ledger id"},
-                  {"quantity", "N", "How much (redeem)"},
-                  {"head", "N", "The asset's head the consent is to (default: ask the home)"},
-                  {"evidence", "FILE", "Take the head from this asset evidence"},
-                  {"days", "N", "The consent lapses after this many days (default: 7)"},
-                  {"reference", "TEXT", "A financing contract, a registry filing number"},
-                  signing_log_key_option,
-                  {"out", "FILE", "Write the consent's evidence here"},
-                  {"send", "", "Send it to the home's API (needs --peer)"}}),
-         cmd_asset_consent,
-         "Records a cexchain.asset-consent/1 record naming exact terms, and the asset's head:\n"
-         "the consent applies only to the asset as it is now, and only once. The home records\n"
-         "the action once every party it needs has consented. Before a pledge, a bank is no\n"
-         "party yet: take the head from the evidence the holder gave you (--evidence)."},
-        {{"asset", "withdraw"},
-         "Withdraw a consent not used yet",
-         "Ownership assets",
-         "CONSENT",
-         1,
-         1,
-         signing({}),
-         cmd_asset_withdraw},
-        {{"asset", "send"},
-         "Send a consent's evidence to the asset's home",
-         "Ownership assets",
-         "FILE",
-         1,
-         1,
-         with({ledger_option, {"peer", "NAME", "The asset's home", true}}),
-         cmd_asset_send},
-        {{"asset", "fetch"},
-         "Fetch an asset's evidence from its home, as one of its parties",
-         "Ownership assets",
-         "",
-         0,
-         0,
-         with({ledger_option,
-               {"peer", "NAME", "The asset's home", true},
-               {"asset", "ID", "The asset (full hex id)", true},
-               {"out", "FILE", "Where to write it", true}}),
-         cmd_asset_fetch},
-        {{"asset", "verify"},
-         "Verify an asset's evidence offline: its state and chain of title",
-         "Ownership assets",
-         "FILE",
-         1,
-         1,
-         with({{"ledger-id", "ID", "The home's ledger id, learned out of band"},
-               {"witness", "PUBKEY", "Trust this witness's public key file", false, true},
-               {"min-witnesses", "N", "Fail unless at least N trusted witnesses cosigned"},
-               {"require-presence", "", "Fail unless a person proved presence for each consent"},
-               {"attachment", "NAME=FILE", "Check an attachment's content", false, true}}),
-         cmd_asset_verify,
-         "A lender funds only once its pledge is in a checkpoint cosigned by witnesses it trusts\n"
-         "(--witness, --min-witnesses): a home that showed another lender a different history\n"
-         "would need those witnesses to cosign it too, and a witness cosigns only one history."},
-
-        // ------------------------------------------------------------------
         {{"contract", "deploy"},
          "Deploy a contract: a WebAssembly module, or a contract written in Bo",
          "Contracts",
@@ -1921,14 +1777,14 @@ std::vector<CommandSpec> build() {
          with({language_option}),
          cmd_bo_stdlib_list,
          "Bo's standard library (bo/stdlib/edition1.bo, compiled in) writes the built-in\n"
-         "actions in Bo itself: transfer, pledge, release, enforce, redeem, pay, confirm\n"
-         "payment, dispute, freeze, unfreeze, and cancel, with the semantics of CexChain's\n"
-         "native assets (spec section 13). A contract that writes can pledge to bank gets the\n"
-         "library's pledge (rule R19): started by the holder, with the consent of the holder\n"
-         "and the bank, only from active, recording the bank as the pledgee. The lines the\n"
-         "contract writes under it add to the terms and are checked first; without to, each\n"
-         "call names the counterparty (R21). To change a built-in action, copy it under a name\n"
-         "of your own (bo stdlib show ACTION prints it).\n\n"
+         "actions in Bo itself, each with its standard terms: transfer, pledge, release,\n"
+         "enforce, redeem, pay, confirm payment, dispute, freeze, unfreeze, split, cancel,\n"
+         "suspend, resume, terminate, allocate, and reclaim. A contract that writes can pledge\n"
+         "to bank gets the library's pledge (rule R19): started by the holder, with the\n"
+         "consent of the holder and the bank, only from active, recording the bank as the\n"
+         "pledgee. The lines the contract writes under it add to the terms and are checked\n"
+         "first; without to, each call names the counterparty (R21). To change a built-in\n"
+         "action, copy it under a name of your own (bo stdlib show ACTION prints it).\n\n"
          "Each line: the function, the action's word in --language, who starts it (or the\n"
          "home, on its own word), its counterparty, and the states it starts from and leads\n"
          "to. With --json: each action's function, concept, starter, counterparty, and states.\n\n"
@@ -1975,7 +1831,6 @@ std::vector<CommandSpec> build() {
          "  cexchain_whoami, cexchain_ledger_status, cexchain_record_types\n"
          "  cexchain_get_record, cexchain_issue_record, cexchain_endorse_record,\n"
          "  cexchain_transition_record, cexchain_verify_evidence\n"
-         "  cexchain_list_assets, cexchain_get_asset, cexchain_verify_asset_evidence\n"
          "  cexchain_list_contracts, cexchain_get_instance, cexchain_verify_contract_evidence\n"
          "  cexchain_call_contract           create or call an instance on this ledger\n"
          "  cexchain_list_pending_calls      calls a home's registrar holds for this ledger\n"

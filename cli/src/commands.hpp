@@ -128,18 +128,6 @@ int cmd_access_grant(const Args& args);
 int cmd_access_receipt(const Args& args);
 int cmd_access_list(const Args& args);
 
-// Ownership assets (D-052)
-int cmd_asset_issue(const Args& args);
-int cmd_asset_show(const Args& args);
-int cmd_asset_list(const Args& args);
-int cmd_asset_record(const Args& args);
-int cmd_asset_evidence(const Args& args);
-int cmd_asset_consent(const Args& args);
-int cmd_asset_withdraw(const Args& args);
-int cmd_asset_send(const Args& args);
-int cmd_asset_fetch(const Args& args);
-int cmd_asset_verify(const Args& args);
-
 // Contracts (D-053)
 int cmd_contract_deploy(const Args& args);
 int cmd_contract_show(const Args& args);

@@ -21,7 +21,6 @@
 #include <nlohmann/json.hpp>
 
 #include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/asset_evidence.hpp>
 #include <cexchain/core/protocol/contract_evidence.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/presence.hpp>
@@ -77,9 +76,6 @@ std::optional<std::string> record_type_for(const protocol::LedgerState& state,
                                  std::is_same_v<T, protocol::RecordTransitionBody> ||
                                  std::is_same_v<T, protocol::RecordRevokeBody>) {
                 const protocol::RecordState* r = state.record(b.record);
-                return r == nullptr ? std::nullopt : std::optional(r->record_type);
-            } else if constexpr (std::is_same_v<T, protocol::AssetActionBody>) {
-                const protocol::RecordState* r = state.record(b.asset);
                 return r == nullptr ? std::nullopt : std::optional(r->record_type);
             } else {
                 return std::nullopt;
@@ -897,14 +893,10 @@ protocol::Id Session::submit_signed(const protocol::SignedStatement& signed_stat
     }
     require_primary();
     if (!consents.empty()) {
-        // Kept first: a registered action or call always has its consents
-        // here.
+        // Kept first: a registered call always has its consents here.
         const Bytes encoded = unwrap(node::encode_consent_bundles(consents), "the consents");
-        const bool call =
-            std::holds_alternative<protocol::ContractCallBody>(signed_statement.statement.body);
-        unwrap(call ? node::store_consents_file(
-                          node::contract_consents_path(directory_, signed_statement.id), encoded)
-                    : node::store_consents(directory_, signed_statement.id, encoded),
+        unwrap(node::store_consents_file(
+                   node::contract_consents_path(directory_, signed_statement.id), encoded),
                "keeping the consents");
     }
     const auto registration =
@@ -1121,31 +1113,6 @@ protocol::EvidenceBundle Session::evidence(const Args& args, const protocol::Id&
                            "verified"};
     }
     return bundle;
-}
-
-Bytes Session::asset_evidence(const Args& args, const protocol::Id& asset) {
-    if (!remote_) {
-        return unwrap(node::asset_evidence(provider_, directory_, evidence(args, asset)),
-                      "the asset's evidence");
-    }
-    if (args.has("log-key")) {
-        throw UsageError{"with --server the server signs: drop --log-key"};
-    }
-    const Bytes encoded = call("GET", "/v1/assets/" + hex_id(asset));
-    protocol::VerifyOptions options;
-    options.expected_ledger = state().ledger_id();
-    const auto report = protocol::verify_asset_evidence(provider_, encoded, options);
-    if (!report || report->asset.record != asset) {
-        throw CommandError{"the server sent asset evidence that does not verify"};
-    }
-    const auto decoded = unwrap(protocol::decode_asset_evidence(encoded), "reading the evidence");
-    const auto bundle =
-        unwrap(protocol::decode_bundle(decoded.asset_bundle), "reading the evidence");
-    if (!sync_until([&] { return has_checkpoint(bundle.checkpoint); })) {
-        throw CommandError{"the server's evidence is anchored to a checkpoint this client has not "
-                           "verified"};
-    }
-    return encoded;
 }
 
 Bytes Session::contract_evidence(const Args& args, const protocol::Id& instance) {

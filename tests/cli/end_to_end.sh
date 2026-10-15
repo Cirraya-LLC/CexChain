@@ -45,6 +45,13 @@ run completion bash > completion.bash && bash -n completion.bash
 contains 'rotate-key' completion.bash
 run completion zsh | contains bashcompinit
 expect_exit 1 frobnicate
+# Spec v0.9 removed native assets (contracts govern such things): no asset
+# command, in help or completion.
+expect_exit 1 asset list
+contains "unknown command 'asset'" out.txt
+run help --json | json '[c["command"] for c in d if "asset" in c["command"] or "asset" in c["group"].lower()]' \
+    | contains -x '\[\]'
+if contains -i asset completion.bash; then fail "completion offers asset commands"; fi
 expect_exit 1 issue
 contains "did you mean 'cexchain record issue'" out.txt
 expect_exit 1 record

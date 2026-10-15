@@ -44,7 +44,7 @@ CexChain is a ledger protocol and node for trust between organizations. Every do
 | `ledger` | Ledger node: crash-safe storage, rule engine, checkpoints, receipts, evidence export, backups (C++26) |
 | `node` | HTTP API server and client (Asio), API tokens, and replicas (C++26) |
 | `bo` | The Bo contract language's compiler (in progress): language packs, the lexer, the parser, the checker, the WebAssembly emitter with its runtime, lowering a first subset of Bo, the contract text, the formatter (one contract in any language), and the source bundle a deploy records, rebuilt by verifiers. C++26 with static reflection and contracts, built with GCC 16; its front end (everything that reads source) also builds with Clang, for fuzzing |
-| `cli` | `cexchain` command-line tool: full control of keys, ledgers, actors, delegations, records, assets, contracts, proofs, and evidence |
+| `cli` | `cexchain` command-line tool: full control of keys, ledgers, actors, delegations, records, contracts, proofs, and evidence |
 | `cexchain mcp` | MCP server through which an AI agent acts under its own key and delegation |
 
 ## Quick start
@@ -108,7 +108,6 @@ The `cexchain` tool controls every part of a ledger:
 | Replicas | `replica init`, `replica sync`, `replica status`, `replica promote` |
 | Backups | `backup create`, `backup verify`, `backup restore` |
 | Other organizations | `peer add`, `peer list`, `peer show`, `peer remove`, `access request`, `access send`, `access inbox`, `access grant`, `access fetch`, `access accept`, `access receipt`, `access list` |
-| Ownership assets | `asset issue`, `asset show`, `asset list`, `asset record`, `asset evidence`, `asset consent`, `asset withdraw`, `asset send`, `asset fetch`, `asset verify` |
 | Contracts | `contract deploy`, `contract show`, `contract list`, `contract retire`, `contract create`, `contract call`, `contract instance`, `contract instances`, `contract evidence`, `contract propose`, `contract pending`, `contract consent`, `contract withdraw`, `contract send`, `contract fetch`, `contract verify`, `contract explain` |
 | Bo language | `bo check`, `bo build`, `bo explain`, `bo fmt`, `bo test`, `bo stdlib list`, `bo stdlib show`, `bo packs list`, `bo packs show`, `bo packs check` (in builds with the Bo compiler); `contract deploy --bo` |
 
@@ -359,41 +358,16 @@ Two organizations can also witness each other's ledgers. `cexchain serve --witne
 `cexchain checkpoint cosign-request --peer NAME --send`. No third party is needed for neither side
 to be able to rewrite its history unseen.
 
-## Receivables and warehouse receipts
+## Receivables and other things with rules
 
-An ownership asset lives on its issuer's ledger, its home: a receivable on the debtor's, a
-warehouse receipt on the warehouse's. It changes hands only with the consent of every party
-involved, each given on that party's own ledger, so the home cannot move it alone, and it refuses
-a second pledge outright. A core enterprise, its supplier, and a bank:
-
-```sh
-# The core enterprise issues a receivable to its supplier (a peer), and runs a registrar:
-# a device actor with a delegation for asset actions, which records each action once all
-# its parties have consented.
-cexchain asset issue receivable --holder supplier --amount 125000.00 --currency CNY \
-    --due 2027-01-06 --field contract=PO-2026-0815 --field invoice=INV-77 --as clerk.key
-cexchain serve --log-key log.key --registrar-key registrar.key ...
-
-# The supplier asks to pledge it to the bank, and the bank agrees: each consents on its
-# own ledger, and sends the consent to the core enterprise's server.
-cexchain asset consent --peer core --asset <id> --action pledge --to bank \
-    --as cfo.key --log-key log.key --send
-cexchain asset consent --peer core --asset <id> --action pledge --to <bank-ledger-id> \
-    --evidence asset.cbor --reference "Loan SCF-2026-0042" --as officer.key --log-key log.key --send
-
-# The bank funds once its pledge is in a checkpoint cosigned by witnesses it trusts.
-cexchain asset fetch --peer core --asset <id> --out pledged.cbor
-cexchain asset verify pledged.cbor --ledger-id <core-ledger-id> --witness regulator.pub --min-witnesses 1
-```
-
-Each consent names exact terms, among them the asset's *head* (its latest change), so it applies
-only to the asset as its party saw it, and only once. Actions: transfer, pledge, release, enforce,
-redeem (in part), pay and confirm or dispute, freeze and unfreeze (the home's own word, e.g. under a
-court order), and cancel. Without a registrar, the home's people record actions with the consents
-as files (`asset record pledge <id> --to bank --consent s.cbor --consent b.cbor`). `asset verify`
-checks the asset's evidence offline and prints its chain of title: who consented to each action,
-under whose authority, and whether a person proved presence. Lenders that share a witness (a
-regulator, say) are protected against a home that would show each of them a different history.
+Spec v0.9 removed the native receivables and warehouse receipts of earlier drafts. A receivable, a
+warehouse receipt, or anything else that changes hands under rules is a contract instance whose
+rules are written in Bo (below): each step needs the consent of the parties it concerns, each
+given on its own ledger; the contract refuses what its terms do not allow, such as a second
+pledge; and anyone verifies the instance's whole history offline. A party that relies on such a
+state, a lender on a pledge say, acts only once the call is in a checkpoint cosigned by witnesses
+it trusts (spec section 13). `deploy/demo/receivable-financing.sh` walks through a receivable
+pledged to a bank, released, sold, and paid, on the contract `deploy/demo/receivable-financing.bo`.
 
 ## Contracts
 
@@ -720,16 +694,16 @@ cexchain bo test agreement.bo --language zh-Hans-CN --json
 
 The built-in business actions are written in Bo itself, in a standard library compiled into the
 compiler (`bo/stdlib/edition1.bo`): transfer, pledge, release, enforce, redeem, pay, confirm
-payment, dispute, freeze, unfreeze, and cancel, with the semantics of CexChain's native assets
-(spec section 13); split, which makes parts of an asset (below); suspend, resume, and terminate,
+payment, dispute, freeze, unfreeze, and cancel, with the semantics the native assets of spec v0.5
+to v0.8 had; split, which makes parts of an asset (below); suspend, resume, and terminate,
 on the home's own word; and allocate and reclaim for resources. A contract that writes `can pledge to bank` gets the library's pledge: the
 holder starts it, the holder and the bank consent, only an active asset can be pledged (so no
 second pledge), and the bank becomes the pledgee. The lines a contract writes under a built-in
 action add to its terms and are checked first (`over 5_000_000 requires in person`); without
 `to`, each call names the counterparty, who consents. A counterparty that a pledge, transfer, or
 allocation makes the pledgee or the holder consents to every such call, even when its role was
-bound when the instance was created (R31): a bank that a field names is asked each time, as with
-the native assets; `enforce` names none, so the pledgee takes the asset with its own consent. The
+bound when the instance was created (R31): a bank that a field names is asked each time, as it was
+with the native assets; `enforce` names none, so the pledgee takes the asset with its own consent. The
 contract text states every standard term, marked R19. To change a built-in action, copy it under a name of your own: it is then the
 contract's own action.
 
@@ -884,8 +858,8 @@ both sides of its rate change, which the Python reference computes again with it
 
 `cexchain mcp --ledger DIR --as AGENT_KEY` runs a Model Context Protocol server over stdio
 (revision 2026-07-28, with fallback to earlier revisions). The agent can look up its identity and
-delegations, query and issue records, endorse, move records through their lifecycle, read assets
-and contract instances, and verify evidence from others. Every action is signed with the agent's own key, refused by the ledger if
+delegations, query and issue records, endorse, move records through their lifecycle, read
+contract instances, and verify evidence from others. Every action is signed with the agent's own key, refused by the ledger if
 its delegation does not cover it, and recorded with provenance: its model, a hash of the inputs it
 acted on, and the digest of the tool it used. Verification reports show all of this. MCP clients
 start the server without a terminal, so give it the agent key's passphrase with

@@ -144,8 +144,6 @@ add_test(NAME serve_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/serve.sh $<TARGET_FILE:cexchain>)
 add_test(NAME access_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/access.sh $<TARGET_FILE:cexchain>)
-add_test(NAME assets_end_to_end
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/assets.sh $<TARGET_FILE:cexchain>)
 add_test(NAME contracts_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/contracts.sh $<TARGET_FILE:cexchain>)
 add_test(NAME client_end_to_end

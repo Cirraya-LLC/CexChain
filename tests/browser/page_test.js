@@ -4,7 +4,7 @@
 // Drives cexchain-verify.html in a real browser, as a verifier would use it:
 // opened from a QR link that names the ledger, the record, and the bundle's
 // URL; opened from disk with files chosen by hand; fed a forged attachment;
-// and given an asset's and a contract instance's evidence.
+// and given a contract instance's evidence, and a part's.
 // Usage: node page_test.js PAGE EVIDENCE_DIR CEXCHAIN
 "use strict";
 const assert = require("node:assert/strict");
@@ -122,22 +122,7 @@ async function verdict(page) {
     await page.waitForFunction(() => document.getElementById("verdict-title").textContent === "Not verified");
     await page.close();
 
-    // 6. An asset's evidence: its state and chain of title, with each consent.
-    page = await open("file://" + pagePath);
-    await page.fill("#ledger", text("asset-ledger-id"));
-    await page.setInputFiles("#bundle-file", path.join(dir, "asset.cbor"));
-    v = await verdict(page);
-    assert.equal(v.kind, "ok", v.title + ": " + v.detail);
-    assert.match(v.detail, /pledged, pledged to Cirraya Bank/);
-    const chain = await page.textContent("#result");
-    assert.match(chain, /Chain of title/);
-    assert.match(chain, /Issued to Cirraya Supplier/);
-    assert.match(chain, /consent of Cirraya Bank/);
-    assert.match(chain, /125000\.00 CNY/);
-    assert.match(chain, /INV-77/);
-    await page.close();
-
-    // 7. A contract instance's evidence: every call, what the contract made
+    // 6. A contract instance's evidence: every call, what the contract made
     // of it, and each consent with who gave it. The page's report is the one
     // `cexchain contract verify --json` gives for the same evidence.
     const contractLedger = text("contract-ledger-id");
@@ -175,7 +160,7 @@ async function verdict(page) {
     assert.match(calls, /contract was run again on every call/);
     await page.close();
 
-    // 8. A link to a contract instance's evidence, naming the home and the
+    // 7. A link to a contract instance's evidence, naming the home and the
     // instance, is green; one naming another instance is refused.
     const contractLink = base + "/cexchain-verify.html#l=" + contractLedger + "&r=" + instanceId +
       "&b=" + encodeURIComponent(base + "/contract.cbor");
@@ -189,7 +174,7 @@ async function verdict(page) {
     assert.match(v.detail, /different instance/);
     await page.close();
 
-    // 9. A tier-3 part's evidence (v0.7): the chain of its ancestors, each
+    // 8. A tier-3 part's evidence (v0.7): the chain of its ancestors, each
     // with its calls and consents, then its own; the report is the one
     // `cexchain contract verify --json` gives. A link naming the part is green.
     const partId = text("part-id");

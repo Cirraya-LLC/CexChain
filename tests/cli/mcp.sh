@@ -71,6 +71,8 @@ for tool in call_contract list_pending_calls fetch_instance propose_contract_cal
     line 2 | contains "\"name\":\"cexchain_$tool\"" || fail "tools/list: $tool"
 done
 line 2 | contains '"cacheScope":"private"' || fail "tools/list caching"
+# Spec v0.9 removed native assets: no tool reads them any more.
+if line 2 | contains -E '"name":"cexchain_[a-z_]*asset'; then fail "tools/list: an asset tool"; fi
 line 3 | contains '"responsible":"Alice Inspector"' || fail "whoami responsible"
 line 3 | contains 'record-register' || fail "whoami delegations"
 line 4 | contains '"isError":false' || fail "issue"
@@ -100,22 +102,6 @@ if contains -r 'Flange DN50' ledger/vault; then fail "agent-issued field values 
 printf '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{%s,"name":"cexchain_verify_evidence","arguments":{"bundle_path":"bundle.cbor","expected_ledger_id":"%s"}}}\n' \
     "$META" "$LEDGER_ID" | run mcp --ledger ledger --as agent.key > responses.txt 2> /dev/null
 contains '"verified":true' responses.txt || fail "verify through MCP"
-
-# Assets (D-052): the agent reads them and verifies an asset's evidence.
-HOLDER="$(printf 'ab%.0s' $(seq 1 32))"
-ASSET="$(run asset issue receivable --ledger ledger --as root.key --holder "$HOLDER" --amount 880.50 \
-    --due 2027-01-06 --field invoice=INV-9 | id_from)"
-run checkpoint create --ledger ledger --log-key log.key > /dev/null
-run asset evidence "$ASSET" --ledger ledger --log-key log.key --out asset.cbor > /dev/null
-cat > asset-requests.jsonl <<JSON
-{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{$META,"name":"cexchain_list_assets","arguments":{"state":"active"}}}
-{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{$META,"name":"cexchain_get_asset","arguments":{"asset":"${ASSET:0:12}"}}}
-{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{$META,"name":"cexchain_verify_asset_evidence","arguments":{"evidence_path":"asset.cbor","expected_ledger_id":"$LEDGER_ID"}}}
-JSON
-run mcp --ledger ledger --as agent.key < asset-requests.jsonl > responses.txt 2> /dev/null
-contains '880.50 CNY' responses.txt || fail "asset tools"
-contains "\"holder\":\"$HOLDER\"" responses.txt || fail "asset holder"
-contains '"chain":' responses.txt || fail "asset evidence through MCP"
 
 # Contracts (D-053): the agent reads them and verifies an instance's evidence.
 # The vectors' oracle contract writes the output its byte-string argument holds.

@@ -69,31 +69,6 @@ const text = (name) => fs.readFileSync(path.join(dir, name), "utf8").trim();
   // Options do not leak from one call into the next.
   assert.equal(verifier.verify(bundle).attachments[0].status, "not-provided");
 
-  // An asset's evidence: the same report as `cexchain asset verify --json`.
-  const asset = read("asset.cbor");
-  const assetLedger = text("asset-ledger-id");
-  const assetReport = verifier.verify(asset, { ledgerId: assetLedger });
-  assert.equal(assetReport.kind, "asset");
-  assert.equal(assetReport.verified, true, assetReport.error);
-  assert.match(assetReport.text, /Chain of title/);
-  delete assetReport.text;
-  delete assetReport.kind;
-  assert.deepEqual(assetReport, JSON.parse(text("native-asset-report.json")));
-  assert.equal(assetReport.asset.id, text("asset-id"));
-  assert.equal(assetReport.asset.state, "pledged");
-  assert.equal(assetReport.asset.display, "125000.00 CNY");
-  assert.equal(assetReport.chain.length, 2);
-  assert.deepEqual(assetReport.chain[1].consents.map((c) => c.organization).sort(),
-                   ["Cirraya Bank", "Cirraya Supplier"]);
-  assert.equal(assetReport.report.disclosed_fields.invoice, "INV-77");
-  // Pinned to another ledger, it fails; and so does any damage.
-  assert.equal(verifier.verify(asset, { ledgerId }).verified, false);
-  for (let offset = 0; offset < asset.length; offset += 97) {
-    const damaged = asset.slice();
-    damaged[offset] ^= 1;
-    assert.equal(verifier.verify(damaged, { ledgerId: assetLedger }).verified, false, "asset: flipped byte at " + offset);
-  }
-
   // A contract instance's evidence: the contract is run again on every call,
   // here by the interpreter compiled to WebAssembly, and the report is the
   // same as `cexchain contract verify`, in JSON and in text.

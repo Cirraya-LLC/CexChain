@@ -176,9 +176,8 @@ public:
     /// a passkey in the browser or with a hardware key.
     /// With `seal_vault`, the record's sealed private data is kept with it:
     /// written to the vault here, or sent with the statement in client mode.
-    /// With `consents` (an asset action's or a contract call's, in the order
-    /// it cites them), the consents' evidence is kept with it the same way
-    /// (D-052, D-053).
+    /// With `consents` (a contract call's, in the order it cites them), the
+    /// consents' evidence is kept with it the same way (D-053).
     protocol::Id submit(const crypto::Signer& signer, protocol::Body body,
                         const std::optional<std::string>& delegation,
                         std::optional<protocol::Provenance> provenance = std::nullopt,
@@ -232,10 +231,6 @@ public:
     // server, and checked against the mirror before it is used.
     [[nodiscard]] protocol::SignedCheckpoint checkpoint(const Args& args);
     [[nodiscard]] protocol::EvidenceBundle evidence(const Args& args, const protocol::Id& record);
-    /// An asset's evidence with the consents its actions pin (D-052),
-    /// without private data: built here with --log-key, or the server's,
-    /// verified against the mirror.
-    [[nodiscard]] Bytes asset_evidence(const Args& args, const protocol::Id& asset);
     /// An instance's contract evidence with the consents its calls cite
     /// (D-053), without private data: built here with --log-key (after a
     /// checkpoint, if the latest does not cover the instance's last call), or
