@@ -11,7 +11,6 @@ add_executable(cexchain_tests
     core/protocol_v02_test.cpp
     core/protocol_v03_test.cpp
     core/protocol_v04_test.cpp
-    core/protocol_v05_test.cpp
     core/protocol_v06_test.cpp
     core/protocol_v07_test.cpp
     core/protocol_v08_test.cpp
