@@ -98,7 +98,6 @@
     "price.overage": "overage",
     "price.per": "per",
     "price.setup_fee": {"word": "setup fee", "forms": {"plural": "setup fees"}},
-    "price.proration": "proration",
 
     # Charges: taxes, fees, commissions, discounts.
     "charge.charge": {"word": "charge", "forms": {"plural": "charges"}},
@@ -486,6 +485,7 @@
     "consent-rebinds": "It needs the consent of {party.object}. Each such call names the ledger of {party.object} and binds {party.object} to it.",
     "consent-taken": "It needs the consent of whichever party is {field.object} before the call, since the action changes {field.object}.",
     "consent-call": "It needs the consent of {party.object}, whose ledger each call names (the argument {input}).",
+    "consent-takes": "It needs the consent of {party.object} at every call, since the action makes {party.object} {field.object}.",
     "requirement": "Requirement {number}: {need}.",
     "requirement-if": "Requirement {number}: if {guard}, {need}.",
     "need-consent": "the consent of {party.object}",
@@ -675,6 +675,7 @@
     "rule-R27": "Charges are computed in the order written, each on the price (a line's amount, or the whole bill's for a charge computed once per bill) unless according to names what it is computed on: the price and charges written before it. An added charge is its base times its rate, and adds to the total; an included one is taken out of the price: the price times its rate, divided by 100% plus the rates of the included charges that apply. A fixed amount is charged once per bill, or on each line. A charge that does not apply, or has no rate in force, is not charged.",
     "rule-R28": "A charge's rate is the one in force at the bill's time: the rate from the latest date on or before it (from the start of that day, at the contract's UTC offset), else its own rate. A bill keeps the rate it was made with.",
     "rule-R29": "A single value where a list is needed is a list of that one item.",
-    "rule-R30": "Issue PARTS to RECIPIENTS makes each part an instance of its own, of the same contract, created by the call: its amount is the part and its holder its recipient, and the instance that issued it ends. A part may be split again, at most eight levels down, and its evidence carries the history of every instance it came from (spec section 15)."
+    "rule-R30": "Issue PARTS to RECIPIENTS makes each part an instance of its own, of the same contract, created by the call: its amount is the part and its holder its recipient, and the instance that issued it ends. A part may be split again, at most eight levels down, and its evidence carries the history of every instance it came from (spec section 15).",
+    "rule-R31": "An action that makes its counterparty (after to) the holder, the pledgee, or the payee, as transfer, pledge, and allocate do, needs the counterparty's consent at every call, even when its role was bound to a ledger when the instance was created or by another action: nobody becomes a holder, a pledgee, or a payee without agreeing."
   }
 }

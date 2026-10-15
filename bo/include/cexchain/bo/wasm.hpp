@@ -44,8 +44,10 @@ namespace cexchain::bo::wasm {
 
 /// It goes up whenever any emitted byte changes (the plan's section 2).
 /// Lowering still writes every version from `oldest_codegen_version` on, so
-/// that a deploy built with an earlier one rebuilds.
-inline constexpr std::uint32_t codegen_version = 2;
+/// that a deploy built with an earlier one rebuilds. 2: the input's texts
+/// are not checked for UTF-8 again, and scratch locals are shared; 3: an
+/// action asks the consents of R31.
+inline constexpr std::uint32_t codegen_version = 3;
 inline constexpr std::uint32_t oldest_codegen_version = 1;
 
 enum class ValType : std::uint8_t { i32 = 0x7F, i64 = 0x7E };

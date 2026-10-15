@@ -109,7 +109,7 @@ for hash in SHA-256 SM3; do
     diff expected.txt digests.txt > /dev/null || fail "digests ($hash) differ from $GOLDEN"
 done
 json 'd[1]["keywords"], d[1]["words"], d[1]["official"], d[1]["separation"]' < list.json > out.txt
-contains -Fx "18 140 True none" out.txt || fail "facts"
+contains -Fx "18 139 True none" out.txt || fail "facts"
 
 run bo packs show zh-Hant-HK > out.txt
 contains -F "prefixes     可 (kw.can), 須 (kw.requires), 當 (kw.when), 如 (kw.if)" out.txt || fail "prefixes"
@@ -124,7 +124,7 @@ run bo packs show zh-Hans-CN --json > show.json
 json 'd["keywords"]["kw.each"], d["vocabulary"]["unit.item"]["category"], d["reading"]["multipliers"]["万"]' < show.json > out.txt
 contains -Fx "['逐个'] unit 10000" out.txt || fail "show --json"
 json 'len(d["messages"]), len(d["sentences"])' < show.json > out.txt
-contains -Fx "219 232" out.txt || fail "messages and sentences"
+contains -Fx "219 234" out.txt || fail "messages and sentences"
 expect_exit 1 bo packs show fr
 contains -F "no pack fr" out.txt || fail "unknown pack"
 expect_exit 1 bo packs show en --section nope
@@ -154,7 +154,7 @@ cat > company.pack <<'EOF'
 }
 EOF
 run bo packs check company.pack > out.txt
-contains -F "warning: pack acme-terms does not spell 137 of the 140 words" out.txt || fail "partial"
+contains -F "warning: pack acme-terms does not spell 136 of the 139 words" out.txt || fail "partial"
 contains -F "company.pack: pack acme-terms version 3 (community): 18 keywords, 3 words" out.txt || fail "check ok"
 contains -F "ok: the packs read" out.txt || fail "ok"
 run bo packs list --pack company.pack > out.txt
@@ -348,6 +348,18 @@ json 'd["model"]["actions"][0]["body"][0]["guard"]["operands"][0]["rule"], d["mo
 contains -Fx "R6 10" out.txt || fail "model --json: the rule and the place"
 json 'd["dump"].splitlines()[0]' < model.json > out.txt
 contains -Fx "edition 1" out.txt || fail "model --json: the text"
+
+echo "== bo check, test, explain: a counterparty made holder or pledgee consents (R31)"
+cp "$GOLDENS/check-role-taking/source.bo" role-taking.bo
+run bo check role-taking.bo --stage model > model.txt
+contains -Fx "  consent role.bank{R31}" model.txt || fail "R31: the model"
+run bo test role-taking.bo > out.txt
+contains -Fx "3 tests: 3 passed, 0 failed." out.txt || fail "R31: the tests"
+run bo explain role-taking.bo --language zh-Hant-HK > out.txt
+contains -F "每次調用均須經銀行同意，因為此動作令銀行成為質權人。〔R31〕" out.txt || fail "R31: the text"
+run bo explain role-taking.bo --json > out.json
+json "[c['function'] for s in d['sections'] for c in s['clauses'] if 'R31' in c['rules']], d['rules'][-1]['id']" < out.json > out.txt
+contains -Fx "['pledge', 'transfer', 'lodge'] R31" out.txt || fail "R31: the text, as JSON"
 # A fragment: the spec's VAT, with the field that holds its bill.
 printf 'record Sale\n  invoice list CNY\n\ncharge 增值税\n  rate 6%%\n  applies to customer location = 中国内地\n  added\n  according to invoice half up\n  from 2027-01-01 on rate 9%%\n' > fragment.bo
 run bo check fragment.bo > out.txt 2> warnings.txt
@@ -394,7 +406,7 @@ cp "$BUILDS/agreement-en/source.bo" agreement.bo
 GOLDEN_HASH="$(sed -n 2p "$BUILDS/agreement-en/build.txt" | sed 's/.*sha256 \([0-9a-f]*\),.*/\1/')"
 GOLDEN_SIZE="$(sed -n 2p "$BUILDS/agreement-en/build.txt" | sed 's/^code: \([0-9]*\) bytes.*/\1/')"
 COMPILER="$(run version --json | json 'd["bo"]["compiler"]')"
-contains -E "^cexchain-bo [0-9.]+; codegen 2; edition 1$" <<< "$COMPILER" || fail "the compiler string"
+contains -E "^cexchain-bo [0-9.]+; codegen 3; edition 1$" <<< "$COMPILER" || fail "the compiler string"
 run bo build agreement.bo > out.txt 2> warnings.txt
 contains -Fx "agreement.bo: built contract Agreement (Bo edition 1)" out.txt || fail "build"
 contains -F "functions  amend, close, countersign, create (creates), sign" out.txt || fail "functions"
@@ -909,7 +921,7 @@ json 'd["verified"], d["source"]["status"], d["error"]' < out.txt > result.txt
 contains -Fx "False differs the contract's source does not rebuild to its code" result.txt || fail "verify --json: differs"
 # The same, said to be built by another codegen version: reported as such,
 # not as a forgery.
-NEWER="$(sed 's/codegen 2/codegen 3/' <<< "$COMPILER")"
+NEWER="$(sed 's/codegen 3/codegen 4/' <<< "$COMPILER")"
 Y="$(deploy_raw other.wasm "$NEWER" agreement.bundle)"
 d contract show "$Y" > show.txt
 contains -F "rebuild:    not rebuilt: built with $NEWER; this compiler is $COMPILER, and the source builds to other code" show.txt || fail "show: other codegen"

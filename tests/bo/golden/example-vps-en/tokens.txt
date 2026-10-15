@@ -47,8 +47,8 @@
 13:5 word act.upgrade | upgrade
 13:13 word kw.by | by
 13:16 word role.customer | customer
-13:34 comment | # proration recognized: by days remaining
-13:75 newline
+13:34 comment | # proration by days remaining: the executor's (R10)
+13:85 newline
 14:1 word kw.when | when
 14:6 duration time.day 7 | 7 days
 14:13 word cond.before_due piece=tail | before due

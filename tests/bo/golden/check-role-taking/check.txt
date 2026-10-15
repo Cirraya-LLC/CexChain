@@ -1,0 +1,71 @@
+edition 1
+contract Financing
+party role.issuer bound=creation{R3}
+party role.supplier bound=creation{R3}
+party role.bank bound=creation{R3}
+party factor bound=sell{R3}
+kind kind.asset Receivable
+field field.amount instance money cur.HKD
+field field.due instance date
+field field.holder instance party = role.supplier{R2}
+field banker instance party = role.bank{R2}
+field field.pledgee instance party optional empty{R20}
+due field
+state state.active first{R4}
+state state.pledged{R5}
+can act.pledge standard by=field.holder{R19} to=role.bank agents=delegation{R14}
+  consent role.bank{R31}
+  terms{R19}
+    requires (not (= role.bank field.holder))
+    transition state.active -> state.pledged
+    set field.pledgee role.bank
+can act.transfer standard by=field.holder{R19} to=role.bank agents=delegation{R14}
+  consent role.bank{R31}
+  terms{R19}
+    requires (not (= role.bank field.holder))
+    transition state.active -> state.active
+    set field.holder role.bank
+can act.release standard by=field.pledgee{R19} agents=delegation{R14}
+  terms{R19}
+    transition state.pledged -> state.active
+    set field.pledgee val.none
+can act.enforce standard by=field.pledgee{R19} agents=delegation{R14}
+  terms{R19}
+    transition state.pledged -> state.active
+    set field.holder field.pledgee
+    set field.pledgee val.none
+can sell own by=field.holder to=factor agents=delegation{R14}
+  consent factor{R3}
+  requires (not (= factor field.holder))
+  transition state.active -> state.active
+  set field.holder factor
+can lodge own by=field.holder to=factor agents=delegation{R14}
+  consent factor{R31}
+  consent field.pledgee{R8}
+  requires (not (= factor field.holder))
+  transition state.active -> state.pledged
+  set field.pledgee factor
+test "a pledge to the bank needs its consent"
+  step role.issuer act.issue creation expect=accepted
+    set field.amount (money cur.HKD 1000)
+    set field.due 2027-06-30
+  step role.supplier act.pledge to=role.bank expect=waits role.bank
+  step role.supplier act.pledge to=role.bank expect=state state.pledged
+  step role.bank act.enforce expect=state state.active
+test "a transfer to the bank needs its consent"
+  step role.issuer act.issue creation expect=accepted
+    set field.amount (money cur.HKD 1000)
+    set field.due 2027-06-30
+  step role.supplier act.transfer to=role.bank expect=waits role.bank
+  step role.supplier act.transfer to=role.bank expect=state state.active
+  step role.bank act.transfer to=role.bank expect=refused "bo:requires transfer 1"
+test "the factor, bound by its first sale, consents to each pledge"
+  step role.issuer act.issue creation expect=accepted
+    set field.amount (money cur.HKD 1000)
+    set field.due 2027-06-30
+  step role.supplier sell to=factor expect=waits factor
+  step role.supplier sell to=factor expect=state state.active
+  step factor act.transfer to=role.bank expect=state state.active
+  step role.bank lodge to=factor expect=waits factor
+  step role.bank lodge to=factor expect=state state.pledged
+  step factor act.release expect=state state.active

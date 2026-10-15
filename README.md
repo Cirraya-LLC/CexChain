@@ -558,7 +558,9 @@ concept or as written (the same name in every language), and creation is `create
 an asset). Arguments are a map: `{"fields": {...}, "parties": {role: ledger}}` to create, the
 action's inputs by name otherwise (money in cents, rates in millionths, dates in milliseconds).
 A compiled contract asks for the consents an action needs (of its starter, of a role it binds,
-of a party a changed field held, and of every `requires consent of`) with `[2, needs]`, the
+of a counterparty it makes the holder, the pledgee, or the payee at every call, however that
+role was bound, of a party a changed field held, and of every `requires consent of`) with
+`[2, needs]`, the
 home's own consent being the call itself; it keeps `{"state": NAME, "fields": {...}}`, reports
 the state as the status, the parties and every field holding one, each state change as an
 event, and the instance as final once no action can leave its state; and it refuses with the
@@ -591,8 +593,8 @@ REBUILD" when the compiler the deploy names builds something else (the source is
 code's, and verification fails); "MALFORMED" when there is no usable bundle; or "not rebuilt"
 when another compiler, release, or codegen version built it (named, never called a forgery) or
 the build has no compiler. `contract verify --require-rebuild` accepts only "rebuilds".
-The compiler keeps writing earlier codegen versions (codegen 1 beside today's 2), so a deploy
-made with one still rebuilds.
+The compiler keeps writing earlier codegen versions (codegens 1 and 2 beside today's 3), so a
+deploy made with one still rebuilds.
 
 ### Fuel
 
@@ -724,8 +726,11 @@ on the home's own word; and allocate and reclaim for resources. A contract that 
 holder starts it, the holder and the bank consent, only an active asset can be pledged (so no
 second pledge), and the bank becomes the pledgee. The lines a contract writes under a built-in
 action add to its terms and are checked first (`over 5_000_000 requires in person`); without
-`to`, each call names the counterparty, who consents. The contract text states every standard
-term, marked R19. To change a built-in action, copy it under a name of your own: it is then the
+`to`, each call names the counterparty, who consents. A counterparty that a pledge, transfer, or
+allocation makes the pledgee or the holder consents to every such call, even when its role was
+bound when the instance was created (R31): a bank that a field names is asked each time, as with
+the native assets; `enforce` names none, so the pledgee takes the asset with its own consent. The
+contract text states every standard term, marked R19. To change a built-in action, copy it under a name of your own: it is then the
 contract's own action.
 
 ```sh
@@ -743,9 +748,9 @@ can pledge to counterparty by holder
 
 Each instance then keeps the pledgee and the payee (none until an action sets them), and an
 unfrozen asset returns to the state it was frozen in (`frozen -> previous state`). Run on the
-same calls, a Bo receivable and a Bo warehouse receipt built from the library give the native
-rules' states, holders, pledgees, payees, quantities, consents, and refusals
-(`tests/bo/assets_test.cpp`).
+same calls, a Bo receivable (also with its bank bound at creation) and a Bo warehouse receipt
+built from the library give the native rules' states, holders, pledgees, payees, quantities,
+consents, and refusals (`tests/bo/assets_test.cpp`).
 
 #### Splitting, for multi-tier supply-chain finance
 

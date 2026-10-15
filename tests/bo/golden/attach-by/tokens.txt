@@ -12,8 +12,8 @@
 4:1 word charge.by | 按
 4:2 word field.customer_location | 客戶所在地
 4:7 newline
-5:1 word price.proration | 按日折算
-5:5 newline
+5:1 word charge.per_document | 按單據
+5:4 newline
 6:1 word charge.by | according to
 6:14 word doc.invoice | invoice
 6:21 newline

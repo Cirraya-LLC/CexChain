@@ -10,7 +10,7 @@ bo 1
 
 可訂購 由 客戶
 可續期 由 客戶
-可升級 由 客戶          # proration recognized: by days remaining
+可升級 由 客戶          # proration by days remaining: the executor's (R10)
 當 到期前 7日 通知 客戶
 當 逾期 3日 暫停        # request to the panel executor: suspend VPS
 當 逾期 30日 終止 及 收回 IP

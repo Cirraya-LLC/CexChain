@@ -5,9 +5,10 @@
 
 For each contract: its source (in each language it is written in), its name
 and interface, the bo-source bundle a deploy records (spec section 15), the
-code our compiler builds from it and the code's SHA-256, the code codegen 1
-built (informative: another compiler may build other code), each function's
-fuel and output bounds (informative), and calls with their outcomes
+code our compiler builds from it and the code's SHA-256, the hashes of the
+code codegens 1 and 2 built (informative: another compiler may build other
+code; codegen 2 differs from codegen 3 only where R31 asks a consent), each
+function's fuel and output bounds (informative), and calls with their outcomes
 (normative: any compiler's code must give the same outcomes, outputs, and
 refusals; fuel is our code's). Then sources that must not build, with the
 codes of their errors and their lines (normative). The C++ codegen tests
@@ -252,6 +253,7 @@ def main() -> int:
             "code_sha256": hashlib.sha256(code).hexdigest(),
             "code": code_hex,
             "codegen1_sha256": deploy["codegen1_sha256"],
+            "codegen2_sha256": deploy["codegen2_sha256"],
             "bounds": deploy["bounds"],
             "runs": [],
             "_module": w.load(code),
@@ -283,7 +285,7 @@ def main() -> int:
         "description": "Bo conformance vectors (spec/bo.md, section 18): for each contract its "
                        "sources (in each language they are written in), name, interface, the "
                        "bo-source bundle a deploy records (official packs, SHA-256 digests), "
-                       "and the code cexchain-bo builds, its codegen 1 code's hash, and its "
+                       "and the code cexchain-bo builds, the hashes of its codegen 1 and 2 code, and its "
                        "functions' fuel and output bounds (informative); calls with their "
                        "outcomes (normative; fuel is this code's); and sources that must not "
                        "build, with their errors' codes and lines (normative). Inputs are "

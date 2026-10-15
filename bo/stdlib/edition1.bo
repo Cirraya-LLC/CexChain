@@ -18,14 +18,16 @@ bo 1
 # contract's own word (R24).
 
 # The holder hands the asset over: the counterparty becomes its holder. Both
-# consent, the holder by starting it. Not while pledged.
+# consent to every transfer, the holder by starting it (the counterparty by
+# R3, R21, or R31). Not while pledged.
 can transfer to counterparty by holder
   requires not counterparty = holder
   active -> active
   holder = counterparty
 
 # The holder pledges the asset to the counterparty, which becomes its pledgee.
-# Both consent. Only an active asset can be pledged: no second pledge.
+# Both consent to every pledge. Only an active asset can be pledged: no second
+# pledge.
 can pledge to counterparty by holder
   requires not counterparty = holder
   active -> pledged
@@ -119,7 +121,8 @@ can terminate
   active, suspended -> terminated
 
 # The home allocates the resource to the counterparty, which becomes its holder
-# and consents; each allocation names its holder (R23). After a reclaim the
+# and consents to every allocation (R31 if its role was bound before); one the
+# allocation binds is named by each allocation (R23). After a reclaim the
 # resource cools: it is allocated again only once its cooling period has passed
 # since the reclaim.
 can allocate to counterparty

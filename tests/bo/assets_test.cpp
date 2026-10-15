@@ -104,6 +104,23 @@ const Kind& receipt() {
     return k;
 }
 
+/// The receivable with its bank bound when it is issued (a field names the
+/// bank): a pledge or a transfer to the bank asks the bank's consent (R31),
+/// as the native rules ask any counterparty's; enforce asks only the
+/// pledgee's.
+const Kind& receivable_with_bank() {
+    static const Kind k{protocol::AssetKind::receivable,
+                        "contract Receivable\nparties issuer, supplier, bank\n\n"
+                        "asset Receivable\n  amount HKD\n  due date\n  holder supplier\n"
+                        "  banker bank\n\n"
+                        "can transfer to bank\ncan pledge to bank\ncan release\ncan enforce\n"
+                        "can pay\ncan confirm payment\ncan dispute\ncan freeze\ncan unfreeze\n"
+                        "can cancel\n",
+                        "issuer issue with amount = HKD 1_000, due = 2027-06-30", "role.issuer",
+                        "role.supplier"};
+    return k;
+}
+
 /// The asset as the native rules keep it, from its registration.
 struct Native {
     protocol::AssetState asset;
@@ -271,6 +288,34 @@ TEST_CASE("the standard library's receivable acts as the native one", "[bo][stdl
                            {"role.issuer", unfreeze, {}, {}},
                            {"role.supplier", cancel, {}, {}},
                            {"role.issuer", pay, {}, {}}});
+}
+
+TEST_CASE("a counterparty bound at creation consents as the native one does", "[bo][stdlib]") {
+    using enum AssetAction;
+    // Q17 (R31): the bank, bound when the receivable is issued, consents to
+    // each pledge and transfer to it; it enforces with its own consent alone.
+    compare(receivable_with_bank(), {{"role.supplier", pledge, "role.bank", {}},
+                                     {"role.supplier", pledge, "role.bank", {}},
+                                     {"role.supplier", transfer, "role.bank", {}},
+                                     {"role.bank", enforce, {}, {}},
+                                     {"role.bank", pledge, "role.bank", {}},
+                                     {"role.bank", transfer, "role.bank", {}},
+                                     {"role.issuer", pay, {}, {}},
+                                     {"role.bank", confirm, {}, {}}});
+    // Pledged, released, then sold to the bank, which is paid.
+    compare(receivable_with_bank(), {{"role.supplier", pledge, "role.bank", {}},
+                                     {"role.bank", release, {}, {}},
+                                     {"role.supplier", transfer, "role.bank", {}},
+                                     {"role.bank", pledge, "role.bank", {}},
+                                     {"role.issuer", pay, {}, {}},
+                                     {"role.bank", dispute, {}, {}},
+                                     {"role.issuer", pay, {}, {}},
+                                     {"role.bank", confirm, {}, {}}});
+    // Sold to the bank at once, then cancelled by it, and nothing after.
+    compare(receivable_with_bank(), {{"role.supplier", transfer, "role.bank", {}},
+                                     {"role.bank", pledge, "role.bank", {}},
+                                     {"role.bank", cancel, {}, {}},
+                                     {"role.supplier", transfer, "role.bank", {}}});
 }
 
 TEST_CASE("the standard library's warehouse receipt acts as the native one", "[bo][stdlib]") {

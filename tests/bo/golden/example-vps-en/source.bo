@@ -10,7 +10,7 @@ service VPS
 
 can subscribe by customer
 can renew by customer
-can upgrade by customer          # proration recognized: by days remaining
+can upgrade by customer          # proration by days remaining: the executor's (R10)
 when 7 days before due notify customer
 when overdue 3 days suspend      # request to the panel executor: suspend VPS
 when overdue 30 days terminate and reclaim IP

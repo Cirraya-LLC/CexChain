@@ -189,7 +189,7 @@ TEST_CASE("every check has an error golden, and every rule is seen", "[bo][check
         CHECK(find_rule(models.substr(at + 1, end - at - 1)) != nullptr);
         at = end;
     }
-    CHECK(rule_specs().size() == 30);
+    CHECK(rule_specs().size() == 31);
     CHECK(rule_specs().front().id == "R1");
 }
 

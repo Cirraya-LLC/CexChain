@@ -96,7 +96,6 @@ constexpr Concept unsorted_concepts[] = {
     {"price.overage", pricing, 0},
     {"price.per", pricing, 0},
     {"price.setup_fee", pricing, 0},
-    {"price.proration", pricing, 0},
     // Charges: taxes, fees, commissions, discounts.
     {"charge.charge", charge, 0},
     {"charge.tax", charge, 0},
@@ -556,6 +555,7 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"consent-rebinds", "party"},
     {"consent-taken", "field"},
     {"consent-call", "party input"},
+    {"consent-takes", "party field"},
     {"requirement", "number need"},
     {"requirement-if", "number guard need"},
     {"need-consent", "party"},
@@ -754,6 +754,7 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"rule-R28", ""},
     {"rule-R29", ""},
     {"rule-R30", ""},
+    {"rule-R31", ""},
 };
 
 constexpr auto sorted_sentences = [] {
@@ -800,6 +801,7 @@ constexpr RuleSpec rules[] = {
     {"R28", "rate-in-force"},     // the rate in force at the bill's time (U9)
     {"R29", "one-item"},          // one value where a list is needed: a list of one
     {"R30", "issue-parts"},       // issue PARTS to RECIPIENTS: parts are instances of their own
+    {"R31", "role-taking"},       // a counterparty made holder, pledgee, or payee consents
 };
 
 template <class T, std::size_t N, class Key>

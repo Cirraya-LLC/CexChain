@@ -1,5 +1,5 @@
 contract Agreement
-code: 5685 bytes, sha256 fd74e703096db79e802227cd03335826a0bccdfd28f9ab58a3831fd8ac03b963, codegen 2
+code: 5685 bytes, sha256 fd74e703096db79e802227cd03335826a0bccdfd28f9ab58a3831fd8ac03b963, codegen 3
 interface: amend 2 close 2 countersign 2 create 1 sign 2
 bound amend: fuel 226042, reading 63080 (201 items, 74 keys), output 65771
 bound close: fuel 220650, reading 61800 (197 items, 72 keys), output 65771

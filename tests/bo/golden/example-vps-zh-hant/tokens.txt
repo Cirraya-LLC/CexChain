@@ -47,8 +47,8 @@
 13:2 word act.upgrade | 升級
 13:5 word kw.by | 由
 13:7 word role.customer | 客戶
-13:19 comment | # proration recognized: by days remaining
-13:60 newline
+13:19 comment | # proration by days remaining: the executor's (R10)
+13:70 newline
 14:1 word kw.when | 當
 14:3 word cond.before_due piece=head | 到期前
 14:7 duration time.day 7 | 7日

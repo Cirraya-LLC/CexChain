@@ -520,6 +520,11 @@ struct Model {
 /// True if some action issues parts.
 [[nodiscard]] bool issues_parts(const Model& model) noexcept;
 
+/// R31: the field (holder, pledgee, or payee) that an action's block sets
+/// to its counterparty (`to`, a role or a party field), the first such line
+/// depth first; null if it sets none of them to it.
+[[nodiscard]] const Concept* role_taken(const Action& action);
+
 /// The deepest a part may be (spec section 15): an instance at this depth
 /// creates no parts.
 inline constexpr std::uint64_t max_part_depth = 8;

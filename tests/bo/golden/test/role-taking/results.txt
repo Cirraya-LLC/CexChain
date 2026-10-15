@@ -1,0 +1,19 @@
+test "a pledge to the bank needs its consent" passed home=role.issuer
+  step 1 passed 2026-01-01 accepted active event=active; fuel 7625
+  step 2 passed 2026-01-01 waits role.bank; fuel 11614 12278
+  step 3 passed 2026-01-01 accepted pledged event=pledged consents role.supplier role.bank; fuel 11614 14833
+  step 4 passed 2026-01-01 accepted active event=active consents role.bank; fuel 11527 14085
+test "a transfer to the bank needs its consent" passed home=role.issuer
+  step 1 passed 2026-01-01 accepted active event=active; fuel 7625
+  step 2 passed 2026-01-01 waits role.bank; fuel 11548 12212
+  step 3 passed 2026-01-01 accepted active event=active consents role.supplier role.bank; fuel 11548 14566
+  step 4 passed 2026-01-01 refused "bo:requires transfer 1"; fuel 11203
+test "the factor, bound by its first sale, consents to each pledge" passed home=role.issuer
+  step 1 passed 2026-01-01 accepted active event=active; fuel 7625
+  step 2 passed 2026-01-01 waits factor; fuel 12110 12775
+  step 3 passed 2026-01-01 accepted active event=active consents role.supplier factor; fuel 12110 15251
+  step 4 passed 2026-01-01 accepted active event=active consents factor role.bank; fuel 12138 15280
+  step 5 passed 2026-01-01 waits factor; fuel 12226 12878
+  step 6 passed 2026-01-01 accepted pledged event=pledged consents factor role.bank; fuel 12226 15556
+  step 7 passed 2026-01-01 accepted active event=active consents factor; fuel 12209 14889
+3 tests: 3 passed, 0 failed

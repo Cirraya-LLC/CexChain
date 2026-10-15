@@ -109,8 +109,8 @@ struct Build {
     Bytes code;
     /// Each function and its kind, the deploy's interface.
     std::map<std::string, protocol::FunctionKind> interface;
-    /// Each function's bound (only for the current codegen version; empty
-    /// for code built as an earlier version, whose input had no useful bound).
+    /// Each function's bound (from codegen 2 on; empty for code built as
+    /// codegen 1, whose input had no useful bound).
     std::map<std::string, FunctionBound> bounds;
 };
 
@@ -126,7 +126,9 @@ struct Lowered {
 /// codegen version to write (an earlier one only to rebuild a deploy made
 /// with it): codegen 1 checked texts' UTF-8 in the input (runtime.hpp) and
 /// took two new locals for each comparison of parties that may be none and
-/// each `consent of` a list.
+/// each `consent of` a list; codegens 1 and 2 ask no consent by R31 (a
+/// counterparty the action makes holder, pledgee, or payee, whose role was
+/// bound before), which came with codegen 3.
 [[nodiscard]] Lowered lower(std::string_view source, const model::Model& model,
                             std::uint32_t codegen = wasm::codegen_version)
     BO_PRE(codegen >= wasm::oldest_codegen_version && codegen <= wasm::codegen_version);

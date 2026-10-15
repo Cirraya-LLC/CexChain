@@ -83,6 +83,7 @@ constexpr std::string_view rule_bill = "R26";
 constexpr std::string_view rule_rate_in_force = "R28";
 constexpr std::string_view rule_one_item = "R29";
 constexpr std::string_view rule_issue_parts = "R30";
+constexpr std::string_view rule_role_taking = "R31";
 
 /// The fields the standard terms may add to an instance (R20): parties
 /// that hold the asset in some way, none until an action sets them; a
@@ -2026,6 +2027,9 @@ void Checker::check_can(const ast::Can& c, std::size_t index) {
         respan(*a.by, c.action.span);
         in_terms(false);
     }
+    // Where the counterparty's consents go (R3, R21; R31 once the block is
+    // read).
+    const Span to_span = c.to ? c.to->span : c.action.span;
     if (c.to) {
         check_to(*c.to, a, action);
     } else if (a.terms && terms->second.to) {
@@ -2039,6 +2043,7 @@ void Checker::check_can(const ast::Can& c, std::size_t index) {
         }
         in_terms(false);
     }
+    const std::size_t to_consents = a.consents.size();
     if (!c.by && a.word == nullptr) {
         error(c.action.span, "check.needs-by", {{"action", action}});
     }
@@ -2102,6 +2107,22 @@ void Checker::check_can(const ast::Can& c, std::size_t index) {
                 nested(i->then, nested);
                 nested(i->otherwise, nested);
             }
+        }
+    }
+    // R31: a counterparty the action makes the holder, the pledgee, or the
+    // payee consents at every call, even when its role was bound before
+    // (at creation, or by another action). R3 and R21 ask it already when
+    // the action binds it or each call names it, and R8 when it is a field
+    // the action's own lines set.
+    if (m::role_taken(a) != nullptr) {
+        const std::string party = m::key(a.to->concept_entry, a.to->name);
+        const bool asked = std::ranges::any_of(a.consents, [&](const m::Consent& k) {
+            return k.party.refers == a.to->refers &&
+                   m::key(k.party.concept_entry, k.party.name) == party;
+        });
+        if (!asked) {
+            a.consents.insert(a.consents.begin() + static_cast<std::ptrdiff_t>(to_consents),
+                              m::Consent{to_span, *a.to, rule_role_taking});
         }
     }
     if (!a.agents_propose) {

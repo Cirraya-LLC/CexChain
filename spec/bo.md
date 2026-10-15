@@ -84,7 +84,7 @@ Here the supplier holds a receivable the issuer owes. `pledge` and `transfer` ar
 
 ### 1.2 One contract, any language
 
-Bo has 18 keywords (Appendix A) and a vocabulary of 140 words (Appendix B): kinds, business actions, conditions, prices, charges, time words, units, currencies, rounding modes, documents, types, values, fields, states, actors, roles, and expressions. Each is a *concept* with an id (`kw.can`, `act.pledge`, `cur.HKD`). *Language packs* (section 3) give each concept its spellings in one language, and the reading rules of that language. Three official packs come with edition 1: English (`en`), Traditional Chinese in Hong Kong usage (`zh-Hant-HK`), and Simplified Chinese in mainland usage (`zh-Hans-CN`).
+Bo has 18 keywords (Appendix A) and a vocabulary of 139 words (Appendix B): kinds, business actions, conditions, prices, charges, time words, units, currencies, rounding modes, documents, types, values, fields, states, actors, roles, and expressions. Each is a *concept* with an id (`kw.can`, `act.pledge`, `cur.HKD`). *Language packs* (section 3) give each concept its spellings in one language, and the reading rules of that language. Three official packs come with edition 1: English (`en`), Traditional Chinese in Hong Kong usage (`zh-Hant-HK`), and Simplified Chinese in mainland usage (`zh-Hans-CN`).
 
 The compiler works on concepts, never on spellings. A source may mix the three languages, even within a line (`可pledge 予 bank`), and the same contract written in any language, or mixed, gives the same tree, the same checked model, the same compiled code byte for byte, and the same contract text in each output language. Names the contract gives (its own parties, fields, states, actions, charges) are never translated: they stay as written, and compiled code uses them as written.
 
@@ -94,7 +94,7 @@ Bo reads, and infers, only by fixed rules of the edition:
 
 - **Reading.** A run of characters that two rules could read differently (`可用率` as one name, or as `可` + `用率`) is read one way only, or it is an error asking for a space. One spelling never has two meanings across the packs a source is read with.
 - **Grammar.** What could be grouped two ways is an error asking for parentheses (`monthly HKD 120 * 12`, `a < b < c`).
-- **Meaning.** What Bo infers rather than reads (a field's type, the state an instance starts in, a consent an action needs, a threshold's currency), it infers by one of the edition's thirty *recognition rules*, R1 to R30 (section 7). Where no rule applies, the checker reports an error. Every clause a rule inferred is marked with the rule's id in the contract text (section 14), so the parties see it before they sign.
+- **Meaning.** What Bo infers rather than reads (a field's type, the state an instance starts in, a consent an action needs, a threshold's currency), it infers by one of the edition's thirty-one *recognition rules*, R1 to R31 (section 7). Where no rule applies, the checker reports an error. Every clause a rule inferred is marked with the rule's id in the contract text (section 14), so the parties see it before they sign.
 
 ### 1.4 Editions
 
@@ -292,7 +292,7 @@ The first line that has any token MAY name the edition: `bo` followed by a whole
 
 ### 3.1 Concepts
 
-Edition 1 has 158 concepts: 18 keywords, which every pack spells, and 140 words of the vocabulary. A concept's id is its category, a dot, and its name. Categories decide where a word may stand, and packs name them in their reading rules:
+Edition 1 has 157 concepts: 18 keywords, which every pack spells, and 139 words of the vocabulary. A concept's id is its category, a dot, and its name. Categories decide where a word may stand, and packs name them in their reading rules:
 
 | Category | Id prefix | Concepts | Examples |
 |---|---|---|---|
@@ -684,7 +684,7 @@ An instance is always in one state. The states are those the contract's state ch
 An action's parts:
 
 - **`by PARTY`**, its *starter*: a role, or a field that holds a party (`by holder`). The starter agrees by its consent; the home agrees by its call. A built-in action whose terms name no starter is the home's own word (8.1).
-- **`to PARTY`**, its *counterparty*: a role, which the action may bind (R3), or `counterparty`, which the contract does not declare: each call then names it, as the input `counterparty`, and it consents (R21).
+- **`to PARTY`**, its *counterparty*: a role, which the action may bind (R3), or `counterparty`, which the contract does not declare: each call then names it, as the input `counterparty`, and it consents (R21). A counterparty that the action makes the holder, the pledgee, or the payee consents to every call, however its role was bound (R31).
 - **`with INPUT, ...`**: what each call gives. An input is a name or a field word followed by its type (`with new_amount HKD, new_start date`), by an instance field it is typed like (`with portion quantity`), or nothing, for a field word whose type the vocabulary fixes (`with parts`). A contract may restate an input of a built-in action's terms, with the same type.
 - **Its block**: requirements, choices, `each`, refusals, fields set, state changes, and parts issued (section 11), in order.
 
@@ -695,11 +695,11 @@ An action of the contract's own MUST NOT lead back to itself through actions it 
 A call of an action needs the agreement of:
 
 1. **its starter** (`by`): the home through the call itself, another ledger through its consent;
-2. **the role it binds** (R3), or **the counterparty its call names** (R21);
+2. **the role it binds** (R3), **the counterparty its call names** (R21), or **the counterparty it makes the holder, the pledgee, or the payee** (R31), when that counterparty is a role bound at creation or by another action, or a party field (nobody if it holds none);
 3. **the party that a party field held before the call**, for each party field the action's own lines set, unless the action's starter is that field (R8); nobody, if the field held none. R8 adds no consent to a built-in action's terms, which state their own;
 4. **every party a `requires consent of X` the call reaches names**: a role, a party field (nobody if it holds none), or a list of parties, each of whom consents.
 
-A counterparty role that the action does not bind (one bound at creation) adds no consent by itself: if the contract wants it, it writes `requires consent of`. The home never consents (6.2). A consent missing is not a refusal: the call *waits* for it. A call that nothing refuses but that lacks consents ends with `[2, needs]`, naming the ledgers (12.7); a refusal wins over missing consents, so the home learns of a refusal without asking anyone.
+A counterparty that the action neither binds nor makes the holder, the pledgee, or the payee (a role bound at creation that an action of the contract's own only names, say) adds no consent by itself: if the contract wants it, it writes `requires consent of`. The home never consents (6.2). A consent missing is not a refusal: the call *waits* for it. A call that nothing refuses but that lacks consents ends with `[2, needs]`, naming the ledgers (12.7); a refusal wins over missing consents, so the home learns of a refusal without asking anyone.
 
 ### 6.7 Requirements and thresholds
 
@@ -730,7 +730,7 @@ Some actions ask the outside world to act: `notify`, and on a service, `subscrib
 
 ## 7. Recognition rules
 
-Bo infers by the thirty rules of edition 1 and by nothing else. Each rule has an id and a name; each official pack gives its text as the sentence `rule-ID`, which the contract text quotes (section 14). The checked model marks what each rule inferred (`{R3}` in `bo check --stage model`), and the contract text marks each clause so inferred (`[R3]` in English, `〔R3〕` in Chinese). A rule never changes meaning once its edition is released.
+Bo infers by the thirty-one rules of edition 1 and by nothing else. Each rule has an id and a name; each official pack gives its text as the sentence `rule-ID`, which the contract text quotes (section 14). The checked model marks what each rule inferred (`{R3}` in `bo check --stage model`), and the contract text marks each clause so inferred (`[R3]` in English, `〔R3〕` in Chinese). A rule never changes meaning once its edition is released.
 
 | Rule | Name | What Bo infers |
 |---|---|---|
@@ -764,6 +764,7 @@ Bo infers by the thirty rules of edition 1 and by nothing else. Each rule has an
 | R28 | rate-in-force | A charge's rate is the one in force at the bill's time: the rate from the latest date on or before it (from that day's start at the contract's offset), else its own rate. A bill keeps the rate it was made with. |
 | R29 | one-item | One value where a list is needed is a list of that one item. |
 | R30 | issue-parts | `issue PARTS to RECIPIENTS` makes each part an instance of its own, of the same contract, created by the call; its amount is the part and its holder its recipient; the instance that issued them ends; a part may be split again, at most eight levels down (section 11). |
+| R31 | role-taking | An action that makes its counterparty (after `to`) the holder, the pledgee, or the payee (`holder = bank`, as the terms of `transfer`, `pledge`, and `allocate` do) needs the counterparty's consent at every call, even when its role was bound when the instance was created or by another action; where the action binds the role (R3), each call names it (R21), or it is a party field the action's own lines set (R8), those rules already ask it. An action that names no counterparty adds none: `enforce` makes its own starter, the pledgee, the holder, and `pay` makes the pledgee or the holder the payee. |
 
 The rule texts in the packs are plain-language summaries of the rows above; the rows, sections 6 to 11, and the conformance suite define the rules.
 
@@ -779,7 +780,7 @@ The standard library, [`../bo/stdlib/edition1.bo`](../bo/stdlib/edition1.bo), is
 - **Inputs.** The terms' inputs are the action's; the contract MAY restate one with the same type (`can split with parts`), and MAY add its own.
 - **Fields.** Every field the terms use, other than their inputs and the fields Bo adds (R20), MUST be a field of the instance, and one the terms set MUST be an instance field (`check.standard-field`); one they only read may be a constant (a resource's `cooling period`).
 - **States.** The terms assume an instance starts `active`. The states their state changes name that an instance can reach from the first state become the contract's (R19); the others are none of the contract's: they are dropped from the terms' FROM lists and read as false in conditions. An action whose terms can start only from states no instance reaches is `check.standard-unreachable`.
-- **Consents.** The terms state their own; R8 adds none to them.
+- **Consents.** The terms state their own, and their counterparty consents by R3, R21, or R31; R8 adds none to them.
 - **Refusal first by state.** A call of a built-in action in a state it cannot start from is refused before its arguments are read or anyone is asked: `bo:state ACTION` (12.8). An action of the contract's own is refused by its state change, where it stands in its block.
 
 A time rule may do a built-in action that no `can` declares (`when overdue 3 days suspend`): the action then has its terms, but no function of its own, and only the contract's time rules do it.
@@ -790,14 +791,16 @@ The terms of edition 1, as the library writes them (its comments are informative
 
 ```
 # The holder hands the asset over: the counterparty becomes its holder. Both
-# consent, the holder by starting it. Not while pledged.
+# consent to every transfer, the holder by starting it (the counterparty by
+# R3, R21, or R31). Not while pledged.
 can transfer to counterparty by holder
   requires not counterparty = holder
   active -> active
   holder = counterparty
 
 # The holder pledges the asset to the counterparty, which becomes its pledgee.
-# Both consent. Only an active asset can be pledged: no second pledge.
+# Both consent to every pledge. Only an active asset can be pledged: no second
+# pledge.
 can pledge to counterparty by holder
   requires not counterparty = holder
   active -> pledged
@@ -891,7 +894,8 @@ can terminate
   active, suspended -> terminated
 
 # The home allocates the resource to the counterparty, which becomes its holder
-# and consents; each allocation names its holder (R23). After a reclaim the
+# and consents to every allocation (R31 if its role was bound before); one the
+# allocation binds is named by each allocation (R23). After a reclaim the
 # resource cools: it is allocated again only once its cooling period has passed
 # since the reclaim.
 can allocate to counterparty
@@ -909,8 +913,8 @@ can reclaim
 
 | Action | Function | Starter | Counterparty | From | To |
 |---|---|---|---|---|---|
-| transfer | `transfer` | the holder | consents | active | active (the holder becomes the counterparty) |
-| pledge | `pledge` | the holder | consents | active | pledged (the pledgee is the counterparty) |
+| transfer | `transfer` | the holder | consents, every time | active | active (the holder becomes the counterparty) |
+| pledge | `pledge` | the holder | consents, every time | active | pledged (the pledgee is the counterparty) |
 | release | `release` | the pledgee | | pledged | active (no pledgee) |
 | enforce | `enforce` | the pledgee | | pledged | active (the pledgee becomes the holder) |
 | redeem | `redeem` | the holder | | active, pledged | unchanged, or redeemed when nothing remains |
@@ -927,7 +931,7 @@ can reclaim
 | allocate | `allocate` | the home | consents, every time (R23) | active, cooling | allocated (the holder is the counterparty) |
 | reclaim | `reclaim` | the home | | allocated | cooling (no holder) |
 
-Each built-in action's starter, if it is not the home, consents by starting it; its counterparty consents through R3 (a role the action binds) or R21 (a counterparty each call names). A counterparty role bound at creation is asked for no consent by the terms (6.6). With `can pledge to bank`, the bank is bound by the first pledge (R3), so a later pledge, after a release, goes to the same bank; with `can pledge`, each pledge names its pledgee (R21), as the native assets do. Unlike the native assets, the terms do not refuse a counterparty that is the home itself.
+Each built-in action's starter, if it is not the home, consents by starting it; its counterparty consents to every call, as with the native assets: through R3 (a role the action binds), R21 (a counterparty each call names), or R31 (a role bound at creation or by another action, which the action makes the holder or the pledgee). With `can pledge to bank`, the bank is bound by the first pledge (R3), so a later pledge, after a release, goes to the same bank, which consents again; with `can pledge`, each pledge names its pledgee (R21), as the native assets do; with a bank bound at creation (a field `banker bank`, say), each pledge to it asks its consent (R31). `enforce` names no counterparty: the pledgee starts it and takes the asset with its own consent alone, since the holder agreed when it pledged the asset, as with the native assets; `pay` names none either, and the home pays on its own word. Unlike the native assets, the terms do not refuse a counterparty that is the home itself.
 
 The other actions of the vocabulary (`issue`, `create`, `merge`, `refund`, `credit`, `subscribe`, `renew`, `upgrade`, `downgrade`, `approve`, `propose`, `notify`) have no terms in edition 1: a `can` of one is checked, but does not build (`build.standard-action`, or `build.executor` for an executor's). `issue` and `create` are the creation words: of tests (13.1) and of parts (section 11).
 
@@ -1356,7 +1360,7 @@ the ledgers in ascending byte order, each once, never the home. A call that woul
 
 ### 12.8 The order of a call's checks
 
-A call stops at its first refusal; a refusal anywhere wins over needs found before it. Every call first reads its input: it MUST be deterministic CBOR within the limits of spec section 2, a map, at most 163,840 bytes (`bo:input`). (The ledger's inputs always are, with valid UTF-8 in every text; codegen 1 checks that UTF-8 again, codegen 2 does not, 16.3.) Then its function is found by name (`bo:function`).
+A call stops at its first refusal; a refusal anywhere wins over needs found before it. Every call first reads its input: it MUST be deterministic CBOR within the limits of spec section 2, a map, at most 163,840 bytes (`bo:input`). (The ledger's inputs always are, with valid UTF-8 in every text; codegen 1 checks that UTF-8 again, codegens 2 and 3 do not, 16.3.) Then its function is found by name (`bo:function`).
 
 **Creation:**
 
@@ -1373,7 +1377,7 @@ A call stops at its first refusal; a refusal anywhere wins over needs found befo
 4. the arguments (`bo:arguments`, `bo:argument NAME`);
 5. the starter's agreement: its consent, or the home's call; for a built-in action without a starter, the home's (8.1). A role not yet bound refuses, `bo:party ROLE`; a party field holding none, `bo:empty FIELD`;
 6. an action AI agents may only propose: a call whose starter's signer is an AI agent becomes a proposal and is accepted now (`bo:pending` if 16 are kept); an approval requires the starter's signer to be a person who proves presence (`bo:approve ACTION`), when that signer is known;
-7. the consents the action records, in order: the role it binds (R3) or its counterparty (R21), then the parties of the party fields its own lines set (R8);
+7. the consents the action records, in order: the role it binds (R3), its counterparty named by the call (R21), or the counterparty it makes the holder, the pledgee, or the payee (R31), then the parties of the party fields its own lines set (R8);
 8. its block, in order (6.5, 12.10): requirements (`bo:requires ACTION N`, `bo:in-person ACTION`), consents asked (`requires consent of`), choices, `each`, `reject TEXT`, fields set, state changes (`bo:state ACTION` from another state, or for `previous state` with none), parts (`bo:parts ACTION`), and anything an expression refuses (`bo:party`, `bo:empty`, `bo:overflow`, `bo:division-by-zero`, `bo:date`);
 9. needs, if any (12.7); else the accept (`bo:output`).
 
@@ -1626,12 +1630,14 @@ Opening a bundle finds its packs: each embedded pack MUST read without errors (3
 
 ### 16.3 The compiler string and codegen versions
 
-`cexchain-bo RELEASE; codegen N; edition E` names the compiler, its release, its codegen version, and the edition it reads; for example `cexchain-bo 0.0.1; codegen 2; edition 1`. The codegen version fixes the code: the same codegen version builds the same bytes from the same source, in any language and on any machine. It goes up whenever any byte the compiler emits for some contract changes. A compiler carries the lowerings of the codegen versions before its own, so that a deploy built with an older one still rebuilds: CexChain's compiler is at codegen 2, and rebuilds deploys of codegen 1. Codegen 2 changed two things, and nothing a call does:
+`cexchain-bo RELEASE; codegen N; edition E` names the compiler, its release, its codegen version, and the edition it reads; for example `cexchain-bo 0.0.1; codegen 3; edition 1`. The codegen version fixes the code: the same codegen version builds the same bytes from the same source, in any language and on any machine. It goes up whenever any byte the compiler emits for some contract changes. A compiler carries the lowerings of the codegen versions before its own, so that a deploy built with an older one still rebuilds: CexChain's compiler is at codegen 3, and rebuilds deploys of codegens 1 and 2. Codegen 2 changed two things, and nothing a call does:
 
 - the code reads a call's input without checking again that its texts are UTF-8, which the ledger's inputs always are (the ledger's decoder refuses anything else): checking cost up to 50 fuel per byte of text that is not ASCII, so that a call's input of 160 KiB could take more fuel to read than a call has. Every module's bytes changed with it;
 - a function shares two scratch locals among its comparisons of parties that may be none, and its `consent of` a list, where codegen 1 took two new ones for each: thousands of them could exceed the 4,096 locals a function may have (spec section 14.1).
 
-Only codegen 2 code has fuel bounds (17.2).
+Codegen 3 asks the consents of R31, which edition 1 gained before its release (a counterparty that an action makes the holder, the pledgee, or the payee consents to every call, even when its role was bound before): codegens 1 and 2 never ask them, so their code accepts such a call without that consent. Only modules of contracts with such an action changed; for every other contract, codegens 2 and 3 write the same bytes. A deploy that names codegen 1 or 2 rebuilds with the code that codegen wrote, and its contract text, which this compiler writes from the source, states R31 although that code does not ask it; after the first release, a change of meaning comes in a new edition instead.
+
+Codegen 1 code has no fuel bounds; codegen 2 and 3 code has (17.2).
 
 ### 16.4 Rebuilding
 
@@ -1770,7 +1776,7 @@ A tool that writes **the contract text** conforms as section 14.3 says; one that
 - its source, in each language it is written in (English, Traditional Chinese, Simplified Chinese, and mixed, for some), and its name (`contract`);
 - its interface (`interface`: each function, `create` or `call`);
 - the `bo-source` bundle a deploy records (`bundle`, and its SHA-256), with the official packs' SHA-256 digests, and the compiler string it was built with (`compiler`);
-- the code `cexchain-bo` built from it (`code`, `code_sha256`), the SHA-256 of the code codegen 1 built from it (`codegen1_sha256`), and each function's fuel and output bounds (`bounds`): all informative;
+- the code `cexchain-bo` built from it (`code`, `code_sha256`), the SHA-256 of the code codegens 1 and 2 built from it (`codegen1_sha256`, `codegen2_sha256`), and each function's fuel and output bounds (`bounds`): all informative;
 - runs: each call, as its parts (function, arguments, home, contract, instance view, caller and signer, time, consents) and as the contract input the ledger encodes from them (spec section 15), with the outcome, the output or the reason, and the fuel the code used. The runs include every step of the contract's own test blocks.
 
 It also holds sources that must not build (`errors`): each with its name, its text (or, for one that is not UTF-8, its bytes in hex), and the error codes a compiler reports, in source order, with their lines. The codes are normative; the lines are CexChain's.
@@ -1873,7 +1879,6 @@ The words of edition 1, by category, as the official packs spell them. Where a p
 | `price.overage` | `overage` | `超出` | `超出` | |
 | `price.per` | `per` | `每` | `每` | |
 | `price.price` | `price` | `價格` | `价格` | plural `prices` |
-| `price.proration` | `proration` | `按日折算` | `按天折算` | |
 | `price.setup_fee` | `setup fee` | `開通費` | `开通费` | plural `setup fees` |
 | `price.traffic` | `traffic` | `流量` | `流量` | |
 | `price.usage` | `usage` | `用量` | `用量` | |

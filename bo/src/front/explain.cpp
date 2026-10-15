@@ -1567,7 +1567,14 @@ private:
             Rules rules;
             note(rules, c.rule);
             std::string text;
-            if (c.party.refers == Refers::field) {
+            const Concept* taken =
+                c.rule == "R31" && action_ != nullptr ? m::role_taken(*action_) : nullptr;
+            if (taken != nullptr) {
+                // R31: the counterparty the action makes holder, pledgee, or
+                // payee, at every call.
+                text =
+                    w_.say("consent-takes", {{"party", party(c.party)}, {"field", w_.word(taken)}});
+            } else if (c.party.refers == Refers::field) {
                 // R8: the party the field holds before the call.
                 text = w_.say("consent-taken", {{"field", party(c.party)}});
             } else if (c.party.refers == Refers::input) {

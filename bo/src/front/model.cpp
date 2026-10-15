@@ -565,6 +565,45 @@ bool issues_parts(const Model& model) noexcept {
 
 namespace {
 
+const Concept* taken(const std::vector<Statement>& list, const Expr& party) {
+    for (const Statement& s : list) {
+        const Concept* found = nullptr;
+        if (const auto* set = std::get_if<Set>(&s.node)) {
+            const Concept* field = set->target.concept_entry;
+            if (set->target.refers == Refers::field && field != nullptr &&
+                (field->id == "field.holder" || field->id == "field.pledgee" ||
+                 field->id == "field.payee") &&
+                set->value.refers == party.refers &&
+                key(set->value.concept_entry, set->value.name) ==
+                    key(party.concept_entry, party.name)) {
+                found = field;
+            }
+        } else if (const auto* i = std::get_if<If>(&s.node)) {
+            found = taken(i->then, party);
+            if (found == nullptr) {
+                found = taken(i->otherwise, party);
+            }
+        } else if (const auto* e = std::get_if<Each>(&s.node)) {
+            found = taken(e->body, party);
+        }
+        if (found != nullptr) {
+            return found;
+        }
+    }
+    return nullptr;
+}
+
+} // namespace
+
+const Concept* role_taken(const Action& action) {
+    if (!action.to || (action.to->refers != Refers::party && action.to->refers != Refers::field)) {
+        return nullptr;
+    }
+    return taken(action.body, *action.to);
+}
+
+namespace {
+
 bool goes_back(const std::vector<Statement>& list) {
     return std::ranges::any_of(list, [](const Statement& s) {
         if (const auto* t = std::get_if<Transition>(&s.node)) {

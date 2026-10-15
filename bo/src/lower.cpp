@@ -375,7 +375,7 @@ struct Ctx {
     /// costs (the loop's items, cost.hpp).
     std::map<std::string, wasm::Size> item_sizes;
     /// Two scratch locals, shared by every comparison of parties that may
-    /// be none and every `consent of` a list (codegen 2; codegen 1 took two
+    /// be none and every `consent of` a list (from codegen 2 on; codegen 1 took two
     /// new ones each time, so that thousands could exceed the 4,096 locals
     /// a function may have).
     std::optional<std::pair<Local, Local>> scratch;
@@ -441,7 +441,7 @@ private:
     /// constant's value), or an `each` item's size; none otherwise.
     [[nodiscard]] std::optional<wasm::Size> known_size(const Ctx& c, const m::Expr& e,
                                                        bool items) const;
-    /// The two scratch locals of the function (codegen 2), or two new ones.
+    /// The two scratch locals of the function (from codegen 2 on), or two new ones.
     [[nodiscard]] std::pair<Local, Local> scratch(Ctx& c);
     void expect(FunctionBuilder& b, Rep rep, std::string_view reason);
     void read_value(FunctionBuilder& b, const m::Type& type, std::string_view reason);
@@ -519,6 +519,12 @@ private:
     void write_pending(FunctionBuilder& b);
     void write_event(FunctionBuilder& b);
     void write_rule_event(FunctionBuilder& b);
+    /// True if this codegen's code asks consent K: codegens 1 and 2 came
+    /// before R31 and never ask its consents, so that their deploys rebuild
+    /// to the same bytes.
+    [[nodiscard]] bool asks(const m::Consent& k) const noexcept {
+        return codegen_ >= 3 || k.rule != "R31";
+    }
 
     std::string_view source_;
     const m::Model& model_;
@@ -3191,9 +3197,11 @@ void Lowering::emit_action(const ActionInfo& info) {
         call_item(b, 3);
         b.call(rt_.get(Routine::content)).call(consent).set(c.signer);
     }
-    // R3, R8, R21: the consents the action needs.
+    // R3, R8, R21, R31: the consents the action needs.
     for (const m::Consent& k : a.consents) {
-        consent_of(c, k.party);
+        if (asks(k)) {
+            consent_of(c, k.party);
+        }
     }
     statements(c, a.body);
     finish(b);
@@ -3282,7 +3290,9 @@ void Lowering::emit_core(const ActionInfo& info) {
     b.u32(intern(info.wire)).global_set(event_name_);
     b.u32(static_cast<std::uint32_t>(info.wire.size())).global_set(event_length_);
     for (const m::Consent& k : a.consents) {
-        consent_of(c, k.party);
+        if (asks(k)) {
+            consent_of(c, k.party);
+        }
     }
     statements(c, a.body);
     finish(b);
@@ -3575,7 +3585,9 @@ void Lowering::run_action(Ctx& c, const m::Do& d) {
     c.requires_count = 0;
     entry_check(c);
     for (const m::Consent& k : info->action->consents) {
-        consent_of(c, k.party);
+        if (asks(k)) {
+            consent_of(c, k.party);
+        }
     }
     statements(c, info->action->body);
     c.action = outer;
@@ -4252,7 +4264,7 @@ Lowered Lowering::run() {
     for (const RuleInfo& r : rules_) {
         build.interface.emplace(r.wire, protocol::FunctionKind::call);
     }
-    if (codegen_ == wasm::codegen_version) {
+    if (codegen_ >= 2) {
         bounds(build);
     }
     out.build = std::move(build);

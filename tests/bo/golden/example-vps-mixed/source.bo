@@ -10,7 +10,7 @@ service VPS
 
 可subscribe by 客户
 can 續期 由 customer
-可升级 by customer          # proration recognized: by days remaining
+可升级 by customer          # proration by days remaining: the executor's (R10)
 當 7 days before due 通知 客戶
 when 逾期 3天 suspend        # 請求面板執行器暫停 VPS
 当 overdue 30日 終止 and 收回 IP

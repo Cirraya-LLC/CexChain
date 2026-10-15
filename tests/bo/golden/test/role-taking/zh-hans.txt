@@ -1,0 +1,38 @@
+测试 “a pledge to the bank needs its consent”：通过
+  第 1 步（第 29 行）通过：issuer issue with amount = HKD 1_000, due = 2027-06-30
+    结果：调用被接受，实例现为正常。
+  第 2 步（第 30 行）通过：supplier pledge to bank -> consent of bank
+    结果：调用正在等待银行同意。
+  第 3 步（第 31 行）通过：supplier pledge to bank -> pledged
+    结果：经供应商和银行同意，调用被接受，实例现为已质押。
+  第 4 步（第 32 行）通过：bank enforce -> active
+    结果：经银行同意，调用被接受，实例现为正常。
+
+测试 “a transfer to the bank needs its consent”：通过
+  第 1 步（第 35 行）通过：issuer issue with amount = HKD 1_000, due = 2027-06-30
+    结果：调用被接受，实例现为正常。
+  第 2 步（第 36 行）通过：supplier transfer to bank -> consent of bank
+    结果：调用正在等待银行同意。
+  第 3 步（第 37 行）通过：supplier transfer to bank -> active
+    结果：经供应商和银行同意，调用被接受，实例现为正常。
+  第 4 步（第 38 行）通过：bank transfer to bank -> refused "bo:requires transfer 1"
+    结果：调用被拒绝，因为转让 的第 1 项要求未满足（bo:requires transfer 1）。
+    合约条款 4.2.5：要求 1：银行不是持有人。
+
+测试 “the factor, bound by its first sale, consents to each pledge”：通过
+  第 1 步（第 41 行）通过：issuer issue with amount = HKD 1_000, due = 2027-06-30
+    结果：调用被接受，实例现为正常。
+  第 2 步（第 42 行）通过：supplier sell to factor -> consent of factor
+    结果：调用正在等待 factor 同意。
+  第 3 步（第 43 行）通过：supplier sell to factor -> active
+    结果：经供应商和 factor 同意，调用被接受，实例现为正常。
+  第 4 步（第 44 行）通过：factor transfer to bank -> active
+    结果：经 factor 和银行同意，调用被接受，实例现为正常。
+  第 5 步（第 45 行）通过：bank lodge to factor -> consent of factor
+    结果：调用正在等待 factor 同意。
+  第 6 步（第 46 行）通过：bank lodge to factor -> pledged
+    结果：经 factor 和银行同意，调用被接受，实例现为已质押。
+  第 7 步（第 47 行）通过：factor release -> active
+    结果：经 factor 同意，调用被接受，实例现为正常。
+
+共 3 个测试：3 个通过，0 个失败。

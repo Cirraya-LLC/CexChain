@@ -119,6 +119,9 @@ std::vector<std::pair<std::string, std::filesystem::path>> cases() {
         // Splitting (milestone 17): parts, and the demo's receivable.
         {"split", golden_dir / "test/split/source.bo"},
         {"multi-tier-split", source_dir / "deploy/demo/multi-tier-split.bo"},
+        // R31: a counterparty made holder or pledgee consents, whenever its
+        // role was bound.
+        {"role-taking", golden_dir / "check-role-taking/source.bo"},
     };
 }
 

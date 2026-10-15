@@ -25,6 +25,7 @@
 #include <cexchain/bo/format.hpp>
 #include <cexchain/bo/lexer.hpp>
 #include <cexchain/bo/pack.hpp>
+#include <cexchain/bo/scenario.hpp>
 #include <cexchain/bo/source.hpp>
 #include <cexchain/bo/wasm.hpp>
 #include <cexchain/core/bytes.hpp>
@@ -416,7 +417,7 @@ TEST_CASE("a deploy built as codegen 1 still rebuilds", "[bo][build]") {
     REQUIRE(second.build.has_value());
     CHECK(first.build->code != second.build->code);
     CHECK(first.build->interface == second.build->interface);
-    // Only the current codegen has bounds.
+    // Codegen 1 has no bounds.
     CHECK(first.build->bounds.empty());
     CHECK(second.build->bounds.size() == second.build->interface.size());
 
@@ -443,6 +444,43 @@ TEST_CASE("a deploy built as codegen 1 still rebuilds", "[bo][build]") {
     CHECK(rebuilt(deploy).status == RebuildStatus::other_compiler);
 }
 
+TEST_CASE("a deploy built as codegen 2 still rebuilds, without R31's consents", "[bo][build]") {
+    // Codegen 3 asks the consent of a counterparty that an action makes the
+    // holder, the pledgee, or the payee when its role was bound before (R31,
+    // decided before the first release); codegen 2 did not, and the compiler
+    // still writes it, so that a deploy made with it rebuilds.
+    const std::string source =
+        read_text(build_dir.parent_path() / "check-role-taking" / "source.bo");
+    const Compiled second = compile(source, official_set(), CompileOptions{2, false});
+    const Compiled third = compile(source, official_set());
+    REQUIRE(second.build.has_value());
+    REQUIRE(third.build.has_value());
+    CHECK(second.build->code != third.build->code);
+    CHECK(second.build->interface == third.build->interface);
+    // Without such a consent, codegens 2 and 3 write the same bytes.
+    const Compiled plain = compile(agreement(), official_set(), CompileOptions{2, false});
+    REQUIRE(plain.build.has_value());
+    CHECK(plain.build->code == deploy_of(agreement()).code);
+    // Codegen 2's pledge to the bank, bound at creation, did not wait for
+    // the bank; codegen 3's does.
+    const TestResults before = run_tests(*second.model, *second.build, provider());
+    REQUIRE(before.tests.size() == 3);
+    CHECK(!before.tests.front().passed);
+    REQUIRE(before.tests.front().steps.size() >= 2);
+    CHECK(before.tests.front().steps[1].happened == Happened::accepted);
+    CHECK(run_tests(*third.model, *third.build, provider()).passed == 3);
+
+    protocol::ContractDeployBody deploy = deploy_of(source);
+    CompilerId old = this_compiler();
+    old.codegen = 2;
+    deploy.compiler = format_compiler(old);
+    deploy.code = second.build->code;
+    CHECK(rebuilt(deploy).status == RebuildStatus::rebuilds);
+    // Codegen 3's code under codegen 2's name is not its source's.
+    deploy.code = third.build->code;
+    CHECK(rebuilt(deploy).status == RebuildStatus::differs);
+}
+
 TEST_CASE("code a call could run out of fuel in does not build", "[bo][build]") {
     // Every number of one list of 1,000 against every number of another: a
     // million comparisons, beyond the 10,000,000 fuel a call has.
@@ -461,7 +499,8 @@ TEST_CASE("code a call could run out of fuel in does not build", "[bo][build]") 
     CHECK(fuel->arg("limit") == "10000000");
     CHECK(std::stoull(std::string(fuel->arg("bound"))) > vm::fuel_limit);
     // The same code builds when only bytes are compared (a rebuild).
-    const Compiled bytes_only = compile(nested, official_set(), CompileOptions{2, false});
+    const Compiled bytes_only =
+        compile(nested, official_set(), CompileOptions{wasm::codegen_version, false});
     REQUIRE(bytes_only.build.has_value());
     CHECK(bytes_only.build->bounds.at("check").fuel > vm::fuel_limit);
     // Smaller bounds build: 100 by 100.
