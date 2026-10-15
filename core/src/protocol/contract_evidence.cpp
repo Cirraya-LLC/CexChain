@@ -5,7 +5,6 @@
 #include <map>
 #include <utility>
 
-#include <cexchain/core/protocol/asset_evidence.hpp>
 #include <cexchain/core/protocol/contract_evidence.hpp>
 
 #include "reader.hpp"

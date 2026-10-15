@@ -42,12 +42,8 @@ constexpr std::array access_request_transitions{
 constexpr std::array<Transition, 0> no_transitions{};
 constexpr std::array<std::string_view, 0> no_roles{};
 
-// Ownership assets (D-052): receivables (应收账款) and warehouse receipts
-// (仓单). They change only through asset actions (see assets.hpp), never
-// through record transitions. A party's consent to an asset action is a
-// record on its own ledger.
-constexpr std::array<std::string_view, 2> warehouse_receipt_roles{"inspector", "insurer"};
-constexpr std::array asset_consent_transitions{
+// A party's consent to a contract call (spec v0.6), on its own ledger.
+constexpr std::array consent_transitions{
     Transition{"given", "withdrawn"},
 };
 
@@ -58,11 +54,7 @@ constexpr std::array types{
     RecordType{"cexchain.access-request/1", "requested", access_request_transitions, no_roles},
     RecordType{"cexchain.access-grant/1", "granted", no_transitions, no_roles},
     RecordType{"cexchain.access-receipt/1", "received", no_transitions, no_roles},
-    RecordType{"cexchain.asset-consent/1", "given", asset_consent_transitions, no_roles},
-    // A party's consent to a contract call (spec v0.6), on its own ledger.
-    RecordType{"cexchain.contract-consent/1", "given", asset_consent_transitions, no_roles},
-    RecordType{"cexchain.receivable/1", "active", no_transitions, no_roles},
-    RecordType{"cexchain.warehouse-receipt/1", "active", no_transitions, warehouse_receipt_roles},
+    RecordType{"cexchain.contract-consent/1", "given", consent_transitions, no_roles},
 };
 
 } // namespace

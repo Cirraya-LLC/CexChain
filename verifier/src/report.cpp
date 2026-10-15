@@ -86,22 +86,6 @@ std::string event_line(const protocol::RecordEvent& event) {
         return "moved " + event.detail + " by " + actor;
     case protocol::StatementType::record_revoke:
         return "revoked by " + actor + (event.detail.empty() ? "" : " (" + event.detail + ")");
-    case protocol::StatementType::asset_action:
-        if (event.asset_action) {
-            const protocol::AssetActionBody& a = *event.asset_action;
-            std::string what(protocol::name(a.action));
-            if (a.to) {
-                what += " to ledger " + short_id(*a.to);
-            }
-            if (a.quantity) {
-                what += std::format(" ({})", *a.quantity);
-            }
-            if (a.reference) {
-                what += " (" + *a.reference + ")";
-            }
-            return what + ", recorded by " + actor;
-        }
-        return "asset action by " + actor;
     case protocol::StatementType::contract_call:
         if (event.contract_call) {
             const protocol::ContractCallBody& c = *event.contract_call;

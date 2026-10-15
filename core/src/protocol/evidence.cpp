@@ -75,9 +75,6 @@ std::string event_detail(const Statement& statement) {
     if (const auto* b = std::get_if<RecordRevokeBody>(&statement.body)) {
         return b->reason.value_or("");
     }
-    if (const auto* b = std::get_if<AssetActionBody>(&statement.body)) {
-        return std::string(name(b->action));
-    }
     if (const auto* b = std::get_if<ContractCallBody>(&statement.body)) {
         return b->function;
     }
@@ -562,9 +559,6 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
         report.record_type = record->record_type;
         report.state = record->state;
         report.revoked = record->revoked;
-        if (const AssetState* asset = state->asset(record->id)) {
-            report.asset = *asset;
-        }
     } else {
         const ContractState* contract = state->contract(instance->contract);
         // The deploy is in the bundle: the contract was loaded from it while
@@ -683,9 +677,6 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
             .provenance = statement.provenance,
             .presence = presence.contains(index) ? std::optional(presence.at(index)) : std::nullopt,
             .detail = event_detail(statement),
-            .asset_action = std::holds_alternative<AssetActionBody>(statement.body)
-                                ? std::optional(std::get<AssetActionBody>(statement.body))
-                                : std::nullopt,
             .contract_call = std::holds_alternative<ContractCallBody>(statement.body)
                                  ? std::optional(std::get<ContractCallBody>(statement.body))
                                  : std::nullopt,

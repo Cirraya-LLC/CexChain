@@ -287,21 +287,6 @@ Json body_json(const protocol::Body& body) {
             [](const protocol::RecordRevokeBody& b) -> Json {
                 return {{"record", id_json(b.record)}, {"reason", optional_text(b.reason)}};
             },
-            [](const protocol::AssetActionBody& b) -> Json {
-                Json consents = Json::array();
-                for (const protocol::ConsentRef& c : b.consents) {
-                    consents.push_back({{"ledger", id_json(c.ledger)},
-                                        {"record", id_json(c.record)},
-                                        {"bundle", id_json(c.bundle)}});
-                }
-                return {{"asset", id_json(b.asset)},
-                        {"action", protocol::name(b.action)},
-                        {"head", b.head},
-                        {"to", b.to ? id_json(*b.to) : Json(nullptr)},
-                        {"quantity", b.quantity ? Json(*b.quantity) : Json(nullptr)},
-                        {"consents", std::move(consents)},
-                        {"reference", optional_text(b.reference)}};
-            },
             [](const protocol::ContractDeployBody& b) -> Json {
                 Json interface = Json::object();
                 for (const auto& [function, kind] : b.interface) {
@@ -451,20 +436,6 @@ std::string body_summary(const Session& session, const protocol::Body& body,
             [&](const protocol::RecordRevokeBody& b) {
                 return "revoke record " + short_id(b.record) +
                        (b.reason ? " (" + *b.reason + ")" : "");
-            },
-            [&](const protocol::AssetActionBody& b) {
-                std::string out =
-                    std::string(protocol::name(b.action)) + " asset " + short_id(b.asset);
-                if (b.to) {
-                    out += " to ledger " + short_id(*b.to);
-                }
-                if (b.quantity) {
-                    out += " (" + std::to_string(*b.quantity) + ")";
-                }
-                if (!b.consents.empty()) {
-                    out += ", " + std::to_string(b.consents.size()) + " consent(s)";
-                }
-                return out;
             },
             [&](const protocol::ContractDeployBody& b) {
                 return "deploy contract" + id + (b.name ? " \"" + *b.name + "\"" : "") + " (" +

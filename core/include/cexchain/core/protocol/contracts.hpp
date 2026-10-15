@@ -34,6 +34,8 @@ namespace cexchain::protocol {
 /// A party's consent to a call, on its own ledger: "given", which may become
 /// "withdrawn".
 inline constexpr std::string_view contract_consent_type = "cexchain.contract-consent/1";
+inline constexpr std::string_view consent_given = "given";
+inline constexpr std::string_view consent_withdrawn = "withdrawn";
 
 inline constexpr std::size_t max_contract_parties = 64;
 inline constexpr std::size_t max_contract_events = 64;

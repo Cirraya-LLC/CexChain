@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// The standard library (milestone 11 of the Bo compiler) against CexChain's
-// native assets (spec section 13): the same calls, run on core's asset rules
-// (protocol/assets) and on a Bo contract whose actions are the library's
-// built-in ones, give the same states, holders, pledgees, payees,
-// quantities, consents, and refusals. And a built-in action copied under a
-// name of the contract's own compiles and behaves as the original.
+// The standard library (milestone 11 of the Bo compiler): a Bo contract whose
+// actions are the library's built-in ones gives, call by call, the states,
+// holders, pledgees, payees, quantities, consents, and refusals that
+// CexChain's native assets gave (spec v0.5 to v0.8, section 13). Spec v0.9
+// removed the native assets from the protocol (D-054); their verdicts on
+// these flows, taken from core's asset rules before the removal, are kept
+// here as goldens. And a built-in action copied under a name of the
+// contract's own compiles and behaves as the original.
 
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <format>
-#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -26,13 +27,11 @@
 #include <cexchain/bo/pack.hpp>
 #include <cexchain/bo/scenario.hpp>
 #include <cexchain/bo/stdlib.hpp>
-#include <cexchain/core/protocol/assets.hpp>
 #include <cexchain/core/protocol/contracts.hpp>
 #include <cexchain/crypto/openssl.hpp>
 
 using namespace cexchain;
 using namespace cexchain::bo;
-using protocol::AssetAction;
 using protocol::Id;
 
 namespace {
@@ -57,13 +56,22 @@ Id ledger(std::string_view key) {
     return test_ledger_id(key, provider());
 }
 
-/// One call: who makes it (a key of the Bo test's parties), the action, and
-/// its counterparty or quantity (kg).
-struct Call {
-    std::string party;
-    AssetAction action = AssetAction::transfer;
-    std::optional<std::string> to;
-    std::optional<std::uint64_t> kg;
+/// One call, and the native rules' verdict on it: refused (no status), or
+/// the status after it, the parties whose consent it needed, and the parties
+/// (and a receipt's quantity, in grams) afterwards. Parties are the Bo
+/// test's ledger keys: a role's concept id, or a name as written. The action
+/// is as a test step writes it.
+struct Step {
+    std::string party{};
+    std::string action{};
+    std::optional<std::string> to{};
+    std::optional<std::uint64_t> kg{};
+    std::optional<std::string> status{};
+    std::vector<std::string> consents{};
+    std::string holder{};
+    std::optional<std::string> pledgee{};
+    std::optional<std::string> payee{};
+    std::optional<std::uint64_t> grams{};
 };
 
 /// How a Bo test step names a party: a role by its word, a name as written.
@@ -71,133 +79,64 @@ std::string step_party(std::string_view key) {
     return key.starts_with("role.") ? std::string(key.substr(5)) : std::string(key);
 }
 
-std::string step_action(AssetAction action) {
-    return action == AssetAction::confirm ? "confirm payment" : std::string(protocol::name(action));
-}
-
 struct Kind {
-    protocol::AssetKind kind = protocol::AssetKind::receivable;
     std::string contract;
     std::string issue;
-    std::string home;
-    std::string holder;
 };
 
 const Kind& receivable() {
-    static const Kind k{protocol::AssetKind::receivable,
-                        "contract Receivable\nparties issuer, supplier\n\n"
+    static const Kind k{"contract Receivable\nparties issuer, supplier\n\n"
                         "asset Receivable\n  amount HKD\n  due date\n  holder supplier\n\n"
                         "can transfer\ncan pledge\ncan release\ncan enforce\ncan pay\n"
                         "can confirm payment\ncan dispute\ncan freeze\ncan unfreeze\ncan cancel\n",
-                        "issuer issue with amount = HKD 1_000, due = 2027-06-30", "role.issuer",
-                        "role.supplier"};
+                        "issuer issue with amount = HKD 1_000, due = 2027-06-30"};
     return k;
 }
 
 const Kind& receipt() {
-    static const Kind k{protocol::AssetKind::warehouse_receipt,
-                        "contract WarehouseReceipt\nparties warehouse, depositor\n\n"
+    static const Kind k{"contract WarehouseReceipt\nparties warehouse, depositor\n\n"
                         "asset Receipt\n  quantity kg\n  holder depositor\n\n"
                         "can transfer\ncan pledge\ncan release\ncan enforce\ncan redeem\n"
                         "can freeze\ncan unfreeze\ncan cancel\n",
-                        "warehouse issue with quantity = 30 kg", "warehouse", "depositor"};
+                        "warehouse issue with quantity = 30 kg"};
     return k;
 }
 
 /// The receivable with its bank bound when it is issued (a field names the
 /// bank): a pledge or a transfer to the bank asks the bank's consent (R31),
-/// as the native rules ask any counterparty's; enforce asks only the
+/// as the native rules asked any counterparty's; enforce asks only the
 /// pledgee's.
 const Kind& receivable_with_bank() {
-    static const Kind k{protocol::AssetKind::receivable,
-                        "contract Receivable\nparties issuer, supplier, bank\n\n"
+    static const Kind k{"contract Receivable\nparties issuer, supplier, bank\n\n"
                         "asset Receivable\n  amount HKD\n  due date\n  holder supplier\n"
                         "  banker bank\n\n"
                         "can transfer to bank\ncan pledge to bank\ncan release\ncan enforce\n"
                         "can pay\ncan confirm payment\ncan dispute\ncan freeze\ncan unfreeze\n"
                         "can cancel\n",
-                        "issuer issue with amount = HKD 1_000, due = 2027-06-30", "role.issuer",
-                        "role.supplier"};
+                        "issuer issue with amount = HKD 1_000, due = 2027-06-30"};
     return k;
 }
 
-/// The asset as the native rules keep it, from its registration.
-struct Native {
-    protocol::AssetState asset;
-    std::string status;
-};
-
-Native register_native(const Kind& kind) {
-    protocol::AssetMetadata metadata;
-    metadata.holder = ledger(kind.holder);
-    if (kind.kind == protocol::AssetKind::receivable) {
-        metadata.units = 100'000; // HKD 1,000 in cents
-        metadata.unit = "HKD";
-        metadata.due = 1'000;
-    } else {
-        metadata.units = 30'000; // 30 kg in grams, as Bo keeps quantities
-        metadata.unit = "g";
-    }
-    const auto encoded = protocol::encode_asset_metadata(kind.kind, metadata);
-    REQUIRE(encoded.has_value());
-    const Id home = ledger(kind.home);
-    const Id id = ledger("cexchain-bo-test asset");
-    auto asset = protocol::register_asset(kind.kind, *encoded, home, id, 1);
-    REQUIRE(asset.has_value());
-    return {*asset, std::string(protocol::asset_status::active)};
+std::vector<Id> sorted_ids(std::vector<Id> ids) {
+    std::ranges::sort(ids, [](const Id& a, const Id& b) {
+        return std::ranges::lexicographical_compare(a.bytes(), b.bytes());
+    });
+    return ids;
 }
 
-/// The native rules' word on a call: refused, or the new status, with the
-/// consents it needed.
-struct Verdict {
-    bool accepted = false;
-    std::vector<Id> consents;
-};
-
-Verdict native_call(Native& n, const Kind& kind, const Call& call, std::uint64_t index) {
-    protocol::AssetActionBody body;
-    body.asset = ledger("cexchain-bo-test asset");
-    body.action = call.action;
-    body.head = n.asset.head;
-    if (call.to) {
-        body.to = ledger(*call.to);
-    }
-    if (call.kg) {
-        body.quantity = *call.kg * 1'000;
-    }
-    Verdict v;
-    v.consents = protocol::consenting_parties(n.asset, n.status, body);
-    for (const Id& party : v.consents) {
-        body.consents.push_back({party, Id{}, Id{}});
-    }
-    if (!protocol::check_asset_action(n.asset, n.status, body, ledger(kind.home))) {
-        return v;
-    }
-    v.accepted = true;
-    n.status = protocol::apply_asset_action(n.asset, n.status, body, index);
-    return v;
-}
-
-/// Runs a flow both ways and compares every step.
-void compare(const Kind& kind, const std::vector<Call>& calls) {
-    // The native rules first: each step's expectation is their verdict.
-    Native n = register_native(kind);
-    std::vector<Verdict> verdicts;
-    std::vector<Native> after;
+/// Runs a flow on the Bo contract and compares every step with the native
+/// verdict.
+void compare(const Kind& kind, const std::vector<Step>& steps) {
     std::string test = "test \"the native rules' flow\"\n  " + kind.issue + " -> active\n";
-    for (std::size_t i = 0; i < calls.size(); ++i) {
-        const Call& c = calls[i];
-        const bool final = protocol::is_final_asset_status(n.status);
-        verdicts.push_back(final ? Verdict{} : native_call(n, kind, c, i + 2));
-        after.push_back(n);
-        std::string step = step_party(c.party) + " " + step_action(c.action);
-        if (c.to) {
-            step += " to " + step_party(*c.to);
+    for (const Step& s : steps) {
+        std::string step = step_party(s.party) + " " + s.action;
+        if (s.to) {
+            step += " to " + step_party(*s.to);
         }
-        if (c.kg) {
-            step += std::format(" with portion = {} kg", *c.kg);
+        if (s.kg) {
+            step += std::format(" with portion = {} kg", *s.kg);
         }
-        step += verdicts.back().accepted ? " -> " + n.status : std::string(" -> refused");
+        step += s.status ? " -> " + *s.status : std::string(" -> refused");
         test += "  " + step + "\n";
     }
     const std::string source = kind.contract + "\n" + test;
@@ -210,22 +149,22 @@ void compare(const Kind& kind, const std::vector<Call>& calls) {
     const TestResult& t = results.tests.front();
     INFO(dump(*compiled.model, results));
     CHECK(t.passed);
-    REQUIRE(t.steps.size() == calls.size() + 1);
-    for (std::size_t i = 0; i < calls.size(); ++i) {
+    REQUIRE(t.steps.size() == steps.size() + 1);
+    for (std::size_t i = 0; i < steps.size(); ++i) {
         INFO("call " << i + 1);
         const StepResult& r = t.steps[i + 1];
-        const Native& expected = after[i];
-        CHECK((r.happened == Happened::accepted) == verdicts[i].accepted);
-        if (r.happened != Happened::accepted) {
+        const Step& expected = steps[i];
+        CHECK((r.happened == Happened::accepted) == expected.status.has_value());
+        if (r.happened != Happened::accepted || !expected.status) {
             continue;
         }
         // The same consents, and the same parties afterwards.
-        std::vector<Id> consents = r.consents;
-        std::ranges::sort(consents, [](const Id& a, const Id& b) {
-            return std::ranges::lexicographical_compare(a.bytes(), b.bytes());
-        });
-        CHECK(consents == verdicts[i].consents);
-        CHECK(r.state == expected.status);
+        std::vector<Id> consents;
+        for (const std::string& key : expected.consents) {
+            consents.push_back(ledger(key));
+        }
+        CHECK(sorted_ids(r.consents) == sorted_ids(consents));
+        CHECK(r.state == *expected.status);
         REQUIRE(!r.calls.empty());
         REQUIRE(r.calls.back().output.has_value());
         const auto* accept = std::get_if<protocol::ContractAccept>(&*r.calls.back().output);
@@ -235,16 +174,19 @@ void compare(const Kind& kind, const std::vector<Call>& calls) {
             const auto it = accept->parties->find(std::string(key));
             return it == accept->parties->end() ? std::nullopt : std::optional<Id>(it->second);
         };
-        CHECK(party("holder") == std::optional<Id>(expected.asset.holder));
-        CHECK(party("pledgee") == expected.asset.pledgee);
-        CHECK(party("payee") == expected.asset.payee);
-        if (kind.kind == protocol::AssetKind::warehouse_receipt) {
+        const auto id_of = [](const std::optional<std::string>& key) -> std::optional<Id> {
+            return key ? std::optional<Id>(ledger(*key)) : std::nullopt;
+        };
+        CHECK(party("holder") == std::optional<Id>(ledger(expected.holder)));
+        CHECK(party("pledgee") == id_of(expected.pledgee));
+        CHECK(party("payee") == id_of(expected.payee));
+        if (expected.grams) {
             const cbor::Value* fields = accept->state.find("fields");
             REQUIRE(fields != nullptr);
             const cbor::Value* quantity = fields->find("quantity");
             REQUIRE(quantity != nullptr);
             CHECK(quantity->as_int64() ==
-                  std::optional<std::int64_t>(static_cast<std::int64_t>(expected.asset.units)));
+                  std::optional<std::int64_t>(static_cast<std::int64_t>(*expected.grams)));
         }
     }
 }
@@ -252,93 +194,325 @@ void compare(const Kind& kind, const std::vector<Call>& calls) {
 } // namespace
 
 TEST_CASE("the standard library's receivable acts as the native one", "[bo][stdlib]") {
-    using enum AssetAction;
     // Pledged, paid to the pledgee, disputed, frozen, paid again, settled.
-    compare(receivable(), {{"role.supplier", pledge, "bank1", {}},
-                           {"role.supplier", pledge, "bank2", {}},
-                           {"role.supplier", transfer, "factor1", {}},
-                           {"role.supplier", cancel, {}, {}},
-                           {"bank1", confirm, {}, {}},
-                           {"role.issuer", pay, {}, {}},
-                           {"bank1", dispute, {}, {}},
-                           {"role.issuer", freeze, {}, {}},
-                           {"bank1", confirm, {}, {}},
-                           {"role.issuer", unfreeze, {}, {}},
-                           {"role.issuer", pay, {}, {}},
-                           {"bank1", confirm, {}, {}},
-                           {"role.issuer", freeze, {}, {}}});
+    compare(receivable(), {
+                              {.party = "role.supplier",
+                               .action = "pledge",
+                               .to = "bank1",
+                               .status = "pledged",
+                               .consents = {"role.supplier", "bank1"},
+                               .holder = "role.supplier",
+                               .pledgee = "bank1"},
+                              {.party = "role.supplier", .action = "pledge", .to = "bank2"},
+                              {.party = "role.supplier", .action = "transfer", .to = "factor1"},
+                              {.party = "role.supplier", .action = "cancel"},
+                              {.party = "bank1", .action = "confirm payment"},
+                              {.party = "role.issuer",
+                               .action = "pay",
+                               .status = "paid",
+                               .holder = "role.supplier",
+                               .pledgee = "bank1",
+                               .payee = "bank1"},
+                              {.party = "bank1",
+                               .action = "dispute",
+                               .status = "disputed",
+                               .consents = {"bank1"},
+                               .holder = "role.supplier",
+                               .pledgee = "bank1",
+                               .payee = "bank1"},
+                              {.party = "role.issuer",
+                               .action = "freeze",
+                               .status = "frozen",
+                               .holder = "role.supplier",
+                               .pledgee = "bank1",
+                               .payee = "bank1"},
+                              {.party = "bank1", .action = "confirm payment"},
+                              {.party = "role.issuer",
+                               .action = "unfreeze",
+                               .status = "disputed",
+                               .holder = "role.supplier",
+                               .pledgee = "bank1",
+                               .payee = "bank1"},
+                              {.party = "role.issuer",
+                               .action = "pay",
+                               .status = "paid",
+                               .holder = "role.supplier",
+                               .pledgee = "bank1",
+                               .payee = "bank1"},
+                              {.party = "bank1",
+                               .action = "confirm payment",
+                               .status = "settled",
+                               .consents = {"bank1"},
+                               .holder = "role.supplier",
+                               .pledgee = "bank1",
+                               .payee = "bank1"},
+                              {.party = "role.issuer", .action = "freeze"},
+                          });
     // Sold, pledged, released, pledged again, enforced, paid to the holder.
-    compare(receivable(), {{"role.supplier", transfer, "role.supplier", {}},
-                           {"role.supplier", transfer, "factor1", {}},
-                           {"factor1", pledge, "factor1", {}},
-                           {"factor1", pledge, "bank1", {}},
-                           {"bank1", release, {}, {}},
-                           {"bank1", release, {}, {}},
-                           {"factor1", pledge, "bank2", {}},
-                           {"bank2", enforce, {}, {}},
-                           {"role.issuer", pay, {}, {}},
-                           {"bank2", dispute, {}, {}},
-                           {"role.issuer", pay, {}, {}},
-                           {"bank2", confirm, {}, {}}});
+    compare(receivable(),
+            {
+                {.party = "role.supplier", .action = "transfer", .to = "role.supplier"},
+                {.party = "role.supplier",
+                 .action = "transfer",
+                 .to = "factor1",
+                 .status = "active",
+                 .consents = {"role.supplier", "factor1"},
+                 .holder = "factor1"},
+                {.party = "factor1", .action = "pledge", .to = "factor1"},
+                {.party = "factor1",
+                 .action = "pledge",
+                 .to = "bank1",
+                 .status = "pledged",
+                 .consents = {"factor1", "bank1"},
+                 .holder = "factor1",
+                 .pledgee = "bank1"},
+                {.party = "bank1",
+                 .action = "release",
+                 .status = "active",
+                 .consents = {"bank1"},
+                 .holder = "factor1"},
+                {.party = "bank1", .action = "release"},
+                {.party = "factor1",
+                 .action = "pledge",
+                 .to = "bank2",
+                 .status = "pledged",
+                 .consents = {"factor1", "bank2"},
+                 .holder = "factor1",
+                 .pledgee = "bank2"},
+                {.party = "bank2",
+                 .action = "enforce",
+                 .status = "active",
+                 .consents = {"bank2"},
+                 .holder = "bank2"},
+                {.party = "role.issuer",
+                 .action = "pay",
+                 .status = "paid",
+                 .holder = "bank2",
+                 .payee = "bank2"},
+                {.party = "bank2",
+                 .action = "dispute",
+                 .status = "disputed",
+                 .consents = {"bank2"},
+                 .holder = "bank2",
+                 .payee = "bank2"},
+                {.party = "role.issuer",
+                 .action = "pay",
+                 .status = "paid",
+                 .holder = "bank2",
+                 .payee = "bank2"},
+                {.party = "bank2",
+                 .action = "confirm payment",
+                 .status = "settled",
+                 .consents = {"bank2"},
+                 .holder = "bank2",
+                 .payee = "bank2"},
+            });
     // Frozen while active, cancelled, and nothing after.
-    compare(receivable(), {{"role.issuer", unfreeze, {}, {}},
-                           {"role.issuer", freeze, {}, {}},
-                           {"role.issuer", freeze, {}, {}},
-                           {"role.supplier", cancel, {}, {}},
-                           {"role.issuer", unfreeze, {}, {}},
-                           {"role.supplier", cancel, {}, {}},
-                           {"role.issuer", pay, {}, {}}});
+    compare(receivable(), {
+                              {.party = "role.issuer", .action = "unfreeze"},
+                              {.party = "role.issuer",
+                               .action = "freeze",
+                               .status = "frozen",
+                               .holder = "role.supplier"},
+                              {.party = "role.issuer", .action = "freeze"},
+                              {.party = "role.supplier", .action = "cancel"},
+                              {.party = "role.issuer",
+                               .action = "unfreeze",
+                               .status = "active",
+                               .holder = "role.supplier"},
+                              {.party = "role.supplier",
+                               .action = "cancel",
+                               .status = "cancelled",
+                               .consents = {"role.supplier"},
+                               .holder = "role.supplier"},
+                              {.party = "role.issuer", .action = "pay"},
+                          });
 }
 
 TEST_CASE("a counterparty bound at creation consents as the native one does", "[bo][stdlib]") {
-    using enum AssetAction;
     // Q17 (R31): the bank, bound when the receivable is issued, consents to
     // each pledge and transfer to it; it enforces with its own consent alone.
-    compare(receivable_with_bank(), {{"role.supplier", pledge, "role.bank", {}},
-                                     {"role.supplier", pledge, "role.bank", {}},
-                                     {"role.supplier", transfer, "role.bank", {}},
-                                     {"role.bank", enforce, {}, {}},
-                                     {"role.bank", pledge, "role.bank", {}},
-                                     {"role.bank", transfer, "role.bank", {}},
-                                     {"role.issuer", pay, {}, {}},
-                                     {"role.bank", confirm, {}, {}}});
+    compare(receivable_with_bank(),
+            {
+                {.party = "role.supplier",
+                 .action = "pledge",
+                 .to = "role.bank",
+                 .status = "pledged",
+                 .consents = {"role.supplier", "role.bank"},
+                 .holder = "role.supplier",
+                 .pledgee = "role.bank"},
+                {.party = "role.supplier", .action = "pledge", .to = "role.bank"},
+                {.party = "role.supplier", .action = "transfer", .to = "role.bank"},
+                {.party = "role.bank",
+                 .action = "enforce",
+                 .status = "active",
+                 .consents = {"role.bank"},
+                 .holder = "role.bank"},
+                {.party = "role.bank", .action = "pledge", .to = "role.bank"},
+                {.party = "role.bank", .action = "transfer", .to = "role.bank"},
+                {.party = "role.issuer",
+                 .action = "pay",
+                 .status = "paid",
+                 .holder = "role.bank",
+                 .payee = "role.bank"},
+                {.party = "role.bank",
+                 .action = "confirm payment",
+                 .status = "settled",
+                 .consents = {"role.bank"},
+                 .holder = "role.bank",
+                 .payee = "role.bank"},
+            });
     // Pledged, released, then sold to the bank, which is paid.
-    compare(receivable_with_bank(), {{"role.supplier", pledge, "role.bank", {}},
-                                     {"role.bank", release, {}, {}},
-                                     {"role.supplier", transfer, "role.bank", {}},
-                                     {"role.bank", pledge, "role.bank", {}},
-                                     {"role.issuer", pay, {}, {}},
-                                     {"role.bank", dispute, {}, {}},
-                                     {"role.issuer", pay, {}, {}},
-                                     {"role.bank", confirm, {}, {}}});
+    compare(receivable_with_bank(),
+            {
+                {.party = "role.supplier",
+                 .action = "pledge",
+                 .to = "role.bank",
+                 .status = "pledged",
+                 .consents = {"role.supplier", "role.bank"},
+                 .holder = "role.supplier",
+                 .pledgee = "role.bank"},
+                {.party = "role.bank",
+                 .action = "release",
+                 .status = "active",
+                 .consents = {"role.bank"},
+                 .holder = "role.supplier"},
+                {.party = "role.supplier",
+                 .action = "transfer",
+                 .to = "role.bank",
+                 .status = "active",
+                 .consents = {"role.supplier", "role.bank"},
+                 .holder = "role.bank"},
+                {.party = "role.bank", .action = "pledge", .to = "role.bank"},
+                {.party = "role.issuer",
+                 .action = "pay",
+                 .status = "paid",
+                 .holder = "role.bank",
+                 .payee = "role.bank"},
+                {.party = "role.bank",
+                 .action = "dispute",
+                 .status = "disputed",
+                 .consents = {"role.bank"},
+                 .holder = "role.bank",
+                 .payee = "role.bank"},
+                {.party = "role.issuer",
+                 .action = "pay",
+                 .status = "paid",
+                 .holder = "role.bank",
+                 .payee = "role.bank"},
+                {.party = "role.bank",
+                 .action = "confirm payment",
+                 .status = "settled",
+                 .consents = {"role.bank"},
+                 .holder = "role.bank",
+                 .payee = "role.bank"},
+            });
     // Sold to the bank at once, then cancelled by it, and nothing after.
-    compare(receivable_with_bank(), {{"role.supplier", transfer, "role.bank", {}},
-                                     {"role.bank", pledge, "role.bank", {}},
-                                     {"role.bank", cancel, {}, {}},
-                                     {"role.supplier", transfer, "role.bank", {}}});
+    compare(receivable_with_bank(),
+            {
+                {.party = "role.supplier",
+                 .action = "transfer",
+                 .to = "role.bank",
+                 .status = "active",
+                 .consents = {"role.supplier", "role.bank"},
+                 .holder = "role.bank"},
+                {.party = "role.bank", .action = "pledge", .to = "role.bank"},
+                {.party = "role.bank",
+                 .action = "cancel",
+                 .status = "cancelled",
+                 .consents = {"role.bank"},
+                 .holder = "role.bank"},
+                {.party = "role.supplier", .action = "transfer", .to = "role.bank"},
+            });
 }
 
 TEST_CASE("the standard library's warehouse receipt acts as the native one", "[bo][stdlib]") {
-    using enum AssetAction;
     // Redeemed in parts, with the pledgee's consent while pledged.
-    compare(receipt(), {{"depositor", redeem, {}, 10},
-                        {"depositor", redeem, {}, 25},
-                        {"depositor", pledge, "bank1", {}},
-                        {"depositor", redeem, {}, 5},
-                        {"depositor", transfer, "trader1", {}},
-                        {"bank1", release, {}, {}},
-                        {"depositor", transfer, "trader1", {}},
-                        {"warehouse", freeze, {}, {}},
-                        {"trader1", redeem, {}, 1},
-                        {"warehouse", unfreeze, {}, {}},
-                        {"trader1", redeem, {}, 15},
-                        {"trader1", cancel, {}, {}}});
+    compare(receipt(), {
+                           {.party = "depositor",
+                            .action = "redeem",
+                            .kg = 10,
+                            .status = "active",
+                            .consents = {"depositor"},
+                            .holder = "depositor",
+                            .grams = 20000},
+                           {.party = "depositor", .action = "redeem", .kg = 25},
+                           {.party = "depositor",
+                            .action = "pledge",
+                            .to = "bank1",
+                            .status = "pledged",
+                            .consents = {"depositor", "bank1"},
+                            .holder = "depositor",
+                            .pledgee = "bank1",
+                            .grams = 20000},
+                           {.party = "depositor",
+                            .action = "redeem",
+                            .kg = 5,
+                            .status = "pledged",
+                            .consents = {"depositor", "bank1"},
+                            .holder = "depositor",
+                            .pledgee = "bank1",
+                            .grams = 15000},
+                           {.party = "depositor", .action = "transfer", .to = "trader1"},
+                           {.party = "bank1",
+                            .action = "release",
+                            .status = "active",
+                            .consents = {"bank1"},
+                            .holder = "depositor",
+                            .grams = 15000},
+                           {.party = "depositor",
+                            .action = "transfer",
+                            .to = "trader1",
+                            .status = "active",
+                            .consents = {"trader1", "depositor"},
+                            .holder = "trader1",
+                            .grams = 15000},
+                           {.party = "warehouse",
+                            .action = "freeze",
+                            .status = "frozen",
+                            .holder = "trader1",
+                            .grams = 15000},
+                           {.party = "trader1", .action = "redeem", .kg = 1},
+                           {.party = "warehouse",
+                            .action = "unfreeze",
+                            .status = "active",
+                            .holder = "trader1",
+                            .grams = 15000},
+                           {.party = "trader1",
+                            .action = "redeem",
+                            .kg = 15,
+                            .status = "redeemed",
+                            .consents = {"trader1"},
+                            .holder = "trader1",
+                            .grams = 0},
+                           {.party = "trader1", .action = "cancel"},
+                       });
     // Enforced by the bank, then cancelled.
-    compare(receipt(), {{"depositor", pledge, "bank1", {}},
-                        {"depositor", cancel, {}, {}},
-                        {"bank1", enforce, {}, {}},
-                        {"bank1", redeem, {}, 30},
-                        {"bank1", cancel, {}, {}}});
+    compare(receipt(), {
+                           {.party = "depositor",
+                            .action = "pledge",
+                            .to = "bank1",
+                            .status = "pledged",
+                            .consents = {"depositor", "bank1"},
+                            .holder = "depositor",
+                            .pledgee = "bank1",
+                            .grams = 30000},
+                           {.party = "depositor", .action = "cancel"},
+                           {.party = "bank1",
+                            .action = "enforce",
+                            .status = "active",
+                            .consents = {"bank1"},
+                            .holder = "bank1",
+                            .grams = 30000},
+                           {.party = "bank1",
+                            .action = "redeem",
+                            .kg = 30,
+                            .status = "redeemed",
+                            .consents = {"bank1"},
+                            .holder = "bank1",
+                            .grams = 0},
+                           {.party = "bank1", .action = "cancel"},
+                       });
 }
 
 TEST_CASE("a built-in action copied under a name of its own acts as the original", "[bo][stdlib]") {

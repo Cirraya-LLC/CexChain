@@ -14,7 +14,6 @@
 
 #include <cexchain/core/crypto.hpp>
 #include <cexchain/core/error.hpp>
-#include <cexchain/core/protocol/assets.hpp>
 #include <cexchain/core/protocol/contracts.hpp>
 #include <cexchain/core/protocol/id_map.hpp>
 #include <cexchain/core/protocol/keys.hpp>
@@ -146,9 +145,6 @@ public:
     [[nodiscard]] const ActorState* actor_by_kid(const Id& kid) const;
     [[nodiscard]] const DelegationState* delegation(const Id& id) const;
     [[nodiscard]] const RecordState* record(const Id& id) const;
-    /// The asset a record is, if it is of an asset type (its status is the
-    /// record's state).
-    [[nodiscard]] const AssetState* asset(const Id& id) const;
     [[nodiscard]] const ContractState* contract(const Id& id) const;
     [[nodiscard]] const InstanceState* instance(const Id& id) const;
     /// A request any call made (v0.8), open or answered.
@@ -195,7 +191,6 @@ public:
         return delegations_;
     }
     [[nodiscard]] const IdMap<RecordState>& records() const noexcept { return records_; }
-    [[nodiscard]] const IdMap<AssetState>& assets() const noexcept { return assets_; }
     [[nodiscard]] const IdMap<ContractState>& contracts() const noexcept { return contracts_; }
     [[nodiscard]] const IdMap<InstanceState>& instances() const noexcept { return instances_; }
     /// Every request, in the order the log made them (v0.8).
@@ -238,7 +233,6 @@ private:
     std::map<IdKey, IdKey> actors_by_kid_;
     IdMap<DelegationState> delegations_;
     IdMap<RecordState> records_;
-    IdMap<AssetState> assets_;
     IdMap<ContractState> contracts_;
     IdMap<InstanceState> instances_;
     IdMap<RequestState> requests_;

@@ -36,8 +36,6 @@
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/access.hpp>
-#include <cexchain/core/protocol/asset_evidence.hpp>
-#include <cexchain/core/protocol/assets.hpp>
 #include <cexchain/core/protocol/contract_evidence.hpp>
 #include <cexchain/core/protocol/contracts.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
@@ -228,7 +226,7 @@ void ledger_seeds(const Seeds& seeds) {
     }
 }
 
-/// One organization's ledger in memory, for the asset seeds.
+/// One organization's ledger in memory, for the contract seeds.
 struct Org {
     crypto::openssl::Provider provider;
     crypto::openssl::KeyPair root =
@@ -289,62 +287,6 @@ struct Org {
                     "encode");
     }
 };
-
-/// A receivable pledged with two consents, and its asset evidence (D-052).
-void asset_seeds(const Seeds& seeds) {
-    Org home("Seed Core Enterprise", 11);
-    Org supplier("Seed Supplier", 12);
-    Org bank("Seed Bank", 13);
-    const auto metadata =
-        must(protocol::encode_asset_metadata(
-                 protocol::AssetKind::receivable,
-                 {supplier.id(), 12'500'000, "CNY", home.clock.now() + 90 * 86'400'000ULL},
-                 {{cbor::Value::text("title"), cbor::Value::text("PO-0815")}}),
-             "metadata");
-    seeds.write("asset_parse_fuzz", "receivable-metadata", must(cbor::encode(metadata), "encode"));
-    seeds.write("asset_parse_fuzz", "receipt-metadata",
-                must(cbor::encode(must(
-                         protocol::encode_asset_metadata(protocol::AssetKind::warehouse_receipt,
-                                                         {supplier.id(), 100, "t", std::nullopt}),
-                         "metadata")),
-                     "encode"));
-    const protocol::Id receivable = home.record(protocol::receivable_type, metadata);
-
-    protocol::AssetActionBody pledge;
-    pledge.asset = receivable;
-    pledge.action = protocol::AssetAction::pledge;
-    pledge.head = home.ledger->state().asset(receivable)->head;
-    pledge.to = bank.id();
-    const protocol::AssetConsent consent{protocol::terms_of(pledge, home.id()),
-                                         home.clock.now() + 86'400'000, "Loan SCF-0042"};
-    const auto consent_metadata = must(protocol::encode_asset_consent(consent), "consent");
-    seeds.write("asset_parse_fuzz", "consent", must(cbor::encode(consent_metadata), "encode"));
-
-    std::vector<std::pair<protocol::ConsentRef, Bytes>> consents;
-    for (Org* party : {&supplier, &bank}) {
-        const protocol::Id record = party->record(protocol::asset_consent_type, consent_metadata);
-        Bytes bundle = party->evidence(record);
-        const auto digest = must(home.provider.digest(crypto::HashAlg::sha256, bundle), "hash");
-        consents.emplace_back(protocol::ConsentRef{party->id(), record, digest}, std::move(bundle));
-    }
-    std::ranges::sort(consents, [](const auto& a, const auto& b) {
-        return std::ranges::lexicographical_compare(a.first.ledger.bytes(), b.first.ledger.bytes());
-    });
-    std::vector<Bytes> bundles;
-    for (auto& [ref, bundle] : consents) {
-        pledge.consents.push_back(ref);
-        bundles.push_back(std::move(bundle));
-    }
-    const auto action = home.submit(pledge);
-    seeds.write("protocol_parse_fuzz", "statement-asset-action", action.encoded);
-    seeds.write("protocol_parse_fuzz", "payload-asset-action",
-                must(protocol::encode_payload(action.statement), "payload"));
-    const Bytes evidence =
-        must(protocol::encode_asset_evidence({home.evidence(receivable), std::move(bundles)}),
-             "evidence");
-    must(protocol::verify_asset_evidence(home.provider, evidence), "the seed evidence must verify");
-    seeds.write("asset_parse_fuzz", "evidence", evidence);
-}
 
 /// A passkey registration as a browser returns it: [length][attestation
 /// object][client data], for the challenge and site the fuzzer uses.
@@ -704,6 +646,32 @@ void request_seeds(const Seeds& seeds) {
     }
 }
 
+/// The generic core (v0.9): every statement of protocol-v0.9.json, as a
+/// payload and signed, the refused ones too: type-20 bodies and a scope
+/// naming type 20 (which must not parse), and registrations under the
+/// reserved prefix (which parse; the ledger refuses them).
+void generic_seeds(const Seeds& seeds) {
+    std::ifstream in(CEXCHAIN_TESTVECTORS_DIR "/protocol-v0.9.json");
+    if (!in) {
+        throw std::runtime_error("cannot read protocol-v0.9.json");
+    }
+    const auto doc = nlohmann::json::parse(in);
+    std::size_t s = 0;
+    for (const auto& ledger : doc.at("ledgers")) {
+        for (const char* list : {"statements", "refused"}) {
+            for (const auto& st : ledger.at(list)) {
+                const auto payload = must(from_hex(st.at("payload").get<std::string>()), "payload");
+                const auto encoded =
+                    must(from_hex(st.at("encoded").get<std::string>()), "statement");
+                seeds.write("protocol_parse_fuzz", std::format("generic-payload-{:03}", s),
+                            ByteView(payload));
+                seeds.write("protocol_parse_fuzz", std::format("generic-statement-{:03}", s++),
+                            ByteView(encoded));
+            }
+        }
+    }
+}
+
 /// The official language packs, as written and as CBOR (a source bundle
 /// embeds packs as CBOR); Bo sources, for the lexer, the parser, and the
 /// checker: the goldens, the spec's examples among them, in each language.
@@ -877,7 +845,6 @@ int main(int argc, char** argv) {
     try {
         const Seeds seeds(argv[1]);
         ledger_seeds(seeds);
-        asset_seeds(seeds);
         webauthn_seed(seeds);
         cluster_seeds(seeds);
         pending_call_seeds(seeds);
@@ -886,6 +853,7 @@ int main(int argc, char** argv) {
         contract_seeds(seeds);
         child_seeds(seeds);
         request_seeds(seeds);
+        generic_seeds(seeds);
         bo_seeds(seeds);
     } catch (const std::exception& e) {
         std::println(stderr, "error: {}", e.what());

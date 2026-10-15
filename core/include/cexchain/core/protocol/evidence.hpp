@@ -13,7 +13,6 @@
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/crypto.hpp>
 #include <cexchain/core/error.hpp>
-#include <cexchain/core/protocol/assets.hpp>
 #include <cexchain/core/protocol/common.hpp>
 #include <cexchain/core/protocol/contracts.hpp>
 #include <cexchain/core/protocol/log.hpp>
@@ -142,10 +141,8 @@ struct RecordEvent {
     /// an event without it was signed with a key, nothing more).
     std::optional<PresenceCheck> presence;
     /// Endorsement role, or "from -> to" for a transition, or the revocation
-    /// reason, or the asset action's name.
+    /// reason, or the contract function's name.
     std::string detail;
-    /// For an asset action: the action itself.
-    std::optional<AssetActionBody> asset_action;
     /// For a contract call: the call, and what the contract made of it.
     std::optional<ContractCallBody> contract_call;
     std::optional<ContractAccept> outcome;
@@ -253,9 +250,6 @@ struct EvidenceReport {
     std::string record_type;
     std::string state;
     bool revoked = false;
-    /// If the record is an asset: its holder, pledgee, payee, and units as
-    /// of the checkpoint (its status is `state`).
-    std::optional<AssetState> asset;
     std::optional<cbor::Value> metadata;
     /// If the bundle is about a contract instance.
     std::optional<InstanceReport> instance;

@@ -1818,10 +1818,6 @@ Result<protocol::EvidenceBundle> Ledger::export_evidence(LogKeys log_keys,
                     if (const protocol::RecordState* r = state.record(body.record)) {
                         need(r->registered_at_index);
                     }
-                } else if constexpr (std::is_same_v<Body, protocol::AssetActionBody>) {
-                    if (const protocol::RecordState* r = state.record(body.asset)) {
-                        need(r->registered_at_index);
-                    }
                 } else if constexpr (std::is_same_v<Body, protocol::ContractCallBody>) {
                     if (body.contract) {
                         need_contract(*body.contract);

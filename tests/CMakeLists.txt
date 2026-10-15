@@ -18,7 +18,6 @@ add_executable(cexchain_tests
     core/vm_test.cpp
     crypto/openssl_test.cpp
     ledger/access_test.cpp
-    ledger/assets_test.cpp
     ledger/contracts_test.cpp
     ledger/backup_test.cpp
     ledger/children_test.cpp

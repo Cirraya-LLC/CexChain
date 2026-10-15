@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <vector>
@@ -21,6 +22,8 @@
 namespace cexchain::protocol {
 
 inline constexpr std::uint64_t contract_evidence_version = 1;
+/// Contract evidence carries at most this many consent bundles.
+inline constexpr std::size_t max_consent_bundles = 4096;
 
 struct ContractEvidence {
     /// The instance's evidence bundle, from its home.
