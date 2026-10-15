@@ -50,6 +50,23 @@ cbor::Value parse_contract_arguments(std::string_view text, std::string_view wha
     return *parsed;
 }
 
+cbor::Value contract_arguments_of(const Args& args) {
+    const auto text = args.get("args");
+    const auto file = args.get("args-cbor");
+    if (text && file) {
+        throw UsageError{"give --args or --args-cbor, not both"};
+    }
+    if (text) {
+        return parse_contract_arguments(*text, "--args");
+    }
+    cbor::Value value;
+    if (file) {
+        value = unwrap(cbor::decode(read_file(*file)), "--args-cbor " + *file);
+    }
+    check_contract_arguments(value);
+    return value;
+}
+
 void check_contract_arguments(const cbor::Value& arguments) {
     if (unwrap(cbor::encode(arguments), "the arguments").size() > protocol::max_contract_value) {
         throw UsageError{"the arguments are at most 65,536 bytes encoded"};

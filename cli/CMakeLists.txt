@@ -16,6 +16,7 @@ add_executable(cexchain
     src/cmd_presence.cpp
     src/cmd_qr.cpp
     src/cmd_records.cpp
+    src/cmd_requests.cpp
     src/cmd_vault.cpp
     src/cmd_witness.cpp
     src/contracts.cpp
@@ -24,6 +25,7 @@ add_executable(cexchain
     src/output.cpp
     src/records.cpp
     src/registry.cpp
+    src/requests.cpp
     src/support.cpp
     src/webauthn.cpp)
 target_link_libraries(cexchain PRIVATE cexchain::ledger cexchain::node cexchain::verifier cexchain_qrcodegen nlohmann_json::nlohmann_json)

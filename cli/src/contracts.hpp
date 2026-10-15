@@ -32,6 +32,9 @@ inline constexpr protocol::Timestamp day_ms = 86'400'000;
 [[nodiscard]] cbor::Value parse_contract_arguments(std::string_view text, std::string_view what);
 /// Throws a UsageError if the encoded arguments are larger than a call takes.
 void check_contract_arguments(const cbor::Value& arguments);
+/// A command's arguments: --args in diagnostic notation, --args-cbor from a
+/// file of CBOR, or null.
+[[nodiscard]] cbor::Value contract_arguments_of(const Args& args);
 
 /// A contract for people: its name and abbreviated id.
 [[nodiscard]] std::string contract_label(const Session& session, const protocol::Id& contract);

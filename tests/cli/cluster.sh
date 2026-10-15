@@ -4,12 +4,15 @@
 #
 # A three-member cluster, end to end: founding, joining, writes through any
 # member, the leader killed (no acknowledged write lost, a new leader within
-# seconds), the old leader back and caught up, and a hand-over.
+# seconds), the old leader back and caught up, and a hand-over. A request a
+# contract call made before the leader died is found at the new leader and
+# answered through a follower (spec v0.8).
 # Usage: cluster.sh CEXCHAIN
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO (from lines ${BASH_LINENO[*]}): $BASH_COMMAND" >&2; dump_logs >&2' ERR
 
 CEXCHAIN="$1"
+SOURCE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WORK="$(mktemp -d)"
 PIDS=()
 dump_logs() {
@@ -133,6 +136,12 @@ run key generate --out root.key > /dev/null
 run key generate --out log.key > /dev/null
 LEDGER_ID="$(run init --ledger node1 --org "Cluster Org" --root-key root.key --log-key log.key --json | json 'd["ledger_id"]')"
 run record issue --ledger node1 --as root.key --type example.document/1 --field n=0 > /dev/null
+# The requesting contract (tools/testvectors/test_contracts.py): a call's
+# [[kind, params, after], ...] makes requests, which result answers.
+python3 -c "import json, sys; open('requesting.wasm', 'wb').write(bytes.fromhex(json.load(open(sys.argv[1]))['request']))" \
+    "$SOURCE/testvectors/test-contracts.json"
+REQ="$(run contract deploy requesting.wasm --ledger node1 --as root.key --function open=create \
+    --function result=call --compiler "test_contracts.py 1" --json | json 'd["contract"]["id"]')"
 run token create --ledger node1 ops --scope read,submit,admin --out ops.token > /dev/null
 run cluster init --help | contains 'Three members ride out the loss of one'
 expect_exit 2 cluster init --ledger node1 --id 1 --raft "127.0.0.1:${RPORT[1]}" --api "${API[1]}"
@@ -167,6 +176,8 @@ CLIENT_AT=3   # a follower: writes go to the leader
 for i in 1 2 3; do
     client record issue --as root.key --type example.document/1 --field "n=$i" > /dev/null
 done
+client contract create "$REQ" open --args '[["notify", null, 86400000]]' --as root.key > /dev/null
+REQUEST="$(client request list --open --json | json 'd[0]["id"]')"
 client checkpoint create > /dev/null
 WANT="$(size_of 1)"
 for n in 1 2 3; do eventually 60 has_size "$n" "$WANT"; done
@@ -196,6 +207,13 @@ for i in 4 5; do
 done
 client checkpoint create > /dev/null
 client record list --json | json 'len(d)' | contains -x 6
+# The request made before the failover is open at the new leader, and an
+# answer through a follower reaches it.
+run request wait --server "${API[$NEW]}" --token-file ops.token --timeout 0 --json \
+    | json 'd["requests"][0]["id"]' | contains -x "$REQUEST"
+client request answer "$REQUEST" --done --as root.key > /dev/null
+run request wait --server "${API[$NEW]}" --token-file ops.token --state answered --timeout 0 --json \
+    | json 'd["requests"][0]["status"]' | contains -x done
 WANT="$(size_of "$NEW")"
 for n in "${OTHERS[@]}"; do eventually 60 has_size "$n" "$WANT"; done
 [ "$(digest "${OTHERS[0]}" "$WANT")" = "$(digest "${OTHERS[1]}" "$WANT")" ] || fail "survivors differ"

@@ -104,6 +104,9 @@ Json scope_json(const protocol::Scope& scope) {
     } else {
         out["contracts"] = nullptr;
     }
+    // Keys 8 and 9 (v0.8): null for any.
+    out["functions"] = scope.functions ? Json(*scope.functions) : Json(nullptr);
+    out["request_kinds"] = scope.request_kinds ? Json(*scope.request_kinds) : Json(nullptr);
     return out;
 }
 
@@ -125,6 +128,19 @@ std::string scope_text(const protocol::Scope& scope) {
             contracts += (contracts.empty() ? "" : ",") + short_id(id);
         }
         out += " for contract(s) " + contracts;
+    }
+    auto list = [](const std::vector<std::string>& items) {
+        std::string text;
+        for (const std::string& item : items) {
+            text += (text.empty() ? "" : ",") + item;
+        }
+        return text;
+    };
+    if (scope.functions) {
+        out += " calling " + list(*scope.functions);
+    }
+    if (scope.request_kinds) {
+        out += " answering " + list(*scope.request_kinds);
     }
     if (scope.not_before) {
         out += " from " + format_time(*scope.not_before);

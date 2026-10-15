@@ -429,14 +429,22 @@ std::vector<CommandSpec> build() {
               {"may-delegate", "", "The grantee may delegate further (only narrower)"},
               {"require-presence", "", "Everything done under it must carry proof of presence"},
               {"contracts", "IDS",
-               "Comma-separated contracts its calls and retires may act on (default: any)"}}),
+               "Comma-separated contracts its calls and retires may act on (default: any)"},
+              {"functions", "NAMES",
+               "Comma-separated functions its contract calls may name (default: any)"},
+              {"request-kinds", "KINDS",
+               "Its contract calls may only answer requests of these kinds, comma-separated"}}),
          cmd_delegation_grant,
          "Statement types: actor-register, actor-rotate-key, actor-revoke, actor-set-presence,\n"
          "delegation-grant, delegation-revoke, record-register, record-endorse,\n"
          "record-transition, record-revoke, contract-deploy, contract-call, contract-retire.\n"
          "--contracts limits contract-call and contract-retire to those contracts (a call on\n"
-         "an instance acts on the instance's contract); a delegation granted under it may name\n"
-         "only some of them."},
+         "an instance acts on the instance's contract); --functions limits contract calls to\n"
+         "those functions, creations included; --request-kinds makes its contract calls\n"
+         "answers to requests of those kinds, nothing else (an executor's delegation: see\n"
+         "executor add). A delegation granted under it may name only some of them.\n\n"
+         "  cexchain delegation grant --to 5d0e7a21 --allow contract-call --contracts 3f2a9c1e \\\n"
+         "      --functions result --request-kinds notify --as root.key"},
         {{"delegation", "list"},
          "List delegations",
          "Delegations",
@@ -1321,7 +1329,7 @@ std::vector<CommandSpec> build() {
          "on a schedule; one whose time has not come is refused, and nothing is recorded. Try\n"
          "one first with --dry-run --at TIME.\n\n" CEXCHAIN_ARGUMENTS_HELP},
         {{"contract", "instance"},
-         "Show an instance: its status, parties, state, calls, parent, and parts",
+         "Show an instance: its status, state, calls, parts, and requests",
          "Contracts",
          "INSTANCE",
          1,
@@ -1333,7 +1341,10 @@ std::vector<CommandSpec> build() {
          "parent's call created, its depth (at most 8), and its ancestors, oldest first; an\n"
          "instance whose calls created parts lists them. A part is an instance like any other:\n"
          "call it, propose calls on it, and fetch or verify its evidence, which carries its\n"
-         "ancestors' calls."},
+         "ancestors' calls.\n\n"
+         "A call may also make requests (v0.8), work for executors outside the ledger: the\n"
+         "instance lists them, the open ones first, and each call the requests it made and the\n"
+         "request it answers (request show tells more)."},
         {{"contract", "instances"},
          "List this ledger's contract instances",
          "Contracts",
@@ -1462,13 +1473,19 @@ std::vector<CommandSpec> build() {
                {"witness", "PUBKEY", "Trust this witness's public key file", false, true},
                {"min-witnesses", "N", "Fail unless at least N trusted witnesses cosigned"},
                {"require-presence", "", "Fail unless a person proved presence for each consent"},
+               {"require-answered", "",
+                "Fail if a request is still open past its deadline at the checkpoint's time"},
                {"require-rebuild", "",
                 "Fail unless the contract is written in Bo and its source was rebuilt to its "
                 "code"}}),
          cmd_contract_verify,
          "Replays the instance's calls, running the contract again on each, and checks every\n"
          "consent a call cites on the consenting party's own ledger, with who gave it: a person\n"
-         "present, a key alone, or an AI agent and its model.\n\n"
+         "present, a key alone, or an AI agent and its model. Requests the calls made (v0.8)\n"
+         "are derived the same way, so none is left out: each with its answer (done, failed,\n"
+         "or expired; who gave it, how late), and the open ones, OVERDUE when the checkpoint's\n"
+         "time has passed their deadline. --require-answered fails such evidence; open\n"
+         "requests not yet due are work in progress and pass.\n\n"
          "For a contract written in Bo, it also rebuilds the code from the source the deploy\n"
          "carries and compares the bytes (Source, at the end; \"source\" in --json):\n"
          "  rebuilds          the source builds to the deployed code, interface, and name\n"
@@ -1510,6 +1527,172 @@ std::vector<CommandSpec> build() {
          "  cexchain contract explain 3f2a9c1e\n"
          "  cexchain contract explain 3f2a9c1e --language zh-Hant-HK\n"
          "  CEXCHAIN_LANGUAGE=zh-Hans cexchain contract explain 8d01b7a4 --json"},
+        // ------------------------------------------------------------------
+        {{"request", "list"},
+         "List the requests contract calls made to executors",
+         "Requests",
+         "",
+         0,
+         0,
+         with({ledger_option,
+               {"open", "", "Only open requests"},
+               {"answered", "", "Only answered requests"},
+               {"failed", "", "Only requests answered failed or expired"},
+               {"overdue", "", "Only open requests past their deadline (by this computer's clock)"},
+               {"kind", "KINDS", "Only requests of these kinds, comma-separated"},
+               {"contract", "CONTRACT", "Only requests on instances of this contract"},
+               {"instance", "INSTANCE", "Only this instance's requests"},
+               {"answered-by", "ACTOR", "Only requests this actor answered"},
+               {"since", "TIME",
+                "Only requests asked or answered since TIME (YYYY-MM-DD or "
+                "YYYY-MM-DDTHH:MM:SSZ)"}}),
+         cmd_request_list,
+         "A contract's accepted call may make requests (spec v0.8): work for an executor\n"
+         "outside the ledger, such as sending a notice or calling another system. Each has a\n"
+         "kind, params, a deadline, and a reply (the function an answer calls), and stays open\n"
+         "until one answer closes it: done, failed, or expired. Requests are derived from the\n"
+         "log, so the list is the ledger's own (with --server, the verified mirror's).\n\n"
+         "  cexchain request list --open --kind notify\n"
+         "  cexchain request list --answered-by 3f2a9c1e --since 2026-10-01 --json"},
+        {{"request", "show"},
+         "Show a request: what was asked, its deadline, and its answer",
+         "Requests",
+         "REQUEST",
+         1,
+         1,
+         with({ledger_option}),
+         cmd_request_show,
+         "The answer shows who gave it (the actor, its kind, the delegation it acted under, an\n"
+         "AI agent's model, a person's presence), when, how late, and its arguments."},
+        {{"request", "answer"},
+         "Answer a request: done, failed, or expired",
+         "Requests",
+         "REQUEST",
+         1,
+         1,
+         signing({{"done", "", "The work was done"},
+                  {"failed", "", "The work was not done"},
+                  {"expired", "", "Nobody answered in time (valid once the deadline has come)"},
+                  args_option,
+                  args_cbor_option,
+                  {"reason", "CODE",
+                   "With --failed or --expired: a reason code, such as unavailable, added to "
+                   "the arguments as \"reason\""},
+                  {"reference", "TEXT", "A reference of your own, such as a ticket number"},
+                  dry_run_option,
+                  at_option}),
+         cmd_request_answer,
+         "The answer is a call on the request's instance, at its head, of the request's reply,\n"
+         "naming the request and what became of it. Its arguments carry the result as the\n"
+         "contract defines it: codes, ids, amounts, and salted digests, never personal data or\n"
+         "an outside system's raw text. The contract runs here first: an answer it does not take\n"
+         "is not recorded, and the request stays open. A request takes one answer; a late one\n"
+         "is recorded as late. Who may answer is the delegations' choice: a person by hand, an\n"
+         "executor (whose delegation names the kinds it answers), or a keeper expiring an\n"
+         "overdue request.\n\n"
+         "  cexchain request answer 9b1c40aa --done --args '{\"ref\": \"T-1001\"}' --as clerk.key\n"
+         "  cexchain request answer 9b1c40aa --failed --reason unavailable --as "
+         "device.key\n\n" CEXCHAIN_ARGUMENTS_HELP},
+        {{"request", "cancel"},
+         "Cancel a request: answer it failed, with the reason cancelled",
+         "Requests",
+         "REQUEST",
+         1,
+         1,
+         signing({{"reason", "CODE", "Another reason code (default: cancelled)"},
+                  {"reference", "TEXT", "A reference of your own, such as a ticket number"},
+                  dry_run_option}),
+         cmd_request_cancel,
+         "A request cannot be withdrawn: the call that made it is in the log. Cancelling answers\n"
+         "it failed, with {\"reason\": \"cancelled\"} as the arguments, like request answer\n"
+         "--failed --reason cancelled. The contract reacts as to any failure, and may refuse the\n"
+         "answer, which leaves the request open. Executors stop work on a request once it is\n"
+         "answered."},
+        {{"request", "wait"},
+         "Wait for requests at a server, as executors do (a hint)",
+         "Requests",
+         "",
+         0,
+         0,
+         with({{"server", "URL", "The server (default: $CEXCHAIN_SERVER)"},
+               {"token-file", "FILE",
+                "An API token with the read or executor scope (default: $CEXCHAIN_TOKEN)"},
+               {"ca-file", "FILE",
+                "CA certificates (PEM) to trust for --server, if not the system's"},
+               {"state", "STATE", "open (default), answered, or all"},
+               {"kind", "KINDS", "Only requests of these kinds, comma-separated"},
+               {"contract", "ID", "Only requests on instances of this contract (full id)"},
+               {"instance", "ID", "Only this instance's requests (full id)"},
+               {"after", "CURSOR", "Only what came after the cursor an earlier answer printed"},
+               {"limit", "N", "At most N requests (1 to 1000; default: 100)"},
+               {"timeout", "SECONDS",
+                "If none matches yet, wait this long for one (0 to 25; default: 25)"}}),
+         cmd_request_wait,
+         "Asks the server's GET /v1/requests: the requests that match at once, or the first\n"
+         "that come within the timeout. Pass the cursor it prints as --after to wait for what\n"
+         "comes next. The server's list is a hint: before acting on a request, check it in the\n"
+         "instance's evidence (contract evidence or fetch, then contract verify)."},
+
+        // ------------------------------------------------------------------
+        {{"executor", "add"},
+         "Register an executor: an actor that answers requests of some kinds",
+         "Executors",
+         "NAME",
+         1,
+         1,
+         signing({{"contract", "CONTRACT", "The contract whose requests it answers", true},
+                  {"kinds", "KINDS", "The request kinds it answers, comma-separated", true},
+                  {"functions", "FUNCTIONS",
+                   "The functions its answers call (default: result, if the contract has it)"},
+                  {"key", "KEY", "Its key: a public key file, private key file, or pkcs11: URI"},
+                  {"key-out", "FILE",
+                   "Make a new key for it here instead (encrypted with the passphrase)"},
+                  {"alg", "ALG", "With --key-out: ed25519 (default), esp256, sm2-sm3, ml-dsa-65"},
+                  {"agent", "",
+                   "Register an AI agent instead of a device (with --model and --responsible)"},
+                  {"responsible", "ACTOR", "The person accountable for it"},
+                  {"days", "N", "Its delegation is valid for N days from now"},
+                  {"until", "DATE", "Its delegation is valid until DATE"}}),
+         cmd_executor_add,
+         "Registers the actor, then grants it a delegation for calls on CONTRACT only (scope\n"
+         "key 7), calling only FUNCTIONS (key 8), and answering only requests of KINDS (key 9):\n"
+         "its key can do nothing else. Its answers are a machine's: it never proves presence.\n"
+         "With --agent, --model and --model-version describe the agent. Two statements are\n"
+         "recorded, signed with --as: the organization's key, or an actor's whose delegation\n"
+         "covers actor-register and delegation-grant and may delegate.\n\n"
+         "  cexchain executor add Notifier --contract 3f2a9c1e --kinds notify \\\n"
+         "      --key-out notifier.key --as root.key"},
+        {{"executor", "list"},
+         "List executors: actors whose delegations answer requests",
+         "Executors",
+         "",
+         0,
+         0,
+         with({ledger_option,
+               {"contract", "CONTRACT", "Only executors for this contract"},
+               {"kind", "KINDS", "Only executors that answer these kinds"},
+               {"all", "", "Include revoked executors"}}),
+         cmd_executor_list},
+        {{"executor", "show"},
+         "Show an executor: its delegations, answers, and open work",
+         "Executors",
+         "ACTOR",
+         1,
+         1,
+         with({ledger_option}),
+         cmd_executor_show},
+        {{"executor", "revoke"},
+         "Revoke an executor: its delegations, then the actor",
+         "Executors",
+         "ACTOR",
+         1,
+         1,
+         signing({reason_option,
+                  {"keep-actor", "",
+                   "Revoke only the delegations; the actor stays (to be granted anew)"}}),
+         cmd_executor_revoke,
+         "It answers nothing more from then on. Its past answers stay, attributed to it: request\n"
+         "list --answered-by ACTOR lists them."},
 #if defined(CEXCHAIN_HAVE_BO)
         // ------------------------------------------------------------------
         {{"bo", "check"},

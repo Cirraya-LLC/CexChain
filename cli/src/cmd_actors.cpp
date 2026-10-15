@@ -5,13 +5,13 @@
 #include <print>
 
 #include "commands.hpp"
+#include "contracts.hpp"
 #include "output.hpp"
+#include "requests.hpp"
 
 namespace cexchain::cli {
 
 namespace {
-
-constexpr protocol::Timestamp day_ms = 86'400'000;
 
 void print_actor_line(const protocol::ActorState& actor) {
     std::string line =
@@ -253,6 +253,30 @@ int cmd_delegation_grant(const Args& args) {
         });
         scope.contracts = std::move(ids);
     }
+    // Scope keys 8 and 9 (v0.8): the functions its calls may name, and the
+    // kinds of request it may answer (then it only answers).
+    if (const auto functions = args.get("functions")) {
+        std::vector<std::string> names = split(*functions, ',');
+        for (const std::string& name : names) {
+            if (name.empty() || name.size() > protocol::max_function_name) {
+                throw UsageError{"--functions: a function name is 1 to 64 bytes"};
+            }
+        }
+        std::ranges::sort(names);
+        names.erase(std::ranges::unique(names).begin(), names.end());
+        if (names.empty()) {
+            throw UsageError{"--functions names at least one function"};
+        }
+        scope.functions = std::move(names);
+    }
+    if (const auto kinds = args.get("request-kinds")) {
+        scope.request_kinds = parse_request_kinds(*kinds, "--request-kinds");
+    }
+    if ((scope.functions || scope.request_kinds) &&
+        !std::ranges::contains(scope.statement_types, protocol::StatementType::contract_call)) {
+        throw UsageError{"--functions and --request-kinds limit contract calls: --allow "
+                         "contract-call too"};
+    }
     const protocol::DelegationGrantBody body{session.actor_id(args.need("to")), scope};
     const protocol::Id id = session.submit(args, body);
     return report_submitted(
@@ -314,6 +338,30 @@ int cmd_delegation_show(const Args& args) {
     } else {
         std::println("record types:  any");
     }
+    if (d.scope.contracts) {
+        std::string list;
+        for (const protocol::Id& c : *d.scope.contracts) {
+            list += (list.empty() ? "" : ", ") + contract_label(session, c);
+        }
+        std::println("contracts:     {}", list);
+    } else {
+        std::println("contracts:     any");
+    }
+    auto names = [](const std::optional<std::vector<std::string>>& list, std::string_view none) {
+        if (!list) {
+            return std::string(none);
+        }
+        std::string out;
+        for (const std::string& item : *list) {
+            out += (out.empty() ? "" : ", ") + item;
+        }
+        return out;
+    };
+    std::println("functions:     {}", names(d.scope.functions, "any"));
+    std::println("answers:       {}",
+                 d.scope.request_kinds ? "requests of kinds " + names(d.scope.request_kinds, "") +
+                                             " (its contract calls are answers to those only)"
+                                       : std::string("any request (no limit on kinds)"));
     std::println("valid from:    {}",
                  d.scope.not_before ? format_time(*d.scope.not_before) : "when granted");
     std::println("valid until:   {}",

@@ -36,6 +36,7 @@
 #include "output.hpp"
 #include "peers.hpp"
 #include "records.hpp"
+#include "requests.hpp"
 
 namespace cexchain::cli {
 
@@ -63,25 +64,6 @@ std::string shortened(const std::string& text) {
         out.pop_back();
     }
     return std::format("{}... ({} characters; --json shows it all)", out, text.size());
-}
-
-/// The arguments: --args in diagnostic notation, --args-cbor from a file of
-/// CBOR, or null.
-cbor::Value arguments_of(const Args& args) {
-    const auto text = args.get("args");
-    const auto file = args.get("args-cbor");
-    if (text && file) {
-        throw UsageError{"give --args or --args-cbor, not both"};
-    }
-    if (text) {
-        return parse_contract_arguments(*text, "--args");
-    }
-    cbor::Value value;
-    if (file) {
-        value = unwrap(cbor::decode(read_file(*file)), "--args-cbor " + *file);
-    }
-    check_contract_arguments(value);
-    return value;
 }
 
 std::string_view kind_name(protocol::FunctionKind kind) {
@@ -171,8 +153,44 @@ Json contract_json(const Session& session, const protocol::ContractState& c) {
 
 namespace {
 
+/// The requests calls made (v0.8), by instance, each list in the order they
+/// were made. The ledger keeps them in one table: scanned once per command.
+using RequestsByInstance = std::map<protocol::IdKey, std::vector<const protocol::RequestState*>>;
+
+RequestsByInstance requests_by_instance(const protocol::LedgerState& state) {
+    RequestsByInstance out;
+    for (const auto& [key, r] : state.requests()) {
+        out[r.instance.key()].push_back(&r);
+    }
+    return out;
+}
+
+std::span<const protocol::RequestState* const> requests_of(const RequestsByInstance& requests,
+                                                           const protocol::Id& instance) {
+    const auto it = requests.find(protocol::key_of(instance));
+    return it == requests.end() ? std::span<const protocol::RequestState* const>()
+                                : std::span<const protocol::RequestState* const>(it->second);
+}
+
 Json call_json(const Session& session, std::uint64_t index, const protocol::SignedStatement& s,
-               const protocol::ContractCallBody& call) {
+               const protocol::ContractCallBody& call,
+               std::span<const protocol::RequestState* const> requests) {
+    // The requests it made on this instance (v0.8), and the one it answers.
+    Json made = Json::array();
+    for (const protocol::RequestState* r : requests) {
+        if (r->call == index) {
+            made.push_back(id_json(r->id));
+        }
+    }
+    Json answer = nullptr;
+    if (call.answer) {
+        answer = {{"request", id_json(call.answer->request)},
+                  {"status", std::string(protocol::name(call.answer->status))}};
+        if (const protocol::RequestState* r = session.state().request(call.answer->request)) {
+            answer["kind"] = r->kind;
+            answer["late_by_ms"] = r->late_by();
+        }
+    }
     Json consents = Json::array();
     for (const protocol::ContractConsentRef& c : call.consents) {
         consents.push_back({{"ledger", id_json(c.ledger)},
@@ -189,7 +207,9 @@ Json call_json(const Session& session, std::uint64_t index, const protocol::Sign
             {"arguments_cbor", encoded_hex(call.arguments)},
             {"reference", optional_text(call.reference)},
             {"by", actor_ref(session, *s.statement.actor_id)},
-            {"consents", std::move(consents)}};
+            {"consents", std::move(consents)},
+            {"requests", std::move(made)},
+            {"answer", std::move(answer)}};
 }
 
 /// The instances calls created (v0.7), by parent, each list in the order
@@ -215,24 +235,36 @@ std::span<const protocol::InstanceState* const> children_of(const Children& chil
 }
 
 Json instance_json_with(const Session& session, const protocol::InstanceState& i,
-                        const Children& all_children);
+                        const Children& all_children, const RequestsByInstance& all_requests);
 
 } // namespace
 
 Json instance_json(const Session& session, const protocol::InstanceState& i) {
-    return instance_json_with(session, i, children_by_parent(session.state()));
+    return instance_json_with(session, i, children_by_parent(session.state()),
+                              requests_by_instance(session.state()));
 }
 
 namespace {
 
 Json instance_json_with(const Session& session, const protocol::InstanceState& i,
-                        const Children& all_children) {
+                        const Children& all_children, const RequestsByInstance& all_requests) {
+    const auto requests = requests_of(all_requests, i.id);
     Json calls = Json::array();
     for (const std::uint64_t index : i.history) {
         const protocol::SignedStatement s = session.statement(index);
         if (const auto* call = std::get_if<protocol::ContractCallBody>(&s.statement.body)) {
-            calls.push_back(call_json(session, index, s, *call));
+            calls.push_back(call_json(session, index, s, *call, requests));
         }
+    }
+    // Its requests (v0.8): each with its answer, and which are open.
+    const protocol::Timestamp now = ledger::SystemClock{}.now();
+    Json request_list = Json::array();
+    for (const protocol::RequestState* r : requests) {
+        request_list.push_back(request_json(session, *r, now));
+    }
+    Json open = Json::array();
+    for (const protocol::CompactId& id : i.open_requests) {
+        open.push_back(id_json(id));
     }
     // Its place among instances created by a call (v0.7): its ancestors,
     // oldest first, and the instances its calls created.
@@ -265,7 +297,9 @@ Json instance_json_with(const Session& session, const protocol::InstanceState& i
             {"depth", i.depth},
             {"created_by", i.created_by},
             {"ancestors", std::move(ancestors)},
-            {"children", std::move(children)}};
+            {"children", std::move(children)},
+            {"requests", std::move(request_list)},
+            {"open_requests", std::move(open)}};
 }
 
 void print_parties(const Session& session, const protocol::Parties& parties) {
@@ -295,7 +329,10 @@ void print_instance(const Session& session, const protocol::InstanceState& i) {
         std::println("ancestors: {} > this one", chain);
     }
     std::println("status:    {}{}", i.status.value_or("(none)"),
-                 i.final ? " (final: it takes no more calls)" : "");
+                 !i.final ? ""
+                 : i.open_requests.empty()
+                     ? " (final: it takes no more calls)"
+                     : " (final: it takes only answers to its open requests)");
     print_parties(session, i.parties);
     std::println("state:     {}", shortened(cbor::diagnostic(i.state)));
     std::println("head:      #{} (calls and consents name it)", i.head);
@@ -312,6 +349,20 @@ void print_instance(const Session& session, const protocol::InstanceState& i) {
                      child->status.value_or("(no status)"), parties,
                      child->final ? " (final)" : "");
         first_child = false;
+    }
+    // Its requests (v0.8): how many, and the open ones.
+    const RequestsByInstance all_requests = requests_by_instance(session.state());
+    const auto requests = requests_of(all_requests, i.id);
+    const protocol::Timestamp now = ledger::SystemClock{}.now();
+    if (!requests.empty()) {
+        const auto overdue = std::ranges::count_if(
+            requests, [&](const auto* r) { return request_overdue(*r, now); });
+        std::println("requests:  {} made by its calls, {} open{}", requests.size(),
+                     i.open_requests.size(),
+                     overdue > 0 ? std::format(", {} OVERDUE", overdue) : std::string());
+        for (const protocol::CompactId& id : i.open_requests) {
+            std::println("           {}", request_line(session, *session.state().request(id), now));
+        }
     }
     for (const std::uint64_t index : i.history) {
         const protocol::SignedStatement s = session.statement(index);
@@ -332,6 +383,20 @@ void print_instance(const Session& session, const protocol::InstanceState& i) {
                      call->function, on_parent ? " on the parent" : "",
                      session.actor_name(*s.statement.actor_id), consents);
         std::println("          arguments: {}", shortened(cbor::diagnostic(call->arguments)));
+        if (call->answer) {
+            const protocol::RequestState* r = session.state().request(call->answer->request);
+            std::println(
+                "          answers:   {} ({}): {}{}", short_id(call->answer->request),
+                r != nullptr ? r->kind : std::string("?"), protocol::name(call->answer->status),
+                r != nullptr && r->late_by() > 0 ? ", late by " + duration_text(r->late_by())
+                                                 : std::string());
+        }
+        for (const protocol::RequestState* r : requests) {
+            if (r->call == index) {
+                std::println("          requests:  {} {}, due {}", short_id(r->id), r->kind,
+                             format_time(r->deadline));
+            }
+        }
     }
 }
 
@@ -708,7 +773,7 @@ int cmd_contract_create(const Args& args) {
     Session session(args);
     protocol::ContractCallBody body =
         creation_call(session, args.positional()[0], args.positional()[1]);
-    body.arguments = arguments_of(args);
+    body.arguments = contract_arguments_of(args);
     body.reference = args.get("reference");
     return record_call(args, session, std::move(body), {});
 }
@@ -717,7 +782,7 @@ int cmd_contract_call(const Args& args) {
     Session session(args);
     protocol::ContractCallBody body =
         instance_call(session, args.positional()[0], args.positional()[1]);
-    body.arguments = arguments_of(args);
+    body.arguments = contract_arguments_of(args);
     body.reference = args.get("reference");
     const std::vector<Bytes> bundles = cite_consents(session, body, args.all("consent"));
     return record_call(args, session, std::move(body), bundles);
@@ -747,6 +812,8 @@ int cmd_contract_instances(const Args& args) {
         args.has("parent") ? std::optional(session.instance_id(*args.get("parent"))) : std::nullopt;
     Json out = Json::array();
     const Children children = args.json() ? children_by_parent(session.state()) : Children();
+    const RequestsByInstance requests =
+        args.json() ? requests_by_instance(session.state()) : RequestsByInstance();
     for (const auto& [key, i] : session.state().instances()) {
         if ((contract && !(i.contract == *contract)) || (status && i.status != *status) ||
             (args.has("open") && i.final) || (parent && !(i.parent && *i.parent == *parent)) ||
@@ -755,7 +822,7 @@ int cmd_contract_instances(const Args& args) {
             continue;
         }
         if (args.json()) {
-            out.push_back(instance_json_with(session, i, children));
+            out.push_back(instance_json_with(session, i, children, requests));
             continue;
         }
         std::string parties;
@@ -817,7 +884,7 @@ int cmd_contract_propose(const Args& args) {
     proposal.instance = home ? full_id(args.positional()[0], "INSTANCE")
                              : session->instance_id(args.positional()[0]);
     proposal.function = args.positional()[1];
-    proposal.arguments = arguments_of(args);
+    proposal.arguments = contract_arguments_of(args);
     proposal.reference = args.get("reference");
     if (const auto head = args.get("head")) {
         proposal.head = parse_number(*head, "--head");
@@ -947,7 +1014,7 @@ int cmd_contract_consent(const Args& args) {
         consent.ledger = home_peer ? home_peer->ledger_id : full_id(args.need("home"), "--home");
         consent.instance = full_id(args.need("instance"), "--instance");
         consent.function = args.need("function");
-        terms.arguments = arguments_of(args);
+        terms.arguments = contract_arguments_of(args);
         if (const auto head = args.get("head")) {
             consent.head = parse_number(*head, "--head");
         } else if (const auto evidence = args.get("evidence")) {
@@ -1085,6 +1152,22 @@ int cmd_contract_verify(const Args& args) {
     if (report->instance.trusted_cosignatures < min_witnesses) {
         problems.push_back(std::format("{} trusted witness cosignatures, {} required",
                                        report->instance.trusted_cosignatures, min_witnesses));
+    }
+    // Requests open past their deadline at the checkpoint's time (v0.8):
+    // work nobody answered in time. Open ones not yet due are work in
+    // progress and pass.
+    if (args.has("require-answered")) {
+        const protocol::InstanceReport& i = *report->instance.instance;
+        if (const auto overdue = i.overdue_requests(); !overdue.empty()) {
+            std::string ids;
+            for (const std::size_t n : overdue) {
+                ids += (ids.empty() ? "" : ", ") + short_id(i.requests[n].id) + " (" +
+                       i.requests[n].kind + ")";
+            }
+            problems.push_back(
+                std::format("{} request(s) still open past their deadline at the checkpoint: {}",
+                            overdue.size(), ids));
+        }
     }
     if (args.has("require-presence")) {
         for (const protocol::ContractStep& step : report->steps) {

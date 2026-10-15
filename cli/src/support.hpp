@@ -131,6 +131,10 @@ void save_key(const std::filesystem::path& path, const crypto::openssl::KeyPair&
 [[nodiscard]] node::Client client_for(const std::string& url, const Args& args,
                                       const std::optional<std::string>& ca_file);
 
+/// The server a command works through (--server, or $CEXCHAIN_SERVER), if
+/// the command takes --server and one is given.
+[[nodiscard]] std::optional<std::string> server_option(const Args& args);
+
 /// Makes the sealed private data of the record `id` names (for record
 /// registrations, which keep it in the vault).
 using SealVault = std::function<Bytes(const protocol::Id& record)>;
@@ -165,6 +169,8 @@ public:
     [[nodiscard]] protocol::Id delegation_id(std::string_view text) const;
     [[nodiscard]] protocol::Id contract_id(std::string_view text) const;
     [[nodiscard]] protocol::Id instance_id(std::string_view text) const;
+    /// A request (v0.8), by its id or a unique prefix.
+    [[nodiscard]] protocol::Id request_id(std::string_view text) const;
 
     /// The actor holding `key`.
     [[nodiscard]] const protocol::ActorState& actor_for(const crypto::Signer& key) const;

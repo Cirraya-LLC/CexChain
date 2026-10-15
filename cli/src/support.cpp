@@ -585,6 +585,10 @@ std::string error_message(const node::http::ClientResponse& response) {
 
 } // namespace
 
+std::optional<std::string> server_option(const Args& args) {
+    return server_url(args);
+}
+
 Session::Session(const std::filesystem::path& directory) {
     open(directory);
 }
@@ -765,6 +769,10 @@ protocol::Id Session::contract_id(std::string_view text) const {
 
 protocol::Id Session::instance_id(std::string_view text) const {
     return resolve(state().instances(), text, "instance");
+}
+
+protocol::Id Session::request_id(std::string_view text) const {
+    return resolve(state().requests(), text, "request");
 }
 
 const protocol::ActorState& Session::actor_for(const crypto::Signer& key) const {
