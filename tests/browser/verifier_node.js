@@ -137,6 +137,36 @@ const text = (name) => fs.readFileSync(path.join(dir, name), "utf8").trim();
                  "part: flipped byte at " + offset);
   }
 
+  // Requests and answers (v0.8): every request the calls made, each answer
+  // with its status and lateness, and the open ones, one overdue at the
+  // checkpoint. The same report as `cexchain contract verify`.
+  const asking = read("requests.cbor");
+  const askingLedger = text("requests-ledger-id");
+  const askingReport = verifier.verify(asking, { ledgerId: askingLedger });
+  assert.equal(askingReport.verified, true, askingReport.error);
+  assert.equal(askingReport.text, fs.readFileSync(path.join(dir, "native-requests-report.txt"), "utf8"));
+  assert.match(askingReport.text, /OVERDUE/);
+  delete askingReport.text;
+  delete askingReport.kind;
+  assert.deepEqual(askingReport, JSON.parse(text("native-requests-report.json")));
+  const asked = askingReport.instance;
+  assert.equal(asked.id, text("requests-id"));
+  assert.deepEqual(asked.requests.map((r) => r.kind), ["notify", "http.post", "notify", "notify"]);
+  assert.deepEqual(asked.requests.map((r) => r.status), ["done", "done", "open", "open"]);
+  assert.equal(asked.open_requests.length, 2);
+  assert.deepEqual(asked.overdue_requests, [asked.requests[2].id]);
+  const answers = askingReport.calls.filter((c) => c.answer);
+  assert.deepEqual(answers.map((c) => [c.answer.kind, c.answer.status, c.answer.late, c.called_by.kind]),
+                   [["notify", "done", false, "device"], ["http.post", "done", true, "person"]]);
+  assert.equal(answers[1].outcome.requests.length, 1);
+  assert.equal(askingReport.calls[0].outcome.requests.length, 3);
+  for (let offset = 0; offset < asking.length; offset += 97) {
+    const damaged = asking.slice();
+    damaged[offset] ^= 1;
+    assert.equal(verifier.verify(damaged, { ledgerId: askingLedger }).verified, false,
+                 "requests: flipped byte at " + offset);
+  }
+
   console.log("wasm verifier (node): ok, version " + verifier.version);
 })().catch((e) => {
   console.error(e);

@@ -4,7 +4,8 @@
 // Drives cexchain-verify.html in a real browser, as a verifier would use it:
 // opened from a QR link that names the ledger, the record, and the bundle's
 // URL; opened from disk with files chosen by hand; fed a forged attachment;
-// and given a contract instance's evidence, and a part's.
+// and given a contract instance's evidence, a part's, and one whose calls
+// made requests and answered them.
 // Usage: node page_test.js PAGE EVIDENCE_DIR CEXCHAIN
 "use strict";
 const assert = require("node:assert/strict");
@@ -206,6 +207,35 @@ async function verdict(page) {
       encodeURIComponent(base + "/part.cbor"));
     v = await verdict(page);
     assert.equal(v.kind, "ok", v.title + ": " + v.detail);
+    await page.close();
+
+    // 9. Requests and answers (v0.8): per call, the requests it made and the
+    // answer it gives, with its status and lateness; the open requests, one
+    // overdue at the checkpoint. The report is `cexchain contract verify --json`'s.
+    page = await open("file://" + pagePath);
+    await page.fill("#ledger", text("requests-ledger-id"));
+    await page.dispatchEvent("#ledger", "change");
+    await page.setInputFiles("#bundle-file", path.join(dir, "requests.cbor"));
+    await page.waitForFunction(() => document.getElementById("verdict-title").textContent === "Verified");
+    v = await verdict(page);
+    assert.equal(v.kind, "ok", v.title + ": " + v.detail);
+    assert.match(v.detail, /4 requests made by its calls: 2 answered, 2 open \(1 OVERDUE at the checkpoint\)/);
+    const shownRequests = await page.evaluate(() => window.lastReport);
+    delete shownRequests.kind;
+    delete shownRequests.text;
+    assert.deepEqual(shownRequests, JSON.parse(text("native-requests-report.json")));
+    const requestsText = await page.textContent("#result");
+    assert.match(requestsText, /Requests4 requests made by its calls/);
+    assert.match(requestsText, /Open requests/);
+    assert.match(requestsText, /asks: notify \(request [0-9a-f]{12}\u2026\), due .* answered by calling result done/);
+    assert.match(requestsText, /asks: http\.post .*done/);
+    assert.match(requestsText, /asks: notify .*overdue/);
+    assert.match(requestsText, /doneanswers request [0-9a-f]{12}\u2026 \(notify, asked by entry #\d+\), on time/);
+    assert.match(requestsText, /doneanswers request [0-9a-f]{12}\u2026 \(http\.post, asked by entry #\d+\), LATE by \d+ s after its deadline/);
+    assert.match(requestsText, /Desk Clerk/);
+    assert.match(requestsText, /Notifier/);
+    assert.match(requestsText, /requests and answers are derived from those calls/);
+    assert.equal(await page.locator("#facts .chip.overdue").count(), 1);
     await page.close();
 
     assert.deepEqual(problems, []);

@@ -8,8 +8,10 @@
 # native-report.json (what `cexchain verify --json` reports); for a contract
 # instance, contract.cbor, instance-id, contract-ledger-id, and
 # native-contract-report.json and .txt (what `cexchain contract verify` reports);
-# and for a tier-3 part of a receivable (v0.7), part.cbor, part-id,
-# part-parent-id, part-root-id, and native-part-report.json and .txt.
+# for a tier-3 part of a receivable (v0.7), part.cbor, part-id,
+# part-parent-id, part-root-id, and native-part-report.json and .txt; and for
+# an instance whose calls made requests (v0.8), requests.cbor, requests-id,
+# requests-ledger-id, and native-requests-report.json and .txt.
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
@@ -120,3 +122,33 @@ echo "$RECEIVABLE" > part-root-id
 core contract evidence "$(cat part-id)" --log-key core-log.key --out part.cbor > /dev/null
 run contract verify part.cbor --ledger-id "$CORE" --json > native-part-report.json
 run contract verify part.cbor --ledger-id "$CORE" > native-part-report.txt
+
+# Requests and answers (v0.8), with the requesting test contract: a creation
+# asks for a notice (due in an hour), a post, and a reminder (both due in a
+# second). An executor device answers the notice on time; a clerk answers the
+# post by hand, late, and its answer asks for another notice; the reminder is
+# left open past its deadline.
+for k in svc-root svc-log svc-device svc-clerk; do run key generate --out "$k.key" > /dev/null; done
+SVC="$DIR/services"
+run init --org "Cirraya Services" --root-key svc-root.key --log-key svc-log.key --ledger "$SVC" \
+    | id_from > requests-ledger-id
+python3 -c 'import json,sys; open("requesting.wasm","wb").write(bytes.fromhex(json.load(open(sys.argv[1]))["request"]))' \
+    "$SOURCE/testvectors/test-contracts.json"
+svc() { run "$@" --ledger "$SVC"; }
+RC="$(svc contract deploy requesting.wasm --function open=create --function ask=call --function result=call \
+    --compiler "test_contracts.py 1" --name "Requesting" --as svc-root.key | id_from)"
+svc executor add Notifier --contract "$RC" --kinds notify --key svc-device.key --as svc-root.key > /dev/null
+CLERK="$(svc actor add --as svc-root.key --kind person --name "Desk Clerk" --key svc-clerk.key | id_from)"
+svc delegation grant --as svc-root.key --to "$CLERK" --allow contract-call --contracts "$RC" > /dev/null
+svc contract create "$RC" open --as svc-root.key \
+    --args '[["notify", {"about": "welcome"}, 3600000], ["http.post", {"n": 1}, 1000], ["notify", null, 1000]]' \
+    | id_from > requests-id
+request_of() { svc request list --kind "$1" --json | python3 -c "import json,sys; print(json.load(sys.stdin)[$2]['id'])"; }
+sleep 1.5
+svc request answer "$(request_of notify 0)" --done --args '{"ref": "N-1"}' --as svc-device.key > /dev/null
+svc request answer "$(request_of http.post 0)" --done --args '[["notify", {"retry": 1}, 3600000]]' \
+    --as svc-clerk.key > /dev/null
+run checkpoint create --log-key svc-log.key --ledger "$SVC" > /dev/null
+svc contract evidence "$(cat requests-id)" --log-key svc-log.key --out requests.cbor > /dev/null
+run contract verify requests.cbor --ledger-id "$(cat requests-ledger-id)" --json > native-requests-report.json
+run contract verify requests.cbor --ledger-id "$(cat requests-ledger-id)" > native-requests-report.txt

@@ -72,6 +72,9 @@ th { color: var(--muted); font-weight: 500; }
 .chip.agent { background: #efe7ff; color: #5b2bbf; }
 .chip.present { background: var(--ok-bg); color: var(--ok); }
 .chip.revoked { background: var(--warn-bg); color: var(--warn); margin-left: 6px; }
+.chip.done { background: var(--ok-bg); color: var(--ok); }
+.chip.failed, .chip.expired, .chip.overdue { background: var(--warn-bg); color: var(--warn); }
+.chip.open { background: var(--chip); }
 @media (prefers-color-scheme: dark) { .chip.agent { background: #2a2040; color: #c9b3ff; } }
 .status-verified { color: var(--ok); font-weight: 600; }
 .status-mismatch { color: var(--bad); font-weight: 600; }
@@ -227,8 +230,26 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
     return text;
   }
 
+  // A duration in milliseconds, for people: "2 d 3 h", "4 h 10 min", "5 min", "12 s".
+  function duration(ms) {
+    const s = Math.floor(ms / 1000);
+    if (s >= 86400) return Math.floor(s / 86400) + " d " + Math.floor((s % 86400) / 3600) + " h";
+    if (s >= 3600) return Math.floor(s / 3600) + " h " + Math.floor((s % 3600) / 60) + " min";
+    if (s >= 60) return Math.floor(s / 60) + " min";
+    return s + " s";
+  }
+
+  // Requests (v0.8): how many the instance's calls made, answered, and open.
+  function requestsText(i) {
+    const n = i.requests.length;
+    return n + (n === 1 ? " request" : " requests") + " made by its calls: " + (n - i.open_requests.length) +
+      " answered, " + i.open_requests.length + " open" +
+      (i.overdue_requests.length ? " (" + i.overdue_requests.length + " OVERDUE at the checkpoint)" : "");
+  }
+
   function renderContract(report) {
     const i = report.instance;
+    const requests = new Map(i.requests.map((r) => [r.id, r]));
     const facts = $("facts");
     facts.replaceChildren();
     const fact = (name, text, mono) => {
@@ -245,8 +266,23 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
       fact("Depth", i.depth + " (" + i.ancestors.length + (i.ancestors.length === 1 ? " ancestor" : " ancestors") +
         ": " + i.ancestors.map((a) => a.id.slice(0, 12) + "\u2026").join(" \u2192 ") + ")");
     }
-    fact("Status", (i.status || "(none)") + (i.final ? " \u2014 final: it takes no more calls" : ""));
+    fact("Status", (i.status || "(none)") + (!i.final ? "" : i.open_requests.length
+      ? " \u2014 final: it takes only answers to its open requests" : " \u2014 final: it takes no more calls"));
     fact("Parties", partyList(i.parties));
+    if (i.requests.length) {
+      fact("Requests", requestsText(i));
+      // The open ones, each flagged once the checkpoint's time has passed its deadline.
+      if (i.open_requests.length) {
+        const list = el("dd");
+        for (const id of i.open_requests) {
+          const r = requests.get(id);
+          const line = el("div", r.kind + " (" + id.slice(0, 12) + "\u2026), asked by entry #" + r.call + ", due " + when(r.deadline) + " ");
+          line.append(el("span", r.overdue ? "overdue" : "open", "chip " + (r.overdue ? "overdue" : "open")));
+          list.append(line);
+        }
+        facts.append(el("dt", "Open requests"), list);
+      }
+    }
     fact("State", shorten(i.state, 300), true);
     fact("Home", report.home.organization + " (" + report.home.hash + ")");
     fact("Home ledger ID", report.home.id, true);
@@ -269,7 +305,27 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
       if (call.authority.length) li.append(el("div", "authorized by " + call.authority.map((a) => a.name).join(" \u2190 "), "meta"));
       li.append(value("arguments", call.arguments));
       if (call.reference) li.append(el("div", "reference: " + call.reference, "meta"));
+      // An answer (v0.8): the request it closes, what became of it, and how late.
+      if (call.answer) {
+        const a = call.answer;
+        const line = el("div", null, "meta answer");
+        line.append(el("span", a.status, "chip " + a.status));
+        line.append(el("span", "answers request " + a.request.slice(0, 12) + "\u2026" + (a.kind ? " (" + a.kind + ", asked by entry #" +
+          a.asked_by + ")" : "") + (a.late ? ", LATE by " + duration(a.late_by_ms) + " after its deadline" : ", on time")));
+        li.append(line);
+      }
       if (call.outcome) li.append(el("div", "outcome: " + outcomeText(call.outcome), "meta"));
+      // The requests it made (v0.8), with what became of each.
+      for (const r of (call.outcome && call.outcome.requests) || []) {
+        const now = r.id && requests.get(r.id);
+        const line = el("div", null, "meta request");
+        line.append(el("span", "asks: " + r.kind + (r.id ? " (request " + r.id.slice(0, 12) + "\u2026)" : "") +
+          ", due " + when(r.deadline) + ", answered by calling " + r.reply + " "));
+        const status = now ? (now.overdue ? "overdue" : now.status) : "an ancestor's";
+        line.append(el("span", status, "chip " + (now ? (now.overdue ? "overdue" : now.status) : "open")));
+        li.append(line);
+        if (r.params !== "null") li.append(value("params", r.params));
+      }
       for (const c of call.consents) {
         const line = el("div", null, "meta consent");
         line.append(el("span", "consent of " + c.organization + " (" + c.hash + "): given by " +
@@ -307,7 +363,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
       "contract was run again on every call, reaching the state above; each consent is verified on the consenting " +
       "party's own ledger. Party names are as their own ledgers declare them; the ledger IDs bind them." +
       (i.parent ? " Its ancestors' calls up to each one that created the next generation were run again too, " +
-        "consents and all: the instance is the part those calls created." : "");
+        "consents and all: the instance is the part those calls created." : "") +
+      (i.requests.length ? " Its requests and answers are derived from those calls, so none is left out; an answer " +
+        "is its signer's word that the work was done, attributed to them." : "");
     $("details").hidden = false;
   }
 
@@ -400,7 +458,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
       const i = report.instance;
       const summary = (i.parent ? "a part at depth " + i.depth + ", " : "") + "status " + (i.status || "(none)") +
         (i.final ? " (final)" : "") + " after " + report.calls.length + (report.calls.length === 1 ? " call" : " calls") +
-        (i.parent ? " (its ancestors' included)" : "") + ", each run again.";
+        (i.parent ? " (its ancestors' included)" : "") + ", each run again." +
+        (i.requests.length ? " " + requestsText(i) + "." : "");
       if (state.expectedRecord && i.id !== state.expectedRecord.toLowerCase()) {
         setVerdict("bad", "Not verified", "This evidence is about a different instance than the one the link or QR code names.");
       } else if (!report.verified) {
