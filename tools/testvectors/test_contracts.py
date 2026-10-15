@@ -867,6 +867,8 @@ def main() -> None:
     runs = check(code)
     split = split_contract()
     split_runs = check_split(split)
+    request = request_contract()
+    request_runs = check_requests(request)
     document = {
         "description": "Contracts for tests of the node, assembled by tools/testvectors/test_contracts.py "
                        "and checked with its reference interpreter. counting: arguments [out_0, ..., out_k] "
@@ -877,12 +879,21 @@ def main() -> None:
                        "active, parties {holder}); split [[ledger, amount], ...] (the parts add up to the "
                        "amount; the instance ends with status split, and each part becomes a child [amount, "
                        "tier + 1], active, held by its ledger); transfer ledger (the new holder). Split and "
-                       "transfer need the holder's consent unless the holder is the home.",
+                       "transfer need the holder's consent unless the holder is the home. request: the "
+                       "requesting contract of protocol-v0.8.json (spec section 15, v0.8), with the interface "
+                       "in request_interface: arguments that are a byte string are its output; a text string "
+                       "makes it abort with that reason; [[kind, params, after], ...] accepts and makes one "
+                       "request per item, due `after` ms after the call, replying to result; an answer sets "
+                       "the state to [status, request] with the event [done|failed|expired, kind]; "
+                       "request_checks counts the runs that agreed with an independent model.",
         "counting": code.hex(),
         "counting_runs": runs,
         "split": split.hex(),
         "split_interface": SPLIT_FUNCTIONS,
         "split_checks": split_runs,
+        "request": request.hex(),
+        "request_interface": REQUEST_FUNCTIONS,
+        "request_checks": request_runs,
     }
     (OUT / "test-contracts.json").write_text(json.dumps(document, indent=2) + "\n")
 
