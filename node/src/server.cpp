@@ -585,6 +585,11 @@ struct Server::Impl {
         acceptor.close(ignored);
         signals.cancel(ignored);
         ticker.cancel();
+        try {
+            app.stopping(); // long waits end now, so the drain need not wait for them
+        } catch (const std::exception&) {
+            // The application answers its waits as it can; the drain still ends.
+        }
         registry.close_idle();
         asio::co_spawn(control, drain(), asio::detached);
     }

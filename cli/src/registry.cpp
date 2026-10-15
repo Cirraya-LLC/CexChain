@@ -831,7 +831,7 @@ std::vector<CommandSpec> build() {
          "           /v1/receipts/INDEX, /v1/state/ID, /v1/evidence/RECORD,\n"
          "           /v1/vault/public-key, /v1/vault/records/RECORD, /v1/contracts,\n"
          "           /v1/contracts/CONTRACT, /v1/contracts/instances/INSTANCE,\n"
-         "           /v1/contracts/calls, /v1/contracts/calls/CALL\n"
+         "           /v1/contracts/calls, /v1/contracts/calls/CALL, /v1/requests (below)\n"
          "  submit:  POST /v1/statements (a signed statement, application/cose; or a record's\n"
          "           registration with its sealed private data, or a contract call with its\n"
          "           consents' evidence, application/cexchain-submission+cbor),\n"
@@ -842,6 +842,12 @@ std::vector<CommandSpec> build() {
          "           POST /v1/contracts/calls, GET /v1/contracts/calls[/CALL],\n"
          "           POST /v1/contracts/consents, GET /v1/contracts/instances/INSTANCE\n"
          "           (the instance's parties)\n"
+         "  executor: GET /v1/requests, GET /v1/contracts/instances/INSTANCE, and\n"
+         "           POST /v1/statements for answers to requests only\n"
+         "GET /v1/requests?state=&kind=&contract=&instance=&after=&limit=&wait= lists requests\n"
+         "made by contract calls, for executors: open ones by default, oldest change first, with\n"
+         "a cursor for the next after=; with wait=S (up to 25 seconds) it waits until one\n"
+         "matches. It is a hint: executors check a request in the instance's evidence.\n"
          "Requests send \"Authorization: Bearer TOKEN\" (cexchain token create). Reads run on all\n"
          "I/O threads at once; writes queue for one writer, which commits whatever has queued\n"
          "as a group with one sync. The server holds the ledger's lock only while writing, so\n"
@@ -928,13 +934,16 @@ std::vector<CommandSpec> build() {
          1,
          1,
          with({ledger_option,
-               {"scope", "SCOPES", "read, submit, admin, comma-separated (default: read)"},
+               {"scope", "SCOPES",
+                "read, submit, admin, peer, executor, comma-separated (default: read)"},
                {"out", "FILE", "Write the token to FILE (owner-only) instead of printing it"}}),
          cmd_token_create,
          "The token is shown once; the ledger keeps only its SHA-256. Scopes: read (the log,\n"
          "proofs, receipts, evidence, sealed vault data, metrics), submit (signed statements),\n"
          "admin (checkpoints, witness cosignatures), peer (another organization's access\n"
-         "requests, deliveries, receipts, and witnessing). Name a peer's token after the peer\n"
+         "requests, deliveries, receipts, and witnessing), executor (the requests contract\n"
+         "calls make, instances' evidence, and answers to requests, no other statements; add\n"
+         "read for request commands with --server). Name a peer's token after the peer\n"
          "(cexchain peer add NAME): it then reaches only that peer's own exchanges. A token\n"
          "only gates access: what a statement may do is still decided by its signature and\n"
          "the ledger's rules."},

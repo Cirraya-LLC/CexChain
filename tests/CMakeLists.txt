@@ -33,6 +33,7 @@ add_executable(cexchain_tests
     ledger/witness_test.cpp
     node/api_test.cpp
     node/contracts_api_test.cpp
+    node/requests_api_test.cpp
     node/cluster_test.cpp
     node/http_test.cpp)
 

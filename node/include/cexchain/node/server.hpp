@@ -36,6 +36,11 @@ public:
     /// Called about once a second, from one thread at a time; must not block.
     virtual void tick() {}
 
+    /// The server has stopped taking connections and waits for the requests
+    /// in progress: answer long waits (long polls) now. Called once, from
+    /// the server's control thread; must not block.
+    virtual void stopping() {}
+
     /// The server stops: answer whatever is still outstanding, and call no
     /// `respond` after returning.
     virtual void stop() {}

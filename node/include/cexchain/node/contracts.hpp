@@ -56,12 +56,16 @@ decode_consent_bundles(ByteView encoded, std::size_t max = protocol::max_contrac
 [[nodiscard]] Status store_consents_file(const std::filesystem::path& path, ByteView encoded);
 
 /// The newest valid delegation of `actor` for `type`, on records of
-/// `record_type` and on `contract` if given, at `now`.
+/// `record_type` and on `contract` if given, at `now`. For a contract call
+/// (`call`), the delegation's functions (scope key 8) must name its function,
+/// and its request kinds (key 9, v0.8), if any, the kind of the request it
+/// answers.
 [[nodiscard]] std::optional<protocol::Id>
 choose_delegation(const protocol::LedgerState& state, const protocol::Id& actor,
                   protocol::StatementType type, const std::optional<std::string>& record_type,
                   protocol::Timestamp now,
-                  const std::optional<protocol::Id>& contract = std::nullopt);
+                  const std::optional<protocol::Id>& contract = std::nullopt,
+                  const protocol::ContractCallBody* call = nullptr);
 
 /// Checks the bundles a contract call cites, one per consent, in its order:
 /// what a home does before recording the call at `now` on the ledger `home`

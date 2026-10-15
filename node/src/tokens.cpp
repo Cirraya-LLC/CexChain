@@ -15,11 +15,12 @@ namespace cexchain::node {
 
 namespace {
 
-constexpr std::array<std::pair<std::string_view, Scope>, 4> scope_table{{
+constexpr std::array<std::pair<std::string_view, Scope>, 5> scope_table{{
     {"read", Scope::read},
     {"submit", Scope::submit},
     {"admin", Scope::admin},
     {"peer", Scope::peer},
+    {"executor", Scope::executor},
 }};
 
 } // namespace
@@ -33,7 +34,8 @@ Result<Scopes> parse_scopes(std::string_view list) {
         const auto* found =
             std::ranges::find(scope_table, name, &decltype(scope_table)::value_type::first);
         if (found == scope_table.end()) {
-            return fail(Errc::invalid_argument, "scopes are read, submit, admin, and peer");
+            return fail(Errc::invalid_argument,
+                        "scopes are read, submit, admin, peer, and executor");
         }
         scopes |= static_cast<Scopes>(found->second);
     }

@@ -169,8 +169,50 @@ cbor::Value digests_value(const std::vector<crypto::Digest>& digests) {
 }
 
 /// read_or_peer, submit_or_peer: a read (or submit) token, or a peer's (whom
-/// the route then checks).
-enum class Access { open, read, submit, admin, peer, read_or_peer, submit_or_peer };
+/// the route then checks). The ones with executor take an executor's token
+/// too (6b), which the route then restricts.
+enum class Access {
+    open,
+    read,
+    submit,
+    admin,
+    peer,
+    read_or_peer,
+    submit_or_peer,
+    read_or_executor,
+    read_peer_or_executor,
+    submit_or_executor,
+};
+
+/// The token scopes that may use a route of `access` (not open).
+constexpr Scopes allowed_scopes(Access access) noexcept {
+    auto s = [](Scope scope) {
+        return static_cast<Scopes>(scope);
+    };
+    switch (access) {
+    case Access::open:
+        return 0;
+    case Access::read:
+        return s(Scope::read);
+    case Access::submit:
+        return s(Scope::submit);
+    case Access::admin:
+        return s(Scope::admin);
+    case Access::peer:
+        return s(Scope::peer);
+    case Access::read_or_peer:
+        return s(Scope::read) | s(Scope::peer);
+    case Access::submit_or_peer:
+        return s(Scope::submit) | s(Scope::peer);
+    case Access::read_or_executor:
+        return s(Scope::read) | s(Scope::executor);
+    case Access::read_peer_or_executor:
+        return s(Scope::read) | s(Scope::peer) | s(Scope::executor);
+    case Access::submit_or_executor:
+        return s(Scope::submit) | s(Scope::executor);
+    }
+    return 0;
+}
 
 enum class Endpoint {
     metrics,
@@ -205,6 +247,7 @@ enum class Endpoint {
     call_list,
     call_show,
     contract_consent,
+    requests,
 };
 
 /// Where a request goes. `rest` is where the path's last segment (an id or
@@ -239,6 +282,93 @@ bool is_sealed_vault(ByteView file) {
 
 constexpr std::size_t max_group = 4096;
 constexpr std::size_t max_group_bytes = 32 * 1024 * 1024;
+
+/// GET /v1/requests (v0.8): which requests an executor asks about. What the
+/// route answers is a hint: an executor checks a request in the instance's
+/// evidence before acting on it (spec section 15).
+struct RequestQuery {
+    enum class Which : std::uint8_t { open, answered, all };
+    Which which = Which::open;
+    /// Any kind if empty.
+    std::vector<std::string> kinds;
+    std::optional<protocol::Id> contract;
+    std::optional<protocol::Id> instance;
+    /// Only requests made or answered after the log's first `after` entries
+    /// (the `cursor` of an earlier answer).
+    std::uint64_t after = 0;
+    std::uint64_t limit = 100;
+    /// A long poll: if nothing matches, wait this long for something to.
+    std::chrono::seconds wait{0};
+};
+
+/// The longest a long poll waits: below the server's request timeout (30 s
+/// by default), after which the connection would be closed.
+constexpr std::uint64_t max_request_wait = 25;
+constexpr std::uint64_t max_request_limit = 1000;
+/// Long polls waiting at once; another one is answered at once.
+constexpr std::size_t max_waiters = 1024;
+
+std::variant<RequestQuery, http::Response> parse_request_query(const http::Request& r) {
+    RequestQuery q;
+    auto bad = [](std::string_view message) {
+        return error_response(400, "invalid_argument", message);
+    };
+    for (const auto& [name, value] : r.query) {
+        if (name == "state") {
+            if (value == "open") {
+                q.which = RequestQuery::Which::open;
+            } else if (value == "answered") {
+                q.which = RequestQuery::Which::answered;
+            } else if (value == "all") {
+                q.which = RequestQuery::Which::all;
+            } else {
+                return bad("state is open, answered, or all");
+            }
+        } else if (name == "kind") {
+            std::string_view rest = value;
+            while (true) {
+                const std::size_t comma = std::min(rest.find(','), rest.size());
+                const std::string_view kind = rest.substr(0, comma);
+                if (!protocol::is_request_kind(kind)) {
+                    return bad("kind is one or more request kinds, comma-separated");
+                }
+                q.kinds.emplace_back(kind);
+                if (comma == rest.size()) {
+                    break;
+                }
+                rest.remove_prefix(comma + 1);
+            }
+        } else if (name == "contract" || name == "instance") {
+            const auto id = id_from(value);
+            if (!id) {
+                return bad("contract and instance are ids of 64 hex digits");
+            }
+            (name == "contract" ? q.contract : q.instance) = *id;
+        } else if (name == "after") {
+            const auto after = number(r, "after");
+            if (!after) {
+                return bad("after is a number (the cursor of an earlier answer)");
+            }
+            q.after = *after;
+        } else if (name == "limit") {
+            const auto limit = number(r, "limit");
+            if (!limit || *limit == 0 || *limit > max_request_limit) {
+                return bad("limit is 1 to 1000");
+            }
+            q.limit = *limit;
+        } else if (name == "wait") {
+            const auto wait = number(r, "wait");
+            if (!wait || *wait > max_request_wait) {
+                return bad("wait is 0 to 25 seconds");
+            }
+            q.wait = std::chrono::seconds(*wait);
+        } else {
+            return bad(
+                "the parameters are state, kind, contract, instance, after, limit, and wait");
+        }
+    }
+    return q;
+}
 
 } // namespace
 
@@ -318,6 +448,21 @@ struct LedgerApi::State {
     /// registrar), and randomness for the statements it signs.
     std::optional<CallRegistrar> calls;
     ledger::SystemEntropy entropy;
+
+    /// Long polls of GET /v1/requests waiting for a request to match: each
+    /// is answered once one does, once its wait is over, or when the server
+    /// stops. `seen` is the log size it was last checked at.
+    struct Waiter {
+        RequestQuery query;
+        std::string principal;
+        Done done;
+        steady::time_point until;
+        std::uint64_t seen = 0;
+    };
+    std::mutex waiters_mutex;
+    std::vector<Waiter> waiters;
+    /// Set once the server stops: long polls are answered at once.
+    bool polls_stopped = false;
 
     /// A cluster member's (D-051): the ledger's lock, held for life, and
     /// Raft. Declared last, so they stop before anything they use.
@@ -498,6 +643,9 @@ struct LedgerApi::State {
                 event("writer-error", "a write job failed with an exception");
             }
         }
+        if (!batch.empty()) {
+            check_waiters(false); // a long poll learns of new requests at once
+        }
         return true;
     }
 
@@ -533,6 +681,7 @@ struct LedgerApi::State {
                     }
                     finish(batch[i].done, batch[i].principal, std::move(response));
                 }
+                check_waiters(false);
             }
         }
         for (Locked& job : jobs) {
@@ -732,18 +881,9 @@ struct LedgerApi::State {
         }
         principal = token->name;
         scopes = token->scopes;
-        if (access == Access::read_or_peer || access == Access::submit_or_peer) {
-            const Scope own = access == Access::read_or_peer ? Scope::read : Scope::submit;
-            if (!has_scope(token->scopes, own) && !has_scope(token->scopes, Scope::peer)) {
-                return error_response(403, "forbidden", "the API token lacks the scope for this");
-            }
-            return std::nullopt;
-        }
-        const Scope needed = access == Access::read     ? Scope::read
-                             : access == Access::submit ? Scope::submit
-                             : access == Access::peer   ? Scope::peer
-                                                        : Scope::admin;
-        if (!has_scope(token->scopes, needed)) {
+        // Any of the route's scopes will do; routes that several kinds of
+        // caller share check the rest themselves.
+        if ((token->scopes & allowed_scopes(access)) == 0) {
             return error_response(403, "forbidden", "the API token lacks the scope for this");
         }
         return std::nullopt;
@@ -1016,7 +1156,10 @@ struct LedgerApi::State {
                 ancestors = ancestor_ids(s, *id);
             }
         });
-        bool allowed = instance.has_value() && has_scope(scopes, Scope::read);
+        // The home's own (read tokens, and executors, which check requests
+        // in it before acting), or the instance's current parties.
+        bool allowed = instance.has_value() &&
+                       (has_scope(scopes, Scope::read) || has_scope(scopes, Scope::executor));
         if (instance && !allowed) {
             const auto peer = peer_named(principal);
             allowed = peer && std::ranges::any_of(instance->parties, [&](const auto& p) {
@@ -1085,6 +1228,178 @@ struct LedgerApi::State {
             }
             finish(done, principal, std::move(response));
         });
+    }
+
+    // ---- requests (v0.8, 6b) ---------------------------------------------
+
+    /// A request as GET /v1/requests shows it: params as hex CBOR, times in
+    /// milliseconds; `overdue` by this server's clock, `head` the instance's
+    /// now (what an answer names).
+    static json request_json(const protocol::LedgerState& s, const protocol::RequestState& r,
+                             protocol::Timestamp now) {
+        const protocol::InstanceState* i = s.instance(r.instance);
+        const auto params = cbor::encode(r.params);
+        return {{"id", hex(r.id)},
+                {"instance", hex(r.instance)},
+                {"contract", i != nullptr ? json(hex(i->contract)) : json(nullptr)},
+                {"head", i != nullptr ? json(i->head) : json(nullptr)},
+                {"kind", r.kind},
+                {"params", params ? to_hex(*params) : std::string()},
+                {"deadline", r.deadline},
+                {"reply", r.reply},
+                {"call", r.call},
+                {"position", r.position},
+                {"asked_at", r.asked_at},
+                {"status", r.status ? std::string(protocol::name(*r.status)) : "open"},
+                {"answered_by", r.answered_by ? json(*r.answered_by) : json(nullptr)},
+                {"answered_at", r.status ? json(r.answered_at) : json(nullptr)},
+                {"late_by_ms", r.late_by()},
+                {"overdue", r.open() && now >= r.deadline}};
+    }
+
+    struct Found {
+        json body;
+        std::size_t count = 0;
+        /// The log size the answer is as of.
+        std::uint64_t size = 0;
+    };
+
+    /// The requests `q` matches, oldest change first: {"requests", "cursor",
+    /// "more", "time"}. Only what the log holds durably counts: its size is
+    /// read before the state, so a request that changes meanwhile may be
+    /// reported again, but is never missed.
+    Found find_requests(const RequestQuery& q) const {
+        const std::uint64_t size = ledger->size();
+        const protocol::Timestamp now = ledger::SystemClock{}.now();
+        json list = json::array();
+        std::uint64_t cursor = size;
+        bool more = false;
+        ledger->read_state([&](const protocol::LedgerState& s) {
+            std::vector<std::pair<std::uint64_t, const protocol::RequestState*>> found;
+            for (const auto& [key, r] : s.requests()) {
+                const std::uint64_t changed = r.answered_by.value_or(r.call);
+                if (changed < q.after || changed >= size ||
+                    (q.which == RequestQuery::Which::open && !r.open()) ||
+                    (q.which == RequestQuery::Which::answered && r.open()) ||
+                    (!q.kinds.empty() && !std::ranges::contains(q.kinds, r.kind)) ||
+                    (q.instance && !(r.instance == *q.instance))) {
+                    continue;
+                }
+                if (q.contract) {
+                    const protocol::InstanceState* i = s.instance(r.instance);
+                    if (i == nullptr || !(i->contract == *q.contract)) {
+                        continue;
+                    }
+                }
+                found.emplace_back(changed, &r);
+            }
+            std::ranges::stable_sort(found, {}, &decltype(found)::value_type::first);
+            for (std::size_t n = 0; n < found.size(); ++n) {
+                // A page ends between log entries, never inside one.
+                if (n >= q.limit && found[n].first != found[n - 1].first) {
+                    more = true;
+                    cursor = found[n].first;
+                    break;
+                }
+                list.push_back(request_json(s, *found[n].second, now));
+            }
+        });
+        const std::size_t count = list.size();
+        return {{{"requests", std::move(list)}, {"cursor", cursor}, {"more", more}, {"time", now}},
+                count,
+                size};
+    }
+
+    /// GET /v1/requests: the requests that match at once, or, with a wait,
+    /// once some do (a long poll).
+    void requests_request(const http::Request& r, std::string principal, Done done) {
+        auto parsed = parse_request_query(r);
+        if (auto* refusal = std::get_if<http::Response>(&parsed)) {
+            finish(done, principal, std::move(*refusal));
+            return;
+        }
+        auto start = [this, q = std::get<RequestQuery>(std::move(parsed)),
+                      principal = std::move(principal), done = std::move(done)]() mutable {
+            if (failed) {
+                finish(done, principal,
+                       error_response(503, "unavailable",
+                                      "the ledger's files do not validate; run cexchain audit"));
+                return;
+            }
+            Found found = find_requests(q);
+            const std::lock_guard lock(waiters_mutex);
+            if (found.count > 0 || q.wait.count() == 0 || polls_stopped ||
+                waiters.size() >= max_waiters) {
+                finish(done, principal, json_response(200, found.body));
+                return;
+            }
+            const auto until = steady::now() + q.wait;
+            waiters.push_back(
+                {std::move(q), std::move(principal), std::move(done), until, found.size});
+        };
+        if (ledger->outdated()) {
+            // Another process wrote: look once the writer has caught up.
+            queue_read(std::move(start));
+            return;
+        }
+        start();
+    }
+
+    /// Answers the long polls that something now matches, or whose wait is
+    /// over (all of them if `everyone`). A poll is looked at again only once
+    /// the log has grown since it last was.
+    void check_waiters(bool everyone) {
+        const std::lock_guard lock(waiters_mutex);
+        if (waiters.empty()) {
+            return;
+        }
+        const auto now = steady::now();
+        const std::uint64_t size = ledger->size();
+        for (auto it = waiters.begin(); it != waiters.end();) {
+            const bool over = everyone || failed || now >= it->until;
+            if (!over && size == it->seen) {
+                ++it;
+                continue;
+            }
+            Found found = find_requests(it->query);
+            if (found.count > 0 || over) {
+                finish(it->done, it->principal,
+                       failed ? error_response(503, "unavailable",
+                                               "the ledger's files do not validate; run "
+                                               "cexchain audit")
+                              : json_response(200, found.body));
+                it = waiters.erase(it);
+            } else {
+                it->seen = found.size;
+                ++it;
+            }
+        }
+    }
+
+    /// From tick(): checks the long polls against the ledger, once the
+    /// writer has caught up with other processes' writes if it must.
+    void poll_requests() {
+        {
+            const std::lock_guard lock(waiters_mutex);
+            if (waiters.empty()) {
+                return;
+            }
+        }
+        if (ledger->outdated()) {
+            queue_read([this] { check_waiters(false); });
+            return;
+        }
+        check_waiters(false);
+    }
+
+    /// The server stops: every long poll is answered now, and later ones at
+    /// once.
+    void stop_polls() {
+        {
+            const std::lock_guard lock(waiters_mutex);
+            polls_stopped = true;
+        }
+        check_waiters(true);
     }
 
     // ---- contracts (D-053) ----------------------------------------------
@@ -1467,8 +1782,22 @@ struct LedgerApi::State {
 
     // ---- writes, for the writer thread ---------------------------------
 
-    void submit(http::Request& r, std::string principal, Done& done) {
+    void submit(http::Request& r, std::string principal, Scopes scopes, Done& done) {
         const auto type = r.header("content-type");
+        // An executor's token (6b) submits answers to requests, and nothing
+        // else: no record with private data, no call with consents.
+        if (!has_scope(scopes, Scope::submit)) {
+            const auto parsed = protocol::parse_statement(*provider, r.body, ledger->hash());
+            const auto* call =
+                parsed ? std::get_if<protocol::ContractCallBody>(&parsed->statement.body) : nullptr;
+            if ((type && type->starts_with(submission_content_type)) || call == nullptr ||
+                !call->answer || !call->consents.empty()) {
+                finish(done, principal,
+                       error_response(403, "forbidden",
+                                      "an executor's API token submits answers to requests only"));
+                return;
+            }
+        }
         if (type && type->starts_with(submission_content_type)) {
             submit_with_vault(r, std::move(principal), done);
             return;
@@ -2009,7 +2338,12 @@ struct LedgerApi::State {
             if (!post) {
                 return method_not_allowed("POST");
             }
-            found = Routed{Endpoint::submit, Access::submit};
+            found = Routed{Endpoint::submit, Access::submit_or_executor};
+        } else if (path == "/v1/requests") {
+            if (!get) {
+                return method_not_allowed("GET");
+            }
+            found = Routed{Endpoint::requests, Access::read_or_executor};
         } else if (path == "/v1/contracts") {
             if (!get) {
                 return method_not_allowed("GET");
@@ -2035,7 +2369,7 @@ struct LedgerApi::State {
             if (!get) {
                 return method_not_allowed("GET");
             }
-            found = Routed{Endpoint::instance_evidence, Access::read_or_peer, rest};
+            found = Routed{Endpoint::instance_evidence, Access::read_peer_or_executor, rest};
         } else if (match("/v1/contracts/")) {
             if (!get) {
                 return method_not_allowed("GET");
@@ -2164,6 +2498,7 @@ struct LedgerApi::State {
             return pending_list(principal, scopes);
         case Endpoint::call_show:
             return pending_show(rest, principal, scopes);
+        case Endpoint::requests:
         case Endpoint::call_propose:
         case Endpoint::contract_consent:
         case Endpoint::make_checkpoint:
@@ -2254,6 +2589,10 @@ struct LedgerApi::State {
             evidence_request(r, routed, std::move(principal), scopes, done);
             return;
         }
+        if (routed.endpoint == Endpoint::requests) {
+            requests_request(r, std::move(principal), std::move(done));
+            return;
+        }
         if (writes) {
             if (options.read_only || replica) {
                 finish(done, principal,
@@ -2261,7 +2600,7 @@ struct LedgerApi::State {
                                       replica ? "this ledger is a replica; write to its primary"
                                               : "this server is read-only"));
             } else if (routed.endpoint == Endpoint::submit) {
-                submit(r, std::move(principal), done);
+                submit(r, std::move(principal), scopes, done);
             } else if (routed.endpoint == Endpoint::make_checkpoint) {
                 make_checkpoint(std::move(principal), done);
             } else {
@@ -2376,9 +2715,15 @@ void LedgerApi::tick() {
     }
     state_->reload_tokens(false);
     state_->auto_checkpoint();
+    state_->poll_requests();
+}
+
+void LedgerApi::stopping() {
+    state_->stop_polls();
 }
 
 void LedgerApi::stop() {
+    state_->stop_polls();
     state_->drain();
 }
 

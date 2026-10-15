@@ -785,7 +785,8 @@ std::optional<protocol::Id> Session::choose_delegation(const protocol::ActorStat
                                                        const protocol::Body& body) const {
     return node::choose_delegation(state(), actor.id, protocol::type_of(body),
                                    record_type_for(state(), body), ledger::SystemClock{}.now(),
-                                   contract_for(state(), body));
+                                   contract_for(state(), body),
+                                   std::get_if<protocol::ContractCallBody>(&body));
 }
 
 protocol::Id Session::submit(const crypto::Signer& signer, protocol::Body body,

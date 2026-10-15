@@ -31,6 +31,11 @@
 ///         /v1/contracts/{contract}, /v1/contracts/instances/{instance},
 ///         /v1/contracts/calls, /v1/contracts/calls/{call}
 /// submit: POST /v1/statements (a signed statement), POST /v1/contracts/calls (a call proposal)
+/// read or executor: GET /v1/requests?state=&kind=&contract=&instance=&after=&limit=&wait=
+///         (requests, v0.8: a hint for executors, which check a request in the instance's
+///         evidence before acting; with wait=S, a long poll of up to 25 seconds)
+/// executor (6b): GET /v1/requests, GET /v1/contracts/instances/{instance}, and
+///         POST /v1/statements for answers to requests only
 /// admin:  POST /v1/checkpoint, POST /v1/cosignatures ([cosignature, witness key])
 /// peer:   POST /v1/access/requests (a request's evidence), GET /v1/access/deliveries/{request},
 ///         POST /v1/access/receipts (a receipt's evidence), POST /v1/witness/cosign,
@@ -95,7 +100,9 @@ public:
     /// thread, which commits whatever has queued as one group.
     void handle(http::Request request, std::string peer, Respond respond) override;
     void tick() override;
-    /// Waits until every queued write is done.
+    /// Answers the long polls of GET /v1/requests.
+    void stopping() override;
+    /// Answers the long polls, and waits until every queued write is done.
     void stop() override;
 
     [[nodiscard]] bool is_replica() const noexcept;

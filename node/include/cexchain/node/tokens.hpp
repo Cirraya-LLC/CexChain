@@ -20,11 +20,13 @@
 namespace cexchain::node {
 
 enum class Scope : std::uint8_t {
-    read = 1,   ///< The log, proofs, receipts, evidence, sealed vault data, metrics.
-    submit = 2, ///< Submitting signed statements.
-    admin = 4,  ///< Checkpoints and witness cosignatures.
-    peer = 8,   ///< For another organization: access requests and receipts, deliveries, and
-                ///< cosigning as this ledger's witness.
+    read = 1,      ///< The log, proofs, receipts, evidence, sealed vault data, metrics.
+    submit = 2,    ///< Submitting signed statements.
+    admin = 4,     ///< Checkpoints and witness cosignatures.
+    peer = 8,      ///< For another organization: access requests and receipts, deliveries, and
+                   ///< cosigning as this ledger's witness.
+    executor = 16, ///< For an executor (6b): the open requests (a hint), instances' evidence,
+                   ///< and submitting answers to requests, no other statements.
 };
 using Scopes = std::uint8_t;
 
@@ -32,7 +34,7 @@ using Scopes = std::uint8_t;
     return (scopes & static_cast<Scopes>(scope)) != 0;
 }
 
-/// Parses "read,submit,admin" (any non-empty subset).
+/// Parses "read,submit,admin,peer,executor" (any non-empty subset).
 [[nodiscard]] Result<Scopes> parse_scopes(std::string_view list);
 [[nodiscard]] std::vector<std::string> scope_names(Scopes scopes);
 

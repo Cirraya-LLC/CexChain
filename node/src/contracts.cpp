@@ -351,7 +351,21 @@ Status store_consents_file(const std::filesystem::path& path, ByteView encoded) 
 std::optional<protocol::Id>
 choose_delegation(const protocol::LedgerState& state, const protocol::Id& actor,
                   protocol::StatementType type, const std::optional<std::string>& record_type,
-                  protocol::Timestamp now, const std::optional<protocol::Id>& contract) {
+                  protocol::Timestamp now, const std::optional<protocol::Id>& contract,
+                  const protocol::ContractCallBody* call) {
+    // What scope keys 8 and 9 (v0.8) need of a call: its function, and the
+    // kind of the request it answers (none: it answers nothing).
+    const protocol::RequestState* answered =
+        call != nullptr && call->answer ? state.request(call->answer->request) : nullptr;
+    auto covers_call = [&](const protocol::Scope& scope) {
+        if (call == nullptr) {
+            return true;
+        }
+        return (!scope.functions || std::ranges::contains(*scope.functions, call->function)) &&
+               (!scope.request_kinds ||
+                (answered != nullptr &&
+                 std::ranges::contains(*scope.request_kinds, answered->kind)));
+    };
     std::optional<protocol::Id> chosen;
     std::uint64_t newest = 0;
     for (const auto& [key, d] : state.delegations()) {
@@ -362,7 +376,8 @@ choose_delegation(const protocol::LedgerState& state, const protocol::Id& actor,
                             (!contract || !d.scope.contracts ||
                              std::ranges::contains(*d.scope.contracts, *contract)) &&
                             (!d.scope.not_before || *d.scope.not_before <= now) &&
-                            (!d.scope.not_after || now <= *d.scope.not_after);
+                            (!d.scope.not_after || now <= *d.scope.not_after) &&
+                            covers_call(d.scope);
         if (usable && (!chosen || d.granted_at_index > newest)) {
             chosen = d.id;
             newest = d.granted_at_index;
@@ -488,8 +503,9 @@ sign_contract_call(const crypto::Provider& provider, const protocol::LedgerState
     statement.ledger_id = state.ledger_id();
     statement.actor_id = actor->id;
     if (!actor->is_organization()) {
-        statement.delegation_id = choose_delegation(
-            state, actor->id, protocol::StatementType::contract_call, std::nullopt, now, contract);
+        statement.delegation_id =
+            choose_delegation(state, actor->id, protocol::StatementType::contract_call,
+                              std::nullopt, now, contract, &call);
         if (!statement.delegation_id) {
             return fail(Errc::rejected,
                         "the registrar has no delegation for calls on this contract");
