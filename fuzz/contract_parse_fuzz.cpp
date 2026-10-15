@@ -6,7 +6,8 @@
 // 15). Decoding must never crash, whatever decodes must encode back to the
 // same bytes, and verifying arbitrary evidence must fail cleanly. Outputs may
 // create children, and evidence may be about a child, with its ancestors'
-// calls (v0.7). Verified evidence is rendered as every verifier shows it.
+// calls (v0.7). Outputs may make requests, and calls answer them (v0.8).
+// Verified evidence is rendered as every verifier shows it.
 
 #include <algorithm>
 #include <cstddef>
@@ -57,14 +58,33 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
                     i.ancestors[a].until ==
                     (a + 1 < i.ancestors.size() ? i.ancestors[a + 1].created_by : i.created_by));
             }
-            // Each call names the instances it created, one per child.
+            // Each call names the instances it created, one per child, and
+            // the requests it made, one per request; an answer shows the
+            // request it closed (v0.8).
             for (const protocol::RecordEvent& e : report->instance.events) {
                 require(e.children.size() == (e.outcome ? e.outcome->children.size() : 0));
+                require(e.requests.size() == (e.outcome ? e.outcome->requests.size() : 0));
+                const bool answers = e.contract_call && e.contract_call->answer;
+                require(e.answered.has_value() == answers);
+                if (e.answered) {
+                    require(e.answered->id == e.contract_call->answer->request);
+                    require(e.answered->status == e.contract_call->answer->status);
+                    require(e.answered->answered_by == e.index);
+                    require(e.answered->instance == *e.contract_call->instance);
+                }
+            }
+            // The instance's own requests: at most 64 open, overdue only if
+            // open.
+            require(i.open_requests().size() <= protocol::max_open_requests);
+            for (const protocol::RequestReport& r : i.requests) {
+                require(r.instance == report->instance.record);
+                require(!r.overdue || !r.status);
             }
             // The reports render, with the chain only for a child.
             const auto json = cexchain::verifier::contract_report_json(*report, false);
             require(json["calls"].size() == report->steps.size());
             require(json["instance"].contains("ancestors") == i.parent.has_value());
+            require(json["instance"]["requests"].size() == i.requests.size());
             require(!json.dump(-1, ' ', false, cexchain::verifier::Json::error_handler_t::replace)
                          .empty());
             const std::string text = cexchain::verifier::contract_report_text(*report, false);
@@ -83,6 +103,14 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
             require(accept.children.size() <= protocol::max_contract_children);
             for (const protocol::ContractChild& child : accept.children) {
                 require(child.parties.size() <= protocol::max_contract_parties);
+            }
+            require(accept.requests.size() <= protocol::max_contract_requests);
+            for (const protocol::ContractRequest& request : accept.requests) {
+                require(protocol::is_request_kind(request.kind));
+                require(!request.reply.empty() &&
+                        request.reply.size() <= protocol::max_function_name);
+                const auto params = cbor::encode(request.params);
+                require(params && params->size() <= protocol::max_request_params);
             }
         }
     }

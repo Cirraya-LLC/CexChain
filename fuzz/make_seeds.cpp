@@ -6,7 +6,8 @@
 // replay, access rules, backup restore, passkey registration) are reached
 // from real objects mutated, not from nothing. The contract interpreter and
 // the contract parsers start from testvectors/vm-v1.json, protocol-v0.6.json,
-// and protocol-v0.7.json (children), and so does the Bo runtime's CBOR reader
+// protocol-v0.7.json (children), and protocol-v0.8.json (requests and
+// answers), and so does the Bo runtime's CBOR reader
 // (contract inputs and outputs). A registrar's pending calls
 // (node/contracts.hpp) are built here as CBOR, without the node library. The
 // Bo pack reader starts from the official packs.
@@ -642,6 +643,66 @@ void child_seeds(const Seeds& seeds) {
     }
 }
 
+/// Requests and answers (v0.8): outputs that make requests (accepted and
+/// malformed), answers' inputs (key 9), statements with answers and with
+/// scope keys 8 and 9 (well formed and malformed), and the contract evidence
+/// of instances with requests, from protocol-v0.8.json (both hashes).
+void request_seeds(const Seeds& seeds) {
+    std::ifstream in(CEXCHAIN_TESTVECTORS_DIR "/protocol-v0.8.json");
+    if (!in) {
+        throw std::runtime_error("cannot read protocol-v0.8.json");
+    }
+    const auto doc = nlohmann::json::parse(in);
+    const crypto::openssl::Provider provider;
+    std::size_t n = 0;
+    std::size_t s = 0;
+    std::size_t e = 0;
+    for (const auto& ledger : doc.at("ledgers")) {
+        for (const auto& run : ledger.at("runs")) {
+            const auto output = must(from_hex(run.at("output").get<std::string>()), "output");
+            const auto input = must(from_hex(run.at("input").get<std::string>()), "input");
+            seeds.write("contract_parse_fuzz", std::format("request-output-{:03}", n),
+                        ByteView(output));
+            seeds.write("bo_runtime_fuzz", std::format("request-input-{:03}", n++),
+                        ByteView(input));
+        }
+        // Statements that answer or carry scope keys 8 and 9, as payloads
+        // and signed; the refused ones too, malformed or not.
+        for (const char* list : {"statements", "refused"}) {
+            for (const auto& st : ledger.at(list)) {
+                const auto payload = must(from_hex(st.at("payload").get<std::string>()), "payload");
+                const auto value = must(cbor::decode(payload), "payload CBOR");
+                const cbor::Value* type = value.find(1);
+                const cbor::Value* body = value.find(7);
+                const bool answer = type != nullptr && type->as_uint64() == 22U &&
+                                    body != nullptr && body->find(8) != nullptr;
+                const cbor::Value* scope =
+                    type != nullptr && type->as_uint64() == 5U && body != nullptr ? body->find(2)
+                                                                                  : nullptr;
+                const bool scoped =
+                    scope != nullptr && (scope->find(8) != nullptr || scope->find(9) != nullptr);
+                if (!answer && !scoped) {
+                    continue;
+                }
+                const auto encoded =
+                    must(from_hex(st.at("encoded").get<std::string>()), "statement");
+                seeds.write("protocol_parse_fuzz", std::format("request-payload-{:03}", s),
+                            ByteView(payload));
+                seeds.write("protocol_parse_fuzz", std::format("request-statement-{:03}", s++),
+                            ByteView(encoded));
+            }
+        }
+        for (const auto& [what, evidence] : ledger.at("evidence").items()) {
+            const auto encoded =
+                must(from_hex(evidence.at("contract_evidence").get<std::string>()), "evidence");
+            must(protocol::verify_contract_evidence(provider, encoded),
+                 "the vectors' request evidence must verify");
+            seeds.write("contract_parse_fuzz", std::format("request-evidence-{:02}", e++),
+                        ByteView(encoded));
+        }
+    }
+}
+
 /// The official language packs, as written and as CBOR (a source bundle
 /// embeds packs as CBOR); Bo sources, for the lexer, the parser, and the
 /// checker: the goldens, the spec's examples among them, in each language.
@@ -823,6 +884,7 @@ int main(int argc, char** argv) {
         vm_seeds(seeds);
         contract_seeds(seeds);
         child_seeds(seeds);
+        request_seeds(seeds);
         bo_seeds(seeds);
     } catch (const std::exception& e) {
         std::println(stderr, "error: {}", e.what());
