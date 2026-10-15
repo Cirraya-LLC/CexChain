@@ -14,6 +14,7 @@ add_executable(cexchain_tests
     core/protocol_v06_test.cpp
     core/protocol_v07_test.cpp
     core/protocol_v08_test.cpp
+    core/protocol_v09_test.cpp
     core/vm_test.cpp
     crypto/openssl_test.cpp
     ledger/access_test.cpp

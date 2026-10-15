@@ -2966,6 +2966,297 @@ def generate_protocol_v08() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Protocol v0.9: the generic core (spec sections 4 to 6): a user's record
+# types with the generic lifecycle, the four mechanism types with theirs, the
+# reserved "cexchain." prefix, and statement type 20 reserved
+# ---------------------------------------------------------------------------
+
+# Statement types v0.9 defines; 20 (asset-action, v0.5) is reserved.
+STATEMENT_TYPES_V09 = (1, 2, 3, 4, 5, 6, 7, 8, 16, 17, 18, 19, 21, 22, 23)
+# The mechanism types: initial state and transitions. None defines a role.
+MECHANISM_TYPES = {
+    "cexchain.access-request/1": ("requested", {("requested", "withdrawn")}),
+    "cexchain.access-grant/1": ("granted", set()),
+    "cexchain.access-receipt/1": ("received", set()),
+    CONTRACT_CONSENT: ("given", {("given", "withdrawn")}),
+}
+RESERVED_PREFIX = "cexchain."
+# The types earlier revisions built in, which v0.9 removed.
+REMOVED_TYPES = ("cexchain.certificate/1", "cexchain.delivery/1", "cexchain.agreement/1",
+                 "cexchain.receivable/1", "cexchain.warehouse-receipt/1", "cexchain.asset-consent/1")
+
+
+def generate_protocol_v09() -> None:
+    names = ("org_root", "log", "clerk")
+    seeds = {name: hashlib.sha256(f"CexChain test key: {name}".encode()).hexdigest() for name in names}
+    keys = {name: ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(seed)) for name, seed in seeds.items()}
+    t0 = 1_792_108_800_000  # 2026-10-16T00:00:00Z
+    minute, day = 60_000, 86_400_000
+    peer = hashlib.sha256(b"Peer ledger").digest()
+
+    ledgers = []
+    for hash_id in (-16, -65538):
+        lg = Ledger(hash_id)
+        statements, payloads, refused = [], [], []
+        actors, delegations, records = {}, {}, {}
+        clock = [t0 + 1000]
+
+        def payload(signer_actor, body_type, body, delegation=None):
+            n = len(statements) + len(refused) + 1
+            out = {0: 1, 1: body_type, 5: clock[0] - 500, 6: n.to_bytes(16, "big"), 7: body}
+            if signer_actor is not None:  # absent only in genesis
+                out[2] = ledger_id
+                out[3] = signer_actor
+            if delegation is not None:
+                out[4] = delegation
+            return out
+
+        def well_formed(p):
+            """The CDDL of v0.9, as far as these vectors reach: a known
+            statement type, and a scope naming only known types."""
+            if p[1] not in STATEMENT_TYPES_V09:
+                return False
+            return p[1] != 5 or all(t in STATEMENT_TYPES_V09 for t in p[7][2][1])
+
+        def rules(p):
+            """Every rule of section 5 that refuses a record statement, as far
+            as these vectors reach (the signers are always authorized)."""
+            body, fails = p[7], []
+            if p[1] == 16:
+                kind = body[1]
+                if kind.startswith(RESERVED_PREFIX) and kind not in MECHANISM_TYPES:
+                    fails.append("reserved type")
+                return fails
+            if p[1] not in (17, 18, 19):
+                return fails
+            record = records.get(body[1])
+            if record is None:
+                return ["no such record"]
+            if record["revoked"]:
+                fails.append("revoked")
+            mechanism = MECHANISM_TYPES.get(record["type"])
+            if p[1] == 17:
+                if mechanism is not None:
+                    fails.append("role")
+                if any(actor == p[3] and role == body[2] for actor, role, _ in record["endorsements"]):
+                    fails.append("repeated")
+            elif p[1] == 18:
+                if record["state"] != body[2]:
+                    fails.append("state")
+                if mechanism is None or (body[2], body[3]) not in mechanism[1]:
+                    fails.append("transition")
+            return fails
+
+        def add(name, signer, p):
+            """Registers the statement now, under the rules; the clock then
+            moves a minute on."""
+            assert well_formed(p) and rules(p) == [], (name, rules(p))
+            encoded, statement_id = lg.statement(keys[signer], p)
+            index = len(statements)
+            statements.append({"name": name, "signer": signer, "encoded": encoded.hex(), "payload": dcbor(p).hex(),
+                               "statement_id": statement_id.hex(), "registered_at": clock[0]})
+            payloads.append(p)
+            clock[0] += minute
+            body = p[7]
+            if p[1] == 1:
+                actors[statement_id] = [index]
+            elif p[1] == 2:
+                actors[statement_id] = [index]
+            elif p[1] == 5:
+                delegations[statement_id] = [index]
+            elif p[1] == 16:
+                initial = MECHANISM_TYPES[body[1]][0] if body[1] in MECHANISM_TYPES else "registered"
+                records[statement_id] = {"type": body[1], "state": initial, "revoked": False, "endorsements": [],
+                                         "history": [index], "registrant": p[3]}
+            elif p[1] in (17, 18, 19):
+                record = records[body[1]]
+                record["history"].append(index)
+                if p[1] == 17:
+                    record["endorsements"].append((p[3], body[2], index))
+                elif p[1] == 18:
+                    record["state"] = body[3]
+                else:
+                    record["revoked"] = True
+            return statement_id
+
+        def refuse(name, signer, p, why):
+            """`malformed` when the statement breaks the CDDL, so it does not
+            even parse; otherwise the rules refuse it after the statements so
+            far, at `at`, for the one rule `why` names."""
+            malformed = why == "unknown type"
+            if malformed:
+                assert not well_formed(p), name
+            else:
+                assert well_formed(p) and rules(p) == [why], (name, rules(p))
+            encoded, _ = lg.statement(keys[signer], p)
+            refused.append({"name": name, "signer": signer, "encoded": encoded.hex(), "payload": dcbor(p).hex(),
+                            "after": len(statements), "at": clock[0], "malformed": malformed, "why": why})
+
+        def fields(*values):
+            leaves = [dcbor([name, bytes([0xB0 + i]) * 16, value])
+                      for i, (name, value) in enumerate(sorted(values, key=lambda f: f[0].encode()))]
+            return lg.merkle().mth(leaves), len(leaves)
+
+        ledger_id = None
+        ledger_id = add("genesis", "org_root", payload(None, 1, {
+            1: hash_id, 2: "Example Household", 3: ed_public(keys["org_root"]), 4: ed_public(keys["log"])}))
+        org = ledger_id
+        clerk = add("register a person", "org_root", payload(org, 2, {1: 1, 2: "Clerk", 3: ed_public(keys["clerk"])}))
+        delegation = add("delegate records to the person", "org_root", payload(org, 5, {
+            1: clerk, 2: {1: [16, 17, 18, 19]}}))
+
+        # A record of a user's own type: the generic lifecycle.
+        root, count = fields(("title", "Camera lent to a neighbour"), ("until", "2026-11-01"))
+        document = add("register a record of a user's type", "clerk", payload(clerk, 16, {
+            1: USER_TYPE, 2: root, 3: count, 5: {"title": "Lent camera"}}, delegation))
+        refuse("a transition on a user's type", "clerk", payload(clerk, 18, {
+            1: document, 2: "registered", 3: "returned"}, delegation), "transition")
+        refuse("statement type 20, a v0.5 freeze", "org_root", payload(org, 20, {
+            1: document, 2: "freeze", 3: 3, 7: "court order 7"}), "unknown type")
+        refuse("statement type 20, a v0.5 transfer with a consent", "org_root", payload(org, 20, {
+            1: document, 2: "transfer", 3: 3, 4: peer, 6: [[peer, lg.h(b"consent"), lg.h(b"bundle")]]}),
+            "unknown type")
+        refuse("a scope naming statement type 20", "org_root", payload(org, 5, {
+            1: clerk, 2: {1: [16, 20]}}), "unknown type")
+        add("endorse it as reviewer", "clerk", payload(clerk, 17, {1: document, 2: "reviewer"}, delegation))
+        refuse("endorse it as reviewer again", "clerk", payload(clerk, 17, {
+            1: document, 2: "reviewer"}, delegation), "repeated")
+        add("the organization endorses it as approver", "org_root", payload(org, 17, {1: document, 2: "approver"}))
+        add("endorse it in a role of the person's choosing", "clerk", payload(clerk, 17, {
+            1: document, 2: "neighbour's witness"}, delegation))
+
+        # The mechanism types, each through its lifecycle.
+        root, count = fields(("note", "approve the booking"),)
+        consent = add("register a contract consent", "org_root", payload(org, 16, {
+            1: CONTRACT_CONSENT, 2: root, 3: count, 5: {
+                "ledger": peer, "instance": lg.h(b"instance"), "function": "approve", "head": 4,
+                "arguments": lg.h(dcbor(None)), "until": t0 + 7 * day}}))
+        refuse("endorse a contract consent", "org_root", payload(org, 17, {1: consent, 2: "witness"}), "role")
+        add("withdraw the consent", "org_root", payload(org, 18, {1: consent, 2: "given", 3: "withdrawn"}))
+        refuse("withdraw the consent again", "org_root", payload(org, 18, {
+            1: consent, 2: "given", 3: "withdrawn"}), "state")
+        refuse("give a withdrawn consent again", "org_root", payload(org, 18, {
+            1: consent, 2: "withdrawn", 3: "given"}), "transition")
+        root, count = fields(("note", "ask for the record"),)
+        request = add("register an access request", "clerk", payload(clerk, 16, {
+            1: "cexchain.access-request/1", 2: root, 3: count, 5: {
+                "ledger": peer, "record": lg.h(b"their record"), "purpose": "check the dates",
+                "until": t0 + 30 * day, "recipient": bytes([0x42]) * 32}}, delegation))
+        add("withdraw the access request", "clerk", payload(clerk, 18, {
+            1: request, 2: "requested", 3: "withdrawn"}, delegation))
+        root, count = fields(("note", "grant the record"),)
+        grant = add("register an access grant", "org_root", payload(org, 16, {
+            1: "cexchain.access-grant/1", 2: root, 3: count, 5: {
+                "ledger": peer, "request": lg.h(b"their request"), "record": document, "fields": ["title"],
+                "attachments": [], "until": t0 + 30 * day, "recipient": bytes([0x43]) * 32}}))
+        refuse("a transition on an access grant", "org_root", payload(org, 18, {
+            1: grant, 2: "granted", 3: "withdrawn"}), "transition")
+        add("end the grant by revoking it", "org_root", payload(org, 19, {1: grant, 2: "no longer needed"}))
+        root, count = fields(("note", "receipt"),)
+        add("register an access receipt", "clerk", payload(clerk, 16, {
+            1: "cexchain.access-receipt/1", 2: root, 3: count, 5: {
+                "ledger": peer, "grant": lg.h(b"their grant"), "delivery": lg.h(b"delivery")}}, delegation))
+
+        # The prefix is the nine bytes "cexchain.": a type that merely starts
+        # with "cexchain" is a user's.
+        root, count = fields(("text", "shopping list"),)
+        add("register a record whose type starts with cexchain but not the prefix", "clerk", payload(clerk, 16, {
+            1: "cexchain-example.note/1", 2: root, 3: count}, delegation))
+
+        # The removed types, an invented one, and a version the protocol
+        # does not define: all reserved. The asset types carry the metadata
+        # v0.5 required, so the prefix is the only rule they break.
+        asset_metadata = {
+            "cexchain.receivable/1": {"holder": peer, "amount": 100_000, "currency": "HKD", "due": t0 + 90 * day},
+            "cexchain.warehouse-receipt/1": {"holder": peer, "quantity": 10, "unit": "t"},
+        }
+        for kind in REMOVED_TYPES + ("cexchain.document/1", "cexchain.access-request/2"):
+            root, count = fields(("text", kind),)
+            body = {1: kind, 2: root, 3: count}
+            if kind in asset_metadata:
+                body[5] = asset_metadata[kind]
+            refuse(f"register a record of type {kind}", "clerk", payload(clerk, 16, body, delegation),
+                   "reserved type")
+
+        add("revoke the user's record", "org_root", payload(org, 19, {1: document, 2: "returned"}))
+        refuse("endorse a revoked record", "clerk", payload(clerk, 17, {1: document, 2: "late"}, delegation),
+               "revoked")
+        refuse("revoke a revoked record", "org_root", payload(org, 19, {1: document}), "revoked")
+
+        # The log, the state over every object, its commitment, and a
+        # checkpoint over all of it.
+        entries = [encode_log_entry(bytes.fromhex(st["statement_id"]), st["registered_at"], bytes.fromhex(st["encoded"]))
+                   for st in statements]
+        leaves = [[1, a, h] for a, h in actors.items()] + [[2, d, h] for d, h in delegations.items()] + \
+                 [[3, r, v["history"]] for r, v in records.items()]
+        sorted_leaves = sorted(leaves, key=lambda leaf: leaf[1])
+        commitment_index = len(entries)
+        commitment_time = clock[0]
+        commitment_id = append_state_commitment(lg, keys["log"], ledger_id, entries, sorted_leaves, commitment_time)
+        checkpoint_time = commitment_time + 1000
+        checkpoint, _ = sign_log_checkpoint(lg, keys["log"], ledger_id, entries, checkpoint_time)
+
+        ledgers.append({
+            "hash": hash_id,
+            "ledger_id": ledger_id.hex(),
+            "statements": statements,
+            "refused": refused,
+            "records": [{"id": r.hex(), "type": v["type"], "state": v["state"], "revoked": v["revoked"],
+                         "registrant": v["registrant"].hex(), "history": v["history"],
+                         "endorsements": [{"actor": a.hex(), "role": role, "index": i}
+                                          for a, role, i in v["endorsements"]]}
+                        for r, v in records.items()],
+            "log_entries": [e.hex() for e in entries],
+            "state_leaves": [{"kind": leaf[0], "id": leaf[1].hex(), "history": leaf[2]} for leaf in sorted_leaves],
+            "state_root": smt_root(lg, sorted_leaves).hex(),
+            "state_commitment": {"index": commitment_index, "id": commitment_id.hex()},
+            "checkpoint": checkpoint.hex(),
+            "checkpoint_time": checkpoint_time,
+        })
+
+    document = {
+        "description": "CexChain protocol objects of specification revision v0.9 (the generic core), built by an "
+                       "independent Python encoder from spec/cexchain.cddl. A ledger whose organization is a "
+                       "household registers a person and delegates record statements to them. The person "
+                       "registers a record of a user's own type (example.document/1), which takes endorsements "
+                       "in any role, once per actor and role, no transition, and is revoked: the generic "
+                       "lifecycle. The four mechanism types go through their lifecycles: a contract consent and "
+                       "an access request are withdrawn (record-transition), an access grant is ended by "
+                       "revocation, an access receipt stays received; none takes an endorsement. A type that "
+                       "merely starts with \"cexchain\" (cexchain-example.note/1) is a user's. Each statement "
+                       "registers at its `registered_at` (the log entries carry it). `refused` statements either "
+                       "break the CDDL (`malformed`: statement type 20, reserved since v0.9, and a scope naming "
+                       "it; `why` is \"unknown type\") or are validated against the state after the first "
+                       "`after` statements, at `at`, and break exactly one rule, which `why` names: \"reserved "
+                       "type\" (a registration of a type with the prefix \"cexchain.\" that is not a mechanism "
+                       "type: the six types v0.9 removed, an invented one, and a version the protocol does not "
+                       "define; the asset types carry the metadata v0.5 required), \"transition\" (not in the "
+                       "type's lifecycle), \"state\" (not the record's current state), \"role\" (a mechanism "
+                       "type defines none), \"repeated\" (the same actor and role again), \"revoked\" (a revoked "
+                       "record takes nothing more). `records` gives each record's type, state, revocation, "
+                       "registrant, history, and endorsements. `log_entries` holds the whole log, ending with "
+                       "the state commitment over `state_leaves`; `checkpoint` (signed at `checkpoint_time`) "
+                       "covers it. Signatures are Ed25519 (deterministic); keys are throwaway: seed = "
+                       "SHA-256(\"CexChain test key: <name>\").",
+        "t0": t0,
+        "statement_types": list(STATEMENT_TYPES_V09),
+        "mechanism_types": [{"type": kind, "initial": initial, "transitions": sorted([list(t) for t in transitions])}
+                            for kind, (initial, transitions) in MECHANISM_TYPES.items()],
+        "generic_lifecycle": {"initial": "registered", "transitions": [], "roles": "any"},
+        "reserved_prefix": RESERVED_PREFIX,
+        "removed_types": list(REMOVED_TYPES),
+        "seeds": seeds,
+        "ledgers": ledgers,
+    }
+    (OUT / "protocol-v0.9.json").write_text(json.dumps(document, indent=1) + "\n")
+    first = ledgers[0]
+    reasons = sorted({r["why"] for r in first["refused"]})
+    print(f"wrote protocol vectors for {len(ledgers)} ledgers to testvectors/protocol-v0.9.json: "
+          f"{len(first['statements'])} statements, {len(first['refused'])} refused ({', '.join(reasons)}), "
+          f"{len(first['records'])} records")
+
+
+# ---------------------------------------------------------------------------
 # Contract execution (spec section 14): the deterministic WebAssembly profile,
 # from the independent reference interpreter in wasm_ref.py
 # ---------------------------------------------------------------------------
@@ -3422,6 +3713,7 @@ def main() -> None:
     generate_protocol_v06()
     generate_protocol_v07()
     generate_protocol_v08()
+    generate_protocol_v09()
     generate_vm_v1()
 
 
