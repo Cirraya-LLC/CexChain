@@ -8,6 +8,7 @@
 # the home's agent creates and calls an instance; a bank's agent proposes a
 # call to the home's registrar and consents to it on the bank's SM3 ledger.
 # Parts (v0.7): the agents read parents and parts, and call and propose on parts.
+# Requests (v0.8): the home's agent lists requests and answers those of its kind.
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
@@ -67,7 +68,8 @@ line() { sed -n "$1p" responses.txt; }
 line 1 | contains '"supportedVersions":\["2026-07-28"' || fail "discover"
 line 1 | contains '"resultType":"complete"' || fail "discover resultType"
 line 2 | contains '"name":"cexchain_issue_record"' || fail "tools/list"
-for tool in call_contract list_pending_calls fetch_instance propose_contract_call consent_contract_call; do
+for tool in call_contract list_pending_calls fetch_instance propose_contract_call consent_contract_call \
+    list_requests get_request answer_request; do
     line 2 | contains "\"name\":\"cexchain_$tool\"" || fail "tools/list: $tool"
 done
 line 2 | contains '"cacheScope":"private"' || fail "tools/list caching"
@@ -319,7 +321,60 @@ call 1 cexchain_verify_contract_evidence "{\"evidence_path\":\"tier3.cbor\",\"ex
     | run mcp --ledger ledger --as agent.key > responses.txt 2> /dev/null
 [ "$(result 1 "['instance']['depth']")" = 2 ] || fail "a tier-3 part verified through MCP"
 [ "$(result 1 "['verified']")" = True ] || fail "verified"
+
+# --- Requests (spec v0.8): the agent as an executor --------------------------------------
+# The requesting contract makes one request per [kind, params, after] item
+# of its arguments; the agent may answer notify requests only (scope keys 8
+# and 9), with its provenance recorded on each answer.
+python3 -c "import json, sys; open('requesting.wasm', 'wb').write(bytes.fromhex(json.load(open(sys.argv[1]))['request']))" \
+    "$VECTORS/test-contracts.json"
+REQ="$(run contract deploy requesting.wasm --ledger ledger --as root.key --function open=create \
+    --function result=call --compiler "test_contracts.py 1" --name "Requesting" | id_from)"
+ASKING="$(run contract create "$REQ" open --ledger ledger --as root.key \
+    --args '[["notify", {"about": "welcome"}, 3600000], ["http.post", null, 3600000]]' --json | json_id)"
+R_NOTIFY="$(run request list --ledger ledger --kind notify --json | json 'd[0]["id"]')"
+R_POST="$(run request list --ledger ledger --kind http.post --json | json 'd[0]["id"]')"
+run delegation grant --ledger ledger --as root.key --to "$AGENT" --allow contract-call --contracts "$REQ" \
+    --functions result --request-kinds notify --days 7 > /dev/null
+{
+    call 1 cexchain_list_requests '{"state":"open"}'
+    call 2 cexchain_get_request "{\"request\":\"${R_NOTIFY:0:12}\"}"
+    call 3 cexchain_answer_request "{\"request\":\"$R_POST\",\"status\":\"done\"}"
+    call 4 cexchain_answer_request "{\"request\":\"$R_NOTIFY\",\"status\":\"done\",\"arguments\":{\"ref\":\"draft-1\"},\"dry_run\":true}"
+    call 5 cexchain_answer_request "{\"request\":\"$R_NOTIFY\",\"status\":\"done\",\"arguments\":{\"ref\":\"draft-1\"},\"inputs\":\"notice draft 1\"}"
+    call 6 cexchain_answer_request "{\"request\":\"$R_NOTIFY\",\"status\":\"failed\",\"reason\":\"unavailable\"}"
+    call 7 cexchain_list_requests '{"state":"answered","kinds":["notify"]}'
+    call 8 cexchain_whoami '{}'
+    call 9 cexchain_get_instance "{\"instance\":\"$ASKING\"}"
+    call 10 cexchain_answer_request "{\"request\":\"$R_POST\",\"status\":\"done\",\"reason\":\"unavailable\"}"
+    call 11 cexchain_list_requests '{"state":"closed"}'
+} > request-requests.jsonl
+run mcp --ledger ledger --as agent.key < request-requests.jsonl > responses.txt 2> /dev/null
+[ "$(result 1 "['requests'].__len__()")" = 2 ] || fail "open requests"
+[ "$(result 2 "['kind']")" = notify ] || fail "a request"
+[ "$(result 2 "['params']")" = '{"about": "welcome"}' ] || fail "a request's params"
+line 3 | contains 'no valid delegation' || fail "a kind the agent may not answer"
+[ "$(result 4 "['verdict']")" = accept ] || fail "a dry run of an answer"
+[ "$(result 4 "['recorded']")" = False ] || fail "a dry run records nothing"
+[ "$(result 5 "['recorded']")" = True ] || fail "the agent's answer"
+[ "$(result 5 "['answered']['answer']['kind']")" = agent ] || fail "answered by an agent"
+[ "$(result 5 "['answered']['answer']['model']")" = claude-opus-5-5 ] || fail "the agent's model"
+line 6 | contains 'answered already' || fail "a second answer"
+[ "$(result 7 "['requests'][0]['id']")" = "$R_NOTIFY" ] || fail "answered requests"
+result 8 "['delegations']" | contains "'request_kinds': \['notify'\]" || fail "whoami shows the kinds"
+[ "$(result 9 "['open_requests']")" = "['$R_POST']" ] || fail "the instance's open requests"
+[ "$(result 9 "['requests'].__len__()")" = 2 ] || fail "the instance's requests"
+line 10 | contains 'a reason explains a failure' || fail "a reason with done"
+line 11 | contains 'state is open' || fail "an unknown state"
+run contract evidence "$ASKING" --ledger ledger --log-key log.key --out asking.cbor > /dev/null
+run contract verify asking.cbor --ledger-id "$LEDGER_ID" --json > asking.json
+json '[t["name"] for t in d["calls"][1]["provenance"]["tools"]]' < asking.json \
+    | contains -Fx "['mcp:cexchain_answer_request']" || fail "the answer through MCP"
+json 'd["calls"][1]["called_by"]["kind"]' < asking.json | contains -x agent || fail "the answer's signer"
+json 'd["calls"][1]["answer"]["status"]' < asking.json | contains -x done || fail "the answer's status"
+
 run mcp --help | contains 'cexchain_consent_contract_call'
+run mcp --help | contains 'cexchain_answer_request'
 run completion bash | contains 'log-key'
 for l in ledger bank; do run audit --ledger "$l" | contains 'audit passed'; done
 echo "mcp end-to-end: ok"

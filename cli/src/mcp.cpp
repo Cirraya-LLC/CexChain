@@ -34,6 +34,7 @@
 #include "output.hpp"
 #include "peers.hpp"
 #include "records.hpp"
+#include "requests.hpp"
 #include "support.hpp"
 
 namespace cexchain::cli {
@@ -190,6 +191,14 @@ json scope_json(const protocol::Scope& scope) {
         }
         out["contracts"] = std::move(contracts);
     }
+    // Keys 8 and 9 (v0.8): the functions its calls may name, and the kinds
+    // of request it may answer (then it only answers).
+    if (scope.functions) {
+        out["functions"] = *scope.functions;
+    }
+    if (scope.request_kinds) {
+        out["request_kinds"] = *scope.request_kinds;
+    }
     if (scope.not_after) {
         out["valid_until"] = format_time(*scope.not_after);
     }
@@ -222,7 +231,10 @@ public:
             "'inputs' describing what you based the action on: only its hash is recorded. "
             "Contracts with other organizations: cexchain_list_pending_calls shows the calls a "
             "home holds for your consent; check the instance with cexchain_fetch_instance before "
-            "consenting with cexchain_consent_contract_call.";
+            "consenting with cexchain_consent_contract_call. Requests: contracts ask for work "
+            "outside the ledger (cexchain_list_requests); answer one your delegations let you "
+            "with cexchain_answer_request, once the work is done or has failed, and never claim "
+            "work you did not do.";
     }
 
     int run() {
@@ -629,7 +641,9 @@ private:
             "one thing divided among several holders): a part shows its parent, depth, "
             "position, and "
             "ancestors, and an instance lists the parts its calls created (children). A part is "
-            "called, proposed on, and verified like any instance.",
+            "called, proposed on, and verified like any instance. It also lists the requests "
+            "its calls made (work outside the ledger), open or answered, and each call shows the "
+            "requests it made and the request it answers.",
             {{"instance",
               {{"type", "string"}, {"description", "Instance id or unique prefix (8+ hex)."}}}},
             json::array({"instance"}), read_only, [this](const Tool&, const json& arguments) {
@@ -924,6 +938,144 @@ private:
                                       "(cexchain_transition_record to \"withdrawn\") if your "
                                       "delegation allows.";
                     }
+                }
+                return out;
+            });
+
+        // Requests and answers (spec v0.8, 6b): work a contract asked for
+        // outside the ledger, and the answers that close them.
+        const json request_property = {
+            {"type", "string"}, {"description", "The request's id or a unique prefix (8+ hex)."}};
+        add("cexchain_list_requests",
+            "Requests that contract calls on this ledger made: work outside the ledger (send a "
+            "notice, call a system), each with a kind, params, a deadline, and the function an "
+            "answer calls (its reply). A request stays open until one answer closes it: done, "
+            "failed, or expired. Shows each request's status, whether it is overdue, the call "
+            "that made it, and its answer (who gave it, with kind, delegation, and model; when; "
+            "how late).",
+            {{"state",
+              {{"type", "string"},
+               {"enum", json::array({"open", "answered", "failed", "overdue", "all"})},
+               {"description", "Which requests: open ones, answered ones, those answered failed "
+                               "or expired, open ones past their deadline, or all (default)."}}},
+             {"kinds",
+              {{"type", "array"},
+               {"items", {{"type", "string"}}},
+               {"description", "Only requests of these kinds."}}},
+             {"contract",
+              {{"type", "string"}, {"description", "Only requests on this contract's instances."}}},
+             {"instance", {{"type", "string"}, {"description", "Only this instance's requests."}}}},
+            json::array(), read_only, [this](const Tool&, const json& arguments) {
+                Session session(ledger_);
+                RequestFilter filter;
+                const std::string state = optional_text(arguments, "state").value_or("all");
+                if (state == "open") {
+                    filter.which = RequestFilter::Which::open;
+                } else if (state == "answered") {
+                    filter.which = RequestFilter::Which::answered;
+                } else if (state == "failed") {
+                    filter.which = RequestFilter::Which::failed;
+                } else if (state == "overdue") {
+                    filter.which = RequestFilter::Which::overdue;
+                } else if (state != "all") {
+                    throw ToolError{"state is open, answered, failed, overdue, or all"};
+                }
+                const std::vector<std::string> kinds = string_list(arguments, "kinds");
+                if (!kinds.empty()) {
+                    std::string list;
+                    for (const std::string& k : kinds) {
+                        list += (list.empty() ? "" : ",") + k;
+                    }
+                    filter.kinds = parse_request_kinds(list, "kinds");
+                }
+                if (const auto contract = optional_text(arguments, "contract")) {
+                    filter.contract = session.contract_id(*contract);
+                }
+                if (const auto instance = optional_text(arguments, "instance")) {
+                    filter.instance = session.instance_id(*instance);
+                }
+                const protocol::Timestamp now = ledger::SystemClock{}.now();
+                json requests = json::array();
+                for (const protocol::RequestState* r : select_requests(session, filter, now)) {
+                    requests.push_back(plain(request_json(session, *r, now)));
+                }
+                return json{{"requests", std::move(requests)}};
+            });
+
+        add("cexchain_get_request",
+            "One request: what was asked (kind, params), by which call, its deadline and reply, "
+            "whether it is open or overdue, and its answer if it has one.",
+            {{"request", request_property}}, json::array({"request"}), read_only,
+            [this](const Tool&, const json& arguments) {
+                Session session(ledger_);
+                const protocol::RequestState& r =
+                    *session.state().request(session.request_id(text_arg(arguments, "request")));
+                return plain(request_json(session, r, ledger::SystemClock{}.now()));
+            });
+
+        add("cexchain_answer_request",
+            "Answer a request, as its executor: say what became of the work it asked for. done: "
+            "it was done; failed: it was not (give a reason code); expired: nobody did it in "
+            "time (valid once its deadline has come). The answer is a call of the request's "
+            "reply on its instance, signed with your key under your delegation (which may cover "
+            "only some kinds of request) and recorded with your provenance. Its arguments carry "
+            "the result as the contract defines it: codes, ids, amounts, never personal data or "
+            "an outside system's raw text. A request takes one answer; the contract runs here "
+            "first, and an answer it does not take is not recorded. 'dry_run' shows the decision "
+            "and records nothing.",
+            {{"request", request_property},
+             {"status",
+              {{"type", "string"},
+               {"enum", json::array({"done", "failed", "expired"})},
+               {"description", "What became of the work."}}},
+             {"arguments", arguments_property},
+             {"reason",
+              {{"type", "string"},
+               {"description", "For failed or expired: a reason code (lowercase, like a request "
+                               "kind, e.g. unavailable), added to the arguments as \"reason\"."}}},
+             {"reference", reference_property},
+             {"dry_run",
+              {{"type", "boolean"},
+               {"description", "Only show what the contract and the ledger would decide "
+                               "(default: false)."}}},
+             {"inputs", inputs_property}},
+            json::array({"request", "status"}), writes,
+            [this](const Tool& tool, const json& arguments) {
+                Session session(ledger_);
+                const protocol::Id id = session.request_id(text_arg(arguments, "request"));
+                const auto status = parse_answer_status(text_arg(arguments, "status"));
+                if (!status) {
+                    throw ToolError{"status is done, failed, or expired"};
+                }
+                const auto reason = optional_text(arguments, "reason");
+                if (reason && *status == protocol::AnswerStatus::done) {
+                    throw ToolError{"a reason explains a failure or an expiry, not done"};
+                }
+                cbor::Value values =
+                    answer_arguments(arguments.contains("arguments")
+                                         ? std::optional<cbor::Value>(contract_arguments(arguments))
+                                         : std::nullopt,
+                                     reason);
+                CallOptions options;
+                options.provenance = provenance(tool, arguments, session);
+                options.dry_run = optional_flag(arguments, "dry_run", false);
+                protocol::ContractCallBody body =
+                    answer_call(session, *session.state().request(id), *status, std::move(values),
+                                ledger::SystemClock{}.now());
+                body.reference = optional_text(arguments, "reference");
+                const CallAttempt attempt =
+                    attempt_answer(session, *key_, std::move(body), options);
+                json out = plain(run_json(session, attempt));
+                out["request"] = hex_id(id);
+                out["status"] = std::string(protocol::name(*status));
+                out["dry_run"] = options.dry_run;
+                out["recorded"] = attempt.recorded.has_value();
+                if (attempt.recorded) {
+                    out["statement_id"] = hex_id(*attempt.recorded);
+                    out["answered"] = plain(request_json(session, *session.state().request(id),
+                                                         ledger::SystemClock{}.now()));
+                } else if (!options.dry_run) {
+                    out["note"] = "Not recorded: the request stays open.";
                 }
                 return out;
             });
