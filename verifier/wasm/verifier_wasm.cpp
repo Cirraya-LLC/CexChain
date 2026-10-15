@@ -3,10 +3,9 @@
 
 // The browser verifier's interface to JavaScript. Options are set one call at
 // a time (so attachment contents need no encoding), then cexchain_verify runs
-// the same verification as `cexchain verify` (or, for an asset's evidence,
-// `cexchain asset verify`; for a contract instance's, `cexchain contract
-// verify`) and returns the report as JSON, with "kind" set to "record",
-// "asset", or "contract".
+// the same verification as `cexchain verify` (or, for a contract instance's
+// evidence, `cexchain contract verify`) and returns the report as JSON, with
+// "kind" set to "record" or "contract".
 // Strings returned to JavaScript are allocated with malloc; release them with
 // cexchain_free.
 
@@ -17,17 +16,11 @@
 #include <exception>
 #include <optional>
 #include <string>
-#include <variant>
 
 #include <cexchain/core/cbor.hpp>
-#include <cexchain/core/cose.hpp>
-#include <cexchain/core/protocol/asset_evidence.hpp>
 #include <cexchain/core/protocol/common.hpp>
 #include <cexchain/core/protocol/contract_evidence.hpp>
-#include <cexchain/core/protocol/contracts.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
-#include <cexchain/core/protocol/log.hpp>
-#include <cexchain/core/protocol/statement.hpp>
 #include <cexchain/crypto/openssl.hpp>
 #include <cexchain/verifier/report.hpp>
 
@@ -54,54 +47,6 @@ char* to_c_string(const Json& value) {
 
 Json failure(std::string_view message) {
     return {{"verified", false}, {"error", message}};
-}
-
-/// Whether an asset's or an instance's evidence bundle (the two kinds of
-/// evidence share one shape) is about a contract instance: an instance's id
-/// is the id of the call that created it, an asset's the id of its
-/// registration. A child's (v0.7) is derived from the call that created it
-/// and its position, HASH([call, position]) under the ledger's hash, and that
-/// call is in the bundle. Only decodes; verification decides the rest.
-bool about_instance(ByteView bundle) {
-    const auto decoded = protocol::decode_bundle(bundle);
-    if (!decoded) {
-        return false;
-    }
-    std::optional<crypto::HashAlg> hash;
-    for (const protocol::EvidenceEntry& item : decoded->entries) {
-        const auto entry = protocol::decode_log_entry(item.entry);
-        if (!entry || entry->is_state_commitment()) {
-            continue;
-        }
-        const auto envelope = cose::parse(entry->statement);
-        const auto statement =
-            envelope && envelope->payload
-                ? protocol::decode_payload(*envelope->payload)
-                : Result<protocol::Statement>(fail(Errc::malformed, "no payload"));
-        if (!statement) {
-            if (entry->statement_id == decoded->record) {
-                return false;
-            }
-            continue;
-        }
-        if (const auto* genesis = std::get_if<protocol::GenesisBody>(&statement->body)) {
-            hash = genesis->hash_alg;
-            continue;
-        }
-        const bool call = statement->type() == protocol::StatementType::contract_call;
-        if (entry->statement_id == decoded->record) {
-            return call;
-        }
-        for (std::uint64_t position = 0; call && hash && position < protocol::max_contract_children;
-             ++position) {
-            const auto child =
-                protocol::child_instance_id(provider(), *hash, entry->statement_id, position);
-            if (child && *child == decoded->record) {
-                return true;
-            }
-        }
-    }
-    return false;
 }
 
 char* verify_contract(ByteView input) {
@@ -164,28 +109,15 @@ EMSCRIPTEN_KEEPALIVE void cexchain_add_attachment(const char* name, const std::u
     options.attachment_contents[name] = Bytes(data, data + size);
 }
 
-/// Verifies an evidence bundle, an asset's evidence, or a contract instance's
-/// evidence, with the options set since the last reset.
+/// Verifies an evidence bundle or a contract instance's evidence, with the
+/// options set since the last reset.
 EMSCRIPTEN_KEEPALIVE char* cexchain_verify(const std::uint8_t* bundle, std::size_t size) {
     try {
         const ByteView input(bundle, size);
         const bool checked = options.expected_ledger.has_value();
-        // A record's evidence bundle never decodes as an asset's or an
-        // instance's evidence, which share one shape.
-        if (const auto evidence = protocol::decode_asset_evidence(input)) {
-            if (about_instance(evidence->asset_bundle)) {
-                return verify_contract(input);
-            }
-            const auto report = protocol::verify_asset_evidence(provider(), input, options);
-            if (!report) {
-                Json out = failure(report.error().detail);
-                out["kind"] = "asset";
-                return to_c_string(out);
-            }
-            Json out = verifier::asset_report_json(*report, checked);
-            out["kind"] = "asset";
-            out["text"] = verifier::asset_report_text(*report, checked);
-            return to_c_string(out);
+        // A record's evidence bundle never decodes as an instance's evidence.
+        if (protocol::decode_contract_evidence(input)) {
+            return verify_contract(input);
         }
         const auto report = protocol::verify_bundle(provider(), input, options);
         if (!report) {

@@ -87,7 +87,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
 <main>
   <header>
     <h1>CexChain Verifier</h1>
-    <p>Check a record's, an asset's, or a contract's evidence on this device. Nothing is uploaded: verification runs entirely in your browser.</p>
+    <p>Check a record's or a contract's evidence on this device. Nothing is uploaded: verification runs entirely in your browser.</p>
   </header>
 
   <section class="card" id="input">
@@ -132,7 +132,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
     </div>
   </section>
 
-  <footer>CexChain Verifier <span id="version"></span>, open source (Apache-2.0). Evidence is checked with the same code as the <span class="mono">cexchain verify</span>, <span class="mono">asset verify</span>, and <span class="mono">contract verify</span> commands.</footer>
+  <footer>CexChain Verifier <span id="version"></span>, open source (Apache-2.0). Evidence is checked with the same code as the <span class="mono">cexchain verify</span> and <span class="mono">contract verify</span> commands.</footer>
 </main>
 
 <script>
@@ -182,75 +182,10 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
     return span;
   }
 
-  const actionNames = {
-    issue: "Issued", transfer: "Transferred", pledge: "Pledged", release: "Pledge released",
-    enforce: "Pledge enforced", redeem: "Redeemed", pay: "Paid (as the debtor states)",
-    confirm: "Payment confirmed", dispute: "Payment disputed", freeze: "Frozen", unfreeze: "Unfrozen",
-    cancel: "Cancelled",
-  };
-
   function party(p) {
     if (!p) return "";
     return p.organization ? p.organization + " (ledger " + p.ledger_id.slice(0, 12) + "\u2026)"
                           : "ledger " + p.ledger_id.slice(0, 12) + "\u2026";
-  }
-
-  function kvRows(id, sectionId, entries) {
-    $(id).replaceChildren(...entries.map(([k, v]) => {
-      const tr = el("tr"); tr.append(el("th", k), el("td", typeof v === "string" ? v : JSON.stringify(v))); return tr;
-    }));
-    $(sectionId).hidden = entries.length === 0;
-  }
-
-  function renderAsset(report) {
-    const a = report.asset;
-    const inner = report.report;
-    const facts = $("facts");
-    facts.replaceChildren();
-    const fact = (name, value, mono) => {
-      facts.append(el("dt", name));
-      facts.append(el("dd", value, mono ? "mono" : ""));
-    };
-    fact("Asset", a.type);
-    fact("Asset ID", a.id, true);
-    fact("State", a.state);
-    fact("Holder", party(a.holder));
-    if (a.pledgee) fact("Pledged to", party(a.pledgee));
-    if (a.payee) fact("Payee", party(a.payee));
-    fact(a.amount !== undefined ? "Amount" : "Quantity", a.display + (a.due ? ", due " + when(a.due) : ""));
-    fact("Home", report.home.organization);
-    fact("Home ledger ID", report.home.id, true);
-    fact("Checkpoint", "log size " + report.checkpoint.tree_size + ", signed " + when(report.checkpoint.timestamp));
-    fact("Witnesses", report.witnesses.trusted + " trusted, " + report.witnesses.untrusted + " other");
-    kvRows("metadata", "metadata-section", Object.entries(inner.record.metadata || {}));
-    kvRows("fields", "fields-section", Object.entries(inner.disclosed_fields || {}));
-    $("attachments-section").hidden = true;
-    $("events-title").textContent = "Chain of title";
-    $("events").replaceChildren(...report.chain.map((step) => {
-      const li = el("li");
-      let what = actionNames[step.action] || step.action;
-      if (step.to) what += (step.action === "issue" ? " to " : " \u2192 ") + party(step.to);
-      if (step.quantity) what += " (" + step.quantity + ")";
-      li.append(el("div", what, "what"));
-      const who = el("div");
-      who.append(el("span", "recorded by "), actorLine(step.recorded_by));
-      li.append(who);
-      if (step.reference) li.append(el("div", "reference: " + step.reference, "meta"));
-      for (const c of step.consents) {
-        const line = el("div", null, "meta");
-        line.append(el("span", "consent of " + c.organization + ": given by " +
-          (c.signer ? "\"" + c.signer.name + "\"" : "?") + " (" + c.presence + ")" +
-          (c.reference ? ", ref. " + c.reference : "")));
-        if (c.presence && c.presence.startsWith("a person, present")) line.append(el("span", "\u2713 present", "chip present"));
-        li.append(line);
-      }
-      li.append(el("div", when(step.registered_at) + " \u00b7 entry #" + step.index, "when"));
-      return li;
-    }));
-    $("limits").textContent = "The asset's complete history is proven against its home's state commitment, and every consent " +
-      "against the consenting party's own ledger. Party names are as their own ledgers declare them; the ledger IDs bind them. " +
-      "A lender should rely on a pledge only once a witness it trusts has cosigned a checkpoint that includes it.";
-    $("details").hidden = false;
   }
 
   function shorten(text, limit) {
@@ -460,24 +395,6 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
       ledgerId: ledgerId || undefined, witnesses: state.witnesses, attachments: state.attachments,
     });
     window.lastReport = report;
-    if (report.kind === "asset" && report.asset) {
-      renderAsset(report);
-      const holder = party(report.asset.holder);
-      const summary = report.asset.state + (report.asset.pledgee ? ", pledged to " + party(report.asset.pledgee) : "") +
-        "; held by " + holder + ".";
-      if (state.expectedRecord && report.asset.id !== state.expectedRecord.toLowerCase()) {
-        setVerdict("bad", "Not verified", "This evidence is about a different asset than the one the link or QR code names.");
-      } else if (!report.verified) {
-        setVerdict("bad", "Not verified", "An attachment does not match what the issuer committed to. It may have been altered.");
-      } else if (!report.home.id_checked) {
-        setVerdict("warn", "Genuine, but the home ledger is not confirmed",
-          "The asset's evidence is intact and correctly signed by the ledger of \"" + report.home.organization +
-          "\". Compare its ledger ID with the one the issuer published, or enter it above. State: " + summary);
-      } else {
-        setVerdict("ok", "Verified", "Issued by \"" + report.home.organization + "\": " + summary);
-      }
-      return;
-    }
     if (report.kind === "contract" && report.instance) {
       renderContract(report);
       const i = report.instance;

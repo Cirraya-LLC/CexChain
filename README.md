@@ -213,11 +213,11 @@ cexchain verify evidence.cbor --witness witness.pub --min-witnesses 1
 ## Browser verifier
 
 Anyone can check evidence without installing anything. `cexchain-verify.html` is one self-contained
-page: the same verification code as `cexchain verify`, `asset verify`, and `contract verify`,
-compiled to WebAssembly together with OpenSSL and the contract interpreter. It takes a record's
-evidence bundle, an asset's evidence, or a contract instance's evidence, which it checks by running
-the contract again on every call. It runs entirely in the browser and uploads nothing. It works
-offline, even opened from disk, and it can be hosted on any static web server.
+page: the same verification code as `cexchain verify` and `contract verify`, compiled to
+WebAssembly together with OpenSSL and the contract interpreter. It takes a record's evidence bundle
+or a contract instance's evidence, which it checks by running the contract again on every call. It
+runs entirely in the browser and uploads nothing. It works offline, even opened from disk, and it
+can be hosted on any static web server.
 
 ```sh
 tools/wasm/build.sh            # needs Emscripten; writes build/wasm/cexchain-verify.html
@@ -899,8 +899,8 @@ it, `OFF` leaves it out. Clang builds everything else, the compiler's front end 
 that libFuzzer can fuzz what reads untrusted source.
 
 The browser verifier is tested against evidence from the native tool. A Node.js test requires its
-report to match `cexchain verify --json` (and `asset verify --json`, `contract verify --json`)
-exactly, and a Chromium test drives the page:
+report to match `cexchain verify --json` (and `contract verify --json`) exactly, and a Chromium
+test drives the page:
 
 ```sh
 tools/wasm/build.sh
