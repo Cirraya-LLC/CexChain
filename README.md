@@ -1,15 +1,68 @@
 # CexChain
 
-**Verifiable records for business, built for the age of AI agents.**
+**Register, move, and prove anything, under rules you define.**
 
-CexChain is a ledger protocol and node for trust between organizations. Every document, asset, and action can be independently verified by anyone, without relying on a platform operator. The action can come from a person or an AI agent.
+CexChain keeps a verifiable history of anything you choose to keep: a document, a photo, a
+camera lent to a friend, an approval, a membership, a debt. You decide what a thing is, the
+rules it follows, and whose agreement each step needs. Every step is signed by the person,
+AI agent, or device that took it, and anyone can verify the whole history offline, without
+trusting your database or any platform. It runs for one person on one computer, and for
+organizations on servers and clusters, with ledgers that work with each other's.
 
-> **Status:** early development (specification v0.9 draft: [the protocol in prose](spec/README.md), [`spec/cexchain.cddl`](spec/cexchain.cddl); the contract language: [`spec/bo.md`](spec/bo.md)). Interfaces and formats may still change.
+Like a spreadsheet, CexChain knows nothing of what you keep in it: there are no built-in
+purchase orders, invoices, or certificates. Those are things you define, and the
+[examples](examples/) show how such things are built.
+
+> **Status:** early development (specification v0.9 draft: [the protocol in prose](spec/README.md), [`spec/cexchain.cddl`](spec/cexchain.cddl); the contract language: [`spec/bo.md`](spec/bo.md)). Interfaces and formats may still change. Planned, not built yet: executors, optional vocabulary packs for industry words, a local web console, installers, and a public witness service.
 
 ## Why
 
-- Certificates, invoices, agreements, and quality reports move between companies as scans, stamps, and phone calls. Verifying them is slow, and disputes are hard to settle.
-- AI makes forging documents nearly free, and AI agents increasingly act on behalf of companies. Looking genuine no longer proves anything. Cryptographic provenance does.
+- Documents, photos, approvals, and promises move between people and organizations as files,
+  scans, stamps, and messages. Checking them is slow, and disputes are hard to settle.
+- AI makes forgery nearly free, and AI agents increasingly act for people and companies.
+  Looking genuine no longer proves anything; cryptographic provenance does. And when an agent
+  acts, someone must be able to show who authorized it and who answers for it.
+
+## How it works
+
+- **Things you define.** A *record* is a document of a type you name, such as
+  `example.org.photo/1`: its fields stay private until you disclose them (the ledger keeps
+  salted commitments), its files are committed by hash, and it can be endorsed in any role
+  and revoked. Anything that follows rules is an *instance* of a *contract* you write in
+  [Bo](#the-bo-language), whose keywords read as English, Traditional Chinese, or Simplified
+  Chinese: its fields and states, the actions on it, who may take each, whose consent each
+  needs, what must hold (a passkey in person above an amount, say), and what happens as time
+  passes.
+- **Consent where each party keeps its own ledger.** A step that concerns another party waits
+  for that party's consent, given on its own ledger and naming that one step. There is no
+  shared database and no platform in the middle.
+- **Evidence anyone can check.** One file proves a record's or an instance's complete history:
+  who did what, under whose authority, which fields were disclosed, and, for an instance,
+  every contract call run again. It verifies offline, on the command line or in a
+  self-contained browser page that uploads nothing.
+- **Witnesses.** Independent parties (a friend, a partner, an auditor) cosign a ledger's
+  checkpoints only if its history extends what they saw before, so nobody can rewrite or fork
+  their own history unseen.
+- **Accountable people, AI agents, and devices.** Every action names who took it and under
+  whose delegation. A person's action carries proof of presence (a passkey, or a USB key and
+  its PIN); anything without it is attributed to a machine. AI agents act through MCP with
+  their own keys and delegations, their model recorded, and a person accountable for them.
+- **Executors (coming).** Contracts decide; executors will act on the outside world (send a
+  notice, call another system) and report signed results. The protocol's requests and answers
+  are specified (spec v0.8) and implemented in the core; the node's side and the executors
+  are being built.
+
+## Who it is for
+
+- **One person, on one computer.** A ledger is a directory; keys are encrypted files, with a
+  passkey or a USB key for proof of presence; evidence is a file you hand over. Today you use
+  it from the command line; a local web console and installers are planned.
+- **An organization.** Staff, AI agents, and devices act with rights the organization's root
+  key delegates, which can only narrow. `cexchain serve` runs a ledger over HTTP with API
+  tokens; replicas, backups, and Raft clusters keep it available; a Docker image runs it.
+- **Several parties.** Each keeps its own ledger. They pin each other's ledgers, ask for and
+  grant access to records, consent to each other's contract calls, and witness each other's
+  checkpoints. A shared registry and governance for larger federations is planned.
 
 ## Design principles
 
@@ -18,10 +71,11 @@ CexChain is a ledger protocol and node for trust between organizations. Every do
   - Non-repudiation: every action is signed.
   - Independent verification: any third party can check a record without trusting its issuer's database.
 - **Sovereign first.**
-  - A single organization gets value on day one.
+  - A single person or organization gets value on day one.
   - External witnesses co-sign checkpoints, so history can be neither rewritten nor forked.
-  - Ledgers federate later.
+  - Ledgers work together without a platform between them.
 - **Documents stay off-chain.** The ledger holds salted commitments, signatures, state transitions, grants, and access records. Content is encrypted and stored separately.
+- **Generic by design.** The protocol knows records, contracts, consents, access, witnesses, and evidence, nothing of any industry. What a thing is, its users define.
 - **People and AI agents are first-class actors.**
   - Every action records who acted and under whose delegated authority.
   - Delegated scope can only narrow.
@@ -46,8 +100,11 @@ CexChain is a ledger protocol and node for trust between organizations. Every do
 | `bo` | The Bo contract language's compiler (in progress): language packs, the lexer, the parser, the checker, the WebAssembly emitter with its runtime, lowering a first subset of Bo, the contract text, the formatter (one contract in any language), and the source bundle a deploy records, rebuilt by verifiers. C++26 with static reflection and contracts, built with GCC 16; its front end (everything that reads source) also builds with Clang, for fuzzing |
 | `cli` | `cexchain` command-line tool: full control of keys, ledgers, actors, delegations, records, contracts, proofs, and evidence |
 | `cexchain mcp` | MCP server through which an AI agent acts under its own key and delegation |
+| `examples` | Complete stories built on the generic core, each a Bo contract with its tests and a narrated script ([below](#examples)) |
 
 ## Quick start
+
+A ledger of your own, and a photo registered on it as a record of a type you name:
 
 ```sh
 # Private keys are encrypted (PKCS #8, scrypt + AES-256). Passphrases come from
@@ -55,26 +112,24 @@ CexChain is a ledger protocol and node for trust between organizations. Every do
 cexchain key generate --out root.key
 cexchain key generate --out log.key
 export CEXCHAIN_LEDGER=./ledger
-cexchain init --org "Example Factory" --root-key root.key --log-key log.key
+cexchain init --name "Alice" --root-key root.key --log-key log.key
 
-# Alice generates her own key and sends only its public half.
+# The root key registers who acts: you with an everyday key (keep the root key
+# offline), and in an organization its staff, AI agents, and devices.
 cexchain key generate --out alice.key && cexchain key public alice.key --out alice.pub
-
-# Register her as an inspector and let her issue inspection reports, a record
-# type the factory names itself.
 cexchain actor add --as root.key --kind person --name "Alice" --key alice.pub
 cexchain delegation grant --as root.key --to <alice-id> \
-    --allow record-register,record-endorse --record-types example.org.inspection/1 --days 30
+    --allow record-register,record-endorse --record-types example.org.photo/1 --days 30
 
-# Issue a report; field values stay private until disclosed.
-cexchain record issue --as alice.key --type example.org.inspection/1 \
-    --field product="Flange DN50" --field result=pass --attach report.pdf
+# Register the photo; field values stay private until disclosed.
+cexchain record issue --as alice.key --type example.org.photo/1 \
+    --field place="Victoria Harbour" --field taken=2026-10-16 --attach photo.jpg
 cexchain record history <record-id>
 
 # Checkpoint, export evidence with one field disclosed, and verify it anywhere.
 cexchain checkpoint create --log-key log.key
-cexchain export <record-id> --log-key log.key --disclose result --with-attachments --out evidence.cbor
-cexchain verify evidence.cbor --ledger-id <ledger-id> --attachment report.pdf=report.pdf
+cexchain export <record-id> --log-key log.key --disclose taken --with-attachments --out evidence.cbor
+cexchain verify evidence.cbor --ledger-id <ledger-id> --attachment photo.jpg=photo.jpg
 ```
 
 The verification report shows every event in the record's history, who performed it (person or
@@ -87,6 +142,46 @@ delegation, and record. A bundle proves the history of the record and of everyon
 that commitment. So nobody can hand over evidence that quietly leaves out a later revocation, of the
 record or of the person who signed it. Because the commitment lives in the witnessed, append-only
 log, a false one could never be withdrawn, and replaying the log exposes it.
+
+### A first contract
+
+A record has one lifecycle: registered, endorsed, revoked. A thing with rules of its own is an
+instance of a contract. Lending a camera, in Bo:
+
+```
+contract Lending
+parties owner
+
+record Thing
+  name text
+  holder owner
+
+can lend to counterparty by owner
+  active -> lent
+  holder = counterparty
+can bring_back by holder
+  lent -> active
+  holder = owner
+```
+
+The owner lends to whoever each call names, who must consent on their own ledger; only the
+holder brings it back; and while it is lent, the contract refuses another loan. The same source,
+with its tests, is [`examples/lending/lending.bo`](examples/lending/lending.bo). Deploy it and
+register a camera (this needs a build with the Bo compiler, below):
+
+```sh
+cexchain bo test lending.bo           # the tests the contract carries
+cexchain bo explain lending.bo        # the contract text the parties read, in English or Chinese
+cexchain contract deploy --bo lending.bo --as root.key
+cexchain contract create <contract> create --as root.key \
+    --args "{\"fields\": {\"name\": \"Camera X100\"}, \"parties\": {\"owner\": h'<ledger-id>'}}"
+cexchain contract call <camera> lend --args "{\"counterparty\": h'<friend-ledger-id>'}" \
+    --dry-run --as root.key           # the contract needs the friend's consent
+```
+
+[`examples/lending`](examples/lending/) runs the whole story with two people on one computer:
+the friend checks the camera's evidence offline, consents on his own ledger, and brings it
+back, and anyone verifies the history.
 
 ## Command line
 
@@ -134,12 +229,12 @@ security key) that approves exactly that statement.
 ```sh
 # The person: create a passkey; only its public data goes into the file.
 cexchain presence enroll --out alice.passkey --name "Alice"
-# The organization: register it. (A stolen signing key cannot enroll a thief's passkey.)
+# The ledger's owner: register it. (A stolen signing key cannot enroll a thief's passkey.)
 cexchain actor set-presence <alice-id> --as root.key --credential alice.passkey
 # Require presence for what matters...
 cexchain delegation grant --as root.key --to <alice-id> --allow record-endorse --require-presence
 # ...and confirm with the passkey when acting.
-cexchain record endorse <record-id> --as alice.key --role inspector --presence
+cexchain record endorse <record-id> --as alice.key --role approver --presence
 ```
 
 USB keys (UKey) and smart cards work too, through PKCS #11: the token's key signs the statement's
@@ -154,7 +249,7 @@ cexchain presence enroll --pkcs11 "pkcs11:token=UKey;object=alice-presence?modul
     --label "Alice's UKey" --out alice.ukey
 cexchain actor set-presence <alice-id> --as root.key --credential alice.ukey
 # Confirm with the token when acting; the PIN comes from a prompt or $CEXCHAIN_PKCS11_PIN.
-cexchain record endorse <record-id> --as alice.key --role inspector \
+cexchain record endorse <record-id> --as alice.key --role approver \
     --presence-key "pkcs11:token=UKey;object=alice-presence?module-path=/path/to/vendor.so"
 ```
 
@@ -163,16 +258,16 @@ how (a passkey or a hardware key). The browser verifier shows it too.
 
 ## Keys on tokens and HSMs
 
-Wherever a command takes a key file, it also takes an RFC 7512 PKCS #11 URI, so an organization's
-root key can stay in an HSM and a person's signing key on a USB key. Keys generated with
+Wherever a command takes a key file, it also takes an RFC 7512 PKCS #11 URI, so a ledger's root
+key can stay in an HSM or on a USB key, and a person's signing key on a USB key. Keys generated with
 `key generate --pkcs11` are marked sensitive and never leave the token. ESP256 and Ed25519 work
 with any PKCS #11 module; SM2 needs the vendor's mechanism number in the URI
 (`?x-sm2-mechanism=<hex>`), since SM2 is not part of the PKCS #11 standard. Every signature a
 token returns is checked before it is used.
 
-## Rotating the organization's keys
+## Rotating a ledger's keys
 
-The organization can replace its root key and the ledger's log key, for instance when a key is
+A ledger's owner can replace its root key and the ledger's log key, for instance when a key is
 retired or to move to post-quantum signatures (ML-DSA). Each rotation is a statement signed by
 the root key in effect. The new log key signs every checkpoint, receipt, and state commitment
 after the rotation; older checkpoints stay valid under the key that signed them. Evidence bundles
@@ -191,7 +286,7 @@ cexchain serve --log-key log.key --log-key log2.key
 
 A ledger's operator could, in principle, rewrite its history or show different histories to
 different parties. Witnesses make that detectable. A witness is an independent party, such as a
-customer, an auditor, or a regulator. It remembers the last checkpoint it cosigned for each
+friend, a partner, an auditor, or a regulator. It remembers the last checkpoint it cosigned for each
 ledger, and it cosigns a new one only if a consistency proof shows the new history extends the
 old (the C2SP witness model).
 
@@ -224,11 +319,11 @@ can be hosted on any static web server.
 tools/wasm/build.sh            # needs Emscripten; writes build/wasm/cexchain-verify.html
 ```
 
-Publish a record's evidence bundle, then print a QR code on the document:
+Publish a record's evidence bundle, then print a QR code on the document, or beside the photo:
 
 ```sh
-cexchain qr <record-id> --bundle-url https://example.com/evidence/cert-1006.cbor \
-    --verifier-url https://example.com/verify.html --out cert-1006-qr.svg
+cexchain qr <record-id> --bundle-url https://example.com/evidence/photo-1016.cbor \
+    --verifier-url https://example.com/verify.html --out photo-1016-qr.svg
 ```
 
 Scanning the code opens the verifier with the ledger id, the record id, and the bundle's location.
@@ -239,7 +334,7 @@ person or AI agent, under whose authority.
 
 `cexchain serve` exposes a ledger over HTTP (API v1, described by `cexchain serve --help`). Signed
 statements are the authorization: the server only checks API tokens, which gate access because
-statements reveal business metadata. The server holds the ledger's lock only while it writes, so
+statements reveal metadata. The server holds the ledger's lock only while it writes, so
 every other command keeps working on the same ledger.
 
 The server is built for many clients at once. Connections are spread over a pool of I/O threads
@@ -288,9 +383,9 @@ with the record.
 ```sh
 export CEXCHAIN_SERVER=https://ledger.example.com CEXCHAIN_TOKEN=$(cat app.token)
 cexchain status --ledger-id LEDGER_ID        # the first use pins the ledger the URL serves
-cexchain record issue --as alice.key --type example.org.inspection/1 --field result=pass
+cexchain record issue --as alice.key --type example.org.photo/1 --field taken=2026-10-16
 cexchain checkpoint create                    # the server signs (admin token); the client checks
-cexchain export RECORD --disclose result --vault-key vault.key --out evidence.cbor
+cexchain export RECORD --disclose taken --vault-key vault.key --out evidence.cbor
 ```
 
 The ledger id must be given on first use of an `http://` URL. Commands that administer the server's
@@ -321,84 +416,74 @@ key (in its own HSM, or a key file) to sign checkpoints while it leads. A member
 it while it runs: use the command line with `--server`. `deploy/cluster/compose.yaml` runs a
 three-member cluster on one Docker host.
 
-## Working with other organizations
 
-Two organizations, each with its own ledger, can share records without a platform between them.
-A bank that asks a factory for a quality certificate, for example:
+## Working with other parties
+
+Two parties, each with its own ledger, can share records without a platform between them. Say a
+reviewer asks another organization for one of its records:
 
 ```sh
 # Each side pins the other's ledger by its id, learned through a channel they trust.
-cexchain peer add bank --ledger-id <bank-ledger-id> --url https://ledger.bank.example --token-file bank.token
-cexchain peer add factory --ledger-id <factory-ledger-id> --url https://ledger.factory.example ...
+cexchain peer add holder --ledger-id <holder-ledger-id> --url https://ledger.holder.example --token-file holder.token
+cexchain peer add reviewer --ledger-id <reviewer-ledger-id> --url https://ledger.reviewer.example ...
 
-# The bank asks (a request record on its own ledger, with a key made for this request).
-cexchain access request --peer factory --record <id> --purpose "loan collateral check" \
-    --fields result --attachments report.pdf --as officer.key --log-key log.key --send
+# The reviewer asks (a request record on its own ledger, with a key made for this request).
+cexchain access request --peer holder --record <id> --purpose "annual review" \
+    --fields result --attachments report.pdf --as reviewer.key --log-key log.key --send
 
-# The factory sees who asked and under whose authority, and grants (a grant record on its ledger).
+# The holder sees who asked and under whose authority, and grants (a grant record on its ledger).
 cexchain access inbox
 cexchain access grant <request> --as approver.key --log-key log.key --attach report.pdf=report.pdf
 
-# The bank fetches and checks everything against the factory's ledger, then acknowledges
+# The reviewer fetches and checks everything against the holder's ledger, then acknowledges
 # (a receipt record on its ledger, sent back).
-cexchain access fetch --peer factory --request <request> --out delivery.cbor
-cexchain access accept delivery.cbor --as officer.key --log-key log.key --save-dir received --send
+cexchain access fetch --peer holder --request <request> --out delivery.cbor
+cexchain access accept delivery.cbor --as reviewer.key --log-key log.key --save-dir received --send
 ```
 
-Each step is a record on the acting organization's own ledger, so delegations decide who may
-request, grant, or acknowledge, and proof of presence shows when a person approved. Each side
-checks the other's step with the offline evidence verifier, pinned to the peer's ledger id. The
-delivery holds the grant's evidence and the record's, with only the granted fields and attachments,
-sealed with HPKE to the request's key. The recipient checks every field and file against the
-record's commitments. Revoking a grant (`record revoke`) stops future deliveries, and receipts make
-access accountable. The same exchange works with files instead of the API (`--out`, then
+Each step is a record on the acting party's own ledger, so delegations decide who may request,
+grant, or acknowledge, and proof of presence shows when a person approved. Each side checks the
+other's step with the offline evidence verifier, pinned to the peer's ledger id. The delivery
+holds the grant's evidence and the record's, with only the granted fields and attachments, sealed
+with HPKE to the request's key. The recipient checks every field and file against the record's
+commitments. Revoking a grant (`record revoke`) stops future deliveries, and receipts make access
+accountable. The same exchange works with files instead of the API (`--out`, then
 `access grant FILE`, `access accept FILE`, `access receipt FILE`).
 
-Two organizations can also witness each other's ledgers. `cexchain serve --witness-dir DIR
+Two parties can also witness each other's ledgers. `cexchain serve --witness-dir DIR
 --witness-key KEY` cosigns a peer's checkpoints online, and the peer runs
 `cexchain checkpoint cosign-request --peer NAME --send`. No third party is needed for neither side
 to be able to rewrite its history unseen.
 
-## Receivables and other things with rules
-
-Spec v0.9 removed the native receivables and warehouse receipts of earlier drafts. A receivable, a
-warehouse receipt, or anything else that changes hands under rules is a contract instance whose
-rules are written in Bo (below): each step needs the consent of the parties it concerns, each
-given on its own ledger; the contract refuses what its terms do not allow, such as a second
-pledge; and anyone verifies the instance's whole history offline. A party that relies on such a
-state, a lender on a pledge say, acts only once the call is in a checkpoint cosigned by witnesses
-it trusts (spec section 13). `deploy/demo/receivable-financing.sh` walks through a receivable
-pledged to a bank, released, sold, and paid, on the contract `deploy/demo/receivable-financing.bo`.
-
 ## Contracts
 
-A contract is a WebAssembly module deployed on a ledger, its home, that governs *instances*:
-agreements, orders, bills. The home records a call on an instance only if the contract, run on the
-call, accepts it. Parties on other ledgers consent on their own ledgers, and anyone holding an
-instance's evidence runs the contract again on every call. Contracts run in a deterministic,
-integer-only profile with metered fuel, so every verifier, the browser included, reaches the same
-result. A core enterprise, its supplier, and a bank:
+A contract is a WebAssembly module deployed on a ledger, its *home*, that governs *instances*:
+the things its rules are about, whatever they are. The home records a call on an instance only
+if the contract, run on the call, accepts it. Parties on other ledgers consent on their own
+ledgers, and anyone holding an instance's evidence runs the contract again on every call.
+Contracts run in a deterministic, integer-only profile with metered fuel, so every verifier, the
+browser included, reaches the same result. A home and parties on other ledgers:
 
 ```sh
-# The core enterprise deploys a contract written in Bo and proposes an agreement, naming the parties.
-cexchain contract deploy --bo agreement.bo --as cto.key
-cexchain contract create <contract> create --args '{"fields": {"price": 9800000, ...}, "parties": {...}}' --as clerk.key
+# The home deploys a contract written in Bo and creates an instance, naming the parties.
+cexchain contract deploy --bo rules.bo --as root.key
+cexchain contract create <contract> create --args '{"fields": {...}, "parties": {...}}' --as clerk.key
 
 # Its registrar records calls that need other parties' consents: a device with a delegation
 # for calls on this contract only.
 cexchain delegation grant --as root.key --to <registrar> --allow contract-call --contracts <contract>
 cexchain serve --log-key log.key --registrar-key registrar.key ...
 
-# The supplier proposes signing it; the contract names whose consents it needs. Each party sees
+# Another party proposes a call; the contract names whose consents it needs. Each party sees
 # the call's terms and consents on its own ledger; the last consent gets the call recorded.
-cexchain contract propose <instance> sign --peer core
-cexchain contract pending --peer core
-cexchain contract consent --peer core --call <call> --as cfo.key --log-key log.key --send
+cexchain contract propose <instance> sign --peer home
+cexchain contract pending --peer home
+cexchain contract consent --peer home --call <call> --as approver.key --log-key log.key --send
 
 # Anyone: verify the instance offline, every call run again, every consent checked, and the
 # contract's code rebuilt from the Bo source its deploy carries.
-cexchain contract fetch --peer core --instance <instance> --out agreement.cbor
-cexchain contract verify agreement.cbor --ledger-id <core-ledger-id>
+cexchain contract fetch --peer home --instance <instance> --out instance.cbor
+cexchain contract verify instance.cbor --ledger-id <home-ledger-id>
 ```
 
 Arguments are written in CBOR diagnostic notation: JSON without floating point, plus byte strings
@@ -406,44 +491,53 @@ Arguments are written in CBOR diagnostic notation: JSON without floating point, 
 --dry-run` shows what the contract would do. A consent names exact terms, among them the instance's
 *head* and a digest of the arguments, so it applies to one call, once. Without a registrar, the
 home's people record calls with consents as files (`contract call <instance> sign --consent
-s.cbor --consent b.cbor`). `contract verify` shows each call, its outcome, and who consented: a
+a.cbor --consent b.cbor`). `contract verify` shows each call, its outcome, and who consented: a
 person who proved presence, a key alone, or an AI agent and its model. The browser verifier shows
-the same report. Delegations can be limited
-to contracts (`delegation grant --contracts`), and `contract retire` stops new instances while
-existing ones carry on. `contract deploy WASM --function NAME=KIND --compiler TEXT` deploys a
-module built some other way. `deploy/demo/supply-agreement.sh` walks through such an agreement,
-written in Bo (`deploy/demo/supply-agreement.bo`), on one machine, narrated, with the bank's AI
-agent consenting through MCP.
+the same report. Delegations can be limited to contracts (`delegation grant --contracts`), and
+`contract retire` stops new instances while existing ones carry on. `contract deploy WASM
+--function NAME=KIND --compiler TEXT` deploys a module built some other way. The
+[examples](#examples) walk through contracts end to end, narrated, from two people lending a
+camera to organizations whose AI agents consent through MCP.
 
-A call may also create instances of its contract, its *parts* (spec v0.7), such as a receivable
-split among suppliers: up to 16 per call, at most 8 generations deep. A part is an instance like
-any other, held by its own parties: they propose calls on it, consent to them, and fetch its
-evidence, which carries its ancestors' calls up to each split, consents and all. So a bank that
-takes a tier-3 part verifies its whole chain offline:
+A call may also create instances of its contract, its *parts* (spec v0.7), such as one thing
+divided among several holders: up to 16 per call, at most 8 generations deep. A part is an
+instance like any other, held by its own parties: they propose calls on it, consent to them, and
+fetch its evidence, which carries its ancestors' calls up to each division, consents and all. So
+whoever takes a part three generations down verifies its whole chain offline:
 
 ```sh
-cexchain contract propose <receivable> split --peer core --args "[[h'<tier-2 ledger>', 600], [h'<supplier ledger>', 400]]"
-cexchain contract instances --parent <receivable>    # the parts its calls created
+cexchain contract propose <instance> split --peer home \
+    --args "{\"parts\": [600, 400], \"recipients\": [h'<ledger A>', h'<ledger B>']}"
+cexchain contract instances --parent <instance>      # the parts its calls created
 cexchain contract instance <part>                    # its parent, depth, position, and ancestors
-cexchain contract fetch --peer core --instance <tier-3 part> --out part.cbor
-cexchain contract verify part.cbor --ledger-id <core-ledger-id>   # its ancestors first, then its own calls
+cexchain contract fetch --peer home --instance <part> --out part.cbor
+cexchain contract verify part.cbor --ledger-id <home-ledger-id>   # its ancestors first, then its own calls
 ```
 
 The ledger refuses a call that creates parts on a retired contract or at depth 8; `--dry-run` and
 the registrar give the ledger's reason before anything is signed.
 
+**Relying on an instance's state.** When a party acts on an instance's state, say that a thing is
+not already promised to someone else, it waits until the call that put it there is in a
+checkpoint cosigned by witnesses it trusts, and parties that rely on one instance share a witness:
+a home can then show neither of them a different history (spec section 13). The protocol does not
+know what a state means; read the contract, or its contract text, and rebuild its code from the
+source.
+
 ## The Bo language
 
-Bo is the language contracts are written in: a few keywords in English, Traditional Chinese
-(Hong Kong usage), and Simplified Chinese, freely mixed, and built-in business words (pledge,
-renew, suspend) with fixed meanings. Its reference is [`spec/bo.md`](spec/bo.md), with the
-conformance suite `testvectors/bo-v1.json`. The compiler reads every source through *language
-packs*, then lexes, parses, checks, and compiles it to contract code, which `contract deploy
---bo` deploys with its source. Each pack maps Bo's concepts (`kw.can`,
-`act.pledge`, `unit.GB`) to one language's spellings, with its reading rules (words that attach
-without a space, as in `可質押` or `每GB`; full-width punctuation; `萬` and `億`; date forms), its
-messages, and the sentences of the contract text. A pack never changes what runs: the same
-contract compiles to the same code through any of them.
+Bo is the language contracts are written in: a few keywords in English, Traditional Chinese (Hong
+Kong usage), and Simplified Chinese, freely mixed, and a built-in vocabulary of words with fixed
+meanings: common actions (transfer, suspend, cancel), conditions, time words, units, and
+currencies. The vocabulary also holds words of particular industries (finance, commerce, services),
+which are planned to move into optional packs that a contract declares when it needs them. Its
+reference is [`spec/bo.md`](spec/bo.md), with the conformance suite `testvectors/bo-v1.json`. The
+compiler reads every source through *language packs*, then lexes, parses, checks, and compiles it
+to contract code, which `contract deploy --bo` deploys with its source. Each pack maps Bo's
+concepts (`kw.can`, `act.transfer`, `unit.GB`) to one language's spellings, with its reading rules
+(words that attach without a space, as in `可轉讓` or `30日內`; full-width punctuation; `萬` and `億`;
+date forms), its messages, and the sentences of the contract text. A pack never changes what runs:
+the same contract compiles to the same code through any of them.
 
 ```sh
 cexchain bo packs list                          # the official packs and their digests
@@ -451,35 +545,37 @@ cexchain bo packs show zh-Hant-HK               # its reading rules, keywords, a
 cexchain bo packs check company.pack            # a pack of your own, alone and with the official ones
 cexchain bo packs check company.pack --language zh-Hant-HK   # messages in Traditional Chinese
 cexchain bo check contract.bo                   # problems, as FILE:LINE:COLUMN: error: message (code)
-cexchain bo check contract.bo --stage lex       # its tokens: 可質押 is kw.can + act.pledge
+cexchain bo check contract.bo --stage lex       # its tokens: 可轉讓 is kw.can + act.transfer
 cexchain bo check contract.bo --stage parse     # its tree, the same in every language
 cexchain bo check contract.bo --stage model     # its checked model, with what each rule inferred
 ```
 
 The lexer reads a word only by the packs' fixed rules and never guesses: a run of characters
-with two readings is an error asking for a space. So `可質押`, `can pledge`, and `可pledge` give
-the same concepts; `可用率` stays one name; `500萬` is 5,000,000, `HKD 0.10` exact money, and
+with two readings is an error asking for a space. So `可轉讓`, `can transfer`, and `可transfer`
+give the same concepts; `可用率` stays one name; `500萬` is 5,000,000, `HKD 0.10` exact money, and
 `5,000` an error (write `5_000`). Invisible characters are refused, and so are names that only
-look alike (a Cyrillic `рау` beside `pay`), so the text the parties read is the text that runs.
+look alike (`оwner`, its first letter Cyrillic), so the text the parties read is the text that
+runs.
 
 The parser turns the tokens into a tree of concepts and names, so a contract gives the same tree
 whatever language it is written in. Words whose argument sits on different sides in different
-languages meet there: `7 days before due` and `到期前 7日`, `consent of bank` and `經 銀行 同意`.
+languages meet there: `7 days before due` and `到期前 7日`, `consent of counterparty` and
+`經 相對方 同意`.
 
 ```
-can pledge to bank                     可質押 予 銀行
-  over 5_000_000 requires in person      超過 5_000_000 須親身確認
+can transfer to counterparty           可轉讓 予 相對方
+  over 50_000 requires in person         超過 50_000 須親身確認
 
-can act.pledge to=role.bank            (the tree of both)
-  requires cond.in_person guard=(cond.over 5000000)
+can act.transfer to=role.counterparty  (the tree of both)
+  requires cond.in_person guard=(cond.over 50000)
 ```
 
-Clauses are `contract`, `parties`, a kind and its fields (`asset Receivable`), `can` with `by`,
+Clauses are `contract`, `parties`, a kind and its fields (`record Item`), `can` with `by`,
 `to`, and `with`, `when`, and `test`; an action's block holds `requires`, `if`/`otherwise`,
 `each`, `reject`, `FIELD = VALUE`, and state changes (`active -> suspended`). `=` sets a field at
 the start of an action's line and compares inside a condition. Ambiguity is an error, never a
 guess: `a < b < c`, or `monthly HKD 120 * 12` (which words does `*` take?), ask for a rewrite, and
-`可提款` is read as `可` + `提款` only when the contract declares `提款` and not `可提款`.
+`可借出` is read as `可` + `借出` only when the contract declares `借出` and not `可借出`.
 
 The checker reads the tree into a model: the parties, the one kind of instance and its fields,
 the states, the actions, and the time rules, with every name resolved and every expression typed.
@@ -490,19 +586,19 @@ recurse, and every state must be reachable. Whatever Bo infers rather than reads
 the fixed rule that inferred it, which the contract text spells out:
 
 ```
-asset Receivable                       party role.bank bound=act.pledge{R3}
-  amount HKD                           field field.holder instance party = role.supplier{R2}
-  holder supplier                      state state.active first{R4}
-can pledge to bank                     can act.pledge standard to=role.bank agents=delegation{R14}
-  over 5_000_000 requires in person      consent role.bank{R3}
-                                         requires cond.in_person{R13} guard=(cond.over (money cur.HKD 5000000){R6})
+record Item                            field field.holder instance party = owner{R2}
+  amount HKD                           state state.active first{R4}
+  holder owner                         can act.transfer standard by=field.holder{R19} to=role.counterparty{R21} agents=delegation{R14}
+can transfer to counterparty             consent role.counterparty{R21}
+  over 50_000 requires in person         requires cond.in_person{R13} guard=(cond.over (money cur.HKD 50000){R6})
 ```
 
-The bank is bound to a ledger by the pledge, with its consent (R3); the holder starts as the
-supplier and may change (R2); `over 5_000_000` takes the unit of the action's one amount (R6); in
-person asks the starter's presence (R13); an AI agent may act within its delegation unless the
-action says it only proposes (R14). Clauses that ask the outside world to act (notify, or
-suspending a service) are accepted with a warning: executors come in a later step.
+The transfer takes the standard library's terms (R19), so the holder starts it; each call names
+the counterparty, who consents (R21); the holder starts as the owner and may change (R2);
+`over 50_000` takes the unit of the action's one amount (R6); in person asks the starter's
+presence (R13); an AI agent may act within its delegation unless the action says it only
+proposes (R14). Clauses that ask the outside world to act (notify, say) are accepted with a
+warning: executors come in a later step.
 
 Packs are files in CBOR diagnostic notation; `bo/packs/` holds the official ones. A pack's digest
 is the hash of its canonical CBOR, and a deploy records the packs its source was read with, so
@@ -530,19 +626,19 @@ actions with their inputs, fields, states, `requires` (with a guard such as `ove
 `if` and `otherwise`, `reject`, consents, and `in person`, over numbers, money, quantities,
 rates, dates, durations, texts, yes or no, and parties. Each action is a function named by its
 concept or as written (the same name in every language), and creation is `create` (`issue` for
-an asset). Arguments are a map: `{"fields": {...}, "parties": {role: ledger}}` to create, the
+the vocabulary's assets). Arguments are a map: `{"fields": {...}, "parties": {role: ledger}}` to create, the
 action's inputs by name otherwise (money in cents, rates in millionths, dates in milliseconds).
 A compiled contract asks for the consents an action needs (of its starter, of a role it binds,
-of a counterparty it makes the holder, the pledgee, or the payee at every call, however that
-role was bound, of a party a changed field held, and of every `requires consent of`) with
+of a counterparty it makes the holder (or another party field a built-in action sets) at every
+call, however that role was bound, of a party a changed field held, and of every `requires consent of`) with
 `[2, needs]`, the
 home's own consent being the call itself; it keeps `{"state": NAME, "fields": {...}}`, reports
 the state as the status, the parties and every field holding one, each state change as an
 event, and the instance as final once no action can leave its state; and it refuses with the
 text of a `reject` or with `bo:CODE` (`bo:requires sign 2`), which tools show in the reader's
 language. The same contract in English, Traditional Chinese, Simplified Chinese, or mixed
-compiles to the same bytes; `tests/bo/golden/build/` holds a two-party agreement in each, and the
-fuel of each of its calls. The vocabulary's asset, service-state, and resource actions compile
+compiles to the same bytes; `tests/bo/golden/build/` holds a two-party contract in each, and the
+fuel of each of its calls. The vocabulary's built-in actions compile
 with the standard library's terms, `when` rules compile to functions a keeper calls, and lists
 and charges compute bills (all below). What later steps bring (executors, and the built-in
 actions whose terms come later) is refused with a message for now. `testvectors/bo-v1.json`
@@ -551,9 +647,9 @@ bounds, and outcomes, checked on both interpreters, and the errors of sources th
 build.
 
 ```sh
-cexchain bo build agreement.bo                  # code, hash, compiler, and the source bundle
-cexchain bo build agreement.bo --out agreement.boc --hash sm3   # to deploy on an SM3 ledger
-cexchain contract deploy --bo agreement.bo --as root.key        # build and deploy in one step
+cexchain bo build contract.bo                   # code, hash, compiler, and the source bundle
+cexchain bo build contract.bo --out contract.boc --hash sm3     # to deploy on an SM3 ledger
+cexchain contract deploy --bo contract.bo --as root.key         # build and deploy in one step
 cexchain contract show <contract>               # its source bundle, and whether it rebuilds
 cexchain contract verify evidence.cbor --ledger-id <home>       # ... and every instance's
 ```
@@ -584,7 +680,7 @@ exceed what the code has for it (192 KiB: a large state split into many parts) b
 warning (`build.output`). `bo build` shows the highest bound, `--fuel` each function's:
 
 ```
-$ cexchain bo build agreement.bo --fuel
+$ cexchain bo build contract.bo --fuel
   ...
   fuel       at most 226,042 a call (amend), of 10,000,000; output at most 65,771 bytes (amend), of 196,608
   function               fuel       reading     output
@@ -605,24 +701,26 @@ requirements, numbered as a refusal such as `bo:requires sign 2` names them, its
 and what AI agents may do), the time rules, and the rules Bo applied. Whatever Bo inferred
 instead of reading it is spelled out in its clause and marked with its rule (`[R3]`, `〔R3〕`), and
 the last section explains each rule used. Texts are always shown in quotation marks, including a
-name Bo read as a text (R18: `客户所在地 = 中国内地` reads as `the customer location is
-"中国内地"`). One contract gives the same text, byte for byte, whatever language its source was
+name Bo read as a text (R18: `颜色 = 红色` reads as `颜色 is "红色"`). One contract gives the same text, byte for byte, whatever language its source was
 written in; `tests/bo/golden/explain/` holds the text of each example in each language.
 
 ```sh
-cexchain bo explain agreement.bo                         # before a deploy
-cexchain bo explain agreement.bo --language zh-Hant-HK   # or set CEXCHAIN_LANGUAGE
+cexchain bo explain contract.bo                          # before a deploy
+cexchain bo explain contract.bo --language zh-Hant-HK    # or set CEXCHAIN_LANGUAGE
 cexchain contract explain <contract or instance>         # from the deploy, only if it rebuilds
 ```
 
 ```
-4.2 sign
-  4.2.1 Started by the customer, whose agreement it needs.
-  4.2.2 Requirement 1: if the amount is over HKD 1,000,000, the customer must prove presence in
-        person, with a passkey or a hardware key. [R6, R13]
-  4.2.3 Requirement 2: the time of the call is before starts.
-  4.2.4 If the instance is proposed, it becomes signed; otherwise the call is refused.
-  4.2.5 An AI agent may start it within its delegation. [R14]
+4.1 lend
+  4.1.1 Started by owner, whose agreement it needs.
+  4.1.2 The call gives counterparty (a party). [R21]
+  4.1.3 It needs the consent of the counterparty, whose ledger each call names (the argument
+        counterparty). [R21]
+  4.1.4 It needs the consent of whichever party is the holder before the call, since the action
+        changes the holder. [R8]
+  4.1.5 If the instance is active, it becomes lent; otherwise the call is refused.
+  4.1.6 It sets the holder to the counterparty.
+  4.1.7 An AI agent may start it within its delegation. [R14]
 ```
 
 `contract explain` reads the source the deploy carries exactly as `contract verify` rebuilds it
@@ -641,22 +739,22 @@ so go to an English-speaking counterparty as English source: it parses to the sa
 to the same model, builds to the same code, and explains to the same text.
 
 ```sh
-cexchain bo fmt agreement.bo --check                     # is it formatted? (exit 3 if not)
-cexchain bo fmt agreement.bo --language en               # the English source, on stdout
-cexchain bo fmt agreement.bo --language zh-Hant-HK --write
+cexchain bo fmt contract.bo --check                      # is it formatted? (exit 3 if not)
+cexchain bo fmt contract.bo --language en                # the English source, on stdout
+cexchain bo fmt contract.bo --language zh-Hant-HK --write
 ```
 
 ```
-requires consent of supplier          須經 供應商 同意          须经 供应商 同意
-when 7 days before due notify bank    當到期前 7日 通知 銀行    当到期前 7天 通知 银行
+requires consent of counterparty        須經 相對方 同意           须经 相对方 同意
+when 7 days before due notify holder    當到期前 7日 通知 持有人    当到期前 7天 通知 持有人
 ```
 
-Chinese is written as Chinese is: a keyword joined to the word after it (`可質押`, `須經`), a
+Chinese is written as Chinese is: a keyword joined to the word after it (`可轉讓`, `須經`), a
 number to its Chinese unit (`30日`, `500萬港元`); Latin words stand apart (`每 GB`). A word whose
 argument sits on the other side in another language (`7 days before due`, `到期前 7日`) moves
 around it, with parentheses where it would otherwise take a different argument. The text is not
 reversible, though the contract is: a multiplier English lacks is written out (`500萬` is
-`5_000_000`), and words become each language's first spelling (`pays`, then `支付`, then `pay`).
+`5_000_000`), and words become each language's first spelling (`transfers`, then `轉讓`, then `transfer`).
 Before printing anything, `bo fmt` reads its result again; if words would read together in the
 new language as another word, it says where and changes nothing.
 
@@ -666,76 +764,75 @@ A contract carries its own tests: `test` blocks of steps, each a party, an actio
 optionally what it gives, when, and how it is signed, then what should happen.
 
 ```
-test "nobody signs alone"
-  we create with goods = "Bearings", pieces = 20_000, price = CNY 1_250_000, deliver_by = 2026-12-01
-  we sign -> consent of bank             # the call waits for the bank's consent
-  supplier sign -> consent of we         # we start sign: the supplier cannot alone
-  we close -> refused "bo:state close"   # not signed yet
+test "nothing is lent twice, and only the holder brings it back"
+  owner create with name = "Camera X100"
+  owner lend to friend1 -> lent                      # friend1 consents, then it is lent
+  owner lend to friend2 -> refused "bo:state lend"   # not while it is lent
+  friend2 bring_back -> consent of friend1           # the holder starts it: friend2 cannot
+  friend1 bring_back at 2027-01-05 -> active
 ```
 
 `bo test` builds the contract and runs each test on an instance of its own, exactly as a ledger
 runs calls: every party a test names is a ledger of its own (a name the contract does not
-declare, such as `bank1`, is a ledger only the test names, to which `to bank1` binds a role);
+declare, such as `friend1`, is a ledger only the test names, which `to friend1` names or binds
+a role to);
 the first step creates the instance, and its party is the home. A call runs first without
 consents; every party the contract asks then consents, except those the step expects it to wait
 for and, when the step's party does not start the action, the party that does. `in person` signs
 as a person who proves presence, `by AI agent` as an agent; `at DATE` moves time on (a test
 starts on 2026-01-01). Expectations are a state (`-> signed`), a refusal (`-> refused`, or with
-the contract's reason in quotes), or a wait (`-> consent of bank`); a step without one expects
+the contract's reason in quotes), or a wait (`-> consent of friend1`); a step without one expects
 an accept. The report shows each step as written and what happened, worded in `--language`, and
 for a refusal the clause of the contract text it comes from; the results are the same whatever
 language the contract and its tests are written in. Exit status 3 if a test fails.
 
 ```sh
-cexchain bo test agreement.bo
-cexchain bo test agreement.bo --language zh-Hans-CN --json
+cexchain bo test lending.bo
+cexchain bo test lending.bo --language zh-Hans-CN --json
 ```
 
 ### The standard library
 
-The built-in business actions are written in Bo itself, in a standard library compiled into the
-compiler (`bo/stdlib/edition1.bo`): transfer, pledge, release, enforce, redeem, pay, confirm
-payment, dispute, freeze, unfreeze, and cancel, with the semantics the native assets of spec v0.5
-to v0.8 had; split, which makes parts of an asset (below); suspend, resume, and terminate,
-on the home's own word; and allocate and reclaim for resources. A contract that writes `can pledge to bank` gets the library's pledge: the
-holder starts it, the holder and the bank consent, only an active asset can be pledged (so no
-second pledge), and the bank becomes the pledgee. The lines a contract writes under a built-in
-action add to its terms and are checked first (`over 5_000_000 requires in person`); without
-`to`, each call names the counterparty, who consents. A counterparty that a pledge, transfer, or
-allocation makes the pledgee or the holder consents to every such call, even when its role was
-bound when the instance was created (R31): a bank that a field names is asked each time, as it was
-with the native assets; `enforce` names none, so the pledgee takes the asset with its own consent. The
-contract text states every standard term, marked R19. To change a built-in action, copy it under a name of your own: it is then the
-contract's own action.
+The built-in actions are written in Bo itself, in a standard library compiled into the compiler
+(`bo/stdlib/edition1.bo`): transfer and cancel; suspend, resume, and terminate, on the home's own
+word; and the vocabulary's industry actions (finance: pledge, release, enforce, redeem, pay,
+confirm payment, dispute, freeze, unfreeze, split; services: allocate, reclaim), which keep the
+semantics of the native assets that spec v0.5 to v0.8 had (`tests/bo/assets_test.cpp` holds
+those verdicts as goldens and checks the library against them, call by call). A contract that
+writes `can transfer to counterparty` gets the library's transfer: the holder starts it, the
+holder and the counterparty consent, only an active instance is transferred, and the
+counterparty becomes the holder. The lines a contract writes under a built-in action add to its
+terms and are checked first (`over 50_000 requires in person`); without `to`, each call names the
+counterparty, who consents. A counterparty that a built-in action makes the holder (or puts in
+another party field) consents to every such call, even when its role was bound when the instance
+was created (R31). The contract text states every standard term, marked R19. To change a
+built-in action, copy it under a name of your own: it is then the contract's own action.
 
 ```sh
 cexchain bo stdlib list                                  # who starts each, and its states
-cexchain bo stdlib show pledge                           # its source, to copy, and its text
-cexchain bo stdlib show 質押 --language zh-Hant-HK
+cexchain bo stdlib show transfer                         # its source, to copy, and its text
+cexchain bo stdlib show 轉讓 --language zh-Hant-HK
 ```
 
 ```
-can pledge to counterparty by holder
+can transfer to counterparty by holder
   requires not counterparty = holder
-  active -> pledged
-  pledgee = counterparty
+  active -> active
+  holder = counterparty
 ```
 
-Each instance then keeps the pledgee and the payee (none until an action sets them), and an
-unfrozen asset returns to the state it was frozen in (`frozen -> previous state`). Run on the
-same calls, a Bo receivable (also with its bank bound at creation) and a Bo warehouse receipt
-built from the library give the native rules' states, holders, pledgees, payees, quantities,
-consents, and refusals (`tests/bo/assets_test.cpp`).
+#### Splitting a thing into parts
 
-#### Splitting, for multi-tier supply-chain finance
-
-`can split` gives a receivable the library's split: its holder divides it among recipients, each
-part an instance of its own (spec v0.7) held by its recipient, one tier down, and the receivable
-ends (`divided`). The holder and every recipient consent (so at most 15 recipients besides the
-holder), each part is at least the currency's smallest unit, the parts add up to the amount,
-and only an active asset splits, so not while pledged. A part at depth 8 splits no further
-(`bo:depth split`). The template ends with the statement that makes the parts, which a copy of
-it can change:
+`issue PARTS to RECIPIENTS` (R30) makes each part an instance of the contract with the
+instance's fields, its amount the part and its holder the recipient in the same place, `with`
+setting others; fields Bo adds start empty, and the part starts in the first state. A part's
+evidence carries the history of the instances it came from, the other parts of each split
+included, which the contract text states. The library's `split` uses it: the holder divides the
+instance among recipients, each part held by its recipient, and the instance ends (`divided`).
+The holder and every recipient consent (so at most 15 recipients besides the holder), each part
+is at least the currency's smallest unit, the parts add up to the amount, and only an active
+instance splits. A part at depth 8 splits no further (`bo:depth split`). The template ends with
+the statement that makes the parts, which a copy of it can change:
 
 ```
 can split by holder with parts, recipients
@@ -749,27 +846,22 @@ can split by holder with parts, recipients
   issue parts to recipients with tier = tier + 1
 ```
 
-`issue PARTS to RECIPIENTS` (R30) makes each part an instance with the instance's fields, its
-amount the part and its holder the recipient in the same place, `with` setting others; fields
-Bo adds start empty, and the part starts in the first state. A part's evidence carries the
-history of the instances it came from, the other parts of each split included, which the
-contract text states. In tests, a step acts on the part its party holds (or names the holder:
-`issuer pay forge`), and the report names parts by path (part 1.2). `deploy/demo/multi-tier-split.sh`
-runs a core enterprise's receivable down a supply chain across six organizations, two of them on
-SM3: split to two tier-2 suppliers who are parties of nothing yet, split again to tier 3, pledged
-to a bank that verifies the chain offline first, and paid at maturity.
+In tests, a step acts on the part its party holds (or names the holder: `we cancel maker1`), and
+the report names parts by path (part 1.2).
+[`examples/multi-tier-split`](examples/multi-tier-split/) splits a receivable down a supply
+chain across six organizations, an example from supply-chain finance.
 
 ```sh
-cexchain contract propose <receivable> split --peer core \
-    --args "{\"parts\": [60000000, 40000000], \"recipients\": [h'<tier-2 A>', h'<tier-2 B>']}"
-cexchain contract pending --peer core            # a recipient sees the call it is asked to consent to
-cexchain contract consent --peer core --call <call> --as root.key --log-key log.key --send
+cexchain contract propose <instance> split --peer home \
+    --args "{\"parts\": [60000000, 40000000], \"recipients\": [h'<ledger A>', h'<ledger B>']}"
+cexchain contract pending --peer home            # a recipient sees the call it is asked to consent to
+cexchain contract consent --peer home --call <call> --as root.key --log-key log.key --send
 ```
 
 An action can let AI agents only propose it (`AI agent can propose`): an agent's call is then
 kept with the instance as a proposal, and a person who proves presence approves it with the
-function `approve`, which runs it with every requirement checked. In a test, `bank1 release by
-AI agent -> pending approval`, then `bank1 approve in person -> active`.
+function `approve`, which runs it with every requirement checked. In a test, `owner lend to
+friend1 by AI agent -> pending approval`, then `owner approve in person -> lent`.
 
 ### Time rules and keepers
 
@@ -789,13 +881,11 @@ call came. A rule fires at:
 | a state held N | N after the instance entered the state | `when suspended 30 days terminate` |
 
 Any of these may be joined to other conditions with `and` (`when 7 days before due and active`).
-`when due issuer pays` names a party's duty: it says when an instance is due and overdue, and
-nothing is called. In actions, `within 14 days` means less than 14 days since the instance last
+`when due borrower bring_back` names a party's duty: it says when an instance is due and
+overdue, and nothing is called. In actions, `within 14 days` means less than 14 days since the instance last
 changed state; `overdue`, `overdue N`, and `N before due` hold from those times on. Dates and days
 are counted at a fixed offset from UTC, all year: `UTC offset "-05:00"` in the kind's block, or
-+08:00 (R25). A resource allocated with the standard library goes to one holder at a time: each
-allocation names it, with its consent (R23), and after a reclaim it cools for its cooling period
-before it is allocated again.
++08:00 (R25).
 
 ```sh
 # The keeper: a device whose delegation covers this contract's calls only.
@@ -812,8 +902,7 @@ shows how late. In tests, the keeper is a step: `keeper suspend at 2027-07-02 ->
 "bo:when when.suspend"`, then `keeper suspend at 2027-07-03 -> suspended`; it calls, as a device
 of the home, the rule that does that action (for a rule that does none, the state its first state
 change leads to, such as `keeper closed`).
-Nothing yet stops one IP address from being in two instances of a contract: unique keys across
-instances come later.
+Nothing yet keeps a field's value unique across a contract's instances: unique keys come later.
 
 ### Lists and charges
 
@@ -823,37 +912,18 @@ at most): `codes list text at most 3`. A list given as an argument is checked wh
 choices, refusals, and fields set; no state change), and `sum of rows`, `count of rows`, and
 `"x" in codes` read it. One value where a list is needed is a list of that one item (R29).
 
-Taxes, fees, commissions, and surcharges are *charges*, which the contract defines: there are no
-built-in tax templates. A field named by a document, such as `invoice list HKD`, holds the lines of
-a bill; each time it is set (when an instance is created, or by an action), the charges are
-computed on its lines at the time of that call, and the instance keeps the bill as it was made
-(R26): a later rate never changes a bill already made. The spec's VAT, in Simplified Chinese:
-
-```
-记录 销售单
-  发票 列表 人民币 最多 20
-
-费用 增值税
-  税率 6%
-  适用 客户所在地 = 中国内地
-  另计
-  按发票 四舍五入
-  从 2027-01-01 起 税率 9%
-```
-
-A charge is a rate (in millionths) or a fixed amount; it applies always or when a condition
-holds; it is `included` in the price (taken out of it) or `added` to it; it is rounded on each
-line (`per line`, the default) or once per bill (`per document`, `according to invoice`), half up
-(the default), half even, or down; and with `according to price, other` it is computed on the
-price and on charges written before it (R27). Its rate is the one in force at the bill's time
-(R28). Bills of 100.00 and 10.05 yuan: 6% of 11005 fen is 660.3, so 660, and the total is 116.65
-yuan until 2026 ends; 9% from 2027-01-01 gives 990.45, so 990, and 119.95 yuan. The state keeps
-`"bill": {"time", ? "lines", "price", "total", "charges": {NAME: {? "rate", "amount"}}}`, the
-call records it as the event `[invoice, bill]`, and a charge's name in an action is its amount on
-the bill (`requires payment = sum of invoice + 增值税`). `tests/bo/golden/test/tax/` and
-`test/charges/` show the arithmetic of their tests; `tests/bo/golden/build/vat-amounts.txt` holds
-the VAT written every way it can be (added or included, each rounding, per line or per bill) on
-both sides of its rate change, which the Python reference computes again with its own integers.
+Fees, commissions, surcharges, and taxes are *charges*, which a contract defines: nothing about
+them is built in, rates included. A field named by a document word holds the lines of a bill;
+each time it is set, the charges are computed on its lines at the time of that call, and the
+instance keeps the bill as it was made (R26): a later rate never changes a bill already made. A
+charge is a rate (in millionths) or a fixed amount; it applies always or when a condition holds;
+it is `included` in the price or `added` to it; it is rounded per line or per bill, half up, half
+even, or down; it may be computed on charges written before it (R27); and its rate is the one in
+force at the bill's time (R28). The words for bills and charges belong to the commerce
+vocabulary, planned as an optional pack. The spec ([`spec/bo.md`](spec/bo.md)) works through a
+value-added tax on both sides of a rate change; `tests/bo/golden/test/charges/` and
+`tests/bo/golden/build/vat-amounts.txt` hold the arithmetic, which the Python reference computes
+again with its own integers.
 
 ## AI agents (MCP)
 
@@ -875,6 +945,22 @@ organization's registrar they review the calls it holds and the instance itself
 (`cexchain_consent_contract_call`). A consent travels as evidence, so start the server with the
 ledger's `--log-key` to let the agent consent. Arguments are CBOR diagnostic notation, as on the
 command line. `cexchain mcp --help` lists every tool.
+
+## Examples
+
+[`examples/`](examples/) holds complete stories built on the generic core. Each is a Bo contract
+with its tests, a script that runs the story on one computer, narrated step by step, each party
+with a ledger of its own, and a short README. They are examples, not features: CexChain knows none
+of these things, and every one of them can be changed or written anew.
+
+| Example | What it shows |
+|---|---|
+| [lending](examples/lending/) | Two people: a camera lent and brought back, the borrower's consent on his own ledger, private details in a record, the history verified offline. No server |
+| [supply-agreement](examples/supply-agreement/) | Trade: an agreement signed once a supplier's manager and a bank's AI agent (through MCP) consent; a registrar; SM2 and SM3 |
+| [receivable-financing](examples/receivable-financing/) | Supply-chain finance: a receivable pledged to a bank, a second pledge refused, released, sold, and paid; a regulator as witness |
+| [multi-tier-split](examples/multi-tier-split/) | Supply-chain finance: a receivable split down a supply chain across six organizations, a part pledged after its chain is verified offline |
+
+The scripts run in the test suite (`ctest -R demo_`), so they keep working.
 
 ## Building
 

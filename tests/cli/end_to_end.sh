@@ -388,4 +388,29 @@ cp -R ledger altered
 python3 -c 'import sys; p="altered/statements"; d=bytearray(open(p,"rb").read()); d[len(d)//2]^=1; open(p,"wb").write(d)'
 expect_exit 2 status --ledger altered
 
+# --- The README's quick start, command for command ------------------------------
+# Keep in step with README.md ("Quick start"): a person's own ledger, a photo
+# registered as a record of a type she names, evidence verified offline.
+(
+    mkdir quick && cd quick
+    printf 'JPEG bytes of a photo' > photo.jpg
+    run key generate --out root.key > /dev/null
+    run key generate --out log.key > /dev/null
+    export CEXCHAIN_LEDGER=./ledger
+    run init --name "Alice" --root-key root.key --log-key log.key > /dev/null
+    run key generate --out alice.key > /dev/null && run key public alice.key --out alice.pub > /dev/null
+    A="$(run actor add --as root.key --kind person --name "Alice" --key alice.pub | id_from)"
+    run delegation grant --as root.key --to "$A" \
+        --allow record-register,record-endorse --record-types example.org.photo/1 --days 30 > /dev/null
+    R="$(run record issue --as alice.key --type example.org.photo/1 \
+        --field place="Victoria Harbour" --field taken=2026-10-16 --attach photo.jpg | id_from)"
+    run record history "$R" | contains 'example.org.photo/1'
+    run checkpoint create --log-key log.key > /dev/null
+    run export "$R" --log-key log.key --disclose taken --with-attachments --out evidence.cbor > /dev/null
+    L="$(run status --json | json 'd["ledger_id"]')"
+    run verify evidence.cbor --ledger-id "$L" --attachment photo.jpg=photo.jpg > verified.txt
+    contains 'taken = 2026-10-16' verified.txt
+    if contains 'Victoria Harbour' verified.txt; then fail "an undisclosed field was shown"; fi
+)
+
 echo "cli end-to-end: ok"
