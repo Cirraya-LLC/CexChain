@@ -290,6 +290,9 @@ TEST_CASE("the API answers only those it should", "[node][api]") {
     CHECK(post(app, "/v1/checkpoint", {}).status == 403);
 
     CHECK(get(reader, "/v1/nothing").status == 404);
+    // Spec v0.9 removed the routes of D-052's assets.
+    CHECK(get(reader, "/v1/assets/" + std::string(64, 'a')).status == 404);
+    CHECK(post(app, "/v1/assets/consents", Bytes{0xa0}).status == 404);
     CHECK(get(reader, "/v1/statements").status == 405);
     CHECK(get(reader, "/v1/entries?start=x").status == 400);
     CHECK(get(reader, "/v1/statements/zz").status == 400);

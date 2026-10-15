@@ -45,6 +45,24 @@ contract_consents_path(const std::filesystem::path& ledger_directory, const prot
 [[nodiscard]] std::filesystem::path
 pending_calls_directory(const std::filesystem::path& ledger_directory);
 
+/// The consent bundles a call cites, as kept and replicated: [* bstr], in
+/// its order. Decoding takes at most `max` (a call cites up to 16).
+[[nodiscard]] Result<Bytes> encode_consent_bundles(std::span<const Bytes> bundles);
+[[nodiscard]] Result<std::vector<Bytes>>
+decode_consent_bundles(ByteView encoded, std::size_t max = protocol::max_contract_consents);
+
+/// Keeps a statement's consent bundles (encoded) at `path`, once: the same
+/// bytes again are fine, other bytes are refused (Errc::rejected).
+[[nodiscard]] Status store_consents_file(const std::filesystem::path& path, ByteView encoded);
+
+/// The newest valid delegation of `actor` for `type`, on records of
+/// `record_type` and on `contract` if given, at `now`.
+[[nodiscard]] std::optional<protocol::Id>
+choose_delegation(const protocol::LedgerState& state, const protocol::Id& actor,
+                  protocol::StatementType type, const std::optional<std::string>& record_type,
+                  protocol::Timestamp now,
+                  const std::optional<protocol::Id>& contract = std::nullopt);
+
 /// Checks the bundles a contract call cites, one per consent, in its order:
 /// what a home does before recording the call at `now` on the ledger `home`
 /// (hash `hash`), the signers the call claims included.

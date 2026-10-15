@@ -11,7 +11,6 @@
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/log.hpp>
-#include <cexchain/node/assets.hpp>
 #include <cexchain/node/contracts.hpp>
 
 #include "files.hpp"
@@ -305,6 +304,71 @@ std::filesystem::path contract_consents_path(const std::filesystem::path& ledger
 
 std::filesystem::path pending_calls_directory(const std::filesystem::path& ledger_directory) {
     return contracts_root(ledger_directory) / "pending";
+}
+
+Result<Bytes> encode_consent_bundles(std::span<const Bytes> bundles) {
+    cbor::Array list;
+    for (const Bytes& b : bundles) {
+        list.push_back(cbor::Value::bytes(b));
+    }
+    return cbor::encode(cbor::Value::array(std::move(list)));
+}
+
+Result<std::vector<Bytes>> decode_consent_bundles(ByteView encoded, std::size_t max) {
+    cbor::DecodeOptions options;
+    options.max_items = max + 1;
+    auto value = cbor::decode(encoded, options);
+    const cbor::Array* list = value ? value->as_array() : nullptr;
+    if (list == nullptr || list->empty() || list->size() > max) {
+        return fail(Errc::malformed, "consent bundles are a list of byte strings, one per consent");
+    }
+    std::vector<Bytes> out;
+    for (const cbor::Value& item : *list) {
+        if (item.as_bytes() == nullptr) {
+            return fail(Errc::malformed,
+                        "consent bundles are a list of byte strings, one per consent");
+        }
+        out.push_back(*item.as_bytes());
+    }
+    return out;
+}
+
+Status store_consents_file(const std::filesystem::path& path, ByteView encoded) {
+    if (auto held = detail::read_file(path)) {
+        if (!std::ranges::equal(*held, encoded)) {
+            return fail(Errc::rejected, "other consent evidence is kept for this call");
+        }
+        return {};
+    }
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
+    if (ec) {
+        return fail(Errc::unavailable, "cannot create the consents' directory");
+    }
+    return detail::write_file(path, encoded, true);
+}
+
+std::optional<protocol::Id>
+choose_delegation(const protocol::LedgerState& state, const protocol::Id& actor,
+                  protocol::StatementType type, const std::optional<std::string>& record_type,
+                  protocol::Timestamp now, const std::optional<protocol::Id>& contract) {
+    std::optional<protocol::Id> chosen;
+    std::uint64_t newest = 0;
+    for (const auto& [key, d] : state.delegations()) {
+        const bool usable = d.grantee == actor && !d.revoked &&
+                            std::ranges::contains(d.scope.statement_types, type) &&
+                            (!record_type || !d.scope.record_types ||
+                             std::ranges::contains(*d.scope.record_types, *record_type)) &&
+                            (!contract || !d.scope.contracts ||
+                             std::ranges::contains(*d.scope.contracts, *contract)) &&
+                            (!d.scope.not_before || *d.scope.not_before <= now) &&
+                            (!d.scope.not_after || now <= *d.scope.not_after);
+        if (usable && (!chosen || d.granted_at_index > newest)) {
+            chosen = d.id;
+            newest = d.granted_at_index;
+        }
+    }
+    return chosen;
 }
 
 Status check_call_consents(const crypto::Provider& provider, const protocol::Id& home,

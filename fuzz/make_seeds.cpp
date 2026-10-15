@@ -443,7 +443,8 @@ void cluster_seeds(const Seeds& seeds) {
                         Value::unsigned_integer(1), Value::array({Value::bytes(Bytes(40, 0xd2))}),
                         Value::array({Value::array(
                             {Value::unsigned_integer(0), Value::bytes(Bytes{0xa0})})})}));
-    write("batch-consents", 0,
+    // Kind 2 is reserved (spec v0.9 removed D-052's consents): ignored.
+    write("batch-reserved-kind", 0,
           Value::array({Value::unsigned_integer(1), Value::unsigned_integer(1'791'244'800'000),
                         Value::unsigned_integer(1), Value::array({Value::bytes(Bytes(40, 0xd2))}),
                         Value::array({Value::array({Value::unsigned_integer(0),

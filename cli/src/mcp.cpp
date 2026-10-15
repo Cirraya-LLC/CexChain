@@ -26,7 +26,6 @@
 #include <cexchain/core/protocol/contract_evidence.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/record_types.hpp>
-#include <cexchain/node/assets.hpp>
 #include <cexchain/node/contracts.hpp>
 #include <cexchain/node/peers.hpp>
 

@@ -34,9 +34,10 @@
 /// cluster's shared secret, which authenticates every Raft message), state
 /// and config (Raft's), raft-log, applied, snapshot. A batch entry carries
 /// the files kept with its statements: [i, bytes] for a vault file,
-/// [i, bytes, 2] for an asset action's consents, [i, bytes, 3] for a
-/// contract call's. The calls a registrar holds until their consents are in
-/// (D-053) are replicated too, so a new leader carries on with them.
+/// [i, bytes, 3] for a contract call's consents (kind 2, the consents of
+/// D-052's actions, is reserved: spec v0.9 removed them, and a node ignores
+/// it as any unknown kind). The calls a registrar holds until their consents
+/// are in (D-053) are replicated too, so a new leader carries on with them.
 namespace cexchain::node {
 
 inline constexpr std::string_view cluster_directory = "cluster";
@@ -103,11 +104,11 @@ struct ClusterTuning {
 using BatchResult = std::vector<Result<ledger::Registration>>;
 
 /// A file kept with a replicated statement: a record's sealed private data
-/// (stored once it is registered), or the consent bundles an asset action
-/// or a contract call cites (stored before, so a registered statement always
-/// has them).
+/// (stored once it is registered), or the consent bundles a contract call
+/// cites (stored before, so a registered call always has them).
 struct Sidecar {
-    enum class Kind : std::uint8_t { vault = 1, consents = 2, contract_consents = 3 };
+    /// 2 is reserved (D-052's consents, removed in spec v0.9).
+    enum class Kind : std::uint8_t { vault = 1, contract_consents = 3 };
     Kind kind = Kind::vault;
     Bytes bytes;
 };

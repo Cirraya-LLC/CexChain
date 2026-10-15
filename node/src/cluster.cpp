@@ -379,9 +379,7 @@ Result<BatchResult> Cluster::submit(std::span<const ByteView> statements,
             continue;
         }
         cbor::Array item{cbor::Value::unsigned_integer(i), cbor::Value::bytes(sidecars[i]->bytes)};
-        if (sidecars[i]->kind == Sidecar::Kind::consents) {
-            item.push_back(cbor::Value::unsigned_integer(sidecar_consents));
-        } else if (sidecars[i]->kind == Sidecar::Kind::contract_consents) {
+        if (sidecars[i]->kind == Sidecar::Kind::contract_consents) {
             item.push_back(cbor::Value::unsigned_integer(sidecar_contract_consents));
         }
         vaults.push_back(cbor::Value::array(std::move(item)));

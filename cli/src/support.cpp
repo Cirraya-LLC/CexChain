@@ -25,7 +25,6 @@
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/presence.hpp>
 #include <cexchain/node/api.hpp>
-#include <cexchain/node/assets.hpp>
 #include <cexchain/node/cluster.hpp>
 #include <cexchain/node/contracts.hpp>
 #include <cexchain/node/replica.hpp>

@@ -17,7 +17,6 @@
 
 #include <cexchain/ledger/backup.hpp>
 #include <cexchain/node/api.hpp>
-#include <cexchain/node/assets.hpp>
 #include <cexchain/node/client.hpp>
 #include <cexchain/node/contracts.hpp>
 #include <cexchain/node/replica.hpp>
@@ -89,8 +88,9 @@ bool backup_path_allowed(std::string_view path) {
     if (path.starts_with(pending)) {
         return node::parse_pending_call_name(path.substr(pending.size())).has_value();
     }
-    for (const std::string_view prefix :
-         {"vault/records/", "assets/consents/", "contracts/consents/"}) {
+    // Any other file is refused: so is a backup made before spec v0.9 that
+    // holds the consents of D-052's actions.
+    for (const std::string_view prefix : {"vault/records/", "contracts/consents/"}) {
         if (!path.starts_with(prefix) || !path.ends_with(".cbor")) {
             continue;
         }
@@ -167,8 +167,7 @@ int cmd_serve(const Args& args) {
     }
     if (const auto registrar = args.get("registrar-key")) {
         if (options.log_keys.empty()) {
-            throw UsageError{
-                "--registrar-key needs --log-key (to serve assets' and instances' evidence)"};
+            throw UsageError{"--registrar-key needs --log-key (to serve instances' evidence)"};
         }
         options.registrar = load_signer(*registrar, args);
     }
@@ -627,8 +626,8 @@ int cmd_backup_create(const Args& args) {
         }
     };
     add(std::string(node::tokens_file));
-    // The consents asset actions (D-052) and contract calls (D-053) cite:
-    // their evidence needs them. And the calls a registrar holds.
+    // The consents contract calls (D-053) cite: their evidence needs them.
+    // And the calls a registrar holds.
     auto add_directory = [&](const std::filesystem::path& directory, const std::string& prefix) {
         if (!std::filesystem::is_directory(directory)) {
             return;
@@ -645,7 +644,6 @@ int cmd_backup_create(const Args& args) {
             add(n);
         }
     };
-    add_directory(node::consents_directory(dir), "assets/consents/");
     add_directory(node::contract_consents_directory(dir), "contracts/consents/");
     add_directory(node::pending_calls_directory(dir), "contracts/pending/");
     if (!args.has("no-vault")) {

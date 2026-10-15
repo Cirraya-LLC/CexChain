@@ -809,9 +809,8 @@ std::vector<CommandSpec> build() {
                {"witness-dir", "DIR", "Also witness peers' ledgers: this witness state directory"},
                {"witness-key", "KEY", "The witness key (file or pkcs11: URI), with --witness-dir"},
                {"registrar-key", "KEY",
-                "Take peers' consents to asset actions, and proposed contract calls with the "
-                "consents their contracts ask for; record each once all are in, signing as this "
-                "actor (file or pkcs11: URI)"},
+                "Take proposed contract calls with the consents their contracts ask for; record "
+                "each once all are in, signing as this actor (file or pkcs11: URI)"},
                passphrase_file_option}),
          cmd_serve,
          "Routes (API v1; binary objects are CBOR or COSE, everything else JSON):\n"
@@ -819,17 +818,16 @@ std::vector<CommandSpec> build() {
          "  read:    GET /metrics, /v1/status, /v1/entries?start=&count=, /v1/checkpoints,\n"
          "           /v1/cosignatures, /v1/inclusion?index=&size=, /v1/statements/ID,\n"
          "           /v1/receipts/INDEX, /v1/state/ID, /v1/evidence/RECORD,\n"
-         "           /v1/vault/public-key, /v1/vault/records/RECORD, /v1/assets/ASSET,\n"
-         "           /v1/contracts, /v1/contracts/CONTRACT, /v1/contracts/instances/INSTANCE,\n"
+         "           /v1/vault/public-key, /v1/vault/records/RECORD, /v1/contracts,\n"
+         "           /v1/contracts/CONTRACT, /v1/contracts/instances/INSTANCE,\n"
          "           /v1/contracts/calls, /v1/contracts/calls/CALL\n"
          "  submit:  POST /v1/statements (a signed statement, application/cose; or a record's\n"
-         "           registration with its sealed private data, or an asset action or a\n"
-         "           contract call with its consents' evidence,\n"
-         "           application/cexchain-submission+cbor), POST /v1/contracts/calls\n"
+         "           registration with its sealed private data, or a contract call with its\n"
+         "           consents' evidence, application/cexchain-submission+cbor),\n"
+         "           POST /v1/contracts/calls\n"
          "  admin:   POST /v1/checkpoint, POST /v1/cosignatures ([cosignature, witness key])\n"
          "  peer:    POST /v1/access/requests, GET /v1/access/deliveries/REQUEST,\n"
          "           POST /v1/access/receipts, POST /v1/witness/cosign,\n"
-         "           POST /v1/assets/consents, GET /v1/assets/ASSET (the asset's parties),\n"
          "           POST /v1/contracts/calls, GET /v1/contracts/calls[/CALL],\n"
          "           POST /v1/contracts/consents, GET /v1/contracts/instances/INSTANCE\n"
          "           (the instance's parties)\n"

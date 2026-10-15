@@ -24,7 +24,6 @@
 #include <cexchain/core/protocol/witness.hpp>
 #include <cexchain/ledger/parallel.hpp>
 #include <cexchain/node/api.hpp>
-#include <cexchain/node/assets.hpp>
 #include <cexchain/node/cluster.hpp>
 #include <cexchain/node/contracts.hpp>
 #include <cexchain/node/peers.hpp>
@@ -199,8 +198,6 @@ enum class Endpoint {
     cluster_add,
     cluster_remove,
     cluster_step_down,
-    asset_consent,
-    asset_evidence,
     contract_list,
     contract_show,
     instance_evidence,
@@ -296,9 +293,8 @@ struct LedgerApi::State {
         Done done;
         /// A record's private data, sealed to the vault key, stored with it.
         std::optional<Bytes> vault = std::nullopt;
-        /// The consent bundles an asset action or a contract call cites,
-        /// checked, encoded, and stored already (a cluster replicates them
-        /// with it).
+        /// The consent bundles a contract call cites, checked, encoded, and
+        /// stored already (a cluster replicates them with it).
         std::optional<Sidecar> consents = std::nullopt;
     };
     /// Runs on the writer thread holding the ledger's lock, caught up; or,
@@ -318,10 +314,8 @@ struct LedgerApi::State {
     bool stopping = false;
     std::thread writer;
 
-    /// The writer's: the registrar's consents to asset actions and its
-    /// pending contract calls (with a registrar), and randomness for the
-    /// statements it signs.
-    std::optional<ConsentPool> consents;
+    /// The writer's: the registrar's pending contract calls (with a
+    /// registrar), and randomness for the statements it signs.
     std::optional<CallRegistrar> calls;
     ledger::SystemEntropy entropy;
 
@@ -992,50 +986,6 @@ struct LedgerApi::State {
                        : error_response(encoded.error());
     }
 
-    /// An asset's evidence with the consents its actions pin (D-052), for
-    /// read tokens and for the asset's current parties; to other peers it
-    /// does not exist.
-    http::Response asset_evidence_of(std::string_view id_text, const std::string& principal,
-                                     Scopes scopes) const {
-        if (options.log_keys.empty()) {
-            return error_response(501, "unsupported", "this server has no log key");
-        }
-        const auto id = id_from(id_text);
-        if (!id) {
-            return error_response(400, "invalid_argument", "an asset id is 64 hex digits");
-        }
-        std::optional<protocol::AssetState> asset;
-        ledger->read_state([&](const protocol::LedgerState& s) {
-            if (const protocol::AssetState* a = s.asset(*id)) {
-                asset = *a;
-            }
-        });
-        bool allowed = asset.has_value() && has_scope(scopes, Scope::read);
-        if (asset && !allowed) {
-            auto peers = load_peers(options.directory);
-            const auto peer = peers ? std::ranges::find(*peers, principal, &Peer::name)
-                                    : std::vector<Peer>::iterator{};
-            allowed = peers && peer != peers->end() &&
-                      (peer->ledger_id == asset->holder || peer->ledger_id == asset->pledgee ||
-                       peer->ledger_id == asset->payee);
-        }
-        if (!allowed) {
-            return error_response(404, "not_found", "no such asset");
-        }
-        if (const auto latest = ledger->latest_checkpoint();
-            !latest || latest->checkpoint.tree_size <= asset->head) {
-            return error_response(409, "conflict",
-                                  "the asset changed after the latest checkpoint; retry");
-        }
-        auto bundle = ledger->export_evidence(log_keys(), *id);
-        if (!bundle) {
-            return error_response(bundle.error());
-        }
-        auto evidence = asset_evidence(*provider, options.directory, *bundle);
-        return evidence ? binary("application/cbor", std::move(*evidence))
-                        : error_response(evidence.error());
-    }
-
     /// The peer a token belongs to (peer tokens are named after their peer).
     std::optional<Peer> peer_named(const std::string& principal) const {
         auto peers = load_peers(options.directory);
@@ -1090,10 +1040,10 @@ struct LedgerApi::State {
                         : error_response(evidence.error());
     }
 
-    /// GET /v1/assets/{asset} and /v1/contracts/instances/{instance}: the
-    /// evidence as of a checkpoint that covers the object's latest change
-    /// (its head). If the latest does not, a writable server (a cluster's
-    /// leader) checkpoints first, on the writer.
+    /// GET /v1/contracts/instances/{instance}: the evidence as of a
+    /// checkpoint that covers the instance's latest change (its head). If the
+    /// latest does not, a writable server (a cluster's leader) checkpoints
+    /// first, on the writer.
     void evidence_request(const http::Request& r, const Routed& routed, std::string principal,
                           Scopes scopes, Done& done) {
         const std::string rest(std::string_view(r.path).substr(routed.rest));
@@ -1101,11 +1051,7 @@ struct LedgerApi::State {
         if (const auto id = id_from(rest)) {
             std::optional<std::uint64_t> head;
             ledger->read_state([&](const protocol::LedgerState& s) {
-                if (routed.endpoint == Endpoint::asset_evidence) {
-                    if (const protocol::AssetState* a = s.asset(*id)) {
-                        head = a->head;
-                    }
-                } else if (const protocol::InstanceState* i = s.instance(*id)) {
+                if (const protocol::InstanceState* i = s.instance(*id)) {
                     head = i->head;
                 }
             });
@@ -1121,17 +1067,15 @@ struct LedgerApi::State {
             finish(done, principal, not_leader(r.target));
             return;
         }
-        queue_locked([this, rest, endpoint = routed.endpoint, principal = std::move(principal),
-                      scopes, done = std::move(done)](const http::Response* refusal) mutable {
+        queue_locked([this, rest, principal = std::move(principal), scopes,
+                      done = std::move(done)](const http::Response* refusal) mutable {
             if (refusal != nullptr) {
                 finish(done, principal, *refusal);
                 return;
             }
             // Caught up with the files: checkpoint unless that covers it now.
             auto evidence = [&] {
-                return endpoint == Endpoint::asset_evidence
-                           ? asset_evidence_of(rest, principal, scopes)
-                           : instance_evidence_of(rest, principal, scopes);
+                return instance_evidence_of(rest, principal, scopes);
             };
             auto response = evidence();
             if (response.status == 409) {
@@ -1542,19 +1486,15 @@ struct LedgerApi::State {
                    error_response(400, "invalid_argument", "send a signed statement"));
             return;
         }
-        // A home records an asset action or a contract call only with the
-        // consents it cites.
+        // A home records a contract call only with the consents it cites.
         if (auto parsed = protocol::parse_statement(*provider, r.body, ledger->hash());
             parsed && !ledger->statement_index(parsed->id) &&
-            ((cites_consents(parsed->statement) &&
-              !std::filesystem::exists(consents_path(options.directory, parsed->id))) ||
-             (cites_contract_consents(parsed->statement) &&
-              !std::filesystem::exists(contract_consents_path(options.directory, parsed->id))))) {
-            finish(
-                done, principal,
-                error_response(400, "invalid_argument",
-                               "send an asset action or a contract call with the evidence of "
-                               "the consents it cites, as application/cexchain-submission+cbor"));
+            cites_contract_consents(parsed->statement) &&
+            !std::filesystem::exists(contract_consents_path(options.directory, parsed->id))) {
+            finish(done, principal,
+                   error_response(400, "invalid_argument",
+                                  "send a contract call with the evidence of the consents it "
+                                  "cites, as application/cexchain-submission+cbor"));
             return;
         }
         queue_submission({std::move(r.body), std::move(principal), std::move(done)});
@@ -1563,9 +1503,9 @@ struct LedgerApi::State {
     /// {1: signed statement, 2: sealed private data}: a record's
     /// registration together with its vault file, so the data arrives with
     /// the record and nobody can store other data for it first.
-    /// {1: signed statement, 3: [consent bundles]}: an asset action or a
-    /// contract call with the evidence of the consents it cites, checked and
-    /// kept before it is registered.
+    /// {1: signed statement, 3: [consent bundles]}: a contract call with the
+    /// evidence of the consents it cites, checked and kept before it is
+    /// registered.
     void submit_with_vault(http::Request& r, std::string principal, Done& done) {
         auto value = cbor::decode(r.body);
         if (value && value->find(3) != nullptr) {
@@ -1606,8 +1546,6 @@ struct LedgerApi::State {
             return;
         }
         auto parsed = protocol::parse_statement(*provider, *statement->as_bytes(), ledger->hash());
-        const auto* action =
-            parsed ? std::get_if<protocol::AssetActionBody>(&parsed->statement.body) : nullptr;
         const auto* call =
             parsed ? std::get_if<protocol::ContractCallBody>(&parsed->statement.body) : nullptr;
         std::vector<Bytes> bundles;
@@ -1616,20 +1554,15 @@ struct LedgerApi::State {
                 bundles.push_back(*item.as_bytes());
             }
         }
-        const bool cites = (action != nullptr && !action->consents.empty()) ||
-                           (call != nullptr && !call->consents.empty());
-        if (!cites || bundles.size() != items->size()) {
+        if (call == nullptr || call->consents.empty() || bundles.size() != items->size()) {
             finish(done, principal,
                    error_response(400, "invalid_argument",
-                                  "only an asset action or a contract call that cites consents "
-                                  "carries their evidence"));
+                                  "only a contract call that cites consents carries their "
+                                  "evidence"));
             return;
         }
-        const Status checked = action != nullptr
-                                   ? check_action_consents(*provider, ledger->id(), ledger->hash(),
-                                                           *action, bundles, clock.now())
-                                   : check_call_consents(*provider, ledger->id(), ledger->hash(),
-                                                         *call, bundles, clock.now());
+        const Status checked = check_call_consents(*provider, ledger->id(), ledger->hash(), *call,
+                                                   bundles, clock.now());
         if (!checked) {
             finish(done, principal, error_response(checked.error()));
             return;
@@ -1639,106 +1572,16 @@ struct LedgerApi::State {
             finish(done, principal, error_response(encoded.error()));
             return;
         }
-        // Kept first: a registered statement always has its consents here.
-        const std::filesystem::path kept =
-            action != nullptr ? consents_path(options.directory, parsed->id)
-                              : contract_consents_path(options.directory, parsed->id);
-        if (auto s = store_consents_file(kept, *encoded); !s) {
+        // Kept first: a registered call always has its consents here.
+        if (auto s = store_consents_file(contract_consents_path(options.directory, parsed->id),
+                                         *encoded);
+            !s) {
             finish(done, principal, error_response(s.error()));
             return;
         }
-        const Sidecar sidecar{action != nullptr ? Sidecar::Kind::consents
-                                                : Sidecar::Kind::contract_consents,
-                              std::move(*encoded)};
+        const Sidecar sidecar{Sidecar::Kind::contract_consents, std::move(*encoded)};
         queue_submission(
             {*statement->as_bytes(), std::move(principal), std::move(done), std::nullopt, sidecar});
-    }
-
-    /// A party's consent to an asset action (D-052): checked here, held
-    /// with the others to the same terms, and once every party the action
-    /// needs has consented, the registrar signs and records it.
-    void asset_consent(const http::Request& r, std::string principal, Done& done) {
-        if (auto denied = refuse_peer_write()) {
-            finish(done, principal, std::move(*denied));
-            return;
-        }
-        if (!options.registrar) {
-            finish(done, principal,
-                   error_response(501, "unsupported",
-                                  "this ledger has no registrar: its people record asset actions"));
-            return;
-        }
-        if (r.body.size() > max_access_request) {
-            finish(done, principal,
-                   error_response(413, "limit_exceeded", "a consent is at most 256 KiB"));
-            return;
-        }
-        auto peer = peer_of(principal, r.body);
-        if (!peer) {
-            finish(done, principal, error_response(403, "forbidden", peer.error().detail));
-            return;
-        }
-        queue_locked([this, bundle = r.body, party = peer->ledger_id, name = peer->name,
-                      principal = std::move(principal),
-                      done = std::move(done)](const http::Response* refusal) mutable {
-            if (refusal != nullptr) {
-                finish(done, principal, *refusal);
-                return;
-            }
-            finish(done, principal, take_consent(bundle, party, name));
-        });
-    }
-
-    /// On the writer: holds the consent, and records the action once all
-    /// are in.
-    http::Response take_consent(ByteView bundle, const protocol::Id& party,
-                                const std::string& name) {
-        const protocol::Timestamp now = clock.now();
-        Result<ConsentProgress> progress = fail(Errc::unavailable, "no state");
-        ledger->read_state([&](const protocol::LedgerState& s) {
-            progress = consents->add(*provider, s, party, bundle, now);
-        });
-        if (!progress) {
-            const Error e = progress.error();
-            return e.code == Errc::invalid_argument ? error_response(403, "forbidden", e.detail)
-                                                    : error_response(e);
-        }
-        event("asset-consent", name + " " + hex(progress->terms.asset) + " " +
-                                   std::string(protocol::name(progress->terms.action)));
-        if (!progress->action) {
-            json missing = json::array();
-            for (const protocol::Id& m : progress->missing) {
-                missing.push_back(hex(m));
-            }
-            return json_response(202, {{"status", "waiting"},
-                                       {"asset", hex(progress->terms.asset)},
-                                       {"action", protocol::name(progress->terms.action)},
-                                       {"missing", std::move(missing)}});
-        }
-        Result<protocol::SignedStatement> signed_action = fail(Errc::unavailable, "no state");
-        ledger->read_state([&](const protocol::LedgerState& s) {
-            signed_action = sign_asset_action(*provider, s, *options.registrar, *progress->action,
-                                              now, entropy);
-        });
-        auto encoded = encode_consent_bundles(progress->bundles);
-        if (!signed_action || !encoded) {
-            return error_response(!signed_action ? signed_action.error() : encoded.error());
-        }
-        if (auto s = store_consents(options.directory, signed_action->id, *encoded); !s) {
-            return error_response(s.error());
-        }
-        auto recorded = record(*signed_action, Sidecar{Sidecar::Kind::consents, *encoded}, now);
-        if (!recorded) {
-            return error_response(recorded.error());
-        }
-        consents->forget(progress->terms);
-        event("asset-action", hex(progress->terms.asset) + " " +
-                                  std::string(protocol::name(progress->terms.action)));
-        return json_response(201, {{"status", "recorded"},
-                                   {"asset", hex(progress->terms.asset)},
-                                   {"action", protocol::name(progress->terms.action)},
-                                   {"statement_id", hex(recorded->statement_id)},
-                                   {"index", recorded->index}});
     }
 
     /// Writes or removes the registrar's pending calls: on every node of a
@@ -2167,16 +2010,6 @@ struct LedgerApi::State {
                 return method_not_allowed("POST");
             }
             found = Routed{Endpoint::submit, Access::submit};
-        } else if (path == "/v1/assets/consents") {
-            if (!post) {
-                return method_not_allowed("POST");
-            }
-            found = Routed{Endpoint::asset_consent, Access::peer};
-        } else if (match("/v1/assets/")) {
-            if (!get) {
-                return method_not_allowed("GET");
-            }
-            found = Routed{Endpoint::asset_evidence, Access::read_or_peer, rest};
         } else if (path == "/v1/contracts") {
             if (!get) {
                 return method_not_allowed("GET");
@@ -2321,8 +2154,6 @@ struct LedgerApi::State {
             return access_receipt(r, principal);
         case Endpoint::witness_cosign:
             return witness_cosign(r);
-        case Endpoint::asset_evidence:
-            return asset_evidence_of(rest, principal, scopes);
         case Endpoint::contract_list:
             return contract_list(r);
         case Endpoint::contract_show:
@@ -2335,7 +2166,6 @@ struct LedgerApi::State {
             return pending_show(rest, principal, scopes);
         case Endpoint::call_propose:
         case Endpoint::contract_consent:
-        case Endpoint::asset_consent:
         case Endpoint::make_checkpoint:
         case Endpoint::add_cosignature:
         case Endpoint::submit:
@@ -2397,7 +2227,6 @@ struct LedgerApi::State {
         const bool writes = routed.endpoint == Endpoint::submit ||
                             routed.endpoint == Endpoint::make_checkpoint ||
                             routed.endpoint == Endpoint::add_cosignature ||
-                            routed.endpoint == Endpoint::asset_consent ||
                             routed.endpoint == Endpoint::call_propose ||
                             routed.endpoint == Endpoint::contract_consent || cluster_write;
         if (writes && cluster_write && !cluster) {
@@ -2413,10 +2242,6 @@ struct LedgerApi::State {
             cluster_change(r, routed.endpoint, std::move(principal), done);
             return;
         }
-        if (routed.endpoint == Endpoint::asset_consent) {
-            asset_consent(r, std::move(principal), done);
-            return;
-        }
         if (routed.endpoint == Endpoint::call_propose) {
             call_proposal(r, std::move(principal), scopes, done);
             return;
@@ -2425,8 +2250,7 @@ struct LedgerApi::State {
             contract_consent(r, std::move(principal), done);
             return;
         }
-        if (routed.endpoint == Endpoint::asset_evidence ||
-            routed.endpoint == Endpoint::instance_evidence) {
+        if (routed.endpoint == Endpoint::instance_evidence) {
             evidence_request(r, routed, std::move(principal), scopes, done);
             return;
         }
@@ -2515,7 +2339,6 @@ Result<std::unique_ptr<LedgerApi>> LedgerApi::open(ApiOptions options,
         }
     }
     state->options = std::move(options);
-    state->consents.emplace(state->options.directory);
     if (state->options.registrar) {
         state->calls.emplace(state->options.directory, *state->options.registrar);
     }

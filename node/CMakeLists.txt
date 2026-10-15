@@ -6,7 +6,6 @@ find_package(OpenSSL 3.5 REQUIRED COMPONENTS SSL)
 
 add_library(cexchain_node
     src/api.cpp
-    src/assets.cpp
     src/client.cpp
     src/contracts.cpp
     src/cluster.cpp
