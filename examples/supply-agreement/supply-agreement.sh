@@ -65,10 +65,10 @@ done
 # The bank uses the Chinese commercial algorithms: SM2 keys, SM3 hashes.
 run key generate --alg sm2-sm3 --out bank-root.key > /dev/null
 run key generate --alg sm2-sm3 --out bank-log.key > /dev/null
-run init --org "Core Enterprise Co." --root-key core-root.key --log-key core-log.key --ledger "$CORE" > /dev/null
-run init --org "Tier-1 Supplier Ltd." --root-key supplier-root.key --log-key supplier-log.key \
+run init --name "Core Enterprise Co." --root-key core-root.key --log-key core-log.key --ledger "$CORE" > /dev/null
+run init --name "Tier-1 Supplier Ltd." --root-key supplier-root.key --log-key supplier-log.key \
     --ledger "$SUP" > /dev/null
-run init --org "Bank A" --root-key bank-root.key --log-key bank-log.key --hash sm3 --ledger "$BANK" > /dev/null
+run init --name "Bank A" --root-key bank-root.key --log-key bank-log.key --hash sm3 --ledger "$BANK" > /dev/null
 id_of() { run status --ledger "$1" --json | field '["ledger_id"]'; }
 CORE_ID="$(id_of "$CORE")"; SUP_ID="$(id_of "$SUP")"; BANK_ID="$(id_of "$BANK")"
 say "Core Enterprise  ledger ${CORE_ID:0:16}... (SHA-256)"

@@ -671,14 +671,14 @@ Home values_scenario() {
     return home;
 }
 
-/// The demo's receivable (deploy/demo/multi-tier-split.bo) split at its
+/// The demo's receivable (examples/multi-tier-split/multi-tier-split.bo) split at its
 /// bounds (milestone 17): a part at depth 7 split into 16 parts, the holder
 /// keeping one and 15 recipients consenting, the most a call can carry; the
 /// refusals on the way; and a part at depth 8.
 Home split_scenario() {
     const std::filesystem::path file =
-        build_dir.parent_path().parent_path().parent_path().parent_path() / "deploy" / "demo" /
-        "multi-tier-split.bo";
+        build_dir.parent_path().parent_path().parent_path().parent_path() / "examples" /
+        "multi-tier-split" / "multi-tier-split.bo";
     const std::string text = read_text(file);
     Home home("split-bounds", build_text(text), we);
     home.source("en", text);
@@ -1159,7 +1159,7 @@ TEST_CASE("bo build: splitting into 16 parts at depth 7 stays within a call's fu
     const auto digest = provider().digest(cexchain::crypto::HashAlg::sha256, home.code());
     REQUIRE(digest.has_value());
     std::string text =
-        std::format("contract MultiTierReceivable (deploy/demo/multi-tier-split.bo)\n"
+        std::format("contract MultiTierReceivable (examples/multi-tier-split/multi-tier-split.bo)\n"
                     "code: {} bytes, sha256 {}, codegen {}\n",
                     home.code().size(), hex(digest->bytes()), bo::wasm::codegen_version);
     for (const Outcome& o : home.runs()) {
@@ -1535,12 +1535,12 @@ TEST_CASE("bo build: write the runs for the Python reference", "[.codegen-refere
              {"tax", golden_dir / "test" / "tax" / "source.bo"},
              {"charges", golden_dir / "test" / "charges" / "source.bo"},
              {"lists", golden_dir / "test" / "lists" / "source.bo"},
-             {"supply-agreement", golden_dir.parent_path().parent_path().parent_path() / "deploy" /
-                                      "demo" / "supply-agreement.bo"},
+             {"supply-agreement", golden_dir.parent_path().parent_path().parent_path() /
+                                      "examples" / "supply-agreement" / "supply-agreement.bo"},
              // Splitting (milestone 17): parts, and the demo's receivable.
              {"split-tests", golden_dir / "test" / "split" / "source.bo"},
-             {"multi-tier-split", golden_dir.parent_path().parent_path().parent_path() / "deploy" /
-                                      "demo" / "multi-tier-split.bo"},
+             {"multi-tier-split", golden_dir.parent_path().parent_path().parent_path() /
+                                      "examples" / "multi-tier-split" / "multi-tier-split.bo"},
              // R31: a counterparty made holder or pledgee consents at every
              // call, its role bound at creation or by another action.
              {"role-taking", golden_dir / "check-role-taking" / "source.bo"}}) {

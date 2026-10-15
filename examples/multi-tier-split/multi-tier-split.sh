@@ -94,12 +94,12 @@ for org in "${ORGS[@]}"; do
         # The Chinese commercial algorithms: SM2 keys, SM3 hashes.
         run key generate --alg sm2-sm3 --out "$org-root.key" > /dev/null
         run key generate --alg sm2-sm3 --out "$org-log.key" > /dev/null
-        run init --org "$(name_of "$org")" --root-key "$org-root.key" --log-key "$org-log.key" \
+        run init --name "$(name_of "$org")" --root-key "$org-root.key" --log-key "$org-log.key" \
             --hash sm3 --ledger "$(dir "$org")" > /dev/null
     else
         run key generate --out "$org-root.key" > /dev/null
         run key generate --out "$org-log.key" > /dev/null
-        run init --org "$(name_of "$org")" --root-key "$org-root.key" --log-key "$org-log.key" \
+        run init --name "$(name_of "$org")" --root-key "$org-root.key" --log-key "$org-log.key" \
             --ledger "$(dir "$org")" > /dev/null
     fi
     run status --ledger "$(dir "$org")" --json | field '["ledger_id"]' > "$WORK/$org.id"

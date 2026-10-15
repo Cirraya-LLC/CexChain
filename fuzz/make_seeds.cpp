@@ -734,19 +734,19 @@ void bo_seeds(const Seeds& seeds) {
                     text.str());
     }
 
-    // The demos' contracts (deploy/demo): a supply agreement, and a
+    // The examples' contracts (examples/): a supply agreement, and a
     // receivable split down a supply chain (milestone 17), with their tests.
-    for (const std::string_view demo : {"supply-agreement.bo", "multi-tier-split.bo"}) {
+    for (const std::string_view demo : {"supply-agreement", "multi-tier-split"}) {
         std::ifstream in(std::filesystem::path(CEXCHAIN_BO_GOLDEN_DIR)
                                  .parent_path()
                                  .parent_path()
                                  .parent_path() /
-                             "deploy" / "demo" / demo,
+                             "examples" / demo / (std::string(demo) + ".bo"),
                          std::ios::binary);
         std::stringstream text;
         text << in.rdbuf();
-        seeds.write("bo_parse_fuzz", "demo-" + std::string(demo), text.str());
-        seeds.write("bo_check_fuzz", "demo-" + std::string(demo), text.str());
+        seeds.write("bo_parse_fuzz", "demo-" + std::string(demo) + ".bo", text.str());
+        seeds.write("bo_check_fuzz", "demo-" + std::string(demo) + ".bo", text.str());
     }
 
     // The standard library (milestone 11), and a contract that declares all

@@ -158,15 +158,19 @@ add_test(NAME rotation_end_to_end
 if(TARGET cexchain_bo)
     add_test(NAME bo_end_to_end
         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/bo.sh $<TARGET_FILE:cexchain>)
-    # The demos, so they keep working; they are written in Bo.
+    # The examples library (examples/), so every example keeps working; their
+    # contracts are written in Bo. A camera lent between two people.
+    add_test(NAME demo_lending
+        COMMAND bash ${PROJECT_SOURCE_DIR}/examples/lending/lending.sh $<TARGET_FILE:cexchain>)
+    # A supply agreement signed by three organizations.
     add_test(NAME demo_supply_agreement
-        COMMAND bash ${PROJECT_SOURCE_DIR}/deploy/demo/supply-agreement.sh $<TARGET_FILE:cexchain>)
+        COMMAND bash ${PROJECT_SOURCE_DIR}/examples/supply-agreement/supply-agreement.sh $<TARGET_FILE:cexchain>)
     # Multi-tier supply-chain finance: a receivable split down a supply chain.
     add_test(NAME demo_multi_tier_split
-        COMMAND bash ${PROJECT_SOURCE_DIR}/deploy/demo/multi-tier-split.sh $<TARGET_FILE:cexchain>)
+        COMMAND bash ${PROJECT_SOURCE_DIR}/examples/multi-tier-split/multi-tier-split.sh $<TARGET_FILE:cexchain>)
     # A receivable pledged to a bank, released, sold, and paid.
     add_test(NAME demo_receivable_financing
-        COMMAND bash ${PROJECT_SOURCE_DIR}/deploy/demo/receivable-financing.sh $<TARGET_FILE:cexchain>)
+        COMMAND bash ${PROJECT_SOURCE_DIR}/examples/receivable-financing/receivable-financing.sh $<TARGET_FILE:cexchain>)
 endif()
 
 # Keys on tokens (HSMs, USB keys), when SoftHSM is installed to stand in.

@@ -85,7 +85,7 @@ step "1. Five organizations, each with its own ledger"
 for org in "${ORGS[@]}"; do
     run key generate --out "$org-root.key" > /dev/null
     run key generate --out "$org-log.key" > /dev/null
-    run init --org "$(name_of "$org")" --root-key "$org-root.key" --log-key "$org-log.key" \
+    run init --name "$(name_of "$org")" --root-key "$org-root.key" --log-key "$org-log.key" \
         --ledger "$(dir "$org")" > /dev/null
     run status --ledger "$(dir "$org")" --json | field '["ledger_id"]' > "$WORK/$org.id"
     say "$(printf '%-22s ledger %s...' "$(name_of "$org")" "$(id "$org" | cut -c1-16)")"

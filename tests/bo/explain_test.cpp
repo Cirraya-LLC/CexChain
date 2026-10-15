@@ -99,7 +99,8 @@ std::vector<Case> cases() {
         return paths;
     };
     out.push_back({"agreement", spellings(golden_dir / "build", "agreement")});
-    out.push_back({"supply-agreement", {source_dir / "deploy/demo/supply-agreement.bo"}});
+    out.push_back(
+        {"supply-agreement", {source_dir / "examples/supply-agreement/supply-agreement.bo"}});
     for (const std::string_view e : {"receivable", "vps", "ip-pool", "split", "tax"}) {
         out.push_back({std::string(e), spellings(golden_dir, "example-" + std::string(e))});
     }
@@ -118,7 +119,8 @@ std::vector<Case> cases() {
     out.push_back({"charges", {golden_dir / "test/charges/source.bo"}});
     out.push_back({"lists", {golden_dir / "test/lists/source.bo"}});
     // Splitting (milestone 17): the demo's receivable, split down its chain.
-    out.push_back({"multi-tier-split", {source_dir / "deploy/demo/multi-tier-split.bo"}});
+    out.push_back(
+        {"multi-tier-split", {source_dir / "examples/multi-tier-split/multi-tier-split.bo"}});
     // R31: a counterparty made holder or pledgee consents at every call.
     out.push_back({"role-taking", {golden_dir / "check-role-taking/source.bo"}});
     return out;

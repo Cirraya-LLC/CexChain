@@ -88,7 +88,7 @@ std::string formatted(std::string_view source, const Pack* language) {
 
 /// Every source the tests have: the goldens of each pass, the compiled
 /// agreement in four spellings, the formatter's own cases, the tests' own
-/// cases, and the demo.
+/// cases, and the examples' contracts.
 std::vector<std::filesystem::path> all_sources() {
     std::vector<std::filesystem::path> out;
     for (const std::filesystem::path& dir :
@@ -99,8 +99,12 @@ std::vector<std::filesystem::path> all_sources() {
             }
         }
     }
-    out.push_back(source_dir / "deploy/demo/supply-agreement.bo");
-    out.push_back(source_dir / "deploy/demo/receivable-financing.bo");
+    // The examples library's contracts.
+    for (const std::string_view example :
+         {"lending", "supply-agreement", "receivable-financing", "multi-tier-split"}) {
+        const std::string name(example);
+        out.push_back(source_dir / "examples" / name / (name + ".bo"));
+    }
     std::ranges::sort(out);
     return out;
 }
@@ -251,9 +255,15 @@ TEST_CASE("formatting a source into its own language changes only its layout", "
         const std::string source = read_text(golden_dir / name / "source.bo");
         CHECK(without_layout(formatted(source, nullptr)) == without_layout(source));
     }
-    const std::string demo = read_text(source_dir / "deploy/demo/supply-agreement.bo");
-    CHECK(formatted(demo, nullptr) == demo);
-    CHECK(formatted(demo, pack("en")) == demo);
+    // The examples' contracts are kept in canonical layout, in English.
+    for (const std::string_view example :
+         {"lending", "supply-agreement", "receivable-financing", "multi-tier-split"}) {
+        INFO(example);
+        const std::string name(example);
+        const std::string demo = read_text(source_dir / "examples" / name / (name + ".bo"));
+        CHECK(formatted(demo, nullptr) == demo);
+        CHECK(formatted(demo, pack("en")) == demo);
+    }
 }
 
 TEST_CASE("the layout rules", "[bo][format]") {

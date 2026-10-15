@@ -144,7 +144,7 @@ TEST_CASE("a source formatted into any language builds to the same code", "[bo][
     // and any golden of the other passes that is a whole contract.
     const std::filesystem::path golden_dir = build_dir.parent_path();
     std::vector<std::filesystem::path> paths{golden_dir.parent_path().parent_path().parent_path() /
-                                             "deploy/demo/supply-agreement.bo"};
+                                             "examples/supply-agreement/supply-agreement.bo"};
     for (const std::filesystem::path& dir :
          {golden_dir, build_dir, golden_dir / "format", golden_dir / "test"}) {
         for (const auto& entry : std::filesystem::directory_iterator(dir)) {

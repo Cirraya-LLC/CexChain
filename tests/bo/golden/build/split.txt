@@ -1,4 +1,4 @@
-contract MultiTierReceivable (deploy/demo/multi-tier-split.bo)
+contract MultiTierReceivable (examples/multi-tier-split/multi-tier-split.bo)
 code: 7103 bytes, sha256 e129f1b915b6dc9ce509ca32e1c4b69200439f22f09c09e5a4eb2ec797a410a3, codegen 3
 issue: accept active, event active; fuel 7310 of at most 34549
 split, 16 parts to 15: refused "bo:requires split 2"; fuel 18997 of at most 506033

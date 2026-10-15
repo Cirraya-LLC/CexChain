@@ -99,7 +99,7 @@ std::vector<std::pair<std::string, std::filesystem::path>> cases() {
         {"check-agreement", golden_dir / "check-agreement/source.bo"},
         {"failing", golden_dir / "test/failing/source.bo"},
         {"loan", golden_dir / "check-tests/source.bo"},
-        {"supply-agreement", source_dir / "deploy/demo/supply-agreement.bo"},
+        {"supply-agreement", source_dir / "examples/supply-agreement/supply-agreement.bo"},
         // The standard library (milestone 11): the spec's ReceivableFinancing,
         // the native assets' flows, and an AI agent's proposal.
         {"receivable-financing", golden_dir / "test/receivable-financing/source.bo"},
@@ -118,7 +118,7 @@ std::vector<std::pair<std::string, std::filesystem::path>> cases() {
         {"lists", golden_dir / "test/lists/source.bo"},
         // Splitting (milestone 17): parts, and the demo's receivable.
         {"split", golden_dir / "test/split/source.bo"},
-        {"multi-tier-split", source_dir / "deploy/demo/multi-tier-split.bo"},
+        {"multi-tier-split", source_dir / "examples/multi-tier-split/multi-tier-split.bo"},
         // R31: a counterparty made holder or pledgee consents, whenever its
         // role was bound.
         {"role-taking", golden_dir / "check-role-taking/source.bo"},

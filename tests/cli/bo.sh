@@ -534,7 +534,7 @@ diff "$TEXTS/agreement/zh-hans.txt" text.txt > /dev/null || fail "\$CEXCHAIN_LAN
 run bo explain agreement.bo --language zh-Hant > text.txt
 contains -F "  4.2.2 要求 1：如金額超過港元 1,000,000，客戶須以通行密鑰或硬件密鑰證明本人親身在場。〔R6、R13〕" text.txt || fail "zh-Hant"
 # The demo's agreement, in Simplified Chinese.
-run bo explain "$SOURCE/deploy/demo/supply-agreement.bo" --language zh-Hans-CN > text.txt
+run bo explain "$SOURCE/examples/supply-agreement/supply-agreement.bo" --language zh-Hans-CN > text.txt
 diff "$TEXTS/supply-agreement/zh-hans.txt" text.txt > /dev/null || fail "the demo's text"
 # --json: the clauses, their rules, requirements numbered as refusals name
 # them (bo:requires sign 2), and the rules' texts.
@@ -570,7 +570,7 @@ echo "== bo fmt: the source laid out canonically, and in one language"
 # The demo's agreement, written in English, is formatted; into each language
 # it gives the same tree, the same code, and the same text, and formatting it
 # again changes nothing.
-cp "$SOURCE/deploy/demo/supply-agreement.bo" supply.bo
+cp "$SOURCE/examples/supply-agreement/supply-agreement.bo" supply.bo
 run bo fmt supply.bo > out.txt
 cmp -s out.txt supply.bo || fail "the demo is formatted"
 run bo fmt supply.bo --check > out.txt
@@ -665,7 +665,7 @@ expect_exit 2 bo fmt no-such.bo
 echo "== bo test: the test blocks, run as a ledger runs calls"
 # The demo's agreement carries two tests: signed by all three and closed; and
 # nobody signs alone. Each runs on an instance of its own.
-cp "$SOURCE/deploy/demo/supply-agreement.bo" supply.bo
+cp "$SOURCE/examples/supply-agreement/supply-agreement.bo" supply.bo
 run bo test supply.bo > report.txt
 contains -Fx 'Test "signed by all three, then closed": passed' report.txt || fail "test: passed"
 contains -Fx '  Step 2 (line 25) passed: we sign -> signed' report.txt || fail "test: a step as written"
