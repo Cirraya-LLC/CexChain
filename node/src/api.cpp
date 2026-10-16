@@ -2292,7 +2292,7 @@ struct LedgerApi::State {
                             : Result<ledger::Registration>(std::unexpected(signed_call.error()));
             if (!recorded) {
                 ++keeper_refusals;
-                event("keeper-refused", detail + ": " + recorded.error().detail);
+                event("keeper-refused", std::format("{}: {}", detail, recorded.error().detail));
                 // A follower now: the new leader's keeper carries on.
                 return cluster && !cluster->leads() ? Fired::stop : Fired::passed;
             }
