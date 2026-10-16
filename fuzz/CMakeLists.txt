@@ -59,6 +59,9 @@ if(TARGET cexchain_node)
     cexchain_add_fuzzer(http_parse_fuzz cexchain::node)
     # The requests and due routes' queries (node/src/request_query.hpp).
     target_include_directories(http_parse_fuzz PRIVATE ${PROJECT_SOURCE_DIR}/node/src)
+    # The connector protocol's JSON lines (node/connector.hpp, 6b).
+    cexchain_add_fuzzer(connector_line_fuzz cexchain::node)
+    target_compile_features(connector_line_fuzz PRIVATE cxx_std_26)
     cexchain_add_fuzzer(backup_restore_fuzz cexchain::ledger)
     cexchain_add_fuzzer(pending_call_fuzz cexchain::node)
     # The cluster's internals (node/src/cluster_parts.hpp).

@@ -447,6 +447,38 @@ void text_seeds(const Seeds& seeds) {
     seeds.write("http_parse_fuzz", "contracts-due",
                 "GET /v1/contracts/due?at=1792022400000&grace=900&keeper=" + std::string(64, 'b') +
                     "&start=7&limit=2000 HTTP/1.1\r\nHost: ledger\r\n\r\n");
+    // The connector protocol: the first byte chooses the direction (even:
+    // from a connector, odd: to it).
+    const std::string request(64, 'a');
+    const std::string other(64, 'b');
+    seeds.write("connector_line_fuzz", "ready",
+                std::string(1, '\0') +
+                    R"({"type":"ready","protocol":1,"name":"webhook","version":"0.1",)"
+                    R"("kinds":["notify","http.post"]})");
+    seeds.write("connector_line_fuzz", "outcome-done",
+                std::string(1, '\0') + R"({"type":"outcome","id":")" + request +
+                    R"(","status":"done","result":{"ref":"N-1","amount":1250,"ok":true,)"
+                    R"("lines":[1,-2,null]},"response":"eyJvayI6dHJ1ZX0"})");
+    seeds.write("connector_line_fuzz", "outcome-retry",
+                std::string(1, '\0') + R"({"type":"outcome","id":")" + request +
+                    R"(","status":"retry","reason":"unavailable","retry_after_ms":2000})");
+    seeds.write("connector_line_fuzz", "log",
+                std::string(1, '\0') + R"({"type":"log","level":"warn","message":"slow","id":")" +
+                    request + R"("})");
+    seeds.write("connector_line_fuzz", "hello",
+                std::string(1, '\1') +
+                    R"({"type":"hello","protocol":1,"connector":"hook","config":{"url":)"
+                    R"("https://example.com/hook","timeout":10},"secrets":{"hook-key":"k"}})");
+    seeds.write("connector_line_fuzz", "perform",
+                std::string(1, '\1') + R"({"type":"perform","id":")" + request +
+                    R"(","kind":"notify","params":{"about":"welcome"},)"
+                    R"("params_cbor":"a16561626f75746777656c636f6d65","deadline":1800000000000,)"
+                    R"("asked_at":1799000000000,"home":")" +
+                    other + R"(","contract":")" + other + R"(","instance":")" + other +
+                    R"(","reply":"result","attempt":2,"timeout_ms":30000})");
+    seeds.write("connector_line_fuzz", "cancel",
+                std::string(1, '\1') + R"({"type":"cancel","id":")" + request +
+                    R"(","reason":"answered"})");
     seeds.write("pkcs11_uri_fuzz", "key",
                 "pkcs11:token=CexChain;object=alice;type=private?module-path=/usr/lib/"
                 "softhsm/libsofthsm2.so&pin-source=file:/run/pin");
