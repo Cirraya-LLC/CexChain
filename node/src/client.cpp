@@ -150,7 +150,8 @@ Result<http::ClientResponse> Client::request(std::string_view method, std::strin
     // method and body kept; never from https to http.
     for (int hops = 0;; ++hops) {
         auto response = send(at, target, method, body, content_type);
-        if (!response || (response->status != 307 && response->status != 308) || hops == 3) {
+        if (!response || (response->status != 307 && response->status != 308) || hops == 3 ||
+            !options_.follow_redirects) {
             return response;
         }
         const auto location = response->header("location");
@@ -181,6 +182,15 @@ Result<http::ClientResponse> Client::send(const Url& to, const std::string& targ
                           "\r\nConnection: close\r\nAccept: application/cbor, application/json\r\n";
     if (options_.bearer_token) {
         message += "Authorization: Bearer " + *options_.bearer_token + "\r\n";
+    }
+    for (const auto& [name, value] : options_.headers) {
+        auto breaks = [](std::string_view text) {
+            return text.find_first_of(std::string_view("\r\n\0", 3)) != std::string_view::npos;
+        };
+        if (name.empty() || name.find(':') != std::string::npos || breaks(name) || breaks(value)) {
+            return fail(Errc::invalid_argument, "a header field has a line break or no name");
+        }
+        message += name + ": " + value + "\r\n";
     }
     if (!body.empty() || method == "POST") {
         if (!content_type.empty()) {
@@ -260,7 +270,19 @@ Result<http::ClientResponse> Client::send(const Url& to, const std::string& targ
         co_await exchange(stream, message, options_.max_body, outcome);
     };
     asio::co_spawn(io, run(), asio::detached);
-    io.run_for(options_.timeout);
+    if (options_.stop == nullptr) {
+        io.run_for(options_.timeout);
+    } else {
+        // In slices, so that a stopping process need not wait for a long poll.
+        const auto until = std::chrono::steady_clock::now() + options_.timeout;
+        while (!io.stopped() && std::chrono::steady_clock::now() < until) {
+            if (options_.stop->load()) {
+                return fail(Errc::unavailable, "stopped");
+            }
+            io.run_for(std::min<std::chrono::steady_clock::duration>(
+                std::chrono::milliseconds(100), until - std::chrono::steady_clock::now()));
+        }
+    }
     if (!io.stopped()) {
         return fail(Errc::unavailable, "the server did not answer in time");
     }

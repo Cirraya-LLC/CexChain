@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -10,6 +11,8 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/error.hpp>
@@ -40,6 +43,16 @@ struct ClientOptions {
     std::size_t max_body = 64 * 1024 * 1024;
     /// Sent as "Authorization: Bearer <token>" if set.
     std::optional<std::string> bearer_token;
+    /// More header fields, sent as given (names and values without CR, LF,
+    /// or NUL; a request with others fails with Errc::invalid_argument).
+    std::vector<std::pair<std::string, std::string>> headers;
+    /// Follow a cluster follower's 307 or 308 to its leader (at most three
+    /// times, never from https to http). Off for webhooks.
+    bool follow_redirects = true;
+    /// If set, checked every 100 ms: once true, the request is abandoned and
+    /// fails with Errc::unavailable ("stopped"). For long polls in a process
+    /// that is stopping.
+    const std::atomic<bool>* stop = nullptr;
 };
 
 /// A small HTTP/1.1 client: one connection per request. TLS certificates are

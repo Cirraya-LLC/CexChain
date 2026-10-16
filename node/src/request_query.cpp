@@ -87,10 +87,33 @@ std::variant<RequestQuery, QueryError> parse_request_query(const http::Request& 
                 return QueryError{"wait is 0 to 25 seconds"};
             }
             q.wait = std::chrono::seconds(*wait);
+        } else if (name == "executor") {
+            const auto parsed = id(value);
+            if (!parsed) {
+                return QueryError{"executor is an actor id of 64 hex digits"};
+            }
+            q.executor = *parsed;
+        } else if (name == "lease") {
+            if (value.size() < 8 || value.size() > 64 || !std::ranges::all_of(value, [](char c) {
+                    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                           (c >= '0' && c <= '9') || c == '-' || c == '_';
+                })) {
+                return QueryError{"lease is 8 to 64 letters, digits, '-', or '_'"};
+            }
+            q.lease = value;
+        } else if (name == "ttl") {
+            const auto ttl = number(value);
+            if (!ttl || *ttl < min_lease_ttl || *ttl > max_lease_ttl) {
+                return QueryError{"ttl is 5 to 300 seconds"};
+            }
+            q.ttl = std::chrono::seconds(*ttl);
         } else {
-            return QueryError{
-                "the parameters are state, kind, contract, instance, after, limit, and wait"};
+            return QueryError{"the parameters are state, kind, contract, instance, after, limit, "
+                              "wait, executor, lease, and ttl"};
         }
+    }
+    if (q.lease.has_value() != q.executor.has_value()) {
+        return QueryError{"executor and lease go together"};
     }
     return q;
 }

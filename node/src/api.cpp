@@ -388,6 +388,14 @@ struct LedgerApi::State {
     std::vector<Waiter> waiters;
     /// Set once the server stops: long polls are answered at once.
     bool polls_stopped = false;
+    /// Executors' leases (6b, design 3.5), by executor actor (hex): one
+    /// active copy per executor. In memory only: after a restart or a
+    /// failover, the first copy to poll takes it. Under waiters_mutex.
+    struct Lease {
+        std::string holder;
+        steady::time_point until;
+    };
+    std::map<std::string, Lease> leases;
 
     /// The keeper (6b): its scans run as writer jobs, a slice of runs at a
     /// time. The tick's and the writer's, under keeper_mutex.
@@ -1256,12 +1264,52 @@ struct LedgerApi::State {
                 size};
     }
 
+    /// Takes or renews `q`'s lease (if it names one) until `until`. Returns
+    /// the answer's "lease": granted, or held by another copy until when.
+    /// Under waiters_mutex.
+    json take_lease(const RequestQuery& q, steady::time_point now, steady::time_point until) {
+        constexpr std::size_t max_leases = 4096;
+        const std::string executor = hex(*q.executor);
+        auto it = leases.find(executor);
+        if (it != leases.end() && it->second.holder != *q.lease && it->second.until > now) {
+            const auto left =
+                std::chrono::duration_cast<std::chrono::milliseconds>(it->second.until - now);
+            return {{"granted", false}, {"holder", it->second.holder}, {"retry_ms", left.count()}};
+        }
+        if (it == leases.end()) {
+            std::erase_if(leases, [&](const auto& l) { return l.second.until <= now; });
+            if (leases.size() >= max_leases) {
+                return {{"granted", false}, {"holder", nullptr}, {"retry_ms", 1000}};
+            }
+            it = leases.emplace(executor, Lease{}).first;
+        }
+        it->second = {*q.lease, until};
+        return {{"granted", true},
+                {"holder", *q.lease},
+                {"ttl_ms", std::chrono::milliseconds(q.ttl).count()}};
+    }
+
+    /// The answer to a poll whose copy does not hold its executor's lease:
+    /// nothing, and the cursor unchanged.
+    json without_lease(const RequestQuery& q, json lease) const {
+        return {{"requests", json::array()},
+                {"cursor", q.after},
+                {"more", false},
+                {"time", clock->now()},
+                {"lease", std::move(lease)}};
+    }
+
     /// GET /v1/requests: the requests that match at once, or, with a wait,
     /// once some do (a long poll).
     void requests_request(const http::Request& r, std::string principal, Done done) {
         auto parsed = parse_request_query(r);
         if (const auto* refusal = std::get_if<detail::QueryError>(&parsed)) {
             finish(done, principal, error_response(400, "invalid_argument", refusal->message));
+            return;
+        }
+        // A cluster's leases are the leader's: every copy asks the same one.
+        if (std::get<RequestQuery>(parsed).lease && cluster && !cluster->leads()) {
+            finish(done, principal, not_leader(r.target));
             return;
         }
         auto start = [this, q = std::get<RequestQuery>(std::move(parsed)),
@@ -1274,6 +1322,16 @@ struct LedgerApi::State {
             }
             Found found = find_requests(q);
             const std::lock_guard lock(waiters_mutex);
+            if (q.lease) {
+                // Held through the wait, and for the ttl after the answer.
+                const auto now = steady::now();
+                json lease = take_lease(q, now, now + q.wait + q.ttl);
+                if (!lease["granted"].get<bool>()) {
+                    finish(done, principal, json_response(200, without_lease(q, std::move(lease))));
+                    return;
+                }
+                found.body["lease"] = std::move(lease);
+            }
             if (found.count > 0 || q.wait.count() == 0 || polls_stopped ||
                 waiters.size() >= max_waiters) {
                 finish(done, principal, json_response(200, found.body));
@@ -1309,6 +1367,14 @@ struct LedgerApi::State {
             }
             Found found = find_requests(it->query);
             if (found.count > 0 || over) {
+                if (it->query.lease && !failed) {
+                    json lease = take_lease(it->query, now, now + it->query.ttl);
+                    if (lease["granted"].get<bool>()) {
+                        found.body["lease"] = std::move(lease);
+                    } else {
+                        found.body = without_lease(it->query, std::move(lease));
+                    }
+                }
                 finish(it->done, it->principal,
                        failed ? error_response(503, "unavailable",
                                                "the ledger's files do not validate; run "

@@ -530,6 +530,35 @@ Status random_bytes(std::span<std::uint8_t> out) {
     return {};
 }
 
+Result<Digest> hmac(HashAlg alg, ByteView key, ByteView message) {
+    std::unique_ptr<EVP_MAC, decltype(&EVP_MAC_free)> mac(EVP_MAC_fetch(nullptr, "HMAC", nullptr),
+                                                          &EVP_MAC_free);
+    if (!mac) {
+        return openssl_fail(Errc::unsupported, "HMAC is not available");
+    }
+    std::unique_ptr<EVP_MAC_CTX, decltype(&EVP_MAC_CTX_free)> ctx(EVP_MAC_CTX_new(mac.get()),
+                                                                  &EVP_MAC_CTX_free);
+    std::array<char, 16> name{};
+    std::ranges::copy(std::string_view(digest_name(alg)), name.begin());
+    const std::array params{OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, name.data(), 0),
+                            OSSL_PARAM_construct_end()};
+    // EVP_MAC_init takes no key of length zero from a null pointer.
+    static constexpr std::uint8_t no_key = 0;
+    if (!ctx || EVP_MAC_init(ctx.get(), key.empty() ? &no_key : key.data(), key.size(),
+                             params.data()) != 1) {
+        return openssl_fail(Errc::unsupported, "HMAC with this hash is not available");
+    }
+    if (!message.empty() && EVP_MAC_update(ctx.get(), message.data(), message.size()) != 1) {
+        return openssl_fail(Errc::crypto_failure, "HMAC update failed");
+    }
+    std::array<std::uint8_t, EVP_MAX_MD_SIZE> out{};
+    std::size_t length = 0;
+    if (EVP_MAC_final(ctx.get(), out.data(), &length, out.size()) != 1) {
+        return openssl_fail(Errc::crypto_failure, "HMAC finalization failed");
+    }
+    return Digest::from_bytes(ByteView(out.data(), length));
+}
+
 // ---------------------------------------------------------------------------
 // KeyPair
 // ---------------------------------------------------------------------------

@@ -20,6 +20,12 @@
 /// in the instance's evidence before acting on it (spec section 15).
 namespace cexchain::node::detail {
 
+/// An executor's lease lasts this long after its last poll by default; 5 to
+/// 300 seconds.
+inline constexpr std::uint64_t default_lease_ttl = 60;
+inline constexpr std::uint64_t min_lease_ttl = 5;
+inline constexpr std::uint64_t max_lease_ttl = 300;
+
 struct RequestQuery {
     enum class Which : std::uint8_t { open, answered, all };
     Which which = Which::open;
@@ -35,6 +41,13 @@ struct RequestQuery {
     /// A long poll: if nothing matches, wait this long for something to (at
     /// most max_request_wait seconds).
     std::chrono::seconds wait{0};
+    /// An executor's lease (6b): the copy `lease` (8 to 64 letters, digits,
+    /// '-' or '_', random per process) of the executor `executor` (an actor
+    /// id) takes or renews the lease for `ttl` after the answer; a copy that
+    /// does not hold it is told so and gets no requests. Both or neither.
+    std::optional<std::string> lease;
+    std::optional<protocol::Id> executor;
+    std::chrono::seconds ttl{default_lease_ttl};
 };
 
 /// The longest a long poll waits: below the server's request timeout (30 s
@@ -48,7 +61,8 @@ struct QueryError {
 };
 
 /// Parses the request's query: state, kind (comma-separated), contract,
-/// instance, after, limit, and wait; anything else is refused.
+/// instance, after, limit, wait, and an executor's executor, lease, and
+/// ttl; anything else is refused.
 [[nodiscard]] std::variant<RequestQuery, QueryError> parse_request_query(const http::Request& r);
 
 /// GET /v1/contracts/due (6b): what a keeper would do at a time.

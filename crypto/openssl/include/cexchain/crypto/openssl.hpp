@@ -52,6 +52,11 @@ private:
 /// Fills `out` from OpenSSL's CSPRNG (seeded by the operating system).
 [[nodiscard]] Status random_bytes(std::span<std::uint8_t> out);
 
+/// HMAC (RFC 2104) of `message` under `key` with the hash `alg` (SHA-256 or
+/// SM3, for example), as OpenSSL's EVP_MAC computes it. Not part of the
+/// protocol: executors sign the requests they send to webhooks with it.
+[[nodiscard]] Result<Digest> hmac(HashAlg alg, ByteView key, ByteView message);
+
 /// A software key pair held in OpenSSL. ESP256 signatures are returned in
 /// low-S form. A moved-from KeyPair reports an empty public key and refuses to
 /// sign or export.

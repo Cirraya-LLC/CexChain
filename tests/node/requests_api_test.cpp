@@ -497,3 +497,48 @@ TEST_CASE("an executor's token reads requests and evidence, and submits answers 
     json answered = body_json(get(executor, "/v1/requests?state=answered&kind=notify"));
     CHECK(answered["requests"].size() == 2);
 }
+
+TEST_CASE("an executor's lease gives one copy at a time the requests", "[node][requests]") {
+    Home home;
+    const auto api = home.api();
+    Running running(*api);
+    const auto executor = running.client(home.executor_token);
+    const std::string as = "/v1/requests?state=open&executor=" + hex_id(home.executor);
+
+    // The first copy takes the lease and gets the open requests.
+    json first = body_json(get(executor, as + "&lease=copy-one-1234&ttl=5"));
+    CHECK(first["lease"]["granted"] == true);
+    CHECK(first["lease"]["holder"] == "copy-one-1234");
+    CHECK(ids(first).size() == 2);
+    // The second gets nothing while the first holds it, and is told for how
+    // long; its cursor stays where it was.
+    json second = body_json(get(executor, as + "&lease=copy-two-1234&ttl=5&after=3"));
+    CHECK(second["lease"]["granted"] == false);
+    CHECK(second["lease"]["holder"] == "copy-one-1234");
+    CHECK(second["lease"]["retry_ms"].get<std::int64_t>() > 0);
+    CHECK(second["lease"]["retry_ms"].get<std::int64_t>() <= 5000);
+    CHECK(ids(second).empty());
+    CHECK(second["cursor"] == 3);
+    // The holder renews it; another executor's lease is its own.
+    CHECK(body_json(get(executor, as + "&lease=copy-one-1234&ttl=5"))["lease"]["granted"] == true);
+    const std::string other = "/v1/requests?executor=" + std::string(64, 'a');
+    CHECK(body_json(get(executor, other + "&lease=copy-two-1234"))["lease"]["granted"] == true);
+    // Without a lease, a poll is answered as before.
+    CHECK(!body_json(get(executor, "/v1/requests")).contains("lease"));
+
+    // Once the holder stops polling, the lease lapses and the other copy
+    // takes it over.
+    std::this_thread::sleep_for(5200ms);
+    second = body_json(get(executor, as + "&lease=copy-two-1234&ttl=5"));
+    CHECK(second["lease"]["granted"] == true);
+    CHECK(ids(second).size() == 2);
+    CHECK(body_json(get(executor, as + "&lease=copy-one-1234"))["lease"]["granted"] == false);
+
+    // Malformed leases are refused.
+    for (const std::string query : {"&lease=short", "&lease=has%20space1",
+                                    "&ttl=4&lease=copy-one-1234", "&ttl=301&lease=copy-one-1234"}) {
+        INFO(query);
+        CHECK(get(executor, as + query).status == 400);
+    }
+    CHECK(get(executor, "/v1/requests?lease=copy-one-1234").status == 400);
+}

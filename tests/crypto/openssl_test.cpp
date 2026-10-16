@@ -380,3 +380,24 @@ TEST_CASE("HPKE keys round-trip through plain and encrypted PKCS #8", "[crypto][
     CHECK(HpkeKey::from_pkcs8(signing->to_pkcs8()->view()).error().code == Errc::unsupported);
     CHECK_FALSE(KeyPair::from_pkcs8(plain->view()));
 }
+
+TEST_CASE("HMAC matches RFC 4231 and takes SM3 too", "[crypto][openssl][hmac]") {
+    // RFC 4231, test case 2.
+    const auto mac =
+        crypto::openssl::hmac(HashAlg::sha256, as_bytes(std::string_view("Jefe")),
+                              as_bytes(std::string_view("what do ya want for nothing?")));
+    REQUIRE(mac);
+    CHECK(to_hex(mac->bytes()) ==
+          "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843");
+    const auto sm3 =
+        crypto::openssl::hmac(HashAlg::sm3, as_bytes(std::string_view("Jefe")),
+                              as_bytes(std::string_view("what do ya want for nothing?")));
+    REQUIRE(sm3);
+    CHECK(sm3->bytes().size() == 32);
+    CHECK(to_hex(sm3->bytes()) != to_hex(mac->bytes()));
+    // An empty key and an empty message are allowed.
+    const auto empty = crypto::openssl::hmac(HashAlg::sha256, {}, {});
+    REQUIRE(empty);
+    CHECK(to_hex(empty->bytes()) ==
+          "b613679a0814d9ec772f95d778c35fc5ff1697c493715653c6c712144292c5ad");
+}
