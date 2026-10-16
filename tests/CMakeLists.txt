@@ -37,6 +37,7 @@ add_executable(cexchain_tests
     node/cluster_test.cpp
     node/connector_test.cpp
     node/connectors_test.cpp
+    node/executor_test.cpp
     node/http_test.cpp
     node/keeper_api_test.cpp)
 

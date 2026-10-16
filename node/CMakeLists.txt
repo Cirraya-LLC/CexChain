@@ -9,6 +9,7 @@ add_library(cexchain_node
     src/client.cpp
     src/contracts.cpp
     src/cluster.cpp
+    src/executor.cpp
     src/connector.cpp
     src/connectors.cpp
     src/files.cpp
