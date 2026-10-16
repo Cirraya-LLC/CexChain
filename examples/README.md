@@ -19,6 +19,7 @@ Each example is a directory with:
 | [supply-agreement](supply-agreement/) | An agreement proposed by one organization and signed once two others consent: a person at one, an AI agent (through MCP) at the other; a registrar collects the consents online; one ledger uses the Chinese SM2 and SM3 algorithms | 3 organizations |
 | [receivable-financing](receivable-financing/) | Supply-chain finance: a receivable pledged to a bank, a second pledge refused, released, sold to a factoring company, and paid; a regulator witnesses the home ledger, and the bank lends only once the pledge is witnessed | 5 organizations |
 | [multi-tier-split](multi-tier-split/) | Multi-tier supply-chain finance: a receivable split down a supply chain, each part an instance of its own, a part pledged to a bank that verifies the whole chain offline first | 6 organizations |
+| [shipment](shipment/) | A chain of custody: goods kept cold, handed from a shipper to a carrier, a transit warehouse, and a consignee. The driver signs each handover in person with a hardware key, a data logger (a device) posts readings, a keeper marks the shipment late, delivery charges each day late, the consignee checks a QR code and claims from an insurer; one ledger uses SM2 and SM3 | 5 organizations |
 
 ## Running one
 
@@ -32,13 +33,16 @@ examples/lending/lending.sh build/gcc-release/cli/cexchain ./lending-demo   # ke
 ```
 
 The scripts are also tests: `ctest -R demo_` runs every one (`demo_lending`,
-`demo_supply_agreement`, `demo_receivable_financing`, `demo_multi_tier_split`), so they keep
-working as CexChain changes.
+`demo_supply_agreement`, `demo_receivable_financing`, `demo_multi_tier_split`,
+`demo_shipment`), so they keep working as CexChain changes. The shipment also needs SoftHSM,
+which stands in for its driver's hardware key (`brew install softhsm`, or `apt install
+softhsm2`).
 
 ## Industry words
 
 The finance examples use words that Bo's vocabulary currently builds in (pledge, pay,
 split, with the standard library's terms for each). They are planned to move into optional
 vocabulary packs that a contract declares when it needs them, so that the language's core,
-like the rest of CexChain, stays free of any one industry. An example's own words (its
+like the rest of CexChain, stays free of any one industry. The lending, supply-agreement, and
+shipment contracts use core words only. An example's own words (its
 parties, fields, states, and actions) are always its own.

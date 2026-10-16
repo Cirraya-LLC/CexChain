@@ -101,7 +101,7 @@ std::vector<std::filesystem::path> all_sources() {
     }
     // The examples library's contracts.
     for (const std::string_view example :
-         {"lending", "supply-agreement", "receivable-financing", "multi-tier-split"}) {
+         {"lending", "supply-agreement", "receivable-financing", "multi-tier-split", "shipment"}) {
         const std::string name(example);
         out.push_back(source_dir / "examples" / name / (name + ".bo"));
     }
@@ -257,7 +257,7 @@ TEST_CASE("formatting a source into its own language changes only its layout", "
     }
     // The examples' contracts are kept in canonical layout, in English.
     for (const std::string_view example :
-         {"lending", "supply-agreement", "receivable-financing", "multi-tier-split"}) {
+         {"lending", "supply-agreement", "receivable-financing", "multi-tier-split", "shipment"}) {
         INFO(example);
         const std::string name(example);
         const std::string demo = read_text(source_dir / "examples" / name / (name + ".bo"));
