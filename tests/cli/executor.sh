@@ -400,7 +400,9 @@ KEEPER_ID="$(a keeper add Keeper --contracts "$C" --key-out keeper.key --as a-ro
 # Through a server that takes no answers for a while: the executor acts,
 # signs its answer, and keeps trying to send it.
 touch refuse-posts
-R6="$(ask http.post '{"n": 6}' 7000)"
+# Due in 20 s: time for the action (it never starts within its 5 s timeout of
+# the deadline), slow builds included.
+R6="$(ask http.post '{"n": 6}' 20000)"
 ACTIONS="$(lines post-count)"
 "$CEXCHAIN" executor run --config worker.json --state "$S" --server "$PROXY" \
     --token-file worker.token --as worker.key --wait 1 --lease-ttl 5 --json > late.jsonl 2> late.log &
@@ -409,7 +411,7 @@ PIDS+=("$EXECUTOR")
 wait_for 300 stage_is "$R6" answering || { cat late.jsonl; fail "the answer was never journaled"; }
 # Once the deadline passes, the keeper expires it.
 past_deadline() { [ "$(trap - ERR; a request list --overdue --json | json 'len(d)')" -ge 1 ]; }
-wait_for 150 past_deadline || fail "the deadline did not pass"
+wait_for 300 past_deadline || fail "the deadline did not pass"
 a keeper run --as keeper.key --grace 0 --json | json 'len(d["calls"])' | contains -x 1
 status_of "$R6" | contains -x expired
 # The answer is sent at last, refused, and journaled as final.
