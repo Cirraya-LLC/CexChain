@@ -981,8 +981,13 @@ TEST_CASE("a cluster's registrar carries on with a pending call after a failover
             continue;
         }
         CHECK(eventually([&] {
-            const auto* i = m.api->ledger().state().instance(home.agreement);
-            return i != nullptr && i->status == "effective" &&
+            // Under the state's lock: the member applies entries meanwhile.
+            bool effective = false;
+            m.api->ledger().read_state([&](const protocol::LedgerState& state) {
+                const auto* i = state.instance(home.agreement);
+                effective = i != nullptr && i->status == "effective";
+            });
+            return effective &&
                    std::filesystem::exists(node::contract_consents_path(m.dir, call)) &&
                    node::held_calls(m.dir).empty();
         }));

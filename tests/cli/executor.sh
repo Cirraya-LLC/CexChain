@@ -73,10 +73,11 @@ C="$(a contract deploy requesting.wasm --function open=create --function ask=cal
 CLERK="$(a actor add --as a-root.key --kind person --name "Clerk" --key clerk.key --json | json 'd["actor"]["id"]')"
 a delegation grant --as a-root.key --to "$CLERK" --allow contract-call --contracts "$C" > /dev/null
 I="$(a contract create "$C" open --args '[]' --as a-root.key --json | json 'd["instance"]["id"]')"
-# Asks for a request of KIND with PARAMS, due AFTER ms from now; prints its id.
+# Asks for a request of KIND with PARAMS, due AFTER ms from now; prints its id
+# (the newest of its kind: a running executor may have answered it already).
 ask() {
     a contract call "$I" ask --args "[[\"$1\", $2, $3]]" --as clerk.key > /dev/null
-    a request list --open --kind "$1" --json | json 'd[-1]["id"]'
+    a request list --kind "$1" --json | json 'd[-1]["id"]'
 }
 status_of() { a request show "$1" --json | json 'd["status"]'; }
 

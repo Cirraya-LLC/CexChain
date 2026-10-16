@@ -357,6 +357,21 @@ std::string hex_id(const protocol::Id& id) {
     return cexchain::to_hex(id.bytes());
 }
 
+/// A request's status on the server's ledger (nullopt: open), and an
+/// instance's head, read under the state's lock: the server writes
+/// meanwhile.
+std::optional<protocol::AnswerStatus> status_of(const node::LedgerApi& api, const protocol::Id& r) {
+    std::optional<protocol::AnswerStatus> status;
+    api.ledger().read_state([&](const protocol::LedgerState& s) { status = s.request(r)->status; });
+    return status;
+}
+std::uint64_t head_of(const node::LedgerApi& api, const protocol::Id& instance) {
+    std::uint64_t head = 0;
+    api.ledger().read_state(
+        [&](const protocol::LedgerState& s) { head = s.instance(instance)->head; });
+    return head;
+}
+
 } // namespace
 
 TEST_CASE("an executor verifies a request, acts once, and answers with the response's digest",
@@ -372,10 +387,8 @@ TEST_CASE("an executor verifies a request, acts once, and answers with the respo
     CHECK(recorder.performed[0] == home.requests[0]);
     CHECK(has_event(events, "verified"));
     CHECK(has_event(events, "answered"));
-    const protocol::RequestState* r = api->ledger().state().request(home.requests[0]);
-    REQUIRE(r != nullptr);
-    REQUIRE(r->status == protocol::AnswerStatus::done);
-    CHECK(api->ledger().state().request(home.requests[1])->open());
+    REQUIRE(status_of(*api, home.requests[0]) == protocol::AnswerStatus::done);
+    CHECK(!status_of(*api, home.requests[1]));
 
     // The journal keeps the response and its salt; the answer carries the
     // salted digest only.
@@ -426,7 +439,7 @@ TEST_CASE("an executor retries transient failures and answers failures with a re
     const protocol::Timestamp now = ledger::SystemClock{}.now();
     auto events = run_once(home, running.url(), recorder, state, now);
     CHECK(has_event(events, "retry"));
-    CHECK(api->ledger().state().request(home.requests[0])->open());
+    CHECK(!status_of(*api, home.requests[0]));
     auto entry = executor::Journal(state).find(home.requests[0]);
     REQUIRE(entry);
     CHECK(entry->stage == executor::Stage::verified);
@@ -438,8 +451,7 @@ TEST_CASE("an executor retries transient failures and answers failures with a re
     // Due: the second attempt fails for good, and the answer says why.
     events = run_once(home, running.url(), recorder, state, now + 2000);
     CHECK(recorder.count() == 2);
-    const protocol::RequestState* r = api->ledger().state().request(home.requests[0]);
-    REQUIRE(r->status == protocol::AnswerStatus::failed);
+    REQUIRE(status_of(*api, home.requests[0]) == protocol::AnswerStatus::failed);
     entry = executor::Journal(state).find(home.requests[0]);
     CHECK(entry->stage == executor::Stage::answered);
     CHECK(entry->reason == "unmapped");
@@ -479,7 +491,7 @@ TEST_CASE("an executor never acts on a request the signed evidence does not show
     const node::Client client(*node::Url::parse(upstream.url()), staff);
     protocol::ContractCallBody answer;
     answer.instance = home.instance;
-    answer.head = api->ledger().state().instance(home.instance)->head;
+    answer.head = head_of(*api, home.instance);
     answer.function = "result";
     answer.answer = protocol::ContractAnswer{home.requests[1], protocol::AnswerStatus::failed};
     const auto by_hand =
@@ -518,14 +530,14 @@ TEST_CASE("an executor resumes from its journal without acting twice, and takes 
     auto entry = executor::Journal(state).find(home.requests[0]);
     REQUIRE(entry);
     CHECK(entry->stage == executor::Stage::answering);
-    CHECK(api->ledger().state().request(home.requests[0])->open());
+    CHECK(!status_of(*api, home.requests[0]));
     // Resumed: answered from the journal, not acted on again.
     lying.refuse_answers = false;
     run_once(home, front.url(), recorder, state, ledger::SystemClock{}.now() + 2000);
     CHECK(recorder.count() == 1);
     entry = executor::Journal(state).find(home.requests[0]);
     CHECK(entry->stage == executor::Stage::answered);
-    CHECK(api->ledger().state().request(home.requests[0])->status == protocol::AnswerStatus::done);
+    CHECK(status_of(*api, home.requests[0]) == protocol::AnswerStatus::done);
 
     // Another request, answered by someone else while the connector works:
     // the executor's own answer is refused, journaled as final, not retried.
@@ -534,7 +546,7 @@ TEST_CASE("an executor resumes from its journal without acting twice, and takes 
     const node::Client client(*node::Url::parse(upstream.url()), staff);
     protocol::ContractCallBody ask;
     ask.instance = home.instance;
-    ask.head = api->ledger().state().instance(home.instance)->head;
+    ask.head = head_of(*api, home.instance);
     ask.function = "ask";
     ask.arguments = asks({{"notify", hour}});
     auto asked =
@@ -552,7 +564,7 @@ TEST_CASE("an executor resumes from its journal without acting twice, and takes 
     recorder.decide = [&](const connector::Perform& p) {
         protocol::ContractCallBody answer;
         answer.instance = home.instance;
-        answer.head = api->ledger().state().instance(home.instance)->head;
+        answer.head = head_of(*api, home.instance);
         answer.function = "result";
         answer.answer = protocol::ContractAnswer{p.request, protocol::AnswerStatus::failed};
         auto by_hand =
@@ -575,7 +587,7 @@ TEST_CASE("an executor resumes from its journal without acting twice, and takes 
     CHECK(!(entry->answered_by == home.executor));
     CHECK(entry->status == "done"); // its own outcome stays in the journal
     CHECK(has_event(events, "closed"));
-    CHECK(api->ledger().state().request(third)->status == protocol::AnswerStatus::failed);
+    CHECK(status_of(*api, third) == protocol::AnswerStatus::failed);
     // Not retried.
     run_once(home, upstream.url(), recorder, state);
     CHECK(recorder.count() == 2);
@@ -609,7 +621,7 @@ TEST_CASE("one copy of an executor acts at a time, by the server's lease", "[nod
     std::this_thread::sleep_for(5200ms);
     events = run_once(home, running.url(), second, state_b);
     CHECK(second.count() == 1);
-    CHECK(api->ledger().state().request(home.requests[0])->status == protocol::AnswerStatus::done);
+    CHECK(status_of(*api, home.requests[0]) == protocol::AnswerStatus::done);
 
     // Two copies may not share a state directory.
     std::atomic<bool> stop{false};
