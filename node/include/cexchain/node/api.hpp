@@ -34,6 +34,8 @@
 /// read or executor: GET /v1/requests?state=&kind=&contract=&instance=&after=&limit=&wait=
 ///         (requests, v0.8: a hint for executors, which check a request in the instance's
 ///         evidence before acting; with wait=S, a long poll of up to 25 seconds)
+/// read:   GET /v1/contracts/due?at=&grace=&keeper=&contract=&instance=&start=&limit=
+///         (what a keeper would do: the time rules due and the requests to expire)
 /// executor (6b): GET /v1/requests, GET /v1/contracts/instances/{instance}, and
 ///         POST /v1/statements for answers to requests only
 /// admin:  POST /v1/checkpoint, POST /v1/cosignatures ([cosignature, witness key])
@@ -83,6 +85,18 @@ struct ApiOptions {
     /// (POST /v1/contracts/consents), and records each call once its
     /// contract accepts it. Without it, those routes answer 501.
     std::shared_ptr<const crypto::Signer> registrar;
+    /// The keeper (6b): an actor of this ledger whose delegations cover the
+    /// time rules (functions `when.*`) and the requests' replies it may
+    /// call. With it, the server fires the time rules that are due and
+    /// expires the requests open past their deadline plus `expiry_grace`,
+    /// every `keeper_interval`, signing as this actor, with its writes queued
+    /// like any other; in a cluster, only the leader does.
+    std::shared_ptr<const crypto::Signer> keeper;
+    std::chrono::seconds keeper_interval{60};
+    std::chrono::milliseconds expiry_grace{15 * 60'000};
+    /// For tests: the clock the ledger registers statements by, and the
+    /// keeper runs at (default: the system's). It must outlive the API.
+    ledger::Clock* clock = nullptr;
 };
 
 class LedgerApi final : public Application {

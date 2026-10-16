@@ -14,7 +14,8 @@
 #include <cexchain/core/protocol/common.hpp>
 #include <cexchain/node/http.hpp>
 
-/// GET /v1/requests (spec v0.8, 6b): the query an executor sends to learn of
+/// The queries of the routes for executors and keepers (6b). GET
+/// /v1/requests (spec v0.8): the query an executor sends to learn of
 /// requests. What the route answers is a hint: an executor checks a request
 /// in the instance's evidence before acting on it (spec section 15).
 namespace cexchain::node::detail {
@@ -49,5 +50,30 @@ struct QueryError {
 /// Parses the request's query: state, kind (comma-separated), contract,
 /// instance, after, limit, and wait; anything else is refused.
 [[nodiscard]] std::variant<RequestQuery, QueryError> parse_request_query(const http::Request& r);
+
+/// GET /v1/contracts/due (6b): what a keeper would do at a time.
+struct DueQuery {
+    /// The time to run at, in milliseconds since the epoch (default: now).
+    std::optional<protocol::Timestamp> at;
+    /// The grace after a deadline before an expiry, in seconds (default:
+    /// the server's).
+    std::optional<std::uint64_t> grace;
+    /// Whose work: an actor's (its delegations decide), or everything.
+    std::optional<protocol::Id> keeper;
+    std::optional<protocol::Id> contract;
+    std::optional<protocol::Id> instance;
+    /// Instances to skip: the `next` of an earlier answer.
+    std::uint64_t start = 0;
+    /// Contract runs at most: 1 to max_due_limit.
+    std::uint64_t limit = 10'000;
+};
+
+inline constexpr std::uint64_t max_due_limit = 100'000;
+/// A grace of at most 366 days, as a request's deadline.
+inline constexpr std::uint64_t max_due_grace = 31'622'400;
+
+/// Parses the due route's query: at, grace, keeper, contract, instance,
+/// start, and limit; anything else is refused.
+[[nodiscard]] std::variant<DueQuery, QueryError> parse_due_query(const http::Request& r);
 
 } // namespace cexchain::node::detail

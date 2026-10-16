@@ -35,7 +35,8 @@ add_executable(cexchain_tests
     node/contracts_api_test.cpp
     node/requests_api_test.cpp
     node/cluster_test.cpp
-    node/http_test.cpp)
+    node/http_test.cpp
+    node/keeper_api_test.cpp)
 
 target_link_libraries(cexchain_tests PRIVATE
     cexchain::core

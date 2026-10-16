@@ -11,6 +11,7 @@ add_library(cexchain_node
     src/cluster.cpp
     src/files.cpp
     src/http.cpp
+    src/keeper.cpp
     src/peers.cpp
     src/replica.cpp
     src/request_query.cpp

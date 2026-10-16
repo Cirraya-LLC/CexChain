@@ -11,6 +11,7 @@
 #include <map>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <thread>
 #include <utility>
 #include <variant>
@@ -26,6 +27,7 @@
 #include <cexchain/node/api.hpp>
 #include <cexchain/node/cluster.hpp>
 #include <cexchain/node/contracts.hpp>
+#include <cexchain/node/keeper.hpp>
 #include <cexchain/node/peers.hpp>
 #include <cexchain/node/tokens.hpp>
 
@@ -243,6 +245,7 @@ enum class Endpoint {
     cluster_step_down,
     contract_list,
     contract_show,
+    contracts_due,
     instance_evidence,
     call_propose,
     call_list,
@@ -303,7 +306,9 @@ struct LedgerApi::State {
     /// options.log_keys as the ledger takes them.
     std::vector<const crypto::Signer*> log_key_ring;
     const crypto::Provider* provider = nullptr;
-    ledger::SystemClock clock;
+    ledger::SystemClock system_clock;
+    /// The system's, or ApiOptions::clock.
+    ledger::Clock* clock = &system_clock;
 
     [[nodiscard]] ledger::LogKeys log_keys() const { return log_key_ring; }
     /// The writer thread's (and open's) only.
@@ -383,6 +388,24 @@ struct LedgerApi::State {
     std::vector<Waiter> waiters;
     /// Set once the server stops: long polls are answered at once.
     bool polls_stopped = false;
+
+    /// The keeper (6b): its scans run as writer jobs, a slice of runs at a
+    /// time. The tick's and the writer's, under keeper_mutex.
+    std::mutex keeper_mutex;
+    /// When the last whole scan ended (the epoch: none yet).
+    steady::time_point keeper_last{};
+    /// Where the next slice starts (instances in log order), and whether it
+    /// goes on at the next tick: a scan cut short, or an instance with more
+    /// due than one call (each call moves its head).
+    std::uint64_t keeper_next = 0;
+    bool keeper_more = false;
+    std::uint32_t keeper_rounds = 0;
+    bool keeper_queued = false;
+    /// This node led at the last tick (a new leader scans at once).
+    bool keeper_leading = false;
+    std::atomic<std::uint64_t> keeper_rules{0};
+    std::atomic<std::uint64_t> keeper_expiries{0};
+    std::atomic<std::uint64_t> keeper_refusals{0};
 
     /// A cluster member's (D-051): the ledger's lock, held for life, and
     /// Raft. Declared last, so they stop before anything they use.
@@ -590,7 +613,7 @@ struct LedgerApi::State {
                         sidecars.emplace_back(std::nullopt);
                     }
                 }
-                auto results = cluster->submit(views, sidecars, clock.now());
+                auto results = cluster->submit(views, sidecars, clock->now());
                 for (std::size_t i = 0; i < batch.size(); ++i) {
                     http::Response response;
                     if (!results) {
@@ -773,10 +796,12 @@ struct LedgerApi::State {
     std::optional<http::Response> authorize(const http::Request& r, Access access,
                                             std::string& principal, Scopes& scopes) const {
         // A public portal shows the log and proofs, never the vault's sealed
-        // records or the server's metrics: those still need a read token.
-        const bool vault_or_metrics = r.path == "/metrics" || r.path.starts_with("/v1/vault/");
+        // records or the server's metrics, and runs no contracts on request
+        // (the due route's dry runs): those still need a read token.
+        const bool token_only = r.path == "/metrics" || r.path.starts_with("/v1/vault/") ||
+                                r.path == "/v1/contracts/due";
         if (access == Access::open ||
-            (access == Access::read && options.public_read && !vault_or_metrics)) {
+            (access == Access::read && options.public_read && !token_only)) {
             principal = "public";
             return std::nullopt;
         }
@@ -826,6 +851,7 @@ struct LedgerApi::State {
                   {"writable", !replica && !options.read_only},
                   {"receipts", !options.log_keys.empty()},
                   {"registrar", options.registrar != nullptr},
+                  {"keeper", options.keeper != nullptr},
                   {"cluster", cluster ? cluster_json() : json(nullptr)},
                   {"version", options.version}});
     }
@@ -1190,7 +1216,7 @@ struct LedgerApi::State {
     /// reported again, but is never missed.
     Found find_requests(const RequestQuery& q) const {
         const std::uint64_t size = ledger->size();
-        const protocol::Timestamp now = ledger::SystemClock{}.now();
+        const protocol::Timestamp now = clock->now();
         json list = json::array();
         std::uint64_t cursor = size;
         bool more = false;
@@ -1460,7 +1486,7 @@ struct LedgerApi::State {
         std::vector<HeldCall> held = held_calls(options.directory);
         const bool home = has_scope(scopes, Scope::read);
         const auto peer = home ? std::nullopt : peer_named(principal);
-        const protocol::Timestamp now = ledger::SystemClock{}.now();
+        const protocol::Timestamp now = clock->now();
         std::vector<HeldCall> out;
         ledger->read_state([&](const protocol::LedgerState& s) {
             for (HeldCall& h : held) {
@@ -1560,7 +1586,7 @@ struct LedgerApi::State {
             return error_response(403, "forbidden", peer.error().detail);
         }
         auto checked = protocol::check_access_request(*provider, r.body, peer->ledger_id,
-                                                      ledger->id(), clock.now());
+                                                      ledger->id(), clock->now());
         if (!checked) {
             return error_response(checked.error());
         }
@@ -1631,7 +1657,7 @@ struct LedgerApi::State {
             const protocol::RecordState* g = state.record(report->record);
             live = g != nullptr && !g->revoked && g->state == "granted";
         });
-        if (!live || grant->until <= ledger::SystemClock{}.now()) {
+        if (!live || grant->until <= clock->now()) {
             return error_response(410, "gone", "the grant was revoked or has expired");
         }
         return binary("application/cbor", std::move(*bytes));
@@ -1811,7 +1837,7 @@ struct LedgerApi::State {
             return;
         }
         const Status checked = check_call_consents(*provider, ledger->id(), ledger->hash(), *call,
-                                                   bundles, clock.now());
+                                                   bundles, clock->now());
         if (!checked) {
             finish(done, principal, error_response(checked.error()));
             return;
@@ -1843,15 +1869,15 @@ struct LedgerApi::State {
                        : apply_pending_changes(options.directory, changes);
     }
 
-    /// Records a signed statement as the registrar: through the cluster
-    /// with its sidecar, or here.
+    /// Records a signed statement as the registrar or the keeper: through
+    /// the cluster with its sidecar, if any, or here.
     Result<ledger::Registration> record(const protocol::SignedStatement& statement,
-                                        const Sidecar& sidecar, protocol::Timestamp now) {
+                                        const std::optional<Sidecar>& sidecar,
+                                        protocol::Timestamp now) {
         Result<ledger::Registration> recorded = fail(Errc::unavailable, "not registered");
         if (cluster) {
             const ByteView bytes = statement.encoded;
-            const std::optional<Sidecar> kept = sidecar;
-            auto results = cluster->submit(std::span(&bytes, 1), std::span(&kept, 1), now);
+            auto results = cluster->submit(std::span(&bytes, 1), std::span(&sidecar, 1), now);
             if (!results) {
                 recorded = std::unexpected(results.error());
             } else {
@@ -1918,7 +1944,7 @@ struct LedgerApi::State {
     /// On the writer: runs the proposal and holds it.
     http::Response take_proposal(PendingCall proposal, const std::optional<protocol::Id>& party,
                                  Scopes scopes) {
-        const protocol::Timestamp now = clock.now();
+        const protocol::Timestamp now = clock->now();
         Result<CallProgress> progress = fail(Errc::unavailable, "no state");
         ledger->read_state([&](const protocol::LedgerState& s) {
             progress = calls->propose(*provider, s, std::move(proposal), party, now, entropy);
@@ -1978,7 +2004,7 @@ struct LedgerApi::State {
     /// contract accepts it.
     http::Response take_call_consent(ByteView bundle, const protocol::Id& party,
                                      const std::string& name) {
-        const protocol::Timestamp now = clock.now();
+        const protocol::Timestamp now = clock->now();
         Result<CallProgress> progress = fail(Errc::unavailable, "no state");
         ledger->read_state([&](const protocol::LedgerState& s) {
             progress = calls->consent(*provider, s, party, bundle, now, entropy);
@@ -2020,7 +2046,7 @@ struct LedgerApi::State {
         std::optional<std::string> status;
         json children = json::array();
         ledger->read_state([&](const protocol::LedgerState& s) {
-            stale = calls->sweep(s, clock.now(), false);
+            stale = calls->sweep(s, clock->now(), false);
             if (const protocol::InstanceState* i = s.instance(progress->call.instance)) {
                 status = i->status;
             }
@@ -2167,6 +2193,186 @@ struct LedgerApi::State {
         });
     }
 
+    // ---- the keeper (6b) ------------------------------------------------
+
+    /// From tick(): queues a slice of the keeper's scan when its interval has
+    /// passed, or when the last slice left work to go on with. Leaders only.
+    void keep() {
+        if (!options.keeper || failed || replica || options.read_only) {
+            return;
+        }
+        const bool leads = !cluster || cluster->leads();
+        const std::lock_guard lock(keeper_mutex);
+        if (!leads) {
+            keeper_leading = false;
+            return;
+        }
+        if (!keeper_leading) {
+            // Just started, or just elected: scan now, from the start.
+            keeper_leading = true;
+            keeper_more = true;
+            keeper_next = 0;
+            keeper_rounds = 0;
+        }
+        if (keeper_queued ||
+            (!keeper_more && steady::now() - keeper_last < options.keeper_interval)) {
+            return;
+        }
+        keeper_queued = true;
+        queue_locked([this](const http::Response* refusal) { keeper_slice(refusal != nullptr); });
+    }
+
+    /// Calls in a row the keeper makes without waiting for its interval
+    /// (instances with more than one thing due, scans cut short).
+    static constexpr std::uint32_t max_keeper_rounds = 16;
+    /// Contract runs in one slice: a slice holds the writer for at most
+    /// about a tenth of a second at Bo's 10,000 to 13,000 fuel a run.
+    static constexpr std::size_t keeper_slice_runs = 2'000;
+
+    /// On the writer, holding the ledger's lock, caught up: finds what is due
+    /// (a slice of the scan) and makes the calls, one per instance.
+    void keeper_slice(bool busy) {
+        std::uint64_t start = 0;
+        {
+            const std::lock_guard lock(keeper_mutex);
+            keeper_queued = false;
+            if (busy) {
+                return; // the ledger is busy or unusable: next tick
+            }
+            start = keeper_next;
+        }
+        if (cluster && !cluster->leads()) {
+            return;
+        }
+        const protocol::Timestamp now = clock->now();
+        std::optional<protocol::Id> actor;
+        Result<DueWork> work = fail(Errc::unavailable, "no state");
+        ledger->read_state([&](const protocol::LedgerState& s) {
+            const auto kid = protocol::key_id(*provider, s.hash(), options.keeper->public_key());
+            const protocol::ActorState* a = kid ? s.actor_by_kid(*kid) : nullptr;
+            if (a == nullptr || a->revoked) {
+                return;
+            }
+            actor = a->id.id();
+            DueOptions o;
+            o.now = now;
+            o.grace = static_cast<protocol::Timestamp>(options.expiry_grace.count());
+            o.keeper = actor;
+            o.start = start;
+            o.max_runs = keeper_slice_runs;
+            work = find_due(*provider, s, o);
+        });
+        if (!actor || !work) {
+            event("keeper-idle", !actor ? "the keeper key is not an active actor's of this ledger"
+                                        : work.error().detail);
+            keeper_done(false, std::nullopt);
+            return;
+        }
+        // One call per instance: each moves the instance's head, so what
+        // else is due on it waits for the next slice.
+        std::set<protocol::IdKey> touched;
+        bool more = false;
+        bool recorded_any = false;
+        // What became of a call: recorded, passed over (another call on its
+        // instance came first, or the ledger refused it), or the end of the
+        // slice (this node no longer leads).
+        enum class Fired : std::uint8_t { recorded, passed, stop };
+        auto fire = [&](const protocol::ContractCallBody& call, std::string_view what,
+                        const std::string& detail) {
+            if (!touched.insert(protocol::key_of(*call.instance)).second) {
+                more = true;
+                return Fired::passed;
+            }
+            Result<protocol::SignedStatement> signed_call = fail(Errc::unavailable, "no state");
+            ledger->read_state([&](const protocol::LedgerState& s) {
+                signed_call = sign_contract_call(*provider, s, *options.keeper, call, now, entropy);
+            });
+            auto recorded =
+                signed_call ? record(*signed_call, std::nullopt, now)
+                            : Result<ledger::Registration>(std::unexpected(signed_call.error()));
+            if (!recorded) {
+                ++keeper_refusals;
+                event("keeper-refused", detail + ": " + recorded.error().detail);
+                // A follower now: the new leader's keeper carries on.
+                return cluster && !cluster->leads() ? Fired::stop : Fired::passed;
+            }
+            recorded_any = true;
+            event(what, std::format("{} #{}", detail, recorded->index));
+            return Fired::recorded;
+        };
+        Fired last = Fired::passed;
+        for (const DueExpiry& e : work->expiries) {
+            last =
+                fire(expiry_call(e), "keeper-expired",
+                     std::format("request {} ({}) on {}", hex(e.request), e.kind, hex(e.instance)));
+            if (last == Fired::stop) {
+                break;
+            }
+            keeper_expiries += last == Fired::recorded ? 1U : 0U;
+        }
+        for (const DueRule& r : work->rules) {
+            if (last == Fired::stop) {
+                break;
+            }
+            last = fire(rule_call(r), "keeper-fired",
+                        std::format("{} on {}{}", r.function, hex(r.instance),
+                                    r.late ? std::format(", {} ms late", *r.late) : std::string()));
+            keeper_rules += last == Fired::recorded ? 1U : 0U;
+        }
+        if (recorded_any) {
+            check_waiters(false); // expiries close requests that long polls may watch
+        }
+        if (last == Fired::stop) {
+            return; // keep() starts afresh if this node leads again
+        }
+        keeper_done(more || work->next.has_value(), work->next);
+    }
+
+    /// A slice ended: go on at the next tick, or wait for the interval.
+    void keeper_done(bool go_on, std::optional<std::uint64_t> next) {
+        const std::lock_guard lock(keeper_mutex);
+        if (go_on && keeper_rounds < max_keeper_rounds) {
+            ++keeper_rounds;
+            keeper_more = true;
+            keeper_next = next.value_or(0);
+            return;
+        }
+        keeper_more = false;
+        keeper_next = 0;
+        keeper_rounds = 0;
+        keeper_last = steady::now();
+    }
+
+    /// GET /v1/contracts/due: what a keeper would do at a time (now by
+    /// default): the time rules due and the requests to expire, found by dry
+    /// runs, as a hint.
+    http::Response contracts_due(const http::Request& r) const {
+        const auto parsed = detail::parse_due_query(r);
+        if (const auto* bad = std::get_if<detail::QueryError>(&parsed)) {
+            return error_response(400, "invalid_argument", bad->message);
+        }
+        const auto& q = std::get<detail::DueQuery>(parsed);
+        DueOptions o;
+        o.now = q.at ? *q.at : clock->now();
+        o.grace = q.grace ? *q.grace * 1000
+                          : static_cast<protocol::Timestamp>(options.expiry_grace.count());
+        o.keeper = q.keeper;
+        o.contract = q.contract;
+        o.instance = q.instance;
+        o.start = q.start;
+        o.max_runs = q.limit;
+        Result<DueWork> work = fail(Errc::unavailable, "no state");
+        ledger->read_state(
+            [&](const protocol::LedgerState& s) { work = find_due(*provider, s, o); });
+        if (!work) {
+            return error_response(work.error());
+        }
+        http::Response response;
+        const std::string body = due_json_text(*work) + "\n";
+        response.body.assign(body.begin(), body.end());
+        return response;
+    }
+
     // ---- routing -------------------------------------------------------
 
     http::Response metrics() const {
@@ -2201,6 +2407,16 @@ struct LedgerApi::State {
             if (const std::uint64_t n = counter->load(std::memory_order_relaxed); n > 0) {
                 out += std::format("cexchain_statements_total{{result=\"{}\"}} {}\n", result, n);
             }
+        }
+        if (options.keeper) {
+            out += "# HELP cexchain_keeper_calls_total The keeper's calls by kind.\n"
+                   "# TYPE cexchain_keeper_calls_total counter\n";
+            out += std::format("cexchain_keeper_calls_total{{kind=\"expiry\"}} {}\n"
+                               "cexchain_keeper_calls_total{{kind=\"refused\"}} {}\n"
+                               "cexchain_keeper_calls_total{{kind=\"rule\"}} {}\n",
+                               keeper_expiries.load(std::memory_order_relaxed),
+                               keeper_refusals.load(std::memory_order_relaxed),
+                               keeper_rules.load(std::memory_order_relaxed));
         }
         out += std::format("# HELP cexchain_auto_checkpoints_total Automatic checkpoints.\n"
                            "# TYPE cexchain_auto_checkpoints_total counter\n"
@@ -2269,6 +2485,11 @@ struct LedgerApi::State {
                 return method_not_allowed("GET");
             }
             found = Routed{Endpoint::contract_list, Access::read};
+        } else if (path == "/v1/contracts/due") {
+            if (!get) {
+                return method_not_allowed("GET");
+            }
+            found = Routed{Endpoint::contracts_due, Access::read};
         } else if (path == "/v1/contracts/calls") {
             if (!get && !post) {
                 return method_not_allowed("GET, POST");
@@ -2412,6 +2633,8 @@ struct LedgerApi::State {
             return contract_list(r);
         case Endpoint::contract_show:
             return contract_show(rest);
+        case Endpoint::contracts_due:
+            return contracts_due(r);
         case Endpoint::instance_evidence:
             return instance_evidence_of(rest, principal, scopes);
         case Endpoint::call_list:
@@ -2544,6 +2767,9 @@ Result<std::unique_ptr<LedgerApi>> LedgerApi::open(ApiOptions options,
                                                    const crypto::Provider& provider) {
     auto state = std::make_unique<State>();
     state->provider = &provider;
+    if (options.clock != nullptr) {
+        state->clock = options.clock;
+    }
     std::error_code ec;
     if (!std::filesystem::is_directory(options.directory, ec)) {
         return fail(Errc::not_found, "no ledger directory");
@@ -2572,7 +2798,7 @@ Result<std::unique_ptr<LedgerApi>> LedgerApi::open(ApiOptions options,
             return std::unexpected(fs.error());
         }
         state->fs.emplace(std::move(*fs));
-        auto opened = ledger::Ledger::open(*state->fs, state->clock, provider);
+        auto opened = ledger::Ledger::open(*state->fs, *state->clock, provider);
         if (!opened) {
             return std::unexpected(opened.error());
         }
@@ -2635,6 +2861,7 @@ void LedgerApi::tick() {
     }
     state_->reload_tokens(false);
     state_->auto_checkpoint();
+    state_->keep();
     state_->poll_requests();
 }
 

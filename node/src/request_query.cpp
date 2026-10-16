@@ -95,4 +95,45 @@ std::variant<RequestQuery, QueryError> parse_request_query(const http::Request& 
     return q;
 }
 
+std::variant<DueQuery, QueryError> parse_due_query(const http::Request& r) {
+    DueQuery q;
+    for (const auto& [name, value] : r.query) {
+        if (name == "at") {
+            const auto at = number(value);
+            if (!at) {
+                return QueryError{"at is a time in milliseconds since the epoch"};
+            }
+            q.at = *at;
+        } else if (name == "grace") {
+            const auto grace = number(value);
+            if (!grace || *grace > max_due_grace) {
+                return QueryError{"grace is 0 to 31622400 seconds"};
+            }
+            q.grace = *grace;
+        } else if (name == "keeper" || name == "contract" || name == "instance") {
+            const auto parsed = id(value);
+            if (!parsed) {
+                return QueryError{"keeper, contract, and instance are ids of 64 hex digits"};
+            }
+            (name == "keeper" ? q.keeper : name == "contract" ? q.contract : q.instance) = *parsed;
+        } else if (name == "start") {
+            const auto start = number(value);
+            if (!start) {
+                return QueryError{"start is a number (the next of an earlier answer)"};
+            }
+            q.start = *start;
+        } else if (name == "limit") {
+            const auto limit = number(value);
+            if (!limit || *limit == 0 || *limit > max_due_limit) {
+                return QueryError{"limit is 1 to 100000 contract runs"};
+            }
+            q.limit = *limit;
+        } else {
+            return QueryError{
+                "the parameters are at, grace, keeper, contract, instance, start, and limit"};
+        }
+    }
+    return q;
+}
+
 } // namespace cexchain::node::detail

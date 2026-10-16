@@ -57,7 +57,7 @@ if(TARGET cexchain_crypto_pkcs11)
 endif()
 if(TARGET cexchain_node)
     cexchain_add_fuzzer(http_parse_fuzz cexchain::node)
-    # The requests route's query (node/src/request_query.hpp).
+    # The requests and due routes' queries (node/src/request_query.hpp).
     target_include_directories(http_parse_fuzz PRIVATE ${PROJECT_SOURCE_DIR}/node/src)
     cexchain_add_fuzzer(backup_restore_fuzz cexchain::ledger)
     cexchain_add_fuzzer(pending_call_fuzz cexchain::node)

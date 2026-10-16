@@ -444,6 +444,9 @@ void text_seeds(const Seeds& seeds) {
     seeds.write("http_parse_fuzz", "requests-instance",
                 "GET /v1/requests?state=all&instance=" + std::string(64, 'a') +
                     "&contract=" + std::string(64, '0') + " HTTP/1.1\r\nHost: ledger\r\n\r\n");
+    seeds.write("http_parse_fuzz", "contracts-due",
+                "GET /v1/contracts/due?at=1792022400000&grace=900&keeper=" + std::string(64, 'b') +
+                    "&start=7&limit=2000 HTTP/1.1\r\nHost: ledger\r\n\r\n");
     seeds.write("pkcs11_uri_fuzz", "key",
                 "pkcs11:token=CexChain;object=alice;type=private?module-path=/usr/lib/"
                 "softhsm/libsofthsm2.so&pin-source=file:/run/pin");

@@ -308,7 +308,9 @@ TEST_CASE("the API answers only those it should", "[node][api]") {
     CHECK(get(third.client(), "/v1/status").status == 200);
     CHECK(get(third.client(), "/metrics").status == 401);
     CHECK(get(third.client(), "/v1/vault/public-key").status == 401);
+    CHECK(get(third.client(), "/v1/contracts/due").status == 401); // runs contracts
     CHECK(get(third.client(p.read_token), "/metrics").status == 200);
+    CHECK(get(third.client(p.read_token), "/v1/contracts/due").status == 200);
 }
 
 TEST_CASE("statements, checkpoints, proofs, and evidence over HTTP", "[node][api]") {

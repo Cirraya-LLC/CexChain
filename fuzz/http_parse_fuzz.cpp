@@ -80,6 +80,14 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
         } else {
             require(!std::get<detail::QueryError>(query).message.empty() && !r.query.empty());
         }
+        // GET /v1/contracts/due (the keeper's): the same.
+        const auto due = detail::parse_due_query(r);
+        if (const auto* q = std::get_if<detail::DueQuery>(&due)) {
+            require(q->limit >= 1 && q->limit <= detail::max_due_limit &&
+                    q->grace.value_or(0) <= detail::max_due_grace);
+        } else {
+            require(!std::get<detail::QueryError>(due).message.empty() && !r.query.empty());
+        }
     } else if (error) {
         require(error->status >= 400 && error->status <= 505);
     }
