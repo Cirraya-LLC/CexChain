@@ -1026,16 +1026,18 @@ json '[(a["function"], a["word"], a["starter"], a["counterparty"], a["from"], a[
 contains -Fx "('redeem', '赎回', 'field.holder', False, ['state.active', 'state.pledged'], ['state.redeemed'])" out.txt || fail "stdlib list --json"
 run bo stdlib show pledge > out.txt
 contains -Fx "can pledge to counterparty by holder" out.txt || fail "stdlib show: the source"
+contains -Fx "use finance" out.txt || fail "stdlib show: the pack's use line"
 contains -Fx "  pledgee = counterparty" out.txt || fail "stdlib show: the pledgee"
 contains -Fx "The standard terms of pledge:" out.txt || fail "stdlib show: the terms"
 contains -Fx "  Started by the holder, whose agreement it needs. [R19]" out.txt || fail "stdlib show: the starter"
 contains -Fx "  If the instance is active, it becomes pledged; otherwise the call is refused. [R19]" out.txt || fail "stdlib show: the state change"
 run bo stdlib show 質押 --language zh-Hant-HK > out.txt
+contains -Fx "使用 finance" out.txt || fail "stdlib show: the use line in zh-Hant"
 contains -Fx "可質押 予 相對方 由 持有人" out.txt || fail "stdlib show: zh-Hant source"
 contains -Fx "  須經相對方同意；每次調用均須指明其賬本（參數 counterparty）。〔R21〕" out.txt || fail "stdlib show: zh-Hant terms"
 run bo stdlib show confirm_payment --json > show.json
-json 'd["function"], d["action"], d["source"], [c["rules"] for c in d["terms"]][0]' < show.json > out.txt
-contains -F "confirm_payment act.confirm_payment can confirm payment by payee" out.txt || fail "stdlib show --json"
+json 'd["function"], d["pack"], d["action"], d["source"], [c["rules"] for c in d["terms"]][0]' < show.json > out.txt
+contains -F "confirm_payment finance act.confirm_payment can confirm payment by payee" out.txt || fail "stdlib show --json"
 expect_exit 1 bo stdlib show refund
 contains -F "no built-in action refund" out.txt || fail "stdlib show: no terms"
 expect_exit 1 bo stdlib show

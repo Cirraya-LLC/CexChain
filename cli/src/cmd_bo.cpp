@@ -1174,12 +1174,16 @@ int cmd_bo_stdlib_show(const Args& args) {
             clauses.push_back({{"kind", c.kind}, {"text", c.text}, {"rules", c.rules}});
         }
         print_json({{"function", bo::wire_name(action, {})},
+                    {"pack", bo::vocab_name(action->pack)},
                     {"action", action->id},
                     {"word", bo::spell(action->id, language)},
                     {"language", language->id},
                     {"source", *source},
                     {"terms", clauses}});
         return exit_ok;
+    }
+    if (action->pack != bo::Vocab::core) {
+        std::println("{} {}", bo::spell("kw.use", language), bo::vocab_name(action->pack));
     }
     std::print("{}", *source);
     const std::pair<std::string_view, std::string> header[] = {

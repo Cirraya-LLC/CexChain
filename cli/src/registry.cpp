@@ -2348,11 +2348,12 @@ std::vector<CommandSpec> build() {
          cmd_bo_stdlib_show,
          "ACTION is a built-in action's word in any language (transfer, 轉讓, 转让) or its\n"
          "function (confirm_payment). Prints the action's terms as Bo source, in --language,\n"
-         "without the library's comments, and then the contract text that states them, each\n"
+         "without the library's comments (after the use line of its vocabulary pack, if it has\n"
+         "one), and then the contract text that states them, each\n"
          "clause with its rules (R19 marks the standard terms). To change a built-in action,\n"
          "copy the source into a contract and give the action a name of your own: it is then\n"
          "the contract's own action, checked and explained like any other. With --json: the\n"
-         "source, and each clause of the text with its kind and rules.\n\n"
+         "pack, the source, and each clause of the text with its kind and rules.\n\n"
          "  cexchain bo stdlib show transfer\n"
          "  cexchain bo stdlib show 轉讓 --language zh-Hant-HK\n"
          "  cexchain bo stdlib show confirm_payment --json\n\n" CEXCHAIN_BO_PACKS_HELP},
