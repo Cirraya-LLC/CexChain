@@ -353,13 +353,19 @@ function-kind = &(create: 1, call: 2)
 ; strictly ascend by id. Embedded packs strictly ascend by id too, and each
 ; is a referenced pack that is not official; a reference without an
 ; embedded pack names an official pack, which a Bo compiler carries in every
-; released version.
+; released version. Key 6 (v0.9, D-054) lists the vocabulary packs the
+; source's `use` lines name, exactly those, strictly ascending by id; it is
+; absent without `use` lines, and a bundle read with the official language
+; packs of before vocabulary packs (version 1) has none.
 bo-source = {
   1 => 1,                      ; format
   2 => uint .ge 1,             ; the Bo edition of the source
   3 => tstr,                   ; the source as written, comments included
   4 => [1*64 bo-pack-ref],     ; every language pack it was read with
   ? 5 => [1*64 bo-pack],       ; the packs that are not official, in full
+  ? 6 => [1*64 bo-pack-ref],   ; every vocabulary pack it uses; the digest
+                               ; covers the pack's canonical CBOR (Bo
+                               ; reference, section 3.9)
 }
 bo-pack-ref = [
   id: tstr,                    ; the pack's id: ASCII letters, digits, and

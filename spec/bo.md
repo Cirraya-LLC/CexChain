@@ -6,7 +6,7 @@ Bo is the language contracts on CexChain are written in. This document defines h
 
 - [`README.md`](README.md), the protocol, whose sections 14 and 15 define the contract profile, fuel, a call's input and output, instances created by a call, and the `bo-source` bundle a deploy carries;
 - [`cexchain.cddl`](cexchain.cddl), where `bo-source` and the contract input and output are defined;
-- the official language packs, [`../bo/packs/`](../bo/packs), and the standard library, [`../bo/stdlib/edition1.bo`](../bo/stdlib/edition1.bo), which are part of edition 1;
+- the official language packs, [`../bo/packs/`](../bo/packs) (with every earlier version in [`../bo/packs/history/`](../bo/packs/history)), the official vocabulary packs (3.9), and the standard library, [`../bo/stdlib/`](../bo/stdlib) (the core's terms and each vocabulary pack's), which are part of edition 1;
 - [`../testvectors/bo-v1.json`](../testvectors/bo-v1.json), the conformance suite (section 18).
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are used as in RFC 2119.
@@ -17,7 +17,7 @@ The key words MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are used as in RFC 211
 - what a contract means: its parties, fields, states, actions, consents, requirements, time rules, charges, and parts;
 - what its compiled code does on every call: the outcome (accepted, waiting for consents, or refused), the state, status, parties, events, finality, and parts an accepted call writes, the ledgers whose consents a call lacks (`[2, needs]`), and the exact reason of a refusal (`bo:CODE ...`, or the text of a `reject`).
 
-Code bytes are informative. A conforming compiler MAY emit any module in the contract profile that behaves as this document says. CexChain's own compiler, `cexchain-bo`, emits exactly the bytes its codegen version fixes (section 16), which the conformance suite pins; fuel figures in this document are that compiler's. The official packs and the standard library are normative data: where this text and those files, or the conformance suite, disagree, the files win.
+Code bytes are informative. A conforming compiler MAY emit any module in the contract profile that behaves as this document says. CexChain's own compiler, `cexchain-bo`, emits exactly the bytes its codegen version fixes (section 16), which the conformance suite pins; fuel figures in this document are that compiler's. The official packs, the vocabulary packs, and the standard library are normative data: where this text and those files, or the conformance suite, disagree, the files win.
 
 ## Contents
 
@@ -46,9 +46,48 @@ Appendices: [A. Keywords](#appendix-a-keywords), [B. Vocabulary](#appendix-b-voc
 
 ### 1.1 What a contract is
 
-A Bo source describes one contract: its parties; the one kind of business object it governs (an asset, a service, a resource, or a record) and that object's fields; the object's states; the actions the parties may take on it; the rules that apply to it as time passes; and the charges (taxes, fees) computed on its bills. Compiled, it is a module in the contract profile (spec section 14), deployed on a ledger, its *home*. Each object it governs is an *instance* (spec section 15), created by one function of the module and acted on by the others.
+A Bo source describes one contract: its parties; the one kind of thing it governs (a `thing`, or a kind a vocabulary pack brings: an asset, a service, a resource) and that thing's fields; its states; the actions the parties may take on it; the rules that apply to it as time passes; and, with the commerce pack, the charges (taxes, fees) computed on its bills. Compiled, it is a module in the contract profile (spec section 14), deployed on a ledger, its *home*. Each thing it governs is an *instance* (spec section 15), created by one function of the module and acted on by the others.
 
 ```
+contract Lending
+parties owner
+
+thing Item
+  name text
+  holder owner
+
+can lend to counterparty by owner
+  active -> lent
+  holder = counterparty
+can bring_back by holder
+  lent -> active
+  holder = owner
+```
+
+The same contract in Traditional Chinese (Hong Kong usage) and in Simplified Chinese; the names it gives stay as written:
+
+```
+合約 Lending                                 合约 Lending
+訂約方 owner                                 参与方 owner
+
+物件 Item                                    物件 Item
+  name 文字                                    name 文本
+  持有人 owner                                 持有人 owner
+
+可 lend 予 相對方 由 owner                     可 lend 给 相对方 由 owner
+  正常 -> lent                                 正常 -> lent
+  持有人 = 相對方                               持有人 = 相对方
+可 bring_back 由 持有人                        可 bring_back 由 持有人
+  lent -> 正常                                 lent -> 正常
+  持有人 = owner                               持有人 = owner
+```
+
+The owner lends the item to whoever each call names after `to` (the counterparty), who consents on its own ledger and becomes its holder (R21, R31); only the holder brings it back; while it is lent, a second loan is refused, since `lend` starts only from `active`. Every word here is one of Bo's core (1.2).
+
+Words of particular fields come in vocabulary packs (3.9), which a source declares at its top. With the finance pack, a receivable that its holder pledges to a bank:
+
+```
+use finance
 contract ReceivableFinancing
 parties issuer, supplier, bank
 
@@ -63,28 +102,11 @@ can transfer
 when due issuer pays
 ```
 
-The same contract in Traditional Chinese (Hong Kong usage) and in Simplified Chinese:
-
-```
-合約 ReceivableFinancing                     合约 ReceivableFinancing
-訂約方 發行人, 供應商, 銀行                    参与方 发行人, 供应商, 银行
-
-資產 Receivable                              资产 Receivable
-  金額 港元                                    金额 港元
-  到期日 日期                                  到期日 日期
-  持有人 供應商                                持有人 供应商
-
-可質押 予 銀行                                可质押 给 银行
-  超過 5_000_000 須親身確認                     超过 5_000_000 须本人确认
-可轉讓                                        可转让
-當 到期日 發行人 支付                          当 到期日 发行人 支付
-```
-
-Here the supplier holds a receivable the issuer owes. `pledge` and `transfer` are built-in actions: the standard library gives them their terms (who starts them, whose consent they need, which states they start from and lead to; section 8). The contract adds one line to the pledge: above HKD 5,000,000 the holder proves presence in person (a passkey or a hardware key). The bank is bound to a ledger by the first pledge, with its consent. `when due issuer pays` states the issuer's duty, which says when the receivable is due.
+`pledge` and `transfer` are built-in actions: the standard library gives them their terms (who starts them, whose consent they need, which states they start from and lead to; section 8), `transfer` the core's and `pledge` the finance pack's. The contract adds one line to the pledge: above HKD 5,000,000 the holder proves presence in person (a passkey or a hardware key). The bank is bound to a ledger by the first pledge, with its consent. `when due issuer pays` states the issuer's duty, which says when the receivable is due.
 
 ### 1.2 One contract, any language
 
-Bo has 18 keywords (Appendix A) and a vocabulary of 139 words (Appendix B): kinds, business actions, conditions, prices, charges, time words, units, currencies, rounding modes, documents, types, values, fields, states, actors, roles, and expressions. Each is a *concept* with an id (`kw.can`, `act.pledge`, `cur.HKD`). *Language packs* (section 3) give each concept its spellings in one language, and the reading rules of that language. Three official packs come with edition 1: English (`en`), Traditional Chinese in Hong Kong usage (`zh-Hant-HK`), and Simplified Chinese in mainland usage (`zh-Hans-CN`).
+Bo has 18 keywords (Appendix A) and a vocabulary of 138 words (Appendix B): kinds, actions, conditions, prices, charges, time words, units, currencies, rounding modes, documents, types, values, fields, states, actors, roles, and expressions. Each is a *concept* with an id (`kw.can`, `act.transfer`, `cur.HKD`). Eighty of the words are Bo's *core*, which every source reads: the kind `thing`, actions every kind of thing may need (issue, create, transfer, cancel, suspend, resume, terminate, approve, propose, notify), conditions, time, units, currencies, rounding, types, values, and common fields, states, actors, roles, and expressions. The others belong to the three official *vocabulary packs* (3.9): `finance` (24 words), `commerce` (22), and `services` (12), which a source uses by declaring them (`use finance`). *Language packs* (section 3) give each concept its spellings in one language, and the reading rules of that language. Three official packs come with edition 1: English (`en`), Traditional Chinese in Hong Kong usage (`zh-Hant-HK`), and Simplified Chinese in mainland usage (`zh-Hans-CN`).
 
 The compiler works on concepts, never on spellings. A source may mix the three languages, even within a line (`可pledge 予 bank`), and the same contract written in any language, or mixed, gives the same tree, the same checked model, the same compiled code byte for byte, and the same contract text in each output language. Names the contract gives (its own parties, fields, states, actions, charges) are never translated: they stay as written, and compiled code uses them as written.
 
@@ -111,8 +133,9 @@ A source may begin with `bo 1`, the edition it is written in; a source without i
 | `bo explain FILE [--language L]` | the contract text (section 14) |
 | `bo fmt FILE [--language L] [--check\|--write]` | the source in canonical layout, in one language on request (section 15) |
 | `bo test FILE` | runs the source's `test` blocks (section 13) |
-| `bo packs list\|show\|check` | the official packs and others given with `--pack` (section 3) |
-| `bo stdlib list\|show ACTION` | the standard library's built-in actions (section 8) |
+| `bo packs list\|show\|check` | the official language packs and others given with `--pack` (section 3) |
+| `bo vocab list\|show PACK` | the core and the vocabulary packs: their words, field facts, actions, and digests (3.9) |
+| `bo stdlib list [PACK]\|show ACTION` | the standard library's built-in actions, by pack (section 8) |
 | `contract deploy --bo FILE` | builds and deploys, recording the source bundle |
 | `contract explain CONTRACT\|INSTANCE` | the contract text of a deploy whose source rebuilds |
 | `contract verify EVIDENCE` | replays an instance's evidence and rebuilds its code from the source |
@@ -292,15 +315,15 @@ The first line that has any token MAY name the edition: `bo` followed by a whole
 
 ### 3.1 Concepts
 
-Edition 1 has 157 concepts: 18 keywords, which every pack spells, and 139 words of the vocabulary. A concept's id is its category, a dot, and its name. Categories decide where a word may stand, and packs name them in their reading rules:
+Edition 1 has 156 concepts: 18 keywords, which every pack spells, and 138 words of the vocabulary, 80 of them in Bo's core and the others in the vocabulary packs (3.9). A concept's id is its category, a dot, and its name. Categories decide where a word may stand, and packs name them in their reading rules:
 
 | Category | Id prefix | Concepts | Examples |
 |---|---|---|---|
 | keyword | `kw.` | 18 | `kw.can`, `kw.requires` |
-| kind | `kind.` | 4 | `kind.asset`, `kind.record` |
-| action | `act.` | 29 | `act.pledge`, `act.suspend` |
+| kind | `kind.` | 4 | `kind.thing`, `kind.asset` |
+| action | `act.` | 28 | `act.transfer`, `act.suspend` |
 | condition | `cond.` | 6 | `cond.in_person`, `cond.overdue` |
-| pricing | `price.` | 7 | `price.price`, `price.per` |
+| pricing | `price.` | 6 | `price.price`, `price.per` |
 | charge | `charge.` | 10 | `charge.tax`, `charge.rate` |
 | time | `time.` | 11 | `time.day`, `time.monthly`, `time.now` |
 | unit | `unit.` | 11 | `unit.GB`, `unit.kg` |
@@ -315,7 +338,9 @@ Edition 1 has 157 concepts: 18 keywords, which every pack spells, and 139 words 
 | role | `role.` | 6 | `role.we`, `role.bank` |
 | expression | `expr.` | 4 | `expr.sum_of`, `expr.previous_state` |
 
-The ten concepts that take an argument are listed in 2.8. Appendix B lists every word with its spellings in the official packs.
+The ten concepts that take an argument are listed in 2.8. Appendix B lists every word with its pack and its spellings in the official packs.
+
+Two concepts are *retired*: `kind.record`, the kind word that `kind.thing` replaced, and `act.merge`, which never had a meaning. Only the official packs of before vocabulary packs (version 1, 3.7) spell them, so that the sources deployed with those packs rebuild; any other pack that spells one is `pack.unknown-concept`.
 
 ### 3.2 The pack format
 
@@ -344,7 +369,7 @@ A concept's spellings are a text, or a list of 1 to 8 texts, the first being the
 
 A spelling is one to four words separated by single spaces, each 1 to 64 bytes not beginning with a digit (`pack.bad-spelling`), of word characters only (2.5; `pack.bad-character`), plus the argument's place `…`, exactly once for a concept that takes an argument and never for another (`pack.needs-hole`, `pack.unexpected-hole`).
 
-*Forms* are further spellings with a grammatical name, which the contract text's sentences ask for (`{party.object}`) and which a source may also use: they read as the concept itself, and the tree keeps no trace of them. The official English pack's forms are `third` (`pays`), `gerund` (`paying`), `plural` (`days`), `indefinite` (`a record`), `subject` (`the customer`), and `object` (`the customer`, `us`).
+*Forms* are further spellings with a grammatical name, which the contract text's sentences ask for (`{party.object}`) and which a source may also use: they read as the concept itself, and the tree keeps no trace of them. The official English pack's forms are `third` (`pays`), `gerund` (`paying`), `plural` (`days`), `indefinite` (`a thing`), `subject` (`the customer`), and `object` (`the customer`, `us`).
 
 ### 3.4 Reading rules
 
@@ -376,13 +401,43 @@ A source is read with a *pack set*: the official packs, always, and any others g
 
 ### 3.7 Official packs and digests
 
-The official packs of edition 1 are `en`, `zh-Hant-HK`, and `zh-Hans-CN`, version 1 each, every one complete: every concept, message, and sentence. A pack's *digest* is the hash of its canonical CBOR under a ledger's hash algorithm (SHA-256 or SM3); [`../tests/bo/golden/pack-digests.txt`](../tests/bo/golden/pack-digests.txt) lists those of the official packs. A released version of an official pack never changes: a change is a new version, and a compiler MUST carry every released version of each official pack, so that every source deployed with one rebuilds (section 16).
+The official packs of edition 1 are `en`, `zh-Hant-HK`, and `zh-Hans-CN`, version 2 each, every one complete: every concept but the retired ones, every message, and every sentence. A pack's *digest* is the hash of its canonical CBOR under a ledger's hash algorithm (SHA-256 or SM3); [`../tests/bo/golden/pack-digests.txt`](../tests/bo/golden/pack-digests.txt) lists those of the official packs, earlier versions included, and of the vocabulary packs. A released version of an official pack never changes: a change is a new version, and a compiler MUST carry every released version of each official pack, so that every source deployed with one rebuilds (section 16).
+
+Version 1 of the three, from before vocabulary packs, is carried in [`../bo/packs/history/`](../bo/packs/history). Version 2 spells the core's kind word `thing` (`物件` in both Chinese packs), spells `we` `我方` first in both Chinese packs (`本公司` remains a second spelling, so `我方` is what tools write), drops the retired concepts, and adds the messages and sentences of vocabulary packs. A pack set is built on the official packs of one version (3.6): today's, or those of before vocabulary packs. A source read with the earlier ones uses every vocabulary pack without declaring it (`use` did not exist), and its `record` is today's `thing`; such a source compiles to the code it compiled to then.
 
 Anyone MAY write a pack for another language, dialect, or a company's own terms. Such a pack MUST spell every keyword and SHOULD spell the vocabulary; it is read beside the official packs, and a deploy embeds it in full.
 
 ### 3.8 One tree from any pack
 
-A pack changes how a source reads and how text is written, never what runs. Every spelling becomes its concept; forms are dropped; names stay as written. So the tree, the model, the code, and the contract text of a source do not depend on which packs, or which languages within them, it was written with, as long as they read it. Since a pack decides how a source reads, a deploy pins the packs its source was read with by their digests (section 16).
+A language pack changes how a source reads and how text is written, never what runs. Every spelling becomes its concept; forms are dropped; names stay as written. So the tree, the model, the code, and the contract text of a source do not depend on which packs, or which languages within them, it was written with, as long as they read it. Since a pack decides how a source reads, a deploy pins the packs its source was read with by their digests (section 16).
+
+### 3.9 Vocabulary packs
+
+A *vocabulary pack* says which concepts exist beyond Bo's core: their categories, the type a field's word gives the field (R1) and whether it is *added* (R20) or *taking* (R31), and the standard terms of its built-in actions (section 8). Unlike a language pack, it changes what runs, so a deploy pins each one it uses by version and digest (section 16). Edition 1 has three official vocabulary packs, version 1 each:
+
+| Pack | Words | Built-in actions |
+|---|---|---|
+| `finance` | 24: `asset`; pledge, release, enforce, redeem, split, pay, confirm payment, dispute, freeze, unfreeze; tier, pledgee, payee, portion; pledged, paid, settled, disputed, redeemed, frozen; bank, issuer, supplier | the ten actions, [`../bo/stdlib/finance.bo`](../bo/stdlib/finance.bo) |
+| `commerce` | 22: price, usage, overage, per, setup fee; the ten charge words; invoice, credit note, receipt; refund, credit; customer location; customer | none yet |
+| `services` | 12: `service`, `resource`; subscribe, renew, upgrade, downgrade, allocate, reclaim; allocated, cooling; cooling period; traffic | allocate, reclaim, [`../bo/stdlib/services.bo`](../bo/stdlib/services.bo) |
+
+Appendix B gives every word's pack; `cexchain bo vocab show PACK` lists them with their field facts.
+
+**Using a pack.** A source uses a pack with a line `use ID` outside any block, one line per pack, before or after its other clauses (`bo fmt` writes them first, after `bo N`, by id). The keyword is spelled in any language (`使用 finance`); the id stays as written, ASCII, whatever the token reads as in the packs (`use services`, although `services` is a form of `service`). An id given twice is `parse.duplicate`; `use` anywhere else is `parse.reserved`. An id that is no vocabulary pack is `check.unknown-pack`.
+
+**Words of a pack.** A word of a pack the source does not use is `check.pack-not-used`, reported once for each such pack, at its first word, naming the pack: the error tells the reader what to write. A pack's words stay reserved where the pack is not used: Bo never guesses, so `pledge` never silently becomes a name of the contract's own. A built-in action's terms use the core's words and their own pack's, and a contract that declares the action has used its pack. Recognition rules that only a pack's words can reach apply only with that pack (section 7).
+
+**Canonical CBOR and digests.** A vocabulary pack's canonical CBOR is the deterministic CBOR of the map
+
+```
+{"format": 1, "id": "finance", "version": 1, "edition": 1,
+ "concepts": {"act.pledge": {"category": "action"},
+              "field.pledgee": {"category": "field", "type": "party", "added": true, "taking": true},
+              ...},
+ ? "terms": "bo 1\nuse finance\n..."}
+```
+
+where `concepts` holds each of its words with its category, `"argument": true` if it takes one, and for a field its type (`party`, `date`, `number`, `text`, `duration`, `parties`, a list of at most 16 parties, each fixed by the word; or `quantity`, `list`, `offset`, `amount`, `portion`, what the word accepts once a type is given) and its flags; and `terms` is the text of its standard terms' file, absent if it has none. Its digest is the hash of that CBOR under the ledger's hash. A released version never changes; a compiler MUST carry every released version. In a later milestone the official vocabulary packs become files of their own, and a company may write its own.
 
 ## 4. Grammar
 
@@ -391,14 +446,15 @@ The grammar works on tokens (section 2), whose words are concepts, so it is the 
 ### 4.1 Summary
 
 ```
-file        = [ "bo" NUMBER NEWLINE ] { clause }
+file        = [ "bo" NUMBER NEWLINE ] { use | clause }
+use         = "use" PACK NEWLINE                                (3.9)
 clause      = contract | parties | block | can | when | test
 
 contract    = "contract" NAME NEWLINE
 parties     = "parties" party { "," party } NEWLINE
 party       = ROLE-WORD | NAME
 block       = KIND NAME NEWLINE [ INDENT { field NEWLINE } DEDENT ]
-KIND        = "asset" | "service" | "resource" | "record" | "charge" | "tax"
+KIND        = "thing" | "asset" | "service" | "resource" | "charge" | "tax"
 field       = operand [ sum ] { "," sum }
 
 can         = "can" action { "by" operand | "to" operand | "with" input { "," input } }
@@ -450,14 +506,14 @@ operand     = ( LITERAL | NAME | WORD
 A line outside any block begins a clause (`parse.top-level` otherwise):
 
 - **`contract NAME`** names the contract, once (`parse.duplicate`). A source without it is a *fragment*: it checks with the warning `check.fragment`, and it does not build (`build.fragment`).
-- **`parties`** lists the roles, once: role words (`we`, `customer`, `supplier`, `bank`, `issuer`, `counterparty`) or names of the contract's own.
-- **A kind block**, `asset NAME`, `service NAME`, `resource NAME`, or `record NAME`, describes the instances: one field per line. A contract has one kind block (`check.one-kind`); the kind word is required.
+- **`parties`** lists the roles, once: role words (`we`, `counterparty`; with their packs `customer`, `supplier`, `bank`, `issuer`) or names of the contract's own.
+- **A kind block**, `thing NAME` (or, with their packs, `asset NAME`, `service NAME`, `resource NAME`), describes the instances: one field per line. A contract has one kind block (`check.one-kind`); the kind word is required.
 - **A charge block**, `charge NAME` or `tax NAME`, describes a charge: one line per property (section 10).
 - **`can ACTION`** declares an action: a word of the vocabulary (a built-in action) or a name (an action of the contract's own), then, in any order and each at most once (`parse.can`, `parse.duplicate`), `by PARTY` (who starts it), `to PARTY` (its counterparty), and `with INPUT, ...` (what each call gives: a name or a field word, then a type), then its block.
 - **`when EVENT`** is a time rule: an event (section 9), then the actions it does on the line, joined by `and`, and/or a block (`parse.empty-block` if neither). The event ends where an action begins (4.8); a line whose event is missing is `parse.when`.
 - **`test`**, with an optional name or text, then a block of steps (section 13).
 
-`use` is a keyword reserved for modules in a later edition (`parse.reserved`).
+- **`use PACK`** declares a vocabulary pack the source uses (3.9); `use` anywhere else is `parse.reserved`.
 
 ### 4.3 Statements
 
@@ -630,7 +686,7 @@ A role stands for the ledger it is bound to. A role used while not yet bound ref
 
 ### 6.3 The kind and its fields
 
-The four kinds differ only in this: an asset's instances are created by `issue`, every other kind's by `create` (12.2, 11.1, 13.1); on a service, the actions that change a subscription ask executors (R10), and a recurring price makes it due each period (R11); a resource that a built-in action gives a holder gets the field `holder` (R20). The kind block (`asset`, `service`, `resource`, or `record`, then a name) declares the instances' fields, one per line, `HEAD [VALUE] {, PART}`:
+The core's kind is `thing`; the vocabulary packs add `asset` (finance), `service`, and `resource` (services). The kinds differ only in this: an asset's instances are created by `issue`, every other kind's by `create` (12.2, 11.1, 13.1); on a service, the actions that change a subscription ask executors (R10), and a recurring price makes it due each period (R11); a resource that a built-in action gives a holder gets the field `holder` (R20). The kind block (`thing`, `asset`, `service`, or `resource`, then a name) declares the instances' fields, one per line, `HEAD [VALUE] {, PART}`:
 
 | The line gives | The field is |
 |---|---|
@@ -734,7 +790,7 @@ Bo infers by the thirty-one rules of edition 1 and by nothing else. Each rule ha
 
 | Rule | Name | What Bo infers |
 |---|---|---|
-| R1 | field-meaning | A field of the vocabulary declared without a type has the vocabulary's: `holder`, `pledgee`, and `payee` a party; `due` a date; `tier` a number; `customer location` a text; `cooling period` a duration in days or weeks; `recipients` a list of at most 16 parties. |
+| R1 | field-meaning | A field of the vocabulary declared without a type has the type its pack gives it (3.9; the core's own fields are the core's): `holder`, `pledgee`, and `payee` a party; `due` a date; `tier` a number; `customer location` a text; `cooling period` a duration in days or weeks; `recipients` a list of at most 16 parties. |
 | R2 | party-field | A field given a party (`holder supplier`) holds a party: each instance starts with that party, and actions may change it. |
 | R3 | role-binding | A role the contract first names as an action's counterparty (after `to`) is bound to a ledger by that action's first call, with the role's consent; every other role is bound when an instance is created. *First* is in the order of the clauses: the kind block, charges, `can`, and `when` clauses count; the `parties` line and tests do not. |
 | R4 | first-state | An instance starts in the one state that the contract's own state changes leave from and none leads to; if there is none, in `active`. |
@@ -753,7 +809,7 @@ Bo infers by the thirty-one rules of edition 1 and by nothing else. Each rule ha
 | R17 | rounding | A product with a rate, and a quotient, is rounded to the smallest unit, half up (away from zero); so is a charge that names no rounding mode. |
 | R18 | bare-text | A name that nothing declares, compared with a text (or listed after `in` with a text on its left), is that text: `客户所在地 = 中国内地` reads `中国内地` as a text. |
 | R19 | standard-terms | A built-in action has the standard library's terms (section 8): its starter, its counterparty, its consents, the states it starts from and leads to, and what it changes. The contract's own lines come first and add to them. The terms' states that an instance can reach become the contract's. |
-| R20 | standard-fields | The pledgee and the payee, and a resource's holder, used by an action but not declared, are fields of each instance, holding no party until an action sets them. |
+| R20 | standard-fields | The fields a pack marks as *added* (the pledgee and the payee), and a resource's holder, used by an action but not declared, are fields of each instance, holding no party until an action sets them. |
 | R21 | counterparty | An action whose counterparty is `counterparty`, a party the contract does not declare, takes its counterparty from each call (the input `counterparty`) and needs its consent; so does a built-in action with a counterparty when the contract writes no `to`. |
 | R22 | zero | A bare `0` compared with, added to, or taken from money, a quantity, a rate, or a duration is zero of it. |
 | R23 | each-allocation | A role that `allocate` binds is bound again by each allocation, with its consent: a resource goes to one holder at a time, and each allocation names it. |
@@ -764,15 +820,23 @@ Bo infers by the thirty-one rules of edition 1 and by nothing else. Each rule ha
 | R28 | rate-in-force | A charge's rate is the one in force at the bill's time: the rate from the latest date on or before it (from that day's start at the contract's offset), else its own rate. A bill keeps the rate it was made with. |
 | R29 | one-item | One value where a list is needed is a list of that one item. |
 | R30 | issue-parts | `issue PARTS to RECIPIENTS` makes each part an instance of its own, of the same contract, created by the call; its amount is the part and its holder its recipient; the instance that issued them ends; a part may be split again, at most eight levels down (section 11). |
-| R31 | role-taking | An action that makes its counterparty (after `to`) the holder, the pledgee, or the payee (`holder = bank`, as the terms of `transfer`, `pledge`, and `allocate` do) needs the counterparty's consent at every call, even when its role was bound when the instance was created or by another action; where the action binds the role (R3), each call names it (R21), or it is a party field the action's own lines set (R8), those rules already ask it. An action that names no counterparty adds none: `enforce` makes its own starter, the pledgee, the holder, and `pay` makes the pledgee or the holder the payee. |
+| R31 | role-taking | An action that makes its counterparty (after `to`) a party field its pack marks as *taking* (the core's holder; finance's pledgee and payee) (`holder = bank`, as the terms of `transfer`, `pledge`, and `allocate` do) needs the counterparty's consent at every call, even when its role was bound when the instance was created or by another action; where the action binds the role (R3), each call names it (R21), or it is a party field the action's own lines set (R8), those rules already ask it. An action that names no counterparty adds none: `enforce` makes its own starter, the pledgee, the holder, and `pay` makes the pledgee or the holder the payee. |
 
 The rule texts in the packs are plain-language summaries of the rows above; the rows, sections 6 to 11, and the conformance suite define the rules.
+
+Rules belong to the core, except those that only a vocabulary pack's words can reach, which apply only in a source that uses the pack: R10's service half (the services pack's actions on a service), R11, and R23 (`services`); R12 and R26 to R28 (`commerce`). R1, R20, and R31 read their facts from the packs (3.9). Rule ids do not change with packs, so contract texts keep their marks.
 
 ## 8. The standard library
 
 ### 8.1 Built-in actions
 
-The standard library, [`../bo/stdlib/edition1.bo`](../bo/stdlib/edition1.bo), is a Bo source of edition 1 in English, which every compiler carries: one `can` clause per built-in action, its *terms*. They give the asset actions the semantics that CexChain's native assets had in spec revisions v0.5 to v0.8 (v0.9 removed native assets; spec section 13 now says when a party may rely on an instance's state), and add actions that suspend, resume, and end an instance, that allocate a resource to one holder at a time, and that split an asset into parts. A contract that declares a built-in action (`can pledge to bank`) gets a copy of its terms (R19):
+The standard library, [`../bo/stdlib/`](../bo/stdlib), is Bo sources of edition 1 in English, which every compiler carries: one `can` clause per built-in action, its *terms*, in one file for the core and one for each vocabulary pack with terms:
+
+- [`core.bo`](../bo/stdlib/core.bo): `transfer` and `cancel`, and `suspend`, `resume`, and `terminate`, which end or pause any instance;
+- [`finance.bo`](../bo/stdlib/finance.bo), part of the `finance` pack (it begins `use finance`): `pledge`, `release`, `enforce`, `redeem`, `pay`, `confirm payment`, `dispute`, `freeze`, `unfreeze`, and `split`, with the semantics that CexChain's native assets had in spec revisions v0.5 to v0.8 (v0.9 removed native assets; spec section 13 now says when a party may rely on an instance's state);
+- [`services.bo`](../bo/stdlib/services.bo), part of the `services` pack: `allocate` and `reclaim`, which allocate a resource to one holder at a time.
+
+The `commerce` pack's actions have no terms yet. A pack's terms use the core's words and its own; its file is part of its canonical CBOR, so its digest covers them (3.9). A contract that declares a built-in action (`can transfer to buyer`) gets a copy of its terms (R19):
 
 - **Counterparty.** The contract's `to` takes the place of `counterparty` in the terms. Without `to`, `counterparty` stays, which the contract does not declare: each call names it (the input `counterparty`) and it consents (R21). The contract MUST NOT give `to` to an action whose terms have no counterparty (`check.standard-to`).
 - **Starter.** The terms' `by` is the action's starter; the contract MAY repeat it but MUST NOT name another (`check.standard-by`). An action whose terms name no starter is *the home's own word*: the home starts it, nobody's consent is needed for that, and the signer of the call stands for the starter (for presence and proposals).
@@ -787,17 +851,40 @@ A time rule may do a built-in action that no `can` declares (`when overdue 3 day
 
 ### 8.2 The terms
 
-The terms of edition 1, as the library writes them (its comments are informative):
+The terms of edition 1, as the library writes them (its comments are informative), each file without its opening comment. The core's (`core.bo`):
 
 ```
-# The holder hands the asset over: the counterparty becomes its holder. Both
+# The holder hands the thing over: the counterparty becomes its holder. Both
 # consent to every transfer, the holder by starting it (the counterparty by
-# R3, R21, or R31). Not while pledged.
+# R3, R21, or R31). Only an active thing is handed over (so not while
+# pledged, under the finance pack).
 can transfer to counterparty by holder
   requires not counterparty = holder
   active -> active
   holder = counterparty
 
+# The holder cancels the thing.
+can cancel by holder
+  active -> cancelled
+
+# The home suspends the instance on its own word, such as when it is overdue
+# (when overdue 3 days suspend).
+can suspend
+  active -> suspended
+
+# The home resumes a suspended instance.
+can resume
+  suspended -> active
+
+# The home ends the instance, active or suspended: nothing can start from
+# terminated.
+can terminate
+  active, suspended -> terminated
+```
+
+The `finance` pack's (`finance.bo`, which begins `bo 1` and `use finance`):
+
+```
 # The holder pledges the asset to the counterparty, which becomes its pledgee.
 # Both consent to every pledge. Only an active asset can be pledged: no second
 # pledge.
@@ -874,25 +961,11 @@ can split by holder with parts, recipients
   requires consent of recipients
   active -> divided
   issue parts to recipients with tier = tier + 1
+```
 
-# The holder cancels the asset.
-can cancel by holder
-  active -> cancelled
+The `services` pack's (`services.bo`, which begins `bo 1` and `use services`):
 
-# The home suspends the instance on its own word, such as when it is overdue
-# (when overdue 3 days suspend).
-can suspend
-  active -> suspended
-
-# The home resumes a suspended instance.
-can resume
-  suspended -> active
-
-# The home ends the instance, active or suspended: nothing can start from
-# terminated.
-can terminate
-  active, suspended -> terminated
-
+```
 # The home allocates the resource to the counterparty, which becomes its holder
 # and consents to every allocation (R31 if its role was bound before); one the
 # allocation binds is named by each allocation (R23). After a reclaim the
@@ -911,29 +984,29 @@ can reclaim
 
 ### 8.3 In short
 
-| Action | Function | Starter | Counterparty | From | To |
-|---|---|---|---|---|---|
-| transfer | `transfer` | the holder | consents, every time | active | active (the holder becomes the counterparty) |
-| pledge | `pledge` | the holder | consents, every time | active | pledged (the pledgee is the counterparty) |
-| release | `release` | the pledgee | | pledged | active (no pledgee) |
-| enforce | `enforce` | the pledgee | | pledged | active (the pledgee becomes the holder) |
-| redeem | `redeem` | the holder | | active, pledged | unchanged, or redeemed when nothing remains |
-| pay | `pay` | the home | | active, pledged, disputed | paid (a payee not yet set becomes the pledgee, else the holder) |
-| confirm payment | `confirm_payment` | the payee | | paid, disputed | settled |
-| dispute | `dispute` | the payee | | paid | disputed |
-| freeze | `freeze` | the home | | active, pledged, paid, disputed | frozen |
-| unfreeze | `unfreeze` | the home | | frozen | the state before |
-| split | `split` | the holder | | active | divided (section 11) |
-| cancel | `cancel` | the holder | | active | cancelled |
-| suspend | `suspend` | the home | | active | suspended |
-| resume | `resume` | the home | | suspended | active |
-| terminate | `terminate` | the home | | active, suspended | terminated |
-| allocate | `allocate` | the home | consents, every time (R23) | active, cooling | allocated (the holder is the counterparty) |
-| reclaim | `reclaim` | the home | | allocated | cooling (no holder) |
+| Action | Pack | Function | Starter | Counterparty | From | To |
+|---|---|---|---|---|---|---|
+| transfer | core | `transfer` | the holder | consents, every time | active | active (the holder becomes the counterparty) |
+| cancel | core | `cancel` | the holder | | active | cancelled |
+| suspend | core | `suspend` | the home | | active | suspended |
+| resume | core | `resume` | the home | | suspended | active |
+| terminate | core | `terminate` | the home | | active, suspended | terminated |
+| pledge | finance | `pledge` | the holder | consents, every time | active | pledged (the pledgee is the counterparty) |
+| release | finance | `release` | the pledgee | | pledged | active (no pledgee) |
+| enforce | finance | `enforce` | the pledgee | | pledged | active (the pledgee becomes the holder) |
+| redeem | finance | `redeem` | the holder | | active, pledged | unchanged, or redeemed when nothing remains |
+| pay | finance | `pay` | the home | | active, pledged, disputed | paid (a payee not yet set becomes the pledgee, else the holder) |
+| confirm payment | finance | `confirm_payment` | the payee | | paid, disputed | settled |
+| dispute | finance | `dispute` | the payee | | paid | disputed |
+| freeze | finance | `freeze` | the home | | active, pledged, paid, disputed | frozen |
+| unfreeze | finance | `unfreeze` | the home | | frozen | the state before |
+| split | finance | `split` | the holder | | active | divided (section 11) |
+| allocate | services | `allocate` | the home | consents, every time (R23) | active, cooling | allocated (the holder is the counterparty) |
+| reclaim | services | `reclaim` | the home | | allocated | cooling (no holder) |
 
 Each built-in action's starter, if it is not the home, consents by starting it; its counterparty consents to every call, as with the native assets: through R3 (a role the action binds), R21 (a counterparty each call names), or R31 (a role bound at creation or by another action, which the action makes the holder or the pledgee). With `can pledge to bank`, the bank is bound by the first pledge (R3), so a later pledge, after a release, goes to the same bank, which consents again; with `can pledge`, each pledge names its pledgee (R21), as the native assets do; with a bank bound at creation (a field `banker bank`, say), each pledge to it asks its consent (R31). `enforce` names no counterparty: the pledgee starts it and takes the asset with its own consent alone, since the holder agreed when it pledged the asset, as with the native assets; `pay` names none either, and the home pays on its own word. Unlike the native assets, the terms do not refuse a counterparty that is the home itself.
 
-The other actions of the vocabulary (`issue`, `create`, `merge`, `refund`, `credit`, `subscribe`, `renew`, `upgrade`, `downgrade`, `approve`, `propose`, `notify`) have no terms in edition 1: a `can` of one is checked, but does not build (`build.standard-action`, or `build.executor` for an executor's). `issue` and `create` are the creation words: of tests (13.1) and of parts (section 11).
+The other actions of the vocabulary (the core's `issue`, `create`, `approve`, `propose`, and `notify`; commerce's `refund` and `credit`; services' `subscribe`, `renew`, `upgrade`, and `downgrade`) have no terms in edition 1: a `can` of one is checked, but does not build (`build.standard-action`, or `build.executor` for an executor's). `issue` and `create` are the creation words: of tests (13.1) and of parts (section 11).
 
 ### 8.4 Changing a built-in action
 
@@ -950,7 +1023,7 @@ can lodge to counterparty by holder
 
 ### 8.5 Stability
 
-The standard library is part of its edition: once edition 1 is released, its terms never change what a built-in action means. A later edition may add terms (for actions that have none yet) and actions.
+The standard library is part of its edition: once edition 1 is released, the core's terms never change what a built-in action means, and a pack's terms change only with a new version of the pack, which a compiler carries beside the earlier ones. A later edition may add terms (for actions that have none yet) and actions.
 
 ## 9. Time rules and keepers
 
@@ -1011,7 +1084,7 @@ An accepted call of a rule reports, before its state changes, the event
 
 where TIME is the rule's time and LATE the registration time less TIME, in milliseconds: how late the keeper came. The instance's state holds `"fired": {FUNCTION: TIME or null, ...}` for every rule with a function, and, for a contract that asks how long a state has been held (`within N`, or a held state), `"since"`: the time of the instance's last change of state, its creation included.
 
-For a record due on 2027-06-30 (UTC+08:00) and `when overdue 3 days suspend`, a keeper's call registered at 2027-07-03T00:00+08:00 is accepted with the events `["when", {"late": 0, "rule": "when.suspend", "time": 1814544000000}]` and `["suspended", null]`; one registered a day earlier is refused, `bo:when when.suspend`; a second call for the same due date, `bo:fired when.suspend`.
+For a thing due on 2027-06-30 (UTC+08:00) and `when overdue 3 days suspend`, a keeper's call registered at 2027-07-03T00:00+08:00 is accepted with the events `["when", {"late": 0, "rule": "when.suspend", "time": 1814544000000}]` and `["suspended", null]`; one registered a day earlier is refused, `bo:when when.suspend`; a second call for the same due date, `bo:fired when.suspend`.
 
 ### 9.6 Duties
 
@@ -1055,7 +1128,9 @@ A field, an input, or a constant may be a list (5.8); so may a list written out 
 A field of the kind's block named by a document, `invoice`, `credit note`, or `receipt`, holds the *lines of a bill*: it MUST be a list of money in one currency, and a contract has at most one (`check.document`):
 
 ```
-record Table
+use commerce
+
+thing Table
   invoice list HKD at most 10
 ```
 
@@ -1122,10 +1197,11 @@ can settle by customer with payment HKD
 ### 10.7 Example
 
 ```
+use commerce
 contract Dinner
 parties we, customer
 
-record Table
+thing Table
   invoice list HKD at most 10
 
 charge gratuity
@@ -1222,6 +1298,7 @@ Whoever holds or verifies a part sees the history of every instance it came from
 ### 11.6 Example
 
 ```
+use finance
 contract MultiTierReceivable
 parties issuer, supplier
 
@@ -1424,10 +1501,11 @@ N in `bo:requires ACTION N` counts the `requires` lines of ACTION from 1: every 
 ### 12.11 Example
 
 ```
+use commerce
 contract Agreement
 parties we, customer
 
-record Terms
+thing Terms
   terms text
   amount HKD
   starts date
@@ -1551,12 +1629,12 @@ A test passes when every step does; it stops at its first failing step, and the 
 
 What the parties read and confirm before they sign is the *contract text*, which Bo writes from the checked model in the language of a pack (`bo explain`, `contract explain`). It states what the compiled code does, and nothing else:
 
-1. the title and an introduction;
+1. the title and an introduction, then, for a contract that uses vocabulary packs, a sentence naming each (its name in the reader's language and its version);
 2. **Parties**: each role, and when it is bound to a ledger (at creation, by the first call of an action, or by each, R23);
 3. **Each instance**: the kind; each field (given at creation, the party it starts with, none at first, or a constant's value); how an instance is created (by which function, needing no consent); the UTC offset, for a contract with dates, calendar durations, or time rules;
 4. **Charges**, if any: the bill, and each charge's lines (section 10);
 5. **States**: the first, all of them, the final ones (6.10), and that each change of state is an event;
-6. **Actions**: each action with its function, whether it is built-in (with the standard terms) or the home's own word, its starter, counterparty, inputs, the consents it needs, its block in order (requirements numbered as compiled code numbers them, 12.10; choices, `each`, refusals, fields set, state changes, parts, and their depth and privacy), and what AI agents may do; and `approve`, if there are proposals;
+6. **Actions**: each action with its function, whether it is built-in (with the standard terms, naming the vocabulary pack that gives them, if one does) or the home's own word, its starter, counterparty, inputs, the consents it needs, its block in order (requirements numbered as compiled code numbers them, 12.10; choices, `each`, refusals, fields set, state changes, parts, and their depth and privacy), and what AI agents may do; and `approve`, if there are proposals;
 7. **Time rules**, if any: what is due, and for each rule its time, its function (R24), its consents, the actions it does, and its block; duties (R9) and executors (R10);
 8. **Rules Bo applied**: the text of each recognition rule the clauses above use.
 
@@ -1588,6 +1666,7 @@ The wording is the packs'. A conforming implementation that writes a contract te
 
 - Each line is indented by two spaces per block. A comment on a line of its own is indented as the block it sits in (by its column, between the lines around it); a comment after code follows it after two spaces; comments keep their text (trailing spaces go).
 - Runs of blank lines become one, with none at the start or end; lines end with LF, and the file with one.
+- `use` lines come first, after `bo N` if there is one, sorted by pack id, then a blank line; if they already precede every other code line in that order, they stay where they are (comments may come before them).
 - Tokens are separated by one space, but none before `,` `:` `)` or after `(`. Where two words written in a language without spaces meet and the packs' rules join them, they are joined: a prefix keyword and the word after it (`可質押`, `須親身確認`, `須經`), an attaching word and its neighbour (`按發票`, `30日內`). Latin words and numbers stand apart from Chinese by a space (`每 GB`, `可 subscribe`), but a number takes its multiplier and a Chinese unit or currency directly (`500萬港元`, `30日`, `1個`).
 - Punctuation stays as written (ASCII, `×` and `÷`, or the full-width marks a pack reads, with no space on either side of those, except a comma before a digit); in a language that does not read a full-width mark, it becomes ASCII. Digits are written in ASCII, with `_` as written.
 
@@ -1617,16 +1696,17 @@ A contract written in Bo is deployed (spec section 15, statement type 21) with:
 The bundle is deterministic CBOR, `bo-source` in [`cexchain.cddl`](cexchain.cddl), at most 262,144 bytes (a deploy's source):
 
 ```
-{1: 1, 2: EDITION, 3: SOURCE, 4: [+ [ID, VERSION, DIGEST]], ? 5: [+ PACK]}
+{1: 1, 2: EDITION, 3: SOURCE, 4: [+ [ID, VERSION, DIGEST]], ? 5: [+ PACK], ? 6: [+ [ID, VERSION, DIGEST]]}
 ```
 
 - **1**, the bundle format, 1;
 - **2**, the source's edition (1 or more), which MUST be the source's own (`bo N`, or 1);
 - **3**, the source as written, comments included;
 - **4**, every language pack the source was read with, the official ones included, 1 to 64, strictly ascending by id: its id (3.2), its version (1 or more), and its digest under the home's hash (32 bytes, 3.7);
-- **5**, the packs that are not official, in full, each as its canonical CBOR (a map), strictly ascending by id, each one a pack key 4 names. A reference without an embedded pack names an official pack.
+- **5**, the packs that are not official, in full, each as its canonical CBOR (a map), strictly ascending by id, each one a pack key 4 names. A reference without an embedded pack names an official pack;
+- **6**, every vocabulary pack the source uses (3.9), 1 to 64, strictly ascending by id: its id, its version, and its digest under the home's hash (the hash of its canonical CBOR); absent if the source has no `use` line.
 
-Opening a bundle finds its packs: each embedded pack MUST read without errors (3.2), MUST NOT call itself official, and MUST have the version and the digest its reference names; each other reference MUST name an official pack at a version the compiler carries, with that digest; every official pack the compiler reads MUST be referenced; and the packs MUST read together (3.6). The source is then read with exactly those packs.
+Opening a bundle finds its packs: each embedded pack MUST read without errors (3.2), MUST NOT call itself official, and MUST have the version and the digest its reference names; each other reference MUST name an official pack at a version the compiler carries, with that digest, and all of them MUST be of one release (today's, or those of before vocabulary packs, 3.7); every official pack of that release MUST be referenced; the packs MUST read together (3.6); each key-6 reference MUST name an official vocabulary pack at a version the compiler carries, with that digest; a bundle on the official packs of before vocabulary packs MUST NOT have key 6; and the source's `use` lines MUST name exactly the packs key 6 names. The source is then read with exactly those packs: with the official packs of before vocabulary packs, it uses every vocabulary pack without declaring it.
 
 ### 16.3 The compiler string and codegen versions
 
@@ -1647,8 +1727,10 @@ A verifier SHOULD rebuild a Bo deploy (spec section 15): decode the bundle, open
 |---|---|
 | **rebuilds** | the source builds to the deployed code, interface, and name |
 | **differs** | the deploy names a codegen version and edition this compiler carries (and, for a problem with an official pack, its release), and the source builds to something else or does not build: the source is not the code's. The verifier SHOULD fail the evidence |
-| **malformed** | the language is not `bo`, there is no source, it is not a bundle, an embedded pack does not check or conflicts, or the bundle's edition is not the source's. The verifier SHOULD fail the evidence |
-| **another compiler** | another compiler, or a release or codegen version this one does not reproduce, built it: the verifier names it, and MAY require a rebuild with that compiler; it never reports this as a forgery |
+| **malformed** | the language is not `bo`, there is no source, it is not a bundle, an embedded pack does not check or conflicts, its official packs are of two releases, it names vocabulary packs beside the official packs of before vocabulary packs, the source's `use` lines are not its key 6, or the bundle's edition is not the source's. The verifier SHOULD fail the evidence |
+| **another compiler** | another compiler, or a release or codegen version this one does not reproduce, or an official language or vocabulary pack version this one does not carry, built it: the verifier names it, and MAY require a rebuild with that compiler; it never reports this as a forgery |
+
+A deploy made before vocabulary packs (its bundle names version 1 of the official packs and has no key 6) rebuilds: its source is read with those packs, every vocabulary pack in use, and compiles to the code it compiled to then, since concept ids, rule ids, and the code they lower to did not change.
 
 A rebuild compares bytes only: it does not refuse code for its fuel or output bounds (17.2, 17.3), which the deploy's build checked. The ledger rules do not rebuild: a home that deploys a source that is not its code is caught by every verifier that rebuilds.
 
@@ -1762,7 +1844,7 @@ An accepted call's output MUST fit the output region of compiled code, 196,608 b
 
 A **conforming compiler**:
 
-- MUST read the official packs, at every released version, and MAY read others (section 3);
+- MUST read the official language packs and the official vocabulary packs, at every released version, and MAY read other language packs (section 3);
 - MUST accept a source exactly when this document accepts it, and MUST refuse every other source. For a refused source, the codes of its errors are normative: it MUST report the codes CexChain's compiler reports, given that the checker reads only a tree without lexer or parser errors, and that lowering reads only a model without checker errors (and that one reading reports at most 100 problems). The wording of messages, and the places they point to, are informative;
 - MUST build, from an accepted source, code whose interface is that of section 12.2 and whose every call behaves as section 12 says: for every input, the same outcome (an accept, needs, or a refusal), the same output, byte for byte (outputs are deterministic CBOR, so equal values are equal bytes), and the same reason, byte for byte;
 - MAY emit other code bytes, and use other fuel; it SHOULD bound its functions' fuel below the limit of a call (17.2).
@@ -1775,19 +1857,20 @@ A tool that writes **the contract text** conforms as section 14.3 says; one that
 
 - its source, in each language it is written in (English, Traditional Chinese, Simplified Chinese, and mixed, for some), and its name (`contract`);
 - its interface (`interface`: each function, `create` or `call`);
-- the `bo-source` bundle a deploy records (`bundle`, and its SHA-256), with the official packs' SHA-256 digests, and the compiler string it was built with (`compiler`);
+- the `bo-source` bundle a deploy records (`bundle`, and its SHA-256), with the official packs' SHA-256 digests (version 2) and those of the vocabulary packs its `use` lines name (key 6), and the compiler string it was built with (`compiler`);
+- `earlier`: the bundle a deploy of it recorded before vocabulary packs (version 1 of the official packs, no `use` lines, its kind word `record`), with the compiler string and the SHA-256 of the code it deployed, which is `code_sha256`: such a deploy rebuilds to the same code (16.4);
 - the code `cexchain-bo` built from it (`code`, `code_sha256`), the SHA-256 of the code codegens 1 and 2 built from it (`codegen1_sha256`, `codegen2_sha256`), and each function's fuel and output bounds (`bounds`): all informative;
 - runs: each call, as its parts (function, arguments, home, contract, instance view, caller and signer, time, consents) and as the contract input the ledger encodes from them (spec section 15), with the outcome, the output or the reason, and the fuel the code used. The runs include every step of the contract's own test blocks.
 
 It also holds sources that must not build (`errors`): each with its name, its text (or, for one that is not UTF-8, its bytes in hex), and the error codes a compiler reports, in source order, with their lines. The codes are normative; the lines are CexChain's.
 
-`tools/testvectors/bo_vectors.py` writes the suite from the runs CexChain's tests record, and checks each before writing it: it encodes the input again from the call's parts with its own deterministic CBOR encoder, runs the code on the independent reference interpreter `tools/testvectors/wasm_ref.py` (which MUST give the same outcome, output, fuel, and reason as the ledger's interpreter), decodes the output as `contract-output`, and decodes each bundle, requiring the source as written and the digest of each official pack, which it computes from the packs' text (`bo/packs/`) with its own reader of their diagnostic notation. CexChain's tests rebuild every source to the pinned code, bundle, interface, and bounds, replay every run, and compile every source that must not build to the same errors.
+`tools/testvectors/bo_vectors.py` writes the suite from the runs CexChain's tests record, and checks each before writing it: it encodes the input again from the call's parts with its own deterministic CBOR encoder, runs the code on the independent reference interpreter `tools/testvectors/wasm_ref.py` (which MUST give the same outcome, output, fuel, and reason as the ledger's interpreter), decodes the output as `contract-output`, and decodes each bundle, requiring the source as written, the digest of each official pack, which it computes from the packs' text (`bo/packs/`, and `bo/packs/history/` for the earlier bundles) with its own reader of their diagnostic notation, and key 6 equal to the source's `use` lines with the digests of the vocabulary packs' canonical CBOR, whose terms it compares with `bo/stdlib/`. CexChain's tests rebuild every source to the pinned code, bundle, interface, and bounds, rebuild every earlier bundle to the same code, replay every run, and compile every source that must not build to the same errors.
 
 To check a compiler against the suite: build each source (in every language given); require the interface; run the code on each run's input under the contract profile (spec section 14); require the outcome, the output, and the reason; and compile each source that must not build, requiring its error codes. The code, its hash and size, and the fuel are informative: they match exactly only for `cexchain-bo` at the codegen version the suite names. To check a rebuild, open each bundle (16.2) and compare the build with the pinned code.
 
 ### 18.3 Goldens
 
-[`../tests/bo/golden/`](../tests/bo/golden) holds CexChain's goldens for every pass: tokens (`tokens.txt`), trees (`ast.txt`), models and their errors (`check.txt`), contract texts in three languages (`explain/`), formatted sources (`format/`), test results (`test/`), built code and fuel (`build/`), and the official packs' digests. They are informative, and show what a conforming implementation reports: the error goldens (`error-*`, `parse-error-*`, `check-error-*`) give the codes each refused source gets.
+[`../tests/bo/golden/`](../tests/bo/golden) holds CexChain's goldens for every pass: tokens (`tokens.txt`), trees (`ast.txt`), models and their errors (`check.txt`), contract texts in three languages (`explain/`), formatted sources (`format/`), test results (`test/`), built code and fuel (`build/`), and the digests of the official packs (earlier versions included) and of the vocabulary packs. They are informative, and show what a conforming implementation reports: the error goldens (`error-*`, `parse-error-*`, `check-error-*`) give the codes each refused source gets.
 
 ## Appendix A. Keywords
 
@@ -1812,235 +1895,234 @@ Every pack spells every keyword, and every spelling of the official packs is res
 | `kw.in` | `in` | `於` | `在` | membership; `each NAME in LIST` |
 | `kw.reject` | `reject` | `拒絕` | `拒绝` | refuses a call, with a text |
 | `kw.test` | `test` | `測試` | `测试` | a test |
-| `kw.use` | `use` | `使用` | `使用` | reserved for modules |
+| `kw.use` | `use` | `使用` | `使用` | declares a vocabulary pack the source uses (3.9) |
 
 ## Appendix B. Vocabulary
 
-The words of edition 1, by category, as the official packs spell them. Where a pack gives several spellings, the first is the one tools write, and the others read the same. The English forms read as the word too (3.3). The packs are the reference: [`../bo/packs/`](../bo/packs).
+The words of edition 1, by category, with the vocabulary pack each belongs to (`core` for Bo's core, 3.9), as the official packs spell them. Where a pack gives several spellings, the first is the one tools write, and the others read the same. The English forms read as the word too (3.3). The packs are the reference: [`../bo/packs/`](../bo/packs).
 
 **Kinds** (`kind.*`)
 
-| Concept | English | 繁體中文（香港） | 简体中文 | English forms |
-|---|---|---|---|---|
-| `kind.asset` | `asset` | `資產` | `资产` | plural `assets`, indefinite `an asset` |
-| `kind.record` | `record` | `紀錄` | `记录` | plural `records`, indefinite `a record` |
-| `kind.resource` | `resource` | `資源` | `资源` | plural `resources`, indefinite `a resource` |
-| `kind.service` | `service` | `服務` | `服务` | plural `services`, indefinite `a service` |
+| Concept | Pack | English | 繁體中文（香港） | 简体中文 | English forms |
+|---|---|---|---|---|---|
+| `kind.asset` | finance | `asset` | `資產` | `资产` | plural `assets`, indefinite `an asset` |
+| `kind.resource` | services | `resource` | `資源` | `资源` | plural `resources`, indefinite `a resource` |
+| `kind.service` | services | `service` | `服務` | `服务` | plural `services`, indefinite `a service` |
+| `kind.thing` | core | `thing` | `物件` | `物件` | plural `things`, indefinite `a thing` |
 
 **Actions** (`act.*`)
 
-| Concept | English | 繁體中文（香港） | 简体中文 | English forms |
-|---|---|---|---|---|
-| `act.allocate` | `allocate` | `分配` | `分配` | third `allocates`, gerund `allocating` |
-| `act.approve` | `approve` | `批准` | `批准` | third `approves`, gerund `approving` |
-| `act.cancel` | `cancel` | `註銷` | `注销` | third `cancels`, gerund `cancelling` |
-| `act.confirm_payment` | `confirm payment` | `確認收款` | `确认收款` | third `confirms payment`, gerund `confirming payment` |
-| `act.create` | `create` | `建立` | `创建` | third `creates`, gerund `creating` |
-| `act.credit` | `credit` | `抵扣` | `抵扣` | third `credits`, gerund `crediting` |
-| `act.dispute` | `dispute` | `提出爭議` | `提出争议` | third `disputes`, gerund `disputing` |
-| `act.downgrade` | `downgrade` | `降級` | `降级` | third `downgrades`, gerund `downgrading` |
-| `act.enforce` | `enforce` | `執行質權` | `实现质权` | third `enforces`, gerund `enforcing` |
-| `act.freeze` | `freeze` | `凍結` | `冻结` | third `freezes`, gerund `freezing` |
-| `act.issue` | `issue` | `發出` | `签发` | third `issues`, gerund `issuing` |
-| `act.merge` | `merge` | `合併` | `合并` | third `merges`, gerund `merging` |
-| `act.notify` | `notify` | `通知` | `通知` | third `notifies`, gerund `notifying` |
-| `act.pay` | `pay` | `支付` | `支付` | third `pays`, gerund `paying` |
-| `act.pledge` | `pledge` | `質押` | `质押` | third `pledges`, gerund `pledging` |
-| `act.propose` | `propose` | `提議` | `提议` | third `proposes`, gerund `proposing` |
-| `act.reclaim` | `reclaim` | `收回` | `收回` | third `reclaims`, gerund `reclaiming` |
-| `act.redeem` | `redeem` | `贖回` | `赎回` | third `redeems`, gerund `redeeming` |
-| `act.refund` | `refund` | `退款` | `退款` | third `refunds`, gerund `refunding` |
-| `act.release` | `release` | `解除質押` | `解除质押` | third `releases`, gerund `releasing` |
-| `act.renew` | `renew` | `續期` | `续费` | third `renews`, gerund `renewing` |
-| `act.resume` | `resume` | `恢復` | `恢复` | third `resumes`, gerund `resuming` |
-| `act.split` | `split` | `拆分` | `拆分` | third `splits`, gerund `splitting` |
-| `act.subscribe` | `subscribe` | `訂購` | `订购` | third `subscribes`, gerund `subscribing` |
-| `act.suspend` | `suspend` | `暫停` | `暂停` | third `suspends`, gerund `suspending` |
-| `act.terminate` | `terminate` | `終止` | `终止` | third `terminates`, gerund `terminating` |
-| `act.transfer` | `transfer` | `轉讓` | `转让` | third `transfers`, gerund `transferring` |
-| `act.unfreeze` | `unfreeze` | `解凍` | `解冻` | third `unfreezes`, gerund `unfreezing` |
-| `act.upgrade` | `upgrade` | `升級` | `升级` | third `upgrades`, gerund `upgrading` |
+| Concept | Pack | English | 繁體中文（香港） | 简体中文 | English forms |
+|---|---|---|---|---|---|
+| `act.allocate` | services | `allocate` | `分配` | `分配` | third `allocates`, gerund `allocating` |
+| `act.approve` | core | `approve` | `批准` | `批准` | third `approves`, gerund `approving` |
+| `act.cancel` | core | `cancel` | `註銷` | `注销` | third `cancels`, gerund `cancelling` |
+| `act.confirm_payment` | finance | `confirm payment` | `確認收款` | `确认收款` | third `confirms payment`, gerund `confirming payment` |
+| `act.create` | core | `create` | `建立` | `创建` | third `creates`, gerund `creating` |
+| `act.credit` | commerce | `credit` | `抵扣` | `抵扣` | third `credits`, gerund `crediting` |
+| `act.dispute` | finance | `dispute` | `提出爭議` | `提出争议` | third `disputes`, gerund `disputing` |
+| `act.downgrade` | services | `downgrade` | `降級` | `降级` | third `downgrades`, gerund `downgrading` |
+| `act.enforce` | finance | `enforce` | `執行質權` | `实现质权` | third `enforces`, gerund `enforcing` |
+| `act.freeze` | finance | `freeze` | `凍結` | `冻结` | third `freezes`, gerund `freezing` |
+| `act.issue` | core | `issue` | `發出` | `签发` | third `issues`, gerund `issuing` |
+| `act.notify` | core | `notify` | `通知` | `通知` | third `notifies`, gerund `notifying` |
+| `act.pay` | finance | `pay` | `支付` | `支付` | third `pays`, gerund `paying` |
+| `act.pledge` | finance | `pledge` | `質押` | `质押` | third `pledges`, gerund `pledging` |
+| `act.propose` | core | `propose` | `提議` | `提议` | third `proposes`, gerund `proposing` |
+| `act.reclaim` | services | `reclaim` | `收回` | `收回` | third `reclaims`, gerund `reclaiming` |
+| `act.redeem` | finance | `redeem` | `贖回` | `赎回` | third `redeems`, gerund `redeeming` |
+| `act.refund` | commerce | `refund` | `退款` | `退款` | third `refunds`, gerund `refunding` |
+| `act.release` | finance | `release` | `解除質押` | `解除质押` | third `releases`, gerund `releasing` |
+| `act.renew` | services | `renew` | `續期` | `续费` | third `renews`, gerund `renewing` |
+| `act.resume` | core | `resume` | `恢復` | `恢复` | third `resumes`, gerund `resuming` |
+| `act.split` | finance | `split` | `拆分` | `拆分` | third `splits`, gerund `splitting` |
+| `act.subscribe` | services | `subscribe` | `訂購` | `订购` | third `subscribes`, gerund `subscribing` |
+| `act.suspend` | core | `suspend` | `暫停` | `暂停` | third `suspends`, gerund `suspending` |
+| `act.terminate` | core | `terminate` | `終止` | `终止` | third `terminates`, gerund `terminating` |
+| `act.transfer` | core | `transfer` | `轉讓` | `转让` | third `transfers`, gerund `transferring` |
+| `act.unfreeze` | finance | `unfreeze` | `解凍` | `解冻` | third `unfreezes`, gerund `unfreezing` |
+| `act.upgrade` | services | `upgrade` | `升級` | `升级` | third `upgrades`, gerund `upgrading` |
 
 **Conditions** (`cond.*`)
 
-| Concept | English | 繁體中文（香港） | 简体中文 |
-|---|---|---|---|
-| `cond.before_due` | `… before due` | `到期前 …` | `到期前 …` |
-| `cond.consent_of` | `consent of …` | `經 … 同意` | `经 … 同意` |
-| `cond.in_person` | `in person` | `親身確認` | `本人确认` |
-| `cond.over` | `over …` | `超過 …` | `超过 …` |
-| `cond.overdue` | `overdue` | `逾期` | `逾期` |
-| `cond.within` | `within …` | `… 內` | `… 内` |
+| Concept | Pack | English | 繁體中文（香港） | 简体中文 |
+|---|---|---|---|---|
+| `cond.before_due` | core | `… before due` | `到期前 …` | `到期前 …` |
+| `cond.consent_of` | core | `consent of …` | `經 … 同意` | `经 … 同意` |
+| `cond.in_person` | core | `in person` | `親身確認` | `本人确认` |
+| `cond.over` | core | `over …` | `超過 …` | `超过 …` |
+| `cond.overdue` | core | `overdue` | `逾期` | `逾期` |
+| `cond.within` | core | `within …` | `… 內` | `… 内` |
 
 **Prices and usage** (`price.*`)
 
-| Concept | English | 繁體中文（香港） | 简体中文 | English forms |
-|---|---|---|---|---|
-| `price.overage` | `overage` | `超出` | `超出` | |
-| `price.per` | `per` | `每` | `每` | |
-| `price.price` | `price` | `價格` | `价格` | plural `prices` |
-| `price.setup_fee` | `setup fee` | `開通費` | `开通费` | plural `setup fees` |
-| `price.traffic` | `traffic` | `流量` | `流量` | |
-| `price.usage` | `usage` | `用量` | `用量` | |
+| Concept | Pack | English | 繁體中文（香港） | 简体中文 | English forms |
+|---|---|---|---|---|---|
+| `price.overage` | commerce | `overage` | `超出` | `超出` | |
+| `price.per` | commerce | `per` | `每` | `每` | |
+| `price.price` | commerce | `price` | `價格` | `价格` | plural `prices` |
+| `price.setup_fee` | commerce | `setup fee` | `開通費` | `开通费` | plural `setup fees` |
+| `price.traffic` | services | `traffic` | `流量` | `流量` | |
+| `price.usage` | commerce | `usage` | `用量` | `用量` | |
 
 **Charges** (`charge.*`)
 
-| Concept | English | 繁體中文（香港） | 简体中文 | English forms |
-|---|---|---|---|---|
-| `charge.added` | `added` | `另計` | `另计` | |
-| `charge.applies_to` | `applies to …` | `適用 …` | `适用 …` | |
-| `charge.by` | `according to` | `按` | `按` | |
-| `charge.charge` | `charge` | `費用` | `费用` | plural `charges` |
-| `charge.from` | `from … on` | `從 … 起` | `从 … 起` | |
-| `charge.included` | `included` | `內含` | `含税`, `内含` | |
-| `charge.per_document` | `per document` | `按單據` | `按单据` | |
-| `charge.per_line` | `per line` | `逐行` | `逐行` | |
-| `charge.rate` | `rate` | `稅率`, `費率` | `税率`, `费率` | plural `rates` |
-| `charge.tax` | `tax` | `稅` | `税` | plural `taxes` |
+| Concept | Pack | English | 繁體中文（香港） | 简体中文 | English forms |
+|---|---|---|---|---|---|
+| `charge.added` | commerce | `added` | `另計` | `另计` | |
+| `charge.applies_to` | commerce | `applies to …` | `適用 …` | `适用 …` | |
+| `charge.by` | commerce | `according to` | `按` | `按` | |
+| `charge.charge` | commerce | `charge` | `費用` | `费用` | plural `charges` |
+| `charge.from` | commerce | `from … on` | `從 … 起` | `从 … 起` | |
+| `charge.included` | commerce | `included` | `內含` | `含税`, `内含` | |
+| `charge.per_document` | commerce | `per document` | `按單據` | `按单据` | |
+| `charge.per_line` | commerce | `per line` | `逐行` | `逐行` | |
+| `charge.rate` | commerce | `rate` | `稅率`, `費率` | `税率`, `费率` | plural `rates` |
+| `charge.tax` | commerce | `tax` | `稅` | `税` | plural `taxes` |
 
 **Time** (`time.*`)
 
-| Concept | English | 繁體中文（香港） | 简体中文 | English forms |
-|---|---|---|---|---|
-| `time.at` | `at …` | `時間 …` | `时间 …` | |
-| `time.daily` | `daily` | `每日` | `每天` | |
-| `time.day` | `day` | `日` | `天` | plural `days` |
-| `time.month` | `month` | `個月` | `个月` | plural `months` |
-| `time.monthly` | `monthly` | `每月` | `每月` | |
-| `time.now` | `now` | `現時` | `现在` | |
-| `time.today` | `today` | `今日` | `今天` | |
-| `time.week` | `week` | `週` | `周` | plural `weeks` |
-| `time.weekly` | `weekly` | `每週` | `每周` | |
-| `time.year` | `year` | `年` | `年` | plural `years` |
-| `time.yearly` | `yearly` | `每年` | `每年` | |
+| Concept | Pack | English | 繁體中文（香港） | 简体中文 | English forms |
+|---|---|---|---|---|---|
+| `time.at` | core | `at …` | `時間 …` | `时间 …` | |
+| `time.daily` | core | `daily` | `每日` | `每天` | |
+| `time.day` | core | `day` | `日` | `天` | plural `days` |
+| `time.month` | core | `month` | `個月` | `个月` | plural `months` |
+| `time.monthly` | core | `monthly` | `每月` | `每月` | |
+| `time.now` | core | `now` | `現時` | `现在` | |
+| `time.today` | core | `today` | `今日` | `今天` | |
+| `time.week` | core | `week` | `週` | `周` | plural `weeks` |
+| `time.weekly` | core | `weekly` | `每週` | `每周` | |
+| `time.year` | core | `year` | `年` | `年` | plural `years` |
+| `time.yearly` | core | `yearly` | `每年` | `每年` | |
 
 **Units** (`unit.*`)
 
-| Concept | English | 繁體中文（香港） | 简体中文 | English forms |
-|---|---|---|---|---|
-| `unit.GB` | `GB` | `GB` | `GB` | |
-| `unit.Gbps` | `Gbps` | `Gbps` | `Gbps` | |
-| `unit.GiB` | `GiB` | `GiB` | `GiB` | |
-| `unit.MB` | `MB` | `MB` | `MB` | |
-| `unit.Mbps` | `Mbps` | `Mbps` | `Mbps` | |
-| `unit.MiB` | `MiB` | `MiB` | `MiB` | |
-| `unit.TB` | `TB` | `TB` | `TB` | |
-| `unit.TiB` | `TiB` | `TiB` | `TiB` | |
-| `unit.item` | `item` | `個` | `个` | plural `items` |
-| `unit.kg` | `kg` | `公斤` | `公斤` | |
-| `unit.tonne` | `tonne` | `噸` | `吨` | plural `tonnes` |
+| Concept | Pack | English | 繁體中文（香港） | 简体中文 | English forms |
+|---|---|---|---|---|---|
+| `unit.GB` | core | `GB` | `GB` | `GB` | |
+| `unit.Gbps` | core | `Gbps` | `Gbps` | `Gbps` | |
+| `unit.GiB` | core | `GiB` | `GiB` | `GiB` | |
+| `unit.MB` | core | `MB` | `MB` | `MB` | |
+| `unit.Mbps` | core | `Mbps` | `Mbps` | `Mbps` | |
+| `unit.MiB` | core | `MiB` | `MiB` | `MiB` | |
+| `unit.TB` | core | `TB` | `TB` | `TB` | |
+| `unit.TiB` | core | `TiB` | `TiB` | `TiB` | |
+| `unit.item` | core | `item` | `個` | `个` | plural `items` |
+| `unit.kg` | core | `kg` | `公斤` | `公斤` | |
+| `unit.tonne` | core | `tonne` | `噸` | `吨` | plural `tonnes` |
 
 **Currencies** (`cur.*`)
 
-| Concept | English | 繁體中文（香港） | 简体中文 |
-|---|---|---|---|
-| `cur.CNY` | `CNY` | `人民幣` | `人民币` |
-| `cur.EUR` | `EUR` | `歐元` | `欧元` |
-| `cur.HKD` | `HKD` | `港元` | `港元` |
-| `cur.SGD` | `SGD` | `新加坡元` | `新加坡元` |
-| `cur.USD` | `USD` | `美元` | `美元` |
+| Concept | Pack | English | 繁體中文（香港） | 简体中文 |
+|---|---|---|---|---|
+| `cur.CNY` | core | `CNY` | `人民幣` | `人民币` |
+| `cur.EUR` | core | `EUR` | `歐元` | `欧元` |
+| `cur.HKD` | core | `HKD` | `港元` | `港元` |
+| `cur.SGD` | core | `SGD` | `新加坡元` | `新加坡元` |
+| `cur.USD` | core | `USD` | `美元` | `美元` |
 
 **Rounding modes** (`round.*`)
 
-| Concept | English | 繁體中文（香港） | 简体中文 |
-|---|---|---|---|
-| `round.down` | `down` | `捨去` | `舍去` |
-| `round.half_even` | `half even` | `四捨六入五成雙` | `四舍六入五成双` |
-| `round.half_up` | `half up` | `四捨五入` | `四舍五入` |
+| Concept | Pack | English | 繁體中文（香港） | 简体中文 |
+|---|---|---|---|---|
+| `round.down` | core | `down` | `捨去` | `舍去` |
+| `round.half_even` | core | `half even` | `四捨六入五成雙` | `四舍六入五成双` |
+| `round.half_up` | core | `half up` | `四捨五入` | `四舍五入` |
 
 **Documents** (`doc.*`)
 
-| Concept | English | 繁體中文（香港） | 简体中文 | English forms |
-|---|---|---|---|---|
-| `doc.credit_note` | `credit note` | `貸項通知單` | `红字发票` | plural `credit notes` |
-| `doc.invoice` | `invoice` | `發票` | `发票` | plural `invoices` |
-| `doc.receipt` | `receipt` | `收據` | `收据` | plural `receipts` |
+| Concept | Pack | English | 繁體中文（香港） | 简体中文 | English forms |
+|---|---|---|---|---|---|
+| `doc.credit_note` | commerce | `credit note` | `貸項通知單` | `红字发票` | plural `credit notes` |
+| `doc.invoice` | commerce | `invoice` | `發票` | `发票` | plural `invoices` |
+| `doc.receipt` | commerce | `receipt` | `收據` | `收据` | plural `receipts` |
 
 **Types** (`type.*`)
 
-| Concept | English | 繁體中文（香港） | 简体中文 |
-|---|---|---|---|
-| `type.date` | `date` | `日期` | `日期` |
-| `type.list` | `list` | `清單` | `列表` |
-| `type.number` | `number` | `數值` | `数值` |
-| `type.text` | `text` | `文字` | `文本` |
-| `type.yes_no` | `yes or no` | `是否` | `是否` |
+| Concept | Pack | English | 繁體中文（香港） | 简体中文 |
+|---|---|---|---|---|
+| `type.date` | core | `date` | `日期` | `日期` |
+| `type.list` | core | `list` | `清單` | `列表` |
+| `type.number` | core | `number` | `數值` | `数值` |
+| `type.text` | core | `text` | `文字` | `文本` |
+| `type.yes_no` | core | `yes or no` | `是否` | `是否` |
 
 **Values** (`val.*`)
 
-| Concept | English | 繁體中文（香港） | 简体中文 |
-|---|---|---|---|
-| `val.no` | `no` | `否` | `否` |
-| `val.none` | `none` | `無` | `无` |
-| `val.pending_approval` | `pending approval` | `待批准` | `待批准` |
-| `val.refused` | `refused` | `被拒絕` | `被拒绝` |
-| `val.yes` | `yes` | `是` | `是` |
+| Concept | Pack | English | 繁體中文（香港） | 简体中文 |
+|---|---|---|---|---|
+| `val.no` | core | `no` | `否` | `否` |
+| `val.none` | core | `none` | `無` | `无` |
+| `val.pending_approval` | core | `pending approval` | `待批准` | `待批准` |
+| `val.refused` | core | `refused` | `被拒絕` | `被拒绝` |
+| `val.yes` | core | `yes` | `是` | `是` |
 
 **Fields** (`field.*`)
 
-| Concept | English | 繁體中文（香港） | 简体中文 | English forms |
-|---|---|---|---|---|
-| `field.amount` | `amount` | `金額` | `金额` | object `the amount` |
-| `field.cooling_period` | `cooling period` | `冷卻期` | `冷却期` | object `the cooling period` |
-| `field.customer_location` | `customer location` | `客戶所在地` | `客户所在地` | object `the customer location` |
-| `field.due` | `due` | `到期日` | `到期日` | object `the due date` |
-| `field.holder` | `holder` | `持有人` | `持有人` | subject `the holder`, object `the holder` |
-| `field.parts` | `parts` | `各部分` | `各部分` | object `the parts` |
-| `field.payee` | `payee` | `收款人` | `收款人` | subject `the payee`, object `the payee` |
-| `field.pledgee` | `pledgee` | `質權人` | `质权人` | subject `the pledgee`, object `the pledgee` |
-| `field.portion` | `portion` | `部分` | `部分` | object `the portion` |
-| `field.quantity` | `quantity` | `數量` | `数量` | object `the quantity` |
-| `field.recipients` | `recipients` | `各接收方` | `各接收方` | subject `the recipients`, object `the recipients` |
-| `field.tier` | `tier` | `層級` | `层级` | object `the tier` |
-| `field.utc_offset` | `UTC offset` | `UTC 時差`, `UTC時差` | `UTC 时差`, `UTC时差` | object `the UTC offset` |
+| Concept | Pack | English | 繁體中文（香港） | 简体中文 | English forms |
+|---|---|---|---|---|---|
+| `field.amount` | core | `amount` | `金額` | `金额` | object `the amount` |
+| `field.cooling_period` | services | `cooling period` | `冷卻期` | `冷却期` | object `the cooling period` |
+| `field.customer_location` | commerce | `customer location` | `客戶所在地` | `客户所在地` | object `the customer location` |
+| `field.due` | core | `due` | `到期日` | `到期日` | object `the due date` |
+| `field.holder` | core | `holder` | `持有人` | `持有人` | subject `the holder`, object `the holder` |
+| `field.parts` | core | `parts` | `各部分` | `各部分` | object `the parts` |
+| `field.payee` | finance | `payee` | `收款人` | `收款人` | subject `the payee`, object `the payee` |
+| `field.pledgee` | finance | `pledgee` | `質權人` | `质权人` | subject `the pledgee`, object `the pledgee` |
+| `field.portion` | finance | `portion` | `部分` | `部分` | object `the portion` |
+| `field.quantity` | core | `quantity` | `數量` | `数量` | object `the quantity` |
+| `field.recipients` | core | `recipients` | `各接收方` | `各接收方` | subject `the recipients`, object `the recipients` |
+| `field.tier` | finance | `tier` | `層級` | `层级` | object `the tier` |
+| `field.utc_offset` | core | `UTC offset` | `UTC 時差`, `UTC時差` | `UTC 时差`, `UTC时差` | object `the UTC offset` |
 
 **States** (`state.*`)
 
-| Concept | English | 繁體中文（香港） | 简体中文 |
-|---|---|---|---|
-| `state.active` | `active` | `正常` | `正常` |
-| `state.allocated` | `allocated` | `已分配` | `已分配` |
-| `state.cancelled` | `cancelled` | `已註銷` | `已注销` |
-| `state.cooling` | `cooling` | `冷卻中` | `冷却中` |
-| `state.disputed` | `disputed` | `爭議中` | `争议中` |
-| `state.divided` | `divided` | `已拆分` | `已拆分` |
-| `state.frozen` | `frozen` | `已凍結` | `已冻结` |
-| `state.paid` | `paid` | `已支付` | `已支付` |
-| `state.pledged` | `pledged` | `已質押` | `已质押` |
-| `state.proposed` | `proposed` | `已提議` | `已提议` |
-| `state.redeemed` | `redeemed` | `已贖回` | `已赎回` |
-| `state.settled` | `settled` | `已結清` | `已结清` |
-| `state.suspended` | `suspended` | `已暫停` | `已暂停` |
-| `state.terminated` | `terminated` | `已終止` | `已终止` |
+| Concept | Pack | English | 繁體中文（香港） | 简体中文 |
+|---|---|---|---|---|
+| `state.active` | core | `active` | `正常` | `正常` |
+| `state.allocated` | services | `allocated` | `已分配` | `已分配` |
+| `state.cancelled` | core | `cancelled` | `已註銷` | `已注销` |
+| `state.cooling` | services | `cooling` | `冷卻中` | `冷却中` |
+| `state.disputed` | finance | `disputed` | `爭議中` | `争议中` |
+| `state.divided` | core | `divided` | `已拆分` | `已拆分` |
+| `state.frozen` | finance | `frozen` | `已凍結` | `已冻结` |
+| `state.paid` | finance | `paid` | `已支付` | `已支付` |
+| `state.pledged` | finance | `pledged` | `已質押` | `已质押` |
+| `state.proposed` | core | `proposed` | `已提議` | `已提议` |
+| `state.redeemed` | finance | `redeemed` | `已贖回` | `已赎回` |
+| `state.settled` | finance | `settled` | `已結清` | `已结清` |
+| `state.suspended` | core | `suspended` | `已暫停` | `已暂停` |
+| `state.terminated` | core | `terminated` | `已終止` | `已终止` |
 
 **Actors** (`actor.*`)
 
-| Concept | English | 繁體中文（香港） | 简体中文 | English forms |
-|---|---|---|---|---|
-| `actor.ai_agent` | `AI agent` | `AI 代理`, `AI代理` | `AI 代理`, `AI代理` | plural `AI agents` |
-| `actor.device` | `device` | `裝置` | `设备` | plural `devices` |
-| `actor.keeper` | `keeper` | `排程器` | `调度器` | plural `keepers` |
-| `actor.person` | `person` | `真人` | `真人` | plural `people` |
+| Concept | Pack | English | 繁體中文（香港） | 简体中文 | English forms |
+|---|---|---|---|---|---|
+| `actor.ai_agent` | core | `AI agent` | `AI 代理`, `AI代理` | `AI 代理`, `AI代理` | plural `AI agents` |
+| `actor.device` | core | `device` | `裝置` | `设备` | plural `devices` |
+| `actor.keeper` | core | `keeper` | `排程器` | `调度器` | plural `keepers` |
+| `actor.person` | core | `person` | `真人` | `真人` | plural `people` |
 
 **Roles** (`role.*`)
 
-| Concept | English | 繁體中文（香港） | 简体中文 | English forms |
-|---|---|---|---|---|
-| `role.bank` | `bank` | `銀行` | `银行` | subject `the bank`, object `the bank` |
-| `role.counterparty` | `counterparty` | `相對方` | `相对方` | subject `the counterparty`, object `the counterparty` |
-| `role.customer` | `customer` | `客戶` | `客户` | subject `the customer`, object `the customer` |
-| `role.issuer` | `issuer` | `發行人` | `发行人` | subject `the issuer`, object `the issuer` |
-| `role.supplier` | `supplier` | `供應商` | `供应商` | subject `the supplier`, object `the supplier` |
-| `role.we` | `we` | `本公司` | `本公司` | object `us` |
+| Concept | Pack | English | 繁體中文（香港） | 简体中文 | English forms |
+|---|---|---|---|---|---|
+| `role.bank` | finance | `bank` | `銀行` | `银行` | subject `the bank`, object `the bank` |
+| `role.counterparty` | core | `counterparty` | `相對方` | `相对方` | subject `the counterparty`, object `the counterparty` |
+| `role.customer` | commerce | `customer` | `客戶` | `客户` | subject `the customer`, object `the customer` |
+| `role.issuer` | finance | `issuer` | `發行人` | `发行人` | subject `the issuer`, object `the issuer` |
+| `role.supplier` | finance | `supplier` | `供應商` | `供应商` | subject `the supplier`, object `the supplier` |
+| `role.we` | core | `we` | `我方`, `本公司` | `我方`, `本公司` | object `us` |
 
 **Expressions** (`expr.*`)
 
-| Concept | English | 繁體中文（香港） | 简体中文 |
-|---|---|---|---|
-| `expr.at_most` | `at most …` | `最多 …` | `最多 …` |
-| `expr.count_of` | `count of …` | `… 數目` | `… 数目` |
-| `expr.previous_state` | `previous state` | `原先狀態` | `原先状态` |
-| `expr.sum_of` | `sum of …` | `… 總和` | `… 总和` |
+| Concept | Pack | English | 繁體中文（香港） | 简体中文 |
+|---|---|---|---|---|
+| `expr.at_most` | core | `at most …` | `最多 …` | `最多 …` |
+| `expr.count_of` | core | `count of …` | `… 數目` | `… 数目` |
+| `expr.previous_state` | core | `previous state` | `原先狀態` | `原先状态` |
+| `expr.sum_of` | core | `sum of …` | `… 總和` | `… 总和` |
 
 ## Appendix C. Diagnostic codes
 
@@ -2126,7 +2208,7 @@ Every problem the compiler reports has a code, a severity, and parameters, which
 
 | Code | Severity | English message |
 |---|---|---|
-| `parse.top-level` | error | {found} cannot start a line here: outside any block, a line starts with contract, parties, a kind (asset, service, resource, record), charge or tax, can, when, or test |
+| `parse.top-level` | error | {found} cannot start a line here: outside any block, a line starts with use, contract, parties, a kind (thing; asset, service, or resource with their packs), charge or tax, can, when, or test |
 | `parse.statement` | error | {found} cannot start a line in an action's block: write requires, if, otherwise, each, reject, a field set (holder = bank), a state change (active -> suspended), an action (notify customer), or who may propose (AI agent can propose) |
 | `parse.field` | error | {found} cannot appear in a field: a block's line names a field, then its type or value (amount HKD, IP 1 item), with commas between parts |
 | `parse.step` | error | {found} cannot start a step: a test's lines are steps, the party first (supplier pledge to bank, optionally at DATE, in person, by AI agent), and expectations (-> pledged, -> refused) |
@@ -2135,7 +2217,7 @@ Every problem the compiler reports has a code, a severity, and parameters, which
 | `parse.empty-block` | error | {word} needs what it governs: an indented block under it, or for when, if, and otherwise, a statement on the same line |
 | `parse.otherwise` | error | {word} must follow an if block at the same indentation |
 | `parse.duplicate` | error | {word} is given twice; give it once |
-| `parse.reserved` | error | {word} is reserved for modules, in a later edition of Bo |
+| `parse.reserved` | error | {word} declares a vocabulary pack on a line of its own, outside any block: use finance |
 | `parse.too-deep` | error | this line nests more than {limit} levels deep (parentheses, operators, or otherwise if) |
 | `parse.expected-name` | error | a name of your own must follow {after}: keywords and words of the vocabulary cannot be names |
 | `parse.expected-action` | error | an action must follow {after}: a word of the vocabulary (pledge, transfer) or a name of your own |
@@ -2163,6 +2245,8 @@ Every problem the compiler reports has a code, a severity, and parameters, which
 |---|---|---|
 | `check.fragment` | warning | there is no contract line, so this file is checked as a fragment; bo build will need contract NAME |
 | `check.no-parties` | error | the contract has actions but no parties line: write parties, then its roles (parties issuer, supplier, bank) |
+| `check.unknown-pack` | error | use {pack}: Bo has no such vocabulary pack; its packs are commerce, finance, and services |
+| `check.pack-not-used` | error | {word} is a word of the {pack} vocabulary pack, which the source does not use: write use {pack} at its top |
 | `check.duplicate` | error | {name} is declared twice; a name has one meaning in a contract |
 | `check.one-kind` | error | a contract describes one kind of instance; {name} would be a second: write another contract for it |
 | `check.unknown-name` | error | {name} is not declared: it is not a party, a field, an input, a state, or a name each gives |

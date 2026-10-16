@@ -156,7 +156,7 @@ instance of a contract. Lending a camera, in Bo:
 contract Lending
 parties owner
 
-record Thing
+thing Item
   name text
   holder owner
 
@@ -212,7 +212,7 @@ The `cexchain` tool controls every part of a ledger:
 | Requests | `request list`, `request show`, `request answer`, `request cancel`, `request wait` |
 | Executors | `executor add`, `executor list`, `executor show`, `executor revoke`, `executor run`, `executor check`, `executor connector add\|list\|show\|remove`, `executor secret set\|list\|remove`, `executor journal list\|show`; `connector webhook`, `connector command` |
 | Keepers | `keeper add`, `keeper list`, `keeper show`, `keeper revoke`, `keeper due`, `keeper run`; `serve --keeper-key` |
-| Bo language | `bo check`, `bo build`, `bo explain`, `bo fmt`, `bo test`, `bo stdlib list`, `bo stdlib show`, `bo packs list`, `bo packs show`, `bo packs check` (in builds with the Bo compiler); `contract deploy --bo` |
+| Bo language | `bo check`, `bo build`, `bo explain`, `bo fmt`, `bo test`, `bo stdlib list`, `bo stdlib show`, `bo vocab list`, `bo vocab show`, `bo packs list`, `bo packs show`, `bo packs check` (in builds with the Bo compiler); `contract deploy --bo` |
 
 - Every command takes `--help`, and `--json` for scripting.
 - `cexchain help --json` describes every command and option in machine-readable form.
@@ -590,10 +590,15 @@ source.
 
 Bo is the language contracts are written in: a few keywords in English, Traditional Chinese (Hong
 Kong usage), and Simplified Chinese, freely mixed, and a built-in vocabulary of words with fixed
-meanings: common actions (transfer, suspend, cancel), conditions, time words, units, and
-currencies. The vocabulary also holds words of particular industries (finance, commerce, services),
-which are planned to move into optional packs that a contract declares when it needs them. Its
-reference is [`spec/bo.md`](spec/bo.md), with the conformance suite `testvectors/bo-v1.json`. The
+meanings. Its core, which every contract reads, holds 80 generic words: kinds of things (`thing`),
+common actions (transfer, suspend, cancel), conditions, time words, units, currencies, types, and
+common fields, states, and roles. Words of particular fields live in three official *vocabulary
+packs*, each with the standard terms of its built-in actions: `finance` (24 words: pledges,
+payments, freezes, splits), `commerce` (22: prices, charges such as taxes, bills), and `services`
+(12: services and resources allocated to one holder at a time). A contract declares the packs it
+uses, one line each at its top (`use finance`; `使用 finance` in Chinese), and a deploy records each
+one's version and digest; a pack's word in a contract that does not use its pack is an error, never
+a name of the contract's own. Its reference is [`spec/bo.md`](spec/bo.md), with the conformance suite `testvectors/bo-v1.json`. The
 compiler reads every source through *language packs*, then lexes, parses, checks, and compiles it
 to contract code, which `contract deploy --bo` deploys with its source. Each pack maps Bo's
 concepts (`kw.can`, `act.transfer`, `unit.GB`) to one language's spellings, with its reading rules
@@ -602,7 +607,9 @@ date forms), its messages, and the sentences of the contract text. A pack never 
 the same contract compiles to the same code through any of them.
 
 ```sh
-cexchain bo packs list                          # the official packs and their digests
+cexchain bo vocab list                          # the core and the vocabulary packs, with digests
+cexchain bo vocab show finance                  # a pack's words, field types, and built-in actions
+cexchain bo packs list                          # the official language packs and their digests
 cexchain bo packs show zh-Hant-HK               # its reading rules, keywords, and words
 cexchain bo packs check company.pack            # a pack of your own, alone and with the official ones
 cexchain bo packs check company.pack --language zh-Hant-HK   # messages in Traditional Chinese
@@ -632,7 +639,7 @@ can act.transfer to=role.counterparty  (the tree of both)
   requires cond.in_person guard=(cond.over 50000)
 ```
 
-Clauses are `contract`, `parties`, a kind and its fields (`record Item`), `can` with `by`,
+Clauses are `use`, `contract`, `parties`, a kind and its fields (`thing Item`), `can` with `by`,
 `to`, and `with`, `when`, and `test`; an action's block holds `requires`, `if`/`otherwise`,
 `each`, `reject`, `FIELD = VALUE`, and state changes (`active -> suspended`). `=` sets a field at
 the start of an action's line and compares inside a condition. Ambiguity is an error, never a
@@ -648,7 +655,7 @@ recurse, and every state must be reachable. Whatever Bo infers rather than reads
 the fixed rule that inferred it, which the contract text spells out:
 
 ```
-record Item                            field field.holder instance party = owner{R2}
+thing Item                             field field.holder instance party = owner{R2}
   amount HKD                           state state.active first{R4}
   holder owner                         can act.transfer standard by=field.holder{R19} to=role.counterparty{R21} agents=delegation{R14}
 can transfer to counterparty             consent role.counterparty{R21}
@@ -856,11 +863,12 @@ cexchain bo test lending.bo --language zh-Hans-CN --json
 ### The standard library
 
 The built-in actions are written in Bo itself, in a standard library compiled into the compiler
-(`bo/stdlib/edition1.bo`): transfer and cancel; suspend, resume, and terminate, on the home's own
-word; and the vocabulary's industry actions (finance: pledge, release, enforce, redeem, pay,
-confirm payment, dispute, freeze, unfreeze, split; services: allocate, reclaim), which keep the
-semantics of the native assets that spec v0.5 to v0.8 had (`tests/bo/assets_test.cpp` holds
-those verdicts as goldens and checks the library against them, call by call). A contract that
+(`bo/stdlib/`): the core's transfer and cancel, and suspend, resume, and terminate, on the home's
+own word (`core.bo`); then the vocabulary packs' actions, which a contract gets after its `use`
+line: finance's pledge, release, enforce, redeem, pay, confirm payment, dispute, freeze, unfreeze,
+and split (`finance.bo`), which keep the semantics of the native assets that spec v0.5 to v0.8 had
+(`tests/bo/finance_terms_test.cpp` holds those verdicts as goldens and checks the pack's terms
+against them, call by call), and services' allocate and reclaim (`services.bo`). A contract that
 writes `can transfer to counterparty` gets the library's transfer: the holder starts it, the
 holder and the counterparty consent, only an active instance is transferred, and the
 counterparty becomes the holder. The lines a contract writes under a built-in action add to its
@@ -871,7 +879,8 @@ was created (R31). The contract text states every standard term, marked R19. To 
 built-in action, copy it under a name of your own: it is then the contract's own action.
 
 ```sh
-cexchain bo stdlib list                                  # who starts each, and its states
+cexchain bo stdlib list                                  # who starts each, its pack, its states
+cexchain bo stdlib list finance                          # one pack's (or core)
 cexchain bo stdlib show transfer                         # its source, to copy, and its text
 cexchain bo stdlib show 轉讓 --language zh-Hant-HK
 ```
@@ -989,8 +998,8 @@ instance keeps the bill as it was made (R26): a later rate never changes a bill 
 charge is a rate (in millionths) or a fixed amount; it applies always or when a condition holds;
 it is `included` in the price or `added` to it; it is rounded per line or per bill, half up, half
 even, or down; it may be computed on charges written before it (R27); and its rate is the one in
-force at the bill's time (R28). The words for bills and charges belong to the commerce
-vocabulary, planned as an optional pack. The spec ([`spec/bo.md`](spec/bo.md)) works through a
+force at the bill's time (R28). The words for bills and charges belong to the `commerce`
+vocabulary pack: a contract that uses them starts with `use commerce`. The spec ([`spec/bo.md`](spec/bo.md)) works through a
 value-added tax on both sides of a rate change; `tests/bo/golden/test/charges/` and
 `tests/bo/golden/build/vat-amounts.txt` hold the arithmetic, which the Python reference computes
 again with its own integers.
