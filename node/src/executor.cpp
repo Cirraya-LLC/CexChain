@@ -1495,10 +1495,13 @@ std::expected<void, std::string> Runtime::run() {
             return Fail(started.error());
         }
     }
-    // Resumed work is tried at once, whatever its backoff was.
+    // An answer waiting to be sent is sent at once after a restart; an
+    // action waiting for its retry keeps its backoff (the outside system's).
     for (JournalEntry& e : journal_.entries()) {
         if (!is_final(e.stage)) {
-            e.next_at = 0;
+            if (e.stage == Stage::outcome || e.stage == Stage::answering) {
+                e.next_at = 0;
+            }
             pending_[hex(e.request)] = std::move(e);
         }
     }
