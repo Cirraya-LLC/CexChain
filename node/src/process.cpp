@@ -44,6 +44,16 @@ bool set_flags(int fd, bool nonblocking) noexcept {
     return true;
 }
 
+/// EAGAIN or EWOULDBLOCK (one value on Linux, where comparing with both
+/// warns).
+bool would_block(int error) noexcept {
+#if EAGAIN == EWOULDBLOCK
+    return error == EAGAIN;
+#else
+    return error == EAGAIN || error == EWOULDBLOCK;
+#endif
+}
+
 ExitStatus status_of(int raw) noexcept {
     ExitStatus s;
     if (WIFEXITED(raw)) {
@@ -187,7 +197,7 @@ Status ChildProcess::write(std::string_view data, std::chrono::milliseconds time
         if (n < 0 && errno == EINTR) {
             continue;
         }
-        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        if (n < 0 && would_block(errno)) {
             pollfd p{input_, POLLOUT, 0};
             const int ready = ::poll(&p, 1, left_ms(until));
             if (ready == 0) {
@@ -242,7 +252,7 @@ Result<std::optional<std::string>> ChildProcess::read_line(std::chrono::millisec
             buffer_.append(chunk.data(), static_cast<std::size_t>(n));
         } else if (n == 0) {
             output_closed_ = true;
-        } else if (errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK) {
+        } else if (errno != EINTR && !would_block(errno)) {
             output_closed_ = true;
         }
     }
@@ -271,8 +281,7 @@ ChildProcess::Run ChildProcess::communicate(ByteView input, std::chrono::millise
             if (n > 0) {
                 written += static_cast<std::size_t>(n);
             }
-            if ((n < 0 && errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK) ||
-                written == input.size()) {
+            if ((n < 0 && errno != EINTR && !would_block(errno)) || written == input.size()) {
                 close_input(); // done, or the child stopped reading
             }
         }
@@ -285,7 +294,7 @@ ChildProcess::Run ChildProcess::communicate(ByteView input, std::chrono::millise
                 run.output.insert(run.output.end(), chunk.begin(),
                                   chunk.begin() + static_cast<std::ptrdiff_t>(take));
                 run.truncated = run.truncated || take < static_cast<std::size_t>(n);
-            } else if (n == 0 || (errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK)) {
+            } else if (n == 0 || (errno != EINTR && !would_block(errno))) {
                 output_closed_ = true;
             }
         }
