@@ -192,6 +192,14 @@ if(TARGET cexchain_crypto_pkcs11)
         add_test(NAME cli_pkcs11
             COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/pkcs11.sh $<TARGET_FILE:cexchain>
                     ${CEXCHAIN_SOFTHSM_MODULE})
+        # A shipment's chain of custody (examples/), whose driver proves
+        # presence with a hardware key: SoftHSM stands in for it.
+        if(TARGET cexchain_bo)
+            add_test(NAME demo_shipment
+                COMMAND bash ${PROJECT_SOURCE_DIR}/examples/shipment/shipment.sh $<TARGET_FILE:cexchain>)
+            set_tests_properties(demo_shipment PROPERTIES
+                ENVIRONMENT "PKCS11_MODULE=${CEXCHAIN_SOFTHSM_MODULE}")
+        endif()
     else()
         message(STATUS "SoftHSM not found: skipping the token tests")
     endif()
