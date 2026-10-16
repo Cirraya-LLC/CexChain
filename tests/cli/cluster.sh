@@ -6,7 +6,9 @@
 # member, the leader killed (no acknowledged write lost, a new leader within
 # seconds), the old leader back and caught up, and a hand-over. A request a
 # contract call made before the leader died is found at the new leader and
-# answered through a follower (spec v0.8).
+# answered through a follower (spec v0.8). Every member runs a keeper
+# (serve --keeper-key): only the leader's acts, expiring overdue requests,
+# and a new leader's carries on.
 # Usage: cluster.sh CEXCHAIN
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO (from lines ${BASH_LINENO[*]}): $BASH_COMMAND" >&2; dump_logs >&2' ERR
@@ -107,6 +109,10 @@ size_of() { status "$1" | json 'd["size"]'; }
 # has_size N SIZE: member N holds SIZE entries (evaluated on each call).
 has_size() { [ "$(size_of "$1")" = "$2" ]; }
 # digest N SIZE: a hash of member N's first SIZE log entries.
+# The status of the one request an instance made.
+is_expired() {
+    [ "$(client request list --instance "$1" --json | json 'd[0]["status"]')" = expired ]
+}
 digest() {
     python3 - "${API[$1]}" "$(cat ops.token)" "$2" << 'PY'
 import hashlib, sys, urllib.request
@@ -119,7 +125,8 @@ PY
 start_member() {
     local n="$1"
     "$CEXCHAIN" serve --cluster --ledger "node$n" --listen "127.0.0.1:${APORT[$n]}" \
-        --log-key log.key --checkpoint-interval 0 --json > "node$n.json" 2> "node$n.log" &
+        --log-key log.key --checkpoint-interval 0 --keeper-key keeper.key --keeper-interval 1 \
+        --expiry-grace 0 --json > "node$n.json" 2> "node$n.log" &
     PIDS[$n]=$!
     eventually 60 status "$n"
 }
@@ -142,6 +149,8 @@ python3 -c "import json, sys; open('requesting.wasm', 'wb').write(bytes.fromhex(
     "$SOURCE/testvectors/test-contracts.json"
 REQ="$(run contract deploy requesting.wasm --ledger node1 --as root.key --function open=create \
     --function result=call --compiler "test_contracts.py 1" --json | json 'd["contract"]["id"]')"
+# The keeper: it may call the contract's result, so it expires its requests.
+run keeper add Keeper --contracts "$REQ" --key-out keeper.key --as root.key --ledger node1 > /dev/null
 run token create --ledger node1 ops --scope read,submit,admin --out ops.token > /dev/null
 run cluster init --help | contains 'Three members ride out the loss of one'
 expect_exit 2 cluster init --ledger node1 --id 1 --raft "127.0.0.1:${RPORT[1]}" --api "${API[1]}"
@@ -178,6 +187,15 @@ for i in 1 2 3; do
 done
 client contract create "$REQ" open --args '[["notify", null, 86400000]]' --as root.key > /dev/null
 REQUEST="$(client request list --open --json | json 'd[0]["id"]')"
+# A request due in a second: the leader's keeper expires it; the followers'
+# keepers do nothing.
+SHORT="$(client contract create "$REQ" open --args '[["notify", null, 1000]]' --as root.key --json | json 'd["instance"]["id"]')"
+eventually 60 is_expired "$SHORT"
+FIRST_LEADER="$(leader_of 1)"
+contains '"event":"keeper-expired"' "node$FIRST_LEADER.log" || fail "the leader's keeper expires it"
+for n in 1 2 3; do
+    [ "$n" = "$FIRST_LEADER" ] || ! contains '"event":"keeper-' "node$n.log" || fail "member $n is no leader"
+done
 client checkpoint create > /dev/null
 WANT="$(size_of 1)"
 for n in 1 2 3; do eventually 60 has_size "$n" "$WANT"; done
@@ -186,6 +204,8 @@ for n in 1 2 3; do eventually 60 has_size "$n" "$WANT"; done
 
 # --- The leader dies ---------------------------------------------------------------
 LEADER="$(leader_of 2)"
+# A request falls due while the leader is down: the new leader's keeper expires it.
+LATE="$(client contract create "$REQ" open --args '[["notify", null, 2000]]' --as root.key --json | json 'd["instance"]["id"]')"
 kill -9 "${PIDS[$LEADER]}"; wait "${PIDS[$LEADER]}" 2> /dev/null || true; unset "PIDS[$LEADER]"
 # Its files are still a member's: nothing writes to them outside the cluster.
 expect_exit 2 record issue --ledger "node$LEADER" --as root.key --type example.document/1 --field n=x
@@ -207,13 +227,15 @@ for i in 4 5; do
 done
 client checkpoint create > /dev/null
 client record list --json | json 'len(d)' | contains -x 6
+eventually 60 is_expired "$LATE"
+contains '"event":"keeper-expired"' "node$NEW.log" || fail "the new leader's keeper expires it"
 # The request made before the failover is open at the new leader, and an
 # answer through a follower reaches it.
 run request wait --server "${API[$NEW]}" --token-file ops.token --timeout 0 --json \
     | json 'd["requests"][0]["id"]' | contains -x "$REQUEST"
 client request answer "$REQUEST" --done --as root.key > /dev/null
 run request wait --server "${API[$NEW]}" --token-file ops.token --state answered --timeout 0 --json \
-    | json 'd["requests"][0]["status"]' | contains -x done
+    | json '[r["status"] for r in d["requests"] if r["id"] == "'"$REQUEST"'"][0]' | contains -x done
 WANT="$(size_of "$NEW")"
 for n in "${OTHERS[@]}"; do eventually 60 has_size "$n" "$WANT"; done
 [ "$(digest "${OTHERS[0]}" "$WANT")" = "$(digest "${OTHERS[1]}" "$WANT")" ] || fail "survivors differ"

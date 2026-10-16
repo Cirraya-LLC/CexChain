@@ -171,6 +171,28 @@ int cmd_serve(const Args& args) {
         }
         options.registrar = load_signer(*registrar, args);
     }
+    if (const auto keeper = args.get("keeper-key")) {
+        if (options.read_only) {
+            throw UsageError{"--keeper-key writes: not with --read-only"};
+        }
+        options.keeper = load_signer(*keeper, args);
+    } else if (args.has("keeper-interval") || args.has("expiry-grace")) {
+        throw UsageError{"--keeper-interval and --expiry-grace go with --keeper-key"};
+    }
+    if (const auto every = args.get("keeper-interval")) {
+        const std::uint64_t seconds = parse_number(*every, "--keeper-interval");
+        if (seconds == 0 || seconds > 86'400) {
+            throw UsageError{"--keeper-interval is 1 to 86400 seconds"};
+        }
+        options.keeper_interval = std::chrono::seconds(seconds);
+    }
+    if (const auto grace = args.get("expiry-grace")) {
+        const std::uint64_t seconds = parse_number(*grace, "--expiry-grace");
+        if (seconds > 31'622'400) {
+            throw UsageError{"--expiry-grace is 0 to 31622400 seconds (366 days)"};
+        }
+        options.expiry_grace = std::chrono::seconds(seconds);
+    }
     auto api = unwrap(node::LedgerApi::open(options, shared_provider()), "opening the ledger");
 
     node::ServerOptions server_options;
@@ -215,11 +237,18 @@ int cmd_serve(const Args& args) {
                     {"role", role},
                     {"read_only", options.read_only || api->is_replica()},
                     {"log_key", !options.log_keys.empty()},
-                    {"checkpoint_interval", interval}});
+                    {"checkpoint_interval", interval},
+                    {"keeper", options.keeper != nullptr}});
     } else {
         std::println("serving ledger {} ({}) at {}", hex_id(api->ledger().id()), role, url);
         if (options.log_keys.empty()) {
             std::println("no --log-key: receipts, evidence, and checkpoints are not served");
+        }
+        if (options.keeper) {
+            std::println(
+                "keeper: every {} s, expiring requests {} s after their deadline",
+                options.keeper_interval.count(),
+                std::chrono::duration_cast<std::chrono::seconds>(options.expiry_grace).count());
         }
     }
     std::fflush(stdout);

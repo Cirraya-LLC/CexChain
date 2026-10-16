@@ -289,4 +289,42 @@ CallAttempt attempt_answer(Session& session, const crypto::Signer& signer,
     return attempt;
 }
 
+NewActorKey new_actor_key(const Args& args, std::string_view whose) {
+    if (args.has("key") == args.has("key-out")) {
+        throw UsageError{"give --key (" + std::string(whose) +
+                         " key file) or --key-out FILE (make one)"};
+    }
+    NewActorKey out;
+    out.file = args.get("key-out");
+    if (out.file) {
+        if (std::filesystem::exists(*out.file)) {
+            throw CommandError{*out.file + " already exists; keys are never overwritten"};
+        }
+        const auto made = unwrap(crypto::openssl::KeyPair::generate(
+                                     parse_algorithm(args.get("alg").value_or("ed25519"))),
+                                 "generating the key");
+        save_key(*out.file, made, passphrase(args, *out.file, true));
+        out.key = made.public_key();
+    } else {
+        if (args.has("alg")) {
+            throw UsageError{"--alg goes with --key-out"};
+        }
+        out.key = public_key_of(args.need("key"), args);
+    }
+    return out;
+}
+
+std::optional<protocol::Timestamp> validity_end(const Args& args) {
+    if (args.has("until") && args.has("days")) {
+        throw UsageError{"give --until or --days, not both"};
+    }
+    if (const auto until = args.get("until")) {
+        return parse_time(*until);
+    }
+    if (const auto days = args.get("days")) {
+        return ledger::SystemClock{}.now() + parse_number(*days, "--days") * day_ms;
+    }
+    return std::nullopt;
+}
+
 } // namespace cexchain::cli

@@ -505,35 +505,10 @@ int cmd_executor_add(const Args& args) {
     std::ranges::sort(functions);
     functions.erase(std::ranges::unique(functions).begin(), functions.end());
     scope.functions = functions;
-    if (args.has("until") && args.has("days")) {
-        throw UsageError{"give --until or --days, not both"};
-    }
-    if (const auto until = args.get("until")) {
-        scope.not_after = parse_time(*until);
-    } else if (const auto days = args.get("days")) {
-        scope.not_after = ledger::SystemClock{}.now() + parse_number(*days, "--days") * day_ms;
-    }
-
-    if (args.has("key") == args.has("key-out")) {
-        throw UsageError{"give --key (the executor's key file) or --key-out FILE (make one)"};
-    }
-    crypto::PublicKey key;
-    std::optional<std::string> key_out = args.get("key-out");
-    if (key_out) {
-        if (std::filesystem::exists(*key_out)) {
-            throw CommandError{*key_out + " already exists; keys are never overwritten"};
-        }
-        const auto made = unwrap(crypto::openssl::KeyPair::generate(
-                                     parse_algorithm(args.get("alg").value_or("ed25519"))),
-                                 "generating the key");
-        save_key(*key_out, made, passphrase(args, *key_out, true));
-        key = made.public_key();
-    } else {
-        if (args.has("alg")) {
-            throw UsageError{"--alg goes with --key-out"};
-        }
-        key = public_key_of(args.need("key"), args);
-    }
+    scope.not_after = validity_end(args);
+    const NewActorKey made = new_actor_key(args, "the executor's");
+    const crypto::PublicKey& key = made.key;
+    const std::optional<std::string>& key_out = made.file;
     const bool agent = args.has("agent");
     protocol::ActorRegisterBody body{agent ? protocol::ActorKind::agent
                                            : protocol::ActorKind::device,

@@ -90,4 +90,17 @@ answer_call(const Session& session, const protocol::RequestState& request,
                                          protocol::ContractCallBody answer,
                                          const CallOptions& options);
 
+/// The key of a device being registered (an executor, a keeper): --key (a
+/// public key file, a private key file, or a pkcs11: URI), or --key-out FILE
+/// (a new key, made with --alg and encrypted with the passphrase; never
+/// overwriting a file). `whose` names it in messages ("the executor's").
+struct NewActorKey {
+    crypto::PublicKey key;
+    std::optional<std::string> file;
+};
+[[nodiscard]] NewActorKey new_actor_key(const Args& args, std::string_view whose);
+
+/// A delegation's end from --days N or --until DATE, if either is given.
+[[nodiscard]] std::optional<protocol::Timestamp> validity_end(const Args& args);
+
 } // namespace cexchain::cli

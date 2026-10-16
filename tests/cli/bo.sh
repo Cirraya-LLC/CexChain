@@ -19,8 +19,9 @@
 # built with it, through four ledgers: pledged to a bank with the consents of
 # the supplier and the bank, released, sold to a factor, paid, and confirmed;
 # time rules (3 days overdue, suspend) and the IP pool, tested, built, and
-# explained; a keeper, a device whose delegation names one contract,
-# calling a rule on a ledger once its time has come; and lists and charges:
+# explained; a keeper (keeper add), a device whose delegation names one
+# contract's time rules, firing a rule on a ledger once its time has come
+# (keeper due, keeper run); and lists and charges:
 # the spec's VAT, tested on both sides of its rate change, explained in each
 # language, and billed on a ledger, where a bill keeps the rate it was made
 # with.
@@ -1226,19 +1227,22 @@ contains -Fx "accept suspended when {\"late\": 28800000, \"rule\": \"when.suspen
 expect_exit 1 contract call "$KI" when.suspend --as k-root.key --at 2026-03-04 --ledger "$K"
 contains -F -- "--at needs --dry-run" out.txt || fail "keeper: --at without --dry-run"
 run contract call --help | contains -F "with --dry-run --at TIME" || fail "keeper: help"
-# The keeper: a device with a delegation for this contract's calls only
-# (scope key 7). Its schedule (cron, say) calls every rule; a rule whose
-# time has not come is refused, and nothing is recorded.
-run key generate --out keeper.key > /dev/null
-run key public keeper.key --out keeper.pub > /dev/null
-KEEPER="$(k actor add --as k-root.key --kind device --name "Keeper" --key keeper.pub --json | json 'd["actor"]["id"]')"
-k delegation grant --as k-root.key --to "$KEEPER" --allow contract-call --contracts "$KC" > /dev/null
+# The keeper: a device whose delegation covers this contract's time rules
+# only (scope keys 7 and 8, no key 9). keeper due finds what is due by dry
+# runs; keeper run calls it. A rule whose time has not come is refused, and
+# nothing is recorded.
+KEEPER="$(k keeper add Keeper --contracts "$KC" --key-out keeper.key --as k-root.key --json | json 'd["actor"]["id"]')"
+k keeper show "$KEEPER" --json | json '",".join(d["functions"])' | contains -Fx "when.suspend,when.terminate" || fail "keeper: the time rules"
 HEAD_BEFORE="$(k contract instance "$KI" --json | json 'd["head"]')"
 expect_exit 2 contract call "$KI" when.terminate --as keeper.key --ledger "$K"
 contains -F "(bo:when when.terminate)" out.txt || fail "keeper: terminate is not due"
 [ "$(k contract instance "$KI" --json | json 'd["head"]')" = "$HEAD_BEFORE" ] || fail "keeper: nothing recorded"
-k contract call "$KI" when.suspend --as keeper.key --json | json 'd["instance"]["status"]' | contains -Fx suspended || fail "keeper: suspended"
+k keeper due --keeper "$KEEPER" --json | json '[r["function"] for r in d["rules"]]' | contains -Fx "['when.suspend']" || fail "keeper: due"
+k keeper run --as keeper.key > out.txt
+contains -F "fired when.suspend on ${KI:0:12}" out.txt || fail "keeper: run"
+k contract instance "$KI" --json | json 'd["status"]' | contains -Fx suspended || fail "keeper: suspended"
 k contract instance "$KI" --json | json 'd["calls"][-1]["function"], d["calls"][-1]["by"]["name"]' | contains -Fx "when.suspend Keeper" || fail "keeper: its call"
+k keeper run --as keeper.key | contains -F "nothing due" || fail "keeper: nothing more due"
 expect_exit 2 contract call "$KI" when.suspend --as keeper.key --ledger "$K"
 contains -F "(bo:fired when.suspend)" out.txt || fail "keeper: once for each time"
 # Its delegation names this contract only: another contract's rules are not its to call.

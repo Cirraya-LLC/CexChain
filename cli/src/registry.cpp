@@ -51,7 +51,7 @@ const std::set<std::string_view> local_only{"init",  "serve", "token",  "replica
                                             "vault", "peer",  "access", "mcp",     "cluster"};
 /// Single commands of other groups that need the directory (its peers).
 const std::set<std::pair<std::string_view, std::string_view>> local_only_commands{
-    {"contract", "send"}, {"contract", "fetch"}};
+    {"contract", "send"}, {"contract", "fetch"}, {"keeper", "due"}};
 /// The cluster commands that talk to a member's API.
 std::vector<OptionSpec> cluster_api(std::vector<OptionSpec> extra) {
     std::vector<OptionSpec> options{
@@ -817,8 +817,8 @@ std::vector<CommandSpec> build() {
                {"cluster", "",
                 "Serve as a member of this ledger's cluster (cexchain cluster init or join)"},
                {"public-read", "",
-                "Serve read routes without a token (a public verification portal; the vault and "
-                "metrics still need one)"},
+                "Serve read routes without a token (a public verification portal; the vault, "
+                "metrics, requests, and what is due still need one)"},
                {"threads", "N", "I/O threads (default: one per core)"},
                {"max-connections", "N", "Concurrent connections (default: 1024)"},
                {"max-connections-per-ip", "N",
@@ -830,6 +830,12 @@ std::vector<CommandSpec> build() {
                {"registrar-key", "KEY",
                 "Take proposed contract calls with the consents their contracts ask for; record "
                 "each once all are in, signing as this actor (file or pkcs11: URI)"},
+               {"keeper-key", "KEY",
+                "Fire the time rules that are due and expire overdue requests, signing as this "
+                "keeper (keeper add; file or pkcs11: URI); in a cluster, the leader does"},
+               {"keeper-interval", "SECONDS", "How often the keeper looks (default: 60)"},
+               {"expiry-grace", "SECONDS",
+                "The keeper expires a request this long after its deadline (default: 900)"},
                passphrase_file_option}),
          cmd_serve,
          "Routes (API v1; binary objects are CBOR or COSE, everything else JSON):\n"
@@ -839,7 +845,8 @@ std::vector<CommandSpec> build() {
          "           /v1/receipts/INDEX, /v1/state/ID, /v1/evidence/RECORD,\n"
          "           /v1/vault/public-key, /v1/vault/records/RECORD, /v1/contracts,\n"
          "           /v1/contracts/CONTRACT, /v1/contracts/instances/INSTANCE,\n"
-         "           /v1/contracts/calls, /v1/contracts/calls/CALL, /v1/requests (below)\n"
+         "           /v1/contracts/calls, /v1/contracts/calls/CALL, /v1/requests,\n"
+         "           /v1/contracts/due (below)\n"
          "  submit:  POST /v1/statements (a signed statement, application/cose; or a record's\n"
          "           registration with its sealed private data, or a contract call with its\n"
          "           consents' evidence, application/cexchain-submission+cbor),\n"
@@ -856,6 +863,10 @@ std::vector<CommandSpec> build() {
          "made by contract calls, for executors: open ones by default, oldest change first, with\n"
          "a cursor for the next after=; with wait=S (up to 25 seconds) it waits until one\n"
          "matches. It is a hint: executors check a request in the instance's evidence.\n"
+         "GET /v1/contracts/due?at=&grace=&keeper=&contract=&instance=&start=&limit= (read)\n"
+         "lists what a keeper would do: the time rules due and the requests to expire.\n"
+         "With --keeper-key, the server is that keeper: every --keeper-interval it fires what\n"
+         "is due, one call per instance at a time, queued with the other writes.\n"
          "Requests send \"Authorization: Bearer TOKEN\" (cexchain token create). Reads run on all\n"
          "I/O threads at once; writes queue for one writer, which commits whatever has queued\n"
          "as a group with one sync. The server holds the ledger's lock only while writing, so\n"
@@ -1693,6 +1704,118 @@ std::vector<CommandSpec> build() {
          cmd_executor_revoke,
          "It answers nothing more from then on. Its past answers stay, attributed to it: request\n"
          "list --answered-by ACTOR lists them."},
+
+        // ------------------------------------------------------------------
+        {{"keeper", "add"},
+         "Register a keeper: a device that fires time rules and expires requests",
+         "Keepers",
+         "NAME",
+         1,
+         1,
+         signing({{"contracts", "CONTRACTS", "The contracts it keeps, comma-separated", true},
+                  {"functions", "FUNCTIONS",
+                   "The functions it may call (default: the contracts' time rules, when.*, and "
+                   "result if they have it)"},
+                  {"key", "KEY", "Its key: a public key file, private key file, or pkcs11: URI"},
+                  {"key-out", "FILE",
+                   "Make a new key for it here instead (encrypted with the passphrase)"},
+                  {"alg", "ALG", "With --key-out: ed25519 (default), esp256, sm2-sm3, ml-dsa-65"},
+                  {"days", "N", "Its delegation is valid for N days from now"},
+                  {"until", "DATE", "Its delegation is valid until DATE"}}),
+         cmd_keeper_add,
+         "A ledger acts only on calls: a contract's time rules (functions when.*, which Bo\n"
+         "compiles each when rule to) apply once a keeper calls them, and a request left open\n"
+         "past its deadline closes once a keeper expires it. Registers a device, then grants it\n"
+         "a delegation for calls on CONTRACTS only (scope key 7), calling only FUNCTIONS (key 8)\n"
+         "and answering no request kinds (no key 9): it can fire the rules and expire requests\n"
+         "through their reply, and nothing else, never the actions that are the home's own\n"
+         "word. Give its key to serve --keeper-key (the server's keeper) or to keeper run.\n\n"
+         "  cexchain keeper add Keeper --contracts 3f2a9c1e --key-out keeper.key --as root.key"},
+        {{"keeper", "list"},
+         "List keepers: devices whose delegations call time rules",
+         "Keepers",
+         "",
+         0,
+         0,
+         with({ledger_option,
+               {"contract", "CONTRACT", "Only keepers that may act on this contract"},
+               {"all", "", "Include revoked keepers"}}),
+         cmd_keeper_list,
+         "A keeper is an actor with a delegation for contract calls only, narrowed to some\n"
+         "functions (scope key 8), that answers no request kinds (no key 9)."},
+        {{"keeper", "show"},
+         "Show a keeper: its delegations, the calls it made, and what is due for it",
+         "Keepers",
+         "ACTOR",
+         1,
+         1,
+         with({ledger_option}),
+         cmd_keeper_show},
+        {{"keeper", "revoke"},
+         "Revoke a keeper: its delegations, then the actor",
+         "Keepers",
+         "ACTOR",
+         1,
+         1,
+         signing({reason_option,
+                  {"keep-actor", "",
+                   "Revoke only the delegations; the actor stays (to be granted anew)"}}),
+         cmd_keeper_revoke,
+         "It calls nothing more from then on; a server running with its key logs that it is\n"
+         "idle. Its past calls stay, attributed to it."},
+        {{"keeper", "due"},
+         "List what is due: time rules to fire and requests to expire",
+         "Keepers",
+         "",
+         0,
+         0,
+         with(
+             {ledger_option,
+              {"keeper", "ACTOR", "Only what this keeper's delegations let it call"},
+              {"contract", "CONTRACT", "Only instances of this contract"},
+              {"instance", "INSTANCE", "Only this instance"},
+              {"at", "TIME",
+               "As if at TIME (YYYY-MM-DD for its UTC midnight, or YYYY-MM-DDTHH:MM:SSZ)"},
+              {"grace", "SECONDS", "A request expires this long after its deadline (default: 900)"},
+              {"limit", "N", "At most N contract runs (1 to 100000; default: 10000)"},
+              {"start", "N", "Skip the first N instances (where an earlier answer stopped)"},
+              {"server", "URL",
+               "Ask this server instead (GET /v1/contracts/due; default: $CEXCHAIN_SERVER)"},
+              {"token-file", "FILE", "An API token with the read scope (default: $CEXCHAIN_TOKEN)"},
+              {"ca-file", "FILE",
+               "CA certificates (PEM) to trust for --server, if not the system's"}}),
+         cmd_keeper_due,
+         "Finds what a keeper would do, by dry runs that record nothing: a time rule is due if\n"
+         "its contract accepts the call (no arguments) and the call would change something; a\n"
+         "request is due to expire once its deadline plus the grace has passed and its contract\n"
+         "takes the expiry. Each item names the keepers whose delegations cover it. With\n"
+         "--server, the server finds them, by its own clock.\n\n"
+         "  cexchain keeper due\n"
+         "  cexchain keeper due --keeper Keeper --at 2027-07-03 --json"},
+        {{"keeper", "run"},
+         "Fire what is due as a keeper: once, or every so often",
+         "Keepers",
+         "",
+         0,
+         0,
+         with(
+             {ledger_option,
+              as_option,
+              passphrase_file_option,
+              {"every", "SECONDS", "Run again every SECONDS until stopped (1 to 86400)"},
+              {"rounds", "N", "With --every: stop after N rounds"},
+              {"grace", "SECONDS", "A request expires this long after its deadline (default: 900)"},
+              {"limit", "N", "At most N contract runs per scan (1 to 100000; default: 10000)"}}),
+         cmd_keeper_run,
+         "Signs with --as, a keeper's key, the calls that are due for it (as keeper due --keeper\n"
+         "lists them): each time rule, and an expiry for each request open past its deadline\n"
+         "plus the grace. One call per instance at a time, since each moves the instance's\n"
+         "head; then it looks again. The ledger's registration time decides: a rule fires late,\n"
+         "never early, and its event says how late. On a server, serve --keeper-key does this\n"
+         "itself; keeper run is for a ledger without one (or, with --server, from another\n"
+         "computer). With --every and --json, it prints one line of JSON a round.\n\n"
+         "  cexchain keeper run --as keeper.key\n"
+         "  cexchain keeper run --as keeper.key --every 60"},
 #if defined(CEXCHAIN_HAVE_BO)
         // ------------------------------------------------------------------
         {{"bo", "check"},

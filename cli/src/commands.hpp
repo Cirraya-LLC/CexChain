@@ -157,6 +157,13 @@ int cmd_executor_add(const Args& args);
 int cmd_executor_list(const Args& args);
 int cmd_executor_show(const Args& args);
 int cmd_executor_revoke(const Args& args);
+// Keepers (6b): time rules and expiries
+int cmd_keeper_add(const Args& args);
+int cmd_keeper_list(const Args& args);
+int cmd_keeper_show(const Args& args);
+int cmd_keeper_revoke(const Args& args);
+int cmd_keeper_due(const Args& args);
+int cmd_keeper_run(const Args& args);
 
 // The Bo language (D-053, step 6); only in builds with the Bo compiler
 // (CEXCHAIN_HAVE_BO).
