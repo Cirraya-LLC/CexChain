@@ -50,8 +50,9 @@ purchase orders, invoices, or certificates. Those are things you define, and the
 - **Requests and executors.** Contracts decide; they never act on the outside world. A call may
   ask for work outside the ledger (send a notice, call another system): a *request*, which an
   executor (a device or an AI agent with a narrow delegation) or a person answers with a signed
-  call: done, failed, or expired. Every request and answer is in the instance's evidence. The
-  executor runtime that runs connectors, and the keeper daemon, are being built.
+  call: done, failed, or expired. Every request and answer is in the instance's evidence. A
+  *keeper* inside the server fires contracts' time rules when they are due and expires
+  overdue requests; the executor runtime that runs connectors is being built.
 
 ## Who it is for
 
@@ -208,6 +209,7 @@ The `cexchain` tool controls every part of a ledger:
 | Contracts | `contract deploy`, `contract show`, `contract list`, `contract retire`, `contract create`, `contract call`, `contract instance`, `contract instances`, `contract evidence`, `contract propose`, `contract pending`, `contract consent`, `contract withdraw`, `contract send`, `contract fetch`, `contract verify`, `contract explain` |
 | Requests | `request list`, `request show`, `request answer`, `request cancel`, `request wait` |
 | Executors | `executor add`, `executor list`, `executor show`, `executor revoke` |
+| Keepers | `keeper add`, `keeper list`, `keeper show`, `keeper revoke`, `keeper due`, `keeper run`; `serve --keeper-key` |
 | Bo language | `bo check`, `bo build`, `bo explain`, `bo fmt`, `bo test`, `bo stdlib list`, `bo stdlib show`, `bo packs list`, `bo packs show`, `bo packs check` (in builds with the Bo compiler); `contract deploy --bo` |
 
 - Every command takes `--help`, and `--json` for scripting.
@@ -915,15 +917,23 @@ are counted at a fixed offset from UTC, all year: `UTC offset "-05:00"` in the k
 +08:00 (R25).
 
 ```sh
-# The keeper: a device whose delegation covers this contract's calls only.
-cexchain actor add --as root.key --kind device --name Keeper --key keeper.pub
-cexchain delegation grant --as root.key --to <keeper> --allow contract-call --contracts <contract>
-# Has the rule's time come? Ask at any time; a dry run records nothing.
-cexchain contract call <instance> when.suspend --as keeper.key --dry-run --at 2027-07-03
-# On its schedule (cron, say), the keeper calls each rule; one whose time has not come is refused.
-cexchain contract call <instance> when.suspend --as keeper.key
+# The keeper: a device whose delegation covers these contracts' time rules (and result) only.
+cexchain keeper add Keeper --contracts <contract> --key-out keeper.key --as root.key
+# What is due now, or at a later time? Dry runs; nothing is recorded.
+cexchain keeper due
+cexchain keeper due --at 2027-07-03
+# The server's keeper fires what is due every minute (on the leader, in a cluster) ...
+cexchain serve --log-key log.key --keeper-key keeper.key
+# ... or, for a ledger without a server, fire it now, or every minute.
+cexchain keeper run --as keeper.key
+cexchain keeper run --as keeper.key --every 60
 ```
 
+A keeper finds what is due by dry runs: a rule is due if its contract accepts the call and the
+call would change something. It also expires requests left open 15 minutes past their deadline
+(`--expiry-grace`). Its delegation covers contract calls of the time rules and the replies
+only, never the actions that are the home's own word; `keeper list`, `keeper show`, and
+`keeper revoke` manage keepers, and `GET /v1/contracts/due` answers what is due.
 A keeper that is sometimes off (a personal computer) fires late, never early, and the event
 shows how late. In tests, the keeper is a step: `keeper suspend at 2027-07-02 -> refused
 "bo:when when.suspend"`, then `keeper suspend at 2027-07-03 -> suspended`; it calls, as a device
