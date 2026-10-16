@@ -790,10 +790,14 @@ void bo_seeds(const Seeds& seeds) {
         seeds.write("bo_check_fuzz", "demo-" + std::string(demo) + ".bo", text.str());
     }
 
-    // The standard library (milestone 11), and a contract that declares all
-    // its actions: built-in actions with their terms.
-    seeds.write("bo_parse_fuzz", "stdlib-edition1.bo", bo::standard_library().source);
-    seeds.write("bo_check_fuzz", "stdlib-edition1.bo", bo::standard_library().source);
+    // The standard library (milestone 11; one file for the core and one for
+    // each vocabulary pack with terms, D-054), and a contract that declares
+    // all its actions: built-in actions with their terms.
+    for (const bo::StandardFile& file : bo::standard_library().files) {
+        const std::string name = "stdlib-" + std::string(bo::vocab_name(file.pack)) + ".bo";
+        seeds.write("bo_parse_fuzz", name, file.source);
+        seeds.write("bo_check_fuzz", name, file.source);
+    }
     seeds.write("bo_check_fuzz", "stdlib-showcase.bo", bo::standard_showcase());
 
     // Deploys' source bundles: each golden source (the compiled agreement in
@@ -873,6 +877,16 @@ void bo_seeds(const Seeds& seeds) {
     built.name = "Agreement";
     seeds.write("bo_source_fuzz", "agreement.boc", ByteView(must(bo::encode_built(built), "boc")));
     seeds.write("bo_source_fuzz", "compiler", built.compiler);
+    // Bundles deployed before vocabulary packs (the official packs version
+    // 1, no key 6), which open with the packs carried for them.
+    for (const auto& contract : doc.at("contracts")) {
+        if (contract.contains("earlier")) {
+            const Bytes earlier =
+                must(from_hex(contract.at("earlier").at("bundle").get<std::string>()), "bundle");
+            seeds.write("bo_source_fuzz", "earlier-" + contract.at("name").get<std::string>(),
+                        ByteView(earlier));
+        }
+    }
 #else
     static_cast<void>(seeds);
 #endif
