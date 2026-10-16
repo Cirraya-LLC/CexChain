@@ -1663,7 +1663,10 @@ std::vector<CommandSpec> build() {
                    "Register an AI agent instead of a device (with --model and --responsible)"},
                   {"responsible", "ACTOR", "The person accountable for it"},
                   {"days", "N", "Its delegation is valid for N days from now"},
-                  {"until", "DATE", "Its delegation is valid until DATE"}}),
+                  {"until", "DATE", "Its delegation is valid until DATE"},
+                  {"config-out", "FILE",
+                   "Write the config executor run needs here (its ids; add connectors with "
+                   "executor connector add)"}}),
          cmd_executor_add,
          "Registers the actor, then grants it a delegation for calls on CONTRACT only (scope\n"
          "key 7), calling only FUNCTIONS (key 8), and answering only requests of KINDS (key 9):\n"
@@ -1672,7 +1675,7 @@ std::vector<CommandSpec> build() {
          "recorded, signed with --as: the organization's key, or an actor's whose delegation\n"
          "covers actor-register and delegation-grant and may delegate.\n\n"
          "  cexchain executor add Notifier --contract 3f2a9c1e --kinds notify \\\n"
-         "      --key-out notifier.key --as root.key"},
+         "      --key-out notifier.key --config-out notifier.json --as root.key"},
         {{"executor", "list"},
          "List executors: actors whose delegations answer requests",
          "Executors",
@@ -1704,6 +1707,215 @@ std::vector<CommandSpec> build() {
          cmd_executor_revoke,
          "It answers nothing more from then on. Its past answers stay, attributed to it: request\n"
          "list --answered-by ACTOR lists them."},
+
+        {{"executor", "run"},
+         "Run an executor: find its requests, verify them, act through connectors, answer",
+         "Executors",
+         "",
+         0,
+         0,
+         with({{"config", "FILE", "The executor's config: its ids and its connectors", true},
+               {"state", "DIR", "Its state: journal, cursor, lease name, and sealed secrets", true},
+               {"server", "URL", "The home's API", true},
+               {"token-file", "FILE", "An executor API token (default: $CEXCHAIN_TOKEN)"},
+               {"ca-file", "FILE",
+                "CA certificates (PEM) to trust for --server, if not the system's"},
+               {"as", "KEY", "The executor's key: a private key file or a pkcs11: URI", true},
+               passphrase_file_option,
+               {"secrets-key", "FILE", "The key that opens its secrets (default: DIR/secrets.key)"},
+               {"once", "",
+                "One round: what is open now, then exit (retries wait for the next run)"},
+               {"wait", "S", "How long each poll waits for new requests (0 to 25; default: 25)"},
+               {"lease-ttl", "S",
+                "How long its lease outlives its last poll (5 to 300; default: 60)"}}),
+         cmd_executor_run,
+         "Polls the home's server (GET /v1/requests, long polls) for open requests of the kinds\n"
+         "its connectors serve. The list is a hint: before acting, it fetches the instance's\n"
+         "contract evidence and verifies it for the home ledger (the config's ledger_id); a\n"
+         "request that is not open there is never acted on. Each request is journaled in\n"
+         "DIR/journal, synced before its connector is asked to act; the connector's outcome is\n"
+         "journaled before the answer is signed (with --as, under the config's delegation) and\n"
+         "sent. The answer carries the connector's result, a failure's reason code, and the\n"
+         "salted digest of the outside system's response; the response and its salt stay in\n"
+         "the journal (executor journal show).\n\n"
+         "Transient failures are retried, 1 s doubling to 5 min with jitter, until the\n"
+         "request's deadline; work that could end after the deadline is answered failed, with\n"
+         "the reason deadline. A request answered elsewhere meanwhile (a keeper's expiry, a\n"
+         "person by hand) is closed in the journal, and its own answer is not sent. After a\n"
+         "crash it resumes from the journal: an outcome already journaled is answered, not\n"
+         "acted on again.\n\n"
+         "One copy of an executor acts at a time: by the server's lease (a standby with the same\n"
+         "key and its own DIR takes over once the active copy stops polling), and by a lock on\n"
+         "DIR. SIGINT or SIGTERM finishes the request in hand, stops the connectors, and exits\n"
+         "0. It logs requests, kinds, and outcomes; never params, results, responses, or\n"
+         "secrets.\n\n"
+         "  cexchain executor run --config notifier.json --state /var/lib/notifier \\\n"
+         "      --server https://ledger.example.com --token-file executor.token --as notifier.key"},
+        {{"executor", "check"},
+         "Check an executor's config: start each connector and greet it",
+         "Executors",
+         "",
+         0,
+         0,
+         with({{"config", "FILE", "The executor's config", true},
+               {"state", "DIR", "Its state, to hand the connectors their secrets"},
+               passphrase_file_option,
+               {"secrets-key", "FILE",
+                "The key that opens its secrets (default: DIR/secrets.key)"}}),
+         cmd_executor_check,
+         "Exits 0 if every connector starts and answers hello with ready for its kinds, 2\n"
+         "otherwise. Without --state, connectors that need secrets do not start."},
+        {{"executor", "connector", "add"},
+         "Add a connector to an executor's config",
+         "Executors",
+         "NAME",
+         1,
+         1,
+         with({{"config", "FILE", "The executor's config", true},
+               {"type", "TYPE", "webhook, command, or program", true},
+               {"kinds", "KINDS", "The request kinds it serves, comma-separated", true},
+               {"contracts", "IDS", "Only on these contracts (full ids, comma-separated)"},
+               {"timeout", "S", "The longest one action takes (1 to 300; default: 30)"},
+               {"url", "URL", "webhook: where it POSTs (https://, or http:// to this computer)"},
+               {"secret", "NAME", "webhook: the secret it signs with (HMAC-SHA-256)"},
+               {"ca-file", "FILE", "webhook: CA certificates (PEM) to trust, if not the system's"},
+               {"program", "PATH", "command, program: what it runs"},
+               {"arg", "VALUE", "command, program: an argument for the program", false, true},
+               {"secrets", "NAMES", "command, program: secrets it is handed, comma-separated"},
+               {"connector-config", "JSON", "program: its own configuration, a JSON object"}}),
+         cmd_executor_connector_add,
+         "A webhook POSTs each request as JSON to --url, signed with HMAC-SHA-256 under the\n"
+         "secret --secret (executor secret set NAME). A command runs --program with the --arg\n"
+         "values (never through a shell: params never reach its arguments), the request as one\n"
+         "JSON line on its stdin, with the secrets --secrets names. A program is any connector\n"
+         "that speaks the connector protocol (spec/connectors.md), in any language. A connector\n"
+         "serves --kinds on --contracts, or on any contract; one for some contracts takes them\n"
+         "over from one for any. Two that serve the same kind on the same contracts are\n"
+         "refused.\n\n"
+         "  cexchain executor connector add notices --config notifier.json --type webhook \\\n"
+         "      --kinds notify --url https://hooks.example.com/ledger --secret hook-key\n"
+         "  cexchain executor connector add script --config notifier.json --type command \\\n"
+         "      --kinds http.post --program /usr/local/bin/post-request --timeout 60"},
+        {{"executor", "connector", "list"},
+         "List the connectors in an executor's config",
+         "Executors",
+         "",
+         0,
+         0,
+         with({{"config", "FILE", "The executor's config", true}}),
+         cmd_executor_connector_list},
+        {{"executor", "connector", "show"},
+         "Show a connector in an executor's config",
+         "Executors",
+         "NAME",
+         1,
+         1,
+         with({{"config", "FILE", "The executor's config", true}}),
+         cmd_executor_connector_show},
+        {{"executor", "connector", "remove"},
+         "Remove a connector from an executor's config",
+         "Executors",
+         "NAME",
+         1,
+         1,
+         with({{"config", "FILE", "The executor's config", true}}),
+         cmd_executor_connector_remove},
+        {{"executor", "secret", "set"},
+         "Seal a secret for an executor's connectors (read from a file or stdin)",
+         "Executors",
+         "NAME",
+         1,
+         1,
+         with(
+             {{"state", "DIR", "The executor's state directory", true},
+              {"from-file", "FILE", "Read the value from FILE (default: stdin)"},
+              passphrase_file_option,
+              {"secrets-key", "FILE", "Where its private key is made (default: DIR/secrets.key)"}}),
+         cmd_executor_secret_set,
+         "The value is read from --from-file or stdin, never from the command line (process\n"
+         "listings would show it); one trailing newline is dropped. It is sealed with HPKE\n"
+         "(X25519, HKDF-SHA256, AES-256-GCM), as the vault seals records, to DIR/secrets.pub,\n"
+         "bound to its name, in DIR/secrets/NAME.sealed. The first secret makes the key pair:\n"
+         "the private key, DIR/secrets.key (or --secrets-key), is encrypted with the\n"
+         "passphrase. executor run opens the secrets its connectors name and hands each\n"
+         "connector its own in the protocol's hello, over a pipe: never in arguments, the\n"
+         "environment, the config, a log, or the journal. It never prints a value."},
+        {{"executor", "secret", "list"},
+         "List an executor's secrets (names only)",
+         "Executors",
+         "",
+         0,
+         0,
+         with({{"state", "DIR", "The executor's state directory", true}}),
+         cmd_executor_secret_list},
+        {{"executor", "secret", "remove"},
+         "Remove an executor's secret",
+         "Executors",
+         "NAME",
+         1,
+         1,
+         with({{"state", "DIR", "The executor's state directory", true}}),
+         cmd_executor_secret_remove},
+        {{"executor", "journal", "list"},
+         "List what an executor's journal holds: each request, its stage, and its outcome",
+         "Executors",
+         "",
+         0,
+         0,
+         with({{"state", "DIR", "The executor's state directory", true},
+               {"open", "", "Only requests still in its hands"},
+               {"final", "", "Only requests it is done with (answered or closed)"}}),
+         cmd_executor_journal_list,
+         "Stages: seen (listed by the server), unverified (not open in the signed evidence:\n"
+         "never acted on), verified (waiting for an attempt), acting, outcome, answering, and\n"
+         "the final answered (its answer is recorded) and closed (answered elsewhere, refused by\n"
+         "the ledger, or no connector serves it)."},
+        {{"executor", "journal", "show"},
+         "Show a request in an executor's journal, and check its response's digest",
+         "Executors",
+         "REQUEST",
+         1,
+         1,
+         with({{"state", "DIR", "The executor's state directory", true},
+               {"response-out", "FILE", "Write the outside system's response here"}}),
+         cmd_executor_journal_show,
+         "The answer committed to the response by HASH(salt || response), under the home's\n"
+         "hash; this checks the journal's response and salt against that digest, so that the\n"
+         "response can be disclosed later with proof (--response-out writes it)."},
+        {{"connector", "webhook"},
+         "A connector that POSTs requests to a URL (executor run starts it)",
+         "Executors",
+         "",
+         0,
+         0,
+         {},
+         cmd_connector_webhook,
+         "executor run starts it as 'cexchain connector webhook' and speaks the connector\n"
+         "protocol (spec/connectors.md) with it over stdin and stdout: there is no need to run\n"
+         "it by hand. Each request is POSTed as JSON with the header fields X-CexChain-Request\n"
+         "(its id, also sent as Idempotency-Key: act once per id), X-CexChain-Attempt,\n"
+         "X-CexChain-Timestamp (milliseconds), and X-CexChain-Signature: sha256=HEX, the\n"
+         "HMAC-SHA-256 under the shared secret of the timestamp, a dot, and the body. A 2xx is\n"
+         "done; 408, 425, 429, 5xx, or no answer: try again (Retry-After is honoured); anything\n"
+         "else: failed. A body may say {\"status\": \"failed\", \"reason\": CODE} and give\n"
+         "{\"result\": ...}, the only part of it the answer publishes; all of it is the\n"
+         "response, committed by digest. TLS certificates and host names are verified;\n"
+         "redirects are not followed."},
+        {{"connector", "command"},
+         "A connector that runs a program per request (executor run starts it)",
+         "Executors",
+         "",
+         0,
+         0,
+         {},
+         cmd_connector_command,
+         "executor run starts it as 'cexchain connector command' and speaks the connector\n"
+         "protocol (spec/connectors.md) with it over stdin and stdout. For each request it runs\n"
+         "the configured program without a shell, with the request as one JSON line on its\n"
+         "stdin (with \"secrets\" if the config names some), and no CEXCHAIN_* environment\n"
+         "variables. Exit 0: done; 75 (EX_TEMPFAIL), a signal, or the timeout: try again; any\n"
+         "other: failed. Its stdout is the response, committed by digest; if it is a JSON\n"
+         "object, its \"result\" is published and its \"reason\" names a failure."},
 
         // ------------------------------------------------------------------
         {{"keeper", "add"},

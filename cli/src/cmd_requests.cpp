@@ -21,6 +21,7 @@
 
 #include <cexchain/core/protocol/contracts.hpp>
 #include <cexchain/node/client.hpp>
+#include <cexchain/node/executor.hpp>
 
 #include "commands.hpp"
 #include "contracts.hpp"
@@ -479,6 +480,10 @@ int cmd_request_wait(const Args& args) {
 int cmd_executor_add(const Args& args) {
     Session session(args);
     const std::string name = args.positional().front();
+    const std::optional<std::string> config_out = args.get("config-out");
+    if (config_out && std::filesystem::exists(*config_out)) {
+        throw CommandError{*config_out + " already exists; configs are never overwritten"};
+    }
     const protocol::Id contract = session.contract_id(args.need("contract"));
     const protocol::ContractState& c = *session.state().contract(contract);
     protocol::Scope scope;
@@ -548,8 +553,25 @@ int cmd_executor_add(const Args& args) {
     if (key_out) {
         text += "\nits key is in " + *key_out + " (encrypted): give it to the executor alone";
     }
+    if (config_out) {
+        // What executor run needs to know without reading the ledger: the
+        // home, and who it answers as, under which delegation.
+        node::executor::Config config;
+        config.ledger = session.state().ledger_id();
+        config.actor = actor;
+        config.delegation = delegation;
+        if (agent) {
+            config.model = args.get("model");
+            config.model_version = args.get("model-version");
+        }
+        const std::string written = node::executor::config_text(config);
+        write_file(*config_out, as_bytes(std::string_view(written)), true);
+        text += "\nits config is in " + *config_out +
+                ": add connectors with executor connector add, then run it with executor run";
+    }
     if (args.json()) {
         Json out = executor_json(session, *session.state().actor(actor), now, false);
+        out["config_file"] = config_out ? Json(*config_out) : Json(nullptr);
         out["actor_statement_id"] = id_json(actor);
         out["delegation_statement_id"] = id_json(delegation);
         out["key_file"] = key_out ? Json(*key_out) : Json(nullptr);

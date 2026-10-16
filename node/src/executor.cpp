@@ -2,6 +2,7 @@
 // Copyright 2026 Cirraya
 
 #include <algorithm>
+#include <asio/ip/address.hpp>
 #include <deque>
 #include <fcntl.h>
 #include <format>
@@ -145,6 +146,14 @@ std::expected<ConnectorConfig, std::string> connector_of(const json& entry) {
         auto parsed = Url::parse(url->get<std::string>());
         if (!parsed) {
             return bad(std::format("its url: {}", parsed.error().detail));
+        }
+        asio::error_code not_an_address;
+        const auto address = asio::ip::make_address(parsed->host, not_an_address);
+        const bool loopback =
+            parsed->host == "localhost" || (!not_an_address && address.is_loopback());
+        if (!parsed->tls && !loopback) {
+            return bad("a webhook's url is https:// (http:// only to this computer: 127.0.0.1, "
+                       "::1, localhost)");
         }
         config["url"] = *url;
         config["secret"] = *secret;
@@ -648,6 +657,71 @@ ChannelFactory local_channels(connector::PerformerFactory make) {
     };
 }
 
+std::expected<Opened, std::string>
+open_connector(const ConnectorConfig& config, const ChannelFactory& channels,
+               const std::map<std::string, SecureBytes>& secrets,
+               const std::function<void(const connector::Log&)>& on_log) {
+    auto channel = channels(config);
+    if (!channel) {
+        return Fail(
+            std::format("connector {} does not start: {}", config.name, channel.error().detail));
+    }
+    connector::Hello hello;
+    hello.connector = config.name;
+    hello.config = config.config;
+    for (const std::string& name : config.secrets) {
+        const auto secret = secrets.find(name);
+        if (secret == secrets.end()) {
+            (*channel)->close();
+            return Fail(std::format("connector {} needs the secret {}: executor secret set {}",
+                                    config.name, name, name));
+        }
+        const ByteView v = secret->second.view();
+        hello.secrets[name] = connector::Secret{SecureBytes(Bytes(v.begin(), v.end()))};
+    }
+    std::string line = connector::encode(connector::ToConnector(std::move(hello)));
+    const auto sent = (*channel)->send(line);
+    secure_wipe(std::span(reinterpret_cast<std::uint8_t*>(line.data()), line.size()));
+    std::string last_log;
+    const auto until = std::chrono::steady_clock::now() + 10s;
+    while (sent && std::chrono::steady_clock::now() < until) {
+        auto received = (*channel)->receive(std::chrono::duration_cast<std::chrono::milliseconds>(
+            until - std::chrono::steady_clock::now()));
+        if (!received) {
+            break;
+        }
+        if (!*received) {
+            continue;
+        }
+        auto message = connector::decode_from_connector(**received);
+        if (!message) {
+            continue;
+        }
+        if (const auto* log = std::get_if<connector::Log>(&*message)) {
+            last_log = log->message;
+            if (on_log) {
+                on_log(*log);
+            }
+        } else if (auto* ready = std::get_if<connector::Ready>(&*message)) {
+            if (ready->protocol != connector::protocol_version) {
+                (*channel)->close();
+                return Fail(std::format("connector {} speaks protocol {}, not {}", config.name,
+                                        ready->protocol, connector::protocol_version));
+            }
+            for (const std::string& kind : config.kinds) {
+                if (!ready->kinds.empty() && !std::ranges::contains(ready->kinds, kind)) {
+                    (*channel)->close();
+                    return Fail(std::format("connector {} does not serve {}", config.name, kind));
+                }
+            }
+            return Opened{std::move(*channel), std::move(*ready)};
+        }
+    }
+    (*channel)->close();
+    return Fail(std::format("connector {} did not start{}", config.name,
+                            last_log.empty() ? std::string() : ": " + last_log));
+}
+
 // ---- the runtime ------------------------------------------------------------
 
 namespace {
@@ -761,71 +835,18 @@ private:
     // ---- connectors --------------------------------------------------
 
     std::expected<void, std::string> start(Connector& c) {
-        auto channel = options_.channels(*c.config);
-        if (!channel) {
-            return Fail(std::format("connector {} does not start: {}", c.config->name,
-                                    channel.error().detail));
+        auto opened =
+            open_connector(*c.config, options_.channels, options_.secrets,
+                           [&](const connector::Log& log) { connector_log(*c.config, log); });
+        if (!opened) {
+            return Fail(opened.error());
         }
-        connector::Hello hello;
-        hello.connector = c.config->name;
-        hello.config = c.config->config;
-        for (const std::string& name : c.config->secrets) {
-            const auto secret = options_.secrets.find(name);
-            if (secret == options_.secrets.end()) {
-                (*channel)->close();
-                return Fail(std::format("connector {} needs the secret {}: executor secret set {}",
-                                        c.config->name, name, name));
-            }
-            const ByteView v = secret->second.view();
-            hello.secrets[name] = connector::Secret{SecureBytes(Bytes(v.begin(), v.end()))};
-        }
-        std::string line = connector::encode(connector::ToConnector(std::move(hello)));
-        const auto sent = (*channel)->send(line);
-        secure_wipe(std::span(reinterpret_cast<std::uint8_t*>(line.data()), line.size()));
-        std::string last_log;
-        const auto until = std::chrono::steady_clock::now() + 10s;
-        while (sent && std::chrono::steady_clock::now() < until) {
-            auto received =
-                (*channel)->receive(std::chrono::duration_cast<std::chrono::milliseconds>(
-                    until - std::chrono::steady_clock::now()));
-            if (!received) {
-                break;
-            }
-            if (!*received) {
-                continue;
-            }
-            auto message = connector::decode_from_connector(**received);
-            if (!message) {
-                continue;
-            }
-            if (const auto* log = std::get_if<connector::Log>(&*message)) {
-                last_log = log->message;
-                connector_log(*c.config, *log);
-            } else if (const auto* ready = std::get_if<connector::Ready>(&*message)) {
-                if (ready->protocol != connector::protocol_version) {
-                    (*channel)->close();
-                    return Fail(std::format("connector {} speaks protocol {}, not {}",
-                                            c.config->name, ready->protocol,
-                                            connector::protocol_version));
-                }
-                for (const std::string& kind : c.config->kinds) {
-                    if (!ready->kinds.empty() && !std::ranges::contains(ready->kinds, kind)) {
-                        (*channel)->close();
-                        return Fail(
-                            std::format("connector {} does not serve {}", c.config->name, kind));
-                    }
-                }
-                c.channel = std::move(*channel);
-                event({{"event", "connector-ready"},
-                       {"connector", c.config->name},
-                       {"name", ready->name},
-                       {"version", ready->version}});
-                return {};
-            }
-        }
-        (*channel)->close();
-        return Fail(std::format("connector {} did not start{}", c.config->name,
-                                last_log.empty() ? std::string() : ": " + last_log));
+        c.channel = std::move(opened->channel);
+        event({{"event", "connector-ready"},
+               {"connector", c.config->name},
+               {"name", opened->ready.name},
+               {"version", opened->ready.version}});
+        return {};
     }
 
     void connector_log(const ConnectorConfig& c, const connector::Log& log) {
@@ -1474,8 +1495,10 @@ std::expected<void, std::string> Runtime::run() {
             return Fail(started.error());
         }
     }
+    // Resumed work is tried at once, whatever its backoff was.
     for (JournalEntry& e : journal_.entries()) {
         if (!is_final(e.stage)) {
+            e.next_at = 0;
             pending_[hex(e.request)] = std::move(e);
         }
     }

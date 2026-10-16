@@ -202,6 +202,19 @@ using ChannelFactory =
 /// once by `connector::serve`'s rules, with the performer `make` builds.
 [[nodiscard]] ChannelFactory local_channels(connector::PerformerFactory make);
 
+/// A connector started and greeted: hello (its config, and the secrets it
+/// names, taken from `secrets`), answered by ready within 10 seconds, for
+/// the protocol and kinds it is configured for. `on_log` gets its log lines
+/// meanwhile.
+struct Opened {
+    std::unique_ptr<Channel> channel;
+    connector::Ready ready;
+};
+[[nodiscard]] std::expected<Opened, std::string>
+open_connector(const ConnectorConfig& config, const ChannelFactory& channels,
+               const std::map<std::string, SecureBytes>& secrets,
+               const std::function<void(const connector::Log&)>& on_log = {});
+
 struct RunOptions {
     /// The home's server, and how to reach it (an executor token).
     std::string server;

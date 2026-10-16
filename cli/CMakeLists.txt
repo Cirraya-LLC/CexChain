@@ -10,6 +10,7 @@ add_executable(cexchain
     src/cmd_contracts.cpp
     src/cmd_evidence.cpp
     src/cmd_general.cpp
+    src/cmd_executor.cpp
     src/cmd_keeper.cpp
     src/cmd_keys.cpp
     src/cmd_ledger.cpp

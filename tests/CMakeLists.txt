@@ -153,6 +153,8 @@ add_test(NAME requests_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/requests.sh $<TARGET_FILE:cexchain>)
 add_test(NAME keeper_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/keeper.sh $<TARGET_FILE:cexchain>)
+add_test(NAME executor_end_to_end
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/executor.sh $<TARGET_FILE:cexchain>)
 add_test(NAME client_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/client.sh $<TARGET_FILE:cexchain>)
 add_test(NAME cluster_end_to_end
