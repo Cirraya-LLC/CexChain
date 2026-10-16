@@ -13,7 +13,7 @@ Like a spreadsheet, CexChain knows nothing of what you keep in it: there are no 
 purchase orders, invoices, or certificates. Those are things you define, and the
 [examples](examples/) show how such things are built.
 
-> **Status:** early development (specification v0.9 draft: [the protocol in prose](spec/README.md), [`spec/cexchain.cddl`](spec/cexchain.cddl); the contract language: [`spec/bo.md`](spec/bo.md)). Interfaces and formats may still change. Planned, not built yet: the executor runtime with its connectors, the keeper daemon, optional vocabulary packs for industry words, a local web console, installers, and a public witness service.
+> **Status:** early development (specification v0.9 draft: [the protocol in prose](spec/README.md), [`spec/cexchain.cddl`](spec/cexchain.cddl); the contract language: [`spec/bo.md`](spec/bo.md)). Interfaces and formats may still change. Planned, not built yet: Bo actions that make requests, optional vocabulary packs for industry words, a local web console, installers, and a public witness service.
 
 ## Why
 
@@ -52,7 +52,9 @@ purchase orders, invoices, or certificates. Those are things you define, and the
   executor (a device or an AI agent with a narrow delegation) or a person answers with a signed
   call: done, failed, or expired. Every request and answer is in the instance's evidence. A
   *keeper* inside the server fires contracts' time rules when they are due and expires
-  overdue requests; the executor runtime that runs connectors is being built.
+  overdue requests. `executor run` carries requests out through connectors (a webhook, a
+  command, or any program that speaks the connector protocol) and answers them, acting only on
+  requests it has verified in the signed log.
 
 ## Who it is for
 
@@ -208,7 +210,7 @@ The `cexchain` tool controls every part of a ledger:
 | Other organizations | `peer add`, `peer list`, `peer show`, `peer remove`, `access request`, `access send`, `access inbox`, `access grant`, `access fetch`, `access accept`, `access receipt`, `access list` |
 | Contracts | `contract deploy`, `contract show`, `contract list`, `contract retire`, `contract create`, `contract call`, `contract instance`, `contract instances`, `contract evidence`, `contract propose`, `contract pending`, `contract consent`, `contract withdraw`, `contract send`, `contract fetch`, `contract verify`, `contract explain` |
 | Requests | `request list`, `request show`, `request answer`, `request cancel`, `request wait` |
-| Executors | `executor add`, `executor list`, `executor show`, `executor revoke` |
+| Executors | `executor add`, `executor list`, `executor show`, `executor revoke`, `executor run`, `executor check`, `executor connector add\|list\|show\|remove`, `executor secret set\|list\|remove`, `executor journal list\|show`; `connector webhook`, `connector command` |
 | Keepers | `keeper add`, `keeper list`, `keeper show`, `keeper revoke`, `keeper due`, `keeper run`; `serve --keeper-key` |
 | Bo language | `bo check`, `bo build`, `bo explain`, `bo fmt`, `bo test`, `bo stdlib list`, `bo stdlib show`, `bo packs list`, `bo packs show`, `bo packs check` (in builds with the Bo compiler); `contract deploy --bo` |
 
@@ -545,6 +547,37 @@ deadline; `--require-answered` fails evidence with overdue requests. A server li
 executors at `GET /v1/requests`, as a long poll (`request wait` asks it), under an `executor`
 token that submits answers and nothing else; what it lists is a hint, and an executor checks a
 request in the instance's verified evidence before acting on it.
+
+**Executors at work.** `executor run` is that loop: it polls the server for the kinds its
+connectors serve, verifies each request open in the instance's evidence, journals it (synced
+before every outside action), hands it to the connector its config routes the contract and kind
+to, and signs and sends the answer. A connector is a child process that speaks JSON lines over
+stdin and stdout, in any language, and never sees the signing key
+([`spec/connectors.md`](spec/connectors.md)); two ship with CexChain. `webhook` POSTs each request
+to a URL, signed with HMAC-SHA-256, and `command` runs a program per request, without a shell,
+with the request on its stdin:
+
+```sh
+cexchain executor add Notifier --contract <contract> --kinds notify,http.post \
+    --key-out notifier.key --config-out notifier.json --as root.key
+printf '%s' "$HOOK_KEY" | cexchain executor secret set hook-key --state notifier-state
+cexchain executor connector add notices --config notifier.json --type webhook --kinds notify \
+    --url https://hooks.example.com/ledger --secret hook-key
+cexchain executor connector add poster --config notifier.json --type command --kinds http.post \
+    --program /usr/local/bin/post-request --timeout 60
+cexchain executor check --config notifier.json --state notifier-state
+cexchain executor run --config notifier.json --state notifier-state \
+    --server https://ledger.example.com --token-file executor.token --as notifier.key
+cexchain executor journal list --state notifier-state   # what it did, and why
+```
+
+An answer carries the connector's result (external ids, statuses, codes: never personal data), a
+failure's reason, and the salted digest of the outside system's response, which stays in the
+journal for later disclosure. Transient failures are retried, with backoff, until the deadline; a
+request answered elsewhere meanwhile (a keeper's expiry, a person by hand) is closed, not
+answered twice; after a crash the journal resumes the work without acting twice. Secrets are
+sealed with HPKE and reach a connector only over its pipe. Copies of one executor take turns
+through the server's lease, so a standby takes over when the active copy stops.
 
 **Relying on an instance's state.** When a party acts on an instance's state, say that a thing is
 not already promised to someone else, it waits until the call that put it there is in a
