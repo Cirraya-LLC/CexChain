@@ -18,7 +18,10 @@
 #include <vector>
 
 #include <cexchain/bo/concepts.hpp>
+#include <cexchain/bo/lexer.hpp>
+#include <cexchain/bo/parser.hpp>
 #include <cexchain/bo/source.hpp>
+#include <cexchain/bo/vocab.hpp>
 #include <cexchain/core/vm.hpp>
 
 #include "internal.hpp"
@@ -65,6 +68,20 @@ Status check_bundle(const SourceBundle& b) {
             return malformed("a bo-source bundle's packs do not ascend by id");
         }
     }
+    if (b.vocabulary.size() > max_bundle_packs) {
+        return malformed("a bo-source bundle names at most 64 vocabulary packs");
+    }
+    for (std::size_t i = 0; i < b.vocabulary.size(); ++i) {
+        const PackRef& ref = b.vocabulary[i];
+        if (!detail::valid_pack_id(ref.id) || ref.version == 0 ||
+            ref.digest.size() != pack_digest_size) {
+            return malformed("a bo-source bundle's vocabulary pack is [id, version 1 or more, "
+                             "32-byte digest]");
+        }
+        if (i > 0 && !(b.vocabulary[i - 1].id < ref.id)) {
+            return malformed("a bo-source bundle's vocabulary packs do not ascend by id");
+        }
+    }
     if (b.embedded.size() > b.packs.size()) {
         return malformed("a bo-source bundle embeds more packs than it names");
     }
@@ -82,24 +99,45 @@ const std::string* pack_id(const cbor::Value& pack) {
     return id == nullptr ? nullptr : id->as_text();
 }
 
+cbor::Value refs(const std::vector<PackRef>& list) {
+    cbor::Array out;
+    for (const PackRef& ref : list) {
+        out.push_back(cbor::Value::array({cbor::Value::text(ref.id),
+                                          cbor::Value::unsigned_integer(ref.version),
+                                          cbor::Value::bytes(ref.digest)}));
+    }
+    return cbor::Value::array(std::move(out));
+}
+
+/// [id, version, digest] references, as key 4 and key 6 list them.
+Result<std::vector<PackRef>> read_refs(const cbor::Value& value, std::string_view what) {
+    std::vector<PackRef> out;
+    for (const cbor::Value& item : *value.as_array()) {
+        const cbor::Array* ref = item.as_array();
+        if (ref == nullptr || ref->size() != 3 || (*ref)[0].as_text() == nullptr ||
+            !(*ref)[1].as_uint64() || (*ref)[2].as_bytes() == nullptr) {
+            return malformed(std::format("a bo-source bundle's {} is [id, version, digest]", what));
+        }
+        out.push_back(PackRef{*(*ref)[0].as_text(), *(*ref)[1].as_uint64(), *(*ref)[2].as_bytes()});
+    }
+    return out;
+}
+
 } // namespace
 
 Result<Bytes> encode_source_bundle(const SourceBundle& bundle) {
     if (auto ok = check_bundle(bundle); !ok) {
         return std::unexpected(ok.error());
     }
-    cbor::Array packs;
-    for (const PackRef& ref : bundle.packs) {
-        packs.push_back(cbor::Value::array({cbor::Value::text(ref.id),
-                                            cbor::Value::unsigned_integer(ref.version),
-                                            cbor::Value::bytes(ref.digest)}));
-    }
     cbor::Map map{{key(1), cbor::Value::unsigned_integer(source_format)},
                   {key(2), cbor::Value::unsigned_integer(bundle.edition)},
                   {key(3), cbor::Value::text(bundle.source)},
-                  {key(4), cbor::Value::array(std::move(packs))}};
+                  {key(4), refs(bundle.packs)}};
     if (!bundle.embedded.empty()) {
         map.push_back({key(5), cbor::Value::array(bundle.embedded)});
+    }
+    if (!bundle.vocabulary.empty()) {
+        map.push_back({key(6), refs(bundle.vocabulary)});
     }
     auto encoded = cbor::encode(cbor::Value::map(std::move(map)));
     if (!encoded) {
@@ -125,8 +163,8 @@ Result<SourceBundle> decode_source_bundle(ByteView encoded) {
     if (map == nullptr) {
         return malformed("a bo-source bundle is a map");
     }
-    if (!keys_within(*map, 5)) {
-        return malformed("a bo-source bundle has the keys 1 to 5 only");
+    if (!keys_within(*map, 6)) {
+        return malformed("a bo-source bundle has the keys 1 to 6 only");
     }
     const cbor::Value* format = value->find(1);
     if (format == nullptr || !format->as_uint64()) {
@@ -151,25 +189,45 @@ Result<SourceBundle> decode_source_bundle(ByteView encoded) {
     if (packs == nullptr || packs->as_array() == nullptr) {
         return malformed("a bo-source bundle lists its packs (key 4)");
     }
-    for (const cbor::Value& item : *packs->as_array()) {
-        const cbor::Array* ref = item.as_array();
-        if (ref == nullptr || ref->size() != 3 || (*ref)[0].as_text() == nullptr ||
-            !(*ref)[1].as_uint64() || (*ref)[2].as_bytes() == nullptr) {
-            return malformed("a bo-source bundle's pack is [id, version, digest]");
-        }
-        bundle.packs.push_back(
-            PackRef{*(*ref)[0].as_text(), *(*ref)[1].as_uint64(), *(*ref)[2].as_bytes()});
+    auto listed = read_refs(*packs, "pack");
+    if (!listed) {
+        return std::unexpected(listed.error());
     }
+    bundle.packs = std::move(*listed);
     if (const cbor::Value* embedded = value->find(5)) {
         if (embedded->as_array() == nullptr || embedded->as_array()->empty()) {
             return malformed("a bo-source bundle's embedded packs (key 5) are a list of 1 or more");
         }
         bundle.embedded = *embedded->as_array();
     }
+    if (const cbor::Value* vocabulary = value->find(6)) {
+        if (vocabulary->as_array() == nullptr || vocabulary->as_array()->empty()) {
+            return malformed(
+                "a bo-source bundle's vocabulary packs (key 6) are a list of 1 or more");
+        }
+        auto used = read_refs(*vocabulary, "vocabulary pack");
+        if (!used) {
+            return std::unexpected(used.error());
+        }
+        bundle.vocabulary = std::move(*used);
+    }
     if (auto ok = check_bundle(bundle); !ok) {
         return std::unexpected(ok.error());
     }
     return bundle;
+}
+
+std::vector<std::string> source_uses(std::string_view source, const PackSet& packs) {
+    const Lexicon lexicon(packs);
+    const Parsed parsed = parse(source, lex(source, lexicon));
+    std::vector<std::string> out;
+    for (const ast::Use& u : parsed.file.uses) {
+        out.push_back(u.pack);
+    }
+    std::ranges::sort(out);
+    const auto [first, last] = std::ranges::unique(out);
+    out.erase(first, last);
+    return out;
 }
 
 Result<SourceBundle> make_source_bundle(std::string_view source, const std::uint64_t source_edition,
@@ -178,6 +236,19 @@ Result<SourceBundle> make_source_bundle(std::string_view source, const std::uint
     SourceBundle bundle;
     bundle.edition = source_edition;
     bundle.source = std::string(source);
+    for (const std::string& id : source_uses(source, packs)) {
+        const VocabularyPack* pack = find_vocabulary_pack(id);
+        if (pack == nullptr) {
+            return malformed(std::format(
+                "the source uses the vocabulary pack {}, which this compiler does not carry", id));
+        }
+        auto d = digest(*pack, provider, hash);
+        if (!d) {
+            return std::unexpected(d.error());
+        }
+        bundle.vocabulary.push_back(
+            PackRef{id, pack->version, Bytes(d->bytes().begin(), d->bytes().end())});
+    }
     std::vector<const Pack*> sorted;
     for (const Pack& pack : packs.packs()) {
         sorted.push_back(&pack);
@@ -249,6 +320,9 @@ OpenedSource open_source_bundle(const SourceBundle& bundle, const crypto::Provid
         }
         given.push_back(std::move(*read.pack));
     }
+    // The official packs it names are all of one release: today's, or those
+    // of before vocabulary packs.
+    std::optional<Officials> officials;
     for (const PackRef& ref : bundle.packs) {
         const Pack* named = nullptr;
         if (next < given.size() && given[next].id == ref.id) {
@@ -260,20 +334,29 @@ OpenedSource open_source_bundle(const SourceBundle& bundle, const crypto::Provid
                                            ref.id, named->version, ref.version));
             }
         } else {
-            named = official_pack(ref.id);
+            Officials which = Officials::current;
+            named = official_pack(ref.id, ref.version, &which);
             if (named == nullptr) {
-                return problem(OpenProblem::unknown_official,
-                               std::format("the source was read with the pack {} version {}, "
-                                           "which is neither in the bundle nor an official pack "
-                                           "this compiler carries",
+                const Pack* latest = official_pack(ref.id);
+                return problem(
+                    OpenProblem::unknown_official,
+                    latest == nullptr
+                        ? std::format("the source was read with the pack {} version {}, which is "
+                                      "neither in the bundle nor an official pack this compiler "
+                                      "carries",
+                                      ref.id, ref.version)
+                        : std::format("the source was read with the official pack {} version {}; "
+                                      "this compiler carries version {} (and the versions of "
+                                      "before vocabulary packs)",
+                                      ref.id, ref.version, latest->version));
+            }
+            if (officials && *officials != which) {
+                return problem(OpenProblem::conflict,
+                               std::format("the official pack {} version {} is not of the same "
+                                           "release as the bundle's other official packs",
                                            ref.id, ref.version));
             }
-            if (named->version != ref.version) {
-                return problem(OpenProblem::unknown_official,
-                               std::format("the source was read with the official pack {} "
-                                           "version {}; this compiler carries version {}",
-                                           ref.id, ref.version, named->version));
-            }
+            officials = which;
         }
         const auto d = digest(*named, provider, hash);
         if (!d) {
@@ -293,7 +376,8 @@ OpenedSource open_source_bundle(const SourceBundle& bundle, const crypto::Provid
         return problem(OpenProblem::embedded,
                        "the bundle embeds a pack it does not name, or names it twice");
     }
-    for (const Pack& official : official_packs()) {
+    const Officials which = officials.value_or(Officials::current);
+    for (const Pack& official : official_packs(which)) {
         if (std::ranges::none_of(bundle.packs,
                                  [&](const PackRef& ref) { return ref.id == official.id; })) {
             return problem(OpenProblem::official_missing,
@@ -302,12 +386,52 @@ OpenedSource open_source_bundle(const SourceBundle& bundle, const crypto::Provid
                                        official.id));
         }
     }
-    PackSetRead set = make_pack_set(std::move(given));
+    // The vocabulary packs (key 6): official ones, at those versions and
+    // digests. Before vocabulary packs there were none to name.
+    if (which == Officials::before_vocabulary && !bundle.vocabulary.empty()) {
+        return problem(OpenProblem::conflict,
+                       "the bundle names vocabulary packs, but its official language packs are "
+                       "those of before vocabulary packs, whose sources use every vocabulary "
+                       "pack without naming it");
+    }
+    for (const PackRef& ref : bundle.vocabulary) {
+        const VocabularyPack* pack = find_vocabulary_pack(ref.id);
+        if (pack == nullptr || pack->version != ref.version) {
+            return problem(OpenProblem::unknown_official,
+                           std::format("the source uses the vocabulary pack {} version {}, which "
+                                       "this compiler does not carry",
+                                       ref.id, ref.version));
+        }
+        const auto d = digest(*pack, provider, hash);
+        if (!d) {
+            return problem(OpenProblem::embedded,
+                           "the pack digests cannot be computed with the home's hash");
+        }
+        if (!std::ranges::equal(d->bytes(), ref.digest)) {
+            return problem(OpenProblem::official_differs,
+                           std::format("the vocabulary pack {} version {} has the digest {}, not "
+                                       "{} as the bundle says",
+                                       ref.id, ref.version, to_hex(d->bytes()),
+                                       to_hex(ref.digest)));
+        }
+    }
+    PackSetRead set = make_pack_set(std::move(given), which);
     if (!set.set) {
         return problem(OpenProblem::conflict,
                        std::format("the packs cannot be read together: {}",
                                    set.diagnostics.empty() ? std::string_view("?")
                                                            : set.diagnostics.front().code));
+    }
+    // The source's `use` lines name exactly the vocabulary packs the bundle
+    // does.
+    std::vector<std::string> named;
+    for (const PackRef& ref : bundle.vocabulary) {
+        named.push_back(ref.id);
+    }
+    if (source_uses(bundle.source, *set.set) != named) {
+        return problem(OpenProblem::uses_differ,
+                       "the source's use lines do not name the vocabulary packs the bundle "
+                       "names (key 6)");
     }
     out.packs = std::move(*set.set);
     return out;

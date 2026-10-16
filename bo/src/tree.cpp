@@ -34,6 +34,7 @@ cbor::Value to_value(const Span& span);
 cbor::Value to_value(const Concept* entry);
 cbor::Value to_value(const ast::Expr& expr);
 cbor::Value to_value(const ast::Statement& statement);
+cbor::Value to_value(const ast::PackWord& word);
 template <class T>
 cbor::Value to_value(const std::vector<T>& list);
 template <class T>
@@ -129,6 +130,11 @@ cbor::Value to_value(const ast::Statement& statement) {
     return to_value(statement.node);
 }
 
+cbor::Value to_value(const ast::PackWord& word) {
+    return cbor::Value::map({{entry_key("concept"), to_value(word.concept_entry)},
+                             {entry_key("span"), to_value(word.span)}});
+}
+
 template <class T>
 cbor::Value to_value(const std::vector<T>& list) {
     cbor::Array items;
@@ -169,8 +175,12 @@ cbor::Value to_value(const T& node) {
 } // namespace
 
 cbor::Value to_cbor(const ast::File& file) {
-    return cbor::Value::map({{entry_key("edition"), to_value(file.edition)},
-                             {entry_key("clauses"), to_value(file.clauses)}});
+    return cbor::Value::map(
+        {{entry_key("edition"), to_value(file.edition)},
+         {entry_key("uses"), to_value(file.uses)},
+         {entry_key("clauses"), to_value(file.clauses)},
+         {entry_key("pack_words"), to_value(file.pack_words)},
+         {entry_key("implicit_vocabulary"), cbor::Value::boolean(file.implicit_vocabulary)}});
 }
 
 } // namespace cexchain::bo

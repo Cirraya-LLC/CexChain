@@ -1,3 +1,4 @@
+use finance
 # A warehouse receipt with every action of CexChain's native receipts (spec
 # section 13): goods redeemed in parts, with the pledgee's consent while
 # pledged; redeemed when nothing remains.

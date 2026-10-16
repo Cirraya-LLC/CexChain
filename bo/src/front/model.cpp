@@ -571,9 +571,7 @@ const Concept* taken(const std::vector<Statement>& list, const Expr& party) {
         if (const auto* set = std::get_if<Set>(&s.node)) {
             const Concept* field = set->target.concept_entry;
             if (set->target.refers == Refers::field && field != nullptr &&
-                (field->id == "field.holder" || field->id == "field.pledgee" ||
-                 field->id == "field.payee") &&
-                set->value.refers == party.refers &&
+                (field->flags & field_taking) != 0 && set->value.refers == party.refers &&
                 key(set->value.concept_entry, set->value.name) ==
                     key(party.concept_entry, party.name)) {
                 found = field;
@@ -957,6 +955,13 @@ std::string describe_type(std::string_view encoded, const Pack* language) {
 
 std::string dump(const model::Model& m) {
     std::string out = std::format("edition {}\n", m.edition);
+    if (!m.packs.empty()) {
+        std::string line = "packs";
+        for (const std::string& pack : m.packs) {
+            line += " " + pack;
+        }
+        add_line(out, 0, line);
+    }
     add_line(out, 0, m.name.empty() ? std::string("fragment") : "contract " + m.name);
     for (const model::Party& p : m.parties) {
         std::string binding =

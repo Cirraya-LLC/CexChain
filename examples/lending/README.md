@@ -8,7 +8,7 @@ record a book, a tool, or a key lent; nothing in them is about business.
 contract Lending
 parties owner
 
-record Thing
+thing Item
   name text
   holder owner
 

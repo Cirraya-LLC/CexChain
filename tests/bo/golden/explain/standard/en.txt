@@ -1,6 +1,7 @@
 Contract WarehouseReceipt
 
 Bo wrote this text from the contract's source (Bo edition 1). A clause marked with a rule, such as [R3], states what Bo inferred by that rule instead of reading it in the source; the last section explains each rule.
+Besides Bo's core words, the contract uses the finance vocabulary pack (version 1).
 
 1. Parties
 1.1 we: bound to a ledger when an instance is created. [R3]
@@ -35,7 +36,7 @@ A call that does not meet one of an action's requirements is refused, and the in
   4.1.8 An AI agent may start it within its delegation. [R14]
 
 4.2 pledge
-  4.2.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show pledge): the clauses marked R19 state them, after the contract's own clauses.
+  4.2.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show pledge): the clauses marked R19 state them, after the contract's own clauses.
   4.2.2 Started by the holder, whose agreement it needs. [R19]
   4.2.3 It needs the consent of the bank. The first such call names the ledger of the bank and binds the bank to it; later calls may leave it out or name the same ledger. [R3]
   4.2.4 Requirement 1: the holder must prove presence in person, with a passkey or a hardware key. [R13]
@@ -45,14 +46,14 @@ A call that does not meet one of an action's requirements is refused, and the in
   4.2.8 An AI agent may start it within its delegation. [R14]
 
 4.3 release
-  4.3.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show release): the clauses marked R19 state them, after the contract's own clauses.
+  4.3.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show release): the clauses marked R19 state them, after the contract's own clauses.
   4.3.2 Started by the pledgee, whose agreement it needs. [R19]
   4.3.3 If the instance is pledged, it becomes active; otherwise the call is refused. [R19]
   4.3.4 It sets the pledgee to none. [R19]
   4.3.5 An AI agent may only propose it: its call is kept as a proposal, which takes effect only when a person who proves presence approves it; every requirement is checked then.
 
 4.4 redeem
-  4.4.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show redeem): the clauses marked R19 state them, after the contract's own clauses.
+  4.4.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show redeem): the clauses marked R19 state them, after the contract's own clauses.
   4.4.2 Started by the holder, whose agreement it needs. [R19]
   4.4.3 The call gives portion (a weight (kg, tonnes)). [R19]
   4.4.4 Requirement 1: the instance is active or pledged. [R7, R19]
@@ -67,13 +68,13 @@ A call that does not meet one of an action's requirements is refused, and the in
   4.4.10 An AI agent may start it within its delegation. [R14]
 
 4.5 freeze
-  4.5.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show freeze): the clauses marked R19 state them, after the contract's own clauses.
+  4.5.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show freeze): the clauses marked R19 state them, after the contract's own clauses.
   4.5.2 Started by the home ledger on its own word: no party's consent is needed. [R19]
   4.5.3 If the instance is active or pledged, it becomes frozen; otherwise the call is refused. [R19]
   4.5.4 An AI agent may start it within its delegation. [R14]
 
 4.6 unfreeze
-  4.6.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show unfreeze): the clauses marked R19 state them, after the contract's own clauses.
+  4.6.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show unfreeze): the clauses marked R19 state them, after the contract's own clauses.
   4.6.2 Started by the home ledger on its own word: no party's consent is needed. [R19]
   4.6.3 If the instance is frozen, it returns to the state it was in before it became frozen; otherwise the call is refused. [R19]
   4.6.4 An AI agent may start it within its delegation. [R14]

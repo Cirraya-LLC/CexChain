@@ -1,3 +1,5 @@
+use commerce
+use finance
 # Issuing parts (R30): only an action issues them, once, in its own block,
 # never a time rule; the parts are a list of amounts and the recipients a
 # list of parties, each by its name; with sets fields other than the amount
@@ -6,7 +8,7 @@
 contract Errors
 parties we, customer
 
-record R
+thing R
   amount HKD
   tier number
   due date

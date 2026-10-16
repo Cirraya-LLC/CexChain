@@ -1,61 +1,70 @@
-1:1 word kw.contract | contract
-1:10 name Rules | Rules
-1:15 newline
-2:1 word kw.parties | parties
-2:9 word role.we | we
-2:11 symbol , | ,
-2:13 word role.customer | customer
-2:21 symbol , | ,
-2:23 name 甲方 | 甲方
-2:25 newline
-4:1 word kind.service | service
-4:9 name Hosting | Hosting
-4:16 newline
-5:1 indent
-5:3 word price.price | price
-5:9 word time.monthly | monthly
-5:17 money cur.HKD 120 | HKD 120
-5:24 newline
-7:1 dedent
-7:1 word kw.can | can
-7:5 name 停機 | 停機
-7:8 word kw.by | by
-7:11 word role.we | we
-7:13 newline
-8:1 word kw.when | when
-8:6 word cond.overdue | overdue
-8:14 duration time.day 3 | 3 days
-8:21 name 停機 | 停機
-8:23 newline
-9:1 word kw.when | when
-9:6 word field.due | due
-9:10 name 甲方 | 甲方
-9:13 word act.pay form=third | pays
-9:17 newline
-10:1 word kw.when | when
-10:6 duration time.day 7 | 7 days
-10:13 word cond.before_due piece=tail | before due
-10:24 word act.notify | notify
-10:31 word role.customer | customer
-10:40 word kw.and | and
-10:44 name 甲方 | 甲方
-10:47 word act.pay form=third | pays
-10:51 newline
+1:1 word kw.use | use
+1:5 name commerce | commerce
+1:13 newline
+2:1 word kw.use | use
+2:5 name finance | finance
+2:12 newline
+3:1 word kw.use | use
+3:5 word kind.service form=plural | services
+3:13 newline
+4:1 word kw.contract | contract
+4:10 name Rules | Rules
+4:15 newline
+5:1 word kw.parties | parties
+5:9 word role.we | we
+5:11 symbol , | ,
+5:13 word role.customer | customer
+5:21 symbol , | ,
+5:23 name 甲方 | 甲方
+5:25 newline
+7:1 word kind.service | service
+7:9 name Hosting | Hosting
+7:16 newline
+8:1 indent
+8:3 word price.price | price
+8:9 word time.monthly | monthly
+8:17 money cur.HKD 120 | HKD 120
+8:24 newline
+10:1 dedent
+10:1 word kw.can | can
+10:5 name 停機 | 停機
+10:8 word kw.by | by
+10:11 word role.we | we
+10:13 newline
 11:1 word kw.when | when
 11:6 word cond.overdue | overdue
-11:14 duration time.day 30 | 30 days
-11:22 word kw.and | and
-11:26 word kw.not | not
-11:30 word state.paid | paid
-11:34 newline
-12:1 indent
-12:3 word act.terminate | terminate
-12:12 newline
-13:3 word act.reclaim | reclaim
-13:11 name IP | IP
-13:13 newline
-14:3 symbol -> | ->
-14:6 word state.terminated | terminated
-14:16 newline
-15:1 dedent
-15:1 end
+11:14 duration time.day 3 | 3 days
+11:21 name 停機 | 停機
+11:23 newline
+12:1 word kw.when | when
+12:6 word field.due | due
+12:10 name 甲方 | 甲方
+12:13 word act.pay form=third | pays
+12:17 newline
+13:1 word kw.when | when
+13:6 duration time.day 7 | 7 days
+13:13 word cond.before_due piece=tail | before due
+13:24 word act.notify | notify
+13:31 word role.customer | customer
+13:40 word kw.and | and
+13:44 name 甲方 | 甲方
+13:47 word act.pay form=third | pays
+13:51 newline
+14:1 word kw.when | when
+14:6 word cond.overdue | overdue
+14:14 duration time.day 30 | 30 days
+14:22 word kw.and | and
+14:26 word kw.not | not
+14:30 word state.paid | paid
+14:34 newline
+15:1 indent
+15:3 word act.terminate | terminate
+15:12 newline
+16:3 word act.reclaim | reclaim
+16:11 name IP | IP
+16:13 newline
+17:3 symbol -> | ->
+17:6 word state.terminated | terminated
+17:16 newline
+18:1 dedent
+18:1 end

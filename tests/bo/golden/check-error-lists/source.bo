@@ -1,7 +1,7 @@
 contract Lists
 parties we
 
-record Batch
+thing Batch
   codes list text at most 2000
   tags list text
   sizes list number at most 4

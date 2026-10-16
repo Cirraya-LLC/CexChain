@@ -1,8 +1,9 @@
 edition 1
+packs commerce finance
 contract 销售
 party role.we bound=creation{R3}
 party role.customer bound=creation{R3}
-kind kind.record 销售单
+kind kind.thing 销售单
 field doc.invoice instance list 20 money cur.CNY{R26}
 field field.customer_location instance text{R12}
 charge charge.charge 增值税

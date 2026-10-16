@@ -77,8 +77,9 @@ TEST_CASE("a pack's facts, written member by member", "[bo][names]") {
 }
 
 TEST_CASE("a tree, written node by node and member by member", "[bo][names]") {
-    const std::string source = "contract X\ncan pledge to bank\n  over HKD 100 requires in person\n"
-                               "test\n  supplier pledge to bank -> refused \"no\"\n";
+    const std::string source =
+        "use finance\ncontract X\ncan pledge to bank\n  over HKD 100 requires in person\n"
+        "test\n  supplier pledge to bank -> refused \"no\"\n";
     const PackSetRead set = make_pack_set({});
     REQUIRE(set.set);
     const Lexicon lexicon(*set.set);
@@ -94,7 +95,10 @@ TEST_CASE("a tree, written node by node and member by member", "[bo][names]") {
     CHECK(*can[0].key.as_text() == "node");
     CHECK(*can[0].value.as_text() == "can");
     CHECK(*can[1].key.as_text() == "span");
-    CHECK(clauses[1].find("span")->find("line")->as_uint64() == 2U);
+    CHECK(clauses[1].find("span")->find("line")->as_uint64() == 3U);
+    // The use line, and the first word of its pack.
+    CHECK(*value.find("uses")->as_array()->at(0).find("pack")->as_text() == "finance");
+    CHECK(*value.find("pack_words")->as_array()->at(0).find("concept")->as_text() == "act.pledge");
     CHECK(*can[2].key.as_text() == "action");
     CHECK(*clauses[1].find("action")->find("concept")->as_text() == "act.pledge");
     CHECK(clauses[1].find("by")->is_null());
@@ -115,13 +119,14 @@ TEST_CASE("a tree, written node by node and member by member", "[bo][names]") {
 }
 
 TEST_CASE("a checked model, written member by member", "[bo][names]") {
-    const std::string source = "contract ReceivableFinancing\nparties issuer, supplier, bank\n"
-                               "asset Receivable\n  amount HKD\n  due date\n  holder supplier\n"
-                               "can pledge to bank\n  over 5_000_000 requires in person\n"
-                               "when due issuer pays\n"
-                               "test \"pledged\"\n"
-                               "  issuer issue with amount = HKD 100, due = 2027-01-01\n"
-                               "  supplier pledge to bank1 at 2027-01-06 in person -> pledged\n";
+    const std::string source =
+        "use finance\ncontract ReceivableFinancing\nparties issuer, supplier, bank\n"
+        "asset Receivable\n  amount HKD\n  due date\n  holder supplier\n"
+        "can pledge to bank\n  over 5_000_000 requires in person\n"
+        "when due issuer pays\n"
+        "test \"pledged\"\n"
+        "  issuer issue with amount = HKD 100, due = 2027-01-01\n"
+        "  supplier pledge to bank1 at 2027-01-06 in person -> pledged\n";
     const PackSetRead set = make_pack_set({});
     REQUIRE(set.set);
     const Lexicon lexicon(*set.set);
@@ -132,10 +137,12 @@ TEST_CASE("a checked model, written member by member", "[bo][names]") {
     const cbor::Value value = to_cbor(checked.model);
     // Model's members by name, in declaration order.
     const cbor::Map& map = *value.as_map();
-    REQUIRE(map.size() == 15);
+    REQUIRE(map.size() == 16);
     CHECK(*map[0].key.as_text() == "edition");
-    CHECK(*map[1].key.as_text() == "name");
-    CHECK(*map[1].value.as_text() == "ReceivableFinancing");
+    CHECK(*map[1].key.as_text() == "packs");
+    CHECK(*map[1].value.as_array()->at(0).as_text() == "finance");
+    CHECK(*map[2].key.as_text() == "name");
+    CHECK(*map[2].value.as_text() == "ReceivableFinancing");
     CHECK(*value.find("kind")->as_text() == "kind.asset");
     CHECK(*value.find("due")->as_text() == "field");
     // Enumerations by their enumerators' names; rules by their ids.

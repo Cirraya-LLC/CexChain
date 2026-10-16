@@ -268,10 +268,11 @@ TEST_CASE("formatting a source into its own language changes only its layout", "
 
 TEST_CASE("the layout rules", "[bo][format]") {
     // Indentation, spaces, punctuation, blank lines, line ends, comments.
-    CHECK(formatted("contract  A\r\n\r\n\r\nparties   we ,customer\r\nrecord R\r\n      amount   "
+    CHECK(formatted("use commerce\r\ncontract  A\r\n\r\n\r\nparties   we ,customer\r\nthing R\r\n  "
+                    "    amount   "
                     "HKD   # money\t \r\n\r\n",
                     nullptr) ==
-          "contract A\n\nparties we, customer\nrecord R\n  amount HKD  # money\n");
+          "use commerce\ncontract A\n\nparties we, customer\nthing R\n  amount HKD  # money\n");
     CHECK(formatted("\n\n# only a comment\n\n", nullptr) == "# only a comment\n");
     CHECK(formatted("", nullptr).empty());
     CHECK(formatted("\n\n", nullptr).empty());
@@ -292,13 +293,13 @@ TEST_CASE("the layout rules", "[bo][format]") {
           "parties we, customer\ncan approve by we\n  requires (amount × 2) > HKD 1_000\n");
     // An amount joined to its currency stays joined where, spaced, the
     // currency would stand between two numbers.
-    CHECK(formatted("record R\n  amount (0HKD 400, HKD 5 6HKD, HKD 7HKD)\n", nullptr) ==
-          "record R\n  amount (0HKD 400, HKD 5 6 HKD, HKD 7HKD)\n");
+    CHECK(formatted("thing R\n  amount (0HKD 400, HKD 5 6HKD, HKD 7HKD)\n", nullptr) ==
+          "thing R\n  amount (0HKD 400, HKD 5 6 HKD, HKD 7HKD)\n");
     // A full-width comma before a digit keeps its space: 5，6 would be one
     // number written with a comma.
-    CHECK(formatted("紀錄 R\n  數量 (5 ，6)\n", nullptr) == "紀錄 R\n  數量 (5， 6)\n");
-    CHECK(formatted("parties we, customer\nrecord R\n  amount HKD\n  limit 2 * 3\n", nullptr) ==
-          "parties we, customer\nrecord R\n  amount HKD\n  limit 2 * 3\n");
+    CHECK(formatted("物件 R\n  數量 (5 ，6)\n", nullptr) == "物件 R\n  數量 (5， 6)\n");
+    CHECK(formatted("parties we, customer\nthing R\n  amount HKD\n  limit 2 * 3\n", nullptr) ==
+          "parties we, customer\nthing R\n  amount HKD\n  limit 2 * 3\n");
     // Chinese words join where the packs' rules join them; names do not
     // (可 提款 is two tokens only because 提款 is declared).
     CHECK(formatted("可 質押 予 銀行\n  須 親身確認\n  須 經 銀行 同意\n可 提款 由 客戶\n",
@@ -328,11 +329,13 @@ TEST_CASE("words the new language would read together get parentheses", "[bo][fo
     // 於 真人 (in, a person) is `in person` in English, which reads as the
     // condition in person.
     const std::string source =
-        "合約 C\n訂約方 本公司, 客戶\n\n可 approve 由 本公司\n  須 客戶 於 真人\n"
+        "使用 commerce\n合約 C\n訂約方 本公司, 客戶\n\n可 approve 由 本公司\n  須 客戶 於 真人\n"
         "  須 flag = 是 或 否\n";
     const std::string english = formatted(source, pack("en"));
-    CHECK(english == "contract C\nparties we, customer\n\ncan approve by we\n  requires customer "
-                     "in (person)\n  requires flag = (yes) or no\n");
+    CHECK(
+        english ==
+        "use commerce\ncontract C\nparties we, customer\n\ncan approve by we\n  requires customer "
+        "in (person)\n  requires flag = (yes) or no\n");
     CHECK(read_source(english).tree == read_source(source).tree);
     CHECK(formatted(english, pack("en")) == english);
 }
@@ -364,20 +367,20 @@ TEST_CASE("source that cannot be formatted says why", "[bo][format]") {
     const PackSetRead set = make_pack_set({*read.pack});
     REQUIRE(set.set);
     const Lexicon lexicon(*set.set);
-    const std::string source = "contract C\nparties we, bank\ncan lodge to bank\n";
+    const std::string source = "use finance\ncontract C\nparties we, bank\ncan lodge to bank\n";
     f = format_source(source, *set.set, lexicon, set.set->find("test"));
     REQUIRE(!f.source.has_value());
     REQUIRE(f.diagnostics.size() == 1);
     CHECK(f.diagnostics.front().code == "fmt.unstable");
-    CHECK(f.diagnostics.front().span.line == 3);
+    CHECK(f.diagnostics.front().span.line == 4);
     CHECK(f.diagnostics.front().arg("language") == "test");
     for (const Pack& language : official_packs()) {
         CHECK(!render(f.diagnostics.front(), &language).empty());
     }
     // Into any official language it formats.
     const Formatted chinese = format_source(source, *set.set, lexicon, set.set->find("zh-Hant-HK"));
-    CHECK(chinese.source ==
-          std::optional<std::string>("合約 C\n訂約方 本公司, 銀行\n可 lodge 予 銀行\n"));
+    CHECK(chinese.source == std::optional<std::string>(
+                                "使用 finance\n合約 C\n訂約方 我方, 銀行\n可 lodge 予 銀行\n"));
 }
 
 TEST_CASE("the parser gives the tokens it read, splits applied", "[bo][format]") {

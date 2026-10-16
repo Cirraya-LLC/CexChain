@@ -1,3 +1,4 @@
+use finance
 # A receivable with every action of CexChain's native receivables (spec
 # section 13), from the standard library: the counterparty of a pledge or a
 # transfer is named by each call (R21), as the native `to` is. The steps

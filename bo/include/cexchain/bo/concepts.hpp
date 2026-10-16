@@ -60,6 +60,37 @@ inline constexpr std::array<std::string_view, 18> category_names{
 
 [[nodiscard]] std::optional<Category> category_from_name(std::string_view name) noexcept;
 
+/// Where a concept belongs (D-054): Bo's core, which every source reads, or
+/// one of the official vocabulary packs, whose words a source uses only after
+/// declaring the pack (`use finance`). Pack words are reserved even where
+/// their pack is not used: Bo never reads `pledge` as a name of the
+/// contract's own.
+enum class Vocab : std::uint8_t {
+    core,
+    finance,  ///< assets, pledges, payments, splits, freezes
+    commerce, ///< prices, charges (taxes among them), bills, refunds
+    services, ///< services, resources, and their allocation
+};
+
+/// Vocabulary pack ids, in enumerator order ("core" is no pack).
+inline constexpr std::array<std::string_view, 4> vocab_names{"core", "finance", "commerce",
+                                                             "services"};
+
+[[nodiscard]] constexpr std::string_view vocab_name(Vocab vocab) noexcept {
+    return vocab_names[static_cast<std::size_t>(vocab)];
+}
+
+/// What a field's word fixes about the field (R1, R20, R31), as its
+/// vocabulary pack states it.
+enum FieldFlag : std::uint8_t {
+    /// R20: a field the standard terms may add to an instance, holding no
+    /// party until an action sets it (pledgee, payee).
+    field_added = 1,
+    /// R31: a counterparty an action puts into this field consents at every
+    /// call (holder, pledgee, payee).
+    field_taking = 2,
+};
+
 /// A concept of the edition: a keyword, a vocabulary word, a unit, a
 /// currency. `arity` is 1 for a concept that takes an argument, whose
 /// spellings mark the argument's place with "…" ("consent of …",
@@ -68,6 +99,21 @@ struct Concept {
     std::string_view id;
     Category category;
     std::uint8_t arity;
+    /// The core or the vocabulary pack the concept belongs to.
+    Vocab pack = Vocab::core;
+    /// A field's type, as R1 reads it: "party", "date", "number", "text",
+    /// "duration", "parties" (a list of at most 16 parties), each fixed by
+    /// the word; or what the word accepts once a type is given: "quantity",
+    /// "list", "offset" (a constant text), "amount" (money or a quantity),
+    /// "portion" (a quantity or money). Empty for other concepts.
+    std::string_view type = {};
+    /// FieldFlag bits.
+    std::uint8_t flags = 0;
+    /// No longer in the vocabulary: only the language packs of before
+    /// vocabulary packs (version 1 of the official ones) spell it, so that
+    /// their deploys rebuild (kind.record, now kind.thing; act.merge, which
+    /// never had a meaning).
+    bool retired = false;
 };
 
 /// Every concept of the edition, sorted by id.

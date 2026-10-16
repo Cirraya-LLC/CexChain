@@ -1,4 +1,5 @@
 edition 1
+use finance
 contract ReceivableFinancing
 parties role.issuer role.supplier role.bank
 block kind.asset Receivable

@@ -1,7 +1,9 @@
+use commerce
+use finance
 contract 销售
 parties we, customer
 
-record 销售单
+thing 销售单
   invoice list CNY at most 20
 
 charge 增值税

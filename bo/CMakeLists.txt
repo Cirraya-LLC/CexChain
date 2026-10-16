@@ -63,7 +63,8 @@ add_library(cexchain_bo_front
     src/front/source.cpp
     src/front/spelling.cpp
     src/front/stdlib.cpp
-    src/front/values.cpp)
+    src/front/values.cpp
+    src/front/vocab.cpp)
 add_library(cexchain::bo_front ALIAS cexchain_bo_front)
 target_include_directories(cexchain_bo_front PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
@@ -80,33 +81,36 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
 endif()
 cexchain_target_defaults(cexchain_bo_front)
 
+# Files compiled in: the official packs (and, in packs/history/, every
+# earlier version), and the standard library (the core's terms and the
+# vocabulary packs').
 set(pack_files)
 foreach(pack IN LISTS official_packs)
-    list(APPEND pack_files "${CMAKE_CURRENT_SOURCE_DIR}/packs/${pack}.pack")
+    list(APPEND pack_files "packs/${pack}.pack" "packs/history/${pack}-1.pack")
 endforeach()
+set(stdlib_files stdlib/core.bo stdlib/finance.bo stdlib/services.bo)
 if(CEXCHAIN_HAVE_EMBED)
     target_compile_definitions(cexchain_bo_front PRIVATE CEXCHAIN_BO_EMBED=1)
 else()
+    # Without #embed: each file as a list of bytes, packs/X.pack as
+    # X.pack.inc, stdlib/X.bo as X.bo.inc.
     set(generated "${CMAKE_CURRENT_BINARY_DIR}/packs")
-    foreach(pack IN LISTS official_packs)
-        set(source "${CMAKE_CURRENT_SOURCE_DIR}/packs/${pack}.pack")
+    foreach(file IN LISTS pack_files stdlib_files)
+        set(source "${CMAKE_CURRENT_SOURCE_DIR}/${file}")
+        string(REGEX REPLACE "^(packs|stdlib)/" "" name "${file}")
         set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${source}")
         file(READ "${source}" bytes HEX)
         string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," bytes "${bytes}")
-        file(WRITE "${generated}/${pack}.pack.inc" "${bytes}\n")
+        file(WRITE "${generated}/${name}.inc" "${bytes}\n")
     endforeach()
-    set(source "${CMAKE_CURRENT_SOURCE_DIR}/stdlib/edition1.bo")
-    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${source}")
-    file(READ "${source}" bytes HEX)
-    string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," bytes "${bytes}")
-    file(WRITE "${generated}/edition1.bo.inc" "${bytes}\n")
     target_compile_definitions(cexchain_bo_front PRIVATE CEXCHAIN_BO_EMBED=0)
     target_include_directories(cexchain_bo_front PRIVATE "${generated}")
 endif()
 # Rebuild the embedding sources whenever a pack or the standard library changes.
+list(TRANSFORM pack_files PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
+list(TRANSFORM stdlib_files PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 set_source_files_properties(src/front/official.cpp PROPERTIES OBJECT_DEPENDS "${pack_files}")
-set_source_files_properties(src/front/stdlib.cpp PROPERTIES OBJECT_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/stdlib/edition1.bo")
+set_source_files_properties(src/front/stdlib.cpp PROPERTIES OBJECT_DEPENDS "${stdlib_files}")
 
 if(CEXCHAIN_BO STREQUAL "OFF")
     message(STATUS "Bo compiler: off (CEXCHAIN_BO=OFF); only its front end is built")

@@ -1,9 +1,11 @@
+use commerce
+use finance
 # Test blocks: steps, their signers and times, and what each expects. The
 # bank is bound by the first loan, to a ledger only the tests name (bank1).
 contract Loan
 parties we, customer, bank
 
-record Note
+thing Note
   amount HKD
   holder customer
 

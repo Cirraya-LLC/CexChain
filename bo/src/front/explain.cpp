@@ -26,6 +26,7 @@
 #include <cexchain/bo/explain.hpp>
 #include <cexchain/bo/messages.hpp>
 #include <cexchain/bo/values.hpp>
+#include <cexchain/bo/vocab.hpp>
 
 namespace cexchain::bo {
 
@@ -568,6 +569,17 @@ public:
         out_.title = model_.name.empty() ? w_.say("fragment")
                                          : w_.say("contract", {{"name", plain(model_.name)}});
         out_.intro = w_.say("intro", {{"edition", plain(std::to_string(model_.edition))}});
+        if (!model_.packs.empty()) {
+            std::vector<std::string> names;
+            for (const std::string& id : model_.packs) {
+                const VocabularyPack* pack = find_vocabulary_pack(id);
+                names.push_back(w_.say(
+                    "vocab-pack",
+                    {{"pack", plain(w_.say("vocab-" + id))},
+                     {"version", plain(std::to_string(pack != nullptr ? pack->version : 0))}}));
+            }
+            out_.packs = w_.say("packs-used", {{"packs", plain(w_.join(names, true))}});
+        }
         parties();
         instance();
         charges();
@@ -1464,7 +1476,15 @@ private:
             }
             const std::string number = add(s.clauses, s.number, n, "action", title, {});
             std::size_t k = 0;
-            if (a.terms) {
+            if (a.terms && a.word != nullptr && a.word->pack != Vocab::core) {
+                add(s.clauses, number, k, "standard",
+                    w_.say("action-terms-pack",
+                           {{"action", plain(name)},
+                            {"function", plain(function_)},
+                            {"pack",
+                             plain(w_.say("vocab-" + std::string(vocab_name(a.word->pack))))}}),
+                    {});
+            } else if (a.terms) {
                 add(s.clauses, number, k, "standard",
                     w_.say("action-terms",
                            {{"action", plain(name)}, {"function", plain(function_)}}),
@@ -1662,6 +1682,9 @@ private:
     void write_text() {
         std::string& t = out_.text;
         t = out_.title + "\n\n" + out_.intro + "\n";
+        if (!out_.packs.empty()) {
+            t += out_.packs + "\n";
+        }
         for (const ExplainedSection& s : out_.sections) {
             t += "\n" + s.number + ". " + s.title + "\n";
             if (!s.note.empty()) {

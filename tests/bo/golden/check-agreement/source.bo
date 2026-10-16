@@ -1,9 +1,10 @@
+use commerce
 # Two parties agree on terms: the customer signs, with our consent, and we
 # close. The first state is the one no state change leads to (R4).
 contract Agreement
 parties we, customer
 
-record Terms
+thing Terms
   terms text
   price HKD
 

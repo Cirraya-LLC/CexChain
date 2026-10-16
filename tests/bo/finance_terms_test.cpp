@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// The standard library (milestone 11 of the Bo compiler): a Bo contract whose
-// actions are the library's built-in ones gives, call by call, the states,
-// holders, pledgees, payees, quantities, consents, and refusals that
-// CexChain's native assets gave (spec v0.5 to v0.8, section 13). Spec v0.9
-// removed the native assets from the protocol (D-054); their verdicts on
-// these flows, taken from core's asset rules before the removal, are kept
-// here as goldens. And a built-in action copied under a name of the
-// contract's own compiles and behaves as the original.
+// The finance pack's standard terms (milestone 11 of the Bo compiler; a pack
+// since D-054): a Bo contract that uses the pack and whose actions are its
+// built-in ones gives, call by call, the states, holders, pledgees, payees,
+// quantities, consents, and refusals that CexChain's native assets gave
+// (spec v0.5 to v0.8, section 13). Spec v0.9 removed the native assets from
+// the protocol (D-054); their verdicts on these flows, taken from core's
+// asset rules before the removal, are kept here as goldens. And a built-in
+// action copied under a name of the contract's own compiles and behaves as
+// the original.
 
 #include <algorithm>
 #include <cstddef>
@@ -85,7 +86,7 @@ struct Kind {
 };
 
 const Kind& receivable() {
-    static const Kind k{"contract Receivable\nparties issuer, supplier\n\n"
+    static const Kind k{"use finance\ncontract Receivable\nparties issuer, supplier\n\n"
                         "asset Receivable\n  amount HKD\n  due date\n  holder supplier\n\n"
                         "can transfer\ncan pledge\ncan release\ncan enforce\ncan pay\n"
                         "can confirm payment\ncan dispute\ncan freeze\ncan unfreeze\ncan cancel\n",
@@ -94,7 +95,7 @@ const Kind& receivable() {
 }
 
 const Kind& receipt() {
-    static const Kind k{"contract WarehouseReceipt\nparties warehouse, depositor\n\n"
+    static const Kind k{"use finance\ncontract WarehouseReceipt\nparties warehouse, depositor\n\n"
                         "asset Receipt\n  quantity kg\n  holder depositor\n\n"
                         "can transfer\ncan pledge\ncan release\ncan enforce\ncan redeem\n"
                         "can freeze\ncan unfreeze\ncan cancel\n",
@@ -107,7 +108,7 @@ const Kind& receipt() {
 /// as the native rules asked any counterparty's; enforce asks only the
 /// pledgee's.
 const Kind& receivable_with_bank() {
-    static const Kind k{"contract Receivable\nparties issuer, supplier, bank\n\n"
+    static const Kind k{"use finance\ncontract Receivable\nparties issuer, supplier, bank\n\n"
                         "asset Receivable\n  amount HKD\n  due date\n  holder supplier\n"
                         "  banker bank\n\n"
                         "can transfer to bank\ncan pledge to bank\ncan release\ncan enforce\n"
@@ -522,7 +523,7 @@ TEST_CASE("a built-in action copied under a name of its own acts as the original
     REQUIRE(terms->starts_with("can pledge to counterparty by holder\n"));
     std::string copy = *terms;
     copy.replace(0, std::string_view("can pledge").size(), "can lodge");
-    const std::string head = "contract C\nparties issuer, supplier\n\n"
+    const std::string head = "use finance\ncontract C\nparties issuer, supplier\n\n"
                              "asset A\n  amount HKD\n  holder supplier\n\n";
     const auto outcomes = [&](const std::string& actions, std::string_view verb) {
         const std::string source = head + actions +

@@ -2,7 +2,8 @@
 // Copyright 2026 Cirraya
 
 // The standard library of edition 1, compiled in from bo/stdlib/ with #embed
-// and read once with the official packs. Like the official packs, it is
+// (the core's terms, then the vocabulary packs'; D-054) and read once with the
+// official packs. Like the official packs, it is
 // part of the compiler and of edition 1: once released, a template's terms
 // never change what an action means; a later edition may add actions.
 
@@ -35,11 +36,27 @@ namespace {
 #pragma clang diagnostic ignored "-Wc23-extensions"
 #endif
 
-constexpr unsigned char edition1_bytes[] = {
+constexpr unsigned char core_bytes[] = {
 #if CEXCHAIN_BO_EMBED
-#embed "../../stdlib/edition1.bo"
+#embed "../../stdlib/core.bo"
 #else
-#include "edition1.bo.inc"
+#include "core.bo.inc"
+#endif
+};
+
+constexpr unsigned char finance_bytes[] = {
+#if CEXCHAIN_BO_EMBED
+#embed "../../stdlib/finance.bo"
+#else
+#include "finance.bo.inc"
+#endif
+};
+
+constexpr unsigned char services_bytes[] = {
+#if CEXCHAIN_BO_EMBED
+#embed "../../stdlib/services.bo"
+#else
+#include "services.bo.inc"
 #endif
 };
 
@@ -74,26 +91,46 @@ const Reading& official_reading() {
     std::abort();
 }
 
+std::string_view as_text(std::span<const unsigned char> bytes) noexcept {
+    return {reinterpret_cast<const char*>(bytes.data()), bytes.size()};
+}
+
 StandardLibrary read_library() {
     StandardLibrary out;
-    out.source =
-        std::string_view(reinterpret_cast<const char*>(edition1_bytes), sizeof edition1_bytes);
-    const Lexed lexed = lex(out.source, official_reading().lexicon);
-    if (has_errors(lexed.diagnostics) || lexed.edition != out.edition) {
-        defect("a lexer error");
-    }
-    out.parsed = parse(out.source, lexed);
-    if (has_errors(out.parsed.diagnostics)) {
-        defect("a parser error");
-    }
-    for (const ast::Clause& clause : out.parsed.file.clauses) {
-        const auto* can = std::get_if<ast::Can>(&clause);
-        if (can == nullptr || can->action.kind != ast::ExprKind::word ||
-            can->action.concept_entry == nullptr ||
-            can->action.concept_entry->category != Category::action) {
-            defect("a clause that is not a built-in action's terms");
+    for (const Vocab pack : {Vocab::core, Vocab::finance, Vocab::services}) {
+        StandardFile& file = out.files.emplace_back();
+        file.pack = pack;
+        file.source = standard_source(pack);
+        const Lexed lexed = lex(file.source, official_reading().lexicon);
+        if (has_errors(lexed.diagnostics) || lexed.edition != out.edition) {
+            defect("a lexer error");
         }
-        out.templates.push_back(can);
+        file.parsed = parse(file.source, lexed);
+        if (has_errors(file.parsed.diagnostics)) {
+            defect("a parser error");
+        }
+        // A pack's file uses its pack, the core's none.
+        const bool uses = pack == Vocab::core
+                              ? file.parsed.file.uses.empty()
+                              : file.parsed.file.uses.size() == 1 &&
+                                    file.parsed.file.uses[0].pack == vocab_name(pack);
+        if (!uses) {
+            defect("a file that does not use its own pack");
+        }
+    }
+    // The templates point into the files' trees, which keep their place now
+    // that every file is read.
+    for (const StandardFile& file : out.files) {
+        for (const ast::Clause& clause : file.parsed.file.clauses) {
+            const auto* can = std::get_if<ast::Can>(&clause);
+            if (can == nullptr || can->action.kind != ast::ExprKind::word ||
+                can->action.concept_entry == nullptr ||
+                can->action.concept_entry->category != Category::action ||
+                can->action.concept_entry->pack != file.pack) {
+                defect("a clause that is not the terms of one of its own pack's actions");
+            }
+            out.templates.push_back(can);
+        }
     }
     return out;
 }
@@ -109,6 +146,32 @@ const ast::Can* StandardLibrary::find(std::string_view action) const noexcept {
     return nullptr;
 }
 
+std::string_view StandardLibrary::source_of(const Concept* action) const noexcept {
+    if (action == nullptr) {
+        return {};
+    }
+    for (const StandardFile& file : files) {
+        if (file.pack == action->pack) {
+            return file.source;
+        }
+    }
+    return {};
+}
+
+std::string_view standard_source(const Vocab pack) noexcept {
+    switch (pack) {
+    case Vocab::core:
+        return as_text(core_bytes);
+    case Vocab::finance:
+        return as_text(finance_bytes);
+    case Vocab::services:
+        return as_text(services_bytes);
+    case Vocab::commerce:
+        break;
+    }
+    return {};
+}
+
 const StandardLibrary& standard_library() noexcept {
     // The templates point into `parsed`, whose clauses keep their place when
     // the library is moved into place.
@@ -118,7 +181,9 @@ const StandardLibrary& standard_library() noexcept {
 
 std::string_view standard_showcase() {
     static const std::string showcase = [] {
-        std::string out = "contract StandardLibrary\n"
+        std::string out = "use finance\n"
+                          "use services\n"
+                          "contract StandardLibrary\n"
                           "parties we, supplier\n"
                           "\n"
                           "asset Asset\n"
@@ -238,7 +303,7 @@ std::optional<std::string> standard_terms_source(const Concept* action, const Pa
     }
     const Reading& reading = official_reading();
     const Formatted formatted =
-        format_source(library.source, reading.packs, reading.lexicon, language);
+        format_source(library.source_of(action), reading.packs, reading.lexicon, language);
     if (!formatted.source) {
         return std::nullopt;
     }

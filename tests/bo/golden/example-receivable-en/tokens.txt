@@ -1,45 +1,48 @@
-1:1 word kw.contract | contract
-1:10 name ReceivableFinancing | ReceivableFinancing
-1:29 newline
-2:1 word kw.parties | parties
-2:9 word role.issuer | issuer
-2:15 symbol , | ,
-2:17 word role.supplier | supplier
-2:25 symbol , | ,
-2:27 word role.bank | bank
-2:31 newline
-4:1 word kind.asset | asset
-4:7 name Receivable | Receivable
-4:17 newline
-5:1 indent
-5:3 word field.amount | amount
-5:10 word cur.HKD | HKD
-5:13 newline
-6:3 word field.due | due
-6:7 word type.date | date
-6:11 newline
-7:3 word field.holder | holder
-7:10 word role.supplier | supplier
-7:18 newline
-9:1 dedent
-9:1 word kw.can | can
-9:5 word act.pledge | pledge
-9:12 word kw.to | to
-9:15 word role.bank | bank
-9:19 newline
-10:1 indent
-10:3 word cond.over piece=head | over
-10:8 number 5000000 | 5_000_000
-10:18 word kw.requires | requires
-10:27 word cond.in_person | in person
-10:36 newline
-11:1 dedent
-11:1 word kw.can | can
-11:5 word act.transfer | transfer
-11:13 newline
-12:1 word kw.when | when
-12:6 word field.due | due
-12:10 word role.issuer | issuer
-12:17 word act.pay form=third | pays
-12:21 newline
-13:1 end
+1:1 word kw.use | use
+1:5 name finance | finance
+1:12 newline
+2:1 word kw.contract | contract
+2:10 name ReceivableFinancing | ReceivableFinancing
+2:29 newline
+3:1 word kw.parties | parties
+3:9 word role.issuer | issuer
+3:15 symbol , | ,
+3:17 word role.supplier | supplier
+3:25 symbol , | ,
+3:27 word role.bank | bank
+3:31 newline
+5:1 word kind.asset | asset
+5:7 name Receivable | Receivable
+5:17 newline
+6:1 indent
+6:3 word field.amount | amount
+6:10 word cur.HKD | HKD
+6:13 newline
+7:3 word field.due | due
+7:7 word type.date | date
+7:11 newline
+8:3 word field.holder | holder
+8:10 word role.supplier | supplier
+8:18 newline
+10:1 dedent
+10:1 word kw.can | can
+10:5 word act.pledge | pledge
+10:12 word kw.to | to
+10:15 word role.bank | bank
+10:19 newline
+11:1 indent
+11:3 word cond.over piece=head | over
+11:8 number 5000000 | 5_000_000
+11:18 word kw.requires | requires
+11:27 word cond.in_person | in person
+11:36 newline
+12:1 dedent
+12:1 word kw.can | can
+12:5 word act.transfer | transfer
+12:13 newline
+13:1 word kw.when | when
+13:6 word field.due | due
+13:10 word role.issuer | issuer
+13:17 word act.pay form=third | pays
+13:21 newline
+14:1 end

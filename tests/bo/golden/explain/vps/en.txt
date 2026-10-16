@@ -1,6 +1,7 @@
 Contract VPS服務
 
 Bo wrote this text from the contract's source (Bo edition 1). A clause marked with a rule, such as [R3], states what Bo inferred by that rule instead of reading it in the source; the last section explains each rule.
+Besides Bo's core words, the contract uses the commerce vocabulary pack (version 1) and the services vocabulary pack (version 1).
 
 1. Parties
 1.1 we: bound to a ledger when an instance is created. [R3]

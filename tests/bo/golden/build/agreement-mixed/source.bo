@@ -1,8 +1,9 @@
+use commerce
 # The agreement again, each keyword and word in any of the three languages.
 contract Agreement
 訂約方 we, 客户
 
-record Terms
+thing Terms
   terms 文字
   amount 港元
   starts date

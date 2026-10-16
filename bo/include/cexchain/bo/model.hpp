@@ -445,6 +445,8 @@ inline constexpr std::array<std::string_view, 3> due_kind_names{"none", "field",
 
 struct Model {
     std::uint64_t edition = 1;
+    /// The vocabulary packs the source uses (`use`), by ascending id.
+    std::vector<std::string> packs;
     /// From `contract NAME`; empty for a fragment.
     std::string name;
     std::vector<Party> parties;

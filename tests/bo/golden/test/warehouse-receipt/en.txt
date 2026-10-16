@@ -1,43 +1,43 @@
 Test "goods redeemed in parts": passed
-  Step 1 (line 21) passed: warehouse issue with quantity = 30 tonne
+  Step 1 (line 22) passed: warehouse issue with quantity = 30 tonne
     Result: accepted, and the instance is active.
-  Step 2 (line 22) passed: depositor redeem with portion = 0 tonne -> refused "bo:requires redeem 3"
+  Step 2 (line 23) passed: depositor redeem with portion = 0 tonne -> refused "bo:requires redeem 3"
     Result: refused, since requirement 3 of redeem is not met (bo:requires redeem 3).
     The contract text, 4.5.6: Requirement 3: the portion is more than 0.
-  Step 3 (line 23) passed: depositor redeem with portion = 40 tonne -> refused "bo:requires redeem 4"
+  Step 3 (line 24) passed: depositor redeem with portion = 40 tonne -> refused "bo:requires redeem 4"
     Result: refused, since requirement 4 of redeem is not met (bo:requires redeem 4).
     The contract text, 4.5.7: Requirement 4: the portion is at most the quantity.
-  Step 4 (line 24) passed: depositor redeem with portion = 10 tonne -> active
+  Step 4 (line 25) passed: depositor redeem with portion = 10 tonne -> active
     Result: accepted with the consent of depositor, and the instance is active.
-  Step 5 (line 25) passed: depositor pledge to bank1 -> pledged
+  Step 5 (line 26) passed: depositor pledge to bank1 -> pledged
     Result: accepted with the consent of depositor and bank1, and the instance is pledged.
-  Step 6 (line 26) passed: depositor redeem with portion = 5 tonne -> pledged
+  Step 6 (line 27) passed: depositor redeem with portion = 5 tonne -> pledged
     Result: accepted with the consent of depositor and bank1, and the instance is pledged.
-  Step 7 (line 27) passed: depositor transfer to trader1 -> refused "bo:state transfer"
+  Step 7 (line 28) passed: depositor transfer to trader1 -> refused "bo:state transfer"
     Result: refused, since transfer is not possible in the instance's current state (bo:state transfer).
     The contract text, 4.1.6: If the instance is active, it becomes active; otherwise the call is refused.
-  Step 8 (line 28) passed: bank1 release -> active
+  Step 8 (line 29) passed: bank1 release -> active
     Result: accepted with the consent of bank1, and the instance is active.
-  Step 9 (line 29) passed: depositor transfer to trader1 -> active
+  Step 9 (line 30) passed: depositor transfer to trader1 -> active
     Result: accepted with the consent of trader1 and depositor, and the instance is active.
-  Step 10 (line 30) passed: trader1 redeem with portion = 15 tonne -> redeemed
+  Step 10 (line 31) passed: trader1 redeem with portion = 15 tonne -> redeemed
     Result: accepted with the consent of trader1, and the instance is redeemed; it is final and takes no more calls.
-  Step 11 (line 31) passed: trader1 redeem with portion = 1 tonne -> refused
+  Step 11 (line 32) passed: trader1 redeem with portion = 1 tonne -> refused
     Result: refused by the ledger: the instance is final and takes no more calls.
 
 Test "frozen while pledged": passed
-  Step 1 (line 34) passed: warehouse issue with quantity = 30 tonne
+  Step 1 (line 35) passed: warehouse issue with quantity = 30 tonne
     Result: accepted, and the instance is active.
-  Step 2 (line 35) passed: depositor pledge to bank1 -> pledged
+  Step 2 (line 36) passed: depositor pledge to bank1 -> pledged
     Result: accepted with the consent of depositor and bank1, and the instance is pledged.
-  Step 3 (line 36) passed: warehouse freeze -> frozen
+  Step 3 (line 37) passed: warehouse freeze -> frozen
     Result: accepted, and the instance is frozen.
-  Step 4 (line 37) passed: depositor redeem with portion = 1 tonne -> refused "bo:state redeem"
+  Step 4 (line 38) passed: depositor redeem with portion = 1 tonne -> refused "bo:state redeem"
     Result: refused, since redeem is not possible in the instance's current state (bo:state redeem).
     The contract text, 4.5.9.2: The instance becomes redeemed.
-  Step 5 (line 38) passed: warehouse unfreeze -> pledged
+  Step 5 (line 39) passed: warehouse unfreeze -> pledged
     Result: accepted, and the instance is pledged.
-  Step 6 (line 39) passed: depositor redeem with portion = 30 tonne -> redeemed
+  Step 6 (line 40) passed: depositor redeem with portion = 30 tonne -> redeemed
     Result: accepted with the consent of depositor and bank1, and the instance is redeemed; it is final and takes no more calls.
 
 2 tests: 2 passed, 0 failed.

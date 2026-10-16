@@ -1,17 +1,17 @@
 測試 「the keeper calls each rule once its time has come」：通過
-  第 1 步（第 27 行）通過：we create with due = 2027-06-30, fee = HKD 100 at 2027-06-01
+  第 1 步（第 29 行）通過：we create with due = 2027-06-30, fee = HKD 100 at 2027-06-01
     結果：調用獲接納，實例現為正常。
-  第 2 步（第 28 行）通過：keeper suspend at 2027-06-30 -> refused "bo:when when.suspend"
+  第 2 步（第 30 行）通過：keeper suspend at 2027-06-30 -> refused "bo:when when.suspend"
     結果：調用被拒絕，因為 when.suspend 尚未適用：其時間未到，或其條件不成立（bo:when when.suspend）。
     合約條文 5.4：當實例已逾期（已過到期日）時：
-  第 3 步（第 29 行）通過：keeper suspend at 2027-07-01 -> suspended
+  第 3 步（第 31 行）通過：keeper suspend at 2027-07-01 -> suspended
     結果：調用獲接納，實例現為已暫停。
-  第 4 步（第 30 行）通過：keeper terminate at 2027-07-31 -> refused "bo:when when.terminate"
+  第 4 步（第 32 行）通過：keeper terminate at 2027-07-31 -> refused "bo:when when.terminate"
     結果：調用被拒絕，因為 when.terminate 尚未適用：其時間未到，或其條件不成立（bo:when when.terminate）。
     合約條文 5.5：當實例處於已暫停狀態已滿 1 個月時：
-  第 5 步（第 31 行）通過：keeper terminate at 2027-08-01 -> terminated
+  第 5 步（第 33 行）通過：keeper terminate at 2027-08-01 -> terminated
     結果：調用獲接納，實例現為已終止。
-  第 6 步（第 32 行）通過：keeper closed at 2027-12-31 -> closed
+  第 6 步（第 34 行）通過：keeper closed at 2027-12-31 -> closed
     結果：調用獲接納，實例現為 closed。
 
 共 1 個測試：1 個通過，0 個失敗。

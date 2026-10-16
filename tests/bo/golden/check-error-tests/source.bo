@@ -1,8 +1,10 @@
+use commerce
+use finance
 # Every problem a test block can have.
 contract Tests
 parties we, customer
 
-record Terms
+thing Terms
   amount HKD
   starts date
 

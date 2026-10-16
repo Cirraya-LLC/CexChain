@@ -1,95 +1,98 @@
-1:1 word kw.can | can
-1:5 name check | check
-1:10 newline
-2:1 indent
-2:3 word kw.requires | requires
-2:12 name a | a
-2:14 symbol + | +
-2:16 name b | b
-2:18 symbol * | *
-2:20 name c | c
-2:22 symbol - | -
-2:24 name d | d
-2:26 symbol / | /
-2:28 name e | e
-2:30 symbol = | =
-2:32 name f | f
-2:33 newline
+1:1 word kw.use | use
+1:5 name commerce | commerce
+1:13 newline
+2:1 word kw.can | can
+2:5 name check | check
+2:10 newline
+3:1 indent
 3:3 word kw.requires | requires
-3:12 symbol ( | (
-3:13 name a | a
-3:15 symbol + | +
-3:17 name b | b
-3:18 symbol ) | )
-3:20 symbol * | *
-3:22 name c | c
-3:24 symbol >= | >=
-3:27 number 10 | 10
-3:30 word kw.or | or
-3:33 word kw.not | not
-3:37 name g | g
-3:39 word kw.and | and
-3:43 name h | h
-3:44 newline
+3:12 name a | a
+3:14 symbol + | +
+3:16 name b | b
+3:18 symbol * | *
+3:20 name c | c
+3:22 symbol - | -
+3:24 name d | d
+3:26 symbol / | /
+3:28 name e | e
+3:30 symbol = | =
+3:32 name f | f
+3:33 newline
 4:3 word kw.requires | requires
-4:12 name x | x
-4:14 word kw.in | in
-4:17 symbol ( | (
-4:18 money cur.HKD 1 | HKD 1
-4:23 symbol , | ,
-4:25 money cur.HKD 2 | HKD 2
-4:30 symbol , | ,
-4:32 money cur.HKD 3 | HKD 3
-4:37 symbol ) | )
-4:38 newline
+4:12 symbol ( | (
+4:13 name a | a
+4:15 symbol + | +
+4:17 name b | b
+4:18 symbol ) | )
+4:20 symbol * | *
+4:22 name c | c
+4:24 symbol >= | >=
+4:27 number 10 | 10
+4:30 word kw.or | or
+4:33 word kw.not | not
+4:37 name g | g
+4:39 word kw.and | and
+4:43 name h | h
+4:44 newline
 5:3 word kw.requires | requires
-5:12 word expr.sum_of piece=head | sum of
-5:19 word field.parts | parts
-5:25 symbol <= | <=
-5:28 word field.amount | amount
-5:34 newline
+5:12 name x | x
+5:14 word kw.in | in
+5:17 symbol ( | (
+5:18 money cur.HKD 1 | HKD 1
+5:23 symbol , | ,
+5:25 money cur.HKD 2 | HKD 2
+5:30 symbol , | ,
+5:32 money cur.HKD 3 | HKD 3
+5:37 symbol ) | )
+5:38 newline
 6:3 word kw.requires | requires
-6:12 word expr.count_of piece=head | count of
-6:21 word field.parts | parts
-6:27 symbol > | >
-6:29 number 0 | 0
-6:31 word kw.and | and
-6:35 word field.parts | 各部分
-6:39 word expr.count_of piece=tail | 數目
-6:42 symbol < | <
-6:44 number 17 | 17
-6:46 newline
+6:12 word expr.sum_of piece=head | sum of
+6:19 word field.parts | parts
+6:25 symbol <= | <=
+6:28 word field.amount | amount
+6:34 newline
 7:3 word kw.requires | requires
-7:12 duration time.day 30 | 30日
-7:15 word cond.within piece=tail | 內
-7:17 word kw.or | or
-7:20 word cond.within piece=head | within
-7:27 duration time.day 30 | 30 days
-7:34 newline
+7:12 word expr.count_of piece=head | count of
+7:21 word field.parts | parts
+7:27 symbol > | >
+7:29 number 0 | 0
+7:31 word kw.and | and
+7:35 word field.parts | 各部分
+7:39 word expr.count_of piece=tail | 數目
+7:42 symbol < | <
+7:44 number 17 | 17
+7:46 newline
 8:3 word kw.requires | requires
-8:12 word cond.overdue | overdue
-8:20 duration time.day 3 | 3 days
-8:27 word kw.or | or
-8:30 duration time.day 7 | 7 days
-8:37 word cond.before_due piece=tail | before due
-8:48 word kw.or | or
-8:51 word cond.before_due piece=head | 到期前
-8:55 duration time.day 7 | 7日
-8:57 newline
+8:12 duration time.day 30 | 30日
+8:15 word cond.within piece=tail | 內
+8:17 word kw.or | or
+8:20 word cond.within piece=head | within
+8:27 duration time.day 30 | 30 days
+8:34 newline
 9:3 word kw.requires | requires
-9:12 date 2027-01-06 | 2027-01-06
-9:23 symbol < | <
-9:25 word field.due | due
-9:29 word kw.and | and
-9:33 rate 5% | 5%
-9:36 symbol > | >
-9:38 word charge.rate | rate
-9:43 word kw.and | and
-9:47 text "text" | "text"
-9:54 symbol = | =
-9:56 name note | note
-9:61 word kw.and | and
-9:65 word val.yes | yes
-9:68 newline
-10:1 dedent
-10:1 end
+9:12 word cond.overdue | overdue
+9:20 duration time.day 3 | 3 days
+9:27 word kw.or | or
+9:30 duration time.day 7 | 7 days
+9:37 word cond.before_due piece=tail | before due
+9:48 word kw.or | or
+9:51 word cond.before_due piece=head | 到期前
+9:55 duration time.day 7 | 7日
+9:57 newline
+10:3 word kw.requires | requires
+10:12 date 2027-01-06 | 2027-01-06
+10:23 symbol < | <
+10:25 word field.due | due
+10:29 word kw.and | and
+10:33 rate 5% | 5%
+10:36 symbol > | >
+10:38 word charge.rate | rate
+10:43 word kw.and | and
+10:47 text "text" | "text"
+10:54 symbol = | =
+10:56 name note | note
+10:61 word kw.and | and
+10:65 word val.yes | yes
+10:68 newline
+11:1 dedent
+11:1 end

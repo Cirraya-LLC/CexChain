@@ -24,7 +24,8 @@ using enum Category;
 // Edition 1: the keywords of bo-1.0, the vocabulary of its section 4, and the
 // words its examples need (types, fields, states, actors, roles, built-in
 // expressions, and charges). Append only: once an edition is released, its
-// concepts never change meaning.
+// concepts never change meaning. Each word is in Bo's core or in one of the
+// official vocabulary packs (D-054), which a source declares with `use`.
 constexpr Concept unsorted_concepts[] = {
     // Keywords.
     {"kw.contract", keyword, 0},
@@ -46,36 +47,39 @@ constexpr Concept unsorted_concepts[] = {
     {"kw.test", keyword, 0},
     {"kw.use", keyword, 0},
     // What a block declares.
-    {"kind.asset", kind, 0},
-    {"kind.service", kind, 0},
-    {"kind.resource", kind, 0},
-    {"kind.record", kind, 0},
+    {"kind.asset", kind, 0, Vocab::finance},
+    {"kind.service", kind, 0, Vocab::services},
+    {"kind.resource", kind, 0, Vocab::services},
+    {"kind.thing", kind, 0},
+    // Retired (Concept::retired): spelled only by the packs of before
+    // vocabulary packs, so that their deploys rebuild.
+    {"kind.record", kind, 0, Vocab::core, {}, 0, true},
     // Business actions.
     {"act.issue", action, 0},
     {"act.transfer", action, 0},
-    {"act.pledge", action, 0},
-    {"act.release", action, 0},
-    {"act.enforce", action, 0},
-    {"act.redeem", action, 0},
-    {"act.split", action, 0},
-    {"act.merge", action, 0},
+    {"act.pledge", action, 0, Vocab::finance},
+    {"act.release", action, 0, Vocab::finance},
+    {"act.enforce", action, 0, Vocab::finance},
+    {"act.redeem", action, 0, Vocab::finance},
+    {"act.split", action, 0, Vocab::finance},
+    {"act.merge", action, 0, Vocab::core, {}, 0, true},
     {"act.cancel", action, 0},
-    {"act.pay", action, 0},
-    {"act.confirm_payment", action, 0},
-    {"act.dispute", action, 0},
-    {"act.refund", action, 0},
-    {"act.credit", action, 0},
-    {"act.subscribe", action, 0},
-    {"act.renew", action, 0},
-    {"act.upgrade", action, 0},
-    {"act.downgrade", action, 0},
+    {"act.pay", action, 0, Vocab::finance},
+    {"act.confirm_payment", action, 0, Vocab::finance},
+    {"act.dispute", action, 0, Vocab::finance},
+    {"act.refund", action, 0, Vocab::commerce},
+    {"act.credit", action, 0, Vocab::commerce},
+    {"act.subscribe", action, 0, Vocab::services},
+    {"act.renew", action, 0, Vocab::services},
+    {"act.upgrade", action, 0, Vocab::services},
+    {"act.downgrade", action, 0, Vocab::services},
     {"act.suspend", action, 0},
     {"act.resume", action, 0},
     {"act.terminate", action, 0},
-    {"act.allocate", action, 0},
-    {"act.reclaim", action, 0},
-    {"act.freeze", action, 0},
-    {"act.unfreeze", action, 0},
+    {"act.allocate", action, 0, Vocab::services},
+    {"act.reclaim", action, 0, Vocab::services},
+    {"act.freeze", action, 0, Vocab::finance},
+    {"act.unfreeze", action, 0, Vocab::finance},
     {"act.approve", action, 0},
     {"act.propose", action, 0},
     {"act.notify", action, 0},
@@ -90,23 +94,23 @@ constexpr Concept unsorted_concepts[] = {
     {"cond.before_due", condition, 1},
     {"cond.within", condition, 1},
     // Prices and usage.
-    {"price.price", pricing, 0},
-    {"price.usage", pricing, 0},
-    {"price.traffic", pricing, 0},
-    {"price.overage", pricing, 0},
-    {"price.per", pricing, 0},
-    {"price.setup_fee", pricing, 0},
+    {"price.price", pricing, 0, Vocab::commerce},
+    {"price.usage", pricing, 0, Vocab::commerce},
+    {"price.traffic", pricing, 0, Vocab::services},
+    {"price.overage", pricing, 0, Vocab::commerce},
+    {"price.per", pricing, 0, Vocab::commerce},
+    {"price.setup_fee", pricing, 0, Vocab::commerce},
     // Charges: taxes, fees, commissions, discounts.
-    {"charge.charge", charge, 0},
-    {"charge.tax", charge, 0},
-    {"charge.rate", charge, 0},
-    {"charge.applies_to", charge, 1},
-    {"charge.from", charge, 1},
-    {"charge.included", charge, 0},
-    {"charge.added", charge, 0},
-    {"charge.per_line", charge, 0},
-    {"charge.per_document", charge, 0},
-    {"charge.by", charge, 0},
+    {"charge.charge", charge, 0, Vocab::commerce},
+    {"charge.tax", charge, 0, Vocab::commerce},
+    {"charge.rate", charge, 0, Vocab::commerce},
+    {"charge.applies_to", charge, 1, Vocab::commerce},
+    {"charge.from", charge, 1, Vocab::commerce},
+    {"charge.included", charge, 0, Vocab::commerce},
+    {"charge.added", charge, 0, Vocab::commerce},
+    {"charge.per_line", charge, 0, Vocab::commerce},
+    {"charge.per_document", charge, 0, Vocab::commerce},
+    {"charge.by", charge, 0, Vocab::commerce},
     // Time.
     {"time.day", time, 0},
     {"time.week", time, 0},
@@ -143,9 +147,9 @@ constexpr Concept unsorted_concepts[] = {
     {"round.half_even", rounding, 0},
     {"round.down", rounding, 0},
     // Documents.
-    {"doc.invoice", document, 0},
-    {"doc.credit_note", document, 0},
-    {"doc.receipt", document, 0},
+    {"doc.invoice", document, 0, Vocab::commerce},
+    {"doc.credit_note", document, 0, Vocab::commerce},
+    {"doc.receipt", document, 0, Vocab::commerce},
     // Types and values.
     {"type.date", type, 0},
     {"type.text", type, 0},
@@ -163,41 +167,41 @@ constexpr Concept unsorted_concepts[] = {
     // (`-> pending approval`).
     {"val.pending_approval", value, 0},
     // Fields.
-    {"field.holder", field, 0},
-    {"field.amount", field, 0},
-    {"field.due", field, 0},
-    {"field.quantity", field, 0},
-    {"field.tier", field, 0},
-    {"field.pledgee", field, 0},
-    {"field.parts", field, 0},
-    {"field.customer_location", field, 0},
-    {"field.cooling_period", field, 0},
+    {"field.holder", field, 0, Vocab::core, "party", field_taking},
+    {"field.amount", field, 0, Vocab::core, "amount"},
+    {"field.due", field, 0, Vocab::core, "date"},
+    {"field.quantity", field, 0, Vocab::core, "quantity"},
+    {"field.tier", field, 0, Vocab::finance, "number"},
+    {"field.pledgee", field, 0, Vocab::finance, "party", field_added | field_taking},
+    {"field.parts", field, 0, Vocab::core, "list"},
+    {"field.customer_location", field, 0, Vocab::commerce, "text"},
+    {"field.cooling_period", field, 0, Vocab::services, "duration"},
     // Who a receivable's payment went to (the standard library's pay), and
     // the part of a warehouse receipt redeemed.
-    {"field.payee", field, 0},
-    {"field.portion", field, 0},
+    {"field.payee", field, 0, Vocab::finance, "party", field_added | field_taking},
+    {"field.portion", field, 0, Vocab::finance, "portion"},
     // The contract's offset from UTC (U6, milestone 12): a constant text
     // such as "+08:00" in the kind's block.
-    {"field.utc_offset", field, 0},
+    {"field.utc_offset", field, 0, Vocab::core, "offset"},
     // The parties a split's parts go to, one for each part (the standard
     // library's split; milestone 17): a list of parties (R1).
-    {"field.recipients", field, 0},
+    {"field.recipients", field, 0, Vocab::core, "parties"},
     // States.
     {"state.active", state, 0},
     {"state.proposed", state, 0},
-    {"state.pledged", state, 0},
-    {"state.paid", state, 0},
-    {"state.settled", state, 0},
-    {"state.frozen", state, 0},
+    {"state.pledged", state, 0, Vocab::finance},
+    {"state.paid", state, 0, Vocab::finance},
+    {"state.settled", state, 0, Vocab::finance},
+    {"state.frozen", state, 0, Vocab::finance},
     {"state.suspended", state, 0},
     {"state.terminated", state, 0},
     {"state.cancelled", state, 0},
-    {"state.disputed", state, 0},
-    {"state.redeemed", state, 0},
+    {"state.disputed", state, 0, Vocab::finance},
+    {"state.redeemed", state, 0, Vocab::finance},
     // A resource's states (the standard library's allocate and reclaim):
     // held by a customer, and waiting out its cooling period after a reclaim.
-    {"state.allocated", state, 0},
-    {"state.cooling", state, 0},
+    {"state.allocated", state, 0, Vocab::services},
+    {"state.cooling", state, 0, Vocab::services},
     // An instance that issued its parts (the standard library's split): it
     // has ended, and its parts carry on.
     {"state.divided", state, 0},
@@ -210,10 +214,10 @@ constexpr Concept unsorted_concepts[] = {
     {"actor.keeper", actor, 0},
     // Common roles.
     {"role.we", role, 0},
-    {"role.customer", role, 0},
-    {"role.supplier", role, 0},
-    {"role.bank", role, 0},
-    {"role.issuer", role, 0},
+    {"role.customer", role, 0, Vocab::commerce},
+    {"role.supplier", role, 0, Vocab::finance},
+    {"role.bank", role, 0, Vocab::finance},
+    {"role.issuer", role, 0, Vocab::finance},
     // The party an action names after `to`: in the standard library's terms,
     // and, when the contract does not declare it, named by each call (R21).
     {"role.counterparty", role, 0},
@@ -242,6 +246,23 @@ static_assert(std::ranges::adjacent_find(sorted_concepts, {}, &Concept::id) ==
 constexpr std::size_t keywords =
     static_cast<std::size_t>(std::ranges::count(unsorted_concepts, keyword, &Concept::category));
 static_assert(keywords == 18, "bo-1.0 has 18 keywords");
+
+constexpr std::size_t words_of(Vocab pack) {
+    return static_cast<std::size_t>(std::ranges::count_if(unsorted_concepts, [&](const Concept& c) {
+        return c.category != keyword && !c.retired && c.pack == pack;
+    }));
+}
+
+// D-054: an 80-word core and three official vocabulary packs.
+static_assert(words_of(Vocab::core) == 80, "the core has 80 words");
+static_assert(words_of(Vocab::finance) == 24, "finance has 24 words");
+static_assert(words_of(Vocab::commerce) == 22, "commerce has 22 words");
+static_assert(words_of(Vocab::services) == 12, "services has 12 words");
+static_assert(std::ranges::all_of(unsorted_concepts,
+                                  [](const Concept& c) {
+                                      return (c.category == field) == !c.type.empty() || c.retired;
+                                  }),
+              "every field, and only a field, has a type");
 
 constexpr MessageSpec unsorted_messages[] = {
     // Reading a pack.
@@ -356,6 +377,9 @@ constexpr MessageSpec unsorted_messages[] = {
     // Checking: the contract and its declarations.
     {"check.fragment", Severity::warning, ""},
     {"check.no-parties", Severity::error, ""},
+    // Vocabulary packs (D-054): `use finance`.
+    {"check.unknown-pack", Severity::error, "pack"},
+    {"check.pack-not-used", Severity::error, "word pack"},
     {"check.duplicate", Severity::error, "name"},
     {"check.one-kind", Severity::error, "name"},
     {"check.unknown-name", Severity::error, "name"},
@@ -512,6 +536,14 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"contract", "name"},
     {"fragment", ""},
     {"intro", "edition"},
+    // The vocabulary packs a contract uses (D-054): "the finance pack,
+    // version 1", each named in the reader's language.
+    {"packs-used", "packs"},
+    {"vocab-pack", "pack version"},
+    {"vocab-core", ""},
+    {"vocab-finance", ""},
+    {"vocab-commerce", ""},
+    {"vocab-services", ""},
     {"mark", "rules"},
     {"rule-line", "rule text"},
     {"section-parties", ""},
@@ -544,6 +576,7 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"action-function", "action function"},
     {"action-standard", "action"},
     {"action-terms", "action function"},
+    {"action-terms-pack", "action function pack"},
     {"action-home", ""},
     {"action-home-start", ""},
     {"action-rule-only", ""},

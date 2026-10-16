@@ -1,13 +1,14 @@
 Contract Batches
 
 Bo wrote this text from the contract's source (Bo edition 1). A clause marked with a rule, such as [R3], states what Bo inferred by that rule instead of reading it in the source; the last section explains each rule.
+Besides Bo's core words, the contract uses the commerce vocabulary pack (version 1).
 
 1. Parties
 1.1 we: bound to a ledger when an instance is created. [R3]
 1.2 customer: bound to a ledger when an instance is created. [R3]
 
 2. Each instance
-2.1 Each instance is a record named Batch.
+2.1 Each instance is a thing named Batch.
 2.2 codes: a list of at most 3 items, each a text, given when an instance is created.
 2.3 sizes: a list of at most 16 items, each a number, given when an instance is created. [R16]
 2.4 total: a number, given when an instance is created.

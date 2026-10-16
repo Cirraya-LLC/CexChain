@@ -215,10 +215,23 @@ struct Meaning {
     std::string pack;
 };
 
+/// Which official language packs a set is built on: the current ones, or
+/// those of before vocabulary packs (version 1 of each, D-054), which a
+/// compiler carries so that the deploys made with them rebuild. A source
+/// read with the earlier ones uses every vocabulary pack without declaring
+/// it (they had no `use`), and its kind word `record` (kind.record) is
+/// today's `thing`.
+enum class Officials : std::uint8_t { current, before_vocabulary };
+
 /// The packs a source is read with: the official packs, always, and any
 /// others given. No spelling has two meanings in it.
 class PackSet {
 public:
+    [[nodiscard]] Officials officials() const noexcept { return officials_; }
+    /// True if every vocabulary pack is used without `use` (Officials).
+    [[nodiscard]] bool implicit_vocabulary() const noexcept {
+        return officials_ == Officials::before_vocabulary;
+    }
     [[nodiscard]] const std::vector<Pack>& packs() const noexcept { return packs_; }
     [[nodiscard]] const Pack* find(std::string_view id) const noexcept;
     /// What a spelling (words separated by single spaces, the argument's
@@ -233,6 +246,7 @@ private:
     friend struct PackSetBuilder;
     std::vector<Pack> packs_;
     std::map<std::string, Meaning, std::less<>> spellings_;
+    Officials officials_ = Officials::current;
 };
 
 struct PackSetRead {
@@ -243,13 +257,22 @@ struct PackSetRead {
 /// The official packs plus `extra` (each already read without errors). A
 /// pack that calls itself official must be byte for byte one the compiler
 /// carries (it is then the same pack, and taken once).
-[[nodiscard]] PackSetRead make_pack_set(std::vector<Pack> extra)
+[[nodiscard]] PackSetRead make_pack_set(std::vector<Pack> extra,
+                                        Officials officials = Officials::current)
     BO_POST(r, r.set.has_value() != has_errors(r.diagnostics));
 
 /// The packs this compiler carries (the latest version of each), read once.
 [[nodiscard]] std::span<const Pack> official_packs() noexcept;
+/// The official packs of before vocabulary packs (Officials), read once.
+[[nodiscard]] std::span<const Pack> earlier_official_packs() noexcept;
+/// The official packs a set built on `officials` reads.
+[[nodiscard]] std::span<const Pack> official_packs(Officials officials) noexcept;
 /// The official pack with this id, or nullptr.
 [[nodiscard]] const Pack* official_pack(std::string_view id) noexcept;
+/// The official pack with this id and version, current or earlier, and
+/// which officials it is one of; nullptr if this compiler carries none.
+[[nodiscard]] const Pack* official_pack(std::string_view id, std::uint64_t version,
+                                        Officials* officials = nullptr) noexcept;
 /// The English pack, where missing words and messages fall back to.
 [[nodiscard]] const Pack& english_pack() noexcept;
 
@@ -259,7 +282,10 @@ struct PackText {
     std::string_view text;
 };
 
+/// The current official packs' files.
 [[nodiscard]] std::span<const PackText> official_pack_texts() noexcept;
+/// The earlier official packs' files (bo/packs/history/).
+[[nodiscard]] std::span<const PackText> earlier_official_pack_texts() noexcept;
 
 /// The pack for a language: by pack id, by language tag, or by a tag's
 /// unique prefix ("zh-Hant" finds zh-Hant-HK). Nullptr if none or several.

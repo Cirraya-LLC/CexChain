@@ -1,7 +1,7 @@
 contract States
 parties we
 
-record Order
+thing Order
   note text
 
 can place by we

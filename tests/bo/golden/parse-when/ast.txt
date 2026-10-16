@@ -1,4 +1,7 @@
 edition 1
+use commerce
+use finance
+use services
 contract Rules
 parties role.we role.customer 甲方
 block kind.service Hosting

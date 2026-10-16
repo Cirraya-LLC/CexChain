@@ -34,6 +34,7 @@
 #include <cexchain/bo/checker.hpp>
 #include <cexchain/bo/stdlib.hpp>
 #include <cexchain/bo/values.hpp>
+#include <cexchain/bo/vocab.hpp>
 
 #include "internal.hpp"
 
@@ -85,9 +86,12 @@ constexpr std::string_view rule_one_item = "R29";
 constexpr std::string_view rule_issue_parts = "R30";
 constexpr std::string_view rule_role_taking = "R31";
 
-/// The fields the standard terms may add to an instance (R20): parties
-/// that hold the asset in some way, none until an action sets them; a
-/// resource's holder too (it has none while in the pool).
+/// The fields the standard terms may add to an instance (R20), in the order
+/// R20 adds them: those their packs mark as added (Concept::flags; parties
+/// that hold the thing in some way, none until an action sets them), and a
+/// resource's holder (it has none while in the pool). The order is the
+/// model's, which compiled code follows; vocab_test.cpp checks the list
+/// against the packs.
 constexpr std::string_view standard_fields[] = {"field.pledgee", "field.payee", "field.holder"};
 
 bool is(const Concept* c, std::string_view id) noexcept {
@@ -216,24 +220,26 @@ bool ordered(TypeKind kind) noexcept {
     return additive(kind) || kind == TypeKind::date;
 }
 
-/// The vocabulary's fields whose type the vocabulary fixes (R1).
+/// The vocabulary's fields whose type the vocabulary fixes (R1): the type
+/// each field's pack gives it (Concept::type).
 std::optional<Type> vocabulary_type(const Concept* word) {
-    if (is(word, "field.holder") || is(word, "field.pledgee") || is(word, "field.payee")) {
+    const std::string_view type = word != nullptr ? word->type : std::string_view();
+    if (type == "party") {
         return of(TypeKind::party);
     }
-    if (is(word, "field.due")) {
+    if (type == "date") {
         return of(TypeKind::date);
     }
-    if (is(word, "field.tier")) {
+    if (type == "number") {
         return of(TypeKind::number);
     }
-    if (is(word, "field.customer_location")) {
+    if (type == "text") {
         return of(TypeKind::text);
     }
-    if (is(word, "field.cooling_period")) {
+    if (type == "duration") {
         return duration(false);
     }
-    if (is(word, "field.recipients")) {
+    if (type == "parties") {
         // A split's recipients: at most 16, as a call creates at most 16
         // instances (spec section 15).
         return list_of(of(TypeKind::party), 16);
@@ -246,26 +252,28 @@ Type vocabulary_expected(const Concept* word) {
     if (std::optional<Type> fixed = vocabulary_type(word)) {
         return *fixed;
     }
-    if (is(word, "field.quantity") || is(word, "field.portion")) {
+    const std::string_view type = word != nullptr ? word->type : std::string_view();
+    if (type == "quantity" || type == "portion") {
         return of(TypeKind::quantity);
     }
-    if (is(word, "field.parts")) {
+    if (type == "list") {
         return of(TypeKind::list);
     }
-    if (is(word, "field.utc_offset")) {
+    if (type == "offset") {
         return of(TypeKind::text);
     }
     return of(TypeKind::money);
 }
 
 bool vocabulary_accepts(const Concept* word, const Type& t) {
-    if (is(word, "field.amount") || is(word, "field.portion")) {
+    const std::string_view type = word != nullptr ? word->type : std::string_view();
+    if (type == "amount" || type == "portion") {
         return t.kind == TypeKind::money || t.kind == TypeKind::quantity;
     }
-    if (is(word, "field.cooling_period")) {
+    if (type == "duration") {
         return t.kind == TypeKind::duration;
     }
-    if (is(word, "field.recipients")) {
+    if (type == "parties") {
         return t.kind == TypeKind::list && t.element.size() == 1 &&
                t.element[0].kind == TypeKind::party;
     }
@@ -614,7 +622,7 @@ private:
         diagnostics_.add(in_terms_ ? terms_site_ : span, code, args);
     }
     [[nodiscard]] std::string written(const Span& span) const {
-        const std::string_view text = in_terms_ ? standard_library().source : source_;
+        const std::string_view text = in_terms_ ? terms_text_ : source_;
         const std::size_t from = std::min<std::size_t>(span.offset, text.size());
         return detail::quote(text.substr(from, span.length));
     }
@@ -762,6 +770,8 @@ private:
     std::map<std::size_t, Terms> terms_;
     /// While the terms are checked: problems go to the `can` line, once.
     bool in_terms_ = false;
+    /// The library file the terms being checked come from.
+    std::string_view terms_text_;
     Span terms_site_;
     std::set<std::string> terms_problems_;
 
@@ -1151,7 +1161,8 @@ bool Checker::added_field(std::string_view id) const {
     if (id == "field.holder") {
         return is(model_.kind, "kind.resource");
     }
-    return std::ranges::contains(standard_fields, id);
+    const Concept* c = find_concept(id);
+    return c != nullptr && (c->flags & field_added) != 0;
 }
 
 void Checker::add_rule_actions() {
@@ -1391,6 +1402,7 @@ void Checker::declare_actions() {
         if (terms != terms_.end()) {
             in_terms_ = true;
             terms_site_ = c.action.span;
+            terms_text_ = standard_library().source_of(c.action.concept_entry);
             for (const ast::Field& f : terms->second.inputs) {
                 add(f);
             }
@@ -2015,6 +2027,7 @@ void Checker::check_can(const ast::Can& c, std::size_t index) {
     const auto in_terms = [&](bool on) {
         in_terms_ = on;
         terms_site_ = c.action.span;
+        terms_text_ = standard_library().source_of(c.action.concept_entry);
     };
     if (c.by) {
         a.by = value(*c.by);
@@ -3857,6 +3870,24 @@ void Checker::binary_value(const ast::Expr& e, m::Expr& out) {
 
 m::Model Checker::run(const ast::File& file) {
     model_.edition = file.edition;
+    // The vocabulary packs (D-054): each `use` names one, and each pack's
+    // words need its `use` (all of them, read with the official packs of
+    // before vocabulary packs).
+    for (const ast::Use& u : file.uses) {
+        if (find_vocabulary_pack(u.pack) == nullptr) {
+            error(u.span, "check.unknown-pack", {{"pack", detail::quote(u.pack)}});
+        } else {
+            model_.packs.push_back(u.pack);
+        }
+    }
+    std::ranges::sort(model_.packs);
+    for (const ast::PackWord& w : file.pack_words) {
+        const std::string_view pack = vocab_name(w.concept_entry->pack);
+        if (!file.implicit_vocabulary && !std::ranges::contains(model_.packs, pack)) {
+            error(w.span, "check.pack-not-used",
+                  {{"word", written(w.span)}, {"pack", std::string(pack)}});
+        }
+    }
     for (const ast::Clause& clause : file.clauses) {
         clauses_.push_back(&clause);
         std::visit(Overloaded{

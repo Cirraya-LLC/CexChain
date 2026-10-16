@@ -24,10 +24,17 @@ write them (tests/bo/codegen_test.cpp, the hidden case
   - the bundle decodes as a bo-source bundle holding the source as written,
     and its pack digests are the SHA-256 of each official pack's canonical
     CBOR, computed here from bo/packs/*.pack (diagnostic notation read by
-    this script) and equal to tests/bo/golden/pack-digests.txt.
+    this script) and equal to tests/bo/golden/pack-digests.txt; key 6 names
+    the vocabulary packs the source's `use` lines name, at the digests of
+    their canonical CBOR (checked here: its terms are bo/stdlib/ID.bo);
+  - each contract's deploy from before vocabulary packs (its bundle as the
+    vectors recorded it then: the official language packs version 1, from
+    bo/packs/history/, and no key 6) is kept as "earlier", with the code it
+    deployed, which must be the code built today.
 The C++ test "the conformance vectors" then rebuilds each source to the same
-code, bundle, interface, and bounds, replays each run, and compiles each
-source that must not build to the same errors.
+code, bundle, interface, and bounds, rebuilds each earlier deploy to the same
+code, replays each run, and compiles each source that must not build to the
+same errors.
 
 Usage (from CexChain/, after a GCC build):
     python3 tools/testvectors/bo_vectors.py [--tests build/gcc-debug/tests/cexchain_bo_tests]
@@ -40,6 +47,7 @@ import hashlib
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -79,38 +87,71 @@ def read_pack(text: str):
     return json.loads("".join(out))
 
 
-def official_packs() -> dict:
-    """Each official pack's id, version, and the SHA-256 of its canonical
-    CBOR, checked against the C++ golden."""
+def official_packs(vocabulary: dict) -> dict:
+    """Each official pack's (id, version) and the SHA-256 of its canonical
+    CBOR: the language packs from bo/packs/*.pack and, carried so that old
+    deploys rebuild, bo/packs/history/*.pack (diagnostic notation read by
+    this script); the vocabulary packs from the canonical CBOR the C++ writer
+    gives, checked here (format, id, version, edition, concepts, and terms
+    equal to bo/stdlib/ID.bo). Each is checked against the C++ golden."""
     golden = {}
     for line in PACK_DIGESTS.read_text(encoding="utf-8").splitlines():
         pack_id, version, hash_name, digest = line.split()
         if hash_name == "SHA-256":
-            golden[pack_id] = (int(version), digest)
+            golden[(pack_id, int(version))] = digest
     packs = {}
-    for path in sorted(PACKS.glob("*.pack")):
+    for path in sorted(PACKS.glob("*.pack")) + sorted((PACKS / "history").glob("*.pack")):
         pack = read_pack(path.read_text(encoding="utf-8"))
-        digest = hashlib.sha256(dcbor(pack)).hexdigest()
-        packs[pack["id"]] = (pack["version"], digest)
-        assert golden.get(pack["id"]) == (pack["version"], digest), \
-            f"{path.name}: digest {digest}, but the golden says {golden.get(pack['id'])}"
+        key = (pack["id"], pack["version"])
+        packs[key] = hashlib.sha256(dcbor(pack)).hexdigest()
+        assert golden.get(key) == packs[key], \
+            f"{path.name}: digest {packs[key]}, but the golden says {golden.get(key)}"
+    for pack_id, entry in vocabulary.items():
+        canonical = bytes.fromhex(entry["canonical"])
+        value = cbor2.loads(canonical)
+        assert dcbor(value) == canonical, f"{pack_id}: not deterministic CBOR"
+        assert value["format"] == 1 and value["id"] == pack_id and value["edition"] == 1
+        assert value["version"] == entry["version"]
+        assert isinstance(value["concepts"], dict) and value["concepts"], pack_id
+        terms = ROOT / "bo" / "stdlib" / f"{pack_id}.bo"
+        assert value.get("terms") == (terms.read_text(encoding="utf-8") if terms.exists()
+                                      else None), f"{pack_id}: terms"
+        key = (pack_id, value["version"])
+        packs[key] = hashlib.sha256(canonical).hexdigest()
+        assert golden.get(key) == packs[key], f"{pack_id}: digest differs from the golden"
     assert set(packs) == set(golden), "the packs and their goldens differ"
     return packs
 
 
-def check_bundle(bundle: bytes, source: str, packs: dict) -> None:
-    """A bo-source bundle (spec section 15, `bo-source` in the CDDL), decoded
-    and checked: {1: 1, 2: edition, 3: source, 4: [+ [id, version, digest]]},
-    deterministic, every pack official (none embedded) at its digest."""
+def uses(source: str) -> list:
+    """The vocabulary packs a source's `use` lines name (`use` in English,
+    使用 in Chinese), by id."""
+    found = re.findall(r"^(?:use|使用) (\S+)\s*$", source, re.M)
+    return sorted(set(found))
+
+
+def check_bundle(bundle: bytes, source: str, packs: dict, version: int) -> None:
+    """A bo-source bundle (spec/bo.md section 16, `bo-source` in the CDDL),
+    decoded and checked: {1: 1, 2: edition, 3: source, 4: [+ [id, version,
+    digest]], ? 6: [+ [id, version, digest]]}, deterministic, every language
+    pack official (none embedded) at `version` and its digest, and key 6
+    the vocabulary packs the source's `use` lines name, at their digests."""
     value = cbor2.loads(bundle)
     assert dcbor(value) == bundle, "the bundle is not deterministic CBOR"
-    assert set(value) == {1, 2, 3, 4}, f"bundle keys {sorted(value)}"
+    used = uses(source)
+    assert set(value) == ({1, 2, 3, 4, 6} if used else {1, 2, 3, 4}), \
+        f"bundle keys {sorted(value)}"
     assert value[1] == 1 and value[2] == 1, "format 1, edition 1"
     assert value[3] == source, "the bundle holds another source"
     refs = value[4]
     assert refs == sorted(refs, key=lambda r: r[0].encode("utf-8")) and refs, "pack order"
-    for pack_id, version, digest in refs:
-        assert packs[pack_id] == (version, digest.hex()), f"pack {pack_id} {version}"
+    for pack_id, pack_version, digest in refs:
+        assert pack_version == version, f"pack {pack_id} version {pack_version}"
+        assert packs[(pack_id, pack_version)] == digest.hex(), f"pack {pack_id} {pack_version}"
+    if used:
+        assert [r[0] for r in value[6]] == used, "key 6 is not the source's use lines"
+        for pack_id, pack_version, digest in value[6]:
+            assert packs[(pack_id, pack_version)] == digest.hex(), f"vocabulary {pack_id}"
 
 
 def _head(major: int, n: int) -> bytes:
@@ -234,14 +275,35 @@ def main() -> int:
     # the tax contract's and the dinner's bills (their test blocks).
     doc["modules"] = {n: c for n, c in doc["modules"].items() if not n.startswith("vat-")}
     doc["runs"] = [r for r in doc["runs"] if not r["module"].startswith("vat-")]
-    packs = official_packs()
+    packs = official_packs(doc["vocabulary"])
+    # What each contract's deploy recorded before vocabulary packs (language
+    # packs version 1, no `use` lines, no key 6), from the vectors as they
+    # were: old deploys must still rebuild to the same code.
+    earlier = {}
+    if pathlib.Path(args.out).exists():
+        previous = json.loads(pathlib.Path(args.out).read_text(encoding="utf-8"))
+        for c in previous["contracts"]:
+            if "earlier" in c:
+                earlier[c["name"]] = c["earlier"]
+            elif "bundle" in c and 6 not in cbor2.loads(bytes.fromhex(c["bundle"])):
+                old = cbor2.loads(bytes.fromhex(c["bundle"]))
+                if all(r[1] == 1 for r in old[4]):
+                    earlier[c["name"]] = {"compiler": c["compiler"], "bundle": c["bundle"],
+                                          "code_sha256": c["code_sha256"]}
     contracts = {}
     for name, code_hex in doc["modules"].items():
         code = bytes.fromhex(code_hex)
         deploy = doc["deploys"][name]
         bundle = bytes.fromhex(deploy["bundle"])
-        check_bundle(bundle, doc["sources"][name][0]["text"], packs)
+        check_bundle(bundle, doc["sources"][name][0]["text"], packs, 2)
         assert deploy["compiler"] == doc["compiler"]
+        if name in earlier:
+            old = earlier[name]
+            old_bundle = bytes.fromhex(old["bundle"])
+            check_bundle(old_bundle, cbor2.loads(old_bundle)[3], packs, 1)
+            assert not uses(cbor2.loads(old_bundle)[3]), f"{name}: use lines before packs"
+            assert old["code_sha256"] == hashlib.sha256(code).hexdigest(), \
+                f"{name}: the code differs from the code deployed before vocabulary packs"
         contracts[name] = {
             "name": name,
             "contract": deploy["contract"],
@@ -258,6 +320,13 @@ def main() -> int:
             "runs": [],
             "_module": w.load(code),
         }
+        if name in earlier:
+            contracts[name]["earlier"] = {
+                "compiler": earlier[name]["compiler"],
+                "bundle": earlier[name]["bundle"],
+                "bundle_sha256": hashlib.sha256(bytes.fromhex(earlier[name]["bundle"])).hexdigest(),
+                "code_sha256": earlier[name]["code_sha256"],
+            }
     for run in doc["runs"]:
         c = contracts[run["module"]]
         raw = bytes.fromhex(run["input"])
@@ -284,7 +353,11 @@ def main() -> int:
         "format": 1,
         "description": "Bo conformance vectors (spec/bo.md, section 18): for each contract its "
                        "sources (in each language they are written in), name, interface, the "
-                       "bo-source bundle a deploy records (official packs, SHA-256 digests), "
+                       "bo-source bundle a deploy records (official language packs version 2 "
+                       "and the vocabulary packs its use lines name, SHA-256 digests), the "
+                       "bundle its deploy recorded before vocabulary packs where it had one "
+                       "(earlier: language packs version 1, no use lines; it rebuilds to the "
+                       "same code), "
                        "and the code cexchain-bo builds, the hashes of its codegen 1 and 2 code, and its "
                        "functions' fuel and output bounds (informative); calls with their "
                        "outcomes (normative; fuel is this code's); and sources that must not "

@@ -1,50 +1,56 @@
-1:1 word kind.service | service
-1:9 name Hosting | Hosting
-1:16 newline
-2:1 indent
-2:3 word price.price | price
-2:9 word time.monthly | monthly
-2:17 money cur.HKD 120 | HKD 120
-2:24 symbol , | ,
-2:26 word price.setup_fee | setup fee
-2:36 money cur.HKD 500 | HKD 500
-2:43 newline
-3:1 dedent
-3:1 word kind.resource | resource
-3:10 name Address | Address
-3:17 newline
+1:1 word kw.use | use
+1:5 name commerce | commerce
+1:13 newline
+2:1 word kw.use | use
+2:5 word kind.service form=plural | services
+2:13 newline
+3:1 word kind.service | service
+3:9 name Hosting | Hosting
+3:16 newline
 4:1 indent
-4:3 word field.cooling_period | cooling period
-4:18 duration time.day 30 | 30 days
-4:25 newline
+4:3 word price.price | price
+4:9 word time.monthly | monthly
+4:17 money cur.HKD 120 | HKD 120
+4:24 symbol , | ,
+4:26 word price.setup_fee | setup fee
+4:36 money cur.HKD 500 | HKD 500
+4:43 newline
 5:1 dedent
-5:1 word kind.record | record
-5:8 name Log | Log
-5:11 newline
+5:1 word kind.resource | resource
+5:10 name Address | Address
+5:17 newline
 6:1 indent
-6:3 name note | note
-6:8 word type.text | text
-6:12 newline
+6:3 word field.cooling_period | cooling period
+6:18 duration time.day 30 | 30 days
+6:25 newline
 7:1 dedent
-7:1 word charge.charge | charge
-7:8 name Fee | Fee
-7:11 newline
+7:1 word kind.thing | thing
+7:7 name Log | Log
+7:10 newline
 8:1 indent
-8:3 word charge.rate | rate
-8:8 rate 2% | 2%
-8:10 newline
-9:3 word charge.per_line | per line
-9:12 word round.half_even | half even
-9:21 newline
-10:1 dedent
-10:1 word charge.tax | tax
-10:5 name VAT | VAT
-10:8 newline
-11:1 indent
-11:3 word charge.rate | rate
-11:8 rate 5% | 5%
-11:10 newline
-12:3 word charge.included | included
-12:11 newline
-13:1 dedent
-13:1 end
+8:3 name note | note
+8:8 word type.text | text
+8:12 newline
+9:1 dedent
+9:1 word charge.charge | charge
+9:8 name Fee | Fee
+9:11 newline
+10:1 indent
+10:3 word charge.rate | rate
+10:8 rate 2% | 2%
+10:10 newline
+11:3 word charge.per_line | per line
+11:12 word round.half_even | half even
+11:21 newline
+12:1 dedent
+12:1 word charge.tax | tax
+12:5 name VAT | VAT
+12:8 newline
+13:1 indent
+13:3 word charge.rate | rate
+13:8 rate 5% | 5%
+13:10 newline
+14:3 word charge.included | included
+14:11 newline
+15:1 dedent
+15:1 end

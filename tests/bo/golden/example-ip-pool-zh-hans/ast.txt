@@ -1,4 +1,6 @@
 edition 1
+use commerce
+use services
 contract IP地址池
 parties role.we role.customer
 block kind.resource IP地址

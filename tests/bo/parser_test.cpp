@@ -336,8 +336,17 @@ TEST_CASE("blocks: if, otherwise, each, and the lines that open none", "[bo][par
     CHECK(codes(parse_text("contract X\n  parties we\n")) == "parse.unexpected-block");
     CHECK(codes(parse_text("  contract X\n")) == "parse.unexpected-block");
     CHECK(codes(parse_text("test\n")) == "parse.empty-block");
-    CHECK(codes(parse_text("use modules\n")) == "parse.reserved");
+    // `use` declares a vocabulary pack on a line of its own, outside any
+    // block; the pack's id is the next token as written (checked later).
+    CHECK(codes(parse_text("use modules\n")).empty());
+    CHECK(dump(parse_text("use services\nuse finance\n").file) ==
+          "edition 1\nuse finance\nuse services\n");
+    CHECK(codes(parse_text("use finance\nuse finance\n")) == "parse.duplicate");
+    CHECK(codes(parse_text("use\n")) == "parse.expected-name");
+    CHECK(codes(parse_text("use finance services\n")) == "parse.trailing");
+    CHECK(codes(parse_text("use finance\n  contract X\n")) == "parse.unexpected-block");
     CHECK(codes(parse_text("can x\n  requires use\n")) == "parse.reserved");
+    CHECK(codes(parse_text("can x\n  use finance\n")) == "parse.reserved");
     // A line that fails adds nothing, and the parser goes on with the next.
     const Parsed recovered =
         parse_text("contract X Y\ncan pledge bank\n  requires z\ncan transfer\n");

@@ -5,6 +5,7 @@
 # its own, backed by the same promise to pay, which its holder can keep, sell,
 # or pledge to a bank for financing. The core enterprise's ledger keeps every
 # part; each holder consents on its own ledger.
+use finance
 contract MultiTierReceivable
 parties issuer, supplier
 

@@ -1,7 +1,9 @@
+use commerce
+use finance
 contract Time
 parties we, customer
 
-record Plan
+thing Plan
   tier number
   start date
   UTC offset "+15:00"

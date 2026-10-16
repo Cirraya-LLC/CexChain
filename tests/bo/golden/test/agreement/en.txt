@@ -1,48 +1,48 @@
 Test "signed in person, countersigned, and closed": passed
-  Step 1 (line 33) passed: we create at 2026-10-14 with terms = "100 t of steel, monthly", amount = HKD 1_500_000, starts = 2027-01-01
+  Step 1 (line 34) passed: we create at 2026-10-14 with terms = "100 t of steel, monthly", amount = HKD 1_500_000, starts = 2027-01-01
     Result: accepted, and the instance is proposed.
-  Step 2 (line 34) passed: we amend with new_amount = HKD 2_000_000, new_start = 2027-01-08 -> proposed
+  Step 2 (line 35) passed: we amend with new_amount = HKD 2_000_000, new_start = 2027-01-08 -> proposed
     Result: accepted with the consent of the customer, and the instance is proposed.
-  Step 3 (line 35) passed: customer sign -> refused "bo:in-person sign"
+  Step 3 (line 36) passed: customer sign -> refused "bo:in-person sign"
     Result: refused, since sign needs a person who proves presence (a passkey or a hardware key) (bo:in-person sign).
     The contract text, 4.2.2: Requirement 1: if the amount is over HKD 1,000,000, the customer must prove presence in person, with a passkey or a hardware key.
-  Step 4 (line 36) passed: customer sign in person -> signed
+  Step 4 (line 37) passed: customer sign in person -> signed
     Result: accepted with the consent of the customer, and the instance is signed.
-  Step 5 (line 37) passed: we amend with new_amount = HKD 1, new_start = 2027-01-08 -> refused "bo:requires amend 1"
+  Step 5 (line 38) passed: we amend with new_amount = HKD 1, new_start = 2027-01-08 -> refused "bo:requires amend 1"
     Result: refused, since requirement 1 of amend is not met (bo:requires amend 1).
     The contract text, 4.1.3: Requirement 1: the instance is proposed.
-  Step 6 (line 38) passed: we countersign -> effective
+  Step 6 (line 39) passed: we countersign -> effective
     Result: accepted, and the instance is effective.
-  Step 7 (line 39) passed: we close at 2027-06-30 -> closed
+  Step 7 (line 40) passed: we close at 2027-06-30 -> closed
     Result: accepted with the consent of the customer, and the instance is closed; it is final and takes no more calls.
-  Step 8 (line 40) passed: we close -> refused
+  Step 8 (line 41) passed: we close -> refused
     Result: refused by the ledger: the instance is final and takes no more calls.
 
 Test "what one party cannot do alone": passed
-  Step 1 (line 43) passed: we create with terms = "100 t of steel, monthly", amount = HKD 500_000, starts = 2027-01-01
+  Step 1 (line 44) passed: we create with terms = "100 t of steel, monthly", amount = HKD 500_000, starts = 2027-01-01
     Result: accepted, and the instance is proposed.
-  Step 2 (line 44) passed: we amend with new_amount = HKD 600_000, new_start = 2027-01-01 -> consent of customer
+  Step 2 (line 45) passed: we amend with new_amount = HKD 600_000, new_start = 2027-01-01 -> consent of customer
     Result: the call waits for the consent of the customer.
-  Step 3 (line 45) passed: we amend with new_amount = HKD 900_000, new_start = 2027-01-01 -> refused "an amendment may raise the amount by half at most"
+  Step 3 (line 46) passed: we amend with new_amount = HKD 900_000, new_start = 2027-01-01 -> refused "an amendment may raise the amount by half at most"
     Result: refused, with the reason "an amendment may raise the amount by half at most".
     The contract text, 4.1.6.1: The call is refused, with the reason "an amendment may raise the amount by half at most".
-  Step 4 (line 47) passed: we sign -> consent of customer
+  Step 4 (line 48) passed: we sign -> consent of customer
     Result: the call waits for the consent of the customer.
-  Step 5 (line 48) passed: customer countersign -> refused "bo:state countersign"
+  Step 5 (line 49) passed: customer countersign -> refused "bo:state countersign"
     Result: refused, since countersign is not possible in the instance's current state (bo:state countersign).
     The contract text, 4.3.2: If the instance is signed, it becomes effective; otherwise the call is refused.
-  Step 6 (line 49) passed: customer sign by AI agent -> signed
+  Step 6 (line 50) passed: customer sign by AI agent -> signed
     Result: accepted with the consent of the customer, and the instance is signed.
-  Step 7 (line 50) passed: customer countersign -> consent of we
+  Step 7 (line 51) passed: customer countersign -> consent of we
     Result: the call waits for us to make it.
-  Step 8 (line 51) passed: we close -> refused "bo:state close"
+  Step 8 (line 52) passed: we close -> refused "bo:state close"
     Result: refused, since close is not possible in the instance's current state (bo:state close).
     The contract text, 4.4.3: If the instance is effective, it becomes closed; otherwise the call is refused.
 
 Test "too late to sign": passed
-  Step 1 (line 54) passed: we create with terms = "100 t of steel, monthly", amount = HKD 500_000, starts = 2027-01-01
+  Step 1 (line 55) passed: we create with terms = "100 t of steel, monthly", amount = HKD 500_000, starts = 2027-01-01
     Result: accepted, and the instance is proposed.
-  Step 2 (line 55) passed: customer sign at 2027-01-02 -> refused "bo:requires sign 2"
+  Step 2 (line 56) passed: customer sign at 2027-01-02 -> refused "bo:requires sign 2"
     Result: refused, since requirement 2 of sign is not met (bo:requires sign 2).
     The contract text, 4.2.3: Requirement 2: the time of the call is before starts.
 

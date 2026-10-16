@@ -1,43 +1,43 @@
 測試 「goods redeemed in parts」：通過
-  第 1 步（第 21 行）通過：warehouse issue with quantity = 30 tonne
+  第 1 步（第 22 行）通過：warehouse issue with quantity = 30 tonne
     結果：調用獲接納，實例現為正常。
-  第 2 步（第 22 行）通過：depositor redeem with portion = 0 tonne -> refused "bo:requires redeem 3"
+  第 2 步（第 23 行）通過：depositor redeem with portion = 0 tonne -> refused "bo:requires redeem 3"
     結果：調用被拒絕，因為贖回 的第 3 項要求未獲滿足（bo:requires redeem 3）。
     合約條文 4.5.6：要求 3：部分大於 0。
-  第 3 步（第 23 行）通過：depositor redeem with portion = 40 tonne -> refused "bo:requires redeem 4"
+  第 3 步（第 24 行）通過：depositor redeem with portion = 40 tonne -> refused "bo:requires redeem 4"
     結果：調用被拒絕，因為贖回 的第 4 項要求未獲滿足（bo:requires redeem 4）。
     合約條文 4.5.7：要求 4：部分不超過數量。
-  第 4 步（第 24 行）通過：depositor redeem with portion = 10 tonne -> active
+  第 4 步（第 25 行）通過：depositor redeem with portion = 10 tonne -> active
     結果：經 depositor 同意，調用獲接納，實例現為正常。
-  第 5 步（第 25 行）通過：depositor pledge to bank1 -> pledged
+  第 5 步（第 26 行）通過：depositor pledge to bank1 -> pledged
     結果：經 depositor 及 bank1 同意，調用獲接納，實例現為已質押。
-  第 6 步（第 26 行）通過：depositor redeem with portion = 5 tonne -> pledged
+  第 6 步（第 27 行）通過：depositor redeem with portion = 5 tonne -> pledged
     結果：經 depositor 及 bank1 同意，調用獲接納，實例現為已質押。
-  第 7 步（第 27 行）通過：depositor transfer to trader1 -> refused "bo:state transfer"
+  第 7 步（第 28 行）通過：depositor transfer to trader1 -> refused "bo:state transfer"
     結果：調用被拒絕，因為實例目前的狀態不容許 轉讓（bo:state transfer）。
     合約條文 4.1.6：如實例處於正常狀態，即轉為正常狀態；否則拒絕調用。
-  第 8 步（第 28 行）通過：bank1 release -> active
+  第 8 步（第 29 行）通過：bank1 release -> active
     結果：經 bank1 同意，調用獲接納，實例現為正常。
-  第 9 步（第 29 行）通過：depositor transfer to trader1 -> active
+  第 9 步（第 30 行）通過：depositor transfer to trader1 -> active
     結果：經 trader1 及 depositor 同意，調用獲接納，實例現為正常。
-  第 10 步（第 30 行）通過：trader1 redeem with portion = 15 tonne -> redeemed
+  第 10 步（第 31 行）通過：trader1 redeem with portion = 15 tonne -> redeemed
     結果：經 trader1 同意，調用獲接納，實例現為已贖回；此為最終狀態，實例不再接受調用。
-  第 11 步（第 31 行）通過：trader1 redeem with portion = 1 tonne -> refused
+  第 11 步（第 32 行）通過：trader1 redeem with portion = 1 tonne -> refused
     結果：賬本拒絕調用：實例已處於最終狀態，不再接受調用。
 
 測試 「frozen while pledged」：通過
-  第 1 步（第 34 行）通過：warehouse issue with quantity = 30 tonne
+  第 1 步（第 35 行）通過：warehouse issue with quantity = 30 tonne
     結果：調用獲接納，實例現為正常。
-  第 2 步（第 35 行）通過：depositor pledge to bank1 -> pledged
+  第 2 步（第 36 行）通過：depositor pledge to bank1 -> pledged
     結果：經 depositor 及 bank1 同意，調用獲接納，實例現為已質押。
-  第 3 步（第 36 行）通過：warehouse freeze -> frozen
+  第 3 步（第 37 行）通過：warehouse freeze -> frozen
     結果：調用獲接納，實例現為已凍結。
-  第 4 步（第 37 行）通過：depositor redeem with portion = 1 tonne -> refused "bo:state redeem"
+  第 4 步（第 38 行）通過：depositor redeem with portion = 1 tonne -> refused "bo:state redeem"
     結果：調用被拒絕，因為實例目前的狀態不容許 贖回（bo:state redeem）。
     合約條文 4.5.9.2：實例轉為已贖回狀態。
-  第 5 步（第 38 行）通過：warehouse unfreeze -> pledged
+  第 5 步（第 39 行）通過：warehouse unfreeze -> pledged
     結果：調用獲接納，實例現為已質押。
-  第 6 步（第 39 行）通過：depositor redeem with portion = 30 tonne -> redeemed
+  第 6 步（第 40 行）通過：depositor redeem with portion = 30 tonne -> redeemed
     結果：經 depositor 及 bank1 同意，調用獲接納，實例現為已贖回；此為最終狀態，實例不再接受調用。
 
 共 2 個測試：2 個通過，0 個失敗。

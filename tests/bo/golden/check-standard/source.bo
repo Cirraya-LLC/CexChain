@@ -1,3 +1,4 @@
+use finance
 # The standard library's terms (R19) on a warehouse receipt: the fields they
 # add (R20), a counterparty each call names (R21), zero of a quantity (R22),
 # the state before (unfreeze), a line the contract adds, an AI agent that

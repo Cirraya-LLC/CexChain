@@ -44,6 +44,7 @@
 #include <cexchain/bo/scenario.hpp>
 #include <cexchain/bo/source.hpp>
 #include <cexchain/bo/values.hpp>
+#include <cexchain/bo/vocab.hpp>
 #include <cexchain/bo/wasm.hpp>
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/cbor.hpp>
@@ -536,10 +537,11 @@ Home agreement_refusals() {
 
 /// A role bound by the action that names it after `to` (R3, with its
 /// consent), and a field that holds a party (R2, R8).
-constexpr std::string_view loan_source = R"(contract Loan
+constexpr std::string_view loan_source = R"(use finance
+contract Loan
 parties we, bank
 
-record Note
+thing Note
   amount HKD
   holder we
 
@@ -590,10 +592,11 @@ Home loan_scenario() {
 }
 
 /// Values of every kind, computed and compared.
-constexpr std::string_view values_source = R"(contract Values
+constexpr std::string_view values_source = R"(use commerce
+contract Values
 parties we, customer
 
-record Sheet
+thing Sheet
   label text
   approved yes or no
   total HKD
@@ -834,7 +837,7 @@ std::vector<VatVariant> vat_variants() {
 
 std::string vat_source(const VatVariant& v) {
     return std::format(
-        "contract VAT\nparties we\n\nrecord Sale\n  invoice list CNY at most 1000\n\n"
+        "use commerce\ncontract VAT\nparties we\n\nthing Sale\n  invoice list CNY at most 1000\n\n"
         "charge 增值税\n  rate 6%\n  applies to customer location = 中国内地\n"
         "  {}\n  {} {}\n  from 2027-01-01 on rate 9%\n",
         v.included ? "included" : "added", v.per_document ? "according to invoice" : "per line",
@@ -1057,7 +1060,7 @@ TEST_CASE("bo build: lists and bills at their bounds stay within a call's fuel",
     const std::string lists_source = R"(contract Bounds
 parties we
 
-record Bounds
+thing Bounds
   numbers list number at most 1000
   names list text at most 1000
 
@@ -1116,8 +1119,8 @@ can replace by we with others list number at most 1000
     // second on the price and the first), and fourteen once per bill, each on
     // the price and both line charges. (A state holds at most 64 KiB, which
     // bounds a bill's lines times its charges on each line.)
-    std::string bill_source =
-        "contract Bill\nparties we\n\nrecord Sale\n  invoice list HKD at most 1000\n\n";
+    std::string bill_source = "use commerce\ncontract Bill\nparties we\n\nthing Sale\n  invoice "
+                              "list HKD at most 1000\n\n";
     bill_source += "charge a\n  rate 1%\n  added\n  per line half even\n";
     bill_source += "charge b\n  rate 2%\n  added\n  per line\n  according to price, a\n";
     for (int i = 0; i < 14; ++i) {
@@ -1340,7 +1343,8 @@ TEST_CASE("bo build: values, units, dates, texts, and yes or no", "[bo][build]")
 }
 
 TEST_CASE("bo build: what this version does not compile yet", "[bo][build]") {
-    const std::string head = "contract C\nparties we, customer\n\n";
+    const std::string head =
+        "use commerce\nuse finance\nuse services\ncontract C\nparties we, customer\n\n";
     // A vocabulary action builds with its standard terms (M11); one whose
     // terms come later does not.
     CHECK(
@@ -1351,24 +1355,24 @@ TEST_CASE("bo build: what this version does not compile yet", "[bo][build]") {
     // Time rules build (M12), but a service's period ends, which its executors
     // track (6b); lists and charges (M13), but a list built from values that
     // are not constants; agents' proposals.
-    CHECK(vm::load(build_text(head + "record R\n  ends date\n\ncan go by we\n  -> active\n"
+    CHECK(vm::load(build_text(head + "thing R\n  ends date\n\ncan go by we\n  -> active\n"
                                      "when ends\n  -> active\n")
                        .code)
               .has_value());
     CHECK(build_codes(head + "service S\n  price monthly HKD 120\n\ncan go by we\n  -> active\n"
                              "when overdue\n  -> active\n") == "build.time-rule");
-    CHECK(vm::load(
-              build_text(head + "record R\n  tags list text\n\ncan go by we\n  -> active\n").code)
-              .has_value());
-    CHECK(vm::load(build_text(head + "record R\n  amount HKD\n\ncan go by we with rows list HKD\n"
+    CHECK(
+        vm::load(build_text(head + "thing R\n  tags list text\n\ncan go by we\n  -> active\n").code)
+            .has_value());
+    CHECK(vm::load(build_text(head + "thing R\n  amount HKD\n\ncan go by we with rows list HKD\n"
                                      "  each row in rows\n    requires row > HKD 0\n")
                        .code)
               .has_value());
-    CHECK(build_codes(head + "record R\n  tags list text\n\ncan go by we with tag text\n"
+    CHECK(build_codes(head + "thing R\n  tags list text\n\ncan go by we with tag text\n"
                              "  tags = tag\n") == "build.unsupported");
-    CHECK(build_codes(head + "record R\n  ends list date\n\ncan go by we\n"
+    CHECK(build_codes(head + "thing R\n  ends list date\n\ncan go by we\n"
                              "  requires ends = (now, today)\n") == "build.unsupported");
-    std::string charges = head + "record R\n  invoice list HKD\n\n";
+    std::string charges = head + "thing R\n  invoice list HKD\n\n";
     for (int i = 0; i < 65; ++i) {
         charges += std::format("charge c{}\n  rate 1%\n  added\n", i);
     }
@@ -1401,15 +1405,16 @@ TEST_CASE("bo build: what this version does not compile yet", "[bo][build]") {
     }
     CHECK(build_codes(texts) == "build.too-large");
     // A field cannot start with a party that an action binds later.
-    CHECK(build_codes("contract C\nparties we, bank\n\ncan lend by we to bank\n  -> active\n"
-                      "record R\n  holder bank\n") == "build.late-party");
+    CHECK(build_codes(
+              "use finance\ncontract C\nparties we, bank\n\ncan lend by we to bank\n  -> active\n"
+              "thing R\n  holder bank\n") == "build.late-party");
     // The counts the profile and spec section 15 allow.
     std::string parties = "contract C\nparties we";
     for (int i = 0; i < 64; ++i) {
         parties += std::format(", p{}", i);
     }
     CHECK(build_codes(parties + "\n\ncan go by we\n  -> active\n") == "build.too-many-parties");
-    std::string fields = head + "record R\n";
+    std::string fields = head + "thing R\n";
     for (int i = 0; i < 257; ++i) {
         fields += std::format("  f{} number\n", i);
     }
@@ -1678,6 +1683,13 @@ TEST_CASE("bo build: write the runs for the Python reference", "[.codegen-refere
         error["errors"] = std::move(codes);
         errors.push_back(std::move(error));
     }
+    // The vocabulary packs, as canonical CBOR: what key 6's digests cover.
+    nlohmann::ordered_json vocabulary = nlohmann::ordered_json::object();
+    for (const bo::VocabularyPack& pack : bo::vocabulary_packs()) {
+        vocabulary[std::string(pack.id)] = {{"version", pack.version},
+                                            {"canonical", hex(pack.canonical)}};
+    }
+    doc["vocabulary"] = std::move(vocabulary);
     doc["compiler"] = bo::compiler_string();
     doc["modules"] = std::move(modules);
     doc["sources"] = std::move(sources);
@@ -1696,6 +1708,7 @@ TEST_CASE("bo build: the conformance vectors (testvectors/bo-v1.json)", "[bo][bu
     const auto doc = nlohmann::json::parse(read_text(vectors_file));
     REQUIRE(doc.at("format") == 1);
     std::size_t runs = 0;
+    std::size_t earlier_deploys = 0;
     for (const auto& contract : doc.at("contracts")) {
         const std::string name = contract.at("name");
         INFO(name);
@@ -1743,6 +1756,28 @@ TEST_CASE("bo build: the conformance vectors (testvectors/bo-v1.json)", "[bo][bu
                 CHECK(ours.fuel == b.at("fuel").get<std::uint64_t>());
                 CHECK(ours.output == b.at("output").get<std::uint64_t>());
             }
+            // Its deploy from before vocabulary packs (the official packs
+            // version 1, no `use` lines) rebuilds to the same code.
+            if (contract.contains("earlier")) {
+                const auto& earlier = contract.at("earlier");
+                protocol::ContractDeployBody deploy;
+                deploy.language = "bo";
+                deploy.code = compiled.build->code;
+                deploy.interface = compiled.build->interface;
+                deploy.compiler = earlier.at("compiler").get<std::string>();
+                deploy.source = *cexchain::from_hex(earlier.at("bundle").get<std::string>());
+                deploy.name = compiled.name;
+                const bo::Rebuild r =
+                    bo::rebuild(deploy, provider(), cexchain::crypto::HashAlg::sha256);
+                INFO(r.detail);
+                CHECK(r.status == bo::RebuildStatus::rebuilds);
+                REQUIRE(r.bundle.has_value());
+                CHECK(r.bundle->vocabulary.empty());
+                const auto digest =
+                    provider().digest(cexchain::crypto::HashAlg::sha256, compiled.build->code);
+                CHECK(hex(digest->bytes()) == earlier.at("code_sha256").get<std::string>());
+                ++earlier_deploys;
+            }
         }
         const Bytes code = *cexchain::from_hex(contract.at("code").get<std::string>());
         const auto module = vm::load(code);
@@ -1762,6 +1797,7 @@ TEST_CASE("bo build: the conformance vectors (testvectors/bo-v1.json)", "[bo][bu
         }
     }
     CHECK(runs > 0);
+    CHECK(earlier_deploys > 0);
     // Sources that do not build, and why.
     std::size_t refused = 0;
     for (const auto& error : doc.value("errors", nlohmann::json::array())) {

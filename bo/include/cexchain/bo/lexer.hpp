@@ -198,6 +198,9 @@ struct Lexed {
     std::vector<Diagnostic> diagnostics;
     /// From `bo N`; 1 without it (a file without `bo 1` is edition 1).
     std::uint64_t edition = 1;
+    /// Read with the official packs of before vocabulary packs
+    /// (PackSet::implicit_vocabulary): every vocabulary pack is used.
+    bool implicit_vocabulary = false;
 };
 
 /// The largest source, in bytes.

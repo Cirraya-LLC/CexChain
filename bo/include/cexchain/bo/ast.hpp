@@ -249,10 +249,33 @@ struct Test {
 
 using Clause = std::variant<Contract, Parties, Block, Can, When, Test>;
 
+/// `use finance`: the source uses a vocabulary pack (D-054). Pack ids are
+/// ASCII and stay as written in every language (`使用 finance`).
+struct Use {
+    static constexpr std::string_view tag = "use";
+    Span span;
+    std::string pack;
+};
+
+/// The first word of a vocabulary pack in a source (outside `use` lines):
+/// where the checker says the pack is not used, if it is not.
+struct PackWord {
+    const Concept* concept_entry = nullptr;
+    Span span;
+};
+
 struct File {
     /// From `bo N`; 1 without it.
     std::uint64_t edition = 1;
+    /// The `use` lines, in source order.
+    std::vector<Use> uses;
     std::vector<Clause> clauses;
+    /// The first word of each vocabulary pack the source has, in source
+    /// order (one for each pack).
+    std::vector<PackWord> pack_words;
+    /// Read with the official packs of before vocabulary packs: every
+    /// vocabulary pack is used without `use` (pack.hpp, Officials).
+    bool implicit_vocabulary = false;
 };
 
 } // namespace cexchain::bo::ast

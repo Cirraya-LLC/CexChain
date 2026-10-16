@@ -1,67 +1,73 @@
-1:1 word kw.contract | 合约
-1:4 name 销售 | 销售
-1:6 newline
-2:1 word kw.parties | parties
-2:9 word role.we | 本公司
-2:12 symbol , | ,
-2:14 word role.customer | customer
-2:22 newline
-4:1 word kind.record | record
-4:8 name 销售单 | 销售单
-4:11 newline
-5:1 indent
-5:3 word doc.invoice | 發票
-5:6 word type.list | list
-5:11 word cur.CNY | 人民币
-5:15 word expr.at_most piece=head | 最多
-5:18 number 20 | 20
-5:20 newline
-7:1 dedent
-7:1 word charge.charge | 费用
-7:4 name 增值税 | 增值税
-7:7 newline
-8:1 indent
-8:3 word charge.rate | 稅率
-8:6 rate 6% | 6%
-8:8 newline
-9:3 word charge.applies_to piece=head | applies to
-9:14 word field.customer_location | 客户所在地
-9:20 symbol = | =
-9:22 name 中国内地 | 中国内地
-9:26 newline
-10:3 word charge.added | 另计
-10:5 newline
-11:3 word charge.by | 按
-11:5 word doc.invoice | invoice
-11:13 word round.half_up | 四捨五入
-11:17 newline
-12:3 word charge.from piece=open | 從
-12:5 date 2027-01-01 | 2027-01-01
-12:16 word charge.from piece=close | 起
-12:18 word charge.rate | rate
-12:23 rate 9% | 9%
-12:25 newline
-14:1 dedent
-14:1 word kw.can | 可
-14:3 name 结算 | 结算
-14:6 word kw.by | 由
-14:8 word role.customer | customer
-14:17 word kw.with | with
-14:22 name 付款 | 付款
-14:25 word cur.CNY | CNY
-14:28 newline
-15:1 indent
-15:3 word kw.requires | 須
-15:5 name 付款 | 付款
-15:8 symbol = | =
-15:10 word expr.sum_of piece=head | sum of
-15:17 word doc.invoice | 发票
-15:20 symbol + | +
-15:22 name 增值税 | 增值税
-15:25 newline
-16:3 word state.active | active
-16:10 symbol -> | ->
-16:13 word state.settled | 已結清
-16:16 newline
-17:1 dedent
-17:1 end
+1:1 word kw.use | 使用
+1:4 name commerce | commerce
+1:12 newline
+2:1 word kw.use | 使用
+2:4 name finance | finance
+2:11 newline
+3:1 word kw.contract | 合约
+3:4 name 销售 | 销售
+3:6 newline
+4:1 word kw.parties | parties
+4:9 word role.we | 本公司
+4:12 symbol , | ,
+4:14 word role.customer | customer
+4:22 newline
+6:1 word kind.thing | thing
+6:7 name 销售单 | 销售单
+6:10 newline
+7:1 indent
+7:3 word doc.invoice | 發票
+7:6 word type.list | list
+7:11 word cur.CNY | 人民币
+7:15 word expr.at_most piece=head | 最多
+7:18 number 20 | 20
+7:20 newline
+9:1 dedent
+9:1 word charge.charge | 费用
+9:4 name 增值税 | 增值税
+9:7 newline
+10:1 indent
+10:3 word charge.rate | 稅率
+10:6 rate 6% | 6%
+10:8 newline
+11:3 word charge.applies_to piece=head | applies to
+11:14 word field.customer_location | 客户所在地
+11:20 symbol = | =
+11:22 name 中国内地 | 中国内地
+11:26 newline
+12:3 word charge.added | 另计
+12:5 newline
+13:3 word charge.by | 按
+13:5 word doc.invoice | invoice
+13:13 word round.half_up | 四捨五入
+13:17 newline
+14:3 word charge.from piece=open | 從
+14:5 date 2027-01-01 | 2027-01-01
+14:16 word charge.from piece=close | 起
+14:18 word charge.rate | rate
+14:23 rate 9% | 9%
+14:25 newline
+16:1 dedent
+16:1 word kw.can | 可
+16:3 name 结算 | 结算
+16:6 word kw.by | 由
+16:8 word role.customer | customer
+16:17 word kw.with | with
+16:22 name 付款 | 付款
+16:25 word cur.CNY | CNY
+16:28 newline
+17:1 indent
+17:3 word kw.requires | 須
+17:5 name 付款 | 付款
+17:8 symbol = | =
+17:10 word expr.sum_of piece=head | sum of
+17:17 word doc.invoice | 发票
+17:20 symbol + | +
+17:22 name 增值税 | 增值税
+17:25 newline
+18:3 word state.active | active
+18:10 symbol -> | ->
+18:13 word state.settled | 已結清
+18:16 newline
+19:1 dedent
+19:1 end

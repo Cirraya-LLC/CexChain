@@ -1,30 +1,36 @@
-1:1 word kw.contract | 合约
-1:4 name IP地址池 | IP地址池
-1:9 newline
-2:1 word kw.parties | 参与方
-2:5 word role.we | 本公司
-2:8 symbol , | ,
-2:10 word role.customer | 客户
+1:1 word kw.use | 使用
+1:4 name commerce | commerce
+1:12 newline
+2:1 word kw.use | 使用
+2:4 word kind.service form=plural | services
 2:12 newline
-4:1 word kind.resource | 资源
-4:4 name IP地址 | IP地址
-4:8 newline
-5:1 indent
-5:3 name 地址 | 地址
-5:6 word type.text | 文本
-5:8 newline
-6:3 word field.cooling_period | 冷却期
-6:7 duration time.day 30 | 30天
-6:10 newline
-8:1 dedent
-8:1 word kw.can | 可
-8:2 word act.allocate | 分配
-8:5 word kw.to | 给
-8:7 word role.customer | 客户
-8:9 newline
-9:1 word kw.can | 可
-9:2 word act.reclaim | 收回
-9:5 word kw.by | 由
-9:7 word role.we | 本公司
-9:10 newline
-10:1 end
+3:1 word kw.contract | 合约
+3:4 name IP地址池 | IP地址池
+3:9 newline
+4:1 word kw.parties | 参与方
+4:5 word role.we | 本公司
+4:8 symbol , | ,
+4:10 word role.customer | 客户
+4:12 newline
+6:1 word kind.resource | 资源
+6:4 name IP地址 | IP地址
+6:8 newline
+7:1 indent
+7:3 name 地址 | 地址
+7:6 word type.text | 文本
+7:8 newline
+8:3 word field.cooling_period | 冷却期
+8:7 duration time.day 30 | 30天
+8:10 newline
+10:1 dedent
+10:1 word kw.can | 可
+10:2 word act.allocate | 分配
+10:5 word kw.to | 给
+10:7 word role.customer | 客户
+10:9 newline
+11:1 word kw.can | 可
+11:2 word act.reclaim | 收回
+11:5 word kw.by | 由
+11:7 word role.we | 本公司
+11:10 newline
+12:1 end

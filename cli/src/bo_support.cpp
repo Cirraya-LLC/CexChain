@@ -62,7 +62,8 @@ SourceCheck check_bo_source(const protocol::ContractDeployBody& deploy,
     check.bundle = std::move(*bundle);
     const bo::OpenedSource opened = bo::open_source_bundle(*check.bundle, provider, hash);
     if (opened.problem == bo::OpenProblem::embedded ||
-        opened.problem == bo::OpenProblem::conflict) {
+        opened.problem == bo::OpenProblem::conflict ||
+        opened.problem == bo::OpenProblem::uses_differ) {
         return malformed(opened.detail);
     }
     check.status = "not-rebuilt";
@@ -133,8 +134,13 @@ Json explained_json(const bo::Explained& e) {
     for (const auto& [id, text] : e.rules) {
         rules.push_back({{"id", id}, {"text", text}});
     }
-    return {{"language", e.language},          {"title", e.title},          {"intro", e.intro},
-            {"sections", std::move(sections)}, {"rules", std::move(rules)}, {"text", e.text}};
+    return {{"language", e.language},
+            {"title", e.title},
+            {"intro", e.intro},
+            {"packs", e.packs},
+            {"sections", std::move(sections)},
+            {"rules", std::move(rules)},
+            {"text", e.text}};
 }
 
 DeployText explain_deploy(const protocol::ContractDeployBody& deploy,
@@ -177,10 +183,15 @@ std::string bundle_text(const SourceCheck& check) {
     for (const bo::PackRef& ref : b.packs) {
         packs += std::format("{}{} {}", packs.empty() ? "" : ", ", ref.id, ref.version);
     }
+    std::string vocabulary;
+    for (const bo::PackRef& ref : b.vocabulary) {
+        vocabulary += std::format("{}{} {}", vocabulary.empty() ? "" : ", ", ref.id, ref.version);
+    }
     return std::format(
-        "Bo, edition {}: {} bytes of source; packs {}{}", b.edition, b.source.size(), packs,
+        "Bo, edition {}: {} bytes of source; packs {}{}{}", b.edition, b.source.size(), packs,
         b.embedded.empty() ? std::string()
-                           : std::format(" ({} embedded, not official)", b.embedded.size()));
+                           : std::format(" ({} embedded, not official)", b.embedded.size()),
+        vocabulary.empty() ? std::string() : "; vocabulary packs " + vocabulary);
 }
 
 std::string source_check_text(const SourceCheck& check) {

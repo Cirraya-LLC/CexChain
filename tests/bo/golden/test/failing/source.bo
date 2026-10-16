@@ -1,10 +1,11 @@
+use commerce
 # Tests that fail, and how bo test says so: a step that ends in another
 # state, a refusal that does not come, a consent nobody asks for, another
 # reason; a test stops at its first failing step.
 contract Deal
 parties we, customer
 
-record Terms
+thing Terms
   price HKD
 
 can accept by customer

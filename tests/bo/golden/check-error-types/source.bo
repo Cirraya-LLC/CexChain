@@ -1,7 +1,7 @@
 contract Types
 parties we
 
-record Bill
+thing Bill
   amount HKD
   fee USD
   size TB

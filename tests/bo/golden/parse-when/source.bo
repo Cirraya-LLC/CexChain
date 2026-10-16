@@ -1,3 +1,6 @@
+use commerce
+use finance
+use services
 contract Rules
 parties we, customer, 甲方
 

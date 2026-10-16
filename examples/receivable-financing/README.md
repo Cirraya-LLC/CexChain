@@ -9,9 +9,10 @@ What it shows:
 
 - **A thing with an owner, under rules.** The receivable is an instance of
   [`receivable-financing.bo`](receivable-financing.bo), kept on the core enterprise's ledger
-  (its home). Its actions (`pledge`, `release`, `transfer`, `pay`, `confirm payment`) take
-  the terms of Bo's standard library: the holder starts a pledge and the bank consents; only
-  an active receivable can be pledged, so never twice at once.
+  (its home). It uses Bo's `finance` vocabulary pack (`use finance`), whose actions
+  (`pledge`, `release`, `pay`, `confirm payment`) and the core's `transfer` take their
+  standard terms: the holder starts a pledge and the bank consents; only an active receivable
+  can be pledged, so never twice at once.
 - **Consents on each party's own ledger.** The supplier and the bank each consent on their
   own ledgers; the bank first verifies the receivable offline, from evidence the supplier
   fetched.

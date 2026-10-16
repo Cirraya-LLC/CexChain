@@ -1,7 +1,7 @@
 edition 1
 contract Types
 party role.we bound=creation{R3}
-kind kind.record Bill
+kind kind.thing Bill
 field field.amount instance money cur.HKD
 field fee instance money cur.USD
 field size instance quantity data

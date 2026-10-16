@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// Bo's standard library (milestone 11): bo/stdlib/edition1.bo, compiled in.
-// It reads, is laid out canonically, and reads the same in every language;
-// each clause is a built-in action's terms; a contract that declares them
-// all checks without a problem; their contract text has goldens in three
-// languages (tests/bo/golden/explain/stdlib/); and `bo stdlib` finds an
-// action by any of its words and writes its terms in any language.
+// Bo's standard library (milestone 11): bo/stdlib/{core,finance,services}.bo,
+// compiled in (D-054 split it by pack). Each file reads, is laid out
+// canonically, and reads the same in every language; each clause is a
+// built-in action's terms; a contract that declares them all checks without
+// a problem; their contract text has goldens in three languages
+// (tests/bo/golden/explain/stdlib/); and `bo stdlib` finds an action by any
+// of its words and writes its terms in any language.
 // Set CEXCHAIN_UPDATE_GOLDENS=1 to rewrite the goldens.
 
 #include <algorithm>
@@ -76,31 +77,47 @@ const std::vector<std::pair<std::string, std::string>> languages{
 
 TEST_CASE("the standard library reads, as compiled in, in every language", "[bo][stdlib]") {
     const StandardLibrary& library = standard_library();
-    // The file as compiled in, and laid out canonically.
-    CHECK(library.source == read_text(source_dir / "bo/stdlib/edition1.bo"));
-    const Formatted kept = format_source(library.source, official_set(), official(), nullptr);
-    REQUIRE(kept.source.has_value());
-    CHECK(*kept.source == library.source);
-    // The same tree in each language.
-    const std::string tree = dump(library.parsed.file);
-    for (const auto& [id, file] : languages) {
-        INFO(id);
-        const Formatted other =
-            format_source(library.source, official_set(), official(), official_pack(id));
-        REQUIRE(other.source.has_value());
-        CHECK(tree_of(*other.source) == tree);
+    // The files as compiled in (the core's, then the packs' with terms), and
+    // laid out canonically.
+    REQUIRE(library.files.size() == 3);
+    const std::pair<Vocab, std::string> files[] = {
+        {Vocab::core, "core"}, {Vocab::finance, "finance"}, {Vocab::services, "services"}};
+    for (std::size_t i = 0; i < library.files.size(); ++i) {
+        const StandardFile& f = library.files[i];
+        INFO(files[i].second);
+        CHECK(f.pack == files[i].first);
+        CHECK(f.source == read_text(source_dir / ("bo/stdlib/" + files[i].second + ".bo")));
+        CHECK(f.source == standard_source(f.pack));
+        const Formatted kept = format_source(f.source, official_set(), official(), nullptr);
+        REQUIRE(kept.source.has_value());
+        CHECK(*kept.source == f.source);
+        // The same tree in each language.
+        const std::string tree = dump(f.parsed.file);
+        for (const auto& [id, file] : languages) {
+            INFO(id);
+            const Formatted other =
+                format_source(f.source, official_set(), official(), official_pack(id));
+            REQUIRE(other.source.has_value());
+            CHECK(tree_of(*other.source) == tree);
+        }
     }
+    CHECK(standard_source(Vocab::commerce).empty());
     // Every clause is a built-in action's terms, each action once.
     std::vector<std::string> actions;
     for (const ast::Can* can : library.templates) {
         actions.emplace_back(can->action.concept_entry->id);
         CHECK(library.find(can->action.concept_entry->id) == can);
     }
+    // The core's five, then finance's ten, then services' two (D-054).
     CHECK(actions == std::vector<std::string>{
-                         "act.transfer", "act.pledge", "act.release", "act.enforce", "act.redeem",
-                         "act.pay", "act.confirm_payment", "act.dispute", "act.freeze",
-                         "act.unfreeze", "act.split", "act.cancel", "act.suspend", "act.resume",
-                         "act.terminate", "act.allocate", "act.reclaim"});
+                         "act.transfer", "act.cancel", "act.suspend", "act.resume", "act.terminate",
+                         "act.pledge", "act.release", "act.enforce", "act.redeem", "act.pay",
+                         "act.confirm_payment", "act.dispute", "act.freeze", "act.unfreeze",
+                         "act.split", "act.allocate", "act.reclaim"});
+    for (const ast::Can* can : library.templates) {
+        const Concept* action = can->action.concept_entry;
+        CHECK(library.source_of(action) == standard_source(action->pack));
+    }
     CHECK(library.find("act.refund") == nullptr);
     CHECK(library.find("act.issue") == nullptr);
 }
@@ -130,6 +147,10 @@ TEST_CASE("every built-in action's terms, in short", "[bo][stdlib]") {
     }
     CHECK(lines == std::vector<std::string>{
                        "transfer: field.holder to state.active -> state.active",
+                       "cancel: field.holder state.active -> state.cancelled",
+                       "suspend: home state.active -> state.suspended",
+                       "resume: home state.suspended -> state.active",
+                       "terminate: home state.active state.suspended -> state.terminated",
                        "pledge: field.holder to state.active -> state.pledged",
                        "release: field.pledgee state.pledged -> state.active",
                        "enforce: field.pledgee state.pledged -> state.active",
@@ -141,10 +162,6 @@ TEST_CASE("every built-in action's terms, in short", "[bo][stdlib]") {
                        "state.frozen",
                        "unfreeze: home state.frozen -> expr.previous_state",
                        "split: field.holder state.active -> state.divided",
-                       "cancel: field.holder state.active -> state.cancelled",
-                       "suspend: home state.active -> state.suspended",
-                       "resume: home state.suspended -> state.active",
-                       "terminate: home state.active state.suspended -> state.terminated",
                        "allocate: home to state.active state.cooling -> state.allocated",
                        "reclaim: home state.allocated -> state.cooling"});
 }

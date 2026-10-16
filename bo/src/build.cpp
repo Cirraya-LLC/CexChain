@@ -228,6 +228,7 @@ Rebuild rebuild(const protocol::ContractDeployBody& deploy, const crypto::Provid
         break;
     case OpenProblem::embedded:
     case OpenProblem::conflict:
+    case OpenProblem::uses_differ:
         return result(RebuildStatus::malformed, opened.detail);
     case OpenProblem::unknown_official:
     case OpenProblem::official_differs:

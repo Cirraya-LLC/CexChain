@@ -1,6 +1,7 @@
 Contract Split
 
 Bo wrote this text from the contract's source (Bo edition 1). A clause marked with a rule, such as [R3], states what Bo inferred by that rule instead of reading it in the source; the last section explains each rule.
+Besides Bo's core words, the contract uses the finance vocabulary pack (version 1).
 
 1. Parties
 1.1 issuer: bound to a ledger when an instance is created. [R3]
@@ -23,7 +24,7 @@ Bo wrote this text from the contract's source (Bo edition 1). A clause marked wi
 A call that does not meet one of an action's requirements is refused, and the instance does not change. A missing consent is not a refusal: the call waits for it.
 
 4.1 split
-  4.1.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show split): the clauses marked R19 state them, after the contract's own clauses.
+  4.1.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show split): the clauses marked R19 state them, after the contract's own clauses.
   4.1.2 Started by the holder, whose agreement it needs. [R19]
   4.1.3 The call gives parts (a list of at most 16 items, each money in HKD); recipients (a list of at most 16 items, each a party). [R1, R15]
   4.1.4 Requirement 1: the sum of the parts is the amount.

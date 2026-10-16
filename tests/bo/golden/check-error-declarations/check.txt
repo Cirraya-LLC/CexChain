@@ -1,4 +1,5 @@
 edition 1
+packs commerce finance
 contract Declarations
 party role.issuer bound=creation{R3}
 party role.supplier bound=creation{R3}
@@ -13,14 +14,14 @@ due field
 state state.active first{R4}
 can act.pledge standard to=role.bank agents=delegation{R14}
 can settle own agents=delegation{R14}
-2:27 error check.duplicate: issuer is declared twice; a name has one meaning in a contract
-6:3 error check.duplicate: amount is declared twice; a name has one meaning in a contract
-7:10 error check.field-type: holder holds a party, not money in HKD
-8:3 error check.field-needs-type: note needs its type or its value: amount HKD, due date, IP 1 item
-9:3 error check.field-head: pledge cannot name a field: use a name of your own, or a field or price word (amount, due, holder, price)
-10:16 error check.field-values: price takes one type or value; further parts after commas must be labelled prices (overage per GB HKD 0.10)
-11:13 error check.field-type: setup fee holds money, not a rate (%)
-14:7 error check.one-kind: a contract describes one kind of instance; Second would be a second: write another contract for it
-17:15 error check.unknown-party: bank is not one of the contract's parties: add it to the parties line
-18:5 error check.duplicate: pledge is declared twice; a name has one meaning in a contract
-19:5 error check.needs-by: who starts settle? An action of your own needs by PARTY
+4:27 error check.duplicate: issuer is declared twice; a name has one meaning in a contract
+8:3 error check.duplicate: amount is declared twice; a name has one meaning in a contract
+9:10 error check.field-type: holder holds a party, not money in HKD
+10:3 error check.field-needs-type: note needs its type or its value: amount HKD, due date, IP 1 item
+11:3 error check.field-head: pledge cannot name a field: use a name of your own, or a field or price word (amount, due, holder, price)
+12:16 error check.field-values: price takes one type or value; further parts after commas must be labelled prices (overage per GB HKD 0.10)
+13:13 error check.field-type: setup fee holds money, not a rate (%)
+16:7 error check.one-kind: a contract describes one kind of instance; Second would be a second: write another contract for it
+19:15 error check.unknown-party: bank is not one of the contract's parties: add it to the parties line
+20:5 error check.duplicate: pledge is declared twice; a name has one meaning in a contract
+21:5 error check.needs-by: who starts settle? An action of your own needs by PARTY

@@ -1,59 +1,59 @@
 Test "3 days overdue, the instance is suspended": passed
-  Step 1 (line 22) passed: we create with due = 2027-06-30 at 2027-06-01
+  Step 1 (line 24) passed: we create with due = 2027-06-30 at 2027-06-01
     Result: accepted, and the instance is active.
-  Step 2 (line 23) passed: keeper suspend at 2027-07-02 -> refused "bo:when when.suspend"
+  Step 2 (line 25) passed: keeper suspend at 2027-07-02 -> refused "bo:when when.suspend"
     Result: refused, since when.suspend does not apply yet: its time has not come, or its conditions do not hold (bo:when when.suspend).
     The contract text, 5.2: When the instance is 3 days overdue or more (counted from its due date):
-  Step 3 (line 24) passed: keeper suspend at 2027-07-03 -> suspended
+  Step 3 (line 26) passed: keeper suspend at 2027-07-03 -> suspended
     Result: accepted, and the instance is suspended.
-  Step 4 (line 25) passed: keeper suspend -> refused "bo:fired when.suspend"
+  Step 4 (line 27) passed: keeper suspend -> refused "bo:fired when.suspend"
     Result: refused, since when.suspend has already applied for this time (bo:fired when.suspend).
     The contract text, 5.2: When the instance is 3 days overdue or more (counted from its due date):
 
 Test "a keeper that comes late still suspends, and the event says how late": passed
-  Step 1 (line 28) passed: we create with due = 2027-06-30 at 2027-06-01
+  Step 1 (line 30) passed: we create with due = 2027-06-30 at 2027-06-01
     Result: accepted, and the instance is active.
-  Step 2 (line 29) passed: keeper suspend at 2027-07-10 -> suspended
+  Step 2 (line 31) passed: keeper suspend at 2027-07-10 -> suspended
     Result: accepted, and the instance is suspended.
 
 Test "once for each time: reopened, it stays open until the due date moves": passed
-  Step 1 (line 32) passed: we create with due = 2027-06-30 at 2027-06-01
+  Step 1 (line 34) passed: we create with due = 2027-06-30 at 2027-06-01
     Result: accepted, and the instance is active.
-  Step 2 (line 33) passed: keeper suspend at 2027-07-03 -> suspended
+  Step 2 (line 35) passed: keeper suspend at 2027-07-03 -> suspended
     Result: accepted, and the instance is suspended.
-  Step 3 (line 34) passed: we reopen -> active
+  Step 3 (line 36) passed: we reopen -> active
     Result: accepted, and the instance is active.
-  Step 4 (line 35) passed: keeper suspend at 2027-07-04 -> refused "bo:fired when.suspend"
+  Step 4 (line 37) passed: keeper suspend at 2027-07-04 -> refused "bo:fired when.suspend"
     Result: refused, since when.suspend has already applied for this time (bo:fired when.suspend).
     The contract text, 5.2: When the instance is 3 days overdue or more (counted from its due date):
-  Step 5 (line 36) passed: we extend with until = 2027-07-31 -> active
+  Step 5 (line 38) passed: we extend with until = 2027-07-31 -> active
     Result: accepted, and the instance is active.
-  Step 6 (line 37) passed: keeper suspend at 2027-08-02 -> refused "bo:when when.suspend"
+  Step 6 (line 39) passed: keeper suspend at 2027-08-02 -> refused "bo:when when.suspend"
     Result: refused, since when.suspend does not apply yet: its time has not come, or its conditions do not hold (bo:when when.suspend).
     The contract text, 5.2: When the instance is 3 days overdue or more (counted from its due date):
-  Step 7 (line 38) passed: keeper suspend at 2027-08-03 -> suspended
+  Step 7 (line 40) passed: keeper suspend at 2027-08-03 -> suspended
     Result: accepted, and the instance is suspended.
 
 Test "30 days suspended, it ends": passed
-  Step 1 (line 41) passed: we create with due = 2027-06-30 at 2027-06-01
+  Step 1 (line 43) passed: we create with due = 2027-06-30 at 2027-06-01
     Result: accepted, and the instance is active.
-  Step 2 (line 42) passed: keeper suspend at 2027-07-03 -> suspended
+  Step 2 (line 44) passed: keeper suspend at 2027-07-03 -> suspended
     Result: accepted, and the instance is suspended.
-  Step 3 (line 43) passed: keeper terminate at 2027-08-01 -> refused "bo:when when.terminate"
+  Step 3 (line 45) passed: keeper terminate at 2027-08-01 -> refused "bo:when when.terminate"
     Result: refused, since when.terminate does not apply yet: its time has not come, or its conditions do not hold (bo:when when.terminate).
     The contract text, 5.3: When the instance has been suspended for 30 days or more:
-  Step 4 (line 44) passed: keeper terminate at 2027-08-02 -> terminated
+  Step 4 (line 46) passed: keeper terminate at 2027-08-02 -> terminated
     Result: accepted, and the instance is terminated.
-  Step 5 (line 45) passed: customer settle -> refused "bo:state settle"
+  Step 5 (line 47) passed: customer settle -> refused "bo:state settle"
     Result: refused, since settle is not possible in the instance's current state (bo:state settle).
     The contract text, 4.1.2: If the instance is active or suspended, it becomes settled; otherwise the call is refused.
 
 Test "paid in time: nothing to suspend": passed
-  Step 1 (line 48) passed: we create with due = 2027-06-30 at 2027-06-01
+  Step 1 (line 50) passed: we create with due = 2027-06-30 at 2027-06-01
     Result: accepted, and the instance is active.
-  Step 2 (line 49) passed: customer settle at 2027-06-29 -> settled
+  Step 2 (line 51) passed: customer settle at 2027-06-29 -> settled
     Result: accepted with the consent of the customer, and the instance is settled.
-  Step 3 (line 50) passed: keeper suspend at 2027-07-03 -> refused "bo:state suspend"
+  Step 3 (line 52) passed: keeper suspend at 2027-07-03 -> refused "bo:state suspend"
     Result: refused, since suspend is not possible in the instance's current state (bo:state suspend).
     The contract text, 4.4.3: If the instance is active, it becomes suspended; otherwise the call is refused.
 

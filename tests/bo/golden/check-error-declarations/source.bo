@@ -1,3 +1,5 @@
+use commerce
+use finance
 contract Declarations
 parties issuer, supplier, issuer
 

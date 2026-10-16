@@ -1,7 +1,9 @@
+use commerce
+use finance
 contract Actions
 parties we, customer
 
-record Thing
+thing Thing
   holder customer
   note text
 

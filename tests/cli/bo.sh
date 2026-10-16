@@ -69,7 +69,7 @@ start_server() {
 }
 
 echo "== help and completion"
-for command in "bo check" "bo build" "bo explain" "bo fmt" "bo test" "bo packs list" "bo packs show" "bo packs check" "bo stdlib list" "bo stdlib show"; do
+for command in "bo check" "bo build" "bo explain" "bo fmt" "bo test" "bo packs list" "bo packs show" "bo packs check" "bo stdlib list" "bo stdlib show" "bo vocab list" "bo vocab show"; do
     # shellcheck disable=SC2086
     run $command --help > out.txt
     contains -F "cexchain $command" out.txt || fail "help for $command"
@@ -78,7 +78,8 @@ done
 run --help > out.txt
 contains -F "bo packs list" out.txt || fail "overview lists bo"
 run completion bash > out.txt
-contains -F '"bo") words="build check explain fmt packs stdlib test"' out.txt || fail "completion: bo"
+contains -F '"bo") words="build check explain fmt packs stdlib test vocab"' out.txt || fail "completion: bo"
+contains -F '"bo vocab") words="list show"' out.txt || fail "completion: bo vocab"
 contains -F '"bo stdlib") words="list show"' out.txt || fail "completion: bo stdlib"
 contains -F -- "--write" out.txt || fail "completion: bo fmt"
 contains -F 'deploy evidence explain fetch' out.txt || fail "completion: contract explain"
@@ -96,7 +97,7 @@ contains -x 1 out.txt || fail "version names the edition"
 
 echo "== the official packs, and their digests"
 run bo packs list > out.txt
-contains -F "zh-Hant-HK   version 1   official   繁體中文（香港）" out.txt || fail "list"
+contains -F "zh-Hant-HK   version 2   official   繁體中文（香港）" out.txt || fail "list"
 run bo packs list --json > list.json
 json 'len(d)' < list.json > out.txt
 contains -x 3 out.txt || fail "three official packs"
@@ -106,11 +107,16 @@ for hash in SHA-256 SM3; do
     [ "$hash" = SM3 ] && option=sm3
     run bo packs list --json --hash "$option" |
         json "'\\n'.join(p['id'] + ' ' + str(p['version']) + ' ' + p['hash'] + ' ' + p['digest'] for p in d)" > digests.txt
-    grep -F " $hash " "$GOLDEN" > expected.txt
+    grep -E "^(en|zh-Hant-HK|zh-Hans-CN) 2 $hash " "$GOLDEN" > expected.txt
     diff expected.txt digests.txt > /dev/null || fail "digests ($hash) differ from $GOLDEN"
+    # The vocabulary packs too.
+    run bo vocab list --json --hash "$option" |
+        json "'\\n'.join(p['id'] + ' ' + str(p['version']) + ' ' + p['hash'] + ' ' + p['digest'] for p in d if p['digest'])" > digests.txt
+    grep -E "^(commerce|finance|services) 1 $hash " "$GOLDEN" > expected.txt
+    diff expected.txt digests.txt > /dev/null || fail "vocabulary digests ($hash) differ from $GOLDEN"
 done
 json 'd[1]["keywords"], d[1]["words"], d[1]["official"], d[1]["separation"]' < list.json > out.txt
-contains -Fx "18 139 True none" out.txt || fail "facts"
+contains -Fx "18 138 True none" out.txt || fail "facts"
 
 run bo packs show zh-Hant-HK > out.txt
 contains -F "prefixes     可 (kw.can), 須 (kw.requires), 當 (kw.when), 如 (kw.if)" out.txt || fail "prefixes"
@@ -125,10 +131,51 @@ run bo packs show zh-Hans-CN --json > show.json
 json 'd["keywords"]["kw.each"], d["vocabulary"]["unit.item"]["category"], d["reading"]["multipliers"]["万"]' < show.json > out.txt
 contains -Fx "['逐个'] unit 10000" out.txt || fail "show --json"
 json 'len(d["messages"]), len(d["sentences"])' < show.json > out.txt
-contains -Fx "219 234" out.txt || fail "messages and sentences"
+contains -Fx "221 241" out.txt || fail "messages and sentences"
 expect_exit 1 bo packs show fr
 contains -F "no pack fr" out.txt || fail "unknown pack"
 expect_exit 1 bo packs show en --section nope
+
+echo "== Bo's core and its vocabulary packs"
+run bo vocab list > out.txt
+contains -E "^core +- +core +80 words, +5 built-in actions +\(every source\)$" out.txt || fail "vocab list: core"
+contains -E "^finance +version 1 +finance +24 words, 10 built-in actions  SHA-256 [0-9a-f]{64}$" out.txt || fail "vocab list: finance"
+contains -E "^commerce +version 1 +commerce +22 words, +0 built-in actions" out.txt || fail "vocab list: commerce"
+contains -E "^services +version 1 +services +12 words, +2 built-in actions" out.txt || fail "vocab list: services"
+run bo vocab list --language zh-Hant-HK > out.txt
+contains -F "金融" out.txt || fail "vocab list: names in the reader's language"
+run bo vocab list --json > vocab.json
+json 'sum(p["words"] for p in d), [p["id"] for p in d], d[2]["actions"]' < vocab.json > out.txt
+contains -Fx "138 ['core', 'commerce', 'finance', 'services'] ['pledge', 'release', 'enforce', 'redeem', 'pay', 'confirm_payment', 'dispute', 'freeze', 'unfreeze', 'split']" out.txt || fail "vocab list --json"
+run bo vocab show core > out.txt
+contains -E "^  kind +kind.thing +thing$" out.txt || fail "vocab show: the core's kind"
+contains -E "^  field +field.holder +holder  party; taking \(R31\)$" out.txt || fail "vocab show: a field's facts"
+contains -Fx "  transfer" out.txt || fail "vocab show: the core's actions"
+run bo vocab show finance --language zh-Hans-CN > out.txt
+contains -E "^  field +field.pledgee +质权人  party; added \(R20\); taking \(R31\)$" out.txt || fail "vocab show: a pack's field"
+run bo vocab show services --json > show.json
+json 'd["id"], d["version"], len(d["words"]), d["actions"], d["canonical"][:2]' < show.json > out.txt
+contains -Fx "services 1 12 ['allocate', 'reclaim'] a6" out.txt || fail "vocab show --json"
+expect_exit 1 bo vocab show acme
+contains -F "no vocabulary pack acme" out.txt || fail "vocab show: unknown pack"
+# A pack's word without its use line is refused, in the reader's language;
+# with it, the source checks.
+printf 'contract C\nparties we, bank\nthing T\n  holder we\ncan pledge to bank\n' > nouse.bo
+expect_exit 2 bo check nouse.bo --language zh-Hant-HK
+contains -F "nouse.bo:2:13: error: bank 屬於 finance 詞彙包，但原始碼沒有使用該詞彙包：請在開首寫 使用 finance (check.pack-not-used)" out.txt || fail "check: a pack not used"
+{ printf 'use finance\n'; cat nouse.bo; } > used.bo
+run bo check used.bo --stage model > out.txt
+contains -Fx "packs finance" out.txt || fail "check --stage model lists the packs"
+printf 'use acme\ncontract C\n' > acme.bo
+expect_exit 2 bo check acme.bo
+contains -F "(check.unknown-pack)" out.txt || fail "check: an unknown pack"
+# bo fmt writes use lines first, sorted, in the output language.
+printf 'contract C\nuse services\nuse finance\nparties we\n' > order.bo
+run bo fmt order.bo --language zh-Hans-CN > out.txt
+[ "$(cat out.txt)" = "$(printf '使用 finance\n使用 services\n\n合约 C\n参与方 我方')" ] || fail "fmt: use lines first"
+run bo stdlib list finance > out.txt
+[ "$(wc -l < out.txt)" -eq 10 ] || fail "stdlib list finance: ten actions"
+expect_exit 1 bo stdlib list acme
 
 echo "== a company's own pack"
 # Its own words for some concepts, the official ones for the rest. Keywords
@@ -155,7 +202,7 @@ cat > company.pack <<'EOF'
 }
 EOF
 run bo packs check company.pack > out.txt
-contains -F "warning: pack acme-terms does not spell 136 of the 139 words" out.txt || fail "partial"
+contains -F "warning: pack acme-terms does not spell 135 of the 138 words" out.txt || fail "partial"
 contains -F "company.pack: pack acme-terms version 3 (community): 18 keywords, 3 words" out.txt || fail "check ok"
 contains -F "ok: the packs read" out.txt || fail "ok"
 run bo packs list --pack company.pack > out.txt
@@ -232,7 +279,7 @@ echo "== bo check: the spec's VPS example, in each language"
 for language in zh-hant zh-hans en mixed; do
     cp "$GOLDENS/example-vps-$language/source.bo" "vps-$language.bo"
     run bo check "vps-$language.bo" > out.txt 2> warnings.txt
-    contains -Fx "vps-$language.bo: ok: 86 tokens, 2 comments, 10 clauses, edition 1" out.txt || fail "check $language"
+    contains -Fx "vps-$language.bo: ok: 92 tokens, 2 comments, 10 clauses, edition 1" out.txt || fail "check $language"
     contains -Fx "vps-$language.bo: checked: 2 parties, 5 fields, 0 charges, 1 state, 4 actions, 3 time rules; 6 warnings" out.txt || fail "checked $language"
     # The executor clauses are marked: they come in step 6b.
     [ "$(grep -c "(check.needs-executor)" warnings.txt)" = 6 ] || fail "executors marked ($language)"
@@ -247,13 +294,13 @@ for language in zh-hant zh-hans en mixed; do
     diff "$GOLDENS/example-vps-$language/ast.txt" printed.txt > /dev/null || fail "tree ($language)"
     diff "$GOLDENS/example-vps-zh-hant/ast.txt" printed.txt > /dev/null || fail "the same tree ($language)"
 done
-contains -F "2:4 name VPS服務 | VPS服務" "$GOLDENS/example-vps-zh-hant/tokens.txt" || fail "golden"
+contains -F "4:4 name VPS服務 | VPS服務" "$GOLDENS/example-vps-zh-hant/tokens.txt" || fail "golden"
 run bo check vps-zh-hant.bo --stage lex --json > lex.json
 json 'd["ok"], d["edition"], d["stage"], len(d["tokens"]), len(d["comments"])' < lex.json > out.txt
-contains -Fx "True 1 lex 86 2" out.txt || fail "check --json"
+contains -Fx "True 1 lex 92 2" out.txt || fail "check --json"
 # 可訂購: the prefix keyword and the action, each with its place.
 json '[(t["kind"], t["concept"], t["span"]["line"], t["span"]["column"], t["source"]) for t in d["tokens"] if t.get("concept") in ("kw.can", "act.subscribe")][:2]' < lex.json > out.txt
-contains -Fx "[('word', 'kw.can', 11, 1, '可'), ('word', 'act.subscribe', 11, 2, '訂購')]" out.txt || fail "prefix in json"
+contains -Fx "[('word', 'kw.can', 13, 1, '可'), ('word', 'act.subscribe', 13, 2, '訂購')]" out.txt || fail "prefix in json"
 json '[(t["value"], t["unit"]) for t in d["tokens"] if t["kind"] == "money"]' < lex.json > out.txt
 contains -Fx "[('120', 'cur.HKD'), ('0.10', 'cur.HKD'), ('100', 'cur.HKD')]" out.txt || fail "money in json"
 run bo check vps-en.bo --json > out.txt
@@ -306,25 +353,25 @@ contains -Fx "  requires cond.in_person guard=(cond.over 5000000)" receivable-en
 json 'd["ok"], d["stage"], d["clauses"], [c["node"] for c in d["ast"]["clauses"]]' < receivable-zh-hant.json > out.txt
 contains -Fx "True parse 6 ['contract', 'parties', 'block', 'can', 'can', 'when']" out.txt || fail "parse --json"
 json 'd["ast"]["clauses"][3]["action"]["concept"], d["ast"]["clauses"][3]["to"]["concept"], d["ast"]["clauses"][3]["body"][0]["guard"]["concept"], d["ast"]["clauses"][3]["span"]' < receivable-zh-hant.json > out.txt
-contains -Fx "act.pledge role.bank cond.over {'line': 9, 'column': 1, 'offset': 143, 'length': 20}" out.txt || fail "parse --json members"
+contains -Fx "act.pledge role.bank cond.over {'line': 10, 'column': 1, 'offset': 158, 'length': 20}" out.txt || fail "parse --json members"
 json 'd["ast"]["clauses"][5]["actions"][0]["subject"]["concept"], d["ast"]["clauses"][5]["actions"][0]["action"]["concept"]' < receivable-en.json > out.txt
 contains -Fx "role.issuer act.pay" out.txt || fail "when: the party before the action"
 
 echo "== bo check: the parser's errors, with places, in the reader's language"
-printf 'contract X\ncan pledge bank\n  requires a < b < c\nuse modules\n可提款 由 客戶\n' > parse.bo
+printf 'contract X\ncan pledge bank\n  requires a < b < c\nparties use\n可提款 由 客戶\n' > parse.bo
 expect_exit 2 bo check parse.bo
 contains -F "parse.bo:2:12: error: bank cannot follow the action here: write by PARTY, to PARTY, or with INPUTS, each at most once (parse.can)" out.txt || fail "can"
-contains -F "parse.bo:4:1: error: use is reserved for modules, in a later edition of Bo (parse.reserved)" out.txt || fail "use"
+contains -F "parse.bo:4:9: error: use declares a vocabulary pack on a line of its own, outside any block: use finance (parse.reserved)" out.txt || fail "use"
 contains -F "parse.bo:5:1: error: 可提款 is one name here, since nothing declares 提款; to begin the line with 可, write 可 提款 with a space (parse.undeclared-split)" out.txt || fail "split"
 contains -Fx "parse.bo: 3 errors" out.txt || fail "count (the block under a failed line is skipped)"
 expect_exit 2 bo check parse.bo --language zh-Hant-HK
 contains -F "parse.bo:2:12: error: bank 不可接在此動作之後：可寫 由 訂約方、予 訂約方 或 連同 輸入項，每項最多一次 (parse.can)" out.txt || fail "zh-Hant"
 CEXCHAIN_LANGUAGE=zh-Hans expect_exit 2 bo check parse.bo --stage parse
-contains -F "parse.bo:4:1: error: use 已保留给以后版本的模块使用 (parse.reserved)" out.txt || fail "zh-Hans"
+contains -F "parse.bo:4:9: error: use 用于声明词汇包，须在任何代码块之外单独成行：使用 finance (parse.reserved)" out.txt || fail "zh-Hans"
 contains -Fx "contract X" out.txt || fail "the tree of what parsed"
 expect_exit 2 bo check parse.bo --json
 json '[(x["code"], x["span"]["line"], x["span"]["column"]) for x in d["diagnostics"]]' < out.txt > codes.txt
-contains -Fx "[('parse.can', 2, 12), ('parse.reserved', 4, 1), ('parse.undeclared-split', 5, 1)]" codes.txt || fail "parse errors in json"
+contains -Fx "[('parse.can', 2, 12), ('parse.reserved', 4, 9), ('parse.undeclared-split', 5, 1)]" codes.txt || fail "parse errors in json"
 # The lexer's problems and the parser's together, in source order; a line
 # the lexer refused gets no second message from the parser.
 printf 'can pledge @@ bank\n  requires a < b < c\n' > both.bo
@@ -346,7 +393,7 @@ run bo check receivable-zh-hant.bo --stage model --json > model.json
 json 'd["ok"], d["stage"], d["checked"], d["model"]["name"], d["model"]["parties"][2]["bound_by"], d["model"]["fields"][0]["type"]' < model.json > out.txt
 contains -Fx "True model True ReceivableFinancing act.pledge money cur.HKD" out.txt || fail "model --json"
 json 'd["model"]["actions"][0]["body"][0]["guard"]["operands"][0]["rule"], d["model"]["actions"][0]["body"][0]["span"]["line"]' < model.json > out.txt
-contains -Fx "R6 10" out.txt || fail "model --json: the rule and the place"
+contains -Fx "R6 11" out.txt || fail "model --json: the rule and the place"
 json 'd["dump"].splitlines()[0]' < model.json > out.txt
 contains -Fx "edition 1" out.txt || fail "model --json: the text"
 
@@ -362,28 +409,28 @@ run bo explain role-taking.bo --json > out.json
 json "[c['function'] for s in d['sections'] for c in s['clauses'] if 'R31' in c['rules']], d['rules'][-1]['id']" < out.json > out.txt
 contains -Fx "['pledge', 'transfer', 'lodge'] R31" out.txt || fail "R31: the text, as JSON"
 # A fragment: the spec's VAT, with the field that holds its bill.
-printf 'record Sale\n  invoice list CNY\n\ncharge 增值税\n  rate 6%%\n  applies to customer location = 中国内地\n  added\n  according to invoice half up\n  from 2027-01-01 on rate 9%%\n' > fragment.bo
+printf 'use commerce\nthing Sale\n  invoice list CNY\n\ncharge 增值税\n  rate 6%%\n  applies to customer location = 中国内地\n  added\n  according to invoice half up\n  from 2027-01-01 on rate 9%%\n' > fragment.bo
 run bo check fragment.bo > out.txt 2> warnings.txt
 contains -Fx "fragment.bo: checked: 0 parties, 2 fields, 1 charge, 1 state, 0 actions, 0 time rules; 1 warning" out.txt || fail "fragment"
 contains -F "fragment.bo: warning: there is no contract line, so this file is checked as a fragment" warnings.txt || fail "fragment warning"
 
 echo "== bo check: the checker's errors, in the reader's language"
-printf 'contract C\nparties issuer, supplier\nasset A\n  amount HKD\n  holder HKD\ncan pledge to bank\n  over USD 5 requires in person\ncan go\n' > model.bo
+printf 'use finance\ncontract C\nparties issuer, supplier\nasset A\n  amount HKD\n  holder HKD\ncan pledge to bank\n  over USD 5 requires in person\ncan go\n' > model.bo
 expect_exit 2 bo check model.bo
-contains -F "model.bo:5:10: error: holder holds a party, not money in HKD (check.field-type)" out.txt || fail "field type"
-contains -F "model.bo:6:15: error: bank is not one of the contract's parties: add it to the parties line (check.unknown-party)" out.txt || fail "party"
-contains -F "model.bo:7:8: error: money in USD and money in HKD are in different currencies; Bo never converts one into the other (check.mixed-currencies)" out.txt || fail "currencies"
-contains -F "model.bo:8:5: error: who starts go? An action of your own needs by PARTY (check.needs-by)" out.txt || fail "by"
+contains -F "model.bo:6:10: error: holder holds a party, not money in HKD (check.field-type)" out.txt || fail "field type"
+contains -F "model.bo:7:15: error: bank is not one of the contract's parties: add it to the parties line (check.unknown-party)" out.txt || fail "party"
+contains -F "model.bo:8:8: error: money in USD and money in HKD are in different currencies; Bo never converts one into the other (check.mixed-currencies)" out.txt || fail "currencies"
+contains -F "model.bo:9:5: error: who starts go? An action of your own needs by PARTY (check.needs-by)" out.txt || fail "by"
 contains -Fx "model.bo: 4 errors" out.txt || fail "count"
 expect_exit 2 bo check model.bo --language zh-Hant-HK
-contains -F "model.bo:5:10: error: 持有人 存放的是訂約方，而非港元金額 (check.field-type)" out.txt || fail "zh-Hant"
-contains -F "model.bo:7:8: error: 美元金額與港元金額是不同貨幣；Bo 從不換算貨幣 (check.mixed-currencies)" out.txt || fail "zh-Hant currencies"
+contains -F "model.bo:6:10: error: 持有人 存放的是訂約方，而非港元金額 (check.field-type)" out.txt || fail "zh-Hant"
+contains -F "model.bo:8:8: error: 美元金額與港元金額是不同貨幣；Bo 從不換算貨幣 (check.mixed-currencies)" out.txt || fail "zh-Hant currencies"
 CEXCHAIN_LANGUAGE=zh-Hans expect_exit 2 bo check model.bo --stage model
-contains -F "model.bo:6:15: error: 银行 不是此合约的参与方：请把它加入 参与方 一行 (check.unknown-party)" out.txt || fail "zh-Hans"
+contains -F "model.bo:7:15: error: 银行 不是此合约的参与方：请把它加入 参与方 一行 (check.unknown-party)" out.txt || fail "zh-Hans"
 contains -Fx "contract C" out.txt || fail "the model of what checked"
 expect_exit 2 bo check model.bo --json
 json '[(x["code"], x["span"]["line"], x["args"].get("type", "")) for x in d["diagnostics"]]' < out.txt > codes.txt
-contains -Fx "[('check.field-type', 5, 'money cur.HKD'), ('check.unknown-party', 6, ''), ('check.mixed-currencies', 7, ''), ('check.needs-by', 8, '')]" codes.txt || fail "checker errors in json"
+contains -Fx "[('check.field-type', 6, 'money cur.HKD'), ('check.unknown-party', 7, ''), ('check.mixed-currencies', 8, ''), ('check.needs-by', 9, '')]" codes.txt || fail "checker errors in json"
 # A source the lexer or the parser refuses is not checked.
 printf 'contract C\ncan pledge to bank bank\n' > unparsed.bo
 expect_exit 2 bo check unparsed.bo --json
@@ -413,7 +460,7 @@ contains -Fx "agreement.bo: built contract Agreement (Bo edition 1)" out.txt || 
 contains -F "functions  amend, close, countersign, create (creates), sign" out.txt || fail "functions"
 contains -F "code       $GOLDEN_SIZE bytes, SHA-256 $GOLDEN_HASH" out.txt || fail "code"
 contains -F "compiler   $COMPILER" out.txt || fail "compiler"
-contains -F "the packs en 1, zh-Hans-CN 1, zh-Hant-HK 1 (SHA-256 digests)" out.txt || fail "packs"
+contains -F "the packs en 2, zh-Hans-CN 2, zh-Hant-HK 2, and the vocabulary packs commerce 1 (SHA-256 digests)" out.txt || fail "packs"
 contains -F "wrote" out.txt && fail "nothing written without --out"
 # The highest fuel and output bounds (milestone 18), as the golden keeps them.
 AMEND_FUEL="$(sed -n 's/^bound amend: fuel \([0-9]*\),.*/\1/p' "$BUILDS/agreement-en/build.txt")"
@@ -474,7 +521,7 @@ cat > grid.bo <<'EOF'
 contract Grid
 parties we
 
-record Grid
+thing Grid
   rows list number at most 1000
   columns list number at most 1000
 
@@ -496,6 +543,7 @@ run bo build grid100.bo > out.txt 2> /dev/null || fail "lists of 100 build"
 # An output that could exceed the code's region builds, with a warning: a
 # part repeats its parent's fields, a text of up to 64 KiB among them.
 cat > notes.bo <<'EOF'
+use finance
 contract Notes
 parties issuer, supplier
 
@@ -590,8 +638,8 @@ for language in zh-Hant-HK zh-Hans-CN en; do
     run bo fmt "supply-$language.bo" --language "$language" --check > out.txt
     contains -Fx "supply-$language.bo: formatted in $language" out.txt || fail "fmt --language $language again"
 done
-contains -Fx "訂約方 本公司, 供應商, 銀行" supply-zh-Hant-HK.bo || fail "zh-Hant: parties"
-contains -Fx "可 sign 由 本公司" supply-zh-Hant-HK.bo || fail "zh-Hant: names stay"
+contains -Fx "訂約方 我方, 供應商, 銀行" supply-zh-Hant-HK.bo || fail "zh-Hant: parties"
+contains -Fx "可 sign 由 我方" supply-zh-Hant-HK.bo || fail "zh-Hant: names stay"
 contains -Fx "  須經 供應商 同意" supply-zh-Hant-HK.bo || fail "zh-Hant: words joined as Chinese writes them"
 contains -Fx "  须经 银行 同意" supply-zh-Hans-CN.bo || fail "zh-Hans"
 contains -Fx "# A supply agreement between a core enterprise (we), its supplier, and its" supply-zh-Hans-CN.bo || fail "comments stay"
@@ -618,22 +666,22 @@ for case in layout pieces dates-numbers; do
     done
 done
 # --check, --json, --write.
-printf 'contract  A\nparties   we ,customer\n' > loose.bo
+printf 'use commerce\ncontract  A\nparties   we ,customer\n' > loose.bo
 expect_exit 3 bo fmt loose.bo --check
 contains -Fx "loose.bo: would change when formatted" out.txt || fail "--check: not formatted"
 expect_exit 3 bo fmt supply.bo --check --language zh-Hans
 contains -Fx "supply.bo: would change when formatted in zh-Hans-CN" out.txt || fail "--check --language"
 run bo fmt loose.bo --json > fmt.json
 json 'd["ok"], d["changed"], d["written"], d["language"], repr(d["source"]), d["diagnostics"]' < fmt.json > out.txt
-contains -Fx "True True False None 'contract A\nparties we, customer\n' []" out.txt || fail "fmt --json"
+contains -Fx "True True False None 'use commerce\ncontract A\nparties we, customer\n' []" out.txt || fail "fmt --json"
 run bo fmt loose.bo --write > out.txt
 contains -Fx "loose.bo: formatted" out.txt || fail "--write"
-[ "$(cat loose.bo)" = "$(printf 'contract A\nparties we, customer')" ] || fail "--write wrote the file"
+[ "$(cat loose.bo)" = "$(printf 'use commerce\ncontract A\nparties we, customer')" ] || fail "--write wrote the file"
 run bo fmt loose.bo --write > out.txt
 contains -Fx "loose.bo: already formatted" out.txt || fail "--write again"
 run bo fmt loose.bo --write --language zh-Hant-HK --json | json 'd["written"], d["language"]' > out.txt
 contains -Fx "True zh-Hant-HK" out.txt || fail "--write --language --json"
-contains -Fx "訂約方 本公司, 客戶" loose.bo || fail "written in Traditional Chinese"
+contains -Fx "訂約方 我方, 客戶" loose.bo || fail "written in Traditional Chinese"
 # Source with errors is not formatted, nor written; problems in the reader's
 # language.
 printf 'contract A\n\tparties we\n' > tab.bo
@@ -652,9 +700,9 @@ contains -Fx "False False False lex.tab" codes.txt || fail "fmt --json with erro
 # formatter refuses rather than change what the line says.
 sed -e 's/"acme-terms"/"collide"/' -e 's/"en-x-acme"/"en-x-collide"/' \
     -e 's|"role.supplier": "vendor",|"role.supplier": "vendor", "act.release": "lodge to",|' company.pack > collide.pack
-printf '合約 C\n訂約方 本公司, 銀行\n\n可質押 予 銀行\n' > pledge.bo
+printf '使用 finance\n合約 C\n訂約方 本公司, 銀行\n\n可質押 予 銀行\n' > pledge.bo
 expect_exit 2 bo fmt pledge.bo --pack collide.pack --language collide
-contains -F "pledge.bo:4:1: error: written in collide, the source would read differently here" out.txt || fail "fmt.unstable"
+contains -F "pledge.bo:5:1: error: written in collide, the source would read differently here" out.txt || fail "fmt.unstable"
 contains -F "(fmt.unstable)" out.txt || fail "fmt.unstable: the code"
 run bo fmt pledge.bo --pack company.pack --language en-x-acme > out.txt
 contains -Fx "can lodge to bank" out.txt || fail "a company's pack: its words"
@@ -669,7 +717,7 @@ echo "== bo test: the test blocks, run as a ledger runs calls"
 cp "$SOURCE/examples/supply-agreement/supply-agreement.bo" supply.bo
 run bo test supply.bo > report.txt
 contains -Fx 'Test "signed by all three, then closed": passed' report.txt || fail "test: passed"
-contains -Fx '  Step 2 (line 25) passed: we sign -> signed' report.txt || fail "test: a step as written"
+contains -Fx '  Step 2 (line 27) passed: we sign -> signed' report.txt || fail "test: a step as written"
 contains -Fx '    Result: accepted with the consent of the supplier and the bank, and the instance is signed.' report.txt || fail "test: implicit consents"
 contains -Fx '    Result: the call waits for the consent of the bank.' report.txt || fail "test: a consent withheld"
 contains -Fx '    Result: the call waits for us to make it.' report.txt || fail "test: the home starts sign"
@@ -705,9 +753,9 @@ for spelling in en zh-hant zh-hans mixed; do
 done
 # A failing test: exit status 3, what was expected and what happened.
 expect_exit 3 bo test "$GOLDENS/test/failing/source.bo"
-contains -Fx '  Step 2 (line 20) FAILED: customer accept -> withdrawn' out.txt || fail "test: a failing step"
+contains -Fx '  Step 2 (line 21) FAILED: customer accept -> withdrawn' out.txt || fail "test: a failing step"
 contains -Fx '    Expected: the call is accepted, and the instance is withdrawn.' out.txt || fail "test: expected"
-contains -Fx '  Step 3 (line 21) not run: we withdraw' out.txt || fail "test: stops at the first failure"
+contains -Fx '  Step 3 (line 22) not run: we withdraw' out.txt || fail "test: stops at the first failure"
 contains -Fx "5 tests: 1 passed, 4 failed." out.txt || fail "test: failures counted"
 diff "$GOLDENS/test/failing/en.txt" out.txt > /dev/null || fail "test: the golden report"
 expect_exit 3 bo test "$GOLDENS/test/failing/source.bo" --json
@@ -715,7 +763,7 @@ json 'd["ok"], d["failed"], [t["passed"] for t in d["tests"]]' < out.txt > resul
 contains -Fx "False 4 [False, False, False, False, True]" result.txt || fail "test --json: failing"
 # A source that does not build runs no tests: exit status 2, the problems
 # in the reader's language; a test block's own problems come from the checker.
-printf 'contract A\nparties we\n\nrecord R\n  amount HKD\n\ncan go by we\n  -> active\n\ntest\n  we go\n' > nostart.bo
+printf 'contract A\nparties we\n\nthing R\n  amount HKD\n\ncan go by we\n  -> active\n\ntest\n  we go\n' > nostart.bo
 expect_exit 2 bo test nostart.bo
 contains -F "nostart.bo:11:3: error: a test begins by creating its instance" out.txt || fail "test: check.test-start"
 contains -Fx "nostart.bo: 1 error: the tests run once the contract builds" out.txt || fail "test: not run"
@@ -724,7 +772,7 @@ contains -F "測試須以建立實例開始" out.txt || fail "test: the problem 
 expect_exit 2 bo test nostart.bo --json
 json 'd["ok"], d["built"], "tests" in d, d["diagnostics"][0]["code"]' < out.txt > codes.txt
 contains -Fx "False False False check.test-start" codes.txt || fail "test --json: not built"
-printf 'contract A\nparties we\n\nasset R\n  amount HKD\n  holder we\n\ncan refund by we\n' > refund.bo
+printf 'use commerce\nuse finance\ncontract A\nparties we\n\nasset R\n  amount HKD\n  holder we\n\ncan refund by we\n' > refund.bo
 expect_exit 2 bo test refund.bo
 contains -F "(build.standard-action)" out.txt || fail "test: a contract that does not build"
 # A file without tests: nothing to run.
@@ -755,7 +803,7 @@ json 'd["contract"]["language"], d["contract"]["compiler"], d["contract"]["name"
 contains -Fx "bo $COMPILER Agreement $GOLDEN_HASH 1" out.txt || fail "deploy records the build"
 d contract show "$C" > show.txt
 contains -Fx "language:   bo (compiler: $COMPILER)" show.txt || fail "show: compiler"
-contains -F "            Bo, edition 1: $SOURCE_SIZE bytes of source; packs en 1, zh-Hans-CN 1, zh-Hant-HK 1" show.txt || fail "show: bundle"
+contains -F "            Bo, edition 1: $SOURCE_SIZE bytes of source; packs en 2, zh-Hans-CN 2, zh-Hant-HK 2; vocabulary packs commerce 1" show.txt || fail "show: bundle"
 contains -F "rebuild:    rebuilds: the source rebuilds to the deployed code ($GOLDEN_SIZE bytes, SHA-256 ${GOLDEN_HASH:0:16}) with $COMPILER" show.txt || fail "show: rebuild"
 d contract show "$C" --json | json 'd["bo"]["status"], d["bo"]["failed"], d["bo"]["edition"], len(d["bo"]["packs"])' > out.txt
 contains -Fx "rebuilds False 1 3" out.txt || fail "show --json"
@@ -828,7 +876,7 @@ run contract verify e1.cbor --ledger-id "$D_ID" > verify.txt
 contains -F "  Contract     bo, compiled with $COMPILER" verify.txt || fail "verify: the contract"
 contains -F "  Status       effective" verify.txt || fail "verify: status"
 contains -F "consent of Customer (SM3)" verify.txt || fail "verify: the consent on SM3"
-contains -F "  Source       Bo, edition 1: $SOURCE_SIZE bytes of source; packs en 1, zh-Hans-CN 1, zh-Hant-HK 1" verify.txt || fail "verify: the source"
+contains -F "  Source       Bo, edition 1: $SOURCE_SIZE bytes of source; packs en 2, zh-Hans-CN 2, zh-Hant-HK 2; vocabulary packs commerce 1" verify.txt || fail "verify: the source"
 contains -F "               rebuilds: the source rebuilds to the deployed code ($GOLDEN_SIZE bytes, SHA-256 ${GOLDEN_HASH:0:16})" verify.txt || fail "verify: rebuilds"
 contains -F "VERIFICATION FAILED" verify.txt && fail "verify: verified"
 run contract verify e1.cbor --ledger-id "$D_ID" --json > verify.json
@@ -963,13 +1011,14 @@ for fn in d s; do "$fn" audit | contains 'audit passed' || fail "audit"; done
 echo "== bo stdlib: the built-in actions, written in Bo"
 run bo stdlib list > out.txt
 [ "$(wc -l < out.txt)" -eq 17 ] || fail "stdlib list: seventeen actions"
-contains -Fx "pledge           pledge: started by the holder; to a counterparty, who consents; active → pledged" out.txt || fail "stdlib list: pledge"
-contains -Fx "pay              pay: started by the home ledger, on its own word; active, pledged, disputed → paid" out.txt || fail "stdlib list: pay"
-contains -Fx "unfreeze         unfreeze: started by the home ledger, on its own word; frozen → previous state" out.txt || fail "stdlib list: unfreeze"
+contains -Fx "pledge           finance   pledge: started by the holder; to a counterparty, who consents; active → pledged" out.txt || fail "stdlib list: pledge"
+contains -Fx "pay              finance   pay: started by the home ledger, on its own word; active, pledged, disputed → paid" out.txt || fail "stdlib list: pay"
+contains -Fx "unfreeze         finance   unfreeze: started by the home ledger, on its own word; frozen → previous state" out.txt || fail "stdlib list: unfreeze"
+contains -Fx "transfer         core      transfer: started by the holder; to a counterparty, who consents; active → active" out.txt || fail "stdlib list: a core action"
 run bo stdlib list --language zh-Hant-HK > out.txt
-contains -Fx "pledge           質押: 由持有人發起；予相對方，須經其同意；正常 → 已質押" out.txt || fail "stdlib list: zh-Hant"
+contains -Fx "pledge           finance   質押: 由持有人發起；予相對方，須經其同意；正常 → 已質押" out.txt || fail "stdlib list: zh-Hant"
 CEXCHAIN_LANGUAGE=zh-Hans run bo stdlib list --json > list.json
-json '[(a["function"], a["word"], a["starter"], a["counterparty"], a["from"], a["to"]) for a in d][4]' < list.json > out.txt
+json '[(a["function"], a["word"], a["starter"], a["counterparty"], a["from"], a["to"]) for a in d][8]' < list.json > out.txt
 contains -Fx "('redeem', '赎回', 'field.holder', False, ['state.active', 'state.pledged'], ['state.redeemed'])" out.txt || fail "stdlib list --json"
 run bo stdlib show pledge > out.txt
 contains -Fx "can pledge to counterparty by holder" out.txt || fail "stdlib show: the source"
@@ -989,7 +1038,7 @@ expect_exit 1 bo stdlib show
 expect_exit 1 bo stdlib list --language fr
 # A built-in action copied under a name of the contract's own, and changed:
 # the contract's own action, built like any other.
-{ printf 'contract Lodging\nparties issuer, supplier\n\nasset Receivable\n  amount HKD\n  holder supplier\n\n'
+{ printf 'use finance\ncontract Lodging\nparties issuer, supplier\n\nasset Receivable\n  amount HKD\n  holder supplier\n\n'
   run bo stdlib show pledge --json | json 'd["source"].replace("can pledge", "can lodge", 1)'
   printf '  requires in person\n\ntest\n  issuer issue with amount = HKD 10\n'
   printf '  supplier lodge to bank1 -> refused "bo:in-person lodge"\n'
@@ -1002,6 +1051,7 @@ echo "== the standard library: a receivable through four ledgers"
 # The issuer's ledger is the receivable's home; the supplier holds it; the
 # bank lends against it; a factor buys it. The bank's ledger is on SM3.
 cat > receivable.bo <<'EOF'
+use finance
 contract ReceivableFinancing
 parties issuer, supplier, bank
 
@@ -1110,6 +1160,7 @@ echo "== splitting: parts through the registrar, a recipient that is no party ye
 # own, one tier down; the factor verifies its part offline, ancestors
 # included, and the contract's code rebuilds from its source.
 cat > split.bo <<'EOF'
+use finance
 contract Split
 parties issuer, supplier
 
@@ -1198,7 +1249,7 @@ run bo explain pool.bo --language zh-Hans-CN > out.txt
 contains -Fx "1.2 客户：由每次分配确定账本，并须经客户同意。〔R3、R23〕" out.txt || fail "pool: R23"
 contains -Fx "    4.1.4.1 要求 1：实例上次转换状态至今已满冷却期。〔R19〕" out.txt || fail "pool: the cooling period"
 # Errors in the reader's language.
-printf 'contract T\nparties we\nrecord R\n  due date\n  UTC offset "8"\nwhen due\n  -> closed\n\ntest\n  we create with due = 2027-01-01\n  keeper fly\n' > time-errors.bo
+printf 'contract T\nparties we\nthing R\n  due date\n  UTC offset "8"\nwhen due\n  -> closed\n\ntest\n  we create with due = 2027-01-01\n  keeper fly\n' > time-errors.bo
 expect_exit 2 bo check time-errors.bo
 contains -F "(check.utc-offset)" out.txt || fail "errors: the offset"
 contains -F "no when rule does fly" out.txt || fail "errors: the keeper's step"
@@ -1295,7 +1346,7 @@ contains -F "Fee is a fixed amount, which is never rounded: give it no rounding 
 contains -F "(check.charge-on)" out.txt || fail "errors: on a charge"
 CEXCHAIN_LANGUAGE=zh-Hant-HK "$CEXCHAIN" bo check bills-errors.bo > out.txt 2>&1 || true
 contains -F "Fee 是定額，不會捨入：請勿為其寫捨入方式" out.txt || fail "errors: zh-Hant"
-printf 'contract L\nparties we\nrecord R\n  names list text\ncan go by we\n  each n in names\n    active -> gone\n' > each-errors.bo
+printf 'contract L\nparties we\nthing R\n  names list text\ncan go by we\n  each n in names\n    active -> gone\n' > each-errors.bo
 expect_exit 2 bo check each-errors.bo
 contains -F "(check.each-body)" out.txt || fail "errors: a state change in each"
 

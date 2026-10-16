@@ -1,3 +1,5 @@
+use commerce
+use finance
 # Time rules (bo-1.0, section 6; milestone 12): 3 days overdue, the instance
 # is suspended; 30 days suspended, it ends. A keeper calls each rule's
 # function, and the ledger's registration time decides: before its time the
@@ -5,7 +7,7 @@
 contract Hosting
 parties we, customer
 
-record Plan
+thing Plan
   due date
 
 can settle by customer

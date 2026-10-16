@@ -10,7 +10,7 @@ parties shipper, carrier, warehouse, consignee, insurer
 # The holder has the goods. They are due by the due date, insured up to the
 # amount, and kept between lowest and highest degrees Celsius. late_charge
 # and excursions start at 0, given at creation.
-record Goods
+thing Goods
   holder shipper
   due date
   amount HKD

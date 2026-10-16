@@ -1,23 +1,23 @@
 Test "lent and repaid": passed
-  Step 1 (line 18) passed: we create with amount = HKD 1_000
+  Step 1 (line 20) passed: we create with amount = HKD 1_000
     Result: accepted, and the instance is proposed.
-  Step 2 (line 19) passed: we lend to bank1 at 2027-01-06 in person -> lent
+  Step 2 (line 21) passed: we lend to bank1 at 2027-01-06 in person -> lent
     Result: accepted with the consent of the customer and bank1, and the instance is lent.
-  Step 3 (line 20) passed: bank1 repay by AI agent -> repaid
+  Step 3 (line 22) passed: bank1 repay by AI agent -> repaid
     Result: accepted with the consent of bank1, and the instance is repaid; it is final and takes no more calls.
 
 Test "unhappy": passed
-  Step 1 (line 24) passed: we create at 2027-01-06 with amount = HKD 1_000
+  Step 1 (line 26) passed: we create at 2027-01-06 with amount = HKD 1_000
     Result: accepted, and the instance is proposed.
-  Step 2 (line 25) passed: we lend to bank1 -> consent of (customer, bank1)
+  Step 2 (line 27) passed: we lend to bank1 -> consent of (customer, bank1)
     Result: the call waits for the consent of the customer and bank1.
-  Step 3 (line 26) passed: bank1 repay -> refused "bo:party bank"
+  Step 3 (line 28) passed: bank1 repay -> refused "bo:party bank"
     Result: refused, since bank is not bound to a ledger yet (bo:party bank).
-  Step 4 (line 27) passed: customer lend to bank1 -> consent of we
+  Step 4 (line 29) passed: customer lend to bank1 -> consent of we
     Result: the call waits for us to make it.
-  Step 5 (line 28) passed: we lend to bank1 -> lent
+  Step 5 (line 30) passed: we lend to bank1 -> lent
     Result: accepted with the consent of the customer and bank1, and the instance is lent.
-  Step 6 (line 29) passed: we lend to bank1 -> refused
+  Step 6 (line 31) passed: we lend to bank1 -> refused
     Result: refused, since lend is not possible in the instance's current state (bo:state lend).
     The contract text, 4.1.4: If the instance is proposed, it becomes lent; otherwise the call is refused.
 

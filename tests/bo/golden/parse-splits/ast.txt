@@ -1,4 +1,6 @@
 edition 1
+use commerce
+use finance
 contract Splits
 parties role.we role.customer
 block kind.asset 賬戶

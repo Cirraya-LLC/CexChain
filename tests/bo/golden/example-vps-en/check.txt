@@ -1,4 +1,5 @@
 edition 1
+packs commerce services
 contract VPS服務
 party role.we bound=creation{R3}
 party role.customer bound=creation{R3}
@@ -24,9 +25,9 @@ when (phrase cond.overdue (duration time.day 3)) trigger=overdue function=when.s
 when (phrase cond.overdue (duration time.day 30)) trigger=overdue function=when.terminate{R24}
   do act.terminate executor{R10}
   do act.reclaim IP executor{R10}
-11:5 warning check.needs-executor: subscribe asks an executor to act outside the ledger, which comes in step 6b: bo check accepts it, and bo build will refuse it until then
-13:5 warning check.needs-executor: upgrade asks an executor to act outside the ledger, which comes in step 6b: bo check accepts it, and bo build will refuse it until then
-14:24 warning check.needs-executor: notify asks an executor to act outside the ledger, which comes in step 6b: bo check accepts it, and bo build will refuse it until then
-15:21 warning check.needs-executor: suspend asks an executor to act outside the ledger, which comes in step 6b: bo check accepts it, and bo build will refuse it until then
-16:22 warning check.needs-executor: terminate asks an executor to act outside the ledger, which comes in step 6b: bo check accepts it, and bo build will refuse it until then
-16:36 warning check.needs-executor: reclaim asks an executor to act outside the ledger, which comes in step 6b: bo check accepts it, and bo build will refuse it until then
+13:5 warning check.needs-executor: subscribe asks an executor to act outside the ledger, which comes in step 6b: bo check accepts it, and bo build will refuse it until then
+15:5 warning check.needs-executor: upgrade asks an executor to act outside the ledger, which comes in step 6b: bo check accepts it, and bo build will refuse it until then
+16:24 warning check.needs-executor: notify asks an executor to act outside the ledger, which comes in step 6b: bo check accepts it, and bo build will refuse it until then
+17:21 warning check.needs-executor: suspend asks an executor to act outside the ledger, which comes in step 6b: bo check accepts it, and bo build will refuse it until then
+18:22 warning check.needs-executor: terminate asks an executor to act outside the ledger, which comes in step 6b: bo check accepts it, and bo build will refuse it until then
+18:36 warning check.needs-executor: reclaim asks an executor to act outside the ledger, which comes in step 6b: bo check accepts it, and bo build will refuse it until then

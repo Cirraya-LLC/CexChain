@@ -1,7 +1,7 @@
 contract X Y
 contract Z
 holder supplier
-use modules
+parties use finance
 parties issuer
   indented
 test

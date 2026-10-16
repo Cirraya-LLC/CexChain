@@ -115,8 +115,9 @@ const OptionSpec language_option{
     "spellings and gives its reading rules, messages, and sentences; it never changes what\n"      \
     "runs. The official packs (English, Traditional Chinese in Hong Kong usage, Simplified\n"      \
     "Chinese) are always read; a Bo deploy records each pack's digest (the hash of its\n"          \
-    "canonical CBOR). The bo commands exist only in builds with the Bo compiler, which\n"          \
-    "needs GCC 16 (C++26 reflection and contracts)."
+    "canonical CBOR), and that of each vocabulary pack its use lines name (bo vocab list).\n"      \
+    "The bo commands exist only in builds with the Bo compiler, which needs GCC 16 (C++26\n"       \
+    "reflection and contracts)."
 
 std::vector<OptionSpec> with(std::vector<OptionSpec> options) {
     return options;
@@ -2054,12 +2055,13 @@ std::vector<CommandSpec> build() {
          "double quotes, and the edition line (bo 1). Invisible characters, and in names\n"
          "anything Unicode normalization would change, are refused, so that two names that\n"
          "look alike are never different.\n\n"
-         "The parser reads the clauses: contract NAME; parties; a kind and its fields (asset\n"
-         "Receivable, then amount HKD); can ACTION with by, to, with, and a block of requires,\n"
+         "The parser reads the clauses: use PACK (the vocabulary packs the source uses);\n"
+         "contract NAME; parties; a kind and its fields (thing Camera, then holder owner); can\n"
+         "ACTION with by, to, with, and a block of requires,\n"
          "if/otherwise, each, reject, FIELD = VALUE, state changes (active -> suspended), and\n"
          "actions; when EVENT ACTION; test blocks of steps (owner lend to friend1 at\n"
          "2027-01-06) and expectations (-> lent, -> refused). Conditions use not, and, or,\n"
-         "the comparisons = < <= > >= and in, then + -, then * /. `use` is reserved.\n\n"
+         "the comparisons = < <= > >= and in, then + -, then * /.\n\n"
          "The checker reads the tree into a model: the parties and how each is bound (at\n"
          "creation, or by the action that first names it after to), the one kind of instance\n"
          "and its fields (a type: each instance's own; a value: a constant; a party: a field\n"
@@ -2069,7 +2071,9 @@ std::vector<CommandSpec> build() {
          "dimensions, months never mix with days, every value exact in its smallest unit),\n"
          "bounded lists, no recursion, reachable states, thresholds (over N takes the unit of\n"
          "the action's one amount), and where in person may stand. What it infers carries the\n"
-         "id of its rule (R1, R2, ...; the packs' sentences rule-R1 ... explain each).\n\n"
+         "id of its rule (R1, R2, ...; the packs' sentences rule-R1 ... explain each). A word\n"
+         "of a vocabulary pack the source does not use is an error (check.pack-not-used): add\n"
+         "use PACK at the top (bo vocab list shows the packs and their words).\n\n"
          "--stage lex prints one token per line: LINE:COLUMN KIND VALUE | as written. A word\n"
          "is its concept (kw.can, act.transfer), the same in every language; a word with an\n"
          "argument's place comes in pieces (consent of: piece=head; before due: piece=tail;\n"
@@ -2101,11 +2105,13 @@ std::vector<CommandSpec> build() {
               {"fuel", "", "Show each function's bound: fuel, reading the input, and output"}}),
          cmd_bo_build,
          "Checks FILE as bo check does, then compiles it to a module in the contract profile\n"
-         "(spec section 14) with one function per action plus create (or issue, for an asset),\n"
-         "and makes the bo-source bundle a deploy records: the source as written, comments\n"
-         "included (a warning says so: every party and verifier reads them), its edition, and\n"
-         "each language pack it was read with (id, version, and the digest of its canonical\n"
-         "CBOR under --hash; packs that are not official, in full). The same source gives the\n"
+         "(spec section 14) with one function per action plus the one that creates an instance\n"
+         "(create; a vocabulary pack's kind may name its own), and makes the bo-source bundle a\n"
+         "deploy records: the source as written, comments included (a warning says so: every\n"
+         "party and verifier reads them), its edition, each language pack it was read with\n"
+         "(id, version, and the digest of its canonical CBOR under --hash; packs that are not\n"
+         "official, in full), and each vocabulary pack its use lines name (id, version,\n"
+         "digest). The same source gives the\n"
          "same bytes in any language and on any machine; the compiler string (cexchain-bo\n"
          "RELEASE; codegen N; edition E) names what built it. A fragment (no contract line) and\n"
          "clauses that need executors (step 6b) do not build. Exit status 2 if it does not\n"
@@ -2223,8 +2229,9 @@ std::vector<CommandSpec> build() {
          "    friend2 bring_back -> consent of friend1\n"
          "    friend1 bring_back at 2027-01-05 -> active\n\n"
          "A step is PARTY ACTION [to PARTY] [with INPUT = VALUE, ...] [at DATE] [in person]\n"
-         "[by AI agent] [-> EXPECTATION]. The first step creates the instance (issue for an\n"
-         "asset, create otherwise), and its party is the home, whose ledger runs the contract\n"
+         "[by AI agent] [-> EXPECTATION]. The first step creates the instance (create, or the\n"
+         "word a vocabulary pack's kind creates with), and its party is the home, whose ledger\n"
+         "runs the contract\n"
          "(we, if the contract has that role). Every party is a test ledger of its own; a name\n"
          "the contract does not declare (friend1) is a ledger only the test names, which to may\n"
          "bind a role to. Values are written as in the source (HKD 5_000, 2027-01-06, 30 days,\n"
@@ -2309,23 +2316,27 @@ std::vector<CommandSpec> build() {
         {{"bo", "stdlib", "list"},
          "List the built-in actions of Bo's standard library, with who starts each and its states",
          "Bo language",
-         "",
+         "[PACK]",
          0,
-         0,
+         1,
          with({language_option}),
          cmd_bo_stdlib_list,
-         "Bo's standard library (bo/stdlib/edition1.bo, compiled in) writes the built-in actions\n"
-         "in Bo itself, each with its standard terms (transfer, cancel, suspend, resume,\n"
-         "terminate, and the others this command lists). A contract that writes can transfer to\n"
+         "Bo's standard library (bo/stdlib/, compiled in) writes the built-in actions in Bo\n"
+         "itself, each with its standard terms: the core's (transfer, cancel, suspend, resume,\n"
+         "terminate), then those of each vocabulary pack, which a contract uses after its use\n"
+         "line (bo vocab show PACK). A contract that writes can transfer to\n"
          "counterparty gets the library's transfer (rule R19): started by the holder, with the\n"
          "consent of the holder and the counterparty, only from active, making the counterparty\n"
          "the holder. The lines the contract writes under it add to the terms and are checked\n"
          "first; without to, each call names the counterparty (R21). To change a built-in\n"
          "action, copy it under a name of your own (bo stdlib show ACTION prints it).\n\n"
-         "Each line: the function, the action's word in --language, who starts it (or the\n"
-         "home, on its own word), its counterparty, and the states it starts from and leads\n"
-         "to. With --json: each action's function, concept, starter, counterparty, and states.\n\n"
+         "Each line: the function, its pack (core, or a vocabulary pack), the action's word in\n"
+         "--language, who starts it (or the home, on its own word), its counterparty, and the\n"
+         "states it starts from and leads to. With PACK (core, or a vocabulary pack's id),\n"
+         "only that pack's. With --json: each action's function, pack, concept, starter,\n"
+         "counterparty, and states.\n\n"
          "  cexchain bo stdlib list\n"
+         "  cexchain bo stdlib list core\n"
          "  cexchain bo stdlib list --language zh-Hant-HK --json\n\n" CEXCHAIN_BO_PACKS_HELP},
         {{"bo", "stdlib", "show"},
          "Show a built-in action's terms: its Bo source, to copy, and its contract text",
@@ -2345,6 +2356,46 @@ std::vector<CommandSpec> build() {
          "  cexchain bo stdlib show transfer\n"
          "  cexchain bo stdlib show 轉讓 --language zh-Hant-HK\n"
          "  cexchain bo stdlib show confirm_payment --json\n\n" CEXCHAIN_BO_PACKS_HELP},
+        {{"bo", "vocab", "list"},
+         "List Bo's core vocabulary and its vocabulary packs, with their digests",
+         "Bo language",
+         "",
+         0,
+         0,
+         with({hash_option, language_option}),
+         cmd_bo_vocab_list,
+         "Bo's words are in its core, which every source reads (kinds of things, actions such\n"
+         "as transfer and cancel, conditions, time, units, currencies, types, common fields,\n"
+         "states, and roles), or in one of the official vocabulary packs, each a field's words\n"
+         "with the standard terms of its built-in actions: finance, commerce, and services. A\n"
+         "source uses a pack by a line at its top (use finance; in Chinese 使用 finance: pack\n"
+         "ids stay as written). A word of a pack the source does not use is an error, never a\n"
+         "name of the contract's own (Bo never guesses). Unlike a language pack, a vocabulary\n"
+         "pack changes what runs, so a deploy records each one it uses: its id, version, and\n"
+         "the digest of its canonical CBOR (under --hash).\n\n"
+         "Each line: the pack's id, version, name in --language, its words, its built-in\n"
+         "actions, and its digest. With --json: the same for each, the core first.\n\n"
+         "  cexchain bo vocab list\n"
+         "  cexchain bo vocab list --language zh-Hant-HK --hash sm3 "
+         "--json\n\n" CEXCHAIN_BO_PACKS_HELP},
+        {{"bo", "vocab", "show"},
+         "Show the core or a vocabulary pack: its words, their categories, and its actions",
+         "Bo language",
+         "PACK",
+         1,
+         1,
+         with({hash_option, language_option}),
+         cmd_bo_vocab_show,
+         "PACK is core or a vocabulary pack's id (bo vocab list shows them). Prints each word:\n"
+         "its category, its concept id, its spelling in --language, and for a field the type\n"
+         "its pack gives it (R1), and whether the standard terms may add it to an instance\n"
+         "(added, R20) and whether a counterparty an action puts into it consents (taking,\n"
+         "R31); then the built-in actions whose standard terms it brings (bo stdlib show\n"
+         "ACTION prints each). With --json: the same, and the pack's canonical CBOR (hex),\n"
+         "which its digest covers.\n\n"
+         "  cexchain bo vocab show core\n"
+         "  cexchain bo vocab show services --language zh-Hans-CN\n"
+         "  cexchain bo vocab show commerce --json\n\n" CEXCHAIN_BO_PACKS_HELP},
 #endif
         // ------------------------------------------------------------------
         {{"mcp"},

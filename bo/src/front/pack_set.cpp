@@ -182,11 +182,12 @@ void index_spellings(std::span<const Pack* const> packs,
 
 /// Fills a PackSet's private parts.
 struct PackSetBuilder {
-    static PackSet make(std::vector<Pack> packs,
-                        std::map<std::string, Meaning, std::less<>> index) {
+    static PackSet make(std::vector<Pack> packs, std::map<std::string, Meaning, std::less<>> index,
+                        Officials officials) {
         PackSet set;
         set.packs_ = std::move(packs);
         set.spellings_ = std::move(index);
+        set.officials_ = officials;
         return set;
     }
 };
@@ -201,12 +202,14 @@ const Meaning* PackSet::lookup(std::string_view spelling) const noexcept {
     return it == spellings_.end() ? nullptr : &it->second;
 }
 
-PackSetRead make_pack_set(std::vector<Pack> extra) {
+PackSetRead make_pack_set(std::vector<Pack> extra, const Officials officials) {
     detail::Diagnostics diagnostics;
-    std::vector<Pack> packs(official_packs().begin(), official_packs().end());
+    const std::span<const Pack> carried_packs = official_packs(officials);
+    std::vector<Pack> packs(carried_packs.begin(), carried_packs.end());
     for (Pack& pack : extra) {
         if (pack.official) {
-            const Pack* carried = official_pack(pack.id);
+            const auto it = std::ranges::find(carried_packs, pack.id, &Pack::id);
+            const Pack* carried = it == carried_packs.end() ? nullptr : &*it;
             if (carried == nullptr || carried->canonical != pack.canonical) {
                 diagnostics.add("pack.false-official", {{"pack", pack.id}});
             }
@@ -231,7 +234,7 @@ PackSetRead make_pack_set(std::vector<Pack> extra) {
     const bool ok = !diagnostics.has_errors();
     out.diagnostics = diagnostics.take();
     if (ok) {
-        out.set = PackSetBuilder::make(std::move(packs), std::move(index));
+        out.set = PackSetBuilder::make(std::move(packs), std::move(index), officials);
     }
     return out;
 }

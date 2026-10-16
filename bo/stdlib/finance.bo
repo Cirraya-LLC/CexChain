@@ -1,29 +1,15 @@
 bo 1
-# The standard library of Bo, edition 1: the built-in actions on assets, with
-# the semantics of CexChain's native assets (spec section 13), then those that
-# suspend, resume, and end an instance, and those that allocate a resource to
-# one holder at a time. A contract that
-# writes `can pledge to bank` gets the pledge below, with the bank as its
-# counterparty; the lines the contract writes under `can pledge` add to it and
-# are checked first. Without `to`, each call names the counterparty (R21). To
-# change a built-in action, copy it under a name of your own:
-# `cexchain bo stdlib show pledge` prints it, in any language.
+use finance
+# The standard terms of the finance pack's built-in actions (D-054): pledges,
+# payments, freezes, and splits, with the semantics CexChain's native assets
+# had before they became Bo contracts. A contract that uses the pack
+# (`use finance`) and writes `can pledge to bank` gets the pledge below, with
+# the bank as its counterparty; its own lines under `can pledge` add to it
+# and are checked first. `cexchain bo stdlib show pledge` prints it.
 #
-# The fields these terms use: holder (a party; every asset has one, and Bo adds
-# one to a resource), quantity (redeem), amount and tier (split), cooling
-# period (allocate), and pledgee and payee, which Bo adds to each instance,
-# holding no party until an action sets them (R20). An action can start only from the states its terms name; a
-# state the contract never reaches is left out. A time rule may do any of
-# these actions that names no counterparty and takes no inputs, as the
-# contract's own word (R24).
-
-# The holder hands the asset over: the counterparty becomes its holder. Both
-# consent to every transfer, the holder by starting it (the counterparty by
-# R3, R21, or R31). Not while pledged.
-can transfer to counterparty by holder
-  requires not counterparty = holder
-  active -> active
-  holder = counterparty
+# The fields these terms use: holder (a party), quantity (redeem), amount and
+# tier (split), and pledgee and payee, which Bo adds to each instance, holding
+# no party until an action sets them (R20).
 
 # The holder pledges the asset to the counterparty, which becomes its pledgee.
 # Both consent to every pledge. Only an active asset can be pledged: no second
@@ -101,36 +87,3 @@ can split by holder with parts, recipients
   requires consent of recipients
   active -> divided
   issue parts to recipients with tier = tier + 1
-
-# The holder cancels the asset.
-can cancel by holder
-  active -> cancelled
-
-# The home suspends the instance on its own word, such as when it is overdue
-# (when overdue 3 days suspend).
-can suspend
-  active -> suspended
-
-# The home resumes a suspended instance.
-can resume
-  suspended -> active
-
-# The home ends the instance, active or suspended: nothing can start from
-# terminated.
-can terminate
-  active, suspended -> terminated
-
-# The home allocates the resource to the counterparty, which becomes its holder
-# and consents to every allocation (R31 if its role was bound before); one the
-# allocation binds is named by each allocation (R23). After a reclaim the
-# resource cools: it is allocated again only once its cooling period has passed
-# since the reclaim.
-can allocate to counterparty
-  if cooling requires not within cooling period
-  active, cooling -> allocated
-  holder = counterparty
-
-# The home takes the resource back from its holder; it then cools.
-can reclaim
-  allocated -> cooling
-  holder = none

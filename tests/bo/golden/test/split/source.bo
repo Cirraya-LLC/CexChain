@@ -1,3 +1,4 @@
+use finance
 # Splitting (milestone 17): the standard library's split. Each part is an
 # instance of its own, held by its recipient one tier down, and pledged,
 # paid, and split again on its own. A step acts on the instance its party

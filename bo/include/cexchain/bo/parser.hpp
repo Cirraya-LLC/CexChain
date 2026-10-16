@@ -19,11 +19,12 @@
 /// `到期前 7日`) is joined with its argument here, so the tree is where all
 /// languages meet.
 ///
-///   file      = [`bo N`] { clause }
+///   file      = [`bo N`] { `use` PACK | clause }          use finance
 ///   clause    = `contract` NAME
 ///             | `parties` PARTY { `,` PARTY }
-///             | KIND NAME [block of fields]        KIND: asset, service, resource,
-///                                                   record, charge, tax
+///             | KIND NAME [block of fields]        KIND: thing (core); asset,
+///                                                   service, resource, charge,
+///                                                   tax (packs)
 ///             | `can` ACTION { `by` PARTY | `to` PARTY | `with` FIELD {`,` FIELD} }
 ///               [block of statements]
 ///             | `when` EVENT [ACTION { `and` ACTION }] [block of statements]
@@ -65,7 +66,10 @@
 ///     is an error asking for a space. Declared: the contract, the parties,
 ///     blocks and their fields, actions and inputs of `can`, and `each`
 ///     names.
-///   - `use` is reserved.
+///   - `use` starts a line of its own outside any block (anywhere else, it
+///     is parse.reserved); the pack's id is the next token as written,
+///     whatever it reads as in the packs (`use services`), and stays as
+///     written in Parsed::tokens, as a name.
 /// After an error, the parser skips to the next line (and past any block
 /// under it), so one run reports as much as it can. Problems on lines where
 /// the lexer found one are not reported again.

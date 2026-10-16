@@ -1,7 +1,9 @@
+使用 commerce
+使用 finance
 合约 销售
 parties 本公司, customer
 
-record 销售单
+thing 销售单
   發票 list 人民币 最多 20
 
 费用 增值税

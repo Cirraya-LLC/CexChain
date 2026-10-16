@@ -1,9 +1,11 @@
 edition 1
+use commerce
+use services
 block kind.service Hosting
   field price.price (phrase time.monthly (money cur.HKD 120)) (phrase price.setup_fee (money cur.HKD 500))
 block kind.resource Address
   field field.cooling_period (duration time.day 30)
-block kind.record Log
+block kind.thing Log
   field note type.text
 block charge.charge Fee
   field charge.rate 2%

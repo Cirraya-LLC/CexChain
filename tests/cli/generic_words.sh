@@ -107,12 +107,6 @@ pattern = re.compile(r"(?i)(?<!\w)(?:" + "|".join(ENGLISH) + r")(?!\w)|" +
 # Exemptions: exact phrases (whitespace collapsed), where they may appear,
 # and why. Each must still match somewhere, or it is stale.
 EXEMPT = [
-    # G5 (Bo's core and its optional packs): Bo's kind word "asset" and the
-    # receivable example move to the finance pack; the help then shows a core
-    # kind. Until then the help describes the vocabulary as it is.
-    ("help-bo-check.txt", "a kind and its fields (asset Receivable, then amount HKD)", True),
-    ("help-bo-build.txt", "plus create (or issue, for an asset)", True),
-    ("help-bo-test.txt", "(issue for an asset, create otherwise)", True),
 ]
 
 def strings(value):

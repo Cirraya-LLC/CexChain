@@ -428,6 +428,7 @@ private:
 
     // --- Clauses and statements.
     void clause(std::vector<ast::Clause>& out);
+    void use_line(std::vector<ast::Use>& out);
     bool contract(std::vector<ast::Clause>& out);
     bool parties(std::vector<ast::Clause>& out);
     void block_clause(std::vector<ast::Clause>& out);
@@ -816,10 +817,39 @@ ast::File Parser::run(std::uint64_t edition) {
             skip_block();
             continue;
         default:
-            clause(file.clauses);
+            if (is_kw(peek(), known().use)) {
+                use_line(file.uses);
+            } else {
+                clause(file.clauses);
+            }
         }
     }
     return file;
+}
+
+void Parser::use_line(std::vector<ast::Use>& out) {
+    const Token& keyword = take();
+    bool ok = false;
+    // The pack's id as written, whatever it reads as: a name (finance), or a
+    // word that some pack spells (services, a form of `service`).
+    if (!at_line_end() && !at_kind(TokenKind::indent) && !at_kind(TokenKind::dedent)) {
+        const Token& id = take();
+        std::string pack = written(id);
+        if (std::ranges::any_of(out, [&](const ast::Use& u) { return u.pack == pack; })) {
+            fail(id.span, "parse.duplicate", {{"word", detail::quote(pack)}});
+        } else {
+            out.push_back(ast::Use{join(keyword.span, id.span), std::move(pack)});
+            ok = true;
+        }
+    } else {
+        fail(keyword.span, "parse.expected-name", {{"after", written(keyword)}});
+    }
+    end_line(ok);
+    if (failed_ && ok) {
+        // Something after the id: the line adds nothing.
+        out.pop_back();
+    }
+    no_block();
 }
 
 void Parser::clause(std::vector<ast::Clause>& out) {
@@ -1693,6 +1723,34 @@ Parsed parse(std::string_view source, const Lexed& lexed) {
     Parser second(source, tokens, declared, ambiguous, diagnostics);
     Parsed out;
     out.file = second.run(lexed.edition);
+    out.file.implicit_vocabulary = lexed.implicit_vocabulary;
+    // A `use` line's pack id is a name, whatever it reads as elsewhere; the
+    // other words of vocabulary packs are where the checker says a pack is
+    // not used (the first of each pack).
+    std::set<std::uint32_t> use_lines;
+    for (const ast::Use& u : out.file.uses) {
+        use_lines.insert(u.span.line);
+    }
+    for (Token& t : tokens) {
+        if (use_lines.contains(t.span.line)) {
+            if (t.kind != TokenKind::newline && t.kind != TokenKind::end &&
+                !(t.kind == TokenKind::word && t.concept_entry == known().use)) {
+                t.kind = TokenKind::name;
+                t.text = std::string(source.substr(t.span.offset, t.span.length));
+                t.concept_entry = nullptr;
+                t.piece = Piece::whole;
+                t.form.clear();
+            }
+            continue;
+        }
+        if (t.kind == TokenKind::word && t.concept_entry != nullptr &&
+            t.concept_entry->pack != Vocab::core &&
+            std::ranges::none_of(out.file.pack_words, [&](const ast::PackWord& w) {
+                return w.concept_entry->pack == t.concept_entry->pack;
+            })) {
+            out.file.pack_words.push_back(ast::PackWord{t.concept_entry, t.span});
+        }
+    }
     // The parser held them by reference until here.
     out.tokens = std::move(tokens);
     std::vector<Diagnostic> list = diagnostics.take();
@@ -1739,6 +1797,15 @@ std::string dump(const ast::Expr& e) {
 
 std::string dump(const ast::File& file) {
     std::string out = std::format("edition {}\n", file.edition);
+    // By pack: the order of `use` lines means nothing.
+    std::vector<std::string> uses;
+    for (const ast::Use& u : file.uses) {
+        uses.push_back(u.pack);
+    }
+    std::ranges::sort(uses);
+    for (const std::string& pack : uses) {
+        add_line(out, 0, "use " + pack);
+    }
     for (const ast::Clause& clause : file.clauses) {
         std::visit(
             Overloaded{

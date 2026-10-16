@@ -1,20 +1,20 @@
 测试 “signed and closed”：通过
-  第 1 步（第 17 行）通过：we create with terms = "steel", price = HKD 100
+  第 1 步（第 18 行）通过：we create with terms = "steel", price = HKD 100
     结果：调用被接受，实例现为已提议。
-  第 2 步（第 18 行）通过：customer sign -> signed
+  第 2 步（第 19 行）通过：customer sign -> signed
     结果：经客户同意，调用被接受，实例现为 signed。
-  第 3 步（第 19 行）通过：we close -> closed
+  第 3 步（第 20 行）通过：we close -> closed
     结果：调用被接受，实例现为 closed；这是最终状态，实例不再接受调用。
 
 测试 “the customer cannot close”：通过
-  第 1 步（第 22 行）通过：we create with terms = "steel", price = HKD 100
+  第 1 步（第 23 行）通过：we create with terms = "steel", price = HKD 100
     结果：调用被接受，实例现为已提议。
-  第 2 步（第 23 行）通过：customer close -> refused "bo:state close"
+  第 2 步（第 24 行）通过：customer close -> refused "bo:state close"
     结果：调用被拒绝，因为实例当前的状态不允许 close（bo:state close）。
     合约条款 4.2.2：如果实例处于 signed 状态，即转为 closed 状态；否则拒绝调用。
-  第 3 步（第 24 行）通过：customer sign -> signed
+  第 3 步（第 25 行）通过：customer sign -> signed
     结果：经客户同意，调用被接受，实例现为 signed。
-  第 4 步（第 25 行）通过：customer close -> consent of we
-    结果：调用正在等待本公司提交。
+  第 4 步（第 26 行）通过：customer close -> consent of we
+    结果：调用正在等待我方提交。
 
 共 2 个测试：2 个通过，0 个失败。

@@ -33,6 +33,7 @@
 #include <cexchain/bo/source.hpp>
 #include <cexchain/bo/stdlib.hpp>
 #include <cexchain/bo/values.hpp>
+#include <cexchain/bo/vocab.hpp>
 #include <cexchain/core/vm.hpp>
 #include <cexchain/crypto/openssl.hpp>
 
@@ -410,6 +411,12 @@ Json build_json(const protocol::ContractDeployBody& body, const bo::SourceBundle
                          {"digest", to_hex(ref.digest)},
                          {"official", std::ranges::find(embedded, ref.id) == embedded.end()}});
     }
+    // The vocabulary packs the source uses (key 6).
+    Json vocabulary = Json::array();
+    for (const bo::PackRef& ref : bundle.vocabulary) {
+        vocabulary.push_back(
+            {{"id", ref.id}, {"version", ref.version}, {"digest", to_hex(ref.digest)}});
+    }
     return {{"contract", body.name ? Json(*body.name) : Json(nullptr)},
             {"language", body.language},
             {"compiler", body.compiler},
@@ -421,7 +428,8 @@ Json build_json(const protocol::ContractDeployBody& body, const bo::SourceBundle
             {"source_size", bundle.source.size()},
             {"comments", comments},
             {"bundle_size", body.source ? body.source->size() : std::size_t{0}},
-            {"packs", packs}};
+            {"packs", packs},
+            {"vocabulary", vocabulary}};
 }
 
 /// "1,234,567": a bound for people.
@@ -492,12 +500,20 @@ void print_build(const protocol::ContractDeployBody& body, const Json& j) {
                              p["version"].get<std::uint64_t>(),
                              p["official"].get<bool>() ? "" : " (embedded)");
     }
+    std::string vocabulary;
+    for (const Json& p : j["vocabulary"]) {
+        vocabulary += std::format("{}{} {}", vocabulary.empty() ? "" : ", ",
+                                  p["id"].get<std::string>(), p["version"].get<std::uint64_t>());
+    }
     const std::size_t comments = j["comments"].get<std::size_t>();
-    std::println("  {:<10} bo-source bundle of {} bytes: the source ({} bytes{}, Bo edition {}) "
-                 "and the packs {} ({} digests)",
+    std::println("  {:<10} bo-source bundle of {} bytes: the source ({} bytes{}, Bo edition {}), "
+                 "the packs {}{} ({} digests)",
                  "source", j["bundle_size"].get<std::size_t>(), j["source_size"].get<std::size_t>(),
                  comments == 0 ? std::string() : std::format(", {} comment lines", comments),
-                 j["edition"].get<std::uint64_t>(), packs, j["hash"].get<std::string>());
+                 j["edition"].get<std::uint64_t>(), packs,
+                 vocabulary.empty() ? std::string()
+                                    : std::format(", and the vocabulary packs {}", vocabulary),
+                 j["hash"].get<std::string>());
 }
 
 // --- bo test.
@@ -921,14 +937,39 @@ Json concept_ids(const std::vector<const bo::Concept*>& concepts) {
     return out;
 }
 
+namespace {
+
+/// The core or a vocabulary pack, by id: "core", "finance", ...
+bo::Vocab vocab_of(std::string_view id) {
+    for (std::size_t i = 0; i < bo::vocab_names.size(); ++i) {
+        if (bo::vocab_names[i] == id) {
+            return static_cast<bo::Vocab>(i);
+        }
+    }
+    throw UsageError{std::format("Bo has no vocabulary pack {}: core, commerce, finance, or "
+                                 "services (bo vocab list shows them)",
+                                 id)};
+}
+
+} // namespace
+
 int cmd_bo_stdlib_list(const Args& args) {
     const bo::Pack* language = message_language(args, {});
+    std::optional<bo::Vocab> only;
+    if (!args.positional().empty()) {
+        only = vocab_of(args.positional().front());
+    }
     Json out = Json::array();
     for (const bo::StandardAction& a : bo::standard_actions()) {
+        if (only && a.action->pack != *only) {
+            continue;
+        }
         const std::string word = bo::spell(a.action->id, language);
         const std::string summary = standard_summary(a, language);
+        const std::string_view pack = bo::vocab_name(a.action->pack);
         if (args.json()) {
             out.push_back({{"function", a.function},
+                           {"pack", pack},
                            {"action", a.action->id},
                            {"word", word},
                            {"starter", a.starter != nullptr ? Json(a.starter->id) : Json(nullptr)},
@@ -938,10 +979,150 @@ int cmd_bo_stdlib_list(const Args& args) {
                            {"summary", summary}});
             continue;
         }
-        std::println("{:<16} {}: {}", a.function, word, summary);
+        std::println("{:<16} {:<9} {}: {}", a.function, pack, word, summary);
     }
     if (args.json()) {
         print_json(out);
+    }
+    return exit_ok;
+}
+
+namespace {
+
+/// A pack's words (not the keywords, nor retired ones), by category, then id.
+std::vector<const bo::Concept*> vocab_words(bo::Vocab vocab) {
+    std::vector<const bo::Concept*> out;
+    for (const bo::Concept& c : bo::concepts()) {
+        if (c.pack == vocab && !c.retired && c.category != bo::Category::keyword) {
+            out.push_back(&c);
+        }
+    }
+    std::ranges::stable_sort(out, {}, [](const bo::Concept* c) { return c->category; });
+    return out;
+}
+
+/// The functions of the built-in actions whose terms a pack brings.
+std::vector<std::string> vocab_actions(bo::Vocab vocab) {
+    std::vector<std::string> out;
+    for (const bo::StandardAction& a : bo::standard_actions()) {
+        if (a.action->pack == vocab) {
+            out.push_back(a.function);
+        }
+    }
+    return out;
+}
+
+struct VocabFacts {
+    std::string id;
+    std::optional<std::uint64_t> version;
+    std::string name;
+    std::size_t words = 0;
+    std::vector<std::string> actions;
+    std::string hash;
+    std::optional<std::string> digest;
+    const bo::VocabularyPack* pack = nullptr;
+};
+
+VocabFacts vocab_facts(bo::Vocab vocab, const bo::Pack* language, crypto::HashAlg alg) {
+    VocabFacts f;
+    f.id = std::string(bo::vocab_name(vocab));
+    f.name = bo::sentence("vocab-" + f.id, {}, language);
+    f.words = vocab_words(vocab).size();
+    f.actions = vocab_actions(vocab);
+    f.hash = std::string(crypto::name(alg));
+    f.pack = bo::vocabulary_pack(vocab);
+    if (f.pack != nullptr) {
+        f.version = f.pack->version;
+        f.digest = to_hex(unwrap(bo::digest(*f.pack, provider(), alg), "digest").bytes());
+    }
+    return f;
+}
+
+Json vocab_json(const VocabFacts& f) {
+    return {{"id", f.id},
+            {"version", f.version ? Json(*f.version) : Json(nullptr)},
+            {"name", f.name},
+            {"words", f.words},
+            {"actions", f.actions},
+            {"hash", f.hash},
+            {"digest", f.digest ? Json(*f.digest) : Json(nullptr)}};
+}
+
+} // namespace
+
+int cmd_bo_vocab_list(const Args& args) {
+    const bo::Pack* language = message_language(args, {});
+    const crypto::HashAlg hash = parse_hash(args.get("hash").value_or("sha256"));
+    Json out = Json::array();
+    for (const bo::Vocab vocab :
+         {bo::Vocab::core, bo::Vocab::commerce, bo::Vocab::finance, bo::Vocab::services}) {
+        const VocabFacts f = vocab_facts(vocab, language, hash);
+        if (args.json()) {
+            out.push_back(vocab_json(f));
+            continue;
+        }
+        std::println("{:<9} {:<10} {:<9} {:>2} words, {:>2} built-in actions{}", f.id,
+                     f.version ? std::format("version {}", *f.version) : std::string("-"), f.name,
+                     f.words, f.actions.size(),
+                     f.digest ? std::format("  {} {}", f.hash, *f.digest)
+                              : std::string("  (every source)"));
+    }
+    if (args.json()) {
+        print_json(out);
+    }
+    return exit_ok;
+}
+
+int cmd_bo_vocab_show(const Args& args) {
+    const bo::Pack* language = message_language(args, {});
+    const crypto::HashAlg hash = parse_hash(args.get("hash").value_or("sha256"));
+    const bo::Vocab vocab = vocab_of(args.positional().front());
+    const VocabFacts f = vocab_facts(vocab, language, hash);
+    const auto field_notes = [](const bo::Concept& c) {
+        std::string notes(c.type);
+        if ((c.flags & bo::field_added) != 0) {
+            notes += "; added (R20)";
+        }
+        if ((c.flags & bo::field_taking) != 0) {
+            notes += "; taking (R31)";
+        }
+        return notes;
+    };
+    if (args.json()) {
+        Json out = vocab_json(f);
+        Json words = Json::array();
+        for (const bo::Concept* c : vocab_words(vocab)) {
+            Json w{{"concept", c->id},
+                   {"category", bo::name_of(c->category)},
+                   {"word", bo::spell(c->id, language)},
+                   {"argument", c->arity > 0}};
+            if (!c->type.empty()) {
+                w["type"] = c->type;
+                w["added"] = (c->flags & bo::field_added) != 0;
+                w["taking"] = (c->flags & bo::field_taking) != 0;
+            }
+            words.push_back(std::move(w));
+        }
+        out["words"] = std::move(words);
+        out["canonical"] = f.pack != nullptr ? Json(to_hex(f.pack->canonical)) : Json(nullptr);
+        print_json(out);
+        return exit_ok;
+    }
+    if (f.pack != nullptr) {
+        std::println("{} version {} ({}): use {}", f.id, *f.version, f.name, f.id);
+        std::println("{} {}", f.hash, *f.digest);
+    } else {
+        std::println("{} ({}): every source", f.id, f.name);
+    }
+    std::println("\nWords ({})", f.words);
+    for (const bo::Concept* c : vocab_words(vocab)) {
+        std::println("  {:<10} {:<26} {}{}", bo::name_of(c->category), c->id,
+                     bo::spell(c->id, language),
+                     c->type.empty() ? std::string() : "  " + field_notes(*c));
+    }
+    std::println("\nBuilt-in actions ({})", f.actions.size());
+    for (const std::string& action : f.actions) {
+        std::println("  {}", action);
     }
     return exit_ok;
 }

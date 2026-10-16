@@ -1,75 +1,75 @@
 测试 “pledge, release, transfer, pay, dispute, confirm”：通过
-  第 1 步（第 25 行）通过：issuer issue with amount = HKD 1_000_000, due = 2027-06-30
+  第 1 步（第 26 行）通过：issuer issue with amount = HKD 1_000_000, due = 2027-06-30
     结果：调用被接受，实例现为正常。
-  第 2 步（第 26 行）通过：supplier pledge to bank1 -> pledged
+  第 2 步（第 27 行）通过：supplier pledge to bank1 -> pledged
     结果：经供应商和 bank1 同意，调用被接受，实例现为已质押。
-  第 3 步（第 27 行）通过：supplier pledge to bank2 -> refused "bo:state pledge"
+  第 3 步（第 28 行）通过：supplier pledge to bank2 -> refused "bo:state pledge"
     结果：调用被拒绝，因为实例当前的状态不允许 质押（bo:state pledge）。
     合约条款 4.2.6：如果实例处于正常状态，即转为已质押状态；否则拒绝调用。
-  第 4 步（第 28 行）通过：supplier transfer to factor1 -> refused "bo:state transfer"
+  第 4 步（第 29 行）通过：supplier transfer to factor1 -> refused "bo:state transfer"
     结果：调用被拒绝，因为实例当前的状态不允许 转让（bo:state transfer）。
     合约条款 4.1.6：如果实例处于正常状态，即转为正常状态；否则拒绝调用。
-  第 5 步（第 29 行）通过：bank1 release -> active
+  第 5 步（第 30 行）通过：bank1 release -> active
     结果：经 bank1 同意，调用被接受，实例现为正常。
-  第 6 步（第 30 行）通过：supplier transfer to factor1 -> active
+  第 6 步（第 31 行）通过：supplier transfer to factor1 -> active
     结果：经供应商和 factor1 同意，调用被接受，实例现为正常。
-  第 7 步（第 31 行）通过：supplier transfer to factor2 -> consent of factor1
+  第 7 步（第 32 行）通过：supplier transfer to factor2 -> consent of factor1
     结果：调用正在等待 factor1 同意。
-  第 8 步（第 32 行）通过：issuer pay -> paid
+  第 8 步（第 33 行）通过：issuer pay -> paid
     结果：调用被接受，实例现为已支付。
-  第 9 步（第 33 行）通过：factor1 dispute -> disputed
+  第 9 步（第 34 行）通过：factor1 dispute -> disputed
     结果：经 factor1 同意，调用被接受，实例现为争议中。
-  第 10 步（第 34 行）通过：issuer pay -> paid
+  第 10 步（第 35 行）通过：issuer pay -> paid
     结果：调用被接受，实例现为已支付。
-  第 11 步（第 35 行）通过：factor1 confirm payment -> settled
+  第 11 步（第 36 行）通过：factor1 confirm payment -> settled
     结果：经 factor1 同意，调用被接受，实例现为已结清；这是最终状态，实例不再接受调用。
-  第 12 步（第 36 行）通过：issuer freeze -> refused
+  第 12 步（第 37 行）通过：issuer freeze -> refused
     结果：账本拒绝调用：实例已处于最终状态，不再接受调用。
 
 测试 “paid to the pledgee, under a freeze”：通过
-  第 1 步（第 39 行）通过：issuer issue with amount = HKD 1_000_000, due = 2027-06-30
+  第 1 步（第 40 行）通过：issuer issue with amount = HKD 1_000_000, due = 2027-06-30
     结果：调用被接受，实例现为正常。
-  第 2 步（第 40 行）通过：supplier pledge to bank1 -> pledged
+  第 2 步（第 41 行）通过：supplier pledge to bank1 -> pledged
     结果：经供应商和 bank1 同意，调用被接受，实例现为已质押。
-  第 3 步（第 41 行）通过：issuer freeze -> frozen
+  第 3 步（第 42 行）通过：issuer freeze -> frozen
     结果：调用被接受，实例现为已冻结。
-  第 4 步（第 42 行）通过：bank1 release -> refused "bo:state release"
+  第 4 步（第 43 行）通过：bank1 release -> refused "bo:state release"
     结果：调用被拒绝，因为实例当前的状态不允许 解除质押（bo:state release）。
     合约条款 4.3.3：如果实例处于已质押状态，即转为正常状态；否则拒绝调用。
-  第 5 步（第 43 行）通过：issuer pay -> refused "bo:state pay"
+  第 5 步（第 44 行）通过：issuer pay -> refused "bo:state pay"
     结果：调用被拒绝，因为实例当前的状态不允许 支付（bo:state pay）。
     合约条款 4.5.3：如果实例处于正常、已质押或争议中状态，即转为已支付状态；否则拒绝调用。
-  第 6 步（第 44 行）通过：issuer unfreeze -> pledged
+  第 6 步（第 45 行）通过：issuer unfreeze -> pledged
     结果：调用被接受，实例现为已质押。
-  第 7 步（第 45 行）通过：issuer pay -> paid
+  第 7 步（第 46 行）通过：issuer pay -> paid
     结果：调用被接受，实例现为已支付。
-  第 8 步（第 46 行）通过：supplier confirm payment -> consent of bank1
+  第 8 步（第 47 行）通过：supplier confirm payment -> consent of bank1
     结果：调用正在等待 bank1 同意。
-  第 9 步（第 47 行）通过：bank1 confirm payment -> settled
+  第 9 步（第 48 行）通过：bank1 confirm payment -> settled
     结果：经 bank1 同意，调用被接受，实例现为已结清；这是最终状态，实例不再接受调用。
 
 测试 “the bank enforces its pledge”：通过
-  第 1 步（第 50 行）通过：issuer issue with amount = HKD 1_000_000, due = 2027-06-30
+  第 1 步（第 51 行）通过：issuer issue with amount = HKD 1_000_000, due = 2027-06-30
     结果：调用被接受，实例现为正常。
-  第 2 步（第 51 行）通过：supplier pledge to bank1 -> pledged
+  第 2 步（第 52 行）通过：supplier pledge to bank1 -> pledged
     结果：经供应商和 bank1 同意，调用被接受，实例现为已质押。
-  第 3 步（第 52 行）通过：supplier cancel -> refused "bo:state cancel"
+  第 3 步（第 53 行）通过：supplier cancel -> refused "bo:state cancel"
     结果：调用被拒绝，因为实例当前的状态不允许 注销（bo:state cancel）。
     合约条款 4.10.3：如果实例处于正常状态，即转为已注销状态；否则拒绝调用。
-  第 4 步（第 53 行）通过：bank1 enforce -> active
+  第 4 步（第 54 行）通过：bank1 enforce -> active
     结果：经 bank1 同意，调用被接受，实例现为正常。
-  第 5 步（第 54 行）通过：bank1 pledge to bank2 -> pledged
+  第 5 步（第 55 行）通过：bank1 pledge to bank2 -> pledged
     结果：经 bank2 和 bank1 同意，调用被接受，实例现为已质押。
 
 测试 “cancelled”：通过
-  第 1 步（第 57 行）通过：issuer issue with amount = HKD 1_000_000, due = 2027-06-30
+  第 1 步（第 58 行）通过：issuer issue with amount = HKD 1_000_000, due = 2027-06-30
     结果：调用被接受，实例现为正常。
-  第 2 步（第 58 行）通过：issuer unfreeze -> refused "bo:state unfreeze"
+  第 2 步（第 59 行）通过：issuer unfreeze -> refused "bo:state unfreeze"
     结果：调用被拒绝，因为实例当前的状态不允许 解冻（bo:state unfreeze）。
     合约条款 4.9.3：如果实例处于已冻结状态，即恢复至转为已冻结状态之前的状态；否则拒绝调用。
-  第 3 步（第 59 行）通过：supplier cancel -> cancelled
+  第 3 步（第 60 行）通过：supplier cancel -> cancelled
     结果：经供应商同意，调用被接受，实例现为已注销；这是最终状态，实例不再接受调用。
-  第 4 步（第 60 行）通过：supplier transfer to factor1 -> refused
+  第 4 步（第 61 行）通过：supplier transfer to factor1 -> refused
     结果：账本拒绝调用：实例已处于最终状态，不再接受调用。
 
 共 4 个测试：4 个通过，0 个失败。

@@ -132,10 +132,12 @@ const Pack* pack(std::string_view id) {
 /// The contract every rule below is tested on: a loan the customer must
 /// accept in person above HKD 10,000, which a bank bound by the action
 /// funds, and which the holder of the note repays.
-constexpr std::string_view loan = R"(contract Loan
+constexpr std::string_view loan = R"(use commerce
+use finance
+contract Loan
 parties we, customer, bank
 
-record Note
+thing Note
   amount HKD
   holder customer
 
@@ -296,7 +298,7 @@ TEST_CASE("bo test: a step whose party does not start the action waits for the o
     CHECK(r.steps[1].happened == Happened::waits);
     CHECK(r.steps[1].waits == std::vector<protocol::Id>{r.home});
     CHECK(outcome_text(r.steps[1], t.results, nullptr) == "the call waits for us to make it");
-    CHECK(outcome_text(r.steps[1], t.results, pack("zh-Hant-HK")) == "調用正等待本公司提交");
+    CHECK(outcome_text(r.steps[1], t.results, pack("zh-Hant-HK")) == "調用正等待我方提交");
     // The holder (a field) starts repay: the bank's step waits for it.
     CHECK(r.steps[5].waits ==
           std::vector<protocol::Id>{test_ledger_id("role.customer", provider())});
@@ -369,10 +371,11 @@ TEST_CASE("bo test: time, from 2026-01-01 or the first at, never going back", "[
 TEST_CASE("bo test: time rules, the keeper, a UTC offset, and month ends", "[bo][test]") {
     // Due on 31 January at UTC-05:00: a month later is the end of February
     // (U6), and days are counted at -05:00.
-    constexpr std::string_view source = R"(contract Rent
+    constexpr std::string_view source = R"(use commerce
+contract Rent
 parties we, customer
 
-record Lease
+thing Lease
   due date
   fee HKD
   UTC offset "-05:00"
@@ -526,7 +529,8 @@ TEST_CASE("bo test: parts, by the party that holds them", "[bo][test]") {
     // A receivable split twice (milestone 17): each part is an instance of
     // its own, with its parent's id and its depth in the view, and a step
     // acts on the part its party holds or the party it names holds.
-    constexpr std::string_view contract = R"(contract Split
+    constexpr std::string_view contract = R"(use finance
+contract Split
 parties issuer, supplier
 
 asset Receivable
@@ -629,11 +633,11 @@ TEST_CASE("bo test: the report", "[bo][test]") {
     CHECK(report.starts_with("Test \"one\": passed\n"));
     CHECK(report.find("Test number 2: FAILED at step 2\n") != std::string::npos);
     // A step and its expectation on two lines are shown as one.
-    CHECK(report.find("  Step 2 (line 23) FAILED: we offer to bank1 with fee = HKD 3 -> "
+    CHECK(report.find("  Step 2 (line 25) FAILED: we offer to bank1 with fee = HKD 3 -> "
                       "accepted\n") != std::string::npos);
     CHECK(report.find("    Expected: the call is accepted, and the instance is accepted.\n") !=
           std::string::npos);
-    CHECK(report.find("  Step 3 (line 25) not run: customer accept\n") != std::string::npos);
+    CHECK(report.find("  Step 3 (line 27) not run: customer accept\n") != std::string::npos);
     CHECK(report.ends_with("2 tests: 1 passed, 1 failed.\n"));
     // No tests at all.
     const Tested none = tested(loan);

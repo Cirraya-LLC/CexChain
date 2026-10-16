@@ -183,13 +183,13 @@ TEST_CASE("a source formatted into any language builds to the same code", "[bo][
 
 TEST_CASE("compile stops at the first stage with errors", "[bo][build]") {
     // A fragment: it checks (with a warning), and lowering refuses it.
-    const Compiled fragment = compile("record Terms\n  amount HKD\n", official_set());
+    const Compiled fragment = compile("thing Terms\n  amount HKD\n", official_set());
     CHECK(!fragment.build.has_value());
     CHECK(std::ranges::any_of(fragment.diagnostics,
                               [](const Diagnostic& d) { return d.code == "build.fragment"; }));
     // A checker error: nothing is lowered.
     const Compiled unchecked =
-        compile("contract C\nparties we\nrecord R\n  amount HKD\ncan go\n", official_set());
+        compile("contract C\nparties we\nthing R\n  amount HKD\ncan go\n", official_set());
     CHECK(!unchecked.build.has_value());
     CHECK(std::ranges::none_of(unchecked.diagnostics,
                                [](const Diagnostic& d) { return d.code.starts_with("build."); }));
@@ -199,9 +199,10 @@ TEST_CASE("compile stops at the first stage with errors", "[bo][build]") {
     REQUIRE(unlexed.diagnostics.size() >= 2);
     CHECK(unlexed.diagnostics[0].span.offset < unlexed.diagnostics[1].span.offset);
     // No comments, no warning.
-    const Compiled quiet = compile("contract C\nparties we, customer\nrecord R\n  amount HKD\ncan "
-                                   "close by we\n  proposed -> closed\n",
-                                   official_set());
+    const Compiled quiet =
+        compile("use commerce\ncontract C\nparties we, customer\nthing R\n  amount HKD\ncan "
+                "close by we\n  proposed -> closed\n",
+                official_set());
     REQUIRE(quiet.build.has_value());
     CHECK(quiet.diagnostics.empty());
 }
@@ -316,11 +317,19 @@ TEST_CASE("another compiler's output is reported as such", "[bo][build]") {
     newer.compiler = other_codegen();
     auto bundle = decode_source_bundle(*deploy.source);
     REQUIRE(bundle.has_value());
-    bundle->packs[2].version = 2;
+    bundle->packs[2].version = 3;
     newer.source = *encode_source_bundle(*bundle);
     r = rebuilt(newer);
     CHECK(r.status == RebuildStatus::other_compiler);
-    CHECK(mentions(r, "zh-Hant-HK version 2; this compiler carries version 1"));
+    CHECK(mentions(r, "zh-Hant-HK version 3; this compiler carries version 2"));
+    // A vocabulary pack version this compiler does not carry.
+    bundle = decode_source_bundle(*deploy.source);
+    REQUIRE(bundle->vocabulary.size() == 1);
+    bundle->vocabulary[0].version = 2;
+    newer.source = *encode_source_bundle(*bundle);
+    r = rebuilt(newer);
+    CHECK(r.status == RebuildStatus::other_compiler);
+    CHECK(mentions(r, "the vocabulary pack commerce version 2"));
     // A later edition.
     bundle = decode_source_bundle(*deploy.source);
     bundle->edition = edition + 1;
@@ -383,9 +392,10 @@ TEST_CASE("a source read with a company's own pack rebuilds from its bundle", "[
     REQUIRE(read.pack.has_value());
     PackSetRead with = make_pack_set({*read.pack});
     REQUIRE(with.set.has_value());
+    // Its word for the supplier is finance's: the source uses the pack.
     constexpr std::string_view source =
-        "contract Supply\nparties we, vendor\nrecord Order\n  amount HKD\ncan countersign by "
-        "vendor\n  proposed -> signed\n";
+        "use finance\ncontract Supply\nparties we, vendor\nthing Order\n  amount HKD\n"
+        "can countersign by vendor\n  proposed -> signed\n";
     // Without the pack, vendor is just a name: another contract.
     const Compiled plain = compile(source, official_set());
     const protocol::ContractDeployBody deploy = deploy_of(source, *with.set);
@@ -405,6 +415,55 @@ TEST_CASE("a source read with a company's own pack rebuilds from its bundle", "[
     const Compiled spelled = compile(official_words, official_set());
     REQUIRE(spelled.build.has_value());
     CHECK(spelled.build->code == deploy.code);
+}
+
+TEST_CASE("a deploy made before vocabulary packs still rebuilds", "[bo][build]") {
+    // The agreement as it was written and deployed before D-054: no `use`
+    // line, and the kind word `record`, read with the official packs of
+    // then (version 1).
+    std::string old_source;
+    for (std::size_t at = 0; at < agreement().size();) {
+        const std::size_t end = agreement().find('\n', at) + 1;
+        const std::string line = agreement().substr(at, end - at);
+        at = end;
+        if (!line.starts_with("use ")) {
+            old_source += line.starts_with("thing ") ? "record " + line.substr(6) : line;
+        }
+    }
+    PackSetRead then = make_pack_set({}, Officials::before_vocabulary);
+    REQUIRE(then.set.has_value());
+    const protocol::ContractDeployBody old_deploy = deploy_of(old_source, *then.set);
+    // The same code as today's source.
+    CHECK(old_deploy.code == deploy_of(agreement()).code);
+    const auto bundle = decode_source_bundle(*old_deploy.source);
+    REQUIRE(bundle.has_value());
+    CHECK(bundle->vocabulary.empty());
+    CHECK(bundle->packs.front().version == 1);
+    const Rebuild r = rebuilt(old_deploy);
+    CHECK(r.status == RebuildStatus::rebuilds);
+    // Today's packs do not read it: `record` is no kind word now, and
+    // `customer` needs `use commerce`.
+    CHECK(!compile(old_source, official_set()).build.has_value());
+    // Its source with a use line no longer matches its bundle.
+    protocol::ContractDeployBody edited = old_deploy;
+    SourceBundle with_use = *bundle;
+    with_use.source = "use commerce\n" + old_source;
+    edited.source = *encode_source_bundle(with_use);
+    CHECK(rebuilt(edited).status == RebuildStatus::malformed);
+}
+
+TEST_CASE("a deploy's use lines are its bundle's vocabulary packs", "[bo][build]") {
+    const protocol::ContractDeployBody deploy = deploy_of(agreement());
+    auto bundle = decode_source_bundle(*deploy.source);
+    REQUIRE(bundle.has_value());
+    // Key 6 dropped: malformed, whatever the code.
+    protocol::ContractDeployBody dropped = deploy;
+    SourceBundle without = *bundle;
+    without.vocabulary.clear();
+    dropped.source = *encode_source_bundle(without);
+    const Rebuild r = rebuilt(dropped);
+    CHECK(r.status == RebuildStatus::malformed);
+    CHECK(mentions(r, "use lines"));
 }
 
 TEST_CASE("a deploy built as codegen 1 still rebuilds", "[bo][build]") {
@@ -484,7 +543,7 @@ TEST_CASE("a deploy built as codegen 2 still rebuilds, without R31's consents", 
 TEST_CASE("code a call could run out of fuel in does not build", "[bo][build]") {
     // Every number of one list of 1,000 against every number of another: a
     // million comparisons, beyond the 10,000,000 fuel a call has.
-    constexpr std::string_view nested = "contract Grid\nparties we\nrecord Grid\n"
+    constexpr std::string_view nested = "contract Grid\nparties we\nthing Grid\n"
                                         "  rows list number at most 1000\n"
                                         "  columns list number at most 1000\n"
                                         "can check by we\n  each r in rows\n"
@@ -518,7 +577,7 @@ TEST_CASE("code a call could run out of fuel in does not build", "[bo][build]") 
 TEST_CASE("an output that could exceed the code's region is a warning", "[bo][build]") {
     // A part repeats its parent's fields: with a text of up to 64 KiB in the
     // state, sixteen parts could not fit the 192 KiB the code writes into.
-    constexpr std::string_view source = "contract Notes\nparties issuer, supplier\n"
+    constexpr std::string_view source = "use finance\ncontract Notes\nparties issuer, supplier\n"
                                         "asset Receivable\n  amount CNY\n  tier number\n"
                                         "  note text\n  holder supplier\ncan split\n";
     const Compiled c = compile(source, official_set());

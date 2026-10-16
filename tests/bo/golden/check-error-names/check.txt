@@ -1,8 +1,9 @@
 edition 1
+packs commerce
 contract Names
 party role.we bound=creation{R3}
 party role.customer bound=creation{R3}
-kind kind.record Log
+kind kind.thing Log
 field note instance text
 field limit constant money cur.HKD = (money cur.HKD 100)
 state state.active first{R4}
@@ -19,11 +20,11 @@ can archive own by=role.we agents=delegation{R14}
   input label instance text
   each note in=(list 1 2)
     requires (> note 0)
-8:35 error check.duplicate: reason is declared twice; a name has one meaning in a contract
-9:12 error check.unknown-name: missing is not declared: it is not a party, a field, an input, a state, or a name each gives
-10:12 error check.unknown-field: the instance has no field due: declare it in the kind's block (amount HKD, due date)
-11:12 error check.not-a-value: date is not a value here: a value is a number, an amount, a date, a text, a party, a field, an input, or a condition where one may stand
-12:3 error check.set-constant: limit is a constant (the block gives its value), so no action can change it; to let actions change it, declare its type instead (tier number)
-13:3 error check.set-target: customer cannot be set: only a field of the instance can
-14:16 error check.unknown-input: archive has no input nothing
-16:8 error check.duplicate: note is declared twice; a name has one meaning in a contract
+9:35 error check.duplicate: reason is declared twice; a name has one meaning in a contract
+10:12 error check.unknown-name: missing is not declared: it is not a party, a field, an input, a state, or a name each gives
+11:12 error check.unknown-field: the instance has no field due: declare it in the kind's block (amount HKD, due date)
+12:12 error check.not-a-value: date is not a value here: a value is a number, an amount, a date, a text, a party, a field, an input, or a condition where one may stand
+13:3 error check.set-constant: limit is a constant (the block gives its value), so no action can change it; to let actions change it, declare its type instead (tier number)
+14:3 error check.set-target: customer cannot be set: only a field of the instance can
+15:16 error check.unknown-input: archive has no input nothing
+17:8 error check.duplicate: note is declared twice; a name has one meaning in a contract

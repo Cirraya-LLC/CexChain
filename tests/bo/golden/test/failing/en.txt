@@ -1,37 +1,37 @@
 Test "accepted, not withdrawn": FAILED at step 2
-  Step 1 (line 19) passed: we create with price = HKD 500
+  Step 1 (line 20) passed: we create with price = HKD 500
     Result: accepted, and the instance is proposed.
-  Step 2 (line 20) FAILED: customer accept -> withdrawn
+  Step 2 (line 21) FAILED: customer accept -> withdrawn
     Expected: the call is accepted, and the instance is withdrawn.
     Result: accepted with the consent of the customer, and the instance is accepted; it is final and takes no more calls.
-  Step 3 (line 21) not run: we withdraw
+  Step 3 (line 22) not run: we withdraw
 
 Test "nothing to refuse": FAILED at step 2
-  Step 1 (line 24) passed: we create with price = HKD 500
+  Step 1 (line 25) passed: we create with price = HKD 500
     Result: accepted, and the instance is proposed.
-  Step 2 (line 25) FAILED: we withdraw -> refused "too large to withdraw"
+  Step 2 (line 26) FAILED: we withdraw -> refused "too large to withdraw"
     Expected: the call is refused, with the reason "too large to withdraw".
     Result: accepted, and the instance is withdrawn; it is final and takes no more calls.
 
 Test "a consent nobody asks for": FAILED at step 2
-  Step 1 (line 28) passed: we create with price = HKD 5_000
+  Step 1 (line 29) passed: we create with price = HKD 5_000
     Result: accepted, and the instance is proposed.
-  Step 2 (line 29) FAILED: customer accept -> consent of bank1
+  Step 2 (line 30) FAILED: customer accept -> consent of bank1
     Expected: the call waits for the consent of bank1.
     Result: accepted with the consent of the customer, and the instance is accepted; it is final and takes no more calls.
 
 Test "another reason": FAILED at step 2
-  Step 1 (line 32) passed: we create with price = HKD 5_000
+  Step 1 (line 33) passed: we create with price = HKD 5_000
     Result: accepted, and the instance is proposed.
-  Step 2 (line 33) FAILED: we withdraw -> refused "bo:state withdraw"
+  Step 2 (line 34) FAILED: we withdraw -> refused "bo:state withdraw"
     Expected: the call is refused, with the reason "bo:state withdraw".
     Result: refused, with the reason "too large to withdraw".
     The contract text, 4.2.2.1: The call is refused, with the reason "too large to withdraw".
 
 Test number 5: passed
-  Step 1 (line 36) passed: we create with price = HKD 5_000
+  Step 1 (line 37) passed: we create with price = HKD 5_000
     Result: accepted, and the instance is proposed.
-  Step 2 (line 37) passed: customer accept
+  Step 2 (line 38) passed: customer accept
     Result: accepted with the consent of the customer, and the instance is accepted; it is final and takes no more calls.
 
 5 tests: 1 passed, 4 failed.

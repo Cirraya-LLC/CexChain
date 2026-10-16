@@ -849,7 +849,7 @@ void bo_seeds(const Seeds& seeds) {
         throw std::runtime_error("the company pack with the official ones");
     }
     const auto embedded =
-        must(bo::make_source_bundle("contract Supply\nparties we, vendor\nrecord Order\n  amount "
+        must(bo::make_source_bundle("contract Supply\nparties we, vendor\nthing Order\n  amount "
                                     "HKD\ncan countersign by vendor\n  proposed -> signed\n",
                                     1, *with_company.set, provider, crypto::HashAlg::sha256),
              "bundle");

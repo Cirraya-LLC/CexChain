@@ -1,3 +1,5 @@
+use commerce
+use finance
 contract Recognized
 parties we, customer, bank
 

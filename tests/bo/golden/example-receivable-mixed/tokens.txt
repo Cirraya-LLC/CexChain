@@ -1,45 +1,48 @@
-1:1 word kw.contract | contract
-1:10 name ReceivableFinancing | ReceivableFinancing
-1:29 newline
-2:1 word kw.parties | 訂約方
-2:5 word role.issuer | issuer
-2:11 symbol , | ,
-2:13 word role.supplier | 供应商
-2:16 symbol , | ,
-2:18 word role.bank | bank
-2:22 newline
-4:1 word kind.asset | asset
-4:7 name Receivable | Receivable
-4:17 newline
-5:1 indent
-5:3 word field.amount | 金額
-5:6 word cur.HKD | HKD
-5:9 newline
-6:3 word field.due | due
-6:7 word type.date | 日期
+1:1 word kw.use | use
+1:5 name finance | finance
+1:12 newline
+2:1 word kw.contract | contract
+2:10 name ReceivableFinancing | ReceivableFinancing
+2:29 newline
+3:1 word kw.parties | 訂約方
+3:5 word role.issuer | issuer
+3:11 symbol , | ,
+3:13 word role.supplier | 供应商
+3:16 symbol , | ,
+3:18 word role.bank | bank
+3:22 newline
+5:1 word kind.asset | asset
+5:7 name Receivable | Receivable
+5:17 newline
+6:1 indent
+6:3 word field.amount | 金額
+6:6 word cur.HKD | HKD
 6:9 newline
-7:3 word field.holder | 持有人
-7:7 word role.supplier | supplier
-7:15 newline
-9:1 dedent
-9:1 word kw.can | 可
-9:2 word act.pledge | pledge
-9:9 word kw.to | 予
-9:11 word role.bank | bank
-9:15 newline
-10:1 indent
-10:3 word cond.over piece=head | over
-10:8 number 5000000 | 5_000_000
-10:18 word kw.requires | 須
-10:19 word cond.in_person | 親身確認
-10:23 newline
-11:1 dedent
-11:1 word kw.can | can
-11:5 word act.transfer | 转让
-11:7 newline
-12:1 word kw.when | 當
-12:3 word field.due | due
-12:7 word role.issuer | issuer
-12:14 word act.pay form=third | pays
-12:18 newline
-13:1 end
+7:3 word field.due | due
+7:7 word type.date | 日期
+7:9 newline
+8:3 word field.holder | 持有人
+8:7 word role.supplier | supplier
+8:15 newline
+10:1 dedent
+10:1 word kw.can | 可
+10:2 word act.pledge | pledge
+10:9 word kw.to | 予
+10:11 word role.bank | bank
+10:15 newline
+11:1 indent
+11:3 word cond.over piece=head | over
+11:8 number 5000000 | 5_000_000
+11:18 word kw.requires | 須
+11:19 word cond.in_person | 親身確認
+11:23 newline
+12:1 dedent
+12:1 word kw.can | can
+12:5 word act.transfer | 转让
+12:7 newline
+13:1 word kw.when | 當
+13:3 word field.due | due
+13:7 word role.issuer | issuer
+13:14 word act.pay form=third | pays
+13:18 newline
+14:1 end

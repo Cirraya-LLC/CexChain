@@ -1,48 +1,48 @@
 測試 「signed in person, countersigned, and closed」：通過
-  第 1 步（第 33 行）通過：we create at 2026-10-14 with terms = "100 t of steel, monthly", amount = HKD 1_500_000, starts = 2027-01-01
+  第 1 步（第 34 行）通過：we create at 2026-10-14 with terms = "100 t of steel, monthly", amount = HKD 1_500_000, starts = 2027-01-01
     結果：調用獲接納，實例現為已提議。
-  第 2 步（第 34 行）通過：we amend with new_amount = HKD 2_000_000, new_start = 2027-01-08 -> proposed
+  第 2 步（第 35 行）通過：we amend with new_amount = HKD 2_000_000, new_start = 2027-01-08 -> proposed
     結果：經客戶同意，調用獲接納，實例現為已提議。
-  第 3 步（第 35 行）通過：customer sign -> refused "bo:in-person sign"
+  第 3 步（第 36 行）通過：customer sign -> refused "bo:in-person sign"
     結果：調用被拒絕，因為 sign 須由本人以通行密鑰或硬件密鑰證明親身在場（bo:in-person sign）。
     合約條文 4.2.2：要求 1：如金額超過港元 1,000,000，客戶須以通行密鑰或硬件密鑰證明本人親身在場。
-  第 4 步（第 36 行）通過：customer sign in person -> signed
+  第 4 步（第 37 行）通過：customer sign in person -> signed
     結果：經客戶同意，調用獲接納，實例現為 signed。
-  第 5 步（第 37 行）通過：we amend with new_amount = HKD 1, new_start = 2027-01-08 -> refused "bo:requires amend 1"
+  第 5 步（第 38 行）通過：we amend with new_amount = HKD 1, new_start = 2027-01-08 -> refused "bo:requires amend 1"
     結果：調用被拒絕，因為 amend 的第 1 項要求未獲滿足（bo:requires amend 1）。
     合約條文 4.1.3：要求 1：實例處於已提議狀態。
-  第 6 步（第 38 行）通過：we countersign -> effective
+  第 6 步（第 39 行）通過：we countersign -> effective
     結果：調用獲接納，實例現為 effective。
-  第 7 步（第 39 行）通過：we close at 2027-06-30 -> closed
+  第 7 步（第 40 行）通過：we close at 2027-06-30 -> closed
     結果：經客戶同意，調用獲接納，實例現為 closed；此為最終狀態，實例不再接受調用。
-  第 8 步（第 40 行）通過：we close -> refused
+  第 8 步（第 41 行）通過：we close -> refused
     結果：賬本拒絕調用：實例已處於最終狀態，不再接受調用。
 
 測試 「what one party cannot do alone」：通過
-  第 1 步（第 43 行）通過：we create with terms = "100 t of steel, monthly", amount = HKD 500_000, starts = 2027-01-01
+  第 1 步（第 44 行）通過：we create with terms = "100 t of steel, monthly", amount = HKD 500_000, starts = 2027-01-01
     結果：調用獲接納，實例現為已提議。
-  第 2 步（第 44 行）通過：we amend with new_amount = HKD 600_000, new_start = 2027-01-01 -> consent of customer
+  第 2 步（第 45 行）通過：we amend with new_amount = HKD 600_000, new_start = 2027-01-01 -> consent of customer
     結果：調用正等待客戶同意。
-  第 3 步（第 45 行）通過：we amend with new_amount = HKD 900_000, new_start = 2027-01-01 -> refused "an amendment may raise the amount by half at most"
+  第 3 步（第 46 行）通過：we amend with new_amount = HKD 900_000, new_start = 2027-01-01 -> refused "an amendment may raise the amount by half at most"
     結果：調用被拒絕，原因為「an amendment may raise the amount by half at most」。
     合約條文 4.1.6.1：拒絕調用，原因為「an amendment may raise the amount by half at most」。
-  第 4 步（第 47 行）通過：we sign -> consent of customer
+  第 4 步（第 48 行）通過：we sign -> consent of customer
     結果：調用正等待客戶同意。
-  第 5 步（第 48 行）通過：customer countersign -> refused "bo:state countersign"
+  第 5 步（第 49 行）通過：customer countersign -> refused "bo:state countersign"
     結果：調用被拒絕，因為實例目前的狀態不容許 countersign（bo:state countersign）。
     合約條文 4.3.2：如實例處於 signed 狀態，即轉為 effective 狀態；否則拒絕調用。
-  第 6 步（第 49 行）通過：customer sign by AI agent -> signed
+  第 6 步（第 50 行）通過：customer sign by AI agent -> signed
     結果：經客戶同意，調用獲接納，實例現為 signed。
-  第 7 步（第 50 行）通過：customer countersign -> consent of we
-    結果：調用正等待本公司提交。
-  第 8 步（第 51 行）通過：we close -> refused "bo:state close"
+  第 7 步（第 51 行）通過：customer countersign -> consent of we
+    結果：調用正等待我方提交。
+  第 8 步（第 52 行）通過：we close -> refused "bo:state close"
     結果：調用被拒絕，因為實例目前的狀態不容許 close（bo:state close）。
     合約條文 4.4.3：如實例處於 effective 狀態，即轉為 closed 狀態；否則拒絕調用。
 
 測試 「too late to sign」：通過
-  第 1 步（第 54 行）通過：we create with terms = "100 t of steel, monthly", amount = HKD 500_000, starts = 2027-01-01
+  第 1 步（第 55 行）通過：we create with terms = "100 t of steel, monthly", amount = HKD 500_000, starts = 2027-01-01
     結果：調用獲接納，實例現為已提議。
-  第 2 步（第 55 行）通過：customer sign at 2027-01-02 -> refused "bo:requires sign 2"
+  第 2 步（第 56 行）通過：customer sign at 2027-01-02 -> refused "bo:requires sign 2"
     結果：調用被拒絕，因為 sign 的第 2 項要求未獲滿足（bo:requires sign 2）。
     合約條文 4.2.3：要求 2：調用時間早於 starts。
 

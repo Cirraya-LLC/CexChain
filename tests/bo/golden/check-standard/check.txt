@@ -1,4 +1,5 @@
 edition 1
+packs finance
 contract WarehouseReceipt
 party role.we bound=creation{R3}
 party depositor bound=creation{R3}

@@ -1,7 +1,7 @@
 edition 1
 contract States
 party role.we bound=creation{R3}
-kind kind.record Order
+kind kind.thing Order
 field note instance text
 state drafted first{R4}
 state placed{R5}

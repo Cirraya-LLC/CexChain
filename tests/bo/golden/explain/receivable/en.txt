@@ -1,6 +1,7 @@
 Contract ReceivableFinancing
 
 Bo wrote this text from the contract's source (Bo edition 1). A clause marked with a rule, such as [R3], states what Bo inferred by that rule instead of reading it in the source; the last section explains each rule.
+Besides Bo's core words, the contract uses the finance vocabulary pack (version 1).
 
 1. Parties
 1.1 issuer: bound to a ledger when an instance is created. [R3]
@@ -26,7 +27,7 @@ Bo wrote this text from the contract's source (Bo edition 1). A clause marked wi
 A call that does not meet one of an action's requirements is refused, and the instance does not change. A missing consent is not a refusal: the call waits for it.
 
 4.1 pledge
-  4.1.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show pledge): the clauses marked R19 state them, after the contract's own clauses.
+  4.1.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show pledge): the clauses marked R19 state them, after the contract's own clauses.
   4.1.2 Started by the holder, whose agreement it needs. [R19]
   4.1.3 It needs the consent of the bank. The first such call names the ledger of the bank and binds the bank to it; later calls may leave it out or name the same ledger. [R3]
   4.1.4 Requirement 1: if the amount is over HKD 5,000,000, the holder must prove presence in person, with a passkey or a hardware key. [R6, R13]

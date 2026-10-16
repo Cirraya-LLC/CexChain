@@ -10,26 +10,38 @@
 #include <vector>
 
 #include <cexchain/bo/ast.hpp>
+#include <cexchain/bo/concepts.hpp>
 #include <cexchain/bo/explain.hpp>
 #include <cexchain/bo/model.hpp>
 #include <cexchain/bo/pack.hpp>
 #include <cexchain/bo/parser.hpp>
 
-/// Bo's standard library (milestone 11): the built-in business actions,
-/// written in Bo itself (bo/stdlib/edition1.bo, compiled in). Each is a `can`
-/// clause: who starts the action, its counterparty, the consents it asks
-/// for, the states it starts from and leads to, and what it changes. A
-/// contract that declares a built-in action (`can pledge to bank`) gets that
-/// action's terms (rule R19), with its own lines first; to change a built-in
-/// action, a contract copies it under a name of its own.
+/// Bo's standard library (milestone 11): the built-in actions, written in Bo
+/// itself and compiled in: the core's (bo/stdlib/core.bo), then each
+/// official vocabulary pack's (bo/stdlib/finance.bo, bo/stdlib/services.bo;
+/// D-054). Each is a `can` clause: who starts the action, its counterparty,
+/// the consents it asks for, the states it starts from and leads to, and
+/// what it changes. A contract that declares a built-in action
+/// (`can transfer to buyer`) gets that action's terms (rule R19), with its
+/// own lines first; to change a built-in action, a contract copies it under
+/// a name of its own. A pack's terms use the core's words and the pack's.
 namespace cexchain::bo {
 
-struct StandardLibrary {
-    std::uint64_t edition = 1;
+/// One file of the library: the terms of the core's or of one pack's
+/// actions.
+struct StandardFile {
+    /// The core, or the vocabulary pack whose terms these are.
+    Vocab pack = Vocab::core;
     /// The source as compiled in, in English, comments included.
     std::string_view source;
     /// The source, read with the official packs (it has no problems).
     Parsed parsed;
+};
+
+struct StandardLibrary {
+    std::uint64_t edition = 1;
+    /// The core's file, then the packs' in the order of Vocab.
+    std::vector<StandardFile> files;
     /// Each built-in action's terms, in the library's order: every clause is
     /// a `can` of a vocabulary action.
     std::vector<const ast::Can*> templates;
@@ -37,15 +49,23 @@ struct StandardLibrary {
     /// The terms of a built-in action (its concept id, act.pledge), or
     /// nullptr if the library has none for it (yet).
     [[nodiscard]] const ast::Can* find(std::string_view action) const noexcept;
+    /// The source of the file holding a built-in action's terms (the file of
+    /// the action's pack), or empty.
+    [[nodiscard]] std::string_view source_of(const Concept* action) const noexcept;
 };
+
+/// The source of the core's terms or of a pack's, as compiled in; empty for
+/// a pack whose actions have no terms yet (commerce).
+[[nodiscard]] std::string_view standard_source(Vocab pack) noexcept;
 
 /// The standard library of edition 1, read once. It is part of the
 /// compiler: one that does not read is a defect of the build.
 [[nodiscard]] const StandardLibrary& standard_library() noexcept;
 
 /// A contract that declares every built-in action of the library, as `bo
-/// stdlib` explains them: an asset with a holder bound at creation and a
-/// quantity in items (so that every action's terms apply).
+/// stdlib` explains them: it uses every pack with terms, and declares an
+/// asset with a holder bound at creation and a quantity in items (so that
+/// every action's terms apply).
 [[nodiscard]] std::string_view standard_showcase();
 
 /// The showcase checked: every built-in action with its terms (R19).

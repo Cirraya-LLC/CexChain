@@ -1,4 +1,6 @@
 bo 1
+use commerce
+use services
 contract VPS服務
 parties we, customer
 

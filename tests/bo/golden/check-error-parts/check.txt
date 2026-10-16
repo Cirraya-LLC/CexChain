@@ -1,9 +1,10 @@
 edition 1
+packs commerce finance
 contract Errors
 party role.we bound=creation{R3}
 party role.customer bound=creation{R3}
 utc_offset +08:00{R25}
-kind kind.record R
+kind kind.thing R
 field field.amount instance money cur.HKD
 field field.tier instance number
 field field.due instance date
@@ -35,12 +36,12 @@ test "steps"
   step role.we divide expect=accepted
     set field.parts (list (money cur.HKD 1))
     set field.recipients (list role.customer)
-15:3 error check.parts-instance: divide issues parts, so each instance needs an amount (money or a quantity) and a holder, and no bill
-16:3 error check.parts-instance: divide issues parts, so each instance needs an amount (money or a quantity) and a holder, and no bill
-16:3 error check.parts-place: create parts to recipients: an action issues parts once, in its own block (not under if or each), and a when rule never does
-20:5 error check.parts-instance: nest issues parts, so each instance needs an amount (money or a quantity) and a holder, and no bill
-20:5 error check.parts-place: create parts to recipients: an action issues parts once, in its own block (not under if or each), and a when rule never does
-23:3 error check.parts-instance: odd issues parts, so each instance needs an amount (money or a quantity) and a holder, and no bill
-23:3 error check.parts-shape: create amount to customer with amount = HKD 1: issue PARTS to RECIPIENTS [with FIELD = VALUE, ...]: the parts a list of amounts in the unit of the instance's amount, the recipients a list of parties, and with sets fields of the instance other than the amount and the holder
-26:3 error check.parts-place: create: an action issues parts once, in its own block (not under if or each), and a when rule never does
-30:13 error check.test-part: customer: a step names the instance it acts on by the party that holds it (issuer pay smith1): one party, in a contract whose instances have a holder
+17:3 error check.parts-instance: divide issues parts, so each instance needs an amount (money or a quantity) and a holder, and no bill
+18:3 error check.parts-instance: divide issues parts, so each instance needs an amount (money or a quantity) and a holder, and no bill
+18:3 error check.parts-place: create parts to recipients: an action issues parts once, in its own block (not under if or each), and a when rule never does
+22:5 error check.parts-instance: nest issues parts, so each instance needs an amount (money or a quantity) and a holder, and no bill
+22:5 error check.parts-place: create parts to recipients: an action issues parts once, in its own block (not under if or each), and a when rule never does
+25:3 error check.parts-instance: odd issues parts, so each instance needs an amount (money or a quantity) and a holder, and no bill
+25:3 error check.parts-shape: create amount to customer with amount = HKD 1: issue PARTS to RECIPIENTS [with FIELD = VALUE, ...]: the parts a list of amounts in the unit of the instance's amount, the recipients a list of parties, and with sets fields of the instance other than the amount and the holder
+28:3 error check.parts-place: create: an action issues parts once, in its own block (not under if or each), and a when rule never does
+32:13 error check.test-part: customer: a step names the instance it acts on by the party that holds it (issuer pay smith1): one party, in a contract whose instances have a holder

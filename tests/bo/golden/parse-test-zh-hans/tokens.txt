@@ -1,82 +1,85 @@
-1:1 word kw.contract | 合约
-1:4 name Tests | Tests
-1:9 newline
-2:1 word kw.parties | 参与方
-2:5 word role.issuer | 发行人
-2:8 symbol , | ,
-2:10 word role.supplier | 供应商
-2:13 symbol , | ,
-2:15 word role.bank | 银行
-2:17 newline
-4:1 word kind.asset | 资产
-4:4 name Receivable | Receivable
-4:14 newline
-5:1 indent
-5:3 word field.amount | 金额
-5:6 word cur.HKD | 港元
-5:8 newline
-6:3 word field.holder | 持有人
-6:7 word role.supplier | 供应商
-6:10 newline
-8:1 dedent
-8:1 word kw.can | 可
-8:2 word act.pledge | 质押
-8:5 word kw.to | 给
-8:7 word role.bank | 银行
-8:9 newline
+1:1 word kw.use | 使用
+1:4 name finance | finance
+1:11 newline
+2:1 word kw.contract | 合约
+2:4 name Tests | Tests
+2:9 newline
+3:1 word kw.parties | 参与方
+3:5 word role.issuer | 发行人
+3:8 symbol , | ,
+3:10 word role.supplier | 供应商
+3:13 symbol , | ,
+3:15 word role.bank | 银行
+3:17 newline
+5:1 word kind.asset | 资产
+5:4 name Receivable | Receivable
+5:14 newline
+6:1 indent
+6:3 word field.amount | 金额
+6:6 word cur.HKD | 港元
+6:8 newline
+7:3 word field.holder | 持有人
+7:7 word role.supplier | 供应商
+7:10 newline
+9:1 dedent
 9:1 word kw.can | 可
-9:2 word act.split | 拆分
-9:5 word kw.with | 附带
-9:8 word field.parts | 各部分
-9:11 newline
-11:1 word kw.test | 测试
-11:4 text "a second pledge is refused" | "a second pledge is refused"
-11:32 newline
-12:1 indent
-12:3 word role.issuer | 发行人
-12:7 word act.issue | 签发
-12:10 word kw.with | 附带
-12:13 word field.amount | 金额
-12:16 symbol = | =
-12:18 money cur.HKD 1000 | HKD 1_000
-12:27 symbol , | ,
-12:29 word field.holder | 持有人
-12:33 symbol = | =
-12:35 word role.supplier | 供应商
-12:38 newline
-13:3 word role.supplier | 供应商
-13:7 word act.pledge | 质押
-13:10 word kw.to | 给
-13:12 name bank1 | bank1
-13:18 word time.at piece=head | 时间
-13:21 date 2027-01-06 | 2027-01-06
-13:32 word cond.in_person | 本人确认
-13:36 newline
-14:3 symbol -> | ->
-14:6 word state.pledged | 已质押
-14:9 newline
-15:3 word role.supplier | 供应商
-15:7 word act.pledge | 质押
-15:10 word kw.to | 给
-15:12 name bank2 | bank2
-15:18 word kw.by | 由
-15:20 word actor.ai_agent | AI 代理
-15:26 symbol -> | ->
-15:29 word val.refused | 被拒绝
-15:33 text "already pledged" | "already pledged"
-15:50 newline
+9:2 word act.pledge | 质押
+9:5 word kw.to | 给
+9:7 word role.bank | 银行
+9:9 newline
+10:1 word kw.can | 可
+10:2 word act.split | 拆分
+10:5 word kw.with | 附带
+10:8 word field.parts | 各部分
+10:11 newline
+12:1 word kw.test | 测试
+12:4 text "a second pledge is refused" | "a second pledge is refused"
+12:32 newline
+13:1 indent
+13:3 word role.issuer | 发行人
+13:7 word act.issue | 签发
+13:10 word kw.with | 附带
+13:13 word field.amount | 金额
+13:16 symbol = | =
+13:18 money cur.HKD 1000 | HKD 1_000
+13:27 symbol , | ,
+13:29 word field.holder | 持有人
+13:33 symbol = | =
+13:35 word role.supplier | 供应商
+13:38 newline
+14:3 word role.supplier | 供应商
+14:7 word act.pledge | 质押
+14:10 word kw.to | 给
+14:12 name bank1 | bank1
+14:18 word time.at piece=head | 时间
+14:21 date 2027-01-06 | 2027-01-06
+14:32 word cond.in_person | 本人确认
+14:36 newline
+15:3 symbol -> | ->
+15:6 word state.pledged | 已质押
+15:9 newline
 16:3 word role.supplier | 供应商
-16:7 word act.split | 拆分
-16:10 word kw.with | 附带
-16:13 word field.parts | 各部分
-16:17 symbol = | =
-16:19 symbol ( | (
-16:20 money cur.HKD 400 | HKD 400
-16:27 symbol , | ,
-16:29 money cur.HKD 600 | HKD 600
-16:36 symbol ) | )
-16:38 symbol -> | ->
-16:41 word val.refused | 被拒绝
-16:44 newline
-17:1 dedent
-17:1 end
+16:7 word act.pledge | 质押
+16:10 word kw.to | 给
+16:12 name bank2 | bank2
+16:18 word kw.by | 由
+16:20 word actor.ai_agent | AI 代理
+16:26 symbol -> | ->
+16:29 word val.refused | 被拒绝
+16:33 text "already pledged" | "already pledged"
+16:50 newline
+17:3 word role.supplier | 供应商
+17:7 word act.split | 拆分
+17:10 word kw.with | 附带
+17:13 word field.parts | 各部分
+17:17 symbol = | =
+17:19 symbol ( | (
+17:20 money cur.HKD 400 | HKD 400
+17:27 symbol , | ,
+17:29 money cur.HKD 600 | HKD 600
+17:36 symbol ) | )
+17:38 symbol -> | ->
+17:41 word val.refused | 被拒绝
+17:44 newline
+18:1 dedent
+18:1 end

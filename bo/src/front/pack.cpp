@@ -366,6 +366,14 @@ private:
         return out;
     }
 
+    /// A concept a pack may spell: a retired one only in an official pack
+    /// (the earlier official packs spell them; make_pack_set takes no
+    /// official pack the compiler does not carry).
+    [[nodiscard]] const Concept* known_concept(std::string_view id) const noexcept {
+        const Concept* entry = find_concept(id);
+        return entry != nullptr && entry->retired && !pack_.official ? nullptr : entry;
+    }
+
     void read_words(const cbor::Value& value, std::string_view section, bool keywords) {
         const cbor::Map* map = map_at(value, section);
         if (map == nullptr) {
@@ -373,7 +381,7 @@ private:
         }
         for (const auto& [id, item] : entries(*map, section)) {
             const std::string path = join(section, id);
-            const Concept* entry = find_concept(id);
+            const Concept* entry = known_concept(id);
             if (entry == nullptr) {
                 fail("pack.unknown-concept",
                      {{"path", std::string(section)}, {"concept", quote(id)}});
@@ -475,7 +483,7 @@ private:
         if (id == nullptr) {
             return nullptr;
         }
-        const Concept* entry = find_concept(*id);
+        const Concept* entry = known_concept(*id);
         if (entry == nullptr) {
             fail("pack.unknown-concept", {{"path", path}, {"concept", quote(*id)}});
             return nullptr;
@@ -830,6 +838,9 @@ private:
         std::size_t missing = 0;
         std::size_t total = 0;
         for (const Concept& entry : concepts()) {
+            if (entry.retired) {
+                continue;
+            }
             if (entry.category == Category::keyword) {
                 if (!pack_.keywords.contains(entry.id)) {
                     fail("pack.missing-keyword",

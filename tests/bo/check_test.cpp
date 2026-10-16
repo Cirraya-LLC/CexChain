@@ -193,9 +193,46 @@ TEST_CASE("every check has an error golden, and every rule is seen", "[bo][check
     CHECK(rule_specs().front().id == "R1");
 }
 
+TEST_CASE("a pack's words need its use line, in every language", "[bo][check]") {
+    // The same contract in three languages, without `use finance`: refused
+    // at the first word of the pack (bank), in the reader's language.
+    const std::pair<std::string_view, std::string_view> sources[] = {
+        {"en", "contract C\nparties we, bank\nthing T\n  holder we\ncan pledge to bank\n"},
+        {"zh-Hant-HK", "合約 C\n訂約方 我方, 銀行\n物件 T\n  持有人 我方\n可質押 予 銀行\n"},
+        {"zh-Hans-CN", "合约 C\n参与方 我方, 银行\n物件 T\n  持有人 我方\n可质押 给 银行\n"}};
+    const std::pair<std::string_view, std::string_view> texts[] = {
+        {"en", "bank is a word of the finance vocabulary pack, which the source does not use: "
+               "write use finance at its top"},
+        {"zh-Hant-HK",
+         "銀行 屬於 finance 詞彙包，但原始碼沒有使用該詞彙包：請在開首寫 使用 finance"},
+        {"zh-Hans-CN",
+         "银行 属于 finance 词汇包，但源代码没有使用该词汇包：请在开头写 使用 finance"}};
+    for (std::size_t i = 0; i < 3; ++i) {
+        const auto& [language, source] = sources[i];
+        INFO(language);
+        const Checked refused = check_text(source);
+        REQUIRE(codes(refused) == "check.pack-not-used");
+        const Diagnostic& d = refused.diagnostics[0];
+        CHECK(d.span.line == 2);
+        CHECK(d.arg("pack") == "finance");
+        CHECK(render(d, official_pack(texts[i].first)) == texts[i].second);
+        // With the line, in the source's own language, it checks; the model
+        // names the pack.
+        const std::string use = language == "en" ? "use finance\n" : "使用 finance\n";
+        const Checked used = check_text(use + std::string(source));
+        CHECK(used.diagnostics.empty());
+        CHECK(used.model.packs == std::vector<std::string>{"finance"});
+    }
+    // A pack the compiler does not have; core words need no pack.
+    CHECK(check_codes("use acme\ncontract C\nparties we\nthing T\n  holder we\n") ==
+          "check.unknown-pack");
+    CHECK(check_text("contract C\nparties we\nthing T\n  holder we\ncan transfer\n")
+              .diagnostics.empty());
+}
+
 TEST_CASE("messages and types, in each language", "[bo][check]") {
     const Checked checked =
-        check_text("contract C\nparties issuer\nasset A\n  holder HKD\n  fee USD\n"
+        check_text("use finance\ncontract C\nparties issuer\nasset A\n  holder HKD\n  fee USD\n"
                    "can pay by issuer with cost HKD\n  requires cost > fee\n");
     REQUIRE(codes(checked) == "check.field-type check.mixed-currencies");
     const Diagnostic& field = checked.diagnostics[0];
@@ -206,7 +243,7 @@ TEST_CASE("messages and types, in each language", "[bo][check]") {
     CHECK(render(field, official_pack("zh-Hant-HK")) == "持有人 存放的是訂約方，而非港元金額");
     CHECK(render(field, official_pack("zh-Hans-CN")) == "持有人 存放的是参与方，而不是港元金额");
     const Diagnostic& money = checked.diagnostics[1];
-    CHECK(money.span.line == 7);
+    CHECK(money.span.line == 8);
     CHECK(render(money, nullptr) ==
           "money in HKD and money in USD are in different currencies; Bo never converts one into "
           "the other");
@@ -246,7 +283,7 @@ TEST_CASE("messages and types, in each language", "[bo][check]") {
     CHECK(describe_type("nonsense", nullptr) == "nonsense");
     CHECK(describe_type("", nullptr) == "an unknown type");
     // Concepts in the checker's values are spelled in the reader's language.
-    const Checked unknown = check_text("contract C\nparties we\nrecord R\n  note text\n"
+    const Checked unknown = check_text("contract C\nparties we\nthing R\n  note text\n"
                                        "can close by we\n  requires due < today\n");
     REQUIRE(codes(unknown) == "check.unknown-field");
     CHECK(render(unknown.diagnostics[0], official_pack("zh-Hant-HK"))
@@ -255,7 +292,8 @@ TEST_CASE("messages and types, in each language", "[bo][check]") {
 
 TEST_CASE("fields: types, constants, parties, and the vocabulary's meanings", "[bo][check]") {
     const std::string model =
-        model_of("contract C\nparties we, customer\nservice S\n  price monthly HKD 120\n"
+        model_of("use commerce\nuse finance\nuse services\ncontract C\nparties we, "
+                 "customer\nservice S\n  price monthly HKD 120\n"
                  "  traffic monthly 2TB, overage per GB HKD 0.000001\n  holder customer\n"
                  "  due\n  tier\n  cooling period\n  IP 1 item\n  limit 5_000 HKD\n");
     CHECK(model.find("field price.price constant recurring time.monthly money cur.HKD") !=
@@ -271,22 +309,26 @@ TEST_CASE("fields: types, constants, parties, and the vocabulary's meanings", "[
     // A due field: due is the field, not the period.
     CHECK(model.find("due field\n") != std::string::npos);
     // Unit prices keep six decimal places; overage counts in the traffic's units.
-    CHECK(check_codes("contract C\nparties we\nservice S\n"
+    CHECK(check_codes("use commerce\nuse services\ncontract C\nparties we\nservice S\n"
                       "  traffic monthly 2TB, overage per GB HKD 0.0000001\n") ==
           "check.precision");
-    CHECK(check_codes("contract C\nparties we\nservice S\n"
+    CHECK(check_codes("use commerce\nuse services\ncontract C\nparties we\nservice S\n"
                       "  traffic monthly 2TB, overage per item HKD 1\n") == "check.mixed-units");
     // Amounts need a unit; parts take the amount's.
-    CHECK(check_codes("contract C\nparties we\nasset A\n  amount\n") == "check.field-needs-type");
-    CHECK(check_codes("contract C\nparties we\nasset A\n  parts\n") == "check.field-needs-type");
-    CHECK(model_of("contract C\nparties we\nasset A\n  amount 2TB\n  parts list TB at most 4\n")
+    CHECK(check_codes("use finance\ncontract C\nparties we\nasset A\n  amount\n") ==
+          "check.field-needs-type");
+    CHECK(check_codes("use finance\ncontract C\nparties we\nasset A\n  parts\n") ==
+          "check.field-needs-type");
+    CHECK(model_of("use finance\ncontract C\nparties we\nasset A\n  amount 2TB\n  parts list TB at "
+                   "most 4\n")
               .find("field field.parts instance list 4 quantity data") != std::string::npos);
-    CHECK(check_codes("contract C\nparties we\nasset A\n  amount HKD\n  parts list USD\n") ==
+    CHECK(check_codes(
+              "use finance\ncontract C\nparties we\nasset A\n  amount HKD\n  parts list USD\n") ==
           "check.field-type");
 }
 
 TEST_CASE("values are exact, in their smallest units", "[bo][check]") {
-    const std::string head = "contract C\nparties we\nrecord R\n  size GB\n  cost HKD\n"
+    const std::string head = "contract C\nparties we\nthing R\n  size GB\n  cost HKD\n"
                              "  term days\n  n number\ncan look by we\n";
     const auto requires_ = [&](std::string_view condition) {
         return check_codes(head + "  requires " + std::string(condition) + "\n");
@@ -327,57 +369,60 @@ TEST_CASE("values are exact, in their smallest units", "[bo][check]") {
 
 TEST_CASE("states: collected, the first one, and reachable", "[bo][check]") {
     // No state changes: every instance is active (R4).
-    CHECK(model_of("contract C\nparties we\nrecord R\n  n number\ncan go by we\n")
+    CHECK(model_of("contract C\nparties we\nthing R\n  n number\ncan go by we\n")
               .find("state state.active first{R4}\n") != std::string::npos);
     // A cycle with active: active is first.
-    const std::string cycle = model_of("contract C\nparties we\nrecord R\n  n number\n"
+    const std::string cycle = model_of("contract C\nparties we\nthing R\n  n number\n"
                                        "can stop by we\n  active -> suspended\n"
                                        "can restart by we\n  suspended -> active\n");
     CHECK(cycle.find("state state.active first{R4}\nstate state.suspended{R5}\n") !=
           std::string::npos);
     // From any state: `-> closed`.
-    CHECK(model_of("contract C\nparties we\nrecord R\n  n number\ncan end by we\n  -> closed\n")
+    CHECK(model_of("contract C\nparties we\nthing R\n  n number\ncan end by we\n  -> closed\n")
               .find("state closed{R5}") != std::string::npos);
     // A cycle without active cannot be reached.
-    CHECK(check_codes("contract C\nparties we\nrecord R\n  n number\n"
+    CHECK(check_codes("contract C\nparties we\nthing R\n  n number\n"
                       "can a by we\n  x -> y\ncan b by we\n  y -> x\n") ==
           "check.unreachable-state check.unreachable-state");
     // A state used as a condition (R7); one only a vocabulary action whose
     // standard terms come later could reach is not reported.
-    CHECK(check_codes("contract C\nparties we\nasset A\n  n number\ncan refund\n"
-                      "  requires not frozen\n")
+    CHECK(check_codes(
+              "use commerce\nuse finance\ncontract C\nparties we\nasset A\n  n number\ncan refund\n"
+              "  requires not frozen\n")
               .empty());
     // The standard terms' states are known (R19): those they reach are the
     // contract's, and no other.
-    CHECK(model_of("contract C\nparties we\nasset A\n  holder we\ncan pledge\n"
+    CHECK(model_of("use finance\ncontract C\nparties we\nasset A\n  holder we\ncan pledge\n"
                    "  requires not frozen\ncan freeze\n")
               .find("state state.active first{R4}\nstate state.pledged{R19}\n"
                     "state state.frozen{R19}\n") != std::string::npos);
-    CHECK(check_codes("contract C\nparties we\nasset A\n  holder we\ncan pledge\n"
+    CHECK(check_codes("use finance\ncontract C\nparties we\nasset A\n  holder we\ncan pledge\n"
                       "  requires not frozen\n") == "check.unreachable-state");
     // A transition names states, not parties.
-    CHECK(check_codes("contract C\nparties we\nrecord R\n  n number\ncan go by we\n  -> we\n") ==
+    CHECK(check_codes("contract C\nparties we\nthing R\n  n number\ncan go by we\n  -> we\n") ==
           "check.type");
 }
 
 TEST_CASE("roles: bound at creation, or by the first to (U4)", "[bo][check]") {
-    const std::string model =
-        model_of("contract C\nparties issuer, supplier, bank\nasset A\n  holder supplier\n"
-                 "can audit by bank\n  -> active\ncan pledge to bank\n");
+    const std::string model = model_of(
+        "use finance\ncontract C\nparties issuer, supplier, bank\nasset A\n  holder supplier\n"
+        "can audit by bank\n  -> active\ncan pledge to bank\n");
     // The bank is named after `by` first: bound at creation.
     CHECK(model.find("party role.bank bound=creation{R3}") != std::string::npos);
-    const std::string later =
-        model_of("contract C\nparties issuer, supplier, bank\nasset A\n  holder supplier\n"
-                 "can pledge to bank\ncan audit by bank\n  -> active\n");
+    const std::string later = model_of(
+        "use finance\ncontract C\nparties issuer, supplier, bank\nasset A\n  holder supplier\n"
+        "can pledge to bank\ncan audit by bank\n  -> active\n");
     CHECK(later.find("party role.bank bound=act.pledge{R3}") != std::string::npos);
     CHECK(later.find("  consent role.bank{R3}\n") != std::string::npos);
     // A name of the contract's own is a party too.
     CHECK(
-        model_of("contract C\nparties 甲方, 乙方\nrecord R\n  n number\ncan sign by 甲方 to 乙方\n")
+        model_of("contract C\nparties 甲方, 乙方\nthing R\n  n number\ncan sign by 甲方 to 乙方\n")
             .find("party 乙方 bound=sign{R3}") != std::string::npos);
-    CHECK(check_codes("contract C\nparties we\nrecord R\n  n number\ncan sign by we to bank\n") ==
-          "check.unknown-party");
-    CHECK(check_codes("contract C\nparties we\nrecord R\n  n number\ncan sign by n\n") ==
+    CHECK(
+        check_codes(
+            "use finance\ncontract C\nparties we\nthing R\n  n number\ncan sign by we to bank\n") ==
+        "check.unknown-party");
+    CHECK(check_codes("contract C\nparties we\nthing R\n  n number\ncan sign by n\n") ==
           "check.type");
 }
 
@@ -385,55 +430,63 @@ TEST_CASE("consents, presence, agents, and thresholds", "[bo][check]") {
     // R8: taking a field that holds a party needs its consent, unless that
     // party starts the action.
     const std::string fields = "  amount HKD\n  holder supplier\n";
-    CHECK(model_of("contract C\nparties we, supplier, bank\nasset A\n" + fields +
+    CHECK(model_of("use finance\ncontract C\nparties we, supplier, bank\nasset A\n" + fields +
                    "can seize by we\n  holder = we\n")
               .find("  consent field.holder{R8}\n") != std::string::npos);
-    CHECK(model_of("contract C\nparties we, supplier, bank\nasset A\n" + fields +
+    CHECK(model_of("use finance\ncontract C\nparties we, supplier, bank\nasset A\n" + fields +
                    "can give by holder\n  holder = we\n")
               .find("consent") == std::string::npos);
     // R6: a bare threshold takes the unit of the action's one amount.
-    CHECK(model_of("contract C\nparties we\nasset A\n  amount TB\ncan ship by we\n"
+    CHECK(model_of("use finance\ncontract C\nparties we\nasset A\n  amount TB\ncan ship by we\n"
                    "  over 2 requires in person\n")
               .find("guard=(cond.over (quantity unit.TB 2){R6})") != std::string::npos);
-    CHECK(model_of("contract C\nparties we\nasset A\n  amount HKD\ncan ship by we with fee USD\n"
+    CHECK(model_of("use finance\ncontract C\nparties we\nasset A\n  amount HKD\ncan ship by we "
+                   "with fee USD\n"
                    "  over 2 requires in person\n")
               .find("guard=(cond.over (money cur.USD 2){R6})") != std::string::npos);
-    CHECK(check_codes("contract C\nparties we\nasset A\n  amount HKD\ncan ship by we\n"
+    CHECK(check_codes("use finance\ncontract C\nparties we\nasset A\n  amount HKD\ncan ship by we\n"
                       "  over USD 2 requires in person\n") == "check.mixed-currencies");
-    CHECK(check_codes("contract C\nparties we\nasset A\n  amount HKD\ncan ship by we\n"
+    CHECK(check_codes("use finance\ncontract C\nparties we\nasset A\n  amount HKD\ncan ship by we\n"
                       "  over 0.001 requires in person\n") == "check.precision");
     // R13 and R14: presence is the starter's; agents act within delegation
     // unless the action says they only propose.
-    const std::string presence = model_of(
-        "contract C\nparties we\nasset A\n  amount HKD\ncan ship by we\n  requires in person\n"
-        "can send by we\n  AI agent can propose\n");
+    const std::string presence = model_of("use finance\ncontract C\nparties we\nasset A\n  amount "
+                                          "HKD\ncan ship by we\n  requires in person\n"
+                                          "can send by we\n  AI agent can propose\n");
     CHECK(presence.find("can ship own by=role.we agents=delegation{R14}\n  requires "
                         "cond.in_person{R13}\n") != std::string::npos);
     CHECK(presence.find("can send own by=role.we agents=propose\n") != std::string::npos);
-    CHECK(check_codes("contract C\nparties we\nasset A\n  amount HKD\ncan ship by we\n"
+    CHECK(check_codes("use finance\ncontract C\nparties we\nasset A\n  amount HKD\ncan ship by we\n"
                       "  device can propose\n") == "check.permit");
     // consent of names a party.
-    CHECK(check_codes("contract C\nparties we\nasset A\n  amount HKD\ncan ship by we\n"
+    CHECK(check_codes("use finance\ncontract C\nparties we\nasset A\n  amount HKD\ncan ship by we\n"
                       "  requires consent of amount\n") == "check.type");
 }
 
 TEST_CASE("time rules: events, duties, and what is due", "[bo][check]") {
     // R9: a duty, and the due date it sets.
-    CHECK(model_of("contract C\nparties issuer\nasset A\n  due date\nwhen due issuer pays\n")
-              .find("  do subject=role.issuer act.pay obligation{R9}\n") != std::string::npos);
+    CHECK(
+        model_of(
+            "use finance\ncontract C\nparties issuer\nasset A\n  due date\nwhen due issuer pays\n")
+            .find("  do subject=role.issuer act.pay obligation{R9}\n") != std::string::npos);
     // R11: a service with a recurring price is due each period.
     const std::string service =
-        model_of("contract C\nparties we\nservice S\n  price monthly HKD 10\n"
+        model_of("use commerce\nuse finance\nuse services\ncontract C\nparties we\nservice S\n  "
+                 "price monthly HKD 10\n"
                  "when overdue 3 days we pays\nwhen 1 month before due we pays\n");
     CHECK(service.find("due period{R11}\n") != std::string::npos);
-    CHECK(check_codes("contract C\nparties we\nservice S\n  price HKD 10\n"
+    CHECK(check_codes("use commerce\nuse finance\nuse services\ncontract C\nparties we\nservice "
+                      "S\n  price HKD 10\n"
                       "when overdue 3 days we pays\n") == "check.needs-due");
-    CHECK(check_codes("contract C\nparties we\nasset A\n  due date\nwhen due + 3 days we pays\n")
-              .empty());
-    CHECK(check_codes("contract C\nparties we\nasset A\n  due date\nwhen 5 > 3 we pays\n") ==
+    CHECK(
+        check_codes(
+            "use finance\ncontract C\nparties we\nasset A\n  due date\nwhen due + 3 days we pays\n")
+            .empty());
+    CHECK(check_codes(
+              "use finance\ncontract C\nparties we\nasset A\n  due date\nwhen 5 > 3 we pays\n") ==
           "check.when-event");
     // In a time rule, what a person does has no place; a threshold neither.
-    CHECK(check_codes("contract C\nparties we\nasset A\n  due date\nwhen due\n"
+    CHECK(check_codes("use finance\ncontract C\nparties we\nasset A\n  due date\nwhen due\n"
                       "  over 5 requires due < today\n") == "check.not-a-value");
 }
 
@@ -442,9 +495,10 @@ TEST_CASE("the checker is safe on any tree", "[bo][check]") {
     // ones), and nothing the parser accepts upsets the checker.
     for (const std::string_view source :
          {"", "contract X\n", "parties we\n", "asset A\n", "can x\n", "when due\n  x\n",
-          "contract C\nparties we\nasset A\n  amount HKD\n  parts\ncan split with parts\n",
-          "contract C\nparties we\nrecord R\n  n list list number\n",
-          "contract C\nparties we\nrecord R\n  n (1, 2)\ncan a by we\n  each x in n\n"
+          "use finance\ncontract C\nparties we\nasset A\n  amount HKD\n  parts\ncan split with "
+          "parts\n",
+          "contract C\nparties we\nthing R\n  n list list number\n",
+          "contract C\nparties we\nthing R\n  n (1, 2)\ncan a by we\n  each x in n\n"
           "    each y in n\n      requires x = y\n"}) {
         const Lexed lexed = lex(source, official());
         const Parsed parsed = parse(source, lexed);

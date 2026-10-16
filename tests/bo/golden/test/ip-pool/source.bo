@@ -1,3 +1,5 @@
+使用 commerce
+使用 services
 # The spec's IP pool example (bo-1.0, section 8), with its tests: allocate and
 # reclaim are built-in actions with the standard library's terms. An address
 # belongs to one customer at a time (each allocation names it, R23), and after

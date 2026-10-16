@@ -1,8 +1,10 @@
+use commerce
+use services
 service Hosting
   price monthly HKD 120, setup fee HKD 500
 resource Address
   cooling period 30 days
-record Log
+thing Log
   note text
 charge Fee
   rate 2%

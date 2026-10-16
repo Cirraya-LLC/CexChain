@@ -1,43 +1,43 @@
 测试 “goods redeemed in parts”：通过
-  第 1 步（第 21 行）通过：warehouse issue with quantity = 30 tonne
+  第 1 步（第 22 行）通过：warehouse issue with quantity = 30 tonne
     结果：调用被接受，实例现为正常。
-  第 2 步（第 22 行）通过：depositor redeem with portion = 0 tonne -> refused "bo:requires redeem 3"
+  第 2 步（第 23 行）通过：depositor redeem with portion = 0 tonne -> refused "bo:requires redeem 3"
     结果：调用被拒绝，因为赎回 的第 3 项要求未满足（bo:requires redeem 3）。
     合约条款 4.5.6：要求 3：部分大于 0。
-  第 3 步（第 23 行）通过：depositor redeem with portion = 40 tonne -> refused "bo:requires redeem 4"
+  第 3 步（第 24 行）通过：depositor redeem with portion = 40 tonne -> refused "bo:requires redeem 4"
     结果：调用被拒绝，因为赎回 的第 4 项要求未满足（bo:requires redeem 4）。
     合约条款 4.5.7：要求 4：部分不超过数量。
-  第 4 步（第 24 行）通过：depositor redeem with portion = 10 tonne -> active
+  第 4 步（第 25 行）通过：depositor redeem with portion = 10 tonne -> active
     结果：经 depositor 同意，调用被接受，实例现为正常。
-  第 5 步（第 25 行）通过：depositor pledge to bank1 -> pledged
+  第 5 步（第 26 行）通过：depositor pledge to bank1 -> pledged
     结果：经 depositor 和 bank1 同意，调用被接受，实例现为已质押。
-  第 6 步（第 26 行）通过：depositor redeem with portion = 5 tonne -> pledged
+  第 6 步（第 27 行）通过：depositor redeem with portion = 5 tonne -> pledged
     结果：经 depositor 和 bank1 同意，调用被接受，实例现为已质押。
-  第 7 步（第 27 行）通过：depositor transfer to trader1 -> refused "bo:state transfer"
+  第 7 步（第 28 行）通过：depositor transfer to trader1 -> refused "bo:state transfer"
     结果：调用被拒绝，因为实例当前的状态不允许 转让（bo:state transfer）。
     合约条款 4.1.6：如果实例处于正常状态，即转为正常状态；否则拒绝调用。
-  第 8 步（第 28 行）通过：bank1 release -> active
+  第 8 步（第 29 行）通过：bank1 release -> active
     结果：经 bank1 同意，调用被接受，实例现为正常。
-  第 9 步（第 29 行）通过：depositor transfer to trader1 -> active
+  第 9 步（第 30 行）通过：depositor transfer to trader1 -> active
     结果：经 trader1 和 depositor 同意，调用被接受，实例现为正常。
-  第 10 步（第 30 行）通过：trader1 redeem with portion = 15 tonne -> redeemed
+  第 10 步（第 31 行）通过：trader1 redeem with portion = 15 tonne -> redeemed
     结果：经 trader1 同意，调用被接受，实例现为已赎回；这是最终状态，实例不再接受调用。
-  第 11 步（第 31 行）通过：trader1 redeem with portion = 1 tonne -> refused
+  第 11 步（第 32 行）通过：trader1 redeem with portion = 1 tonne -> refused
     结果：账本拒绝调用：实例已处于最终状态，不再接受调用。
 
 测试 “frozen while pledged”：通过
-  第 1 步（第 34 行）通过：warehouse issue with quantity = 30 tonne
+  第 1 步（第 35 行）通过：warehouse issue with quantity = 30 tonne
     结果：调用被接受，实例现为正常。
-  第 2 步（第 35 行）通过：depositor pledge to bank1 -> pledged
+  第 2 步（第 36 行）通过：depositor pledge to bank1 -> pledged
     结果：经 depositor 和 bank1 同意，调用被接受，实例现为已质押。
-  第 3 步（第 36 行）通过：warehouse freeze -> frozen
+  第 3 步（第 37 行）通过：warehouse freeze -> frozen
     结果：调用被接受，实例现为已冻结。
-  第 4 步（第 37 行）通过：depositor redeem with portion = 1 tonne -> refused "bo:state redeem"
+  第 4 步（第 38 行）通过：depositor redeem with portion = 1 tonne -> refused "bo:state redeem"
     结果：调用被拒绝，因为实例当前的状态不允许 赎回（bo:state redeem）。
     合约条款 4.5.9.2：实例转为已赎回状态。
-  第 5 步（第 38 行）通过：warehouse unfreeze -> pledged
+  第 5 步（第 39 行）通过：warehouse unfreeze -> pledged
     结果：调用被接受，实例现为已质押。
-  第 6 步（第 39 行）通过：depositor redeem with portion = 30 tonne -> redeemed
+  第 6 步（第 40 行）通过：depositor redeem with portion = 30 tonne -> redeemed
     结果：经 depositor 和 bank1 同意，调用被接受，实例现为已赎回；这是最终状态，实例不再接受调用。
 
 共 2 个测试：2 个通过，0 个失败。

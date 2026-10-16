@@ -2,10 +2,12 @@
 # bank. We propose the terms; they take effect once the supplier and the
 # bank have both consented, each on its own ledger; we close the agreement
 # once the supplier confirms that the goods were delivered.
+use commerce
+use finance
 contract SupplyAgreement
 parties we, supplier, bank
 
-record Terms
+thing Terms
   goods text
   pieces number
   price CNY

@@ -1,41 +1,44 @@
-1:1 word kw.contract | contract
-1:10 name Split | Split
-1:15 newline
-2:1 word kw.parties | parties
-2:9 word role.issuer | issuer
-2:15 symbol , | ,
-2:17 word role.supplier | supplier
-2:25 newline
-4:1 word kind.asset | asset
-4:7 name Receivable | Receivable
-4:17 newline
-5:1 indent
-5:3 word field.amount | amount
-5:10 word cur.HKD | HKD
-5:13 newline
-6:3 word field.tier | tier
-6:8 word type.number | number
-6:14 newline
-7:3 word field.holder | holder
-7:10 word role.supplier | supplier
-7:18 newline
-9:1 dedent
-9:1 word kw.can | can
-9:5 word act.split | split
-9:11 word kw.with | with
-9:16 word field.parts | parts
-9:21 newline
-10:1 indent
-10:3 word kw.requires | requires
-10:12 word expr.sum_of piece=head | sum of
-10:19 word field.parts | parts
-10:25 symbol = | =
-10:27 word field.amount | amount
-10:33 newline
+1:1 word kw.use | use
+1:5 name finance | finance
+1:12 newline
+2:1 word kw.contract | contract
+2:10 name Split | Split
+2:15 newline
+3:1 word kw.parties | parties
+3:9 word role.issuer | issuer
+3:15 symbol , | ,
+3:17 word role.supplier | supplier
+3:25 newline
+5:1 word kind.asset | asset
+5:7 name Receivable | Receivable
+5:17 newline
+6:1 indent
+6:3 word field.amount | amount
+6:10 word cur.HKD | HKD
+6:13 newline
+7:3 word field.tier | tier
+7:8 word type.number | number
+7:14 newline
+8:3 word field.holder | holder
+8:10 word role.supplier | supplier
+8:18 newline
+10:1 dedent
+10:1 word kw.can | can
+10:5 word act.split | split
+10:11 word kw.with | with
+10:16 word field.parts | parts
+10:21 newline
+11:1 indent
 11:3 word kw.requires | requires
-11:12 word field.tier | tier
-11:17 symbol < | <
-11:19 number 5 | 5
-11:20 newline
-12:1 dedent
-12:1 end
+11:12 word expr.sum_of piece=head | sum of
+11:19 word field.parts | parts
+11:25 symbol = | =
+11:27 word field.amount | amount
+11:33 newline
+12:3 word kw.requires | requires
+12:12 word field.tier | tier
+12:17 symbol < | <
+12:19 number 5 | 5
+12:20 newline
+13:1 dedent
+13:1 end

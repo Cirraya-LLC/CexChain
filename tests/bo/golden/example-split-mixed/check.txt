@@ -1,4 +1,5 @@
 edition 1
+packs finance
 contract Split
 party role.issuer bound=creation{R3}
 party role.supplier bound=creation{R3}

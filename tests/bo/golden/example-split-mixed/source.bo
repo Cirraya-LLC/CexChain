@@ -1,3 +1,4 @@
+use finance
 contract Split
 参与方 issuer, 供應商
 

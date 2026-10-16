@@ -1,3 +1,4 @@
+use commerce
 # Bills and charges that cannot be computed (milestone 13): a second field
 # for a bill, an input named by a document, a charge that says something
 # twice, a fixed amount with a rounding mode or in another currency, charges
@@ -6,7 +7,7 @@
 contract Bills
 parties we, customer
 
-record Sale
+thing Sale
   invoice list HKD at most 5
   receipt list HKD
 

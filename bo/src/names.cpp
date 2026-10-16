@@ -27,6 +27,7 @@ using detail::enumerator_name;
 using detail::table_matches;
 
 static_assert(table_matches<Category>(category_names), "category_names is out of date");
+static_assert(table_matches<Vocab>(vocab_names), "vocab_names is out of date");
 static_assert(table_matches<Severity>(severity_names), "severity_names is out of date");
 static_assert(table_matches<Separation>(separation_names), "separation_names is out of date");
 static_assert(table_matches<MeaningKind>(meaning_kind_names), "meaning_kind_names is out of date");

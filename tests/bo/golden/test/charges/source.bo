@@ -1,3 +1,5 @@
+use commerce
+use finance
 # Charges of every kind on one bill (milestone 13): a gratuity on each
 # line, rounded half even; a levy, a fixed amount once per bill; VAT on the
 # price and the gratuity, once per invoice, rounded down; a surcharge on
@@ -7,7 +9,7 @@
 contract Dinner
 parties we, customer
 
-record Table
+thing Table
   invoice list HKD at most 10
 
 charge gratuity

@@ -1,42 +1,45 @@
-1:1 word kw.contract | contract
-1:10 name X | X
-1:11 newline
-2:1 word kw.parties | parties
-2:9 word role.we | we
+1:1 word kw.use | use
+1:5 name finance | finance
+1:12 newline
+2:1 word kw.contract | contract
+2:10 name X | X
 2:11 newline
-4:1 word kind.asset | asset
-4:7 name A | A
-4:8 newline
-5:1 indent
-5:3 word field.amount | amount
-5:10 word cur.HKD | HKD
-5:13 newline
-6:3 word field.holder | holder
-6:10 word role.we | we
-6:12 newline
-8:1 dedent
-8:1 word kw.can | can
-8:5 word act.pledge | pledge
-8:11 newline
-9:1 indent
-9:3 word kw.if | if
-9:6 word cond.overdue | overdue
-9:13 newline
+3:1 word kw.parties | parties
+3:9 word role.we | we
+3:11 newline
+5:1 word kind.asset | asset
+5:7 name A | A
+5:8 newline
+6:1 indent
+6:3 word field.amount | amount
+6:10 word cur.HKD | HKD
+6:13 newline
+7:3 word field.holder | holder
+7:10 word role.we | we
+7:12 newline
+9:1 dedent
+9:1 word kw.can | can
+9:5 word act.pledge | pledge
+9:11 newline
 10:1 indent
-10:5 word kw.reject | reject
-10:12 text "late" | "late"
-10:18 newline
-11:7 comment | # a comment, deeper
-12:3 dedent
-12:3 word kw.otherwise | otherwise
-12:12 newline
-13:1 indent
-13:5 word kw.requires | requires
-13:14 word cond.in_person | in person
-13:23 newline
-14:1 dedent
-14:1 dedent
-14:1 word kw.can | can
-14:5 word act.transfer | transfer
-14:13 newline
-15:1 end
+10:3 word kw.if | if
+10:6 word cond.overdue | overdue
+10:13 newline
+11:1 indent
+11:5 word kw.reject | reject
+11:12 text "late" | "late"
+11:18 newline
+12:7 comment | # a comment, deeper
+13:3 dedent
+13:3 word kw.otherwise | otherwise
+13:12 newline
+14:1 indent
+14:5 word kw.requires | requires
+14:14 word cond.in_person | in person
+14:23 newline
+15:1 dedent
+15:1 dedent
+15:1 word kw.can | can
+15:5 word act.transfer | transfer
+15:13 newline
+16:1 end

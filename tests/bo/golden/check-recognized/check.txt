@@ -1,4 +1,5 @@
 edition 1
+packs commerce finance
 contract Recognized
 party role.we bound=creation{R3}
 party role.customer bound=sell{R3}

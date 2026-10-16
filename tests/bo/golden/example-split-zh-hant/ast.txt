@@ -1,4 +1,5 @@
 edition 1
+use finance
 contract Split
 parties role.issuer role.supplier
 block kind.asset Receivable

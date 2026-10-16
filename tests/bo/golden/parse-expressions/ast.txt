@@ -1,4 +1,5 @@
 edition 1
+use commerce
 can check
   requires (= (- (+ a (* b c)) (/ d e)) f)
   requires (or (>= (* (+ a b) c) 10) (and (not g) h))

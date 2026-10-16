@@ -1,3 +1,4 @@
+use finance
 # Built-in actions: who starts them and their counterparty are the standard
 # terms', and so are their state changes and the fields they set; their
 # fields must be the instance's; and they must be able to start.

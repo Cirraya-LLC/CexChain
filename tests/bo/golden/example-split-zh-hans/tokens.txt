@@ -1,41 +1,44 @@
-1:1 word kw.contract | 合约
-1:4 name Split | Split
-1:9 newline
-2:1 word kw.parties | 参与方
-2:5 word role.issuer | 发行人
-2:8 symbol , | ,
-2:10 word role.supplier | 供应商
-2:13 newline
-4:1 word kind.asset | 资产
-4:4 name Receivable | Receivable
-4:14 newline
-5:1 indent
-5:3 word field.amount | 金额
-5:6 word cur.HKD | 港元
-5:8 newline
-6:3 word field.tier | 层级
-6:6 word type.number | 数值
+1:1 word kw.use | 使用
+1:4 name finance | finance
+1:11 newline
+2:1 word kw.contract | 合约
+2:4 name Split | Split
+2:9 newline
+3:1 word kw.parties | 参与方
+3:5 word role.issuer | 发行人
+3:8 symbol , | ,
+3:10 word role.supplier | 供应商
+3:13 newline
+5:1 word kind.asset | 资产
+5:4 name Receivable | Receivable
+5:14 newline
+6:1 indent
+6:3 word field.amount | 金额
+6:6 word cur.HKD | 港元
 6:8 newline
-7:3 word field.holder | 持有人
-7:7 word role.supplier | 供应商
-7:10 newline
-9:1 dedent
-9:1 word kw.can | 可
-9:2 word act.split | 拆分
-9:5 word kw.with | 附带
-9:8 word field.parts | 各部分
-9:11 newline
-10:1 indent
-10:3 word kw.requires | 须
-10:5 word field.parts | 各部分
-10:9 word expr.sum_of piece=tail | 总和
-10:12 symbol = | =
-10:14 word field.amount | 金额
-10:16 newline
+7:3 word field.tier | 层级
+7:6 word type.number | 数值
+7:8 newline
+8:3 word field.holder | 持有人
+8:7 word role.supplier | 供应商
+8:10 newline
+10:1 dedent
+10:1 word kw.can | 可
+10:2 word act.split | 拆分
+10:5 word kw.with | 附带
+10:8 word field.parts | 各部分
+10:11 newline
+11:1 indent
 11:3 word kw.requires | 须
-11:5 word field.tier | 层级
-11:8 symbol < | <
-11:10 number 5 | 5
-11:11 newline
-12:1 dedent
-12:1 end
+11:5 word field.parts | 各部分
+11:9 word expr.sum_of piece=tail | 总和
+11:12 symbol = | =
+11:14 word field.amount | 金额
+11:16 newline
+12:3 word kw.requires | 须
+12:5 word field.tier | 层级
+12:8 symbol < | <
+12:10 number 5 | 5
+12:11 newline
+13:1 dedent
+13:1 end

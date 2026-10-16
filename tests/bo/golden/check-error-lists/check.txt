@@ -1,7 +1,7 @@
 edition 1
 contract Lists
 party role.we bound=creation{R3}
-kind kind.record Batch
+kind kind.thing Batch
 field codes instance list 16 text
 field tags instance list 16 text{R16}
 field sizes instance list 4 number

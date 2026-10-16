@@ -1,7 +1,8 @@
+use commerce
 contract Names
 parties we, customer
 
-record Log
+thing Log
   note text
   limit HKD 100
 

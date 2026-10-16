@@ -78,6 +78,10 @@ struct Explained {
     /// "Contract SupplyAgreement", or the fragment's title.
     std::string title;
     std::string intro;
+    /// The vocabulary packs the contract uses, as a sentence ("Besides Bo's
+    /// core words, the contract uses the finance vocabulary pack (version
+    /// 1)."), or empty if it uses none.
+    std::string packs;
     std::vector<ExplainedSection> sections;
     /// The rules the text uses, in the order of their ids, with their texts
     /// (the pack's sentences rule-R1 ...).

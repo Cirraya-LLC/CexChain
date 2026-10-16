@@ -1,3 +1,5 @@
+使用 commerce
+使用 finance
 # The spec's VAT (bo-1.0, section 7) in a whole contract, with its tests. The
 # invoice's lines are amounts in fen (CNY 0.01). The VAT is added, computed
 # once per invoice on the lines' sum, and rounded half up (away from zero):
@@ -7,7 +9,7 @@
 合约 销售
 参与方 本公司, 客户
 
-记录 销售单
+物件 销售单
   发票 列表 人民币 最多 20
 
 费用 增值税

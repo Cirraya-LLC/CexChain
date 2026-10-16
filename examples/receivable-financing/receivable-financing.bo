@@ -4,6 +4,7 @@
 # repaid, the bank releases it, and the supplier sells it to a factoring
 # company, which the issuer pays at maturity. The core enterprise's ledger
 # keeps the receivable; each party consents on its own ledger.
+use finance
 contract ReceivableFinancing
 parties issuer, supplier
 

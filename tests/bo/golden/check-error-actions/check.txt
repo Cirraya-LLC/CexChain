@@ -1,8 +1,9 @@
 edition 1
+packs commerce finance
 contract Actions
 party role.we bound=creation{R3}
 party role.customer bound=creation{R3}
-kind kind.record Thing
+kind kind.thing Thing
 field field.holder instance party = role.customer{R2}
 field note instance text
 state state.active first{R4}
@@ -20,9 +21,9 @@ can loop_a own by=role.we agents=delegation{R14}
   do loop_b
 can loop_b own by=role.we agents=delegation{R14}
   do loop_a
-10:3 error check.permit: AI agent can approve: the only line of this kind in edition 1 is AI agent can propose
-11:3 error check.subject: customer pays: inside an action only the contract acts; a party's duty belongs in a when rule (when due issuer pays)
-13:3 error check.threshold-amount: over 5 compares the amount of sign, which has no one amount: give it one input of money (with amount HKD) or the instance an amount field, or compare a field instead (requires amount > HKD 100)
-15:3 error check.threshold-amount: over 5 compares the amount of stamp, which has no one amount: give it one input of money (with amount HKD) or the instance an amount field, or compare a field instead (requires amount > HKD 100)
-16:5 error check.recursion: loop_a leads back to itself through the actions it does; a contract never recurses
-18:5 error check.recursion: loop_b leads back to itself through the actions it does; a contract never recurses
+12:3 error check.permit: AI agent can approve: the only line of this kind in edition 1 is AI agent can propose
+13:3 error check.subject: customer pays: inside an action only the contract acts; a party's duty belongs in a when rule (when due issuer pays)
+15:3 error check.threshold-amount: over 5 compares the amount of sign, which has no one amount: give it one input of money (with amount HKD) or the instance an amount field, or compare a field instead (requires amount > HKD 100)
+17:3 error check.threshold-amount: over 5 compares the amount of stamp, which has no one amount: give it one input of money (with amount HKD) or the instance an amount field, or compare a field instead (requires amount > HKD 100)
+18:5 error check.recursion: loop_a leads back to itself through the actions it does; a contract never recurses
+20:5 error check.recursion: loop_b leads back to itself through the actions it does; a contract never recurses

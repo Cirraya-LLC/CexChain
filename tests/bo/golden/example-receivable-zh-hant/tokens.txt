@@ -1,45 +1,48 @@
-1:1 word kw.contract | 合約
-1:4 name ReceivableFinancing | ReceivableFinancing
-1:23 newline
-2:1 word kw.parties | 訂約方
-2:5 word role.issuer | 發行人
-2:8 symbol , | ,
-2:10 word role.supplier | 供應商
-2:13 symbol , | ,
-2:15 word role.bank | 銀行
-2:17 newline
-4:1 word kind.asset | 資產
-4:4 name Receivable | Receivable
-4:14 newline
-5:1 indent
-5:3 word field.amount | 金額
-5:6 word cur.HKD | 港元
-5:8 newline
-6:3 word field.due | 到期日
-6:7 word type.date | 日期
-6:9 newline
-7:3 word field.holder | 持有人
-7:7 word role.supplier | 供應商
-7:10 newline
-9:1 dedent
-9:1 word kw.can | 可
-9:2 word act.pledge | 質押
-9:5 word kw.to | 予
-9:7 word role.bank | 銀行
-9:9 newline
-10:1 indent
-10:3 word cond.over piece=head | 超過
-10:6 number 5000000 | 5_000_000
-10:16 word kw.requires | 須
-10:17 word cond.in_person | 親身確認
-10:21 newline
-11:1 dedent
-11:1 word kw.can | 可
-11:2 word act.transfer | 轉讓
-11:4 newline
-12:1 word kw.when | 當
-12:3 word field.due | 到期日
-12:7 word role.issuer | 發行人
-12:11 word act.pay | 支付
-12:13 newline
-13:1 end
+1:1 word kw.use | 使用
+1:4 name finance | finance
+1:11 newline
+2:1 word kw.contract | 合約
+2:4 name ReceivableFinancing | ReceivableFinancing
+2:23 newline
+3:1 word kw.parties | 訂約方
+3:5 word role.issuer | 發行人
+3:8 symbol , | ,
+3:10 word role.supplier | 供應商
+3:13 symbol , | ,
+3:15 word role.bank | 銀行
+3:17 newline
+5:1 word kind.asset | 資產
+5:4 name Receivable | Receivable
+5:14 newline
+6:1 indent
+6:3 word field.amount | 金額
+6:6 word cur.HKD | 港元
+6:8 newline
+7:3 word field.due | 到期日
+7:7 word type.date | 日期
+7:9 newline
+8:3 word field.holder | 持有人
+8:7 word role.supplier | 供應商
+8:10 newline
+10:1 dedent
+10:1 word kw.can | 可
+10:2 word act.pledge | 質押
+10:5 word kw.to | 予
+10:7 word role.bank | 銀行
+10:9 newline
+11:1 indent
+11:3 word cond.over piece=head | 超過
+11:6 number 5000000 | 5_000_000
+11:16 word kw.requires | 須
+11:17 word cond.in_person | 親身確認
+11:21 newline
+12:1 dedent
+12:1 word kw.can | 可
+12:2 word act.transfer | 轉讓
+12:4 newline
+13:1 word kw.when | 當
+13:3 word field.due | 到期日
+13:7 word role.issuer | 發行人
+13:11 word act.pay | 支付
+13:13 newline
+14:1 end

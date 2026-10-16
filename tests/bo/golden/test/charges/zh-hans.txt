@@ -1,19 +1,19 @@
 测试 “the worked example”：通过
-  第 1 步（第 59 行）通过：we create with invoice = (HKD 12.35, HKD 8.45) at 2027-06-30
+  第 1 步（第 61 行）通过：we create with invoice = (HKD 12.35, HKD 8.45) at 2027-06-30
     结果：调用被接受，实例现为正常。
-  第 2 步（第 60 行）通过：customer settle with payment = HKD 26.10 -> settled
+  第 2 步（第 62 行）通过：customer settle with payment = HKD 26.10 -> settled
     结果：经客户同意，调用被接受，实例现为已结清；这是最终状态，实例不再接受调用。
 
 测试 “the green fee, from 1 July 2027, on three lines or more”：通过
-  第 1 步（第 67 行）通过：we create with invoice = (HKD 12.35, HKD 8.45, HKD 10.00) at 2027-07-01
+  第 1 步（第 69 行）通过：we create with invoice = (HKD 12.35, HKD 8.45, HKD 10.00) at 2027-07-01
     结果：调用被接受，实例现为正常。
-  第 2 步（第 68 行）通过：customer settle with payment = HKD 37.99 -> settled
+  第 2 步（第 70 行）通过：customer settle with payment = HKD 37.99 -> settled
     结果：经客户同意，调用被接受，实例现为已结清；这是最终状态，实例不再接受调用。
 
 测试 “the green fee needs three lines”：通过
-  第 1 步（第 72 行）通过：we create with invoice = (HKD 12.35, HKD 8.45) at 2027-07-01
+  第 1 步（第 74 行）通过：we create with invoice = (HKD 12.35, HKD 8.45) at 2027-07-01
     结果：调用被接受，实例现为正常。
-  第 2 步（第 73 行）通过：customer settle with payment = HKD 26.10 -> settled
+  第 2 步（第 75 行）通过：customer settle with payment = HKD 26.10 -> settled
     结果：经客户同意，调用被接受，实例现为已结清；这是最终状态，实例不再接受调用。
 
 共 3 个测试：3 个通过，0 个失败。

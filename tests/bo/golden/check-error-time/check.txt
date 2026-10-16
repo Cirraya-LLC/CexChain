@@ -1,9 +1,10 @@
 edition 1
+packs commerce finance
 contract Time
 party role.we bound=creation{R3}
 party role.customer bound=hand{R3}
 utc_offset +08:00{R25}
-kind kind.record Plan
+kind kind.thing Plan
 field field.tier instance number
 field start instance date
 state state.active first{R4}
@@ -20,9 +21,9 @@ when start trigger=date function=when.rule{R24}
   do subject=role.customer act.pay obligation{R9}
 when (+ start (duration time.day 3)) trigger=date function=when.hand{R24}
   do hand
-7:3 error check.utc-offset: UTC offset "+15:00" is not a UTC offset: write a text such as "+08:00" or "-05:30", from -14:00 to +14:00
-12:6 error check.when-event: tier < 2 is not a time: a when rule fires at a date (when due, when due + 3 days), N before due, overdue or overdue N, or once the instance has been in a state for N (when suspended 30 days), with other conditions joined by and
-13:6 error check.needs-due: overdue counts from a due date, which the instance does not have: declare due date in the kind's block (a service with a recurring price is due at the end of each period)
-15:12 error check.when-person: in person asks for a person, but a keeper (a device) calls a when rule: nobody confirms it in person or proposes it
-16:3 error check.when-person: AI agent can propose asks for a person, but a keeper (a device) calls a when rule: nobody confirms it in person or proposes it
-18:21 error check.when-action: hand cannot be done by a when rule: the keeper's call gives no arguments, and hand names a counterparty or takes inputs
+9:3 error check.utc-offset: UTC offset "+15:00" is not a UTC offset: write a text such as "+08:00" or "-05:30", from -14:00 to +14:00
+14:6 error check.when-event: tier < 2 is not a time: a when rule fires at a date (when due, when due + 3 days), N before due, overdue or overdue N, or once the instance has been in a state for N (when suspended 30 days), with other conditions joined by and
+15:6 error check.needs-due: overdue counts from a due date, which the instance does not have: declare due date in the kind's block (a service with a recurring price is due at the end of each period)
+17:12 error check.when-person: in person asks for a person, but a keeper (a device) calls a when rule: nobody confirms it in person or proposes it
+18:3 error check.when-person: AI agent can propose asks for a person, but a keeper (a device) calls a when rule: nobody confirms it in person or proposes it
+20:21 error check.when-action: hand cannot be done by a when rule: the keeper's call gives no arguments, and hand names a counterparty or takes inputs

@@ -1,3 +1,4 @@
+use commerce
 can check
   requires a + b * c - d / e = f
   requires (a + b) * c >= 10 or not g and h

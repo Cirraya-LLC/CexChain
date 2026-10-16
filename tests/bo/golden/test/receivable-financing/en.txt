@@ -1,45 +1,45 @@
 Test "the supplier pledges the receivable to its bank": passed
-  Step 1 (line 17) passed: issuer issue with amount = HKD 3_000_000, due = 2027-06-30
+  Step 1 (line 18) passed: issuer issue with amount = HKD 3_000_000, due = 2027-06-30
     Result: accepted, and the instance is active.
-  Step 2 (line 18) passed: supplier pledge to bank1 -> pledged
+  Step 2 (line 19) passed: supplier pledge to bank1 -> pledged
     Result: accepted with the consent of the supplier and bank1, and the instance is pledged; it is final and takes no more calls.
-  Step 3 (line 19) passed: supplier pledge to bank2 -> refused
+  Step 3 (line 20) passed: supplier pledge to bank2 -> refused
     Result: refused by the ledger: the instance is final and takes no more calls.
-  Step 4 (line 20) passed: supplier transfer to factor1 -> refused
+  Step 4 (line 21) passed: supplier transfer to factor1 -> refused
     Result: refused by the ledger: the instance is final and takes no more calls.
 
 Test "the bank's consent is needed": passed
-  Step 1 (line 23) passed: issuer issue with amount = HKD 3_000_000, due = 2027-06-30
+  Step 1 (line 24) passed: issuer issue with amount = HKD 3_000_000, due = 2027-06-30
     Result: accepted, and the instance is active.
-  Step 2 (line 24) passed: supplier pledge to bank1 -> consent of bank1
+  Step 2 (line 25) passed: supplier pledge to bank1 -> consent of bank1
     Result: the call waits for the consent of bank1.
 
 Test "only the holder pledges": passed
-  Step 1 (line 27) passed: issuer issue with amount = HKD 3_000_000, due = 2027-06-30
+  Step 1 (line 28) passed: issuer issue with amount = HKD 3_000_000, due = 2027-06-30
     Result: accepted, and the instance is active.
-  Step 2 (line 28) passed: bank1 pledge to bank1 -> consent of supplier
+  Step 2 (line 29) passed: bank1 pledge to bank1 -> consent of supplier
     Result: the call waits for the consent of the supplier.
 
 Test "over HKD 5,000,000 the holder proves presence": passed
-  Step 1 (line 31) passed: issuer issue with amount = HKD 8_000_000, due = 2027-06-30
+  Step 1 (line 32) passed: issuer issue with amount = HKD 8_000_000, due = 2027-06-30
     Result: accepted, and the instance is active.
-  Step 2 (line 32) passed: supplier pledge to bank1 -> refused "bo:in-person pledge"
+  Step 2 (line 33) passed: supplier pledge to bank1 -> refused "bo:in-person pledge"
     Result: refused, since pledge needs a person who proves presence (a passkey or a hardware key) (bo:in-person pledge).
     The contract text, 4.1.4: Requirement 1: if the amount is over HKD 5,000,000, the holder must prove presence in person, with a passkey or a hardware key.
-  Step 3 (line 33) passed: supplier pledge to bank1 in person -> pledged
+  Step 3 (line 34) passed: supplier pledge to bank1 in person -> pledged
     Result: accepted with the consent of the supplier and bank1, and the instance is pledged; it is final and takes no more calls.
 
 Test "the supplier sells the receivable, and the buyer pledges it": passed
-  Step 1 (line 36) passed: issuer issue with amount = HKD 3_000_000, due = 2027-06-30
+  Step 1 (line 37) passed: issuer issue with amount = HKD 3_000_000, due = 2027-06-30
     Result: accepted, and the instance is active.
-  Step 2 (line 37) passed: supplier transfer to supplier -> refused "bo:requires transfer 1"
+  Step 2 (line 38) passed: supplier transfer to supplier -> refused "bo:requires transfer 1"
     Result: refused, since requirement 1 of transfer is not met (bo:requires transfer 1).
     The contract text, 4.2.5: Requirement 1: the counterparty is not the holder.
-  Step 3 (line 38) passed: supplier transfer to factor1 -> active
+  Step 3 (line 39) passed: supplier transfer to factor1 -> active
     Result: accepted with the consent of the supplier and factor1, and the instance is active.
-  Step 4 (line 39) passed: supplier pledge to bank1 -> consent of factor1
+  Step 4 (line 40) passed: supplier pledge to bank1 -> consent of factor1
     Result: the call waits for the consent of factor1.
-  Step 5 (line 40) passed: factor1 pledge to bank1 -> pledged
+  Step 5 (line 41) passed: factor1 pledge to bank1 -> pledged
     Result: accepted with the consent of factor1 and bank1, and the instance is pledged; it is final and takes no more calls.
 
 5 tests: 5 passed, 0 failed.

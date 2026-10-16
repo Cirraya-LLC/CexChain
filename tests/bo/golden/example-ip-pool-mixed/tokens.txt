@@ -1,30 +1,36 @@
-1:1 word kw.contract | contract
-1:10 name IP地址池 | IP地址池
-1:15 newline
-2:1 word kw.parties | 参与方
-2:5 word role.we | we
-2:7 symbol , | ,
-2:9 word role.customer | 客戶
-2:11 newline
-4:1 word kind.resource | resource
-4:10 name IP地址 | IP地址
-4:14 newline
-5:1 indent
-5:3 name 地址 | 地址
-5:6 word type.text | 文本
-5:8 newline
-6:3 word field.cooling_period | 冷却期
-6:7 duration time.day 30 | 30 days
+1:1 word kw.use | use
+1:5 name commerce | commerce
+1:13 newline
+2:1 word kw.use | use
+2:5 word kind.service form=plural | services
+2:13 newline
+3:1 word kw.contract | contract
+3:10 name IP地址池 | IP地址池
+3:15 newline
+4:1 word kw.parties | 参与方
+4:5 word role.we | we
+4:7 symbol , | ,
+4:9 word role.customer | 客戶
+4:11 newline
+6:1 word kind.resource | resource
+6:10 name IP地址 | IP地址
 6:14 newline
-8:1 dedent
-8:1 word kw.can | 可
-8:2 word act.allocate | allocate
-8:11 word kw.to | 予
-8:13 word role.customer | customer
-8:21 newline
-9:1 word kw.can | can
-9:5 word act.reclaim | 收回
-9:8 word kw.by | 由
-9:10 word role.we form=object | us
-9:12 newline
-10:1 end
+7:1 indent
+7:3 name 地址 | 地址
+7:6 word type.text | 文本
+7:8 newline
+8:3 word field.cooling_period | 冷却期
+8:7 duration time.day 30 | 30 days
+8:14 newline
+10:1 dedent
+10:1 word kw.can | 可
+10:2 word act.allocate | allocate
+10:11 word kw.to | 予
+10:13 word role.customer | customer
+10:21 newline
+11:1 word kw.can | can
+11:5 word act.reclaim | 收回
+11:8 word kw.by | 由
+11:10 word role.we form=object | us
+11:12 newline
+12:1 end

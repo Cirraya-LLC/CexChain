@@ -1,3 +1,4 @@
+use finance
 # A counterparty that an action makes the holder, the pledgee, or the payee
 # consents at every call (R31), even when its role was bound before: the
 # bank, which a field names, when an instance is created; the factor by its

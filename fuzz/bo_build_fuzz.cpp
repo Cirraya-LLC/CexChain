@@ -922,6 +922,10 @@ void Generator::statements(const int indent, const int depth,
 
 std::vector<std::pair<int, Line>> Generator::contract() {
     std::vector<std::pair<int, Line>> out;
+    // Every vocabulary pack (D-054): the generator draws on all their words.
+    for (const std::string_view pack : {"commerce", "finance", "services"}) {
+        out.push_back({0, {word("kw.use"), raw(std::string(pack))}});
+    }
     out.push_back({0, {word("kw.contract"), raw("Fuzzed")}});
     // Parties: role words or names.
     static constexpr std::string_view role_words[] = {"role.we", "role.customer", "role.bank",
@@ -944,7 +948,7 @@ std::vector<std::pair<int, Line>> Generator::contract() {
     out.push_back({0,
                    {word(asset       ? "kind.asset"
                          : resource_ ? "kind.resource"
-                                     : "kind.record"),
+                                     : "kind.thing"),
                     raw("Thing")}});
     if (c_.one_in(3)) {
         due_ = true;

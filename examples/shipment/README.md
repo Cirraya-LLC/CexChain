@@ -103,8 +103,8 @@ keep the ledgers and look around afterwards.
 
 The contract uses Bo's core words only (`holder`, `due`, `amount`, `overdue`, `within`, `in
 person`, `consent of`, money, dates, lists); no finance or commerce words. The late charge is a
-field the contract computes, not a `charge` on a bill, which needs the commerce words. `record`
-is the kind word that milestone G5 renames `thing`.
+field the contract computes, not a `charge` on a bill, which needs the `commerce` pack. The kind
+word is the core's `thing`.
 
 ## Limitations
 

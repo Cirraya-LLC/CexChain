@@ -1,111 +1,114 @@
-1:1 word kw.contract | 合約
-1:4 name Statements | Statements
-1:14 newline
-2:1 word kw.parties | 訂約方
-2:5 word role.issuer | 發行人
-2:8 symbol , | ,
-2:10 word role.supplier | 供應商
-2:13 symbol , | ,
-2:15 word role.bank | 銀行
-2:17 newline
-4:1 word kind.asset | 資產
-4:4 name Note | Note
-4:8 newline
-5:1 indent
-5:3 word field.amount | 金額
-5:6 word cur.HKD | 港元
+1:1 word kw.use | 使用
+1:4 name finance | finance
+1:11 newline
+2:1 word kw.contract | 合約
+2:4 name Statements | Statements
+2:14 newline
+3:1 word kw.parties | 訂約方
+3:5 word role.issuer | 發行人
+3:8 symbol , | ,
+3:10 word role.supplier | 供應商
+3:13 symbol , | ,
+3:15 word role.bank | 銀行
+3:17 newline
+5:1 word kind.asset | 資產
+5:4 name Note | Note
 5:8 newline
-6:3 word field.tier | 層級
-6:6 word type.number | 數值
+6:1 indent
+6:3 word field.amount | 金額
+6:6 word cur.HKD | 港元
 6:8 newline
-7:3 word field.holder | 持有人
-7:7 word role.supplier | 供應商
-7:10 newline
-9:1 dedent
-9:1 word kw.can | 可
-9:2 word act.pledge | 質押
-9:5 word kw.to | 予
-9:7 word role.bank | 銀行
-9:10 word kw.by | 由
-9:12 word role.supplier | 供應商
-9:16 word kw.with | 連同
-9:19 name reason | reason
-9:26 word type.text | 文字
-9:28 symbol , | ,
-9:30 name limit | limit
-9:36 word cur.HKD | 港元
-9:38 newline
-10:1 indent
-10:3 word kw.requires | 須
-10:5 word cond.consent_of piece=open | 經
+7:3 word field.tier | 層級
+7:6 word type.number | 數值
+7:8 newline
+8:3 word field.holder | 持有人
+8:7 word role.supplier | 供應商
+8:10 newline
+10:1 dedent
+10:1 word kw.can | 可
+10:2 word act.pledge | 質押
+10:5 word kw.to | 予
 10:7 word role.bank | 銀行
-10:10 word cond.consent_of piece=close | 同意
-10:13 word kw.and | 及
-10:15 word kw.not | 非
-10:17 word state.frozen | 已凍結
-10:20 newline
-11:3 word cond.over piece=head | 超過
-11:6 money cur.HKD 1000000 | HKD 1_000_000
-11:20 word kw.requires | 須
-11:21 word cond.in_person | 親身確認
-11:25 newline
-12:3 word actor.ai_agent | AI 代理
-12:9 word kw.can | 可
-12:11 word act.propose | 提議
-12:13 newline
-13:3 word role.bank | 銀行
-13:6 word kw.can | 可
-13:8 word act.approve | 批准
-13:10 newline
-14:3 word kw.if | 如
-14:5 word field.tier | 層級
-14:8 symbol < | <
-14:10 number 2 | 2
-14:12 word kw.reject | 拒絕
-14:15 text "the tier is too low" | "the tier is too low"
-14:36 newline
-15:3 word kw.otherwise | 否則
-15:6 word kw.if | 如
-15:8 word field.tier | 層級
-15:11 symbol < | <
-15:13 number 4 | 4
-15:14 newline
-16:1 indent
-16:5 word field.holder | 持有人
-16:9 symbol = | =
-16:11 word role.bank | 銀行
-16:13 newline
-17:5 word state.active | 正常
-17:7 symbol , | ,
-17:9 word state.frozen | 已凍結
-17:13 symbol -> | ->
-17:16 word state.pledged | 已質押
-17:19 newline
-18:3 dedent
-18:3 word kw.otherwise | 否則
-18:5 newline
-19:1 indent
-19:5 symbol -> | ->
-19:8 word state.pledged | 已質押
-19:11 newline
-20:3 dedent
-20:3 word kw.each | 逐一
-20:6 name part | part
-20:11 word kw.in | 於
-20:13 word field.parts | 各部分
-20:16 newline
-21:1 indent
-21:5 word kw.requires | 須
-21:7 name part | part
-21:12 symbol > | >
-21:14 money cur.HKD 0 | HKD 0
-21:19 newline
-22:3 dedent
-22:3 word act.notify | 通知
-22:6 word role.bank | 銀行
-22:9 word kw.and | 及
-22:11 word role.issuer | 發行人
-22:15 word act.pay | 支付
-22:17 newline
-23:1 dedent
-23:1 end
+10:10 word kw.by | 由
+10:12 word role.supplier | 供應商
+10:16 word kw.with | 連同
+10:19 name reason | reason
+10:26 word type.text | 文字
+10:28 symbol , | ,
+10:30 name limit | limit
+10:36 word cur.HKD | 港元
+10:38 newline
+11:1 indent
+11:3 word kw.requires | 須
+11:5 word cond.consent_of piece=open | 經
+11:7 word role.bank | 銀行
+11:10 word cond.consent_of piece=close | 同意
+11:13 word kw.and | 及
+11:15 word kw.not | 非
+11:17 word state.frozen | 已凍結
+11:20 newline
+12:3 word cond.over piece=head | 超過
+12:6 money cur.HKD 1000000 | HKD 1_000_000
+12:20 word kw.requires | 須
+12:21 word cond.in_person | 親身確認
+12:25 newline
+13:3 word actor.ai_agent | AI 代理
+13:9 word kw.can | 可
+13:11 word act.propose | 提議
+13:13 newline
+14:3 word role.bank | 銀行
+14:6 word kw.can | 可
+14:8 word act.approve | 批准
+14:10 newline
+15:3 word kw.if | 如
+15:5 word field.tier | 層級
+15:8 symbol < | <
+15:10 number 2 | 2
+15:12 word kw.reject | 拒絕
+15:15 text "the tier is too low" | "the tier is too low"
+15:36 newline
+16:3 word kw.otherwise | 否則
+16:6 word kw.if | 如
+16:8 word field.tier | 層級
+16:11 symbol < | <
+16:13 number 4 | 4
+16:14 newline
+17:1 indent
+17:5 word field.holder | 持有人
+17:9 symbol = | =
+17:11 word role.bank | 銀行
+17:13 newline
+18:5 word state.active | 正常
+18:7 symbol , | ,
+18:9 word state.frozen | 已凍結
+18:13 symbol -> | ->
+18:16 word state.pledged | 已質押
+18:19 newline
+19:3 dedent
+19:3 word kw.otherwise | 否則
+19:5 newline
+20:1 indent
+20:5 symbol -> | ->
+20:8 word state.pledged | 已質押
+20:11 newline
+21:3 dedent
+21:3 word kw.each | 逐一
+21:6 name part | part
+21:11 word kw.in | 於
+21:13 word field.parts | 各部分
+21:16 newline
+22:1 indent
+22:5 word kw.requires | 須
+22:7 name part | part
+22:12 symbol > | >
+22:14 money cur.HKD 0 | HKD 0
+22:19 newline
+23:3 dedent
+23:3 word act.notify | 通知
+23:6 word role.bank | 銀行
+23:9 word kw.and | 及
+23:11 word role.issuer | 發行人
+23:15 word act.pay | 支付
+23:17 newline
+24:1 dedent
+24:1 end

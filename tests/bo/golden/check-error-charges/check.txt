@@ -1,4 +1,5 @@
 edition 1
+packs commerce
 contract Charges
 party role.we bound=creation{R3}
 party role.customer bound=creation{R3}
@@ -13,10 +14,10 @@ charge charge.tax Levy
   line charge.added
   computes added rate per_line round.half_up{R17} on=price.price{R27}
 state state.active first{R4}
-4:8 error check.charge-rate: the charge Fee needs a rate (rate 5%) or an amount (amount HKD 20), and not both
-4:8 error check.charge-included: say whether Fee is included in the price or added to it: write included or added, once
-4:8 error check.charge-document: the charge Fee is computed on a bill, but no field holds one: declare a field named by a document, such as invoice list HKD
-8:3 error check.charge-field: notify customer is not a line a charge has: rate, amount, applies to, included or added, per line, per document, according to a document, a rounding mode, or from DATE on with a rate
-9:8 error check.duplicate: Fee is declared twice; a name has one meaning in a contract
-12:5 error check.charge-document: the charge Levy is computed on a bill, but no field holds one: declare a field named by a document, such as invoice list HKD
-13:8 error check.type: 5 is a number, but a rate (%) is needed here
+5:8 error check.charge-rate: the charge Fee needs a rate (rate 5%) or an amount (amount HKD 20), and not both
+5:8 error check.charge-included: say whether Fee is included in the price or added to it: write included or added, once
+5:8 error check.charge-document: the charge Fee is computed on a bill, but no field holds one: declare a field named by a document, such as invoice list HKD
+9:3 error check.charge-field: notify customer is not a line a charge has: rate, amount, applies to, included or added, per line, per document, according to a document, a rounding mode, or from DATE on with a rate
+10:8 error check.duplicate: Fee is declared twice; a name has one meaning in a contract
+13:5 error check.charge-document: the charge Levy is computed on a bill, but no field holds one: declare a field named by a document, such as invoice list HKD
+14:8 error check.type: 5 is a number, but a rate (%) is needed here

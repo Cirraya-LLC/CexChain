@@ -82,8 +82,9 @@ target_compile_definitions(cexchain_bo_tests PRIVATE
 target_compile_features(cexchain_bo_tests PRIVATE cxx_std_26)
 cexchain_target_defaults(cexchain_bo_tests)
 if(TARGET cexchain_bo)
-    target_sources(cexchain_bo_tests PRIVATE bo/assets_test.cpp bo/build_test.cpp bo/codegen_test.cpp
-        bo/names_test.cpp bo/runtime_harness.cpp bo/runtime_test.cpp bo/scenario_test.cpp)
+    target_sources(cexchain_bo_tests PRIVATE bo/build_test.cpp bo/codegen_test.cpp
+        bo/finance_terms_test.cpp bo/names_test.cpp bo/runtime_harness.cpp bo/runtime_test.cpp
+        bo/scenario_test.cpp)
     target_link_libraries(cexchain_bo_tests PRIVATE cexchain::bo nlohmann_json::nlohmann_json)
     target_compile_definitions(cexchain_bo_tests PRIVATE
         CEXCHAIN_TESTVECTORS_DIR="${PROJECT_SOURCE_DIR}/testvectors")

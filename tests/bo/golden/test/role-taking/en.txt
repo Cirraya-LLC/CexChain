@@ -1,38 +1,38 @@
 Test "a pledge to the bank needs its consent": passed
-  Step 1 (line 29) passed: issuer issue with amount = HKD 1_000, due = 2027-06-30
+  Step 1 (line 30) passed: issuer issue with amount = HKD 1_000, due = 2027-06-30
     Result: accepted, and the instance is active.
-  Step 2 (line 30) passed: supplier pledge to bank -> consent of bank
+  Step 2 (line 31) passed: supplier pledge to bank -> consent of bank
     Result: the call waits for the consent of the bank.
-  Step 3 (line 31) passed: supplier pledge to bank -> pledged
+  Step 3 (line 32) passed: supplier pledge to bank -> pledged
     Result: accepted with the consent of the supplier and the bank, and the instance is pledged.
-  Step 4 (line 32) passed: bank enforce -> active
+  Step 4 (line 33) passed: bank enforce -> active
     Result: accepted with the consent of the bank, and the instance is active.
 
 Test "a transfer to the bank needs its consent": passed
-  Step 1 (line 35) passed: issuer issue with amount = HKD 1_000, due = 2027-06-30
+  Step 1 (line 36) passed: issuer issue with amount = HKD 1_000, due = 2027-06-30
     Result: accepted, and the instance is active.
-  Step 2 (line 36) passed: supplier transfer to bank -> consent of bank
+  Step 2 (line 37) passed: supplier transfer to bank -> consent of bank
     Result: the call waits for the consent of the bank.
-  Step 3 (line 37) passed: supplier transfer to bank -> active
+  Step 3 (line 38) passed: supplier transfer to bank -> active
     Result: accepted with the consent of the supplier and the bank, and the instance is active.
-  Step 4 (line 38) passed: bank transfer to bank -> refused "bo:requires transfer 1"
+  Step 4 (line 39) passed: bank transfer to bank -> refused "bo:requires transfer 1"
     Result: refused, since requirement 1 of transfer is not met (bo:requires transfer 1).
     The contract text, 4.2.5: Requirement 1: the bank is not the holder.
 
 Test "the factor, bound by its first sale, consents to each pledge": passed
-  Step 1 (line 41) passed: issuer issue with amount = HKD 1_000, due = 2027-06-30
+  Step 1 (line 42) passed: issuer issue with amount = HKD 1_000, due = 2027-06-30
     Result: accepted, and the instance is active.
-  Step 2 (line 42) passed: supplier sell to factor -> consent of factor
+  Step 2 (line 43) passed: supplier sell to factor -> consent of factor
     Result: the call waits for the consent of factor.
-  Step 3 (line 43) passed: supplier sell to factor -> active
+  Step 3 (line 44) passed: supplier sell to factor -> active
     Result: accepted with the consent of the supplier and factor, and the instance is active.
-  Step 4 (line 44) passed: factor transfer to bank -> active
+  Step 4 (line 45) passed: factor transfer to bank -> active
     Result: accepted with the consent of factor and the bank, and the instance is active.
-  Step 5 (line 45) passed: bank lodge to factor -> consent of factor
+  Step 5 (line 46) passed: bank lodge to factor -> consent of factor
     Result: the call waits for the consent of factor.
-  Step 6 (line 46) passed: bank lodge to factor -> pledged
+  Step 6 (line 47) passed: bank lodge to factor -> pledged
     Result: accepted with the consent of factor and the bank, and the instance is pledged.
-  Step 7 (line 47) passed: factor release -> active
+  Step 7 (line 48) passed: factor release -> active
     Result: accepted with the consent of factor, and the instance is active.
 
 3 tests: 3 passed, 0 failed.

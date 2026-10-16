@@ -1,88 +1,94 @@
 1:1 edition_line 1 | bo 1
 1:5 newline
-2:1 word kw.contract | 合約
-2:4 name VPS服務 | VPS服務
-2:9 newline
-3:1 word kw.parties | parties
-3:9 word role.we | 本公司
-3:12 symbol , | ,
-3:14 word role.customer | customer
-3:22 newline
-5:1 word kind.service | service
-5:9 name VPS | VPS
-5:12 newline
-6:1 indent
-6:3 word price.price | 價格
-6:6 word time.monthly | monthly
-6:14 money cur.HKD 120 | HKD 120
-6:21 newline
-7:3 word price.traffic | traffic
-7:11 word time.monthly | 每月
-7:14 quantity unit.TB 2 | 2TB
-7:17 symbol , | ,
-7:19 word price.overage | 超出
-7:22 word price.per | per
-7:26 word unit.GB | GB
-7:29 money cur.HKD 0.10 | HKD 0.10
-7:37 newline
-8:3 name IP | IP
-8:6 quantity unit.item 1 | 1个
-8:8 newline
-9:3 word charge.tax | tax
-9:7 word charge.by | 按
-9:9 word field.customer_location | 客戶所在地
-9:14 newline
-11:1 dedent
-11:1 word kw.can | 可
-11:2 word act.subscribe | subscribe
-11:12 word kw.by | by
-11:15 word role.customer | 客户
-11:17 newline
-12:1 word kw.can | can
-12:5 word act.renew | 續期
-12:8 word kw.by | 由
-12:10 word role.customer | customer
-12:18 newline
+2:1 word kw.use | 使用
+2:4 name commerce | commerce
+2:12 newline
+3:1 word kw.use | 使用
+3:4 word kind.service form=plural | services
+3:12 newline
+4:1 word kw.contract | 合約
+4:4 name VPS服務 | VPS服務
+4:9 newline
+5:1 word kw.parties | parties
+5:9 word role.we | 本公司
+5:12 symbol , | ,
+5:14 word role.customer | customer
+5:22 newline
+7:1 word kind.service | service
+7:9 name VPS | VPS
+7:12 newline
+8:1 indent
+8:3 word price.price | 價格
+8:6 word time.monthly | monthly
+8:14 money cur.HKD 120 | HKD 120
+8:21 newline
+9:3 word price.traffic | traffic
+9:11 word time.monthly | 每月
+9:14 quantity unit.TB 2 | 2TB
+9:17 symbol , | ,
+9:19 word price.overage | 超出
+9:22 word price.per | per
+9:26 word unit.GB | GB
+9:29 money cur.HKD 0.10 | HKD 0.10
+9:37 newline
+10:3 name IP | IP
+10:6 quantity unit.item 1 | 1个
+10:8 newline
+11:3 word charge.tax | tax
+11:7 word charge.by | 按
+11:9 word field.customer_location | 客戶所在地
+11:14 newline
+13:1 dedent
 13:1 word kw.can | 可
-13:2 word act.upgrade | 升级
-13:5 word kw.by | by
-13:8 word role.customer | customer
-13:26 comment | # proration by days remaining: the executor's (R10)
-13:77 newline
-14:1 word kw.when | 當
-14:3 duration time.day 7 | 7 days
-14:10 word cond.before_due piece=tail | before due
-14:21 word act.notify | 通知
-14:24 word role.customer | 客戶
-14:26 newline
-15:1 word kw.when | when
-15:6 word cond.overdue | 逾期
-15:9 duration time.day 3 | 3天
-15:12 word act.suspend | suspend
-15:27 comment | # 請求面板執行器暫停 VPS
-15:42 newline
-16:1 word kw.when | 当
-16:3 word cond.overdue | overdue
-16:11 duration time.day 30 | 30日
-16:15 word act.terminate | 終止
-16:18 word kw.and | and
-16:22 word act.reclaim | 收回
-16:25 name IP | IP
-16:27 newline
-17:1 word kw.can | can
-17:5 word act.refund | refund
-17:12 word kw.by | 由
-17:14 word role.we form=object | us
-17:16 newline
-18:1 indent
-18:3 word cond.over piece=head | 超過
-18:6 money cur.HKD 100 | HKD 100
-18:14 word kw.requires | requires
-18:23 word cond.in_person | in person
-18:32 newline
-19:3 word actor.ai_agent | AI agent
-19:12 word kw.can | 可
-19:14 word act.propose | 提議
+13:2 word act.subscribe | subscribe
+13:12 word kw.by | by
+13:15 word role.customer | 客户
+13:17 newline
+14:1 word kw.can | can
+14:5 word act.renew | 續期
+14:8 word kw.by | 由
+14:10 word role.customer | customer
+14:18 newline
+15:1 word kw.can | 可
+15:2 word act.upgrade | 升级
+15:5 word kw.by | by
+15:8 word role.customer | customer
+15:26 comment | # proration by days remaining: the executor's (R10)
+15:77 newline
+16:1 word kw.when | 當
+16:3 duration time.day 7 | 7 days
+16:10 word cond.before_due piece=tail | before due
+16:21 word act.notify | 通知
+16:24 word role.customer | 客戶
+16:26 newline
+17:1 word kw.when | when
+17:6 word cond.overdue | 逾期
+17:9 duration time.day 3 | 3天
+17:12 word act.suspend | suspend
+17:27 comment | # 請求面板執行器暫停 VPS
+17:42 newline
+18:1 word kw.when | 当
+18:3 word cond.overdue | overdue
+18:11 duration time.day 30 | 30日
+18:15 word act.terminate | 終止
+18:18 word kw.and | and
+18:22 word act.reclaim | 收回
+18:25 name IP | IP
+18:27 newline
+19:1 word kw.can | can
+19:5 word act.refund | refund
+19:12 word kw.by | 由
+19:14 word role.we form=object | us
 19:16 newline
-20:1 dedent
-20:1 end
+20:1 indent
+20:3 word cond.over piece=head | 超過
+20:6 money cur.HKD 100 | HKD 100
+20:14 word kw.requires | requires
+20:23 word cond.in_person | in person
+20:32 newline
+21:3 word actor.ai_agent | AI agent
+21:12 word kw.can | 可
+21:14 word act.propose | 提議
+21:16 newline
+22:1 dedent
+22:1 end

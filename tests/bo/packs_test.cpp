@@ -23,6 +23,7 @@
 #include <cexchain/bo/concepts.hpp>
 #include <cexchain/bo/messages.hpp>
 #include <cexchain/bo/pack.hpp>
+#include <cexchain/bo/vocab.hpp>
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/crypto/openssl.hpp>
@@ -138,6 +139,40 @@ TEST_CASE("the official packs read, and their digests match the goldens", "[bo][
         lines += std::format("{} {} SM3 {}\n", r.pack->id, r.pack->version,
                              digest_hex(*r.pack, crypto::HashAlg::sm3));
     }
+    // The earlier official packs (version 1, from before vocabulary packs),
+    // which the compiler carries so that their deploys rebuild: unchanged,
+    // so their digests are those deploys recorded. They lack only the core's
+    // new kind word (thing).
+    REQUIRE(earlier_official_packs().size() == 3);
+    for (const PackText& text : earlier_official_pack_texts()) {
+        const PackRead r = read_pack(text.text);
+        INFO(text.id << "\n" << all_text(r.diagnostics));
+        REQUIRE(r.pack);
+        CHECK(r.pack->id == text.id);
+        CHECK(r.pack->version == 1);
+        CHECK(r.pack->official);
+        REQUIRE(r.diagnostics.size() == 1);
+        CHECK(reports(r.diagnostics, "pack.partial", {{"missing", "1"}}));
+        CHECK(r.pack->word("kind.record") != nullptr);
+        CHECK(r.pack->word("kind.thing") == nullptr);
+        Officials which = Officials::current;
+        CHECK(official_pack(text.id, 1, &which) != nullptr);
+        CHECK(which == Officials::before_vocabulary);
+        lines += std::format("{} {} SHA-256 {}\n", r.pack->id, r.pack->version,
+                             digest_hex(*r.pack, crypto::HashAlg::sha256));
+        lines += std::format("{} {} SM3 {}\n", r.pack->id, r.pack->version,
+                             digest_hex(*r.pack, crypto::HashAlg::sm3));
+    }
+    // The vocabulary packs (vocab.hpp).
+    const crypto::openssl::Provider provider;
+    for (const VocabularyPack& pack : vocabulary_packs()) {
+        for (const auto& [alg, name] : {std::pair{crypto::HashAlg::sha256, "SHA-256"},
+                                        std::pair{crypto::HashAlg::sm3, "SM3"}}) {
+            const auto d = digest(pack, provider, alg);
+            REQUIRE(d);
+            lines += std::format("{} {} {} {}\n", pack.id, pack.version, name, to_hex(d->bytes()));
+        }
+    }
     if (std::getenv("CEXCHAIN_UPDATE_GOLDENS") != nullptr) {
         std::ofstream(golden_digests) << lines;
     }
@@ -150,9 +185,12 @@ TEST_CASE("the official packs read, and their digests match the goldens", "[bo][
 TEST_CASE("the official packs spell every keyword, word, message, and sentence", "[bo][packs]") {
     for (const Pack& pack : official_packs()) {
         INFO(pack.id);
+        CHECK(pack.version == 2);
+        // Every concept but the retired ones, which only the earlier
+        // official packs spell.
         for (const Concept& c : concepts()) {
             INFO(c.id);
-            CHECK(pack.word(c.id) != nullptr);
+            CHECK((pack.word(c.id) != nullptr) == !c.retired);
         }
         for (const MessageSpec& m : message_specs()) {
             INFO(m.code);
@@ -244,7 +282,7 @@ TEST_CASE("a pack that misses a keyword is refused", "[bo][packs]") {
     // Vocabulary may be partial: a warning, and English fills in.
     const PackRead partial = read(TestPack{});
     REQUIRE(partial.pack);
-    CHECK(reports(partial.diagnostics, "pack.partial", {{"missing", "139"}, {"total", "139"}}));
+    CHECK(reports(partial.diagnostics, "pack.partial", {{"missing", "138"}, {"total", "138"}}));
 }
 
 TEST_CASE("one spelling with two meanings is refused, within a pack and across packs",
@@ -364,6 +402,8 @@ TEST_CASE("spellings are exact words", "[bo][packs]") {
     bad(R"("act.pay": {"word": "payq", "plural": "x"})", "pack.unknown-key");
     // Concepts.
     bad(R"("act.fly": "fly")", "pack.unknown-concept", {{"concept", "act.fly"}});
+    // A retired concept: only the earlier official packs spell it.
+    bad(R"("kind.record": "record")", "pack.unknown-concept", {{"concept", "kind.record"}});
     bad(R"("kw.can": "canq")", "pack.wrong-category", {{"category", "keyword"}});
 
     // What is allowed: letters of any script, marks, digits after the first.

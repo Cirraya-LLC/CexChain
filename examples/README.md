@@ -40,9 +40,10 @@ softhsm2`).
 
 ## Industry words
 
-The finance examples use words that Bo's vocabulary currently builds in (pledge, pay,
-split, with the standard library's terms for each). They are planned to move into optional
-vocabulary packs that a contract declares when it needs them, so that the language's core,
-like the rest of CexChain, stays free of any one industry. The lending, supply-agreement, and
-shipment contracts use core words only. An example's own words (its
-parties, fields, states, and actions) are always its own.
+Bo's core holds generic words only; words of particular fields live in official vocabulary
+packs, which a contract declares at its top (`cexchain bo vocab list` shows them). The finance
+examples use the `finance` pack (`use finance`: pledge, pay, split, with the standard terms of
+each), and the supply agreement its role words for a supplier and a bank and, from the
+`commerce` pack, its price (`use commerce`, `use finance`). The lending and shipment contracts
+use core words only. An example's own words (its parties, fields, states, and actions) are
+always its own.

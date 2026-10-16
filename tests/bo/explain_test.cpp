@@ -309,7 +309,7 @@ TEST_CASE("texts are in quotation marks, those read by R18 too", "[bo][explain]"
 TEST_CASE("Chinese text sets Latin words and numbers apart, never inside a name", "[bo][explain]") {
     const model::Model agreement = model_of(golden_dir / "build/agreement-en/source.bo");
     const Explained hant = explain(agreement, language("zh-Hant-HK"));
-    CHECK(clauses_of(hant, "kind")[0]->text == "每個實例為一項紀錄，名為 Terms。");
+    CHECK(clauses_of(hant, "kind")[0]->text == "每個實例為一項物件，名為 Terms。");
     CHECK(clauses_of(hant, "requirement")[2]->text == "要求 3：new_amount 大於港元 0。");
     CHECK(clauses_of(hant, "states")[0]->text == "其狀態包括已提議、signed、effective 及 closed。");
     CHECK(contains(hant.text, "〔R6、R13〕"));
@@ -359,8 +359,9 @@ TEST_CASE("any model explains, in every language", "[bo][explain]") {
         CHECK(!e.text.empty());
         CHECK(e.title == explain(empty, language(id)).title);
     }
-    const std::string source = "contract X\nparties we\nasset A\n  amount HKD\n  holder nobody\n"
-                               "can go by we\n  requires amount > HKD 1 and nothing\n";
+    const std::string source =
+        "use finance\ncontract X\nparties we\nasset A\n  amount HKD\n  holder nobody\n"
+        "can go by we\n  requires amount > HKD 1 and nothing\n";
     const Lexed lexed = lex(source, official());
     const Parsed parsed = parse(source, lexed);
     const Checked checked = check(source, parsed.file);
@@ -371,7 +372,7 @@ TEST_CASE("any model explains, in every language", "[bo][explain]") {
 }
 
 TEST_CASE("an instance's state, in the text's words", "[bo][explain]") {
-    const std::string source = "contract Values\nparties we, customer\nrecord Sheet\n"
+    const std::string source = "use commerce\ncontract Values\nparties we, customer\nthing Sheet\n"
                                "  label text\n  approved yes or no\n  total HKD\n  ends date\n"
                                "  size GB\n  count number\n  holder customer\n"
                                "can close by we\n  active -> closed\n";

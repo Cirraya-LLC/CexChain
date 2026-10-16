@@ -1,124 +1,124 @@
 Test "two tiers, a pledge, and payment to the bank": passed
-  Step 1 (line 23) passed: issuer issue with amount = HKD 1_000, due = 2027-06-30, tier = 1
+  Step 1 (line 24) passed: issuer issue with amount = HKD 1_000, due = 2027-06-30, tier = 1
     Result: accepted, and the instance is active.
-  Step 2 (line 24) passed: supplier split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> divided
+  Step 2 (line 25) passed: supplier split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> divided
     Result: accepted with the consent of the supplier, maker2, and maker1, and the instance is divided; it is final and takes no more calls.
-  Step 3 (line 25) passed: maker1 split with parts = (HKD 100, HKD 500), recipients = (smith1, maker1) -> divided
+  Step 3 (line 26) passed: maker1 split with parts = (HKD 100, HKD 500), recipients = (smith1, maker1) -> divided
     On part 1.
     Result: accepted with the consent of maker1 and smith1, and the instance is divided; it is final and takes no more calls.
-  Step 4 (line 26) passed: smith1 pledge to bank1 -> pledged
+  Step 4 (line 27) passed: smith1 pledge to bank1 -> pledged
     On part 1.1.
     Result: accepted with the consent of smith1 and bank1, and the instance is pledged.
-  Step 5 (line 27) passed: maker1 transfer to factor1 -> active
+  Step 5 (line 28) passed: maker1 transfer to factor1 -> active
     On part 1.2.
     Result: accepted with the consent of factor1 and maker1, and the instance is active.
-  Step 6 (line 28) passed: supplier pledge to bank1 -> refused
+  Step 6 (line 29) passed: supplier pledge to bank1 -> refused
     Result: refused by the ledger: the instance is final and takes no more calls.
-  Step 7 (line 29) passed: issuer pay smith1 at 2027-06-30 -> paid
+  Step 7 (line 30) passed: issuer pay smith1 at 2027-06-30 -> paid
     On part 1.1.
     Result: accepted, and the instance is paid.
-  Step 8 (line 30) passed: bank1 confirm payment -> settled
+  Step 8 (line 31) passed: bank1 confirm payment -> settled
     On part 1.1.
     Result: accepted with the consent of bank1, and the instance is settled; it is final and takes no more calls.
-  Step 9 (line 31) passed: issuer pay factor1 -> paid
+  Step 9 (line 32) passed: issuer pay factor1 -> paid
     On part 1.2.
     Result: accepted, and the instance is paid.
-  Step 10 (line 32) passed: factor1 confirm payment -> settled
+  Step 10 (line 33) passed: factor1 confirm payment -> settled
     On part 1.2.
     Result: accepted with the consent of factor1, and the instance is settled; it is final and takes no more calls.
-  Step 11 (line 33) passed: issuer pay maker2 -> paid
+  Step 11 (line 34) passed: issuer pay maker2 -> paid
     On part 2.
     Result: accepted, and the instance is paid.
-  Step 12 (line 34) passed: maker2 confirm payment -> settled
+  Step 12 (line 35) passed: maker2 confirm payment -> settled
     On part 2.
     Result: accepted with the consent of maker2, and the instance is settled; it is final and takes no more calls.
 
 Test "each recipient consents, and the holder": passed
-  Step 1 (line 37) passed: issuer issue with amount = HKD 1_000, due = 2027-06-30, tier = 1
+  Step 1 (line 38) passed: issuer issue with amount = HKD 1_000, due = 2027-06-30, tier = 1
     Result: accepted, and the instance is active.
-  Step 2 (line 38) passed: supplier split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> consent of maker2
+  Step 2 (line 39) passed: supplier split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> consent of maker2
     Result: the call waits for the consent of maker2.
-  Step 3 (line 39) passed: supplier split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> consent of (maker1, maker2)
+  Step 3 (line 40) passed: supplier split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> consent of (maker1, maker2)
     Result: the call waits for the consent of maker2 and maker1.
-  Step 4 (line 40) passed: maker1 split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> consent of supplier
+  Step 4 (line 41) passed: maker1 split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> consent of supplier
     Result: the call waits for the consent of the supplier.
-  Step 5 (line 41) passed: supplier split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> divided
+  Step 5 (line 42) passed: supplier split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> divided
     Result: accepted with the consent of the supplier, maker2, and maker1, and the instance is divided; it is final and takes no more calls.
 
 Test "the parts add up, each at least a cent, one for each recipient": passed
-  Step 1 (line 44) passed: issuer issue with amount = HKD 1_000, due = 2027-06-30, tier = 1
+  Step 1 (line 45) passed: issuer issue with amount = HKD 1_000, due = 2027-06-30, tier = 1
     Result: accepted, and the instance is active.
-  Step 2 (line 45) passed: supplier split with parts = (HKD 600, HKD 300), recipients = (maker1, maker2) -> refused "bo:requires split 4"
+  Step 2 (line 46) passed: supplier split with parts = (HKD 600, HKD 300), recipients = (maker1, maker2) -> refused "bo:requires split 4"
     Result: refused, since requirement 4 of split is not met (bo:requires split 4).
     The contract text, 4.1.7: Requirement 4: the sum of the parts is the amount.
-  Step 3 (line 46) passed: supplier split with parts = (HKD 1_000, HKD 0), recipients = (maker1, maker2) -> refused "bo:requires split 3"
+  Step 3 (line 47) passed: supplier split with parts = (HKD 1_000, HKD 0), recipients = (maker1, maker2) -> refused "bo:requires split 3"
     Result: refused, since requirement 3 of split is not met (bo:requires split 3).
     The contract text, 4.1.6.1: Requirement 3: part is more than 0.
-  Step 4 (line 47) passed: supplier split with parts = (HKD 600, HKD 400), recipients = maker1 -> refused "bo:requires split 1"
+  Step 4 (line 48) passed: supplier split with parts = (HKD 600, HKD 400), recipients = maker1 -> refused "bo:requires split 1"
     Result: refused, since requirement 1 of split is not met (bo:requires split 1).
     The contract text, 4.1.4: Requirement 1: the number of items in the recipients is the number of items in the parts.
-  Step 5 (line 48) passed: supplier split with parts = HKD 1_000, recipients = maker1 -> divided
+  Step 5 (line 49) passed: supplier split with parts = HKD 1_000, recipients = maker1 -> divided
     Result: accepted with the consent of the supplier and maker1, and the instance is divided; it is final and takes no more calls.
 
 Test "at most 15 recipients besides the holder": passed
-  Step 1 (line 51) passed: issuer issue with amount = HKD 16, due = 2027-06-30, tier = 1
+  Step 1 (line 52) passed: issuer issue with amount = HKD 16, due = 2027-06-30, tier = 1
     Result: accepted, and the instance is active.
-  Step 2 (line 52) passed: supplier split with parts = (HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1), recipients = (r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16) -> refused "bo:requires split 2"
+  Step 2 (line 53) passed: supplier split with parts = (HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1), recipients = (r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16) -> refused "bo:requires split 2"
     Result: refused, since requirement 2 of split is not met (bo:requires split 2).
     The contract text, 4.1.5: Requirement 2: the number of items in the recipients is at most 15 or the holder is one of the recipients.
-  Step 3 (line 53) passed: supplier split with parts = (HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1), recipients = (r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, supplier) -> divided
+  Step 3 (line 54) passed: supplier split with parts = (HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1), recipients = (r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, supplier) -> divided
     Result: accepted with the consent of r11, r7, the supplier, r5, r2, r4, r15, r13, r9, r3, r14, r6, r1, r10, r8, and r12, and the instance is divided; it is final and takes no more calls.
-  Step 4 (line 54) passed: r15 pledge to bank1 -> pledged
+  Step 4 (line 55) passed: r15 pledge to bank1 -> pledged
     On part 15.
     Result: accepted with the consent of r15 and bank1, and the instance is pledged.
-  Step 5 (line 55) passed: supplier transfer to r1 -> active
+  Step 5 (line 56) passed: supplier transfer to r1 -> active
     On part 16.
     Result: accepted with the consent of the supplier and r1, and the instance is active.
 
 Test "not while pledged": passed
-  Step 1 (line 58) passed: issuer issue with amount = HKD 1_000, due = 2027-06-30, tier = 1
+  Step 1 (line 59) passed: issuer issue with amount = HKD 1_000, due = 2027-06-30, tier = 1
     Result: accepted, and the instance is active.
-  Step 2 (line 59) passed: supplier pledge to bank1 -> pledged
+  Step 2 (line 60) passed: supplier pledge to bank1 -> pledged
     Result: accepted with the consent of the supplier and bank1, and the instance is pledged.
-  Step 3 (line 60) passed: supplier split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> refused "bo:state split"
+  Step 3 (line 61) passed: supplier split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> refused "bo:state split"
     Result: refused, since split is not possible in the instance's current state (bo:state split).
     The contract text, 4.1.9: If the instance is active, it becomes divided; otherwise the call is refused.
-  Step 4 (line 61) passed: bank1 release -> active
+  Step 4 (line 62) passed: bank1 release -> active
     Result: accepted with the consent of bank1, and the instance is active.
-  Step 5 (line 62) passed: supplier split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> divided
+  Step 5 (line 63) passed: supplier split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> divided
     Result: accepted with the consent of the supplier, maker2, and maker1, and the instance is divided; it is final and takes no more calls.
 
 Test "eight levels down, and no further": passed
-  Step 1 (line 65) passed: issuer issue with amount = HKD 1_000, due = 2027-06-30, tier = 1
+  Step 1 (line 66) passed: issuer issue with amount = HKD 1_000, due = 2027-06-30, tier = 1
     Result: accepted, and the instance is active.
-  Step 2 (line 66) passed: supplier split with parts = HKD 1_000, recipients = supplier
+  Step 2 (line 67) passed: supplier split with parts = HKD 1_000, recipients = supplier
     Result: accepted with the consent of the supplier, and the instance is divided; it is final and takes no more calls.
-  Step 3 (line 67) passed: supplier split with parts = HKD 1_000, recipients = supplier
+  Step 3 (line 68) passed: supplier split with parts = HKD 1_000, recipients = supplier
     On part 1.
     Result: accepted with the consent of the supplier, and the instance is divided; it is final and takes no more calls.
-  Step 4 (line 68) passed: supplier split with parts = HKD 1_000, recipients = supplier
+  Step 4 (line 69) passed: supplier split with parts = HKD 1_000, recipients = supplier
     On part 1.1.
     Result: accepted with the consent of the supplier, and the instance is divided; it is final and takes no more calls.
-  Step 5 (line 69) passed: supplier split with parts = HKD 1_000, recipients = supplier
+  Step 5 (line 70) passed: supplier split with parts = HKD 1_000, recipients = supplier
     On part 1.1.1.
     Result: accepted with the consent of the supplier, and the instance is divided; it is final and takes no more calls.
-  Step 6 (line 70) passed: supplier split with parts = HKD 1_000, recipients = supplier
+  Step 6 (line 71) passed: supplier split with parts = HKD 1_000, recipients = supplier
     On part 1.1.1.1.
     Result: accepted with the consent of the supplier, and the instance is divided; it is final and takes no more calls.
-  Step 7 (line 71) passed: supplier split with parts = HKD 1_000, recipients = supplier
+  Step 7 (line 72) passed: supplier split with parts = HKD 1_000, recipients = supplier
     On part 1.1.1.1.1.
     Result: accepted with the consent of the supplier, and the instance is divided; it is final and takes no more calls.
-  Step 8 (line 72) passed: supplier split with parts = HKD 1_000, recipients = supplier
+  Step 8 (line 73) passed: supplier split with parts = HKD 1_000, recipients = supplier
     On part 1.1.1.1.1.1.
     Result: accepted with the consent of the supplier, and the instance is divided; it is final and takes no more calls.
-  Step 9 (line 73) passed: supplier split with parts = HKD 1_000, recipients = supplier
+  Step 9 (line 74) passed: supplier split with parts = HKD 1_000, recipients = supplier
     On part 1.1.1.1.1.1.1.
     Result: accepted with the consent of the supplier, and the instance is divided; it is final and takes no more calls.
-  Step 10 (line 74) passed: supplier split with parts = HKD 1_000, recipients = supplier -> refused "bo:depth split"
+  Step 10 (line 75) passed: supplier split with parts = HKD 1_000, recipients = supplier -> refused "bo:depth split"
     On part 1.1.1.1.1.1.1.1.
     Result: refused, since split creates parts, but this instance is a part at depth 8, the deepest the ledger allows (bo:depth split).
     The contract text, 4.1.12: A part may itself be split, down to depth 8, the deepest the ledger allows: on a part at depth 8 the call is refused (bo:depth split).
-  Step 11 (line 75) passed: supplier pledge to bank1 -> pledged
+  Step 11 (line 76) passed: supplier pledge to bank1 -> pledged
     On part 1.1.1.1.1.1.1.1.
     Result: accepted with the consent of the supplier and bank1, and the instance is pledged.
 

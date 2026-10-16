@@ -1,0 +1,42 @@
+bo 1
+# The standard library of Bo, edition 1: the core's built-in actions, which
+# hand a thing over and suspend, resume, end, or cancel it. The vocabulary
+# packs bring their own (bo/stdlib/finance.bo, bo/stdlib/services.bo). A
+# contract that writes `can transfer to buyer` gets the transfer below, with
+# the buyer as its counterparty; the lines the contract writes under
+# `can transfer` add to it and are checked first. Without `to`, each call
+# names the counterparty (R21). To change a built-in action, copy it under a
+# name of your own: `cexchain bo stdlib show transfer` prints it, in any
+# language.
+#
+# The fields these terms use: holder (a party). An action can start only from
+# the states its terms name; a state the contract never reaches is left out.
+# A time rule may do any of these actions that names no counterparty and
+# takes no inputs, as the contract's own word (R24).
+
+# The holder hands the thing over: the counterparty becomes its holder. Both
+# consent to every transfer, the holder by starting it (the counterparty by
+# R3, R21, or R31). Only an active thing is handed over (so not while
+# pledged, under the finance pack).
+can transfer to counterparty by holder
+  requires not counterparty = holder
+  active -> active
+  holder = counterparty
+
+# The holder cancels the thing.
+can cancel by holder
+  active -> cancelled
+
+# The home suspends the instance on its own word, such as when it is overdue
+# (when overdue 3 days suspend).
+can suspend
+  active -> suspended
+
+# The home resumes a suspended instance.
+can resume
+  suspended -> active
+
+# The home ends the instance, active or suspended: nothing can start from
+# terminated.
+can terminate
+  active, suspended -> terminated

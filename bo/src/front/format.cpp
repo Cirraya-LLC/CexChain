@@ -17,6 +17,7 @@
 #include <limits>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -860,6 +861,78 @@ std::size_t comment_depth(std::uint32_t width, const CodeLine* before, const Cod
     }
 }
 
+/// A line of code or a comment, in the order the file is written.
+struct Item {
+    std::uint32_t line;
+    bool code;
+    std::size_t index;
+    /// Written after a blank line whatever the lines say (after the `use`
+    /// lines moved first).
+    bool blank_before = false;
+};
+
+bool is_use_line(const std::vector<Token>& tokens, const CodeLine& line) {
+    const Token& t = tokens[line.first];
+    return t.kind == TokenKind::word && t.concept_entry != nullptr &&
+           t.concept_entry->id == "kw.use";
+}
+
+std::string use_pack(const std::vector<Token>& tokens, const CodeLine& line) {
+    return line.first + 1 < line.last ? tokens[line.first + 1].text : std::string();
+}
+
+/// `use` lines first (after `bo N`), sorted by pack id (D-054): if they are
+/// not, they move there, each a line after the other, and the rest follows
+/// after a blank line.
+void first_uses(std::vector<Item>& items, const std::vector<CodeLine>& lines,
+                const std::vector<Token>& tokens) {
+    std::vector<Item> uses;
+    std::vector<Item> rest;
+    bool in_place = true;
+    bool other_code = false;
+    for (const Item& item : items) {
+        const bool use = item.code && is_use_line(tokens, lines[item.index]);
+        if (use) {
+            in_place = in_place && !other_code &&
+                       (uses.empty() || use_pack(tokens, lines[uses.back().index]) <
+                                            use_pack(tokens, lines[item.index]));
+            uses.push_back(item);
+        } else {
+            rest.push_back(item);
+            const bool edition =
+                item.code && tokens[lines[item.index].first].kind == TokenKind::edition_line;
+            other_code = other_code || (item.code && !edition);
+        }
+    }
+    if (in_place) {
+        return;
+    }
+    std::ranges::stable_sort(uses, {},
+                             [&](const Item& item) { return use_pack(tokens, lines[item.index]); });
+    // After the edition line, if there is one; else first.
+    const auto edition = std::ranges::find_if(rest, [&](const Item& item) {
+        return item.code && tokens[lines[item.index].first].kind == TokenKind::edition_line;
+    });
+    const auto at = edition == rest.end() ? rest.begin() : edition + 1;
+    items.assign(rest.begin(), at);
+    const std::uint32_t top = items.empty() ? 0 : items.back().line;
+    for (std::size_t i = 0; i < uses.size(); ++i) {
+        Item item = uses[i];
+        item.line = top + 1 + static_cast<std::uint32_t>(i);
+        items.push_back(item);
+    }
+    // The rest after a blank line, its lines counted without the use lines
+    // that left them, so that only its own blank lines separate it.
+    for (auto it = at; it != rest.end(); ++it) {
+        Item item = *it;
+        const auto moved =
+            std::ranges::count_if(uses, [&](const Item& u) { return u.line < it->line; });
+        item.line -= static_cast<std::uint32_t>(moved);
+        item.blank_before = it == at;
+        items.push_back(item);
+    }
+}
+
 std::string write(std::string_view source, const PackSet& packs, const Lexicon& lexicon,
                   const Pack* language, const Lexed& lexed, const Parsed& parsed, bool compact) {
     const std::vector<CodeLine> lines = code_lines(parsed.tokens);
@@ -871,11 +944,6 @@ std::string write(std::string_view source, const PackSet& packs, const Lexicon& 
         code_at.emplace(lines[i].line, i);
     }
     std::map<std::uint32_t, std::size_t> after_code;
-    struct Item {
-        std::uint32_t line;
-        bool code;
-        std::size_t index;
-    };
     std::vector<Item> items;
     for (std::size_t i = 0; i < lines.size(); ++i) {
         items.push_back({lines[i].line, true, i});
@@ -889,13 +957,14 @@ std::string write(std::string_view source, const PackSet& packs, const Lexicon& 
         }
     }
     std::ranges::stable_sort(items, {}, &Item::line);
+    first_uses(items, lines, parsed.tokens);
 
     std::string out;
     std::uint32_t previous = 0;
     const CodeLine* before = nullptr;
     std::size_t next_code = 0;
     for (const Item& item : items) {
-        if (!out.empty() && item.line > previous + 1) {
+        if (!out.empty() && (item.line > previous + 1 || item.blank_before)) {
             out += '\n';
         }
         previous = item.line;
@@ -919,6 +988,24 @@ std::string write(std::string_view source, const PackSet& packs, const Lexicon& 
     return out;
 }
 
+/// Each token as describe() writes it, those of `use` lines (which the
+/// formatter moves) left out.
+std::vector<std::string> token_texts(const std::vector<Token>& tokens) {
+    std::vector<std::string> out;
+    std::set<std::uint32_t> uses;
+    for (const CodeLine& line : code_lines(tokens)) {
+        if (is_use_line(tokens, line)) {
+            uses.insert(line.line);
+        }
+    }
+    for (const Token& t : tokens) {
+        if (!uses.contains(t.span.line) || t.kind == TokenKind::end) {
+            out.push_back(describe(t));
+        }
+    }
+    return out;
+}
+
 /// Where a rewrite reads differently from its source, if it does.
 struct Difference {
     bool differs = false;
@@ -936,10 +1023,8 @@ Difference compare(const Lexed& lexed, const Parsed& parsed, std::string_view te
         same = comment_text(again.comments[c].text) == comment_text(lexed.comments[c].text);
     }
     if (same && same_tokens) {
-        same = reparsed.tokens.size() == parsed.tokens.size();
-        for (std::size_t i = 0; same && i < parsed.tokens.size(); ++i) {
-            same = describe(reparsed.tokens[i]) == describe(parsed.tokens[i]);
-        }
+        // The same tokens, the `use` lines (which may move) aside.
+        same = token_texts(reparsed.tokens) == token_texts(parsed.tokens);
     }
     if (same) {
         return {};

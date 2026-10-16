@@ -1,17 +1,17 @@
 Test "the keeper calls each rule once its time has come": passed
-  Step 1 (line 27) passed: we create with due = 2027-06-30, fee = HKD 100 at 2027-06-01
+  Step 1 (line 29) passed: we create with due = 2027-06-30, fee = HKD 100 at 2027-06-01
     Result: accepted, and the instance is active.
-  Step 2 (line 28) passed: keeper suspend at 2027-06-30 -> refused "bo:when when.suspend"
+  Step 2 (line 30) passed: keeper suspend at 2027-06-30 -> refused "bo:when when.suspend"
     Result: refused, since when.suspend does not apply yet: its time has not come, or its conditions do not hold (bo:when when.suspend).
     The contract text, 5.4: When the instance is overdue (its due date has passed):
-  Step 3 (line 29) passed: keeper suspend at 2027-07-01 -> suspended
+  Step 3 (line 31) passed: keeper suspend at 2027-07-01 -> suspended
     Result: accepted, and the instance is suspended.
-  Step 4 (line 30) passed: keeper terminate at 2027-07-31 -> refused "bo:when when.terminate"
+  Step 4 (line 32) passed: keeper terminate at 2027-07-31 -> refused "bo:when when.terminate"
     Result: refused, since when.terminate does not apply yet: its time has not come, or its conditions do not hold (bo:when when.terminate).
     The contract text, 5.5: When the instance has been suspended for 1 month or more:
-  Step 5 (line 31) passed: keeper terminate at 2027-08-01 -> terminated
+  Step 5 (line 33) passed: keeper terminate at 2027-08-01 -> terminated
     Result: accepted, and the instance is terminated.
-  Step 6 (line 32) passed: keeper closed at 2027-12-31 -> closed
+  Step 6 (line 34) passed: keeper closed at 2027-12-31 -> closed
     Result: accepted, and the instance is closed.
 
 1 test: 1 passed, 0 failed.

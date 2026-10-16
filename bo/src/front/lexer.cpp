@@ -36,6 +36,8 @@
 namespace cexchain::bo {
 
 struct Lexicon::Impl {
+    /// The set's official packs are those of before vocabulary packs.
+    bool implicit_vocabulary = false;
     /// A spelling's words: all of them, or those on one side of the
     /// argument's place.
     struct Entry {
@@ -177,6 +179,7 @@ std::vector<Lexicon::Impl::DatePart> date_parts(std::string_view pattern) {
 
 Lexicon::Lexicon(const PackSet& packs) : impl_(std::make_unique<Impl>()) {
     Impl& lx = *impl_;
+    lx.implicit_vocabulary = packs.implicit_vocabulary();
     for (const auto& [spelling, meaning] : packs.spellings()) {
         switch (meaning.kind) {
         case MeaningKind::word:
@@ -1473,7 +1476,9 @@ std::string shown(std::string_view text) {
 } // namespace
 
 Lexed lex(std::string_view source, const Lexicon& lexicon) {
-    return Lexer(source, lexicon.impl()).run();
+    Lexed out = Lexer(source, lexicon.impl()).run();
+    out.implicit_vocabulary = lexicon.impl().implicit_vocabulary;
+    return out;
 }
 
 std::string to_string(const Decimal& value) {

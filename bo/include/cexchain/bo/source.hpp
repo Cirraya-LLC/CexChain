@@ -24,16 +24,20 @@
 /// rebuild the code from the source and compare:
 ///   - the compiler string: "cexchain-bo RELEASE; codegen N; edition E";
 ///   - the source, as a `bo-source` bundle: the source as written, its
-///     edition, and every language pack it was read with (id, version, and
-///     the home's hash of the pack's canonical CBOR), the packs that are not
-///     official embedded in full:
+///     edition, every language pack it was read with (id, version, and the
+///     home's hash of the pack's canonical CBOR), the packs that are not
+///     official embedded in full, and every vocabulary pack it uses (D-054;
+///     vocab.hpp), each as its id, version, and digest:
 ///
-///       {1: 1, 2: edition, 3: source, 4: [+ [id, version, digest]], ? 5: [+ pack]}
+///       {1: 1, 2: edition, 3: source, 4: [+ [id, version, digest]],
+///        ? 5: [+ pack], ? 6: [+ [id, version, digest]]}
 ///
 ///     Pack references ascend by id; embedded packs (each a map, the pack's
 ///     canonical CBOR) ascend by id too, and each one's id is a reference's.
 ///     References without an embedded pack name official packs, which a
-///     compiler carries in every released version.
+///     compiler carries in every released version. Key 6 lists exactly the
+///     packs the source's `use` lines name; without `use` lines it is
+///     absent.
 ///   - `bo build --out` writes the same as a `.boc` file, ready to deploy.
 ///
 /// Everything here reads untrusted bytes (a deploy comes from another
@@ -67,6 +71,8 @@ struct SourceBundle {
     /// The packs that are not official, each as its canonical CBOR (a map),
     /// by ascending id.
     std::vector<cbor::Value> embedded;
+    /// The vocabulary packs the source uses (key 6), by ascending id.
+    std::vector<PackRef> vocabulary;
 
     friend bool operator==(const SourceBundle&, const SourceBundle&) = default;
 };
@@ -78,8 +84,13 @@ struct SourceBundle {
 /// only checked to be maps here; open_source_bundle reads them.
 [[nodiscard]] Result<SourceBundle> decode_source_bundle(ByteView encoded);
 
+/// The vocabulary packs a source's `use` lines name, read with `packs`, by
+/// ascending id (whatever their order in the source, each once).
+[[nodiscard]] std::vector<std::string> source_uses(std::string_view source, const PackSet& packs);
+
 /// The bundle of a source read with `packs` (each pack's digest under
-/// `hash`, the home's): what a deploy records as its source.
+/// `hash`, the home's): what a deploy records as its source. Fails if a
+/// `use` line names a vocabulary pack this compiler does not carry.
 [[nodiscard]] Result<SourceBundle>
 make_source_bundle(std::string_view source, std::uint64_t source_edition, const PackSet& packs,
                    const crypto::Provider& provider, crypto::HashAlg hash);
@@ -101,13 +112,19 @@ enum class OpenProblem : std::uint8_t {
     /// calls itself official, or does not match its digest; or embedded
     /// packs are out of order.
     embedded,
-    /// The packs cannot be read together.
+    /// The packs cannot be read together, or the official packs are not of
+    /// one release (some from before vocabulary packs, some not), or a
+    /// bundle read with the official packs of before vocabulary packs names
+    /// vocabulary packs (they came later).
     conflict,
+    /// The source's `use` lines are not the vocabulary packs the bundle
+    /// names (key 6).
+    uses_differ,
 };
 
-inline constexpr std::array<std::string_view, 7> open_problem_names{
+inline constexpr std::array<std::string_view, 8> open_problem_names{
     "none",     "unknown-official", "official-differs", "official-missing", "unknown-edition",
-    "embedded", "conflict"};
+    "embedded", "conflict",         "uses-differ"};
 
 struct OpenedSource {
     /// Set if the packs check: the set the source is read with.
@@ -118,7 +135,12 @@ struct OpenedSource {
 };
 
 /// Finds and checks the packs a bundle names, under the home's hash: the
-/// official ones this compiler carries, the others from the bundle.
+/// official ones this compiler carries (current or earlier: a bundle read
+/// with the official packs of before vocabulary packs opens with them, and
+/// its source uses every vocabulary pack without `use`; pack.hpp,
+/// Officials), the others from the bundle, and the vocabulary packs (key 6),
+/// which must be official ones this compiler carries at those versions and
+/// digests and exactly those the source's `use` lines name.
 [[nodiscard]] OpenedSource open_source_bundle(const SourceBundle& bundle,
                                               const crypto::Provider& provider,
                                               crypto::HashAlg hash);
