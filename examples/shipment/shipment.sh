@@ -193,6 +193,8 @@ tz = d.timezone(d.timedelta(hours=8))
 now = d.datetime.now(tz)
 due = d.datetime(now.year, now.month, now.day, tzinfo=tz) - d.timedelta(days=2)
 print(int(due.timestamp()) * 1000, due.strftime('%Y-%m-%d'))")"
+# Arguments name each field and party: money in cents (HKD 800,000 is
+# 80000000), dates in milliseconds, parties by their ledger ids.
 FIELDS="\"due\": $DUE, \"amount\": 80000000, \"penalty_per_day\": 200000, \"late_charge\": 0, \"excursions\": 0"
 PARTIES="\"shipper\": h'$SHIPPER_ID', \"carrier\": h'$CARRIER_ID', \"warehouse\": h'$WAREHOUSE_ID', \"consignee\": h'$CONSIGNEE_ID', \"insurer\": h'$INSURER_ID'"
 SHIPMENT="$(run contract create "$CONTRACT" create --args "{\"fields\": {$FIELDS}, \"parties\": {$PARTIES}}" \
@@ -255,11 +257,7 @@ step "5. Pick-up: the driver signs in person"
 # contract wants a person who proves presence, so the shipper's ledger
 # refuses the call, and nothing is recorded.
 consent carrier pick_up "{}" office.cbor --as carrier-root.key
-if call pick_up "{}" office.txt --consent office.cbor; then
-    echo "a pickup without presence must be refused" >&2
-    exit 1
-fi
-check office.txt 'bo:in-person pick_up'
+refused office.txt 'bo:in-person pick_up' pick_up "{}" --consent office.cbor
 say "Signed with the carrier's key alone:"
 indent < office.txt
 # The driver checks the shipment's evidence offline, then consents on the
@@ -275,9 +273,10 @@ run contract call "$SHIPMENT" measure --args '{"celsius": [5, 6, 11, 9]}' --as l
     --ledger "$(dir shipper)" > /dev/null
 [ "$(state_field excursions)" = 2 ] || { echo "two readings out of range" >&2; exit 1; }
 say "Data logger: 5, 6, 11, 9 degrees C. Two readings above 8: excursions 2."
-# The deadline passed yesterday. The keeper asks what is due (dry runs that
-# record nothing), then fires it; a keeper that is late fires late, never
-# early, and the event shows how late.
+# The due date was two days ago, so the deadline rule's time, a day after
+# it, came yesterday. The keeper asks what is due (dry runs that record
+# nothing), then fires it; a keeper that is late fires late, never early,
+# and the event shows how late.
 run keeper due --ledger "$(dir shipper)" > due.txt
 check due.txt 'when.late'
 run keeper run --as keeper.key --ledger "$(dir shipper)" > fired.txt
