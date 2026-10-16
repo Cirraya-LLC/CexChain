@@ -156,6 +156,10 @@ contains -E "^  field +field.pledgee +质权人  party; added \(R20\); taking \(
 run bo vocab show services --json > show.json
 json 'd["id"], d["version"], len(d["words"]), d["actions"], d["canonical"][:2]' < show.json > out.txt
 contains -Fx "services 1 12 ['allocate', 'reclaim'] a6" out.txt || fail "vocab show --json"
+json '[r["id"] for r in d["rules"]]' < show.json > out.txt
+contains -Fx "['R11', 'R23']" out.txt || fail "vocab show --json: the pack's rules"
+run bo vocab show commerce > out.txt
+contains -E "^  R26  bill$" out.txt || fail "vocab show: the pack's rules"
 expect_exit 1 bo vocab show acme
 contains -F "no vocabulary pack acme" out.txt || fail "vocab show: unknown pack"
 # A pack's word without its use line is refused, in the reader's language;

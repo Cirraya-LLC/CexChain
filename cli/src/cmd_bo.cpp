@@ -1104,6 +1104,13 @@ int cmd_bo_vocab_show(const Args& args) {
             words.push_back(std::move(w));
         }
         out["words"] = std::move(words);
+        Json rules = Json::array();
+        for (const bo::RuleSpec& rule : bo::rule_specs()) {
+            if (rule.pack == vocab) {
+                rules.push_back({{"id", rule.id}, {"name", rule.name}});
+            }
+        }
+        out["rules"] = std::move(rules);
         out["canonical"] = f.pack != nullptr ? Json(to_hex(f.pack->canonical)) : Json(nullptr);
         print_json(out);
         return exit_ok;
@@ -1123,6 +1130,16 @@ int cmd_bo_vocab_show(const Args& args) {
     std::println("\nBuilt-in actions ({})", f.actions.size());
     for (const std::string& action : f.actions) {
         std::println("  {}", action);
+    }
+    std::vector<const bo::RuleSpec*> rules;
+    for (const bo::RuleSpec& rule : bo::rule_specs()) {
+        if (rule.pack == vocab) {
+            rules.push_back(&rule);
+        }
+    }
+    std::println("\nRecognition rules ({})", rules.size());
+    for (const bo::RuleSpec* rule : rules) {
+        std::println("  {:<4} {}", rule->id, rule->name);
     }
     return exit_ok;
 }

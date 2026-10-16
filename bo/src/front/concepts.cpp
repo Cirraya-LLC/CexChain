@@ -804,37 +804,37 @@ static_assert(std::ranges::adjacent_find(sorted_sentences, {}, &SentenceSpec::id
 // The recognition rules of edition 1, in the order of their ids. Their
 // texts are the packs' sentences "rule-ID". Append only.
 constexpr RuleSpec rules[] = {
-    {"R1", "field-meaning"},      // a vocabulary field has the vocabulary's type
-    {"R2", "party-field"},        // a field given a party: per instance, and may change
-    {"R3", "role-binding"},       // roles: at creation, or by the first `to` (U4)
-    {"R4", "first-state"},        // the one state nothing leads to, else active
-    {"R5", "states"},             // the states are those state changes name
-    {"R6", "threshold"},          // over N: the action's one amount (plan 5.1, item 7)
-    {"R7", "state-condition"},    // a state as a condition: the instance is in it
-    {"R8", "consent-taken"},      // changing a party's field needs that party's consent
-    {"R9", "obligation"},         // when due issuer pays: a duty, no call (U7)
-    {"R10", "executor"},          // notify, a service's changes: executors (6b)
-    {"R11", "service-due"},       // a recurring price: due at each period's end
-    {"R12", "customer-location"}, // customer location: text each instance holds
-    {"R13", "presence"},          // in person: the starter's presence (U2)
-    {"R14", "agents"},            // AI agents within delegation, unless propose (U3)
-    {"R15", "parts"},             // parts: a list of amounts
-    {"R16", "list-bound"},        // lists: at most 16 items (plan 5.1, item 8)
-    {"R17", "rounding"},          // products and quotients round half up (U5)
-    {"R18", "bare-text"},         // an undeclared name compared with text is text
-    {"R19", "standard-terms"},    // a built-in action has the standard library's terms
-    {"R20", "standard-fields"},   // fields the standard terms use: added, empty at first
-    {"R21", "counterparty"},      // an undeclared counterparty: each call names it
-    {"R22", "zero"},              // a bare 0 is zero of any amount
-    {"R23", "each-allocation"},   // allocate binds its role again on each call
-    {"R24", "keeper"},            // a time rule: a function a keeper calls in time
-    {"R25", "utc-offset"},        // dates and days at UTC+08:00 unless written (U6)
-    {"R26", "bill"},              // a document's field: a bill, made when it is set
-    {"R27", "charges"},           // charges in order: on the price and earlier ones
-    {"R28", "rate-in-force"},     // the rate in force at the bill's time (U9)
-    {"R29", "one-item"},          // one value where a list is needed: a list of one
-    {"R30", "issue-parts"},       // issue PARTS to RECIPIENTS: parts are instances of their own
-    {"R31", "role-taking"},       // a counterparty made holder, pledgee, or payee consents
+    {"R1", "field-meaning"},                 // a vocabulary field has the vocabulary's type
+    {"R2", "party-field"},                   // a field given a party: per instance, and may change
+    {"R3", "role-binding"},                  // roles: at creation, or by the first `to` (U4)
+    {"R4", "first-state"},                   // the one state nothing leads to, else active
+    {"R5", "states"},                        // the states are those state changes name
+    {"R6", "threshold"},                     // over N: the action's one amount (plan 5.1, item 7)
+    {"R7", "state-condition"},               // a state as a condition: the instance is in it
+    {"R8", "consent-taken"},                 // changing a party's field needs that party's consent
+    {"R9", "obligation"},                    // when due issuer pays: a duty, no call (U7)
+    {"R10", "executor"},                     // notify, a service's changes: executors (6b)
+    {"R11", "service-due", Vocab::services}, // a recurring price: due at each period's end
+    {"R12", "customer-location", Vocab::commerce}, // customer location: text each instance holds
+    {"R13", "presence"},                           // in person: the starter's presence (U2)
+    {"R14", "agents"},          // AI agents within delegation, unless propose (U3)
+    {"R15", "parts"},           // parts: a list of amounts
+    {"R16", "list-bound"},      // lists: at most 16 items (plan 5.1, item 8)
+    {"R17", "rounding"},        // products and quotients round half up (U5)
+    {"R18", "bare-text"},       // an undeclared name compared with text is text
+    {"R19", "standard-terms"},  // a built-in action has the standard library's terms
+    {"R20", "standard-fields"}, // fields the standard terms use: added, empty at first
+    {"R21", "counterparty"},    // an undeclared counterparty: each call names it
+    {"R22", "zero"},            // a bare 0 is zero of any amount
+    {"R23", "each-allocation", Vocab::services}, // allocate binds its role again on each call
+    {"R24", "keeper"},                           // a time rule: a function a keeper calls in time
+    {"R25", "utc-offset"},                       // dates and days at UTC+08:00 unless written (U6)
+    {"R26", "bill", Vocab::commerce},            // a document's field: a bill, made when it is set
+    {"R27", "charges", Vocab::commerce},         // charges in order: on the price and earlier ones
+    {"R28", "rate-in-force", Vocab::commerce},   // the rate in force at the bill's time (U9)
+    {"R29", "one-item"},                         // one value where a list is needed: a list of one
+    {"R30", "issue-parts"}, // issue PARTS to RECIPIENTS: parts are instances of their own
+    {"R31", "role-taking"}, // a counterparty made holder, pledgee, or payee consents
 };
 
 template <class T, std::size_t N, class Key>

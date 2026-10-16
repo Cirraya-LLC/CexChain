@@ -158,6 +158,9 @@ struct SentenceSpec {
 struct RuleSpec {
     std::string_view id;
     std::string_view name;
+    /// The vocabulary pack whose words alone reach the rule, which then
+    /// applies only in a source that uses the pack; the core for the others.
+    Vocab pack = Vocab::core;
 };
 
 /// The edition's rules, in the order of their ids (R1, R2, ...).
