@@ -388,6 +388,8 @@ constexpr MessageSpec unsorted_messages[] = {
     {"check.unknown-input", Severity::error, "name action"},
     {"check.field-head", Severity::error, "text"},
     {"check.field-needs-type", Severity::error, "field"},
+    {"check.default-field", Severity::error, "field"},
+    {"check.default-value", Severity::error, "text"},
     {"check.field-type", Severity::error, "field type expected_type"},
     {"check.field-values", Severity::error, "field"},
     // Checking: values, types, and units.
@@ -561,6 +563,7 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"instance-kind", "kind name"},
     {"instance-none", ""},
     {"field-given", "field type"},
+    {"field-default", "field type value"},
     {"field-party", "field type party"},
     {"field-constant", "field value"},
     {"field-empty", "field type"},

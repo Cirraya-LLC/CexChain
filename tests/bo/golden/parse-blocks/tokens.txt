@@ -31,26 +31,35 @@
 8:3 name note | note
 8:8 word type.text | text
 8:12 newline
-9:1 dedent
-9:1 word charge.charge | charge
-9:8 name Fee | Fee
-9:11 newline
-10:1 indent
-10:3 word charge.rate | rate
-10:8 rate 2% | 2%
-10:10 newline
-11:3 word charge.per_line | per line
-11:12 word round.half_even | half even
-11:21 newline
-12:1 dedent
-12:1 word charge.tax | tax
-12:5 name VAT | VAT
-12:8 newline
-13:1 indent
-13:3 word charge.rate | rate
-13:8 rate 5% | 5%
-13:10 newline
-14:3 word charge.included | included
-14:11 newline
-15:1 dedent
-15:1 end
+9:3 name count | count
+9:9 word type.number | number
+9:16 symbol = | =
+9:18 number 0 | 0
+9:19 newline
+10:3 word field.due | due
+10:7 symbol = | =
+10:9 date 2027-01-01 | 2027-01-01
+10:19 newline
+11:1 dedent
+11:1 word charge.charge | charge
+11:8 name Fee | Fee
+11:11 newline
+12:1 indent
+12:3 word charge.rate | rate
+12:8 rate 2% | 2%
+12:10 newline
+13:3 word charge.per_line | per line
+13:12 word round.half_even | half even
+13:21 newline
+14:1 dedent
+14:1 word charge.tax | tax
+14:5 name VAT | VAT
+14:8 newline
+15:1 indent
+15:3 word charge.rate | rate
+15:8 rate 5% | 5%
+15:10 newline
+16:3 word charge.included | included
+16:11 newline
+17:1 dedent
+17:1 end

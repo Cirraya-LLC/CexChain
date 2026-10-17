@@ -636,6 +636,7 @@ private:
     void declare_parties();
     void read_kind();
     std::optional<m::Field> read_field(const ast::Field& f, bool input);
+    void read_default(const ast::Field& f, m::Field& field);
     std::optional<Declared> as_type(const ast::Expr& e);
     void complete_parts(m::Field& field);
     void read_utc_offset(const ast::Field& f);
@@ -1109,6 +1110,9 @@ void Checker::read_kind() {
         if (!field) {
             continue;
         }
+        if (f.initial) {
+            read_default(f, *field);
+        }
         // R26: one bill per instance.
         if (field->word != nullptr && field->word->category == Category::document &&
             field->rule == rule_bill && m::bill_field(model_) != nullptr) {
@@ -1121,6 +1125,37 @@ void Checker::read_kind() {
             model_.fields.push_back(std::move(*field));
         }
     }
+}
+
+/// A value written out (a test's, a default): a literal, yes or no,
+/// or a list of them.
+bool test_value(const ast::Expr& e) {
+    if (e.kind == ExprKind::literal || word_is(e, "val.yes") || word_is(e, "val.no")) {
+        return true;
+    }
+    return e.kind == ExprKind::list &&
+           std::ranges::all_of(e.operands, [](const ast::Expr& o) { return test_value(o); });
+}
+
+void Checker::read_default(const ast::Field& f, m::Field& field) {
+    // `count number = 0`: an instance field given at creation, or else its
+    // default, a literal of its type. A constant has its value, a party
+    // field starts with its party (R2), and a bill is made from its lines.
+    const std::string key = m::key(field.word, field.name);
+    const bool parties = field.type.kind == TypeKind::party ||
+                         (field.type.kind == TypeKind::list && field.type.element.size() == 1 &&
+                          field.type.element[0].kind == TypeKind::party);
+    if (field.kind != m::FieldKind::instance || field.value || parties || field.rule == rule_bill) {
+        error(f.initial->span, "check.default-field", {{"field", key}});
+        return;
+    }
+    if (!test_value(*f.initial)) {
+        error(f.initial->span, "check.default-value", {{"text", written(f.initial->span)}});
+        return;
+    }
+    m::Expr initial = value(*f.initial);
+    expect(initial, field.type);
+    field.initial = std::move(initial);
 }
 
 void Checker::read_utc_offset(const ast::Field& f) {
@@ -1921,6 +1956,13 @@ void Checker::read_charges() {
         r.earlier = shared.earlier;
         r.bill = shared.bill;
         for (const ast::Field& f : block->fields) {
+            if (f.initial) {
+                // Defaults are an instance field's (`count number = 0`).
+                error(f.initial->span, "check.default-field",
+                      {{"field", f.head.kind == ExprKind::word && f.head.concept_entry != nullptr
+                                     ? std::string(f.head.concept_entry->id)
+                                     : f.head.name}});
+            }
             charge.lines.push_back(charge_line(f, charge, r));
         }
         const Span& at = block->name.span;
@@ -2642,15 +2684,6 @@ void Checker::check_recursion() {
 
 // --- Tests (U8).
 
-/// A value a test gives as written: a literal, yes or no, or a list of them.
-bool test_value(const ast::Expr& e) {
-    if (e.kind == ExprKind::literal || word_is(e, "val.yes") || word_is(e, "val.no")) {
-        return true;
-    }
-    return e.kind == ExprKind::list &&
-           std::ranges::all_of(e.operands, [](const ast::Expr& o) { return test_value(o); });
-}
-
 std::optional<m::TestParty> Checker::test_party(const ast::Expr& e) {
     m::TestParty p;
     p.span = e.span;
@@ -2957,7 +2990,8 @@ void Checker::test_with(const ast::Do& d, m::Step& step, const m::Action* action
     }
     for (const m::Field* f : expected) {
         const std::string name = m::key(f->word, f->name);
-        if (!given.contains(name)) {
+        // A field with a default may be left out at creation.
+        if (!given.contains(name) && !f->initial) {
             error(d.action.span, "check.test-missing", {{"action", action_key}, {"name", name}});
         }
     }

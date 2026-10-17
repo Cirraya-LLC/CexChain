@@ -1,26 +1,26 @@
 測試 「three days early: a part of a week is no week」：通過
-  第 1 步（第 23 行）通過：we create with due = 2027-03-10, per_day = HKD 2_000, days_late = 0, fee = HKD 0
+  第 1 步（第 24 行）通過：we create with due = 2027-03-10, per_day = HKD 2_000
     結果：調用獲接納，實例現為正常。
-  第 2 步（第 24 行）通過：carrier deliver at 2027-03-07 -> delivered
+  第 2 步（第 25 行）通過：carrier deliver at 2027-03-07 -> delivered
     結果：經 carrier 同意，調用獲接納，實例現為 delivered。
 
 測試 「a week early is refused」：通過
-  第 1 步（第 27 行）通過：we create with due = 2027-03-10, per_day = HKD 2_000, days_late = 0, fee = HKD 0
+  第 1 步（第 28 行）通過：we create with due = 2027-03-10, per_day = HKD 2_000, days_late = 0, fee = HKD 0
     結果：調用獲接納，實例現為正常。
-  第 2 步（第 28 行）通過：carrier deliver at 2027-03-03 -> refused "bo:requires deliver 2"
+  第 2 步（第 29 行）通過：carrier deliver at 2027-03-03 -> refused "bo:requires deliver 2"
     結果：調用被拒絕，因為 deliver 的第 2 項要求未獲滿足（bo:requires deliver 2）。
     合約條文 4.1.3：要求 2：調用時間不早於到期日或（調用時間 − 到期日） ÷ 1 週（按完整倍數計算，餘數捨去）為 0。
 
 測試 「13 days late is one whole week」：通過
-  第 1 步（第 31 行）通過：we create with due = 2027-03-10, per_day = HKD 2_000, days_late = 0, fee = HKD 0
+  第 1 步（第 32 行）通過：we create with due = 2027-03-10, per_day = HKD 2_000
     結果：調用獲接納，實例現為正常。
-  第 2 步（第 32 行）通過：carrier deliver at 2027-03-23 -> delivered
+  第 2 步（第 33 行）通過：carrier deliver at 2027-03-23 -> delivered
     結果：經 carrier 同意，調用獲接納，實例現為 delivered。
 
 測試 「two weeks late is refused」：通過
-  第 1 步（第 35 行）通過：we create with due = 2027-03-10, per_day = HKD 2_000, days_late = 0, fee = HKD 0
+  第 1 步（第 36 行）通過：we create with due = 2027-03-10, per_day = HKD 2_000
     結果：調用獲接納，實例現為正常。
-  第 2 步（第 36 行）通過：carrier deliver at 2027-03-24 -> refused "bo:requires deliver 1"
+  第 2 步（第 37 行）通過：carrier deliver at 2027-03-24 -> refused "bo:requires deliver 1"
     結果：調用被拒絕，因為 deliver 的第 1 項要求未獲滿足（bo:requires deliver 1）。
     合約條文 4.1.2：要求 1：（調用時間 − 到期日） ÷ 1 週（按完整倍數計算，餘數捨去）小於 2。
 

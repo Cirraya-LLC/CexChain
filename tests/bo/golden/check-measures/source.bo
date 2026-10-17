@@ -1,12 +1,16 @@
-# Measures (G5b): durations divided by durations count whole times (R32).
+# Measures (G5b): durations divided by durations count whole times (R32);
+# defaults of instance fields.
 contract Delivery
 parties we, carrier
 thing Goods
   due date
   per_day HKD
-  days_late number
-  full_weeks number
-  fee HKD
+  days_late number = 0
+  full_weeks number = 0
+  fee HKD = HKD 0
+  done yes or no = no
+  codes list text at most 3 = "none"
+  note text = "none yet"
 can deliver by carrier
   -> delivered
   days_late = (now - due) / 1 day

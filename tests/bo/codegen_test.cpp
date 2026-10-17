@@ -675,6 +675,72 @@ Home values_scenario() {
     return home;
 }
 
+/// Fields with defaults (G5b): each may be left out at creation, and takes
+/// its default then; every other field must be given, and nothing else.
+constexpr std::string_view defaults_source = R"(contract Defaults
+parties we, buyer
+
+thing Order
+  due date
+  count number = 2
+  fee HKD = HKD 1.50
+  done yes or no = yes
+  note text = "none yet"
+  codes list text at most 3 = ("a", "b")
+
+can bump by we
+  count = count + 1
+)";
+
+Home defaults_scenario() {
+    Home home("defaults", build_text(defaults_source), we);
+    home.source("en", std::string(defaults_source));
+    const auto create = [&](std::string label, std::string_view fields) {
+        return home.create(std::move(label),
+                           std::format(R"({{"fields": {{{}}}, "parties": {{"buyer": {}, )"
+                                       R"("we": {}}}}})",
+                                       fields, h(customer), h(we)),
+                           t0);
+    };
+    const std::string due = std::format(R"("due": {})", date(2027, 3, 10));
+    const Outcome defaults = create("create, the defaults", due);
+    REQUIRE(defaults.accepted() != nullptr);
+    CHECK(int_field(*defaults.accepted(), "count") == 2);
+    CHECK(int_field(*defaults.accepted(), "fee") == 150);
+    CHECK(cbor::diagnostic(*field(*defaults.accepted(), "done")) == "true");
+    CHECK(cbor::diagnostic(*field(*defaults.accepted(), "note")) == "\"none yet\"");
+    CHECK(cbor::diagnostic(*field(*defaults.accepted(), "codes")) == R"(["a", "b"])");
+    const Outcome some = create("create, a count given", due + R"(, "count": 7)");
+    REQUIRE(some.accepted() != nullptr);
+    CHECK(int_field(*some.accepted(), "count") == 7);
+    CHECK(int_field(*some.accepted(), "fee") == 150);
+    const Outcome all =
+        create("create, every field given", due + R"(, "codes": ["c"], "count": 0, "done": false, )"
+                                                  R"("fee": 0, "note": "")");
+    REQUIRE(all.accepted() != nullptr);
+    CHECK(int_field(*all.accepted(), "count") == 0);
+    CHECK(cbor::diagnostic(*field(*all.accepted(), "codes")) == R"(["c"])");
+    CHECK(cbor::diagnostic(*field(*all.accepted(), "done")) == "false");
+    const Outcome bumped = home.call("bump", "bump", "null", {}, t0);
+    REQUIRE(bumped.accepted() != nullptr);
+    CHECK(int_field(*bumped.accepted(), "count") == 1);
+    CHECK(create("create, without the field that has no default", R"("count": 7)")
+              .refused("bo:argument due"));
+    CHECK(create("create, a key that names no field", due + R"(, "other": 1)")
+              .refused("bo:argument fields"));
+    CHECK(
+        create("create, too many keys", due + R"(, "a": 1, "b": 1, "c": 1, "d": 1, "e": 1, "f": 1)")
+            .refused("bo:argument fields"));
+    CHECK(create("create, a default's field of another type", due + R"(, "note": 5)")
+              .refused("bo:argument note"));
+    CHECK(home.create("create, fields not a map",
+                      std::format(R"({{"fields": [1], "parties": {{"buyer": {}, "we": {}}}}})",
+                                  h(customer), h(we)),
+                      t0)
+              .refused("bo:argument fields"));
+    return home;
+}
+
 /// The demo's receivable (examples/multi-tier-split/multi-tier-split.bo) split at its
 /// bounds (milestone 17): a part at depth 7 split into 16 parts, the holder
 /// keeping one and 15 recipients consenting, the most a call can carry; the
@@ -801,6 +867,7 @@ std::vector<Home> scenarios() {
     out.push_back(loan_scenario());
     out.push_back(values_scenario());
     out.push_back(split_scenario());
+    out.push_back(defaults_scenario());
     return out;
 }
 
@@ -1340,6 +1407,11 @@ TEST_CASE("bo build: roles bound by an action, and fields holding a party", "[bo
 
 TEST_CASE("bo build: values, units, dates, texts, and yes or no", "[bo][build]") {
     const Home home = values_scenario();
+    CHECK(!home.final());
+}
+
+TEST_CASE("bo build: fields with defaults may be left out at creation", "[bo][build]") {
+    const Home home = defaults_scenario();
     CHECK(!home.final());
 }
 

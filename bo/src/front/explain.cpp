@@ -1030,6 +1030,10 @@ private:
                 text = w_.say("field-party", {{"field", name},
                                               {"type", plain(type_text(f.type))},
                                               {"party", party(*f.value)}});
+            } else if (f.initial) {
+                text = w_.say("field-default", {{"field", name},
+                                                {"type", plain(type_text(f.type))},
+                                                {"value", plain(expr(*f.initial, rules))}});
             } else {
                 text = w_.say("field-given", {{"field", name}, {"type", plain(type_text(f.type))}});
             }

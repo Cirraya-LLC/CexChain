@@ -995,6 +995,19 @@ std::optional<ast::Field> Parser::field(bool input) {
         }
         f.values.push_back(std::move(value->expr));
     }
+    // A block's field may end with its default: `count number = 0`.
+    if (!input && at_symbol(Symbol::equals)) {
+        take();
+        if (!starts_value()) {
+            fail_expected("parse.expected-value");
+            return std::nullopt;
+        }
+        std::optional<Term> initial = sum();
+        if (!initial) {
+            return std::nullopt;
+        }
+        f.initial = std::move(initial->expr);
+    }
     if (!input && !at_line_end()) {
         fail_found("parse.field");
         return std::nullopt;
@@ -1638,6 +1651,9 @@ std::string field_text(std::string_view tag, const ast::Field& f) {
     std::string text = std::string(tag) + " " + dump(f.head);
     for (const Expr& v : f.values) {
         text += " " + dump(v);
+    }
+    if (f.initial) {
+        text += " = " + dump(*f.initial);
     }
     return text;
 }

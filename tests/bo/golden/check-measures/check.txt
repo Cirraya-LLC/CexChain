@@ -5,9 +5,12 @@ party carrier bound=creation{R3}
 kind kind.thing Goods
 field field.due instance date
 field per_day instance money cur.HKD
-field days_late instance number
-field full_weeks instance number
-field fee instance money cur.HKD
+field days_late instance number default 0
+field full_weeks instance number default 0
+field fee instance money cur.HKD default (money cur.HKD 0)
+field done instance yes_no default val.no
+field codes instance list 3 text default (list "none"){R29}
+field note instance text default "none yet"
 due field
 state state.active first{R4}
 state delivered{R5}

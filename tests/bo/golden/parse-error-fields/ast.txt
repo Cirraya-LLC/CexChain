@@ -1,6 +1,6 @@
 edition 1
 block kind.asset A
-2:10 error parse.field: = cannot appear in a field: a block's line names a field, then its type or value (amount HKD, IP 1 item), with commas between parts
+  field field.amount = (money cur.HKD 1)
 3:3 error parse.field: can cannot appear in a field: a block's line names a field, then its type or value (amount HKD, IP 1 item), with commas between parts
 4:14 error parse.expected-value: a value must follow ,
 5:19 error parse.field: to cannot appear in a field: a block's line names a field, then its type or value (amount HKD, IP 1 item), with commas between parts

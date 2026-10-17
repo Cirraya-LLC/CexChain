@@ -240,6 +240,10 @@ struct Field {
     Type type;
     /// A constant's value, or the party a party field starts with (R2).
     std::optional<Expr> value;
+    /// An instance field's default (`count number = 0`): a literal of its
+    /// type, which an instance holds when its creation does not give the
+    /// field.
+    std::optional<Expr> initial;
     /// Further parts after commas: labelled prices (overage per GB HKD 0.10).
     std::vector<Expr> more;
     std::string_view rule;

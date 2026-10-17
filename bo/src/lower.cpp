@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <iterator>
 #include <map>
 #include <optional>
@@ -2909,13 +2910,73 @@ void Lowering::emit_creation(const wasm::Func f) {
         refuse(b, reason);
         b.end(other);
     };
-    if (!fields.empty()) {
+    const auto defaulted = [](const FieldSlot* slot) {
+        return slot->field->initial.has_value();
+    };
+    if (!fields.empty() && std::ranges::none_of(fields, defaulted)) {
         part("fields", fields.size());
         for (const FieldSlot* slot : fields) {
             b.get(map);
             lookup(b, slot->key, fields.size());
             read_value(b, slot->field->type, "bo:argument " + slot->wire);
             store(b, *slot);
+        }
+    } else if (!fields.empty()) {
+        // A field with a default may be left out: the map has every field
+        // without one, and some of those with one, and no other key.
+        const auto required =
+            static_cast<std::int64_t>(std::ranges::count_if(fields, std::not_fn(defaulted)));
+        const auto total = static_cast<std::int64_t>(fields.size());
+        const std::string reason = "bo:argument fields";
+        const Local count = b.local(I64);
+        const Local given = b.local(I64);
+        const Local item = b.local(I32);
+        b.get(args);
+        lookup(b, text_cbor("fields"), 2);
+        b.tee(map);
+        b.load(i32_load8_u).u32(0xE0).op(i32_and).u32(0xA0).op(i32_ne);
+        b.get(map).op(i32_eqz).op(i32_or);
+        {
+            const Label other = b.if_();
+            refuse(b, reason);
+            b.end(other);
+        }
+        b.get(map).call(head_arg).tee(count).i64(required).op(i64_lt_s);
+        b.get(count).i64(total).op(i64_gt_s).op(i32_or);
+        {
+            const Label other = b.if_();
+            refuse(b, reason);
+            b.end(other);
+        }
+        b.i64(required).set(given);
+        Ctx c;
+        c.b = &b;
+        c.wire = creation_;
+        for (const FieldSlot* slot : fields) {
+            b.get(map);
+            lookup(b, slot->key, fields.size());
+            if (!slot->field->initial) {
+                read_value(b, slot->field->type, "bo:argument " + slot->wire);
+                store(b, *slot);
+                continue;
+            }
+            b.tee(item);
+            const Label present = b.if_();
+            b.get(item);
+            read_value(b, slot->field->type, "bo:argument " + slot->wire);
+            store(b, *slot);
+            b.get(given).i64(1).op(i64_add).set(given);
+            b.else_(present);
+            value(c, *slot->field->initial);
+            store(b, *slot);
+            b.end(present);
+        }
+        // A key that names no field.
+        b.get(count).get(given).op(i64_ne);
+        {
+            const Label other = b.if_();
+            refuse(b, reason);
+            b.end(other);
         }
     }
     if (!roles.empty()) {

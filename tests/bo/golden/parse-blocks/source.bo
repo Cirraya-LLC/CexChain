@@ -6,6 +6,8 @@ resource Address
   cooling period 30 days
 thing Log
   note text
+  count number = 0
+  due = 2027-01-01
 charge Fee
   rate 2%
   per line half even

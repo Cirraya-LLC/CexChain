@@ -7,6 +7,8 @@ block kind.resource Address
   field field.cooling_period (duration time.day 30)
 block kind.thing Log
   field note type.text
+  field count type.number = 0
+  field field.due = 2027-01-01
 block charge.charge Fee
   field charge.rate 2%
   field charge.per_line round.half_even

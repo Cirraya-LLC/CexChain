@@ -228,8 +228,13 @@ TEST_CASE("= sets a field at the start of an action's line, and compares in a co
     // Not one field before =: a condition alone, which does nothing.
     CHECK(body_codes("  sum of parts = amount\n") == "parse.bare-condition");
     CHECK(body_codes("  tier + 1 = 2\n") == "parse.bare-condition");
-    // In a block of fields, = has no place.
-    CHECK(codes(parse_text("asset A\n  amount = HKD 1\n")) == "parse.field");
+    // In a block of fields, = gives a field's default, after its type
+    // (G5b), once, at the end of the line.
+    CHECK(codes(parse_text("asset A\n  amount = HKD 1\n")).empty());
+    CHECK(codes(parse_text("thing A\n  count number = 0\n")).empty());
+    CHECK(codes(parse_text("thing A\n  count number = 0 = 1\n")) == "parse.field");
+    CHECK(codes(parse_text("thing A\n  count number =\n")) == "parse.expected-value");
+    CHECK(codes(parse_text("thing A\n  = 0\n")) == "parse.field");
 }
 
 TEST_CASE("a word with an argument meets it on either side, in any language", "[bo][parser]") {

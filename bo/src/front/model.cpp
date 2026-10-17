@@ -305,6 +305,9 @@ void field_line(std::string& out, std::string_view label, const model::Field& f,
     if (f.value) {
         line += " = " + text(*f.value);
     }
+    if (f.initial) {
+        line += " default " + text(*f.initial);
+    }
     if (f.optional) {
         line += " optional";
     }

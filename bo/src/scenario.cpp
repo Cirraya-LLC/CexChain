@@ -256,8 +256,14 @@ cbor::Value Runner::arguments(const m::Step& step, const m::Action* action, cons
                                    cbor::Value::bytes(derive(p.role, p.name).bytes())});
             }
         }
+        // "fields" whenever some field is given at creation, even if every
+        // one the step leaves out has a default.
+        const bool fields = std::ranges::any_of(model_.fields, [](const m::Field& f) {
+            return f.kind == m::FieldKind::instance &&
+                   !(f.type.kind == m::TypeKind::party && f.value) && !f.empty_at_start;
+        });
         cbor::Map out;
-        if (!given.empty()) {
+        if (!given.empty() || fields) {
             out.push_back({cbor::Value::text("fields"), canonical(std::move(given))});
         }
         if (!parties.empty()) {

@@ -1,0 +1,17 @@
+# Defaults (G5b) that do not check: on a constant, on a party field, on a
+# charge's line; one that is no value written out; one of another type.
+use commerce
+contract Defaults
+parties we, customer
+thing Order
+  lowest 2 = 3
+  holder customer = we
+  invoice list HKD = HKD 5
+  count number = 1 + 2
+  fee HKD = 5
+  codes list text at most 2 = ("a", "b", "c")
+  starts date = due
+  due date
+tax VAT
+  rate 5% = 6%
+  added

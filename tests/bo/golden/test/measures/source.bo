@@ -1,13 +1,14 @@
 # Measures (G5b): a duration divided by a duration counts whole times, the
-# rest dropped toward zero (R32).
+# rest dropped toward zero (R32); fields with defaults need not be given at
+# creation.
 contract Measures
 parties we, carrier
 
 thing Goods
   due date
   per_day HKD
-  days_late number
-  fee HKD
+  days_late number = 0
+  fee HKD = HKD 0
 
 # At most 13 days late (under two whole weeks), and at most 6 days early (a
 # part of a week toward zero is none).
@@ -20,7 +21,7 @@ can deliver by carrier
     fee = per_day * days_late
 
 test "three days early: a part of a week is no week"
-  we create with due = 2027-03-10, per_day = HKD 2_000, days_late = 0, fee = HKD 0
+  we create with due = 2027-03-10, per_day = HKD 2_000
   carrier deliver at 2027-03-07 -> delivered
 
 test "a week early is refused"
@@ -28,9 +29,9 @@ test "a week early is refused"
   carrier deliver at 2027-03-03 -> refused "bo:requires deliver 2"
 
 test "13 days late is one whole week"
-  we create with due = 2027-03-10, per_day = HKD 2_000, days_late = 0, fee = HKD 0
+  we create with due = 2027-03-10, per_day = HKD 2_000
   carrier deliver at 2027-03-23 -> delivered
 
 test "two weeks late is refused"
-  we create with due = 2027-03-10, per_day = HKD 2_000, days_late = 0, fee = HKD 0
+  we create with due = 2027-03-10, per_day = HKD 2_000
   carrier deliver at 2027-03-24 -> refused "bo:requires deliver 1"

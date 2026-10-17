@@ -98,12 +98,15 @@ struct Expr {
 
 /// A line of a kind's or a charge's block (`amount HKD`, `traffic monthly
 /// 2TB, overage per GB HKD 0.10`), or one input after `with`: the field, and
-/// its type or value, one expression per comma-separated part.
+/// its type or value, one expression per comma-separated part; in a block,
+/// the value after `=` at the end of the line, an instance field's default
+/// (`count number = 0`).
 struct Field {
     static constexpr std::string_view tag = "field";
     Span span;
     Expr head;
     std::vector<Expr> values;
+    std::optional<Expr> initial;
 };
 
 /// `FIELD = VALUE` at the start of an action's line, or after `with` in a

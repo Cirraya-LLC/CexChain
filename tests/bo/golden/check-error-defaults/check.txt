@@ -1,0 +1,28 @@
+edition 1
+packs commerce
+contract Defaults
+party role.we bound=creation{R3}
+party role.customer bound=creation{R3}
+kind kind.thing Order
+field lowest constant number = 2
+field field.holder instance party = role.customer{R2}
+field doc.invoice instance list 16 money cur.HKD{R26}
+field count instance number
+field fee instance money cur.HKD default 5
+field codes instance list 2 text default (list "a" "b" "c")
+field starts instance date
+field field.due instance date
+charge charge.tax VAT
+  line charge.rate 5%
+  line charge.added
+  computes added rate per_line round.half_up{R17} on=price.price{R27}
+due field
+state state.active first{R4}
+7:14 error check.default-field: lowest cannot have a default: only an instance field given at creation has one; a constant has its value, a party field starts with its party, and a bill is made from its lines
+8:21 error check.default-field: holder cannot have a default: only an instance field given at creation has one; a constant has its value, a party field starts with its party, and a bill is made from its lines
+9:22 error check.default-field: invoice cannot have a default: only an instance field given at creation has one; a constant has its value, a party field starts with its party, and a bill is made from its lines
+10:18 error check.default-value: 1 + 2 is no default: a default is a value written out, of the field's type: 0, HKD 0, no, "none yet", 2027-01-01, or a list of them
+11:13 error check.type: 5 is a number, but money in HKD is needed here
+12:31 error check.list-bound: ("a", "b", "c"): a list holds from 1 to 2 items
+13:17 error check.default-value: due is no default: a default is a value written out, of the field's type: 0, HKD 0, no, "none yet", 2027-01-01, or a list of them
+16:13 error check.default-field: rate cannot have a default: only an instance field given at creation has one; a constant has its value, a party field starts with its party, and a bill is made from its lines
