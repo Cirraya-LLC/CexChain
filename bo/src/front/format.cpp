@@ -541,7 +541,7 @@ private:
             return word_atom("bo " + to_string(t.number));
         case TokenKind::word: {
             std::string text = written(t.span);
-            if (language_ != nullptr && t.piece == Piece::whole) {
+            if (language_ != nullptr && t.piece == Piece::whole && !symbol_unit(t, text)) {
                 if (const Word* w = target(t.concept_entry); w != nullptr && !spells(*w, text)) {
                     text = w->spellings.front();
                 }
@@ -586,10 +586,17 @@ private:
         return out;
     }
 
+    /// True if a unit is written as its symbol (°C, or ℃), which every
+    /// language reads: it stays as written.
+    [[nodiscard]] static bool symbol_unit(const Token& t, std::string_view as_written) {
+        const std::string_view symbol = unit_symbol(t.concept_entry);
+        return !symbol.empty() && (as_written == symbol || as_written == "\u2103");
+    }
+
     /// A unit, time unit, or currency in the target language.
     [[nodiscard]] std::string measure(const Token& t) const {
         const std::string& as_written = t.written.measure;
-        if (language_ == nullptr) {
+        if (language_ == nullptr || symbol_unit(t, as_written)) {
             return as_written;
         }
         const Word* w = target(t.concept_entry);

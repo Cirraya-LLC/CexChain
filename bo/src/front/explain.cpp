@@ -106,6 +106,9 @@ bool needs_space(char32_t a, char32_t b) noexcept {
 /// The number as written, its whole part grouped by thousands: "5,000,000",
 /// "0.10".
 std::string grouped(std::string_view text) {
+    if (text.starts_with('-')) {
+        return "-" + grouped(text.substr(1));
+    }
     const std::size_t dot = text.find('.');
     const std::string_view whole = text.substr(0, dot);
     std::string out;
@@ -123,6 +126,9 @@ std::string grouped(std::string_view text) {
 
 /// True if the decimal is exactly 1 (1, 1.0, 1.00).
 bool is_one(const Decimal& d) noexcept {
+    if (d.negative) {
+        return false;
+    }
     std::uint64_t ten = 1;
     for (std::uint8_t i = 0; i < d.scale; ++i) {
         ten *= 10;
@@ -279,6 +285,10 @@ public:
     [[nodiscard]] Phrase word(const Concept* c) const {
         if (c == nullptr) {
             return {};
+        }
+        // A unit with a symbol is written so in every language (°C).
+        if (const std::string_view symbol = unit_symbol(c); !symbol.empty()) {
+            return plain(std::string(symbol));
         }
         for (const Pack* pack : {pack_, &english_pack()}) {
             if (const Word* w = pack->word(c->id); w != nullptr && !w->spellings.empty()) {

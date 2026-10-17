@@ -38,6 +38,9 @@ namespace cexchain::bo {
 struct Lexicon::Impl {
     /// The set's official packs are those of before vocabulary packs.
     bool implicit_vocabulary = false;
+    /// The unit a degree symbol (°C, ℃) reads as, where the set spells it
+    /// (G5b; version 2 of the official packs did not).
+    const Concept* celsius = nullptr;
     /// A spelling's words: all of them, or those on one side of the
     /// argument's place.
     struct Entry {
@@ -184,6 +187,9 @@ Lexicon::Lexicon(const PackSet& packs) : impl_(std::make_unique<Impl>()) {
         switch (meaning.kind) {
         case MeaningKind::word:
             add_spelling(lx, spelling, meaning);
+            if (!unit_symbol(meaning.concept_entry).empty()) {
+                lx.celsius = meaning.concept_entry;
+            }
             break;
         case MeaningKind::multiplier:
             lx.multipliers.emplace(spelling, meaning.multiplier);
@@ -404,9 +410,11 @@ private:
     void scan(std::size_t i, std::vector<Raw>& raws);
     std::size_t comment(std::size_t i);
     std::size_t text(std::size_t i, std::vector<Raw>& raws);
-    std::size_t number(std::size_t i, std::vector<Raw>& raws);
+    std::size_t number(std::size_t i, std::vector<Raw>& raws, std::size_t sign = npos);
+    [[nodiscard]] bool sign_at(std::size_t i, std::size_t start) const noexcept;
     std::size_t date(std::size_t i, std::vector<Raw>& raws);
     std::size_t symbol(std::size_t i, std::vector<Raw>& raws);
+    [[nodiscard]] std::size_t degree(std::size_t i) const noexcept;
     [[nodiscard]] std::vector<Segment> segments(std::string_view suffix) const;
 
     // Step 2.
@@ -683,9 +691,9 @@ void Lexer::edition(const std::vector<Raw>& raws) {
     const Span whole =
         join(span(raws.front().from, raws.front().to),
              raws.back().run ? span(raws.back().from, raws.back().to) : raws.back().token.span);
-    const bool shaped = raws.size() == 2 && !raws[1].run &&
-                        raws[1].token.kind == TokenKind::number &&
-                        raws[1].token.number.scale == 0 && !raws[1].multiplied;
+    const bool shaped =
+        raws.size() == 2 && !raws[1].run && raws[1].token.kind == TokenKind::number &&
+        raws[1].token.number.scale == 0 && !raws[1].token.number.negative && !raws[1].multiplied;
     if (!shaped) {
         diagnostics_.add(whole, "lex.bad-edition", {});
         return;
@@ -710,10 +718,14 @@ void Lexer::edition(const std::vector<Raw>& raws) {
 // Step 1: characters to raw items.
 
 void Lexer::scan(std::size_t i, std::vector<Raw>& raws) {
+    const std::size_t start = i;
     while (i < content_end_) {
         const char32_t c = cps_[i].c;
         const char m = mapped(i);
-        if (m == ' ') {
+        if (m == '-' && is_digit(i + 1) && sign_at(i, start)) {
+            // -18 °C, HKD -5: a negative number where a value begins (G5b).
+            i = number(i + 1, raws, i);
+        } else if (m == ' ') {
             ++i;
         } else if (c == U'\t') {
             diagnostics_.add(span(i, i + 1), "lex.tab", {});
@@ -730,6 +742,11 @@ void Lexer::scan(std::size_t i, std::vector<Raw>& raws) {
                 ++i;
             }
             raws.push_back(Raw{true, from, i, {}, false});
+        } else if (const std::size_t degrees = degree(i); degrees != i) {
+            // °C or ℃: the unit of temperature, in every language (G5b).
+            raws.push_back(
+                Raw{false, i, degrees, word(lx_.celsius, Piece::whole, {}, i, degrees), false});
+            i = degrees;
         } else if (const std::size_t next = symbol(i, raws); next != npos) {
             i = next;
         } else {
@@ -744,6 +761,36 @@ void Lexer::scan(std::size_t i, std::vector<Raw>& raws) {
             ++i;
         }
     }
+}
+
+bool Lexer::sign_at(const std::size_t i, const std::size_t start) const noexcept {
+    // A minus directly before a digit makes the number negative where a
+    // value begins: at the start of the line's code, after a space, or
+    // directly after a symbol that ends no value. After a word, a number, a
+    // text, a percent sign, or `)`, it subtracts: 10-3, x-3.
+    if (i == start) {
+        return true;
+    }
+    const char32_t c = cps_[i - 1].c;
+    const char p = mapped(i - 1);
+    return p == ' ' || p == '(' || p == ',' || p == '=' || p == '<' || p == '>' || p == '+' ||
+           p == '-' || p == '*' || p == '/' || p == ':' || c == U'\u00D7' || c == U'\u00F7';
+}
+
+std::size_t Lexer::degree(const std::size_t i) const noexcept {
+    // °C (U+00B0, then C ending the run) or ℃ (U+2103), where the pack set
+    // spells the unit; otherwise no symbol, and i.
+    if (lx_.celsius == nullptr || i >= content_end_) {
+        return i;
+    }
+    if (cps_[i].c == U'\u2103') {
+        return i + 1;
+    }
+    if (cps_[i].c == U'\u00B0' && i + 1 < content_end_ && cps_[i + 1].c == U'C' &&
+        (i + 2 >= content_end_ || !is_run_char(i + 2))) {
+        return i + 2;
+    }
+    return i;
 }
 
 std::size_t Lexer::comment(std::size_t i) {
@@ -971,9 +1018,13 @@ std::vector<Lexer::Segment> Lexer::segments(std::string_view suffix) const {
     return out;
 }
 
-std::size_t Lexer::number(std::size_t i, std::vector<Raw>& raws) {
-    if (const std::size_t end = date(i, raws); end != npos) {
-        return end;
+std::size_t Lexer::number(std::size_t i, std::vector<Raw>& raws, const std::size_t sign) {
+    // A negative number begins at its sign; a date has none.
+    const std::size_t from = sign != npos ? sign : i;
+    if (sign == npos) {
+        if (const std::size_t end = date(i, raws); end != npos) {
+            return end;
+        }
     }
     std::size_t k = i;
     while (k < content_end_ && (is_digit(k) || mapped(k) == '_' || mapped(k) == '.')) {
@@ -984,12 +1035,12 @@ std::size_t Lexer::number(std::size_t i, std::vector<Raw>& raws) {
                (is_digit(k) || mapped(k) == '_' || mapped(k) == '.' || mapped(k) == ',')) {
             ++k;
         }
-        std::string suggestion;
+        std::string suggestion = sign != npos ? "-" : "";
         for (std::size_t j = i; j < k; ++j) {
             suggestion.push_back(mapped(j) == ',' ? '_' : mapped(j));
         }
-        diagnostics_.add(span(i, k), "lex.digit-comma",
-                         {{"text", detail::quote(slice(i, k))}, {"suggestion", suggestion}});
+        diagnostics_.add(span(from, k), "lex.digit-comma",
+                         {{"text", detail::quote(slice(from, k))}, {"suggestion", suggestion}});
         return k;
     }
     // digit+ ("_" digit+)* ("." digit+ ("_" digit+)*)?
@@ -1024,19 +1075,24 @@ std::size_t Lexer::number(std::size_t i, std::vector<Raw>& raws) {
         previous = m;
     }
     if (!ok) {
-        diagnostics_.add(span(i, k), "lex.bad-number", {{"text", detail::quote(slice(i, k))}});
+        diagnostics_.add(span(from, k), "lex.bad-number",
+                         {{"text", detail::quote(slice(from, k))}});
         return k;
     }
+    value.negative = sign != npos;
     Token token;
     token.kind = TokenKind::number;
     token.number = value;
-    token.span = span(i, k);
+    token.span = span(from, k);
+    if (value.negative) {
+        token.written.digits.push_back('-');
+    }
     for (std::size_t j = i; j < k; ++j) {
         token.written.digits.push_back(mapped(j));
     }
     if (mapped(k) == '%') {
         token.kind = TokenKind::rate;
-        token.span = span(i, k + 1);
+        token.span = span(from, k + 1);
         ++k;
     }
     std::size_t end = k;
@@ -1049,12 +1105,12 @@ std::size_t Lexer::number(std::size_t i, std::vector<Raw>& raws) {
         const std::vector<Segment> found = segments(suffix);
         if (found.empty()) {
             diagnostics_.add(
-                span(i, end), "lex.number-suffix",
-                {{"text", detail::quote(slice(i, end))}, {"suffix", detail::quote(suffix)}});
+                span(from, end), "lex.number-suffix",
+                {{"text", detail::quote(slice(from, end))}, {"suffix", detail::quote(suffix)}});
             return end;
         }
         const auto reading = [&](const Segment& s) {
-            std::string out(slice(i, k));
+            std::string out(slice(from, k));
             std::string_view rest = suffix;
             if (s.multiplier != 0) {
                 out += " + " + std::string(rest.substr(0, s.multiplier_bytes));
@@ -1070,8 +1126,8 @@ std::size_t Lexer::number(std::size_t i, std::vector<Raw>& raws) {
             return out;
         };
         if (found.size() > 1) {
-            diagnostics_.add(span(i, end), "lex.ambiguous",
-                             {{"text", detail::quote(slice(i, end))},
+            diagnostics_.add(span(from, end), "lex.ambiguous",
+                             {{"text", detail::quote(slice(from, end))},
                               {"first", reading(found[0])},
                               {"second", reading(found[1])}});
         }
@@ -1082,8 +1138,8 @@ std::size_t Lexer::number(std::size_t i, std::vector<Raw>& raws) {
         }
     }
     if (large || (segment.multiplier != 0 && !multiply(token.number, segment.multiplier))) {
-        diagnostics_.add(span(i, end), "lex.number-too-large",
-                         {{"text", detail::quote(slice(i, end))}});
+        diagnostics_.add(span(from, end), "lex.number-too-large",
+                         {{"text", detail::quote(slice(from, end))}});
         return end;
     }
     std::size_t measured = after_bytes(k, segment.multiplier_bytes);
@@ -1093,9 +1149,9 @@ std::size_t Lexer::number(std::size_t i, std::vector<Raw>& raws) {
         token.concept_entry = segment.measure->concept_entry;
     }
     if (token.kind != TokenKind::rate) {
-        token.span = span(i, measured);
+        token.span = span(from, measured);
     }
-    raws.push_back(Raw{false, i, measured, std::move(token), segment.multiplier != 0});
+    raws.push_back(Raw{false, from, measured, std::move(token), segment.multiplier != 0});
     if (segment.attach != nullptr) {
         raws.push_back(Raw{
             false, measured, end,
@@ -1483,14 +1539,13 @@ Lexed lex(std::string_view source, const Lexicon& lexicon) {
 
 std::string to_string(const Decimal& value) {
     std::string digits = std::to_string(value.digits);
-    if (value.scale == 0) {
-        return digits;
+    if (value.scale != 0) {
+        if (digits.size() <= value.scale) {
+            digits.insert(0, value.scale + 1 - digits.size(), '0');
+        }
+        digits.insert(digits.size() - value.scale, 1, '.');
     }
-    if (digits.size() <= value.scale) {
-        digits.insert(0, value.scale + 1 - digits.size(), '0');
-    }
-    digits.insert(digits.size() - value.scale, 1, '.');
-    return digits;
+    return value.negative ? "-" + digits : digits;
 }
 
 std::string describe(const Token& token) {

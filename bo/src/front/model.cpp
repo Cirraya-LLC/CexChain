@@ -43,6 +43,8 @@ std::string_view dimension_sentence(Dimension dimension) noexcept {
         return "type-count";
     case Dimension::mass:
         return "type-mass";
+    case Dimension::temperature:
+        return "type-temperature";
     case Dimension::none:
         break;
     }
@@ -60,6 +62,8 @@ std::string_view display_unit(Dimension dimension) noexcept {
         return "unit.item";
     case Dimension::mass:
         return "unit.kg";
+    case Dimension::temperature:
+        return "unit.celsius";
     case Dimension::none:
         break;
     }

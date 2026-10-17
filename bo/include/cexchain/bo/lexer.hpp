@@ -117,16 +117,19 @@ enum class Symbol : std::uint8_t {
 inline constexpr std::array<std::string_view, 14> symbol_texts{
     ",", ":", "(", ")", "=", "<", "<=", ">", ">=", "+", "-", "*", "/", "->"};
 
-/// An exact decimal: `digits` / 10^`scale`. "0.10" is {10, 2}: the scale is
-/// as written, and multipliers fold into the digits (1.5萬 is {15000, 0}).
+/// An exact decimal: `digits` / 10^`scale`, negated if `negative`. "0.10"
+/// is {10, 2}: the scale is as written, and multipliers fold into the digits
+/// (1.5萬 is {15000, 0}). A literal is negative where a minus is written
+/// directly before its first digit, at the start of a value (-18 °C, G5b).
 struct Decimal {
     std::uint64_t digits = 0;
     std::uint8_t scale = 0;
+    bool negative = false;
 
     friend bool operator==(const Decimal&, const Decimal&) = default;
 };
 
-/// The decimal as written: "0.10", "5000000".
+/// The decimal as written: "0.10", "5000000", "-4.5".
 [[nodiscard]] std::string to_string(const Decimal& value);
 
 /// A date in the proleptic Gregorian calendar; the contract's UTC offset

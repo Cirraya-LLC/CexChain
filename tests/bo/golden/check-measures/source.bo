@@ -1,5 +1,5 @@
 # Measures (G5b): durations divided by durations count whole times (R32);
-# defaults of instance fields.
+# defaults of instance fields; temperatures and negative values.
 contract Delivery
 parties we, carrier
 thing Goods
@@ -11,9 +11,17 @@ thing Goods
   done yes or no = no
   codes list text at most 3 = "none"
   note text = "none yet"
+  lowest -2.5 °C
+  highest 8°C
+  coldest °C = 100 degrees Celsius
+  rebate HKD -5
 can deliver by carrier
   -> delivered
   days_late = (now - due) / 1 day
   full_weeks = (now - due) / 1 week
   if days_late > 0
     fee = per_day * days_late
+can measure by we with readings list ℃ at most 96
+  each reading in readings
+    if reading < lowest or reading > highest + 0.5 °C
+      fee = fee + rebate

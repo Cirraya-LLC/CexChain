@@ -116,7 +116,7 @@ for hash in SHA-256 SM3; do
     diff expected.txt digests.txt > /dev/null || fail "vocabulary digests ($hash) differ from $GOLDEN"
 done
 json 'd[1]["keywords"], d[1]["words"], d[1]["official"], d[1]["separation"]' < list.json > out.txt
-contains -Fx "18 138 True none" out.txt || fail "facts"
+contains -Fx "18 139 True none" out.txt || fail "facts"
 
 run bo packs show zh-Hant-HK > out.txt
 contains -F "prefixes     可 (kw.can), 須 (kw.requires), 當 (kw.when), 如 (kw.if)" out.txt || fail "prefixes"
@@ -131,14 +131,14 @@ run bo packs show zh-Hans-CN --json > show.json
 json 'd["keywords"]["kw.each"], d["vocabulary"]["unit.item"]["category"], d["reading"]["multipliers"]["万"]' < show.json > out.txt
 contains -Fx "['逐个'] unit 10000" out.txt || fail "show --json"
 json 'len(d["messages"]), len(d["sentences"])' < show.json > out.txt
-contains -Fx "223 244" out.txt || fail "messages and sentences"
+contains -Fx "223 245" out.txt || fail "messages and sentences"
 expect_exit 1 bo packs show fr
 contains -F "no pack fr" out.txt || fail "unknown pack"
 expect_exit 1 bo packs show en --section nope
 
 echo "== Bo's core and its vocabulary packs"
 run bo vocab list > out.txt
-contains -E "^core +- +core +80 words, +5 built-in actions +\(every source\)$" out.txt || fail "vocab list: core"
+contains -E "^core +- +core +81 words, +5 built-in actions +\(every source\)$" out.txt || fail "vocab list: core"
 contains -E "^finance +version 1 +finance +24 words, 10 built-in actions  SHA-256 [0-9a-f]{64}$" out.txt || fail "vocab list: finance"
 contains -E "^commerce +version 1 +commerce +22 words, +0 built-in actions" out.txt || fail "vocab list: commerce"
 contains -E "^services +version 1 +services +12 words, +2 built-in actions" out.txt || fail "vocab list: services"
@@ -146,7 +146,7 @@ run bo vocab list --language zh-Hant-HK > out.txt
 contains -F "金融" out.txt || fail "vocab list: names in the reader's language"
 run bo vocab list --json > vocab.json
 json 'sum(p["words"] for p in d), [p["id"] for p in d], d[2]["actions"]' < vocab.json > out.txt
-contains -Fx "138 ['core', 'commerce', 'finance', 'services'] ['pledge', 'release', 'enforce', 'redeem', 'pay', 'confirm_payment', 'dispute', 'freeze', 'unfreeze', 'split']" out.txt || fail "vocab list --json"
+contains -Fx "139 ['core', 'commerce', 'finance', 'services'] ['pledge', 'release', 'enforce', 'redeem', 'pay', 'confirm_payment', 'dispute', 'freeze', 'unfreeze', 'split']" out.txt || fail "vocab list --json"
 run bo vocab show core > out.txt
 contains -E "^  kind +kind.thing +thing$" out.txt || fail "vocab show: the core's kind"
 contains -E "^  field +field.holder +holder  party; taking \(R31\)$" out.txt || fail "vocab show: a field's facts"
@@ -206,7 +206,7 @@ cat > company.pack <<'EOF'
 }
 EOF
 run bo packs check company.pack > out.txt
-contains -F "warning: pack acme-terms does not spell 135 of the 138 words" out.txt || fail "partial"
+contains -F "warning: pack acme-terms does not spell 136 of the 139 words" out.txt || fail "partial"
 contains -F "company.pack: pack acme-terms version 3 (community): 18 keywords, 3 words" out.txt || fail "check ok"
 contains -F "ok: the packs read" out.txt || fail "ok"
 run bo packs list --pack company.pack > out.txt

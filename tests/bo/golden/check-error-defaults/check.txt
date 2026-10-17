@@ -12,17 +12,19 @@ field fee instance money cur.HKD default 5
 field codes instance list 2 text default (list "a" "b" "c")
 field starts instance date
 field field.due instance date
+field marks instance list 16 number
 charge charge.tax VAT
   line charge.rate 5%
   line charge.added
   computes added rate per_line round.half_up{R17} on=price.price{R27}
 due field
 state state.active first{R4}
-7:14 error check.default-field: lowest cannot have a default: only an instance field given at creation has one; a constant has its value, a party field starts with its party, and a bill is made from its lines
-8:21 error check.default-field: holder cannot have a default: only an instance field given at creation has one; a constant has its value, a party field starts with its party, and a bill is made from its lines
-9:22 error check.default-field: invoice cannot have a default: only an instance field given at creation has one; a constant has its value, a party field starts with its party, and a bill is made from its lines
-10:18 error check.default-value: 1 + 2 is no default: a default is a value written out, of the field's type: 0, HKD 0, no, "none yet", 2027-01-01, or a list of them
-11:13 error check.type: 5 is a number, but money in HKD is needed here
-12:31 error check.list-bound: ("a", "b", "c"): a list holds from 1 to 2 items
-13:17 error check.default-value: due is no default: a default is a value written out, of the field's type: 0, HKD 0, no, "none yet", 2027-01-01, or a list of them
-16:13 error check.default-field: rate cannot have a default: only an instance field given at creation has one; a constant has its value, a party field starts with its party, and a bill is made from its lines
+8:14 error check.default-field: lowest cannot have a default: only an instance field given at creation has one; a constant has its value, a party field starts with its party, and a bill is made from its lines
+9:21 error check.default-field: holder cannot have a default: only an instance field given at creation has one; a constant has its value, a party field starts with its party, and a bill is made from its lines
+10:22 error check.default-field: invoice cannot have a default: only an instance field given at creation has one; a constant has its value, a party field starts with its party, and a bill is made from its lines
+11:18 error check.default-value: 1 + 2 is no default: a default is a value written out, of the field's type: 0, HKD 0, no, "none yet", 2027-01-01, or a list of them
+12:13 error check.type: 5 is a number, but money in HKD is needed here
+13:31 error check.list-bound: ("a", "b", "c"): a list holds from 1 to 2 items
+14:17 error check.default-value: due is no default: a default is a value written out, of the field's type: 0, HKD 0, no, "none yet", 2027-01-01, or a list of them
+16:21 error check.list-bound: at most -2: a list holds from 1 to 1000 items
+18:13 error check.default-field: rate cannot have a default: only an instance field given at creation has one; a constant has its value, a party field starts with its party, and a bill is made from its lines

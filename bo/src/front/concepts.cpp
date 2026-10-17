@@ -136,6 +136,8 @@ constexpr Concept unsorted_concepts[] = {
     {"unit.item", unit, 0},
     {"unit.kg", unit, 0},
     {"unit.tonne", unit, 0},
+    // A temperature (G5b), also written °C or ℃ in every language.
+    {"unit.celsius", unit, 0},
     // Currencies.
     {"cur.HKD", currency, 0},
     {"cur.CNY", currency, 0},
@@ -253,8 +255,9 @@ constexpr std::size_t words_of(Vocab pack) {
     }));
 }
 
-// D-054: an 80-word core and three official vocabulary packs.
-static_assert(words_of(Vocab::core) == 80, "the core has 80 words");
+// D-054: an 80-word core and three official vocabulary packs; G5b added a
+// unit of temperature to the core.
+static_assert(words_of(Vocab::core) == 81, "the core has 81 words");
 static_assert(words_of(Vocab::finance) == 24, "finance has 24 words");
 static_assert(words_of(Vocab::commerce) == 22, "commerce has 22 words");
 static_assert(words_of(Vocab::services) == 12, "services has 12 words");
@@ -704,6 +707,7 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"type-bandwidth", ""},
     {"type-count", ""},
     {"type-mass", ""},
+    {"type-temperature", ""},
     {"type-any-quantity", ""},
     {"type-rate", ""},
     {"type-date", ""},
@@ -861,6 +865,11 @@ std::optional<Category> category_from_name(std::string_view name) noexcept {
 
 std::span<const Concept> concepts() noexcept {
     return sorted_concepts;
+}
+
+std::string_view unit_symbol(const Concept* c) noexcept {
+    return c != nullptr && c->id == "unit.celsius" ? std::string_view("\u00B0C")
+                                                   : std::string_view();
 }
 
 const Concept* find_concept(std::string_view id) noexcept {

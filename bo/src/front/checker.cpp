@@ -897,7 +897,8 @@ std::optional<Declared> Checker::as_type(const ast::Expr& e) {
             o.operands.size() == 1 && o.operands[0].kind == ExprKind::literal &&
             o.operands[0].literal.kind == ast::LiteralKind::number) {
             const Exact n = exact(o.operands[0].literal.number, 1);
-            if (!n.whole || n.value == 0 || n.value > max_list_bound) {
+            if (!n.whole || n.value == 0 || n.value > max_list_bound ||
+                o.operands[0].literal.number.negative) {
                 error(o.span, "check.list-bound",
                       {{"text", written(o.span)}, {"limit", std::to_string(max_list_bound)}});
                 bound = default_list_bound;

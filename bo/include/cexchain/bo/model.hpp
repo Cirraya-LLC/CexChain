@@ -58,14 +58,15 @@ inline constexpr std::array<std::string_view, 15> type_kind_names{
 /// 1,000 GB, TiB 1,024 GiB); units of two never mix.
 enum class Dimension : std::uint8_t {
     none,
-    data,      ///< bytes: MB, GB, TB, MiB, GiB, TiB
-    bandwidth, ///< bits per second: Mbps, Gbps
-    count,     ///< items
-    mass,      ///< grams: kg, tonnes
+    data,        ///< bytes: MB, GB, TB, MiB, GiB, TiB
+    bandwidth,   ///< bits per second: Mbps, Gbps
+    count,       ///< items
+    mass,        ///< grams: kg, tonnes
+    temperature, ///< hundredths of a degree Celsius: °C (G5b)
 };
 
-inline constexpr std::array<std::string_view, 5> dimension_names{"none", "data", "bandwidth",
-                                                                 "count", "mass"};
+inline constexpr std::array<std::string_view, 6> dimension_names{"none",  "data", "bandwidth",
+                                                                 "count", "mass", "temperature"};
 
 struct Type {
     TypeKind kind = TypeKind::unknown;

@@ -11,6 +11,10 @@ field fee instance money cur.HKD default (money cur.HKD 0)
 field done instance yes_no default val.no
 field codes instance list 3 text default (list "none"){R29}
 field note instance text default "none yet"
+field lowest constant quantity temperature = (quantity unit.celsius -2.5)
+field highest constant quantity temperature = (quantity unit.celsius 8)
+field coldest instance quantity temperature default (quantity unit.celsius 100)
+field rebate constant money cur.HKD = (money cur.HKD -5)
 due field
 state state.active first{R4}
 state delivered{R5}
@@ -20,3 +24,8 @@ can deliver own by=carrier agents=delegation{R14}
   set full_weeks (/ (- time.now field.due) (duration time.week 1)){R32}
   if (> days_late 0)
     set fee (* per_day days_late)
+can measure own by=role.we agents=delegation{R14}
+  input readings instance list 96 quantity temperature
+  each reading in=readings
+    if (or (< reading lowest) (> reading (+ highest (quantity unit.celsius 0.5))))
+      set fee (+ fee rebate)

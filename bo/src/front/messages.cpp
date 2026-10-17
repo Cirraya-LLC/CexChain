@@ -75,6 +75,10 @@ std::string visible(std::string_view text) {
 }
 
 std::string spell(std::string_view concept_id, const Pack* language) {
+    // A unit with a symbol is written so in every language (°C).
+    if (const std::string_view symbol = unit_symbol(find_concept(concept_id)); !symbol.empty()) {
+        return std::string(symbol);
+    }
     for (const Pack* pack : {language, &english_pack()}) {
         if (pack == nullptr) {
             continue;

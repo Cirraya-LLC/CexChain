@@ -1,0 +1,51 @@
+1:1 number -5 | -5
+1:4 name x | x
+1:6 symbol = | =
+1:8 number -5 | -5
+1:11 symbol ( | (
+1:12 number 1 | 1
+1:13 symbol , | ,
+1:15 number -2 | -2
+1:17 symbol ) | )
+1:19 name a | a
+1:21 number -3 | -3
+1:24 number 10 | 10
+1:26 symbol - | -
+1:27 number 3 | 3
+1:29 name x | x
+1:30 symbol - | -
+1:31 number 3 | 3
+1:33 name x | x
+1:35 symbol - | -
+1:37 number 3 | 3
+1:38 symbol , | ,
+1:40 money cur.HKD -1.50 | HKD -1.50
+1:49 symbol , | ,
+1:51 quantity unit.TB -2 | -2 TB
+1:57 duration time.day -3 | -3 days
+1:65 rate -5% | -5%
+1:69 rate 5% | 5%
+1:71 symbol - | -
+1:72 number 3 | 3
+1:74 symbol ( | (
+1:75 number 2 | 2
+1:76 symbol ) | )
+1:77 symbol - | -
+1:78 number 3 | 3
+1:80 text "a" | "a"
+1:83 symbol - | -
+1:84 number 3 | 3
+1:86 name a | a
+1:87 symbol * | *
+1:88 number -2 | -2
+1:91 name a | a
+1:92 symbol * | ×
+1:93 number -2 | -2
+1:96 number 1 | 1
+1:97 symbol - | -
+1:98 number -2 | -2
+1:100 newline
+2:1 name bo | bo
+2:4 number -1 | -1
+2:6 newline
+3:1 end

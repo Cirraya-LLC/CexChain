@@ -24,6 +24,8 @@ can bill own by=role.we agents=delegation{R14}
   requires (= (phrase time.monthly 5) 0)
   requires (< 5% 0.00001%)
   requires (> (/ term (duration time.day 1)) 2)
+  requires (> size (quantity unit.celsius 2))
+  requires (> (quantity unit.celsius 4.567) (quantity unit.celsius 1))
 13:12 error check.mixed-currencies: money in HKD and money in USD are in different currencies; Bo never converts one into the other
 14:12 error check.mixed-units: an amount of data (MB, GB, TB, MiB, GiB, TiB) and a number of items measure different things, which never mix
 15:12 error check.calendar: term > 30 days mixes months or years with days or weeks: a month has no fixed number of days, so Bo neither compares nor adds them
@@ -31,10 +33,12 @@ can bill own by=role.we agents=delegation{R14}
 17:12 error check.type: amount is money in HKD, but yes or no is needed here
 18:12 error check.operands: = cannot combine money in HKD with a number
 19:20 error check.whole-number: 1.5 must be a whole number here (for a share, write a rate: 150%)
-20:21 error check.precision: HKD 0.001 is finer than Bo keeps: money to the currency's cent, unit prices to six decimal places, rates to 0.0001%, quantities to whole bytes, bits per second, items, or grams
+20:21 error check.precision: HKD 0.001 is finer than Bo keeps: money to the currency's cent, unit prices to six decimal places, rates to 0.0001%, quantities to whole bytes, bits per second, items, or grams, temperatures to hundredths of a degree
 21:20 error check.overflow: 10000000000000000000 is too large: Bo keeps every value as a whole number of its smallest unit, in 64 bits
 22:12 error check.zero-division: amount / 0 divides by zero
 23:21 error check.list-items: the items of (1, "a") are not all of one type
 24:13 error check.phrase: Bo reads no value in monthly 5: words side by side form a recurring amount (monthly HKD 120), a unit price (per GB HKD 0.10), a labelled price (overage per GB HKD 0.10), overdue N, or according to a field
-25:17 error check.precision: 0.00001% is finer than Bo keeps: money to the currency's cent, unit prices to six decimal places, rates to 0.0001%, quantities to whole bytes, bits per second, items, or grams
+25:17 error check.precision: 0.00001% is finer than Bo keeps: money to the currency's cent, unit prices to six decimal places, rates to 0.0001%, quantities to whole bytes, bits per second, items, or grams, temperatures to hundredths of a degree
 26:12 error check.calendar: term / 1 day mixes months or years with days or weeks: a month has no fixed number of days, so Bo neither compares nor adds them
+27:12 error check.mixed-units: an amount of data (MB, GB, TB, MiB, GiB, TiB) and a temperature (°C) measure different things, which never mix
+28:12 error check.precision: 4.567 °C is finer than Bo keeps: money to the currency's cent, unit prices to six decimal places, rates to 0.0001%, quantities to whole bytes, bits per second, items, or grams, temperatures to hundredths of a degree

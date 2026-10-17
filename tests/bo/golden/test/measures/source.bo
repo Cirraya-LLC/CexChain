@@ -1,6 +1,6 @@
 # Measures (G5b): a duration divided by a duration counts whole times, the
 # rest dropped toward zero (R32); fields with defaults need not be given at
-# creation.
+# creation; temperatures, in hundredths of a degree, and negative values.
 contract Measures
 parties we, carrier
 
@@ -9,6 +9,10 @@ thing Goods
   per_day HKD
   days_late number = 0
   fee HKD = HKD 0
+  lowest -2.5 °C
+  highest 8 °C
+  excursions number = 0
+  coldest °C = 100 °C
 
 # At most 13 days late (under two whole weeks), and at most 6 days early (a
 # part of a week toward zero is none).
@@ -19,6 +23,18 @@ can deliver by carrier
   days_late = (now - due) / 1 day
   if days_late > 0
     fee = per_day * days_late
+
+# Readings in tenths of a degree; each out of the range is an excursion.
+can measure by we with readings list °C at most 96
+  each reading in readings
+    if reading < lowest or reading > highest
+      excursions = excursions + 1
+    if reading < coldest
+      coldest = reading
+
+can claim by carrier
+  requires excursions = 2 and coldest = -2.6 °C
+  delivered -> claimed
 
 test "three days early: a part of a week is no week"
   we create with due = 2027-03-10, per_day = HKD 2_000
@@ -35,3 +51,15 @@ test "13 days late is one whole week"
 test "two weeks late is refused"
   we create with due = 2027-03-10, per_day = HKD 2_000
   carrier deliver at 2027-03-24 -> refused "bo:requires deliver 1"
+
+test "two readings out of the range, the coldest -2.6 degrees"
+  we create with due = 2027-03-10, per_day = HKD 2_000
+  we measure with readings = (4.5 °C, -2.5 °C, 8.01 °C, -2.6 °C, 7.99 °C)
+  carrier deliver at 2027-03-10 -> delivered
+  carrier claim -> claimed
+
+test "one reading out of the range is no claim"
+  we create with due = 2027-03-10, per_day = HKD 2_000
+  we measure with readings = (-2.51 °C, 8 °C)
+  carrier deliver at 2027-03-10 -> delivered
+  carrier claim -> refused "bo:requires claim 1"

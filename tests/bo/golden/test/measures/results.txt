@@ -1,13 +1,23 @@
 test "three days early: a part of a week is no week" passed home=role.we
-  step 1 passed 2026-01-01 accepted active event=active; fuel 6726
-  step 2 passed 2027-03-07 accepted delivered event=delivered consents carrier; fuel 9279 11302
+  step 1 passed 2026-01-01 accepted active event=active; fuel 7382
+  step 2 passed 2027-03-07 accepted delivered event=delivered consents carrier; fuel 10903 13120
 test "a week early is refused" passed home=role.we
-  step 1 passed 2026-01-01 accepted active event=active; fuel 7461
-  step 2 passed 2027-03-03 refused "bo:requires deliver 2"; fuel 8712
+  step 1 passed 2026-01-01 accepted active event=active; fuel 8364
+  step 2 passed 2027-03-03 refused "bo:requires deliver 2"; fuel 10336
 test "13 days late is one whole week" passed home=role.we
-  step 1 passed 2026-01-01 accepted active event=active; fuel 6726
-  step 2 passed 2027-03-23 accepted delivered event=delivered consents carrier; fuel 8970 11067
+  step 1 passed 2026-01-01 accepted active event=active; fuel 7382
+  step 2 passed 2027-03-23 accepted delivered event=delivered consents carrier; fuel 10594 12885
 test "two weeks late is refused" passed home=role.we
-  step 1 passed 2026-01-01 accepted active event=active; fuel 6726
-  step 2 passed 2027-03-24 refused "bo:requires deliver 1"; fuel 8203
-4 tests: 4 passed, 0 failed
+  step 1 passed 2026-01-01 accepted active event=active; fuel 7382
+  step 2 passed 2027-03-24 refused "bo:requires deliver 1"; fuel 9827
+test "two readings out of the range, the coldest -2.6 degrees" passed home=role.we
+  step 1 passed 2026-01-01 accepted active event=active; fuel 7382
+  step 2 passed 2026-01-01 accepted active; fuel 13219
+  step 3 passed 2027-03-10 accepted delivered event=delivered consents carrier; fuel 10573 12790
+  step 4 passed 2027-03-10 accepted claimed event=claimed consents carrier; fuel 9610 11827
+test "one reading out of the range is no claim" passed home=role.we
+  step 1 passed 2026-01-01 accepted active event=active; fuel 7382
+  step 2 passed 2026-01-01 accepted active; fuel 12159
+  step 3 passed 2027-03-10 accepted delivered event=delivered consents carrier; fuel 10541 12740
+  step 4 passed 2027-03-10 refused "bo:requires claim 1"; fuel 9336
+6 tests: 6 passed, 0 failed

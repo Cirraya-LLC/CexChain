@@ -30,6 +30,8 @@ constexpr UnitInfo unit_table[] = {
     {"unit.item", Dimension::count, 1},
     {"unit.kg", Dimension::mass, 1'000},
     {"unit.tonne", Dimension::mass, 1'000'000},
+    // A temperature in hundredths of a degree Celsius (G5b): 4.5 °C is 450.
+    {"unit.celsius", Dimension::temperature, 100},
 };
 
 bool is(const Concept* c, std::string_view id) noexcept {
@@ -41,7 +43,9 @@ std::optional<std::int64_t> scaled(const Decimal& value, std::uint64_t factor) n
     if (!x.whole || !x.fits) {
         return std::nullopt;
     }
-    return static_cast<std::int64_t>(x.value);
+    // At most 2^63 - 1, so its negation fits too.
+    const auto magnitude = static_cast<std::int64_t>(x.value);
+    return value.negative ? -magnitude : magnitude;
 }
 
 } // namespace
@@ -108,7 +112,9 @@ std::optional<std::int64_t> literal_value(const ast::Literal& l,
                                      : is(l.unit, "time.year") ? 12
                                                                : 1;
         const std::optional<std::int64_t> value = scaled(l.number, factor);
-        if (!value || (calendar && static_cast<std::uint64_t>(*value) > max_months)) {
+        if (!value ||
+            (calendar && (*value < 0 ? 0 - static_cast<std::uint64_t>(*value)
+                                     : static_cast<std::uint64_t>(*value)) > max_months)) {
             return std::nullopt;
         }
         return value;

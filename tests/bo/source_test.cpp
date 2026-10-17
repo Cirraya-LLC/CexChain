@@ -350,13 +350,13 @@ TEST_CASE("a bundle read before vocabulary packs opens with the packs it was rea
 TEST_CASE("a bundle read with version 2 of the official packs opens with them", "[bo][source]") {
     // What a deploy recorded with vocabulary packs, before temperatures and
     // field defaults (G5b): the official packs version 2, key 6, `use`.
-    constexpr std::string_view source =
+    constexpr std::string_view second_source =
         "use commerce\ncontract Deal\nparties we, customer\nthing Terms\n  holder customer\n";
     PackSetRead second = make_pack_set({}, Officials::before_temperature);
     REQUIRE(second.set.has_value());
     CHECK(!second.set->implicit_vocabulary());
     const auto bundle =
-        make_source_bundle(source, 1, *second.set, provider(), crypto::HashAlg::sha256);
+        make_source_bundle(second_source, 1, *second.set, provider(), crypto::HashAlg::sha256);
     REQUIRE(bundle.has_value());
     CHECK(bundle->vocabulary.size() == 1);
     REQUIRE(bundle->packs.size() == 3);

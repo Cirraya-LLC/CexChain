@@ -118,6 +118,11 @@ struct Concept {
 
 /// Every concept of the edition, sorted by id.
 [[nodiscard]] std::span<const Concept> concepts() noexcept;
+
+/// The symbol a unit is written as in every language, or empty: "°C" for
+/// unit.celsius (G5b), which sources may also write ℃, and which the packs
+/// also spell in words ("degrees Celsius", 攝氏度). Tools write the symbol.
+[[nodiscard]] std::string_view unit_symbol(const Concept* c) noexcept;
 [[nodiscard]] const Concept* find_concept(std::string_view id) noexcept;
 /// The number of keywords (every pack spells them all).
 [[nodiscard]] std::size_t keyword_count() noexcept;

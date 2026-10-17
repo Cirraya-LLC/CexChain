@@ -24,3 +24,5 @@ can bill by we
   requires (monthly 5) = 0
   requires 5% < 0.00001%
   requires term / 1 day > 2
+  requires size > 2 °C
+  requires 4.567 °C > 1 °C
