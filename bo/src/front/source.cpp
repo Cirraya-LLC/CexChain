@@ -320,8 +320,8 @@ OpenedSource open_source_bundle(const SourceBundle& bundle, const crypto::Provid
         }
         given.push_back(std::move(*read.pack));
     }
-    // The official packs it names are all of one release: today's, or those
-    // of before vocabulary packs.
+    // The official packs it names are all of one release: today's, or an
+    // earlier one this compiler carries.
     std::optional<Officials> officials;
     for (const PackRef& ref : bundle.packs) {
         const Pack* named = nullptr;
@@ -347,7 +347,7 @@ OpenedSource open_source_bundle(const SourceBundle& bundle, const crypto::Provid
                                       ref.id, ref.version)
                         : std::format("the source was read with the official pack {} version {}; "
                                       "this compiler carries version {} (and the versions of "
-                                      "before vocabulary packs)",
+                                      "earlier releases)",
                                       ref.id, ref.version, latest->version));
             }
             if (officials && *officials != which) {

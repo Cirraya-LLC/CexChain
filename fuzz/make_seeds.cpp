@@ -877,14 +877,17 @@ void bo_seeds(const Seeds& seeds) {
     built.name = "Agreement";
     seeds.write("bo_source_fuzz", "agreement.boc", ByteView(must(bo::encode_built(built), "boc")));
     seeds.write("bo_source_fuzz", "compiler", built.compiler);
-    // Bundles deployed before vocabulary packs (the official packs version
-    // 1, no key 6), which open with the packs carried for them.
+    // Bundles deployed with earlier releases of the official packs (version
+    // 1, before vocabulary packs, with no key 6; version 2, before
+    // temperatures and field defaults), which open with the packs carried
+    // for them.
     for (const auto& contract : doc.at("contracts")) {
-        if (contract.contains("earlier")) {
-            const Bytes earlier =
-                must(from_hex(contract.at("earlier").at("bundle").get<std::string>()), "bundle");
-            seeds.write("bo_source_fuzz", "earlier-" + contract.at("name").get<std::string>(),
-                        ByteView(earlier));
+        std::size_t n = 0;
+        for (const auto& earlier : contract.value("earlier", nlohmann::json::array())) {
+            const Bytes bundle = must(from_hex(earlier.at("bundle").get<std::string>()), "bundle");
+            seeds.write("bo_source_fuzz",
+                        std::format("earlier-{}-{}", contract.at("name").get<std::string>(), ++n),
+                        ByteView(bundle));
         }
     }
 #else

@@ -97,7 +97,7 @@ contains -x 1 out.txt || fail "version names the edition"
 
 echo "== the official packs, and their digests"
 run bo packs list > out.txt
-contains -F "zh-Hant-HK   version 2   official   繁體中文（香港）" out.txt || fail "list"
+contains -F "zh-Hant-HK   version 3   official   繁體中文（香港）" out.txt || fail "list"
 run bo packs list --json > list.json
 json 'len(d)' < list.json > out.txt
 contains -x 3 out.txt || fail "three official packs"
@@ -107,7 +107,7 @@ for hash in SHA-256 SM3; do
     [ "$hash" = SM3 ] && option=sm3
     run bo packs list --json --hash "$option" |
         json "'\\n'.join(p['id'] + ' ' + str(p['version']) + ' ' + p['hash'] + ' ' + p['digest'] for p in d)" > digests.txt
-    grep -E "^(en|zh-Hant-HK|zh-Hans-CN) 2 $hash " "$GOLDEN" > expected.txt
+    grep -E "^(en|zh-Hant-HK|zh-Hans-CN) 3 $hash " "$GOLDEN" > expected.txt
     diff expected.txt digests.txt > /dev/null || fail "digests ($hash) differ from $GOLDEN"
     # The vocabulary packs too.
     run bo vocab list --json --hash "$option" |
@@ -464,7 +464,7 @@ contains -Fx "agreement.bo: built contract Agreement (Bo edition 1)" out.txt || 
 contains -F "functions  amend, close, countersign, create (creates), sign" out.txt || fail "functions"
 contains -F "code       $GOLDEN_SIZE bytes, SHA-256 $GOLDEN_HASH" out.txt || fail "code"
 contains -F "compiler   $COMPILER" out.txt || fail "compiler"
-contains -F "the packs en 2, zh-Hans-CN 2, zh-Hant-HK 2, and the vocabulary packs commerce 1 (SHA-256 digests)" out.txt || fail "packs"
+contains -F "the packs en 3, zh-Hans-CN 3, zh-Hant-HK 3, and the vocabulary packs commerce 1 (SHA-256 digests)" out.txt || fail "packs"
 contains -F "wrote" out.txt && fail "nothing written without --out"
 # The highest fuel and output bounds (milestone 18), as the golden keeps them.
 AMEND_FUEL="$(sed -n 's/^bound amend: fuel \([0-9]*\),.*/\1/p' "$BUILDS/agreement-en/build.txt")"
@@ -807,7 +807,7 @@ json 'd["contract"]["language"], d["contract"]["compiler"], d["contract"]["name"
 contains -Fx "bo $COMPILER Agreement $GOLDEN_HASH 1" out.txt || fail "deploy records the build"
 d contract show "$C" > show.txt
 contains -Fx "language:   bo (compiler: $COMPILER)" show.txt || fail "show: compiler"
-contains -F "            Bo, edition 1: $SOURCE_SIZE bytes of source; packs en 2, zh-Hans-CN 2, zh-Hant-HK 2; vocabulary packs commerce 1" show.txt || fail "show: bundle"
+contains -F "            Bo, edition 1: $SOURCE_SIZE bytes of source; packs en 3, zh-Hans-CN 3, zh-Hant-HK 3; vocabulary packs commerce 1" show.txt || fail "show: bundle"
 contains -F "rebuild:    rebuilds: the source rebuilds to the deployed code ($GOLDEN_SIZE bytes, SHA-256 ${GOLDEN_HASH:0:16}) with $COMPILER" show.txt || fail "show: rebuild"
 d contract show "$C" --json | json 'd["bo"]["status"], d["bo"]["failed"], d["bo"]["edition"], len(d["bo"]["packs"])' > out.txt
 contains -Fx "rebuilds False 1 3" out.txt || fail "show --json"
@@ -880,7 +880,7 @@ run contract verify e1.cbor --ledger-id "$D_ID" > verify.txt
 contains -F "  Contract     bo, compiled with $COMPILER" verify.txt || fail "verify: the contract"
 contains -F "  Status       effective" verify.txt || fail "verify: status"
 contains -F "consent of Customer (SM3)" verify.txt || fail "verify: the consent on SM3"
-contains -F "  Source       Bo, edition 1: $SOURCE_SIZE bytes of source; packs en 2, zh-Hans-CN 2, zh-Hant-HK 2; vocabulary packs commerce 1" verify.txt || fail "verify: the source"
+contains -F "  Source       Bo, edition 1: $SOURCE_SIZE bytes of source; packs en 3, zh-Hans-CN 3, zh-Hant-HK 3; vocabulary packs commerce 1" verify.txt || fail "verify: the source"
 contains -F "               rebuilds: the source rebuilds to the deployed code ($GOLDEN_SIZE bytes, SHA-256 ${GOLDEN_HASH:0:16})" verify.txt || fail "verify: rebuilds"
 contains -F "VERIFICATION FAILED" verify.txt && fail "verify: verified"
 run contract verify e1.cbor --ledger-id "$D_ID" --json > verify.json

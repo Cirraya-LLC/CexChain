@@ -27,12 +27,14 @@ write them (tests/bo/codegen_test.cpp, the hidden case
     this script) and equal to tests/bo/golden/pack-digests.txt; key 6 names
     the vocabulary packs the source's `use` lines name, at the digests of
     their canonical CBOR (checked here: its terms are bo/stdlib/ID.bo);
-  - each contract's deploy from before vocabulary packs (its bundle as the
-    vectors recorded it then: the official language packs version 1, from
-    bo/packs/history/, and no key 6) is kept as "earlier", with the code it
-    deployed, which must be the code built today.
+  - each contract's deploys with earlier releases of the official language
+    packs (its bundles as the vectors recorded them then: version 1, from
+    before vocabulary packs, with no key 6; version 2, from before
+    temperatures and field defaults; both in bo/packs/history/) are kept as
+    "earlier", oldest first, each with the code it deployed, which must be
+    the code built today.
 The C++ test "the conformance vectors" then rebuilds each source to the same
-code, bundle, interface, and bounds, rebuilds each earlier deploy to the same
+code, bundle, interface, and bounds, rebuilds every earlier deploy to the same
 code, replays each run, and compiles each source that must not build to the
 same errors.
 
@@ -276,34 +278,42 @@ def main() -> int:
     doc["modules"] = {n: c for n, c in doc["modules"].items() if not n.startswith("vat-")}
     doc["runs"] = [r for r in doc["runs"] if not r["module"].startswith("vat-")]
     packs = official_packs(doc["vocabulary"])
-    # What each contract's deploy recorded before vocabulary packs (language
-    # packs version 1, no `use` lines, no key 6), from the vectors as they
-    # were: old deploys must still rebuild to the same code.
+    current = max(read_pack(path.read_text(encoding="utf-8"))["version"]
+                  for path in PACKS.glob("*.pack"))
+    # What each contract's deploys recorded with earlier releases of the
+    # official language packs (version 1: no `use` lines, no key 6; version
+    # 2: before temperatures and field defaults), from the vectors as they
+    # were, oldest first: old deploys must still rebuild to the same code.
     earlier = {}
     if pathlib.Path(args.out).exists():
         previous = json.loads(pathlib.Path(args.out).read_text(encoding="utf-8"))
         for c in previous["contracts"]:
-            if "earlier" in c:
-                earlier[c["name"]] = c["earlier"]
-            elif "bundle" in c and 6 not in cbor2.loads(bytes.fromhex(c["bundle"])):
+            kept = c.get("earlier", [])
+            kept = [kept] if isinstance(kept, dict) else list(kept)
+            if "bundle" in c:
                 old = cbor2.loads(bytes.fromhex(c["bundle"]))
-                if all(r[1] == 1 for r in old[4]):
-                    earlier[c["name"]] = {"compiler": c["compiler"], "bundle": c["bundle"],
-                                          "code_sha256": c["code_sha256"]}
+                versions = {r[1] for r in old[4]}
+                if versions != {current} and all(e["bundle"] != c["bundle"] for e in kept):
+                    kept.append({"compiler": c["compiler"], "bundle": c["bundle"],
+                                 "code_sha256": c["code_sha256"]})
+            if kept:
+                earlier[c["name"]] = kept
     contracts = {}
     for name, code_hex in doc["modules"].items():
         code = bytes.fromhex(code_hex)
         deploy = doc["deploys"][name]
         bundle = bytes.fromhex(deploy["bundle"])
-        check_bundle(bundle, doc["sources"][name][0]["text"], packs, 2)
+        check_bundle(bundle, doc["sources"][name][0]["text"], packs, current)
         assert deploy["compiler"] == doc["compiler"]
-        if name in earlier:
-            old = earlier[name]
+        for old in earlier.get(name, []):
             old_bundle = bytes.fromhex(old["bundle"])
-            check_bundle(old_bundle, cbor2.loads(old_bundle)[3], packs, 1)
-            assert not uses(cbor2.loads(old_bundle)[3]), f"{name}: use lines before packs"
+            version = cbor2.loads(old_bundle)[4][0][1]
+            assert version < current, f"{name}: an earlier deploy at version {version}"
+            check_bundle(old_bundle, cbor2.loads(old_bundle)[3], packs, version)
+            if version == 1:
+                assert not uses(cbor2.loads(old_bundle)[3]), f"{name}: use lines before packs"
             assert old["code_sha256"] == hashlib.sha256(code).hexdigest(), \
-                f"{name}: the code differs from the code deployed before vocabulary packs"
+                f"{name}: the code differs from the code deployed with packs version {version}"
         contracts[name] = {
             "name": name,
             "contract": deploy["contract"],
@@ -321,12 +331,12 @@ def main() -> int:
             "_module": w.load(code),
         }
         if name in earlier:
-            contracts[name]["earlier"] = {
-                "compiler": earlier[name]["compiler"],
-                "bundle": earlier[name]["bundle"],
-                "bundle_sha256": hashlib.sha256(bytes.fromhex(earlier[name]["bundle"])).hexdigest(),
-                "code_sha256": earlier[name]["code_sha256"],
-            }
+            contracts[name]["earlier"] = [{
+                "compiler": old["compiler"],
+                "bundle": old["bundle"],
+                "bundle_sha256": hashlib.sha256(bytes.fromhex(old["bundle"])).hexdigest(),
+                "code_sha256": old["code_sha256"],
+            } for old in earlier[name]]
     for run in doc["runs"]:
         c = contracts[run["module"]]
         raw = bytes.fromhex(run["input"])
@@ -353,11 +363,12 @@ def main() -> int:
         "format": 1,
         "description": "Bo conformance vectors (spec/bo.md, section 18): for each contract its "
                        "sources (in each language they are written in), name, interface, the "
-                       "bo-source bundle a deploy records (official language packs version 2 "
-                       "and the vocabulary packs its use lines name, SHA-256 digests), the "
-                       "bundle its deploy recorded before vocabulary packs where it had one "
-                       "(earlier: language packs version 1, no use lines; it rebuilds to the "
-                       "same code), "
+                       "bo-source bundle a deploy records (official language packs version "
+                       f"{current} and the vocabulary packs its use lines name, SHA-256 "
+                       "digests), the bundles its deploys recorded with earlier releases of "
+                       "the official packs, oldest first (earlier: language packs version 1, "
+                       "no use lines; version 2, before temperatures and field defaults; each "
+                       "rebuilds to the same code), "
                        "and the code cexchain-bo builds, the hashes of its codegen 1 and 2 code, and its "
                        "functions' fuel and output bounds (informative); calls with their "
                        "outcomes (normative; fuel is this code's); and sources that must not "

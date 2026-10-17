@@ -215,13 +215,18 @@ struct Meaning {
     std::string pack;
 };
 
-/// Which official language packs a set is built on: the current ones, or
-/// those of before vocabulary packs (version 1 of each, D-054), which a
-/// compiler carries so that the deploys made with them rebuild. A source
-/// read with the earlier ones uses every vocabulary pack without declaring
-/// it (they had no `use`), and its kind word `record` (kind.record) is
-/// today's `thing`.
-enum class Officials : std::uint8_t { current, before_vocabulary };
+/// Which release of the official language packs a set is built on: the
+/// current one, or an earlier one, which a compiler carries so that the
+/// deploys made with it rebuild (bo/packs/history/). Releases:
+///   - before_vocabulary: version 1 of each, from before vocabulary packs
+///     (D-054). A source read with them uses every vocabulary pack without
+///     declaring it (they had no `use`), and its kind word `record`
+///     (kind.record) is today's `thing`;
+///   - before_temperature: version 2 of each, with vocabulary packs, from
+///     before temperatures and field defaults (G5b): it reads like the
+///     current release, but spells no word for a temperature;
+///   - current: version 3 of each.
+enum class Officials : std::uint8_t { current, before_vocabulary, before_temperature };
 
 /// The packs a source is read with: the official packs, always, and any
 /// others given. No spelling has two meanings in it.
@@ -263,9 +268,10 @@ struct PackSetRead {
 
 /// The packs this compiler carries (the latest version of each), read once.
 [[nodiscard]] std::span<const Pack> official_packs() noexcept;
-/// The official packs of before vocabulary packs (Officials), read once.
-[[nodiscard]] std::span<const Pack> earlier_official_packs() noexcept;
-/// The official packs a set built on `officials` reads.
+/// Every release of the official packs this compiler carries, the current
+/// one first, then the earlier ones, newest first.
+[[nodiscard]] std::span<const Officials> official_releases() noexcept;
+/// The official packs of a release (Officials), read once.
 [[nodiscard]] std::span<const Pack> official_packs(Officials officials) noexcept;
 /// The official pack with this id, or nullptr.
 [[nodiscard]] const Pack* official_pack(std::string_view id) noexcept;
@@ -284,8 +290,9 @@ struct PackText {
 
 /// The current official packs' files.
 [[nodiscard]] std::span<const PackText> official_pack_texts() noexcept;
-/// The earlier official packs' files (bo/packs/history/).
-[[nodiscard]] std::span<const PackText> earlier_official_pack_texts() noexcept;
+/// The files of a release's official packs (earlier ones in
+/// bo/packs/history/).
+[[nodiscard]] std::span<const PackText> official_pack_texts(Officials officials) noexcept;
 
 /// The pack for a language: by pack id, by language tag, or by a tag's
 /// unique prefix ("zh-Hant" finds zh-Hant-HK). Nullptr if none or several.

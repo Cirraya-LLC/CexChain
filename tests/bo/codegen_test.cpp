@@ -24,6 +24,7 @@
 #include <functional>
 #include <map>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -1756,10 +1757,12 @@ TEST_CASE("bo build: the conformance vectors (testvectors/bo-v1.json)", "[bo][bu
                 CHECK(ours.fuel == b.at("fuel").get<std::uint64_t>());
                 CHECK(ours.output == b.at("output").get<std::uint64_t>());
             }
-            // Its deploy from before vocabulary packs (the official packs
-            // version 1, no `use` lines) rebuilds to the same code.
-            if (contract.contains("earlier")) {
-                const auto& earlier = contract.at("earlier");
+            // Its deploys with earlier releases of the official packs
+            // (version 1, before vocabulary packs: no `use` lines; version
+            // 2, before temperatures and field defaults) rebuild to the same
+            // code.
+            std::set<std::uint64_t> releases;
+            for (const auto& earlier : contract.value("earlier", nlohmann::json::array())) {
                 protocol::ContractDeployBody deploy;
                 deploy.language = "bo";
                 deploy.code = compiled.build->code;
@@ -1772,7 +1775,12 @@ TEST_CASE("bo build: the conformance vectors (testvectors/bo-v1.json)", "[bo][bu
                 INFO(r.detail);
                 CHECK(r.status == bo::RebuildStatus::rebuilds);
                 REQUIRE(r.bundle.has_value());
-                CHECK(r.bundle->vocabulary.empty());
+                const std::uint64_t version = r.bundle->packs.front().version;
+                CHECK(version < bo::official_packs().front().version);
+                CHECK(releases.insert(version).second);
+                if (version == 1) {
+                    CHECK(r.bundle->vocabulary.empty());
+                }
                 const auto digest =
                     provider().digest(cexchain::crypto::HashAlg::sha256, compiled.build->code);
                 CHECK(hex(digest->bytes()) == earlier.at("code_sha256").get<std::string>());

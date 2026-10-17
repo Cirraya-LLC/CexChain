@@ -143,7 +143,7 @@ TEST_CASE("a source bundle names every official pack and round-trips", "[bo][sou
     CHECK(sm3.packs[0].digest != bundle.packs[0].digest);
     const OpenedSource wrong = open_source_bundle(sm3, provider(), crypto::HashAlg::sha256);
     CHECK(wrong.problem == OpenProblem::official_differs);
-    CHECK(wrong.detail.find("the official pack en version 2") != std::string::npos);
+    CHECK(wrong.detail.find("the official pack en version 3") != std::string::npos);
     const OpenedSource right = open_source_bundle(sm3, provider(), crypto::HashAlg::sm3);
     CHECK(right.problem == OpenProblem::none);
     REQUIRE(right.packs.has_value());
@@ -221,12 +221,12 @@ TEST_CASE("opening a bundle names what this compiler cannot read it with", "[bo]
     const SourceBundle bundle = bundle_of(pack_set());
     SECTION("an official pack version this compiler does not carry") {
         SourceBundle newer = bundle;
-        newer.packs[0].version = 3;
+        newer.packs[0].version = 4;
         const OpenedSource opened = open_source_bundle(newer, provider(), crypto::HashAlg::sha256);
         CHECK(opened.problem == OpenProblem::unknown_official);
         CHECK(opened.detail ==
-              "the source was read with the official pack en version 3; this compiler carries "
-              "version 2 (and the versions of before vocabulary packs)");
+              "the source was read with the official pack en version 4; this compiler carries "
+              "version 3 (and the versions of earlier releases)");
     }
     SECTION("official packs of two releases") {
         SourceBundle mixed = bundle;
@@ -345,6 +345,34 @@ TEST_CASE("a bundle read before vocabulary packs opens with the packs it was rea
     const OpenedSource today =
         open_source_bundle(bundle_of(pack_set()), provider(), crypto::HashAlg::sha256);
     CHECK(today.packs->officials() == Officials::current);
+}
+
+TEST_CASE("a bundle read with version 2 of the official packs opens with them", "[bo][source]") {
+    // What a deploy recorded with vocabulary packs, before temperatures and
+    // field defaults (G5b): the official packs version 2, key 6, `use`.
+    constexpr std::string_view source =
+        "use commerce\ncontract Deal\nparties we, customer\nthing Terms\n  holder customer\n";
+    PackSetRead second = make_pack_set({}, Officials::before_temperature);
+    REQUIRE(second.set.has_value());
+    CHECK(!second.set->implicit_vocabulary());
+    const auto bundle =
+        make_source_bundle(source, 1, *second.set, provider(), crypto::HashAlg::sha256);
+    REQUIRE(bundle.has_value());
+    CHECK(bundle->vocabulary.size() == 1);
+    REQUIRE(bundle->packs.size() == 3);
+    for (const PackRef& r : bundle->packs) {
+        CHECK(r.version == 2);
+    }
+    const OpenedSource opened = open_source_bundle(*bundle, provider(), crypto::HashAlg::sha256);
+    CHECK(opened.problem == OpenProblem::none);
+    REQUIRE(opened.packs.has_value());
+    CHECK(opened.packs->officials() == Officials::before_temperature);
+    CHECK(!opened.packs->implicit_vocabulary());
+    // Version 2 beside version 3 is two releases.
+    SourceBundle mixed = *bundle;
+    mixed.packs[0] = bundle_of(pack_set()).packs[0];
+    CHECK(open_source_bundle(mixed, provider(), crypto::HashAlg::sha256).problem ==
+          OpenProblem::conflict);
 }
 
 TEST_CASE("decoding refuses bundles of any other shape", "[bo][source]") {

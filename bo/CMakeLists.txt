@@ -86,7 +86,8 @@ cexchain_target_defaults(cexchain_bo_front)
 # vocabulary packs').
 set(pack_files)
 foreach(pack IN LISTS official_packs)
-    list(APPEND pack_files "packs/${pack}.pack" "packs/history/${pack}-1.pack")
+    list(APPEND pack_files "packs/${pack}.pack" "packs/history/${pack}-1.pack"
+        "packs/history/${pack}-2.pack")
 endforeach()
 set(stdlib_files stdlib/core.bo stdlib/finance.bo stdlib/services.bo)
 if(CEXCHAIN_HAVE_EMBED)

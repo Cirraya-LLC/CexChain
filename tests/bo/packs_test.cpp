@@ -139,30 +139,46 @@ TEST_CASE("the official packs read, and their digests match the goldens", "[bo][
         lines += std::format("{} {} SM3 {}\n", r.pack->id, r.pack->version,
                              digest_hex(*r.pack, crypto::HashAlg::sm3));
     }
-    // The earlier official packs (version 1, from before vocabulary packs),
-    // which the compiler carries so that their deploys rebuild: unchanged,
-    // so their digests are those deploys recorded. They lack only the core's
-    // new kind word (thing).
-    REQUIRE(earlier_official_packs().size() == 3);
-    for (const PackText& text : earlier_official_pack_texts()) {
-        const PackRead r = read_pack(text.text);
-        INFO(text.id << "\n" << all_text(r.diagnostics));
-        REQUIRE(r.pack);
-        CHECK(r.pack->id == text.id);
-        CHECK(r.pack->version == 1);
-        CHECK(r.pack->official);
-        REQUIRE(r.diagnostics.size() == 1);
-        CHECK(reports(r.diagnostics, "pack.partial", {{"missing", "1"}}));
-        CHECK(r.pack->word("kind.record") != nullptr);
-        CHECK(r.pack->word("kind.thing") == nullptr);
-        Officials which = Officials::current;
-        CHECK(official_pack(text.id, 1, &which) != nullptr);
-        CHECK(which == Officials::before_vocabulary);
-        lines += std::format("{} {} SHA-256 {}\n", r.pack->id, r.pack->version,
-                             digest_hex(*r.pack, crypto::HashAlg::sha256));
-        lines += std::format("{} {} SM3 {}\n", r.pack->id, r.pack->version,
-                             digest_hex(*r.pack, crypto::HashAlg::sm3));
+    // The earlier releases, which the compiler carries so that their
+    // deploys rebuild: unchanged, so their digests are those deploys
+    // recorded. Version 1 (from before vocabulary packs) lacks the core's
+    // kind word thing, and spells the retired kind.record; version 2 lacks
+    // the words added since (a temperature).
+    for (const auto& [which, version] : {std::pair{Officials::before_temperature, 2U},
+                                         std::pair{Officials::before_vocabulary, 1U}}) {
+        REQUIRE(official_pack_texts(which).size() == 3);
+        REQUIRE(official_packs(which).size() == 3);
+        for (const PackText& text : official_pack_texts(which)) {
+            const PackRead r = read_pack(text.text);
+            INFO(text.id << " " << version << "\n" << all_text(r.diagnostics));
+            REQUIRE(r.pack);
+            CHECK(r.pack->id == text.id);
+            CHECK(r.pack->version == version);
+            CHECK(r.pack->official);
+            std::size_t missing = 0;
+            for (const Concept& c : concepts()) {
+                missing += !c.retired && r.pack->word(c.id) == nullptr ? 1U : 0U;
+            }
+            if (missing == 0) {
+                CHECK(r.diagnostics.empty());
+            } else {
+                REQUIRE(r.diagnostics.size() == 1);
+                CHECK(
+                    reports(r.diagnostics, "pack.partial", {{"missing", std::to_string(missing)}}));
+            }
+            CHECK((r.pack->word("kind.record") != nullptr) == (version == 1));
+            CHECK((r.pack->word("kind.thing") == nullptr) == (version == 1));
+            Officials found = Officials::current;
+            CHECK(official_pack(text.id, version, &found) != nullptr);
+            CHECK(found == which);
+            lines += std::format("{} {} SHA-256 {}\n", r.pack->id, r.pack->version,
+                                 digest_hex(*r.pack, crypto::HashAlg::sha256));
+            lines += std::format("{} {} SM3 {}\n", r.pack->id, r.pack->version,
+                                 digest_hex(*r.pack, crypto::HashAlg::sm3));
+        }
     }
+    CHECK(official_releases().size() == 3);
+    CHECK(official_releases().front() == Officials::current);
     // The vocabulary packs (vocab.hpp).
     const crypto::openssl::Provider provider;
     for (const VocabularyPack& pack : vocabulary_packs()) {
@@ -185,7 +201,7 @@ TEST_CASE("the official packs read, and their digests match the goldens", "[bo][
 TEST_CASE("the official packs spell every keyword, word, message, and sentence", "[bo][packs]") {
     for (const Pack& pack : official_packs()) {
         INFO(pack.id);
-        CHECK(pack.version == 2);
+        CHECK(pack.version == 3);
         // Every concept but the retired ones, which only the earlier
         // official packs spell.
         for (const Concept& c : concepts()) {
