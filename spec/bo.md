@@ -134,13 +134,14 @@ A source may begin with `bo 1`, the edition it is written in; a source without i
 | `bo fmt FILE [--language L] [--check\|--write]` | the source in canonical layout, in one language on request (section 15) |
 | `bo test FILE` | runs the source's `test` blocks (section 13) |
 | `bo packs list\|show\|check` | the official language packs and others given with `--pack` (section 3) |
-| `bo vocab list\|show PACK` | the core and the vocabulary packs: their words, field facts, actions, and digests (3.9) |
+| `bo vocab list\|show PACK\|FILE` | the core and the vocabulary packs, yours given with `--vocab`: their words, field facts, actions, and digests (3.9) |
+| `bo vocab check FILE...` | checks vocabulary packs of your own, alone and with the official packs (3.9) |
 | `bo stdlib list [PACK]\|show ACTION` | the standard library's built-in actions, by pack (section 8) |
 | `contract deploy --bo FILE` | builds and deploys, recording the source bundle |
 | `contract explain CONTRACT\|INSTANCE` | the contract text of a deploy whose source rebuilds |
 | `contract verify EVIDENCE` | replays an instance's evidence and rebuilds its code from the source |
 
-Messages follow `--language`, or the environment variable `CEXCHAIN_LANGUAGE`, else English. Every command takes `--json`.
+Messages follow `--language`, or the environment variable `CEXCHAIN_LANGUAGE`, else English. Every command takes `--json`. Every `bo` command, and `contract deploy --bo`, reads vocabulary packs of your own with `--vocab FILE` (a `.vocab` file, or a directory's), language packs with `--pack FILE`.
 
 ## 2. Source text
 
@@ -404,9 +405,9 @@ A source is read with a *pack set*: the official packs, always, and any others g
 
 ### 3.7 Official packs and digests
 
-The official packs of edition 1 are `en`, `zh-Hant-HK`, and `zh-Hans-CN`, version 3 each, every one complete: every concept but the retired ones, every message, and every sentence. A pack's *digest* is the hash of its canonical CBOR under a ledger's hash algorithm (SHA-256 or SM3); [`../tests/bo/golden/pack-digests.txt`](../tests/bo/golden/pack-digests.txt) lists those of the official packs, earlier versions included, and of the vocabulary packs. A released version of an official pack never changes: a change is a new version, and a compiler MUST carry every released version of each official pack, so that every source deployed with one rebuilds (section 16).
+The official packs of edition 1 are `en`, `zh-Hant-HK`, and `zh-Hans-CN`, version 4 each, every one complete: every concept of the core but the retired ones, every message, and every sentence but the retired ones (the official vocabulary packs' names, which their files give, 3.9). The official vocabulary packs spell their own words in these languages (3.9), and a pack set holds those words in the language packs of their languages. A pack's *digest* is the hash of its canonical CBOR under a ledger's hash algorithm (SHA-256 or SM3); [`../tests/bo/golden/pack-digests.txt`](../tests/bo/golden/pack-digests.txt) lists those of the official packs, earlier versions included, and of the vocabulary packs. A released version of an official pack never changes: a change is a new version, and a compiler MUST carry every released version of each official pack, so that every source deployed with one rebuilds (section 16).
 
-Version 1 of the three, from before vocabulary packs, is carried in [`../bo/packs/history/`](../bo/packs/history). Version 2 spells the core's kind word `thing` (`物件` in both Chinese packs), spells `we` `我方` first in both Chinese packs (`本公司` remains a second spelling, so `我方` is what tools write), drops the retired concepts, and adds the messages and sentences of vocabulary packs. Version 3 adds the core's unit of temperature (`unit.celsius`, 2.10) and the messages and sentences of field defaults, durations divided by durations (R32), and tests that expect fields' values; version 2 is carried beside version 1. A pack set is built on the official packs of one *release* (3.6): today's (version 3), version 2, or version 1, from before vocabulary packs. A source read with version 1 uses every vocabulary pack without declaring it (`use` did not exist), and its `record` is today's `thing`; a source read with version 2 reads as today's, but spells no temperature. Each compiles to the code it compiled to then.
+Version 1 of the three, from before vocabulary packs, is carried in [`../bo/packs/history/`](../bo/packs/history). Version 2 spells the core's kind word `thing` (`物件` in both Chinese packs), spells `we` `我方` first in both Chinese packs (`本公司` remains a second spelling, so `我方` is what tools write), drops the retired concepts, and adds the messages and sentences of vocabulary packs. Version 3 adds the core's unit of temperature (`unit.celsius`, 2.10) and the messages and sentences of field defaults, durations divided by durations (R32), and tests that expect fields' values; version 2 is carried beside version 1. Version 4 spells the core's words alone: the official vocabulary packs' words, commerce's two attaching rules, and the packs' names moved into the packs' files (3.9); it adds the messages of vocabulary pack files (`vocab.*`) and of `check.pack-requires`; version 3 is carried beside versions 1 and 2. A pack set is built on the official packs of one *release* (3.6): today's (version 4, which reads with version 2 of the official vocabulary packs), version 3 or 2 (which spell the vocabulary packs' words themselves and read with version 1 of those packs), or version 1, from before vocabulary packs. A source read with version 1 uses every vocabulary pack without declaring it (`use` did not exist), and its `record` is today's `thing`; a source read with version 2 reads as today's, but spells no temperature; a source read with version 3 reads as today's. Each compiles to the code it compiled to then.
 
 Anyone MAY write a pack for another language, dialect, or a company's own terms. Such a pack MUST spell every keyword and SHOULD spell the vocabulary; it is read beside the official packs, and a deploy embeds it in full.
 
@@ -416,31 +417,42 @@ A language pack changes how a source reads and how text is written, never what r
 
 ### 3.9 Vocabulary packs
 
-A *vocabulary pack* says which concepts exist beyond Bo's core: their categories, the type a field's word gives the field (R1) and whether it is *added* (R20) or *taking* (R31), and the standard terms of its built-in actions (section 8). Unlike a language pack, it changes what runs, so a deploy pins each one it uses by version and digest (section 16). Edition 1 has three official vocabulary packs, version 1 each:
+A *vocabulary pack* says which concepts exist beyond Bo's core: their categories, the type a field's word gives the field (R1) and whether it is *added* (R20) or *taking* (R31), a unit's dimension and scale, how each language spells them, and the standard terms of its built-in actions (section 8). Unlike a language pack, it changes what runs, so a deploy pins each one it uses by version and digest, and embeds those that are not official in full (section 16). Edition 1 has three official vocabulary packs, version 2 each, compiled in from [`../bo/vocab/`](../bo/vocab):
 
 | Pack | Words | Built-in actions |
 |---|---|---|
-| `finance` | 24: `asset`; pledge, release, enforce, redeem, split, pay, confirm payment, dispute, freeze, unfreeze; tier, pledgee, payee, portion; pledged, paid, settled, disputed, redeemed, frozen; bank, issuer, supplier | the ten actions, [`../bo/stdlib/finance.bo`](../bo/stdlib/finance.bo) |
+| `finance` | 24: `asset`; pledge, release, enforce, redeem, split, pay, confirm payment, dispute, freeze, unfreeze; tier, pledgee, payee, portion; pledged, paid, settled, disputed, redeemed, frozen; bank, issuer, supplier | the ten actions, in [`../bo/vocab/finance.vocab`](../bo/vocab/finance.vocab) |
 | `commerce` | 22: price, usage, overage, per, setup fee; the ten charge words; invoice, credit note, receipt; refund, credit; customer location; customer | none yet |
-| `services` | 12: `service`, `resource`; subscribe, renew, upgrade, downgrade, allocate, reclaim; allocated, cooling; cooling period; traffic | allocate, reclaim, [`../bo/stdlib/services.bo`](../bo/stdlib/services.bo) |
+| `services` | 12: `service`, `resource`; subscribe, renew, upgrade, downgrade, allocate, reclaim; allocated, cooling; cooling period; traffic | allocate, reclaim, in [`../bo/vocab/services.vocab`](../bo/vocab/services.vocab) |
 
 Appendix B gives every word's pack; `cexchain bo vocab show PACK` lists them with their field facts.
 
-**Using a pack.** A source uses a pack with a line `use ID` outside any block, one line per pack, before or after its other clauses (`bo fmt` writes them first, after `bo N`, by id). The keyword is spelled in any language (`使用 finance`); the id stays as written, ASCII, whatever the token reads as in the packs (`use services`, although `services` is a form of `service`). An id given twice is `parse.duplicate`; `use` anywhere else is `parse.reserved`. An id that is no vocabulary pack is `check.unknown-pack`.
-
-**Words of a pack.** A word of a pack the source does not use is `check.pack-not-used`, reported once for each such pack, at its first word, naming the pack: the error tells the reader what to write. A pack's words stay reserved where the pack is not used: Bo never guesses, so `pledge` never silently becomes a name of the contract's own. A built-in action's terms use the core's words and their own pack's, and a contract that declares the action has used its pack. Recognition rules that only a pack's words can reach apply only with that pack (section 7).
-
-**Canonical CBOR and digests.** A vocabulary pack's canonical CBOR is the deterministic CBOR of the map
+**The pack format.** A vocabulary pack is a file in CBOR diagnostic notation, like a language pack (3.2), whose digest is the hash of its canonical CBOR under the ledger's hash (comments and layout do not count):
 
 ```
-{"format": 1, "id": "finance", "version": 1, "edition": 1,
- "concepts": {"act.pledge": {"category": "action"},
-              "field.pledgee": {"category": "field", "type": "party", "added": true, "taking": true},
-              ...},
- ? "terms": "bo 1\nuse finance\n..."}
+{"format": 1, "id": "events", "version": 1, "edition": 1,
+ ? "requires": ["commerce"],
+ "concepts": {"act.reserve": {"category": "action"},
+              "field.guest": {"category": "field", "type": "party", "added": true, "taking": true},
+              "unit.ticket": {"category": "unit", "dimension": "count", "scale": 1}, ...},
+ ? "terms": ["bo 1", "use events", "can reserve to counterparty", "  active -> reserved", ...],
+ "languages": {"en": {"name": "events", "words": {"act.reserve": "reserve", ...}, ? "attach": [...]},
+               "zh-Hant-HK": {"name": "活動", "words": {"act.reserve": "預留", ...}}, ...}}
 ```
 
-where `concepts` holds each of its words with its category, `"argument": true` if it takes one, and for a field its type (`party`, `date`, `number`, `text`, `duration`, `parties`, a list of at most 16 parties, each fixed by the word; or `quantity`, `list`, `offset`, `amount`, `portion`, what the word accepts once a type is given) and its flags; and `terms` is the text of its standard terms' file, absent if it has none. Its digest is the hash of that CBOR under the ledger's hash. A released version never changes; a compiler MUST carry every released version. In a later milestone the official vocabulary packs become files of their own, and a company may write its own.
+- `id` is a Bo name in ASCII (lowercase letters, digits, and `_`, starting with a letter, at most 32), as `use` lines write it; `version` is 1 or more; `edition` is the edition the pack is of;
+- `requires` lists packs a source using this one MUST use too (`check.pack-requires`), official ones or users', at most 8, none twice, not the pack itself;
+- `concepts` holds 1 to 256 concepts, each keyed by its category's prefix and a name of ASCII letters, digits, and `_` (`act.reserve`), with its `category`, which MUST be the prefix's; `"argument": true` for one that takes an argument; a field's `type` (`party`, `date`, `number`, `text`, `duration`, `parties` (a list of at most 16 parties), each fixed by the word; or `quantity`, `list`, `amount`, what the word accepts once a type is given; the official packs also give `offset` and `portion`, which mechanisms read); a party field's flags `added` and `taking`; and a unit's `dimension` (one of the core's: `data`, `bandwidth`, `count`, `mass`, `temperature`) and `scale`, how many of the dimension's smallest unit it is, 1 to 10^15. Flags are written only when true;
+- `terms` is a Bo source, as a text or as its lines (none holding a line break), at most 64 KiB: the standard terms of the pack's actions. Read with the pack set, it MUST lex and parse without errors, use the pack and only the packs it requires, use only words of the core, the pack, and those packs, and hold only `can` clauses, each the terms of one of the pack's own actions, once (`vocab.terms`, `vocab.terms-clause`);
+- `languages` spells every concept in each language, keyed by a language pack's id, as a language pack's `vocabulary` does (3.3: spellings, forms, `…` for an argument), with the pack's `name` in that language and, for a language written without spaces, `attach` rules for its own words (3.4). Each language MUST spell every concept (`vocab.unspelled`); one spelling has one meaning in the pack (`vocab.duplicate-spelling`).
+
+The official packs' files are of this format; their concept ids are written as they are (`act.pledge`), and only they may define kinds, prices, charges, documents, and words with an argument, which the compiler's mechanisms read. Version 1 of each, from before pack files, is carried in [`../bo/vocab/history/`](../bo/vocab/history): its canonical CBOR is G5's, without `languages` (the official language packs of its release spell its words), and its terms are version 2's.
+
+**Packs of your own.** Anyone MAY write a vocabulary pack for words of their own ("we preset, users customize"): a company's, a field's, an association's. Such a pack MUST NOT have the id `core`, `user`, or an official pack's (`vocab.official-id`); it defines actions (with or without terms), fields, states, roles, and units of the core's dimensions, nothing else (`vocab.category`, `vocab.argument`). Its concepts' ids carry its id (`events:act.reserve`); compiled code names a concept by its plain name (`reserve`), which MUST NOT be that of a core or official word of its category (`vocab.shadows`). A source reads it when it is given (`--vocab FILE`, or embedded in a bundle) and named by a `use` line. In a pack set (3.6), a user's pack's words join the language packs of the languages it spells (a language the set has no pack for is warned of, `vocab.no-language`, and its spellings are not read); each of its spellings and forms MUST be new to the set (`vocab.conflict`); two packs with one id are `vocab.duplicate-id`; each pack it requires MUST be official or given (`vocab.unknown-requires`), and none may require itself through others (`vocab.cycle`). Every problem of a pack file is reported with its code (`vocab.*`, and the shared shapes of `pack.*`): never the first only.
+
+**Using a pack.** A source uses a pack with a line `use ID` outside any block, one line per pack, before or after its other clauses (`bo fmt` writes them first, after `bo N`, by id). The keyword is spelled in any language (`使用 finance`); the id stays as written, ASCII, whatever the token reads as in the packs (`use services`, although `services` is a form of `service`). An id given twice is `parse.duplicate`; `use` anywhere else is `parse.reserved`. An id that names no pack the set reads is `check.unknown-pack`.
+
+**Words of a pack.** A word of a pack the source does not use is `check.pack-not-used`, reported once for each such pack, at its first word, naming the pack: the error tells the reader what to write. A pack's words stay reserved where the pack is not used: Bo never guesses, so `pledge` never silently becomes a name of the contract's own. A built-in action's terms use the core's words, their own pack's, and those of the packs it requires; a contract that declares the action has used its pack. Recognition rules that only a pack's words can reach apply only with that pack (section 7); a user's pack's added fields (R20) and taking fields (R31) work as the official ones do.
 
 ## 4. Grammar
 
@@ -845,13 +857,13 @@ Rules belong to the core, except those that only a vocabulary pack's words can r
 
 ### 8.1 Built-in actions
 
-The standard library, [`../bo/stdlib/`](../bo/stdlib), is Bo sources of edition 1 in English, which every compiler carries: one `can` clause per built-in action, its *terms*, in one file for the core and one for each vocabulary pack with terms:
+The standard library is Bo sources of edition 1 in English, which every compiler carries: one `can` clause per built-in action, its *terms*, in one source for the core and one in each vocabulary pack with terms (its `terms`, 3.9):
 
 - [`core.bo`](../bo/stdlib/core.bo): `transfer` and `cancel`, and `suspend`, `resume`, and `terminate`, which end or pause any instance;
-- [`finance.bo`](../bo/stdlib/finance.bo), part of the `finance` pack (it begins `use finance`): `pledge`, `release`, `enforce`, `redeem`, `pay`, `confirm payment`, `dispute`, `freeze`, `unfreeze`, and `split`, with the semantics that CexChain's native assets had in spec revisions v0.5 to v0.8 (v0.9 removed native assets; spec section 13 now says when a party may rely on an instance's state);
-- [`services.bo`](../bo/stdlib/services.bo), part of the `services` pack: `allocate` and `reclaim`, which allocate a resource to one holder at a time.
+- the terms of [`finance.vocab`](../bo/vocab/finance.vocab), the `finance` pack (they begin `use finance`): `pledge`, `release`, `enforce`, `redeem`, `pay`, `confirm payment`, `dispute`, `freeze`, `unfreeze`, and `split`, with the semantics that CexChain's native assets had in spec revisions v0.5 to v0.8 (v0.9 removed native assets; spec section 13 now says when a party may rely on an instance's state);
+- the terms of [`services.vocab`](../bo/vocab/services.vocab), the `services` pack: `allocate` and `reclaim`, which allocate a resource to one holder at a time.
 
-The `commerce` pack's actions have no terms yet. A pack's terms use the core's words and its own; its file is part of its canonical CBOR, so its digest covers them (3.9). A contract that declares a built-in action (`can transfer to buyer`) gets a copy of its terms (R19):
+The `commerce` pack's actions have no terms yet. A user's vocabulary pack brings the terms of its own actions the same way (3.9). A pack's terms use the core's words, its own, and those of the packs it requires; they are part of its canonical CBOR, so its digest covers them (3.9). A contract that declares a built-in action (`can transfer to buyer`) gets a copy of its terms (R19):
 
 - **Counterparty.** The contract's `to` takes the place of `counterparty` in the terms. Without `to`, `counterparty` stays, which the contract does not declare: each call names it (the input `counterparty`) and it consents (R21). The contract MUST NOT give `to` to an action whose terms have no counterparty (`check.standard-to`).
 - **Starter.** The terms' `by` is the action's starter; the contract MAY repeat it but MUST NOT name another (`check.standard-by`). An action whose terms name no starter is *the home's own word*: the home starts it, nobody's consent is needed for that, and the signer of the call stands for the starter (for presence and proposals).
@@ -897,7 +909,7 @@ can terminate
   active, suspended -> terminated
 ```
 
-The `finance` pack's (`finance.bo`, which begins `bo 1` and `use finance`):
+The `finance` pack's (its terms, in `finance.vocab`, which begin `bo 1` and `use finance`):
 
 ```
 # The holder pledges the asset to the counterparty, which becomes its pledgee.
@@ -978,7 +990,7 @@ can split by holder with parts, recipients
   issue parts to recipients with tier = tier + 1
 ```
 
-The `services` pack's (`services.bo`, which begins `bo 1` and `use services`):
+The `services` pack's (its terms, in `services.vocab`, which begin `bo 1` and `use services`):
 
 ```
 # The home allocates the resource to the counterparty, which becomes its holder
@@ -1713,7 +1725,8 @@ A contract written in Bo is deployed (spec section 15, statement type 21) with:
 The bundle is deterministic CBOR, `bo-source` in [`cexchain.cddl`](cexchain.cddl), at most 262,144 bytes (a deploy's source):
 
 ```
-{1: 1, 2: EDITION, 3: SOURCE, 4: [+ [ID, VERSION, DIGEST]], ? 5: [+ PACK], ? 6: [+ [ID, VERSION, DIGEST]]}
+{1: 1, 2: EDITION, 3: SOURCE, 4: [+ [ID, VERSION, DIGEST]], ? 5: [+ PACK], ? 6: [+ [ID, VERSION, DIGEST]],
+ ? 7: [+ VOCABULARY-PACK]}
 ```
 
 - **1**, the bundle format, 1;
@@ -1721,9 +1734,10 @@ The bundle is deterministic CBOR, `bo-source` in [`cexchain.cddl`](cexchain.cddl
 - **3**, the source as written, comments included;
 - **4**, every language pack the source was read with, the official ones included, 1 to 64, strictly ascending by id: its id (3.2), its version (1 or more), and its digest under the home's hash (32 bytes, 3.7);
 - **5**, the packs that are not official, in full, each as its canonical CBOR (a map), strictly ascending by id, each one a pack key 4 names. A reference without an embedded pack names an official pack;
-- **6**, every vocabulary pack the source uses (3.9), 1 to 64, strictly ascending by id: its id, its version, and its digest under the home's hash (the hash of its canonical CBOR); absent if the source has no `use` line.
+- **6**, every vocabulary pack the source uses (3.9), 1 to 64, strictly ascending by id: its id, its version, and its digest under the home's hash (the hash of its canonical CBOR); absent if the source has no `use` line;
+- **7**, the vocabulary packs of key 6 that are not official (users' packs, 3.9), in full, each as its canonical CBOR (a map), strictly ascending by id, each one a pack key 6 names; absent if there are none. A key-6 reference without an embedded pack names an official vocabulary pack. So whoever verifies a deploy rebuilds it with nothing but the deploy.
 
-Opening a bundle finds its packs: each embedded pack MUST read without errors (3.2), MUST NOT call itself official, and MUST have the version and the digest its reference names; each other reference MUST name an official pack at a version the compiler carries, with that digest, and all of them MUST be of one release (today's, or those of before vocabulary packs, 3.7); every official pack of that release MUST be referenced; the packs MUST read together (3.6); each key-6 reference MUST name an official vocabulary pack at a version the compiler carries, with that digest; a bundle on the official packs of before vocabulary packs MUST NOT have key 6; and the source's `use` lines MUST name exactly the packs key 6 names. The source is then read with exactly those packs: with the official packs of before vocabulary packs, it uses every vocabulary pack without declaring it.
+Opening a bundle finds its packs: each embedded pack MUST read without errors (3.2), MUST NOT call itself official, and MUST have the version and the digest its reference names; each other reference MUST name an official pack at a version the compiler carries, with that digest, and all of them MUST be of one release (today's, or those of before vocabulary packs, 3.7); every official pack of that release MUST be referenced; the packs MUST read together (3.6); each embedded vocabulary pack MUST read without errors as a user's pack (3.9) and MUST have the version and the digest its key-6 reference names; each other key-6 reference MUST name an official vocabulary pack at a version the compiler carries, with that digest, of the language packs' release (version 2 with today's language packs, version 1 with versions 2 and 3); a bundle on the official packs of before vocabulary packs MUST NOT have key 6, and a bundle on the official packs of an earlier release MUST NOT have key 7; the packs, the embedded vocabulary packs included, MUST read together (3.6, 3.9); and the source's `use` lines MUST name exactly the packs key 6 names. The source is then read with exactly those packs: with the official packs of before vocabulary packs, it uses every vocabulary pack without declaring it.
 
 ### 16.3 The compiler string and codegen versions
 
@@ -1744,7 +1758,7 @@ A verifier SHOULD rebuild a Bo deploy (spec section 15): decode the bundle, open
 |---|---|
 | **rebuilds** | the source builds to the deployed code, interface, and name |
 | **differs** | the deploy names a codegen version and edition this compiler carries (and, for a problem with an official pack, its release), and the source builds to something else or does not build: the source is not the code's. The verifier SHOULD fail the evidence |
-| **malformed** | the language is not `bo`, there is no source, it is not a bundle, an embedded pack does not check or conflicts, its official packs are of two releases, it names vocabulary packs beside the official packs of before vocabulary packs, the source's `use` lines are not its key 6, or the bundle's edition is not the source's. The verifier SHOULD fail the evidence |
+| **malformed** | the language is not `bo`, there is no source, it is not a bundle, an embedded pack (of key 5 or key 7) does not check, differs from its reference, or conflicts, its official packs are of two releases, it names vocabulary packs beside the official packs of before vocabulary packs (or official vocabulary packs of another release, or embeds vocabulary packs beside an earlier release), the source's `use` lines are not its key 6, or the bundle's edition is not the source's. The verifier SHOULD fail the evidence |
 | **another compiler** | another compiler, or a release or codegen version this one does not reproduce, or an official language or vocabulary pack version this one does not carry, built it: the verifier names it, and MAY require a rebuild with that compiler; it never reports this as a forgery |
 
 A deploy made before vocabulary packs (its bundle names version 1 of the official packs and has no key 6) rebuilds: its source is read with those packs, every vocabulary pack in use, and compiles to the code it compiled to then, since concept ids, rule ids, and the code they lower to did not change.
@@ -1874,14 +1888,14 @@ A tool that writes **the contract text** conforms as section 14.3 says; one that
 
 - its source, in each language it is written in (English, Traditional Chinese, Simplified Chinese, and mixed, for some), and its name (`contract`);
 - its interface (`interface`: each function, `create` or `call`);
-- the `bo-source` bundle a deploy records (`bundle`, and its SHA-256), with the official packs' SHA-256 digests (version 3) and those of the vocabulary packs its `use` lines name (key 6), and the compiler string it was built with (`compiler`);
-- `earlier`: the bundles its deploys recorded with earlier releases of the official packs, oldest first (version 1, before vocabulary packs: no `use` lines, its kind word `record`; version 2, before temperatures and field defaults), each with the compiler string and the SHA-256 of the code it deployed, which is `code_sha256`: each such deploy rebuilds to the same code (16.4);
+- the `bo-source` bundle a deploy records (`bundle`, and its SHA-256), with the official packs' SHA-256 digests (version 4) and those of the vocabulary packs its `use` lines name (key 6, version 2), and the compiler string it was built with (`compiler`);
+- `earlier`: the bundles its deploys recorded with earlier releases of the official packs, oldest first (version 1, before vocabulary packs: no `use` lines, its kind word `record`; version 2, before temperatures and field defaults; version 3, before vocabulary pack files, with version 1 of the vocabulary packs), each with the compiler string and the SHA-256 of the code it deployed, which is `code_sha256`: each such deploy rebuilds to the same code (16.4);
 - the code `cexchain-bo` built from it (`code`, `code_sha256`), the SHA-256 of the code codegens 1 and 2 built from it (`codegen1_sha256`, `codegen2_sha256`), and each function's fuel and output bounds (`bounds`): all informative;
 - runs: each call, as its parts (function, arguments, home, contract, instance view, caller and signer, time, consents) and as the contract input the ledger encodes from them (spec section 15), with the outcome, the output or the reason, and the fuel the code used. The runs include every step of the contract's own test blocks.
 
 It also holds sources that must not build (`errors`): each with its name, its text (or, for one that is not UTF-8, its bytes in hex), and the error codes a compiler reports, in source order, with their lines. The codes are normative; the lines are CexChain's.
 
-`tools/testvectors/bo_vectors.py` writes the suite from the runs CexChain's tests record, and checks each before writing it: it encodes the input again from the call's parts with its own deterministic CBOR encoder, runs the code on the independent reference interpreter `tools/testvectors/wasm_ref.py` (which MUST give the same outcome, output, fuel, and reason as the ledger's interpreter), decodes the output as `contract-output`, and decodes each bundle, requiring the source as written, the digest of each official pack, which it computes from the packs' text (`bo/packs/`, and `bo/packs/history/` for the earlier bundles) with its own reader of their diagnostic notation, and key 6 equal to the source's `use` lines with the digests of the vocabulary packs' canonical CBOR, whose terms it compares with `bo/stdlib/`. CexChain's tests rebuild every source to the pinned code, bundle, interface, and bounds, rebuild every earlier bundle to the same code, replay every run, and compile every source that must not build to the same errors.
+`tools/testvectors/bo_vectors.py` writes the suite from the runs CexChain's tests record, and checks each before writing it: it encodes the input again from the call's parts with its own deterministic CBOR encoder, runs the code on the independent reference interpreter `tools/testvectors/wasm_ref.py` (which MUST give the same outcome, output, fuel, and reason as the ledger's interpreter), decodes the output as `contract-output`, and decodes each bundle, requiring the source as written, the digest of each official pack, which it computes from the packs' text (`bo/packs/`, and `bo/packs/history/` for the earlier bundles) with its own reader of their diagnostic notation, and key 6 equal to the source's `use` lines with the digests of the vocabulary packs' canonical CBOR, which it computes from their files (`bo/vocab/`, and `bo/vocab/history/` for the earlier bundles), each equal to the C++ reader's. Sources read with users' vocabulary packs are tested by CexChain's tests (`tests/bo/vocab_test.cpp`, the goldens with `.vocab` files, `examples/events`), not by this suite, which names official packs only. CexChain's tests rebuild every source to the pinned code, bundle, interface, and bounds, rebuild every earlier bundle to the same code, replay every run, and compile every source that must not build to the same errors.
 
 To check a compiler against the suite: build each source (in every language given); require the interface; run the code on each run's input under the contract profile (spec section 14); require the outcome, the output, and the reason; and compile each source that must not build, requiring its error codes. The code, its hash and size, and the fuel are informative: they match exactly only for `cexchain-bo` at the codegen version the suite names. To check a rebuild, open each bundle (16.2) and compare the build with the pinned code.
 

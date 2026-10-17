@@ -1,7 +1,7 @@
 bo 1
 # The standard library of Bo, edition 1: the core's built-in actions, which
 # hand a thing over and suspend, resume, end, or cancel it. The vocabulary
-# packs bring their own (bo/stdlib/finance.bo, bo/stdlib/services.bo). A
+# packs bring their own, in their files (bo/vocab/finance.vocab, services). A
 # contract that writes `can transfer to buyer` gets the transfer below, with
 # the buyer as its counterparty; the lines the contract writes under
 # `can transfer` add to it and are checked first. Without `to`, each call

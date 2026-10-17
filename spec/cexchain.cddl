@@ -356,7 +356,9 @@ function-kind = &(create: 1, call: 2)
 ; released version. Key 6 (v0.9, D-054) lists the vocabulary packs the
 ; source's `use` lines name, exactly those, strictly ascending by id; it is
 ; absent without `use` lines, and a bundle read with the official language
-; packs of before vocabulary packs (version 1) has none.
+; packs of before vocabulary packs (version 1) has none. Key 7 (v0.9, G6)
+; embeds the vocabulary packs of key 6 that are not official, each as its
+; canonical CBOR, strictly ascending by id; it is absent if there are none.
 bo-source = {
   1 => 1,                      ; format
   2 => uint .ge 1,             ; the Bo edition of the source
@@ -366,10 +368,15 @@ bo-source = {
   ? 6 => [1*64 bo-pack-ref],   ; every vocabulary pack it uses; the digest
                                ; covers the pack's canonical CBOR (Bo
                                ; reference, section 3.9)
+  ? 7 => [1*64 bo-vocab-pack], ; those of key 6 that are not official
+                               ; (users' packs, G6), in full
 }
 bo-pack-ref = [
-  id: tstr,                    ; the pack's id: ASCII letters, digits, and
-                               ; single hyphens, 1-64 bytes
+  id: tstr,                    ; the pack's id: for a language pack, ASCII
+                               ; letters, digits, and single hyphens, 1-64
+                               ; bytes; for a vocabulary pack (key 6),
+                               ; lowercase ASCII letters, digits, and _,
+                               ; starting with a letter, 1-32 bytes
   version: uint .ge 1,
   digest: bstr .size 32,       ; HASH (the home's) of the pack's canonical
                                ; CBOR
@@ -378,6 +385,10 @@ bo-pack-ref = [
 ; version, language, name, official, edition, reading, keywords, vocabulary,
 ; messages, sentences), defined by the Bo reference.
 bo-pack = { + tstr => any }
+; A vocabulary pack, as its canonical CBOR: a map with text keys (format,
+; id, version, edition, requires, concepts, terms, languages), defined by
+; the Bo reference (section 3.9).
+bo-vocab-pack = { + tstr => any }
 
 ; Either creates an instance (contract, a function of kind 1, no head, no
 ; consents; the instance id is this statement's id) or acts on one

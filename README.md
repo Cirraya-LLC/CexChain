@@ -13,7 +13,7 @@ Like a spreadsheet, CexChain knows nothing of what you keep in it: there are no 
 purchase orders, invoices, or certificates. Those are things you define, and the
 [examples](examples/) show how such things are built.
 
-> **Status:** early development (specification v0.9 draft: [the protocol in prose](spec/README.md), [`spec/cexchain.cddl`](spec/cexchain.cddl); the contract language: [`spec/bo.md`](spec/bo.md)). Interfaces and formats may still change. Planned, not built yet: Bo actions that make requests, optional vocabulary packs for industry words, a local web console, installers, and a public witness service.
+> **Status:** early development (specification v0.9 draft: [the protocol in prose](spec/README.md), [`spec/cexchain.cddl`](spec/cexchain.cddl); the contract language: [`spec/bo.md`](spec/bo.md)). Interfaces and formats may still change. Planned, not built yet: Bo actions that make requests, a local web console, installers, and a public witness service.
 
 ## Why
 
@@ -212,7 +212,7 @@ The `cexchain` tool controls every part of a ledger:
 | Requests | `request list`, `request show`, `request answer`, `request cancel`, `request wait` |
 | Executors | `executor add`, `executor list`, `executor show`, `executor revoke`, `executor run`, `executor check`, `executor connector add\|list\|show\|remove`, `executor secret set\|list\|remove`, `executor journal list\|show`; `connector webhook`, `connector command` |
 | Keepers | `keeper add`, `keeper list`, `keeper show`, `keeper revoke`, `keeper due`, `keeper run`; `serve --keeper-key` |
-| Bo language | `bo check`, `bo build`, `bo explain`, `bo fmt`, `bo test`, `bo stdlib list`, `bo stdlib show`, `bo vocab list`, `bo vocab show`, `bo packs list`, `bo packs show`, `bo packs check` (in builds with the Bo compiler); `contract deploy --bo` |
+| Bo language | `bo check`, `bo build`, `bo explain`, `bo fmt`, `bo test`, `bo stdlib list`, `bo stdlib show`, `bo vocab list`, `bo vocab show`, `bo vocab check`, `bo packs list`, `bo packs show`, `bo packs check` (in builds with the Bo compiler); `contract deploy --bo` |
 
 - Every command takes `--help`, and `--json` for scripting.
 - `cexchain help --json` describes every command and option in machine-readable form.
@@ -609,6 +609,8 @@ the same contract compiles to the same code through any of them.
 ```sh
 cexchain bo vocab list                          # the core and the vocabulary packs, with digests
 cexchain bo vocab show finance                  # a pack's words, field types, and built-in actions
+cexchain bo vocab check events.vocab            # a vocabulary pack of your own
+cexchain bo check tickets.bo --vocab events.vocab   # a source that uses it
 cexchain bo packs list                          # the official language packs and their digests
 cexchain bo packs show zh-Hant-HK               # its reading rules, keywords, and words
 cexchain bo packs check company.pack            # a pack of your own, alone and with the official ones
@@ -669,9 +671,14 @@ presence (R13); an AI agent may act within its delegation unless the action says
 proposes (R14). Clauses that ask the outside world to act (notify, say) are accepted with a
 warning: executors come in a later step.
 
-Packs are files in CBOR diagnostic notation; `bo/packs/` holds the official ones. A pack's digest
-is the hash of its canonical CBOR, and a deploy records the packs its source was read with, so
-anyone can rebuild the contract from the source and compare. Bo never guesses: one spelling with
+Packs are files in CBOR diagnostic notation; `bo/packs/` holds the official language packs and
+`bo/vocab/` the official vocabulary packs (their words, spelled in each language, and the
+standard terms of their actions). A pack's digest is the hash of its canonical CBOR, and a deploy
+records the packs its source was read with, so anyone can rebuild the contract from the source
+and compare. Anyone can write a vocabulary pack of their own, in the same format, for words they
+use in many contracts: `--vocab FILE` reads it on every `bo` command and on `contract deploy --bo`,
+and the deploy embeds it whole, so whoever verifies the contract needs no copy
+([`examples/events`](examples/events)). Bo never guesses: one spelling with
 two meanings, in one pack or across the packs a source is read with, is an error, and so is a
 word that an attaching rule could split into two others.
 
@@ -862,13 +869,14 @@ cexchain bo test lending.bo --language zh-Hans-CN --json
 
 ### The standard library
 
-The built-in actions are written in Bo itself, in a standard library compiled into the compiler
-(`bo/stdlib/`): the core's transfer and cancel, and suspend, resume, and terminate, on the home's
-own word (`core.bo`); then the vocabulary packs' actions, which a contract gets after its `use`
-line: finance's pledge, release, enforce, redeem, pay, confirm payment, dispute, freeze, unfreeze,
-and split (`finance.bo`), which keep the semantics of the native assets that spec v0.5 to v0.8 had
-(`tests/bo/finance_terms_test.cpp` holds those verdicts as goldens and checks the pack's terms
-against them, call by call), and services' allocate and reclaim (`services.bo`). A contract that
+The built-in actions are written in Bo itself, in a standard library compiled into the compiler:
+the core's transfer and cancel, and suspend, resume, and terminate, on the home's own word
+(`bo/stdlib/core.bo`); then the vocabulary packs' actions, in their pack files (`bo/vocab/`), which
+a contract gets after its `use` line: finance's pledge, release, enforce, redeem, pay, confirm
+payment, dispute, freeze, unfreeze, and split, which keep the semantics of the native assets that
+spec v0.5 to v0.8 had (`tests/bo/finance_terms_test.cpp` holds those verdicts as goldens and
+checks the pack's terms against them, call by call), and services' allocate and reclaim. A
+vocabulary pack of your own brings the terms of its own actions the same way. A contract that
 writes `can transfer to counterparty` gets the library's transfer: the holder starts it, the
 holder and the counterparty consent, only an active instance is transferred, and the
 counterparty becomes the holder. The lines a contract writes under a built-in action add to its
@@ -1081,7 +1089,7 @@ tests/browser/run.sh build/gcc-debug/cli/cexchain build/wasm
 `tests/cli/serve.sh` runs a server, a replica, and backups end to end; `tests/node/` covers the
 HTTP parser and the API over real sockets, including a primary that serves a forged history.
 
-Fuzz targets cover every parser of untrusted input, Bo language packs included. `make_seeds` writes valid objects (evidence bundles, access records, signed backups, passkey registrations, requests, the official packs) to start each corpus from, so mutations reach the checks behind the signatures:
+Fuzz targets cover every parser of untrusted input, Bo language and vocabulary packs included. `make_seeds` writes valid objects (evidence bundles, access records, signed backups, passkey registrations, requests, the official packs and the example's vocabulary pack) to start each corpus from, so mutations reach the checks behind the signatures:
 
 ```sh
 cmake --preset clang-fuzz && cmake --build --preset clang-fuzz
