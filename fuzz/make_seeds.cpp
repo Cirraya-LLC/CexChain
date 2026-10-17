@@ -32,6 +32,7 @@
 #include <cexchain/bo/pack.hpp>
 #include <cexchain/bo/source.hpp>
 #include <cexchain/bo/stdlib.hpp>
+#include <cexchain/bo/vocab.hpp>
 #endif
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/cbor.hpp>
@@ -859,6 +860,49 @@ void bo_seeds(const Seeds& seeds) {
              "bundle");
     seeds.write("bo_source_fuzz", "embedded-pack",
                 ByteView(must(bo::encode_source_bundle(embedded), "bundle")));
+
+    // Vocabulary packs (G6): the official files, current and carried, as
+    // written and as CBOR; users' packs (the example's, the goldens'); and a
+    // bundle that embeds one (key 7).
+    for (const bo::VocabularyText& text : bo::official_vocabulary_texts()) {
+        seeds.write("bo_vocab_fuzz", std::format("{}-{}.vocab", text.id, text.version), text.text);
+        const bo::VocabularyPack* pack = bo::find_vocabulary_pack(text.id, text.version);
+        seeds.write("bo_vocab_fuzz", std::format("{}-{}.cbor", text.id, text.version),
+                    pack->canonical);
+    }
+    const std::filesystem::path events =
+        std::filesystem::path(CEXCHAIN_BO_GOLDEN_DIR) / ".." / ".." / ".." / "examples" / "events";
+    std::vector<bo::VocabularyHandle> users;
+    for (const std::filesystem::path& file :
+         {events / "events.vocab",
+          std::filesystem::path(CEXCHAIN_BO_GOLDEN_DIR) / "check-vocab" / "alpha.vocab",
+          std::filesystem::path(CEXCHAIN_BO_GOLDEN_DIR) / "check-vocab" / "beta.vocab"}) {
+        std::ifstream in(file, std::ios::binary);
+        std::stringstream text;
+        text << in.rdbuf();
+        seeds.write("bo_vocab_fuzz", file.filename().string(), text.str());
+        const bo::VocabularyRead read = bo::read_vocabulary_pack(text.str());
+        if (read.pack == nullptr) {
+            throw std::runtime_error("the vocabulary pack " + file.string());
+        }
+        seeds.write("bo_vocab_fuzz", file.stem().string() + ".cbor", read.pack->canonical);
+        if (file.filename() == "events.vocab") {
+            users.push_back(read.pack);
+        }
+    }
+    const bo::PackSetRead with_events = bo::make_pack_set({}, bo::Officials::current, users);
+    if (!with_events.set) {
+        throw std::runtime_error("the events pack with the official ones");
+    }
+    std::ifstream tickets(events / "tickets.bo", std::ios::binary);
+    std::stringstream tickets_text;
+    tickets_text << tickets.rdbuf();
+    const auto with_vocabulary =
+        must(bo::make_source_bundle(tickets_text.str(), 1, *with_events.set, provider,
+                                    crypto::HashAlg::sha256),
+             "bundle");
+    seeds.write("bo_source_fuzz", "embedded-vocabulary",
+                ByteView(must(bo::encode_source_bundle(with_vocabulary), "bundle")));
 
     std::ifstream vectors(CEXCHAIN_TESTVECTORS_DIR "/bo-v1.json");
     if (!vectors) {

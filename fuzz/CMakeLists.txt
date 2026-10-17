@@ -30,6 +30,8 @@ if(TARGET cexchain_bo_front)
     cexchain_add_fuzzer(bo_check_fuzz cexchain::bo_front)
     # A deploy's bo-source bundle, the packs it names, and .boc files.
     cexchain_add_fuzzer(bo_source_fuzz cexchain::bo_front cexchain::crypto_openssl)
+    # Vocabulary pack files of users' (G6), and the CBOR a bundle embeds.
+    cexchain_add_fuzzer(bo_vocab_fuzz cexchain::bo_front)
 endif()
 # The Bo runtime's CBOR reader, in the harness module the GCC tests keep equal
 # to the emitter's output (tests/bo/golden/runtime/cbor-copy.wasm). The
