@@ -1549,7 +1549,10 @@ TEST_CASE("bo build: write the runs for the Python reference", "[.codegen-refere
                                       "examples" / "multi-tier-split" / "multi-tier-split.bo"},
              // R31: a counterparty made holder or pledgee consents at every
              // call, its role bound at creation or by another action.
-             {"role-taking", golden_dir / "check-role-taking" / "source.bo"}}) {
+             {"role-taking", golden_dir / "check-role-taking" / "source.bo"},
+             // Measures (G5b): durations divided by durations, field
+             // defaults, temperatures and negative literals.
+             {"measures", golden_dir / "test" / "measures" / "source.bo"}}) {
         const std::string text = read_text(file);
         const bo::Compiled compiled = bo::compile(text, *bo::make_pack_set({}).set);
         REQUIRE(compiled.build.has_value());

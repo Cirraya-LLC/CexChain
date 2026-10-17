@@ -689,6 +689,7 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"op-on-or-before", "left right"},
     {"op-on-or-after", "left right"},
     {"op-in", "left right"},
+    {"op-whole-times", "left right"},
     {"expr-sum", "list"},
     {"expr-count", "list"},
     {"expr-at-most", "value"},
@@ -788,6 +789,7 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"rule-R29", ""},
     {"rule-R30", ""},
     {"rule-R31", ""},
+    {"rule-R32", ""},
 };
 
 constexpr auto sorted_sentences = [] {
@@ -835,6 +837,7 @@ constexpr RuleSpec rules[] = {
     {"R29", "one-item"},                         // one value where a list is needed: a list of one
     {"R30", "issue-parts"}, // issue PARTS to RECIPIENTS: parts are instances of their own
     {"R31", "role-taking"}, // a counterparty made holder, pledgee, or payee consents
+    {"R32", "whole-times"}, // a duration by a duration: whole times, the rest dropped
 };
 
 template <class T, std::size_t N, class Key>

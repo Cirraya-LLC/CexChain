@@ -122,6 +122,9 @@ std::vector<std::pair<std::string, std::filesystem::path>> cases() {
         // R31: a counterparty made holder or pledgee consents, whenever its
         // role was bound.
         {"role-taking", golden_dir / "check-role-taking/source.bo"},
+        // Measures (G5b): durations divided by durations, field defaults,
+        // temperatures and negative literals, expectations on fields.
+        {"measures", golden_dir / "test/measures/source.bo"},
     };
 }
 

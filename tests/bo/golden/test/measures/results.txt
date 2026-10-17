@@ -1,0 +1,13 @@
+test "three days early: a part of a week is no week" passed home=role.we
+  step 1 passed 2026-01-01 accepted active event=active; fuel 7436
+  step 2 passed 2027-03-07 accepted delivered event=delivered consents carrier; fuel 9279 11302
+test "a week early is refused" passed home=role.we
+  step 1 passed 2026-01-01 accepted active event=active; fuel 7436
+  step 2 passed 2027-03-03 refused "bo:requires deliver 2"; fuel 8712
+test "13 days late is one whole week" passed home=role.we
+  step 1 passed 2026-01-01 accepted active event=active; fuel 7436
+  step 2 passed 2027-03-23 accepted delivered event=delivered consents carrier; fuel 8970 11067
+test "two weeks late is refused" passed home=role.we
+  step 1 passed 2026-01-01 accepted active event=active; fuel 7436
+  step 2 passed 2027-03-24 refused "bo:requires deliver 1"; fuel 8203
+4 tests: 4 passed, 0 failed

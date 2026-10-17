@@ -590,6 +590,7 @@
     "op-on-or-before": "{left} is on or before {right}",
     "op-on-or-after": "{left} is on or after {right}",
     "op-in": "{left} is one of {right}",
+    "op-whole-times": "{left} ÷ {right}, in whole times (the rest dropped)",
     "expr-sum": "the sum of {list}",
     "expr-count": "the number of items in {list}",
     "expr-at-most": "at most {value}",
@@ -684,6 +685,7 @@
     "rule-R28": "A charge's rate is the one in force at the bill's time: the rate from the latest date on or before it (from the start of that day, at the contract's UTC offset), else its own rate. A bill keeps the rate it was made with.",
     "rule-R29": "A single value where a list is needed is a list of that one item.",
     "rule-R30": "Issue PARTS to RECIPIENTS makes each part an instance of its own, of the same contract, created by the call: its amount is the part and its holder its recipient, and the instance that issued it ends. A part may be split again, at most eight levels down, and its evidence carries the history of every instance it came from (spec section 15).",
-    "rule-R31": "An action that makes its counterparty (after to) the holder, the pledgee, or the payee, as transfer, pledge, and allocate do, needs the counterparty's consent at every call, even when its role was bound to a ledger when the instance was created or by another action: nobody becomes a holder, a pledgee, or a payee without agreeing."
+    "rule-R31": "An action that makes its counterparty (after to) the holder, the pledgee, or the payee, as transfer, pledge, and allocate do, needs the counterparty's consent at every call, even when its role was bound to a ledger when the instance was created or by another action: nobody becomes a holder, a pledgee, or a payee without agreeing.",
+    "rule-R32": "A duration divided by a duration is the number of whole times the second fits in the first; the rest is dropped (rounded toward zero): 2 days and 20 hours divided by 1 day is 2."
   }
 }

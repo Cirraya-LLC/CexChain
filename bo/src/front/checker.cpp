@@ -85,6 +85,7 @@ constexpr std::string_view rule_rate_in_force = "R28";
 constexpr std::string_view rule_one_item = "R29";
 constexpr std::string_view rule_issue_parts = "R30";
 constexpr std::string_view rule_role_taking = "R31";
+constexpr std::string_view rule_whole_times = "R32";
 
 /// The fields the standard terms may add to an instance (R20), in the order
 /// R20 adds them: those their packs mark as added (Concept::flags; parties
@@ -3755,6 +3756,12 @@ Type Checker::arithmetic(const ast::Expr& e, m::Expr& out) {
         }
         if (same(l, r) && (lk == TypeKind::money || lk == TypeKind::quantity)) {
             return rounds(of(TypeKind::rate));
+        }
+        if (same(l, r) && lk == TypeKind::duration) {
+            // R32: how many whole times the divisor fits, the rest dropped
+            // (days late: (now - due) / 1 day).
+            out.rule = rule_whole_times;
+            return of(TypeKind::number);
         }
         return fail();
     }

@@ -944,6 +944,10 @@ private:
         case Operator::times:
             return left + " × " + right;
         case Operator::divide:
+            if (l.type.kind == TypeKind::duration && r.type.kind == TypeKind::duration) {
+                // R32: whole times, the rest dropped.
+                return say("op-whole-times");
+            }
             return left + " ÷ " + right;
         case Operator::none:
         case Operator::logical_not:

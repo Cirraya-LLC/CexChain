@@ -1,0 +1,15 @@
+# Measures (G5b): durations divided by durations count whole times (R32).
+contract Delivery
+parties we, carrier
+thing Goods
+  due date
+  per_day HKD
+  days_late number
+  full_weeks number
+  fee HKD
+can deliver by carrier
+  -> delivered
+  days_late = (now - due) / 1 day
+  full_weeks = (now - due) / 1 week
+  if days_late > 0
+    fee = per_day * days_late

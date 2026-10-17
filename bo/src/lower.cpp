@@ -229,6 +229,8 @@ constexpr std::uint64_t signer_keys = 3;
 
 /// R17: products and quotients round half up.
 constexpr std::int32_t round_half_up = static_cast<std::int32_t>(rt::Rounding::half_up);
+/// R32: a duration by a duration drops the rest (toward zero).
+constexpr std::int32_t round_down = static_cast<std::int32_t>(rt::Rounding::down);
 
 struct FieldSlot {
     const m::Field* field = nullptr;
@@ -4105,6 +4107,15 @@ void Lowering::arithmetic(Ctx& c, const m::Expr& e) {
             b.i64(1);
             value(c, y);
             muldiv();
+            return;
+        }
+        if (xk == TypeKind::duration && yk == TypeKind::duration) {
+            // R32: a duration by a duration, how many whole times; the rest
+            // is dropped (toward zero).
+            value(c, x);
+            b.i64(1);
+            value(c, y);
+            b.i32(round_down).call(rt_.get(Routine::muldiv));
             return;
         }
         // Money by money, or a quantity by one: a rate.
