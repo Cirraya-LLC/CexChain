@@ -1,0 +1,17 @@
+edition 1
+packs alpha beta
+contract Club
+party role.we bound=creation{R3}
+party beta:role.steward bound=creation{R3}
+kind kind.thing Card
+field field.holder instance party = role.we{R2}
+field beta:field.badge instance text
+state state.active first{R4}
+state alpha:state.lodged{R19}
+can alpha:act.lodge standard by=beta:role.steward{R19} agents=delegation{R14}
+  terms{R19}
+    transition state.active -> alpha:state.lodged
+test "the steward lodges the card"
+  step role.we act.create creation expect=accepted
+    set beta:field.badge "B-7"
+  step beta:role.steward alpha:act.lodge expect=state alpha:state.lodged

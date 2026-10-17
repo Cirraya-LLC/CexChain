@@ -38,6 +38,7 @@ namespace cexchain::bo {
 struct Lexicon::Impl {
     /// The set's official packs are those of before vocabulary packs.
     bool implicit_vocabulary = false;
+    std::shared_ptr<const Vocabularies> vocabularies;
     /// The unit a degree symbol (°C, ℃) reads as, where the set spells it
     /// (G5b; version 2 of the official packs did not).
     const Concept* celsius = nullptr;
@@ -183,6 +184,7 @@ std::vector<Lexicon::Impl::DatePart> date_parts(std::string_view pattern) {
 Lexicon::Lexicon(const PackSet& packs) : impl_(std::make_unique<Impl>()) {
     Impl& lx = *impl_;
     lx.implicit_vocabulary = packs.implicit_vocabulary();
+    lx.vocabularies = packs.vocabularies_handle();
     for (const auto& [spelling, meaning] : packs.spellings()) {
         switch (meaning.kind) {
         case MeaningKind::word:
@@ -1534,6 +1536,7 @@ std::string shown(std::string_view text) {
 Lexed lex(std::string_view source, const Lexicon& lexicon) {
     Lexed out = Lexer(source, lexicon.impl()).run();
     out.implicit_vocabulary = lexicon.impl().implicit_vocabulary;
+    out.vocabularies = lexicon.impl().vocabularies;
     return out;
 }
 

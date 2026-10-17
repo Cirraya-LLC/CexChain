@@ -280,6 +280,7 @@
     "check.no-parties": "the contract has actions but no parties line: write parties, then its roles (parties issuer, supplier, bank)",
     "check.unknown-pack": "use {pack}: no vocabulary pack has this id; the official ones are commerce, finance, and services, and a pack of your own is given with --vocab FILE",
     "check.pack-not-used": "{word} is a word of the {pack} vocabulary pack, which the source does not use: write use {pack} at its top",
+    "check.pack-requires": "use {pack} needs use {other} too: the pack requires it",
     "check.duplicate": "{name} is declared twice; a name has one meaning in a contract",
     "check.one-kind": "a contract describes one kind of instance; {name} would be a second: write another contract for it",
     "check.unknown-name": "{name} is not declared: it is not a party, a field, an input, a state, or a name each gives",

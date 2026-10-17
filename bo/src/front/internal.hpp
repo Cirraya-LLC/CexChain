@@ -11,6 +11,7 @@
 #include <functional>
 #include <initializer_list>
 #include <map>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -49,6 +50,9 @@ private:
 /// A pack's id: letters, digits, and single hyphens, starting with a
 /// letter and not ending with a hyphen; at most 64 bytes.
 [[nodiscard]] bool valid_pack_id(std::string_view id) noexcept;
+/// A vocabulary pack's id: lowercase ASCII letters, digits, and _, starting
+/// with a letter, at most 32 (a Bo name, as `use` lines write it).
+[[nodiscard]] bool valid_vocab_id(std::string_view id) noexcept;
 
 /// Code points of valid UTF-8, or nullopt.
 [[nodiscard]] std::optional<std::u32string> code_points(std::string_view text);
@@ -127,7 +131,16 @@ struct NameCheck {
 /// their reading rules.
 void merge_vocabulary(Pack& language, const VocabularyPack& pack);
 
+/// `users`: the users' vocabulary packs whose words the packs hold (their
+/// concepts are not the edition's).
 void index_spellings(std::span<const Pack* const> packs,
-                     std::map<std::string, Meaning, std::less<>>& index, Diagnostics& diagnostics);
+                     std::map<std::string, Meaning, std::less<>>& index, Diagnostics& diagnostics,
+                     const Vocabularies* users = nullptr);
+
+/// Reads the users' packs' terms with the set that reads the packs
+/// (stdlib.cpp): nullptr if any does not read (each problem reported).
+[[nodiscard]] std::shared_ptr<const UserTerms>
+read_user_terms(const PackSet& set, std::span<const std::shared_ptr<const VocabularyPack>> users,
+                Diagnostics& diagnostics);
 
 } // namespace cexchain::bo::detail

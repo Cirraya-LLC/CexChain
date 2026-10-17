@@ -192,5 +192,6 @@ int cmd_bo_stdlib_list(const Args& args);
 int cmd_bo_stdlib_show(const Args& args);
 int cmd_bo_vocab_list(const Args& args);
 int cmd_bo_vocab_show(const Args& args);
+int cmd_bo_vocab_check(const Args& args);
 
 } // namespace cexchain::cli

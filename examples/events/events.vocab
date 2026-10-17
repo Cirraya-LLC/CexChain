@@ -1,0 +1,95 @@
+# Bo vocabulary pack: events (an example of a pack of your own).
+#
+# The words of tickets for an event, in three languages, with the standard
+# terms of its two actions: a ticket is reserved for one guest, who then
+# checks in at the door. A source reads these words after `use events`,
+# given the file with --vocab (cexchain bo check tickets.bo --vocab
+# events.vocab); a deploy embeds the whole file in the contract's source
+# bundle, so anyone rebuilds the contract without it.
+#
+# CBOR diagnostic notation (JSON with comments); the digest covers the
+# canonical CBOR. A change is a new version: deploys keep the version they
+# were built with. `cexchain bo vocab check events.vocab` checks it.
+
+{
+  "format": 1,
+  "id": "events",
+  "version": 1,
+  "edition": 1,
+
+  "concepts": {
+    # Actions, with standard terms below.
+    "act.reserve": {"category": "action"},
+    "act.check_in": {"category": "action"},
+    # The guest a ticket is reserved for: no one until it is (added), and
+    # whoever becomes it agrees on their own ledger (taking).
+    "field.guest": {"category": "field", "type": "party", "added": true, "taking": true},
+    "field.venue": {"category": "field", "type": "text"},
+    "field.seat": {"category": "field", "type": "text"},
+    "state.reserved": {"category": "state"},
+    "state.checked_in": {"category": "state"},
+    "role.organizer": {"category": "role"},
+    # A unit of the core's count dimension.
+    "unit.ticket": {"category": "unit", "dimension": "count", "scale": 1}
+  },
+
+  # The standard terms of its actions: a Bo source, line by line.
+  "terms": [
+    "bo 1",
+    "use events",
+    "# The home reserves the ticket for the counterparty, which becomes its",
+    "# guest and agrees (R31); only an active ticket is reserved.",
+    "can reserve to counterparty",
+    "  active -> reserved",
+    "  guest = counterparty",
+    "",
+    "# The guest checks in at the door, once.",
+    "can check in by guest",
+    "  reserved -> checked in"
+  ],
+
+  "languages": {
+    "en": {
+      "name": "events",
+      "words": {
+        "act.reserve": {"word": "reserve", "forms": {"third": "reserves", "gerund": "reserving"}},
+        "act.check_in": {"word": "check in", "forms": {"third": "checks in", "gerund": "checking in"}},
+        "field.guest": {"word": "guest", "forms": {"subject": "the guest", "object": "the guest"}},
+        "field.venue": {"word": "venue", "forms": {"object": "the venue"}},
+        "field.seat": {"word": "seat", "forms": {"object": "the seat"}},
+        "state.reserved": "reserved",
+        "state.checked_in": "checked in",
+        "role.organizer": {"word": "organizer", "forms": {"subject": "the organizer", "object": "the organizer"}},
+        "unit.ticket": {"word": "ticket", "forms": {"plural": "tickets"}}
+      }
+    },
+    "zh-Hant-HK": {
+      "name": "活動",
+      "words": {
+        "act.reserve": "預留",
+        "act.check_in": "入場登記",
+        "field.guest": "來賓",
+        "field.venue": "場地",
+        "field.seat": "座位",
+        "state.reserved": "已預留",
+        "state.checked_in": "已入場",
+        "role.organizer": "主辦方",
+        "unit.ticket": "張"
+      }
+    },
+    "zh-Hans-CN": {
+      "name": "活动",
+      "words": {
+        "act.reserve": "预留",
+        "act.check_in": "入场签到",
+        "field.guest": "来宾",
+        "field.venue": "场地",
+        "field.seat": "座位",
+        "state.reserved": "已预留",
+        "state.checked_in": "已入场",
+        "role.organizer": "主办方",
+        "unit.ticket": "张"
+      }
+    }
+  }
+}

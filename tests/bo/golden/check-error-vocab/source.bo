@@ -1,0 +1,11 @@
+# Packs of a user's (alpha.vocab, beta.vocab beside this file): one not
+# given, one used without the pack it requires, a word of a pack not used.
+use alpha
+use gamma
+contract Club
+parties we, steward
+
+thing Card
+  holder we
+
+can lodge

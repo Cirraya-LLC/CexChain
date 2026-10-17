@@ -290,10 +290,8 @@ public:
         if (const std::string_view symbol = unit_symbol(c); !symbol.empty()) {
             return plain(std::string(symbol));
         }
-        for (const Pack* pack : {pack_, &english_pack()}) {
-            if (const Word* w = pack->word(c->id); w != nullptr && !w->spellings.empty()) {
-                return Phrase{w->spellings.front(), w};
-            }
+        if (const Word* w = concept_word(c, pack_)) {
+            return Phrase{w->spellings.front(), w};
         }
         return plain(std::string(c->id));
     }
@@ -581,8 +579,11 @@ public:
         out_.intro = w_.say("intro", {{"edition", plain(std::to_string(model_.edition))}});
         if (!model_.packs.empty()) {
             std::vector<std::string> names;
-            for (const std::string& id : model_.packs) {
-                const VocabularyPack* pack = find_vocabulary_pack(id);
+            for (std::size_t i = 0; i < model_.packs.size(); ++i) {
+                const std::string& id = model_.packs[i];
+                const VocabularyPack* pack = i < model_.vocabularies.size()
+                                                 ? model_.vocabularies[i]
+                                                 : find_vocabulary_pack(id);
                 names.push_back(w_.say(
                     "vocab-pack",
                     {{"pack", plain(pack != nullptr ? vocabulary_name(*pack, &w_.pack()) : id)},

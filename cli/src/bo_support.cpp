@@ -188,10 +188,13 @@ std::string bundle_text(const SourceCheck& check) {
         vocabulary += std::format("{}{} {}", vocabulary.empty() ? "" : ", ", ref.id, ref.version);
     }
     return std::format(
-        "Bo, edition {}: {} bytes of source; packs {}{}{}", b.edition, b.source.size(), packs,
+        "Bo, edition {}: {} bytes of source; packs {}{}{}{}", b.edition, b.source.size(), packs,
         b.embedded.empty() ? std::string()
                            : std::format(" ({} embedded, not official)", b.embedded.size()),
-        vocabulary.empty() ? std::string() : "; vocabulary packs " + vocabulary);
+        vocabulary.empty() ? std::string() : "; vocabulary packs " + vocabulary,
+        b.embedded_vocabulary.empty()
+            ? std::string()
+            : std::format(" ({} embedded, not official)", b.embedded_vocabulary.size()));
 }
 
 std::string source_check_text(const SourceCheck& check) {

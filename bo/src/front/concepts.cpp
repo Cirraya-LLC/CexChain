@@ -341,6 +341,7 @@ constexpr MessageSpec unsorted_messages[] = {
     // Vocabulary packs (D-054): `use finance`.
     {"check.unknown-pack", Severity::error, "pack"},
     {"check.pack-not-used", Severity::error, "word pack"},
+    {"check.pack-requires", Severity::error, "pack other"},
     {"check.duplicate", Severity::error, "name"},
     {"check.one-kind", Severity::error, "name"},
     {"check.unknown-name", Severity::error, "name"},

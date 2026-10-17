@@ -30,14 +30,17 @@
 ///     vocab.hpp), each as its id, version, and digest:
 ///
 ///       {1: 1, 2: edition, 3: source, 4: [+ [id, version, digest]],
-///        ? 5: [+ pack], ? 6: [+ [id, version, digest]]}
+///        ? 5: [+ pack], ? 6: [+ [id, version, digest]],
+///        ? 7: [+ vocabulary-pack]}
 ///
 ///     Pack references ascend by id; embedded packs (each a map, the pack's
 ///     canonical CBOR) ascend by id too, and each one's id is a reference's.
 ///     References without an embedded pack name official packs, which a
 ///     compiler carries in every released version. Key 6 lists exactly the
 ///     packs the source's `use` lines name; without `use` lines it is
-///     absent.
+///     absent. Key 7 embeds those of them that are not official (users'
+///     vocabulary packs, G6) in full, each its canonical CBOR, by ascending
+///     id, so that anyone rebuilds without fetching anything.
 ///   - `bo build --out` writes the same as a `.boc` file, ready to deploy.
 ///
 /// Everything here reads untrusted bytes (a deploy comes from another
@@ -73,6 +76,9 @@ struct SourceBundle {
     std::vector<cbor::Value> embedded;
     /// The vocabulary packs the source uses (key 6), by ascending id.
     std::vector<PackRef> vocabulary;
+    /// Those that are not official (users' packs), each as its canonical
+    /// CBOR (a map), by ascending id (key 7).
+    std::vector<cbor::Value> embedded_vocabulary;
 
     friend bool operator==(const SourceBundle&, const SourceBundle&) = default;
 };

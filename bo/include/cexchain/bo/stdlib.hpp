@@ -4,6 +4,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -18,8 +19,9 @@
 
 /// Bo's standard library (milestone 11): the built-in actions, written in Bo
 /// itself and compiled in: the core's (bo/stdlib/core.bo), then each
-/// official vocabulary pack's (bo/stdlib/finance.bo, bo/stdlib/services.bo;
-/// D-054). Each is a `can` clause: who starts the action, its counterparty,
+/// official vocabulary pack's (its file's terms, bo/vocab/; D-054). A user's
+/// vocabulary pack brings terms of its own (UserTerms, read with the pack
+/// set that reads the pack). Each is a `can` clause: who starts the action, its counterparty,
 /// the consents it asks for, the states it starts from and leads to, and
 /// what it changes. A contract that declares a built-in action
 /// (`can transfer to buyer`) gets that action's terms (rule R19), with its
@@ -32,6 +34,8 @@ namespace cexchain::bo {
 struct StandardFile {
     /// The core, or the vocabulary pack whose terms these are.
     Vocab pack = Vocab::core;
+    /// That pack (nullptr for the core).
+    const VocabularyPack* owner = nullptr;
     /// The source as compiled in, in English, comments included.
     std::string_view source;
     /// The source, read with the official packs (it has no problems).
@@ -53,6 +57,28 @@ struct StandardLibrary {
     /// the action's pack), or empty.
     [[nodiscard]] std::string_view source_of(const Concept* action) const noexcept;
 };
+
+/// The terms of users' vocabulary packs (vocab.hpp), read with the pack
+/// set that reads the packs: a file for each pack with terms, in the order of
+/// their ids. Every clause is a `can` of one of its pack's actions.
+struct UserTerms {
+    std::vector<StandardFile> files;
+    std::vector<const ast::Can*> templates;
+    /// The packs the files' sources and concepts are in.
+    std::vector<std::shared_ptr<const VocabularyPack>> packs;
+
+    /// The terms of a user's pack's action (its concept id), or nullptr.
+    [[nodiscard]] const ast::Can* find(std::string_view action) const noexcept;
+    /// The source of the file holding an action's terms, or empty.
+    [[nodiscard]] std::string_view source_of(const Concept* action) const noexcept;
+};
+
+/// The terms of an action of the library or of a user's pack the file reads
+/// with (ast::File::vocabularies), or nullptr.
+[[nodiscard]] const ast::Can* find_terms(const Concept* action, const Vocabularies* vocabularies);
+/// The source holding those terms, or empty.
+[[nodiscard]] std::string_view terms_source(const Concept* action,
+                                            const Vocabularies* vocabularies);
 
 /// The source of the core's terms or of a pack's, as compiled in; empty for
 /// a pack whose actions have no terms yet (commerce).
@@ -89,6 +115,14 @@ struct StandardAction {
 
 /// Every built-in action of the library, in its order.
 [[nodiscard]] std::vector<StandardAction> standard_actions();
+/// The actions with terms of the users' vocabulary packs a set reads, as
+/// their terms write them (who starts each, its counterparty, the states it
+/// starts from and leads to), by pack and then in the terms' order.
+[[nodiscard]] std::vector<StandardAction> user_actions(const PackSet& set);
+/// A user's pack's action's terms as Bo source, written in a language with
+/// the set (the clause and its block), or nullopt.
+[[nodiscard]] std::optional<std::string>
+user_terms_source(const Concept* action, const PackSet& set, const Pack* language);
 
 /// The built-in action a word names in any language (质押, pledge), or its
 /// function's name (confirm_payment); nullptr if the library has no terms

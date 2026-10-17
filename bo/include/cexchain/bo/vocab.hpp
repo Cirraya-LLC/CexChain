@@ -129,6 +129,27 @@ struct VocabularyPack {
 
 using VocabularyHandle = std::shared_ptr<const VocabularyPack>;
 
+/// The vocabulary packs a pack set reads (PackSet::vocabularies), as the
+/// lexer hands them to the parser and the checker: the official ones of its
+/// release and the users' (given with --vocab, or embedded in a bundle),
+/// with the users' terms read. It keeps the users' packs, whose concepts
+/// tokens, trees, and models point at, alive.
+struct Vocabularies {
+    /// The official packs of the set's release, then the users', each by
+    /// ascending id.
+    std::vector<const VocabularyPack*> packs;
+    /// The users' packs (a subset of `packs`).
+    std::vector<VocabularyHandle> users;
+    /// The users' packs' terms, read with the set (stdlib.hpp); nullptr
+    /// without users' packs.
+    std::shared_ptr<const UserTerms> terms;
+
+    /// The pack a `use` line names, or nullptr.
+    [[nodiscard]] const VocabularyPack* find(std::string_view id) const noexcept;
+    /// A concept of a user's pack, by id (`events:act.book`), or nullptr.
+    [[nodiscard]] const Concept* find_concept(std::string_view id) const noexcept;
+};
+
 struct VocabularyRead {
     /// Set if the pack reads.
     VocabularyHandle pack;

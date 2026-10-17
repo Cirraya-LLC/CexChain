@@ -647,6 +647,9 @@ private:
     void complete_parts(m::Field& field);
     void read_utc_offset(const ast::Field& f);
     [[nodiscard]] bool added_field(std::string_view id) const;
+    /// A concept by id: the edition's, or a user's vocabulary pack's the
+    /// file was read with.
+    [[nodiscard]] const Concept* concept_of(std::string_view id) const;
     void add_rule_actions();
     void prepare_terms();
     void declare_actions();
@@ -800,6 +803,9 @@ private:
 
     // Calls between the contract's own actions.
     std::map<std::string, std::vector<std::string>, std::less<>> calls_;
+
+    // The vocabulary packs the file was read with (ast::File::vocabularies).
+    const Vocabularies* vocabularies_ = nullptr;
 
     // While checking a block.
     Place place_ = Place::declaration;
@@ -1206,8 +1212,15 @@ bool Checker::added_field(std::string_view id) const {
     if (id == "field.holder") {
         return is(model_.kind, "kind.resource");
     }
-    const Concept* c = find_concept(id);
+    const Concept* c = concept_of(id);
     return c != nullptr && (c->flags & field_added) != 0;
+}
+
+const Concept* Checker::concept_of(std::string_view id) const {
+    if (const Concept* c = find_concept(id)) {
+        return c;
+    }
+    return vocabularies_ != nullptr ? vocabularies_->find_concept(id) : nullptr;
 }
 
 void Checker::add_rule_actions() {
@@ -1220,13 +1233,12 @@ void Checker::add_rule_actions() {
             declared.insert(std::string(c->action.concept_entry->id));
         }
     }
-    const StandardLibrary& library = standard_library();
     const auto consider = [&](const ast::Do& d) {
         if (d.subject || !word_in(d.action, Category::action)) {
             return;
         }
         const Concept* word = d.action.concept_entry;
-        if (executor_action(word, model_.kind) || library.find(word->id) == nullptr ||
+        if (executor_action(word, model_.kind) || find_terms(word, vocabularies_) == nullptr ||
             !declared.insert(std::string(word->id)).second) {
             return;
         }
@@ -1249,9 +1261,9 @@ void Checker::add_rule_actions() {
 }
 
 void Checker::prepare_terms() {
-    // R19: each built-in action with terms in the standard library gets a
-    // copy of them, the contract's counterparty in place of `counterparty`.
-    const StandardLibrary& library = standard_library();
+    // R19: each built-in action with terms in the standard library (or in a
+    // user's vocabulary pack) gets a copy of them, the contract's
+    // counterparty in place of `counterparty`.
     std::set<std::string> seen;
     for (std::size_t i = 0; i < cans_.size(); ++i) {
         const ast::Can& c = *cans_[i];
@@ -1260,7 +1272,7 @@ void Checker::prepare_terms() {
         if (word == nullptr || !seen.insert(std::string(word->id)).second) {
             continue;
         }
-        const ast::Can* source = library.find(word->id);
+        const ast::Can* source = find_terms(word, vocabularies_);
         if (source == nullptr) {
             any_unterms_ = true;
             continue;
@@ -1361,7 +1373,18 @@ void Checker::prepare_terms() {
     // R20: the pledgee and the payee (and a resource's holder), used by the
     // terms or by an action of the contract's (a copy of the terms, say) but
     // not declared, none at first.
-    for (const std::string_view id : standard_fields) {
+    // Then those of users' vocabulary packs, by id.
+    std::vector<std::string_view> addable(std::begin(standard_fields), std::end(standard_fields));
+    if (vocabularies_ != nullptr) {
+        for (const VocabularyHandle& pack : vocabularies_->users) {
+            for (const Concept* c : pack->concepts) {
+                if (c->category == Category::field && (c->flags & field_added) != 0) {
+                    addable.push_back(c->id);
+                }
+            }
+        }
+    }
+    for (const std::string_view id : addable) {
         if (global(id) != nullptr || !added_field(id)) {
             continue;
         }
@@ -1383,7 +1406,7 @@ void Checker::prepare_terms() {
             continue;
         }
         m::Field f;
-        f.word = find_concept(id);
+        f.word = concept_of(id);
         f.type = of(TypeKind::party);
         f.rule = rule_standard_fields;
         f.optional = true;
@@ -1447,7 +1470,7 @@ void Checker::declare_actions() {
         if (terms != terms_.end()) {
             in_terms_ = true;
             terms_site_ = c.action.span;
-            terms_text_ = standard_library().source_of(c.action.concept_entry);
+            terms_text_ = terms_source(c.action.concept_entry, vocabularies_);
             for (const ast::Field& f : terms->second.inputs) {
                 add(f);
             }
@@ -1574,7 +1597,7 @@ void Checker::reach_terms() {
             if (reached.contains(k) && global(k) == nullptr) {
                 globals_.emplace(k, Decl{Refers::state, model_.states.size()});
                 model_.states.push_back(
-                    m::State{Span{}, find_concept(k), {}, false, rule_standard_terms});
+                    m::State{Span{}, concept_of(k), {}, false, rule_standard_terms});
             }
         }
     }
@@ -2079,7 +2102,7 @@ void Checker::check_can(const ast::Can& c, std::size_t index) {
     const auto in_terms = [&](bool on) {
         in_terms_ = on;
         terms_site_ = c.action.span;
-        terms_text_ = standard_library().source_of(c.action.concept_entry);
+        terms_text_ = terms_source(c.action.concept_entry, vocabularies_);
     };
     if (c.by) {
         a.by = value(*c.by);
@@ -3985,16 +4008,39 @@ m::Model Checker::run(const ast::File& file) {
     // The vocabulary packs (D-054): each `use` names one, and each pack's
     // words need its `use` (all of them, read with the official packs of
     // before vocabulary packs).
+    vocabularies_ = file.vocabularies.get();
+    std::vector<std::pair<std::string, const VocabularyPack*>> used;
     for (const ast::Use& u : file.uses) {
-        if (find_vocabulary_pack(u.pack) == nullptr) {
+        // A pack the set reads: an official one of its release, or a
+        // user's (vocab.hpp); without the set's packs, an official one.
+        const VocabularyPack* pack =
+            vocabularies_ != nullptr ? vocabularies_->find(u.pack) : find_vocabulary_pack(u.pack);
+        if (pack == nullptr) {
             error(u.span, "check.unknown-pack", {{"pack", detail::quote(u.pack)}});
         } else {
-            model_.packs.push_back(u.pack);
+            used.emplace_back(u.pack, pack);
         }
     }
-    std::ranges::sort(model_.packs);
+    std::ranges::sort(used);
+    for (const auto& [id, pack] : used) {
+        model_.packs.push_back(id);
+        model_.vocabularies.push_back(pack);
+    }
+    // A pack's required packs are used too.
+    for (const ast::Use& u : file.uses) {
+        const auto it =
+            std::ranges::find(used, u.pack, &std::pair<std::string, const VocabularyPack*>::first);
+        if (it == used.end()) {
+            continue;
+        }
+        for (const std::string& other : it->second->required) {
+            if (!std::ranges::contains(model_.packs, other)) {
+                error(u.span, "check.pack-requires", {{"pack", u.pack}, {"other", other}});
+            }
+        }
+    }
     for (const ast::PackWord& w : file.pack_words) {
-        const std::string_view pack = vocab_name(w.concept_entry->pack);
+        const std::string_view pack = pack_of(*w.concept_entry);
         if (!file.implicit_vocabulary && !std::ranges::contains(model_.packs, pack)) {
             error(w.span, "check.pack-not-used",
                   {{"word", written(w.span)}, {"pack", std::string(pack)}});

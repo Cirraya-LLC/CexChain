@@ -71,7 +71,7 @@ catch_discover_tests(cexchain_tests)
 # runs these alone.
 add_executable(cexchain_bo_tests bo/check_test.cpp bo/explain_test.cpp bo/format_test.cpp
     bo/lexer_test.cpp
-    bo/packs_test.cpp bo/parser_test.cpp bo/source_test.cpp bo/stdlib_test.cpp)
+    bo/packs_test.cpp bo/parser_test.cpp bo/source_test.cpp bo/stdlib_test.cpp bo/vocab_test.cpp)
 target_link_libraries(cexchain_bo_tests PRIVATE
     cexchain::bo_front
     cexchain::crypto_openssl

@@ -1,0 +1,12 @@
+# A vocabulary pack of a user's, which alpha requires.
+{
+  "format": 1, "id": "beta", "version": 1, "edition": 1,
+  "concepts": {
+    "field.badge": {"category": "field", "type": "text"},
+    "role.steward": {"category": "role"}
+  },
+  "languages": {
+    "en": {"name": "beta", "words": {"field.badge": "badge", "role.steward": "steward"}},
+    "zh-Hant-HK": {"name": "乙", "words": {"field.badge": "徽章", "role.steward": "幹事"}}
+  }
+}

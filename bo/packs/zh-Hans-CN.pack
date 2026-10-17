@@ -277,6 +277,7 @@
     "check.no-parties": "此合约有动作，但没有 参与方 一行：请写 参与方，再列出各角色（参与方 发行人, 供应商, 银行）",
     "check.unknown-pack": "使用 {pack}：没有该标识的词汇包；官方词汇包为 commerce、finance 和 services，自定义词汇包用 --vocab FILE 提供",
     "check.pack-not-used": "{word} 属于 {pack} 词汇包，但源代码没有使用该词汇包：请在开头写 使用 {pack}",
+    "check.pack-requires": "使用 {pack} 也须 使用 {other}：该词汇包要求它",
     "check.duplicate": "{name} 声明了两次；同一合约中每个名称只有一个含义",
     "check.one-kind": "一份合约只描述一种实例；{name} 会是第二种：请另写一份合约",
     "check.unknown-name": "{name} 未声明：它不是参与方、字段、输入项、状态，也不是 逐个 给出的名称",

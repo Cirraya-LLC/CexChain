@@ -11,6 +11,7 @@
 #include <string>
 
 #include <cexchain/bo/values.hpp>
+#include <cexchain/bo/vocab.hpp>
 
 namespace cexchain::bo {
 
@@ -55,7 +56,11 @@ const UnitInfo* unit_info(const Concept* unit) noexcept {
         return nullptr;
     }
     const auto it = std::ranges::find(unit_table, unit->id, &UnitInfo::id);
-    return it == std::end(unit_table) ? nullptr : &*it;
+    if (it != std::end(unit_table)) {
+        return &*it;
+    }
+    // A unit of a user's vocabulary pack, of one of the core's dimensions.
+    return unit->owner != nullptr ? unit->owner->unit(unit) : nullptr;
 }
 
 Exact exact(const Decimal& value, std::uint64_t factor) noexcept {

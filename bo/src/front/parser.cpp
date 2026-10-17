@@ -1768,6 +1768,7 @@ Parsed parse(std::string_view source, const Lexed& lexed) {
     Parsed out;
     out.file = second.run(lexed.edition);
     out.file.implicit_vocabulary = lexed.implicit_vocabulary;
+    out.file.vocabularies = lexed.vocabularies;
     // A `use` line's pack id is a name, whatever it reads as elsewhere; the
     // other words of vocabulary packs are where the checker says a pack is
     // not used (the first of each pack).
@@ -1788,9 +1789,9 @@ Parsed parse(std::string_view source, const Lexed& lexed) {
             continue;
         }
         if (t.kind == TokenKind::word && t.concept_entry != nullptr &&
-            t.concept_entry->pack != Vocab::core &&
+            t.concept_entry->owner != nullptr &&
             std::ranges::none_of(out.file.pack_words, [&](const ast::PackWord& w) {
-                return w.concept_entry->pack == t.concept_entry->pack;
+                return w.concept_entry->owner == t.concept_entry->owner;
             })) {
             out.file.pack_words.push_back(ast::PackWord{t.concept_entry, t.span});
         }

@@ -69,7 +69,7 @@ start_server() {
 }
 
 echo "== help and completion"
-for command in "bo check" "bo build" "bo explain" "bo fmt" "bo test" "bo packs list" "bo packs show" "bo packs check" "bo stdlib list" "bo stdlib show" "bo vocab list" "bo vocab show"; do
+for command in "bo check" "bo build" "bo explain" "bo fmt" "bo test" "bo packs list" "bo packs show" "bo packs check" "bo stdlib list" "bo stdlib show" "bo vocab list" "bo vocab show" "bo vocab check"; do
     # shellcheck disable=SC2086
     run $command --help > out.txt
     contains -F "cexchain $command" out.txt || fail "help for $command"
@@ -79,7 +79,7 @@ run --help > out.txt
 contains -F "bo packs list" out.txt || fail "overview lists bo"
 run completion bash > out.txt
 contains -F '"bo") words="build check explain fmt packs stdlib test vocab"' out.txt || fail "completion: bo"
-contains -F '"bo vocab") words="list show"' out.txt || fail "completion: bo vocab"
+contains -F '"bo vocab") words="check list show"' out.txt || fail "completion: bo vocab"
 contains -F '"bo stdlib") words="list show"' out.txt || fail "completion: bo stdlib"
 contains -F -- "--write" out.txt || fail "completion: bo fmt"
 contains -F 'deploy evidence explain fetch' out.txt || fail "completion: contract explain"
@@ -131,7 +131,7 @@ run bo packs show zh-Hans-CN --json > show.json
 json 'd["keywords"]["kw.each"], d["vocabulary"]["unit.item"]["category"], d["reading"]["multipliers"]["万"]' < show.json > out.txt
 contains -Fx "['逐个'] unit 10000" out.txt || fail "show --json"
 json 'len(d["messages"]), len(d["sentences"])' < show.json > out.txt
-contains -Fx "251 245" out.txt || fail "messages and sentences"
+contains -Fx "252 245" out.txt || fail "messages and sentences"
 expect_exit 1 bo packs show fr
 contains -F "no pack fr" out.txt || fail "unknown pack"
 expect_exit 1 bo packs show en --section nope
@@ -180,6 +180,73 @@ run bo fmt order.bo --language zh-Hans-CN > out.txt
 run bo stdlib list finance > out.txt
 [ "$(wc -l < out.txt)" -eq 10 ] || fail "stdlib list finance: ten actions"
 expect_exit 1 bo stdlib list acme
+
+echo "== vocabulary packs of your own (G6): checked, shown, used, and refused"
+EVENTS="$SOURCE/examples/events/events.vocab"
+TICKETS="$SOURCE/examples/events/tickets.bo"
+run bo vocab check "$EVENTS" > out.txt
+contains -F "events.vocab: vocabulary pack events version 1: 9 words (2 actions, 1 unit, 3 fields, 2 states, 1 role); terms for 2 actions; spelled in en, zh-Hans-CN, zh-Hant-HK" out.txt || fail "vocab check"
+contains -Fx "ok: the vocabulary packs read, alone and with the official packs" out.txt || fail "vocab check: ok"
+run bo vocab check "$EVENTS" --json > check.json
+json 'd["ok"], d["packs"][0]["pack"]["id"], d["packs"][0]["pack"]["categories"]["field"], d["packs"][0]["pack"]["actions"], d["packs"][0]["pack"]["languages"]' < check.json > out.txt
+contains -Fx "True events 3 ['reserve', 'check_in'] ['en', 'zh-Hans-CN', 'zh-Hant-HK']" out.txt || fail "vocab check --json"
+run bo vocab show "$EVENTS" --language zh-Hant-HK > out.txt
+contains -F "events version 1 (活動, yours): use events" out.txt || fail "vocab show FILE"
+contains -E "^  field +events:field.guest +來賓  party; added \(R20\); taking \(R31\)$" out.txt || fail "vocab show FILE: a field"
+contains -E "^  unit +events:unit.ticket +張  count, 1 of its smallest unit$" out.txt || fail "vocab show FILE: a unit"
+run bo vocab show events --vocab "$EVENTS" --json > show.json
+json 'd["id"], d["official"], len(d["words"]), d["languages"], d["rules"]' < show.json > out.txt
+contains -Fx "events False 9 ['en', 'zh-Hans-CN', 'zh-Hant-HK'] []" out.txt || fail "vocab show ID --vocab --json"
+run bo vocab list --vocab "$(dirname "$EVENTS")" > out.txt
+contains -E "^events +version 1 +events +9 words, +2 built-in actions  SHA-256 [0-9a-f]{64}  \(yours\)$" out.txt || fail "vocab list --vocab DIR"
+run bo vocab list --vocab "$EVENTS" --json > vocab.json
+json '[p["id"] for p in d], d[-1]["official"]' < vocab.json > out.txt
+contains -Fx "['core', 'commerce', 'finance', 'services', 'events'] False" out.txt || fail "vocab list --vocab --json"
+run bo stdlib list events --vocab "$EVENTS" > out.txt
+contains -F "check_in         events    check in: started by the guest; reserved → checked in" out.txt || fail "stdlib list a pack of your own"
+run bo stdlib show reserve --vocab "$EVENTS" --language zh-Hans-CN > out.txt
+contains -Fx "使用 events" out.txt || fail "stdlib show: the pack's use line"
+contains -Fx "可预留 给 相对方" out.txt || fail "stdlib show: the terms in the reader's language"
+contains -Fx "  来宾 = 相对方" out.txt || fail "stdlib show: the pack's field in the reader's language"
+# The contract that uses it: checked, tested, built (the bundle embeds the
+# pack), and, without the pack, a note says which one is missing.
+run bo check "$TICKETS" --vocab "$EVENTS" > out.txt
+contains -F "checked: 1 party, 5 fields" out.txt || fail "check with --vocab"
+run bo test "$TICKETS" --vocab "$EVENTS" > out.txt
+contains -Fx "3 tests: 3 passed, 0 failed." out.txt || fail "test with --vocab"
+run bo build "$TICKETS" --vocab "$EVENTS" --out tickets.boc > out.txt 2>&1
+contains -F "and the vocabulary packs events 1 (embedded) (SHA-256 digests)" out.txt || fail "build: the pack embedded"
+run bo build "$TICKETS" --vocab "$EVENTS" --json > build.json 2> /dev/null
+json 'd["vocabulary"][0]["id"], d["vocabulary"][0]["official"]' < build.json > out.txt
+contains -Fx "events False" out.txt || fail "build --json: the pack embedded"
+expect_exit 2 bo check "$TICKETS"
+contains -F "note: use events names no vocabulary pack read here" out.txt || fail "check without --vocab: the note"
+run bo explain "$TICKETS" --vocab "$EVENTS" --language zh-Hant-HK > out.txt
+contains -F "活動詞彙包（第 1 版）" out.txt || fail "explain: the pack's name in the reader's language"
+run bo fmt "$TICKETS" --vocab "$EVENTS" --language zh-Hant-HK > tickets-zh.bo
+contains -Fx "可入場登記" tickets-zh.bo || fail "fmt: the pack's words in Chinese"
+run bo test tickets-zh.bo --vocab "$EVENTS" > out.txt
+contains -Fx "3 tests: 3 passed, 0 failed." out.txt || fail "fmt: the Chinese source tests the same"
+# Refused, each with its code: a pack that does not read, a word Bo has,
+# an official id, a concept of the compiler's, terms that are not terms.
+sed 's/"version": 1/"version": 0/' "$EVENTS" > bad-version.vocab
+expect_exit 2 bo vocab check bad-version.vocab
+contains -F "(pack.bad-version)" out.txt || fail "vocab check: version 0"
+sed 's/"act.reserve": "預留"/"act.reserve": "轉讓"/' "$EVENTS" > clash.vocab
+expect_exit 2 bo vocab check clash.vocab
+contains -F "轉讓, a word of the vocabulary pack events, already means act.transfer: spell it otherwise (vocab.conflict)" out.txt || fail "vocab check: a spelling Bo has"
+sed 's/"id": "events"/"id": "finance"/' "$EVENTS" > official.vocab
+expect_exit 2 bo vocab check official.vocab
+contains -F "(vocab.official-id)" out.txt || fail "vocab check: an official id"
+sed 's/"role.organizer": {"category": "role"}/"role.organizer": {"category": "role"}, "kind.event": {"category": "kind"}/' "$EVENTS" > kind.vocab
+expect_exit 2 bo vocab check kind.vocab
+contains -F "(vocab.category)" out.txt || fail "vocab check: a kind"
+sed 's/    "can check in by guest",/    "can transfer",/' "$EVENTS" > terms.vocab
+expect_exit 2 bo vocab check terms.vocab --json
+json 'd["ok"], [x["code"] for x in d["set"]["diagnostics"]]' < out.txt > codes.txt
+contains -Fx "False ['vocab.terms-clause']" codes.txt || fail "vocab check --json: terms"
+expect_exit 2 bo check "$TICKETS" --vocab bad-version.vocab
+contains -F "a vocabulary pack does not read" out.txt || fail "--vocab: a pack that does not read"
 
 echo "== a company's own pack"
 # Its own words for some concepts, the official ones for the rest. Keywords

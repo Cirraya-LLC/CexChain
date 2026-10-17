@@ -131,14 +131,19 @@ std::optional<Vocab> official_vocab(std::string_view id) noexcept {
     return std::nullopt;
 }
 
-/// A vocabulary pack id: a Bo name in ASCII, as `use` lines write it.
-bool valid_vocab_id(std::string_view id) noexcept {
+} // namespace
+
+bool detail::valid_vocab_id(std::string_view id) noexcept {
     if (id.empty() || id.size() > 32 || id.front() < 'a' || id.front() > 'z') {
         return false;
     }
     return std::ranges::all_of(
         id, [](char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'; });
 }
+
+namespace {
+
+using detail::valid_vocab_id;
 
 /// The name part of a concept id (after the category's prefix).
 bool valid_concept_name(std::string_view name) noexcept {
@@ -304,6 +309,9 @@ private:
     }
 
     void read_concept(std::string_view local, const cbor::Value& value) {
+        // A concept that does not read is reported once: its spellings are
+        // not reported again.
+        failed_.emplace(local);
         const std::string path = join("concepts", local);
         const std::size_t dot = local.find('.');
         const std::string_view prefix = local.substr(0, dot);
@@ -436,6 +444,7 @@ private:
             }
         }
         c.id = keep(id);
+        failed_.erase(std::string(local));
         Concept& stored = pack_->owned.emplace_back(c);
         pack_->concepts.push_back(&stored);
         if (unit) {
@@ -585,7 +594,9 @@ private:
             const std::string word_path = join(path, local);
             const Concept* entry = own(local);
             if (entry == nullptr) {
-                fail("vocab.not-own", {{"path", path}, {"concept", quote(local)}});
+                if (!failed_.contains(local)) {
+                    fail("vocab.not-own", {{"path", path}, {"concept", quote(local)}});
+                }
                 continue;
             }
             Word word;
@@ -662,6 +673,7 @@ private:
 
     Mode mode_;
     std::shared_ptr<VocabularyPack> pack_;
+    std::set<std::string, std::less<>> failed_;
 };
 
 /// Reads a pack's CBOR: within the size limit, in canonical order.
@@ -816,6 +828,24 @@ const UnitInfo* VocabularyPack::unit(const Concept* c) const noexcept {
     return it == units.end() ? nullptr : &*it;
 }
 
+const VocabularyPack* Vocabularies::find(std::string_view id) const noexcept {
+    const auto it = std::ranges::find(packs, id, &VocabularyPack::id);
+    return it == packs.end() ? nullptr : *it;
+}
+
+const Concept* Vocabularies::find_concept(std::string_view id) const noexcept {
+    const std::size_t colon = id.find(':');
+    if (colon == std::string_view::npos) {
+        return nullptr;
+    }
+    for (const VocabularyHandle& pack : users) {
+        if (pack->id == id.substr(0, colon)) {
+            return pack->find(id);
+        }
+    }
+    return nullptr;
+}
+
 VocabularyRead read_vocabulary_pack(std::string_view text) {
     VocabularyRead out;
     out.pack = read_text(text, Mode::user, out.diagnostics);
@@ -906,6 +936,41 @@ std::string vocabulary_name(const VocabularyPack& pack, const Pack* language) {
 Result<crypto::Digest> digest(const VocabularyPack& pack, const crypto::Provider& provider,
                               crypto::HashAlg alg) {
     return provider.digest(alg, pack.canonical);
+}
+
+const Word* concept_word(const Concept* c, const Pack* language) noexcept {
+    if (c == nullptr) {
+        return nullptr;
+    }
+    const auto in = [&](const Pack* pack) -> const Word* {
+        if (pack == nullptr) {
+            return nullptr;
+        }
+        if (const Word* w = pack->word(c->id); w != nullptr && !w->spellings.empty()) {
+            return w;
+        }
+        if (c->owner != nullptr) {
+            if (const VocabularyLanguage* words = c->owner->language(pack->id)) {
+                if (const auto it = words->words.find(c->id); it != words->words.end()) {
+                    return &it->second;
+                }
+            }
+        }
+        return nullptr;
+    };
+    if (const Word* w = in(language)) {
+        return w;
+    }
+    if (const Word* w = in(&english_pack())) {
+        return w;
+    }
+    if (c->owner != nullptr && !c->owner->languages.empty()) {
+        const auto& words = c->owner->languages.begin()->second.words;
+        if (const auto it = words.find(c->id); it != words.end()) {
+            return &it->second;
+        }
+    }
+    return nullptr;
 }
 
 namespace detail {

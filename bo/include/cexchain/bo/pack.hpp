@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -77,6 +78,10 @@
 /// words). A pack spells every keyword; missing vocabulary is read and shown
 /// in English.
 namespace cexchain::bo {
+
+struct VocabularyPack;
+struct Vocabularies;
+struct UserTerms;
 
 /// Where something is in a source: its line and column, counted from 1
 /// (columns in characters, that is code points), and its bytes. Line 0 means
@@ -256,12 +261,20 @@ public:
     [[nodiscard]] const std::map<std::string, Meaning, std::less<>>& spellings() const noexcept {
         return spellings_;
     }
+    /// The vocabulary packs it reads (vocab.hpp): the official ones of its
+    /// release and the users' given to make_pack_set, whose words its
+    /// language packs hold as their own (each in the languages it spells).
+    [[nodiscard]] const Vocabularies& vocabularies() const noexcept;
+    [[nodiscard]] const std::shared_ptr<const Vocabularies>& vocabularies_handle() const noexcept {
+        return vocabularies_;
+    }
 
 private:
     friend struct PackSetBuilder;
     std::vector<Pack> packs_;
     std::map<std::string, Meaning, std::less<>> spellings_;
     Officials officials_ = Officials::current;
+    std::shared_ptr<const Vocabularies> vocabularies_;
 };
 
 struct PackSetRead {
@@ -272,8 +285,17 @@ struct PackSetRead {
 /// The official packs plus `extra` (each already read without errors). A
 /// pack that calls itself official must be byte for byte one the compiler
 /// carries (it is then the same pack, and taken once).
-[[nodiscard]] PackSetRead make_pack_set(std::vector<Pack> extra,
-                                        Officials officials = Officials::current)
+///
+/// A user's vocabulary pack (vocab.hpp) adds its words to the language
+/// packs of the languages it spells (a language no pack of the set has is
+/// warned of, vocab.no-language), each spelling new to the set (else
+/// vocab.conflict); the packs it requires are official or given too
+/// (vocab.unknown-requires, vocab.cycle); and its terms read as Bo, a `can`
+/// of one of its actions each, with words of the core, the pack, and the
+/// packs it requires (vocab.terms, vocab.terms-clause).
+[[nodiscard]] PackSetRead
+make_pack_set(std::vector<Pack> extra, Officials officials = Officials::current,
+              std::vector<std::shared_ptr<const VocabularyPack>> vocabularies = {})
     BO_POST(r, r.set.has_value() != has_errors(r.diagnostics));
 
 /// The packs this compiler carries (the latest version of each), read once.
@@ -291,6 +313,12 @@ struct PackSetRead {
                                         Officials* officials = nullptr) noexcept;
 /// The English pack, where missing words and messages fall back to.
 [[nodiscard]] const Pack& english_pack() noexcept;
+
+/// How a concept is spelled in a language: the language pack's word, or
+/// the word of the vocabulary pack that defines the concept in that
+/// language (vocab.hpp); else in English; else, for a user's pack, in its
+/// first language. Nullptr if nothing spells it.
+[[nodiscard]] const Word* concept_word(const Concept* c, const Pack* language) noexcept;
 
 /// An official pack's file, as compiled in.
 struct PackText {

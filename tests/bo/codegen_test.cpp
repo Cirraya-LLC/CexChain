@@ -1740,6 +1740,13 @@ TEST_CASE("bo build: write the runs for the Python reference", "[.codegen-refere
     }
     std::ranges::sort(dirs);
     for (const std::filesystem::path& dir : dirs) {
+        // A source read with users' vocabulary packs (its directory's
+        // *.vocab) is left out: the vectors name no packs but the official
+        // ones.
+        if (std::ranges::any_of(std::filesystem::directory_iterator(dir),
+                                [](const auto& e) { return e.path().extension() == ".vocab"; })) {
+            continue;
+        }
         const std::string text = read_text(dir / "source.bo");
         const bo::Compiled compiled = bo::compile(text, set);
         if (compiled.build) {

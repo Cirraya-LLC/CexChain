@@ -137,12 +137,15 @@ TEST_CASE("a checked model, written member by member", "[bo][names]") {
     const cbor::Value value = to_cbor(checked.model);
     // Model's members by name, in declaration order.
     const cbor::Map& map = *value.as_map();
-    REQUIRE(map.size() == 16);
+    REQUIRE(map.size() == 17);
     CHECK(*map[0].key.as_text() == "edition");
     CHECK(*map[1].key.as_text() == "packs");
     CHECK(*map[1].value.as_array()->at(0).as_text() == "finance");
-    CHECK(*map[2].key.as_text() == "name");
-    CHECK(*map[2].value.as_text() == "ReceivableFinancing");
+    // Each pack as read: its id and version.
+    CHECK(*map[2].key.as_text() == "vocabularies");
+    CHECK(*map[2].value.as_array()->at(0).as_text() == "finance 2");
+    CHECK(*map[3].key.as_text() == "name");
+    CHECK(*map[3].value.as_text() == "ReceivableFinancing");
     CHECK(*value.find("kind")->as_text() == "kind.asset");
     CHECK(*value.find("due")->as_text() == "field");
     // Enumerations by their enumerators' names; rules by their ids.

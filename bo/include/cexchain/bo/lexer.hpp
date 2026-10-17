@@ -204,6 +204,8 @@ struct Lexed {
     /// Read with the official packs of before vocabulary packs
     /// (PackSet::implicit_vocabulary): every vocabulary pack is used.
     bool implicit_vocabulary = false;
+    /// The vocabulary packs the pack set reads (PackSet::vocabularies).
+    std::shared_ptr<const Vocabularies> vocabularies;
 };
 
 /// The largest source, in bytes.

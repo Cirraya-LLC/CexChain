@@ -88,6 +88,12 @@ std::string spell(std::string_view concept_id, const Pack* language) {
             return word->spellings.front();
         }
     }
+    // A user's vocabulary pack's word (`events:act.reserve`) that the
+    // language packs here do not hold: its plain name.
+    if (concept_id.find(':') != std::string_view::npos) {
+        const std::size_t dot = concept_id.find('.');
+        return std::string(dot == std::string_view::npos ? concept_id : concept_id.substr(dot + 1));
+    }
     return std::string(concept_id);
 }
 

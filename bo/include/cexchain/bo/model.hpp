@@ -456,6 +456,9 @@ struct Model {
     std::uint64_t edition = 1;
     /// The vocabulary packs the source uses (`use`), by ascending id.
     std::vector<std::string> packs;
+    /// Those packs, as read (vocab.hpp): an official one at its release's
+    /// version, or a user's.
+    std::vector<const VocabularyPack*> vocabularies;
     /// From `contract NAME`; empty for a fragment.
     std::string name;
     std::vector<Party> parties;

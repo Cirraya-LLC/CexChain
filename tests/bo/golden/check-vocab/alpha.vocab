@@ -1,0 +1,13 @@
+# A vocabulary pack of a user's: requires beta.
+{
+  "format": 1, "id": "alpha", "version": 1, "edition": 1,
+  "requires": ["beta"],
+  "concepts": {
+    "act.lodge": {"category": "action"},
+    "state.lodged": {"category": "state"}
+  },
+  "terms": ["bo 1", "use alpha", "use beta", "can lodge by steward", "  active -> lodged"],
+  "languages": {
+    "en": {"name": "alpha", "words": {"act.lodge": "lodge", "state.lodged": "lodged"}}
+  }
+}

@@ -103,6 +103,10 @@ const OptionSpec help_option{"help", "", "Show help for this command"};
 #if defined(CEXCHAIN_HAVE_BO)
 const OptionSpec pack_option{"pack", "FILE", "Read source with this language pack too", false,
                              true};
+const OptionSpec vocab_option{
+    "vocab", "FILE",
+    "Read source with this vocabulary pack of your own too (a .vocab file, or a directory's)",
+    false, true};
 const OptionSpec hash_option{"hash", "HASH", "Digests with sha256 (default) or sm3"};
 const OptionSpec language_option{
     "language", "LANG",
@@ -1238,6 +1242,10 @@ std::vector<CommandSpec> build() {
                    "from bo build --out"},
                   {"pack", "FILE", "With --bo: read the source with this language pack too", false,
                    true},
+                  {"vocab", "FILE",
+                   "With --bo: read the source with this vocabulary pack of your own too (a "
+                   ".vocab file, or a directory's)",
+                   false, true},
                   {"function", "NAME=KIND",
                    "A function and its kind: create (makes an instance) or call (acts on one)",
                    false, true},
@@ -2037,7 +2045,8 @@ std::vector<CommandSpec> build() {
          "FILE",
          1,
          1,
-         with({pack_option,
+         with({vocab_option,
+               pack_option,
                language_option,
                {"stage", "STAGE",
                 "Show what a stage reads: lex (the tokens, with their places), parse (the "
@@ -2095,7 +2104,8 @@ std::vector<CommandSpec> build() {
          1,
          1,
          with(
-             {pack_option,
+             {vocab_option,
+              pack_option,
               language_option,
               {"hash", "HASH",
                "Pack digests with sha256 (default) or sm3: the hash of the ledger it goes to"},
@@ -2137,7 +2147,8 @@ std::vector<CommandSpec> build() {
          "FILE",
          1,
          1,
-         with({pack_option,
+         with({vocab_option,
+               pack_option,
                {"language", "LANG",
                 "The text (and messages) in en, zh-Hant-HK, zh-Hans-CN, or a given pack's "
                 "language (default: $CEXCHAIN_LANGUAGE, else en)"}}),
@@ -2170,7 +2181,8 @@ std::vector<CommandSpec> build() {
          "FILE",
          1,
          1,
-         with({pack_option,
+         with({vocab_option,
+               pack_option,
                {"language", "LANG",
                 "Write every keyword and word in en, zh-Hant-HK, zh-Hans-CN, or a given pack's "
                 "language (messages too); without it, words keep their spelling"},
@@ -2213,7 +2225,8 @@ std::vector<CommandSpec> build() {
          "FILE",
          1,
          1,
-         with({pack_option,
+         with({vocab_option,
+               pack_option,
                {"language", "LANG",
                 "The report (and messages) in en, zh-Hant-HK, zh-Hans-CN, or a given pack's "
                 "language (default: $CEXCHAIN_LANGUAGE, else en)"}}),
@@ -2322,7 +2335,7 @@ std::vector<CommandSpec> build() {
          "[PACK]",
          0,
          1,
-         with({language_option}),
+         with({vocab_option, language_option}),
          cmd_bo_stdlib_list,
          "Bo's standard library (bo/stdlib/, compiled in) writes the built-in actions in Bo\n"
          "itself, each with its standard terms: the core's (transfer, cancel, suspend, resume,\n"
@@ -2347,7 +2360,7 @@ std::vector<CommandSpec> build() {
          "ACTION",
          1,
          1,
-         with({pack_option, language_option}),
+         with({vocab_option, pack_option, language_option}),
          cmd_bo_stdlib_show,
          "ACTION is a built-in action's word in any language (transfer, 轉讓, 转让) or its\n"
          "function (confirm_payment). Prints the action's terms as Bo source, in --language,\n"
@@ -2360,13 +2373,44 @@ std::vector<CommandSpec> build() {
          "  cexchain bo stdlib show transfer\n"
          "  cexchain bo stdlib show 轉讓 --language zh-Hant-HK\n"
          "  cexchain bo stdlib show confirm_payment --json\n\n" CEXCHAIN_BO_PACKS_HELP},
+        {{"bo", "vocab", "check"},
+         "Check vocabulary pack files of your own: alone, then with the official packs",
+         "Bo language",
+         "FILE...",
+         1,
+         64,
+         with({vocab_option, pack_option, language_option}),
+         cmd_bo_vocab_check,
+         "Reads each FILE, a vocabulary pack of your own (CBOR diagnostic notation, like a\n"
+         "language pack): its id (lowercase ASCII letters, digits, and _; not core nor an\n"
+         "official pack's), version, and edition; the packs it requires; its concepts, each an\n"
+         "action, a field (with its type: party, date, number, text, duration, parties,\n"
+         "quantity, list, or amount; a party field may be added, R20, or taking, R31), a state,\n"
+         "a role, or a unit (of a dimension of the core's: data, bandwidth, count, mass, or\n"
+         "temperature, and its scale); the standard terms of its actions, in Bo; and in each\n"
+         "language (by language pack id) its name and every word's spellings. Then reads them\n"
+         "together with the official packs, the vocabulary packs given with --vocab, and the\n"
+         "language packs given with --pack, as a source would: every spelling new, every\n"
+         "required pack there, and the terms reading as Bo, each clause a can of one of the\n"
+         "pack's actions, with words of the core, the pack, and the packs it requires. Every\n"
+         "problem is reported, with its code (vocab.*, pack.*). A concept's plain name may not\n"
+         "be that of a core or official word of its category: compiled code names it so.\n\n"
+         "Each line: the file, the pack's id and version, its words by category, its actions\n"
+         "with terms, and its languages. Exits 2 if a pack does not read. With --json: each\n"
+         "file's problems and facts, and those of the packs together.\n\n"
+         "  cexchain bo vocab check events.vocab\n"
+         "  cexchain bo vocab check events.vocab --language zh-Hant-HK --json\n\n"
+         "Packs of your own are files: nothing is created on a ledger, and nothing is revoked.\n"
+         "A source uses one with a use line and --vocab FILE on every bo command (and on\n"
+         "contract deploy --bo); a deploy embeds it in the contract's source bundle, so anyone\n"
+         "rebuilds the contract without the file.\n\n" CEXCHAIN_BO_PACKS_HELP},
         {{"bo", "vocab", "list"},
          "List Bo's core vocabulary and its vocabulary packs, with their digests",
          "Bo language",
          "",
          0,
          0,
-         with({hash_option, language_option}),
+         with({vocab_option, hash_option, language_option}),
          cmd_bo_vocab_list,
          "Bo's words are in its core, which every source reads (kinds of things, actions such\n"
          "as transfer and cancel, conditions, time, units, currencies, types, common fields,\n"
@@ -2377,20 +2421,25 @@ std::vector<CommandSpec> build() {
          "name of the contract's own (Bo never guesses). Unlike a language pack, a vocabulary\n"
          "pack changes what runs, so a deploy records each one it uses: its id, version, and\n"
          "the digest of its canonical CBOR (under --hash).\n\n"
+         "Packs of your own, given with --vocab (a .vocab file, or a directory's), come after\n"
+         "the official ones (bo vocab check FILE checks one).\n\n"
          "Each line: the pack's id, version, name in --language, its words, its built-in\n"
-         "actions, and its digest. With --json: the same for each, the core first.\n\n"
+         "actions, and its digest (yours, for a pack of your own). With --json: the same for\n"
+         "each, the core first.\n\n"
          "  cexchain bo vocab list\n"
+         "  cexchain bo vocab list --vocab events.vocab\n"
          "  cexchain bo vocab list --language zh-Hant-HK --hash sm3 "
          "--json\n\n" CEXCHAIN_BO_PACKS_HELP},
         {{"bo", "vocab", "show"},
          "Show the core or a vocabulary pack: its words, their categories, and its actions",
          "Bo language",
-         "PACK",
+         "PACK|FILE",
          1,
          1,
-         with({hash_option, language_option}),
+         with({vocab_option, hash_option, language_option}),
          cmd_bo_vocab_show,
-         "PACK is core or a vocabulary pack's id (bo vocab list shows them). Prints each word:\n"
+         "PACK is core or a vocabulary pack's id (bo vocab list shows them; a pack of your own\n"
+         "given with --vocab), or FILE a vocabulary pack file of your own. Prints each word:\n"
          "its category, its concept id, its spelling in --language, and for a field the type\n"
          "its pack gives it (R1), and whether the standard terms may add it to an instance\n"
          "(added, R20) and whether a counterparty an action puts into it consents (taking,\n"
@@ -2400,7 +2449,8 @@ std::vector<CommandSpec> build() {
          "which its digest covers.\n\n"
          "  cexchain bo vocab show core\n"
          "  cexchain bo vocab show services --language zh-Hans-CN\n"
-         "  cexchain bo vocab show commerce --json\n\n" CEXCHAIN_BO_PACKS_HELP},
+         "  cexchain bo vocab show commerce --json\n"
+         "  cexchain bo vocab show events.vocab --language zh-Hant-HK\n\n" CEXCHAIN_BO_PACKS_HELP},
 #endif
         // ------------------------------------------------------------------
         {{"mcp"},

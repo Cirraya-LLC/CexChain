@@ -278,6 +278,7 @@
     "check.no-parties": "此合約有動作，但沒有 訂約方 一行：請寫 訂約方，再列出各角色（訂約方 發行人, 供應商, 銀行）",
     "check.unknown-pack": "使用 {pack}：沒有此代號的詞彙包；官方詞彙包為 commerce、finance 及 services，自訂詞彙包以 --vocab FILE 提供",
     "check.pack-not-used": "{word} 屬於 {pack} 詞彙包，但原始碼沒有使用該詞彙包：請在開首寫 使用 {pack}",
+    "check.pack-requires": "使用 {pack} 亦須 使用 {other}：該詞彙包要求它",
     "check.duplicate": "{name} 宣告了兩次；同一合約內每個名稱只有一個意思",
     "check.one-kind": "一份合約只描述一種實例；{name} 會是第二種：請另寫一份合約",
     "check.unknown-name": "{name} 未經宣告：它不是訂約方、欄位、輸入項、狀態，亦不是 逐一 給出的名稱",

@@ -1,0 +1,16 @@
+# Packs of a user's (alpha.vocab, beta.vocab beside this file), each used:
+# alpha's action with its terms, beta's role and field.
+use alpha
+use beta
+contract Club
+parties we, steward
+
+thing Card
+  holder we
+  badge text
+
+can lodge
+
+test "the steward lodges the card"
+  we create with badge = "B-7"
+  steward lodge -> lodged

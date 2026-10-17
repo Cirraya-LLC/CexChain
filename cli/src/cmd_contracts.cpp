@@ -594,8 +594,9 @@ int cmd_contract_deploy(const Args& args) {
         if (args.positional().empty()) {
             throw UsageError{"give the module to deploy (WASM), or --bo FILE for Bo"};
         }
-        if (args.has("pack")) {
-            throw UsageError{"--pack reads Bo source: use it with --bo"};
+        if (args.has("pack") || args.has("vocab")) {
+            throw UsageError{std::string("--") + (args.has("pack") ? "pack" : "vocab") +
+                             " reads Bo source: use it with --bo"};
         }
         const std::string path = args.positional().front();
         body.code = read_file(path);

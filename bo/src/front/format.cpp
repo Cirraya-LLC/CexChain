@@ -458,13 +458,7 @@ private:
     }
 
     /// The target language's words for a concept, else English's.
-    [[nodiscard]] const Word* target(const Concept* c) const {
-        if (const Word* w = language_->word(c->id); w != nullptr && !w->spellings.empty()) {
-            return w;
-        }
-        const Word* english = english_pack().word(c->id);
-        return english != nullptr && !english->spellings.empty() ? english : nullptr;
-    }
+    [[nodiscard]] const Word* target(const Concept* c) const { return concept_word(c, language_); }
 
     /// How a word with an argument is written: as written, if the target
     /// language spells it so (or there is none), else the language's first

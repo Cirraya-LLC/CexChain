@@ -8,7 +8,9 @@
 #include <algorithm>
 #include <cstddef>
 #include <map>
+#include <memory>
 #include <optional>
+#include <set>
 #include <span>
 #include <string>
 #include <string_view>
@@ -16,6 +18,7 @@
 #include <vector>
 
 #include <cexchain/bo/pack.hpp>
+#include <cexchain/bo/vocab.hpp>
 
 #include "internal.hpp"
 
@@ -116,11 +119,15 @@ std::vector<Rule> attaching_rules(std::span<const Pack* const> packs) {
 } // namespace
 
 void index_spellings(std::span<const Pack* const> packs,
-                     std::map<std::string, Meaning, std::less<>>& index, Diagnostics& diagnostics) {
+                     std::map<std::string, Meaning, std::less<>>& index, Diagnostics& diagnostics,
+                     const Vocabularies* users) {
     for (const Pack* pack : packs) {
         for (const auto* words : {&pack->keywords, &pack->vocabulary}) {
             for (const auto& [id, word] : *words) {
                 const Concept* entry = find_concept(id);
+                if (entry == nullptr && users != nullptr) {
+                    entry = users->find_concept(id);
+                }
                 BO_ASSERT(entry != nullptr);
                 for (const std::string& spelling : word.spellings) {
                     add(index, spelling, Meaning{MeaningKind::word, entry, {}, 0, 0, pack->id},
@@ -183,14 +190,121 @@ void index_spellings(std::span<const Pack* const> packs,
 /// Fills a PackSet's private parts.
 struct PackSetBuilder {
     static PackSet make(std::vector<Pack> packs, std::map<std::string, Meaning, std::less<>> index,
-                        Officials officials) {
+                        Officials officials, std::shared_ptr<const Vocabularies> vocabularies) {
         PackSet set;
         set.packs_ = std::move(packs);
         set.spellings_ = std::move(index);
         set.officials_ = officials;
+        set.vocabularies_ = std::move(vocabularies);
         return set;
     }
+    static void set_vocabularies(PackSet& set, std::shared_ptr<const Vocabularies> vocabularies) {
+        set.vocabularies_ = std::move(vocabularies);
+    }
 };
+
+namespace {
+
+/// Every spelling of a vocabulary pack's word in one language: its
+/// spellings and forms.
+std::vector<std::string> all_spellings(const Word& word) {
+    std::vector<std::string> out = word.spellings;
+    for (const auto& [form, spelling] : word.forms) {
+        out.push_back(spelling);
+    }
+    return out;
+}
+
+/// The users' packs, checked together with the set's packs: ids, required
+/// packs, and spellings new to the set. Adds each pack's words to the
+/// language packs of its languages.
+void add_users(std::vector<Pack>& packs, std::vector<VocabularyHandle>& users,
+               detail::Diagnostics& diagnostics) {
+    std::ranges::sort(users, {}, [](const VocabularyHandle& v) { return v->id; });
+    for (std::size_t i = 1; i < users.size(); ++i) {
+        if (users[i]->id == users[i - 1]->id) {
+            diagnostics.add("vocab.duplicate-id", {{"pack", users[i]->id}});
+        }
+    }
+    const auto user = [&](std::string_view id) -> const VocabularyPack* {
+        const auto it =
+            std::ranges::find_if(users, [&](const VocabularyHandle& v) { return v->id == id; });
+        return it == users.end() ? nullptr : it->get();
+    };
+    for (const VocabularyHandle& pack : users) {
+        for (const std::string& other : pack->required) {
+            if (find_vocabulary_pack(other) == nullptr && user(other) == nullptr) {
+                diagnostics.add("vocab.unknown-requires", {{"pack", pack->id}, {"other", other}});
+            }
+        }
+        // A pack that requires itself, through the users' packs it requires.
+        std::vector<const VocabularyPack*> stack{pack.get()};
+        std::set<const VocabularyPack*> seen;
+        bool cycle = false;
+        while (!stack.empty() && !cycle) {
+            const VocabularyPack* at = stack.back();
+            stack.pop_back();
+            for (const std::string& other : at->required) {
+                const VocabularyPack* next = user(other);
+                if (next == pack.get()) {
+                    cycle = true;
+                } else if (next != nullptr && seen.insert(next).second) {
+                    stack.push_back(next);
+                }
+            }
+        }
+        if (cycle) {
+            diagnostics.add("vocab.cycle", {{"pack", pack->id}});
+        }
+    }
+    // Each spelling new to the set: the set's packs first, then the users'
+    // in the order of their ids.
+    std::vector<const Pack*> pointers;
+    for (const Pack& pack : packs) {
+        pointers.push_back(&pack);
+    }
+    std::map<std::string, Meaning, std::less<>> index;
+    detail::Diagnostics ignored;
+    detail::index_spellings(pointers, index, ignored);
+    for (const VocabularyHandle& pack : users) {
+        for (const auto& [language, words] : pack->languages) {
+            Pack* target = nullptr;
+            for (Pack& p : packs) {
+                if (p.id == language) {
+                    target = &p;
+                }
+            }
+            if (target == nullptr) {
+                diagnostics.add("vocab.no-language", {{"pack", pack->id}, {"language", language}});
+                continue;
+            }
+            for (const auto& [id, word] : words.words) {
+                const Concept* entry = pack->find(id);
+                for (const std::string& spelling : all_spellings(word)) {
+                    const auto it = index.find(spelling);
+                    if (it != index.end() && !(it->second.kind == MeaningKind::word &&
+                                               it->second.concept_entry == entry)) {
+                        diagnostics.add("vocab.conflict",
+                                        {{"pack", pack->id},
+                                         {"spelling", detail::quote(spelling)},
+                                         {"meaning", detail::describe(it->second)}});
+                        continue;
+                    }
+                    index.try_emplace(spelling,
+                                      Meaning{MeaningKind::word, entry, {}, 0, 0, pack->id});
+                }
+            }
+            detail::merge_vocabulary(*target, *pack);
+        }
+    }
+}
+
+} // namespace
+
+const Vocabularies& PackSet::vocabularies() const noexcept {
+    static const Vocabularies none;
+    return vocabularies_ != nullptr ? *vocabularies_ : none;
+}
 
 const Pack* PackSet::find(std::string_view id) const noexcept {
     const auto it = std::ranges::find(packs_, id, &Pack::id);
@@ -202,7 +316,8 @@ const Meaning* PackSet::lookup(std::string_view spelling) const noexcept {
     return it == spellings_.end() ? nullptr : &it->second;
 }
 
-PackSetRead make_pack_set(std::vector<Pack> extra, const Officials officials) {
+PackSetRead make_pack_set(std::vector<Pack> extra, const Officials officials,
+                          std::vector<VocabularyHandle> users) {
     detail::Diagnostics diagnostics;
     const std::span<const Pack> carried_packs = official_packs(officials);
     std::vector<Pack> packs(carried_packs.begin(), carried_packs.end());
@@ -222,19 +337,40 @@ PackSetRead make_pack_set(std::vector<Pack> extra, const Officials officials) {
         }
         packs.push_back(std::move(pack));
     }
+    auto vocabularies = std::make_shared<Vocabularies>();
+    for (const VocabularyPack* pack : vocabulary_packs(officials)) {
+        vocabularies->packs.push_back(pack);
+    }
+    if (!users.empty()) {
+        add_users(packs, users, diagnostics);
+        for (const VocabularyHandle& pack : users) {
+            vocabularies->packs.push_back(pack.get());
+        }
+        vocabularies->users = users;
+    }
     std::vector<const Pack*> pointers;
     pointers.reserve(packs.size());
     for (const Pack& pack : packs) {
         pointers.push_back(&pack);
     }
     std::map<std::string, Meaning, std::less<>> index;
-    detail::index_spellings(pointers, index, diagnostics);
-
+    detail::index_spellings(pointers, index, diagnostics, vocabularies.get());
     PackSetRead out;
+    if (!diagnostics.has_errors()) {
+        out.set = PackSetBuilder::make(std::move(packs), std::move(index), officials, vocabularies);
+        // The users' terms, read with the set: their words and all.
+        if (!users.empty()) {
+            std::shared_ptr<const UserTerms> terms =
+                detail::read_user_terms(*out.set, users, diagnostics);
+            auto complete = std::make_shared<Vocabularies>(*vocabularies);
+            complete->terms = std::move(terms);
+            PackSetBuilder::set_vocabularies(*out.set, std::move(complete));
+        }
+    }
     const bool ok = !diagnostics.has_errors();
     out.diagnostics = diagnostics.take();
-    if (ok) {
-        out.set = PackSetBuilder::make(std::move(packs), std::move(index), officials);
+    if (!ok) {
+        out.set.reset();
     }
     return out;
 }

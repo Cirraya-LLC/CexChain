@@ -245,7 +245,7 @@ TEST_CASE("opening a bundle names what this compiler cannot read it with", "[bo]
         const OpenedSource opened = open_source_bundle(newer, provider(), crypto::HashAlg::sha256);
         CHECK(opened.problem == OpenProblem::unknown_official);
         CHECK(opened.detail == "the source uses the vocabulary pack commerce version 3, which "
-                               "this compiler does not carry");
+                               "is neither in the bundle nor one this compiler carries");
         newer.vocabulary[0].id = "acme";
         newer.vocabulary[0].version = 1;
         CHECK(open_source_bundle(newer, provider(), crypto::HashAlg::sha256).problem ==

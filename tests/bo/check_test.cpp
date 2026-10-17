@@ -16,6 +16,8 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <map>
+#include <memory>
 #include <set>
 #include <sstream>
 #include <string>
@@ -33,6 +35,7 @@
 #include <cexchain/bo/model.hpp>
 #include <cexchain/bo/pack.hpp>
 #include <cexchain/bo/parser.hpp>
+#include <cexchain/bo/vocab.hpp>
 
 using namespace cexchain::bo;
 
@@ -40,11 +43,13 @@ namespace {
 
 const std::filesystem::path golden_dir = CEXCHAIN_BO_GOLDEN_DIR;
 
+const PackSet& official_set() {
+    static const PackSet set = *make_pack_set({}).set;
+    return set;
+}
+
 const Lexicon& official() {
-    static const Lexicon lexicon = [] {
-        const PackSetRead set = make_pack_set({});
-        return Lexicon(*set.set);
-    }();
+    static const Lexicon lexicon(official_set());
     return lexicon;
 }
 
@@ -55,9 +60,48 @@ std::string read_text(const std::filesystem::path& path) {
     return out.str();
 }
 
+/// The packs a golden reads its source with: the official ones, and the
+/// vocabulary packs of its directory (*.vocab), if it has any.
+const Lexicon& lexicon_for(const std::filesystem::path& dir) {
+    // The lexicon reads the set in place, so the set never moves.
+    struct Reading {
+        explicit Reading(PackSet packs) : set(std::move(packs)), lexicon(set) {}
+        PackSet set;
+        Lexicon lexicon;
+    };
+    static std::map<std::string, std::unique_ptr<Reading>> cache;
+    std::vector<std::filesystem::path> files;
+    for (const auto& entry : std::filesystem::directory_iterator(dir)) {
+        if (entry.path().extension() == ".vocab") {
+            files.push_back(entry.path());
+        }
+    }
+    if (files.empty()) {
+        return official();
+    }
+    std::unique_ptr<Reading>& found = cache[dir.string()];
+    if (found == nullptr) {
+        std::ranges::sort(files);
+        std::vector<VocabularyHandle> packs;
+        for (const auto& file : files) {
+            std::ifstream in(file, std::ios::binary);
+            std::stringstream text;
+            text << in.rdbuf();
+            VocabularyRead read = read_vocabulary_pack(text.str());
+            INFO(file.string());
+            REQUIRE(read.pack != nullptr);
+            packs.push_back(std::move(read.pack));
+        }
+        PackSetRead set = make_pack_set({}, Officials::current, std::move(packs));
+        REQUIRE(set.set.has_value());
+        found = std::make_unique<Reading>(std::move(*set.set));
+    }
+    return found->lexicon;
+}
+
 /// Lexes, parses (without problems), and checks a source.
-Checked check_text(std::string_view source) {
-    const Lexed lexed = lex(source, official());
+Checked check_text(std::string_view source, const Lexicon& lexicon = official()) {
+    const Lexed lexed = lex(source, lexicon);
     const Parsed parsed = parse(source, lexed);
     INFO(source);
     INFO(dump(parsed, nullptr));
@@ -110,14 +154,14 @@ TEST_CASE("the checker's goldens", "[bo][check]") {
         const std::string name = path.filename().string();
         INFO(name);
         const std::string source = read_text(path / "source.bo");
-        const Checked checked = check_text(source);
+        const Checked checked = check_text(source, lexicon_for(path));
         const std::string text = dump(checked, nullptr);
         if (update) {
             std::ofstream(path / "check.txt", std::ios::binary) << text;
         }
         CHECK(text == read_text(path / "check.txt"));
         // The same every time.
-        const Parsed again = parse(source, lex(source, official()));
+        const Parsed again = parse(source, lex(source, lexicon_for(path)));
         CHECK(dump(check(source, again.file), nullptr) == text);
         // Every problem has a place in the source, but the fragment's note.
         for (const Diagnostic& d : checked.diagnostics) {
@@ -163,7 +207,7 @@ TEST_CASE("every check has an error golden, and every rule is seen", "[bo][check
     std::set<std::string> seen_codes;
     std::string models;
     for (const auto& path : check_cases()) {
-        const Checked checked = check_text(read_text(path / "source.bo"));
+        const Checked checked = check_text(read_text(path / "source.bo"), lexicon_for(path));
         for (const Diagnostic& d : checked.diagnostics) {
             seen_codes.insert(std::string(d.code));
         }

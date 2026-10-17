@@ -1011,14 +1011,9 @@ std::string ledger_label(const TestResults& results, const Id& id, const Pack* l
     if (l->word == nullptr) {
         return l->name;
     }
-    for (const Pack* p : {language, &english_pack()}) {
-        if (p == nullptr) {
-            continue;
-        }
-        if (const Word* w = p->word(l->word->id); w != nullptr && !w->spellings.empty()) {
-            const auto form = w->forms.find("object");
-            return form != w->forms.end() ? form->second : w->spellings.front();
-        }
+    if (const Word* w = concept_word(l->word, language)) {
+        const auto form = w->forms.find("object");
+        return form != w->forms.end() ? form->second : w->spellings.front();
     }
     return std::string(l->word->id);
 }

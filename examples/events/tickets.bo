@@ -1,0 +1,37 @@
+# A ticket for a concert, kept on the organizer's ledger, in the words of a
+# vocabulary pack of the organizer's own (events.vocab, next to this file):
+# the organizer reserves it for a fan, who agrees on their own ledger, and
+# the fan checks in at the door. The pack's standard terms say how; the
+# core's cancel lets the organizer cancel a ticket no one has reserved.
+use events
+contract Concert
+parties organizer
+
+thing Ticket
+  holder organizer
+  venue text
+  seat text
+  quantity ticket
+
+can reserve
+can check in
+can cancel
+
+# Its tests: bo test runs each on an instance of its own, as the ledger
+# would, every party a ledger of its own.
+test "reserved for a fan, who checks in"
+  organizer create with venue = "City Hall", seat = "A12", quantity = 1 ticket
+  organizer reserve to fan1 -> reserved
+  fan1 check in -> checked in
+
+test "the fan agrees to the reservation, and only the guest checks in"
+  organizer create with venue = "City Hall", seat = "A12", quantity = 1 ticket
+  organizer reserve to fan1 -> consent of fan1
+  organizer reserve to fan1 -> reserved
+  fan2 check in -> consent of fan1
+  organizer reserve to fan2 -> refused "bo:state reserve"
+  organizer cancel -> refused "bo:state cancel"
+
+test "a ticket no one reserved is cancelled"
+  organizer create with venue = "City Hall", seat = "A13", quantity = 1 ticket
+  organizer cancel -> cancelled

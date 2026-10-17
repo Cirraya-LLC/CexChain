@@ -101,9 +101,45 @@ void print_diagnostics(std::FILE* stream, std::string_view where,
     }
 }
 
-/// The official packs plus those given with --pack (and `more`), checked
-/// together; any problem ends the command.
-bo::PackSet pack_set(const Args& args, const std::vector<std::string>& more = {}) {
+/// A vocabulary pack file as read (vocab.hpp).
+struct VocabFile {
+    std::string file;
+    bo::VocabularyRead read;
+};
+
+/// The files --vocab names: each FILE, or each DIR's *.vocab files, by name.
+std::vector<std::string> vocab_files(const Args& args, const std::vector<std::string>& more = {}) {
+    std::vector<std::string> out;
+    std::vector<std::string> given = args.all("vocab");
+    given.insert(given.end(), more.begin(), more.end());
+    for (const std::string& path : given) {
+        if (std::filesystem::is_directory(path)) {
+            std::vector<std::string> found;
+            for (const auto& entry : std::filesystem::directory_iterator(path)) {
+                if (entry.is_regular_file() && entry.path().extension() == ".vocab") {
+                    found.push_back(entry.path().string());
+                }
+            }
+            std::ranges::sort(found);
+            out.insert(out.end(), found.begin(), found.end());
+        } else {
+            out.push_back(path);
+        }
+    }
+    return out;
+}
+
+VocabFile read_vocab_file(const std::string& file) {
+    const Bytes bytes = read_file(file);
+    const std::string_view text(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+    return {file, bo::read_vocabulary_pack(text)};
+}
+
+/// The official packs plus those given with --pack (and `more`) and the
+/// vocabulary packs given with --vocab (and `more_vocab`), checked together;
+/// any problem ends the command.
+bo::PackSet pack_set(const Args& args, const std::vector<std::string>& more = {},
+                     const std::vector<std::string>& more_vocab = {}) {
     std::vector<std::string> files = args.all("pack");
     files.insert(files.end(), more.begin(), more.end());
     std::vector<PackFile> read;
@@ -127,10 +163,29 @@ bo::PackSet pack_set(const Args& args, const std::vector<std::string>& more = {}
     if (failed) {
         throw CommandError{"a pack does not read (bo packs check shows why)"};
     }
-    bo::PackSetRead set = bo::make_pack_set(std::move(valid));
+    std::vector<bo::VocabularyHandle> vocabularies;
+    for (const std::string& file : vocab_files(args, more_vocab)) {
+        VocabFile vocab = read_vocab_file(file);
+        if (!vocab.read.diagnostics.empty()) {
+            print_diagnostics(stderr, vocab.file, vocab.read.diagnostics, language);
+        }
+        if (vocab.read.pack == nullptr) {
+            failed = true;
+            continue;
+        }
+        vocabularies.push_back(std::move(vocab.read.pack));
+    }
+    if (failed) {
+        throw CommandError{"a vocabulary pack does not read (bo vocab check shows why)"};
+    }
+    bo::PackSetRead set =
+        bo::make_pack_set(std::move(valid), bo::Officials::current, std::move(vocabularies));
     if (!set.set) {
         print_diagnostics(stderr, "packs", set.diagnostics, language);
         throw CommandError{"the packs cannot be read together"};
+    }
+    if (!set.diagnostics.empty()) {
+        print_diagnostics(stderr, "packs", set.diagnostics, language);
     }
     return std::move(*set.set);
 }
@@ -335,6 +390,25 @@ void print_source_diagnostics(std::FILE* stream, std::string_view file,
     }
 }
 
+std::string read_text_file(const std::string& file);
+
+/// After a source's errors: a note for each `use` line naming a vocabulary
+/// pack the set does not read, whose words then read as nothing of Bo's.
+void note_unknown_uses(std::FILE* stream, const std::string& file, const bo::PackSet& set,
+                       const std::vector<bo::Diagnostic>& diagnostics) {
+    if (!bo::has_errors(diagnostics) || !std::filesystem::is_regular_file(file)) {
+        return;
+    }
+    for (const std::string& id : bo::source_uses(read_text_file(file), set)) {
+        if (set.vocabularies().find(id) == nullptr) {
+            std::println(stream,
+                         "{}: note: use {} names no vocabulary pack read here (the official "
+                         "ones are commerce, finance, and services): give yours with --vocab FILE",
+                         file, id);
+        }
+    }
+}
+
 /// The packs given with --pack (for the language of messages).
 std::vector<bo::Pack> given_packs(const bo::PackSet& set) {
     std::vector<bo::Pack> given;
@@ -344,6 +418,14 @@ std::vector<bo::Pack> given_packs(const bo::PackSet& set) {
         }
     }
     return given;
+}
+
+/// The language for messages, as the set holds it: with the words of the
+/// vocabulary packs given with --vocab.
+const bo::Pack* set_language(const Args& args, const bo::PackSet& set) {
+    const bo::Pack* chosen = message_language(args, given_packs(set));
+    const bo::Pack* held = set.find(chosen->id);
+    return held != nullptr ? held : chosen;
 }
 
 std::string read_text_file(const std::string& file) {
@@ -412,10 +494,19 @@ Json build_json(const protocol::ContractDeployBody& body, const bo::SourceBundle
                          {"official", std::ranges::find(embedded, ref.id) == embedded.end()}});
     }
     // The vocabulary packs the source uses (key 6).
+    // Those not official (users' packs) are embedded in full (key 7).
+    std::vector<std::string> embedded_vocabulary;
+    for (const cbor::Value& pack : bundle.embedded_vocabulary) {
+        if (const cbor::Value* id = pack.find("id"); id != nullptr && id->as_text() != nullptr) {
+            embedded_vocabulary.push_back(*id->as_text());
+        }
+    }
     Json vocabulary = Json::array();
     for (const bo::PackRef& ref : bundle.vocabulary) {
-        vocabulary.push_back(
-            {{"id", ref.id}, {"version", ref.version}, {"digest", to_hex(ref.digest)}});
+        vocabulary.push_back({{"id", ref.id},
+                              {"version", ref.version},
+                              {"digest", to_hex(ref.digest)},
+                              {"official", !std::ranges::contains(embedded_vocabulary, ref.id)}});
     }
     return {{"contract", body.name ? Json(*body.name) : Json(nullptr)},
             {"language", body.language},
@@ -502,8 +593,9 @@ void print_build(const protocol::ContractDeployBody& body, const Json& j) {
     }
     std::string vocabulary;
     for (const Json& p : j["vocabulary"]) {
-        vocabulary += std::format("{}{} {}", vocabulary.empty() ? "" : ", ",
-                                  p["id"].get<std::string>(), p["version"].get<std::uint64_t>());
+        vocabulary += std::format("{}{} {}{}", vocabulary.empty() ? "" : ", ",
+                                  p["id"].get<std::string>(), p["version"].get<std::uint64_t>(),
+                                  p["official"].get<bool>() ? "" : " (embedded)");
     }
     const std::size_t comments = j["comments"].get<std::size_t>();
     std::println("  {:<10} bo-source bundle of {} bytes: the source ({} bytes{}, Bo edition {}), "
@@ -693,13 +785,7 @@ int cmd_bo_check(const Args& args) {
             "--stage must be lex (the tokens), parse (the tree), or model (the checked model)"};
     }
     const bo::PackSet set = pack_set(args);
-    std::vector<bo::Pack> given;
-    for (const bo::Pack& pack : set.packs()) {
-        if (!pack.official) {
-            given.push_back(pack);
-        }
-    }
-    const bo::Pack* language = message_language(args, given);
+    const bo::Pack* language = set_language(args, set);
     const Bytes bytes = read_file(file);
     const std::string_view source(reinterpret_cast<const char*>(bytes.data()), bytes.size());
     const bo::Lexicon lexicon(set);
@@ -764,6 +850,7 @@ int cmd_bo_check(const Args& args) {
         std::print("{}", bo::dump(checked->model));
     }
     print_source_diagnostics(stage ? stdout : stderr, file, diagnostics, language);
+    note_unknown_uses(stage ? stdout : stderr, file, set, diagnostics);
     std::size_t errors = 0;
     std::size_t warnings = 0;
     for (const bo::Diagnostic& d : diagnostics) {
@@ -785,7 +872,7 @@ int cmd_bo_check(const Args& args) {
 int cmd_bo_explain(const Args& args) {
     const std::string file = args.positional().front();
     const bo::PackSet set = pack_set(args);
-    const bo::Pack* language = message_language(args, given_packs(set));
+    const bo::Pack* language = set_language(args, set);
     const std::string source = read_text_file(file);
     const bo::Lexicon lexicon(set);
     const bo::Lexed lexed = bo::lex(source, lexicon);
@@ -819,6 +906,7 @@ int cmd_bo_explain(const Args& args) {
     // Warnings (clauses that need executors) and errors on stderr; the text
     // on stdout.
     print_source_diagnostics(stderr, file, diagnostics, language);
+    note_unknown_uses(stderr, file, set, diagnostics);
     if (!ok) {
         std::size_t errors = 0;
         for (const bo::Diagnostic& d : diagnostics) {
@@ -840,7 +928,7 @@ int cmd_bo_fmt(const Args& args) {
         throw UsageError{"--check and --write exclude each other"};
     }
     const bo::PackSet set = pack_set(args);
-    const bo::Pack* messages = message_language(args, given_packs(set));
+    const bo::Pack* messages = set_language(args, set);
     // --language names the language to write; without it, every word keeps
     // its spelling ($CEXCHAIN_LANGUAGE sets only the messages').
     const bo::Pack* target = nullptr;
@@ -876,6 +964,7 @@ int cmd_bo_fmt(const Args& args) {
     }
     if (!ok) {
         print_source_diagnostics(stderr, file, formatted.diagnostics, messages);
+        note_unknown_uses(stderr, file, set, formatted.diagnostics);
         std::println(stderr, "{}: not formatted", file);
         return status;
     }
@@ -908,10 +997,7 @@ std::string standard_summary(const bo::StandardAction& a, const bo::Pack* langua
     std::vector<std::string> parts;
     if (a.starter != nullptr) {
         // The sentence asks for the word's object form ("the holder").
-        const bo::Word* word = language != nullptr ? language->word(a.starter->id) : nullptr;
-        if (word == nullptr) {
-            word = bo::english_pack().word(a.starter->id);
-        }
+        const bo::Word* word = bo::concept_word(a.starter, language);
         std::string party = bo::spell(a.starter->id, language);
         if (word != nullptr) {
             if (const auto it = word->forms.find("object"); it != word->forms.end()) {
@@ -957,33 +1043,35 @@ Json concept_ids(const std::vector<const bo::Concept*>& concepts) {
 namespace {
 
 /// The core or a vocabulary pack, by id: "core", "finance", ...
-bo::Vocab vocab_of(std::string_view id) {
-    for (std::size_t i = 0; i < bo::vocab_names.size(); ++i) {
-        if (bo::vocab_names[i] == id) {
-            return static_cast<bo::Vocab>(i);
-        }
-    }
-    throw UsageError{std::format("Bo has no vocabulary pack {}: core, commerce, finance, or "
-                                 "services (bo vocab list shows them)",
-                                 id)};
-}
 
 } // namespace
 
 int cmd_bo_stdlib_list(const Args& args) {
-    const bo::Pack* language = message_language(args, {});
-    std::optional<bo::Vocab> only;
+    const bo::PackSet set = pack_set(args);
+    const bo::Pack* language = set_language(args, set);
+    std::optional<std::string> only;
     if (!args.positional().empty()) {
-        only = vocab_of(args.positional().front());
+        only = args.positional().front();
+        if (*only != bo::vocab_name(bo::Vocab::core) && set.vocabularies().find(*only) == nullptr) {
+            throw UsageError{std::format("Bo has no vocabulary pack {}: core, commerce, finance, "
+                                         "services, or one given with --vocab (bo vocab list "
+                                         "shows them)",
+                                         *only)};
+        }
+    }
+    // The standard library's, then those of the users' packs given.
+    std::vector<bo::StandardAction> actions = bo::standard_actions();
+    for (bo::StandardAction& a : bo::user_actions(set)) {
+        actions.push_back(std::move(a));
     }
     Json out = Json::array();
-    for (const bo::StandardAction& a : bo::standard_actions()) {
-        if (only && a.action->pack != *only) {
+    for (const bo::StandardAction& a : actions) {
+        const std::string_view pack = bo::pack_of(*a.action);
+        if (only && pack != *only) {
             continue;
         }
         const std::string word = bo::spell(a.action->id, language);
         const std::string summary = standard_summary(a, language);
-        const std::string_view pack = bo::vocab_name(a.action->pack);
         if (args.json()) {
             out.push_back({{"function", a.function},
                            {"pack", pack},
@@ -1006,24 +1094,41 @@ int cmd_bo_stdlib_list(const Args& args) {
 
 namespace {
 
-/// A pack's words (not the keywords, nor retired ones), by category, then id.
-std::vector<const bo::Concept*> vocab_words(bo::Vocab vocab) {
+/// A pack's words (not the keywords, nor retired ones), by category, then
+/// id: the core's (pack nullptr), or a vocabulary pack's.
+std::vector<const bo::Concept*> vocab_words(const bo::VocabularyPack* pack) {
     std::vector<const bo::Concept*> out;
-    for (const bo::Concept* c_entry : bo::concepts()) {
-        const bo::Concept& c = *c_entry;
-        if (c.pack == vocab && !c.retired && c.category != bo::Category::keyword) {
-            out.push_back(&c);
+    if (pack == nullptr) {
+        for (const bo::Concept* c : bo::concepts()) {
+            if (c->owner == nullptr && !c->retired && c->category != bo::Category::keyword) {
+                out.push_back(c);
+            }
         }
+    } else {
+        out = pack->concepts;
     }
-    std::ranges::stable_sort(out, {}, [](const bo::Concept* c) { return c->category; });
+    std::ranges::stable_sort(out, [](const bo::Concept* a, const bo::Concept* b) {
+        return a->category != b->category ? a->category < b->category : a->id < b->id;
+    });
     return out;
 }
 
-/// The functions of the built-in actions whose terms a pack brings.
-std::vector<std::string> vocab_actions(bo::Vocab vocab) {
+/// The functions of the built-in actions whose terms a pack brings: the
+/// standard library's, or a user's pack's (read with the set).
+std::vector<std::string> vocab_actions(const bo::VocabularyPack* pack, const bo::PackSet& set) {
     std::vector<std::string> out;
+    if (pack != nullptr && !pack->official()) {
+        if (const auto& terms = set.vocabularies().terms) {
+            for (const bo::ast::Can* can : terms->templates) {
+                if (can->action.concept_entry->owner == pack) {
+                    out.push_back(bo::wire_name(can->action.concept_entry, {}));
+                }
+            }
+        }
+        return out;
+    }
     for (const bo::StandardAction& a : bo::standard_actions()) {
-        if (a.action->pack == vocab) {
+        if (a.action->owner == pack) {
             out.push_back(a.function);
         }
     }
@@ -1039,52 +1144,105 @@ struct VocabFacts {
     std::string hash;
     std::optional<std::string> digest;
     const bo::VocabularyPack* pack = nullptr;
+    bool official = true;
 };
 
-VocabFacts vocab_facts(bo::Vocab vocab, const bo::Pack* language, crypto::HashAlg alg) {
+VocabFacts vocab_facts(const bo::VocabularyPack* pack, const bo::Pack* language,
+                       crypto::HashAlg alg, const bo::PackSet& set) {
     VocabFacts f;
-    f.id = std::string(bo::vocab_name(vocab));
-    f.words = vocab_words(vocab).size();
-    f.actions = vocab_actions(vocab);
+    f.pack = pack;
+    f.id = pack != nullptr ? pack->id : std::string(bo::vocab_name(bo::Vocab::core));
+    f.words = vocab_words(pack).size();
+    f.actions = vocab_actions(pack, set);
     f.hash = std::string(crypto::name(alg));
-    f.pack = bo::vocabulary_pack(vocab);
-    f.name = f.pack != nullptr ? bo::vocabulary_name(*f.pack, language)
-                               : bo::sentence("vocab-" + f.id, {}, language);
-    if (f.pack != nullptr) {
-        f.version = f.pack->version;
-        f.digest = to_hex(unwrap(bo::digest(*f.pack, provider(), alg), "digest").bytes());
+    f.name = pack != nullptr ? bo::vocabulary_name(*pack, language)
+                             : bo::sentence("vocab-" + f.id, {}, language);
+    if (pack != nullptr) {
+        f.version = pack->version;
+        f.official = pack->official();
+        f.digest = to_hex(unwrap(bo::digest(*pack, provider(), alg), "digest").bytes());
     }
     return f;
 }
 
 Json vocab_json(const VocabFacts& f) {
-    return {{"id", f.id},
-            {"version", f.version ? Json(*f.version) : Json(nullptr)},
-            {"name", f.name},
-            {"words", f.words},
-            {"actions", f.actions},
-            {"hash", f.hash},
-            {"digest", f.digest ? Json(*f.digest) : Json(nullptr)}};
+    return {{"id", f.id},       {"version", f.version ? Json(*f.version) : Json(nullptr)},
+            {"name", f.name},   {"official", f.official},
+            {"words", f.words}, {"actions", f.actions},
+            {"hash", f.hash},   {"digest", f.digest ? Json(*f.digest) : Json(nullptr)}};
+}
+
+/// The pack a command names: core, an official pack's id, a user's pack's
+/// id given with --vocab, or a pack file (read with the set).
+const bo::VocabularyPack* named_vocab(const std::string& name, const bo::PackSet& set) {
+    if (name == bo::vocab_name(bo::Vocab::core)) {
+        return nullptr;
+    }
+    std::string id = name;
+    if (name.ends_with(".vocab") || std::filesystem::is_regular_file(name)) {
+        VocabFile file = read_vocab_file(name);
+        if (file.read.pack == nullptr) {
+            throw CommandError{name + " is not a vocabulary pack (bo vocab check shows why)"};
+        }
+        id = file.read.pack->id;
+    }
+    if (const bo::VocabularyPack* pack = set.vocabularies().find(id)) {
+        return pack;
+    }
+    throw UsageError{std::format("Bo has no vocabulary pack {}: core, commerce, finance, "
+                                 "services, or one given with --vocab (bo vocab list shows them)",
+                                 id)};
+}
+
+/// A pack file named by the command, read with the set too.
+std::vector<std::string> named_vocab_file(const Args& args) {
+    if (args.positional().empty()) {
+        return {};
+    }
+    const std::string& name = args.positional().front();
+    if (name.ends_with(".vocab") || std::filesystem::is_regular_file(name)) {
+        return {name};
+    }
+    return {};
+}
+
+/// How many words of each category a pack has: "2 actions, 3 fields".
+std::string category_counts(const std::vector<const bo::Concept*>& words) {
+    std::map<bo::Category, std::size_t> counts;
+    for (const bo::Concept* c : words) {
+        ++counts[c->category];
+    }
+    std::string out;
+    for (const auto& [category, n] : counts) {
+        out += std::format("{}{} {}{}", out.empty() ? "" : ", ", n, bo::name_of(category),
+                           n == 1 ? "" : "s");
+    }
+    return out;
 }
 
 } // namespace
 
 int cmd_bo_vocab_list(const Args& args) {
-    const bo::Pack* language = message_language(args, {});
+    const bo::PackSet set = pack_set(args);
+    const bo::Pack* language = set_language(args, set);
     const crypto::HashAlg hash = parse_hash(args.get("hash").value_or("sha256"));
+    std::vector<const bo::VocabularyPack*> packs{nullptr};
+    for (const bo::VocabularyPack* pack : set.vocabularies().packs) {
+        packs.push_back(pack);
+    }
     Json out = Json::array();
-    for (const bo::Vocab vocab :
-         {bo::Vocab::core, bo::Vocab::commerce, bo::Vocab::finance, bo::Vocab::services}) {
-        const VocabFacts f = vocab_facts(vocab, language, hash);
+    for (const bo::VocabularyPack* pack : packs) {
+        const VocabFacts f = vocab_facts(pack, language, hash, set);
         if (args.json()) {
             out.push_back(vocab_json(f));
             continue;
         }
-        std::println("{:<9} {:<10} {:<9} {:>2} words, {:>2} built-in actions{}", f.id,
+        std::println("{:<9} {:<10} {:<9} {:>2} words, {:>2} built-in actions{}{}", f.id,
                      f.version ? std::format("version {}", *f.version) : std::string("-"), f.name,
                      f.words, f.actions.size(),
                      f.digest ? std::format("  {} {}", f.hash, *f.digest)
-                              : std::string("  (every source)"));
+                              : std::string("  (every source)"),
+                     f.official ? std::string() : std::string("  (yours)"));
     }
     if (args.json()) {
         print_json(out);
@@ -1093,68 +1251,99 @@ int cmd_bo_vocab_list(const Args& args) {
 }
 
 int cmd_bo_vocab_show(const Args& args) {
-    const bo::Pack* language = message_language(args, {});
+    const bo::PackSet set = pack_set(args, {}, named_vocab_file(args));
+    const bo::Pack* language = set_language(args, set);
     const crypto::HashAlg hash = parse_hash(args.get("hash").value_or("sha256"));
-    const bo::Vocab vocab = vocab_of(args.positional().front());
-    const VocabFacts f = vocab_facts(vocab, language, hash);
-    const auto field_notes = [](const bo::Concept& c) {
-        std::string notes(c.type);
+    const bo::VocabularyPack* pack = named_vocab(args.positional().front(), set);
+    const VocabFacts f = vocab_facts(pack, language, hash, set);
+    const bo::Vocab vocab = pack != nullptr ? pack->vocab : bo::Vocab::core;
+    const auto notes = [](const bo::Concept& c) {
+        std::string out(c.type);
         if ((c.flags & bo::field_added) != 0) {
-            notes += "; added (R20)";
+            out += "; added (R20)";
         }
         if ((c.flags & bo::field_taking) != 0) {
-            notes += "; taking (R31)";
+            out += "; taking (R31)";
         }
-        return notes;
+        if (const bo::UnitInfo* unit = bo::unit_info(&c); unit != nullptr && c.owner != nullptr) {
+            out +=
+                std::format("{}{}, {} of its smallest unit", out.empty() ? "" : "; ",
+                            bo::model::dimension_names[static_cast<std::size_t>(unit->dimension)],
+                            unit->factor);
+        }
+        return out;
     };
+    const auto spelled = [&](const bo::Concept* c) {
+        const bo::Word* word = bo::concept_word(c, language);
+        return word != nullptr ? word->spellings.front() : bo::spell(c->id, language);
+    };
+    std::vector<const bo::RuleSpec*> rules;
+    for (const bo::RuleSpec& rule : bo::rule_specs()) {
+        if (rule.pack == vocab && vocab != bo::Vocab::user) {
+            rules.push_back(&rule);
+        }
+    }
     if (args.json()) {
         Json out = vocab_json(f);
         Json words = Json::array();
-        for (const bo::Concept* c : vocab_words(vocab)) {
+        for (const bo::Concept* c : vocab_words(pack)) {
             Json w{{"concept", c->id},
                    {"category", bo::name_of(c->category)},
-                   {"word", bo::spell(c->id, language)},
+                   {"word", spelled(c)},
                    {"argument", c->arity > 0}};
             if (!c->type.empty()) {
                 w["type"] = c->type;
                 w["added"] = (c->flags & bo::field_added) != 0;
                 w["taking"] = (c->flags & bo::field_taking) != 0;
             }
+            if (const bo::UnitInfo* unit = bo::unit_info(c); unit != nullptr && c->owner) {
+                w["dimension"] =
+                    bo::model::dimension_names[static_cast<std::size_t>(unit->dimension)];
+                w["scale"] = unit->factor;
+            }
             words.push_back(std::move(w));
         }
         out["words"] = std::move(words);
-        Json rules = Json::array();
-        for (const bo::RuleSpec& rule : bo::rule_specs()) {
-            if (rule.pack == vocab) {
-                rules.push_back({{"id", rule.id}, {"name", rule.name}});
+        Json rule_list = Json::array();
+        for (const bo::RuleSpec* rule : rules) {
+            rule_list.push_back({{"id", rule->id}, {"name", rule->name}});
+        }
+        out["rules"] = std::move(rule_list);
+        out["requires"] = pack != nullptr ? Json(pack->required) : Json::array();
+        Json languages = Json::array();
+        if (pack != nullptr) {
+            for (const auto& [id, words_in] : pack->languages) {
+                languages.push_back(id);
             }
         }
-        out["rules"] = std::move(rules);
-        out["canonical"] = f.pack != nullptr ? Json(to_hex(f.pack->canonical)) : Json(nullptr);
+        out["languages"] = std::move(languages);
+        out["canonical"] = pack != nullptr ? Json(to_hex(pack->canonical)) : Json(nullptr);
         print_json(out);
         return exit_ok;
     }
-    if (f.pack != nullptr) {
-        std::println("{} version {} ({}): use {}", f.id, *f.version, f.name, f.id);
+    if (pack != nullptr) {
+        std::println("{} version {} ({}{}): use {}", f.id, *f.version, f.name,
+                     f.official ? "" : ", yours", f.id);
         std::println("{} {}", f.hash, *f.digest);
+        if (!pack->required.empty()) {
+            std::string list;
+            for (const std::string& id : pack->required) {
+                list += (list.empty() ? "" : ", ") + id;
+            }
+            std::println("requires {}", list);
+        }
     } else {
         std::println("{} ({}): every source", f.id, f.name);
     }
     std::println("\nWords ({})", f.words);
-    for (const bo::Concept* c : vocab_words(vocab)) {
-        std::println("  {:<10} {:<26} {}{}", bo::name_of(c->category), c->id,
-                     bo::spell(c->id, language),
-                     c->type.empty() ? std::string() : "  " + field_notes(*c));
+    for (const bo::Concept* c : vocab_words(pack)) {
+        const std::string extra = notes(*c);
+        std::println("  {:<10} {:<26} {}{}", bo::name_of(c->category), c->id, spelled(c),
+                     extra.empty() ? std::string() : "  " + extra);
     }
     std::println("\nBuilt-in actions ({})", f.actions.size());
     for (const std::string& action : f.actions) {
         std::println("  {}", action);
-    }
-    std::vector<const bo::RuleSpec*> rules;
-    for (const bo::RuleSpec& rule : bo::rule_specs()) {
-        if (rule.pack == vocab) {
-            rules.push_back(&rule);
-        }
     }
     std::println("\nRecognition rules ({})", rules.size());
     for (const bo::RuleSpec* rule : rules) {
@@ -1163,21 +1352,139 @@ int cmd_bo_vocab_show(const Args& args) {
     return exit_ok;
 }
 
-int cmd_bo_stdlib_show(const Args& args) {
+int cmd_bo_vocab_check(const Args& args) {
+    // Each file alone, then all of them together with the official packs,
+    // those given with --vocab, and the language packs given with --pack.
+    std::vector<VocabFile> files;
+    std::vector<std::string> paths;
+    for (const std::string& file : args.positional()) {
+        files.push_back(read_vocab_file(file));
+        paths.push_back(file);
+    }
     const bo::Pack* language = message_language(args, {});
+    bool ok = std::ranges::all_of(files, [](const VocabFile& f) { return f.read.pack != nullptr; });
+    std::optional<bo::PackSet> set;
+    std::string set_problem;
+    std::vector<bo::Diagnostic> set_diagnostics;
+    if (ok) {
+        std::vector<bo::Pack> valid;
+        for (const std::string& file : args.all("pack")) {
+            PackFile pack = read_pack_file(file);
+            if (!pack.read.pack) {
+                throw CommandError{file + ": a language pack that does not read (bo packs check "
+                                          "shows why)"};
+            }
+            valid.push_back(std::move(*pack.read.pack));
+        }
+        std::vector<bo::VocabularyHandle> handles;
+        for (const VocabFile& file : files) {
+            handles.push_back(file.read.pack);
+        }
+        for (const std::string& file : vocab_files(args)) {
+            VocabFile other = read_vocab_file(file);
+            if (other.read.pack == nullptr) {
+                throw CommandError{file + ": a vocabulary pack given with --vocab does not read"};
+            }
+            handles.push_back(std::move(other.read.pack));
+        }
+        bo::PackSetRead read =
+            bo::make_pack_set(std::move(valid), bo::Officials::current, std::move(handles));
+        set_diagnostics = std::move(read.diagnostics);
+        ok = read.set.has_value();
+        if (read.set) {
+            set = std::move(*read.set);
+            language = set_language(args, *set);
+        }
+    }
+    const auto facts = [&](const VocabFile& file) {
+        const bo::VocabularyPack& pack = *file.read.pack;
+        const auto words = vocab_words(&pack);
+        std::vector<std::string> actions;
+        if (set) {
+            actions = vocab_actions(set->vocabularies().find(pack.id), *set);
+        }
+        std::vector<std::string> languages;
+        for (const auto& [id, words_in] : pack.languages) {
+            languages.push_back(id);
+        }
+        return std::tuple{words, actions, languages};
+    };
+    if (args.json()) {
+        Json packs = Json::array();
+        for (const VocabFile& file : files) {
+            Json j = {{"file", file.file},
+                      {"ok", file.read.pack != nullptr},
+                      {"diagnostics", diagnostics_json(file.read.diagnostics, language)}};
+            if (file.read.pack != nullptr) {
+                const auto [words, actions, languages] = facts(file);
+                const bo::VocabularyPack& pack = *file.read.pack;
+                Json categories = Json::object();
+                for (const bo::Concept* c : words) {
+                    const std::string key(bo::name_of(c->category));
+                    categories[key] = categories.value(key, 0) + 1;
+                }
+                j["pack"] = {
+                    {"id", pack.id},
+                    {"version", pack.version},
+                    {"words", words.size()},
+                    {"categories", categories},
+                    {"actions", actions},
+                    {"requires", pack.required},
+                    {"languages", languages},
+                    {"hash", "SHA-256"},
+                    {"digest",
+                     to_hex(unwrap(bo::digest(pack, provider(), crypto::HashAlg::sha256), "digest")
+                                .bytes())}};
+            }
+            packs.push_back(j);
+        }
+        Json out = {{"ok", ok}, {"packs", packs}};
+        out["set"] = {{"ok", set.has_value()},
+                      {"diagnostics", diagnostics_json(set_diagnostics, language)}};
+        print_json(out);
+        return ok ? exit_ok : exit_failure;
+    }
+    for (const VocabFile& file : files) {
+        print_diagnostics(stdout, file.file, file.read.diagnostics, language);
+        if (file.read.pack == nullptr) {
+            continue;
+        }
+        const auto [words, actions, languages] = facts(file);
+        std::string spelled;
+        for (const std::string& id : languages) {
+            spelled += (spelled.empty() ? "" : ", ") + id;
+        }
+        std::println("{}: vocabulary pack {} version {}: {} words ({}); terms for {} actions; "
+                     "spelled in {}",
+                     file.file, file.read.pack->id, file.read.pack->version, words.size(),
+                     category_counts(words), actions.size(), spelled);
+    }
+    print_diagnostics(stdout, "together with the official packs", set_diagnostics, language);
+    std::println("{}", ok ? "ok: the vocabulary packs read, alone and with the official packs"
+                          : "failed: see above");
+    return ok ? exit_ok : exit_failure;
+}
+
+int cmd_bo_stdlib_show(const Args& args) {
     const std::string& name = args.positional().front();
     const bo::PackSet set = pack_set(args);
+    const bo::Pack* language = set_language(args, set);
     const bo::Concept* action = bo::standard_action(name, set);
     if (action == nullptr) {
         throw UsageError{"the standard library has no built-in action " + name +
-                         " (bo stdlib list shows them)"};
+                         " (bo stdlib list shows them; a pack of your own's, with --vocab)"};
     }
-    const std::optional<std::string> source = bo::standard_terms_source(action, language);
+    // A user's pack's terms: their source (their text comes with a
+    // contract's, bo explain).
+    const bool user = action->pack == bo::Vocab::user;
+    const std::optional<std::string> source = user ? bo::user_terms_source(action, set, language)
+                                                   : bo::standard_terms_source(action, language);
     if (!source) {
         throw CommandError{"the standard library's terms of " + name + " cannot be written in " +
                            language->id};
     }
-    const std::vector<bo::ExplainedClause> terms = bo::standard_terms_text(action, language);
+    const std::vector<bo::ExplainedClause> terms =
+        user ? std::vector<bo::ExplainedClause>() : bo::standard_terms_text(action, language);
     const auto mark = [&](const bo::ExplainedClause& c) {
         if (c.rules.empty()) {
             return std::string();
@@ -1193,7 +1500,7 @@ int cmd_bo_stdlib_show(const Args& args) {
             clauses.push_back({{"kind", c.kind}, {"text", c.text}, {"rules", c.rules}});
         }
         print_json({{"function", bo::wire_name(action, {})},
-                    {"pack", bo::vocab_name(action->pack)},
+                    {"pack", bo::pack_of(*action)},
                     {"action", action->id},
                     {"word", bo::spell(action->id, language)},
                     {"language", language->id},
@@ -1202,9 +1509,12 @@ int cmd_bo_stdlib_show(const Args& args) {
         return exit_ok;
     }
     if (action->pack != bo::Vocab::core) {
-        std::println("{} {}", bo::spell("kw.use", language), bo::vocab_name(action->pack));
+        std::println("{} {}", bo::spell("kw.use", language), bo::pack_of(*action));
     }
     std::print("{}", *source);
+    if (user) {
+        return exit_ok;
+    }
     const std::pair<std::string_view, std::string> header[] = {
         {"action", bo::spell(action->id, language)}};
     std::println("\n{}", bo::sentence("stdlib-terms", header, language));
@@ -1405,7 +1715,7 @@ int cmd_bo_build(const Args& args) {
     const std::string file = args.positional().front();
     const crypto::HashAlg hash = parse_hash(args.get("hash").value_or("sha256"));
     const bo::PackSet set = pack_set(args);
-    const bo::Pack* language = message_language(args, given_packs(set));
+    const bo::Pack* language = set_language(args, set);
     const SourceBuild built = build_source(set, file, hash);
     const bo::Compiled& c = built.compiled;
     const bool ok = c.build.has_value();
@@ -1451,6 +1761,7 @@ int cmd_bo_build(const Args& args) {
         return ok ? exit_ok : exit_failure;
     }
     print_source_diagnostics(stderr, file, c.diagnostics, language);
+    note_unknown_uses(stderr, file, set, c.diagnostics);
     if (!ok) {
         std::println("{}: {} error{}", file, errors, errors == 1 ? "" : "s");
         return exit_failure;
@@ -1469,7 +1780,7 @@ int cmd_bo_build(const Args& args) {
 int cmd_bo_test(const Args& args) {
     const std::string file = args.positional().front();
     const bo::PackSet set = pack_set(args);
-    const bo::Pack* language = message_language(args, given_packs(set));
+    const bo::Pack* language = set_language(args, set);
     const std::string source = read_text_file(file);
     const bo::Compiled c = bo::compile(source, set);
     // Tests deploy nothing: the note that comments are published is not
@@ -1510,6 +1821,7 @@ int cmd_bo_test(const Args& args) {
         return status;
     }
     print_source_diagnostics(stderr, file, problems, language);
+    note_unknown_uses(stderr, file, set, problems);
     if (!ran) {
         std::size_t errors = 0;
         for (const bo::Diagnostic& d : problems) {
@@ -1529,8 +1841,9 @@ BoDeploy bo_deploy_body(const Args& args, const std::string& file,
     if (file.ends_with(".boc")) {
         // Built elsewhere: it must rebuild here to its code, so that the
         // deploy passes everyone's rebuild check.
-        if (args.has("pack")) {
-            throw UsageError{"a .boc file carries its packs: drop --pack"};
+        if (args.has("pack") || args.has("vocab")) {
+            throw UsageError{std::string("a .boc file carries its packs: drop --") +
+                             (args.has("pack") ? "pack" : "vocab")};
         }
         const bo::BuiltContract built =
             unwrap(bo::decode_built(read_file(file)), file + " is not a built contract (.boc)");
@@ -1558,9 +1871,10 @@ BoDeploy bo_deploy_body(const Args& args, const std::string& file,
         return out;
     }
     const bo::PackSet set = pack_set(args);
-    const bo::Pack* language = message_language(args, given_packs(set));
+    const bo::Pack* language = set_language(args, set);
     const SourceBuild built = build_source(set, file, hash);
     print_source_diagnostics(stderr, file, built.compiled.diagnostics, language);
+    note_unknown_uses(stderr, file, set, built.compiled.diagnostics);
     if (!built.compiled.build) {
         throw CommandError{file + " does not build (see above; bo build shows the same)"};
     }

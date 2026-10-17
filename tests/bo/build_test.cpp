@@ -27,8 +27,10 @@
 #include <cexchain/bo/pack.hpp>
 #include <cexchain/bo/scenario.hpp>
 #include <cexchain/bo/source.hpp>
+#include <cexchain/bo/vocab.hpp>
 #include <cexchain/bo/wasm.hpp>
 #include <cexchain/core/bytes.hpp>
+#include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/statement.hpp>
 #include <cexchain/core/vm.hpp>
 #include <cexchain/crypto/openssl.hpp>
@@ -415,6 +417,42 @@ TEST_CASE("a source read with a company's own pack rebuilds from its bundle", "[
     const Compiled spelled = compile(official_words, official_set());
     REQUIRE(spelled.build.has_value());
     CHECK(spelled.build->code == deploy.code);
+}
+
+TEST_CASE("a deploy with a user's vocabulary pack carries it, and rebuilds anywhere",
+          "[bo][build][vocab]") {
+    // The example pack and contract (examples/events).
+    const std::filesystem::path events =
+        std::filesystem::path(CEXCHAIN_BO_GOLDEN_DIR) / ".." / ".." / ".." / "examples" / "events";
+    VocabularyRead read = read_vocabulary_pack(read_text(events / "events.vocab"));
+    REQUIRE(read.pack != nullptr);
+    PackSetRead with = make_pack_set({}, Officials::current, {read.pack});
+    REQUIRE(with.set.has_value());
+    const std::string source = read_text(events / "tickets.bo");
+    const protocol::ContractDeployBody deploy = deploy_of(source, *with.set);
+    const auto bundle = decode_source_bundle(*deploy.source);
+    REQUIRE(bundle.has_value());
+    REQUIRE(bundle->embedded_vocabulary.size() == 1);
+    CHECK(*cbor::encode(bundle->embedded_vocabulary[0]) == read.pack->canonical);
+    // Rebuilt with nothing but the deploy: the same code.
+    Rebuild r = rebuilt(deploy);
+    CHECK(r.status == RebuildStatus::rebuilds);
+    REQUIRE(r.build.has_value());
+    CHECK(r.build->code == deploy.code);
+    // Without the pack, the source does not build at all.
+    CHECK(!compile(source, official_set()).build.has_value());
+    // A pack changed after the deploy: the deploy keeps its own.
+    std::string changed_text = read_text(events / "events.vocab");
+    changed_text.replace(changed_text.find("\"version\": 1"), 12, "\"version\": 2");
+    VocabularyRead changed = read_vocabulary_pack(changed_text);
+    REQUIRE(changed.pack != nullptr);
+    SourceBundle forged = *bundle;
+    forged.embedded_vocabulary[0] = *cbor::decode(changed.pack->canonical);
+    protocol::ContractDeployBody other = deploy;
+    other.source = *encode_source_bundle(forged);
+    r = rebuilt(other);
+    CHECK(r.status == RebuildStatus::malformed);
+    CHECK(r.detail.find("the embedded vocabulary pack events is version 2") != std::string::npos);
 }
 
 TEST_CASE("a deploy made before vocabulary packs still rebuilds", "[bo][build]") {

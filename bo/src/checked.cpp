@@ -22,6 +22,7 @@
 #include <cexchain/bo/checker.hpp>
 #include <cexchain/bo/model.hpp>
 #include <cexchain/bo/names.hpp>
+#include <cexchain/bo/vocab.hpp>
 
 #include "reflection.hpp"
 
@@ -38,6 +39,7 @@ cbor::Value to_value(const std::string& text);
 cbor::Value to_value(std::string_view text);
 cbor::Value to_value(const Span& span);
 cbor::Value to_value(const Concept* entry);
+cbor::Value to_value(const VocabularyPack* pack);
 cbor::Value to_value(const model::Type& type);
 cbor::Value to_value(const model::Expr& expr);
 cbor::Value to_value(const model::Statement& statement);
@@ -87,6 +89,12 @@ cbor::Value to_value(const Span& span) {
 
 cbor::Value to_value(const Concept* entry) {
     return entry == nullptr ? cbor::Value::null() : cbor::Value::text(std::string(entry->id));
+}
+
+/// A vocabulary pack as its id and version: "finance 2".
+cbor::Value to_value(const VocabularyPack* pack) {
+    return pack == nullptr ? cbor::Value::null()
+                           : cbor::Value::text(std::format("{} {}", pack->id, pack->version));
 }
 
 cbor::Value to_value(const model::Type& type) {

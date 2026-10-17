@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -282,6 +283,9 @@ struct File {
     /// Read with the official packs of before vocabulary packs: every
     /// vocabulary pack is used without `use` (pack.hpp, Officials).
     bool implicit_vocabulary = false;
+    /// The vocabulary packs it was read with (PackSet::vocabularies): those
+    /// its `use` lines may name, and the users' packs' terms.
+    std::shared_ptr<const Vocabularies> vocabularies;
 };
 
 } // namespace cexchain::bo::ast
