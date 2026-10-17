@@ -590,9 +590,9 @@ source.
 
 Bo is the language contracts are written in: a few keywords in English, Traditional Chinese (Hong
 Kong usage), and Simplified Chinese, freely mixed, and a built-in vocabulary of words with fixed
-meanings. Its core, which every contract reads, holds 80 generic words: kinds of things (`thing`),
-common actions (transfer, suspend, cancel), conditions, time words, units, currencies, types, and
-common fields, states, and roles. Words of particular fields live in three official *vocabulary
+meanings. Its core, which every contract reads, holds 81 generic words: kinds of things (`thing`),
+common actions (transfer, suspend, cancel), conditions, time words, units (a temperature among
+them, `°C`), currencies, types, and common fields, states, and roles. Words of particular fields live in three official *vocabulary
 packs*, each with the standard terms of its built-in actions: `finance` (24 words: pledges,
 payments, freezes, splits), `commerce` (22: prices, charges such as taxes, bills), and `services`
 (12: services and resources allocated to one holder at a time). A contract declares the packs it

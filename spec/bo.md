@@ -106,7 +106,7 @@ when due issuer pays
 
 ### 1.2 One contract, any language
 
-Bo has 18 keywords (Appendix A) and a vocabulary of 138 words (Appendix B): kinds, actions, conditions, prices, charges, time words, units, currencies, rounding modes, documents, types, values, fields, states, actors, roles, and expressions. Each is a *concept* with an id (`kw.can`, `act.transfer`, `cur.HKD`). Eighty of the words are Bo's *core*, which every source reads: the kind `thing`, actions every kind of thing may need (issue, create, transfer, cancel, suspend, resume, terminate, approve, propose, notify), conditions, time, units, currencies, rounding, types, values, and common fields, states, actors, roles, and expressions. The others belong to the three official *vocabulary packs* (3.9): `finance` (24 words), `commerce` (22), and `services` (12), which a source uses by declaring them (`use finance`). *Language packs* (section 3) give each concept its spellings in one language, and the reading rules of that language. Three official packs come with edition 1: English (`en`), Traditional Chinese in Hong Kong usage (`zh-Hant-HK`), and Simplified Chinese in mainland usage (`zh-Hans-CN`).
+Bo has 18 keywords (Appendix A) and a vocabulary of 139 words (Appendix B): kinds, actions, conditions, prices, charges, time words, units, currencies, rounding modes, documents, types, values, fields, states, actors, roles, and expressions. Each is a *concept* with an id (`kw.can`, `act.transfer`, `cur.HKD`). Eighty-one of the words are Bo's *core*, which every source reads: the kind `thing`, actions every kind of thing may need (issue, create, transfer, cancel, suspend, resume, terminate, approve, propose, notify), conditions, time, units, currencies, rounding, types, values, and common fields, states, actors, roles, and expressions. The others belong to the three official *vocabulary packs* (3.9): `finance` (24 words), `commerce` (22), and `services` (12), which a source uses by declaring them (`use finance`). *Language packs* (section 3) give each concept its spellings in one language, and the reading rules of that language. Three official packs come with edition 1: English (`en`), Traditional Chinese in Hong Kong usage (`zh-Hant-HK`), and Simplified Chinese in mainland usage (`zh-Hans-CN`).
 
 The compiler works on concepts, never on spellings. A source may mix the three languages, even within a line (`可pledge 予 bank`), and the same contract written in any language, or mixed, gives the same tree, the same checked model, the same compiled code byte for byte, and the same contract text in each output language. Names the contract gives (its own parties, fields, states, actions, charges) are never translated: they stay as written, and compiled code uses them as written.
 
@@ -116,7 +116,7 @@ Bo reads, and infers, only by fixed rules of the edition:
 
 - **Reading.** A run of characters that two rules could read differently (`可用率` as one name, or as `可` + `用率`) is read one way only, or it is an error asking for a space. One spelling never has two meanings across the packs a source is read with.
 - **Grammar.** What could be grouped two ways is an error asking for parentheses (`monthly HKD 120 * 12`, `a < b < c`).
-- **Meaning.** What Bo infers rather than reads (a field's type, the state an instance starts in, a consent an action needs, a threshold's currency), it infers by one of the edition's thirty-one *recognition rules*, R1 to R31 (section 7). Where no rule applies, the checker reports an error. Every clause a rule inferred is marked with the rule's id in the contract text (section 14), so the parties see it before they sign.
+- **Meaning.** What Bo infers rather than reads (a field's type, the state an instance starts in, a consent an action needs, a threshold's currency), it infers by one of the edition's thirty-two *recognition rules*, R1 to R32 (section 7). Where no rule applies, the checker reports an error. Every clause a rule inferred is marked with the rule's id in the contract text (section 14), so the parties see it before they sign.
 
 ### 1.4 Editions
 
@@ -275,12 +275,14 @@ number = digits { "_" digits } [ "." digits { "_" digits } ]
 - **What may follow a number directly.** Without a space, a number may be followed by, in order and each optional: one multiplier; one unit, time unit, or currency spelled as one word; and a word that attaches after a unit or time unit (2.7). `2TB`, `30日`, `500萬港元`, `30日內`. Anything else is `lex.number-suffix`; a suffix that reads two ways, `lex.ambiguous`.
 - **Rates.** `%` (or a pack's alias, `％`) directly after a number makes a rate, in percent: `5%`, `3.875%`. `%` anywhere else is `lex.percent`.
 - **No subtraction of dates.** Digits joined by `-` twice or more are a date or an error (2.11), never a subtraction: `2027-1-6` is `lex.bad-date`. `10-3` is a subtraction.
+- **Negative numbers.** A `-` directly before a number's first digit makes the number negative where a value begins: at the start of a line's code, after a space, or directly after a symbol that ends no value (`(`, `,`, `=`, `<`, `>`, `+`, `-`, `*`, `/`, `×`, `÷`, `:`). So `-18 °C`, `HKD -5`, `x = -1`, `(1, -2)`, and `a * -2` hold negative numbers. Directly after a word, a number, a text, `%`, or `)`, it subtracts (`10-3`, `x-3`), and with a space after it, it is the operator (`x - 3`). `x -3` is a name and a negative number side by side, a phrase, which no expression reads (`check.phrase`): Bo never guesses which was meant. A date has no sign.
 
 ### 2.10 Money, quantities, and durations
 
 After reading a line's words, the lexer joins numbers with the words that measure them:
 
-- **A quantity** is a number with a unit after it, joined or spaced: `2TB`, `100 Mbps`, `3 噸`, `1個`.
+- **A quantity** is a number with a unit after it, joined or spaced: `2TB`, `100 Mbps`, `3 噸`, `1個`, `4.5 °C`.
+- **The degree symbol.** `°C` (U+00B0 followed by `C`, ending the run) and `℃` (U+2103) read as the unit `unit.celsius` in every language, wherever the pack set spells that unit (the official packs from version 3); joined to its number or spaced: `4.5°C`, `4.5 °C`, `-18℃`. The packs also spell it in words: `degree Celsius` (plural `degrees Celsius`), `攝氏度`, `摄氏度`. Tools write `°C`.
 - **A duration** is a number with a time unit after it (`day`, `week`, `month`, `year`): `30 days`, `30日`, `3 個月`. A recurrence such as `monthly` or `每月` is a word, not a duration.
 - **Money** is a number with a currency beside it, on either side, spaced or (after the number) joined: `HKD 0.10`, `120 HKD`, `500萬港元`. A currency between two numbers, or a number between two currencies, is `lex.ambiguous-money`: which belongs to which would be a guess.
 
@@ -303,6 +305,7 @@ A text is written between double quotes (`"`, or a pack's alias of it) on one li
 | `+` `-` | | add, subtract |
 | `*` `/` | `×` `÷` | multiply, divide |
 | `->` | | a state change; a test's expectation |
+| `°C` | `℃` | the unit of temperature, in every language (2.10) |
 | `:` | `：` | read, but used by no construct of edition 1 |
 
 There is no `!=`: write `not a = b`. The official Chinese packs also read `％` as `%`, U+3000 as a space, and the full-width digits `０` to `９` as ASCII digits. A pack's punctuation alias is one character that no word may contain, so it can never change how a word reads.
@@ -315,7 +318,7 @@ The first line that has any token MAY name the edition: `bo` followed by a whole
 
 ### 3.1 Concepts
 
-Edition 1 has 156 concepts: 18 keywords, which every pack spells, and 138 words of the vocabulary, 80 of them in Bo's core and the others in the vocabulary packs (3.9). A concept's id is its category, a dot, and its name. Categories decide where a word may stand, and packs name them in their reading rules:
+Edition 1 has 157 concepts: 18 keywords, which every pack spells, and 139 words of the vocabulary, 81 of them in Bo's core and the others in the vocabulary packs (3.9). A concept's id is its category, a dot, and its name. Categories decide where a word may stand, and packs name them in their reading rules:
 
 | Category | Id prefix | Concepts | Examples |
 |---|---|---|---|
@@ -326,7 +329,7 @@ Edition 1 has 156 concepts: 18 keywords, which every pack spells, and 138 words 
 | pricing | `price.` | 6 | `price.price`, `price.per` |
 | charge | `charge.` | 10 | `charge.tax`, `charge.rate` |
 | time | `time.` | 11 | `time.day`, `time.monthly`, `time.now` |
-| unit | `unit.` | 11 | `unit.GB`, `unit.kg` |
+| unit | `unit.` | 12 | `unit.GB`, `unit.kg`, `unit.celsius` |
 | currency | `cur.` | 5 | `cur.HKD`, `cur.CNY` |
 | rounding | `round.` | 3 | `round.half_up` |
 | document | `doc.` | 3 | `doc.invoice` |
@@ -401,9 +404,9 @@ A source is read with a *pack set*: the official packs, always, and any others g
 
 ### 3.7 Official packs and digests
 
-The official packs of edition 1 are `en`, `zh-Hant-HK`, and `zh-Hans-CN`, version 2 each, every one complete: every concept but the retired ones, every message, and every sentence. A pack's *digest* is the hash of its canonical CBOR under a ledger's hash algorithm (SHA-256 or SM3); [`../tests/bo/golden/pack-digests.txt`](../tests/bo/golden/pack-digests.txt) lists those of the official packs, earlier versions included, and of the vocabulary packs. A released version of an official pack never changes: a change is a new version, and a compiler MUST carry every released version of each official pack, so that every source deployed with one rebuilds (section 16).
+The official packs of edition 1 are `en`, `zh-Hant-HK`, and `zh-Hans-CN`, version 3 each, every one complete: every concept but the retired ones, every message, and every sentence. A pack's *digest* is the hash of its canonical CBOR under a ledger's hash algorithm (SHA-256 or SM3); [`../tests/bo/golden/pack-digests.txt`](../tests/bo/golden/pack-digests.txt) lists those of the official packs, earlier versions included, and of the vocabulary packs. A released version of an official pack never changes: a change is a new version, and a compiler MUST carry every released version of each official pack, so that every source deployed with one rebuilds (section 16).
 
-Version 1 of the three, from before vocabulary packs, is carried in [`../bo/packs/history/`](../bo/packs/history). Version 2 spells the core's kind word `thing` (`物件` in both Chinese packs), spells `we` `我方` first in both Chinese packs (`本公司` remains a second spelling, so `我方` is what tools write), drops the retired concepts, and adds the messages and sentences of vocabulary packs. A pack set is built on the official packs of one version (3.6): today's, or those of before vocabulary packs. A source read with the earlier ones uses every vocabulary pack without declaring it (`use` did not exist), and its `record` is today's `thing`; such a source compiles to the code it compiled to then.
+Version 1 of the three, from before vocabulary packs, is carried in [`../bo/packs/history/`](../bo/packs/history). Version 2 spells the core's kind word `thing` (`物件` in both Chinese packs), spells `we` `我方` first in both Chinese packs (`本公司` remains a second spelling, so `我方` is what tools write), drops the retired concepts, and adds the messages and sentences of vocabulary packs. Version 3 adds the core's unit of temperature (`unit.celsius`, 2.10) and the messages and sentences of field defaults, durations divided by durations (R32), and tests that expect fields' values; version 2 is carried beside version 1. A pack set is built on the official packs of one *release* (3.6): today's (version 3), version 2, or version 1, from before vocabulary packs. A source read with version 1 uses every vocabulary pack without declaring it (`use` did not exist), and its `record` is today's `thing`; a source read with version 2 reads as today's, but spells no temperature. Each compiles to the code it compiled to then.
 
 Anyone MAY write a pack for another language, dialect, or a company's own terms. Such a pack MUST spell every keyword and SHOULD spell the vocabulary; it is read beside the official packs, and a deploy embeds it in full.
 
@@ -455,7 +458,7 @@ parties     = "parties" party { "," party } NEWLINE
 party       = ROLE-WORD | NAME
 block       = KIND NAME NEWLINE [ INDENT { field NEWLINE } DEDENT ]
 KIND        = "thing" | "asset" | "service" | "resource" | "charge" | "tax"
-field       = operand [ sum ] { "," sum }
+field       = operand [ sum ] { "," sum } [ "=" sum ]           (a default, 6.3)
 
 can         = "can" action { "by" operand | "to" operand | "with" input { "," input } }
               NEWLINE [ body ]
@@ -484,8 +487,10 @@ do          = [ party ] action { operand | "to" operand | "by" operand
 
 step        = operand action { operand | "to" operand | "by" operand
                                | "with" target "=" condition { "," target "=" condition } }
-              [ "->" operand [ TEXT ] ] NEWLINE
-            | "->" operand [ TEXT ] NEWLINE                     (the expectation of the step above)
+              [ expect ] NEWLINE
+            | expect NEWLINE                                    (the expectation of the step above)
+expect      = "->" operand [ TEXT ] [ "," target "=" condition { "," target "=" condition } ]
+            | "->" target "=" condition { "," target "=" condition }   (values of fields, 13.1)
 
 condition   = conjunction { "or" conjunction }
 conjunction = negation { "and" negation }
@@ -548,7 +553,7 @@ From the loosest to the tightest:
 | 7 | words side by side (a *phrase*) | `monthly HKD 120`, `overdue 3 days`, `suspended 30 days` |
 | 8 | operands, with the words of 2.8 around them | |
 
-A phrase is never an operand of an arithmetic or comparison operator: `monthly HKD 120 * 12` is `parse.phrase-operator`, since which words `*` takes would be a guess; parentheses say which. (`and`, `or`, and `not` may join phrases: `when overdue 3 days and active`.) Parentheses group; nesting (parentheses, operators in a row, `otherwise if` chains) is at most 100 deep on a line (`parse.too-deep`). There is no unary minus: write `0 - x`.
+A phrase is never an operand of an arithmetic or comparison operator: `monthly HKD 120 * 12` is `parse.phrase-operator`, since which words `*` takes would be a guess; parentheses say which. (`and`, `or`, and `not` may join phrases: `when overdue 3 days and active`.) Parentheses group; nesting (parentheses, operators in a row, `otherwise if` chains) is at most 100 deep on a line (`parse.too-deep`). There is no unary minus on an expression: write `0 - x`; a number written with a `-` directly before its digits is negative (2.9).
 
 ### 4.5 Words with an argument
 
@@ -560,7 +565,7 @@ A head or open piece takes exactly one operand as its argument; a tail piece wra
 
 ### 4.7 The `=` rule
 
-`=` sets a field when it follows a name or a word at the start of a statement line (`holder = bank`), or a target in a `with` of a step or an action done (`with amount = HKD 100`). Everywhere else it compares (`requires holder = bank`, `if payee = none`).
+`=` sets a field when it follows a name or a word at the start of a statement line (`holder = bank`), or a target in a `with` of a step or an action done (`with amount = HKD 100`). At the end of a field's line in a block it gives the field's default (`count number = 0`, 6.3), and after a test's `->` it names a field's value the step expects (`-> delivered, fee = HKD 4_000`, 13.1). Everywhere else it compares (`requires holder = bank`, `if payee = none`).
 
 ### 4.8 Where an action begins
 
@@ -576,7 +581,7 @@ Every expression has a type, and every value is kept exactly, as a whole number 
 |---|---|---|---|
 | number | `number` | `5`, `5_000_000`, `1.5萬` | a whole number |
 | money | a currency: `HKD`, `CNY`, `USD`, `SGD`, `EUR` | `HKD 0.10`, `120 HKD`, `500萬港元` | the currency's minor unit (cents: every edition-1 currency has two decimals) |
-| quantity | a unit: `MB` `GB` `TB` `MiB` `GiB` `TiB`, `Mbps` `Gbps`, `item`, `kg` `tonne` | `2TB`, `100 Mbps`, `1 item`, `3 噸` | its dimension's base unit (5.3) |
+| quantity | a unit: `MB` `GB` `TB` `MiB` `GiB` `TiB`, `Mbps` `Gbps`, `item`, `kg` `tonne`, `°C` | `2TB`, `100 Mbps`, `1 item`, `3 噸`, `-18.5 °C` | its dimension's base unit (5.3) |
 | rate | (no type word: constants and expressions only) | `5%`, `3.875%` | millionths: 1% is 10,000, 100% is 1,000,000 |
 | date | `date` | `2027-01-06`, `2027年1月6日` | milliseconds since 1970-01-01T00:00:00Z |
 | duration | `day` or `week` (fixed); `month` or `year` (calendar) | `30 days`, `2 weeks`, `1 month`, `3 個月` | fixed: milliseconds; calendar: months (a year is 12) |
@@ -605,8 +610,11 @@ A quantity has a dimension, and units of one dimension convert exactly:
 | bandwidth | bit per second | Mbps = 10^6, Gbps = 10^9 |
 | count | item | item = 1 |
 | mass | gram | kg = 10^3, tonne = 10^6 grams |
+| temperature | a hundredth of a degree Celsius | °C = 100 hundredths (4.5 °C is 450) |
 
-`2TB = 2_000 GB` holds; TB and TiB are different sizes; quantities of two dimensions never mix (`check.mixed-units`). A quantity finer than its base unit (`0.5 item`) is `check.precision`.
+`2TB = 2_000 GB` holds; TB and TiB are different sizes; quantities of two dimensions never mix (`check.mixed-units`). A quantity finer than its base unit (`0.5 item`, `4.567 °C`) is `check.precision`.
+
+A temperature is kept exactly, like money: to a hundredth of a degree, so readings in tenths (`4.2 °C`) or hundredths (`4.25 °C`) compare, add, and subtract exactly, below zero too (`-18.5 °C`). It is a quantity of its own dimension, so it never mixes with another; like any quantity it may be multiplied or divided by a number or a rate. Bo has no other temperature scale: a Fahrenheit reading is not a multiple of a Celsius one, so it would be a dimension of its own.
 
 ### 5.4 Rates
 
@@ -624,6 +632,8 @@ A date literal is the moment its day begins at the contract's UTC offset. The of
 
 Days and weeks are fixed durations, kept in milliseconds (a day is 86,400,000). Months and years are calendar durations, kept in months: they have no fixed length, so they never mix with fixed durations, in arithmetic or comparisons (`check.calendar`). A duration literal is a whole number of its unit (`check.whole-number`); a calendar one is at most 120,000 months (10,000 years).
 
+A duration divided by a duration of the same kind (both fixed, or both calendar) is a number: how many whole times the second fits in the first, the rest dropped toward zero (R32). So `(now - due) / 1 day` is the whole days since the due date, 2 for two days and twenty hours; before the due date it is negative or 0, never rounded away from zero. Divided by a duration of the other kind, it is `check.calendar`.
+
 Adding a calendar duration to a date (or a time) moves its local date at the contract's offset by whole months and keeps its time of day; if the new month lacks the day, the day is the month's last: 31 January plus a month is the last day of February. Adding a fixed duration adds its milliseconds.
 
 ### 5.7 Texts, yes or no, parties
@@ -638,7 +648,7 @@ A list type is written `list T` (or `T list`), with `at most N` anywhere among i
 
 ### 5.9 Literals are exact
 
-A literal MUST be a whole number of its type's smallest unit (`check.precision`, `check.whole-number` for numbers and durations) and MUST fit a signed 64-bit integer there (`check.overflow`). A literal `0` beside money, a quantity, a rate, or a duration, in `+`, `-`, or a comparison, is zero of it (R22): `requires portion > 0`.
+A literal MUST be a whole number of its type's smallest unit (`check.precision`, `check.whole-number` for numbers and durations) and MUST fit a signed 64-bit integer there (`check.overflow`). A literal `0` beside money, a quantity, a rate, or a duration, in `+`, `-`, or a comparison, is zero of it (R22): `requires portion > 0`. A literal may be negative (2.9): `-18 °C`, `HKD -5`; a list's bound may not (`check.list-bound`).
 
 ### 5.10 Operators
 
@@ -651,6 +661,7 @@ A literal MUST be a whole number of its type's smallest unit (`check.precision`,
 | `r * x`, `x * r` | a rate `r`, and money, a quantity, or a rate `x` | x's type | x × r ÷ 1,000,000, rounded half up (R17) |
 | `x / n` | a number, money, a quantity, a rate, or a fixed duration `x`, by a number `n` | x's type | x ÷ n, rounded half up (R17) |
 | `x / y` | money by money of one currency, or a quantity by a quantity of one dimension | rate | x × 1,000,000 ÷ y, rounded half up (R17) |
+| `d / e` | two durations of one kind (fixed, or calendar) | number | d ÷ e, the rest dropped toward zero (R32) |
 | `p * q`, `q * p` | a unit price and a quantity of its dimension | money | checked, not compiled (5.1) |
 | `a = b` | two of one type: any type but a unit price, a recurring amount, or a basis | yes or no | numbers, texts, and ledger ids by value; lists by their encodings |
 | `a < b`, `<=`, `>`, `>=` | two of one ordered type: number, money, quantity, rate, duration, date | yes or no | signed comparison |
@@ -665,7 +676,7 @@ Expressions evaluate left to right, by precedence. Every step is exact or checke
 
 - Additions, subtractions, multiplications, and list sums whose result is outside the signed 64-bit range refuse the call (`bo:overflow`); so does an intermediate result, even if the whole would fit.
 - Products with a rate and quotients compute `a × b ÷ c` with a 128-bit product, then round to a whole number of the smallest unit. Unless a charge says otherwise (10.4), they round *half up*: to the nearest, and a half away from zero (2.5 → 3, −2.5 → −3). Charges may also round *half even* (to the nearest, a half to the even neighbour) or *down* (toward zero). A divisor 0 refuses the call (`bo:division-by-zero`); a result outside the range, `bo:overflow`.
-- Values may be negative (money taken away, a credit line), though no literal is.
+- Values may be negative (money taken away, a credit line, a temperature below zero), and so may literals (2.9). A duration divided by a duration drops the rest toward zero (R32).
 
 ## 6. The model
 
@@ -691,9 +702,12 @@ The core's kind is `thing`; the vocabulary packs add `asset` (finance), `service
 | The line gives | The field is |
 |---|---|
 | a type: `amount HKD`, `due date`, `codes list text at most 3` | an *instance field*: each instance holds its own value, given when the instance is created, and actions may set it |
+| a type, then `=` and a value: `count number = 0`, `late_charge HKD = HKD 0`, `lowest_seen °C = 100 °C` | an instance field with a *default*: each instance starts with the value unless its creation gives the field, which it may (12.4) |
 | a party: `holder supplier` | an instance field holding a party, which each instance starts with and actions may change (R2); not given at creation; the party MUST be one bound at creation (`build.late-party`) |
 | another value: `IP 1 item`, `cooling period 30 days`, `fee_rate 3%` | a *constant*, the same for every instance; no action can set it (`check.set-constant`) |
 | nothing, for a field of the vocabulary that has a type of its own | that type (R1), or for `parts` a list of amounts (R15) |
+
+**Defaults.** A default is a value written out, of the field's type: a number, money, a quantity, a date, a duration, a rate, a text, yes or no, or a list of them (`codes list text at most 3 = ("a", "b")`; one value for a list is a list of one, R29); a negative number is written so (`-18 °C`). An expression is no default (`check.default-value`). A vocabulary field whose type R1 gives may take one without a type (`due = 2027-01-01`). A constant, a party field (which starts with its party, R2), a bill's field (R26), and a charge's line take none (`check.default-field`). The contract text says each: "count: a number; each instance starts with 0 unless its creation gives another."
 
 A field's head is a name of the contract's own, a field word (`amount`, `due`, `holder`, ...), a price word (`price`, `traffic`, `usage`, `overage`, `setup fee`), a document word (`invoice`, `credit note`, `receipt`: the field that holds a bill, R26), or `charge` or `tax` followed by a basis (`tax according to customer location`); anything else is `check.field-head`. A field without type or value is `check.field-needs-type`. Parts after commas are labelled prices only (`traffic monthly 2TB, overage per GB HKD 0.10`; `check.field-values`).
 
@@ -821,6 +835,7 @@ Bo infers by the thirty-one rules of edition 1 and by nothing else. Each rule ha
 | R29 | one-item | One value where a list is needed is a list of that one item. |
 | R30 | issue-parts | `issue PARTS to RECIPIENTS` makes each part an instance of its own, of the same contract, created by the call; its amount is the part and its holder its recipient; the instance that issued them ends; a part may be split again, at most eight levels down (section 11). |
 | R31 | role-taking | An action that makes its counterparty (after `to`) a party field its pack marks as *taking* (the core's holder; finance's pledgee and payee) (`holder = bank`, as the terms of `transfer`, `pledge`, and `allocate` do) needs the counterparty's consent at every call, even when its role was bound when the instance was created or by another action; where the action binds the role (R3), each call names it (R21), or it is a party field the action's own lines set (R8), those rules already ask it. An action that names no counterparty adds none: `enforce` makes its own starter, the pledgee, the holder, and `pay` makes the pledgee or the holder the payee. |
+| R32 | whole-times | A duration divided by a duration of the same kind is the number of whole times the second fits in the first; the rest is dropped, toward zero (`(now - due) / 1 day` is 2 two days and twenty hours after the due date). The contract text says so where it divides: "(the time of the call − the due date) ÷ 1 day, in whole times (the rest dropped)". |
 
 The rule texts in the packs are plain-language summaries of the rows above; the rows, sections 6 to 11, and the conformance suite define the rules.
 
@@ -1356,7 +1371,7 @@ Arguments and the instance's state hold values as deterministic CBOR:
 |---|---|
 | number | an integer |
 | money | an integer: minor units (cents) |
-| quantity | an integer: base units (bytes, bits per second, items, grams) |
+| quantity | an integer: base units (bytes, bits per second, items, grams, hundredths of a degree Celsius: 4.5 °C is 450, -18 °C is -1800) |
 | rate | an integer: millionths (5% is 50000) |
 | date | an integer: milliseconds since 1970-01-01T00:00:00Z |
 | duration | an integer: milliseconds (days, weeks), or months (months, years) |
@@ -1372,7 +1387,7 @@ Integers MUST lie in the signed 64-bit range. Any other shape is refused: `bo:ar
 
 **Creation** takes a map with the key `"fields"` if the contract has fields given at creation, and `"parties"` if it has roles bound at creation, and no other key (`bo:arguments`):
 
-- `"fields"`: a map with exactly the fields given at creation, by name: every instance field except a party field that starts with a party (R2) and the fields Bo adds (R20) (`bo:argument fields` if it is missing or has another number of keys; `bo:argument FIELD` for a field missing or not of its type);
+- `"fields"`: a map of the fields given at creation, by name: every instance field except a party field that starts with a party (R2) and the fields Bo adds (R20); a field with a default (6.3) may be left out, and then holds its default. The map has every field without a default, any of those with one, and no other key (`bo:argument fields` if it is missing, has fewer or more keys, or a key that names no such field; `bo:argument FIELD` for a field missing or not of its type). It is present whenever the contract has fields given at creation, even if all have defaults (then it may be empty);
 - `"parties"`: a map with exactly the roles bound at creation, by name, each to its ledger id (`bo:argument parties`, `bo:argument ROLE`).
 
 With neither, the arguments are null or an empty map. For the agreement of 12.11:
@@ -1567,7 +1582,7 @@ PARTY ACTION [HOLDER] [to PARTY] [with NAME = VALUE, ...] [at DATE] [in person] 
 
 with its expectation on its line or alone on the next line (`-> ...`). A test has an optional name, a text or a name, unique in the source (`check.duplicate`).
 
-- **The first step creates the instance** (`check.test-start`), and no other does (`check.test-again`): `issue` for an asset, `create` otherwise (`check.test-creation`), with `with FIELD = VALUE` for every field given at creation (`check.test-missing`). Its party is the home, the ledger that runs the contract; a contract that has the role `we` MUST name it (`check.test-home`).
+- **The first step creates the instance** (`check.test-start`), and no other does (`check.test-again`): `issue` for an asset, `create` otherwise (`check.test-creation`), with `with FIELD = VALUE` for every field given at creation (`check.test-missing`); a field with a default may be left out. Its party is the home, the ledger that runs the contract; a contract that has the role `we` MUST name it (`check.test-home`).
 - **Other steps** do an action the contract declares with `can` (`check.test-action`), `approve` a proposal (13.5), or are a keeper's (13.5). `with` gives the action's inputs, each once (`check.unknown-input`, `check.duplicate`, `check.test-missing`).
 - **Parties** are the contract's parties or names that only tests use, each a ledger of its own (`bank1`); anything else is `check.test-party`.
 - **`to PARTY`** only for an action with a counterparty (`check.test-to`): the ledger a role the action binds is bound to, or the counterparty each call names, which a step MUST then give (`check.test-needs-to`). For a counterparty bound at creation, the step names that role itself (`check.test-counterparty`).
@@ -1588,6 +1603,8 @@ Expectations (`check.test-expect`; one per step, right after it: `check.test-exp
 | `-> pending approval` | the call is kept as a proposal; only for a step `by AI agent` of an action AI agents may only propose (`check.test-proposal`) |
 
 Only `refused` takes a reason (`check.test-reason`).
+
+**Values of fields.** An expectation of an accepted call may also name values that instance fields hold after it: after a comma (`-> delivered, late_charge = HKD 4_000, holder = consignee`), or alone, the call then expected to be accepted (`-> excursions = 2`). Each names an instance field once (`check.test-field`, `check.duplicate`) and gives a value as a step does: written out and of the field's type, a party (by role or a test's ledger name) for a party field, or `none` for a party field that holds none (`check.test-value`, `check.type`). Only an expectation of an accepted call takes them (`check.test-fields`: not of `refused`, `consent of`, or `pending approval`). The step passes only if every field named holds that value, compared as compiled code keeps it (12.3); a failing step's report gives both, in the reader's language ("Expected: ...; then fee is HKD 5,000.00." / "Result: ..., but fee is HKD 4,000.00.").
 
 ### 13.2 Ledgers and time
 
@@ -1631,7 +1648,7 @@ What the parties read and confirm before they sign is the *contract text*, which
 
 1. the title and an introduction, then, for a contract that uses vocabulary packs, a sentence naming each (its name in the reader's language and its version);
 2. **Parties**: each role, and when it is bound to a ledger (at creation, by the first call of an action, or by each, R23);
-3. **Each instance**: the kind; each field (given at creation, the party it starts with, none at first, or a constant's value); how an instance is created (by which function, needing no consent); the UTC offset, for a contract with dates, calendar durations, or time rules;
+3. **Each instance**: the kind; each field (given at creation, given at creation or else its default, the party it starts with, none at first, or a constant's value); how an instance is created (by which function, needing no consent); the UTC offset, for a contract with dates, calendar durations, or time rules;
 4. **Charges**, if any: the bill, and each charge's lines (section 10);
 5. **States**: the first, all of them, the final ones (6.10), and that each change of state is an event;
 6. **Actions**: each action with its function, whether it is built-in (with the standard terms, naming the vocabulary pack that gives them, if one does) or the home's own word, its starter, counterparty, inputs, the consents it needs, its block in order (requirements numbered as compiled code numbers them, 12.10; choices, `each`, refusals, fields set, state changes, parts, and their depth and privacy), and what AI agents may do; and `approve`, if there are proposals;
@@ -1710,7 +1727,7 @@ Opening a bundle finds its packs: each embedded pack MUST read without errors (3
 
 ### 16.3 The compiler string and codegen versions
 
-`cexchain-bo RELEASE; codegen N; edition E` names the compiler, its release, its codegen version, and the edition it reads; for example `cexchain-bo 0.0.1; codegen 3; edition 1`. The codegen version fixes the code: the same codegen version builds the same bytes from the same source, in any language and on any machine. It goes up whenever any byte the compiler emits for some contract changes. A compiler carries the lowerings of the codegen versions before its own, so that a deploy built with an older one still rebuilds: CexChain's compiler is at codegen 3, and rebuilds deploys of codegens 1 and 2. Codegen 2 changed two things, and nothing a call does:
+`cexchain-bo RELEASE; codegen N; edition E` names the compiler, its release, its codegen version, and the edition it reads; for example `cexchain-bo 0.0.1; codegen 3; edition 1`. The codegen version fixes the code: the same codegen version builds the same bytes from the same source, in any language and on any machine. It goes up whenever any byte the compiler emits for some contract changes. A construct that no earlier compiler read (a word, a form, or an operation added since, such as the field defaults, durations divided by durations, temperatures, and negative numbers of the official packs version 3) does not raise it: no deploy of a source using it was built by an older lowering, and older sources build to the same bytes as before. A compiler carries the lowerings of the codegen versions before its own, so that a deploy built with an older one still rebuilds: CexChain's compiler is at codegen 3, and rebuilds deploys of codegens 1 and 2. Codegen 2 changed two things, and nothing a call does:
 
 - the code reads a call's input without checking again that its texts are UTF-8, which the ledger's inputs always are (the ledger's decoder refuses anything else): checking cost up to 50 fuel per byte of text that is not ASCII, so that a call's input of 160 KiB could take more fuel to read than a call has. Every module's bytes changed with it;
 - a function shares two scratch locals among its comparisons of parties that may be none, and its `consent of` a list, where codegen 1 took two new ones for each: thousands of them could exceed the 4,096 locals a function may have (spec section 14.1).
@@ -1857,8 +1874,8 @@ A tool that writes **the contract text** conforms as section 14.3 says; one that
 
 - its source, in each language it is written in (English, Traditional Chinese, Simplified Chinese, and mixed, for some), and its name (`contract`);
 - its interface (`interface`: each function, `create` or `call`);
-- the `bo-source` bundle a deploy records (`bundle`, and its SHA-256), with the official packs' SHA-256 digests (version 2) and those of the vocabulary packs its `use` lines name (key 6), and the compiler string it was built with (`compiler`);
-- `earlier`: the bundle a deploy of it recorded before vocabulary packs (version 1 of the official packs, no `use` lines, its kind word `record`), with the compiler string and the SHA-256 of the code it deployed, which is `code_sha256`: such a deploy rebuilds to the same code (16.4);
+- the `bo-source` bundle a deploy records (`bundle`, and its SHA-256), with the official packs' SHA-256 digests (version 3) and those of the vocabulary packs its `use` lines name (key 6), and the compiler string it was built with (`compiler`);
+- `earlier`: the bundles its deploys recorded with earlier releases of the official packs, oldest first (version 1, before vocabulary packs: no `use` lines, its kind word `record`; version 2, before temperatures and field defaults), each with the compiler string and the SHA-256 of the code it deployed, which is `code_sha256`: each such deploy rebuilds to the same code (16.4);
 - the code `cexchain-bo` built from it (`code`, `code_sha256`), the SHA-256 of the code codegens 1 and 2 built from it (`codegen1_sha256`, `codegen2_sha256`), and each function's fuel and output bounds (`bounds`): all informative;
 - runs: each call, as its parts (function, arguments, home, contract, instance view, caller and signer, time, consents) and as the contract input the ledger encodes from them (spec section 15), with the outcome, the output or the reason, and the fuel the code used. The runs include every step of the contract's own test blocks.
 
@@ -2011,6 +2028,7 @@ The words of edition 1, by category, with the vocabulary pack each belongs to (`
 | `unit.item` | core | `item` | `個` | `个` | plural `items` |
 | `unit.kg` | core | `kg` | `公斤` | `公斤` | |
 | `unit.tonne` | core | `tonne` | `噸` | `吨` | plural `tonnes` |
+| `unit.celsius` | core | `degree Celsius` | `攝氏度` | `摄氏度` | plural `degrees Celsius`; written `°C` (also read `℃`) in every language (2.10) |
 
 **Currencies** (`cur.*`)
 
@@ -2256,6 +2274,8 @@ Every problem the compiler reports has a code, a severity, and parameters, which
 | `check.field-head` | error | {text} cannot name a field: use a name of your own, or a field or price word (amount, due, holder, price) |
 | `check.field-needs-type` | error | {field} needs its type or its value: amount HKD, due date, IP 1 item |
 | `check.field-type` | error | {field} holds {expected_type}, not {type} |
+| `check.default-field` | error | {field} cannot have a default: only an instance field given at creation has one; a constant has its value, a party field starts with its party, and a bill is made from its lines |
+| `check.default-value` | error | {text} is no default: a default is a value written out, of the field's type: 0, HKD 0, no, "none yet", 2027-01-01, or a list of them |
 | `check.field-values` | error | {field} takes one type or value; further parts after commas must be labelled prices (overage per GB HKD 0.10) |
 | `check.not-a-value` | error | {text} is not a value here: a value is a number, an amount, a date, a text, a party, a field, an input, or a condition where one may stand |
 | `check.phrase` | error | Bo reads no value in {text}: words side by side form a recurring amount (monthly HKD 120), a unit price (per GB HKD 0.10), a labelled price (overage per GB HKD 0.10), overdue N, or according to a field |
@@ -2264,7 +2284,7 @@ Every problem the compiler reports has a code, a severity, and parameters, which
 | `check.mixed-currencies` | error | {left_type} and {right_type} are in different currencies; Bo never converts one into the other |
 | `check.mixed-units` | error | {left_type} and {right_type} measure different things, which never mix |
 | `check.calendar` | error | {text} mixes months or years with days or weeks: a month has no fixed number of days, so Bo neither compares nor adds them |
-| `check.precision` | error | {text} is finer than Bo keeps: money to the currency's cent, unit prices to six decimal places, rates to 0.0001%, quantities to whole bytes, bits per second, items, or grams |
+| `check.precision` | error | {text} is finer than Bo keeps: money to the currency's cent, unit prices to six decimal places, rates to 0.0001%, quantities to whole bytes, bits per second, items, or grams, temperatures to hundredths of a degree |
 | `check.whole-number` | error | {text} must be a whole number here (for a share, write a rate: 150%) |
 | `check.overflow` | error | {text} is too large: Bo keeps every value as a whole number of its smallest unit, in 64 bits |
 | `check.zero-division` | error | {text} divides by zero |
@@ -2314,7 +2334,9 @@ Every problem the compiler reports has a code, a severity, and parameters, which
 | `check.test-time-back` | error | {text} is earlier than a step before it: time never goes back in a test |
 | `check.test-value` | error | {text}: a test gives each value as written: a number, an amount, a quantity, a date, a duration, a rate, a text, or yes or no |
 | `check.test-missing` | error | {action} needs {name}: give it with {name} = VALUE |
-| `check.test-expect` | error | {text} is not an outcome a step can expect: write a state of the contract (-> signed), refused (-> refused, or with its reason in quotes), or the consent the call waits for (-> consent of bank) |
+| `check.test-expect` | error | {text} is not an outcome a step can expect: write a state of the contract (-> signed), refused (-> refused, or with its reason in quotes), or the consent the call waits for (-> consent of bank); values of fields follow a comma (-> signed, fee = HKD 5) |
+| `check.test-field` | error | {name} is no field an instance holds: a step expects the values of instance fields after its call (-> delivered, fee = HKD 4_000), and a constant never changes |
+| `check.test-fields` | error | {text}: values of fields are expected only of a call that is accepted (-> delivered, fee = HKD 4_000, or -> fee = HKD 0), not of one refused, waiting for consents, or kept as a proposal |
 | `check.test-expect-step` | error | an expectation (->) follows the step it is about, once |
 | `check.test-reason` | error | {text}: only refused takes a reason |
 | `check.test-proposal` | error | -> pending approval: only a call by AI agent to an action an AI agent may only propose (AI agent can propose) is kept as a proposal, and {action} is not such an action |
