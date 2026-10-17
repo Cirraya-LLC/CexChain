@@ -183,6 +183,9 @@ if(TARGET cexchain_bo)
     # A receivable pledged to a bank, released, sold, and paid.
     add_test(NAME demo_receivable_financing
         COMMAND bash ${PROJECT_SOURCE_DIR}/examples/receivable-financing/receivable-financing.sh $<TARGET_FILE:cexchain>)
+    # A concert ticket in the words of a vocabulary pack of one's own.
+    add_test(NAME demo_events
+        COMMAND bash ${PROJECT_SOURCE_DIR}/examples/events/events.sh $<TARGET_FILE:cexchain>)
 endif()
 
 # Keys on tokens (HSMs, USB keys), when SoftHSM is installed to stand in.
