@@ -550,6 +550,15 @@ Json expectation_json(const bo::model::Step& step, const bo::StepResult& r,
     case bo::model::Expectation::proposed:
         break;
     }
+    // Values of fields the step expects after its call (G5b), as compiled
+    // code keeps them.
+    if (!r.expected_fields.empty()) {
+        Json fields = Json::object();
+        for (const auto& [wire, value] : r.expected_fields) {
+            fields[wire] = cbor_json(value);
+        }
+        out["fields"] = fields;
+    }
     return out;
 }
 
@@ -589,6 +598,14 @@ Json step_json(const bo::model::Model& model, const bo::Explained& text,
         if (r.parts > 0) {
             // The parts the call created (R30).
             result["parts"] = r.parts;
+        }
+        if (!r.differing.empty()) {
+            // Expected fields that hold other values (null: not held).
+            Json differing = Json::object();
+            for (const auto& [wire, value] : r.differing) {
+                differing[wire] = cbor_json(value);
+            }
+            result["differing"] = differing;
         }
         break;
     }

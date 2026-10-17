@@ -1403,6 +1403,9 @@ sed 's/days_late = 13, fee = HKD 26_000/days_late = 13, fee = HKD 5_000/' measur
 expect_exit 3 bo test wrong.bo
 contains -F "Expected: the call is accepted, and the instance is delivered; then days_late is 13 and fee is HKD 5,000.00." out.txt || fail "measures: the expected values"
 contains -F "but fee is HKD 26,000.00." out.txt || fail "measures: the values held"
+"$CEXCHAIN" bo test wrong.bo --json > wrong.json || true
+json '[(s["expected"].get("fields"), s["result"].get("differing")) for t in d["tests"] for s in t["steps"] if s["status"] == "failed"]' < wrong.json > out.txt
+contains -F "[({'days_late': 13, 'fee': 500000}, {'fee': 2600000})]" out.txt || fail "measures: --json gives the values"
 # A default needs an instance field and a value written out.
 printf 'contract C\nparties we\nthing T\n  lowest 2 °C = 3 °C\n  count number = 1 + 1\n' > defaults.bo
 CEXCHAIN_LANGUAGE=zh-Hans expect_exit 2 bo check defaults.bo
