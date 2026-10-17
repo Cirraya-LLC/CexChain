@@ -234,8 +234,20 @@ std::string render(const std::vector<Tok>& toks, Choices* languages) {
     return out;
 }
 
-enum class T : std::uint8_t { text, number, money, usd, date, flag, data, days, months, party };
-constexpr std::uint32_t value_types = 9; // all but party
+enum class T : std::uint8_t {
+    text,
+    number,
+    money,
+    usd,
+    date,
+    flag,
+    data,
+    days,
+    months,
+    celsius,
+    party
+};
+constexpr std::uint32_t value_types = 10; // all but party
 
 struct GField {
     std::string name; // a name, or "amount" for field.amount, "invoice" for the bill
@@ -245,6 +257,8 @@ struct GField {
     /// A list of `type` (milestone 13): at most `bound` items (0: 16).
     bool list = false;
     std::uint32_t bound = 0;
+    /// An instance field with a default (G5b): a creation may leave it out.
+    bool initial = false;
 };
 
 struct GInput {
@@ -311,6 +325,9 @@ private:
     Tok state(std::size_t i) { return i < vocabulary_states_ ? word(states_[i]) : raw(states_[i]); }
     Tok test_party();
     Line step(const GAction& a, int& month, int& day);
+    /// `, FIELD = VALUE, ...` after an expectation's state, or the values
+    /// alone (G5b): instance fields of value types, often their literal.
+    void expect_fields(Line& line, bool after_state);
     void tests(std::vector<std::pair<int, Line>>& out);
 
     Choices& c_;
@@ -362,6 +379,8 @@ Tok Generator::type_word(const T t) {
         return word("time.day");
     case T::months:
         return word("time.month");
+    case T::celsius:
+        return c_.one_in(2) ? raw("\u00B0C") : word("unit.celsius");
     case T::party:
         break;
     }
@@ -375,9 +394,12 @@ Line Generator::literal(const T t) {
         return {raw("\"" + std::string(texts[c_.below(5)]) + "\"")};
     }
     case T::number:
-        return {raw(std::to_string(c_.below(4) == 0 ? 0 : c_.between(1, 1'000'000)))};
+        // Now and then negative (G5b): a minus directly before the digits.
+        return {raw((c_.one_in(8) ? "-" : "") +
+                    std::to_string(c_.below(4) == 0 ? 0 : c_.between(1, 1'000'000)))};
     case T::money:
-        return {raw(std::format("HKD {}.{:02}", c_.between(0, 2'000'000), c_.below(100)))};
+        return {raw(std::format("HKD {}{}.{:02}", c_.one_in(8) ? "-" : "", c_.between(0, 2'000'000),
+                                c_.below(100)))};
     case T::usd:
         return {raw(std::format("USD {}", c_.between(0, 5'000)))};
     case T::date:
@@ -391,6 +413,16 @@ Line Generator::literal(const T t) {
         return {raw(std::format("{} days", c_.between(0, 400)))};
     case T::months:
         return {raw(std::format("{} months", c_.between(0, 36)))};
+    case T::celsius: {
+        // Tenths or hundredths of a degree, below zero too; °C, ℃, or words.
+        static constexpr std::string_view units[] = {" \u00B0C", "\u00B0C", " \u2103",
+                                                     " degrees Celsius"};
+        const std::int64_t whole = c_.between(-40, 60);
+        return {raw(std::format(
+            "{}{}.{}{}", whole < 0 ? "-" : (c_.one_in(8) ? "-" : ""), whole < 0 ? -whole : whole,
+            c_.one_in(2) ? std::to_string(c_.below(10)) : std::format("{:02}", c_.below(100)),
+            units[c_.below(4)]))};
+    }
     case T::party:
         break;
     }
@@ -604,6 +636,7 @@ Line Generator::value(const T t, const int depth) {
     case T::usd:
     case T::data:
     case T::days:
+    case T::celsius:
         switch (c_.below(5)) {
         case 0:
             return join(value(t, depth - 1), "+", value(t, depth - 1));
@@ -612,6 +645,16 @@ Line Generator::value(const T t, const int depth) {
         case 2:
             return join(value(t, depth - 1), "*", value(T::number, depth - 1));
         case 3:
+            if (t == T::number && c_.one_in(3)) {
+                // R32: a duration by a duration, in whole times (G5b).
+                const T of = c_.one_in(3) ? T::months : T::days;
+                // Mostly a divisor written out, which is not 0.
+                return join(value(of, depth - 1), "/",
+                            c_.one_in(3)
+                                ? value(of, depth - 1)
+                                : Line{raw(std::format("{} {}", 1 + c_.below(30),
+                                                       of == T::days ? "days" : "months"))});
+            }
             if (t == T::number) {
                 return join(value(t, depth - 1), "/", {raw(std::to_string(1 + c_.below(9)))});
             }
@@ -664,9 +707,9 @@ Line Generator::condition(const int depth) {
     switch (pick) {
     case 0:
     case 1: {
-        static constexpr T ordered[] = {T::number, T::money, T::usd,   T::date,
-                                        T::data,   T::days,  T::months};
-        const T t = ordered[c_.below(7)];
+        static constexpr T ordered[] = {T::number, T::money, T::usd,    T::date,
+                                        T::data,   T::days,  T::months, T::celsius};
+        const T t = ordered[c_.below(8)];
         static constexpr std::string_view ops[] = {"<", "<=", ">", ">=", "="};
         Line out = value(t, depth);
         out.push_back(raw(std::string(ops[c_.below(5)])));
@@ -996,6 +1039,13 @@ std::vector<std::pair<int, Line>> Generator::contract() {
             l.insert(l.end(), v.begin(), v.end());
         } else {
             l.push_back(type_word(f.type));
+            // A default (G5b): `f0 number = 0`.
+            if (c_.one_in(3)) {
+                f.initial = true;
+                l.push_back(raw("="));
+                const Line v = literal(f.type);
+                l.insert(l.end(), v.begin(), v.end());
+            }
         }
         out.push_back({2, l});
         fields_.push_back(std::move(f));
@@ -1012,6 +1062,12 @@ std::vector<std::pair<int, Line>> Generator::contract() {
         Line l{raw(f.name)};
         const Line type = list_type(f.type, f.bound);
         l.insert(l.end(), type.begin(), type.end());
+        if (c_.one_in(4)) {
+            f.initial = true;
+            l.push_back(raw("="));
+            const Line v = literal_list(f.type, f.bound);
+            l.insert(l.end(), v.begin(), v.end());
+        }
         out.push_back({2, l});
         fields_.push_back(std::move(f));
     }
@@ -1366,13 +1422,19 @@ Line Generator::step(const GAction& a, int& month, int& day) {
         line.push_back(word("val.pending_approval"));
         return line;
     }
-    switch (c_.below(8)) {
+    switch (c_.below(9)) {
     case 0:
         // A state some state change names.
         if (used_states_ > 1) {
             line.push_back(raw("->"));
             line.push_back(state(c_.below(static_cast<std::uint32_t>(used_states_))));
+            expect_fields(line, true);
         }
+        break;
+    case 8:
+        // Values of fields alone (G5b): the call accepted.
+        line.push_back(raw("->"));
+        expect_fields(line, false);
         break;
     case 1:
         line.push_back(raw("->"));
@@ -1396,6 +1458,36 @@ Line Generator::step(const GAction& a, int& month, int& day) {
     return line;
 }
 
+void Generator::expect_fields(Line& line, const bool after_state) {
+    std::vector<const GField*> held;
+    for (const GField& f : fields_) {
+        if (!f.constant && f.type != T::party && f.name != "invoice") {
+            held.push_back(&f);
+        }
+    }
+    if (held.empty()) {
+        line.push_back(word("val.refused"));
+        return;
+    }
+    if (after_state && c_.one_in(2)) {
+        return;
+    }
+    // Distinct fields: a field named twice is check.duplicate.
+    const auto size = static_cast<std::uint32_t>(held.size());
+    const std::uint32_t n = 1 + c_.below(std::min<std::uint32_t>(3, size));
+    const std::uint32_t start = c_.below(size);
+    for (std::uint32_t i = 0; i < n; ++i) {
+        const GField& f = *held[(start + i) % size];
+        if (i > 0 || after_state) {
+            line.push_back(raw(","));
+        }
+        line.push_back(field_tok(f));
+        line.push_back(raw("="));
+        const Line v = f.list ? literal_list(f.type, f.bound) : literal(f.type);
+        line.insert(line.end(), v.begin(), v.end());
+    }
+}
+
 /// Test blocks: each creates the instance, then does some actions.
 void Generator::tests(std::vector<std::pair<int, Line>>& out) {
     const std::uint32_t count = c_.below(4);
@@ -1411,7 +1503,8 @@ void Generator::tests(std::vector<std::pair<int, Line>>& out) {
         Line create{home, word(asset_ ? "act.issue" : "act.create")};
         bool first = true;
         for (const GField& f : fields_) {
-            if (f.constant || f.type == T::party) {
+            // A field with a default may be left out (G5b).
+            if (f.constant || f.type == T::party || (f.initial && c_.one_in(2))) {
                 continue;
             }
             create.push_back(first ? word("kw.with") : raw(","));

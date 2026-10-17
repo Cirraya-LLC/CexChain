@@ -1384,4 +1384,29 @@ run contract verify sale.cbor --ledger-id "$SHOP_ID" > verify.txt
 contains -F "rebuilds: the source rebuilds to the deployed code" verify.txt || fail "bill: verify rebuilds"
 contains -F "VERIFICATION FAILED" verify.txt && fail "bill: verified"
 
+echo "== measures (G5b): durations divided, defaults, temperatures, negatives, field tests"
+cp "$GOLDENS/test/measures/source.bo" measures.bo
+run bo test measures.bo > report.txt
+contains -Fx "6 tests: 6 passed, 0 failed." report.txt || fail "measures: the tests"
+run bo explain measures.bo > text.txt
+contains -F "It sets days_late to (the time of the call − the due date) ÷ 1 day, in whole times (the rest dropped). [R32]" text.txt || fail "measures: R32's clause"
+contains -F "[R32] A duration divided by a duration is the number of whole times" text.txt || fail "measures: R32's text"
+contains -Fx "2.5 fee: money in HKD; each instance starts with HKD 0 unless its creation gives another." text.txt || fail "measures: a default"
+contains -Fx "2.6 lowest: -2.5 °C, the same for every instance." text.txt || fail "measures: a temperature below zero"
+run bo explain measures.bo --language zh-Hant-HK | contains -F "÷ 1 日（按完整倍數計算，餘數捨去）。〔R32〕" || fail "measures: R32 in zh-Hant"
+run bo fmt measures.bo --language zh-Hans-CN > fmt.txt
+contains -Fx "  lowest -2.5 °C" fmt.txt || fail "measures: fmt keeps °C and the sign"
+contains -Fx "  fee 港元 = 港元 0" fmt.txt || fail "measures: fmt writes the default"
+run bo check measures.bo --stage model | contains -F "field coldest instance quantity temperature default (quantity unit.celsius 100)" || fail "measures: the model"
+# A step expecting other values fails, and says both sides.
+sed 's/days_late = 13, fee = HKD 26_000/days_late = 13, fee = HKD 5_000/' measures.bo > wrong.bo
+expect_exit 3 bo test wrong.bo
+contains -F "Expected: the call is accepted, and the instance is delivered; then days_late is 13 and fee is HKD 5,000.00." out.txt || fail "measures: the expected values"
+contains -F "but fee is HKD 26,000.00." out.txt || fail "measures: the values held"
+# A default needs an instance field and a value written out.
+printf 'contract C\nparties we\nthing T\n  lowest 2 °C = 3 °C\n  count number = 1 + 1\n' > defaults.bo
+CEXCHAIN_LANGUAGE=zh-Hans expect_exit 2 bo check defaults.bo
+contains -F "lowest 不能设默认值" out.txt || fail "measures: check.default-field in zh-Hans"
+contains -F "(check.default-value)" out.txt || fail "measures: check.default-value"
+
 echo "bo: all checks passed"
