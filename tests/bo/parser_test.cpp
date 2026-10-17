@@ -406,7 +406,8 @@ TEST_CASE("places, limits, and the empty source", "[bo][parser]") {
 
 TEST_CASE("a community pack's words parse as the official ones", "[bo][parser]") {
     std::string keywords;
-    for (const Concept& c : concepts()) {
+    for (const Concept* c_entry : concepts()) {
+        const Concept& c = *c_entry;
         if (c.category == Category::keyword) {
             keywords += (keywords.empty() ? "" : ", ") + std::string("\"") + std::string(c.id) +
                         "\": \"q" + std::string(c.id.substr(3)) + "\"";

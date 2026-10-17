@@ -585,7 +585,7 @@ public:
                 const VocabularyPack* pack = find_vocabulary_pack(id);
                 names.push_back(w_.say(
                     "vocab-pack",
-                    {{"pack", plain(w_.say("vocab-" + id))},
+                    {{"pack", plain(pack != nullptr ? vocabulary_name(*pack, &w_.pack()) : id)},
                      {"version", plain(std::to_string(pack != nullptr ? pack->version : 0))}}));
             }
             out_.packs = w_.say("packs-used", {{"packs", plain(w_.join(names, true))}});
@@ -1494,13 +1494,12 @@ private:
             }
             const std::string number = add(s.clauses, s.number, n, "action", title, {});
             std::size_t k = 0;
-            if (a.terms && a.word != nullptr && a.word->pack != Vocab::core) {
+            if (a.terms && a.word != nullptr && a.word->owner != nullptr) {
                 add(s.clauses, number, k, "standard",
                     w_.say("action-terms-pack",
                            {{"action", plain(name)},
                             {"function", plain(function_)},
-                            {"pack",
-                             plain(w_.say("vocab-" + std::string(vocab_name(a.word->pack))))}}),
+                            {"pack", plain(vocabulary_name(*a.word->owner, &w_.pack()))}}),
                     {});
             } else if (a.terms) {
                 add(s.clauses, number, k, "standard",

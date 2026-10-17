@@ -329,7 +329,8 @@ TEST_CASE("Chinese text sets Latin words and numbers apart, never inside a name"
 
 TEST_CASE("a pack without sentences writes them in English, with its own words", "[bo][explain]") {
     std::string keywords;
-    for (const Concept& c : concepts()) {
+    for (const Concept* c_entry : concepts()) {
+        const Concept& c = *c_entry;
         if (c.category == Category::keyword) {
             keywords += (keywords.empty() ? "" : ", ") + std::string("\"") + std::string(c.id) +
                         "\": \"q" + std::string(c.id.substr(3)) + "\"";

@@ -87,7 +87,8 @@ std::vector<std::string> concepts_of(std::string_view source) {
 /// plus `vocabulary`.
 Lexicon with_pack(std::string_view vocabulary) {
     std::string keywords;
-    for (const Concept& c : concepts()) {
+    for (const Concept* c_entry : concepts()) {
+        const Concept& c = *c_entry;
         if (c.category == Category::keyword) {
             keywords += (keywords.empty() ? "" : ", ") + std::string("\"") + std::string(c.id) +
                         "\": \"q" + std::string(c.id.substr(3)) + "\"";

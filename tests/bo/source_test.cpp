@@ -124,7 +124,7 @@ TEST_CASE("a source bundle names every official pack and round-trips", "[bo][sou
     CHECK(value->as_map()->size() == 5);
     REQUIRE(bundle.vocabulary.size() == 1);
     CHECK(bundle.vocabulary[0].id == "commerce");
-    CHECK(bundle.vocabulary[0].version == 1);
+    CHECK(bundle.vocabulary[0].version == 2);
     const auto vd = digest(*find_vocabulary_pack("commerce"), provider(), crypto::HashAlg::sha256);
     REQUIRE(vd.has_value());
     CHECK(std::ranges::equal(vd->bytes(), bundle.vocabulary[0].digest));
@@ -143,7 +143,7 @@ TEST_CASE("a source bundle names every official pack and round-trips", "[bo][sou
     CHECK(sm3.packs[0].digest != bundle.packs[0].digest);
     const OpenedSource wrong = open_source_bundle(sm3, provider(), crypto::HashAlg::sha256);
     CHECK(wrong.problem == OpenProblem::official_differs);
-    CHECK(wrong.detail.find("the official pack en version 3") != std::string::npos);
+    CHECK(wrong.detail.find("the official pack en version 4") != std::string::npos);
     const OpenedSource right = open_source_bundle(sm3, provider(), crypto::HashAlg::sm3);
     CHECK(right.problem == OpenProblem::none);
     REQUIRE(right.packs.has_value());
@@ -221,12 +221,12 @@ TEST_CASE("opening a bundle names what this compiler cannot read it with", "[bo]
     const SourceBundle bundle = bundle_of(pack_set());
     SECTION("an official pack version this compiler does not carry") {
         SourceBundle newer = bundle;
-        newer.packs[0].version = 4;
+        newer.packs[0].version = 5;
         const OpenedSource opened = open_source_bundle(newer, provider(), crypto::HashAlg::sha256);
         CHECK(opened.problem == OpenProblem::unknown_official);
         CHECK(opened.detail ==
-              "the source was read with the official pack en version 4; this compiler carries "
-              "version 3 (and the versions of earlier releases)");
+              "the source was read with the official pack en version 5; this compiler carries "
+              "version 4 (and the versions of earlier releases)");
     }
     SECTION("official packs of two releases") {
         SourceBundle mixed = bundle;
@@ -241,10 +241,10 @@ TEST_CASE("opening a bundle names what this compiler cannot read it with", "[bo]
     }
     SECTION("a vocabulary pack version this compiler does not carry") {
         SourceBundle newer = bundle;
-        newer.vocabulary[0].version = 2;
+        newer.vocabulary[0].version = 3;
         const OpenedSource opened = open_source_bundle(newer, provider(), crypto::HashAlg::sha256);
         CHECK(opened.problem == OpenProblem::unknown_official);
-        CHECK(opened.detail == "the source uses the vocabulary pack commerce version 2, which "
+        CHECK(opened.detail == "the source uses the vocabulary pack commerce version 3, which "
                                "this compiler does not carry");
         newer.vocabulary[0].id = "acme";
         newer.vocabulary[0].version = 1;
@@ -256,7 +256,7 @@ TEST_CASE("opening a bundle names what this compiler cannot read it with", "[bo]
         other.vocabulary[0].digest[0] ^= 1;
         const OpenedSource opened = open_source_bundle(other, provider(), crypto::HashAlg::sha256);
         CHECK(opened.problem == OpenProblem::official_differs);
-        CHECK(opened.detail.find("the vocabulary pack commerce version 1 has the digest") !=
+        CHECK(opened.detail.find("the vocabulary pack commerce version 2 has the digest") !=
               std::string::npos);
     }
     SECTION("use lines that differ from key 6") {
@@ -271,7 +271,7 @@ TEST_CASE("opening a bundle names what this compiler cannot read it with", "[bo]
             digest(*find_vocabulary_pack("finance"), provider(), crypto::HashAlg::sha256);
         REQUIRE(d.has_value());
         more.vocabulary.push_back(
-            PackRef{"finance", 1, Bytes(d->bytes().begin(), d->bytes().end())});
+            PackRef{"finance", 2, Bytes(d->bytes().begin(), d->bytes().end())});
         CHECK(open_source_bundle(more, provider(), crypto::HashAlg::sha256).problem ==
               OpenProblem::uses_differ);
         SourceBundle bare = bundle;
@@ -337,7 +337,7 @@ TEST_CASE("a bundle read before vocabulary packs opens with the packs it was rea
     SourceBundle named = *bundle;
     const auto d = digest(*find_vocabulary_pack("commerce"), provider(), crypto::HashAlg::sha256);
     REQUIRE(d.has_value());
-    named.vocabulary.push_back(PackRef{"commerce", 1, Bytes(d->bytes().begin(), d->bytes().end())});
+    named.vocabulary.push_back(PackRef{"commerce", 2, Bytes(d->bytes().begin(), d->bytes().end())});
     const OpenedSource refused = open_source_bundle(named, provider(), crypto::HashAlg::sha256);
     CHECK(refused.problem == OpenProblem::conflict);
     CHECK(refused.detail.find("before vocabulary packs") != std::string::npos);
@@ -373,6 +373,51 @@ TEST_CASE("a bundle read with version 2 of the official packs opens with them", 
     mixed.packs[0] = bundle_of(pack_set()).packs[0];
     CHECK(open_source_bundle(mixed, provider(), crypto::HashAlg::sha256).problem ==
           OpenProblem::conflict);
+}
+
+TEST_CASE("a bundle read with version 3 of the official packs opens with them", "[bo][source]") {
+    // What a deploy recorded before vocabulary pack files (G6): the official
+    // language packs version 3, which spell the vocabulary packs' words, and
+    // key 6 naming version 1 of the vocabulary packs, which spell none.
+    constexpr std::string_view third_source =
+        "use commerce\ncontract Deal\nparties we, customer\nthing Terms\n  holder customer\n";
+    PackSetRead third = make_pack_set({}, Officials::before_pack_files);
+    REQUIRE(third.set.has_value());
+    const auto bundle =
+        make_source_bundle(third_source, 1, *third.set, provider(), crypto::HashAlg::sha256);
+    REQUIRE(bundle.has_value());
+    REQUIRE(bundle->vocabulary.size() == 1);
+    CHECK(bundle->vocabulary[0].version == 1);
+    for (const PackRef& r : bundle->packs) {
+        CHECK(r.version == 3);
+    }
+    const OpenedSource opened = open_source_bundle(*bundle, provider(), crypto::HashAlg::sha256);
+    CHECK(opened.problem == OpenProblem::none);
+    REQUIRE(opened.packs.has_value());
+    CHECK(opened.packs->officials() == Officials::before_pack_files);
+    // The customer is a word of commerce there too, spelled by the language
+    // packs of that release.
+    const Meaning* customer = opened.packs->lookup("customer");
+    REQUIRE(customer != nullptr);
+    CHECK(customer->concept_entry->id == "role.customer");
+    // Each release reads with its own versions of the vocabulary packs:
+    // version 2 beside the language packs version 3, or version 1 beside
+    // version 4, is refused.
+    const SourceBundle today = bundle_of(pack_set(), crypto::HashAlg::sha256);
+    SourceBundle newer_vocabulary = *bundle;
+    const auto v2 = digest(*find_vocabulary_pack("commerce"), provider(), crypto::HashAlg::sha256);
+    REQUIRE(v2.has_value());
+    newer_vocabulary.vocabulary[0] =
+        PackRef{"commerce", 2, Bytes(v2->bytes().begin(), v2->bytes().end())};
+    const OpenedSource a =
+        open_source_bundle(newer_vocabulary, provider(), crypto::HashAlg::sha256);
+    CHECK(a.problem == OpenProblem::conflict);
+    CHECK(a.detail.find("commerce version 2 is not of the release") != std::string::npos);
+    SourceBundle older_vocabulary = *bundle;
+    older_vocabulary.packs = today.packs;
+    const OpenedSource b =
+        open_source_bundle(older_vocabulary, provider(), crypto::HashAlg::sha256);
+    CHECK(b.problem == OpenProblem::conflict);
 }
 
 TEST_CASE("decoding refuses bundles of any other shape", "[bo][source]") {

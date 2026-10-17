@@ -87,18 +87,24 @@ cexchain_target_defaults(cexchain_bo_front)
 set(pack_files)
 foreach(pack IN LISTS official_packs)
     list(APPEND pack_files "packs/${pack}.pack" "packs/history/${pack}-1.pack"
-        "packs/history/${pack}-2.pack")
+        "packs/history/${pack}-2.pack" "packs/history/${pack}-3.pack")
 endforeach()
-set(stdlib_files stdlib/core.bo stdlib/finance.bo stdlib/services.bo)
+# The official vocabulary packs (and, in vocab/history/, every earlier
+# version), which hold their standard terms.
+set(vocab_files)
+foreach(pack commerce finance services)
+    list(APPEND vocab_files "vocab/${pack}.vocab" "vocab/history/${pack}-1.vocab")
+endforeach()
+set(stdlib_files stdlib/core.bo)
 if(CEXCHAIN_HAVE_EMBED)
     target_compile_definitions(cexchain_bo_front PRIVATE CEXCHAIN_BO_EMBED=1)
 else()
     # Without #embed: each file as a list of bytes, packs/X.pack as
-    # X.pack.inc, stdlib/X.bo as X.bo.inc.
+    # X.pack.inc, vocab/X.vocab as X.vocab.inc, stdlib/X.bo as X.bo.inc.
     set(generated "${CMAKE_CURRENT_BINARY_DIR}/packs")
-    foreach(file IN LISTS pack_files stdlib_files)
+    foreach(file IN LISTS pack_files vocab_files stdlib_files)
         set(source "${CMAKE_CURRENT_SOURCE_DIR}/${file}")
-        string(REGEX REPLACE "^(packs|stdlib)/" "" name "${file}")
+        string(REGEX REPLACE "^(packs|vocab|stdlib)/" "" name "${file}")
         set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${source}")
         file(READ "${source}" bytes HEX)
         string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," bytes "${bytes}")
@@ -110,7 +116,9 @@ endif()
 # Rebuild the embedding sources whenever a pack or the standard library changes.
 list(TRANSFORM pack_files PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 list(TRANSFORM stdlib_files PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
+list(TRANSFORM vocab_files PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 set_source_files_properties(src/front/official.cpp PROPERTIES OBJECT_DEPENDS "${pack_files}")
+set_source_files_properties(src/front/vocab.cpp PROPERTIES OBJECT_DEPENDS "${vocab_files}")
 set_source_files_properties(src/front/stdlib.cpp PROPERTIES OBJECT_DEPENDS "${stdlib_files}")
 
 if(CEXCHAIN_BO STREQUAL "OFF")

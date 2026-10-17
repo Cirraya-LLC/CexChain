@@ -353,7 +353,8 @@ TEST_CASE("source that cannot be formatted says why", "[bo][format]") {
     // the word after it: a company's pack spells act.release `lodge qto`, so
     // the action `lodge` before `to` would read as release.
     std::string keywords;
-    for (const Concept& c : concepts()) {
+    for (const Concept* c_entry : concepts()) {
+        const Concept& c = *c_entry;
         if (c.category == Category::keyword) {
             keywords += (keywords.empty() ? "" : ", ") + std::string("\"") + std::string(c.id) +
                         "\": \"q" + std::string(c.id.substr(3)) + "\"";

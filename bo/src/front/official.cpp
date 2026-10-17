@@ -16,6 +16,9 @@
 
 #include <cexchain/bo/messages.hpp>
 #include <cexchain/bo/pack.hpp>
+#include <cexchain/bo/vocab.hpp>
+
+#include "internal.hpp"
 
 namespace cexchain::bo {
 
@@ -103,6 +106,27 @@ constexpr unsigned char zh_hans_cn_2_bytes[] = {
 #endif
 };
 
+constexpr unsigned char en_3_bytes[] = {
+#if CEXCHAIN_BO_EMBED
+#embed "../../packs/history/en-3.pack"
+#else
+#include "history/en-3.pack.inc"
+#endif
+};
+constexpr unsigned char zh_hant_hk_3_bytes[] = {
+#if CEXCHAIN_BO_EMBED
+#embed "../../packs/history/zh-Hant-HK-3.pack"
+#else
+#include "history/zh-Hant-HK-3.pack.inc"
+#endif
+};
+constexpr unsigned char zh_hans_cn_3_bytes[] = {
+#if CEXCHAIN_BO_EMBED
+#embed "../../packs/history/zh-Hans-CN-3.pack"
+#else
+#include "history/zh-Hans-CN-3.pack.inc"
+#endif
+};
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif
@@ -129,14 +153,22 @@ const PackText texts_2[] = {
     {"zh-Hans-CN", as_text(zh_hans_cn_2_bytes)},
 };
 
+const PackText texts_3[] = {
+    {"en", as_text(en_3_bytes)},
+    {"zh-Hant-HK", as_text(zh_hant_hk_3_bytes)},
+    {"zh-Hans-CN", as_text(zh_hans_cn_3_bytes)},
+};
+
 /// Every release carried, the current one first, then newest first.
-constexpr Officials release_order[] = {Officials::current, Officials::before_temperature,
-                                       Officials::before_vocabulary};
+constexpr Officials release_order[] = {Officials::current, Officials::before_pack_files,
+                                       Officials::before_temperature, Officials::before_vocabulary};
 
 std::span<const PackText> texts_of(const Officials which) noexcept {
     switch (which) {
     case Officials::current:
         return texts;
+    case Officials::before_pack_files:
+        return texts_3;
     case Officials::before_temperature:
         return texts_2;
     case Officials::before_vocabulary:
@@ -166,9 +198,20 @@ std::vector<Pack> read_all(std::span<const PackText> list) {
 }
 
 /// A release's packs, each release read on first use.
+/// A release's packs. The current release's hold the official vocabulary
+/// packs' words too, which those packs spell (vocab.hpp): the packs a set
+/// reads, and the ones messages and texts are written with, as one.
 template <Officials which>
 const std::vector<Pack>& read_once() {
-    static const std::vector<Pack> packs = read_all(texts_of(which));
+    static const std::vector<Pack> packs = [] {
+        std::vector<Pack> list = read_all(texts_of(which));
+        for (Pack& pack : list) {
+            for (const VocabularyPack* vocabulary : vocabulary_packs(which)) {
+                detail::merge_vocabulary(pack, *vocabulary);
+            }
+        }
+        return list;
+    }();
     return packs;
 }
 
@@ -176,6 +219,8 @@ const std::vector<Pack>& read_release(const Officials which) {
     switch (which) {
     case Officials::current:
         return read_once<Officials::current>();
+    case Officials::before_pack_files:
+        return read_once<Officials::before_pack_files>();
     case Officials::before_temperature:
         return read_once<Officials::before_temperature>();
     case Officials::before_vocabulary:

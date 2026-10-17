@@ -18,7 +18,7 @@ can act.pledge standard by=field.holder{R19} to=role.bank agents=delegation{R14}
     set field.pledgee role.bank
 can act.allocate standard to=role.customer agents=delegation{R14}
   consent role.customer{R3}
-4:1 error check.unknown-pack: use acme: Bo has no such vocabulary pack; its packs are commerce, finance, and services
+4:1 error check.unknown-pack: use acme: no vocabulary pack has this id; the official ones are commerce, finance, and services, and a pack of your own is given with --vocab FILE
 6:23 error check.pack-not-used: bank is a word of the finance vocabulary pack, which the source does not use: write use finance at its top
 13:5 error check.pack-not-used: allocate is a word of the services vocabulary pack, which the source does not use: write use services at its top
 13:5 error check.standard-field: the standard terms of allocate use the field cooling period, which each instance must hold and actions may change: declare it in the kind's block, with its type

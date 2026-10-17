@@ -19,6 +19,8 @@
 /// any pack.
 namespace cexchain::bo {
 
+struct VocabularyPack;
+
 /// The edition this compiler reads (`bo 1`). Later editions only add.
 inline constexpr std::uint64_t edition = 1;
 
@@ -62,19 +64,21 @@ inline constexpr std::array<std::string_view, 18> category_names{
 
 /// Where a concept belongs (D-054): Bo's core, which every source reads, or
 /// one of the official vocabulary packs, whose words a source uses only after
-/// declaring the pack (`use finance`). Pack words are reserved even where
-/// their pack is not used: Bo never reads `pledge` as a name of the
-/// contract's own.
+/// declaring the pack (`use finance`), or a user's vocabulary pack (G6;
+/// vocab.hpp). Official pack words are reserved even where their pack is not
+/// used: Bo never reads `pledge` as a name of the contract's own.
 enum class Vocab : std::uint8_t {
     core,
     finance,  ///< assets, pledges, payments, splits, freezes
     commerce, ///< prices, charges (taxes among them), bills, refunds
     services, ///< services, resources, and their allocation
+    user,     ///< a user's pack, which Concept::owner names
 };
 
-/// Vocabulary pack ids, in enumerator order ("core" is no pack).
-inline constexpr std::array<std::string_view, 4> vocab_names{"core", "finance", "commerce",
-                                                             "services"};
+/// Vocabulary pack ids, in enumerator order ("core" is no pack; "user"
+/// stands for any user's pack, whose own id names it).
+inline constexpr std::array<std::string_view, 5> vocab_names{"core", "finance", "commerce",
+                                                             "services", "user"};
 
 [[nodiscard]] constexpr std::string_view vocab_name(Vocab vocab) noexcept {
     return vocab_names[static_cast<std::size_t>(vocab)];
@@ -114,16 +118,26 @@ struct Concept {
     /// their deploys rebuild (kind.record, now kind.thing; act.merge, which
     /// never had a meaning).
     bool retired = false;
+    /// The vocabulary pack that defines it (vocab.hpp): an official pack's
+    /// current version, or a user's pack; nullptr for the core.
+    const VocabularyPack* owner = nullptr;
 };
 
-/// Every concept of the edition, sorted by id.
-[[nodiscard]] std::span<const Concept> concepts() noexcept;
+/// Every concept of the edition, the core's and the official vocabulary
+/// packs' (whose files define theirs: bo/vocab/), sorted by id. A user's
+/// pack's concepts are its own (VocabularyPack::concepts).
+[[nodiscard]] std::span<const Concept* const> concepts() noexcept;
 
 /// The symbol a unit is written as in every language, or empty: "°C" for
 /// unit.celsius (G5b), which sources may also write ℃, and which the packs
 /// also spell in words ("degrees Celsius", 攝氏度). Tools write the symbol.
 [[nodiscard]] std::string_view unit_symbol(const Concept* c) noexcept;
+/// A concept of the edition (the core's or an official pack's), or nullptr.
 [[nodiscard]] const Concept* find_concept(std::string_view id) noexcept;
+/// A concept of the core alone (the official packs' files are read with it).
+[[nodiscard]] const Concept* find_core_concept(std::string_view id) noexcept;
+/// The core's concepts (retired ones too), sorted by id.
+[[nodiscard]] std::span<const Concept> core_concepts() noexcept;
 /// The number of keywords (every pack spells them all).
 [[nodiscard]] std::size_t keyword_count() noexcept;
 
@@ -148,6 +162,10 @@ struct MessageSpec {
 struct SentenceSpec {
     std::string_view id;
     std::string_view params;
+    /// No longer written: only the official packs of earlier releases have
+    /// it (the official vocabulary packs' names, which their files give
+    /// since G6: vocabulary_name in vocab.hpp).
+    bool retired = false;
 };
 
 [[nodiscard]] std::span<const SentenceSpec> sentence_specs() noexcept;

@@ -26,11 +26,15 @@ write them (tests/bo/codegen_test.cpp, the hidden case
     CBOR, computed here from bo/packs/*.pack (diagnostic notation read by
     this script) and equal to tests/bo/golden/pack-digests.txt; key 6 names
     the vocabulary packs the source's `use` lines name, at the digests of
-    their canonical CBOR (checked here: its terms are bo/stdlib/ID.bo);
+    their canonical CBOR, computed here from bo/vocab/*.vocab and, carried,
+    bo/vocab/history/*.vocab (each equal to the C++ reader's canonical CBOR,
+    and the carried versions' terms equal to the current ones');
   - each contract's deploys with earlier releases of the official language
     packs (its bundles as the vectors recorded them then: version 1, from
     before vocabulary packs, with no key 6; version 2, from before
-    temperatures and field defaults; both in bo/packs/history/) are kept as
+    temperatures and field defaults; version 3, from before vocabulary pack
+    files, with version 1 of the vocabulary packs in key 6; all in
+    bo/packs/history/) are kept as
     "earlier", oldest first, each with the code it deployed, which must be
     the code built today.
 The C++ test "the conformance vectors" then rebuilds each source to the same
@@ -61,6 +65,7 @@ import wasm_ref as w
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 OUT = ROOT / "testvectors" / "bo-v1.json"
 PACKS = ROOT / "bo" / "packs"
+VOCAB = ROOT / "bo" / "vocab"
 PACK_DIGESTS = ROOT / "tests" / "bo" / "golden" / "pack-digests.txt"
 
 
@@ -89,13 +94,20 @@ def read_pack(text: str):
     return json.loads("".join(out))
 
 
-def official_packs(vocabulary: dict) -> dict:
+def terms_of(pack: dict):
+    """A vocabulary pack's terms as one text (a file may give its lines)."""
+    terms = pack.get("terms")
+    return "".join(line + "\n" for line in terms) if isinstance(terms, list) else terms
+
+
+def official_packs(vocabulary: list) -> dict:
     """Each official pack's (id, version) and the SHA-256 of its canonical
     CBOR: the language packs from bo/packs/*.pack and, carried so that old
-    deploys rebuild, bo/packs/history/*.pack (diagnostic notation read by
-    this script); the vocabulary packs from the canonical CBOR the C++ writer
-    gives, checked here (format, id, version, edition, concepts, and terms
-    equal to bo/stdlib/ID.bo). Each is checked against the C++ golden."""
+    deploys rebuild, bo/packs/history/*.pack; the vocabulary packs from
+    bo/vocab/*.vocab and bo/vocab/history/*.vocab (diagnostic notation read
+    by this script), each equal to the canonical CBOR the C++ reader gives,
+    a carried version's terms equal to its current version's. Each is
+    checked against the C++ golden."""
     golden = {}
     for line in PACK_DIGESTS.read_text(encoding="utf-8").splitlines():
         pack_id, version, hash_name, digest = line.split()
@@ -108,19 +120,22 @@ def official_packs(vocabulary: dict) -> dict:
         packs[key] = hashlib.sha256(dcbor(pack)).hexdigest()
         assert golden.get(key) == packs[key], \
             f"{path.name}: digest {packs[key]}, but the golden says {golden.get(key)}"
-    for pack_id, entry in vocabulary.items():
-        canonical = bytes.fromhex(entry["canonical"])
-        value = cbor2.loads(canonical)
-        assert dcbor(value) == canonical, f"{pack_id}: not deterministic CBOR"
-        assert value["format"] == 1 and value["id"] == pack_id and value["edition"] == 1
-        assert value["version"] == entry["version"]
-        assert isinstance(value["concepts"], dict) and value["concepts"], pack_id
-        terms = ROOT / "bo" / "stdlib" / f"{pack_id}.bo"
-        assert value.get("terms") == (terms.read_text(encoding="utf-8") if terms.exists()
-                                      else None), f"{pack_id}: terms"
-        key = (pack_id, value["version"])
+    written = {(e["id"], e["version"]): bytes.fromhex(e["canonical"]) for e in vocabulary}
+    terms = {}
+    for path in sorted(VOCAB.glob("*.vocab")) + sorted((VOCAB / "history").glob("*.vocab")):
+        value = read_pack(path.read_text(encoding="utf-8"))
+        key = (value["id"], value["version"])
+        canonical = dcbor(value)
+        assert written.get(key) == canonical, f"{path.name}: the C++ reader's CBOR differs"
+        assert value["format"] == 1 and value["edition"] == 1
+        assert isinstance(value["concepts"], dict) and value["concepts"], path.name
+        # Every version of a pack has the same terms (the compiler's library
+        # holds one meaning per action).
+        assert terms.setdefault(value["id"], terms_of(value)) == terms_of(value), \
+            f"{path.name}: terms"
         packs[key] = hashlib.sha256(canonical).hexdigest()
-        assert golden.get(key) == packs[key], f"{pack_id}: digest differs from the golden"
+        assert golden.get(key) == packs[key], f"{path.name}: digest differs from the golden"
+    assert set(written) == {k for k in packs if k[0] in terms}, "the vocabulary packs differ"
     assert set(packs) == set(golden), "the packs and their goldens differ"
     return packs
 
@@ -153,6 +168,9 @@ def check_bundle(bundle: bytes, source: str, packs: dict, version: int) -> None:
     if used:
         assert [r[0] for r in value[6]] == used, "key 6 is not the source's use lines"
         for pack_id, pack_version, digest in value[6]:
+            # The official vocabulary packs' version of the release: 1 with
+            # the language packs version 2 and 3, 2 with version 4.
+            assert pack_version == (2 if version >= 4 else 1), f"vocabulary {pack_id} version"
             assert packs[(pack_id, pack_version)] == digest.hex(), f"vocabulary {pack_id}"
 
 
@@ -282,8 +300,9 @@ def main() -> int:
                   for path in PACKS.glob("*.pack"))
     # What each contract's deploys recorded with earlier releases of the
     # official language packs (version 1: no `use` lines, no key 6; version
-    # 2: before temperatures and field defaults), from the vectors as they
-    # were, oldest first: old deploys must still rebuild to the same code.
+    # 2: before temperatures and field defaults; version 3: before
+    # vocabulary pack files), from the vectors as they were, oldest first:
+    # old deploys must still rebuild to the same code.
     earlier = {}
     if pathlib.Path(args.out).exists():
         previous = json.loads(pathlib.Path(args.out).read_text(encoding="utf-8"))
@@ -367,8 +386,9 @@ def main() -> int:
                        f"{current} and the vocabulary packs its use lines name, SHA-256 "
                        "digests), the bundles its deploys recorded with earlier releases of "
                        "the official packs, oldest first (earlier: language packs version 1, "
-                       "no use lines; version 2, before temperatures and field defaults; each "
-                       "rebuilds to the same code), "
+                       "no use lines; version 2, before temperatures and field defaults; "
+                       "version 3, before vocabulary pack files, with version 1 of the "
+                       "vocabulary packs; each rebuilds to the same code), "
                        "and the code cexchain-bo builds, the hashes of its codegen 1 and 2 code, and its "
                        "functions' fuel and output bounds (informative); calls with their "
                        "outcomes (normative; fuel is this code's); and sources that must not "

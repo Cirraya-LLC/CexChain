@@ -225,8 +225,18 @@ struct Meaning {
 ///   - before_temperature: version 2 of each, with vocabulary packs, from
 ///     before temperatures and field defaults (G5b): it reads like the
 ///     current release, but spells no word for a temperature;
-///   - current: version 3 of each.
-enum class Officials : std::uint8_t { current, before_vocabulary, before_temperature };
+///   - before_pack_files: version 3 of each, from before vocabulary pack
+///     files (G6): they spell the official vocabulary packs' words too,
+///     whose versions of this release (version 1) carry no spellings;
+///   - current: version 4 of each, which spell the core's words alone; the
+///     official vocabulary packs (version 2) spell theirs (vocab.hpp), and
+///     the release's packs hold them as their own.
+enum class Officials : std::uint8_t {
+    current,
+    before_vocabulary,
+    before_temperature,
+    before_pack_files,
+};
 
 /// The packs a source is read with: the official packs, always, and any
 /// others given. No spelling has two meanings in it.

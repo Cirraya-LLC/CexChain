@@ -1,0 +1,37 @@
+# Bo vocabulary pack: commerce, version 1 (official), carried.
+#
+# The version G5 released (D-054): the compiler's tables then, as canonical
+# CBOR. It has no "languages": version 3 of the official language packs
+# (bo/packs/history/*-3.pack) and version 2 spell its words. Released
+# versions never change; deploys that name this one rebuild with it.
+
+{
+  "format": 1,
+  "id": "commerce",
+  "version": 1,
+  "edition": 1,
+  "concepts": {
+    "act.refund": {"category": "action"},
+    "act.credit": {"category": "action"},
+    "price.price": {"category": "pricing"},
+    "price.usage": {"category": "pricing"},
+    "price.overage": {"category": "pricing"},
+    "price.per": {"category": "pricing"},
+    "price.setup_fee": {"category": "pricing"},
+    "charge.charge": {"category": "charge"},
+    "charge.tax": {"category": "charge"},
+    "charge.rate": {"category": "charge"},
+    "charge.applies_to": {"category": "charge", "argument": true},
+    "charge.from": {"category": "charge", "argument": true},
+    "charge.included": {"category": "charge"},
+    "charge.added": {"category": "charge"},
+    "charge.per_line": {"category": "charge"},
+    "charge.per_document": {"category": "charge"},
+    "charge.by": {"category": "charge"},
+    "doc.invoice": {"category": "document"},
+    "doc.credit_note": {"category": "document"},
+    "doc.receipt": {"category": "document"},
+    "field.customer_location": {"category": "field", "type": "text"},
+    "role.customer": {"category": "role"}
+  }
+}

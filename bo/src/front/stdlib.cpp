@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// The standard library of edition 1, compiled in from bo/stdlib/ with #embed
-// (the core's terms, then the vocabulary packs'; D-054) and read once with the
+// The standard library of edition 1: the core's terms, compiled in from
+// bo/stdlib/core.bo with #embed, then the official vocabulary packs' (D-054),
+// from their files (bo/vocab/) and read once with the
 // official packs. Like the official packs, it is
 // part of the compiler and of edition 1: once released, a template's terms
 // never change what an action means; a later edition may add actions.
@@ -25,6 +26,7 @@
 #include <cexchain/bo/pack.hpp>
 #include <cexchain/bo/stdlib.hpp>
 #include <cexchain/bo/values.hpp>
+#include <cexchain/bo/vocab.hpp>
 
 namespace cexchain::bo {
 
@@ -41,22 +43,6 @@ constexpr unsigned char core_bytes[] = {
 #embed "../../stdlib/core.bo"
 #else
 #include "core.bo.inc"
-#endif
-};
-
-constexpr unsigned char finance_bytes[] = {
-#if CEXCHAIN_BO_EMBED
-#embed "../../stdlib/finance.bo"
-#else
-#include "finance.bo.inc"
-#endif
-};
-
-constexpr unsigned char services_bytes[] = {
-#if CEXCHAIN_BO_EMBED
-#embed "../../stdlib/services.bo"
-#else
-#include "services.bo.inc"
 #endif
 };
 
@@ -159,17 +145,12 @@ std::string_view StandardLibrary::source_of(const Concept* action) const noexcep
 }
 
 std::string_view standard_source(const Vocab pack) noexcept {
-    switch (pack) {
-    case Vocab::core:
+    if (pack == Vocab::core) {
         return as_text(core_bytes);
-    case Vocab::finance:
-        return as_text(finance_bytes);
-    case Vocab::services:
-        return as_text(services_bytes);
-    case Vocab::commerce:
-        break;
     }
-    return {};
+    // A vocabulary pack's terms are in its file (bo/vocab/).
+    const VocabularyPack* vocabulary = vocabulary_pack(pack);
+    return vocabulary == nullptr ? std::string_view() : std::string_view(vocabulary->terms);
 }
 
 const StandardLibrary& standard_library() noexcept {

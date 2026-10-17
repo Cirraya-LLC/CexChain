@@ -1761,11 +1761,14 @@ TEST_CASE("bo build: write the runs for the Python reference", "[.codegen-refere
         error["errors"] = std::move(codes);
         errors.push_back(std::move(error));
     }
-    // The vocabulary packs, as canonical CBOR: what key 6's digests cover.
-    nlohmann::ordered_json vocabulary = nlohmann::ordered_json::object();
-    for (const bo::VocabularyPack& pack : bo::vocabulary_packs()) {
-        vocabulary[std::string(pack.id)] = {{"version", pack.version},
-                                            {"canonical", hex(pack.canonical)}};
+    // The official vocabulary packs, current and carried, as canonical
+    // CBOR: what key 6's digests cover.
+    nlohmann::ordered_json vocabulary = nlohmann::ordered_json::array();
+    for (const bo::VocabularyText& text : bo::official_vocabulary_texts()) {
+        const bo::VocabularyPack* pack = bo::find_vocabulary_pack(text.id, text.version);
+        REQUIRE(pack != nullptr);
+        vocabulary.push_back(
+            {{"id", pack->id}, {"version", pack->version}, {"canonical", hex(pack->canonical)}});
     }
     doc["vocabulary"] = std::move(vocabulary);
     doc["compiler"] = bo::compiler_string();

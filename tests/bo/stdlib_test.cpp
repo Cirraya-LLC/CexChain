@@ -32,6 +32,7 @@
 #include <cexchain/bo/pack.hpp>
 #include <cexchain/bo/parser.hpp>
 #include <cexchain/bo/stdlib.hpp>
+#include <cexchain/bo/vocab.hpp>
 
 using namespace cexchain;
 using namespace cexchain::bo;
@@ -86,7 +87,16 @@ TEST_CASE("the standard library reads, as compiled in, in every language", "[bo]
         const StandardFile& f = library.files[i];
         INFO(files[i].second);
         CHECK(f.pack == files[i].first);
-        CHECK(f.source == read_text(source_dir / ("bo/stdlib/" + files[i].second + ".bo")));
+        // The core's terms are bo/stdlib/core.bo; a pack's are in its file
+        // (bo/vocab/), whose carried versions hold the same terms.
+        if (f.pack == Vocab::core) {
+            CHECK(f.source == read_text(source_dir / "bo/stdlib/core.bo"));
+        } else {
+            CHECK(f.source == find_vocabulary_pack(files[i].second)->terms);
+            const VocabularyPack* first = find_vocabulary_pack(files[i].second, 1);
+            REQUIRE(first != nullptr);
+            CHECK(f.source == first->terms);
+        }
         CHECK(f.source == standard_source(f.pack));
         const Formatted kept = format_source(f.source, official_set(), official(), nullptr);
         REQUIRE(kept.source.has_value());

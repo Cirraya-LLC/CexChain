@@ -97,7 +97,7 @@ contains -x 1 out.txt || fail "version names the edition"
 
 echo "== the official packs, and their digests"
 run bo packs list > out.txt
-contains -F "zh-Hant-HK   version 3   official   繁體中文（香港）" out.txt || fail "list"
+contains -F "zh-Hant-HK   version 4   official   繁體中文（香港）" out.txt || fail "list"
 run bo packs list --json > list.json
 json 'len(d)' < list.json > out.txt
 contains -x 3 out.txt || fail "three official packs"
@@ -107,12 +107,12 @@ for hash in SHA-256 SM3; do
     [ "$hash" = SM3 ] && option=sm3
     run bo packs list --json --hash "$option" |
         json "'\\n'.join(p['id'] + ' ' + str(p['version']) + ' ' + p['hash'] + ' ' + p['digest'] for p in d)" > digests.txt
-    grep -E "^(en|zh-Hant-HK|zh-Hans-CN) 3 $hash " "$GOLDEN" > expected.txt
+    grep -E "^(en|zh-Hant-HK|zh-Hans-CN) 4 $hash " "$GOLDEN" > expected.txt
     diff expected.txt digests.txt > /dev/null || fail "digests ($hash) differ from $GOLDEN"
     # The vocabulary packs too.
     run bo vocab list --json --hash "$option" |
         json "'\\n'.join(p['id'] + ' ' + str(p['version']) + ' ' + p['hash'] + ' ' + p['digest'] for p in d if p['digest'])" > digests.txt
-    grep -E "^(commerce|finance|services) 1 $hash " "$GOLDEN" > expected.txt
+    grep -E "^(commerce|finance|services) 2 $hash " "$GOLDEN" > expected.txt
     diff expected.txt digests.txt > /dev/null || fail "vocabulary digests ($hash) differ from $GOLDEN"
 done
 json 'd[1]["keywords"], d[1]["words"], d[1]["official"], d[1]["separation"]' < list.json > out.txt
@@ -131,7 +131,7 @@ run bo packs show zh-Hans-CN --json > show.json
 json 'd["keywords"]["kw.each"], d["vocabulary"]["unit.item"]["category"], d["reading"]["multipliers"]["万"]' < show.json > out.txt
 contains -Fx "['逐个'] unit 10000" out.txt || fail "show --json"
 json 'len(d["messages"]), len(d["sentences"])' < show.json > out.txt
-contains -Fx "225 248" out.txt || fail "messages and sentences"
+contains -Fx "251 245" out.txt || fail "messages and sentences"
 expect_exit 1 bo packs show fr
 contains -F "no pack fr" out.txt || fail "unknown pack"
 expect_exit 1 bo packs show en --section nope
@@ -139,9 +139,9 @@ expect_exit 1 bo packs show en --section nope
 echo "== Bo's core and its vocabulary packs"
 run bo vocab list > out.txt
 contains -E "^core +- +core +81 words, +5 built-in actions +\(every source\)$" out.txt || fail "vocab list: core"
-contains -E "^finance +version 1 +finance +24 words, 10 built-in actions  SHA-256 [0-9a-f]{64}$" out.txt || fail "vocab list: finance"
-contains -E "^commerce +version 1 +commerce +22 words, +0 built-in actions" out.txt || fail "vocab list: commerce"
-contains -E "^services +version 1 +services +12 words, +2 built-in actions" out.txt || fail "vocab list: services"
+contains -E "^finance +version 2 +finance +24 words, 10 built-in actions  SHA-256 [0-9a-f]{64}$" out.txt || fail "vocab list: finance"
+contains -E "^commerce +version 2 +commerce +22 words, +0 built-in actions" out.txt || fail "vocab list: commerce"
+contains -E "^services +version 2 +services +12 words, +2 built-in actions" out.txt || fail "vocab list: services"
 run bo vocab list --language zh-Hant-HK > out.txt
 contains -F "金融" out.txt || fail "vocab list: names in the reader's language"
 run bo vocab list --json > vocab.json
@@ -155,7 +155,7 @@ run bo vocab show finance --language zh-Hans-CN > out.txt
 contains -E "^  field +field.pledgee +质权人  party; added \(R20\); taking \(R31\)$" out.txt || fail "vocab show: a pack's field"
 run bo vocab show services --json > show.json
 json 'd["id"], d["version"], len(d["words"]), d["actions"], d["canonical"][:2]' < show.json > out.txt
-contains -Fx "services 1 12 ['allocate', 'reclaim'] a6" out.txt || fail "vocab show --json"
+contains -Fx "services 2 12 ['allocate', 'reclaim'] a7" out.txt || fail "vocab show --json"
 json '[r["id"] for r in d["rules"]]' < show.json > out.txt
 contains -Fx "['R11', 'R23']" out.txt || fail "vocab show --json: the pack's rules"
 run bo vocab show commerce > out.txt
@@ -206,7 +206,7 @@ cat > company.pack <<'EOF'
 }
 EOF
 run bo packs check company.pack > out.txt
-contains -F "warning: pack acme-terms does not spell 136 of the 139 words" out.txt || fail "partial"
+contains -F "warning: pack acme-terms does not spell 80 of the 81 words" out.txt || fail "partial"
 contains -F "company.pack: pack acme-terms version 3 (community): 18 keywords, 3 words" out.txt || fail "check ok"
 contains -F "ok: the packs read" out.txt || fail "ok"
 run bo packs list --pack company.pack > out.txt
@@ -464,7 +464,7 @@ contains -Fx "agreement.bo: built contract Agreement (Bo edition 1)" out.txt || 
 contains -F "functions  amend, close, countersign, create (creates), sign" out.txt || fail "functions"
 contains -F "code       $GOLDEN_SIZE bytes, SHA-256 $GOLDEN_HASH" out.txt || fail "code"
 contains -F "compiler   $COMPILER" out.txt || fail "compiler"
-contains -F "the packs en 3, zh-Hans-CN 3, zh-Hant-HK 3, and the vocabulary packs commerce 1 (SHA-256 digests)" out.txt || fail "packs"
+contains -F "the packs en 4, zh-Hans-CN 4, zh-Hant-HK 4, and the vocabulary packs commerce 2 (SHA-256 digests)" out.txt || fail "packs"
 contains -F "wrote" out.txt && fail "nothing written without --out"
 # The highest fuel and output bounds (milestone 18), as the golden keeps them.
 AMEND_FUEL="$(sed -n 's/^bound amend: fuel \([0-9]*\),.*/\1/p' "$BUILDS/agreement-en/build.txt")"
@@ -807,7 +807,7 @@ json 'd["contract"]["language"], d["contract"]["compiler"], d["contract"]["name"
 contains -Fx "bo $COMPILER Agreement $GOLDEN_HASH 1" out.txt || fail "deploy records the build"
 d contract show "$C" > show.txt
 contains -Fx "language:   bo (compiler: $COMPILER)" show.txt || fail "show: compiler"
-contains -F "            Bo, edition 1: $SOURCE_SIZE bytes of source; packs en 3, zh-Hans-CN 3, zh-Hant-HK 3; vocabulary packs commerce 1" show.txt || fail "show: bundle"
+contains -F "            Bo, edition 1: $SOURCE_SIZE bytes of source; packs en 4, zh-Hans-CN 4, zh-Hant-HK 4; vocabulary packs commerce 2" show.txt || fail "show: bundle"
 contains -F "rebuild:    rebuilds: the source rebuilds to the deployed code ($GOLDEN_SIZE bytes, SHA-256 ${GOLDEN_HASH:0:16}) with $COMPILER" show.txt || fail "show: rebuild"
 d contract show "$C" --json | json 'd["bo"]["status"], d["bo"]["failed"], d["bo"]["edition"], len(d["bo"]["packs"])' > out.txt
 contains -Fx "rebuilds False 1 3" out.txt || fail "show --json"
@@ -880,7 +880,7 @@ run contract verify e1.cbor --ledger-id "$D_ID" > verify.txt
 contains -F "  Contract     bo, compiled with $COMPILER" verify.txt || fail "verify: the contract"
 contains -F "  Status       effective" verify.txt || fail "verify: status"
 contains -F "consent of Customer (SM3)" verify.txt || fail "verify: the consent on SM3"
-contains -F "  Source       Bo, edition 1: $SOURCE_SIZE bytes of source; packs en 3, zh-Hans-CN 3, zh-Hant-HK 3; vocabulary packs commerce 1" verify.txt || fail "verify: the source"
+contains -F "  Source       Bo, edition 1: $SOURCE_SIZE bytes of source; packs en 4, zh-Hans-CN 4, zh-Hant-HK 4; vocabulary packs commerce 2" verify.txt || fail "verify: the source"
 contains -F "               rebuilds: the source rebuilds to the deployed code ($GOLDEN_SIZE bytes, SHA-256 ${GOLDEN_HASH:0:16})" verify.txt || fail "verify: rebuilds"
 contains -F "VERIFICATION FAILED" verify.txt && fail "verify: verified"
 run contract verify e1.cbor --ledger-id "$D_ID" --json > verify.json

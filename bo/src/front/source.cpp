@@ -237,7 +237,13 @@ Result<SourceBundle> make_source_bundle(std::string_view source, const std::uint
     bundle.edition = source_edition;
     bundle.source = std::string(source);
     for (const std::string& id : source_uses(source, packs)) {
-        const VocabularyPack* pack = find_vocabulary_pack(id);
+        // The version of the set's release (vocab.hpp).
+        const VocabularyPack* pack = nullptr;
+        for (const VocabularyPack* official : vocabulary_packs(packs.officials())) {
+            if (official->id == id) {
+                pack = official;
+            }
+        }
         if (pack == nullptr) {
             return malformed(std::format(
                 "the source uses the vocabulary pack {}, which this compiler does not carry", id));
@@ -395,11 +401,19 @@ OpenedSource open_source_bundle(const SourceBundle& bundle, const crypto::Provid
                        "pack without naming it");
     }
     for (const PackRef& ref : bundle.vocabulary) {
-        const VocabularyPack* pack = find_vocabulary_pack(ref.id);
-        if (pack == nullptr || pack->version != ref.version) {
+        const VocabularyPack* pack = find_vocabulary_pack(ref.id, ref.version);
+        if (pack == nullptr) {
             return problem(OpenProblem::unknown_official,
                            std::format("the source uses the vocabulary pack {} version {}, which "
                                        "this compiler does not carry",
+                                       ref.id, ref.version));
+        }
+        // Each release of the official language packs reads with its own
+        // versions of the official vocabulary packs (vocab.hpp).
+        if (!std::ranges::contains(vocabulary_packs(which), pack)) {
+            return problem(OpenProblem::conflict,
+                           std::format("the vocabulary pack {} version {} is not of the release "
+                                       "of the bundle's official language packs",
                                        ref.id, ref.version));
         }
         const auto d = digest(*pack, provider, hash);

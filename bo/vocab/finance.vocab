@@ -1,0 +1,237 @@
+# Bo vocabulary pack: finance (official).
+#
+# Assets, pledges, payments, splits, and freezes (D-054). A source that
+# writes `use finance` reads these words; its kind `asset` is the
+# compiler's, the rest are words with standard terms (below) or a
+# contract's own.
+#
+# CBOR diagnostic notation; the digest covers the canonical CBOR, so
+# comments and layout do not change it. Released versions never change: a
+# change is a new version, and the compiler carries every released one
+# (bo/vocab/history/). Version 1 had no "languages": the language packs
+# spelled its words until version 4 of theirs.
+
+{
+  "format": 1,
+  "id": "finance",
+  "version": 2,
+  "edition": 1,
+
+  "concepts": {
+    # What a block declares: a kind of the compiler's own mechanism.
+    "kind.asset": {"category": "kind"},
+    # Actions.
+    "act.pledge": {"category": "action"},
+    "act.release": {"category": "action"},
+    "act.enforce": {"category": "action"},
+    "act.redeem": {"category": "action"},
+    "act.split": {"category": "action"},
+    "act.pay": {"category": "action"},
+    "act.confirm_payment": {"category": "action"},
+    "act.dispute": {"category": "action"},
+    "act.freeze": {"category": "action"},
+    "act.unfreeze": {"category": "action"},
+    # Fields.
+    "field.tier": {"category": "field", "type": "number"},
+    "field.pledgee": {"category": "field", "type": "party", "added": true, "taking": true},
+    # Who a receivable's payment went to (the standard terms' pay), and the
+    # part of a warehouse receipt redeemed.
+    "field.payee": {"category": "field", "type": "party", "added": true, "taking": true},
+    "field.portion": {"category": "field", "type": "portion"},
+    # States.
+    "state.pledged": {"category": "state"},
+    "state.paid": {"category": "state"},
+    "state.settled": {"category": "state"},
+    "state.frozen": {"category": "state"},
+    "state.disputed": {"category": "state"},
+    "state.redeemed": {"category": "state"},
+    # Roles.
+    "role.supplier": {"category": "role"},
+    "role.bank": {"category": "role"},
+    "role.issuer": {"category": "role"}
+  },
+
+  # The standard terms of its actions: a Bo source, line by line.
+  "terms": [
+    "bo 1",
+    "use finance",
+    "# The standard terms of the finance pack's built-in actions (D-054): pledges,",
+    "# payments, freezes, and splits, with the semantics CexChain's native assets",
+    "# had before they became Bo contracts. A contract that uses the pack",
+    "# (`use finance`) and writes `can pledge to bank` gets the pledge below, with",
+    "# the bank as its counterparty; its own lines under `can pledge` add to it",
+    "# and are checked first. `cexchain bo stdlib show pledge` prints it.",
+    "#",
+    "# The fields these terms use: holder (a party), quantity (redeem), amount and",
+    "# tier (split), and pledgee and payee, which Bo adds to each instance, holding",
+    "# no party until an action sets them (R20).",
+    "",
+    "# The holder pledges the asset to the counterparty, which becomes its pledgee.",
+    "# Both consent to every pledge. Only an active asset can be pledged: no second",
+    "# pledge.",
+    "can pledge to counterparty by holder",
+    "  requires not counterparty = holder",
+    "  active -> pledged",
+    "  pledgee = counterparty",
+    "",
+    "# The pledgee gives its pledge up.",
+    "can release by pledgee",
+    "  pledged -> active",
+    "  pledgee = none",
+    "",
+    "# The pledgee takes the asset: it becomes the holder. The holder agreed to",
+    "# this when it pledged the asset, so only the pledgee consents.",
+    "can enforce by pledgee",
+    "  pledged -> active",
+    "  holder = pledgee",
+    "  pledgee = none",
+    "",
+    "# The holder takes goods out (a warehouse receipt); the pledgee consents while",
+    "# the receipt is pledged. When nothing remains, it is redeemed.",
+    "can redeem by holder with portion quantity",
+    "  requires active or pledged",
+    "  if pledged requires consent of pledgee",
+    "  requires portion > 0",
+    "  requires portion <= quantity",
+    "  quantity = quantity - portion",
+    "  if quantity = 0",
+    "    pledgee = none",
+    "    -> redeemed",
+    "",
+    "# The debtor says it paid (a receivable), on the home's own word: the payee is",
+    "# the pledgee if there is one, else the holder, and stays the same when the",
+    "# debtor pays again after a dispute.",
+    "can pay",
+    "  active, pledged, disputed -> paid",
+    "  if payee = none",
+    "    if pledgee = none",
+    "      payee = holder",
+    "    otherwise",
+    "      payee = pledgee",
+    "",
+    "# The payee confirms it was paid.",
+    "can confirm payment by payee",
+    "  paid, disputed -> settled",
+    "",
+    "# The payee says it was not paid.",
+    "can dispute by payee",
+    "  paid -> disputed",
+    "",
+    "# The home freezes the asset on its own word, such as under a court order.",
+    "can freeze",
+    "  active, pledged, paid, disputed -> frozen",
+    "",
+    "# The home unfreezes it: it returns to the state it was frozen in.",
+    "can unfreeze",
+    "  frozen -> previous state",
+    "",
+    "# The holder splits the asset into parts, one for each recipient, so that its",
+    "# own suppliers can hold, pledge, and be paid each part (multi-tier transfer).",
+    "# The parts add up to the amount, each at least the currency's smallest unit;",
+    "# the holder may keep a part. The holder and every recipient consent: at most",
+    "# 15 recipients besides the holder, as a call cites at most 16 consents. Each",
+    "# part becomes an instance of its own, held by its recipient, one tier down",
+    "# (R30); the asset ends, divided. Only an active asset splits, so not while",
+    "# pledged; a part at depth 8 splits no further.",
+    "can split by holder with parts, recipients",
+    "  requires count of recipients = count of parts",
+    "  requires count of recipients <= 15 or holder in recipients",
+    "  each part in parts",
+    "    requires part > 0",
+    "  requires sum of parts = amount",
+    "  requires consent of recipients",
+    "  active -> divided",
+    "  issue parts to recipients with tier = tier + 1"
+  ],
+
+  # How each language spells them, as a language pack's "vocabulary".
+  "languages": {
+    "en": {
+      "name": "finance",
+      "words": {
+        "kind.asset": {"word": "asset", "forms": {"plural": "assets", "indefinite": "an asset"}},
+        "act.pledge": {"word": "pledge", "forms": {"third": "pledges", "gerund": "pledging"}},
+        "act.release": {"word": "release", "forms": {"third": "releases", "gerund": "releasing"}},
+        "act.enforce": {"word": "enforce", "forms": {"third": "enforces", "gerund": "enforcing"}},
+        "act.redeem": {"word": "redeem", "forms": {"third": "redeems", "gerund": "redeeming"}},
+        "act.split": {"word": "split", "forms": {"third": "splits", "gerund": "splitting"}},
+        "act.pay": {"word": "pay", "forms": {"third": "pays", "gerund": "paying"}},
+        "act.confirm_payment": {"word": "confirm payment", "forms": {"third": "confirms payment", "gerund": "confirming payment"}},
+        "act.dispute": {"word": "dispute", "forms": {"third": "disputes", "gerund": "disputing"}},
+        "act.freeze": {"word": "freeze", "forms": {"third": "freezes", "gerund": "freezing"}},
+        "act.unfreeze": {"word": "unfreeze", "forms": {"third": "unfreezes", "gerund": "unfreezing"}},
+        "field.tier": {"word": "tier", "forms": {"object": "the tier"}},
+        "field.pledgee": {"word": "pledgee", "forms": {"subject": "the pledgee", "object": "the pledgee"}},
+        "field.payee": {"word": "payee", "forms": {"subject": "the payee", "object": "the payee"}},
+        "field.portion": {"word": "portion", "forms": {"object": "the portion"}},
+        "state.pledged": "pledged",
+        "state.paid": "paid",
+        "state.settled": "settled",
+        "state.frozen": "frozen",
+        "state.disputed": "disputed",
+        "state.redeemed": "redeemed",
+        "role.supplier": {"word": "supplier", "forms": {"subject": "the supplier", "object": "the supplier"}},
+        "role.bank": {"word": "bank", "forms": {"subject": "the bank", "object": "the bank"}},
+        "role.issuer": {"word": "issuer", "forms": {"subject": "the issuer", "object": "the issuer"}}
+      }
+    },
+    "zh-Hant-HK": {
+      "name": "金融",
+      "words": {
+        "kind.asset": "資產",
+        "act.pledge": "質押",
+        "act.release": "解除質押",
+        "act.enforce": "執行質權",
+        "act.redeem": "贖回",
+        "act.split": "拆分",
+        "act.pay": "支付",
+        "act.confirm_payment": "確認收款",
+        "act.dispute": "提出爭議",
+        "act.freeze": "凍結",
+        "act.unfreeze": "解凍",
+        "field.tier": "層級",
+        "field.pledgee": "質權人",
+        "field.payee": "收款人",
+        "field.portion": "部分",
+        "state.pledged": "已質押",
+        "state.paid": "已支付",
+        "state.settled": "已結清",
+        "state.frozen": "已凍結",
+        "state.disputed": "爭議中",
+        "state.redeemed": "已贖回",
+        "role.supplier": "供應商",
+        "role.bank": "銀行",
+        "role.issuer": "發行人"
+      }
+    },
+    "zh-Hans-CN": {
+      "name": "金融",
+      "words": {
+        "kind.asset": "资产",
+        "act.pledge": "质押",
+        "act.release": "解除质押",
+        "act.enforce": "实现质权",
+        "act.redeem": "赎回",
+        "act.split": "拆分",
+        "act.pay": "支付",
+        "act.confirm_payment": "确认收款",
+        "act.dispute": "提出争议",
+        "act.freeze": "冻结",
+        "act.unfreeze": "解冻",
+        "field.tier": "层级",
+        "field.pledgee": "质权人",
+        "field.payee": "收款人",
+        "field.portion": "部分",
+        "state.pledged": "已质押",
+        "state.paid": "已支付",
+        "state.settled": "已结清",
+        "state.frozen": "已冻结",
+        "state.disputed": "争议中",
+        "state.redeemed": "已赎回",
+        "role.supplier": "供应商",
+        "role.bank": "银行",
+        "role.issuer": "发行人"
+      }
+    }
+  }
+}

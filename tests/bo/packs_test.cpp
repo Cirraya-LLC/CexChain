@@ -56,7 +56,8 @@ struct TestPack {
 
     [[nodiscard]] std::string text() const {
         std::string keywords;
-        for (const Concept& c : concepts()) {
+        for (const Concept* c_entry : concepts()) {
+            const Concept& c = *c_entry;
             if (c.category != Category::keyword || skip_keywords.contains(std::string(c.id))) {
                 continue;
             }
@@ -144,8 +145,9 @@ TEST_CASE("the official packs read, and their digests match the goldens", "[bo][
     // recorded. Version 1 (from before vocabulary packs) lacks the core's
     // kind word thing, and spells the retired kind.record; version 2 lacks
     // the words added since (a temperature).
-    for (const auto& [which, version] : {std::pair{Officials::before_temperature, 2U},
-                                         std::pair{Officials::before_vocabulary, 1U}}) {
+    for (const auto& [which, version] :
+         {std::pair{Officials::before_pack_files, 3U}, std::pair{Officials::before_temperature, 2U},
+          std::pair{Officials::before_vocabulary, 1U}}) {
         REQUIRE(official_pack_texts(which).size() == 3);
         REQUIRE(official_packs(which).size() == 3);
         for (const PackText& text : official_pack_texts(which)) {
@@ -156,8 +158,13 @@ TEST_CASE("the official packs read, and their digests match the goldens", "[bo][
             CHECK(r.pack->version == version);
             CHECK(r.pack->official);
             std::size_t missing = 0;
-            for (const Concept& c : concepts()) {
-                missing += !c.retired && r.pack->word(c.id) == nullptr ? 1U : 0U;
+            // Words of the core (the official vocabulary packs' words
+            // these versions spell too are not counted).
+            for (const Concept& c : core_concepts()) {
+                missing +=
+                    !c.retired && c.category != Category::keyword && r.pack->word(c.id) == nullptr
+                        ? 1U
+                        : 0U;
             }
             if (missing == 0) {
                 CHECK(r.diagnostics.empty());
@@ -177,11 +184,14 @@ TEST_CASE("the official packs read, and their digests match the goldens", "[bo][
                                  digest_hex(*r.pack, crypto::HashAlg::sm3));
         }
     }
-    CHECK(official_releases().size() == 3);
+    CHECK(official_releases().size() == 4);
     CHECK(official_releases().front() == Officials::current);
-    // The vocabulary packs (vocab.hpp).
+    // The official vocabulary packs (vocab.hpp), current and carried.
     const crypto::openssl::Provider provider;
-    for (const VocabularyPack& pack : vocabulary_packs()) {
+    for (const VocabularyText& text : official_vocabulary_texts()) {
+        const VocabularyPack* found = find_vocabulary_pack(text.id, text.version);
+        REQUIRE(found != nullptr);
+        const VocabularyPack& pack = *found;
         for (const auto& [alg, name] : {std::pair{crypto::HashAlg::sha256, "SHA-256"},
                                         std::pair{crypto::HashAlg::sm3, "SM3"}}) {
             const auto d = digest(pack, provider, alg);
@@ -198,15 +208,39 @@ TEST_CASE("the official packs read, and their digests match the goldens", "[bo][
     CHECK(lines == expected.str());
 }
 
+/// The words of the official vocabulary packs (their current versions).
+static std::size_t vocabulary_words() {
+    std::size_t n = 0;
+    for (const VocabularyPack* pack : vocabulary_packs()) {
+        n += pack->concepts.size();
+    }
+    return n;
+}
+
 TEST_CASE("the official packs spell every keyword, word, message, and sentence", "[bo][packs]") {
     for (const Pack& pack : official_packs()) {
         INFO(pack.id);
-        CHECK(pack.version == 3);
+        CHECK(pack.version == 4);
         // Every concept but the retired ones, which only the earlier
-        // official packs spell.
-        for (const Concept& c : concepts()) {
+        // official packs spell: the core's from the pack's file, the
+        // official vocabulary packs' from theirs (vocab.hpp).
+        for (const Concept* c_entry : concepts()) {
+            const Concept& c = *c_entry;
             INFO(c.id);
             CHECK((pack.word(c.id) != nullptr) == !c.retired);
+        }
+        // The pack's own file spells the core's words alone (G6).
+        for (const PackText& text : official_pack_texts()) {
+            if (text.id != pack.id) {
+                continue;
+            }
+            const PackRead file = read_pack(text.text);
+            REQUIRE(file.pack);
+            for (const auto& [id, word] : file.pack->vocabulary) {
+                INFO(id);
+                CHECK(find_core_concept(id) != nullptr);
+            }
+            CHECK(file.pack->vocabulary.size() + vocabulary_words() == pack.vocabulary.size());
         }
         for (const MessageSpec& m : message_specs()) {
             INFO(m.code);
@@ -214,7 +248,7 @@ TEST_CASE("the official packs spell every keyword, word, message, and sentence",
         }
         for (const SentenceSpec& s : sentence_specs()) {
             INFO(s.id);
-            CHECK(pack.sentences.contains(s.id));
+            CHECK(pack.sentences.contains(s.id) == !s.retired);
         }
     }
     CHECK(keyword_count() == 18);
@@ -295,10 +329,11 @@ TEST_CASE("a pack that misses a keyword is refused", "[bo][packs]") {
     TestPack pack;
     pack.skip_keywords = {"kw.use"};
     refuses(pack, "pack.missing-keyword", {{"pack", "test"}, {"concept", "kw.use"}});
-    // Vocabulary may be partial: a warning, and English fills in.
+    // Vocabulary may be partial: a warning, and English fills in. The words
+    // counted are the core's (the vocabulary packs spell their own).
     const PackRead partial = read(TestPack{});
     REQUIRE(partial.pack);
-    CHECK(reports(partial.diagnostics, "pack.partial", {{"missing", "139"}, {"total", "139"}}));
+    CHECK(reports(partial.diagnostics, "pack.partial", {{"missing", "81"}, {"total", "81"}}));
 }
 
 TEST_CASE("one spelling with two meanings is refused, within a pack and across packs",

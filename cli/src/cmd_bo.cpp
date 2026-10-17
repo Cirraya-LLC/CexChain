@@ -1009,7 +1009,8 @@ namespace {
 /// A pack's words (not the keywords, nor retired ones), by category, then id.
 std::vector<const bo::Concept*> vocab_words(bo::Vocab vocab) {
     std::vector<const bo::Concept*> out;
-    for (const bo::Concept& c : bo::concepts()) {
+    for (const bo::Concept* c_entry : bo::concepts()) {
+        const bo::Concept& c = *c_entry;
         if (c.pack == vocab && !c.retired && c.category != bo::Category::keyword) {
             out.push_back(&c);
         }
@@ -1043,11 +1044,12 @@ struct VocabFacts {
 VocabFacts vocab_facts(bo::Vocab vocab, const bo::Pack* language, crypto::HashAlg alg) {
     VocabFacts f;
     f.id = std::string(bo::vocab_name(vocab));
-    f.name = bo::sentence("vocab-" + f.id, {}, language);
     f.words = vocab_words(vocab).size();
     f.actions = vocab_actions(vocab);
     f.hash = std::string(crypto::name(alg));
     f.pack = bo::vocabulary_pack(vocab);
+    f.name = f.pack != nullptr ? bo::vocabulary_name(*f.pack, language)
+                               : bo::sentence("vocab-" + f.id, {}, language);
     if (f.pack != nullptr) {
         f.version = f.pack->version;
         f.digest = to_hex(unwrap(bo::digest(*f.pack, provider(), alg), "digest").bytes());
@@ -1307,7 +1309,8 @@ int cmd_bo_packs_show(const Args& args) {
     }
     if (wanted("vocabulary")) {
         std::size_t total = 0;
-        for (const bo::Concept& c : bo::concepts()) {
+        for (const bo::Concept* c_entry : bo::concepts()) {
+            const bo::Concept& c = *c_entry;
             total += c.category == bo::Category::keyword ? 0 : 1;
         }
         std::println("\nVocabulary ({} of {})", pack.vocabulary.size(), total);

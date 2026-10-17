@@ -122,6 +122,11 @@ struct NameCheck {
 /// Indexes the spellings of `packs`, in order, reporting a spelling with two
 /// meanings and a word that an attaching rule could split into two (never
 /// guess). Used for one pack as it is read, and for a pack set.
+/// Adds a vocabulary pack's words in a language pack's language to the
+/// language pack (its canonical CBOR stays its file's): the words, and
+/// their reading rules.
+void merge_vocabulary(Pack& language, const VocabularyPack& pack);
+
 void index_spellings(std::span<const Pack* const> packs,
                      std::map<std::string, Meaning, std::less<>>& index, Diagnostics& diagnostics);
 
