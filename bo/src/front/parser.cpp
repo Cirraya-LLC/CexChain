@@ -1158,13 +1158,33 @@ std::optional<ast::Expect> Parser::expect() {
     const std::size_t first = pos_;
     take();
     ast::Expect e;
-    std::optional<Expr> outcome = required_operand("parse.expected-state");
-    if (!outcome) {
-        return std::nullopt;
+    // `-> fee = HKD 0`: values of fields only, the call accepted.
+    bool fields = is_target(peek()) && is_symbol(peek(1), Symbol::equals);
+    if (!fields) {
+        std::optional<Expr> outcome = required_operand("parse.expected-state");
+        if (!outcome) {
+            return std::nullopt;
+        }
+        e.outcome = std::move(*outcome);
+        if (at_kind(TokenKind::text)) {
+            e.reason = take().text;
+        }
+        // `-> delivered, fee = HKD 4_000`: and values of fields.
+        if (at_symbol(Symbol::comma)) {
+            take();
+            fields = true;
+        }
     }
-    e.outcome = std::move(*outcome);
-    if (at_kind(TokenKind::text)) {
-        e.reason = take().text;
+    while (fields) {
+        std::optional<ast::Set> s = set_item();
+        if (!s) {
+            return std::nullopt;
+        }
+        e.fields.push_back(std::move(*s));
+        fields = at_symbol(Symbol::comma);
+        if (fields) {
+            take();
+        }
     }
     e.span = span_from(first);
     return e;
@@ -1699,9 +1719,17 @@ void statement(std::string& out, const Statement& s, std::size_t depth) {
             },
             [&](const ast::Do& d) { do_lines(out, d, depth); },
             [&](const ast::Expect& e) {
-                add_line(out, depth,
-                         "expect " + dump(e.outcome) +
-                             (e.reason ? " \"" + *e.reason + "\"" : std::string()));
+                std::string text = "expect";
+                if (e.outcome) {
+                    text += " " + dump(*e.outcome);
+                }
+                if (e.reason) {
+                    text += " \"" + *e.reason + "\"";
+                }
+                add_line(out, depth, text);
+                for (const ast::Set& f : e.fields) {
+                    add_line(out, depth + 1, set_text(f));
+                }
             },
         },
         s.node);

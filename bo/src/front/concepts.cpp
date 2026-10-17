@@ -461,6 +461,8 @@ constexpr MessageSpec unsorted_messages[] = {
     {"check.test-value", Severity::error, "text"},
     {"check.test-missing", Severity::error, "action name"},
     {"check.test-expect", Severity::error, "text"},
+    {"check.test-field", Severity::error, "name"},
+    {"check.test-fields", Severity::error, "text"},
     {"check.test-expect-step", Severity::error, ""},
     {"check.test-reason", Severity::error, "text"},
     {"check.test-proposal", Severity::error, "action"},
@@ -758,6 +760,9 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"expect-waits-home", "party"},
     {"expect-waits-both", "parties party"},
     {"expect-proposed", ""},
+    {"expect-fields", "what fields"},
+    {"outcome-fields", "what fields"},
+    {"field-is", "field value"},
     // The standard library (bo stdlib).
     {"stdlib-starter", "party"},
     {"stdlib-home", ""},

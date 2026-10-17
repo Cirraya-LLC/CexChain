@@ -412,7 +412,13 @@ void each_expression(Statement& s, const F& f) {
                     one(w.value);
                 }
             } else if constexpr (std::is_same_v<N, ast::Expect>) {
-                one(node.outcome);
+                if (node.outcome) {
+                    one(*node.outcome);
+                }
+                for (auto& w : node.fields) {
+                    one(w.target);
+                    one(w.value);
+                }
             }
         },
         s.node);
@@ -691,6 +697,8 @@ private:
     void test_with(const ast::Do& d, m::Step& step, const m::Action* action,
                    const std::string& action_key);
     void test_expect(const ast::Expect& e, m::Step& step);
+    void test_outcome(const ast::Expect& e, m::Step& step);
+    void test_fields(const ast::Expect& e, m::Step& step);
     std::optional<m::TestParty> test_party(const ast::Expr& e);
     m::Expr test_parties(const ast::Expr& e, const Type& type);
     [[nodiscard]] std::string creation_word() const {
@@ -3000,7 +3008,69 @@ void Checker::test_with(const ast::Do& d, m::Step& step, const m::Action* action
 
 void Checker::test_expect(const ast::Expect& e, m::Step& step) {
     step.expect_span = e.span;
-    const ast::Expr& o = e.outcome;
+    if (!e.outcome) {
+        // Values of fields only: the call is accepted.
+        step.expect = m::Expectation::accepted;
+        test_fields(e, step);
+        return;
+    }
+    test_outcome(e, step);
+    if (!e.fields.empty() && step.expect != m::Expectation::accepted &&
+        step.expect != m::Expectation::state) {
+        error(e.fields.front().span, "check.test-fields", {{"text", written(e.span)}});
+        return;
+    }
+    test_fields(e, step);
+}
+
+void Checker::test_fields(const ast::Expect& e, m::Step& step) {
+    // `fee = HKD 4_000`: an instance field, and its value after the call.
+    std::set<std::string> seen;
+    for (const ast::Set& s : e.fields) {
+        const std::string key = m::key(
+            s.target.kind == ExprKind::word ? s.target.concept_entry : nullptr, s.target.name);
+        const Decl* d = global(key);
+        if (d == nullptr || d->refers != Refers::field ||
+            model_.fields[d->index].kind != m::FieldKind::instance) {
+            error(s.target.span, "check.test-field", {{"name", key}});
+            continue;
+        }
+        if (!seen.insert(key).second) {
+            error(s.target.span, "check.duplicate", {{"name", key}});
+            continue;
+        }
+        const m::Field& field = model_.fields[d->index];
+        m::Set item;
+        item.span = s.span;
+        item.target = plain(s.target);
+        item.target.refers = Refers::field;
+        item.target.type = field.type;
+        const bool parties = field.type.kind == TypeKind::party ||
+                             (field.type.kind == TypeKind::list && field.type.element.size() == 1 &&
+                              field.type.element[0].kind == TypeKind::party);
+        if (field.type.kind == TypeKind::party && word_is(s.value, "val.none")) {
+            // A party field that holds no party.
+            item.value = plain(s.value);
+            item.value.type = field.type;
+        } else if (parties) {
+            item.value = test_parties(s.value, field.type);
+        } else if (!test_value(s.value)) {
+            error(s.value.span, "check.test-value", {{"text", written(s.value.span)}});
+            continue;
+        } else {
+            item.value = value(s.value);
+            expect(item.value, field.type);
+            // A test's value is no clause of the contract (R29, as in with).
+            if (item.value.rule == rule_one_item) {
+                item.value.rule = {};
+            }
+        }
+        step.fields.push_back(std::move(item));
+    }
+}
+
+void Checker::test_outcome(const ast::Expect& e, m::Step& step) {
+    const ast::Expr& o = *e.outcome;
     if (word_is(o, "val.refused")) {
         step.expect = m::Expectation::refused;
         step.reason = e.reason;

@@ -57,3 +57,10 @@ test "keeper"
   we create with amount = HKD 5, starts = 2027-01-01
   keeper fly
   keeper close to bank1
+
+test "values of fields"
+  we create with amount = HKD 5, starts = 2027-01-01 -> proposed, amount = HKD 5
+  customer sign -> refused, amount = HKD 5
+  we amend with new_amount = HKD 6 -> amount = 6, size = 2
+  we amend with new_amount = HKD 7 -> amount = HKD 7, amount = HKD 7
+  we amend with new_amount = HKD 8 -> amount = HKD 1 + HKD 7

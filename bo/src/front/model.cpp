@@ -387,6 +387,9 @@ void test_lines(std::string& out, const model::Test& t) {
         for (const model::Set& w : s.with) {
             set_line(out, w, 2);
         }
+        for (const model::Set& f : s.fields) {
+            add_line(out, 2, "expects " + text(f.target) + " " + text(f.value));
+        }
     }
 }
 

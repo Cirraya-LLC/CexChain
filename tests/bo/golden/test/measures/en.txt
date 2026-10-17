@@ -1,47 +1,47 @@
 Test "three days early: a part of a week is no week": passed
-  Step 1 (line 40) passed: we create with due = 2027-03-10, per_day = HKD 2_000
+  Step 1 (line 41) passed: we create with due = 2027-03-10, per_day = HKD 2_000 -> days_late = 0, fee = HKD 0
     Result: accepted, and the instance is active.
-  Step 2 (line 41) passed: carrier deliver at 2027-03-07 -> delivered
+  Step 2 (line 42) passed: carrier deliver at 2027-03-07 -> delivered, days_late = -3, fee = HKD 0
     Result: accepted with the consent of carrier, and the instance is delivered.
 
 Test "a week early is refused": passed
-  Step 1 (line 44) passed: we create with due = 2027-03-10, per_day = HKD 2_000, days_late = 0, fee = HKD 0
+  Step 1 (line 45) passed: we create with due = 2027-03-10, per_day = HKD 2_000, days_late = 0, fee = HKD 0
     Result: accepted, and the instance is active.
-  Step 2 (line 45) passed: carrier deliver at 2027-03-03 -> refused "bo:requires deliver 2"
+  Step 2 (line 46) passed: carrier deliver at 2027-03-03 -> refused "bo:requires deliver 2"
     Result: refused, since requirement 2 of deliver is not met (bo:requires deliver 2).
     The contract text, 4.1.3: Requirement 2: the time of the call is on or after the due date or (the time of the call − the due date) ÷ 1 week, in whole times (the rest dropped) is 0.
 
 Test "13 days late is one whole week": passed
-  Step 1 (line 48) passed: we create with due = 2027-03-10, per_day = HKD 2_000
+  Step 1 (line 49) passed: we create with due = 2027-03-10, per_day = HKD 2_000
     Result: accepted, and the instance is active.
-  Step 2 (line 49) passed: carrier deliver at 2027-03-23 -> delivered
+  Step 2 (line 50) passed: carrier deliver at 2027-03-23 -> delivered, days_late = 13, fee = HKD 26_000
     Result: accepted with the consent of carrier, and the instance is delivered.
 
 Test "two weeks late is refused": passed
-  Step 1 (line 52) passed: we create with due = 2027-03-10, per_day = HKD 2_000
+  Step 1 (line 53) passed: we create with due = 2027-03-10, per_day = HKD 2_000
     Result: accepted, and the instance is active.
-  Step 2 (line 53) passed: carrier deliver at 2027-03-24 -> refused "bo:requires deliver 1"
+  Step 2 (line 54) passed: carrier deliver at 2027-03-24 -> refused "bo:requires deliver 1"
     Result: refused, since requirement 1 of deliver is not met (bo:requires deliver 1).
     The contract text, 4.1.2: Requirement 1: (the time of the call − the due date) ÷ 1 week, in whole times (the rest dropped) is less than 2.
 
 Test "two readings out of the range, the coldest -2.6 degrees": passed
-  Step 1 (line 56) passed: we create with due = 2027-03-10, per_day = HKD 2_000
+  Step 1 (line 57) passed: we create with due = 2027-03-10, per_day = HKD 2_000
     Result: accepted, and the instance is active.
-  Step 2 (line 57) passed: we measure with readings = (4.5 °C, -2.5 °C, 8.01 °C, -2.6 °C, 7.99 °C)
+  Step 2 (line 58) passed: we measure with readings = (4.5 °C, -2.5 °C, 8.01 °C, -2.6 °C, 7.99 °C) -> excursions = 2, coldest = -2.6 °C
     Result: accepted, and the instance is active.
-  Step 3 (line 58) passed: carrier deliver at 2027-03-10 -> delivered
+  Step 3 (line 60) passed: carrier deliver at 2027-03-10 -> delivered, days_late = 0
     Result: accepted with the consent of carrier, and the instance is delivered.
-  Step 4 (line 59) passed: carrier claim -> claimed
+  Step 4 (line 61) passed: carrier claim -> claimed
     Result: accepted with the consent of carrier, and the instance is claimed.
 
 Test "one reading out of the range is no claim": passed
-  Step 1 (line 62) passed: we create with due = 2027-03-10, per_day = HKD 2_000
+  Step 1 (line 64) passed: we create with due = 2027-03-10, per_day = HKD 2_000
     Result: accepted, and the instance is active.
-  Step 2 (line 63) passed: we measure with readings = (-2.51 °C, 8 °C)
+  Step 2 (line 65) passed: we measure with readings = (-2.51 °C, 8 °C) -> excursions = 1, coldest = -2.51 °C
     Result: accepted, and the instance is active.
-  Step 3 (line 64) passed: carrier deliver at 2027-03-10 -> delivered
+  Step 3 (line 66) passed: carrier deliver at 2027-03-10 -> delivered
     Result: accepted with the consent of carrier, and the instance is delivered.
-  Step 4 (line 65) passed: carrier claim -> refused "bo:requires claim 1"
+  Step 4 (line 67) passed: carrier claim -> refused "bo:requires claim 1"
     Result: refused, since requirement 1 of claim is not met (bo:requires claim 1).
     The contract text, 4.3.2: Requirement 1: excursions is 2 and coldest is -2.6 °C.
 

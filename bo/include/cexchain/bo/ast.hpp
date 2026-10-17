@@ -164,12 +164,15 @@ struct Transition {
     Expr to;
 };
 
-/// A test's expectation: `-> pledged`, `-> refused "reason"`.
+/// A test's expectation: `-> pledged`, `-> refused "reason"`, and the values
+/// of fields after it (`-> delivered, fee = HKD 4_000`, or `-> fee = HKD 0`
+/// with no outcome: accepted).
 struct Expect {
     static constexpr std::string_view tag = "expect";
     Span span;
-    Expr outcome;
+    std::optional<Expr> outcome;
     std::optional<std::string> reason;
+    std::vector<Set> fields;
 };
 
 struct Statement;

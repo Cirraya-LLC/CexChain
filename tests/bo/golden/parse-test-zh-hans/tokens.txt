@@ -81,5 +81,21 @@
 17:38 symbol -> | ->
 17:41 word val.refused | 被拒绝
 17:44 newline
-18:1 dedent
-18:1 end
+18:3 word role.supplier | 供应商
+18:7 word act.pledge | 质押
+18:10 word kw.to | 给
+18:12 name bank1 | bank1
+18:18 symbol -> | ->
+18:21 word state.pledged | 已质押
+18:24 symbol , | ,
+18:26 word field.amount | 金额
+18:29 symbol = | =
+18:31 money cur.HKD 1000 | HKD 1_000
+18:40 newline
+19:3 symbol -> | ->
+19:6 word field.holder | 持有人
+19:10 symbol = | =
+19:12 word role.supplier | 供应商
+19:15 newline
+20:1 dedent
+20:1 end

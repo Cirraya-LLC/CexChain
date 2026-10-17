@@ -19,3 +19,8 @@ test "a second pledge is refused"
   do subject=role.supplier act.split
     set field.parts (list (money cur.HKD 400) (money cur.HKD 600))
   expect val.refused
+  do subject=role.supplier act.pledge to=bank1
+  expect state.pledged
+    set field.amount (money cur.HKD 1000)
+  expect
+    set field.holder role.supplier

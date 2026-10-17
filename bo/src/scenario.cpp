@@ -22,6 +22,7 @@
 #include <vector>
 
 #include <cexchain/bo/build.hpp>
+#include <cexchain/bo/explain.hpp>
 #include <cexchain/bo/messages.hpp>
 #include <cexchain/bo/scenario.hpp>
 #include <cexchain/bo/values.hpp>
@@ -193,6 +194,7 @@ private:
     cbor::Value given_value(const m::Expr& e, const Ledger& l);
     void run_step(const m::Step& step, Ledger& l, StepResult& r);
     void accept(const m::Step& step, const protocol::ContractAccept& a, Ledger& l, StepResult& r);
+    void expect_fields(const m::Step& step, const Ledger& l, StepResult& r);
 
     const m::Model& model_;
     const Build& build_;
@@ -365,6 +367,28 @@ std::string bill_text(const cbor::Value& bill) {
 }
 
 } // namespace
+
+void Runner::expect_fields(const m::Step& step, const Ledger& l, StepResult& r) {
+    // The values the step expects after its call, and, accepted, those the
+    // instance holds otherwise.
+    const cbor::Value* held =
+        r.happened == Happened::accepted && l.instance ? l.instance->state.find("fields") : nullptr;
+    for (const m::Set& f : step.fields) {
+        std::string wire = wire_name(f.target.concept_entry, f.target.name);
+        cbor::Value want = f.value.kind == ast::ExprKind::word &&
+                                   f.value.concept_entry != nullptr &&
+                                   f.value.concept_entry->id == "val.none"
+                               ? cbor::Value::null()
+                               : given_value(f.value, l);
+        if (held != nullptr) {
+            const cbor::Value* got = held->find(std::string_view(wire));
+            if (got == nullptr || !(*got == want)) {
+                r.differing.emplace_back(wire, got != nullptr ? *got : cbor::Value::null());
+            }
+        }
+        r.expected_fields.emplace_back(std::move(wire), std::move(want));
+    }
+}
 
 void Runner::accept(const m::Step& step, const protocol::ContractAccept& a, Ledger& l,
                     StepResult& r) {
@@ -566,10 +590,10 @@ void Runner::run_step(const m::Step& step, Ledger& l, StepResult& r) {
 bool passes(const m::Step& step, const StepResult& r) {
     switch (step.expect) {
     case m::Expectation::accepted:
-        return r.happened == Happened::accepted;
+        return r.happened == Happened::accepted && r.differing.empty();
     case m::Expectation::state:
         return r.happened == Happened::accepted &&
-               r.state == wire_name(step.state_word, step.state_name);
+               r.state == wire_name(step.state_word, step.state_name) && r.differing.empty();
     case m::Expectation::refused:
         if (step.reason) {
             return r.happened == Happened::refused && r.reason == *step.reason;
@@ -634,6 +658,7 @@ TestResult Runner::run(const m::Test& test) {
         }
         l.children.clear();
         run_step(step, l, r);
+        expect_fields(step, l, r);
         if (step.creation && r.happened == Happened::accepted && l.instance) {
             all.push_back(Instance{*l.instance, l.final, {}});
             at = 0;
@@ -876,6 +901,38 @@ std::string waits_words(const TestResults& results, const std::vector<Id>& ledge
     }
     return say(std::string(prefix) + "waits-both", {{"parties", parties}, {"party", party}},
                language);
+}
+
+/// Values of fields in words, joined as the pack joins a list: "fee is HKD
+/// 4,000.00 and excursions is 2".
+std::string field_words(const m::Model& model,
+                        const std::vector<std::pair<std::string, cbor::Value>>& values,
+                        const TestResults& results, const Pack* language) {
+    cbor::Map fields;
+    for (const auto& [wire, value] : values) {
+        fields.push_back({cbor::Value::text(wire), value});
+    }
+    const ExplainedState held = explain_state(
+        model,
+        cbor::Value::map({{cbor::Value::text("fields"), cbor::Value::map(std::move(fields))}}),
+        language, [&](ByteView ledger) {
+            const auto id = Id::from_bytes(ledger);
+            return id ? ledger_label(results, *id, language) : hex(Id{});
+        });
+    std::vector<std::string> items;
+    for (const ExplainedValue& v : held.fields) {
+        items.push_back(say("field-is", {{"field", v.field}, {"value", v.value}}, language));
+    }
+    if (items.size() <= 1) {
+        return items.empty() ? std::string() : items.front();
+    }
+    std::string rest = items.front();
+    const std::string separator = say("list-separator", {}, language);
+    for (std::size_t i = 1; i + 1 < items.size(); ++i) {
+        rest += separator + items[i];
+    }
+    return say(items.size() > 2 ? "list-and-many" : "list-and",
+               {{"rest", rest}, {"last", items.back()}}, language);
 }
 
 /// A state as the report names it: a vocabulary state's word, or the name.
@@ -1162,17 +1219,27 @@ std::string test_report(const m::Model& model, const TestResults& results, std::
                 continue;
             }
             if (r.status == StepStatus::failed) {
-                out += "    " +
-                       say("step-expected",
-                           {{"what", expectation_text(step, r, results, language)}}, language) +
-                       "\n";
+                std::string expected = expectation_text(step, r, results, language);
+                if (!r.expected_fields.empty()) {
+                    expected =
+                        say("expect-fields",
+                            {{"what", expected},
+                             {"fields", field_words(model, r.expected_fields, results, language)}},
+                            language);
+                }
+                out += "    " + say("step-expected", {{"what", expected}}, language) + "\n";
             }
             if (!r.part.empty()) {
                 out += "    " + say("step-part", {{"part", r.part}}, language) + "\n";
             }
-            out += "    " +
-                   say("step-result", {{"what", outcome_text(r, results, language)}}, language) +
-                   "\n";
+            std::string outcome = outcome_text(r, results, language);
+            if (!r.differing.empty()) {
+                outcome = say("outcome-fields",
+                              {{"what", outcome},
+                               {"fields", field_words(model, r.differing, results, language)}},
+                              language);
+            }
+            out += "    " + say("step-result", {{"what", outcome}}, language) + "\n";
             if (const ExplainedClause* c = refusal_clause(text, model, step, r)) {
                 out += "    " +
                        say("step-clause", {{"number", c->number}, {"text", c->text}}, language) +
@@ -1237,6 +1304,9 @@ std::string dump(const m::Model& model, const TestResults& results) {
                 }
                 if (r.parts > 0) {
                     line += std::format(" parts={}", r.parts);
+                }
+                for (const auto& [wire, value] : r.differing) {
+                    line += " differs " + wire + "=" + cbor::diagnostic(value);
                 }
                 break;
             case Happened::waits:

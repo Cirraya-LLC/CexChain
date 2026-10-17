@@ -134,6 +134,11 @@ struct StepResult {
     std::size_t parts = 0;
     /// No part: the party the step named as the holder, if it named one.
     std::optional<protocol::Id> holder;
+    /// The values of fields the step expects (Step::fields), by wire name,
+    /// as compiled code keeps them; and, accepted, those the instance holds
+    /// otherwise (null for a field it does not hold).
+    std::vector<std::pair<std::string, cbor::Value>> expected_fields;
+    std::vector<std::pair<std::string, cbor::Value>> differing;
 };
 
 struct TestResult {

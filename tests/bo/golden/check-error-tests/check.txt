@@ -67,6 +67,20 @@ test "keeper"
     set starts 2027-01-01
   step actor.keeper fly rule=1 expect=accepted
   step actor.keeper close rule=1 expect=accepted
+test "values of fields"
+  step role.we act.create creation expect=state state.proposed
+    set field.amount (money cur.HKD 5)
+    set starts 2027-01-01
+    expects field.amount (money cur.HKD 5)
+  step role.customer sign expect=refused
+  step role.we amend expect=accepted
+    set new_amount (money cur.HKD 6)
+    expects field.amount 6
+  step role.we amend expect=accepted
+    set new_amount (money cur.HKD 7)
+    expects field.amount (money cur.HKD 7)
+  step role.we amend expect=accepted
+    set new_amount (money cur.HKD 8)
 22:3 error check.test-expect-step: an expectation (->) follows the step it is about, once
 23:3 error check.test-start: a test begins by creating its instance: PARTY create with FIELD = VALUE, ...; the party that creates it is the home, whose ledger runs the contract
 24:6 error check.test-again: a test creates its instance once, in its first step
@@ -89,7 +103,7 @@ test "keeper"
 46:17 error check.unknown-input: amend has no input nothing
 47:6 error check.test-missing: amend needs new_amount: give it with new_amount = VALUE
 48:37 error check.duplicate: new_amount is declared twice; a name has one meaning in a contract
-49:20 error check.test-expect: HKD 5 is not an outcome a step can expect: write a state of the contract (-> signed), refused (-> refused, or with its reason in quotes), or the consent the call waits for (-> consent of bank)
+49:20 error check.test-expect: HKD 5 is not an outcome a step can expect: write a state of the contract (-> signed), refused (-> refused, or with its reason in quotes), or the consent the call waits for (-> consent of bank); values of fields follow a comma (-> signed, fee = HKD 5)
 50:17 error check.test-reason: -> signed "why": only refused takes a reason
 51:3 error check.test-expect-step: an expectation (->) follows the step it is about, once
 53:6 error check.duplicate: what is declared twice; a name has one meaning in a contract
@@ -97,3 +111,8 @@ test "keeper"
 54:6 error check.test-missing: create needs starts: give it with starts = VALUE
 58:10 error check.test-rule: no when rule does fly: a keeper step names the action a when rule does (keeper suspend)
 59:3 error check.test-keeper: keeper close to bank1: the keeper calls a when rule with nothing else: no to, with, in person, or by AI agent
+63:29 error check.test-fields: -> refused, amount = HKD 5: values of fields are expected only of a call that is accepted (-> delivered, fee = HKD 4_000, or -> fee = HKD 0), not of one refused, waiting for consents, or kept as a proposal
+64:48 error check.type: 6 is a number, but money in HKD is needed here
+64:51 error check.test-field: size is no field an instance holds: a step expects the values of instance fields after its call (-> delivered, fee = HKD 4_000), and a constant never changes
+65:55 error check.duplicate: amount is declared twice; a name has one meaning in a contract
+66:48 error check.test-value: HKD 1 + HKD 7: a test gives each value as written: a number, an amount, a quantity, a date, a duration, a rate, a text, or yes or no

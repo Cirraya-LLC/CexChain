@@ -431,6 +431,10 @@ struct Step {
     std::optional<std::string> reason;
     /// Expectation::waits: the parties whose consent the call waits for.
     std::vector<TestParty> waits;
+    /// Expectation::accepted or state: the values of instance fields the
+    /// step expects after the call (`-> delivered, fee = HKD 4_000`), each
+    /// a value written out, a test's party, or none.
+    std::vector<Set> fields;
 };
 
 struct Test {

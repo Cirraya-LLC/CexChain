@@ -211,7 +211,13 @@ public:
                        [&](const bo::ast::Do& d) { action(d, depth); },
                        [&](const bo::ast::Expect& e) {
                            place(e.span);
-                           expr(e.outcome, depth + 1);
+                           if (e.outcome) {
+                               expr(*e.outcome, depth + 1);
+                           }
+                           for (const bo::ast::Set& w : e.fields) {
+                               expr(w.target, depth + 1);
+                               expr(w.value, depth + 1);
+                           }
                        },
                    },
                    s.node);

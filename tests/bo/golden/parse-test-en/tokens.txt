@@ -81,5 +81,21 @@
 17:50 symbol -> | ->
 17:53 word val.refused | refused
 17:60 newline
-18:1 dedent
-18:1 end
+18:3 word role.supplier | supplier
+18:12 word act.pledge | pledge
+18:19 word kw.to | to
+18:22 name bank1 | bank1
+18:28 symbol -> | ->
+18:31 word state.pledged | pledged
+18:38 symbol , | ,
+18:40 word field.amount | amount
+18:47 symbol = | =
+18:49 money cur.HKD 1000 | HKD 1_000
+18:58 newline
+19:3 symbol -> | ->
+19:6 word field.holder | holder
+19:13 symbol = | =
+19:15 word role.supplier | supplier
+19:23 newline
+20:1 dedent
+20:1 end

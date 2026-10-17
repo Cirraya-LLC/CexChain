@@ -225,6 +225,38 @@ TEST_CASE("bo test: one contract and its tests, in any language, give the same r
     }
 }
 
+TEST_CASE("bo test: a step expects the values of fields after its call", "[bo][test]") {
+    // G5b: `-> STATE, FIELD = VALUE`, or values alone (accepted); a party
+    // field by its party.
+    const std::string source =
+        with_tests("test \"values\"\n"
+                   "  we create with amount = HKD 5_000 -> amount = HKD 5_000\n"
+                   "  we offer to bank1 with fee = HKD 3 -> offered, "
+                   "holder = customer, amount = HKD 5_000\n"
+                   "test \"wrong\"\n"
+                   "  we create with amount = HKD 5_000\n"
+                   "  we offer to bank1 with fee = HKD 3 -> offered, "
+                   "holder = bank1, amount = HKD 6_000\n");
+    const Tested t = tested(source);
+    REQUIRE(t.results.tests.size() == 2);
+    CHECK(t.results.tests[0].passed);
+    CHECK(t.results.tests[0].steps[1].expected_fields.size() == 2);
+    CHECK(t.results.tests[0].steps[1].differing.empty());
+    const StepResult& wrong = t.results.tests[1].steps[1];
+    CHECK(!t.results.tests[1].passed);
+    CHECK(wrong.happened == Happened::accepted);
+    REQUIRE(wrong.differing.size() == 2);
+    CHECK(wrong.differing[0].first == "holder");
+    CHECK(wrong.differing[1].first == "amount");
+    CHECK(*wrong.differing[1].second.as_int64() == 500'000);
+    const std::string report = test_report(*t.compiled.model, t.results, source, pack("en"));
+    // In the words of each language, fields in the contract's order.
+    CHECK(report.find("Expected: the call is accepted, and the instance is offered; then amount is "
+                      "HKD 6,000.00 and holder is bank1.") != std::string::npos);
+    CHECK(report.find("but amount is HKD 5,000.00 and holder is the customer.") !=
+          std::string::npos);
+}
+
 TEST_CASE("bo test: consents are given by every party asked, but those a step withholds",
           "[bo][test]") {
     // The bank, bound by the offer to a ledger only the test names, and the

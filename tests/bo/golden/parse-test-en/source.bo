@@ -15,3 +15,5 @@ test "a second pledge is refused"
   -> pledged
   supplier pledge to bank2 by AI agent -> refused "already pledged"
   supplier split with parts = (HKD 400, HKD 600) -> refused
+  supplier pledge to bank1 -> pledged, amount = HKD 1_000
+  -> holder = supplier
