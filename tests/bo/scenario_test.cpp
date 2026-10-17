@@ -125,6 +125,7 @@ std::vector<std::pair<std::string, std::filesystem::path>> cases() {
         // Measures (G5b): durations divided by durations, field defaults,
         // temperatures and negative literals, expectations on fields.
         {"measures", golden_dir / "test/measures/source.bo"},
+        {"shipment", source_dir / "examples/shipment/shipment.bo"},
     };
 }
 

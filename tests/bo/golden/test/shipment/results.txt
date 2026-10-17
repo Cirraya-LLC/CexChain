@@ -1,0 +1,60 @@
+test "handed over in person at every step, and delivered on time" passed home=shipper
+  step 1 passed 2026-01-01 accepted booked event=booked; fuel 11532
+  step 2 passed 2026-01-01 accepted booked; fuel 19574
+  step 3 passed 2027-03-08 accepted in_transit event=in_transit consents carrier; fuel 16386 20018
+  step 4 passed 2027-03-08 accepted in_transit consents warehouse carrier; fuel 16334 20461
+  step 5 passed 2027-03-09 accepted in_transit consents warehouse carrier; fuel 16458 20328
+  step 6 passed 2027-03-09 accepted in_transit; fuel 19479
+  step 7 passed 2027-03-10 accepted delivered event=delivered consents carrier consignee; fuel 16902 21097
+  step 8 passed 2027-03-10 refused "bo:requires claim 1"; fuel 15333
+  step 9 passed 2027-03-10 refused "bo:requires measure 1"; fuel 16242
+test "two days late: the keeper marks it late, and the delivery charges two days" passed home=shipper
+  step 1 passed 2026-01-01 accepted booked event=booked; fuel 11532
+  step 2 passed 2027-03-08 accepted in_transit event=in_transit consents carrier; fuel 16386 20018
+  step 3 passed 2027-03-10 refused "bo:when when.late"; fuel 15387
+  step 4 passed 2027-03-11 accepted late event=when:when.late late=0 event=late; fuel 19047
+  step 5 passed 2027-03-11 accepted late consents warehouse carrier; fuel 16702 20990
+  step 6 passed 2027-03-11 accepted late consents warehouse carrier; fuel 16826 20857
+  step 7 passed 2027-03-12 accepted delivered event=delivered consents carrier consignee; fuel 17617 22049
+test "five days late: a charge for each of them" passed home=shipper
+  step 1 passed 2026-01-01 accepted booked event=booked; fuel 11532
+  step 2 passed 2027-03-08 accepted in_transit event=in_transit consents carrier; fuel 16386 20018
+  step 3 passed 2027-03-15 accepted delivered event=delivered consents carrier consignee; fuel 17251 21522
+test "out of range on the way: the consignee claims, and the insurer pays" passed home=shipper
+  step 1 passed 2026-01-01 accepted booked event=booked; fuel 11532
+  step 2 passed 2027-03-08 accepted in_transit event=in_transit consents carrier; fuel 16386 20018
+  step 3 passed 2027-03-08 accepted in_transit; fuel 20206
+  step 4 passed 2027-03-09 accepted delivered event=delivered consents carrier consignee; fuel 16902 21097
+  step 5 passed 2027-03-09 refused "bo:state compensate"; fuel 15895
+  step 6 passed 2027-03-12 accepted claimed event=claimed consents consignee; fuel 15942 19151
+  step 7 passed 2027-03-12 refused "bo:requires compensate 2"; fuel 16059
+  step 8 passed 2027-03-12 accepted compensated event=compensated final consents insurer; fuel 16473 19757
+test "a claim comes within 7 days of delivery" passed home=shipper
+  step 1 passed 2026-01-01 accepted booked event=booked; fuel 11532
+  step 2 passed 2027-03-08 accepted in_transit event=in_transit consents carrier; fuel 16386 20018
+  step 3 passed 2027-03-08 accepted in_transit; fuel 18829
+  step 4 passed 2027-03-09 accepted delivered event=delivered consents carrier consignee; fuel 16902 21097
+  step 5 passed 2027-03-16 refused "bo:requires claim 2"; fuel 15528
+test "the insurer may decline a claim, which ends the shipment" passed home=shipper
+  step 1 passed 2026-01-01 accepted booked event=booked; fuel 11532
+  step 2 passed 2027-03-08 accepted in_transit event=in_transit consents carrier; fuel 16386 20018
+  step 3 passed 2027-03-08 accepted in_transit; fuel 18829
+  step 4 passed 2027-03-09 accepted delivered event=delivered consents carrier consignee; fuel 16902 21097
+  step 5 passed 2027-03-15 accepted claimed event=claimed consents consignee; fuel 15942 19151
+  step 6 passed 2027-03-15 accepted declined event=declined final consents insurer; fuel 15941 19225
+  step 7 passed 2027-03-15 final-instance
+test "only the carrier hands over, and only what it holds" passed home=shipper
+  step 1 passed 2026-01-01 accepted booked event=booked; fuel 11532
+  step 2 passed 2026-01-01 waits carrier; fuel 16386
+  step 3 passed 2027-03-08 accepted in_transit event=in_transit consents carrier; fuel 16386 20018
+  step 4 passed 2027-03-08 waits carrier; fuel 16902 17845
+  step 5 passed 2027-03-08 waits carrier; fuel 16334 17178
+  step 6 passed 2027-03-08 accepted in_transit consents warehouse carrier; fuel 16334 20461
+  step 7 passed 2027-03-08 refused "bo:requires deliver 2"; fuel 15777
+  step 8 passed 2027-03-08 refused "bo:requires drop_off 3"; fuel 15584
+test "the driver proves presence: no key alone, no AI agent" passed home=shipper
+  step 1 passed 2026-01-01 accepted booked event=booked; fuel 11532
+  step 2 passed 2026-01-01 refused "bo:in-person pick_up"; fuel 16386 16663
+  step 3 passed 2026-01-01 refused "bo:in-person pick_up"; fuel 16386 16782
+  step 4 passed 2026-01-01 accepted in_transit event=in_transit consents carrier; fuel 16386 20018
+8 tests: 8 passed, 0 failed

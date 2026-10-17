@@ -41,13 +41,23 @@ zh-Hans-CN`):
 (An AI agent may start it within its delegation, R14; it would then be refused, since it proves
 no presence.)
 
+Delivery counts the whole days late and charges for each; the contract text says how it rounds,
+here in Traditional Chinese (`--language zh-Hant-HK`), with rule R32 explained at its end:
+
+```
+  4.4.8 如實例已逾期（已過到期日）：
+    4.4.8.1 將 days_late 改為（調用時間 − 到期日） ÷ 1 日（按完整倍數計算，餘數捨去）。〔R32〕
+    4.4.8.2 將 late_charge 改為 penalty_per_day × days_late。
+```
+
 ## What each step shows
 
 1. **Five organizations, each with a ledger of its own.** Each keeps the others' ledger ids;
    the carrier signs with SM2 and hashes with SM3, the others with the defaults.
-2. **Rules the shipper writes.** It tests the contract (`bo test`: seven tests) and deploys it
-   on its ledger, the shipment's home; every party reads the same contract text in its own
-   language.
+2. **Rules the shipper writes.** It tests the contract (`bo test`: eight tests, which check the
+   state and the fields after each step, such as `-> delivered, days_late = 2, late_charge = HKD
+   4_000`) and deploys it on its ledger, the shipment's home; every party reads the same contract
+   text in its own language.
 3. **Who signs.** The carrier registers its driver, a person who signs with a key of his own
    and proves presence with a hardware key (SoftHSM stands in for a USB key; a passkey in a
    browser does the same), under a delegation that lets him consent for the carrier only in
@@ -57,12 +67,13 @@ no presence.)
 4. **Booking.** The packing list (product, batch, cartons) is a record of the shipper's own
    type, `example.shipper.packing-list/1`: its values stay sealed on the shipper's ledger. The
    shipment is an instance of the contract, created with the parties' ledgers, the deadline,
-   the insured amount, and the charge per day late; its creation names the packing list.
+   the insured amount, and the charge per day late (the days late, the late charge, and the
+   excursions start at 0, their defaults); its creation names the packing list.
 5. **A receipt in person.** A pickup consented to with the carrier's key alone is refused
    (`bo:in-person pick_up`); the driver's consent, with his hardware key, is accepted, and
    the carrier holds the goods.
-6. **A device, and a keeper.** The data logger posts its readings, signed with its own key;
-   two are out of range. The deadline has passed: the keeper asks what is due (`keeper
+6. **A device, and a keeper.** The data logger posts its readings, signed with its own key, in
+   tenths of a degree (`4.2 °C`; the arguments carry hundredths, `420`); two are out of range. The deadline has passed: the keeper asks what is due (`keeper
    due`), then fires `when.late`, and the event records how late it came.
 7. **Custody, and a refusal.** The driver leaves the goods at the warehouse and picks them up
    again, in person each time, with the warehouse's consent. The warehouse and the consignee
@@ -74,7 +85,8 @@ no presence.)
    product and the cartons; the batch stays sealed. The consignee checks the same evidence on
    the command line (`cexchain verify`), then the chain of custody (`contract verify`: every
    call run again, every consent checked on its own ledger, the contract rebuilt from its
-   source), and consents to receive the goods. Two days late, the contract charges HKD 4,000.
+   source), and consents to receive the goods. The contract counts the whole days late, `(now -
+   due) / 1 day`, two, and charges HKD 2,000 for each: HKD 4,000.
 9. **A claim.** The consignee claims the excursion within 7 days of delivery; the insurer
    checks the evidence, readings included, and pays HKD 120,000 (at most the insured amount).
    The shipment is final.
@@ -89,7 +101,7 @@ and `keeper due --at` ask what would happen at another time, recording nothing.)
 ## Running it
 
 ```sh
-cexchain bo test examples/shipment/shipment.bo                           # its seven tests
+cexchain bo test examples/shipment/shipment.bo                           # its eight tests
 cexchain bo explain examples/shipment/shipment.bo --language zh-Hant-HK   # the contract text
 examples/shipment/shipment.sh [CEXCHAIN] [DIR] [PKCS11_MODULE]           # CTest: demo_shipment
 ```
@@ -102,22 +114,18 @@ keep the ledgers and look around afterwards.
 ## Words
 
 The contract uses Bo's core words only (`holder`, `due`, `amount`, `overdue`, `within`, `in
-person`, `consent of`, money, dates, lists); no finance or commerce words. The late charge is a
-field the contract computes, not a `charge` on a bill, which needs the `commerce` pack. The kind
-word is the core's `thing`.
+person`, `consent of`, money, dates, temperatures in `°C`, lists); no finance or commerce words.
+The days late are a duration divided by a duration, which counts whole days and drops the rest
+(rule R32, stated in the contract text). The late charge is a field the contract computes, not a
+`charge` on a bill, which needs the `commerce` pack. The kind word is the core's `thing`.
 
 ## Limitations
 
 What this example could not say with today's Bo and CLI, each a candidate for a generic feature:
 
-- **Days as a number.** A duration cannot be divided by a duration (`(now - due) / 1 day` is
-  `check.operands`), so a charge per day late is a chain of `overdue N days` conditions, capped
-  here at three days. A keeper cannot add a day's charge each day either: a rule applies once
-  for each time, and a second rule doing the same thing cannot be named in a test.
-- **Starting values.** Every instance field is given at creation: the counters `late_charge`
-  and `excursions` are passed as 0.
-- **Measurements.** Bo has no unit of temperature, and plain numbers are whole: readings are
-  whole degrees (tenths would have to be numbers in tenths).
+- **Charges that accrue day by day.** The late charge is computed once, at delivery, from the
+  whole days late. A keeper cannot add a day's charge each day: a rule applies once for each
+  time, and a second rule doing the same thing cannot be named in a test.
 - **Who may sign.** A contract can ask for a person in person, or let AI agents only propose,
   but cannot ask for a device: the data logger's delegation limits it to `measure`, yet any
   signer the shipper authorizes could call it too. The evidence shows who signed each call.
@@ -128,11 +136,13 @@ What this example could not say with today's Bo and CLI, each a candidate for a 
 - **Readings from another party's device.** The data logger is the shipper's, the home's. A
   sensor of the carrier's would need the carrier's consent to each reading, or evidence from
   another ledger as an input, which Bo does not read yet.
-- **Tests see states, not values.** `bo test` cannot expect a field's value: the tests show a
-  late delivery accepted, and the script checks the charge in the instance's state.
 - **QR codes for instances.** `cexchain qr` draws codes for records only, so the code opens the
   packing list. The browser verifier already checks an instance that a link names
   (`#l=LEDGER&r=INSTANCE&b=URL`), which the script prints; no command draws it.
+
+Four limitations of the first version are gone (milestone G5b): days late are a number
+(`(now - due) / 1 day`), counters start at 0 without being given, readings are temperatures to
+a tenth of a degree (or a hundredth), and tests expect the fields' values.
 
 ## After executors
 

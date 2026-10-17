@@ -194,18 +194,20 @@ now = d.datetime.now(tz)
 due = d.datetime(now.year, now.month, now.day, tzinfo=tz) - d.timedelta(days=2)
 print(int(due.timestamp()) * 1000, due.strftime('%Y-%m-%d'))")"
 # Arguments name each field and party: money in cents (HKD 800,000 is
-# 80000000), dates in milliseconds, parties by their ledger ids.
-FIELDS="\"due\": $DUE, \"amount\": 80000000, \"penalty_per_day\": 200000, \"late_charge\": 0, \"excursions\": 0"
+# 80000000), dates in milliseconds, parties by their ledger ids. The days
+# late, the late charge, and the excursions have defaults: not given.
+FIELDS="\"due\": $DUE, \"amount\": 80000000, \"penalty_per_day\": 200000"
 PARTIES="\"shipper\": h'$SHIPPER_ID', \"carrier\": h'$CARRIER_ID', \"warehouse\": h'$WAREHOUSE_ID', \"consignee\": h'$CONSIGNEE_ID', \"insurer\": h'$INSURER_ID'"
 SHIPMENT="$(run contract create "$CONTRACT" create --args "{\"fields\": {$FIELDS}, \"parties\": {$PARTIES}}" \
     --reference "packing list: record $PACKING" --as shipper-root.key --ledger "$(dir shipper)" --json \
     | field '["instance"]["id"]')"
 say "Shipment ${SHIPMENT:0:16}...: due $DUE_DAY, insured for HKD 800,000, HKD 2,000 a day late."
 say "Its creation names the packing list, record ${PACKING:0:16}..., whose values stay private."
-# The data logger posts its first readings, signed with its own key.
-run contract call "$SHIPMENT" measure --args '{"celsius": [4, 5, 5, 4]}' --as logger.key \
+# The data logger posts its first readings, signed with its own key:
+# temperatures in hundredths of a degree (4.2 °C is 420).
+run contract call "$SHIPMENT" measure --args '{"readings": [420, 510, 550, 430]}' --as logger.key \
     --ledger "$(dir shipper)" > /dev/null
-say "Data logger: 4, 5, 5, 4 degrees C."
+say "Data logger: 4.2, 5.1, 5.5, 4.3 °C."
 
 # Helpers for the steps below. The shipper's ledger, the shipment's home,
 # makes every call; another party acts by consenting on its own ledger to
@@ -269,10 +271,10 @@ check pickup.txt 'holder: carrier'
 say "Signed by Driver Lee in person: the carrier holds the goods, in_transit."
 
 step "6. On the road: an excursion, and the deadline passes"
-run contract call "$SHIPMENT" measure --args '{"celsius": [5, 6, 11, 9]}' --as logger.key \
+run contract call "$SHIPMENT" measure --args '{"readings": [520, 610, 1140, 830]}' --as logger.key \
     --ledger "$(dir shipper)" > /dev/null
 [ "$(state_field excursions)" = 2 ] || { echo "two readings out of range" >&2; exit 1; }
-say "Data logger: 5, 6, 11, 9 degrees C. Two readings above 8: excursions 2."
+say "Data logger: 5.2, 6.1, 11.4, 8.3 °C. Two readings above 8 °C: excursions 2."
 # The due date was two days ago, so the deadline rule's time, a day after
 # it, came yesterday. The keeper asks what is due (dry runs that record
 # nothing), then fires it; a keeper that is late fires late, never early,
@@ -341,24 +343,26 @@ say "warehouse, driver in person; the contract rebuilds from its source. The pag
 say "checks it too, from a link naming the instance (cexchain qr draws records only):"
 say "  $VERIFIER_URL#l=${SHIPPER_ID:0:8}...&r=${SHIPMENT:0:8}...&b=.../shipment.cbor"
 # The consignee consents to receive the goods; the driver hands them over in
-# person. Two days late: the contract charges HKD 2,000 a day.
+# person. Two days late: the contract counts the whole days late and charges
+# HKD 2,000 for each.
 consent consignee deliver "{}" receive.cbor --as consignee-root.key
 driver deliver deliver.cbor
 call deliver "{}" deliver.txt --consent receive.cbor --consent deliver.cbor
 check deliver.txt 'status: delivered'
 check deliver.txt 'holder: consignee'
 LATE="$(state_field late_charge)"
-case "$LATE" in
-    400000 | 600000) ;; # two days late, or three if this ran across midnight
-    *) echo "unexpected late charge: $LATE" >&2; exit 1 ;;
+DAYS="$(state_field days_late)"
+case "$DAYS $LATE" in
+    "2 400000" | "3 600000") ;; # two days late, or three if this ran across midnight
+    *) echo "unexpected days late and late charge: $DAYS $LATE" >&2; exit 1 ;;
 esac
-say "Delivered: the consignee holds the goods. Late charge HKD $((LATE / 100000)),000 (HKD 2,000 a day)."
+say "Delivered: the consignee holds the goods. $DAYS days late: HKD $((LATE / 100000)),000 (HKD 2,000 a day)."
 
 step "9. The consignee claims the excursion, and the insurer pays"
 consent consignee claim "{}" claim.cbor --as consignee-root.key
 call claim "{}" claim.txt --consent claim.cbor
 check claim.txt 'status: claimed'
-say "Claimed: two readings above 8 degrees C, within 7 days of delivery."
+say "Claimed: two readings above 8 °C, within 7 days of delivery."
 # The insurer checks the evidence offline (the readings, signed by the
 # shipper's device, are in it), then consents to pay HKD 120,000.
 PAYOUT='{"payout": 12000000}'

@@ -1,0 +1,129 @@
+測試 「handed over in person at every step, and delivered on time」：通過
+  第 1 步（第 85 行）通過：shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000
+    結果：調用獲接納，實例現為 booked。
+  第 2 步（第 86 行）通過：shipper measure with readings = (4.2 °C, 5.1 °C, 5.5 °C) -> excursions = 0
+    結果：調用獲接納，實例現為 booked。
+  第 3 步（第 87 行）通過：carrier pick_up in person at 2027-03-08 -> in_transit, holder = carrier
+    結果：經 carrier 同意，調用獲接納，實例現為 in_transit。
+  第 4 步（第 88 行）通過：carrier drop_off in person -> holder = warehouse
+    結果：經 warehouse 及 carrier 同意，調用獲接納，實例現為 in_transit。
+  第 5 步（第 89 行）通過：carrier pick_up in person at 2027-03-09
+    結果：經 warehouse 及 carrier 同意，調用獲接納，實例現為 in_transit。
+  第 6 步（第 90 行）通過：shipper measure with readings = (6.3 °C, 8 °C, 2 °C) -> excursions = 0
+    結果：調用獲接納，實例現為 in_transit。
+  第 7 步（第 91 行）通過：carrier deliver in person at 2027-03-10 -> delivered, holder = consignee, late_charge = HKD 0
+    結果：經 carrier 及 consignee 同意，調用獲接納，實例現為 delivered。
+  第 8 步（第 92 行）通過：consignee claim -> refused "bo:requires claim 1"
+    結果：調用被拒絕，因為 claim 的第 1 項要求未獲滿足（bo:requires claim 1）。
+    合約條文 4.5.2：要求 1：excursions 大於 0。
+  第 9 步（第 93 行）通過：shipper measure with readings = 5 °C -> refused "bo:requires measure 1"
+    結果：調用被拒絕，因為 measure 的第 1 項要求未獲滿足（bo:requires measure 1）。
+    合約條文 4.1.3：要求 1：實例處於 booked、in_transit 或 late 狀態。
+
+測試 「two days late: the keeper marks it late, and the delivery charges two days」：通過
+  第 1 步（第 96 行）通過：shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000
+    結果：調用獲接納，實例現為 booked。
+  第 2 步（第 97 行）通過：carrier pick_up in person at 2027-03-08 -> in_transit
+    結果：經 carrier 同意，調用獲接納，實例現為 in_transit。
+  第 3 步（第 98 行）通過：keeper late at 2027-03-10 -> refused "bo:when when.late"
+    結果：調用被拒絕，因為 when.late 尚未適用：其時間未到，或其條件不成立（bo:when when.late）。
+    合約條文 5.2：當實例已逾期（已過到期日）及（實例處於 booked 或 in_transit 狀態）時：
+  第 4 步（第 99 行）通過：keeper late at 2027-03-11 -> late
+    結果：調用獲接納，實例現為 late。
+  第 5 步（第 100 行）通過：carrier drop_off in person
+    結果：經 warehouse 及 carrier 同意，調用獲接納，實例現為 late。
+  第 6 步（第 101 行）通過：carrier pick_up in person -> late
+    結果：經 warehouse 及 carrier 同意，調用獲接納，實例現為 late。
+  第 7 步（第 102 行）通過：carrier deliver in person at 2027-03-12 -> delivered, days_late = 2, late_charge = HKD 4_000
+    結果：經 carrier 及 consignee 同意，調用獲接納，實例現為 delivered。
+
+測試 「five days late: a charge for each of them」：通過
+  第 1 步（第 105 行）通過：shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000
+    結果：調用獲接納，實例現為 booked。
+  第 2 步（第 106 行）通過：carrier pick_up in person at 2027-03-08
+    結果：經 carrier 同意，調用獲接納，實例現為 in_transit。
+  第 3 步（第 107 行）通過：carrier deliver in person at 2027-03-15 -> delivered, days_late = 5, late_charge = HKD 10_000
+    結果：經 carrier 及 consignee 同意，調用獲接納，實例現為 delivered。
+
+測試 「out of range on the way: the consignee claims, and the insurer pays」：通過
+  第 1 步（第 110 行）通過：shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000
+    結果：調用獲接納，實例現為 booked。
+  第 2 步（第 111 行）通過：carrier pick_up in person at 2027-03-08
+    結果：經 carrier 同意，調用獲接納，實例現為 in_transit。
+  第 3 步（第 112 行）通過：shipper measure with readings = (5.2 °C, 11.4 °C, 8.3 °C, 8 °C, 1.9 °C) -> excursions = 3
+    結果：調用獲接納，實例現為 in_transit。
+  第 4 步（第 113 行）通過：carrier deliver in person at 2027-03-09 -> delivered
+    結果：經 carrier 及 consignee 同意，調用獲接納，實例現為 delivered。
+  第 5 步（第 114 行）通過：insurer compensate with payout = HKD 120_000 -> refused "bo:state compensate"
+    結果：調用被拒絕，因為實例目前的狀態不容許 compensate（bo:state compensate）。
+    合約條文 4.6.5：如實例處於 claimed 狀態，即轉為 compensated 狀態；否則拒絕調用。
+  第 6 步（第 115 行）通過：consignee claim at 2027-03-12 -> claimed
+    結果：經 consignee 同意，調用獲接納，實例現為 claimed。
+  第 7 步（第 116 行）通過：insurer compensate with payout = HKD 900_000 -> refused "bo:requires compensate 2"
+    結果：調用被拒絕，因為 compensate 的第 2 項要求未獲滿足（bo:requires compensate 2）。
+    合約條文 4.6.4：要求 2：payout 不超過金額。
+  第 8 步（第 117 行）通過：insurer compensate with payout = HKD 120_000 -> compensated
+    結果：經 insurer 同意，調用獲接納，實例現為 compensated；此為最終狀態，實例不再接受調用。
+
+測試 「a claim comes within 7 days of delivery」：通過
+  第 1 步（第 120 行）通過：shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000
+    結果：調用獲接納，實例現為 booked。
+  第 2 步（第 121 行）通過：carrier pick_up in person at 2027-03-08
+    結果：經 carrier 同意，調用獲接納，實例現為 in_transit。
+  第 3 步（第 122 行）通過：shipper measure with readings = 1.5 °C
+    結果：調用獲接納，實例現為 in_transit。
+  第 4 步（第 123 行）通過：carrier deliver in person at 2027-03-09
+    結果：經 carrier 及 consignee 同意，調用獲接納，實例現為 delivered。
+  第 5 步（第 124 行）通過：consignee claim at 2027-03-16 -> refused "bo:requires claim 2"
+    結果：調用被拒絕，因為 claim 的第 2 項要求未獲滿足（bo:requires claim 2）。
+    合約條文 4.5.3：要求 2：實例上次轉換狀態至今未滿 7 日。
+
+測試 「the insurer may decline a claim, which ends the shipment」：通過
+  第 1 步（第 127 行）通過：shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000
+    結果：調用獲接納，實例現為 booked。
+  第 2 步（第 128 行）通過：carrier pick_up in person at 2027-03-08
+    結果：經 carrier 同意，調用獲接納，實例現為 in_transit。
+  第 3 步（第 129 行）通過：shipper measure with readings = 1.5 °C
+    結果：調用獲接納，實例現為 in_transit。
+  第 4 步（第 130 行）通過：carrier deliver in person at 2027-03-09
+    結果：經 carrier 及 consignee 同意，調用獲接納，實例現為 delivered。
+  第 5 步（第 131 行）通過：consignee claim at 2027-03-15 -> claimed
+    結果：經 consignee 同意，調用獲接納，實例現為 claimed。
+  第 6 步（第 132 行）通過：insurer decline -> declined
+    結果：經 insurer 同意，調用獲接納，實例現為 declined；此為最終狀態，實例不再接受調用。
+  第 7 步（第 133 行）通過：insurer compensate with payout = HKD 120_000 -> refused
+    結果：賬本拒絕調用：實例已處於最終狀態，不再接受調用。
+
+測試 「only the carrier hands over, and only what it holds」：通過
+  第 1 步（第 136 行）通過：shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000
+    結果：調用獲接納，實例現為 booked。
+  第 2 步（第 137 行）通過：warehouse pick_up in person -> consent of carrier
+    結果：調用正等待 carrier 同意。
+  第 3 步（第 138 行）通過：carrier pick_up in person at 2027-03-08
+    結果：經 carrier 同意，調用獲接納，實例現為 in_transit。
+  第 4 步（第 139 行）通過：consignee deliver in person -> consent of carrier
+    結果：調用正等待 carrier 同意。
+  第 5 步（第 140 行）通過：warehouse drop_off -> consent of carrier
+    結果：調用正等待 carrier 同意。
+  第 6 步（第 141 行）通過：carrier drop_off in person
+    結果：經 warehouse 及 carrier 同意，調用獲接納，實例現為 in_transit。
+  第 7 步（第 142 行）通過：carrier deliver in person -> refused "bo:requires deliver 2"
+    結果：調用被拒絕，因為 deliver 的第 2 項要求未獲滿足（bo:requires deliver 2）。
+    合約條文 4.4.4：要求 2：持有人為 carrier。
+  第 8 步（第 143 行）通過：carrier drop_off in person -> refused "bo:requires drop_off 3"
+    結果：調用被拒絕，因為 drop_off 的第 3 項要求未獲滿足（bo:requires drop_off 3）。
+    合約條文 4.3.5：要求 3：持有人為 carrier。
+
+測試 「the driver proves presence: no key alone, no AI agent」：通過
+  第 1 步（第 146 行）通過：shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000
+    結果：調用獲接納，實例現為 booked。
+  第 2 步（第 147 行）通過：carrier pick_up -> refused "bo:in-person pick_up"
+    結果：調用被拒絕，因為 pick_up 須由本人以通行密鑰或硬件密鑰證明親身在場（bo:in-person pick_up）。
+    合約條文 4.2.3：要求 1：carrier 須以通行密鑰或硬件密鑰證明本人親身在場。
+  第 3 步（第 148 行）通過：carrier pick_up by AI agent -> refused "bo:in-person pick_up"
+    結果：調用被拒絕，因為 pick_up 須由本人以通行密鑰或硬件密鑰證明親身在場（bo:in-person pick_up）。
+    合約條文 4.2.3：要求 1：carrier 須以通行密鑰或硬件密鑰證明本人親身在場。
+  第 4 步（第 149 行）通過：carrier pick_up in person -> in_transit
+    結果：經 carrier 同意，調用獲接納，實例現為 in_transit。
+
+共 8 個測試：8 個通過，0 個失敗。

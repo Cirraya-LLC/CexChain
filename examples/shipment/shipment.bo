@@ -8,23 +8,25 @@ contract Shipment
 parties shipper, carrier, warehouse, consignee, insurer
 
 # The holder has the goods. They are due by the due date, insured up to the
-# amount, and kept between lowest and highest degrees Celsius. late_charge
-# and excursions start at 0, given at creation.
+# amount, and kept between lowest and highest. The days late, the late
+# charge, and the excursions start at 0: creation need not give them.
 thing Goods
   holder shipper
   due date
   amount HKD
   penalty_per_day HKD
-  late_charge HKD
-  excursions number
-  lowest 2
-  highest 8
+  days_late number = 0
+  late_charge HKD = HKD 0
+  excursions number = 0
+  lowest 2 °C
+  highest 8 °C
 
 # Readings from the shipper's data logger, a device packed with the goods,
-# until they are delivered. Each reading out of the range is an excursion.
-can measure by shipper with celsius list number at most 96
+# until they are delivered, in tenths of a degree (or hundredths). Each
+# reading out of the range is an excursion.
+can measure by shipper with readings list °C at most 96
   requires booked or in_transit or late
-  each reading in celsius
+  each reading in readings
     if reading < lowest or reading > highest
       excursions = excursions + 1
 
@@ -46,19 +48,16 @@ can drop_off by carrier
   holder = warehouse
 
 # Delivered late, the carrier owes a charge for each full day after the due
-# date, for at most three days.
+# date: the days late count whole days, the rest of a day dropped.
 can deliver by carrier
   requires in person
   requires holder = carrier
   requires consent of consignee
   in_transit, late -> delivered
   holder = consignee
-  if overdue 3 days
-    late_charge = penalty_per_day * 3
-  otherwise if overdue 2 days
-    late_charge = penalty_per_day * 2
-  otherwise if overdue
-    late_charge = penalty_per_day
+  if overdue
+    days_late = (now - due) / 1 day
+    late_charge = penalty_per_day * days_late
 
 # Goods that left the range are claimed within 7 days of delivery; the
 # insurer pays at most the amount, or declines.
@@ -83,29 +82,34 @@ when overdue and (booked or in_transit)
 # Its tests: bo test runs each on an instance of its own, as the ledger
 # would, every party a ledger of its own.
 test "handed over in person at every step, and delivered on time"
-  shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000, late_charge = HKD 0, excursions = 0
-  shipper measure with celsius = (4, 5, 5)
-  carrier pick_up in person at 2027-03-08 -> in_transit
-  carrier drop_off in person
+  shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000
+  shipper measure with readings = (4.2 °C, 5.1 °C, 5.5 °C) -> excursions = 0
+  carrier pick_up in person at 2027-03-08 -> in_transit, holder = carrier
+  carrier drop_off in person -> holder = warehouse
   carrier pick_up in person at 2027-03-09
-  shipper measure with celsius = (6, 5, 4)
-  carrier deliver in person at 2027-03-10 -> delivered
+  shipper measure with readings = (6.3 °C, 8 °C, 2 °C) -> excursions = 0
+  carrier deliver in person at 2027-03-10 -> delivered, holder = consignee, late_charge = HKD 0
   consignee claim -> refused "bo:requires claim 1"
-  shipper measure with celsius = 5 -> refused "bo:requires measure 1"
+  shipper measure with readings = 5 °C -> refused "bo:requires measure 1"
 
 test "two days late: the keeper marks it late, and the delivery charges two days"
-  shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000, late_charge = HKD 0, excursions = 0
+  shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000
   carrier pick_up in person at 2027-03-08 -> in_transit
   keeper late at 2027-03-10 -> refused "bo:when when.late"
   keeper late at 2027-03-11 -> late
   carrier drop_off in person
   carrier pick_up in person -> late
-  carrier deliver in person at 2027-03-12 -> delivered
+  carrier deliver in person at 2027-03-12 -> delivered, days_late = 2, late_charge = HKD 4_000
+
+test "five days late: a charge for each of them"
+  shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000
+  carrier pick_up in person at 2027-03-08
+  carrier deliver in person at 2027-03-15 -> delivered, days_late = 5, late_charge = HKD 10_000
 
 test "out of range on the way: the consignee claims, and the insurer pays"
-  shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000, late_charge = HKD 0, excursions = 0
+  shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000
   carrier pick_up in person at 2027-03-08
-  shipper measure with celsius = (5, 11, 9, 6)
+  shipper measure with readings = (5.2 °C, 11.4 °C, 8.3 °C, 8 °C, 1.9 °C) -> excursions = 3
   carrier deliver in person at 2027-03-09 -> delivered
   insurer compensate with payout = HKD 120_000 -> refused "bo:state compensate"
   consignee claim at 2027-03-12 -> claimed
@@ -113,23 +117,23 @@ test "out of range on the way: the consignee claims, and the insurer pays"
   insurer compensate with payout = HKD 120_000 -> compensated
 
 test "a claim comes within 7 days of delivery"
-  shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000, late_charge = HKD 0, excursions = 0
+  shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000
   carrier pick_up in person at 2027-03-08
-  shipper measure with celsius = 1
+  shipper measure with readings = 1.5 °C
   carrier deliver in person at 2027-03-09
   consignee claim at 2027-03-16 -> refused "bo:requires claim 2"
 
 test "the insurer may decline a claim, which ends the shipment"
-  shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000, late_charge = HKD 0, excursions = 0
+  shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000
   carrier pick_up in person at 2027-03-08
-  shipper measure with celsius = 1
+  shipper measure with readings = 1.5 °C
   carrier deliver in person at 2027-03-09
   consignee claim at 2027-03-15 -> claimed
   insurer decline -> declined
   insurer compensate with payout = HKD 120_000 -> refused
 
 test "only the carrier hands over, and only what it holds"
-  shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000, late_charge = HKD 0, excursions = 0
+  shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000
   warehouse pick_up in person -> consent of carrier
   carrier pick_up in person at 2027-03-08
   consignee deliver in person -> consent of carrier
@@ -139,7 +143,7 @@ test "only the carrier hands over, and only what it holds"
   carrier drop_off in person -> refused "bo:requires drop_off 3"
 
 test "the driver proves presence: no key alone, no AI agent"
-  shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000, late_charge = HKD 0, excursions = 0
+  shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000
   carrier pick_up -> refused "bo:in-person pick_up"
   carrier pick_up by AI agent -> refused "bo:in-person pick_up"
   carrier pick_up in person -> in_transit
