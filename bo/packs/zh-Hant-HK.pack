@@ -324,7 +324,7 @@
     "check.unknown-field": "實例沒有欄位 {field}：請在種類的區塊內宣告（金額 港元、到期日 日期）",
     "check.unknown-input": "{action} 沒有輸入項 {name}",
     "check.field-head": "{text} 不可用作欄位名稱：請用自訂名稱，或欄位、價格的詞語（金額、到期日、持有人、價格）",
-    "check.default-field": "{field} 不可設預設值：只有建立實例時給出的實例欄位可設預設值；常數有其數值，參與方欄位以其參與方開始，賬單由其各項組成",
+    "check.default-field": "{field} 不可設預設值：只有建立實例時給出的實例欄位可設預設值；常數有其數值，訂約方欄位以其訂約方開始，單據由其各行組成",
     "check.default-value": "{text} 不可作預設值：預設值須為直接寫出、屬於該欄位類型的數值：0、港元 0、否、「未定」、2027-01-01，或由這些組成的列表",
     "check.field-needs-type": "{field} 須寫明類型或數值：金額 港元、到期日 日期、IP 1個",
     "check.field-type": "{field} 存放的是{expected_type}，而非{type}",

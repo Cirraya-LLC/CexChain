@@ -323,7 +323,7 @@
     "check.unknown-field": "实例没有字段 {field}：请在种类的代码块中声明（金额 港元、到期日 日期）",
     "check.unknown-input": "{action} 没有输入项 {name}",
     "check.field-head": "{text} 不能用作字段名称：请用自定义名称，或字段、价格的词语（金额、到期日、持有人、价格）",
-    "check.default-field": "{field} 不能设默认值：只有创建实例时给出的实例字段可以设默认值；常量有其值，参与方字段以其参与方开始，账单由其各项组成",
+    "check.default-field": "{field} 不能设默认值：只有创建实例时给出的实例字段可以设默认值；常量有其值，参与方字段以其参与方开始，单据由其各行组成",
     "check.default-value": "{text} 不能作默认值：默认值必须是直接写出、属于该字段类型的值：0、港元 0、否、“未定”、2027-01-01，或由这些组成的列表",
     "check.field-needs-type": "{field} 必须写明类型或值：金额 港元、到期日 日期、IP 1个",
     "check.field-type": "{field} 存放的是{expected_type}，而不是{type}",
