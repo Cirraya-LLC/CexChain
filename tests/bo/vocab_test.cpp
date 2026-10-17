@@ -19,6 +19,7 @@
 
 #include <cexchain/bo/checker.hpp>
 #include <cexchain/bo/concepts.hpp>
+#include <cexchain/bo/explain.hpp>
 #include <cexchain/bo/lexer.hpp>
 #include <cexchain/bo/messages.hpp>
 #include <cexchain/bo/pack.hpp>
@@ -469,6 +470,28 @@ TEST_CASE("a source uses a user's pack: its words, its terms, its rules", "[bo][
                   {{"pack", "club"}, {"other", "finance"}}));
     const std::string both = "use finance\n" + std::string(club_source);
     CHECK(!has_errors(check_with(with_needs, both).all));
+    // Messages and the contract text spell the pack's words in the
+    // reader's language, as the set holds them.
+    TestVocab declared;
+    declared.concepts["field.member"] = R"({"category": "field", "type": "party", "taking": true})";
+    const PackSet with_declared = set_with({must_read(declared)});
+    const CheckedSource missing = check_with(with_declared, club_source);
+    const auto standard =
+        std::ranges::find(missing.all, std::string_view("check.standard-field"), &Diagnostic::code);
+    REQUIRE(standard != missing.all.end());
+    const std::string message = render(*standard, with_declared.find("zh-Hant-HK"));
+    CHECK(message.find("入會") != std::string::npos);
+    CHECK(message.find("會員") != std::string::npos);
+    CHECK(render(*standard, nullptr).find("join") != std::string::npos);
+    const Explained text = explain(m, set.find("zh-Hant-HK"));
+    CHECK(text.packs.find("club") != std::string::npos);
+    std::string clauses;
+    for (const ExplainedSection& section : text.sections) {
+        for (const ExplainedClause& c : section.clauses) {
+            clauses += c.text + "\n";
+        }
+    }
+    CHECK(clauses.find("會員") != std::string::npos);
 }
 
 TEST_CASE("a bundle embeds a user's pack whole (key 7), and opens with it", "[bo][vocab]") {

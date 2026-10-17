@@ -440,11 +440,11 @@ public:
             break;
         case TypeKind::duration:
             if (n && type.calendar) {
-                return amount_of(scaled(*n, 1, 0), *n == 1, "time.month");
+                return amount_of(scaled(*n, 1, 0), *n == 1, find_concept("time.month"));
             }
             if (n && *n % static_cast<std::int64_t>(day_ms) == 0) {
                 const std::int64_t days = *n / static_cast<std::int64_t>(day_ms);
-                return amount_of(scaled(days, 1, 0), days == 1, "time.day");
+                return amount_of(scaled(days, 1, 0), days == 1, find_concept("time.day"));
             }
             break;
         case TypeKind::quantity:
@@ -453,7 +453,7 @@ public:
                 const UnitInfo* info = unit_info(unit);
                 if (info != nullptr) {
                     return amount_of(scaled(*n, info->factor, 0),
-                                     *n == static_cast<std::int64_t>(info->factor), unit->id);
+                                     *n == static_cast<std::int64_t>(info->factor), unit);
                 }
             }
             break;
@@ -507,9 +507,9 @@ private:
     const Pack* pack_;
     bool spaced_;
 
-    [[nodiscard]] std::string amount_of(std::string amount, bool one, std::string_view unit) const {
+    [[nodiscard]] std::string amount_of(std::string amount, bool one, const Concept* unit) const {
         return say(one ? "value-unit-one" : "value-unit",
-                   {{"amount", plain(std::move(amount))}, {"unit", word(find_concept(unit))}});
+                   {{"amount", plain(std::move(amount))}, {"unit", word(unit)}});
     }
 
     [[nodiscard]] const std::string* find(std::string_view id) const {
@@ -571,6 +571,20 @@ int level_of(const m::Expr& e) noexcept {
 class Explainer {
 public:
     Explainer(const m::Model& model, const Pack* language) : model_(model), w_(language) {}
+
+    /// A concept by id: the edition's, or one of the users' vocabulary
+    /// packs the model uses.
+    [[nodiscard]] const Concept* concept_of(std::string_view id) const {
+        if (const Concept* c = find_concept(id)) {
+            return c;
+        }
+        for (const VocabularyPack* pack : model_.vocabularies) {
+            if (const Concept* c = pack != nullptr ? pack->find(id) : nullptr) {
+                return c;
+            }
+        }
+        return nullptr;
+    }
 
     Explained run() {
         out_.language = w_.pack().id;
@@ -681,7 +695,7 @@ private:
         if (!key) {
             return w_.say("value-amount");
         }
-        if (const Concept* c = find_concept(*key)) {
+        if (const Concept* c = concept_of(*key)) {
             return w_.form(c, "object");
         }
         return *key;
@@ -983,7 +997,7 @@ private:
             if (p.binding == m::Binding::creation) {
                 text = w_.say("party-creation", {{"party", who}});
             } else {
-                const Concept* by = find_concept(p.bound_by);
+                const Concept* by = concept_of(p.bound_by);
                 if (p.each_call) {
                     // R23: each allocation binds it again.
                     note(rules, "R23");

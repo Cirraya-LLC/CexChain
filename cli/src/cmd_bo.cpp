@@ -1172,6 +1172,12 @@ Json vocab_json(const VocabFacts& f) {
             {"hash", f.hash},   {"digest", f.digest ? Json(*f.digest) : Json(nullptr)}};
 }
 
+/// A pack file rather than an id: a name ending .vocab, or a path (never a
+/// file that happens to have a pack's id as its name).
+bool is_vocab_path(std::string_view name) noexcept {
+    return name.ends_with(".vocab") || name.find('/') != std::string_view::npos;
+}
+
 /// The pack a command names: core, an official pack's id, a user's pack's
 /// id given with --vocab, or a pack file (read with the set).
 const bo::VocabularyPack* named_vocab(const std::string& name, const bo::PackSet& set) {
@@ -1179,7 +1185,7 @@ const bo::VocabularyPack* named_vocab(const std::string& name, const bo::PackSet
         return nullptr;
     }
     std::string id = name;
-    if (name.ends_with(".vocab") || std::filesystem::is_regular_file(name)) {
+    if (is_vocab_path(name)) {
         VocabFile file = read_vocab_file(name);
         if (file.read.pack == nullptr) {
             throw CommandError{name + " is not a vocabulary pack (bo vocab check shows why)"};
@@ -1200,7 +1206,7 @@ std::vector<std::string> named_vocab_file(const Args& args) {
         return {};
     }
     const std::string& name = args.positional().front();
-    if (name.ends_with(".vocab") || std::filesystem::is_regular_file(name)) {
+    if (is_vocab_path(name)) {
         return {name};
     }
     return {};

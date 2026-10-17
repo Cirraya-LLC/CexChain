@@ -124,7 +124,11 @@ std::string spelled(std::string_view value, const Pack* language) {
     while (true) {
         const std::size_t comma = value.find(", ");
         const std::string_view part = value.substr(0, comma);
-        out += find_concept(part) != nullptr ? spell(part, language) : std::string(part);
+        // A user's vocabulary pack's concept id (`events:act.reserve`) too.
+        const bool user_concept = part.find(':') != std::string_view::npos &&
+                                  part.find('.', part.find(':')) != std::string_view::npos;
+        out += find_concept(part) != nullptr || user_concept ? spell(part, language)
+                                                             : std::string(part);
         if (comma == std::string_view::npos) {
             return out;
         }
