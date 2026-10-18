@@ -609,8 +609,7 @@ TEST_CASE("the system clock runs ahead by the process's offset, set once for eve
     ledger::SystemClock clock;
     REQUIRE(ledger::SystemClock::offset() == 0);
     const protocol::Timestamp before = clock.now();
-    constexpr protocol::Timestamp day = 86'400'000;
-    ledger::SystemClock::set_offset(30 * day);
+    ledger::SystemClock::set_offset(30 * day); // day: support/ledger_world.hpp
     const protocol::Timestamp ahead = clock.now();
     ledger::SystemClock::set_offset(0);
     const protocol::Timestamp after = clock.now();
