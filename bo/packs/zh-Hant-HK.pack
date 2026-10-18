@@ -342,7 +342,7 @@
     "check.charge-rounding": "{name} 是定額，不會捨入：請勿為其寫捨入方式",
     "check.charge-bill": "{name} 每份{document}捨入一次，但合約的單據並非{document}",
     "check.needs-executor": "{action} 要求執行器在賬本以外行事，此功能於 6b 步驟推出：bo check 接受它，但在此之前 bo build 會拒絕",
-    "check.request-kind": "{text} 不是請求的種類：請寫一個以小寫拉丁字母開頭、由小寫拉丁字母、數字、.、_ 及 - 組成的名稱（最多 64 個字節），或動作的詞語",
+    "check.request-kind": "{text} 不是請求的種類：請寫一個以小寫拉丁字母開頭、由小寫拉丁字母、數字及 _ 組成的名稱（最多 64 個字節），或動作的詞語",
     "check.request-value": "{name}：請求可附帶數字、金額、數量、比率、日期、時間長度、文字、是否、訂約方及其清單，但不可附帶{type}",
     "check.request-within": "{text}：請求須寫明期限，即寫出的時間長度之內，由 1日 至 366日（12個月）",
     "check.request-count": "{function} 一次調用可發出 {count} 個請求；一次調用最多只可發出 16 個",

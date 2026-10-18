@@ -295,6 +295,16 @@ public:
                     s.creation || s.approve) {
                     std::abort();
                 }
+            } else if (s.answer && s.subject.word != nullptr &&
+                       s.subject.word->category == bo::Category::actor) {
+                // E8: an answer by the executor or the keeper (the home's
+                // devices), of a kind the ledger would take.
+                place(s.subject.span);
+                if ((s.subject.word->id != "actor.executor" &&
+                     s.subject.word->id != "actor.keeper") ||
+                    s.creation || s.approve || s.keeper || s.request_kind.empty()) {
+                    std::abort();
+                }
             } else {
                 party(s.subject);
             }

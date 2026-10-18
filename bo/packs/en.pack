@@ -344,7 +344,7 @@
     "check.charge-rounding": "{name} is a fixed amount, which is never rounded: give it no rounding mode",
     "check.charge-bill": "{name} is rounded once per {document}, but the contract's bill is another document",
     "check.needs-executor": "{action} asks an executor to act outside the ledger, which comes in step 6b: bo check accepts it, and bo build will refuse it until then",
-    "check.request-kind": "{text} is not a request kind: write a name of lowercase Latin letters, digits, ., _, and -, starting with a letter (at most 64 bytes), or an action's word",
+    "check.request-kind": "{text} is not a request kind: write a name of lowercase Latin letters, digits, and _, starting with a letter (at most 64 bytes), or an action's word",
     "check.request-value": "{name}: a request carries numbers, money, quantities, rates, dates, durations, texts, yes or no, parties, and lists of them, not {type}",
     "check.request-within": "{text}: a request names its deadline, within a duration written out, from 1 day to 366 days (12 months)",
     "check.request-count": "{function} can make {count} requests in one call; a call makes at most 16",

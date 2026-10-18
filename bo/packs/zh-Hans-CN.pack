@@ -341,7 +341,7 @@
     "check.charge-rounding": "{name} 是定额，不会舍入：请不要为其写舍入方式",
     "check.charge-bill": "{name} 每张{document}舍入一次，但合约的单据不是{document}",
     "check.needs-executor": "{action} 要求执行器在账本之外执行，此功能在 6b 步骤推出：bo check 接受它，但在此之前 bo build 会拒绝",
-    "check.request-kind": "{text} 不是请求的种类：请写一个以小写拉丁字母开头、由小写拉丁字母、数字、.、_ 和 - 组成的名称（最多 64 个字节），或动作的词语",
+    "check.request-kind": "{text} 不是请求的种类：请写一个以小写拉丁字母开头、由小写拉丁字母、数字和 _ 组成的名称（最多 64 个字节），或动作的词语",
     "check.request-value": "{name}：请求可以附带数字、金额、数量、比率、日期、时长、文本、是否、参与方及其列表，但不能附带{type}",
     "check.request-within": "{text}：请求必须写明期限，即写出的时长之内，从 1天 到 366天（12个月）",
     "check.request-count": "{function} 一次调用可发出 {count} 个请求；一次调用最多只能发出 16 个",
