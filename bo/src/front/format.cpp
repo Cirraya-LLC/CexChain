@@ -1020,8 +1020,18 @@ Difference compare(const Lexed& lexed, const Parsed& parsed, std::string_view te
     bool same = !has_errors(again.diagnostics) && reparsed.diagnostics.empty() &&
                 again.edition == lexed.edition && dump(reparsed.file) == dump(parsed.file) &&
                 again.comments.size() == lexed.comments.size();
-    for (std::size_t c = 0; same && c < lexed.comments.size(); ++c) {
-        same = comment_text(again.comments[c].text) == comment_text(lexed.comments[c].text);
+    if (same) {
+        // The same comments; in another order where `use` lines moved with
+        // the comments after them.
+        std::vector<std::string> before;
+        std::vector<std::string> after;
+        for (std::size_t c = 0; c < lexed.comments.size(); ++c) {
+            before.push_back(comment_text(lexed.comments[c].text));
+            after.push_back(comment_text(again.comments[c].text));
+        }
+        std::ranges::sort(before);
+        std::ranges::sort(after);
+        same = before == after;
     }
     if (same && same_tokens) {
         // The same tokens, the `use` lines (which may move) aside.

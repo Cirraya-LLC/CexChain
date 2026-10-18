@@ -206,7 +206,12 @@ TEST_CASE("formatting keeps the tree, the model, and the text, in every language
             const Read after = read_source(text);
             CHECK(after.clean);
             CHECK(after.tree == before.tree);
-            CHECK(after.comments == before.comments);
+            // The same comments; `use` lines that move take theirs along.
+            std::vector<std::string> kept = after.comments;
+            std::vector<std::string> given = before.comments;
+            std::ranges::sort(kept);
+            std::ranges::sort(given);
+            CHECK(kept == given);
             CHECK(formatted(text, language) == text);
             CHECK(meaning(text) == model);
             // Into any other language and back: the same tree again.

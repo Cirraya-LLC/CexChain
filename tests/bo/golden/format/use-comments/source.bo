@@ -1,0 +1,5 @@
+contract C
+use finance  # assets
+# the parties
+use commerce  # prices
+parties we
