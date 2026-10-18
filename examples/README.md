@@ -21,6 +21,7 @@ Each example is a directory with:
 | [multi-tier-split](multi-tier-split/) | Multi-tier supply-chain finance: a receivable split down a supply chain, each part an instance of its own, a part pledged to a bank that verifies the whole chain offline first | 6 organizations |
 | [shipment](shipment/) | A chain of custody: goods kept cold, handed from a shipper to a carrier, a transit warehouse, and a consignee. The driver signs each handover in person with a hardware key, a data logger (a device) posts readings, readings in tenths of a degree (°C), a keeper marks the shipment late, delivery charges each whole day late and asks for a notice that an executor sends (a request, answered on the ledger), the consignee checks a QR code and claims from an insurer; one ledger uses SM2 and SM3 | 5 organizations |
 | [events](events/) | A concert ticket in the words of a vocabulary pack of the organizer's own (`events.vocab`: reserve, check in, guest, in three languages, with standard terms): the pack checked, the contract deployed with it, the fan's consent, and the history verified offline by someone without the pack file, since the deploy carries it | 2 (an organizer, a fan) |
+| [idc-hosting](idc-hosting/) | A server rented and billed each month, on the `services` and `commerce` packs: the provider's ledger on a three-member cluster whose keeper suspends the server when overdue; an executor whose two webhooks (a fake control panel, a fake billing system that collects only once the whole amount is in) provision, invoice, collect, suspend, resume, terminate, and reclaim the address; an AI agent answers notices through MCP, a clerk a cash payment by hand; a month passes by `CEXCHAIN_CLOCK_OFFSET`, not by waiting | 2 (a provider on 3 servers, a customer) |
 
 ## Running one
 
@@ -35,7 +36,7 @@ examples/lending/lending.sh build/gcc-release/cli/cexchain ./lending-demo   # ke
 
 The scripts are also tests: `ctest -R demo_` runs every one (`demo_lending`,
 `demo_supply_agreement`, `demo_receivable_financing`, `demo_multi_tier_split`,
-`demo_events`, `demo_shipment`), so they keep working as CexChain changes. The shipment also needs SoftHSM,
+`demo_events`, `demo_shipment`, `demo_idc_hosting`), so they keep working as CexChain changes. The shipment also needs SoftHSM,
 which stands in for its driver's hardware key (`brew install softhsm`, or `apt install
 softhsm2`).
 
@@ -45,7 +46,8 @@ Bo's core holds generic words only; words of particular fields live in official 
 packs, which a contract declares at its top (`cexchain bo vocab list` shows them). The finance
 examples use the `finance` pack (`use finance`: pledge, pay, split, with the standard terms of
 each), and the supply agreement its role words for a supplier and a bank and, from the
-`commerce` pack, its price (`use commerce`, `use finance`). The lending and shipment contracts
+`commerce` pack, its price (`use commerce`, `use finance`). The hosting example's server is a
+`service` of the `services` pack, billed each period with the `commerce` pack's `collect`. The lending and shipment contracts
 use core words only. An example's own words (its parties, fields, states, and actions) are
 always its own.
 

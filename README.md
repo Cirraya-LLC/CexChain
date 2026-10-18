@@ -1070,6 +1070,12 @@ of the home, the rule that does that action (for a rule that does none, the stat
 change leads to, such as `keeper closed`).
 Nothing yet keeps a field's value unique across a contract's instances: unique keys come later.
 
+To try time rules on a real ledger without waiting, set `CEXCHAIN_CLOCK_OFFSET` (such as `30d`,
+`12h`, or `90m`; at most 3660 days): every command, the server and its keeper included, runs its
+clock that far ahead. It is for demonstrations and tests only. A ledger keeps the times it
+records, `serve` prints the offset, and a client ahead of its ledger is refused (a statement
+may not claim to be issued in the future). `examples/idc-hosting` moves a month this way.
+
 ### Lists and charges
 
 A field or an input may be a list, of at most 16 items unless `at most N` says otherwise (1,000
@@ -1115,6 +1121,11 @@ command line. An agent can also be an executor: it lists the requests contracts 
 (`cexchain_answer_request`), each answer recorded with its provenance. `cexchain mcp --help`
 lists every tool.
 
+With `--server URL` (and `--token-file`, `--ledger-id`, as for every command in client mode), the
+agent works on a ledger a server or a cluster serves, through a verified local mirror: it reads,
+calls, and answers there, its statements signed on its own computer. The tools that reach
+other organizations need a ledger directory's peers, so they are refused in client mode.
+
 ## Examples
 
 [`examples/`](examples/) holds complete stories built on the generic core. Each is a Bo contract
@@ -1129,6 +1140,7 @@ of these things, and every one of them can be changed or written anew.
 | [receivable-financing](examples/receivable-financing/) | Supply-chain finance: a receivable pledged to a bank, a second pledge refused, released, sold, and paid; a regulator as witness |
 | [multi-tier-split](examples/multi-tier-split/) | Supply-chain finance: a receivable split down a supply chain across six organizations, a part pledged after its chain is verified offline |
 | [shipment](examples/shipment/) | A chain of custody: goods kept cold handed from a shipper to a carrier, a transit warehouse, and a consignee; a driver signs each handover in person, a data logger (a device) posts readings, a keeper marks the shipment late, a charge per day late, a QR code at delivery, a delivery notice an executor sends and answers, an insurer's claim; SM2 and SM3 |
+| [idc-hosting](examples/idc-hosting/) | Services: a server rented and billed each month, on the `services` and `commerce` packs; the provider's ledger on a three-member cluster with its keeper; an executor with two webhooks (a control panel, a billing system); a notice answered by an AI agent through MCP and a payment answered by hand; suspended when overdue, resumed when paid, terminated and its address reclaimed |
 
 The scripts run in the test suite (`ctest -R demo_`), so they keep working.
 
