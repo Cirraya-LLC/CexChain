@@ -322,12 +322,14 @@ private:
     /// A test step answering a request: `executor KIND done`, ...
     Line answer_step(int& month, int& day);
     Tok field_tok(const GField& f) const {
-        return f.name == "amount"    ? word("field.amount")
-               : f.name == "due"     ? word("field.due")
-               : f.name == "tier"    ? word("field.tier")
-               : f.name == "invoice" ? word("doc.invoice")
-               : f.type == T::party  ? word("field.holder")
-                                     : raw(f.name);
+        return f.name == "amount"         ? word("field.amount")
+               : f.name == "due"          ? word("field.due")
+               : f.name == "paid_until"   ? word("field.paid_until")
+               : f.name == "billed_until" ? word("field.billed_until")
+               : f.name == "tier"         ? word("field.tier")
+               : f.name == "invoice"      ? word("doc.invoice")
+               : f.type == T::party       ? word("field.holder")
+                                          : raw(f.name);
     }
     Tok state(std::size_t i) { return i < vocabulary_states_ ? word(states_[i]) : raw(states_[i]); }
     Tok test_party();
@@ -354,8 +356,11 @@ private:
     bool resource_ = false;
     /// The first state is active.
     bool active_first_ = false;
-    /// The instance has a due date (field.due).
+    /// The instance has a due date (field.due, or a service's paid until).
     bool due_ = false;
+    /// E9: a service with a recurring price, billed each period once it is
+    /// subscribed to.
+    bool service_ = false;
     std::vector<GAction> actions_;
     /// What keeper steps name: the action each time rule does.
     std::vector<Tok> keeper_;
@@ -998,12 +1003,22 @@ std::vector<std::pair<int, Line>> Generator::contract() {
     const bool asset = c_.one_in(3);
     asset_ = asset;
     resource_ = !asset && c_.one_in(4);
+    service_ = !asset && !resource_ && c_.one_in(3);
     out.push_back({0,
                    {word(asset       ? "kind.asset"
                          : resource_ ? "kind.resource"
+                         : service_  ? "kind.service"
                                      : "kind.thing"),
                     raw("Thing")}});
-    if (c_.one_in(3)) {
+    if (service_) {
+        // E9: due on the date it is paid until, each period (R11).
+        static constexpr std::string_view periods[] = {"time.monthly", "time.weekly", "time.daily",
+                                                       "time.yearly"};
+        due_ = true;
+        out.push_back({2,
+                       {word("price.price"), word(std::string(periods[c_.below(4)])),
+                        raw(std::format("HKD {}.{:02}", c_.between(0, 5'000), c_.below(100)))}});
+    } else if (c_.one_in(3)) {
         due_ = true;
         fields_.push_back({"due", T::date, false, {}});
         out.push_back({2, {word("field.due"), word("type.date")}});
@@ -1081,8 +1096,9 @@ std::vector<std::pair<int, Line>> Generator::contract() {
         out.push_back({2, l});
         fields_.push_back(std::move(f));
     }
-    // A bill, and the charges computed on it.
-    const bool bill = c_.one_in(3);
+    // A bill, and the charges computed on it (on a service billed each
+    // period, refused: rarely).
+    const bool bill = service_ ? c_.below(12) == 11 : c_.one_in(3);
     if (bill) {
         GField f{"invoice", T::money, false, {}, true, c_.one_in(2) ? 0 : 1 + c_.below(20)};
         Line l{word("doc.invoice")};
@@ -1096,7 +1112,7 @@ std::vector<std::pair<int, Line>> Generator::contract() {
     static constexpr std::string_view state_words[] = {"state.proposed", "state.active",
                                                        "state.paid"};
     // An instance with a tier (one that may split) starts active too.
-    active_first_ = resource_ || c_.one_in(3) ||
+    active_first_ = resource_ || service_ || c_.one_in(3) ||
                     std::ranges::any_of(fields_, [](const GField& f) { return f.name == "tier"; });
     if (active_first_) {
         // Active first, where a resource's terms and the time rules' built-in
@@ -1235,6 +1251,35 @@ std::vector<std::pair<int, Line>> Generator::contract() {
         reclaim.name = "reclaim";
         out.push_back({0, {word("kw.can"), word(reclaim.word)}});
         actions_.push_back(std::move(reclaim));
+    }
+    // A service (E9): subscribed to, renewed, its plan changed; each asks an
+    // executor (R10), and subscribing and renewing bill a period (R34).
+    if (service_) {
+        static constexpr std::string_view words[] = {"act.subscribe", "act.renew", "act.upgrade",
+                                                     "act.downgrade"};
+        for (const std::string_view id : words) {
+            if (id != "act.subscribe" && c_.one_in(2)) {
+                continue;
+            }
+            GAction action;
+            action.word = std::string(id);
+            action.name = std::string(id.substr(4));
+            Line head{word("kw.can"), word(action.word)};
+            if (c_.one_in(2)) {
+                head.push_back(word("kw.by"));
+                head.push_back(roles_[c_.below(static_cast<std::uint32_t>(roles_.size()))]);
+            }
+            out.push_back({0, head});
+            actions_.push_back(std::move(action));
+            if (id != "act.renew") {
+                kinds_.push_back(word(std::string(id)));
+            }
+        }
+        // Their bills: the invoice and its collection; the payment resumes.
+        kinds_.push_back(word("doc.invoice"));
+        kinds_.push_back(word("act.collect"));
+        fields_.push_back({"paid_until", T::date, false, {}});
+        fields_.push_back({"billed_until", T::date, false, {}});
     }
     // Now and then, what this version does not compile: a built-in action
     // whose terms come later.
@@ -1419,6 +1464,21 @@ void Generator::time_rules(std::vector<std::pair<int, Line>>& out) {
                 const bool suspends = std::ranges::any_of(
                     keeper_, [](const Tok& t) { return t.concept_id == "act.suspend"; });
                 does = word(std::string(built_in[c_.below(suspends ? 3 : 2)]));
+                // E9: renewed automatically, before its due date.
+                if (service_ && c_.one_in(3)) {
+                    does = word("act.renew");
+                }
+                // On a service they ask an executor too (R10); a payment
+                // resumes a suspended one (R35).
+                for (const std::string_view kind :
+                     {std::string_view(does->concept_id),
+                      std::string_view(does->concept_id == "act.suspend" ? "act.resume" : "")}) {
+                    if (service_ && !kind.empty() && kind != "act.renew" &&
+                        !std::ranges::any_of(kinds_,
+                                             [&](const Tok& k) { return k.concept_id == kind; })) {
+                        kinds_.push_back(word(std::string(kind)));
+                    }
+                }
             }
             break;
         case 1:
@@ -1773,6 +1833,9 @@ std::size_t parts_built = 0;
 /// Builds that make requests (E8), and calls that made some.
 std::size_t requests_built = 0;
 std::size_t requests_made = 0;
+/// Builds of services due each period (E9), and those billing it.
+std::size_t services_built = 0;
+std::size_t billing_built = 0;
 std::size_t parts_made = 0;
 std::size_t generated_checked = 0;
 std::size_t accepted = 0;
@@ -2191,6 +2254,8 @@ void build_and_run(std::string_view source, Choices& c,
         bills_built += m::bill_field(first.checked->model) != nullptr ? 1U : 0U;
         parts_built += m::issues_parts(first.checked->model) ? 1U : 0U;
         requests_built += m::makes_requests(first.checked->model) ? 1U : 0U;
+        services_built += first.checked->model.due == m::DueKind::period ? 1U : 0U;
+        billing_built += m::answer_rule(first.checked->model, "collect", 1) != nullptr ? 1U : 0U;
         run_calls(*first.lowered.build, first.checked->model, c);
     }
 }
@@ -2376,8 +2441,9 @@ int main(int argc, char** argv) {
     std::printf("builds with the standard library's terms: %zu; with lists %zu; with a bill "
                 "%zu (bills made by calls: %zu); issuing parts %zu (calls that made parts: %zu)\n",
                 standard_built, lists_built, bills_built, bills_made, parts_built, parts_made);
-    std::printf("builds making requests: %zu (calls that made requests: %zu)\n", requests_built,
-                requests_made);
+    std::printf("builds making requests: %zu (calls that made requests: %zu); services due each "
+                "period %zu, billing it %zu\n",
+                requests_built, requests_made, services_built, billing_built);
     std::printf("calls checked against their fuel bound: %zu, the closest at %llu.%llu%% of it\n",
                 bounded_calls, static_cast<unsigned long long>(tightest / 10),
                 static_cast<unsigned long long>(tightest % 10));

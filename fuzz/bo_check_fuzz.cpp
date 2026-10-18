@@ -162,6 +162,8 @@ public:
                            [&](const m::Do& d) { action(d); },
                            [&](const m::Request& r) {
                                place(r.span);
+                               // E9: the rule that added it, if Bo did.
+                               rule(r.rule);
                                // A kind the ledger takes, or an error said so.
                                if (r.kind.empty()) {
                                    std::abort();
