@@ -870,7 +870,8 @@ cexchain bo test lending.bo --language zh-Hans-CN --json
 ### Requests
 
 A contract asks the outside world for something with `request`: a kind (a name, or an action's
-word such as `notify`), the party it concerns, values, and a deadline. The answers come back
+or a document's word such as `notify` or `invoice`), the party it concerns, values, and a
+deadline. `notify PARTY` is short for `request notify to PARTY within 1 day`. The answers come back
 through one function, `result`, and the contract says what each does; `result` and `reason` are
 the answer's texts there:
 
@@ -915,6 +916,35 @@ keeper notify expires at 2027-03-11
 An executor (`executor add NAME --kinds notify`, then `executor run`) carries requests out through
 connectors and answers on the ledger; `examples/shipment` runs one.
 
+### A service's periods
+
+With the `services` and `commerce` vocabulary packs, a `service` with a recurring price is paid
+until a date and billed until a date, which Bo adds; it is due on the date it is paid until.
+Subscribing and renewing bill one period: an executor is asked to `invoice` it, and once it is
+invoiced, to `collect` it; a collection done pays the period, and resumes a suspended service no
+longer overdue. On a service, `subscribe`, `upgrade`, `downgrade`, `suspend`, `resume`, and
+`terminate` also ask an executor to act. The rest is the contract's:
+
+```
+use commerce
+use services
+contract Hosting
+parties we, customer
+
+service Plan
+  price monthly HKD 120
+
+can subscribe by customer
+when 14 days before due renew
+when overdue 3 days suspend
+when overdue 30 days terminate
+when collect fails notify we
+```
+
+The contract text states each request and what its answers do (rules R34 and R35); tests answer
+them (`executor invoice done with result = "INV-1"`, `executor collect done`, `keeper suspend at
+2027-01-13`). `spec/bo.md` section 6.12 has the details and the spec's VPS example.
+
 ### The standard library
 
 The built-in actions are written in Bo itself, in a standard library compiled into the compiler:
@@ -923,7 +953,8 @@ the core's transfer and cancel, and suspend, resume, and terminate, on the home'
 a contract gets after its `use` line: finance's pledge, release, enforce, redeem, pay, confirm
 payment, dispute, freeze, unfreeze, and split, which keep the semantics of the native assets that
 spec v0.5 to v0.8 had (`tests/bo/finance_terms_test.cpp` holds those verdicts as goldens and
-checks the pack's terms against them, call by call), and services' allocate and reclaim. A
+checks the pack's terms against them, call by call), and services' allocate and reclaim, and
+subscribe, renew, upgrade, and downgrade. A
 vocabulary pack of your own brings the terms of its own actions the same way. A contract that
 writes `can transfer to counterparty` gets the library's transfer: the holder starts it, the
 holder and the counterparty consent, only an active instance is transferred, and the
