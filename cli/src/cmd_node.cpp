@@ -238,7 +238,8 @@ int cmd_serve(const Args& args) {
                     {"read_only", options.read_only || api->is_replica()},
                     {"log_key", !options.log_keys.empty()},
                     {"checkpoint_interval", interval},
-                    {"keeper", options.keeper != nullptr}});
+                    {"keeper", options.keeper != nullptr},
+                    {"clock_offset_ms", ledger::SystemClock::offset()}});
     } else {
         std::println("serving ledger {} ({}) at {}", hex_id(api->ledger().id()), role, url);
         if (options.log_keys.empty()) {
@@ -250,6 +251,13 @@ int cmd_serve(const Args& args) {
                 options.keeper_interval.count(),
                 std::chrono::duration_cast<std::chrono::seconds>(options.expiry_grace).count());
         }
+    }
+    if (const protocol::Timestamp offset = ledger::SystemClock::offset(); offset != 0) {
+        std::println(stderr,
+                     "warning: the ledger's clock runs {} s ahead of this computer's "
+                     "($CEXCHAIN_CLOCK_OFFSET): for demonstrations and tests only; what it "
+                     "records keeps the later times",
+                     offset / 1000);
     }
     std::fflush(stdout);
     server.run();

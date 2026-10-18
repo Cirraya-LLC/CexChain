@@ -46,10 +46,17 @@ protected:
     Entropy& operator=(const Entropy&) = default;
 };
 
-/// The system wall clock.
+/// The system wall clock, plus the process's offset (none by default).
 class SystemClock final : public Clock {
 public:
     [[nodiscard]] protocol::Timestamp now() override;
+
+    /// Runs every SystemClock of this process `milliseconds` ahead of the
+    /// computer's clock, so that time rules can be tried without waiting
+    /// (the command line's $CEXCHAIN_CLOCK_OFFSET: demonstrations and tests
+    /// only). Set it once, before any clock is read.
+    static void set_offset(protocol::Timestamp milliseconds) noexcept;
+    [[nodiscard]] static protocol::Timestamp offset() noexcept;
 };
 
 /// Cryptographically secure randomness from OpenSSL. Aborts the process if

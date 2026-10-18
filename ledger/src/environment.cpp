@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
+#include <atomic>
 #include <bit>
 #include <chrono>
 #include <cstdio>
@@ -11,10 +12,25 @@
 
 namespace cexchain::ledger {
 
+namespace {
+
+std::atomic<protocol::Timestamp> clock_offset{0};
+
+} // namespace
+
 protocol::Timestamp SystemClock::now() {
     const auto since_epoch = std::chrono::system_clock::now().time_since_epoch();
     return static_cast<protocol::Timestamp>(
-        std::chrono::duration_cast<std::chrono::milliseconds>(since_epoch).count());
+               std::chrono::duration_cast<std::chrono::milliseconds>(since_epoch).count()) +
+           clock_offset.load(std::memory_order_relaxed);
+}
+
+void SystemClock::set_offset(protocol::Timestamp milliseconds) noexcept {
+    clock_offset.store(milliseconds, std::memory_order_relaxed);
+}
+
+protocol::Timestamp SystemClock::offset() noexcept {
+    return clock_offset.load(std::memory_order_relaxed);
 }
 
 void SystemEntropy::fill(std::span<std::uint8_t> out) {

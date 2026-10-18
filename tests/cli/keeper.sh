@@ -263,4 +263,26 @@ contains -F "when.suspend" verify.txt
 contains -F "VERIFICATION FAILED" verify.txt && fail "the evidence verifies"
 a audit | contains 'audit passed'
 
+# --- A clock ahead (CEXCHAIN_CLOCK_OFFSET) ------------------------------------------------
+# For demonstrations and tests every command can run its clock ahead. A
+# client ahead of the ledger it writes to is refused (a statement from the
+# future); a ledger run ahead fires S3's rule, not due for days.
+CEXCHAIN_CLOCK_OFFSET=3x expect_exit 1 status --ledger "$A"
+contains 'CEXCHAIN_CLOCK_OFFSET is a whole number' out.txt
+CEXCHAIN_CLOCK_OFFSET=3661d expect_exit 1 status --ledger "$A"
+run --help | contains 'CEXCHAIN_CLOCK_OFFSET'
+CEXCHAIN_CLOCK_OFFSET=14d run keeper run --as default.key --server "$URL" \
+    --token-file runner.token --ledger-id "$A_ID" --cache "$WORK/cache" > out.txt
+contains "refused when.suspend on ${S3:0:12}.*issued in the future" out.txt
+has_status "$S3" active
+for pid in "${SERVERS[@]}"; do kill "$pid" 2> /dev/null || true; wait "$pid" 2> /dev/null || true; done
+SERVERS=()
+CEXCHAIN_CLOCK_OFFSET=14d run keeper run --as default.key --ledger "$A" > ahead.txt
+contains "fired when.suspend on ${S3:0:12}" ahead.txt
+has_status "$S3" suspended
+CEXCHAIN_CLOCK_OFFSET=14d start_server ahead.json --ledger "$A"
+json 'd["clock_offset_ms"]' < ahead.json | contains -x 1209600000
+contains 'runs 1209600 s ahead' ahead.json.log
+CEXCHAIN_CLOCK_OFFSET=14d a audit | contains 'audit passed'
+
 echo "keeper end-to-end: ok"

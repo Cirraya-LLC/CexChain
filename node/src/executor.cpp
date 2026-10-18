@@ -17,6 +17,7 @@
 #include <cexchain/core/protocol/record.hpp>
 #include <cexchain/core/protocol/statement.hpp>
 #include <cexchain/crypto/openssl.hpp>
+#include <cexchain/ledger/environment.hpp>
 #include <cexchain/node/executor.hpp>
 #include <cexchain/node/process.hpp>
 
@@ -778,12 +779,7 @@ private:
     [[nodiscard]] protocol::Timestamp now() const {
         return options_.now ? options_.now() : ledger_now();
     }
-    static protocol::Timestamp ledger_now() {
-        return static_cast<protocol::Timestamp>(
-            std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::system_clock::now().time_since_epoch())
-                .count());
-    }
+    static protocol::Timestamp ledger_now() { return ledger::SystemClock{}.now(); }
     [[nodiscard]] bool stopping() const {
         return options_.stop != nullptr && options_.stop->load();
     }

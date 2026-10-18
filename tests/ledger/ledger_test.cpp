@@ -603,3 +603,18 @@ TEST_CASE("receipts share one signature per checkpoint; checkpoints are found by
     CHECK(page->front().encoded == second.encoded);
     CHECK(w.ledger().checkpoints(2, 5)->empty());
 }
+
+TEST_CASE("the system clock runs ahead by the process's offset, set once for every command",
+          "[ledger][clock]") {
+    ledger::SystemClock clock;
+    REQUIRE(ledger::SystemClock::offset() == 0);
+    const protocol::Timestamp before = clock.now();
+    constexpr protocol::Timestamp day = 86'400'000;
+    ledger::SystemClock::set_offset(30 * day);
+    const protocol::Timestamp ahead = clock.now();
+    ledger::SystemClock::set_offset(0);
+    const protocol::Timestamp after = clock.now();
+    CHECK(ahead >= before + 30 * day);
+    CHECK(ahead <= after + 30 * day);
+    CHECK(after < before + 30 * day);
+}
