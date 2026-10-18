@@ -442,7 +442,8 @@ OpenedSource open_source_bundle(const SourceBundle& bundle, const crypto::Provid
         }
         users.push_back(std::move(read.pack));
     }
-    if (!users.empty() && which != Officials::current && which != Officials::before_requests) {
+    if (!users.empty() && which != Officials::current && which != Officials::before_billing &&
+        which != Officials::before_requests) {
         return problem(OpenProblem::conflict,
                        "the bundle embeds vocabulary packs, which came after its official "
                        "language packs");

@@ -124,7 +124,7 @@ TEST_CASE("a source bundle names every official pack and round-trips", "[bo][sou
     CHECK(value->as_map()->size() == 5);
     REQUIRE(bundle.vocabulary.size() == 1);
     CHECK(bundle.vocabulary[0].id == "commerce");
-    CHECK(bundle.vocabulary[0].version == 2);
+    CHECK(bundle.vocabulary[0].version == 3);
     const auto vd = digest(*find_vocabulary_pack("commerce"), provider(), crypto::HashAlg::sha256);
     REQUIRE(vd.has_value());
     CHECK(std::ranges::equal(vd->bytes(), bundle.vocabulary[0].digest));
@@ -143,7 +143,7 @@ TEST_CASE("a source bundle names every official pack and round-trips", "[bo][sou
     CHECK(sm3.packs[0].digest != bundle.packs[0].digest);
     const OpenedSource wrong = open_source_bundle(sm3, provider(), crypto::HashAlg::sha256);
     CHECK(wrong.problem == OpenProblem::official_differs);
-    CHECK(wrong.detail.find("the official pack en version 5") != std::string::npos);
+    CHECK(wrong.detail.find("the official pack en version 6") != std::string::npos);
     const OpenedSource right = open_source_bundle(sm3, provider(), crypto::HashAlg::sm3);
     CHECK(right.problem == OpenProblem::none);
     REQUIRE(right.packs.has_value());
@@ -221,12 +221,12 @@ TEST_CASE("opening a bundle names what this compiler cannot read it with", "[bo]
     const SourceBundle bundle = bundle_of(pack_set());
     SECTION("an official pack version this compiler does not carry") {
         SourceBundle newer = bundle;
-        newer.packs[0].version = 6;
+        newer.packs[0].version = 7;
         const OpenedSource opened = open_source_bundle(newer, provider(), crypto::HashAlg::sha256);
         CHECK(opened.problem == OpenProblem::unknown_official);
         CHECK(opened.detail ==
-              "the source was read with the official pack en version 6; this compiler carries "
-              "version 5 (and the versions of earlier releases)");
+              "the source was read with the official pack en version 7; this compiler carries "
+              "version 6 (and the versions of earlier releases)");
     }
     SECTION("official packs of two releases") {
         SourceBundle mixed = bundle;
@@ -241,10 +241,10 @@ TEST_CASE("opening a bundle names what this compiler cannot read it with", "[bo]
     }
     SECTION("a vocabulary pack version this compiler does not carry") {
         SourceBundle newer = bundle;
-        newer.vocabulary[0].version = 3;
+        newer.vocabulary[0].version = 4;
         const OpenedSource opened = open_source_bundle(newer, provider(), crypto::HashAlg::sha256);
         CHECK(opened.problem == OpenProblem::unknown_official);
-        CHECK(opened.detail == "the source uses the vocabulary pack commerce version 3, which "
+        CHECK(opened.detail == "the source uses the vocabulary pack commerce version 4, which "
                                "is neither in the bundle nor one this compiler carries");
         newer.vocabulary[0].id = "acme";
         newer.vocabulary[0].version = 1;
@@ -256,7 +256,7 @@ TEST_CASE("opening a bundle names what this compiler cannot read it with", "[bo]
         other.vocabulary[0].digest[0] ^= 1;
         const OpenedSource opened = open_source_bundle(other, provider(), crypto::HashAlg::sha256);
         CHECK(opened.problem == OpenProblem::official_differs);
-        CHECK(opened.detail.find("the vocabulary pack commerce version 2 has the digest") !=
+        CHECK(opened.detail.find("the vocabulary pack commerce version 3 has the digest") !=
               std::string::npos);
     }
     SECTION("use lines that differ from key 6") {

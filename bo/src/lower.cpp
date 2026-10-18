@@ -249,6 +249,11 @@ struct FieldSlot {
     bool optional = false;
     /// R20: not given at creation; each instance starts with none.
     bool empty_at_start = false;
+    /// A date field that may hold no date (R20: a service's paid until and
+    /// billed until, E9): `present` says whether it holds one, and the
+    /// state holds null while it does not.
+    bool dated = false;
+    wasm::Global present{};
 };
 
 struct RoleSlot {
@@ -487,6 +492,8 @@ private:
     /// The params of the contract's requests, the most any has (E8).
     [[nodiscard]] Shape params_shape() const;
     void run_action(Ctx& c, const m::Do& d);
+    /// The slot of a date field that may hold no date, if `e` reads one.
+    [[nodiscard]] const FieldSlot* dated_slot(const m::Expr& e) const;
     void now(Ctx& c);
     void due(Ctx& c);
     void shift(Ctx& c, const m::Expr& duration, bool earlier);
@@ -681,7 +688,8 @@ void Lowering::plan_fields() {
         slot.key = text_cbor(slot.wire);
         slot.rep = rep_of(f.type);
         slot.optional = f.optional && slot.rep == Rep::ledger;
-        slot.empty_at_start = f.empty_at_start && slot.rep == Rep::ledger;
+        slot.dated = f.optional && slot.rep == Rep::i64 && f.type.kind == TypeKind::date;
+        slot.empty_at_start = f.empty_at_start && (slot.rep == Rep::ledger || slot.dated);
         if (slot.rep == Rep::none) {
             unsupported(f.span, feature_of(f.type));
         }
@@ -2315,7 +2323,25 @@ wasm::Func Lowering::load_instance() {
     for (const FieldSlot& slot : fields_) {
         b.get(fields);
         lookup(b, slot.key, fields_.size());
-        if (slot.optional) {
+        if (slot.dated) {
+            // No date: null.
+            b.tee(p).op(i32_eqz).op(i32_eqz);
+            {
+                const Label found = b.if_(I32);
+                b.get(p).load(i32_load8_u).u32(0xF6).op(i32_ne);
+                b.else_(found);
+                b.i32(0);
+                b.end(found);
+            }
+            b.global_set(slot.present);
+            b.global_get(slot.present);
+            const Label some = b.if_(I64);
+            b.get(p);
+            expect(b, Rep::i64, input);
+            b.else_(some);
+            b.i64(0);
+            b.end(some);
+        } else if (slot.optional) {
             // No party: null.
             b.tee(p).op(i32_eqz).op(i32_eqz);
             {
@@ -2600,6 +2626,16 @@ wasm::Func Lowering::write_accept() {
         std::ranges::sort(sorted, {}, &FieldSlot::key);
         for (const FieldSlot* slot : sorted) {
             out_key(b, slot->key);
+            if (slot->dated) {
+                b.global_get(slot->present).op(i32_eqz);
+                const Label none = b.if_();
+                b.call(rt_.get(Routine::out_null));
+                b.else_(none);
+                load(b, *slot);
+                out_value(b, slot->rep);
+                b.end(none);
+                continue;
+            }
             if (slot->optional) {
                 b.global_get(slot->first).op(i32_eqz);
                 const Label none = b.if_();
@@ -2765,7 +2801,10 @@ wasm::Func Lowering::write_accept() {
             b.end(given);
         }
         for (const FieldSlot& slot : fields_) {
-            if (slot.empty_at_start) {
+            if (slot.dated && slot.empty_at_start) {
+                b.i64(0).global_set(slot.first);
+                b.i32(0).global_set(slot.present);
+            } else if (slot.empty_at_start) {
                 b.i32(0).global_set(slot.first);
             }
         }
@@ -3624,6 +3663,9 @@ void Lowering::statements(Ctx& c, const std::vector<m::Statement>& list) {
                         value(c, st.value);
                     }
                     store(b, slot);
+                    if (slot.dated) {
+                        b.i32(1).global_set(slot.present);
+                    }
                     if (bill_slot_ && &slot == &fields_[*bill_slot_]) {
                         // R26: new lines make a new bill, at this call's time.
                         b.call(compute_bill());
@@ -4259,6 +4301,14 @@ void Lowering::in_person(Ctx& c) {
     b.end(missing);
 }
 
+const FieldSlot* Lowering::dated_slot(const m::Expr& e) const {
+    if (e.refers != Refers::field || (e.kind != ExprKind::word && e.kind != ExprKind::name)) {
+        return nullptr;
+    }
+    const auto it = field_index_.find(m::key(e.concept_entry, e.name));
+    return it != field_index_.end() && fields_[it->second].dated ? &fields_[it->second] : nullptr;
+}
+
 void Lowering::reference(Ctx& c, const m::Expr& e) {
     FunctionBuilder& b = *c.b;
     const std::string key = m::key(e.concept_entry, e.name);
@@ -4268,6 +4318,15 @@ void Lowering::reference(Ctx& c, const m::Expr& e) {
             ++c.depth;
             value(c, *k->value);
             --c.depth;
+            return;
+        }
+        if (const FieldSlot& slot = fields_[field_index_.at(key)]; slot.dated) {
+            // A date field that holds no date: no date to read.
+            b.global_get(slot.present).op(i32_eqz);
+            const Label none = b.if_();
+            refuse(b, "bo:empty " + slot.wire);
+            b.end(none);
+            load(b, slot);
             return;
         }
         if (const FieldSlot& slot = fields_[field_index_.at(key)]; slot.optional) {
@@ -4500,6 +4559,14 @@ void Lowering::binary(Ctx& c, const m::Expr& e) {
     case Operator::greater:
     case Operator::greater_equal: {
         const Rep rep = rep_of(x.type);
+        // A date field that may hold no date, compared with none (R20).
+        if (e.op == Operator::equals &&
+            (is(x.concept_entry, "val.none") || is(y.concept_entry, "val.none"))) {
+            if (const FieldSlot* slot = dated_slot(is(x.concept_entry, "val.none") ? y : x)) {
+                b.global_get(slot->present).op(i32_eqz);
+                return;
+            }
+        }
         if (rep == Rep::ledger && (may_be_empty(x) || may_be_empty(y))) {
             ledger_equals(c, x, y);
             return;
@@ -4635,6 +4702,9 @@ void Lowering::emit() {
         slot.first = module_.add_global(slot.rep == Rep::i64 ? I64 : I32, 0);
         if (pair_rep(slot.rep)) {
             slot.second = module_.add_global(I32, 0);
+        }
+        if (slot.dated) {
+            slot.present = module_.add_global(I32, 0);
         }
     }
     for (RoleSlot& role : roles_) {

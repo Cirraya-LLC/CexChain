@@ -7,7 +7,7 @@
 {
   "format": 1,
   "id": "en",
-  "version": 5,
+  "version": 6,
   "language": "en",
   "name": "English",
   "official": true,
@@ -659,6 +659,7 @@
     "stdlib-home": "started by the home ledger, on its own word",
     "stdlib-counterparty": "to a counterparty, who consents",
     "stdlib-states": "{from} → {to}",
+    "stdlib-states-kept": "in {from}, which it keeps",
     "stdlib-terms": "The standard terms of {action}:",
     "rule-R1": "A field the vocabulary defines has the vocabulary's type: holder, pledgee, and payee a party, due a date, tier a number, customer location a text, cooling period a duration, recipients a list of parties.",
     "rule-R2": "A field given a party holds a party: each instance starts with that party, and actions may change it.",

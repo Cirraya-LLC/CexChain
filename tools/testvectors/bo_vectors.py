@@ -28,7 +28,7 @@ write them (tests/bo/codegen_test.cpp, the hidden case
     the vocabulary packs the source's `use` lines name, at the digests of
     their canonical CBOR, computed here from bo/vocab/*.vocab and, carried,
     bo/vocab/history/*.vocab (each equal to the C++ reader's canonical CBOR,
-    and the carried versions' terms equal to the current ones');
+    and the carried versions' terms the beginning of the current ones');
   - each contract's deploys with earlier releases of the official language
     packs (its bundles as the vectors recorded them then: version 1, from
     before vocabulary packs, with no key 6; version 2, from before
@@ -106,7 +106,7 @@ def official_packs(vocabulary: list) -> dict:
     deploys rebuild, bo/packs/history/*.pack; the vocabulary packs from
     bo/vocab/*.vocab and bo/vocab/history/*.vocab (diagnostic notation read
     by this script), each equal to the canonical CBOR the C++ reader gives,
-    a carried version's terms equal to its current version's. Each is
+    a carried version's terms the beginning of its current version's. Each is
     checked against the C++ golden."""
     golden = {}
     for line in PACK_DIGESTS.read_text(encoding="utf-8").splitlines():
@@ -129,10 +129,14 @@ def official_packs(vocabulary: list) -> dict:
         assert written.get(key) == canonical, f"{path.name}: the C++ reader's CBOR differs"
         assert value["format"] == 1 and value["edition"] == 1
         assert isinstance(value["concepts"], dict) and value["concepts"], path.name
-        # Every version of a pack has the same terms (the compiler's library
-        # holds one meaning per action).
-        assert terms.setdefault(value["id"], terms_of(value)) == terms_of(value), \
-            f"{path.name}: terms"
+        # A carried version's terms begin the current version's (the
+        # compiler's library holds one meaning per action, and a later
+        # version only adds actions' terms: services version 3, E9).
+        if path.parent == VOCAB:
+            terms[value["id"]] = terms_of(value)
+        else:
+            assert terms_of(value) is None or terms[value["id"]].startswith(terms_of(value)), \
+                f"{path.name}: terms"
         packs[key] = hashlib.sha256(canonical).hexdigest()
         assert golden.get(key) == packs[key], f"{path.name}: digest differs from the golden"
     assert set(written) == {k for k in packs if k[0] in terms}, "the vocabulary packs differ"
@@ -169,8 +173,10 @@ def check_bundle(bundle: bytes, source: str, packs: dict, version: int) -> None:
         assert [r[0] for r in value[6]] == used, "key 6 is not the source's use lines"
         for pack_id, pack_version, digest in value[6]:
             # The official vocabulary packs' version of the release: 1 with
-            # the language packs version 2 and 3, 2 with version 4.
-            assert pack_version == (2 if version >= 4 else 1), f"vocabulary {pack_id} version"
+            # the language packs version 2 and 3, 2 with versions 4 and 5;
+            # with version 6, commerce and services 3, finance 2.
+            want = 1 if version < 4 else 2 if version < 6 or pack_id == "finance" else 3
+            assert pack_version == want, f"vocabulary {pack_id} version"
             assert packs[(pack_id, pack_version)] == digest.hex(), f"vocabulary {pack_id}"
 
 
@@ -403,7 +409,9 @@ def main() -> int:
                        "the official packs, oldest first (earlier: language packs version 1, "
                        "no use lines; version 2, before temperatures and field defaults; "
                        "version 3, before vocabulary pack files, with version 1 of the "
-                       "vocabulary packs; each rebuilds to the same code), "
+                       "vocabulary packs; version 4, before requests, and version 5, before "
+                       "a service's periods and bills, with version 2 of them; each rebuilds "
+                       "to the same code), "
                        "and the code cexchain-bo builds, the hashes of its codegen 1 and 2 code, and its "
                        "functions' fuel and output bounds (informative); calls with their "
                        "outcomes (normative; fuel is this code's); and sources that must not "

@@ -88,7 +88,7 @@ set(pack_files)
 foreach(pack IN LISTS official_packs)
     list(APPEND pack_files "packs/${pack}.pack" "packs/history/${pack}-1.pack"
         "packs/history/${pack}-2.pack" "packs/history/${pack}-3.pack"
-        "packs/history/${pack}-4.pack")
+        "packs/history/${pack}-4.pack" "packs/history/${pack}-5.pack")
 endforeach()
 # The official vocabulary packs (and, in vocab/history/, every earlier
 # version), which hold their standard terms.
@@ -96,6 +96,7 @@ set(vocab_files)
 foreach(pack commerce finance services)
     list(APPEND vocab_files "vocab/${pack}.vocab" "vocab/history/${pack}-1.vocab")
 endforeach()
+list(APPEND vocab_files "vocab/history/commerce-2.vocab" "vocab/history/services-2.vocab")
 set(stdlib_files stdlib/core.bo)
 if(CEXCHAIN_HAVE_EMBED)
     target_compile_definitions(cexchain_bo_front PRIVATE CEXCHAIN_BO_EMBED=1)

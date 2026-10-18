@@ -11,11 +11,23 @@ field price.traffic constant recurring time.monthly quantity data = (phrase time
 field IP constant quantity count = (quantity unit.item 1)
 field field.customer_location instance text{R12}
 field charge.tax constant basis = (phrase charge.by field.customer_location)
+field field.paid_until instance date optional empty{R20}
+field field.billed_until instance date optional empty{R20}
 due period{R11}
 state state.active first{R4}
 can act.subscribe standard by=role.customer agents=delegation{R14} executor{R10}
+  terms{R19}
+    requires state.active{R7}
+    requires (= field.paid_until val.none)
+    set field.paid_until time.today
+    set field.billed_until time.today
 can act.renew standard by=role.customer agents=delegation{R14}
+  terms{R19}
+    requires (or state.active{R7} state.suspended{R7})
+    requires (= field.billed_until field.paid_until)
 can act.upgrade standard by=role.customer agents=delegation{R14} executor{R10}
+  terms{R19}
+    requires state.active{R7}
 can act.refund standard by=role.we agents=propose
   requires cond.in_person{R13} guard=(cond.over (money cur.HKD 100)){R6}
 when (cond.before_due (duration time.day 7)) trigger=before_due function=when.notify{R24}

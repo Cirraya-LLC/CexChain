@@ -7,7 +7,7 @@
 {
   "format": 1,
   "id": "zh-Hans-CN",
-  "version": 5,
+  "version": 6,
   "language": "zh-Hans-CN",
   "name": "简体中文（中国大陆）",
   "official": true,
@@ -656,6 +656,7 @@
     "stdlib-home": "由所属账本自行发起",
     "stdlib-counterparty": "给相对方，须经其同意",
     "stdlib-states": "{from} → {to}",
+    "stdlib-states-kept": "于{from}，状态不变",
     "stdlib-terms": "{action}的标准条款：",
     "rule-R1": "词汇所定义的字段具有词汇规定的类型：持有人、质权人和收款人为参与方，到期日为日期，层级为数值，客户所在地为文本，冷却期为时长，各接收方为参与方列表。",
     "rule-R2": "给出参与方的字段存放参与方：每个实例以该参与方开始，动作可以更改。",

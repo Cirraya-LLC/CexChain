@@ -1,0 +1,143 @@
+# Bo vocabulary pack: commerce (official).
+#
+# Prices, charges (taxes among them), bills, refunds, and customers
+# (D-054). A source that writes `use commerce` reads these words; prices,
+# charges, and bills are the compiler's mechanisms. No action of this pack
+# has standard terms yet.
+#
+# CBOR diagnostic notation; the digest covers the canonical CBOR, so
+# comments and layout do not change it. Released versions never change: a
+# change is a new version, and the compiler carries every released one
+# (bo/vocab/history/). Version 1 had no "languages": the language packs
+# spelled its words until version 4 of theirs.
+
+{
+  "format": 1,
+  "id": "commerce",
+  "version": 2,
+  "edition": 1,
+
+  "concepts": {
+    # Actions.
+    "act.refund": {"category": "action"},
+    "act.credit": {"category": "action"},
+    # Prices and usage.
+    "price.price": {"category": "pricing"},
+    "price.usage": {"category": "pricing"},
+    "price.overage": {"category": "pricing"},
+    "price.per": {"category": "pricing"},
+    "price.setup_fee": {"category": "pricing"},
+    # Charges: taxes, fees, commissions, discounts.
+    "charge.charge": {"category": "charge"},
+    "charge.tax": {"category": "charge"},
+    "charge.rate": {"category": "charge"},
+    "charge.applies_to": {"category": "charge", "argument": true},
+    "charge.from": {"category": "charge", "argument": true},
+    "charge.included": {"category": "charge"},
+    "charge.added": {"category": "charge"},
+    "charge.per_line": {"category": "charge"},
+    "charge.per_document": {"category": "charge"},
+    "charge.by": {"category": "charge"},
+    # Documents: bills.
+    "doc.invoice": {"category": "document"},
+    "doc.credit_note": {"category": "document"},
+    "doc.receipt": {"category": "document"},
+    # Fields.
+    "field.customer_location": {"category": "field", "type": "text"},
+    # Roles.
+    "role.customer": {"category": "role"}
+  },
+
+  # How each language spells them, as a language pack's "vocabulary".
+  "languages": {
+    "en": {
+      "name": "commerce",
+      "words": {
+        "act.refund": {"word": "refund", "forms": {"third": "refunds", "gerund": "refunding"}},
+        "act.credit": {"word": "credit", "forms": {"third": "credits", "gerund": "crediting"}},
+        "price.price": {"word": "price", "forms": {"plural": "prices"}},
+        "price.usage": "usage",
+        "price.overage": "overage",
+        "price.per": "per",
+        "price.setup_fee": {"word": "setup fee", "forms": {"plural": "setup fees"}},
+        "charge.charge": {"word": "charge", "forms": {"plural": "charges"}},
+        "charge.tax": {"word": "tax", "forms": {"plural": "taxes"}},
+        "charge.rate": {"word": "rate", "forms": {"plural": "rates"}},
+        "charge.applies_to": "applies to …",
+        "charge.from": "from … on",
+        "charge.included": "included",
+        "charge.added": "added",
+        "charge.per_line": "per line",
+        "charge.per_document": "per document",
+        "charge.by": "according to",
+        "doc.invoice": {"word": "invoice", "forms": {"plural": "invoices"}},
+        "doc.credit_note": {"word": "credit note", "forms": {"plural": "credit notes"}},
+        "doc.receipt": {"word": "receipt", "forms": {"plural": "receipts"}},
+        "field.customer_location": {"word": "customer location", "forms": {"object": "the customer location"}},
+        "role.customer": {"word": "customer", "forms": {"subject": "the customer", "object": "the customer"}}
+      }
+    },
+    "zh-Hant-HK": {
+      "name": "商務",
+      "words": {
+        "act.refund": "退款",
+        "act.credit": "抵扣",
+        "price.price": "價格",
+        "price.usage": "用量",
+        "price.overage": "超出",
+        "price.per": "每",
+        "price.setup_fee": "開通費",
+        "charge.charge": "費用",
+        "charge.tax": "稅",
+        "charge.rate": ["稅率", "費率"],
+        "charge.applies_to": "適用 …",
+        "charge.from": "從 … 起",
+        "charge.included": "內含",
+        "charge.added": "另計",
+        "charge.per_line": "逐行",
+        "charge.per_document": "按單據",
+        "charge.by": "按",
+        "doc.invoice": "發票",
+        "doc.credit_note": "貸項通知單",
+        "doc.receipt": "收據",
+        "field.customer_location": "客戶所在地",
+        "role.customer": "客戶"
+      },
+      "attach": [
+        {"word": "price.per", "before": ["unit", "currency"]},
+        {"word": "charge.by", "before": ["document", "field"]}
+      ]
+    },
+    "zh-Hans-CN": {
+      "name": "商务",
+      "words": {
+        "act.refund": "退款",
+        "act.credit": "抵扣",
+        "price.price": "价格",
+        "price.usage": "用量",
+        "price.overage": "超出",
+        "price.per": "每",
+        "price.setup_fee": "开通费",
+        "charge.charge": "费用",
+        "charge.tax": "税",
+        "charge.rate": ["税率", "费率"],
+        "charge.applies_to": "适用 …",
+        "charge.from": "从 … 起",
+        "charge.included": ["含税", "内含"],
+        "charge.added": "另计",
+        "charge.per_line": "逐行",
+        "charge.per_document": "按单据",
+        "charge.by": "按",
+        "doc.invoice": "发票",
+        "doc.credit_note": "红字发票",
+        "doc.receipt": "收据",
+        "field.customer_location": "客户所在地",
+        "role.customer": "客户"
+      },
+      "attach": [
+        {"word": "price.per", "before": ["unit", "currency"]},
+        {"word": "charge.by", "before": ["document", "field"]}
+      ]
+    }
+  }
+}

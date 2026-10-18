@@ -10,17 +10,21 @@
 # change is a new version, and the compiler carries every released one
 # (bo/vocab/history/). Version 1 had no "languages": the language packs
 # spelled its words until version 4 of theirs.
+# Version 3 added collect, the request for a bill's payment (E9).
 
 {
   "format": 1,
   "id": "commerce",
-  "version": 2,
+  "version": 3,
   "edition": 1,
 
   "concepts": {
     # Actions.
     "act.refund": {"category": "action"},
     "act.credit": {"category": "action"},
+    # A payment collected: the request a service's bill makes once it is
+    # invoiced (R34), whose answer done is the payment (R35).
+    "act.collect": {"category": "action"},
     # Prices and usage.
     "price.price": {"category": "pricing"},
     "price.usage": {"category": "pricing"},
@@ -55,6 +59,7 @@
       "words": {
         "act.refund": {"word": "refund", "forms": {"third": "refunds", "gerund": "refunding"}},
         "act.credit": {"word": "credit", "forms": {"third": "credits", "gerund": "crediting"}},
+        "act.collect": {"word": "collect", "forms": {"third": "collects", "gerund": "collecting"}},
         "price.price": {"word": "price", "forms": {"plural": "prices"}},
         "price.usage": "usage",
         "price.overage": "overage",
@@ -82,6 +87,7 @@
       "words": {
         "act.refund": "退款",
         "act.credit": "抵扣",
+        "act.collect": "收款",
         "price.price": "價格",
         "price.usage": "用量",
         "price.overage": "超出",
@@ -113,6 +119,7 @@
       "words": {
         "act.refund": "退款",
         "act.credit": "抵扣",
+        "act.collect": "收款",
         "price.price": "价格",
         "price.usage": "用量",
         "price.overage": "超出",

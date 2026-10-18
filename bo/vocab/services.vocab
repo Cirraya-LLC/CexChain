@@ -9,12 +9,14 @@
 # comments and layout do not change it. Released versions never change: a
 # change is a new version, and the compiler carries every released one
 # (bo/vocab/history/). Version 1 had no "languages": the language packs
-# spelled its words until version 4 of theirs.
+# spelled its words until version 4 of theirs. Version 3 added a service's
+# paid and billed periods and the terms of subscribe, renew, upgrade, and
+# downgrade (E9); version 2's terms are the first lines of its terms.
 
 {
   "format": 1,
   "id": "services",
-  "version": 2,
+  "version": 3,
   "edition": 1,
 
   "concepts": {
@@ -32,6 +34,10 @@
     "price.traffic": {"category": "pricing"},
     # Fields.
     "field.cooling_period": {"category": "field", "type": "duration"},
+    # A service's periods (R11, R34): the date it is paid until, and the date
+    # its bills reach; Bo adds them, holding no date until it is subscribed.
+    "field.paid_until": {"category": "field", "type": "date", "added": true},
+    "field.billed_until": {"category": "field", "type": "date", "added": true},
     # A resource's states (the standard terms' allocate and reclaim): held by
     # a customer, and waiting out its cooling period after a reclaim.
     "state.allocated": {"category": "state"},
@@ -63,7 +69,35 @@
     "# The home takes the resource back from its holder; it then cools.",
     "can reclaim",
     "  allocated -> cooling",
-    "  holder = none"
+    "  holder = none",
+    "",
+    "# The terms of a subscription (E9). Bo adds the dates a service is paid until",
+    "# and billed until (R20), which hold no date until it is subscribed to. On a",
+    "# service with a recurring price, subscribing and renewing also bill one period",
+    "# (R34), and a payment collected pays it (R35); on any service, subscribe,",
+    "# upgrade, and downgrade also ask an executor to act (R10).",
+    "",
+    "# The home's customer subscribes: the first period starts today, when the",
+    "# service is due until it is paid (R11). A service is subscribed to once.",
+    "can subscribe",
+    "  requires active",
+    "  requires paid until = none",
+    "  paid until = today",
+    "  billed until = today",
+    "",
+    "# The service is renewed for one more period. One bill is open at a time: it",
+    "# is renewed once the last bill is paid (or its invoice or collection failed).",
+    "can renew",
+    "  requires active or suspended",
+    "  requires billed until = paid until",
+    "",
+    "# The service moves to a larger or a smaller plan, outside the ledger: the",
+    "# plan and any proration are the executor's (R10); the contract's price stays.",
+    "can upgrade",
+    "  requires active",
+    "",
+    "can downgrade",
+    "  requires active"
   ],
 
   # How each language spells them, as a language pack's "vocabulary".
@@ -81,6 +115,8 @@
         "act.reclaim": {"word": "reclaim", "forms": {"third": "reclaims", "gerund": "reclaiming"}},
         "price.traffic": "traffic",
         "field.cooling_period": {"word": "cooling period", "forms": {"object": "the cooling period"}},
+        "field.paid_until": "paid until",
+        "field.billed_until": "billed until",
         "state.allocated": "allocated",
         "state.cooling": "cooling"
       }
@@ -98,6 +134,8 @@
         "act.reclaim": "收回",
         "price.traffic": "流量",
         "field.cooling_period": "冷卻期",
+        "field.paid_until": "已付費至",
+        "field.billed_until": "已出賬至",
         "state.allocated": "已分配",
         "state.cooling": "冷卻中"
       }
@@ -115,6 +153,8 @@
         "act.reclaim": "收回",
         "price.traffic": "流量",
         "field.cooling_period": "冷却期",
+        "field.paid_until": "已付费至",
+        "field.billed_until": "已出账至",
         "state.allocated": "已分配",
         "state.cooling": "冷却中"
       }

@@ -85,6 +85,22 @@ constexpr unsigned char services_1_bytes[] = {
 #include "history/services-1.vocab.inc"
 #endif
 };
+// Version 2 of commerce and services, from before a service's periods and
+// bills (E9).
+constexpr unsigned char commerce_2_bytes[] = {
+#if CEXCHAIN_BO_EMBED
+#embed "../../vocab/history/commerce-2.vocab"
+#else
+#include "history/commerce-2.vocab.inc"
+#endif
+};
+constexpr unsigned char services_2_bytes[] = {
+#if CEXCHAIN_BO_EMBED
+#embed "../../vocab/history/services-2.vocab"
+#else
+#include "history/services-2.vocab.inc"
+#endif
+};
 
 #if defined(__clang__)
 #pragma clang diagnostic pop
@@ -96,9 +112,10 @@ std::string_view as_text(std::span<const unsigned char> bytes) noexcept {
 
 // The current versions first (by id), then the carried ones.
 const VocabularyText texts[] = {
-    {"commerce", 2, as_text(commerce_bytes)}, {"finance", 2, as_text(finance_bytes)},
-    {"services", 2, as_text(services_bytes)}, {"commerce", 1, as_text(commerce_1_bytes)},
-    {"finance", 1, as_text(finance_1_bytes)}, {"services", 1, as_text(services_1_bytes)},
+    {"commerce", 3, as_text(commerce_bytes)},   {"finance", 2, as_text(finance_bytes)},
+    {"services", 3, as_text(services_bytes)},   {"commerce", 1, as_text(commerce_1_bytes)},
+    {"finance", 1, as_text(finance_1_bytes)},   {"services", 1, as_text(services_1_bytes)},
+    {"commerce", 2, as_text(commerce_2_bytes)}, {"services", 2, as_text(services_2_bytes)},
 };
 constexpr std::size_t current_count = 3;
 
@@ -393,7 +410,10 @@ private:
                 if (!yes(*written, join(path, key))) {
                     return;
                 }
-                if (c.type != "party") {
+                // An official pack's added field may be a date, which holds
+                // no date until an action sets it (a service's periods, E9).
+                if (c.type != "party" && !(c.type == "date" && key == std::string_view("added") &&
+                                           mode_ == Mode::official)) {
                     fail("vocab.flag", {{"path", join(path, key)}});
                     return;
                 }
@@ -740,6 +760,8 @@ struct Registry {
     std::vector<std::shared_ptr<VocabularyPack>> all;
     std::vector<const VocabularyPack*> current;
     std::vector<const VocabularyPack*> first;
+    /// Version 2 of each, from before a service's periods and bills (E9).
+    std::vector<const VocabularyPack*> second;
     /// The core's concepts and the current official packs', by id.
     std::vector<const Concept*> table;
 };
@@ -766,28 +788,48 @@ Registry make_registry() {
             }
             r.current.push_back(pack.get());
         } else {
-            // A carried version defines the concepts and terms of the
-            // current one (the compiler's table and library hold one
-            // meaning per word), and points at the current one's.
+            // A carried version defines some of the current one's concepts,
+            // each as the current one does, and its terms begin the current
+            // terms (the compiler's table and library hold one meaning per
+            // word); it points at the current one's concepts.
             const VocabularyPack* now = nullptr;
             for (const VocabularyPack* p : r.current) {
                 if (p->id == pack->id) {
                     now = p;
                 }
             }
-            if (now == nullptr || now->terms != pack->terms ||
-                !std::ranges::equal(
-                    now->concepts, pack->concepts,
-                    [](const Concept* a, const Concept* b) { return same_definition(*a, *b); })) {
-                defect(text, "differs from the current version in its concepts or terms");
+            if (now == nullptr || !now->terms.starts_with(pack->terms)) {
+                defect(text, "differs from the current version in its terms");
             }
-            pack->concepts = now->concepts;
+            std::vector<const Concept*> mine;
+            for (const Concept* c : pack->concepts) {
+                const Concept* same = now->find(c->id);
+                if (same == nullptr || !same_definition(*same, *c)) {
+                    defect(text, "differs from the current version in its concepts");
+                }
+                mine.push_back(same);
+            }
+            pack->concepts = std::move(mine);
             pack->owned.clear();
             if (pack->version == 1) {
                 r.first.push_back(pack.get());
             }
         }
         r.all.push_back(std::move(pack));
+    }
+    for (const VocabularyPack* now : r.current) {
+        const VocabularyPack* two = now;
+        for (const auto& pack : r.all) {
+            if (pack->id == now->id && pack->version == 2) {
+                two = pack.get();
+            }
+        }
+        if (two->version != 2) {
+            std::fprintf(stderr, "bo: the official vocabulary pack %s has no version 2\n",
+                         now->id.c_str());
+            std::abort();
+        }
+        r.second.push_back(two);
     }
     for (const Concept& c : core_concepts()) {
         r.table.push_back(&c);
@@ -875,8 +917,10 @@ std::span<const VocabularyPack* const> vocabulary_packs() noexcept {
 std::span<const VocabularyPack* const> vocabulary_packs(const Officials officials) noexcept {
     switch (officials) {
     case Officials::current:
-    case Officials::before_requests:
         return registry().current;
+    case Officials::before_billing:
+    case Officials::before_requests:
+        return registry().second;
     case Officials::before_pack_files:
     case Officials::before_temperature:
         return registry().first;

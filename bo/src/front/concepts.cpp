@@ -780,6 +780,7 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"stdlib-home", ""},
     {"stdlib-counterparty", ""},
     {"stdlib-states", "from to"},
+    {"stdlib-states-kept", "from"},
     {"stdlib-terms", "action"},
     // What each recognition rule infers (rule_specs).
     {"rule-R1", ""},

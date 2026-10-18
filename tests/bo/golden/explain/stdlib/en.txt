@@ -1,7 +1,7 @@
 Contract StandardLibrary
 
 Bo wrote this text from the contract's source (Bo edition 1). A clause marked with a rule, such as [R3], states what Bo inferred by that rule instead of reading it in the source; the last section explains each rule.
-Besides Bo's core words, the contract uses the finance vocabulary pack (version 2) and the services vocabulary pack (version 2).
+Besides Bo's core words, the contract uses the finance vocabulary pack (version 2) and the services vocabulary pack (version 3).
 
 1. Parties
 1.1 we: bound to a ledger when an instance is created. [R3]
@@ -16,7 +16,10 @@ Besides Bo's core words, the contract uses the finance vocabulary pack (version 
 2.6 cooling period: 30 days, the same for every instance.
 2.7 pledgee: a party; each instance starts with none, and actions set it. [R20]
 2.8 payee: a party; each instance starts with none, and actions set it. [R20]
-2.9 Creating an instance (function issue) names the ledgers of the parties bound at creation and sets the fields given at creation. It needs no party's consent: the parties agree through the actions below.
+2.9 paid until: a date; each instance starts with none, and actions set it. [R20]
+2.10 billed until: a date; each instance starts with none, and actions set it. [R20]
+2.11 Creating an instance (function issue) names the ledgers of the parties bound at creation and sets the fields given at creation. It needs no party's consent: the parties agree through the actions below.
+2.12 Dates and days are counted at UTC+08:00 all year, with no daylight saving; a month after a day the next month lacks (31 January plus a month) ends on that month's last day. [R25]
 
 3. States
 3.1 An instance starts in the state active. [R4]
@@ -175,6 +178,34 @@ A call that does not meet one of an action's requirements is refused, and the in
   4.17.4 It sets the holder to none. [R19]
   4.17.5 An AI agent may start it within its delegation. [R14]
 
+4.18 subscribe
+  4.18.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show subscribe): the clauses marked R19 state them, after the contract's own clauses.
+  4.18.2 Started by the home ledger on its own word: no party's consent is needed. [R19]
+  4.18.3 Requirement 1: the instance is active. [R7, R19]
+  4.18.4 Requirement 2: paid until is none. [R19]
+  4.18.5 It sets paid until to the day of the call. [R19]
+  4.18.6 It sets billed until to the day of the call. [R19]
+  4.18.7 An AI agent may start it within its delegation. [R14]
+
+4.19 renew
+  4.19.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show renew): the clauses marked R19 state them, after the contract's own clauses.
+  4.19.2 Started by the home ledger on its own word: no party's consent is needed. [R19]
+  4.19.3 Requirement 1: the instance is active or suspended. [R7, R19]
+  4.19.4 Requirement 2: billed until is paid until. [R19]
+  4.19.5 An AI agent may start it within its delegation. [R14]
+
+4.20 upgrade
+  4.20.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show upgrade): the clauses marked R19 state them, after the contract's own clauses.
+  4.20.2 Started by the home ledger on its own word: no party's consent is needed. [R19]
+  4.20.3 Requirement 1: the instance is active. [R7, R19]
+  4.20.4 An AI agent may start it within its delegation. [R14]
+
+4.21 downgrade
+  4.21.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show downgrade): the clauses marked R19 state them, after the contract's own clauses.
+  4.21.2 Started by the home ledger on its own word: no party's consent is needed. [R19]
+  4.21.3 Requirement 1: the instance is active. [R7, R19]
+  4.21.4 An AI agent may start it within its delegation. [R14]
+
 5. Rules Bo applied
 [R1] A field the vocabulary defines has the vocabulary's type: holder, pledgee, and payee a party, due a date, tier a number, customer location a text, cooling period a duration, recipients a list of parties.
 [R2] A field given a party holds a party: each instance starts with that party, and actions may change it.
@@ -187,4 +218,5 @@ A call that does not meet one of an action's requirements is refused, and the in
 [R20] The pledgee and the payee, and a resource's holder, used by an action (the standard terms of a built-in action included) but not declared by the contract, are fields of each instance, holding no party until an action sets them.
 [R21] An action whose counterparty (after to) is counterparty, a party the contract does not declare, takes its counterparty from each call (the argument counterparty) and needs its consent; so does a built-in action with a counterparty when the contract writes no to.
 [R22] A bare 0 compared with, added to, or taken from money, a quantity, a rate, or a duration is zero of it.
+[R25] A contract that names no UTC offset counts dates and days at UTC+08:00.
 [R30] Issue PARTS to RECIPIENTS makes each part an instance of its own, of the same contract, created by the call: its amount is the part and its holder its recipient, and the instance that issued it ends. A part may be split again, at most eight levels down, and its evidence carries the history of every instance it came from (spec section 15).

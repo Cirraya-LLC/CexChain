@@ -1044,7 +1044,9 @@ std::string standard_summary(const bo::StandardAction& a, const bo::Pack* langua
     }
     const std::pair<std::string_view, std::string> states[] = {{"from", joined(from, language)},
                                                                {"to", joined(to, language)}};
-    parts.push_back(bo::sentence("stdlib-states", states, language));
+    // Terms that change no state (a subscription's renewal) keep it.
+    parts.push_back(
+        bo::sentence(to.empty() ? "stdlib-states-kept" : "stdlib-states", states, language));
     std::string out;
     const std::string separator = bo::sentence("value-separator", {}, language);
     for (const std::string& part : parts) {

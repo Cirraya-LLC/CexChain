@@ -191,7 +191,7 @@ TEST_CASE("the official vocabulary packs are files, their concepts the edition's
     for (const VocabularyPack* pack : vocabulary_packs()) {
         INFO(pack->id);
         CHECK(pack->official());
-        CHECK(pack->version == 2);
+        CHECK(pack->version == (pack->id == "finance" ? 2U : 3U));
         CHECK(pack->edition == edition);
         // Each spelled in the three official languages, and named in each.
         CHECK(pack->languages.size() == 3);
@@ -202,19 +202,31 @@ TEST_CASE("the official vocabulary packs are files, their concepts the edition's
             CHECK(pack_of(*c) == pack->id);
         }
         words += pack->concepts.size();
-        // The carried version 1 has the same concepts and terms, and no
-        // spellings: the language packs of its release spell them.
+        // The carried versions 1 and 2 have the concepts of their time, as
+        // this version defines them, and terms this version's begin with;
+        // version 1 no spellings: the language packs of its release spell
+        // them.
         const VocabularyPack* first = find_vocabulary_pack(pack->id, 1);
+        const VocabularyPack* second = find_vocabulary_pack(pack->id, 2);
         REQUIRE(first != nullptr);
+        REQUIRE(second != nullptr);
         CHECK(first->languages.empty());
-        CHECK(first->concepts == pack->concepts);
-        CHECK(first->terms == pack->terms);
-        CHECK(first->canonical != pack->canonical);
+        CHECK(first->concepts == second->concepts);
+        CHECK(first->terms == second->terms);
+        CHECK(first->canonical != second->canonical);
+        CHECK(pack->terms.starts_with(second->terms));
+        for (const Concept* c : second->concepts) {
+            CHECK(pack->find(c->id) == c);
+        }
+        CHECK(second->concepts.size() + (pack->id == "finance"    ? 0U
+                                         : pack->id == "commerce" ? 1U
+                                                                  : 2U) ==
+              pack->concepts.size());
     }
-    CHECK(words == 58);
+    CHECK(words == 61);
     CHECK(find_vocabulary_pack("finance")->concepts.size() == 24);
-    CHECK(find_vocabulary_pack("commerce")->concepts.size() == 22);
-    CHECK(find_vocabulary_pack("services")->concepts.size() == 12);
+    CHECK(find_vocabulary_pack("commerce")->concepts.size() == 23);
+    CHECK(find_vocabulary_pack("services")->concepts.size() == 14);
     // The core's words are its own: 81, besides the keywords.
     std::size_t core = 0;
     for (const Concept* c : concepts()) {
@@ -222,7 +234,9 @@ TEST_CASE("the official vocabulary packs are files, their concepts the edition's
     }
     CHECK(core == 84);
     // Each release reads with its own versions.
-    CHECK(vocabulary_packs(Officials::current).front()->version == 2);
+    CHECK(vocabulary_packs(Officials::current).front()->version == 3);
+    CHECK(vocabulary_packs(Officials::before_billing).front()->version == 2);
+    CHECK(vocabulary_packs(Officials::before_requests).front()->version == 2);
     CHECK(vocabulary_packs(Officials::before_pack_files).front()->version == 1);
     CHECK(vocabulary_packs(Officials::before_temperature).front()->version == 1);
     CHECK(vocabulary_packs(Officials::before_vocabulary).empty());

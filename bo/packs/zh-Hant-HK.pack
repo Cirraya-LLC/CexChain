@@ -8,7 +8,7 @@
 {
   "format": 1,
   "id": "zh-Hant-HK",
-  "version": 5,
+  "version": 6,
   "language": "zh-Hant-HK",
   "name": "繁體中文（香港）",
   "official": true,
@@ -657,6 +657,7 @@
     "stdlib-home": "由所屬賬本自行發起",
     "stdlib-counterparty": "予相對方，須經其同意",
     "stdlib-states": "{from} → {to}",
+    "stdlib-states-kept": "於{from}，狀態不變",
     "stdlib-terms": "{action}的標準條款：",
     "rule-R1": "詞彙所定義的欄位具有詞彙所定的類型：持有人、質權人及收款人為訂約方，到期日為日期，層級為數值，客戶所在地為文字，冷卻期為時間長度，各接收方為訂約方清單。",
     "rule-R2": "給出訂約方的欄位存放訂約方：每個實例以該訂約方開始，動作可以更改。",

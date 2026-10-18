@@ -1,7 +1,7 @@
 Contract VPS服務
 
 Bo wrote this text from the contract's source (Bo edition 1). A clause marked with a rule, such as [R3], states what Bo inferred by that rule instead of reading it in the source; the last section explains each rule.
-Besides Bo's core words, the contract uses the commerce vocabulary pack (version 2) and the services vocabulary pack (version 2).
+Besides Bo's core words, the contract uses the commerce vocabulary pack (version 3) and the services vocabulary pack (version 3).
 
 1. Parties
 1.1 we: bound to a ledger when an instance is created. [R3]
@@ -14,8 +14,10 @@ Besides Bo's core words, the contract uses the commerce vocabulary pack (version
 2.4 IP: 1 item, the same for every instance.
 2.5 customer location: a text, given when an instance is created. [R12]
 2.6 tax: according to the customer location, the same for every instance.
-2.7 Creating an instance (function create) names the ledgers of the parties bound at creation and sets the fields given at creation. It needs no party's consent: the parties agree through the actions below.
-2.8 Dates and days are counted at UTC+08:00 all year, with no daylight saving; a month after a day the next month lacks (31 January plus a month) ends on that month's last day. [R25]
+2.7 paid until: a date; each instance starts with none, and actions set it. [R20]
+2.8 billed until: a date; each instance starts with none, and actions set it. [R20]
+2.9 Creating an instance (function create) names the ledgers of the parties bound at creation and sets the fields given at creation. It needs no party's consent: the parties agree through the actions below.
+2.10 Dates and days are counted at UTC+08:00 all year, with no daylight saving; a month after a day the next month lacks (31 January plus a month) ends on that month's last day. [R25]
 
 3. States
 3.1 An instance starts in the state active. [R4]
@@ -26,21 +28,28 @@ Besides Bo's core words, the contract uses the commerce vocabulary pack (version
 A call that does not meet one of an action's requirements is refused, and the instance does not change. A missing consent is not a refusal: the call waits for it.
 
 4.1 subscribe
-  4.1.1 A built-in action of Bo: its standard terms (who starts it, who consents, the states it needs and changes) come with Bo's standard library in a later version, so this text states only the clauses the contract writes.
+  4.1.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show subscribe): the clauses marked R19 state them, after the contract's own clauses.
   4.1.2 Started by the customer, whose agreement it needs.
-  4.1.3 An AI agent may start it within its delegation. [R14]
-  4.1.4 An executor carries it out outside the ledger and reports the result. [R10]
+  4.1.3 Requirement 1: the instance is active. [R7, R19]
+  4.1.4 Requirement 2: paid until is none. [R19]
+  4.1.5 It sets paid until to the day of the call. [R19]
+  4.1.6 It sets billed until to the day of the call. [R19]
+  4.1.7 An AI agent may start it within its delegation. [R14]
+  4.1.8 An executor carries it out outside the ledger and reports the result. [R10]
 
 4.2 renew
-  4.2.1 A built-in action of Bo: its standard terms (who starts it, who consents, the states it needs and changes) come with Bo's standard library in a later version, so this text states only the clauses the contract writes.
+  4.2.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show renew): the clauses marked R19 state them, after the contract's own clauses.
   4.2.2 Started by the customer, whose agreement it needs.
-  4.2.3 An AI agent may start it within its delegation. [R14]
+  4.2.3 Requirement 1: the instance is active or suspended. [R7, R19]
+  4.2.4 Requirement 2: billed until is paid until. [R19]
+  4.2.5 An AI agent may start it within its delegation. [R14]
 
 4.3 upgrade
-  4.3.1 A built-in action of Bo: its standard terms (who starts it, who consents, the states it needs and changes) come with Bo's standard library in a later version, so this text states only the clauses the contract writes.
+  4.3.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show upgrade): the clauses marked R19 state them, after the contract's own clauses.
   4.3.2 Started by the customer, whose agreement it needs.
-  4.3.3 An AI agent may start it within its delegation. [R14]
-  4.3.4 An executor carries it out outside the ledger and reports the result. [R10]
+  4.3.3 Requirement 1: the instance is active. [R7, R19]
+  4.3.4 An AI agent may start it within its delegation. [R14]
+  4.3.5 An executor carries it out outside the ledger and reports the result. [R10]
 
 4.4 refund
   4.4.1 A built-in action of Bo: its standard terms (who starts it, who consents, the states it needs and changes) come with Bo's standard library in a later version, so this text states only the clauses the contract writes.
@@ -71,10 +80,13 @@ A call that does not meet one of an action's requirements is refused, and the in
 [R3] A role the contract first names as an action's counterparty (after to) is bound to a ledger by that action, with its consent; every other role is bound to a ledger when an instance is created.
 [R4] An instance starts in the one state that no state change leads to; if there is none, in the state active.
 [R6] Over N compares N with the action's one amount (its one input of money or a quantity, else the instance's amount); a bare number N is in that amount's unit.
+[R7] A state used as a condition means the instance is in that state.
 [R10] Notify, and on a service subscribe, upgrade, downgrade, suspend, resume, terminate, allocate, and reclaim, ask an executor to act outside the ledger.
 [R11] A service with a recurring price is due at the end of each paid period.
 [R12] Customer location is a text each instance holds, given when the instance is created.
 [R13] In person asks the party that starts the action to prove presence with a passkey or a hardware key.
 [R14] An AI agent may start an action within its delegation, unless the action says AI agent can propose; then the agent only proposes, and a person approves.
+[R19] A built-in action has the standard terms Bo's standard library gives it (cexchain bo stdlib show ACTION): who starts it, whose consent it needs, the states it starts from and leads to, and what it changes. The contract's own clauses come first and add to them; R8 adds no consent to the standard terms.
+[R20] The pledgee and the payee, and a resource's holder, used by an action (the standard terms of a built-in action included) but not declared by the contract, are fields of each instance, holding no party until an action sets them.
 [R24] A ledger acts only on calls, so each time rule is a function that anyone the home delegates may call: a keeper, usually a device of the home calling it on a schedule. The ledger's registration time decides: the rule applies only once its time has come, and once for each such time; an earlier call is refused, and a later one is recorded with how late it came. The rule is the contract's own word: it needs only the consents it states, not those of the parties that start the actions it does.
 [R25] A contract that names no UTC offset counts dates and days at UTC+08:00.

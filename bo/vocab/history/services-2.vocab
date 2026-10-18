@@ -1,0 +1,123 @@
+# Bo vocabulary pack: services (official).
+#
+# Services, resources, and their allocation (D-054). A source that writes
+# `use services` reads these words; the kinds `service` and `resource`
+# are the compiler's mechanisms, `allocate` and `reclaim` have standard
+# terms (below).
+#
+# CBOR diagnostic notation; the digest covers the canonical CBOR, so
+# comments and layout do not change it. Released versions never change: a
+# change is a new version, and the compiler carries every released one
+# (bo/vocab/history/). Version 1 had no "languages": the language packs
+# spelled its words until version 4 of theirs.
+
+{
+  "format": 1,
+  "id": "services",
+  "version": 2,
+  "edition": 1,
+
+  "concepts": {
+    # What a block declares: a kind of the compiler's own mechanism.
+    "kind.service": {"category": "kind"},
+    "kind.resource": {"category": "kind"},
+    # Actions.
+    "act.subscribe": {"category": "action"},
+    "act.renew": {"category": "action"},
+    "act.upgrade": {"category": "action"},
+    "act.downgrade": {"category": "action"},
+    "act.allocate": {"category": "action"},
+    "act.reclaim": {"category": "action"},
+    # Prices and usage.
+    "price.traffic": {"category": "pricing"},
+    # Fields.
+    "field.cooling_period": {"category": "field", "type": "duration"},
+    # A resource's states (the standard terms' allocate and reclaim): held by
+    # a customer, and waiting out its cooling period after a reclaim.
+    "state.allocated": {"category": "state"},
+    "state.cooling": {"category": "state"}
+  },
+
+  # The standard terms of its actions: a Bo source, line by line.
+  "terms": [
+    "bo 1",
+    "use services",
+    "# The standard terms of the services pack's built-in actions (D-054): they",
+    "# allocate a resource to one holder at a time. A contract that uses the pack",
+    "# (`use services`) and writes `can allocate to customer` gets the allocation",
+    "# below; `cexchain bo stdlib show allocate` prints it.",
+    "#",
+    "# The fields these terms use: holder (a party, which Bo adds to a resource,",
+    "# holding no party while the resource is in its pool; R20) and cooling period.",
+    "",
+    "# The home allocates the resource to the counterparty, which becomes its holder",
+    "# and consents to every allocation (R31 if its role was bound before); one the",
+    "# allocation binds is named by each allocation (R23). After a reclaim the",
+    "# resource cools: it is allocated again only once its cooling period has passed",
+    "# since the reclaim.",
+    "can allocate to counterparty",
+    "  if cooling requires not within cooling period",
+    "  active, cooling -> allocated",
+    "  holder = counterparty",
+    "",
+    "# The home takes the resource back from its holder; it then cools.",
+    "can reclaim",
+    "  allocated -> cooling",
+    "  holder = none"
+  ],
+
+  # How each language spells them, as a language pack's "vocabulary".
+  "languages": {
+    "en": {
+      "name": "services",
+      "words": {
+        "kind.service": {"word": "service", "forms": {"plural": "services", "indefinite": "a service"}},
+        "kind.resource": {"word": "resource", "forms": {"plural": "resources", "indefinite": "a resource"}},
+        "act.subscribe": {"word": "subscribe", "forms": {"third": "subscribes", "gerund": "subscribing"}},
+        "act.renew": {"word": "renew", "forms": {"third": "renews", "gerund": "renewing"}},
+        "act.upgrade": {"word": "upgrade", "forms": {"third": "upgrades", "gerund": "upgrading"}},
+        "act.downgrade": {"word": "downgrade", "forms": {"third": "downgrades", "gerund": "downgrading"}},
+        "act.allocate": {"word": "allocate", "forms": {"third": "allocates", "gerund": "allocating"}},
+        "act.reclaim": {"word": "reclaim", "forms": {"third": "reclaims", "gerund": "reclaiming"}},
+        "price.traffic": "traffic",
+        "field.cooling_period": {"word": "cooling period", "forms": {"object": "the cooling period"}},
+        "state.allocated": "allocated",
+        "state.cooling": "cooling"
+      }
+    },
+    "zh-Hant-HK": {
+      "name": "服務",
+      "words": {
+        "kind.service": "服務",
+        "kind.resource": "資源",
+        "act.subscribe": "訂購",
+        "act.renew": "續期",
+        "act.upgrade": "升級",
+        "act.downgrade": "降級",
+        "act.allocate": "分配",
+        "act.reclaim": "收回",
+        "price.traffic": "流量",
+        "field.cooling_period": "冷卻期",
+        "state.allocated": "已分配",
+        "state.cooling": "冷卻中"
+      }
+    },
+    "zh-Hans-CN": {
+      "name": "服务",
+      "words": {
+        "kind.service": "服务",
+        "kind.resource": "资源",
+        "act.subscribe": "订购",
+        "act.renew": "续费",
+        "act.upgrade": "升级",
+        "act.downgrade": "降级",
+        "act.allocate": "分配",
+        "act.reclaim": "收回",
+        "price.traffic": "流量",
+        "field.cooling_period": "冷却期",
+        "state.allocated": "已分配",
+        "state.cooling": "冷却中"
+      }
+    }
+  }
+}

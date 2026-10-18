@@ -237,15 +237,20 @@ struct Meaning {
 ///     alone, from before requests (E8): it reads like the current release
 ///     (with the same vocabulary packs), but spells no `request` and no
 ///     outcome of one;
-///   - current: version 5 of each, which spell the core's words alone; the
-///     official vocabulary packs (version 2) spell theirs (vocab.hpp), and
-///     the release's packs hold them as their own.
+///   - before_billing: version 5 of each, from before a service's periods
+///     and bills (E9): it reads like before_requests with requests, with
+///     version 2 of the official vocabulary packs;
+///   - current: version 6 of each, which spell the core's words alone; the
+///     official vocabulary packs (commerce and services version 3, finance
+///     version 2) spell theirs (vocab.hpp), and the release's packs hold
+///     them as their own.
 enum class Officials : std::uint8_t {
     current,
     before_vocabulary,
     before_temperature,
     before_pack_files,
     before_requests,
+    before_billing,
 };
 
 /// The packs a source is read with: the official packs, always, and any

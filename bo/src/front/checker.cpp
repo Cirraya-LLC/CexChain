@@ -94,7 +94,10 @@ constexpr std::string_view rule_expired = "R33";
 /// resource's holder (it has none while in the pool). The order is the
 /// model's, which compiled code follows; vocab_test.cpp checks the list
 /// against the packs.
-constexpr std::string_view standard_fields[] = {"field.pledgee", "field.payee", "field.holder"};
+/// Then a service's periods (E9): the dates it is paid until and billed
+/// until, which hold no date until it is subscribed to (R11, R34).
+constexpr std::string_view standard_fields[] = {"field.pledgee", "field.payee", "field.holder",
+                                                "field.paid_until", "field.billed_until"};
 
 bool is(const Concept* c, std::string_view id) noexcept {
     return c != nullptr && c->id == id;
@@ -656,6 +659,9 @@ private:
     void complete_parts(m::Field& field);
     void read_utc_offset(const ast::Field& f);
     [[nodiscard]] bool added_field(std::string_view id) const;
+    /// True if `e` reads a date field that may hold no date (R20: a
+    /// service's paid until and billed until).
+    [[nodiscard]] bool optional_date(const m::Expr& e) const;
     /// A concept by id: the edition's, or a user's vocabulary pack's the
     /// file was read with.
     [[nodiscard]] const Concept* concept_of(std::string_view id) const;
@@ -1234,6 +1240,15 @@ bool Checker::added_field(std::string_view id) const {
     return c != nullptr && (c->flags & field_added) != 0;
 }
 
+bool Checker::optional_date(const m::Expr& e) const {
+    if (e.refers != Refers::field || (e.kind != ExprKind::word && e.kind != ExprKind::name)) {
+        return false;
+    }
+    const Decl* d = global(m::key(e.concept_entry, e.name));
+    return d != nullptr && d->refers == Refers::field && model_.fields[d->index].optional &&
+           model_.fields[d->index].type.kind == TypeKind::date;
+}
+
 const Concept* Checker::concept_of(std::string_view id) const {
     if (const Concept* c = find_concept(id)) {
         return c;
@@ -1425,7 +1440,7 @@ void Checker::prepare_terms() {
         }
         m::Field f;
         f.word = concept_of(id);
-        f.type = of(TypeKind::party);
+        f.type = vocabulary_type(f.word).value_or(of(TypeKind::party));
         f.rule = rule_standard_fields;
         f.optional = true;
         f.empty_at_start = true;
@@ -4261,12 +4276,15 @@ void Checker::binary_value(const ast::Expr& e, m::Expr& out) {
     case Operator::greater_equal:
     case Operator::member: {
         if (e.op == Operator::equals && (word_is(a, "val.none") || word_is(b, "val.none"))) {
-            // A party field that holds no party: pledgee = none.
+            // A party field that holds no party: pledgee = none; a date
+            // field Bo adds that holds no date: paid until = none (R20).
             const bool left_none = word_is(a, "val.none");
             m::Expr other = value(left_none ? b : a);
             m::Expr none = plain(left_none ? a : b);
             none.type = of(TypeKind::party);
-            if (known(other.type) && other.type.kind != TypeKind::party) {
+            if (other.type.kind == TypeKind::date && optional_date(other)) {
+                none.type = other.type;
+            } else if (known(other.type) && other.type.kind != TypeKind::party) {
                 mismatch(e, left_none ? none.type : other.type, left_none ? other.type : none.type);
             }
             out.type = of(TypeKind::yes_no);

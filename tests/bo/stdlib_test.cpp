@@ -88,14 +88,16 @@ TEST_CASE("the standard library reads, as compiled in, in every language", "[bo]
         INFO(files[i].second);
         CHECK(f.pack == files[i].first);
         // The core's terms are bo/stdlib/core.bo; a pack's are in its file
-        // (bo/vocab/), whose carried versions hold the same terms.
+        // (bo/vocab/), whose carried versions hold the terms they begin
+        // with (services version 3 added a subscription's, E9).
         if (f.pack == Vocab::core) {
             CHECK(f.source == read_text(source_dir / "bo/stdlib/core.bo"));
         } else {
             CHECK(f.source == find_vocabulary_pack(files[i].second)->terms);
             const VocabularyPack* first = find_vocabulary_pack(files[i].second, 1);
             REQUIRE(first != nullptr);
-            CHECK(f.source == first->terms);
+            CHECK(f.source.starts_with(first->terms));
+            CHECK((f.source == first->terms) == (f.pack == Vocab::finance));
         }
         CHECK(f.source == standard_source(f.pack));
         const Formatted kept = format_source(f.source, official_set(), official(), nullptr);
@@ -118,12 +120,14 @@ TEST_CASE("the standard library reads, as compiled in, in every language", "[bo]
         actions.emplace_back(can->action.concept_entry->id);
         CHECK(library.find(can->action.concept_entry->id) == can);
     }
-    // The core's five, then finance's ten, then services' two (D-054).
+    // The core's five, then finance's ten, then services' six (D-054, E9).
     CHECK(actions == std::vector<std::string>{
-                         "act.transfer", "act.cancel", "act.suspend", "act.resume", "act.terminate",
-                         "act.pledge", "act.release", "act.enforce", "act.redeem", "act.pay",
-                         "act.confirm_payment", "act.dispute", "act.freeze", "act.unfreeze",
-                         "act.split", "act.allocate", "act.reclaim"});
+                         "act.transfer",  "act.cancel",    "act.suspend",         "act.resume",
+                         "act.terminate", "act.pledge",    "act.release",         "act.enforce",
+                         "act.redeem",    "act.pay",       "act.confirm_payment", "act.dispute",
+                         "act.freeze",    "act.unfreeze",  "act.split",           "act.allocate",
+                         "act.reclaim",   "act.subscribe", "act.renew",           "act.upgrade",
+                         "act.downgrade"});
     for (const ast::Can* can : library.templates) {
         const Concept* action = can->action.concept_entry;
         CHECK(library.source_of(action) == standard_source(action->pack));
@@ -135,7 +139,7 @@ TEST_CASE("the standard library reads, as compiled in, in every language", "[bo]
 TEST_CASE("every built-in action's terms, in short", "[bo][stdlib]") {
     // A contract declaring them all checks, every action with its terms.
     const model::Model& m = standard_model();
-    REQUIRE(m.actions.size() == 17);
+    REQUIRE(m.actions.size() == 21);
     for (const model::Action& a : m.actions) {
         INFO(a.word->id);
         CHECK(a.terms);
@@ -173,7 +177,11 @@ TEST_CASE("every built-in action's terms, in short", "[bo][stdlib]") {
                        "unfreeze: home state.frozen -> expr.previous_state",
                        "split: field.holder state.active -> state.divided",
                        "allocate: home to state.active state.cooling -> state.allocated",
-                       "reclaim: home state.allocated -> state.cooling"});
+                       "reclaim: home state.allocated -> state.cooling",
+                       "subscribe: home state.active ->",
+                       "renew: home state.active state.suspended ->",
+                       "upgrade: home state.active ->",
+                       "downgrade: home state.active ->"});
 }
 
 namespace {
