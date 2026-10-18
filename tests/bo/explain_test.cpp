@@ -123,6 +123,8 @@ std::vector<Case> cases() {
         {"multi-tier-split", {source_dir / "examples/multi-tier-split/multi-tier-split.bo"}});
     // R31: a counterparty made holder or pledgee consents at every call.
     out.push_back({"role-taking", {golden_dir / "check-role-taking/source.bo"}});
+    // A service billed each period (E9): its executors, bills, and payments.
+    out.push_back({"services", {golden_dir / "check-services/source.bo"}});
     return out;
 }
 
@@ -182,7 +184,7 @@ TEST_CASE("the contract text's goldens, the same from every spelling", "[bo][exp
             }
         }
     }
-    CHECK(texts == 60);
+    CHECK(texts == 63);
 }
 
 TEST_CASE("the contract text says what compiled code decides", "[bo][explain]") {

@@ -1,0 +1,68 @@
+bo 1
+use commerce
+use services
+contract VPS服務
+parties we, customer
+
+service VPS
+  price monthly HKD 120
+  traffic monthly 2TB, overage per GB HKD 0.10
+  IP 1 item
+  tax according to customer location
+
+can subscribe by customer
+can renew by customer
+can upgrade by customer          # the plan and its proration: the executor's (R10)
+when 7 days before due notify customer
+when overdue 3 days suspend      # request to the panel executor: suspend VPS
+when overdue 30 days terminate   # the panel ends the VPS and takes back its IP
+when collect fails notify we
+
+test "subscribed, invoiced, paid, and renewed"
+  we create with customer location = "HK" at 2027-01-10
+  customer subscribe -> active, paid until = 2027-01-10, billed until = 2027-02-10
+  executor subscribe done
+  executor invoice done with result = "INV-1"
+  executor collect done at 2027-01-12 -> active, paid until = 2027-02-10
+  customer renew at 2027-01-30 -> billed until = 2027-03-10
+  customer renew -> refused "bo:requires renew 2"
+  executor invoice done with result = "INV-2"
+  executor collect done -> active, paid until = 2027-03-10
+
+test "unpaid, suspended, then paid and resumed"
+  we create with customer location = "HK" at 2027-01-10
+  customer subscribe
+  executor invoice done with result = "INV-1"
+  keeper suspend at 2027-01-12 -> refused "bo:when when.suspend"
+  keeper suspend at 2027-01-13 -> suspended
+  executor suspend done
+  executor collect done at 2027-01-15 -> active, paid until = 2027-02-10
+  executor resume done
+
+test "reminded before the due date"
+  we create with customer location = "HK" at 2027-01-10
+  keeper notify -> refused "bo:when when.notify"
+  customer subscribe
+  executor invoice done
+  executor collect done -> paid until = 2027-02-10
+  keeper notify at 2027-02-02 -> refused "bo:when when.notify"
+  keeper notify at 2027-02-03
+  executor notify done
+
+test "a declined payment closes the bill, and the customer renews"
+  we create with customer location = "HK" at 2027-01-10
+  customer subscribe
+  executor invoice done
+  executor collect fails with reason = "card declined" -> billed until = 2027-01-10
+  executor notify done
+  customer renew at 2027-01-11 -> billed until = 2027-02-10
+  executor invoice done
+  executor collect done -> active, paid until = 2027-02-10
+
+test "30 days overdue: terminated"
+  we create with customer location = "HK" at 2027-01-10
+  customer subscribe -> active
+  keeper suspend at 2027-01-13 -> suspended
+  keeper terminate at 2027-02-08 -> refused "bo:when when.terminate"
+  keeper terminate at 2027-02-09 -> terminated
+  executor terminate done

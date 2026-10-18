@@ -192,14 +192,11 @@ TEST_CASE("each example, in each language or mixed, gives the same model", "[bo]
             CHECK(codes(other) == codes(english));
         }
     }
-    // The examples check: the VPS example's executor clauses are marked
-    // (6b), and the others are clean.
+    // The examples check clean: the VPS example's executors since E9.
     CHECK(check_codes(read_text(golden_dir / "example-receivable-en" / "source.bo")).empty());
     CHECK(check_codes(read_text(golden_dir / "example-ip-pool-en" / "source.bo")).empty());
     CHECK(check_codes(read_text(golden_dir / "example-split-en" / "source.bo")).empty());
-    CHECK(check_codes(read_text(golden_dir / "example-vps-en" / "source.bo")) ==
-          "check.needs-executor check.needs-executor check.needs-executor check.needs-executor "
-          "check.needs-executor check.needs-executor");
+    CHECK(check_codes(read_text(golden_dir / "example-vps-en" / "source.bo")).empty());
     CHECK(check_codes(read_text(golden_dir / "example-tax-en" / "source.bo")).empty());
 }
 
@@ -233,7 +230,7 @@ TEST_CASE("every check has an error golden, and every rule is seen", "[bo][check
         CHECK(find_rule(models.substr(at + 1, end - at - 1)) != nullptr);
         at = end;
     }
-    CHECK(rule_specs().size() == 33);
+    CHECK(rule_specs().size() == 35);
     CHECK(rule_specs().front().id == "R1");
 }
 

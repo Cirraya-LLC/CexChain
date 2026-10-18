@@ -255,10 +255,12 @@ private:
             outcomes_.push_back(last_);
         }
     }
-    /// A request's kind: an action's word, or a name.
+    /// A request's kind: an action's word, a document's (invoice, E9), or a
+    /// name.
     [[nodiscard]] bool is_kind(const Token& t) const {
         return t.kind == TokenKind::name || (t.kind == TokenKind::word && t.piece == Piece::whole &&
-                                             t.concept_entry->category == Category::action);
+                                             (t.concept_entry->category == Category::action ||
+                                              t.concept_entry->category == Category::document));
     }
     /// An action begins at `i`: an action, or a party just before one.
     [[nodiscard]] bool starts_action(std::size_t i) const {
@@ -1388,7 +1390,8 @@ std::optional<ast::Do> Parser::action(bool step) {
         }
         d.subject = std::move(*subject);
     }
-    if (const Token& a = peek(); is_action(a) || (step && a.kind == TokenKind::name)) {
+    if (const Token& a = peek(); is_action(a) || (step && a.kind == TokenKind::name) ||
+                                 (step && is_kind(a) && is_outcome(peek(1)))) {
         d.action = token_expr(take());
     } else {
         fail_expected("parse.expected-action");

@@ -301,7 +301,11 @@ void statements(std::string& out, const std::vector<model::Statement>& list, std
                            if (r.to) {
                                line += " to=" + text(*r.to);
                            }
-                           add_line(out, depth, line + " within=" + text(r.within));
+                           line += " within=" + text(r.within);
+                           if (r.from_due) {
+                               line += " from=due";
+                           }
+                           add_line(out, depth, ruled(std::move(line), r.rule));
                            for (const model::Set& w : r.with) {
                                set_line(out, w, depth + 1);
                            }

@@ -2,8 +2,8 @@ edition 1
 contract Requests
 parties role.we
 can ship by=role.we
-5:11 error parse.request: a request is written request KIND [to PARTY] [with NAME = VALUE, ...] within DURATION, its kind a name or an action's word; found within
+5:11 error parse.request: a request is written request KIND [to PARTY] [with NAME = VALUE, ...] within DURATION, its kind a name, an action's word, or a document's (invoice); found within
 6:24 error parse.duplicate: to is given twice; give it once
 7:31 error parse.duplicate: within is given twice; give it once
-8:18 error parse.request: a request is written request KIND [to PARTY] [with NAME = VALUE, ...] within DURATION, its kind a name or an action's word; found 3 days
+8:18 error parse.request: a request is written request KIND [to PARTY] [with NAME = VALUE, ...] within DURATION, its kind a name, an action's word, or a document's (invoice); found 3 days
 9:18 error parse.trailing: the line is complete before by: remove it, or start a new line

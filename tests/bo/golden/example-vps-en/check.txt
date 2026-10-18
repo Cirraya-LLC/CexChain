@@ -15,31 +15,58 @@ field field.paid_until instance date optional empty{R20}
 field field.billed_until instance date optional empty{R20}
 due period{R11}
 state state.active first{R4}
+state state.suspended{R19}
+state state.terminated{R19}
 can act.subscribe standard by=role.customer agents=delegation{R14} executor{R10}
   terms{R19}
     requires state.active{R7}
     requires (= field.paid_until val.none)
     set field.paid_until time.today
     set field.billed_until time.today
+    set field.billed_until (+ field.billed_until (duration time.month 1)){R34}
+    request invoice to=role.customer within=(duration time.day 7){R34}
+      set field.amount (money cur.HKD 120)
+      set field.paid_until field.paid_until
+      set field.billed_until field.billed_until
+    request subscribe within=(duration time.day 1){R10}
 can act.renew standard by=role.customer agents=delegation{R14}
   terms{R19}
     requires (or state.active{R7} state.suspended{R7})
     requires (= field.billed_until field.paid_until)
+    set field.billed_until (+ field.billed_until (duration time.month 1)){R34}
+    request invoice to=role.customer within=(duration time.day 7){R34}
+      set field.amount (money cur.HKD 120)
+      set field.paid_until field.paid_until
+      set field.billed_until field.billed_until
 can act.upgrade standard by=role.customer agents=delegation{R14} executor{R10}
   terms{R19}
     requires state.active{R7}
-can act.refund standard by=role.we agents=propose
-  requires cond.in_person{R13} guard=(cond.over (money cur.HKD 100)){R6}
+    request upgrade within=(duration time.day 1){R10}
+can act.suspend standard agents=delegation{R14} executor{R10} rule_only
+  terms{R19}
+    transition state.active -> state.suspended
+    request suspend within=(duration time.day 1){R10}
+can act.terminate standard agents=delegation{R14} executor{R10} rule_only
+  terms{R19}
+    transition state.active state.suspended -> state.terminated
+    request terminate within=(duration time.day 1){R10}
 when (cond.before_due (duration time.day 7)) trigger=before_due function=when.notify{R24}
-  do act.notify role.customer executor{R10}
+  request notify to=role.customer within=(duration time.day 1){R10}
 when (phrase cond.overdue (duration time.day 3)) trigger=overdue function=when.suspend{R24}
-  do act.suspend executor{R10}
+  do act.suspend
 when (phrase cond.overdue (duration time.day 30)) trigger=overdue function=when.terminate{R24}
-  do act.terminate executor{R10}
-  do act.reclaim IP executor{R10}
-13:5 warning check.needs-executor: subscribe asks an executor to act outside the ledger, which comes in step 6b: bo check accepts it, and bo build will refuse it until then
-15:5 warning check.needs-executor: upgrade asks an executor to act outside the ledger, which comes in step 6b: bo check accepts it, and bo build will refuse it until then
-16:24 warning check.needs-executor: notify asks an executor to act outside the ledger, which comes in step 6b: bo check accepts it, and bo build will refuse it until then
-17:21 warning check.needs-executor: suspend asks an executor to act outside the ledger, which comes in step 6b: bo check accepts it, and bo build will refuse it until then
-18:22 warning check.needs-executor: terminate asks an executor to act outside the ledger, which comes in step 6b: bo check accepts it, and bo build will refuse it until then
-18:36 warning check.needs-executor: reclaim asks an executor to act outside the ledger, which comes in step 6b: bo check accepts it, and bo build will refuse it until then
+  do act.terminate
+answer collect fails function=result expired{R33}
+  request notify to=role.we within=(duration time.day 1){R10}
+  set field.billed_until field.paid_until{R34}
+answer invoice done function=result
+  request collect to=role.customer within=(duration time.day 30) from=due{R34}
+    set field.amount (money cur.HKD 120)
+    set doc.invoice expr.result
+answer invoice fails function=result expired{R33}
+  set field.billed_until field.paid_until{R34}
+answer collect done function=result
+  set field.paid_until (+ field.paid_until (duration time.month 1)){R35}
+  if (and state.suspended{R7} (not cond.overdue)){R35}
+    transition -> state.active{R35}
+    request resume within=(duration time.day 1){R35}

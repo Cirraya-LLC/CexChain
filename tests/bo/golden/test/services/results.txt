@@ -1,0 +1,47 @@
+test "renewed by the keeper, once the last bill is paid" passed home=role.we
+  step 1 passed 2027-03-01 accepted active event=active; fuel 4398
+  step 2 passed 2027-03-01 accepted active consents role.customer request=invoice@2027-03-08 request=subscribe@2027-03-02; fuel 11589 13662
+  step 3 passed 2027-03-01 refused "bo:requires renew 2"; fuel 9143
+  step 4 passed 2027-03-01 accepted active event=answer:invoice:done request=notify@2027-03-02 request=collect@2027-04-30; fuel 18581
+  step 5 passed 2027-03-01 accepted active event=answer:notify:done; fuel 14124
+  step 6 passed 2027-03-02 accepted active event=answer:collect:done; fuel 15444
+  step 7 passed 2027-03-17 refused "bo:when when.renew"; fuel 9035
+  step 8 passed 2027-03-18 accepted active event=when:when.renew late=0 request=invoice@2027-03-25; fuel 13244
+  step 9 passed 2027-03-18 refused "bo:fired when.renew"; fuel 9374
+  step 10 passed 2027-03-18 accepted active event=answer:invoice:done request=notify@2027-03-19 request=collect@2027-05-31; fuel 19075
+  step 11 passed 2027-03-18 accepted active event=answer:collect:done; fuel 15937
+  step 12 passed 2027-04-17 accepted active event=when:when.renew late=0 request=invoice@2027-04-24; fuel 13581
+test "an expired collection closes the bill; paid late, the service resumes" passed home=role.we
+  step 1 passed 2027-03-01 accepted active event=active; fuel 4398
+  step 2 passed 2027-03-01 accepted active consents role.customer request=invoice@2027-03-08 request=subscribe@2027-03-02; fuel 11589 13662
+  step 3 passed 2027-03-01 accepted active event=answer:invoice:done request=notify@2027-03-02 request=collect@2027-04-30; fuel 17940
+  step 4 passed 2027-03-06 accepted suspended event=when:when.suspend late=0 event=suspended request=suspend@2027-03-07; fuel 12446
+  step 5 passed 2027-05-01 accepted suspended event=answer:collect:expired request=notify@2027-05-02; fuel 16657
+  step 6 passed 2027-05-01 accepted suspended event=when:when.renew late=6480000000 request=invoice@2027-05-08; fuel 13801
+  step 7 passed 2027-05-01 accepted suspended event=answer:invoice:done request=notify@2027-05-02 request=collect@2027-05-02; fuel 18858
+  step 8 passed 2027-05-01 accepted suspended event=answer:collect:done; fuel 16555
+  step 9 passed 2027-05-01 accepted suspended event=when:when.renew late=3801600000 request=invoice@2027-05-08; fuel 14082
+  step 10 passed 2027-05-01 accepted suspended event=answer:invoice:done request=notify@2027-05-02 request=collect@2027-05-31; fuel 18856
+  step 11 passed 2027-05-01 accepted active event=answer:collect:done event=active request=resume@2027-05-02; fuel 17613
+  step 12 passed 2027-05-01 accepted active event=answer:resume:done; fuel 14910
+test "plans change outside the ledger, while active" passed home=role.we
+  step 1 passed 2027-03-01 accepted active event=active; fuel 4398
+  step 2 passed 2027-03-01 accepted active consents role.customer request=upgrade@2027-03-02; fuel 9464 11211
+  step 3 passed 2027-03-01 accepted active event=answer:upgrade:done; fuel 13215
+  step 4 passed 2027-03-01 accepted active consents role.customer request=downgrade@2027-03-02; fuel 9320 11067
+  step 5 passed 2027-03-01 accepted active event=answer:downgrade:failed; fuel 13602
+  step 6 passed 2027-03-06 refused "bo:when when.suspend"; fuel 8228
+  step 7 passed 2027-03-06 accepted active consents role.customer request=invoice@2027-03-13 request=subscribe@2027-03-07; fuel 11589 13662
+  step 8 passed 2027-03-12 accepted suspended event=when:when.suspend late=86400000 event=suspended request=suspend@2027-03-13; fuel 12522
+  step 9 passed 2027-03-12 refused "bo:state upgrade"; fuel 9152
+  step 10 passed 2027-03-12 refused "bo:state subscribe"; fuel 9089
+test "a failed suspension is reported; terminated at 60 days overdue" passed home=role.we
+  step 1 passed 2027-03-01 accepted active event=active; fuel 4398
+  step 2 passed 2027-03-01 accepted active consents role.customer request=invoice@2027-03-08 request=subscribe@2027-03-02; fuel 11589 13662
+  step 3 passed 2027-03-06 accepted suspended event=when:when.suspend late=0 event=suspended request=suspend@2027-03-07; fuel 12446
+  step 4 passed 2027-03-06 accepted suspended event=answer:suspend:failed request=notify@2027-03-07; fuel 16475
+  step 5 passed 2027-03-06 accepted suspended event=answer:notify:done; fuel 14546
+  step 6 passed 2027-04-29 refused "bo:when when.terminate"; fuel 9398
+  step 7 passed 2027-04-30 accepted terminated event=when:when.terminate late=0 event=terminated final request=terminate@2027-05-01; fuel 13008
+  step 8 passed 2027-04-30 accepted terminated event=answer:terminate:done final; fuel 14948
+4 tests: 4 passed, 0 failed

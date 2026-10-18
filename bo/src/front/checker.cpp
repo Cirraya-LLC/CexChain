@@ -87,6 +87,8 @@ constexpr std::string_view rule_issue_parts = "R30";
 constexpr std::string_view rule_role_taking = "R31";
 constexpr std::string_view rule_whole_times = "R32";
 constexpr std::string_view rule_expired = "R33";
+constexpr std::string_view rule_service_bill = "R34";
+constexpr std::string_view rule_service_paid = "R35";
 
 /// The fields the standard terms may add to an instance (R20), in the order
 /// R20 adds them: those their packs mark as added (Concept::flags; parties
@@ -319,7 +321,9 @@ bool is_label(const ast::Expr& e) noexcept {
     return word_in(e, Category::pricing) && !word_is(e, "price.per");
 }
 
-/// R10: the actions that ask an executor to act outside the ledger.
+/// R10: the actions that ask an executor to act outside the ledger: notify,
+/// and on a service the changes of its subscription. Each makes a request
+/// of its own kind after its clauses (E9).
 bool executor_action(const Concept* word, const Concept* kind) {
     if (word == nullptr) {
         return false;
@@ -328,10 +332,62 @@ bool executor_action(const Concept* word, const Concept* kind) {
         return true;
     }
     static constexpr std::string_view service_changes[] = {
-        "act.subscribe", "act.upgrade",   "act.downgrade", "act.suspend",
-        "act.resume",    "act.terminate", "act.allocate",  "act.reclaim",
+        "act.subscribe", "act.upgrade", "act.downgrade",
+        "act.suspend",   "act.resume",  "act.terminate",
     };
     return is(kind, "kind.service") && std::ranges::contains(service_changes, word->id);
+}
+
+// ---------------------------------------------------------------------------
+// Lines Bo adds to a contract (E9): written as the tree would hold them, at
+// the place of the clause they belong to, then checked as the contract's own.
+
+ast::Expr word_node(std::string_view id, const Span& span) {
+    ast::Expr e;
+    e.kind = ExprKind::word;
+    e.span = span;
+    e.concept_entry = find_concept(id);
+    return e;
+}
+
+ast::Expr duration_node(std::uint64_t count, std::string_view unit, const Span& span) {
+    ast::Expr e;
+    e.kind = ExprKind::literal;
+    e.span = span;
+    e.literal.kind = ast::LiteralKind::duration;
+    e.literal.number.digits = count;
+    e.literal.unit = find_concept(unit);
+    return e;
+}
+
+ast::Expr binary_node(Operator op, ast::Expr left, ast::Expr right, const Span& span) {
+    ast::Expr e;
+    e.kind = ExprKind::binary;
+    e.span = span;
+    e.op = op;
+    e.operands.push_back(std::move(left));
+    e.operands.push_back(std::move(right));
+    return e;
+}
+
+ast::Expr apply_node(std::string_view id, ast::Expr operand, const Span& span) {
+    ast::Expr e = word_node(id, span);
+    e.kind = ExprKind::apply;
+    e.operands.push_back(std::move(operand));
+    return e;
+}
+
+ast::Statement set_node(ast::Expr target, ast::Expr value, const Span& span) {
+    return ast::Statement{ast::Set{span, std::move(target), std::move(value)}};
+}
+
+/// One period of a recurring price: a day, a week, a month, or a year.
+ast::Expr period_node(const Concept* period, const Span& span) {
+    const std::string_view id = period != nullptr ? period->id : std::string_view();
+    return id == "time.daily"    ? duration_node(1, "time.day", span)
+           : id == "time.weekly" ? duration_node(1, "time.week", span)
+           : id == "time.yearly" ? duration_node(1, "time.year", span)
+                                 : duration_node(1, "time.month", span);
 }
 
 // ---------------------------------------------------------------------------
@@ -704,6 +760,19 @@ private:
     void check_when(const ast::When& w);
     void check_answer(const ast::AnswerRule& r);
     m::Request request_statement(const ast::Request& r);
+    // E9: notify PARTY, a request (R10); the requests and the bills Bo adds
+    // to a service (R10, R34, R35).
+    m::Request notify_request(const ast::Do& d);
+    [[nodiscard]] bool is_notify(const ast::Do& d) const;
+    m::Request added_request(std::string_view kind, std::optional<ast::Expr> to,
+                             std::vector<ast::Set> with, ast::Expr within, const Span& span,
+                             std::string_view rule);
+    void add_billing(m::Action& a, const Span& span);
+    void add_billing_answers();
+    void mark(std::vector<m::Statement>& list, std::string_view rule);
+    [[nodiscard]] std::optional<ast::Expr> customer_node(const Span& span) const;
+    [[nodiscard]] ast::Expr period_amount(const Span& span) const;
+    [[nodiscard]] const m::Field* recurring_price() const;
     void check_requests();
     std::vector<m::Statement> statements(const std::vector<ast::Statement>& list);
     m::Set set_statement(const ast::Set& s);
@@ -772,6 +841,9 @@ private:
     /// The kinds of the requests the contract makes (E8), as compiled code
     /// names them.
     std::set<std::string, std::less<>> requested_;
+    /// A service's period bill (R34): made by some action, and where.
+    bool billing_ = false;
+    Span billing_span_;
     std::vector<const ast::Test*> tests_;
     std::vector<const ast::Clause*> clauses_;
     std::deque<ast::Can> synthetic_;
@@ -1271,7 +1343,7 @@ void Checker::add_rule_actions() {
             return;
         }
         const Concept* word = d.action.concept_entry;
-        if (executor_action(word, model_.kind) || find_terms(word, vocabularies_) == nullptr ||
+        if (find_terms(word, vocabularies_) == nullptr ||
             !declared.insert(std::string(word->id)).second) {
             return;
         }
@@ -1434,6 +1506,32 @@ void Checker::prepare_terms() {
         }
         for (const ast::Can* c : cans_) {
             each_can_expression(*c, mentions);
+        }
+        // R11: a service with a recurring price is due on the date it is
+        // paid until, which a rule or a condition on its due date reads.
+        if (!used && id == "field.paid_until" && recurring_price() != nullptr) {
+            const auto due_word = [&](const ast::Expr& e) {
+                used = used || word_is(e, "cond.overdue") || word_is(e, "cond.before_due") ||
+                       word_is(e, "field.due");
+            };
+            const auto in = [&](const ast::Expr& e, const auto& self) -> void {
+                due_word(e);
+                for (const ast::Expr& o : e.operands) {
+                    self(o, self);
+                }
+            };
+            for (const ast::When* w : whens_) {
+                in(w->event, in);
+                each_statement(w->body,
+                               [&](const ast::Statement& st) { each_expression(st, due_word); });
+            }
+            for (const ast::Can* c : cans_) {
+                each_can_expression(*c, due_word);
+            }
+            for (const ast::AnswerRule* r : answers_) {
+                each_statement(r->body,
+                               [&](const ast::Statement& st) { each_expression(st, due_word); });
+            }
         }
         if (!used) {
             continue;
@@ -1846,6 +1944,20 @@ void Checker::bind_roles() {
     }
 }
 
+const m::Field* Checker::recurring_price() const {
+    // R11: a service with a recurring price in money.
+    if (!is(model_.kind, "kind.service")) {
+        return nullptr;
+    }
+    for (const m::Field& f : model_.fields) {
+        if (f.type.kind == TypeKind::recurring && !f.type.element.empty() &&
+            f.type.element[0].kind == TypeKind::money && f.value) {
+            return &f;
+        }
+    }
+    return nullptr;
+}
+
 void Checker::find_due() {
     if (const Decl* due = global("field.due"); due != nullptr && due->refers == Refers::field) {
         if (model_.fields[due->index].type.kind == TypeKind::date) {
@@ -1853,16 +1965,9 @@ void Checker::find_due() {
         }
         return;
     }
-    if (!is(model_.kind, "kind.service")) {
-        return;
-    }
-    for (const m::Field& f : model_.fields) {
-        if (f.type.kind == TypeKind::recurring && !f.type.element.empty() &&
-            f.type.element[0].kind == TypeKind::money) {
-            model_.due = m::DueKind::period;
-            model_.due_rule = rule_service_due;
-            return;
-        }
+    if (recurring_price() != nullptr) {
+        model_.due = m::DueKind::period;
+        model_.due_rule = rule_service_due;
     }
 }
 
@@ -2259,10 +2364,23 @@ void Checker::check_can(const ast::Can& c, std::size_t index) {
     if (!a.agents_propose) {
         a.agents_rule = rule_agents;
     }
+    // R34: subscribing to a service, or renewing it, bills one period.
+    if (a.terms && (is(a.word, "act.subscribe") || is(a.word, "act.renew"))) {
+        add_billing(a, c.action.span);
+    }
+    // R10: it asks an executor to do the same, after its clauses, within a
+    // day (notify has no terms: `notify PARTY` is a request of its own).
     if (executor_action(a.word, model_.kind)) {
         a.executor = true;
         a.executor_rule = rule_executor;
-        error(c.action.span, "check.needs-executor", {{"action", action}});
+        if (!a.terms) {
+            // `can notify`: notify is a request, written in a block.
+            error(c.action.span, "check.needs-executor", {{"action", action}});
+        } else {
+            a.body.push_back(m::Statement{added_request(wire_name(a.word, {}), std::nullopt, {},
+                                                        duration_node(1, "time.day", c.action.span),
+                                                        c.action.span, rule_executor)});
+        }
     }
     frames_.pop_back();
     action_ = nullptr;
@@ -2328,10 +2446,21 @@ void Checker::check_when(const ast::When& w) {
     }
     place_ = Place::rule;
     consents_ = &r.consents;
-    for (const ast::Do& d : w.actions) {
-        r.actions.push_back(do_action(d));
+    if (std::ranges::any_of(w.actions, [&](const ast::Do& d) { return is_notify(d); })) {
+        // R10: notify PARTY is a request; with it, the line's actions are
+        // the block's first lines, in order.
+        for (const ast::Do& d : w.actions) {
+            r.body.push_back(is_notify(d) ? m::Statement{notify_request(d)}
+                                          : m::Statement{do_action(d)});
+        }
+    } else {
+        for (const ast::Do& d : w.actions) {
+            r.actions.push_back(do_action(d));
+        }
     }
-    r.body = statements(w.body);
+    for (m::Statement& st : statements(w.body)) {
+        r.body.push_back(std::move(st));
+    }
     // The actions the rule does: the keeper's call gives no arguments, and
     // nobody proves presence in it.
     for (const m::Do* d : m::rule_actions(r)) {
@@ -2469,9 +2598,15 @@ void Checker::check_answer(const ast::AnswerRule& r) {
     std::vector<m::Consent> consents;
     consents_ = &consents;
     for (const ast::Do& d : r.actions) {
-        error(d.span, "check.answer-line", {{"text", written(d.span)}});
+        if (is_notify(d)) {
+            out.body.push_back(m::Statement{notify_request(d)});
+        } else {
+            error(d.span, "check.answer-line", {{"text", written(d.span)}});
+        }
     }
-    out.body = statements(r.body);
+    for (m::Statement& st : statements(r.body)) {
+        out.body.push_back(std::move(st));
+    }
     each_statement(out.body, [&](const m::Statement& st) {
         const Span* at = nullptr;
         if (const auto* q = std::get_if<m::Requires>(&st.node)) {
@@ -2494,6 +2629,273 @@ void Checker::check_answer(const ast::AnswerRule& r) {
     consents_ = nullptr;
     place_ = Place::declaration;
     model_.answers.push_back(std::move(out));
+}
+
+bool Checker::is_notify(const ast::Do& d) const {
+    return !d.subject && !d.outcome && word_is(d.action, "act.notify");
+}
+
+m::Request Checker::notify_request(const ast::Do& d) {
+    // R10: `notify PARTY` asks an executor to notify that party, within a
+    // day: `request notify to PARTY within 1 day`.
+    std::optional<ast::Expr> to;
+    if (d.args.size() == 1 && !d.to && !d.by && d.with.empty()) {
+        to = d.args[0];
+    } else {
+        error(d.span, "check.notify", {{"text", written(d.span)}});
+    }
+    m::Request out = added_request("notify", std::move(to), {},
+                                   duration_node(1, "time.day", d.span), d.span, rule_executor);
+    out.word = d.action.concept_entry;
+    return out;
+}
+
+m::Request Checker::added_request(std::string_view kind, std::optional<ast::Expr> to,
+                                  std::vector<ast::Set> with, ast::Expr within, const Span& span,
+                                  std::string_view rule) {
+    ast::Request r;
+    r.span = span;
+    const Concept* word =
+        find_concept(kind == "invoice" ? "doc.invoice" : "act." + std::string(kind));
+    r.kind = word != nullptr ? word_node(word->id, span) : ast::Expr{};
+    if (word == nullptr) {
+        r.kind.kind = ExprKind::name;
+        r.kind.span = span;
+        r.kind.name = std::string(kind);
+    }
+    r.to = std::move(to);
+    r.with = std::move(with);
+    r.within = apply_node("cond.within", std::move(within), span);
+    m::Request out = request_statement(r);
+    out.rule = rule;
+    return out;
+}
+
+std::optional<ast::Expr> Checker::customer_node(const Span& span) const {
+    // The party a service's bills are for: its customer, if the contract
+    // names one.
+    const Decl* d = global("role.customer");
+    if (d == nullptr || d->refers != Refers::party) {
+        return std::nullopt;
+    }
+    return word_node("role.customer", span);
+}
+
+ast::Expr Checker::period_amount(const Span& span) const {
+    // The recurring price's amount for one period (HKD 120 of monthly HKD
+    // 120), as written.
+    const m::Field* price = recurring_price();
+    BO_ASSERT(price != nullptr);
+    const m::Expr* amount = &*price->value;
+    while (amount->kind == ExprKind::phrase && !amount->operands.empty()) {
+        amount = &amount->operands.back();
+    }
+    ast::Expr e;
+    e.kind = ExprKind::literal;
+    e.span = span;
+    e.literal = amount->literal;
+    return e;
+}
+
+void Checker::mark(std::vector<m::Statement>& list, std::string_view rule) {
+    // The lines Bo adds carry the rule that adds them (in the contract text).
+    for (m::Statement& st : list) {
+        std::visit(Overloaded{
+                       [&](m::Set& set) { set.value.rule = rule; },
+                       [&](m::If& i) {
+                           i.condition.rule = rule;
+                           mark(i.then, rule);
+                           mark(i.otherwise, rule);
+                       },
+                       [&](m::Transition& t) { t.to.rule = rule; },
+                       [&](m::Request& r) {
+                           if (r.rule.empty()) {
+                               r.rule = rule;
+                           }
+                       },
+                       [&](auto&) {},
+                   },
+                   st.node);
+    }
+}
+
+void Checker::add_billing(m::Action& a, const Span& span) {
+    // R34: on a service with a recurring price, billed until moves one
+    // period on, and an executor is asked to invoice the customer for the
+    // period's price, from the date it is paid until to the date it is now
+    // billed until.
+    const m::Field* price = recurring_price();
+    const Decl* billed = global("field.billed_until");
+    const Decl* paid = global("field.paid_until");
+    if (price == nullptr || billed == nullptr || paid == nullptr || !known(price->type)) {
+        return;
+    }
+    if (m::bill_field(model_) != nullptr) {
+        // Charges on a service's period bills come later: its invoices carry
+        // the period's price.
+        error(span, "check.service-bill", {{"text", written(span)}});
+        return;
+    }
+    billing_ = true;
+    billing_span_ = span;
+    const ast::Expr period = period_node(price->type.period, span);
+    std::vector<ast::Statement> lines;
+    lines.push_back(set_node(
+        word_node("field.billed_until", span),
+        binary_node(Operator::plus, word_node("field.billed_until", span), period, span), span));
+    std::vector<m::Statement> checked = statements(lines);
+    std::vector<ast::Set> with;
+    with.push_back(ast::Set{span, word_node("field.amount", span), period_amount(span)});
+    with.push_back(
+        ast::Set{span, word_node("field.paid_until", span), word_node("field.paid_until", span)});
+    with.push_back(ast::Set{span, word_node("field.billed_until", span),
+                            word_node("field.billed_until", span)});
+    checked.push_back(
+        m::Statement{added_request("invoice", customer_node(span), std::move(with),
+                                   duration_node(7, "time.day", span), span, rule_service_bill)});
+    mark(checked, rule_service_bill);
+    for (m::Statement& st : checked) {
+        a.body.push_back(std::move(st));
+    }
+}
+
+void Checker::add_billing_answers() {
+    // R34, R35: the answers to a service's invoices and collections. The
+    // lines go after those of the contract's own rule for the same answer,
+    // if it has one.
+    if (!billing_) {
+        return;
+    }
+    const Span span = billing_span_;
+    const m::Field* price = recurring_price();
+    // The collection is due by the latest overdue rule's time, counted from
+    // the due date; without one, 30 days after it.
+    ast::Expr latest = duration_node(30, "time.day", span);
+    std::optional<std::int64_t> longest;
+    for (const m::TimeRule& r : model_.rules) {
+        const std::optional<m::Trigger> t = m::trigger_of(r.event);
+        if (!t || t->kind != m::TriggerKind::overdue || !m::rule_runs(r)) {
+            continue;
+        }
+        ast::Expr n = duration_node(1, "time.day", span);
+        std::int64_t ms = 86'400'000;
+        if (t->value != nullptr && t->value->kind == ExprKind::literal) {
+            n.literal = t->value->literal;
+            const std::optional<std::int64_t> v = literal_value(n.literal, model_.utc_offset_ms);
+            // A month counts as 31 days here, only to find the latest.
+            ms = !v ? 0 : t->value->type.calendar ? *v * 31 * 86'400'000 : *v;
+            if (t->value->type.calendar && v && *v > 12) {
+                n.literal.number.digits = 12;
+                n.literal.number.scale = 0;
+            } else if (!t->value->type.calendar && ms > m::max_request_ms) {
+                n = duration_node(366, "time.day", span);
+            }
+        }
+        if (!longest || ms > *longest) {
+            longest = ms;
+            latest = std::move(n);
+        }
+    }
+    const auto add = [&](std::string_view kind, m::Outcome outcome,
+                         std::vector<m::Statement> lines) {
+        for (m::AnswerRule& r : model_.answers) {
+            if (r.kind == kind && r.outcome == outcome) {
+                for (m::Statement& st : lines) {
+                    r.body.push_back(std::move(st));
+                }
+                return;
+            }
+        }
+        m::AnswerRule r;
+        r.span = span;
+        r.kind = std::string(kind);
+        r.word = find_concept(kind == "invoice" ? "doc.invoice" : "act." + std::string(kind));
+        r.outcome = outcome;
+        r.body = std::move(lines);
+        model_.answers.push_back(std::move(r));
+    };
+    frames_.emplace_back();
+    place_ = Place::answer;
+    std::vector<m::Consent> consents;
+    consents_ = &consents;
+    // A failed (or expired) invoice or collection closes the bill: billed
+    // until goes back to paid until.
+    const auto close = [&] {
+        std::vector<ast::Statement> lines;
+        lines.push_back(set_node(word_node("field.billed_until", span),
+                                 word_node("field.paid_until", span), span));
+        std::vector<m::Statement> out = statements(lines);
+        mark(out, rule_service_bill);
+        return out;
+    };
+    // The invoice done: the collection, carrying the invoice's result.
+    {
+        std::vector<ast::Set> with;
+        with.push_back(ast::Set{span, word_node("field.amount", span), period_amount(span)});
+        with.push_back(
+            ast::Set{span, word_node("doc.invoice", span), word_node("expr.result", span)});
+        m::Request collect = added_request("collect", customer_node(span), std::move(with),
+                                           std::move(latest), span, rule_service_bill);
+        collect.from_due = true;
+        std::vector<m::Statement> lines;
+        lines.push_back(m::Statement{std::move(collect)});
+        add("invoice", m::Outcome::done, std::move(lines));
+    }
+    add("invoice", m::Outcome::fails, close());
+    // The collection done: one more period paid; a suspended service no
+    // longer overdue resumes (R35).
+    {
+        std::vector<ast::Statement> lines;
+        lines.push_back(set_node(word_node("field.paid_until", span),
+                                 binary_node(Operator::plus, word_node("field.paid_until", span),
+                                             period_node(price->type.period, span), span),
+                                 span));
+        const Decl* suspended = global("state.suspended");
+        const Decl* active = global("state.active");
+        std::vector<m::Statement> out = statements(lines);
+        if (suspended != nullptr && suspended->refers == Refers::state && active != nullptr &&
+            active->refers == Refers::state) {
+            ast::If resume;
+            resume.span = span;
+            ast::Expr not_overdue;
+            not_overdue.kind = ExprKind::unary;
+            not_overdue.span = span;
+            not_overdue.op = Operator::logical_not;
+            not_overdue.operands.push_back(word_node("cond.overdue", span));
+            resume.condition =
+                binary_node(Operator::logical_and, word_node("state.suspended", span),
+                            std::move(not_overdue), span);
+            resume.then.push_back(
+                ast::Statement{ast::Transition{span, {}, word_node("state.active", span)}});
+            std::vector<ast::Statement> wrapped;
+            wrapped.push_back(ast::Statement{std::move(resume)});
+            std::vector<m::Statement> checked = statements(wrapped);
+            auto& branch = std::get<m::If>(checked.back().node).then;
+            branch.push_back(m::Statement{added_request("resume", std::nullopt, {},
+                                                        duration_node(1, "time.day", span), span,
+                                                        rule_service_paid)});
+            for (m::Statement& st : checked) {
+                out.push_back(std::move(st));
+            }
+        }
+        mark(out, rule_service_paid);
+        add("collect", m::Outcome::done, std::move(out));
+    }
+    add("collect", m::Outcome::fails, close());
+    // A contract's own rule for an expiry takes it from the rule for
+    // failures (R33): it closes the bill too.
+    for (const std::string_view kind : {std::string_view("invoice"), std::string_view("collect")}) {
+        for (m::AnswerRule& r : model_.answers) {
+            if (r.kind == kind && r.outcome == m::Outcome::expires) {
+                for (m::Statement& st : close()) {
+                    r.body.push_back(std::move(st));
+                }
+            }
+        }
+    }
+    frames_.pop_back();
+    consents_ = nullptr;
+    place_ = Place::declaration;
 }
 
 /// What the whole contract's requests need: a reply function, at most 16
@@ -2635,7 +3037,10 @@ std::vector<m::Statement> Checker::statements(const std::vector<ast::Statement>&
                     }
                     out.push_back(m::Statement{std::move(node)});
                 },
-                [&](const ast::Do& d) { out.push_back(m::Statement{do_action(d)}); },
+                [&](const ast::Do& d) {
+                    out.push_back(is_notify(d) ? m::Statement{notify_request(d)}
+                                               : m::Statement{do_action(d)});
+                },
                 [&](const ast::Expect&) {},
                 [&](const ast::Request& r) { out.push_back(m::Statement{request_statement(r)}); },
             },
@@ -2751,11 +3156,6 @@ m::Do Checker::do_action(const ast::Do& d) {
             }
         }
         out.with.push_back(std::move(item));
-    }
-    if (!out.obligation && executor_action(word, model_.kind)) {
-        out.executor = true;
-        out.rule = rule_executor;
-        error(d.action.span, "check.needs-executor", {{"action", action}});
     }
     if (word == nullptr && place_ == Place::action && !action_key_.empty()) {
         calls_[action_key_].push_back(action);
@@ -4454,6 +4854,7 @@ m::Model Checker::run(const ast::File& file) {
     for (const ast::AnswerRule* r : answers_) {
         check_answer(*r);
     }
+    add_billing_answers();
     finish_terms();
     check_states();
     check_recursion();

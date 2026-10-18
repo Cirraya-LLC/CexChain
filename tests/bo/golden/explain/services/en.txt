@@ -1,0 +1,142 @@
+Contract Hosting
+
+Bo wrote this text from the contract's source (Bo edition 1). A clause marked with a rule, such as [R3], states what Bo inferred by that rule instead of reading it in the source; the last section explains each rule.
+Besides Bo's core words, the contract uses the commerce vocabulary pack (version 3) and the services vocabulary pack (version 3).
+
+1. Parties
+1.1 we: bound to a ledger when an instance is created. [R3]
+1.2 customer: bound to a ledger when an instance is created. [R3]
+
+2. Each instance
+2.1 Each instance is a service named Server.
+2.2 price: HKD 300, monthly, the same for every instance.
+2.3 paid until: a date; each instance holds no date until an action sets it. [R20]
+2.4 billed until: a date; each instance holds no date until an action sets it. [R20]
+2.5 Creating an instance (function create) names the ledgers of the parties bound at creation and sets the fields given at creation. It needs no party's consent: the parties agree through the actions below.
+2.6 Dates and days are counted at UTC+08:00 all year, with no daylight saving; a month after a day the next month lacks (31 January plus a month) ends on that month's last day. [R25]
+
+3. States
+3.1 An instance starts in the state active. [R4]
+3.2 Its states are active, suspended, and terminated.
+3.3 The state terminated is final: no action can start from it, so an instance in it takes no more calls.
+3.4 Each change of state, the first state included, is recorded as an event.
+
+4. Actions
+A call that does not meet one of an action's requirements is refused, and the instance does not change. A missing consent is not a refusal: the call waits for it.
+
+4.1 subscribe
+  4.1.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show subscribe): the clauses marked R19 state them, after the contract's own clauses.
+  4.1.2 Started by the customer, whose agreement it needs.
+  4.1.3 Requirement 1: the instance is active. [R7, R19]
+  4.1.4 Requirement 2: paid until holds no date. [R19]
+  4.1.5 It sets paid until to the day of the call. [R19]
+  4.1.6 It sets billed until to the day of the call. [R19]
+  4.1.7 It sets billed until to billed until + 1 month. [R34]
+  4.1.8 It asks an executor for invoice for the customer, outside the ledger, to be answered within 7 days of the call (its deadline). [R34]
+    4.1.8.1 The request carries amount: HKD 300; paid until: paid until; billed until: billed until.
+    4.1.8.2 If it fails, or expires, the rule for a failed invoice applies (see the answers to requests). [R33]
+  4.1.9 It asks an executor for subscribe, outside the ledger, to be answered within 1 day of the call (its deadline). [R10]
+    4.1.9.1 If it fails or expires, nothing more happens: the answer is recorded as an event.
+  4.1.10 An AI agent may start it within its delegation. [R14]
+
+4.2 upgrade
+  4.2.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show upgrade): the clauses marked R19 state them, after the contract's own clauses.
+  4.2.2 Started by the customer, whose agreement it needs.
+  4.2.3 Requirement 1: the instance is active. [R7, R19]
+  4.2.4 It asks an executor for upgrade, outside the ledger, to be answered within 1 day of the call (its deadline). [R10]
+    4.2.4.1 If it fails or expires, nothing more happens: the answer is recorded as an event.
+  4.2.5 An AI agent may start it within its delegation. [R14]
+
+4.3 downgrade
+  4.3.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show downgrade): the clauses marked R19 state them, after the contract's own clauses.
+  4.3.2 Started by the customer, whose agreement it needs.
+  4.3.3 Requirement 1: the instance is active. [R7, R19]
+  4.3.4 It asks an executor for downgrade, outside the ledger, to be answered within 1 day of the call (its deadline). [R10]
+    4.3.4.1 If it fails or expires, nothing more happens: the answer is recorded as an event.
+  4.3.5 An AI agent may start it within its delegation. [R14]
+
+4.4 renew
+  4.4.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show renew): the clauses marked R19 state them, after the contract's own clauses.
+  4.4.2 Only the contract's time rules do this action: no call starts it directly.
+  4.4.3 Requirement 1: the instance is active or suspended. [R7, R19]
+  4.4.4 Requirement 2: billed until is the same date as paid until. [R19]
+  4.4.5 It sets billed until to billed until + 1 month. [R34]
+  4.4.6 It asks an executor for invoice for the customer, outside the ledger, to be answered within 7 days of the call (its deadline). [R34]
+    4.4.6.1 The request carries amount: HKD 300; paid until: paid until; billed until: billed until.
+    4.4.6.2 If it fails, or expires, the rule for a failed invoice applies (see the answers to requests). [R33]
+
+4.5 suspend
+  4.5.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show suspend): the clauses marked R19 state them, after the contract's own clauses.
+  4.5.2 Only the contract's time rules do this action: no call starts it directly.
+  4.5.3 If the instance is active, it becomes suspended; otherwise the call is refused. [R19]
+  4.5.4 It asks an executor for suspend, outside the ledger, to be answered within 1 day of the call (its deadline). [R10]
+    4.5.4.1 If it fails, or expires, the rule for a failed suspend applies (see the answers to requests). [R33]
+
+4.6 terminate
+  4.6.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show terminate): the clauses marked R19 state them, after the contract's own clauses.
+  4.6.2 Only the contract's time rules do this action: no call starts it directly.
+  4.6.3 If the instance is active or suspended, it becomes terminated; otherwise the call is refused. [R19]
+  4.6.4 It asks an executor for terminate, outside the ledger, to be answered within 1 day of the call (its deadline). [R10]
+    4.6.4.1 If it fails or expires, nothing more happens: the answer is recorded as an event.
+
+5. Time rules
+5.1 An instance is due on the date it is paid until, once it is subscribed to; before, nothing is due. [R11]
+
+5.2 When it is no earlier than 14 days before the due date:
+  5.2.1 Function when.renew: a keeper calls it once this time has come. An earlier call is refused; the rule applies once for each such time, and its event records how late the call came. [R24]
+  5.2.2 It does renew, under that action's clauses.
+
+5.3 When the instance is 5 days overdue or more (counted from its due date):
+  5.3.1 Function when.suspend: a keeper calls it once this time has come. An earlier call is refused; the rule applies once for each such time, and its event records how late the call came. [R24]
+  5.3.2 It does suspend, under that action's clauses.
+
+5.4 When the instance is 60 days overdue or more (counted from its due date):
+  5.4.1 Function when.terminate: a keeper calls it once this time has come. An earlier call is refused; the rule applies once for each such time, and its event records how late the call came. [R24]
+  5.4.2 It does terminate, under that action's clauses.
+
+6. Answers to requests
+6.1 The function result takes every answer to the contract's requests: an executor's, a person's by hand, or a keeper's once a deadline has passed (expired). It records the answer as an event and applies the rule below for it, if there is one. An answer is never refused, so these rules ask no consent and refuse nothing; on an instance that has ended, they change no state and make no requests.
+
+6.2 When a request invoice is done:
+  6.2.1 It asks an executor for notify for the customer, outside the ledger, to be answered within 1 day of the call (its deadline). [R10]
+    6.2.1.1 If it fails or expires, nothing more happens: the answer is recorded as an event.
+  6.2.2 It asks an executor for collect for the customer, outside the ledger, to be answered within 60 days of the due date, and at least a day and at most 366 days after the call (its deadline). [R34]
+    6.2.2.1 The request carries amount: HKD 300; invoice: the answer's result.
+    6.2.2.2 If it fails, the rule for a failed collect applies; if it expires, the rule for an expired one (see the answers to requests).
+
+6.3 When a request collect expires (no answer by its deadline):
+  6.3.1 It asks an executor for notify for us, outside the ledger, to be answered within 1 day of the call (its deadline). [R10]
+    6.3.1.1 If it fails or expires, nothing more happens: the answer is recorded as an event.
+  6.3.2 It sets billed until to paid until. [R34]
+
+6.4 When a request suspend fails, or expires: [R33]
+  6.4.1 It asks an executor for notify for us, outside the ledger, to be answered within 1 day of the call (its deadline). [R10]
+    6.4.1.1 If it fails or expires, nothing more happens: the answer is recorded as an event.
+
+6.5 When a request invoice fails, or expires: [R33]
+  6.5.1 It sets billed until to paid until. [R34]
+
+6.6 When a request collect is done:
+  6.6.1 It sets paid until to paid until + 1 month. [R35]
+  6.6.2 If the instance is suspended and the instance is not overdue (its due date has not passed): [R7, R35]
+    6.6.2.1 The instance becomes active.
+    6.6.2.2 It asks an executor for resume, outside the ledger, to be answered within 1 day of the call (its deadline). [R35]
+      6.6.2.2.1 If it fails or expires, nothing more happens: the answer is recorded as an event.
+
+6.7 When a request collect fails:
+  6.7.1 It sets billed until to paid until. [R34]
+
+7. Rules Bo applied
+[R3] A role the contract first names as an action's counterparty (after to) is bound to a ledger by that action, with its consent; every other role is bound to a ledger when an instance is created.
+[R4] An instance starts in the one state that no state change leads to; if there is none, in the state active.
+[R7] A state used as a condition means the instance is in that state.
+[R10] Notify PARTY asks an executor to notify that party; on a service, subscribe, upgrade, downgrade, suspend, resume, and terminate also ask an executor to do the same outside the ledger. Each is a request of its own kind, made after the action's clauses, to be answered within one day.
+[R11] A service with a recurring price in money is paid until a date, which Bo adds (paid until): subscribing sets it to the day of the call, and each payment moves it one period on. The service is due on that date, and the rules that count from its due date apply only once it is subscribed to.
+[R14] An AI agent may start an action within its delegation, unless the action says AI agent can propose; then the agent only proposes, and a person approves.
+[R19] A built-in action has the standard terms Bo's standard library gives it (cexchain bo stdlib show ACTION): who starts it, whose consent it needs, the states it starts from and leads to, and what it changes. The contract's own clauses come first and add to them; R8 adds no consent to the standard terms.
+[R20] The pledgee and the payee, and a resource's holder, used by an action (the standard terms of a built-in action included) but not declared by the contract, are fields of each instance, holding no party until an action sets them; so are a service's paid until and billed until, holding no date until it is subscribed to.
+[R24] A ledger acts only on calls, so each time rule is a function that anyone the home delegates may call: a keeper, usually a device of the home calling it on a schedule. The ledger's registration time decides: the rule applies only once its time has come, and once for each such time; an earlier call is refused, and a later one is recorded with how late it came. The rule is the contract's own word: it needs only the consents it states, not those of the parties that start the actions it does.
+[R25] A contract that names no UTC offset counts dates and days at UTC+08:00.
+[R33] A request that expires (no answer by its deadline) is treated as one that failed, unless the contract has a rule for its expiry.
+[R34] On such a service, subscribing and renewing make the bill for one period: billed until moves one period on, and an executor is asked to invoice the customer for the period's price, within 7 days. Once the invoice is done, an executor is asked to collect it, by the time of the latest overdue rule (counted from the due date; without one, 30 days after it), and at least a day and at most 366 days after the call. If the invoice or the collection fails or expires, billed until goes back to paid until, so that the service can be renewed again.
+[R35] A collection that is done means the bill's total was paid in full: paid until moves one period on, and a suspended service that is no longer overdue becomes active again, and an executor is asked to resume it, within one day.

@@ -1,0 +1,18 @@
+bo 1
+use commerce
+use services
+# A service's bills and notices that do not check (E9).
+contract Billed
+parties we, customer
+
+service Line
+  price monthly HKD 50
+  invoice list HKD at most 1
+
+charge levy
+  rate 1%
+  added
+
+can subscribe by customer
+can notify by we
+when overdue notify customer with note = "late"

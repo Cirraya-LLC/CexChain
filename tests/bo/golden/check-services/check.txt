@@ -1,0 +1,138 @@
+edition 1
+packs commerce services
+contract Hosting
+party role.we bound=creation{R3}
+party role.customer bound=creation{R3}
+utc_offset +08:00{R25}
+kind kind.service Server
+field price.price constant recurring time.monthly money cur.HKD = (phrase time.monthly (money cur.HKD 300))
+field field.paid_until instance date optional empty{R20}
+field field.billed_until instance date optional empty{R20}
+due period{R11}
+state state.active first{R4}
+state state.suspended{R19}
+state state.terminated{R19}
+can act.subscribe standard by=role.customer agents=delegation{R14} executor{R10}
+  terms{R19}
+    requires state.active{R7}
+    requires (= field.paid_until val.none)
+    set field.paid_until time.today
+    set field.billed_until time.today
+    set field.billed_until (+ field.billed_until (duration time.month 1)){R34}
+    request invoice to=role.customer within=(duration time.day 7){R34}
+      set field.amount (money cur.HKD 300)
+      set field.paid_until field.paid_until
+      set field.billed_until field.billed_until
+    request subscribe within=(duration time.day 1){R10}
+can act.upgrade standard by=role.customer agents=delegation{R14} executor{R10}
+  terms{R19}
+    requires state.active{R7}
+    request upgrade within=(duration time.day 1){R10}
+can act.downgrade standard by=role.customer agents=delegation{R14} executor{R10}
+  terms{R19}
+    requires state.active{R7}
+    request downgrade within=(duration time.day 1){R10}
+can act.renew standard agents=delegation{R14} rule_only
+  terms{R19}
+    requires (or state.active{R7} state.suspended{R7})
+    requires (= field.billed_until field.paid_until)
+    set field.billed_until (+ field.billed_until (duration time.month 1)){R34}
+    request invoice to=role.customer within=(duration time.day 7){R34}
+      set field.amount (money cur.HKD 300)
+      set field.paid_until field.paid_until
+      set field.billed_until field.billed_until
+can act.suspend standard agents=delegation{R14} executor{R10} rule_only
+  terms{R19}
+    transition state.active -> state.suspended
+    request suspend within=(duration time.day 1){R10}
+can act.terminate standard agents=delegation{R14} executor{R10} rule_only
+  terms{R19}
+    transition state.active state.suspended -> state.terminated
+    request terminate within=(duration time.day 1){R10}
+when (cond.before_due (duration time.day 14)) trigger=before_due function=when.renew{R24}
+  do act.renew
+when (phrase cond.overdue (duration time.day 5)) trigger=overdue function=when.suspend{R24}
+  do act.suspend
+when (phrase cond.overdue (duration time.day 60)) trigger=overdue function=when.terminate{R24}
+  do act.terminate
+answer invoice done function=result
+  request notify to=role.customer within=(duration time.day 1){R10}
+  request collect to=role.customer within=(duration time.day 60) from=due{R34}
+    set field.amount (money cur.HKD 300)
+    set doc.invoice expr.result
+answer collect expires function=result
+  request notify to=role.we within=(duration time.day 1){R10}
+  set field.billed_until field.paid_until{R34}
+answer suspend fails function=result expired{R33}
+  request notify to=role.we within=(duration time.day 1){R10}
+answer invoice fails function=result expired{R33}
+  set field.billed_until field.paid_until{R34}
+answer collect done function=result
+  set field.paid_until (+ field.paid_until (duration time.month 1)){R35}
+  if (and state.suspended{R7} (not cond.overdue)){R35}
+    transition -> state.active{R35}
+    request resume within=(duration time.day 1){R35}
+answer collect fails function=result
+  set field.billed_until field.paid_until{R34}
+test "renewed by the keeper, once the last bill is paid"
+  step role.we act.create creation at=2027-03-01 expect=accepted
+  step role.customer act.subscribe expect=state state.active
+    expects field.paid_until 2027-03-01
+    expects field.billed_until 2027-04-01
+  step actor.keeper act.renew rule=1 expect=refused "bo:requires renew 2"
+  step actor.executor doc.invoice answer=invoice done expect=accepted
+    set expr.result "A-1"
+  step actor.executor act.notify answer=notify done expect=accepted
+  step actor.executor act.collect at=2027-03-02 answer=collect done expect=accepted
+    expects field.paid_until 2027-04-01
+    expects field.billed_until 2027-04-01
+  step actor.keeper act.renew rule=1 at=2027-03-17 expect=refused "bo:when when.renew"
+  step actor.keeper act.renew rule=1 at=2027-03-18 expect=accepted
+    expects field.billed_until 2027-05-01
+  step actor.keeper act.renew rule=1 expect=refused "bo:fired when.renew"
+  step actor.executor doc.invoice answer=invoice done expect=accepted
+    set expr.result "A-2"
+  step actor.executor act.collect answer=collect done expect=accepted
+    expects field.paid_until 2027-05-01
+  step actor.keeper act.renew rule=1 at=2027-04-17 expect=accepted
+    expects field.billed_until 2027-06-01
+test "an expired collection closes the bill; paid late, the service resumes"
+  step role.we act.create creation at=2027-03-01 expect=accepted
+  step role.customer act.subscribe expect=accepted
+  step actor.executor doc.invoice answer=invoice done expect=accepted
+  step actor.keeper act.suspend rule=2 at=2027-03-06 expect=state state.suspended
+  step actor.keeper act.collect at=2027-05-01 answer=collect expires expect=state state.suspended
+    expects field.billed_until 2027-03-01
+  step actor.keeper act.renew rule=1 expect=accepted
+    expects field.billed_until 2027-04-01
+  step actor.executor doc.invoice answer=invoice done expect=accepted
+  step actor.executor act.collect answer=collect done expect=state state.suspended
+    expects field.paid_until 2027-04-01
+  step actor.keeper act.renew rule=1 expect=accepted
+    expects field.billed_until 2027-05-01
+  step actor.executor doc.invoice answer=invoice done expect=accepted
+  step actor.executor act.collect answer=collect done expect=state state.active
+    expects field.paid_until 2027-05-01
+  step actor.executor act.resume answer=resume done expect=accepted
+test "plans change outside the ledger, while active"
+  step role.we act.create creation at=2027-03-01 expect=accepted
+  step role.customer act.upgrade expect=state state.active
+  step actor.executor act.upgrade answer=upgrade done expect=accepted
+  step role.customer act.downgrade expect=accepted
+  step actor.executor act.downgrade answer=downgrade fails expect=accepted
+    set expr.reason "no such plan"
+  step actor.keeper act.suspend rule=2 at=2027-03-06 expect=refused "bo:when when.suspend"
+  step role.customer act.subscribe at=2027-03-06 expect=accepted
+  step actor.keeper act.suspend rule=2 at=2027-03-12 expect=state state.suspended
+  step role.customer act.upgrade expect=refused "bo:state upgrade"
+  step role.customer act.subscribe expect=refused "bo:state subscribe"
+test "a failed suspension is reported; terminated at 60 days overdue"
+  step role.we act.create creation at=2027-03-01 expect=accepted
+  step role.customer act.subscribe expect=accepted
+  step actor.keeper act.suspend rule=2 at=2027-03-06 expect=state state.suspended
+  step actor.executor act.suspend answer=suspend fails expect=accepted
+    set expr.reason "panel down"
+  step actor.executor act.notify answer=notify done expect=accepted
+  step actor.keeper act.terminate rule=3 at=2027-04-29 expect=refused "bo:when when.terminate"
+  step actor.keeper act.terminate rule=3 at=2027-04-30 expect=state state.terminated
+  step actor.executor act.terminate answer=terminate done expect=accepted

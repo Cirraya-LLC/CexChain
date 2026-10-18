@@ -17,7 +17,5 @@ when (phrase cond.overdue (duration time.day 3))
   do act.suspend
 when (phrase cond.overdue (duration time.day 30))
   do act.terminate
-  do act.reclaim IP
-can act.refund by=role.we
-  requires cond.in_person guard=(cond.over (money cur.HKD 100))
-  permit actor.ai_agent act.propose
+answer act.collect kw.fails
+  do act.notify role.we

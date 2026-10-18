@@ -1339,34 +1339,22 @@ TEST_CASE("bo build: one contract in any language compiles to the same bytes", "
     CHECK(split.interface ==
           std::map<std::string, protocol::FunctionKind>{{"issue", protocol::FunctionKind::create},
                                                         {"split", protocol::FunctionKind::call}});
-    // The VPS (which needs executors, step 6b) is refused the same way in
-    // every language. The IP pool builds since milestone 12.
-    for (const std::string_view example : {"vps"}) {
-        std::string first;
-        for (const std::string_view language : {"en", "zh-hant", "zh-hans", "mixed"}) {
-            const std::string source = read_text(
-                golden_dir / std::format("example-{}-{}", example, language) / "source.bo");
-            const bo::Lexed lexed = bo::lex(source, official());
-            const bo::Parsed parsed = bo::parse(source, lexed);
-            const bo::Checked checked = bo::check(source, parsed.file);
-            const bo::Lowered lowered = bo::lower(source, checked.model);
-            std::string codes;
-            for (const bo::Diagnostic& d : lowered.diagnostics) {
-                codes += std::string(d.code) + " ";
-                for (const auto& [name, value] : d.args) {
-                    if (name != "text") {
-                        codes += value + " ";
-                    }
-                }
-            }
-            INFO(example << " " << language << ": " << codes);
-            CHECK(!lowered.build.has_value());
-            if (first.empty()) {
-                first = codes;
-            }
-            CHECK(codes == first);
-        }
+    // The VPS builds since E9 (its executors and its bills), to the same
+    // code in every language; the IP pool since milestone 12.
+    const bo::Build vps = build_text(example_source("vps", "en"));
+    for (const std::string_view language : {"zh-hant", "zh-hans", "mixed"}) {
+        INFO(language);
+        CHECK(build_text(example_source("vps", language)).code == vps.code);
     }
+    CHECK(vps.interface == std::map<std::string, protocol::FunctionKind>{
+                               {"create", protocol::FunctionKind::create},
+                               {"renew", protocol::FunctionKind::call},
+                               {"result", protocol::FunctionKind::call},
+                               {"subscribe", protocol::FunctionKind::call},
+                               {"upgrade", protocol::FunctionKind::call},
+                               {"when.notify", protocol::FunctionKind::call},
+                               {"when.suspend", protocol::FunctionKind::call},
+                               {"when.terminate", protocol::FunctionKind::call}});
 }
 
 TEST_CASE("bo build: refusals of arguments, and their texts in three languages", "[bo][build]") {
@@ -1425,15 +1413,17 @@ TEST_CASE("bo build: what this version does not compile yet", "[bo][build]") {
             .has_value());
     CHECK(build_codes(head + "asset Note\n  amount HKD\n  holder we\n\ncan refund by we\n") ==
           "build.standard-action");
-    // Time rules build (M12), but a service's period ends, which its executors
-    // track (6b); lists and charges (M13), but a list built from values that
-    // are not constants; agents' proposals.
+    // Time rules build (M12), a service's due date too since E9 (its rules
+    // wait for its subscription); lists and charges (M13), but a list built
+    // from values that are not constants; agents' proposals.
     CHECK(vm::load(build_text(head + "thing R\n  ends date\n\ncan go by we\n  -> active\n"
                                      "when ends\n  -> active\n")
                        .code)
               .has_value());
-    CHECK(build_codes(head + "service S\n  price monthly HKD 120\n\ncan go by we\n  -> active\n"
-                             "when overdue\n  -> active\n") == "build.time-rule");
+    CHECK(vm::load(build_text(head + "service S\n  price monthly HKD 120\n\ncan go by we\n"
+                                     "  -> active\nwhen overdue\n  -> active\n")
+                       .code)
+              .has_value());
     CHECK(
         vm::load(build_text(head + "thing R\n  tags list text\n\ncan go by we\n  -> active\n").code)
             .has_value());
@@ -1454,8 +1444,13 @@ TEST_CASE("bo build: what this version does not compile yet", "[bo][build]") {
               .has_value());
     CHECK(build_codes(head + "can go by we\n  -> active\ncan stop by we\n  go\n") ==
           "build.unsupported");
-    CHECK(build_codes(head + "service S\n  price monthly HKD 120\n\ncan go by we\n"
-                             "  notify customer\n") == "build.executor");
+    // notify PARTY is a request (R10, E9); notify as an action of its own
+    // has no terms.
+    CHECK(vm::load(build_text(head + "service S\n  price monthly HKD 120\n\ncan go by we\n"
+                                     "  notify customer\n")
+                       .code)
+              .has_value());
+    CHECK(build_codes(head + "can notify by we\n") == "build.executor");
     // A fragment, and limits.
     CHECK(build_codes("parties we\ncan go by we\n  -> active\n") == "build.fragment");
     CHECK(build_codes(head + "can go by we\n  reject \"bo:input\"\n") == "build.reject-text");
@@ -1640,7 +1635,11 @@ TEST_CASE("bo build: write the runs for the Python reference", "[.codegen-refere
              // delivery notice (examples/).
              {"requests", golden_dir / "check-requests" / "source.bo"},
              {"shipment-notice", golden_dir.parent_path().parent_path().parent_path() / "examples" /
-                                     "shipment" / "shipment.bo"}}) {
+                                     "shipment" / "shipment.bo"},
+             // A service's executors, bills, and payments (E9): the spec's
+             // VPS and its tests.
+             {"vps", golden_dir / "test" / "vps" / "source.bo"},
+             {"services", golden_dir / "check-services" / "source.bo"}}) {
         const std::string text = read_text(file);
         const bo::Compiled compiled = bo::compile(text, *bo::make_pack_set({}).set);
         REQUIRE(compiled.build.has_value());
@@ -1684,7 +1683,7 @@ TEST_CASE("bo build: write the runs for the Python reference", "[.codegen-refere
         }
     }
     // The spec's examples, each in four spellings that build to one code.
-    for (const std::string_view example : {"receivable", "ip-pool", "split", "tax"}) {
+    for (const std::string_view example : {"receivable", "ip-pool", "split", "tax", "vps"}) {
         const std::string name = "example-" + std::string(example);
         nlohmann::ordered_json texts = nlohmann::ordered_json::array();
         for (const auto& [language, dir] :

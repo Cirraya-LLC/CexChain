@@ -216,6 +216,14 @@ struct Request {
     std::vector<Set> with;
     /// Within how long it is to be answered: a duration literal.
     Expr within;
+    /// R34 (E9): counted from the due date (paid until) rather than from
+    /// the call, and kept at least a day and at most 366 days after the call
+    /// (a service's collection: by the latest overdue rule's time).
+    bool from_due = false;
+    /// The rule that made it, if Bo added it rather than reading it: R10
+    /// (an action that asks an executor, notify PARTY), R34 and R35 (a
+    /// service's bills and payments).
+    std::string_view rule;
 };
 
 struct Statement {

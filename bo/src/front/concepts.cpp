@@ -422,6 +422,9 @@ constexpr MessageSpec unsorted_messages[] = {
     {"check.charge-bill", Severity::error, "name document"},
     // Checking: what comes in later steps.
     {"check.needs-executor", Severity::warning, "action"},
+    // notify PARTY, a request of its own (R10, E9).
+    {"check.notify", Severity::error, "text"},
+    {"check.service-bill", Severity::error, "text"},
     // Checking: requests and the rules for their answers (E8).
     {"check.request-kind", Severity::error, "text"},
     {"check.request-value", Severity::error, "name type"},
@@ -563,6 +566,7 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"field-party", "field type party"},
     {"field-constant", "field value"},
     {"field-empty", "field type"},
+    {"field-empty-date", "field type"},
     {"creation", "function"},
     // States.
     {"state-first", "state"},
@@ -627,6 +631,8 @@ constexpr SentenceSpec unsorted_sentences[] = {
     // Requests and the rules for their answers (E8).
     {"request", "kind duration"},
     {"request-to", "kind party duration"},
+    {"request-due", "kind duration"},
+    {"request-to-due", "kind party duration"},
     {"request-values", "values"},
     {"request-failure", "kind"},
     {"request-failure-expiry", "kind"},
@@ -694,6 +700,8 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"op-and", "left right"},
     {"op-or", "left right"},
     {"op-equals", "left right"},
+    {"op-no-date", "left"},
+    {"op-equals-date", "left right"},
     {"op-less", "left right"},
     {"op-less-equal", "left right"},
     {"op-greater", "left right"},
@@ -816,6 +824,8 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"rule-R31", ""},
     {"rule-R32", ""},
     {"rule-R33", ""},
+    {"rule-R34", ""},
+    {"rule-R35", ""},
 };
 
 constexpr auto sorted_sentences = [] {
@@ -841,8 +851,8 @@ constexpr RuleSpec rules[] = {
     {"R7", "state-condition"},               // a state as a condition: the instance is in it
     {"R8", "consent-taken"},                 // changing a party's field needs that party's consent
     {"R9", "obligation"},                    // when due issuer pays: a duty, no call (U7)
-    {"R10", "executor"},                     // notify, a service's changes: executors (6b)
-    {"R11", "service-due", Vocab::services}, // a recurring price: due at each period's end
+    {"R10", "executor"},                     // notify, a service's changes: requests (E9)
+    {"R11", "service-due", Vocab::services}, // a recurring price: due when paid until
     {"R12", "customer-location", Vocab::commerce}, // customer location: text each instance holds
     {"R13", "presence"},                           // in person: the starter's presence (U2)
     {"R14", "agents"},          // AI agents within delegation, unless propose (U3)
@@ -865,6 +875,8 @@ constexpr RuleSpec rules[] = {
     {"R31", "role-taking"},   // a counterparty made holder, pledgee, or payee consents
     {"R32", "whole-times"},   // a duration by a duration: whole times, the rest dropped
     {"R33", "expired-fails"}, // an expired request is a failed one, unless a rule says otherwise
+    {"R34", "service-bill", Vocab::services}, // each period billed: invoice, then collect (E9)
+    {"R35", "service-paid", Vocab::services}, // a collection done pays a period, resumes (E9)
 };
 
 template <class T, std::size_t N, class Key>

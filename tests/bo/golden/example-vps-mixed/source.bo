@@ -1,6 +1,6 @@
 bo 1
 使用 commerce
-使用 services
+use services
 合約 VPS服務
 parties 本公司, customer
 
@@ -12,10 +12,8 @@ service VPS
 
 可subscribe by 客户
 can 續期 由 customer
-可升级 by customer          # proration by days remaining: the executor's (R10)
+可升级 by customer          # the plan and its proration: the executor's (R10)
 當 7 days before due 通知 客戶
 when 逾期 3天 suspend        # 請求面板執行器暫停 VPS
-当 overdue 30日 終止 and 收回 IP
-can refund 由 us
-  超過 HKD 100 requires in person
-  AI agent 可 提議
+当 overdue 30日 終止         # the panel ends the VPS and takes back its IP
+when 收款 fails notify 本公司

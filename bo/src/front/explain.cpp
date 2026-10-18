@@ -958,7 +958,11 @@ private:
         case Operator::logical_and:
             return say("op-and");
         case Operator::equals:
-            return say("op-equals");
+            // A date that may hold none (a service's paid until, R20).
+            if (is(r.concept_entry, "val.none") && dates) {
+                return w_.say("op-no-date", {{"left", plain(left)}});
+            }
+            return say(dates ? "op-equals-date" : "op-equals");
         case Operator::less:
             return say(dates ? "op-before" : "op-less");
         case Operator::less_equal:
@@ -1057,7 +1061,9 @@ private:
                 text = w_.say("field-constant",
                               {{"field", name}, {"value", plain(field_value(f, rules))}});
             } else if (f.empty_at_start) {
-                text = w_.say("field-empty", {{"field", name}, {"type", plain(type_text(f.type))}});
+                // A date Bo adds holds no date at first (a service's, R20).
+                text = w_.say(f.type.kind == TypeKind::date ? "field-empty-date" : "field-empty",
+                              {{"field", name}, {"type", plain(type_text(f.type))}});
             } else if (f.type.kind == TypeKind::party && f.value) {
                 text = w_.say("field-party", {{"field", name},
                                               {"type", plain(type_text(f.type))},
@@ -1389,12 +1395,16 @@ private:
     void request(const m::Request& r, std::vector<ExplainedClause>& out, const std::string& parent,
                  std::size_t& n) {
         Rules rules;
+        note(rules, r.rule);
         const Phrase what = kind(r.word, r.kind);
         const std::string within = expr(r.within, rules);
+        // R34: a collection is due so long after the due date.
+        const std::string_view id = r.to ? (r.from_due ? "request-to-due" : "request-to")
+                                         : (r.from_due ? "request-due" : "request");
         const std::string text =
-            r.to ? w_.say("request-to",
-                          {{"kind", what}, {"party", party(*r.to)}, {"duration", plain(within)}})
-                 : w_.say("request", {{"kind", what}, {"duration", plain(within)}});
+            r.to
+                ? w_.say(id, {{"kind", what}, {"party", party(*r.to)}, {"duration", plain(within)}})
+                : w_.say(id, {{"kind", what}, {"duration", plain(within)}});
         const std::string number = add(out, parent, n, "request", text, rules);
         std::size_t k = 0;
         if (!r.with.empty()) {
@@ -1624,10 +1634,19 @@ private:
             consents(a.consents, s.clauses, number, k);
             if (a.terms) {
                 const auto split = a.body.begin() + static_cast<std::ptrdiff_t>(a.terms_from);
+                // After the terms, the lines Bo adds (E9): a service's bill
+                // (R34) and the request of R10, marked by their own rules.
+                const auto added = std::find_if(split, a.body.end(), [](const m::Statement& st) {
+                    const auto* r = std::get_if<m::Request>(&st.node);
+                    const auto* set = std::get_if<m::Set>(&st.node);
+                    return (r != nullptr && !r->rule.empty()) ||
+                           (set != nullptr && set->value.rule == "R34");
+                });
                 statements(std::vector<m::Statement>(a.body.begin(), split), s.clauses, number, k);
                 terms_rule_ = "R19";
-                statements(std::vector<m::Statement>(split, a.body.end()), s.clauses, number, k);
+                statements(std::vector<m::Statement>(split, added), s.clauses, number, k);
                 terms_rule_ = {};
+                statements(std::vector<m::Statement>(added, a.body.end()), s.clauses, number, k);
             } else {
                 statements(a.body, s.clauses, number, k);
             }
@@ -1642,7 +1661,8 @@ private:
                 }
                 add(s.clauses, number, k, "agents", std::move(text), rules);
             }
-            if (a.executor) {
+            // An action with terms states its request among its clauses (R10).
+            if (a.executor && !a.terms) {
                 Rules rules;
                 note(rules, a.executor_rule);
                 add(s.clauses, number, k, "executor", w_.say("action-executor"), rules);

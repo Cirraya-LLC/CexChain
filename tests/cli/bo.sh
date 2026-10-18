@@ -131,7 +131,7 @@ run bo packs show zh-Hans-CN --json > show.json
 json 'd["keywords"]["kw.each"], d["vocabulary"]["unit.item"]["category"], d["reading"]["multipliers"]["万"]' < show.json > out.txt
 contains -Fx "['逐个'] unit 10000" out.txt || fail "show --json"
 json 'len(d["messages"]), len(d["sentences"])' < show.json > out.txt
-contains -Fx "263 267" out.txt || fail "messages and sentences"
+contains -Fx "265 274" out.txt || fail "messages and sentences"
 expect_exit 1 bo packs show fr
 contains -F "no pack fr" out.txt || fail "unknown pack"
 expect_exit 1 bo packs show en --section nope
@@ -157,7 +157,7 @@ run bo vocab show services --json > show.json
 json 'd["id"], d["version"], len(d["words"]), d["actions"], d["canonical"][:2]' < show.json > out.txt
 contains -Fx "services 3 14 ['allocate', 'reclaim', 'subscribe', 'renew', 'upgrade', 'downgrade'] a7" out.txt || fail "vocab show --json"
 json '[r["id"] for r in d["rules"]]' < show.json > out.txt
-contains -Fx "['R11', 'R23']" out.txt || fail "vocab show --json: the pack's rules"
+contains -Fx "['R11', 'R23', 'R34', 'R35']" out.txt || fail "vocab show --json: the pack's rules"
 run bo vocab show commerce > out.txt
 contains -E "^  R26  bill$" out.txt || fail "vocab show: the pack's rules"
 expect_exit 1 bo vocab show acme
@@ -350,10 +350,8 @@ echo "== bo check: the spec's VPS example, in each language"
 for language in zh-hant zh-hans en mixed; do
     cp "$GOLDENS/example-vps-$language/source.bo" "vps-$language.bo"
     run bo check "vps-$language.bo" > out.txt 2> warnings.txt
-    contains -Fx "vps-$language.bo: ok: 92 tokens, 2 comments, 10 clauses, edition 1" out.txt || fail "check $language"
-    contains -Fx "vps-$language.bo: checked: 2 parties, 7 fields, 0 charges, 1 state, 4 actions, 3 time rules; 6 warnings" out.txt || fail "checked $language"
-    # The executor clauses are marked: they come in step 6b.
-    [ "$(grep -c "(check.needs-executor)" warnings.txt)" = 6 ] || fail "executors marked ($language)"
+    contains -Fx "vps-$language.bo: ok: 79 tokens, 3 comments, 10 clauses, edition 1" out.txt || fail "check $language"
+    contains -Fx "vps-$language.bo: checked: 2 parties, 7 fields, 0 charges, 3 states, 5 actions, 3 time rules; 0 warnings" out.txt || fail "checked $language"
     # --stage lex prints the tokens the lexer's goldens keep.
     run bo check "vps-$language.bo" --stage lex > tokens.txt
     sed '$d' tokens.txt > printed.txt
@@ -364,19 +362,43 @@ for language in zh-hant zh-hans en mixed; do
     sed '$d' tree.txt > printed.txt
     diff "$GOLDENS/example-vps-$language/ast.txt" printed.txt > /dev/null || fail "tree ($language)"
     diff "$GOLDENS/example-vps-zh-hant/ast.txt" printed.txt > /dev/null || fail "the same tree ($language)"
+    # It builds since E9, to the same code in every language.
+    run bo build "vps-$language.bo" --json 2> /dev/null | json 'd["code_hash"]' > "code-$language.txt"
+done
+for language in zh-hans en mixed; do
+    diff code-zh-hant.txt "code-$language.txt" > /dev/null || fail "the same code ($language)"
 done
 contains -F "4:4 name VPS服務 | VPS服務" "$GOLDENS/example-vps-zh-hant/tokens.txt" || fail "golden"
 run bo check vps-zh-hant.bo --stage lex --json > lex.json
 json 'd["ok"], d["edition"], d["stage"], len(d["tokens"]), len(d["comments"])' < lex.json > out.txt
-contains -Fx "True 1 lex 92 2" out.txt || fail "check --json"
+contains -Fx "True 1 lex 79 3" out.txt || fail "check --json"
 # 可訂購: the prefix keyword and the action, each with its place.
 json '[(t["kind"], t["concept"], t["span"]["line"], t["span"]["column"], t["source"]) for t in d["tokens"] if t.get("concept") in ("kw.can", "act.subscribe")][:2]' < lex.json > out.txt
 contains -Fx "[('word', 'kw.can', 13, 1, '可'), ('word', 'act.subscribe', 13, 2, '訂購')]" out.txt || fail "prefix in json"
 json '[(t["value"], t["unit"]) for t in d["tokens"] if t["kind"] == "money"]' < lex.json > out.txt
-contains -Fx "[('120', 'cur.HKD'), ('0.10', 'cur.HKD'), ('100', 'cur.HKD')]" out.txt || fail "money in json"
+contains -Fx "[('120', 'cur.HKD'), ('0.10', 'cur.HKD')]" out.txt || fail "money in json"
 run bo check vps-en.bo --json > out.txt
-json '"tokens" in d, d["stage"], d["checked"], sorted(set(x["code"] for x in d["diagnostics"])), [x["severity"] for x in d["diagnostics"]].count("warning")' < out.txt > keys.txt
-contains -Fx "False check True ['check.needs-executor'] 6" keys.txt || fail "check --json without --stage"
+json '"tokens" in d, d["stage"], d["checked"], d["diagnostics"]' < out.txt > keys.txt
+contains -Fx "False check True []" keys.txt || fail "check --json without --stage"
+# Its tests (E9): executors answer the subscription, its invoices, and its
+# collections; the keeper fires the reminder, the suspension, and the
+# termination. In English and in Traditional Chinese.
+cp "$GOLDENS/test/vps/source.bo" vps-tests.bo
+cp "$GOLDENS/test/vps-zh-hant/source.bo" vps-tests-zh-hant.bo
+run bo test vps-tests.bo > out.txt
+contains -Fx "5 tests: 5 passed, 0 failed." out.txt || fail "vps tests"
+contains -F "Requests made: collect, to be answered by 2027-02-09." out.txt || fail "vps: a collection from the due date"
+run bo test vps-tests-zh-hant.bo --language zh-Hant-HK > out.txt
+contains -Fx "共 5 個測試：5 個通過，0 個失敗。" out.txt || fail "vps tests in zh-Hant"
+run bo test vps-tests.bo --json | json 'd["passed"], d["failed"]' > out.txt
+contains -Fx "5 0" out.txt || fail "vps tests --json"
+# The contract text states each request, the bills, and the payments.
+run bo explain vps-en.bo > out.txt
+contains -F "It asks an executor for collect for the customer, outside the ledger, to be answered within 30 days of the due date" out.txt || fail "explain: the collection"
+contains -F "[R34]" out.txt || fail "explain: R34"
+contains -F "[R35]" out.txt || fail "explain: R35"
+run bo explain vps-zh-hant.bo --language zh-Hant-HK > out.txt
+contains -F "已付費至" out.txt || fail "explain in zh-Hant: paid until"
 
 echo "== bo check: one line, any language, the same concepts"
 printf 'can pledge to bank\n可質押 予 銀行\n可质押 给 银行\n可pledge 予 bank\n' > lines.bo
@@ -581,8 +603,10 @@ echo "== bo build: what does not build"
 expect_exit 2 bo build fragment.bo
 contains -F "this file has no contract line, so it is a fragment" out.txt || fail "fragment"
 contains -Fx "fragment.bo: 1 error" out.txt || fail "fragment count"
-expect_exit 2 bo build vps-en.bo
-contains -F "(build.executor)" out.txt || fail "executors"
+# notify is a request (R10), not an action of the contract's.
+printf 'contract Notice\nparties we, reader\nthing Note\ncan notify by we\n' > notify.bo
+expect_exit 2 bo build notify.bo
+contains -F "(build.executor)" out.txt || fail "notify as an action"
 expect_exit 2 bo build model.bo --json
 json 'd["ok"], "code_hash" in d, d["diagnostics"][0]["code"]' < out.txt > codes.txt
 contains -Fx "False False check.field-type" codes.txt || fail "check errors stop the build"
@@ -670,10 +694,10 @@ run bo explain fragment.bo > text.txt 2> warnings.txt
 contains -F '  2.2.2 It applies when the customer location is "中国内地". [R18]' text.txt || fail "R18 in quotes"
 contains -F "(check.fragment)" warnings.txt || fail "warnings on stderr"
 run bo explain fragment.bo --language zh-Hant-HK 2> /dev/null | contains -F "適用條件：客戶所在地為「中国内地」。〔R18〕" || fail "R18 in zh-Hant"
-# A contract that needs executors explains (it does not build yet).
+# The VPS states its requests (E9), from any spelling.
 run bo explain vps-zh-hant.bo > text.txt 2> warnings.txt
 diff "$TEXTS/vps/en.txt" text.txt > /dev/null || fail "the VPS text"
-[ "$(grep -c "(check.needs-executor)" warnings.txt)" = 6 ] || fail "executors marked"
+[ ! -s warnings.txt ] || fail "the VPS checks clean"
 # A source that does not check has no text; its problems in the reader's language.
 expect_exit 2 bo explain model.bo
 contains -F "model.bo: 4 errors: there is no contract text until it checks" out.txt || fail "no text"

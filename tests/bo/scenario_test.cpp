@@ -130,6 +130,12 @@ std::vector<std::pair<std::string, std::filesystem::path>> cases() {
         // Requests (E8): made by actions and time rules, answered done,
         // failed, and expired, refused by the ledger, and after the end.
         {"requests", golden_dir / "check-requests/source.bo"},
+        // A service (E9): subscribed, invoiced, paid, renewed, suspended,
+        // resumed, and terminated; the spec's VPS, in English and in
+        // Traditional Chinese.
+        {"vps", golden_dir / "test/vps/source.bo"},
+        {"vps-zh-hant", golden_dir / "test/vps-zh-hant/source.bo"},
+        {"services", golden_dir / "check-services/source.bo"},
     };
 }
 
@@ -215,6 +221,20 @@ TEST_CASE("bo test: one contract and its tests, in any language, give the same r
         const std::string source =
             read_text(golden_dir / "build" / ("agreement-" + std::string(spelling)) / "source.bo");
         CHECK(results_of(source) == english);
+    }
+    // The spec's VPS (E9): its contract in four spellings, with the same
+    // tests.
+    {
+        const std::string vps = read_text(golden_dir / "test/vps/source.bo");
+        const std::string tests = vps.substr(vps.find("\ntest ") + 1);
+        const std::string expected = results_of(vps);
+        CHECK(expected.find("5 tests: 5 passed, 0 failed") != std::string::npos);
+        for (const std::string_view spelling : {"en", "zh-hant", "zh-hans", "mixed"}) {
+            INFO("vps " << spelling);
+            const std::string contract =
+                read_text(golden_dir / ("example-vps-" + std::string(spelling)) / "source.bo");
+            CHECK(results_of(contract + "\n" + tests) == expected);
+        }
     }
     // Every case, formatted into each language.
     const Lexicon lexicon(official_set());

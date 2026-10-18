@@ -53,8 +53,8 @@
 15:5 word act.upgrade | upgrade
 15:13 word kw.by | by
 15:16 word role.customer | customer
-15:34 comment | # proration by days remaining: the executor's (R10)
-15:85 newline
+15:34 comment | # the plan and its proration: the executor's (R10)
+15:84 newline
 16:1 word kw.when | when
 16:6 duration time.day 7 | 7 days
 16:13 word cond.before_due piece=tail | before due
@@ -71,24 +71,12 @@
 18:6 word cond.overdue | overdue
 18:14 duration time.day 30 | 30 days
 18:22 word act.terminate | terminate
-18:32 word kw.and | and
-18:36 word act.reclaim | reclaim
-18:44 name IP | IP
-18:46 newline
-19:1 word kw.can | can
-19:5 word act.refund | refund
-19:12 word kw.by | by
-19:15 word role.we form=object | us
-19:17 newline
-20:1 indent
-20:3 word cond.over piece=head | over
-20:8 money cur.HKD 100 | HKD 100
-20:16 word kw.requires | requires
-20:25 word cond.in_person | in person
-20:34 newline
-21:3 word actor.ai_agent | AI agent
-21:12 word kw.can | can
-21:16 word act.propose | propose
-21:23 newline
-22:1 dedent
-22:1 end
+18:34 comment | # the panel ends the VPS and takes back its IP
+18:80 newline
+19:1 word kw.when | when
+19:6 word act.collect | collect
+19:14 word kw.fails | fails
+19:20 word act.notify | notify
+19:27 word role.we | we
+19:29 newline
+20:1 end

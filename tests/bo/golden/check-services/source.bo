@@ -1,0 +1,73 @@
+bo 1
+use commerce
+use services
+# A service billed each period (E9): the requests to its executors, its
+# bills, and its payments, with the rules a contract adds to them. Renewal
+# is automatic, 14 days before the due date; the customer changes plans.
+contract Hosting
+parties we, customer
+
+service Server
+  price monthly HKD 300
+
+can subscribe by customer
+can upgrade by customer
+can downgrade by customer
+when 14 days before due renew
+when overdue 5 days suspend
+when overdue 60 days terminate
+when invoice done
+  notify customer
+when collect expires
+  notify we
+when suspend fails notify we
+
+test "renewed by the keeper, once the last bill is paid"
+  we create at 2027-03-01
+  customer subscribe -> active, paid until = 2027-03-01, billed until = 2027-04-01
+  keeper renew -> refused "bo:requires renew 2"
+  executor invoice done with result = "A-1"
+  executor notify done
+  executor collect done at 2027-03-02 -> paid until = 2027-04-01, billed until = 2027-04-01
+  keeper renew at 2027-03-17 -> refused "bo:when when.renew"
+  keeper renew at 2027-03-18 -> billed until = 2027-05-01
+  keeper renew -> refused "bo:fired when.renew"
+  executor invoice done with result = "A-2"
+  executor collect done -> paid until = 2027-05-01
+  keeper renew at 2027-04-17 -> billed until = 2027-06-01
+
+test "an expired collection closes the bill; paid late, the service resumes"
+  we create at 2027-03-01
+  customer subscribe
+  executor invoice done
+  keeper suspend at 2027-03-06 -> suspended
+  keeper collect expires at 2027-05-01 -> suspended, billed until = 2027-03-01
+  keeper renew -> billed until = 2027-04-01
+  executor invoice done
+  executor collect done -> suspended, paid until = 2027-04-01
+  keeper renew -> billed until = 2027-05-01
+  executor invoice done
+  executor collect done -> active, paid until = 2027-05-01
+  executor resume done
+
+test "plans change outside the ledger, while active"
+  we create at 2027-03-01
+  customer upgrade -> active
+  executor upgrade done
+  customer downgrade
+  executor downgrade fails with reason = "no such plan"
+  keeper suspend at 2027-03-06 -> refused "bo:when when.suspend"
+  customer subscribe at 2027-03-06
+  keeper suspend at 2027-03-12 -> suspended
+  customer upgrade -> refused "bo:state upgrade"
+  customer subscribe -> refused "bo:state subscribe"
+
+test "a failed suspension is reported; terminated at 60 days overdue"
+  we create at 2027-03-01
+  customer subscribe
+  keeper suspend at 2027-03-06 -> suspended
+  executor suspend fails with reason = "panel down"
+  executor notify done
+  keeper terminate at 2027-04-29 -> refused "bo:when when.terminate"
+  keeper terminate at 2027-04-30 -> terminated
+  executor terminate done

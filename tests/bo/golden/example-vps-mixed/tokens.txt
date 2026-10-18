@@ -3,9 +3,9 @@
 2:1 word kw.use | 使用
 2:4 name commerce | commerce
 2:12 newline
-3:1 word kw.use | 使用
-3:4 word kind.service form=plural | services
-3:12 newline
+3:1 word kw.use | use
+3:5 word kind.service form=plural | services
+3:13 newline
 4:1 word kw.contract | 合約
 4:4 name VPS服務 | VPS服務
 4:9 newline
@@ -53,8 +53,8 @@
 15:2 word act.upgrade | 升级
 15:5 word kw.by | by
 15:8 word role.customer | customer
-15:26 comment | # proration by days remaining: the executor's (R10)
-15:77 newline
+15:26 comment | # the plan and its proration: the executor's (R10)
+15:76 newline
 16:1 word kw.when | 當
 16:3 duration time.day 7 | 7 days
 16:10 word cond.before_due piece=tail | before due
@@ -71,24 +71,12 @@
 18:3 word cond.overdue | overdue
 18:11 duration time.day 30 | 30日
 18:15 word act.terminate | 終止
-18:18 word kw.and | and
-18:22 word act.reclaim | 收回
-18:25 name IP | IP
-18:27 newline
-19:1 word kw.can | can
-19:5 word act.refund | refund
-19:12 word kw.by | 由
-19:14 word role.we form=object | us
-19:16 newline
-20:1 indent
-20:3 word cond.over piece=head | 超過
-20:6 money cur.HKD 100 | HKD 100
-20:14 word kw.requires | requires
-20:23 word cond.in_person | in person
-20:32 newline
-21:3 word actor.ai_agent | AI agent
-21:12 word kw.can | 可
-21:14 word act.propose | 提議
-21:16 newline
-22:1 dedent
-22:1 end
+18:26 comment | # the panel ends the VPS and takes back its IP
+18:72 newline
+19:1 word kw.when | when
+19:6 word act.collect | 收款
+19:9 word kw.fails | fails
+19:15 word act.notify | notify
+19:22 word role.we | 本公司
+19:25 newline
+20:1 end

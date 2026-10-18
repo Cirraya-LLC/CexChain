@@ -53,8 +53,8 @@
 15:2 word act.upgrade | 升级
 15:5 word kw.by | 由
 15:7 word role.customer | 客户
-15:19 comment | # 按剩余天数折算
-15:28 newline
+15:19 comment | # 方案及按比例计费：由执行器办理（R10）
+15:41 newline
 16:1 word kw.when | 当
 16:3 word cond.before_due piece=head | 到期前
 16:7 duration time.day 7 | 7天
@@ -71,24 +71,12 @@
 18:3 word cond.overdue | 逾期
 18:6 duration time.day 30 | 30天
 18:10 word act.terminate | 终止
-18:13 word kw.and | 且
-18:15 word act.reclaim | 收回
-18:18 name IP | IP
-18:20 newline
-19:1 word kw.can | 可
-19:2 word act.refund | 退款
-19:5 word kw.by | 由
-19:7 word role.we | 本公司
-19:10 newline
-20:1 indent
-20:3 word cond.over piece=head | 超过
-20:6 money cur.HKD 100 | HKD 100
-20:14 word kw.requires | 须
-20:15 word cond.in_person | 本人确认
-20:19 newline
-21:3 word actor.ai_agent | AI 代理
-21:9 word kw.can | 可
-21:11 word act.propose | 提议
-21:13 newline
-22:1 dedent
-22:1 end
+18:19 comment | # 面板终止 VPS 并收回其 IP
+18:37 newline
+19:1 word kw.when | 当
+19:3 word act.collect | 收款
+19:6 word kw.fails | 失败
+19:9 word act.notify | 通知
+19:12 word role.we | 本公司
+19:15 newline
+20:1 end

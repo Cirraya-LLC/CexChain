@@ -492,6 +492,8 @@ private:
     /// The params of the contract's requests, the most any has (E8).
     [[nodiscard]] Shape params_shape() const;
     void run_action(Ctx& c, const m::Do& d);
+    /// A service's paid until (R11), which is its due date.
+    [[nodiscard]] const FieldSlot& paid_slot() const;
     /// The slot of a date field that may hold no date, if `e` reads one.
     [[nodiscard]] const FieldSlot* dated_slot(const m::Expr& e) const;
     void now(Ctx& c);
@@ -830,7 +832,7 @@ std::optional<std::pair<Span, std::string>> Lowering::unsupported_in(const m::Ex
             is(e.concept_entry, "time.today") || is(e.concept_entry, "expr.result") ||
             is(e.concept_entry, "expr.reason") ||
             (is(e.concept_entry, "cond.in_person") && action != nullptr) ||
-            (is(e.concept_entry, "cond.overdue") && model_.due == m::DueKind::field)) {
+            (is(e.concept_entry, "cond.overdue") && model_.due != m::DueKind::none)) {
             return std::nullopt;
         }
         return no(e.concept_entry != nullptr ? std::string(e.concept_entry->id)
@@ -855,7 +857,7 @@ std::optional<std::pair<Span, std::string>> Lowering::unsupported_in(const m::Ex
             return unsupported_in(e.operands[0], action, false, depth);
         }
         // Times: N before the due date, less than N since the last change.
-        if ((is(e.concept_entry, "cond.before_due") && model_.due == m::DueKind::field) ||
+        if ((is(e.concept_entry, "cond.before_due") && model_.due != m::DueKind::none) ||
             is(e.concept_entry, "cond.within")) {
             return all(false);
         }
@@ -875,7 +877,7 @@ std::optional<std::pair<Span, std::string>> Lowering::unsupported_in(const m::Ex
     case ExprKind::phrase:
         // overdue N; a state held N.
         if (m::is_trigger(e) &&
-            (e.operands[0].refers == Refers::state || model_.due == m::DueKind::field)) {
+            (e.operands[0].refers == Refers::state || model_.due != m::DueKind::none)) {
             return unsupported_in(e.operands[1], action, false, depth);
         }
         return no(!e.operands.empty() && e.operands[0].concept_entry != nullptr
@@ -1096,7 +1098,7 @@ void Lowering::plan_actions() {
         info.key = m::key(a.word, a.name);
         info.wire = wire_name(a.word, a.name);
         info.rule_only = a.rule_only;
-        if (a.executor) {
+        if (a.executor && !a.terms) {
             error(a.span, "build.executor", {{"action", info.key}});
         } else if (a.word != nullptr && !a.terms) {
             error(a.span, "build.standard-action", {{"action", info.key}});
@@ -1176,9 +1178,8 @@ void Lowering::plan_rules() {
             continue;
         }
         std::optional<m::Trigger> trigger = m::trigger_of(r.event);
-        // A service is due at the end of each paid period (R11), which its
-        // executors track (6b).
-        if (!trigger || (model_.due != m::DueKind::field && reads_due(r.event))) {
+        // A service is due on the date it is paid until (R11, E9).
+        if (!trigger || (model_.due == m::DueKind::none && reads_due(r.event))) {
             error(r.span, "build.time-rule", {{"text", quote(source_, r.span)}});
             continue;
         }
@@ -3783,6 +3784,12 @@ void Lowering::now(Ctx& c) {
 }
 
 void Lowering::due(Ctx& c) {
+    // A service's: the date it is paid until (R11), 0 while it holds none
+    // (due_present says whether it does).
+    if (model_.due == m::DueKind::period) {
+        c.b->global_get(paid_slot().first);
+        return;
+    }
     // The instance's due date (a field, or the same for every instance).
     m::Expr field;
     field.kind = ExprKind::word;
@@ -3790,6 +3797,10 @@ void Lowering::due(Ctx& c) {
     field.refers = Refers::field;
     field.type.kind = TypeKind::date;
     reference(c, field);
+}
+
+const FieldSlot& Lowering::paid_slot() const {
+    return fields_[field_index_.at("field.paid_until")];
 }
 
 void Lowering::shift(Ctx& c, const m::Expr& duration, const bool earlier) {
@@ -3889,6 +3900,13 @@ void Lowering::emit_rule(const RuleInfo& info) {
         const Label other = b.if_();
         refuse(b, not_yet);
         b.end(other);
+    }
+    if (model_.due == m::DueKind::period && reads_due(r.event)) {
+        // A service holds no due date until it is subscribed to (R11).
+        b.global_get(paid_slot().present).op(i32_eqz);
+        const Label none = b.if_();
+        refuse(b, not_yet);
+        b.end(none);
     }
     now(c);
     b.set(time);
@@ -4016,8 +4034,35 @@ void Lowering::request(Ctx& c, const m::Request& r) {
     }
     // The deadline: so long after the call's registration time.
     b.i64(3).call(out_int);
-    now(c);
-    shift(c, r.within, false);
+    if (r.from_due) {
+        // R34: so long after the due date, at least a day and at most 366
+        // days after the call.
+        const Local deadline = b.local(I64);
+        const Local bound = b.local(I64);
+        due(c);
+        shift(c, r.within, false);
+        b.set(deadline);
+        now(c);
+        b.i64(static_cast<std::int64_t>(day_ms)).call(rt_.get(Routine::add)).set(bound);
+        b.get(deadline).get(bound).op(i64_lt_s);
+        {
+            const Label early = b.if_();
+            b.get(bound).set(deadline);
+            b.end(early);
+        }
+        now(c);
+        b.i64(m::max_request_ms).call(rt_.get(Routine::add)).set(bound);
+        b.get(deadline).get(bound).op(i64_gt_s);
+        {
+            const Label late = b.if_();
+            b.get(bound).set(deadline);
+            b.end(late);
+        }
+        b.get(deadline);
+    } else {
+        now(c);
+        shift(c, r.within, false);
+    }
     b.call(out_int);
     b.i64(4).call(out_int);
     b.u32(intern(m::reply_function)).u32(static_cast<std::uint32_t>(m::reply_function.size()));
@@ -4413,6 +4458,10 @@ void Lowering::reference(Ctx& c, const m::Expr& e) {
         due(c);
         b.i64(static_cast<std::int64_t>(day_ms)).call(rt_.get(Routine::add));
         b.op(i64_ge_s);
+        if (model_.due == m::DueKind::period) {
+            // Not before a service is subscribed to.
+            b.global_get(paid_slot().present).op(i32_and);
+        }
         return;
     }
     if (is(e.concept_entry, "cond.in_person")) {
@@ -4455,6 +4504,9 @@ void Lowering::value(Ctx& c, const m::Expr& e) {
             due(c);
             shift(c, e.operands[0], true);
             b.op(i64_ge_s);
+            if (model_.due == m::DueKind::period) {
+                b.global_get(paid_slot().present).op(i32_and);
+            }
             return;
         }
         if (is(e.concept_entry, "cond.within")) {

@@ -1,0 +1,120 @@
+Test "renewed by the keeper, once the last bill is paid": passed
+  Step 1 (line 26) passed: we create at 2027-03-01
+    Result: accepted, and the instance is active.
+  Step 2 (line 27) passed: customer subscribe -> active, paid until = 2027-03-01, billed until = 2027-04-01
+    Requests made: invoice, to be answered by 2027-03-08; subscribe, to be answered by 2027-03-02.
+    Result: accepted with the consent of the customer, and the instance is active.
+  Step 3 (line 28) passed: keeper renew -> refused "bo:requires renew 2"
+    Result: refused, since requirement 2 of renew is not met (bo:requires renew 2).
+    The contract text, 4.4.4: Requirement 2: billed until is the same date as paid until.
+  Step 4 (line 29) passed: executor invoice done with result = "A-1"
+    Requests made: notify, to be answered by 2027-03-02; collect, to be answered by 2027-04-30.
+    Result: accepted, and the instance is active.
+  Step 5 (line 30) passed: executor notify done
+    Result: accepted, and the instance is active.
+  Step 6 (line 31) passed: executor collect done at 2027-03-02 -> paid until = 2027-04-01, billed until = 2027-04-01
+    Result: accepted, and the instance is active.
+  Step 7 (line 32) passed: keeper renew at 2027-03-17 -> refused "bo:when when.renew"
+    Result: refused, since when.renew does not apply yet: its time has not come, or its conditions do not hold (bo:when when.renew).
+    The contract text, 5.2: When it is no earlier than 14 days before the due date:
+  Step 8 (line 33) passed: keeper renew at 2027-03-18 -> billed until = 2027-05-01
+    Requests made: invoice, to be answered by 2027-03-25.
+    Result: accepted, and the instance is active.
+  Step 9 (line 34) passed: keeper renew -> refused "bo:fired when.renew"
+    Result: refused, since when.renew has already applied for this time (bo:fired when.renew).
+    The contract text, 5.2: When it is no earlier than 14 days before the due date:
+  Step 10 (line 35) passed: executor invoice done with result = "A-2"
+    Requests made: notify, to be answered by 2027-03-19; collect, to be answered by 2027-05-31.
+    Result: accepted, and the instance is active.
+  Step 11 (line 36) passed: executor collect done -> paid until = 2027-05-01
+    Result: accepted, and the instance is active.
+  Step 12 (line 37) passed: keeper renew at 2027-04-17 -> billed until = 2027-06-01
+    Requests made: invoice, to be answered by 2027-04-24.
+    Result: accepted, and the instance is active.
+
+Test "an expired collection closes the bill; paid late, the service resumes": passed
+  Step 1 (line 40) passed: we create at 2027-03-01
+    Result: accepted, and the instance is active.
+  Step 2 (line 41) passed: customer subscribe
+    Requests made: invoice, to be answered by 2027-03-08; subscribe, to be answered by 2027-03-02.
+    Result: accepted with the consent of the customer, and the instance is active.
+  Step 3 (line 42) passed: executor invoice done
+    Requests made: notify, to be answered by 2027-03-02; collect, to be answered by 2027-04-30.
+    Result: accepted, and the instance is active.
+  Step 4 (line 43) passed: keeper suspend at 2027-03-06 -> suspended
+    Requests made: suspend, to be answered by 2027-03-07.
+    Result: accepted, and the instance is suspended.
+  Step 5 (line 44) passed: keeper collect expires at 2027-05-01 -> suspended, billed until = 2027-03-01
+    Requests made: notify, to be answered by 2027-05-02.
+    Result: accepted, and the instance is suspended.
+  Step 6 (line 45) passed: keeper renew -> billed until = 2027-04-01
+    Requests made: invoice, to be answered by 2027-05-08.
+    Result: accepted, and the instance is suspended.
+  Step 7 (line 46) passed: executor invoice done
+    Requests made: notify, to be answered by 2027-05-02; collect, to be answered by 2027-05-02.
+    Result: accepted, and the instance is suspended.
+  Step 8 (line 47) passed: executor collect done -> suspended, paid until = 2027-04-01
+    Result: accepted, and the instance is suspended.
+  Step 9 (line 48) passed: keeper renew -> billed until = 2027-05-01
+    Requests made: invoice, to be answered by 2027-05-08.
+    Result: accepted, and the instance is suspended.
+  Step 10 (line 49) passed: executor invoice done
+    Requests made: notify, to be answered by 2027-05-02; collect, to be answered by 2027-05-31.
+    Result: accepted, and the instance is suspended.
+  Step 11 (line 50) passed: executor collect done -> active, paid until = 2027-05-01
+    Requests made: resume, to be answered by 2027-05-02.
+    Result: accepted, and the instance is active.
+  Step 12 (line 51) passed: executor resume done
+    Result: accepted, and the instance is active.
+
+Test "plans change outside the ledger, while active": passed
+  Step 1 (line 54) passed: we create at 2027-03-01
+    Result: accepted, and the instance is active.
+  Step 2 (line 55) passed: customer upgrade -> active
+    Requests made: upgrade, to be answered by 2027-03-02.
+    Result: accepted with the consent of the customer, and the instance is active.
+  Step 3 (line 56) passed: executor upgrade done
+    Result: accepted, and the instance is active.
+  Step 4 (line 57) passed: customer downgrade
+    Requests made: downgrade, to be answered by 2027-03-02.
+    Result: accepted with the consent of the customer, and the instance is active.
+  Step 5 (line 58) passed: executor downgrade fails with reason = "no such plan"
+    Result: accepted, and the instance is active.
+  Step 6 (line 59) passed: keeper suspend at 2027-03-06 -> refused "bo:when when.suspend"
+    Result: refused, since when.suspend does not apply yet: its time has not come, or its conditions do not hold (bo:when when.suspend).
+    The contract text, 5.3: When the instance is 5 days overdue or more (counted from its due date):
+  Step 7 (line 60) passed: customer subscribe at 2027-03-06
+    Requests made: invoice, to be answered by 2027-03-13; subscribe, to be answered by 2027-03-07.
+    Result: accepted with the consent of the customer, and the instance is active.
+  Step 8 (line 61) passed: keeper suspend at 2027-03-12 -> suspended
+    Requests made: suspend, to be answered by 2027-03-13.
+    Result: accepted, and the instance is suspended.
+  Step 9 (line 62) passed: customer upgrade -> refused "bo:state upgrade"
+    Result: refused, since upgrade is not possible in the instance's current state (bo:state upgrade).
+  Step 10 (line 63) passed: customer subscribe -> refused "bo:state subscribe"
+    Result: refused, since subscribe is not possible in the instance's current state (bo:state subscribe).
+
+Test "a failed suspension is reported; terminated at 60 days overdue": passed
+  Step 1 (line 66) passed: we create at 2027-03-01
+    Result: accepted, and the instance is active.
+  Step 2 (line 67) passed: customer subscribe
+    Requests made: invoice, to be answered by 2027-03-08; subscribe, to be answered by 2027-03-02.
+    Result: accepted with the consent of the customer, and the instance is active.
+  Step 3 (line 68) passed: keeper suspend at 2027-03-06 -> suspended
+    Requests made: suspend, to be answered by 2027-03-07.
+    Result: accepted, and the instance is suspended.
+  Step 4 (line 69) passed: executor suspend fails with reason = "panel down"
+    Requests made: notify, to be answered by 2027-03-07.
+    Result: accepted, and the instance is suspended.
+  Step 5 (line 70) passed: executor notify done
+    Result: accepted, and the instance is suspended.
+  Step 6 (line 71) passed: keeper terminate at 2027-04-29 -> refused "bo:when when.terminate"
+    Result: refused, since when.terminate does not apply yet: its time has not come, or its conditions do not hold (bo:when when.terminate).
+    The contract text, 5.4: When the instance is 60 days overdue or more (counted from its due date):
+  Step 7 (line 72) passed: keeper terminate at 2027-04-30 -> terminated
+    Requests made: terminate, to be answered by 2027-05-01.
+    Result: accepted, and the instance is terminated; it is final and takes no more calls.
+  Step 8 (line 73) passed: executor terminate done
+    Result: accepted, and the instance is terminated; it is final and takes no more calls.
+
+4 tests: 4 passed, 0 failed.

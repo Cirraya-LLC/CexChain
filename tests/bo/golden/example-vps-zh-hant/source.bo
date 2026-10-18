@@ -12,10 +12,8 @@ bo 1
 
 可訂購 由 客戶
 可續期 由 客戶
-可升級 由 客戶          # proration by days remaining: the executor's (R10)
+可升級 由 客戶          # the plan and its proration: the executor's (R10)
 當 到期前 7日 通知 客戶
 當 逾期 3日 暫停        # request to the panel executor: suspend VPS
-當 逾期 30日 終止 及 收回 IP
-可退款 由 本公司
-  超過 HKD 100 須親身確認
-  AI 代理 可 提議
+當 逾期 30日 終止       # the panel ends the VPS and takes back its IP
+當 收款 失敗 通知 本公司

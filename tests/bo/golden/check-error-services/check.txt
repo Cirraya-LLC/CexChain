@@ -1,0 +1,30 @@
+edition 1
+packs commerce services
+contract Billed
+party role.we bound=creation{R3}
+party role.customer bound=creation{R3}
+utc_offset +08:00{R25}
+kind kind.service Line
+field price.price constant recurring time.monthly money cur.HKD = (phrase time.monthly (money cur.HKD 50))
+field doc.invoice instance list 1 money cur.HKD{R26}
+field field.paid_until instance date optional empty{R20}
+field field.billed_until instance date optional empty{R20}
+charge charge.charge levy
+  line charge.rate 1%
+  line charge.added
+  computes added rate per_line round.half_up{R17} on=price.price{R27}
+due period{R11}
+state state.active first{R4}
+can act.subscribe standard by=role.customer agents=delegation{R14} executor{R10}
+  terms{R19}
+    requires state.active{R7}
+    requires (= field.paid_until val.none)
+    set field.paid_until time.today
+    set field.billed_until time.today
+    request subscribe within=(duration time.day 1){R10}
+can act.notify standard by=role.we agents=delegation{R14} executor{R10}
+when cond.overdue trigger=overdue function=when.notify{R24}
+  request notify within=(duration time.day 1){R10}
+16:5 error check.service-bill: subscribe: a service billed each period (R34) keeps no bill of its own in this version: its invoices carry the period's price, without charges; leave out the bill's field and its charges
+17:5 warning check.needs-executor: notify asks an executor to act outside the ledger, which a request does, not an action of the contract's: write notify PARTY in an action's or a rule's block (bo build refuses this action)
+18:14 error check.notify: notify customer with note = "late": notify names the one party it notifies (notify customer); for more, write a request (request notify to customer with NAME = VALUE within 1 day)

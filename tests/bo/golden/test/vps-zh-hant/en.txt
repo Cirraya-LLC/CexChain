@@ -1,0 +1,113 @@
+Test "訂購、出賬、付款及續期": passed
+  Step 1 (line 22) passed: 本公司 建立 連同 客戶所在地 = "香港" 時間 2027-01-10
+    Result: accepted, and the instance is active.
+  Step 2 (line 23) passed: 客戶 訂購 -> 正常, 已付費至 = 2027-01-10, 已出賬至 = 2027-02-10
+    Requests made: invoice, to be answered by 2027-01-17; subscribe, to be answered by 2027-01-11.
+    Result: accepted with the consent of the customer, and the instance is active.
+  Step 3 (line 24) passed: 執行器 訂購 完成
+    Result: accepted, and the instance is active.
+  Step 4 (line 25) passed: 執行器 發票 完成 連同 結果 = "INV-1"
+    Requests made: collect, to be answered by 2027-02-09.
+    Result: accepted, and the instance is active.
+  Step 5 (line 26) passed: 執行器 收款 完成 時間 2027-01-12 -> 正常, 已付費至 = 2027-02-10
+    Result: accepted, and the instance is active.
+  Step 6 (line 27) passed: 客戶 續期 時間 2027-01-30 -> 已出賬至 = 2027-03-10
+    Requests made: invoice, to be answered by 2027-02-06.
+    Result: accepted with the consent of the customer, and the instance is active.
+  Step 7 (line 28) passed: 客戶 續期 -> 被拒絕 "bo:requires renew 2"
+    Result: refused, since requirement 2 of renew is not met (bo:requires renew 2).
+    The contract text, 4.2.4: Requirement 2: billed until is the same date as paid until.
+  Step 8 (line 29) passed: 執行器 發票 完成 連同 結果 = "INV-2"
+    Requests made: collect, to be answered by 2027-03-12.
+    Result: accepted, and the instance is active.
+  Step 9 (line 30) passed: 執行器 收款 完成 -> 正常, 已付費至 = 2027-03-10
+    Result: accepted, and the instance is active.
+
+Test "欠款被暫停，付款後恢復": passed
+  Step 1 (line 33) passed: 本公司 建立 連同 客戶所在地 = "香港" 時間 2027-01-10
+    Result: accepted, and the instance is active.
+  Step 2 (line 34) passed: 客戶 訂購
+    Requests made: invoice, to be answered by 2027-01-17; subscribe, to be answered by 2027-01-11.
+    Result: accepted with the consent of the customer, and the instance is active.
+  Step 3 (line 35) passed: 執行器 發票 完成 連同 結果 = "INV-1"
+    Requests made: collect, to be answered by 2027-02-09.
+    Result: accepted, and the instance is active.
+  Step 4 (line 36) passed: 排程器 暫停 時間 2027-01-12 -> 被拒絕 "bo:when when.suspend"
+    Result: refused, since when.suspend does not apply yet: its time has not come, or its conditions do not hold (bo:when when.suspend).
+    The contract text, 5.3: When the instance is 3 days overdue or more (counted from its due date):
+  Step 5 (line 37) passed: 排程器 暫停 時間 2027-01-13 -> 已暫停
+    Requests made: suspend, to be answered by 2027-01-14.
+    Result: accepted, and the instance is suspended.
+  Step 6 (line 38) passed: 執行器 暫停 完成
+    Result: accepted, and the instance is suspended.
+  Step 7 (line 39) passed: 執行器 收款 完成 時間 2027-01-15 -> 正常, 已付費至 = 2027-02-10
+    Requests made: resume, to be answered by 2027-01-16.
+    Result: accepted, and the instance is active.
+  Step 8 (line 40) passed: 執行器 恢復 完成
+    Result: accepted, and the instance is active.
+
+Test "到期前發出提示": passed
+  Step 1 (line 43) passed: 本公司 建立 連同 客戶所在地 = "香港" 時間 2027-01-10
+    Result: accepted, and the instance is active.
+  Step 2 (line 44) passed: 排程器 通知 -> 被拒絕 "bo:when when.notify"
+    Result: refused, since when.notify does not apply yet: its time has not come, or its conditions do not hold (bo:when when.notify).
+    The contract text, 5.2: When it is no earlier than 7 days before the due date:
+  Step 3 (line 45) passed: 客戶 訂購
+    Requests made: invoice, to be answered by 2027-01-17; subscribe, to be answered by 2027-01-11.
+    Result: accepted with the consent of the customer, and the instance is active.
+  Step 4 (line 46) passed: 執行器 發票 完成
+    Requests made: collect, to be answered by 2027-02-09.
+    Result: accepted, and the instance is active.
+  Step 5 (line 47) passed: 執行器 收款 完成 -> 已付費至 = 2027-02-10
+    Result: accepted, and the instance is active.
+  Step 6 (line 48) passed: 排程器 通知 時間 2027-02-02 -> 被拒絕 "bo:when when.notify"
+    Result: refused, since when.notify does not apply yet: its time has not come, or its conditions do not hold (bo:when when.notify).
+    The contract text, 5.2: When it is no earlier than 7 days before the due date:
+  Step 7 (line 49) passed: 排程器 通知 時間 2027-02-03
+    Requests made: notify, to be answered by 2027-02-04.
+    Result: accepted, and the instance is active.
+  Step 8 (line 50) passed: 執行器 通知 完成
+    Result: accepted, and the instance is active.
+
+Test "付款被拒，賬單結束，客戶再續期": passed
+  Step 1 (line 53) passed: 本公司 建立 連同 客戶所在地 = "香港" 時間 2027-01-10
+    Result: accepted, and the instance is active.
+  Step 2 (line 54) passed: 客戶 訂購
+    Requests made: invoice, to be answered by 2027-01-17; subscribe, to be answered by 2027-01-11.
+    Result: accepted with the consent of the customer, and the instance is active.
+  Step 3 (line 55) passed: 執行器 發票 完成
+    Requests made: collect, to be answered by 2027-02-09.
+    Result: accepted, and the instance is active.
+  Step 4 (line 56) passed: 執行器 收款 失敗 連同 原因 = "信用卡被拒" -> 已出賬至 = 2027-01-10
+    Requests made: notify, to be answered by 2027-01-11.
+    Result: accepted, and the instance is active.
+  Step 5 (line 57) passed: 執行器 通知 完成
+    Result: accepted, and the instance is active.
+  Step 6 (line 58) passed: 客戶 續期 時間 2027-01-11 -> 已出賬至 = 2027-02-10
+    Requests made: invoice, to be answered by 2027-01-18.
+    Result: accepted with the consent of the customer, and the instance is active.
+  Step 7 (line 59) passed: 執行器 發票 完成
+    Requests made: collect, to be answered by 2027-02-09.
+    Result: accepted, and the instance is active.
+  Step 8 (line 60) passed: 執行器 收款 完成 -> 正常, 已付費至 = 2027-02-10
+    Result: accepted, and the instance is active.
+
+Test "逾期 30 日即終止": passed
+  Step 1 (line 63) passed: 本公司 建立 連同 客戶所在地 = "香港" 時間 2027-01-10
+    Result: accepted, and the instance is active.
+  Step 2 (line 64) passed: 客戶 訂購 -> 正常
+    Requests made: invoice, to be answered by 2027-01-17; subscribe, to be answered by 2027-01-11.
+    Result: accepted with the consent of the customer, and the instance is active.
+  Step 3 (line 65) passed: 排程器 暫停 時間 2027-01-13 -> 已暫停
+    Requests made: suspend, to be answered by 2027-01-14.
+    Result: accepted, and the instance is suspended.
+  Step 4 (line 66) passed: 排程器 終止 時間 2027-02-08 -> 被拒絕 "bo:when when.terminate"
+    Result: refused, since when.terminate does not apply yet: its time has not come, or its conditions do not hold (bo:when when.terminate).
+    The contract text, 5.4: When the instance is 30 days overdue or more (counted from its due date):
+  Step 5 (line 67) passed: 排程器 終止 時間 2027-02-09 -> 已終止
+    Requests made: terminate, to be answered by 2027-02-10.
+    Result: accepted, and the instance is terminated.
+  Step 6 (line 68) passed: 執行器 終止 完成
+    Result: accepted, and the instance is terminated.
+
+5 tests: 5 passed, 0 failed.
