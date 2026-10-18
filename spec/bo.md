@@ -418,9 +418,9 @@ A source is read with a *pack set*: the official packs, always, and any others g
 
 ### 3.7 Official packs and digests
 
-The official packs of edition 1 are `en`, `zh-Hant-HK`, and `zh-Hans-CN`, version 5 each, every one complete: every concept of the core but the retired ones, every message, and every sentence but the retired ones (the official vocabulary packs' names, which their files give, 3.9). The official vocabulary packs spell their own words in these languages (3.9), and a pack set holds those words in the language packs of their languages. A pack's *digest* is the hash of its canonical CBOR under a ledger's hash algorithm (SHA-256 or SM3); [`../tests/bo/golden/pack-digests.txt`](../tests/bo/golden/pack-digests.txt) lists those of the official packs, earlier versions included, and of the vocabulary packs. A released version of an official pack never changes: a change is a new version, and a compiler MUST carry every released version of each official pack, so that every source deployed with one rebuilds (section 16).
+The official packs of edition 1 are `en`, `zh-Hant-HK`, and `zh-Hans-CN`, version 6 each, every one complete: every concept of the core but the retired ones, every message, and every sentence but the retired ones (the official vocabulary packs' names, which their files give, 3.9). The official vocabulary packs spell their own words in these languages (3.9), and a pack set holds those words in the language packs of their languages. A pack's *digest* is the hash of its canonical CBOR under a ledger's hash algorithm (SHA-256 or SM3); [`../tests/bo/golden/pack-digests.txt`](../tests/bo/golden/pack-digests.txt) lists those of the official packs, earlier versions included, and of the vocabulary packs. A released version of an official pack never changes: a change is a new version, and a compiler MUST carry every released version of each official pack, so that every source deployed with one rebuilds (section 16).
 
-Version 1 of the three, from before vocabulary packs, is carried in [`../bo/packs/history/`](../bo/packs/history). Version 2 spells the core's kind word `thing` (`物件` in both Chinese packs), spells `we` `我方` first in both Chinese packs (`本公司` remains a second spelling, so `我方` is what tools write), drops the retired concepts, and adds the messages and sentences of vocabulary packs. Version 3 adds the core's unit of temperature (`unit.celsius`, 2.10) and the messages and sentences of field defaults, durations divided by durations (R32), and tests that expect fields' values; version 2 is carried beside version 1. Version 4 spells the core's words alone: the official vocabulary packs' words, commerce's two attaching rules, and the packs' names moved into the packs' files (3.9); it adds the messages of vocabulary pack files (`vocab.*`) and of `check.pack-requires`; version 3 is carried beside versions 1 and 2. Version 5 adds requests (E8): the keywords `request`, `done`, `fails`, and `expires`, the words `executor`, `result`, and `reason`, rule R33, and their messages and sentences; version 4 is carried beside versions 1 to 3, and reads like version 5 but for requests. A keyword added after the first versions (Concept `since`: 5 for these four) is spelled by the official packs from that version on; the official packs of before it, and others' packs, may lack it, and are read and written in English for it, so that the packs embedded in earlier deploys still read. A pack set is built on the official packs of one *release* (3.6): today's (version 5, which reads with version 2 of the official vocabulary packs), version 4 (the same, without requests), version 3 or 2 (which spell the vocabulary packs' words themselves and read with version 1 of those packs), or version 1, from before vocabulary packs. A source read with version 1 uses every vocabulary pack without declaring it (`use` did not exist), and its `record` is today's `thing`; a source read with version 2 reads as today's, but spells no temperature; a source read with version 3 reads as today's. Each compiles to the code it compiled to then.
+Version 1 of the three, from before vocabulary packs, is carried in [`../bo/packs/history/`](../bo/packs/history). Version 2 spells the core's kind word `thing` (`物件` in both Chinese packs), spells `we` `我方` first in both Chinese packs (`本公司` remains a second spelling, so `我方` is what tools write), drops the retired concepts, and adds the messages and sentences of vocabulary packs. Version 3 adds the core's unit of temperature (`unit.celsius`, 2.10) and the messages and sentences of field defaults, durations divided by durations (R32), and tests that expect fields' values; version 2 is carried beside version 1. Version 4 spells the core's words alone: the official vocabulary packs' words, commerce's two attaching rules, and the packs' names moved into the packs' files (3.9); it adds the messages of vocabulary pack files (`vocab.*`) and of `check.pack-requires`; version 3 is carried beside versions 1 and 2. Version 5 adds requests (E8): the keywords `request`, `done`, `fails`, and `expires`, the words `executor`, `result`, and `reason`, rule R33, and their messages and sentences; version 4 is carried beside versions 1 to 3, and reads like version 5 but for requests. Version 6 adds a service's periods, bills, and payments (E9): rules R34 and R35, R10 and R11 as built, and their messages and sentences; it reads with version 3 of the `commerce` and `services` packs (`collect`, `paid until`, `billed until`); version 5 is carried beside versions 1 to 4, and reads with version 2 of them. A keyword added after the first versions (Concept `since`: 5 for these four) is spelled by the official packs from that version on; the official packs of before it, and others' packs, may lack it, and are read and written in English for it, so that the packs embedded in earlier deploys still read. A pack set is built on the official packs of one *release* (3.6): today's (version 6, which reads with version 3 of `commerce` and `services` and version 2 of `finance`), version 5 (which reads with version 2 of all three), version 4 (the same, without requests), version 3 or 2 (which spell the vocabulary packs' words themselves and read with version 1 of those packs), or version 1, from before vocabulary packs. A source read with version 1 uses every vocabulary pack without declaring it (`use` did not exist), and its `record` is today's `thing`; a source read with version 2 reads as today's, but spells no temperature; a source read with version 3 reads as today's. Each compiles to the code it compiled to then.
 
 Anyone MAY write a pack for another language, dialect, or a company's own terms. Such a pack MUST spell every keyword of the first versions, SHOULD spell those added later, and SHOULD spell the vocabulary; it is read beside the official packs, and a deploy embeds it in full.
 
@@ -430,13 +430,13 @@ A language pack changes how a source reads and how text is written, never what r
 
 ### 3.9 Vocabulary packs
 
-A *vocabulary pack* says which concepts exist beyond Bo's core: their categories, the type a field's word gives the field (R1) and whether it is *added* (R20) or *taking* (R31), a unit's dimension and scale, how each language spells them, and the standard terms of its built-in actions (section 8). Unlike a language pack, it changes what runs, so a deploy pins each one it uses by version and digest, and embeds those that are not official in full (section 16). Edition 1 has three official vocabulary packs, version 2 each, compiled in from [`../bo/vocab/`](../bo/vocab):
+A *vocabulary pack* says which concepts exist beyond Bo's core: their categories, the type a field's word gives the field (R1) and whether it is *added* (R20) or *taking* (R31), a unit's dimension and scale, how each language spells them, and the standard terms of its built-in actions (section 8). Unlike a language pack, it changes what runs, so a deploy pins each one it uses by version and digest, and embeds those that are not official in full (section 16). Edition 1 has three official vocabulary packs, compiled in from [`../bo/vocab/`](../bo/vocab): `finance` version 2, `commerce` and `services` version 3 (E9: a service's periods and `collect`); each earlier version is carried in [`../bo/vocab/history/`](../bo/vocab/history), and reads with the language packs of its release (version 2 with versions 4 and 5 of the language packs), defining some of the current version's concepts, each as the current one does, with terms that begin the current terms:
 
 | Pack | Words | Built-in actions |
 |---|---|---|
 | `finance` | 24: `asset`; pledge, release, enforce, redeem, split, pay, confirm payment, dispute, freeze, unfreeze; tier, pledgee, payee, portion; pledged, paid, settled, disputed, redeemed, frozen; bank, issuer, supplier | the ten actions, in [`../bo/vocab/finance.vocab`](../bo/vocab/finance.vocab) |
-| `commerce` | 22: price, usage, overage, per, setup fee; the ten charge words; invoice, credit note, receipt; refund, credit; customer location; customer | none yet |
-| `services` | 12: `service`, `resource`; subscribe, renew, upgrade, downgrade, allocate, reclaim; allocated, cooling; cooling period; traffic | allocate, reclaim, in [`../bo/vocab/services.vocab`](../bo/vocab/services.vocab) |
+| `commerce` | 23: price, usage, overage, per, setup fee; the ten charge words; invoice, credit note, receipt; refund, credit, collect; customer location; customer | none yet |
+| `services` | 14: `service`, `resource`; subscribe, renew, upgrade, downgrade, allocate, reclaim; allocated, cooling; cooling period, paid until, billed until; traffic | allocate, reclaim, subscribe, renew, upgrade, downgrade, in [`../bo/vocab/services.vocab`](../bo/vocab/services.vocab) |
 
 Appendix B gives every word's pack; `cexchain bo vocab show PACK` lists them with their field facts.
 
@@ -455,7 +455,7 @@ Appendix B gives every word's pack; `cexchain bo vocab show PACK` lists them wit
 
 - `id` is a Bo name in ASCII (lowercase letters, digits, and `_`, starting with a letter, at most 32), as `use` lines write it; `version` is 1 or more; `edition` is the edition the pack is of;
 - `requires` lists packs a source using this one MUST use too (`check.pack-requires`), official ones or users', at most 8, none twice, not the pack itself;
-- `concepts` holds 1 to 256 concepts, each keyed by its category's prefix and a name of ASCII letters, digits, and `_` (`act.reserve`), with its `category`, which MUST be the prefix's; `"argument": true` for one that takes an argument; a field's `type` (`party`, `date`, `number`, `text`, `duration`, `parties` (a list of at most 16 parties), each fixed by the word; or `quantity`, `list`, `amount`, what the word accepts once a type is given; the official packs also give `offset` and `portion`, which mechanisms read); a party field's flags `added` and `taking`; and a unit's `dimension` (one of the core's: `data`, `bandwidth`, `count`, `mass`, `temperature`) and `scale`, how many of the dimension's smallest unit it is, 1 to 10^15. Flags are written only when true;
+- `concepts` holds 1 to 256 concepts, each keyed by its category's prefix and a name of ASCII letters, digits, and `_` (`act.reserve`), with its `category`, which MUST be the prefix's; `"argument": true` for one that takes an argument; a field's `type` (`party`, `date`, `number`, `text`, `duration`, `parties` (a list of at most 16 parties), each fixed by the word; or `quantity`, `list`, `amount`, what the word accepts once a type is given; the official packs also give `offset` and `portion`, which mechanisms read); a party field's flags `added` and `taking` (an official pack's date field may be `added` too: a service's periods); and a unit's `dimension` (one of the core's: `data`, `bandwidth`, `count`, `mass`, `temperature`) and `scale`, how many of the dimension's smallest unit it is, 1 to 10^15. Flags are written only when true;
 - `terms` is a Bo source, as a text or as its lines (none holding a line break), at most 64 KiB: the standard terms of the pack's actions. Read with the pack set, it MUST lex and parse without errors, use the pack and only the packs it requires, use only words of the core, the pack, and those packs, and hold only `can` clauses, each the terms of one of the pack's own actions, once (`vocab.terms`, `vocab.terms-clause`);
 - `languages` spells every concept in each language, keyed by a language pack's id, as a language pack's `vocabulary` does (3.3: spellings, forms, `…` for an argument), with the pack's `name` in that language and, for a language written without spaces, `attach` rules for its own words (3.4). Each language MUST spell every concept (`vocab.unspelled`); one spelling has one meaning in the pack (`vocab.duplicate-spelling`).
 
@@ -549,7 +549,7 @@ A line outside any block begins a clause (`parse.top-level` otherwise):
 - **A charge block**, `charge NAME` or `tax NAME`, describes a charge: one line per property (section 10).
 - **`can ACTION`** declares an action: a word of the vocabulary (a built-in action) or a name (an action of the contract's own), then, in any order and each at most once (`parse.can`, `parse.duplicate`), `by PARTY` (who starts it), `to PARTY` (its counterparty), and `with INPUT, ...` (what each call gives: a name or a field word, then a type), then its block.
 - **`when EVENT`** is a time rule: an event (section 9), then the actions it does on the line, joined by `and`, and/or a block (`parse.empty-block` if neither). The event ends where an action begins (4.8); a line whose event is missing is `parse.when`.
-- **`when KIND done`**, **`when KIND fails`**, **`when KIND expires`** is a rule for the answers to the contract's requests of KIND (6.11): a `when` line whose second word is a request's kind (an action's word or a name) and whose third is an outcome.
+- **`when KIND done`**, **`when KIND fails`**, **`when KIND expires`** is a rule for the answers to the contract's requests of KIND (6.11): a `when` line whose second word is a request's kind (an action's word, a document's, or a name) and whose third is an outcome.
 - **`test`**, with an optional name or text, then a block of steps (section 13).
 
 - **`use PACK`** declares a vocabulary pack the source uses (3.9); `use` anywhere else is `parse.reserved`.
@@ -732,7 +732,7 @@ A role stands for the ledger it is bound to. A role used while not yet bound ref
 
 ### 6.3 The kind and its fields
 
-The core's kind is `thing`; the vocabulary packs add `asset` (finance), `service`, and `resource` (services). The kinds differ only in this: an asset's instances are created by `issue`, every other kind's by `create` (12.2, 11.1, 13.1); on a service, the actions that change a subscription ask executors (R10), and a recurring price makes it due each period (R11); a resource that a built-in action gives a holder gets the field `holder` (R20). The kind block (`thing`, `asset`, `service`, or `resource`, then a name) declares the instances' fields, one per line, `HEAD [VALUE] {, PART}`:
+The core's kind is `thing`; the vocabulary packs add `asset` (finance), `service`, and `resource` (services). The kinds differ only in this: an asset's instances are created by `issue`, every other kind's by `create` (12.2, 11.1, 13.1); on a service, the actions that change a subscription ask executors (R10), and a recurring price makes it due on the date it is paid until, billed each period (R11, R34, R35, section 6.12); a resource that a built-in action gives a holder gets the field `holder` (R20). The kind block (`thing`, `asset`, `service`, or `resource`, then a name) declares the instances' fields, one per line, `HEAD [VALUE] {, PART}`:
 
 | The line gives | The field is |
 |---|---|
@@ -783,7 +783,7 @@ An instance is always in one state. The states are those the contract's state ch
 
 `can ACTION` declares an action, of one of two sorts:
 
-- **A built-in action**, a word of the vocabulary: it gets the standard library's terms (R19, section 8), and the lines the contract writes under it come first and add to them. A built-in action without terms in edition 1 is checked but does not build (`build.standard-action`); one that asks an executor (R10) neither (`build.executor`).
+- **A built-in action**, a word of the vocabulary: it gets the standard library's terms (R19, section 8), and the lines the contract writes under it come first and add to them. A built-in action without terms in edition 1 is checked but does not build (`build.standard-action`); `notify` declared as an action neither (`check.needs-executor`, a warning, then `build.executor`): it is a request, written in a block (6.11).
 - **An action of the contract's own**, a name: it MUST say who starts it, `by PARTY` (`check.needs-by`), and states its own consents and state changes.
 
 An action's parts:
@@ -838,7 +838,7 @@ request KIND [to PARTY] [with NAME = VALUE, ...] within DURATION
 ```
 
 - **Where.** In the block of an action, of a time rule, or of a rule for answers (below), anywhere a statement stands but in an `each` block (`check.each-body`): a call makes at most 16 requests, counted over every branch of the function it runs (`check.request-count`; for a time rule, with the actions it does; for the reply, the most of any one rule).
-- **KIND** is what is asked: a name (`sync`, `notify_v2`) or an action's word, whose compiled name it takes (`notify`, or `通知` in Chinese, is `notify`). The ledger takes kinds of 1 to 64 bytes, a lowercase ASCII letter then lowercase letters, digits, `.`, `_`, or `-`; a Bo name holds no `.` or `-`, so a kind written in Bo is a lowercase letter then lowercase letters, digits, or `_` (`check.request-kind`). Executors' connectors serve kinds by name; Bo gives them no meaning.
+- **KIND** is what is asked: a name (`sync`, `notify_v2`), an action's word, or a document's (E9), whose compiled name it takes (`notify`, or `通知` in Chinese, is `notify`; `invoice`, `發票`, is `invoice`). The ledger takes kinds of 1 to 64 bytes, a lowercase ASCII letter then lowercase letters, digits, `.`, `_`, or `-`; a Bo name holds no `.` or `-`, so a kind written in Bo is a lowercase letter then lowercase letters, digits, or `_` (`check.request-kind`). Executors' connectors serve kinds by name; Bo gives them no meaning.
 - **`to PARTY`** names the party the request concerns: params key `to`, its ledger id, or null for a party that holds none.
 - **`with NAME = VALUE, ...`** gives the request's values, by name (each once, never `to`: `check.duplicate`), computed when the statement runs. Values have a JSON form: numbers, money, quantities, rates, dates, durations (as compiled code keeps them, 12.3), texts, yes or no, parties (ledger ids, which connectors see as hex), and lists of them (`check.request-value`). Together with `to` they are the request's params, a map with text keys, at most 4,096 bytes encoded: a call whose params would exceed it is refused, `bo:request KIND` (a text or a list longer than 4,096 bytes is refused before it is written). Spec section 15 lists what requests may carry: kinds, ledger ids, values the contract holds, amounts, dates, and record and request ids, never names, addresses, or documents' content.
 - **`within DURATION`**, a duration written out, from 1 day to 366 days or 12 months (`check.request-within`), sets the deadline: the call's registration time plus the duration (by the calendar for months, 5.6). An executor never starts work after it; a keeper may expire the request once it has passed.
@@ -855,13 +855,60 @@ when KIND expires   no answer came by its deadline
 
 A rule for answers is a `when` line whose event is a request's kind and an outcome, with a block (or a request on its line). One rule for each kind and outcome (`check.answer-twice`); a rule for a kind the contract never requests never applies (`check.answer-unasked`, a warning). In its block, `result` and `reason` are the answer's (2.6): `notice = result`. The ledger records an answer only if the contract accepts it, without consents, or the request stays open; so a rule for answers never refuses and asks no consent: it has no `requires`, `reject`, or action, sets no field that holds a party (R8), and changes the state only with `-> STATE` or `if STATE -> STATE`, never from named states (`check.answer-line`). An answer to an instance that has ended (6.10) is still recorded and its rule still sets fields, but it changes no state and makes no request, as spec section 15 asks. An instance that issues parts makes no requests in this version (`build.unsupported`): its end is not in its state, so an answer could not tell.
 
-**The R10 actions.** `notify`, and on a service `subscribe`, `upgrade`, `downgrade`, `suspend`, `resume`, `terminate`, `allocate`, and `reclaim`, would ask an executor by themselves (R10): such clauses are checked with the warning `check.needs-executor` and explained, but do not build (`build.executor`); a contract writes a `request` instead. The services pack's own requests come with its next version.
+**The R10 actions** (E9). `notify PARTY`, in any block, on a rule's line, or in a rule for answers, is `request notify to PARTY within 1 day`: it names the one party notified, and nothing else (`check.notify`); a contract that wants more writes the request. On a service, `subscribe`, `upgrade`, `downgrade`, `suspend`, `resume`, and `terminate` each make a request of their own kind (`subscribe`, ...), without params, to be answered within one day, after their clauses (the contract's own, then the terms'); a time rule that does one makes it too. The contract text marks these requests R10. `notify` declared as an action (`can notify`) is checked with the warning `check.needs-executor` and does not build (`build.executor`). `allocate` and `reclaim` are a resource's actions (8.2), not a service's.
 
 **Executors in practice** (*informative*). The home registers an executor (`cexchain executor add NAME --contract C --kinds notify`): an actor whose delegation lets it call `result` on that contract (scope key 8) and answer only those kinds (key 9). `cexchain executor run` finds open requests at the home's server, verifies each in the instance's signed evidence before acting, runs the connector configured for the kind (a `webhook`, a `command`; [`connectors.md`](connectors.md)), and answers with the connector's result, a reason on failure, and a salted digest of the response. `examples/shipment` runs one.
 
+### 6.12 A service's periods, bills, and payments
+
+A service whose kind block gives a recurring price in money (`price monthly HKD 120`) is billed each period (E9; the `services` pack, version 3, and `collect` of the `commerce` pack, version 3). Bo adds two dates to each instance (R20), which hold no date until the service is subscribed to: **`paid until`**, the date its payments reach, and **`billed until`**, the date its bills reach. They read as dates once set; reading one that holds none refuses the call (`bo:empty FIELD`), and `paid until = none` compares it with none (the only such use of `none` with a date). The state holds them as null until then (12.5).
+
+- **Due** (R11). The service is due on the date it is paid until: `N days before due`, `overdue`, and `overdue N` count from it, and a rule counting from it waits until the service is subscribed to (`bo:when` before). Before its subscription nothing is due.
+- **Subscribing and renewing** (R19). The services pack's terms (8.2): `subscribe` starts from `active`, once (`requires paid until = none`), and sets both dates to the day of the call: the first period starts then, and the service is due that day until it is paid. `renew` starts from `active` or `suspended`, once the last bill is closed (`requires billed until = paid until`): one bill is open at a time.
+- **The bill** (R34). On such a service, after the terms of `subscribe` and `renew`, `billed until` moves one period on (`billed until = billed until + 1 month` for a monthly price; a week, a day, or a year for the others), and the action makes the request `invoice`, to the customer (the role `customer`, if the contract names one), within 7 days, with params `amount` (the period's price), `paid_until` (the period's start) and `billed_until` (its end). A service that keeps a bill of its own (a document's field, 10.2) is refused in this version (`check.service-bill`): its invoices carry the period's price, without charges.
+- **The collection** (R34). When an `invoice` is done, the contract makes the request `collect`, to the customer, with `amount` and `invoice` (the invoice's answer's `result`, say its number). Its deadline counts from the due date: the time of the latest overdue rule that does something (`overdue 30 days`: 30 days after the due date; a month counts as 31 days only to find the latest), else 30 days after it; and at least a day and at most 366 days after the call. Compiled code computes it at the call.
+- **A failed bill** (R34). When an `invoice` or a `collect` fails or expires (R33), `billed until` goes back to `paid until`: the bill is closed, and the service can be renewed again. A contract's own rule for an expiry closes it too.
+- **The payment** (R35). A `collect` done means the bill's total was paid in full (an executor answers done only then; answers are never refused, so the contract cannot check an amount): `paid until` moves one period on, so the rules counting from the due date apply again at the new date; and if the service is `suspended` and no longer overdue, it becomes `active` and the contract makes the request `resume`, within one day.
+- **Automatic renewal** is a rule: `when 14 days before due renew`. At the subscription the bill is open, so the rule's renewal is refused (`bo:requires renew 2`) until the first payment moves the due date; a keeper retries refused rules.
+
+The lines Bo adds are the contract's own, checked as written: they come after the action's terms, and after the lines of a contract's own rule for the same answer (`when invoice done notify customer` notifies, then asks for the collection). The contract text states each, marked R34 or R35. Example: the VPS of `bo-1.0-spec.md`, in [`../tests/bo/golden/example-vps-zh-hant/source.bo`](../tests/bo/golden/example-vps-zh-hant/source.bo), and its tests in [`../tests/bo/golden/test/vps/source.bo`](../tests/bo/golden/test/vps/source.bo):
+
+```
+use commerce
+use services
+contract VPS服務
+parties we, customer
+
+service VPS
+  price monthly HKD 120
+  traffic monthly 2TB, overage per GB HKD 0.10
+  IP 1 item
+  tax according to customer location
+
+can subscribe by customer
+can renew by customer
+can upgrade by customer
+when 7 days before due notify customer
+when overdue 3 days suspend
+when overdue 30 days terminate
+when collect fails notify we
+
+test "unpaid, suspended, then paid and resumed"
+  we create with customer location = "HK" at 2027-01-10
+  customer subscribe
+  executor invoice done with result = "INV-1"
+  keeper suspend at 2027-01-12 -> refused "bo:when when.suspend"
+  keeper suspend at 2027-01-13 -> suspended
+  executor suspend done
+  executor collect done at 2027-01-15 -> active, paid until = 2027-02-10
+  executor resume done
+```
+
+`subscribe` asks for the bill and the panel's provisioning; the invoice done asks for the payment (by 2027-02-09: 30 days after the due date, the latest overdue rule); unpaid three days after the due date, the keeper suspends it (and the panel); the payment moves the paid date to 2027-02-10 and resumes it. Usage (traffic beyond the plan) and charges on a service's bills come later; so does a period's proration on `upgrade` and `downgrade`, which an executor applies.
+
 ## 7. Recognition rules
 
-Bo infers by the thirty-three rules of edition 1 and by nothing else. Each rule has an id and a name; each official pack gives its text as the sentence `rule-ID`, which the contract text quotes (section 14). The checked model marks what each rule inferred (`{R3}` in `bo check --stage model`), and the contract text marks each clause so inferred (`[R3]` in English, `〔R3〕` in Chinese). A rule never changes meaning once its edition is released.
+Bo infers by the thirty-five rules of edition 1 and by nothing else. Each rule has an id and a name; each official pack gives its text as the sentence `rule-ID`, which the contract text quotes (section 14). The checked model marks what each rule inferred (`{R3}` in `bo check --stage model`), and the contract text marks each clause so inferred (`[R3]` in English, `〔R3〕` in Chinese). A rule never changes meaning once its edition is released.
 
 | Rule | Name | What Bo infers |
 |---|---|---|
@@ -874,8 +921,8 @@ Bo infers by the thirty-three rules of edition 1 and by nothing else. Each rule 
 | R7 | state-condition | A state used as a condition means the instance is in that state. |
 | R8 | consent-taken | Setting a field that holds a party takes it from that party, so it needs that party's consent (the party the field held before the call), unless the field is the action's starter. It applies to an action's own lines and a time rule's block, never to a built-in action's terms. |
 | R9 | obligation | In a time rule, an action with a subject (`when due issuer pays`) is that party's duty: it says when an instance is due and overdue, and nothing is called. A rule that only states duties compiles to no function. |
-| R10 | executor | `notify`, and on a service `subscribe`, `upgrade`, `downgrade`, `suspend`, `resume`, `terminate`, `allocate`, and `reclaim`, ask an executor to act outside the ledger (6.11); they do not build, and a contract writes a `request` instead. |
-| R11 | service-due | A service with a recurring price in money is due at the end of each paid period. Rules that count from it are checked and explained but do not build (`build.time-rule`). |
+| R10 | executor | `notify PARTY` asks an executor to notify that party, and on a service `subscribe`, `upgrade`, `downgrade`, `suspend`, `resume`, and `terminate` ask one to do the same outside the ledger: each is a request of its own kind, made after the action's clauses, to be answered within one day (6.11). |
+| R11 | service-due | A service with a recurring price in money is paid until a date, which Bo adds (`paid until`, R20): subscribing sets it to the day of the call, and each payment moves it one period on. It is due on that date; rules that count from it apply only once it is subscribed to (6.12). |
 | R12 | customer-location | `customer location` used without a declaration is a text each instance holds, given at creation. |
 | R13 | presence | `in person` asks the party that starts the action to prove presence (6.8). |
 | R14 | agents | An AI agent may start an action within its delegation, unless the action says `AI agent can propose`; then the agent only proposes, and a person approves (6.9). |
@@ -884,7 +931,7 @@ Bo infers by the thirty-three rules of edition 1 and by nothing else. Each rule 
 | R17 | rounding | A product with a rate, and a quotient, is rounded to the smallest unit, half up (away from zero); so is a charge that names no rounding mode. |
 | R18 | bare-text | A name that nothing declares, compared with a text (or listed after `in` with a text on its left), is that text: `客户所在地 = 中国内地` reads `中国内地` as a text. |
 | R19 | standard-terms | A built-in action has the standard library's terms (section 8): its starter, its counterparty, its consents, the states it starts from and leads to, and what it changes. The contract's own lines come first and add to them. The terms' states that an instance can reach become the contract's. |
-| R20 | standard-fields | The fields a pack marks as *added* (the pledgee and the payee), and a resource's holder, used by an action but not declared, are fields of each instance, holding no party until an action sets them. |
+| R20 | standard-fields | The fields a pack marks as *added* (the pledgee and the payee; a service's `paid until` and `billed until`), and a resource's holder, used by an action but not declared, are fields of each instance, holding no party (no date) until an action sets them. A service with a recurring price whose rules read its due date gets `paid until` too (R11). |
 | R21 | counterparty | An action whose counterparty is `counterparty`, a party the contract does not declare, takes its counterparty from each call (the input `counterparty`) and needs its consent; so does a built-in action with a counterparty when the contract writes no `to`. |
 | R22 | zero | A bare `0` compared with, added to, or taken from money, a quantity, a rate, or a duration is zero of it. |
 | R23 | each-allocation | A role that `allocate` binds is bound again by each allocation, with its consent: a resource goes to one holder at a time, and each allocation names it. |
@@ -899,10 +946,12 @@ Bo infers by the thirty-three rules of edition 1 and by nothing else. Each rule 
 | R32 | whole-times | A duration divided by a duration of the same kind is the number of whole times the second fits in the first; the rest is dropped, toward zero (`(now - due) / 1 day` is 2 two days and twenty hours after the due date). The contract text says so where it divides: "(the time of the call − the due date) ÷ 1 day, in whole times (the rest dropped)". |
 
 | R33 | expired-fails | An answer that a request expired (no answer by its deadline) runs the contract's rule for that kind's failures, unless the contract has a rule for its expiry (6.11). |
+| R34 | service-bill | On such a service, subscribing and renewing make the bill for one period: `billed until` moves one period on, and an executor is asked to invoice the customer for the period's price (`invoice`, within 7 days); once the invoice is done, to collect it (`collect`, by the latest overdue rule's time after the due date, else 30 days after it, at least a day and at most 366 days after the call). An invoice or a collection that fails or expires closes the bill: `billed until` goes back to `paid until` (6.12). |
+| R35 | service-paid | A collection done means the bill's total was paid in full: `paid until` moves one period on, and a suspended service no longer overdue becomes active again, and an executor is asked to resume it, within one day (6.12). |
 
 The rule texts in the packs are plain-language summaries of the rows above; the rows, sections 6 to 11, and the conformance suite define the rules.
 
-Rules belong to the core, except those that only a vocabulary pack's words can reach, which apply only in a source that uses the pack: R10's service half (the services pack's actions on a service), R11, and R23 (`services`); R12 and R26 to R28 (`commerce`). R1, R20, and R31 read their facts from the packs (3.9). Rule ids do not change with packs, so contract texts keep their marks.
+Rules belong to the core, except those that only a vocabulary pack's words can reach, which apply only in a source that uses the pack: R10's service half (the services pack's actions on a service), R11, R23, R34, and R35 (`services`); R12 and R26 to R28 (`commerce`). R1, R20, and R31 read their facts from the packs (3.9). Rule ids do not change with packs, so contract texts keep their marks.
 
 ## 8. The standard library
 
@@ -912,7 +961,7 @@ The standard library is Bo sources of edition 1 in English, which every compiler
 
 - [`core.bo`](../bo/stdlib/core.bo): `transfer` and `cancel`, and `suspend`, `resume`, and `terminate`, which end or pause any instance;
 - the terms of [`finance.vocab`](../bo/vocab/finance.vocab), the `finance` pack (they begin `use finance`): `pledge`, `release`, `enforce`, `redeem`, `pay`, `confirm payment`, `dispute`, `freeze`, `unfreeze`, and `split`, with the semantics that CexChain's native assets had in spec revisions v0.5 to v0.8 (v0.9 removed native assets; spec section 13 now says when a party may rely on an instance's state);
-- the terms of [`services.vocab`](../bo/vocab/services.vocab), the `services` pack: `allocate` and `reclaim`, which allocate a resource to one holder at a time.
+- the terms of [`services.vocab`](../bo/vocab/services.vocab), the `services` pack: `allocate` and `reclaim`, which allocate a resource to one holder at a time; and since its version 3 (E9) `subscribe`, `renew`, `upgrade`, and `downgrade`, a service's subscription (6.12).
 
 The `commerce` pack's actions have no terms yet. A user's vocabulary pack brings the terms of its own actions the same way (3.9). A pack's terms use the core's words, its own, and those of the packs it requires; they are part of its canonical CBOR, so its digest covers them (3.9). A contract that declares a built-in action (`can transfer to buyer`) gets a copy of its terms (R19):
 
@@ -1060,6 +1109,33 @@ can reclaim
   holder = none
 ```
 
+And since its version 3 (E9), a service's subscription (6.12; the bill and the payment that follow on a service with a recurring price are R34 and R35, and the requests of `subscribe`, `upgrade`, and `downgrade` on a service R10):
+
+```
+# The service is subscribed to (by whom the contract's can names, else the
+# home): its first period starts today, when it is due until it is paid
+# (R11). A service is subscribed to once.
+can subscribe
+  requires active
+  requires paid until = none
+  paid until = today
+  billed until = today
+
+# The service is renewed for one more period. One bill is open at a time: it
+# is renewed once the last bill is paid (or its invoice or collection failed).
+can renew
+  requires active or suspended
+  requires billed until = paid until
+
+# The service moves to a larger or a smaller plan, outside the ledger: the
+# plan and any proration are the executor's (R10); the contract's price stays.
+can upgrade
+  requires active
+
+can downgrade
+  requires active
+```
+
 ### 8.3 In short
 
 | Action | Pack | Function | Starter | Counterparty | From | To |
@@ -1081,10 +1157,14 @@ can reclaim
 | split | finance | `split` | the holder | | active | divided (section 11) |
 | allocate | services | `allocate` | the home | consents, every time (R23) | active, cooling | allocated (the holder is the counterparty) |
 | reclaim | services | `reclaim` | the home | | allocated | cooling (no holder) |
+| subscribe | services | `subscribe` | the home | | active | unchanged (paid and billed until the day of the call; once) |
+| renew | services | `renew` | the home | | active, suspended | unchanged (once the last bill is closed) |
+| upgrade | services | `upgrade` | the home | | active | unchanged (an executor changes the plan) |
+| downgrade | services | `downgrade` | the home | | active | unchanged (an executor changes the plan) |
 
 Each built-in action's starter, if it is not the home, consents by starting it; its counterparty consents to every call, as with the native assets: through R3 (a role the action binds), R21 (a counterparty each call names), or R31 (a role bound at creation or by another action, which the action makes the holder or the pledgee). With `can pledge to bank`, the bank is bound by the first pledge (R3), so a later pledge, after a release, goes to the same bank, which consents again; with `can pledge`, each pledge names its pledgee (R21), as the native assets do; with a bank bound at creation (a field `banker bank`, say), each pledge to it asks its consent (R31). `enforce` names no counterparty: the pledgee starts it and takes the asset with its own consent alone, since the holder agreed when it pledged the asset, as with the native assets; `pay` names none either, and the home pays on its own word. Unlike the native assets, the terms do not refuse a counterparty that is the home itself.
 
-The other actions of the vocabulary (the core's `issue`, `create`, `approve`, `propose`, and `notify`; commerce's `refund` and `credit`; services' `subscribe`, `renew`, `upgrade`, and `downgrade`) have no terms in edition 1: a `can` of one is checked, but does not build (`build.standard-action`, or `build.executor` for an executor's). `issue` and `create` are the creation words: of tests (13.1) and of parts (section 11).
+The other actions of the vocabulary (the core's `issue`, `create`, `approve`, `propose`, and `notify`; commerce's `refund`, `credit`, and `collect`) have no terms in edition 1: a `can` of one is checked, but does not build (`build.standard-action`, or `build.executor` for `notify`, a request: 6.11). `issue` and `create` are the creation words: of tests (13.1) and of parts (section 11).
 
 ### 8.4 Changing a built-in action
 
@@ -1121,7 +1201,7 @@ A rule's event MUST name exactly one time (`check.when-event`), one of:
 
 The time MAY be joined to other conditions with `and` (`when 7 days before due and active`): the rule applies only while they hold. It MUST NOT be inside `or` or `not`, and an event names no second time. `now`, `today`, `within`, and recurrences (`monthly`) name no time a rule can wait for, and a date in an event MUST NOT use them. A date is an operand of `and` only in an event. N is a duration; calendar durations move by months (5.6).
 
-*Due* is the instance's `due` field, a date (`check.needs-due` without one). For a service with a recurring price, due is the end of each paid period (R11): such rules are checked and explained but do not build (`build.time-rule`), since executors keep what was paid.
+*Due* is the instance's `due` field, a date (`check.needs-due` without one). For a service with a recurring price, due is the date it is paid until (R11, 6.12): such rules apply only once it is subscribed to, and again each time a payment moves the date.
 
 Example: with a due date of 30 June, `overdue` begins on 1 July, `overdue 3 days` on 3 July, and `7 days before due` on 23 June, each at the start of the day at the contract's offset.
 
@@ -1444,6 +1524,7 @@ Arguments and the instance's state hold values as deterministic CBOR:
 | party | a byte string of 32 bytes: a ledger id |
 | list | an array of at most its bound of items, each encoded as its type |
 | a party field holding none | `null` (in the state only) |
+| a date field holding none (a service's `paid until`, `billed until`) | `null` (in the state only) |
 
 Integers MUST lie in the signed 64-bit range. Any other shape is refused: `bo:argument NAME` in arguments, `bo:input` in the state.
 
@@ -2017,6 +2098,7 @@ The words of edition 1, by category, with the vocabulary pack each belongs to (`
 | `act.allocate` | services | `allocate` | `分配` | `分配` | third `allocates`, gerund `allocating` |
 | `act.approve` | core | `approve` | `批准` | `批准` | third `approves`, gerund `approving` |
 | `act.cancel` | core | `cancel` | `註銷` | `注销` | third `cancels`, gerund `cancelling` |
+| `act.collect` | commerce | `collect` | `收款` | `收款` | third `collects`, gerund `collecting` |
 | `act.confirm_payment` | finance | `confirm payment` | `確認收款` | `确认收款` | third `confirms payment`, gerund `confirming payment` |
 | `act.create` | core | `create` | `建立` | `创建` | third `creates`, gerund `creating` |
 | `act.credit` | commerce | `credit` | `抵扣` | `抵扣` | third `credits`, gerund `crediting` |
@@ -2164,10 +2246,12 @@ The words of edition 1, by category, with the vocabulary pack each belongs to (`
 | Concept | Pack | English | 繁體中文（香港） | 简体中文 | English forms |
 |---|---|---|---|---|---|
 | `field.amount` | core | `amount` | `金額` | `金额` | object `the amount` |
+| `field.billed_until` | services | `billed until` | `已出賬至` | `已出账至` | |
 | `field.cooling_period` | services | `cooling period` | `冷卻期` | `冷却期` | object `the cooling period` |
 | `field.customer_location` | commerce | `customer location` | `客戶所在地` | `客户所在地` | object `the customer location` |
 | `field.due` | core | `due` | `到期日` | `到期日` | object `the due date` |
 | `field.holder` | core | `holder` | `持有人` | `持有人` | subject `the holder`, object `the holder` |
+| `field.paid_until` | services | `paid until` | `已付費至` | `已付费至` | |
 | `field.parts` | core | `parts` | `各部分` | `各部分` | object `the parts` |
 | `field.payee` | finance | `payee` | `收款人` | `收款人` | subject `the payee`, object `the payee` |
 | `field.pledgee` | finance | `pledgee` | `質權人` | `质权人` | subject `the pledgee`, object `the pledgee` |
@@ -2332,7 +2416,7 @@ Every problem the compiler reports has a code, a severity, and parameters, which
 | `parse.expected-set` | error | a field and its value must follow {after}: amount = HKD 100, with commas between them |
 | `parse.can` | error | {found} cannot follow the action here: write by PARTY, to PARTY, or with INPUTS, each at most once |
 | `parse.when` | error | when needs an event before its action: when overdue 3 days suspend, when 7 days before due notify customer |
-| `parse.request` | error | a request is written request KIND [to PARTY] [with NAME = VALUE, ...] within DURATION, its kind a name or an action's word; found {found} |
+| `parse.request` | error | a request is written request KIND [to PARTY] [with NAME = VALUE, ...] within DURATION, its kind a name, an action's word, or a document's (invoice); found {found} |
 | `parse.each` | error | each is written each NAME in LIST, with the lines to repeat in a block under it |
 | `parse.bare-condition` | error | a condition alone does nothing: write requires or if before it; to set a field, write FIELD = VALUE |
 | `parse.unclosed` | error | this ( is not closed on its line |
@@ -2406,8 +2490,10 @@ Every problem the compiler reports has a code, a severity, and parameters, which
 | `check.charge-on` | error | {name} cannot be computed on {other}: a charge is computed on the price and on charges written before it (one on each line only on charges on each line), and an included charge or a fixed amount only on the price |
 | `check.charge-rounding` | error | {name} is a fixed amount, which is never rounded: give it no rounding mode |
 | `check.charge-bill` | error | {name} is rounded once per {document}, but the contract's bill is another document |
-| `check.needs-executor` | warning | {action} asks an executor to act outside the ledger, which comes in step 6b: bo check accepts it, and bo build will refuse it until then |
-| `check.request-kind` | error | {text} is not a request kind: write a name of lowercase Latin letters, digits, and _, starting with a letter (at most 64 bytes), or an action's word |
+| `check.needs-executor` | warning | {action} asks an executor to act outside the ledger, which a request does, not an action of the contract's: write notify PARTY in an action's or a rule's block (bo build refuses this action) |
+| `check.notify` | error | {text}: notify names the one party it notifies (notify customer); for more, write a request (request notify to customer with NAME = VALUE within 1 day) |
+| `check.service-bill` | error | {text}: a service billed each period (R34) keeps no bill of its own in this version: its invoices carry the period's price, without charges; leave out the bill's field and its charges |
+| `check.request-kind` | error | {text} is not a request kind: write a name of lowercase Latin letters, digits, and _, starting with a letter (at most 64 bytes), or an action's or a document's word |
 | `check.request-value` | error | {name}: a request carries numbers, money, quantities, rates, dates, durations, texts, yes or no, parties, and lists of them, not {type} |
 | `check.request-within` | error | {text}: a request names its deadline, within a duration written out, from 1 day to 366 days (12 months) |
 | `check.request-count` | error | {function} can make {count} requests in one call; a call makes at most 16 |
@@ -2449,8 +2535,8 @@ Every problem the compiler reports has a code, a severity, and parameters, which
 |---|---|---|
 | `build.fragment` | error | this file has no contract line, so it is a fragment: only a contract (contract NAME) compiles |
 | `build.standard-action` | error | {action} is a built-in action: its template comes with the standard library, in a later version of the compiler; for now, declare an action of your own (can NAME by PARTY) |
-| `build.executor` | error | {action} asks an executor to act outside the ledger, which comes in step 6b: deployed code never changes, so it cannot be compiled before then |
-| `build.time-rule` | error | {text}: this when rule cannot be compiled yet: a service is due at the end of each paid period, which its executors (step 6b) track |
+| `build.executor` | error | {action} is done by a request to an executor, not by an action of the contract's: write notify PARTY in an action's or a rule's block, or a request (request KIND ... within DURATION) |
+| `build.time-rule` | error | {text}: this when rule cannot be compiled: it names no one time at which a keeper could call it |
 | `build.unsupported` | error | {text} uses {feature}, which this version of the compiler does not compile yet |
 | `build.name-taken` | error | two parts of the compiled contract would have the name {name} (functions, fields, parties, or inputs): rename one |
 | `build.name-too-long` | error | {name} is too long for compiled code: at most {limit} bytes |

@@ -49,7 +49,7 @@ test "answers"
   step actor.executor ping answer=ping done expect=accepted
   step actor.executor act.notify answer=notify done expect=accepted
     set field.amount "x"
-10:11 error check.request-kind: Notify is not a request kind: write a name of lowercase Latin letters, digits, and _, starting with a letter (at most 64 bytes), or an action's word
+10:11 error check.request-kind: Notify is not a request kind: write a name of lowercase Latin letters, digits, and _, starting with a letter (at most 64 bytes), or an action's or a document's word
 11:18 error check.request-within: within 400 days: a request names its deadline, within a duration written out, from 1 day to 366 days (12 months)
 12:3 error check.request-within: request notify to buyer: a request names its deadline, within a duration written out, from 1 day to 366 days (12 months)
 13:31 error check.request-value: state: a request carries numbers, money, quantities, rates, dates, durations, texts, yes or no, parties, and lists of them, not a state
