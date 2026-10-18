@@ -561,10 +561,20 @@ struct Model {
 /// before it. Nullopt: any state.
 [[nodiscard]] std::optional<std::set<std::string>> entry_states(const Action& action);
 
+/// How a time rule's block is read for final states (spec/bo.md 6.10).
+/// `rule_blocks` (codegen 4 on): a line of the block that does an action
+/// counts with that action's entry states, as an action on the rule's line
+/// does. `rule_lines` (codegens 1 to 3) read such a block as an action's
+/// without the actions it does, so a rule whose action is on the next line
+/// could apply in any state; it stays so that their deploys rebuild.
+enum class Finality : std::uint8_t { rule_lines, rule_blocks };
+
 /// For each of the model's states, in order: true if it is final, that is,
-/// no action can start from it (none is final while some action can start
-/// from any state). A final instance takes no more calls.
-[[nodiscard]] std::vector<bool> final_states(const Model& model);
+/// no action can start from it and no time rule can apply in it (none is
+/// final while some action can start, or some rule apply, in any state). A
+/// final instance takes no more calls.
+[[nodiscard]] std::vector<bool> final_states(const Model& model,
+                                             Finality reading = Finality::rule_blocks);
 
 /// The key of the action's one amount, which `over N` compares (R6): its
 /// one input of money or a quantity, or, with none, the instance's

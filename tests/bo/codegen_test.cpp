@@ -1639,7 +1639,10 @@ TEST_CASE("bo build: write the runs for the Python reference", "[.codegen-refere
              // A service's executors, bills, and payments (E9): the spec's
              // VPS and its tests.
              {"vps", golden_dir / "test" / "vps" / "source.bo"},
-             {"services", golden_dir / "check-services" / "source.bo"}}) {
+             {"services", golden_dir / "check-services" / "source.bo"},
+             // A time rule's action on the next line of its block (E11):
+             // codegen 4's final states, which codegen 3 did not have.
+             {"rule-block", golden_dir / "test" / "rule-block" / "source.bo"}}) {
         const std::string text = read_text(file);
         const bo::Compiled compiled = bo::compile(text, *bo::make_pack_set({}).set);
         REQUIRE(compiled.build.has_value());
@@ -1704,7 +1707,7 @@ TEST_CASE("bo build: write the runs for the Python reference", "[.codegen-refere
     }
     // What a deploy of each records (milestone 18): the interface, the
     // bo-source bundle (official packs, SHA-256 digests), the compiler, the
-    // code codegens 1 and 2 wrote, and each function's bounds (informative).
+    // code codegens 1 to 3 wrote, and each function's bounds (informative).
     const bo::PackSet set = *bo::make_pack_set({}).set;
     nlohmann::ordered_json deploys = nlohmann::ordered_json::object();
     for (const auto& [name, code] : modules.items()) {
@@ -1726,6 +1729,10 @@ TEST_CASE("bo build: write the runs for the Python reference", "[.codegen-refere
         REQUIRE(second.build.has_value());
         const auto older = provider().digest(cexchain::crypto::HashAlg::sha256, second.build->code);
         REQUIRE(older.has_value());
+        const bo::Compiled third = bo::compile(text, set, bo::CompileOptions{3, false});
+        REQUIRE(third.build.has_value());
+        const auto three = provider().digest(cexchain::crypto::HashAlg::sha256, third.build->code);
+        REQUIRE(three.has_value());
         nlohmann::ordered_json interface = nlohmann::ordered_json::object();
         for (const auto& [function, kind] : build.interface) {
             interface[function] = kind == protocol::FunctionKind::create ? "create" : "call";
@@ -1740,6 +1747,7 @@ TEST_CASE("bo build: write the runs for the Python reference", "[.codegen-refere
                          {"bundle", hex(*bundle_bytes)},
                          {"codegen1_sha256", hex(old->bytes())},
                          {"codegen2_sha256", hex(older->bytes())},
+                         {"codegen3_sha256", hex(three->bytes())},
                          {"bounds", std::move(bounds)}};
     }
     // Sources that must not build, with the codes a compiler reports
@@ -1822,7 +1830,7 @@ TEST_CASE("bo build: the conformance vectors (testvectors/bo-v1.json)", "[bo][bu
             CHECK(hex(build.code) == contract.at("code").get<std::string>());
             // The code earlier codegen versions wrote, which this compiler
             // still writes so that their deploys rebuild.
-            for (const std::uint32_t codegen : {1U, 2U}) {
+            for (const std::uint32_t codegen : {1U, 2U, 3U}) {
                 const std::string key = std::format("codegen{}_sha256", codegen);
                 if (contract.contains(key)) {
                     const bo::Build old_build = build_text(text, codegen);
@@ -1863,9 +1871,17 @@ TEST_CASE("bo build: the conformance vectors (testvectors/bo-v1.json)", "[bo][bu
             // code.
             std::set<std::uint64_t> releases;
             for (const auto& earlier : contract.value("earlier", nlohmann::json::array())) {
+                // The code its compiler's codegen writes (codegen 4 reads a
+                // time rule's block with the actions it does).
+                const auto named = bo::parse_compiler(earlier.at("compiler").get<std::string>());
+                REQUIRE(named.has_value());
+                const Bytes earlier_code =
+                    named->codegen == bo::wasm::codegen_version
+                        ? compiled.build->code
+                        : build_text(text, static_cast<std::uint32_t>(named->codegen)).code;
                 protocol::ContractDeployBody deploy;
                 deploy.language = "bo";
-                deploy.code = compiled.build->code;
+                deploy.code = earlier_code;
                 deploy.interface = compiled.build->interface;
                 deploy.compiler = earlier.at("compiler").get<std::string>();
                 deploy.source = *cexchain::from_hex(earlier.at("bundle").get<std::string>());
@@ -1882,7 +1898,7 @@ TEST_CASE("bo build: the conformance vectors (testvectors/bo-v1.json)", "[bo][bu
                     CHECK(r.bundle->vocabulary.empty());
                 }
                 const auto digest =
-                    provider().digest(cexchain::crypto::HashAlg::sha256, compiled.build->code);
+                    provider().digest(cexchain::crypto::HashAlg::sha256, earlier_code);
                 CHECK(hex(digest->bytes()) == earlier.at("code_sha256").get<std::string>());
                 ++earlier_deploys;
             }

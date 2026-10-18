@@ -1,4 +1,4 @@
-# Fuel of the Bo runtime's routines (codegen 3), measured by tests/bo/runtime_test.cpp.
+# Fuel of the Bo runtime's routines (codegen 4), measured by tests/bo/runtime_test.cpp.
 # A call has 10,000,000. Rewrite with CEXCHAIN_UPDATE_GOLDENS=1.
 read_input: a contract's input, a creation (181 bytes)                1893
 read_input: a contract's input, a call with a consent (433 bytes)      4524

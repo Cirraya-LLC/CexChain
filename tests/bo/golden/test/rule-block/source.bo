@@ -1,0 +1,33 @@
+use commerce
+use finance
+# A time rule whose action is on the next line of its block applies where
+# that action can start, as an action on the rule's line does (spec/bo.md
+# 6.10, codegen 4): settled and terminated are final, and a final instance
+# takes no more calls. Codegens 1 to 3 read such a block as able to apply in
+# any state, so that no state was final.
+contract Hosting
+parties we, customer
+
+thing Plan
+  due date
+
+can settle by customer
+  active, suspended -> settled
+can reopen by we
+  suspended -> active
+when overdue 3 days
+  suspend
+when suspended 30 days
+  terminate
+
+test "suspended, then terminated, by actions in the rules' blocks: final"
+  we create with due = 2027-06-30 at 2027-06-01
+  keeper suspend at 2027-07-02 -> refused "bo:when when.suspend"
+  keeper suspend at 2027-07-03 -> suspended
+  keeper terminate at 2027-08-02 -> terminated
+  customer settle -> refused
+
+test "settled: final, and the keeper's rules no longer apply"
+  we create with due = 2027-06-30 at 2027-06-01
+  customer settle -> settled
+  keeper suspend at 2027-07-03 -> refused

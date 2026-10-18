@@ -125,6 +125,8 @@ std::vector<Case> cases() {
     out.push_back({"role-taking", {golden_dir / "check-role-taking/source.bo"}});
     // A service billed each period (E9): its executors, bills, and payments.
     out.push_back({"services", {golden_dir / "check-services/source.bo"}});
+    // A time rule's action on the next line of its block (E11): final states.
+    out.push_back({"rule-block", {golden_dir / "test/rule-block/source.bo"}});
     return out;
 }
 
@@ -184,7 +186,7 @@ TEST_CASE("the contract text's goldens, the same from every spelling", "[bo][exp
             }
         }
     }
-    CHECK(texts == 63);
+    CHECK(texts == 66);
 }
 
 TEST_CASE("the contract text says what compiled code decides", "[bo][explain]") {

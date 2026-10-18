@@ -547,7 +547,7 @@ cp "$BUILDS/agreement-en/source.bo" agreement.bo
 GOLDEN_HASH="$(sed -n 2p "$BUILDS/agreement-en/build.txt" | sed 's/.*sha256 \([0-9a-f]*\),.*/\1/')"
 GOLDEN_SIZE="$(sed -n 2p "$BUILDS/agreement-en/build.txt" | sed 's/^code: \([0-9]*\) bytes.*/\1/')"
 COMPILER="$(run version --json | json 'd["bo"]["compiler"]')"
-contains -E "^cexchain-bo [0-9.]+; codegen 3; edition 1$" <<< "$COMPILER" || fail "the compiler string"
+contains -E "^cexchain-bo [0-9.]+; codegen 4; edition 1$" <<< "$COMPILER" || fail "the compiler string"
 run bo build agreement.bo > out.txt 2> warnings.txt
 contains -Fx "agreement.bo: built contract Agreement (Bo edition 1)" out.txt || fail "build"
 contains -F "functions  amend, close, countersign, create (creates), sign" out.txt || fail "functions"
@@ -1065,7 +1065,7 @@ json 'd["verified"], d["source"]["status"], d["error"]' < out.txt > result.txt
 contains -Fx "False differs the contract's source does not rebuild to its code" result.txt || fail "verify --json: differs"
 # The same, said to be built by another codegen version: reported as such,
 # not as a forgery.
-NEWER="$(sed 's/codegen 3/codegen 4/' <<< "$COMPILER")"
+NEWER="$(sed 's/codegen 4/codegen 5/' <<< "$COMPILER")"
 Y="$(deploy_raw other.wasm "$NEWER" agreement.bundle)"
 d contract show "$Y" > show.txt
 contains -F "rebuild:    not rebuilt: built with $NEWER; this compiler is $COMPILER, and the source builds to other code" show.txt || fail "show: other codegen"
@@ -1085,6 +1085,21 @@ expect_exit 3 contract explain "$W" --ledger "$D"
 contains -F "MALFORMED" out.txt || fail "explain: malformed"
 d contract explain "$Z" | sed '1,/^$/d' > text.txt
 diff "$TEXTS/agreement/en.txt" text.txt > /dev/null || fail "explain: the same bytes, said to be another codegen's, rebuild"
+# Codegen 4 reads a time rule's action on the next line of its block, so
+# the states it ends in are final; a deploy built with codegen 3 (bo build
+# --codegen 3) still rebuilds, and its text says what its code does.
+cp "$GOLDENS/test/rule-block/source.bo" rule-block.bo
+run bo build rule-block.bo --codegen 3 --out rule-block-3.boc > out.txt 2> /dev/null
+contains -F "compiler   $(sed 's/codegen 4/codegen 3/' <<< "$COMPILER")" out.txt || fail "build --codegen 3"
+run bo build rule-block.bo --out rule-block-4.boc > /dev/null 2>&1
+cmp -s rule-block-3.boc rule-block-4.boc && fail "codegens 3 and 4 write other code here"
+expect_exit 1 bo build rule-block.bo --codegen 5
+contains -F "a codegen version from 1 to 4, not 5" out.txt || fail "build --codegen 5"
+R3="$(d contract deploy --bo rule-block-3.boc --as d-root.key --json 2> /dev/null | json 'd["contract"]["id"]')"
+R4="$(d contract deploy --bo rule-block-4.boc --as d-root.key --json 2> /dev/null | json 'd["contract"]["id"]')"
+d contract show "$R3" | contains -F "rebuild:    rebuilds" || fail "a codegen 3 deploy rebuilds"
+d contract explain "$R3" | contains -F "No state is final" || fail "codegen 3: no final state"
+d contract explain "$R4" | contains -F "The state terminated is final" || fail "codegen 4: final states"
 d contract deploy agreement.wasm --function create=create --language bo --compiler "$COMPILER" \
     --as d-root.key --json > nosource.json
 d contract show "$(json 'd["contract"]["id"]' < nosource.json)" | contains -F "MALFORMED: a Bo deploy carries its source" || fail "no source"

@@ -95,7 +95,10 @@ struct Explained {
 
 /// The contract text of a model in a pack's language (English if null).
 /// Meant for a model the checker found no errors in; any model is safe.
-[[nodiscard]] Explained explain(const model::Model& model, const Pack* language);
+/// `finality` says which states are final as the code of the deploy's
+/// codegen reads them (model::Finality; the newest by default).
+[[nodiscard]] Explained explain(const model::Model& model, const Pack* language,
+                                model::Finality finality = model::Finality::rule_blocks);
 
 /// One field of an instance, as the contract text writes it.
 struct ExplainedValue {

@@ -1,0 +1,22 @@
+Test "suspended, then terminated, by actions in the rules' blocks: final": passed
+  Step 1 (line 24) passed: we create with due = 2027-06-30 at 2027-06-01
+    Result: accepted, and the instance is active.
+  Step 2 (line 25) passed: keeper suspend at 2027-07-02 -> refused "bo:when when.suspend"
+    Result: refused, since when.suspend does not apply yet: its time has not come, or its conditions do not hold (bo:when when.suspend).
+    The contract text, 5.2: When the instance is 3 days overdue or more (counted from its due date):
+  Step 3 (line 26) passed: keeper suspend at 2027-07-03 -> suspended
+    Result: accepted, and the instance is suspended.
+  Step 4 (line 27) passed: keeper terminate at 2027-08-02 -> terminated
+    Result: accepted, and the instance is terminated; it is final and takes no more calls.
+  Step 5 (line 28) passed: customer settle -> refused
+    Result: refused by the ledger: the instance is final and takes no more calls.
+
+Test "settled: final, and the keeper's rules no longer apply": passed
+  Step 1 (line 31) passed: we create with due = 2027-06-30 at 2027-06-01
+    Result: accepted, and the instance is active.
+  Step 2 (line 32) passed: customer settle -> settled
+    Result: accepted with the consent of the customer, and the instance is settled; it is final and takes no more calls.
+  Step 3 (line 33) passed: keeper suspend at 2027-07-03 -> refused
+    Result: refused by the ledger: the instance is final and takes no more calls.
+
+2 tests: 2 passed, 0 failed.

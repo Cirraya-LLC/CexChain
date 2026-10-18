@@ -6,8 +6,9 @@
 For each contract: its source (in each language it is written in), its name
 and interface, the bo-source bundle a deploy records (spec section 15), the
 code our compiler builds from it and the code's SHA-256, the hashes of the
-code codegens 1 and 2 built (informative: another compiler may build other
-code; codegen 2 differs from codegen 3 only where R31 asks a consent), each
+code codegens 1 to 3 built (informative: another compiler may build other
+code; codegen 2 differs from codegen 3 only where R31 asks a consent, and
+codegen 3 from codegen 4 only where a time rule's block does an action), each
 function's fuel and output bounds (informative), and calls with their outcomes
 (normative: any compiler's code must give the same outcomes, outputs, and
 refusals; fuel is our code's). Then sources that must not build, with the
@@ -36,7 +37,7 @@ write them (tests/bo/codegen_test.cpp, the hidden case
     files, with version 1 of the vocabulary packs in key 6; all in
     bo/packs/history/) are kept as
     "earlier", oldest first, each with the code it deployed, which must be
-    the code built today.
+    the code built today with the codegen its compiler names.
 The C++ test "the conformance vectors" then rebuilds each source to the same
 code, bundle, interface, and bounds, rebuilds every earlier deploy to the same
 code, replays each run, and compiles each source that must not build to the
@@ -352,7 +353,12 @@ def main() -> int:
             check_bundle(old_bundle, cbor2.loads(old_bundle)[3], packs, version)
             if version == 1:
                 assert not uses(cbor2.loads(old_bundle)[3]), f"{name}: use lines before packs"
-            assert old["code_sha256"] == hashlib.sha256(code).hexdigest(), \
+            # The code of the codegen the deploy's compiler names (codegen
+            # 4 reads a time rule's block with the actions it does).
+            codegen = int(re.search(r"; codegen (\d+);", old["compiler"]).group(1))
+            built = (hashlib.sha256(code).hexdigest() if codegen == doc["codegen"]
+                     else deploy[f"codegen{codegen}_sha256"])
+            assert old["code_sha256"] == built, \
                 f"{name}: the code differs from the code deployed with packs version {version}"
         contracts[name] = {
             "name": name,
@@ -366,6 +372,7 @@ def main() -> int:
             "code": code_hex,
             "codegen1_sha256": deploy["codegen1_sha256"],
             "codegen2_sha256": deploy["codegen2_sha256"],
+            "codegen3_sha256": deploy["codegen3_sha256"],
             "bounds": deploy["bounds"],
             "runs": [],
             "_module": w.load(code),
@@ -411,8 +418,8 @@ def main() -> int:
                        "version 3, before vocabulary pack files, with version 1 of the "
                        "vocabulary packs; version 4, before requests, and version 5, before "
                        "a service's periods and bills, with version 2 of them; each rebuilds "
-                       "to the same code), "
-                       "and the code cexchain-bo builds, the hashes of its codegen 1 and 2 code, and its "
+                       "to the code its compiler's codegen wrote), "
+                       "and the code cexchain-bo builds, the hashes of its codegen 1 to 3 code, and its "
                        "functions' fuel and output bounds (informative); calls with their "
                        "outcomes (normative; fuel is this code's); and sources that must not "
                        "build, with their errors' codes and lines (normative). Inputs are "

@@ -1318,8 +1318,11 @@ void Lowering::plan_charges() {
 }
 
 void Lowering::plan_finals() {
-    // A state is final when no action can start from it.
-    const std::vector<bool> finals = m::final_states(model_);
+    // A state is final when no action can start from it and no time rule
+    // can apply in it; codegens 1 to 3 read a rule's block without the
+    // actions it does.
+    const std::vector<bool> finals =
+        m::final_states(model_, codegen_ >= 4 ? m::Finality::rule_blocks : m::Finality::rule_lines);
     for (std::size_t i = 0; i < model_.states.size(); ++i) {
         const m::State& s = model_.states[i];
         states_[state_index_.at(m::key(s.word, s.name))].final = finals[i];

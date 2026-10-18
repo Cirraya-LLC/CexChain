@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -22,6 +23,7 @@
 
 #include <cexchain/bo/build.hpp>
 #include <cexchain/bo/concepts.hpp>
+#include <cexchain/bo/explain.hpp>
 #include <cexchain/bo/format.hpp>
 #include <cexchain/bo/lexer.hpp>
 #include <cexchain/bo/pack.hpp>
@@ -575,6 +577,62 @@ TEST_CASE("a deploy built as codegen 2 still rebuilds, without R31's consents", 
     CHECK(rebuilt(deploy).status == RebuildStatus::rebuilds);
     // Codegen 3's code under codegen 2's name is not its source's.
     deploy.code = third.build->code;
+    CHECK(rebuilt(deploy).status == RebuildStatus::differs);
+}
+
+TEST_CASE("a deploy built as codegen 3 still rebuilds, with no final state", "[bo][build]") {
+    // Codegen 4 reads a time rule's block with the actions it does (spec/bo.md
+    // 6.10, E11): `when overdue 3 days` then `suspend` on the next line applies
+    // only where suspend can start, as `when overdue 3 days suspend` does.
+    // Codegen 3 read such a block as able to apply in any state, so that no
+    // state was final; the compiler still writes it, so that its deploys
+    // rebuild.
+    const std::string source =
+        read_text(build_dir.parent_path() / "test" / "rule-block" / "source.bo");
+    const Compiled third = compile(source, official_set(), CompileOptions{3, false});
+    const Compiled fourth = compile(source, official_set());
+    REQUIRE(third.build.has_value());
+    REQUIRE(fourth.build.has_value());
+    CHECK(third.build->code != fourth.build->code);
+    CHECK(third.build->interface == fourth.build->interface);
+    // With the actions on the rules' lines, codegens 3 and 4 agree, and
+    // codegen 4 writes the same code for both spellings.
+    std::string lines = source;
+    for (const std::string_view action : {"suspend", "terminate"}) {
+        const std::string block = std::format(" days\n  {}\n", action);
+        const auto at = lines.find(block);
+        REQUIRE(at != std::string::npos);
+        lines.replace(at, block.size(), std::format(" days {}\n", action));
+    }
+    const Compiled on_line = compile(lines, official_set(), CompileOptions{3, false});
+    REQUIRE(on_line.build.has_value());
+    CHECK(on_line.build->code == compile(lines, official_set()).build->code);
+    CHECK(on_line.build->code == fourth.build->code);
+    // Codegen 3's terminated and settled instances took more calls.
+    const TestResults before = run_tests(*third.model, *third.build, provider());
+    const TestResults after = run_tests(*fourth.model, *fourth.build, provider());
+    REQUIRE(before.tests.size() == 2);
+    REQUIRE(after.tests.size() == 2);
+    CHECK(after.passed == 2);
+    REQUIRE(before.tests[0].steps.size() == 5);
+    REQUIRE(after.tests[0].steps.size() == 5);
+    CHECK(!before.tests[0].steps[3].final);
+    CHECK(after.tests[0].steps[3].final);
+    CHECK(!before.tests[1].steps[1].final);
+    CHECK(after.tests[1].steps[1].final);
+    // The contract text says what each codegen's code does.
+    CHECK(explain(*third.model, nullptr, model::Finality::rule_lines)
+              .text.find("No state is final") != std::string::npos);
+    CHECK(explain(*fourth.model, nullptr).text.find("No state is final") == std::string::npos);
+
+    protocol::ContractDeployBody deploy = deploy_of(source);
+    CompilerId old = this_compiler();
+    old.codegen = 3;
+    deploy.compiler = format_compiler(old);
+    deploy.code = third.build->code;
+    CHECK(rebuilt(deploy).status == RebuildStatus::rebuilds);
+    // Codegen 4's code under codegen 3's name is not its source's.
+    deploy.code = fourth.build->code;
     CHECK(rebuilt(deploy).status == RebuildStatus::differs);
 }
 

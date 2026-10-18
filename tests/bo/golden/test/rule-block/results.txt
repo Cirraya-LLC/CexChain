@@ -1,0 +1,11 @@
+test "suspended, then terminated, by actions in the rules' blocks: final" passed home=role.we
+  step 1 passed 2027-06-01 accepted active event=active; fuel 5994
+  step 2 passed 2027-07-02 refused "bo:when when.suspend"; fuel 8805
+  step 3 passed 2027-07-03 accepted suspended event=when:when.suspend late=0 event=suspended; fuel 11343
+  step 4 passed 2027-08-02 accepted terminated event=when:when.terminate late=0 event=terminated final; fuel 11908
+  step 5 passed 2027-08-02 final-instance
+test "settled: final, and the keeper's rules no longer apply" passed home=role.we
+  step 1 passed 2027-06-01 accepted active event=active; fuel 5994
+  step 2 passed 2027-06-01 accepted settled event=settled final consents role.customer; fuel 9298 11468
+  step 3 passed 2027-07-03 final-instance
+2 tests: 2 passed, 0 failed

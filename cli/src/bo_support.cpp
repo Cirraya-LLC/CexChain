@@ -169,7 +169,13 @@ DeployText explain_deploy(const protocol::ContractDeployBody& deploy,
     const bo::Lexed lexed = bo::lex(bundle.source, lexicon);
     const bo::Parsed parsed = bo::parse(bundle.source, lexed);
     bo::Checked checked = bo::check(bundle.source, parsed.file);
-    out.explained = bo::explain(checked.model, reader);
+    // The final states as the deploy's code has them (codegens 1 to 3 read
+    // a time rule's block without the actions it does).
+    const std::optional<bo::CompilerId> compiler = bo::parse_compiler(deploy.compiler);
+    out.explained =
+        bo::explain(checked.model, reader,
+                    compiler && compiler->codegen < 4 ? bo::model::Finality::rule_lines
+                                                      : bo::model::Finality::rule_blocks);
     out.model = std::move(checked.model);
     return out;
 }

@@ -570,7 +570,8 @@ int level_of(const m::Expr& e) noexcept {
 
 class Explainer {
 public:
-    Explainer(const m::Model& model, const Pack* language) : model_(model), w_(language) {}
+    Explainer(const m::Model& model, const Pack* language, const m::Finality finality)
+        : model_(model), finality_(finality), w_(language) {}
 
     /// A concept by id: the edition's, or one of the users' vocabulary
     /// packs the model uses.
@@ -619,6 +620,7 @@ public:
 
 private:
     const m::Model& model_;
+    m::Finality finality_;
     Writer w_;
     Explained out_;
     Rules used_;
@@ -1295,7 +1297,7 @@ private:
             add(s.clauses, s.number, n, "states",
                 w_.say("states-all", {{"states", plain(w_.join(names, true))}}), rules);
         }
-        const std::vector<bool> finals = m::final_states(model_);
+        const std::vector<bool> finals = m::final_states(model_, finality_);
         bool any = false;
         for (std::size_t i = 0; i < model_.states.size(); ++i) {
             if (finals[i]) {
@@ -1859,8 +1861,8 @@ private:
 
 } // namespace
 
-Explained explain(const model::Model& model, const Pack* language) {
-    return Explainer(model, language).run();
+Explained explain(const model::Model& model, const Pack* language, const model::Finality finality) {
+    return Explainer(model, language, finality).run();
 }
 
 ExplainedState explain_state(const model::Model& model, const cbor::Value& state,

@@ -443,10 +443,11 @@ struct SourceBuild {
 };
 
 SourceBuild build_source(const bo::PackSet& set, const std::string& file,
-                         const crypto::HashAlg hash) {
+                         const crypto::HashAlg hash,
+                         const std::uint32_t codegen = bo::wasm::codegen_version) {
     SourceBuild out;
     out.source = read_text_file(file);
-    out.compiled = bo::compile(out.source, set);
+    out.compiled = bo::compile(out.source, set, bo::CompileOptions{codegen, true});
     if (out.compiled.build) {
         out.bundle =
             unwrap(bo::make_source_bundle(out.source, out.compiled.edition, set, provider(), hash),
@@ -1745,14 +1746,31 @@ int cmd_bo_build(const Args& args) {
     const crypto::HashAlg hash = parse_hash(args.get("hash").value_or("sha256"));
     const bo::PackSet set = pack_set(args);
     const bo::Pack* language = set_language(args, set);
-    const SourceBuild built = build_source(set, file, hash);
+    // An earlier codegen version, as an earlier deploy was built: the
+    // compiler string names it.
+    bo::CompilerId compiler = bo::this_compiler();
+    if (const auto n = args.get("codegen")) {
+        const std::uint64_t v = parse_number(*n, "--codegen");
+        if (v < bo::wasm::oldest_codegen_version || v > bo::wasm::codegen_version) {
+            throw UsageError{std::format("--codegen: a codegen version from {} to {}, not {}",
+                                         bo::wasm::oldest_codegen_version,
+                                         bo::wasm::codegen_version, *n)};
+        }
+        compiler.codegen = v;
+    }
+    const SourceBuild built =
+        build_source(set, file, hash, static_cast<std::uint32_t>(compiler.codegen));
     const bo::Compiled& c = built.compiled;
     const bool ok = c.build.has_value();
     std::optional<protocol::ContractDeployBody> body;
     Json j = nullptr;
     if (ok) {
-        body = protocol::ContractDeployBody{c.build->code,         c.build->interface, "bo",
-                                            bo::compiler_string(), built.bundle_bytes, c.name};
+        body = protocol::ContractDeployBody{c.build->code,
+                                            c.build->interface,
+                                            "bo",
+                                            bo::format_compiler(compiler),
+                                            built.bundle_bytes,
+                                            c.name};
         j = build_json(*body, *built.bundle, c.comments, hash);
         if (const auto out = args.get("out")) {
             const bo::BuiltContract boc{body->code,         body->interface, body->compiler,

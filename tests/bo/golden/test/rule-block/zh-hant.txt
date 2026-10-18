@@ -1,0 +1,22 @@
+測試 「suspended, then terminated, by actions in the rules' blocks: final」：通過
+  第 1 步（第 24 行）通過：we create with due = 2027-06-30 at 2027-06-01
+    結果：調用獲接納，實例現為正常。
+  第 2 步（第 25 行）通過：keeper suspend at 2027-07-02 -> refused "bo:when when.suspend"
+    結果：調用被拒絕，因為 when.suspend 尚未適用：其時間未到，或其條件不成立（bo:when when.suspend）。
+    合約條文 5.2：當實例已逾期 3 日或以上（由到期日起計）時：
+  第 3 步（第 26 行）通過：keeper suspend at 2027-07-03 -> suspended
+    結果：調用獲接納，實例現為已暫停。
+  第 4 步（第 27 行）通過：keeper terminate at 2027-08-02 -> terminated
+    結果：調用獲接納，實例現為已終止；此為最終狀態，實例不再接受調用。
+  第 5 步（第 28 行）通過：customer settle -> refused
+    結果：賬本拒絕調用：實例已處於最終狀態，不再接受調用。
+
+測試 「settled: final, and the keeper's rules no longer apply」：通過
+  第 1 步（第 31 行）通過：we create with due = 2027-06-30 at 2027-06-01
+    結果：調用獲接納，實例現為正常。
+  第 2 步（第 32 行）通過：customer settle -> settled
+    結果：經客戶同意，調用獲接納，實例現為已結清；此為最終狀態，實例不再接受調用。
+  第 3 步（第 33 行）通過：keeper suspend at 2027-07-03 -> refused
+    結果：賬本拒絕調用：實例已處於最終狀態，不再接受調用。
+
+共 2 個測試：2 個通過，0 個失敗。

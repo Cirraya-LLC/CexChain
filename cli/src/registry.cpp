@@ -2117,6 +2117,8 @@ std::vector<CommandSpec> build() {
               {"out", "FILE", "Write the built contract here (FILE.boc), for contract deploy --bo"},
               {"code-out", "FILE", "Write the module (WebAssembly) here"},
               {"bundle-out", "FILE", "Write the bo-source bundle here"},
+              {"codegen", "N",
+               "Write an earlier codegen version (from 1), as an earlier deploy was built"},
               {"fuel", "", "Show each function's bound: fuel, reading the input, and output"}}),
          cmd_bo_build,
          "Checks FILE as bo check does, then compiles it to a module in the contract profile\n"
@@ -2142,10 +2144,15 @@ std::vector<CommandSpec> build() {
          "output.\n\n"
          "Without --out, nothing is written: it reports the code's size and hash. Deploy with\n"
          "contract deploy --bo FILE.bo (which builds again) or FILE.boc.\n\n"
+         "--codegen N writes the code an earlier codegen version wrote (the compiler keeps\n"
+         "them, so that earlier deploys rebuild), and names it in the compiler string: to\n"
+         "reproduce an earlier deploy's code. New deploys should use today's.\n\n"
          "  cexchain bo build contract.bo\n"
          "  cexchain bo build contract.bo --fuel\n"
          "  cexchain bo build contract.bo --out contract.boc --hash sm3\n"
-         "  cexchain bo build contract.bo --json\n\n" CEXCHAIN_BO_PACKS_HELP},
+         "  cexchain bo build contract.bo --json\n"
+         "  cexchain bo build contract.bo --codegen 3 --code-out "
+         "contract.wasm\n\n" CEXCHAIN_BO_PACKS_HELP},
         {{"bo", "explain"},
          "Write the contract text of a Bo source, in English or Chinese, with every inferred rule",
          "Bo language",

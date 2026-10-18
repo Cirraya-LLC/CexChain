@@ -740,8 +740,10 @@ REBUILD" when the compiler the deploy names builds something else (the source is
 code's, and verification fails); "MALFORMED" when there is no usable bundle; or "not rebuilt"
 when another compiler, release, or codegen version built it (named, never called a forgery) or
 the build has no compiler. `contract verify --require-rebuild` accepts only "rebuilds".
-The compiler keeps writing earlier codegen versions (codegens 1 and 2 beside today's 3), so a
-deploy made with one still rebuilds.
+The compiler keeps writing earlier codegen versions (codegens 1 to 3 beside today's 4), so a
+deploy made with one still rebuilds. Codegen 4 (before the first release) reads a time rule
+whose action is on the next line of its block as the same rule with the action on its line, so
+the states it ends in are final; codegen 3 read such a contract as having no final state.
 
 ### Fuel
 

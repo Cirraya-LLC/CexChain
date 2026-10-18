@@ -415,7 +415,21 @@ void test_lines(std::string& out, const model::Test& t) {
 
 namespace model {
 
-std::optional<std::set<std::string>> entry_states(const Action& action) {
+namespace {
+
+/// A line that does an action (`Do`, not a duty or an executor's line), read
+/// in a time rule's block.
+bool does_action(const Statement& s) {
+    const auto* d = std::get_if<Do>(&s.node);
+    return d != nullptr && !d->obligation && !d->executor && !d->parts;
+}
+
+/// The entry states of a block's top-level lines (6.10). With a model (a
+/// time rule's block, Finality::rule_blocks), a line that does an action
+/// counts with that action's entry states and ends the reading, as the
+/// action may change the state; a line that holds one ends it too.
+std::optional<std::set<std::string>> block_entry_states(const std::vector<Statement>& body,
+                                                        const Model* model) {
     std::optional<std::set<std::string>> allowed;
     const auto narrow = [&](std::set<std::string> states) {
         if (!allowed) {
@@ -439,9 +453,10 @@ std::optional<std::set<std::string>> entry_states(const Action& action) {
         }
         return false;
     };
-    const auto changes = [](const std::vector<Statement>& list, const auto& self) -> bool {
+    const auto changes = [model](const std::vector<Statement>& list, const auto& self) -> bool {
         return std::ranges::any_of(list, [&](const Statement& s) {
-            if (std::holds_alternative<Transition>(s.node)) {
+            if (std::holds_alternative<Transition>(s.node) ||
+                (model != nullptr && does_action(s))) {
                 return true;
             }
             if (const auto* i = std::get_if<If>(&s.node)) {
@@ -453,7 +468,15 @@ std::optional<std::set<std::string>> entry_states(const Action& action) {
             return false;
         });
     };
-    for (const Statement& s : action.body) {
+    for (const Statement& s : body) {
+        if (model != nullptr && does_action(s)) {
+            if (const Action* a = action_of(*model, std::get<Do>(s.node))) {
+                if (auto states = entry_states(*a)) {
+                    narrow(std::move(*states));
+                }
+            }
+            break;
+        }
         if (const auto* t = std::get_if<Transition>(&s.node)) {
             if (!t->from.empty()) {
                 std::set<std::string> from;
@@ -478,11 +501,18 @@ std::optional<std::set<std::string>> entry_states(const Action& action) {
     return allowed;
 }
 
+} // namespace
+
+std::optional<std::set<std::string>> entry_states(const Action& action) {
+    return block_entry_states(action.body, nullptr);
+}
+
 namespace {
 
 /// The states a time rule can fire from (nullopt: any): the state a held
 /// trigger names, narrowed by what the rule does first.
-std::optional<std::set<std::string>> rule_entry_states(const Model& model, const TimeRule& rule) {
+std::optional<std::set<std::string>> rule_entry_states(const Model& model, const TimeRule& rule,
+                                                       const Finality reading) {
     std::optional<std::set<std::string>> allowed;
     if (const std::optional<Trigger> t = trigger_of(rule.event);
         t && t->kind == TriggerKind::held && t->state != nullptr) {
@@ -496,9 +526,7 @@ std::optional<std::set<std::string>> rule_entry_states(const Model& model, const
             first = entry_states(*a);
         }
     } else {
-        Action body;
-        body.body = rule.body;
-        first = entry_states(body);
+        first = block_entry_states(rule.body, reading == Finality::rule_blocks ? &model : nullptr);
     }
     if (!first) {
         return allowed;
@@ -513,7 +541,7 @@ std::optional<std::set<std::string>> rule_entry_states(const Model& model, const
 
 } // namespace
 
-std::vector<bool> final_states(const Model& model) {
+std::vector<bool> final_states(const Model& model, const Finality reading) {
     std::set<std::string> open;
     bool any = false;
     for (const Action& a : model.actions) {
@@ -529,7 +557,7 @@ std::vector<bool> final_states(const Model& model) {
         if (any || !rule_runs(r)) {
             continue;
         }
-        const auto allowed = rule_entry_states(model, r);
+        const auto allowed = rule_entry_states(model, r, reading);
         if (!allowed) {
             any = true;
             break;
