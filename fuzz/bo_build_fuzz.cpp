@@ -314,6 +314,13 @@ private:
     Line time_condition();
     void statements(int indent, int depth, std::vector<std::pair<int, Line>>& out);
     void time_rules(std::vector<std::pair<int, Line>>& out);
+    /// E8: `request KIND [to PARTY] [with NAME = VALUE, ...] within N days`
+    /// (now and then a kind or a deadline the checker refuses), and the
+    /// rules for the answers to the kinds requested.
+    Line request();
+    void answer_rules(std::vector<std::pair<int, Line>>& out);
+    /// A test step answering a request: `executor KIND done`, ...
+    Line answer_step(int& month, int& day);
     Tok field_tok(const GField& f) const {
         return f.name == "amount"    ? word("field.amount")
                : f.name == "due"     ? word("field.due")
@@ -357,6 +364,9 @@ private:
     std::vector<std::pair<std::string, T>> items_;
     /// The amount the test's creation gives, which a split may pass on whole.
     Line amount_given_;
+    /// The kinds of the requests made (E8); none once the contract splits.
+    std::vector<Tok> kinds_;
+    bool splits_ = false;
 };
 
 Tok Generator::type_word(const T t) {
@@ -1151,6 +1161,9 @@ std::vector<std::pair<int, Line>> Generator::contract() {
         }
         in_action_ = true;
         statements(2, 2, out);
+        if (c_.one_in(3)) {
+            out.push_back({2, request()});
+        }
         in_action_ = false;
     }
     // Built-in actions with the standard library's terms (milestone 11), when
@@ -1228,9 +1241,119 @@ std::vector<std::pair<int, Line>> Generator::contract() {
     if (c_.one_in(16)) {
         out.push_back({0, {word("kw.can"), word("act.refund"), word("kw.by"), roles_.front()}});
     }
+    // An instance that issues parts makes no requests in this version (its
+    // end is not in its state, so answers could not tell): none then.
+    if (std::ranges::any_of(actions_, [](const GAction& a) { return a.split; })) {
+        std::erase_if(out, [](const std::pair<int, Line>& l) {
+            return !l.second.empty() && l.second.front().concept_id == "kw.request";
+        });
+        kinds_.clear();
+        splits_ = true;
+    }
     time_rules(out);
+    answer_rules(out);
     tests(out);
     return out;
+}
+
+Line Generator::request() {
+    // Kinds: an action's word, names, and now and then one the ledger
+    // would refuse (check.request-kind). (The last choice when the input
+    // runs out is always the first.)
+    static constexpr std::string_view names[] = {"sync", "sync_v2", "Bad"};
+    const std::uint32_t pick = c_.below(40) == 39 ? 3 : c_.below(3);
+    const Tok kind = pick == 0 ? word("act.notify") : raw(std::string(names[pick - 1]));
+    if (pick != 3 && std::ranges::none_of(kinds_, [&](const Tok& k) {
+            return k.text == kind.text && k.concept_id == kind.concept_id;
+        })) {
+        kinds_.push_back(kind);
+    }
+    Line l{word("kw.request"), kind};
+    if (c_.one_in(2)) {
+        l.push_back(word("kw.to"));
+        const Line who = party();
+        l.insert(l.end(), who.begin(), who.end());
+    }
+    if (c_.one_in(2)) {
+        l.push_back(word("kw.with"));
+        for (std::uint32_t i = 0, n = 1 + c_.below(3); i < n; ++i) {
+            if (i > 0) {
+                l.push_back(raw(","));
+            }
+            l.push_back(raw(std::format("p{}", i)));
+            l.push_back(raw("="));
+            const Line v = value(static_cast<T>(c_.below(value_types)), 1);
+            l.insert(l.end(), v.begin(), v.end());
+        }
+    }
+    // Within 1 to 366 days, now and then more (check.request-within).
+    const std::int64_t days = c_.below(40) == 39 ? c_.between(367, 400) : c_.between(1, 366);
+    l.push_back(apply("cond.within", {raw(std::format("{} days", days))}));
+    return l;
+}
+
+void Generator::answer_rules(std::vector<std::pair<int, Line>>& out) {
+    static constexpr std::string_view outcomes[] = {"kw.done", "kw.fails", "kw.expires"};
+    const std::vector<Tok> asked = kinds_;
+    for (const Tok& kind : asked) {
+        for (const std::string_view outcome : outcomes) {
+            if (c_.below(3) != 1) {
+                continue;
+            }
+            out.push_back({0, {word("kw.when"), kind, word(std::string(outcome))}});
+            // A text field takes the answer's result or reason; another a
+            // value; now and then a state change, a new request, or a line
+            // an answer's rule may not have (check.answer-line).
+            bool any = false;
+            for (const GField& f : fields_) {
+                if (f.constant || f.list || f.type == T::party || !c_.one_in(2)) {
+                    continue;
+                }
+                Line set{field_tok(f), raw("=")};
+                if (f.type == T::text) {
+                    set.push_back(word(c_.one_in(2) ? "expr.result" : "expr.reason"));
+                } else {
+                    const Line v = value(f.type, 1);
+                    set.insert(set.end(), v.begin(), v.end());
+                }
+                out.push_back({2, set});
+                any = true;
+            }
+            if (used_states_ > 1 && c_.one_in(3)) {
+                out.push_back(
+                    {2, {raw("->"), state(c_.below(static_cast<std::uint32_t>(used_states_)))}});
+                any = true;
+            }
+            if (c_.one_in(4) || !any) {
+                out.push_back({2, request()});
+            }
+            if (c_.below(12) == 11) {
+                out.push_back({2, {word("kw.reject"), raw("\"never\"")}});
+            }
+        }
+    }
+}
+
+Line Generator::answer_step(int& month, int& day) {
+    static constexpr std::string_view outcomes[] = {"kw.done", "kw.fails", "kw.expires"};
+    const std::string_view outcome = outcomes[c_.below(3)];
+    Line line{word(c_.one_in(2) ? "actor.executor" : "actor.keeper"),
+              kinds_[c_.below(static_cast<std::uint32_t>(kinds_.size()))],
+              word(std::string(outcome))};
+    if (outcome != "kw.expires" && c_.one_in(2)) {
+        line.push_back(word("kw.with"));
+        line.push_back(word(outcome == "kw.done" ? "expr.result" : "expr.reason"));
+        line.push_back(raw("="));
+        line.push_back(raw(std::format("\"r{}\"", c_.below(10))));
+    }
+    if (c_.one_in(2)) {
+        // Time only goes on (an expiry needs its deadline to have come).
+        month += static_cast<int>(c_.below(3));
+        day = 1 + static_cast<int>(c_.below(28));
+        line.push_back(apply("time.at", {raw(std::format("{}-{:02}-{:02}", 2026 + month / 12,
+                                                         1 + month % 12, day))}));
+    }
+    return line;
 }
 
 /// Time rules (milestone 12): each fires at a date, N before due, overdue
@@ -1326,6 +1449,9 @@ void Generator::time_rules(std::vector<std::pair<int, Line>>& out) {
         if (!does || c_.one_in(3)) {
             in_rule_ = true;
             statements(2, 1, out);
+            if (!splits_ && c_.one_in(4)) {
+                out.push_back({2, request()});
+            }
             in_rule_ = false;
         }
     }
@@ -1546,6 +1672,11 @@ void Generator::tests(std::vector<std::pair<int, Line>>& out) {
                 out.push_back({2, keep});
                 continue;
             }
+            if (!kinds_.empty() && c_.one_in(4)) {
+                // E8: an executor or a keeper answers a request.
+                out.push_back({2, answer_step(month, day)});
+                continue;
+            }
             if (proposals && c_.one_in(4)) {
                 // A person approves the first proposal kept.
                 Line approve{test_party(), word("act.approve")};
@@ -1639,6 +1770,9 @@ std::size_t bills_built = 0;
 std::size_t bills_made = 0;
 /// Builds that issue parts (milestone 17), and calls that made parts.
 std::size_t parts_built = 0;
+/// Builds that make requests (E8), and calls that made some.
+std::size_t requests_built = 0;
+std::size_t requests_made = 0;
 std::size_t parts_made = 0;
 std::size_t generated_checked = 0;
 std::size_t accepted = 0;
@@ -1918,6 +2052,21 @@ void run_calls(const bo::Build& build, const m::Model& model, Choices& c) {
             }
             // Parts (R30): only from an instance above depth 8, which then
             // ends; each with its state and its holder.
+            // Requests (E8): at most 16, each well formed, its deadline
+            // within 366 days of the call, its reply the contract's own.
+            if (!accept->requests.empty()) {
+                ++requests_made;
+                require(accept->requests.size() <= 16, "more than 16 requests");
+                for (const protocol::ContractRequest& q : accept->requests) {
+                    require(protocol::is_request_kind(q.kind), "a request's kind");
+                    require(q.reply == "result", "a request's reply");
+                    require(q.deadline > input.time &&
+                                q.deadline - input.time <= protocol::max_request_deadline,
+                            "a request's deadline");
+                    const auto params = cbor::encode(q.params);
+                    require(params.has_value() && params->size() <= 4096, "a request's params");
+                }
+            }
             if (!accept->children.empty()) {
                 ++parts_made;
                 require(input.instance.has_value() && input.instance->depth < 8,
@@ -2041,6 +2190,7 @@ void build_and_run(std::string_view source, Choices& c,
                 : 0U;
         bills_built += m::bill_field(first.checked->model) != nullptr ? 1U : 0U;
         parts_built += m::issues_parts(first.checked->model) ? 1U : 0U;
+        requests_built += m::makes_requests(first.checked->model) ? 1U : 0U;
         run_calls(*first.lowered.build, first.checked->model, c);
     }
 }
@@ -2226,6 +2376,8 @@ int main(int argc, char** argv) {
     std::printf("builds with the standard library's terms: %zu; with lists %zu; with a bill "
                 "%zu (bills made by calls: %zu); issuing parts %zu (calls that made parts: %zu)\n",
                 standard_built, lists_built, bills_built, bills_made, parts_built, parts_made);
+    std::printf("builds making requests: %zu (calls that made requests: %zu)\n", requests_built,
+                requests_made);
     std::printf("calls checked against their fuel bound: %zu, the closest at %llu.%llu%% of it\n",
                 bounded_calls, static_cast<unsigned long long>(tightest / 10),
                 static_cast<unsigned long long>(tightest % 10));
