@@ -13,7 +13,7 @@ Like a spreadsheet, CexChain knows nothing of what you keep in it: there are no 
 purchase orders, invoices, or certificates. Those are things you define, and the
 [examples](examples/) show how such things are built.
 
-> **Status:** early development (specification v0.9 draft: [the protocol in prose](spec/README.md), [`spec/cexchain.cddl`](spec/cexchain.cddl); the contract language: [`spec/bo.md`](spec/bo.md)). Interfaces and formats may still change. Planned, not built yet: Bo actions that make requests, a local web console, installers, and a public witness service.
+> **Status:** early development (specification v0.9 draft: [the protocol in prose](spec/README.md), [`spec/cexchain.cddl`](spec/cexchain.cddl); the contract language: [`spec/bo.md`](spec/bo.md)). Interfaces and formats may still change. Planned, not built yet: the services pack's own requests (renewals, invoices), a local web console, installers, and a public witness service.
 
 ## Why
 
@@ -590,7 +590,7 @@ source.
 
 Bo is the language contracts are written in: a few keywords in English, Traditional Chinese (Hong
 Kong usage), and Simplified Chinese, freely mixed, and a built-in vocabulary of words with fixed
-meanings. Its core, which every contract reads, holds 81 generic words: kinds of things (`thing`),
+meanings. Its core, which every contract reads, holds 84 generic words: kinds of things (`thing`),
 common actions (transfer, suspend, cancel), conditions, time words, units (a temperature among
 them, `°C`), currencies, types, and common fields, states, and roles. Words of particular fields live in three official *vocabulary
 packs*, each with the standard terms of its built-in actions: `finance` (24 words: pledges,
@@ -866,6 +866,54 @@ language the contract and its tests are written in. Exit status 3 if a test fail
 cexchain bo test lending.bo
 cexchain bo test lending.bo --language zh-Hans-CN --json
 ```
+
+### Requests
+
+A contract asks the outside world for something with `request`: a kind (a name, or an action's
+word such as `notify`), the party it concerns, values, and a deadline. The answers come back
+through one function, `result`, and the contract says what each does; `result` and `reason` are
+the answer's texts there:
+
+```
+can deliver by carrier
+  in_transit -> delivered
+  request notify to consignee with message = "delivered" within 1 day
+
+when notify done
+  notified = yes
+  notice = result
+when notify fails
+  request notify to shipper with message = "notice failed" within 1 day
+```
+
+The same in Traditional Chinese (`bo fmt --language zh-Hant-HK`):
+
+```
+可 deliver 由 carrier
+  in_transit -> delivered
+  請求 通知 予 consignee 連同 message = "delivered" 1日內
+
+當通知 完成
+  notified = 是
+  notice = 結果
+當通知 失敗
+  請求 通知 予 shipper 連同 message = "notice failed" 1日內
+```
+
+A failed request and one no answer reaches by its deadline (expired) take the rule for failures,
+unless one is written for expiry (`when notify expires`). An answer is never refused, so these
+rules ask no consent and refuse nothing; an instance that has ended takes its answers but asks
+nothing more. The contract text states every request, its deadline, and what happens if it fails.
+Tests answer requests as an executor, a keeper, or a person would:
+
+```
+executor notify done with result = "RCPT-1" -> notified = yes
+executor notify fails with reason = "unreachable" -> notice = "unreachable"
+keeper notify expires at 2027-03-11
+```
+
+An executor (`executor add NAME --kinds notify`, then `executor run`) carries requests out through
+connectors and answers on the ledger; `examples/shipment` runs one.
 
 ### The standard library
 
