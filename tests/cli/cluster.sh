@@ -205,7 +205,9 @@ for n in 1 2 3; do eventually 60 has_size "$n" "$WANT"; done
 # --- The leader dies ---------------------------------------------------------------
 LEADER="$(leader_of 2)"
 # A request falls due while the leader is down: the new leader's keeper expires it.
-LATE="$(client contract create "$REQ" open --args '[["notify", null, 2000]]' --as root.key --json | json 'd["instance"]["id"]')"
+# Due in 8 s, so that the old leader's keeper cannot expire it before the
+# kill below, however slow the machine (sanitizers, parallel tests).
+LATE="$(client contract create "$REQ" open --args '[["notify", null, 8000]]' --as root.key --json | json 'd["instance"]["id"]')"
 kill -9 "${PIDS[$LEADER]}"; wait "${PIDS[$LEADER]}" 2> /dev/null || true; unset "PIDS[$LEADER]"
 # Its files are still a member's: nothing writes to them outside the cluster.
 expect_exit 2 record issue --ledger "node$LEADER" --as root.key --type example.document/1 --field n=x
