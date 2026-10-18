@@ -1,0 +1,22 @@
+bo 1
+# The compose file's sample contract: `ask` asks an executor to notify the
+# organization with a message, within a day, and the answer's result is
+# kept. The executor service answers through its sample connector.
+contract Notices
+parties we
+
+thing Notice
+  message text = ""
+  reply text = ""
+
+can ask by we with note text
+  message = note
+  request notify to we with message = note within 1 day
+
+when notify done
+  reply = result
+
+test "asked, notified, and the reply kept"
+  we create
+  we ask with note = "hello" -> active, message = "hello"
+  executor notify done with result = "N-1" -> reply = "N-1"

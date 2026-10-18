@@ -20,6 +20,33 @@
 # The bootstrap service creates the ledger, its keys (unencrypted, for the
 # demo only), and the members, once. For production, give each member its
 # own host and disks, keep the log key in an HSM, and serve TLS.
+#
+# The executor service answers requests that contracts make (6b): bootstrap
+# deploys a sample contract (executor/notices.bo, whose `ask` asks for a
+# notice), registers an executor for it, and writes its config with one
+# connector (a `command` connector running executor/notify.sh, which logs
+# each notice in the executor's volume and answers done). The connector's
+# secret comes from a Docker secret, a file on the host that is never in the
+# image, the compose file, or the repository; create it before `up`:
+#
+#   printf '%s' 'your-token' > executor/notify-token.txt
+#   chmod 644 executor/notify-token.txt     # read by the container's uid 10001
+#
+# Then ask for a notice (executor/ask.sh, in a client container), and watch
+# the executor answer it:
+#
+#   docker run --rm --network cluster_default -v cluster_node1:/keys:ro \
+#       -v "$PWD/executor:/deploy/executor:ro" --entrypoint /bin/sh cexchain \
+#       /deploy/executor/ask.sh
+#   docker compose logs -f executor          # seen, verified, acting, answered
+#   docker compose kill node1                # ask again: the executor waits,
+#   docker compose start node1               # then answers once node1 is back
+#
+# The executor runs as a service on its own volume (its key, token, config,
+# and state: journal, sealed secrets) and asks node1 for work; while node1
+# restarts, or the cluster elects a leader, it waits and tries again within
+# seconds (CEXCHAIN_EXECUTOR_SERVER names another member). Replace notify.sh
+# with a call to your own system, or add a webhook connector (https only).
 
 x-member: &member
   image: cexchain
@@ -37,9 +64,11 @@ services:
       CEXCHAIN_PASSPHRASE: demo
     volumes:
       - ./bootstrap.sh:/deploy/bootstrap.sh:ro
+      - ./executor:/deploy/executor:ro
       - node1:/members/node1
       - node2:/members/node2
       - node3:/members/node3
+      - executor:/members/executor
 
   node1:
     <<: *member
@@ -72,7 +101,26 @@ services:
     volumes: [node1:/data:ro]
     depends_on: [node1, node2, node3]
 
+  executor:
+    image: cexchain
+    restart: unless-stopped
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    entrypoint: ["/bin/sh", "/deploy/executor/run.sh"]
+    environment:
+      CEXCHAIN_EXECUTOR_SERVER: http://node1:8080
+    volumes:
+      - executor:/data
+      - ./executor:/deploy/executor:ro
+    secrets: [notify_token]
+
+secrets:
+  notify_token:
+    file: ./executor/notify-token.txt
+
 volumes:
   node1:
   node2:
   node3:
+  executor:

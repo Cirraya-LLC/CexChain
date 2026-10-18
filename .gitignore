@@ -17,3 +17,6 @@ CMakeUserPresets.json
 .vscode/
 *.swp
 .cache/
+
+# Secrets the deploy files read from the host (never committed)
+/deploy/cluster/executor/notify-token.txt

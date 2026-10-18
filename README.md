@@ -421,7 +421,7 @@ cexchain cluster status --server https://node2:8443
 Members authenticate every Raft message with the cluster's shared secret. Each member holds the log
 key (in its own HSM, or a key file) to sign checkpoints while it leads. A member's files belong to
 it while it runs: use the command line with `--server`. `deploy/cluster/compose.yaml` runs a
-three-member cluster on one Docker host.
+three-member cluster on one Docker host, with an executor service beside it.
 
 
 ## Working with other parties
@@ -577,7 +577,12 @@ journal for later disclosure. Transient failures are retried, with backoff, unti
 request answered elsewhere meanwhile (a keeper's expiry, a person by hand) is closed, not
 answered twice; after a crash the journal resumes the work without acting twice. Secrets are
 sealed with HPKE and reach a connector only over its pipe. Copies of one executor take turns
-through the server's lease, so a standby takes over when the active copy stops.
+through the server's lease, so a standby takes over when the active copy stops. Run as a
+service, it rides out its server's restarts and a cluster's elections: it waits while it cannot
+reach the server and tries the ledger again within 30 seconds at most (an outside system's
+retries back off to 5 minutes), each request still acted on and answered once.
+`deploy/cluster/compose.yaml` runs one beside the three-member cluster, with a sample contract,
+a `command` connector, and its secret from a Docker secret, never in the image.
 
 **Relying on an instance's state.** When a party acts on an instance's state, say that a thing is
 not already promised to someone else, it waits until the call that put it there is in a

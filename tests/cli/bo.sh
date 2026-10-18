@@ -1560,5 +1560,12 @@ for code in request-kind request-within request-value request-count answer-twice
 done
 CEXCHAIN_LANGUAGE=zh-Hant expect_exit 2 bo check bad-requests.bo
 contains -F "答覆永不被拒絕" out.txt || fail "requests: check.answer-line in zh-Hant"
+# The compose file's sample contract for its executor service (deploy/cluster)
+# builds and passes its tests; its scripts parse.
+run bo test "$SOURCE/deploy/cluster/executor/notices.bo" | contains -F "1 test: 1 passed" \
+    || fail "deploy: the sample contract"
+for script in bootstrap.sh executor/run.sh executor/notify.sh executor/ask.sh; do
+    sh -n "$SOURCE/deploy/cluster/$script" || fail "deploy: $script"
+done
 
 echo "bo: all checks passed"

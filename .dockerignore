@@ -10,3 +10,5 @@ CMakeUserPresets.json
 .idea/
 .vscode/
 .cache/
+# Secrets the deploy files read from the host: never in an image
+deploy/cluster/executor/notify-token.txt
