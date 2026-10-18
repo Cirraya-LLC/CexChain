@@ -234,6 +234,25 @@ TEST_CASE("every check has an error golden, and every rule is seen", "[bo][check
     CHECK(rule_specs().front().id == "R1");
 }
 
+TEST_CASE("a service is billed each period where it is due on its paid-until date", "[bo][check]") {
+    // E9: R34 and R35 add the bill and the payment's lines; with a due date
+    // of its own (field.due) a service is due then, and is not billed.
+    const std::string head = "use commerce\nuse services\ncontract S\nparties we, customer\n"
+                             "service S\n  price monthly HKD 10\n";
+    const Checked billed = check_text(head + "can subscribe by customer\n");
+    REQUIRE(!has_errors(billed.diagnostics));
+    CHECK(billed.model.due == model::DueKind::period);
+    CHECK(billed.model.answers.size() == 4);
+    CHECK(model::answer_rule(billed.model, "collect", 1) != nullptr);
+    const Checked dated = check_text(head + "  due date\ncan subscribe by customer\n");
+    REQUIRE(!has_errors(dated.diagnostics));
+    CHECK(dated.model.due == model::DueKind::field);
+    CHECK(dated.model.answers.empty());
+    // notify names the one party notified, nothing else.
+    CHECK(check_codes(head + "when overdue notify customer with note = \"late\"\n") ==
+          "check.notify");
+}
+
 TEST_CASE("a pack's words need its use line, in every language", "[bo][check]") {
     // The same contract in three languages, without `use finance`: refused
     // at the first word of the pack (bank), in the reader's language.

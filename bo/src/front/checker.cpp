@@ -2727,7 +2727,10 @@ void Checker::add_billing(m::Action& a, const Span& span) {
     const m::Field* price = recurring_price();
     const Decl* billed = global("field.billed_until");
     const Decl* paid = global("field.paid_until");
-    if (price == nullptr || billed == nullptr || paid == nullptr || !known(price->type)) {
+    // Only where the service is due on the date it is paid until (R11):
+    // not with a due date of its own.
+    if (price == nullptr || billed == nullptr || paid == nullptr || !known(price->type) ||
+        model_.due != m::DueKind::period) {
         return;
     }
     if (m::bill_field(model_) != nullptr) {
