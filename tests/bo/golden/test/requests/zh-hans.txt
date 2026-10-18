@@ -1,0 +1,47 @@
+测试 “notified on delivery”：通过
+  第 1 步（第 40 行）通过：shipper create with due = 2027-03-10
+    结果：调用被接受，实例现为正常。
+  第 2 步（第 41 行）通过：shipper deliver at 2027-03-08 -> delivered
+    发出的请求：通知，须在 2027-03-09 前答复。
+    结果：调用被接受，实例现为 delivered。
+  第 3 步（第 42 行）通过：executor notify done with result = "MSG-1" -> notified = yes, note = "MSG-1"
+    结果：调用被接受，实例现为 delivered。
+  第 4 步（第 43 行）通过：consignee close -> done
+    结果：经 consignee 同意，调用被接受，实例现为 done；这是最终状态，实例不再接受调用。
+
+测试 “a failed notice, and an expired reminder”：通过
+  第 1 步（第 46 行）通过：shipper create with due = 2027-03-10
+    结果：调用被接受，实例现为正常。
+  第 2 步（第 47 行）通过：keeper remind at 2027-03-11
+    发出的请求：remind，须在 2027-03-13 前答复。
+    结果：调用被接受，实例现为正常。
+  第 3 步（第 48 行）通过：keeper remind expires at 2027-03-13 -> late
+    结果：调用被接受，实例现为 late。
+  第 4 步（第 49 行）通过：shipper deliver
+    发出的请求：通知，须在 2027-03-14 前答复。
+    结果：调用被接受，实例现为 delivered。
+  第 5 步（第 50 行）通过：executor notify fails with reason = "no_route" -> note = "no_route", tries = 1
+    发出的请求：通知，须在 2027-03-15 前答复。
+    结果：调用被接受，实例现为 delivered。
+  第 6 步（第 51 行）通过：keeper notify expires at 2027-03-20 -> tries = 2
+    发出的请求：通知，须在 2027-03-22 前答复。
+    结果：调用被接受，实例现为 delivered。
+
+测试 “answers the ledger refuses, and one after the end”：通过
+  第 1 步（第 54 行）通过：shipper create with due = 2027-03-10
+    结果：调用被接受，实例现为正常。
+  第 2 步（第 55 行）通过：executor notify done -> refused
+    结果：账本拒绝调用：实例没有尚未答复的请求通知。
+  第 3 步（第 56 行）通过：shipper deliver at 2027-03-08
+    发出的请求：通知，须在 2027-03-09 前答复。
+    结果：调用被接受，实例现为 delivered。
+  第 4 步（第 57 行）通过：keeper notify expires at 2027-03-08 -> refused
+    结果：账本拒绝调用：请求通知要到 2027-03-09 才过期。
+  第 5 步（第 58 行）通过：consignee close -> done
+    结果：经 consignee 同意，调用被接受，实例现为 done；这是最终状态，实例不再接受调用。
+  第 6 步（第 59 行）通过：executor notify fails with reason = "late" -> done, note = "late", tries = 1
+    结果：调用被接受，实例现为 done；这是最终状态，实例不再接受调用。
+  第 7 步（第 60 行）通过：keeper remind at 2027-03-12 -> refused
+    结果：账本拒绝调用：实例已处于最终状态，不再接受调用。
+
+共 3 个测试：3 个通过，0 个失败。

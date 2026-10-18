@@ -40,6 +40,9 @@ constexpr std::string_view ledger_prefix = "cexchain-bo-test ledger ";
 constexpr std::string_view contract_seed = "cexchain-bo-test contract";
 constexpr std::string_view actor_seed = "cexchain-bo-test actor";
 constexpr std::string_view instance_seed = "cexchain-bo-test instance";
+/// A call's statement id, which request ids derive from (E8): this prefix,
+/// the instance's id in hex, a space, and its head before the call.
+constexpr std::string_view call_prefix = "cexchain-bo-test call ";
 /// More rounds than a call can need: it asks for at most 16 consents.
 constexpr std::size_t max_rounds = 18;
 
@@ -100,7 +103,8 @@ cbor::Value encode_value(const m::Expr& e, const std::int64_t offset_ms) {
 }
 
 ContractSigner signer_of(const m::Step& step) {
-    if (step.keeper) {
+    if (step.keeper || (step.answer && step.subject.word != nullptr &&
+                        step.subject.word->category == Category::actor)) {
         // The home's keeper: a device.
         return ContractSigner{3, std::nullopt, std::nullopt};
     }
@@ -148,6 +152,16 @@ const cbor::Array* first_proposal(const std::optional<protocol::ContractInstance
                                                                                          : nullptr;
 }
 
+/// A request an instance made that no answer has closed (E8).
+struct OpenRequest {
+    Id id;
+    std::string kind;
+    cbor::Value params;
+    std::int64_t deadline = 0;
+    std::int64_t asked_at = 0;
+    std::string reply;
+};
+
 /// One test's ledger: the instance the step acts on, as the home keeps it.
 struct Ledger {
     Id home;
@@ -155,6 +169,8 @@ struct Ledger {
     bool final = false;
     /// The parts the step's call created (R30), in order.
     std::vector<protocol::ContractChild> children;
+    /// The instance's open requests, oldest first.
+    std::vector<OpenRequest> open;
 };
 
 /// An instance of a test: the one its first step creates, or a part.
@@ -164,6 +180,7 @@ struct Instance {
     /// "" for the instance the test created; "1.2" for the second part of
     /// its first part.
     std::string path;
+    std::vector<OpenRequest> open;
 };
 
 class Runner {
@@ -193,6 +210,11 @@ private:
     cbor::Value arguments(const m::Step& step, const m::Action* action, const Ledger& l);
     cbor::Value given_value(const m::Expr& e, const Ledger& l);
     void run_step(const m::Step& step, Ledger& l, StepResult& r);
+    void answer(const m::Step& step, Ledger& l, StepResult& r);
+    /// Runs one call as the ledger would; the output, or nothing when the
+    /// call is refused or the code misbehaves (`r` says which).
+    std::optional<protocol::ContractOutput> invoke(const protocol::ContractInput& input,
+                                                   const Ledger& l, StepResult& r);
     void accept(const m::Step& step, const protocol::ContractAccept& a, Ledger& l, StepResult& r);
     void expect_fields(const m::Step& step, const Ledger& l, StepResult& r);
 
@@ -392,6 +414,24 @@ void Runner::expect_fields(const m::Step& step, const Ledger& l, StepResult& r) 
 
 void Runner::accept(const m::Step& step, const protocol::ContractAccept& a, Ledger& l,
                     StepResult& r) {
+    // E8: the ledger refuses an accept that would leave the instance more
+    // than 64 open requests, or whose requests break its rules (which
+    // compiled Bo never writes).
+    if (l.open.size() + a.requests.size() > protocol::max_open_requests) {
+        r.happened = Happened::too_many;
+        return;
+    }
+    for (const protocol::ContractRequest& q : a.requests) {
+        const auto reply = build_.interface.find(q.reply);
+        if (q.deadline <= static_cast<protocol::Timestamp>(r.time) ||
+            q.deadline - static_cast<protocol::Timestamp>(r.time) >
+                protocol::max_request_deadline ||
+            reply == build_.interface.end() || reply->second != protocol::FunctionKind::call) {
+            r.happened = Happened::broken;
+            r.reason = "a request the ledger refuses";
+            return;
+        }
+    }
     r.happened = Happened::accepted;
     if (const cbor::Value* state = a.state.find("state");
         state != nullptr && state->as_text() != nullptr) {
@@ -399,6 +439,14 @@ void Runner::accept(const m::Step& step, const protocol::ContractAccept& a, Ledg
     }
     for (const protocol::ContractEvent& e : a.events) {
         const std::string* action = e.data.as_text();
+        // An answer's event: the request's kind, and how it went.
+        const cbor::Value* kind = e.data.find("kind");
+        const cbor::Value* status = e.data.find("status");
+        if (e.name == "answer" && kind != nullptr && kind->as_text() != nullptr &&
+            status != nullptr && status->as_text() != nullptr) {
+            r.events.push_back("answer:" + *kind->as_text() + ":" + *status->as_text());
+            continue;
+        }
         // A time rule's event: its function, and how late the call came.
         const cbor::Value* rule = e.data.find("rule");
         const cbor::Value* late = e.data.find("late");
@@ -421,6 +469,18 @@ void Runner::accept(const m::Step& step, const protocol::ContractAccept& a, Ledg
     if (step.creation) {
         l.instance = protocol::ContractInstanceView{instance_id_, 0, {}, {}, {}, {}, 0};
     }
+    // The requests the call made (E8), each with its id: the hash of the
+    // call's (here derived) statement id and its position.
+    const Id call = hash_of(std::string(call_prefix) + hex(l.instance->id) + " " +
+                                std::to_string(l.instance->head),
+                            provider_);
+    for (std::size_t k = 0; k < a.requests.size(); ++k) {
+        const protocol::ContractRequest& q = a.requests[k];
+        const auto id = protocol::request_id(provider_, crypto::HashAlg::sha256, call, k);
+        l.open.push_back(OpenRequest{id.has_value() ? *id : Id{}, q.kind, q.params,
+                                     static_cast<std::int64_t>(q.deadline), r.time, q.reply});
+        r.requests.emplace_back(q.kind, static_cast<std::int64_t>(q.deadline));
+    }
     l.instance->head += 1;
     l.instance->state = a.state;
     l.instance->status = a.status;
@@ -430,7 +490,138 @@ void Runner::accept(const m::Step& step, const protocol::ContractAccept& a, Ledg
     l.final = a.final;
 }
 
+std::optional<protocol::ContractOutput> Runner::invoke(const protocol::ContractInput& input,
+                                                       const Ledger& l, StepResult& r) {
+    TestCall& call = r.calls.emplace_back();
+    call.input = input;
+    auto encoded = protocol::encode_contract_input(input);
+    if (!encoded) {
+        r.happened = Happened::broken;
+        r.reason = "the call's input does not encode";
+        return std::nullopt;
+    }
+    call.encoded = std::move(*encoded);
+    auto run = vm::run(module_, call.encoded, provider_, crypto::HashAlg::sha256);
+    if (!run) {
+        r.happened = Happened::broken;
+        r.reason = "the code did not run";
+        return std::nullopt;
+    }
+    call.run = std::move(*run);
+    // The fuel bound (milestone 18) holds for every call a test makes with
+    // arguments of the function's shape: one beyond it is a bug in the
+    // compiler, which the test reports.
+    const std::string why(call.run.abort_reason.begin(), call.run.abort_reason.end());
+    if (const auto bound = bound_for(build_, call.encoded);
+        bound && call.run.fuel_used > *bound && !why.starts_with("bo:argument")) {
+        r.happened = Happened::broken;
+        r.reason = std::format("the call used {} fuel, beyond its bound of {}", call.run.fuel_used,
+                               *bound);
+        return std::nullopt;
+    }
+    if (call.run.trap) {
+        if (*call.run.trap == vm::Trap::aborted) {
+            r.happened = Happened::refused;
+            r.reason.assign(call.run.abort_reason.begin(), call.run.abort_reason.end());
+        } else {
+            r.happened = Happened::broken;
+            r.reason = std::string(vm::name(*call.run.trap));
+        }
+        return std::nullopt;
+    }
+    auto output = protocol::decode_contract_output(call.run.output, l.home);
+    if (!output) {
+        r.happened = Happened::broken;
+        r.reason = "an output the ledger refuses";
+        return std::nullopt;
+    }
+    call.output = *output;
+    return std::move(*output);
+}
+
+void Runner::answer(const m::Step& step, Ledger& l, StepResult& r) {
+    // E8: the oldest open request of the kind is answered, as an executor,
+    // a keeper (expiry), or a person by hand would: a call of the request's
+    // reply on the instance, with the request in input key 9 and no
+    // consents. A final instance takes it too.
+    if (!l.instance) {
+        r.happened = Happened::no_instance;
+        return;
+    }
+    r.kind = step.request_kind;
+    const auto it = std::ranges::find(l.open, step.request_kind, &OpenRequest::kind);
+    if (it == l.open.end()) {
+        r.happened = Happened::no_request;
+        return;
+    }
+    r.deadline = it->deadline;
+    const auto status = step.outcome == m::Outcome::done    ? protocol::AnswerStatus::done
+                        : step.outcome == m::Outcome::fails ? protocol::AnswerStatus::failed
+                                                            : protocol::AnswerStatus::expired;
+    if (status == protocol::AnswerStatus::expired && r.time < it->deadline) {
+        r.happened = Happened::early;
+        return;
+    }
+    // The executor and the keeper are the home's devices.
+    const bool device =
+        step.subject.word != nullptr && step.subject.word->category == Category::actor;
+    const Id subject = device ? l.home : ledger_of(step.subject, l);
+    cbor::Map given;
+    for (const m::Set& w : step.with) {
+        given.push_back({cbor::Value::text(wire_name(w.target.concept_entry, w.target.name)),
+                         encode_value(w.value, model_.utc_offset_ms)});
+    }
+    protocol::ContractInput input;
+    input.function = it->reply;
+    input.arguments = given.empty() ? cbor::Value::null() : canonical(std::move(given));
+    input.home = l.home;
+    input.contract = contract_;
+    input.instance = l.instance;
+    input.caller = actor_;
+    input.caller_signer = subject == l.home ? signer_of(step) : organization;
+    input.time = static_cast<protocol::Timestamp>(std::max<std::int64_t>(r.time, 0));
+    input.request = protocol::ContractRequestView{it->id,
+                                                  it->kind,
+                                                  it->params,
+                                                  static_cast<protocol::Timestamp>(it->deadline),
+                                                  static_cast<protocol::Timestamp>(it->asked_at),
+                                                  status};
+    const std::optional<protocol::ContractOutput> output = invoke(input, l, r);
+    if (!output) {
+        return;
+    }
+    const auto* accepted = std::get_if<protocol::ContractAccept>(&*output);
+    if (accepted == nullptr) {
+        // An answer cites no consents: one that asks for them is refused,
+        // which compiled Bo never does.
+        r.happened = Happened::broken;
+        r.reason = "an answer asks for consents";
+        return;
+    }
+    if (l.final && (!accepted->requests.empty() || !accepted->children.empty())) {
+        r.happened = Happened::broken;
+        r.reason = "an answer to a final instance makes requests or parts";
+        return;
+    }
+    // The ledger closes the request first, then applies the accept.
+    const OpenRequest closed = *it;
+    const auto position = it - l.open.begin();
+    l.open.erase(it);
+    const bool was_final = l.final;
+    accept(step, *accepted, l, r);
+    if (r.happened != Happened::accepted) {
+        l.open.insert(l.open.begin() + position, closed);
+    }
+    // A final instance stays final, whatever the accept says.
+    l.final = l.final || was_final;
+    r.final = l.final;
+}
+
 void Runner::run_step(const m::Step& step, Ledger& l, StepResult& r) {
+    if (step.answer) {
+        answer(step, l, r);
+        return;
+    }
     if (!step.creation && !l.instance) {
         r.happened = Happened::no_instance;
         return;
@@ -488,50 +679,10 @@ void Runner::run_step(const m::Step& step, Ledger& l, StepResult& r) {
         input.caller_signer = subject == l.home ? own : organization;
         input.time = static_cast<protocol::Timestamp>(std::max<std::int64_t>(r.time, 0));
         input.consents = given;
-        TestCall& call = r.calls.emplace_back();
-        call.input = input;
-        auto encoded = protocol::encode_contract_input(input);
-        if (!encoded) {
-            r.happened = Happened::broken;
-            r.reason = "the call's input does not encode";
-            return;
-        }
-        call.encoded = std::move(*encoded);
-        auto run = vm::run(module_, call.encoded, provider_, crypto::HashAlg::sha256);
-        if (!run) {
-            r.happened = Happened::broken;
-            r.reason = "the code did not run";
-            return;
-        }
-        call.run = std::move(*run);
-        // The fuel bound (milestone 18) holds for every call a test makes
-        // with arguments of the function's shape: one beyond it is a bug in
-        // the compiler, which the test reports.
-        const std::string why(call.run.abort_reason.begin(), call.run.abort_reason.end());
-        if (const auto bound = bound_for(build_, call.encoded);
-            bound && call.run.fuel_used > *bound && !why.starts_with("bo:argument")) {
-            r.happened = Happened::broken;
-            r.reason = std::format("the call used {} fuel, beyond its bound of {}",
-                                   call.run.fuel_used, *bound);
-            return;
-        }
-        if (call.run.trap) {
-            if (*call.run.trap == vm::Trap::aborted) {
-                r.happened = Happened::refused;
-                r.reason.assign(call.run.abort_reason.begin(), call.run.abort_reason.end());
-            } else {
-                r.happened = Happened::broken;
-                r.reason = std::string(vm::name(*call.run.trap));
-            }
-            return;
-        }
-        auto output = protocol::decode_contract_output(call.run.output, l.home);
+        const std::optional<protocol::ContractOutput> output = invoke(input, l, r);
         if (!output) {
-            r.happened = Happened::broken;
-            r.reason = "an output the ledger refuses";
             return;
         }
-        call.output = *output;
         if (const auto* accepted = std::get_if<protocol::ContractAccept>(&*output)) {
             if (home_withheld) {
                 r.happened = Happened::waits;
@@ -599,7 +750,8 @@ bool passes(const m::Step& step, const StepResult& r) {
             return r.happened == Happened::refused && r.reason == *step.reason;
         }
         return r.happened == Happened::refused || r.happened == Happened::no_instance ||
-               r.happened == Happened::final_instance;
+               r.happened == Happened::final_instance || r.happened == Happened::no_request ||
+               r.happened == Happened::early || r.happened == Happened::too_many;
     case m::Expectation::waits:
         return r.happened == Happened::waits && r.waits == r.expected_waits;
     case m::Expectation::proposed:
@@ -639,6 +791,7 @@ TestResult Runner::run(const m::Test& test) {
         }
         r.time = clock;
         r.home = l.home;
+        r.offset_ms = model_.utc_offset_ms;
         if (failed) {
             r.status = StepStatus::skipped;
             continue;
@@ -654,17 +807,19 @@ TestResult Runner::run(const m::Test& test) {
             }
             l.instance = all[*at].view;
             l.final = all[*at].final;
+            l.open = all[*at].open;
             r.part = all[*at].path;
         }
         l.children.clear();
         run_step(step, l, r);
         expect_fields(step, l, r);
         if (step.creation && r.happened == Happened::accepted && l.instance) {
-            all.push_back(Instance{*l.instance, l.final, {}});
+            all.push_back(Instance{*l.instance, l.final, {}, l.open});
             at = 0;
         } else if (at) {
             all[*at].view = *l.instance;
             all[*at].final = l.final;
+            all[*at].open = l.open;
         }
         // R30: the parts the call created, after the instance.
         for (std::size_t k = 0; at && k < l.children.size(); ++k) {
@@ -943,6 +1098,15 @@ std::string state_word(std::string_view state, const Pack* language) {
     return std::string(state);
 }
 
+/// A request's kind in a pack's language (E8): an action's word, or the
+/// name as written.
+std::string kind_word(std::string_view kind, const Pack* language) {
+    if (const Concept* c = find_concept("act." + std::string(kind)); c != nullptr) {
+        return spell(c->id, language);
+    }
+    return std::string(kind);
+}
+
 /// A time as the canonical dump writes it: the day at the contract's
 /// offset, and the time of day if it is not midnight.
 std::string time_text(std::int64_t ms, const std::int64_t offset_ms) {
@@ -1092,6 +1256,15 @@ std::string outcome_text(const StepResult& result, const TestResults& results,
         return say("outcome-no-instance", {}, language);
     case Happened::final_instance:
         return say("outcome-final-instance", {}, language);
+    case Happened::no_request:
+        return say("outcome-no-request", {{"kind", kind_word(result.kind, language)}}, language);
+    case Happened::early:
+        return say("outcome-early",
+                   {{"kind", kind_word(result.kind, language)},
+                    {"deadline", time_text(result.deadline, result.offset_ms)}},
+                   language);
+    case Happened::too_many:
+        return say("outcome-too-many-requests", {}, language);
     case Happened::broken:
         return say("outcome-broken", {{"detail", result.reason}}, language);
     case Happened::no_part:
@@ -1227,6 +1400,20 @@ std::string test_report(const m::Model& model, const TestResults& results, std::
             if (!r.part.empty()) {
                 out += "    " + say("step-part", {{"part", r.part}}, language) + "\n";
             }
+            if (r.happened == Happened::accepted && !r.requests.empty()) {
+                std::vector<std::string> made;
+                for (const auto& [kind, deadline] : r.requests) {
+                    made.push_back(say("request-made",
+                                       {{"kind", kind_word(kind, language)},
+                                        {"deadline", time_text(deadline, model.utc_offset_ms)}},
+                                       language));
+                }
+                std::string list;
+                for (std::size_t k = 0; k < made.size(); ++k) {
+                    list += (k == 0 ? "" : "; ") + made[k];
+                }
+                out += "    " + say("step-requests", {{"requests", list}}, language) + "\n";
+            }
             std::string outcome = outcome_text(r, results, language);
             if (!r.differing.empty()) {
                 outcome = say("outcome-fields",
@@ -1300,6 +1487,9 @@ std::string dump(const m::Model& model, const TestResults& results) {
                 if (r.parts > 0) {
                     line += std::format(" parts={}", r.parts);
                 }
+                for (const auto& [kind, deadline] : r.requests) {
+                    line += " request=" + kind + "@" + time_text(deadline, model.utc_offset_ms);
+                }
                 for (const auto& [wire, value] : r.differing) {
                     line += " differs " + wire + "=" + cbor::diagnostic(value);
                 }
@@ -1310,6 +1500,12 @@ std::string dump(const m::Model& model, const TestResults& results) {
             case Happened::refused:
             case Happened::broken:
                 line += " \"" + r.reason + "\"";
+                break;
+            case Happened::no_request:
+                line += " " + r.kind;
+                break;
+            case Happened::early:
+                line += " " + r.kind + "@" + time_text(r.deadline, model.utc_offset_ms);
                 break;
             default:
                 break;

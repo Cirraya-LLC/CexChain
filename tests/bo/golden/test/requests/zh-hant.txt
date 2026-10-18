@@ -1,0 +1,47 @@
+測試 「notified on delivery」：通過
+  第 1 步（第 40 行）通過：shipper create with due = 2027-03-10
+    結果：調用獲接納，實例現為正常。
+  第 2 步（第 41 行）通過：shipper deliver at 2027-03-08 -> delivered
+    發出的請求：通知，須於 2027-03-09 前答覆。
+    結果：調用獲接納，實例現為 delivered。
+  第 3 步（第 42 行）通過：executor notify done with result = "MSG-1" -> notified = yes, note = "MSG-1"
+    結果：調用獲接納，實例現為 delivered。
+  第 4 步（第 43 行）通過：consignee close -> done
+    結果：經 consignee 同意，調用獲接納，實例現為 done；此為最終狀態，實例不再接受調用。
+
+測試 「a failed notice, and an expired reminder」：通過
+  第 1 步（第 46 行）通過：shipper create with due = 2027-03-10
+    結果：調用獲接納，實例現為正常。
+  第 2 步（第 47 行）通過：keeper remind at 2027-03-11
+    發出的請求：remind，須於 2027-03-13 前答覆。
+    結果：調用獲接納，實例現為正常。
+  第 3 步（第 48 行）通過：keeper remind expires at 2027-03-13 -> late
+    結果：調用獲接納，實例現為 late。
+  第 4 步（第 49 行）通過：shipper deliver
+    發出的請求：通知，須於 2027-03-14 前答覆。
+    結果：調用獲接納，實例現為 delivered。
+  第 5 步（第 50 行）通過：executor notify fails with reason = "no_route" -> note = "no_route", tries = 1
+    發出的請求：通知，須於 2027-03-15 前答覆。
+    結果：調用獲接納，實例現為 delivered。
+  第 6 步（第 51 行）通過：keeper notify expires at 2027-03-20 -> tries = 2
+    發出的請求：通知，須於 2027-03-22 前答覆。
+    結果：調用獲接納，實例現為 delivered。
+
+測試 「answers the ledger refuses, and one after the end」：通過
+  第 1 步（第 54 行）通過：shipper create with due = 2027-03-10
+    結果：調用獲接納，實例現為正常。
+  第 2 步（第 55 行）通過：executor notify done -> refused
+    結果：賬本拒絕調用：實例沒有尚未答覆的請求通知。
+  第 3 步（第 56 行）通過：shipper deliver at 2027-03-08
+    發出的請求：通知，須於 2027-03-09 前答覆。
+    結果：調用獲接納，實例現為 delivered。
+  第 4 步（第 57 行）通過：keeper notify expires at 2027-03-08 -> refused
+    結果：賬本拒絕調用：請求通知要到 2027-03-09 才過期。
+  第 5 步（第 58 行）通過：consignee close -> done
+    結果：經 consignee 同意，調用獲接納，實例現為 done；此為最終狀態，實例不再接受調用。
+  第 6 步（第 59 行）通過：executor notify fails with reason = "late" -> done, note = "late", tries = 1
+    結果：調用獲接納，實例現為 done；此為最終狀態，實例不再接受調用。
+  第 7 步（第 60 行）通過：keeper remind at 2027-03-12 -> refused
+    結果：賬本拒絕調用：實例已處於最終狀態，不再接受調用。
+
+共 3 個測試：3 個通過，0 個失敗。

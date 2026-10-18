@@ -11,19 +11,20 @@ field note instance text default ""
 field tries instance number default 0
 due field
 state state.active first{R4}
+state late{R5}
 state delivered{R5}
 state done{R5}
-state late{R5}
 can deliver own by=shipper agents=delegation{R14}
   consent field.holder{R8}
-  transition state.active -> delivered
+  transition state.active late -> delivered
   set field.holder consignee
   request notify to=consignee within=(duration time.day 1)
     set message "delivered"
     set tries tries
 can close own by=consignee agents=delegation{R14}
   transition delivered -> done
-when (and cond.overdue state.active{R7}) trigger=overdue function=when.remind{R24}
+when cond.overdue trigger=overdue function=when.remind{R24}
+  requires state.active{R7}
   request remind to=shipper within=(duration time.day 2)
 answer notify done function=result
   set notified val.yes
@@ -57,3 +58,15 @@ test "a failed notice, and an expired reminder"
     expects tries 1
   step actor.keeper act.notify at=2027-03-20 answer=notify expires expect=accepted
     expects tries 2
+test "answers the ledger refuses, and one after the end"
+  step shipper act.create creation expect=accepted
+    set field.due 2027-03-10
+  step actor.executor act.notify answer=notify done expect=refused
+  step shipper deliver at=2027-03-08 expect=accepted
+  step actor.keeper act.notify at=2027-03-08 answer=notify expires expect=refused
+  step consignee close expect=state done
+  step actor.executor act.notify answer=notify fails expect=state done
+    set expr.reason "late"
+    expects note "late"
+    expects tries 1
+  step actor.keeper remind rule=1 at=2027-03-12 expect=refused

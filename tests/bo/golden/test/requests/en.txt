@@ -1,0 +1,47 @@
+Test "notified on delivery": passed
+  Step 1 (line 40) passed: shipper create with due = 2027-03-10
+    Result: accepted, and the instance is active.
+  Step 2 (line 41) passed: shipper deliver at 2027-03-08 -> delivered
+    Requests made: notify, to be answered by 2027-03-09.
+    Result: accepted, and the instance is delivered.
+  Step 3 (line 42) passed: executor notify done with result = "MSG-1" -> notified = yes, note = "MSG-1"
+    Result: accepted, and the instance is delivered.
+  Step 4 (line 43) passed: consignee close -> done
+    Result: accepted with the consent of consignee, and the instance is done; it is final and takes no more calls.
+
+Test "a failed notice, and an expired reminder": passed
+  Step 1 (line 46) passed: shipper create with due = 2027-03-10
+    Result: accepted, and the instance is active.
+  Step 2 (line 47) passed: keeper remind at 2027-03-11
+    Requests made: remind, to be answered by 2027-03-13.
+    Result: accepted, and the instance is active.
+  Step 3 (line 48) passed: keeper remind expires at 2027-03-13 -> late
+    Result: accepted, and the instance is late.
+  Step 4 (line 49) passed: shipper deliver
+    Requests made: notify, to be answered by 2027-03-14.
+    Result: accepted, and the instance is delivered.
+  Step 5 (line 50) passed: executor notify fails with reason = "no_route" -> note = "no_route", tries = 1
+    Requests made: notify, to be answered by 2027-03-15.
+    Result: accepted, and the instance is delivered.
+  Step 6 (line 51) passed: keeper notify expires at 2027-03-20 -> tries = 2
+    Requests made: notify, to be answered by 2027-03-22.
+    Result: accepted, and the instance is delivered.
+
+Test "answers the ledger refuses, and one after the end": passed
+  Step 1 (line 54) passed: shipper create with due = 2027-03-10
+    Result: accepted, and the instance is active.
+  Step 2 (line 55) passed: executor notify done -> refused
+    Result: refused by the ledger: the instance has no open request notify.
+  Step 3 (line 56) passed: shipper deliver at 2027-03-08
+    Requests made: notify, to be answered by 2027-03-09.
+    Result: accepted, and the instance is delivered.
+  Step 4 (line 57) passed: keeper notify expires at 2027-03-08 -> refused
+    Result: refused by the ledger: the request notify expires only at 2027-03-09.
+  Step 5 (line 58) passed: consignee close -> done
+    Result: accepted with the consent of consignee, and the instance is done; it is final and takes no more calls.
+  Step 6 (line 59) passed: executor notify fails with reason = "late" -> done, note = "late", tries = 1
+    Result: accepted, and the instance is done; it is final and takes no more calls.
+  Step 7 (line 60) passed: keeper remind at 2027-03-12 -> refused
+    Result: refused by the ledger: the instance is final and takes no more calls.
+
+3 tests: 3 passed, 0 failed.

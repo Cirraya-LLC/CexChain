@@ -235,6 +235,11 @@ def contract_input(call: dict) -> bytes:
         inp[5] = view
     if call["consents"]:
         inp[8] = [[bytes.fromhex(l), signer(s)] for l, s in call["consents"]]
+    if call.get("request") is not None:
+        # An answer (spec v0.8): the request it answers, request-view.
+        q = call["request"]
+        inp[9] = {1: bytes.fromhex(q["id"]), 2: q["kind"], 3: cbor2.loads(bytes.fromhex(q["params"])),
+                  4: q["deadline"], 5: q["asked_at"], 6: q["status"]}
     return dcbor(inp)
 
 
@@ -271,6 +276,16 @@ def result(outcome: str, output: bytes, reason: bytes) -> dict:
         out["final"] = True
     if 6 in accept:
         out["children"] = readable(accept[6])
+    if 7 in accept:
+        # Requests (spec v0.8): kind, params (text keys, values with a JSON
+        # form), deadline, and reply.
+        requests = accept[7]
+        assert isinstance(requests, list) and 1 <= len(requests) <= 16, requests
+        for q in requests:
+            assert set(q) == {1, 2, 3, 4} and isinstance(q[1], str) and isinstance(q[4], str)
+            assert isinstance(q[2], dict) and all(isinstance(k, str) for k in q[2])
+            assert len(dcbor(q[2])) <= 4096
+        out["requests"] = readable(requests)
     return {"accept": out}
 
 

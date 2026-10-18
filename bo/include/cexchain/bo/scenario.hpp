@@ -65,6 +65,16 @@
 ///     names (local midnight, +08:00); a test starts on 2026-01-01, or on its
 ///     first `at` date if that is earlier. Time never goes back (the checker
 ///     sees to it).
+/// A step that answers a request (E8), `executor notify done [with result =
+/// TEXT, reason = TEXT] [at DATE]`, `keeper notify expires at DATE`, or a
+/// party's by hand, answers the instance's oldest open request of that kind,
+/// as the ledger takes answers: a call of the request's reply with the
+/// request in input key 9, no consents, the executor and the keeper signing
+/// as the home's devices. The ledger refuses an answer when no request of
+/// the kind is open, an expiry before the deadline, and an accept that would
+/// leave more than 64 open requests; a final instance takes answers, stays
+/// final, and makes no requests. Request ids derive from a call id of the
+/// instance and its head (call_prefix in scenario.cpp).
 /// A step passes if what happened is what it expects (`-> STATE`, `->
 /// refused`, `-> refused "REASON"` with the reason exactly as the contract
 /// gives it, `-> consent of PARTY`), or, without an expectation, if the call
@@ -85,10 +95,14 @@ enum class Happened : std::uint8_t {
     final_instance, ///< the ledger refuses: the instance is final
     broken,         ///< the code did what compiled code never does (a bug)
     no_part,        ///< the step names no single instance of the test's (it fails)
+    no_request,     ///< the ledger refuses an answer: no request of the kind is open (E8)
+    early,          ///< the ledger refuses an expiry before the request's deadline (E8)
+    too_many,       ///< the ledger refuses: the instance would have more than 64 open requests
 };
 
-inline constexpr std::array<std::string_view, 8> happened_names{
-    "none", "accepted", "waits", "refused", "no-instance", "final-instance", "broken", "no-part"};
+inline constexpr std::array<std::string_view, 11> happened_names{
+    "none",   "accepted", "waits",      "refused", "no-instance",      "final-instance",
+    "broken", "no-part",  "no-request", "early",   "too-many-requests"};
 
 /// One run of the contract.
 struct TestCall {
@@ -134,6 +148,14 @@ struct StepResult {
     std::size_t parts = 0;
     /// No part: the party the step named as the holder, if it named one.
     std::optional<protocol::Id> holder;
+    /// Accepted: the requests the call made (E8), each its kind and
+    /// deadline. An answer: the kind, and the deadline of the request it
+    /// answers (no_request: none).
+    std::vector<std::pair<std::string, std::int64_t>> requests;
+    std::string kind;
+    std::int64_t deadline = 0;
+    /// The contract's offset from UTC, for the times the report writes.
+    std::int64_t offset_ms = 0;
     /// The values of fields the step expects (Step::fields), by wire name,
     /// as compiled code keeps them; and, accepted, those the instance holds
     /// otherwise (null for a field it does not hold).

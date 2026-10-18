@@ -42,9 +42,11 @@
 14:23 newline
 15:1 indent
 15:3 word state.active | active
-15:10 symbol -> | ->
-15:13 name delivered | delivered
-15:22 newline
+15:9 symbol , | ,
+15:11 name late | late
+15:16 symbol -> | ->
+15:19 name delivered | delivered
+15:28 newline
 16:3 word field.holder | holder
 16:10 symbol = | =
 16:12 name consignee | consignee
@@ -78,167 +80,229 @@
 22:1 dedent
 22:1 word kw.when | when
 22:6 word cond.overdue | overdue
-22:14 word kw.and | and
-22:18 word state.active | active
-22:24 newline
+22:13 newline
 23:1 indent
-23:3 word kw.request | request
-23:11 name remind | remind
-23:18 word kw.to | to
-23:21 name shipper | shipper
-23:29 word cond.within piece=head | within
-23:36 duration time.day 2 | 2 days
-23:42 newline
-25:1 dedent
-25:1 word kw.when | when
-25:6 word act.notify | notify
-25:13 word kw.done | done
-25:17 newline
-26:1 indent
-26:3 name notified | notified
-26:12 symbol = | =
-26:14 word val.yes | yes
+23:3 word kw.requires | requires
+23:12 word state.active | active
+23:18 newline
+24:3 word kw.request | request
+24:11 name remind | remind
+24:18 word kw.to | to
+24:21 name shipper | shipper
+24:29 word cond.within piece=head | within
+24:36 duration time.day 2 | 2 days
+24:42 newline
+26:1 dedent
+26:1 word kw.when | when
+26:6 word act.notify | notify
+26:13 word kw.done | done
 26:17 newline
-27:3 name note | note
-27:8 symbol = | =
-27:10 word expr.result | result
-27:16 newline
-29:1 dedent
-29:1 word kw.when | when
-29:6 word act.notify | notify
-29:13 word kw.fails | fails
-29:18 newline
-30:1 indent
-30:3 name note | note
-30:8 symbol = | =
-30:10 word expr.reason | reason
-30:16 newline
-31:3 name tries | tries
-31:9 symbol = | =
-31:11 name tries | tries
-31:17 symbol + | +
-31:19 number 1 | 1
-31:20 newline
-32:3 word kw.if | if
-32:6 name tries | tries
-32:12 symbol < | <
-32:14 number 3 | 3
-32:15 newline
-33:1 indent
-33:5 word kw.request | request
-33:13 word act.notify | notify
-33:20 word kw.to | to
-33:23 name shipper | shipper
-33:31 word kw.with | with
-33:36 name message | message
-33:44 symbol = | =
-33:46 text "notice failed" | "notice failed"
-33:62 word cond.within piece=head | within
-33:69 duration time.day 2 | 2 days
-33:75 newline
-35:1 dedent
-35:1 dedent
-35:1 word kw.when | when
-35:6 name remind | remind
-35:13 word kw.expires | expires
-35:20 newline
-36:1 indent
-36:3 symbol -> | ->
-36:6 name late | late
-36:10 newline
-38:1 dedent
-38:1 word kw.test | test
-38:6 text "notified on delivery" | "notified on delivery"
-38:28 newline
-39:1 indent
-39:3 name shipper | shipper
-39:11 word act.create | create
-39:18 word kw.with | with
-39:23 word field.due | due
-39:27 symbol = | =
-39:29 date 2027-03-10 | 2027-03-10
-39:39 newline
+27:1 indent
+27:3 name notified | notified
+27:12 symbol = | =
+27:14 word val.yes | yes
+27:17 newline
+28:3 name note | note
+28:8 symbol = | =
+28:10 word expr.result | result
+28:16 newline
+30:1 dedent
+30:1 word kw.when | when
+30:6 word act.notify | notify
+30:13 word kw.fails | fails
+30:18 newline
+31:1 indent
+31:3 name note | note
+31:8 symbol = | =
+31:10 word expr.reason | reason
+31:16 newline
+32:3 name tries | tries
+32:9 symbol = | =
+32:11 name tries | tries
+32:17 symbol + | +
+32:19 number 1 | 1
+32:20 newline
+33:3 word kw.if | if
+33:6 name tries | tries
+33:12 symbol < | <
+33:14 number 3 | 3
+33:15 newline
+34:1 indent
+34:5 word kw.request | request
+34:13 word act.notify | notify
+34:20 word kw.to | to
+34:23 name shipper | shipper
+34:31 word kw.with | with
+34:36 name message | message
+34:44 symbol = | =
+34:46 text "notice failed" | "notice failed"
+34:62 word cond.within piece=head | within
+34:69 duration time.day 2 | 2 days
+34:75 newline
+36:1 dedent
+36:1 dedent
+36:1 word kw.when | when
+36:6 name remind | remind
+36:13 word kw.expires | expires
+36:20 newline
+37:1 indent
+37:3 symbol -> | ->
+37:6 name late | late
+37:10 newline
+39:1 dedent
+39:1 word kw.test | test
+39:6 text "notified on delivery" | "notified on delivery"
+39:28 newline
+40:1 indent
 40:3 name shipper | shipper
-40:11 name deliver | deliver
-40:19 word time.at piece=head | at
-40:22 date 2027-03-08 | 2027-03-08
-40:33 symbol -> | ->
-40:36 name delivered | delivered
-40:45 newline
-41:3 word actor.executor | executor
-41:12 word act.notify | notify
-41:19 word kw.done | done
-41:24 word kw.with | with
-41:29 word expr.result | result
-41:36 symbol = | =
-41:38 text "MSG-1" | "MSG-1"
-41:46 symbol -> | ->
-41:49 name notified | notified
-41:58 symbol = | =
-41:60 word val.yes | yes
-41:63 symbol , | ,
-41:65 name note | note
-41:70 symbol = | =
-41:72 text "MSG-1" | "MSG-1"
-41:79 newline
-42:3 name consignee | consignee
-42:13 name close | close
-42:19 symbol -> | ->
-42:22 word kw.done | done
-42:26 newline
-44:1 dedent
-44:1 word kw.test | test
-44:6 text "a failed notice, and an expired reminder" | "a failed notice, and an expired reminder"
-44:48 newline
-45:1 indent
-45:3 name shipper | shipper
-45:11 word act.create | create
-45:18 word kw.with | with
-45:23 word field.due | due
-45:27 symbol = | =
-45:29 date 2027-03-10 | 2027-03-10
-45:39 newline
-46:3 word actor.keeper | keeper
-46:10 name remind | remind
-46:17 word time.at piece=head | at
-46:20 date 2027-03-11 | 2027-03-11
-46:30 newline
+40:11 word act.create | create
+40:18 word kw.with | with
+40:23 word field.due | due
+40:27 symbol = | =
+40:29 date 2027-03-10 | 2027-03-10
+40:39 newline
+41:3 name shipper | shipper
+41:11 name deliver | deliver
+41:19 word time.at piece=head | at
+41:22 date 2027-03-08 | 2027-03-08
+41:33 symbol -> | ->
+41:36 name delivered | delivered
+41:45 newline
+42:3 word actor.executor | executor
+42:12 word act.notify | notify
+42:19 word kw.done | done
+42:24 word kw.with | with
+42:29 word expr.result | result
+42:36 symbol = | =
+42:38 text "MSG-1" | "MSG-1"
+42:46 symbol -> | ->
+42:49 name notified | notified
+42:58 symbol = | =
+42:60 word val.yes | yes
+42:63 symbol , | ,
+42:65 name note | note
+42:70 symbol = | =
+42:72 text "MSG-1" | "MSG-1"
+42:79 newline
+43:3 name consignee | consignee
+43:13 name close | close
+43:19 symbol -> | ->
+43:22 word kw.done | done
+43:26 newline
+45:1 dedent
+45:1 word kw.test | test
+45:6 text "a failed notice, and an expired reminder" | "a failed notice, and an expired reminder"
+45:48 newline
+46:1 indent
+46:3 name shipper | shipper
+46:11 word act.create | create
+46:18 word kw.with | with
+46:23 word field.due | due
+46:27 symbol = | =
+46:29 date 2027-03-10 | 2027-03-10
+46:39 newline
 47:3 word actor.keeper | keeper
 47:10 name remind | remind
-47:17 word kw.expires | expires
-47:25 word time.at piece=head | at
-47:28 date 2027-03-13 | 2027-03-13
-47:39 symbol -> | ->
-47:42 name late | late
-47:46 newline
-48:3 name shipper | shipper
-48:11 name deliver | deliver
-48:18 newline
-49:3 word actor.executor | executor
-49:12 word act.notify | notify
-49:19 word kw.fails | fails
-49:25 word kw.with | with
-49:30 word expr.reason | reason
-49:37 symbol = | =
-49:39 text "no_route" | "no_route"
-49:50 symbol -> | ->
-49:53 name note | note
-49:58 symbol = | =
-49:60 text "no_route" | "no_route"
-49:70 symbol , | ,
-49:72 name tries | tries
-49:78 symbol = | =
-49:80 number 1 | 1
-49:81 newline
-50:3 word actor.keeper | keeper
-50:10 word act.notify | notify
-50:17 word kw.expires | expires
-50:25 word time.at piece=head | at
-50:28 date 2027-03-20 | 2027-03-20
-50:39 symbol -> | ->
-50:42 name tries | tries
-50:48 symbol = | =
-50:50 number 2 | 2
-50:51 newline
-51:1 dedent
-51:1 end
+47:17 word time.at piece=head | at
+47:20 date 2027-03-11 | 2027-03-11
+47:30 newline
+48:3 word actor.keeper | keeper
+48:10 name remind | remind
+48:17 word kw.expires | expires
+48:25 word time.at piece=head | at
+48:28 date 2027-03-13 | 2027-03-13
+48:39 symbol -> | ->
+48:42 name late | late
+48:46 newline
+49:3 name shipper | shipper
+49:11 name deliver | deliver
+49:18 newline
+50:3 word actor.executor | executor
+50:12 word act.notify | notify
+50:19 word kw.fails | fails
+50:25 word kw.with | with
+50:30 word expr.reason | reason
+50:37 symbol = | =
+50:39 text "no_route" | "no_route"
+50:50 symbol -> | ->
+50:53 name note | note
+50:58 symbol = | =
+50:60 text "no_route" | "no_route"
+50:70 symbol , | ,
+50:72 name tries | tries
+50:78 symbol = | =
+50:80 number 1 | 1
+50:81 newline
+51:3 word actor.keeper | keeper
+51:10 word act.notify | notify
+51:17 word kw.expires | expires
+51:25 word time.at piece=head | at
+51:28 date 2027-03-20 | 2027-03-20
+51:39 symbol -> | ->
+51:42 name tries | tries
+51:48 symbol = | =
+51:50 number 2 | 2
+51:51 newline
+53:1 dedent
+53:1 word kw.test | test
+53:6 text "answers the ledger refuses, and one after the end" | "answers the ledger refuses, and one after the end"
+53:57 newline
+54:1 indent
+54:3 name shipper | shipper
+54:11 word act.create | create
+54:18 word kw.with | with
+54:23 word field.due | due
+54:27 symbol = | =
+54:29 date 2027-03-10 | 2027-03-10
+54:39 newline
+55:3 word actor.executor | executor
+55:12 word act.notify | notify
+55:19 word kw.done | done
+55:24 symbol -> | ->
+55:27 word val.refused | refused
+55:34 newline
+56:3 name shipper | shipper
+56:11 name deliver | deliver
+56:19 word time.at piece=head | at
+56:22 date 2027-03-08 | 2027-03-08
+56:32 newline
+57:3 word actor.keeper | keeper
+57:10 word act.notify | notify
+57:17 word kw.expires | expires
+57:25 word time.at piece=head | at
+57:28 date 2027-03-08 | 2027-03-08
+57:39 symbol -> | ->
+57:42 word val.refused | refused
+57:49 newline
+58:3 name consignee | consignee
+58:13 name close | close
+58:19 symbol -> | ->
+58:22 word kw.done | done
+58:26 newline
+59:3 word actor.executor | executor
+59:12 word act.notify | notify
+59:19 word kw.fails | fails
+59:25 word kw.with | with
+59:30 word expr.reason | reason
+59:37 symbol = | =
+59:39 text "late" | "late"
+59:46 symbol -> | ->
+59:49 word kw.done | done
+59:53 symbol , | ,
+59:55 name note | note
+59:60 symbol = | =
+59:62 text "late" | "late"
+59:68 symbol , | ,
+59:70 name tries | tries
+59:76 symbol = | =
+59:78 number 1 | 1
+59:79 newline
+60:3 word actor.keeper | keeper
+60:10 name remind | remind
+60:17 word time.at piece=head | at
+60:20 date 2027-03-12 | 2027-03-12
+60:31 symbol -> | ->
+60:34 word val.refused | refused
+60:41 newline
+61:1 dedent
+61:1 end

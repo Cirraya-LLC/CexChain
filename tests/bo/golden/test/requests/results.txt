@@ -1,0 +1,21 @@
+test "notified on delivery" passed home=shipper
+  step 1 passed 2026-01-01 accepted active event=active; fuel 6467
+  step 2 passed 2027-03-08 accepted delivered event=delivered request=notify@2027-03-09; fuel 13187
+  step 3 passed 2027-03-08 accepted delivered event=answer:notify:done; fuel 16309
+  step 4 passed 2027-03-08 accepted done event=done final consents consignee; fuel 10005 12401
+test "a failed notice, and an expired reminder" passed home=shipper
+  step 1 passed 2026-01-01 accepted active event=active; fuel 6467
+  step 2 passed 2027-03-11 accepted active event=when:when.remind late=0 request=remind@2027-03-13; fuel 13408
+  step 3 passed 2027-03-13 accepted late event=answer:remind:expired event=late; fuel 15949
+  step 4 passed 2027-03-13 accepted delivered event=delivered request=notify@2027-03-14; fuel 13651
+  step 5 passed 2027-03-13 accepted delivered event=answer:notify:failed request=notify@2027-03-15; fuel 18014
+  step 6 passed 2027-03-20 accepted delivered event=answer:notify:expired request=notify@2027-03-22; fuel 17236
+test "answers the ledger refuses, and one after the end" passed home=shipper
+  step 1 passed 2026-01-01 accepted active event=active; fuel 6467
+  step 2 passed 2026-01-01 no-request notify
+  step 3 passed 2027-03-08 accepted delivered event=delivered request=notify@2027-03-09; fuel 13187
+  step 4 passed 2027-03-08 early notify@2027-03-09
+  step 5 passed 2027-03-08 accepted done event=done final consents consignee; fuel 10005 12400
+  step 6 passed 2027-03-08 accepted done event=answer:notify:failed final; fuel 16525
+  step 7 passed 2027-03-12 final-instance
+3 tests: 3 passed, 0 failed

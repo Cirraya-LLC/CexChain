@@ -12,14 +12,15 @@
   tries 數值 = 0
 
 可 deliver 由 shipper
-  正常 -> delivered
+  正常, late -> delivered
   持有人 = consignee
   請求 通知 予 consignee 連同 message = "delivered", tries = tries 1日內
 
 可 close 由 consignee
   delivered -> done
 
-當逾期 及 正常
+當逾期
+  須正常
   請求 remind 予 shipper 2日內
 
 當通知 完成
@@ -48,3 +49,12 @@
   shipper deliver
   執行器 通知 失敗 連同 原因 = "no_route" -> note = "no_route", tries = 1
   排程器 通知 過期 時間 2027-03-20 -> tries = 2
+
+測試 "answers the ledger refuses, and one after the end"
+  shipper 建立 連同 到期日 = 2027-03-10
+  執行器 通知 完成 -> 被拒絕
+  shipper deliver 時間 2027-03-08
+  排程器 通知 過期 時間 2027-03-08 -> 被拒絕
+  consignee close -> done
+  執行器 通知 失敗 連同 原因 = "late" -> done, note = "late", tries = 1
+  排程器 remind 時間 2027-03-12 -> 被拒絕

@@ -131,7 +131,7 @@ run bo packs show zh-Hans-CN --json > show.json
 json 'd["keywords"]["kw.each"], d["vocabulary"]["unit.item"]["category"], d["reading"]["multipliers"]["万"]' < show.json > out.txt
 contains -Fx "['逐个'] unit 10000" out.txt || fail "show --json"
 json 'len(d["messages"]), len(d["sentences"])' < show.json > out.txt
-contains -Fx "263 261" out.txt || fail "messages and sentences"
+contains -Fx "263 266" out.txt || fail "messages and sentences"
 expect_exit 1 bo packs show fr
 contains -F "no pack fr" out.txt || fail "unknown pack"
 expect_exit 1 bo packs show en --section nope
@@ -1478,5 +1478,48 @@ printf 'contract C\nparties we\nthing T\n  lowest 2 °C = 3 °C\n  count number 
 CEXCHAIN_LANGUAGE=zh-Hans expect_exit 2 bo check defaults.bo
 contains -F "lowest 不能设默认值" out.txt || fail "measures: check.default-field in zh-Hans"
 contains -F "(check.default-value)" out.txt || fail "measures: check.default-value"
+
+echo "== requests (E8): request KIND ... within N, and when KIND done, fails, or expires"
+cp "$GOLDENS/check-requests/source.bo" requests.bo
+run bo test requests.bo > report.txt
+contains -Fx "3 tests: 3 passed, 0 failed." report.txt || fail "requests: the tests"
+contains -F "Requests made: notify, to be answered by 2027-03-09." report.txt || fail "requests: a request made"
+contains -F "refused by the ledger: the request notify expires only at 2027-03-09." report.txt || fail "requests: an early expiry"
+contains -F "refused by the ledger: the instance has no open request notify." report.txt || fail "requests: no request"
+CEXCHAIN_LANGUAGE=zh-Hant run bo test requests.bo | contains -F "發出的請求：通知，須於 2027-03-09 前答覆。" || fail "requests: the report in zh-Hant"
+run bo test requests.bo --json > tests.json
+json 'd["tests"][0]["steps"][1]["result"]["requests"], d["tests"][0]["steps"][2]["answer"], d["tests"][0]["steps"][2]["result"]["events"]' < tests.json > out.txt
+contains -Fx "[{'kind': 'notify', 'deadline': 1804521600000}] {'kind': 'notify', 'outcome': 'done'} ['answer:notify:done']" out.txt || fail "requests: test --json"
+json 'd["tests"][2]["steps"][3]["result"]["outcome"], d["tests"][2]["steps"][3]["result"]["deadline"]' < tests.json > out.txt
+contains -Fx "early 1804521600000" out.txt || fail "requests: an early expiry in --json"
+# The reply function is in the interface; the text states each request,
+# its deadline, and what happens if it fails.
+run bo build requests.bo > out.txt
+contains -F "functions  close, create (creates), deliver, result, when.remind" out.txt || fail "requests: the interface"
+run bo explain requests.bo > text.txt
+contains -F "It asks an executor for notify for consignee, outside the ledger, to be answered within 1 day of the call (its deadline)." text.txt || fail "requests: the request's clause"
+contains -F "If it fails, or expires, the rule for a failed notify applies (see the answers to requests). [R33]" text.txt || fail "requests: on failure"
+contains -F "If it expires, the rule for an expired remind applies (see the answers to requests); if it fails, nothing more happens" text.txt || fail "requests: on expiry only"
+contains -Fx "6. Answers to requests" text.txt || fail "requests: the section"
+contains -F "When a request notify fails, or expires: [R33]" text.txt || fail "requests: the rule for failures"
+contains -F "It sets note to the answer's reason." text.txt || fail "requests: the answer's reason"
+run bo explain requests.bo --language zh-Hans-CN | contains -F "向执行器请求通知（对象：consignee），在账本之外办理，须在调用后 1 天内答复（即其期限）。" || fail "requests: the text in zh-Hans"
+# One tree in three languages: done, result, and reason stay names
+# elsewhere (the state done).
+for language in zh-Hant-HK zh-Hans-CN; do
+    run bo fmt requests.bo --language "$language" > "requests-$language.bo"
+    run bo test "requests-$language.bo" | contains -Fx "3 tests: 3 passed, 0 failed." || fail "requests: tests in $language"
+done
+run bo fmt requests-zh-Hant-HK.bo --language en > back.bo
+diff <(grep -v '^#' requests.bo) <(grep -v '^#' back.bo) > /dev/null || fail "requests: fmt round trip"
+contains -Fx "  delivered -> done" back.bo || fail "requests: done stays a state's name"
+# What a request may not be.
+cp "$GOLDENS/check-error-requests/source.bo" bad-requests.bo
+expect_exit 2 bo check bad-requests.bo
+for code in request-kind request-within request-value request-count answer-twice answer-unasked answer-line test-answer; do
+    contains -F "(check.$code)" out.txt || fail "requests: check.$code"
+done
+CEXCHAIN_LANGUAGE=zh-Hant expect_exit 2 bo check bad-requests.bo
+contains -F "答覆永不被拒絕" out.txt || fail "requests: check.answer-line in zh-Hant"
 
 echo "bo: all checks passed"

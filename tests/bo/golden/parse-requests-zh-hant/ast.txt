@@ -8,14 +8,15 @@ block kind.thing Parcel
   field note type.text = ""
   field tries type.number = 0
 can deliver by=shipper
-  transition state.active -> delivered
+  transition state.active late -> delivered
   set field.holder consignee
   request act.notify to=consignee within=(cond.within (duration time.day 1))
     set message "delivered"
     set tries tries
 can close by=consignee
   transition delivered -> done
-when (and cond.overdue state.active)
+when cond.overdue
+  requires state.active
   request remind to=shipper within=(cond.within (duration time.day 2))
 answer act.notify kw.done
   set notified val.yes
@@ -55,3 +56,20 @@ test "a failed notice, and an expired reminder"
   do subject=actor.keeper act.notify (time.at 2027-03-20) outcome=kw.expires
   expect
     set tries 2
+test "answers the ledger refuses, and one after the end"
+  do subject=shipper act.create
+    set field.due 2027-03-10
+  do subject=actor.executor act.notify outcome=kw.done
+  expect val.refused
+  do subject=shipper deliver (time.at 2027-03-08)
+  do subject=actor.keeper act.notify (time.at 2027-03-08) outcome=kw.expires
+  expect val.refused
+  do subject=consignee close
+  expect done
+  do subject=actor.executor act.notify outcome=kw.fails
+    set expr.reason "late"
+  expect done
+    set note "late"
+    set tries 1
+  do subject=actor.keeper remind (time.at 2027-03-12)
+  expect val.refused

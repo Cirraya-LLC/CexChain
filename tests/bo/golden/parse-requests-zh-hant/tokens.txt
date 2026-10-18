@@ -42,9 +42,11 @@
 14:20 newline
 15:1 indent
 15:3 word state.active | 正常
-15:6 symbol -> | ->
-15:9 name delivered | delivered
-15:18 newline
+15:5 symbol , | ,
+15:7 name late | late
+15:12 symbol -> | ->
+15:15 name delivered | delivered
+15:24 newline
 16:3 word field.holder | 持有人
 16:7 symbol = | =
 16:9 name consignee | consignee
@@ -78,167 +80,229 @@
 22:1 dedent
 22:1 word kw.when | 當
 22:2 word cond.overdue | 逾期
-22:5 word kw.and | 及
-22:7 word state.active | 正常
-22:9 newline
+22:4 newline
 23:1 indent
-23:3 word kw.request | 請求
-23:6 name remind | remind
-23:13 word kw.to | 予
-23:15 name shipper | shipper
-23:23 duration time.day 2 | 2日
-23:25 word cond.within piece=tail | 內
-23:26 newline
-25:1 dedent
-25:1 word kw.when | 當
-25:2 word act.notify | 通知
-25:5 word kw.done | 完成
-25:7 newline
-26:1 indent
-26:3 name notified | notified
-26:12 symbol = | =
-26:14 word val.yes | 是
-26:15 newline
-27:3 name note | note
-27:8 symbol = | =
-27:10 word expr.result | 結果
-27:12 newline
-29:1 dedent
-29:1 word kw.when | 當
-29:2 word act.notify | 通知
-29:5 word kw.fails | 失敗
-29:7 newline
-30:1 indent
-30:3 name note | note
-30:8 symbol = | =
-30:10 word expr.reason | 原因
-30:12 newline
-31:3 name tries | tries
-31:9 symbol = | =
-31:11 name tries | tries
-31:17 symbol + | +
-31:19 number 1 | 1
-31:20 newline
-32:3 word kw.if | 如
-32:5 name tries | tries
-32:11 symbol < | <
-32:13 number 3 | 3
-32:14 newline
-33:1 indent
-33:5 word kw.request | 請求
-33:8 word act.notify | 通知
-33:11 word kw.to | 予
-33:13 name shipper | shipper
-33:21 word kw.with | 連同
-33:24 name message | message
-33:32 symbol = | =
-33:34 text "notice failed" | "notice failed"
-33:50 duration time.day 2 | 2日
-33:52 word cond.within piece=tail | 內
-33:53 newline
-35:1 dedent
-35:1 dedent
-35:1 word kw.when | 當
-35:3 name remind | remind
-35:10 word kw.expires | 過期
-35:12 newline
-36:1 indent
-36:3 symbol -> | ->
-36:6 name late | late
-36:10 newline
-38:1 dedent
-38:1 word kw.test | 測試
-38:4 text "notified on delivery" | "notified on delivery"
-38:26 newline
-39:1 indent
-39:3 name shipper | shipper
-39:11 word act.create | 建立
-39:14 word kw.with | 連同
-39:17 word field.due | 到期日
-39:21 symbol = | =
-39:23 date 2027-03-10 | 2027-03-10
-39:33 newline
+23:3 word kw.requires | 須
+23:4 word state.active | 正常
+23:6 newline
+24:3 word kw.request | 請求
+24:6 name remind | remind
+24:13 word kw.to | 予
+24:15 name shipper | shipper
+24:23 duration time.day 2 | 2日
+24:25 word cond.within piece=tail | 內
+24:26 newline
+26:1 dedent
+26:1 word kw.when | 當
+26:2 word act.notify | 通知
+26:5 word kw.done | 完成
+26:7 newline
+27:1 indent
+27:3 name notified | notified
+27:12 symbol = | =
+27:14 word val.yes | 是
+27:15 newline
+28:3 name note | note
+28:8 symbol = | =
+28:10 word expr.result | 結果
+28:12 newline
+30:1 dedent
+30:1 word kw.when | 當
+30:2 word act.notify | 通知
+30:5 word kw.fails | 失敗
+30:7 newline
+31:1 indent
+31:3 name note | note
+31:8 symbol = | =
+31:10 word expr.reason | 原因
+31:12 newline
+32:3 name tries | tries
+32:9 symbol = | =
+32:11 name tries | tries
+32:17 symbol + | +
+32:19 number 1 | 1
+32:20 newline
+33:3 word kw.if | 如
+33:5 name tries | tries
+33:11 symbol < | <
+33:13 number 3 | 3
+33:14 newline
+34:1 indent
+34:5 word kw.request | 請求
+34:8 word act.notify | 通知
+34:11 word kw.to | 予
+34:13 name shipper | shipper
+34:21 word kw.with | 連同
+34:24 name message | message
+34:32 symbol = | =
+34:34 text "notice failed" | "notice failed"
+34:50 duration time.day 2 | 2日
+34:52 word cond.within piece=tail | 內
+34:53 newline
+36:1 dedent
+36:1 dedent
+36:1 word kw.when | 當
+36:3 name remind | remind
+36:10 word kw.expires | 過期
+36:12 newline
+37:1 indent
+37:3 symbol -> | ->
+37:6 name late | late
+37:10 newline
+39:1 dedent
+39:1 word kw.test | 測試
+39:4 text "notified on delivery" | "notified on delivery"
+39:26 newline
+40:1 indent
 40:3 name shipper | shipper
-40:11 name deliver | deliver
-40:19 word time.at piece=head | 時間
-40:22 date 2027-03-08 | 2027-03-08
-40:33 symbol -> | ->
-40:36 name delivered | delivered
-40:45 newline
-41:3 word actor.executor | 執行器
-41:7 word act.notify | 通知
-41:10 word kw.done | 完成
-41:13 word kw.with | 連同
-41:16 word expr.result | 結果
-41:19 symbol = | =
-41:21 text "MSG-1" | "MSG-1"
-41:29 symbol -> | ->
-41:32 name notified | notified
-41:41 symbol = | =
-41:43 word val.yes | 是
-41:44 symbol , | ,
-41:46 name note | note
-41:51 symbol = | =
-41:53 text "MSG-1" | "MSG-1"
-41:60 newline
-42:3 name consignee | consignee
-42:13 name close | close
-42:19 symbol -> | ->
-42:22 word kw.done | done
-42:26 newline
-44:1 dedent
-44:1 word kw.test | 測試
-44:4 text "a failed notice, and an expired reminder" | "a failed notice, and an expired reminder"
-44:46 newline
-45:1 indent
-45:3 name shipper | shipper
-45:11 word act.create | 建立
-45:14 word kw.with | 連同
-45:17 word field.due | 到期日
-45:21 symbol = | =
-45:23 date 2027-03-10 | 2027-03-10
-45:33 newline
-46:3 word actor.keeper | 排程器
-46:7 name remind | remind
-46:14 word time.at piece=head | 時間
-46:17 date 2027-03-11 | 2027-03-11
-46:27 newline
+40:11 word act.create | 建立
+40:14 word kw.with | 連同
+40:17 word field.due | 到期日
+40:21 symbol = | =
+40:23 date 2027-03-10 | 2027-03-10
+40:33 newline
+41:3 name shipper | shipper
+41:11 name deliver | deliver
+41:19 word time.at piece=head | 時間
+41:22 date 2027-03-08 | 2027-03-08
+41:33 symbol -> | ->
+41:36 name delivered | delivered
+41:45 newline
+42:3 word actor.executor | 執行器
+42:7 word act.notify | 通知
+42:10 word kw.done | 完成
+42:13 word kw.with | 連同
+42:16 word expr.result | 結果
+42:19 symbol = | =
+42:21 text "MSG-1" | "MSG-1"
+42:29 symbol -> | ->
+42:32 name notified | notified
+42:41 symbol = | =
+42:43 word val.yes | 是
+42:44 symbol , | ,
+42:46 name note | note
+42:51 symbol = | =
+42:53 text "MSG-1" | "MSG-1"
+42:60 newline
+43:3 name consignee | consignee
+43:13 name close | close
+43:19 symbol -> | ->
+43:22 word kw.done | done
+43:26 newline
+45:1 dedent
+45:1 word kw.test | 測試
+45:4 text "a failed notice, and an expired reminder" | "a failed notice, and an expired reminder"
+45:46 newline
+46:1 indent
+46:3 name shipper | shipper
+46:11 word act.create | 建立
+46:14 word kw.with | 連同
+46:17 word field.due | 到期日
+46:21 symbol = | =
+46:23 date 2027-03-10 | 2027-03-10
+46:33 newline
 47:3 word actor.keeper | 排程器
 47:7 name remind | remind
-47:14 word kw.expires | 過期
-47:17 word time.at piece=head | 時間
-47:20 date 2027-03-13 | 2027-03-13
-47:31 symbol -> | ->
-47:34 name late | late
-47:38 newline
-48:3 name shipper | shipper
-48:11 name deliver | deliver
-48:18 newline
-49:3 word actor.executor | 執行器
-49:7 word act.notify | 通知
-49:10 word kw.fails | 失敗
-49:13 word kw.with | 連同
-49:16 word expr.reason | 原因
-49:19 symbol = | =
-49:21 text "no_route" | "no_route"
-49:32 symbol -> | ->
-49:35 name note | note
-49:40 symbol = | =
-49:42 text "no_route" | "no_route"
-49:52 symbol , | ,
-49:54 name tries | tries
-49:60 symbol = | =
-49:62 number 1 | 1
-49:63 newline
-50:3 word actor.keeper | 排程器
+47:14 word time.at piece=head | 時間
+47:17 date 2027-03-11 | 2027-03-11
+47:27 newline
+48:3 word actor.keeper | 排程器
+48:7 name remind | remind
+48:14 word kw.expires | 過期
+48:17 word time.at piece=head | 時間
+48:20 date 2027-03-13 | 2027-03-13
+48:31 symbol -> | ->
+48:34 name late | late
+48:38 newline
+49:3 name shipper | shipper
+49:11 name deliver | deliver
+49:18 newline
+50:3 word actor.executor | 執行器
 50:7 word act.notify | 通知
-50:10 word kw.expires | 過期
-50:13 word time.at piece=head | 時間
-50:16 date 2027-03-20 | 2027-03-20
-50:27 symbol -> | ->
-50:30 name tries | tries
-50:36 symbol = | =
-50:38 number 2 | 2
-50:39 newline
-51:1 dedent
-51:1 end
+50:10 word kw.fails | 失敗
+50:13 word kw.with | 連同
+50:16 word expr.reason | 原因
+50:19 symbol = | =
+50:21 text "no_route" | "no_route"
+50:32 symbol -> | ->
+50:35 name note | note
+50:40 symbol = | =
+50:42 text "no_route" | "no_route"
+50:52 symbol , | ,
+50:54 name tries | tries
+50:60 symbol = | =
+50:62 number 1 | 1
+50:63 newline
+51:3 word actor.keeper | 排程器
+51:7 word act.notify | 通知
+51:10 word kw.expires | 過期
+51:13 word time.at piece=head | 時間
+51:16 date 2027-03-20 | 2027-03-20
+51:27 symbol -> | ->
+51:30 name tries | tries
+51:36 symbol = | =
+51:38 number 2 | 2
+51:39 newline
+53:1 dedent
+53:1 word kw.test | 測試
+53:4 text "answers the ledger refuses, and one after the end" | "answers the ledger refuses, and one after the end"
+53:55 newline
+54:1 indent
+54:3 name shipper | shipper
+54:11 word act.create | 建立
+54:14 word kw.with | 連同
+54:17 word field.due | 到期日
+54:21 symbol = | =
+54:23 date 2027-03-10 | 2027-03-10
+54:33 newline
+55:3 word actor.executor | 執行器
+55:7 word act.notify | 通知
+55:10 word kw.done | 完成
+55:13 symbol -> | ->
+55:16 word val.refused | 被拒絕
+55:19 newline
+56:3 name shipper | shipper
+56:11 name deliver | deliver
+56:19 word time.at piece=head | 時間
+56:22 date 2027-03-08 | 2027-03-08
+56:32 newline
+57:3 word actor.keeper | 排程器
+57:7 word act.notify | 通知
+57:10 word kw.expires | 過期
+57:13 word time.at piece=head | 時間
+57:16 date 2027-03-08 | 2027-03-08
+57:27 symbol -> | ->
+57:30 word val.refused | 被拒絕
+57:33 newline
+58:3 name consignee | consignee
+58:13 name close | close
+58:19 symbol -> | ->
+58:22 word kw.done | done
+58:26 newline
+59:3 word actor.executor | 執行器
+59:7 word act.notify | 通知
+59:10 word kw.fails | 失敗
+59:13 word kw.with | 連同
+59:16 word expr.reason | 原因
+59:19 symbol = | =
+59:21 text "late" | "late"
+59:28 symbol -> | ->
+59:31 word kw.done | done
+59:35 symbol , | ,
+59:37 name note | note
+59:42 symbol = | =
+59:44 text "late" | "late"
+59:50 symbol , | ,
+59:52 name tries | tries
+59:58 symbol = | =
+59:60 number 1 | 1
+59:61 newline
+60:3 word actor.keeper | 排程器
+60:7 name remind | remind
+60:14 word time.at piece=head | 時間
+60:17 date 2027-03-12 | 2027-03-12
+60:28 symbol -> | ->
+60:31 word val.refused | 被拒絕
+60:34 newline
+61:1 dedent
+61:1 end

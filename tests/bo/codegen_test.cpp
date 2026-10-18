@@ -1554,6 +1554,15 @@ nlohmann::ordered_json call_json(const protocol::ContractInput& c) {
     for (const auto& [id, signer] : c.consents) {
         out["consents"].push_back({hex(id.bytes()), signer_json(signer)});
     }
+    if (c.request) {
+        // An answer (v0.8): the request it answers, input key 9.
+        out["request"] = {{"id", hex(c.request->id.bytes())},
+                          {"kind", c.request->kind},
+                          {"params", encoded(c.request->params)},
+                          {"deadline", c.request->deadline},
+                          {"asked_at", c.request->asked_at},
+                          {"status", static_cast<int>(c.request->status)}};
+    }
     return out;
 }
 
@@ -1626,7 +1635,9 @@ TEST_CASE("bo build: write the runs for the Python reference", "[.codegen-refere
              // defaults, temperatures and negative literals.
              {"measures", golden_dir / "test" / "measures" / "source.bo"},
              {"shipment", golden_dir.parent_path().parent_path().parent_path() / "examples" /
-                              "shipment" / "shipment.bo"}}) {
+                              "shipment" / "shipment.bo"},
+             // Requests (E8): made, answered, and refused.
+             {"requests", golden_dir / "check-requests" / "source.bo"}}) {
         const std::string text = read_text(file);
         const bo::Compiled compiled = bo::compile(text, *bo::make_pack_set({}).set);
         REQUIRE(compiled.build.has_value());

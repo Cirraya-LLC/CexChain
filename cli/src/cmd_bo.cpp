@@ -691,6 +691,14 @@ Json step_json(const bo::model::Model& model, const bo::Explained& text,
             // The parts the call created (R30).
             result["parts"] = r.parts;
         }
+        if (!r.requests.empty()) {
+            // The requests the call made (E8): kind and deadline.
+            Json made = Json::array();
+            for (const auto& [kind, deadline] : r.requests) {
+                made.push_back({{"kind", kind}, {"deadline", deadline}});
+            }
+            result["requests"] = made;
+        }
         if (!r.differing.empty()) {
             // Expected fields that hold other values (null: not held).
             Json differing = Json::object();
@@ -708,6 +716,13 @@ Json step_json(const bo::model::Model& model, const bo::Explained& text,
     case bo::Happened::broken:
         result["reason"] = r.reason;
         break;
+    case bo::Happened::no_request:
+        result["kind"] = r.kind;
+        break;
+    case bo::Happened::early:
+        result["kind"] = r.kind;
+        result["deadline"] = r.deadline;
+        break;
     default:
         break;
     }
@@ -720,6 +735,12 @@ Json step_json(const bo::model::Model& model, const bo::Explained& text,
                 {"status", bo::step_status_names[static_cast<std::size_t>(r.status)]},
                 {"time", r.time},
                 {"expected", expectation_json(step, r, results)}};
+    // A step that answers a request (E8): its kind and how it went.
+    if (step.answer) {
+        out["answer"] = {
+            {"kind", step.request_kind},
+            {"outcome", bo::model::outcome_names[static_cast<std::size_t>(step.outcome)]}};
+    }
     // The part the step acted on, by its path ("1.2"), once a split made parts.
     out["part"] = r.part.empty() ? Json(nullptr) : Json(r.part);
     if (r.status == bo::StepStatus::skipped) {

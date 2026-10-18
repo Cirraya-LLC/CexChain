@@ -126,6 +126,9 @@ std::vector<std::pair<std::string, std::filesystem::path>> cases() {
         // temperatures and negative literals, expectations on fields.
         {"measures", golden_dir / "test/measures/source.bo"},
         {"shipment", source_dir / "examples/shipment/shipment.bo"},
+        // Requests (E8): made by actions and time rules, answered done,
+        // failed, and expired, refused by the ledger, and after the end.
+        {"requests", golden_dir / "check-requests/source.bo"},
     };
 }
 

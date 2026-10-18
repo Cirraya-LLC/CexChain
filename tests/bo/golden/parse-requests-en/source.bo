@@ -12,14 +12,15 @@ thing Parcel
   tries number = 0
 
 can deliver by shipper
-  active -> delivered
+  active, late -> delivered
   holder = consignee
   request notify to consignee with message = "delivered", tries = tries within 1 day
 
 can close by consignee
   delivered -> done
 
-when overdue and active
+when overdue
+  requires active
   request remind to shipper within 2 days
 
 when notify done
@@ -48,3 +49,12 @@ test "a failed notice, and an expired reminder"
   shipper deliver
   executor notify fails with reason = "no_route" -> note = "no_route", tries = 1
   keeper notify expires at 2027-03-20 -> tries = 2
+
+test "answers the ledger refuses, and one after the end"
+  shipper create with due = 2027-03-10
+  executor notify done -> refused
+  shipper deliver at 2027-03-08
+  keeper notify expires at 2027-03-08 -> refused
+  consignee close -> done
+  executor notify fails with reason = "late" -> done, note = "late", tries = 1
+  keeper remind at 2027-03-12 -> refused
