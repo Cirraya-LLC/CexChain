@@ -160,6 +160,9 @@ add_test(NAME client_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/client.sh $<TARGET_FILE:cexchain>)
 add_test(NAME cluster_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/cluster.sh $<TARGET_FILE:cexchain>)
+# An executor as a service while the cluster's members restart (E11).
+add_test(NAME executor_cluster_end_to_end
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/executor_cluster.sh $<TARGET_FILE:cexchain>)
 # The product's own texts are generic (D-054): no industry words in help,
 # completion, MCP descriptions, or the browser page.
 add_test(NAME generic_words

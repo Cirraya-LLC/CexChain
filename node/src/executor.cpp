@@ -33,6 +33,11 @@ using namespace std::chrono_literals;
 
 constexpr std::uint64_t max_connector_timeout = 300;
 constexpr std::uint64_t max_backoff_ms = 300'000;
+// Trouble with the ledger's server (a member restarting, an election, no
+// quorum) passes in seconds: an answer waiting on it is tried again within
+// half a minute, however long the trouble lasted, so that it goes out soon
+// after the server is back. An outside system's retries keep the longer cap.
+constexpr std::uint64_t max_server_backoff_ms = 30'000;
 
 std::string hex(const protocol::Id& id) {
     return to_hex(id.bytes());
@@ -810,13 +815,14 @@ private:
         }
     }
 
-    std::uint64_t backoff(std::uint32_t failures, std::optional<std::uint64_t> after = {}) {
+    std::uint64_t backoff(std::uint32_t failures, std::optional<std::uint64_t> after = {},
+                          const std::uint64_t cap = max_backoff_ms) {
         const std::uint32_t shift = std::min<std::uint32_t>(failures == 0 ? 0 : failures - 1, 9);
-        std::uint64_t base = std::min<std::uint64_t>(1000ull << shift, max_backoff_ms);
+        std::uint64_t base = std::min<std::uint64_t>(1000ull << shift, cap);
         std::uniform_int_distribution<std::uint64_t> jitter(base * 8 / 10, base * 12 / 10);
-        base = std::min<std::uint64_t>(jitter(random_), max_backoff_ms);
+        base = std::min<std::uint64_t>(jitter(random_), cap);
         if (after) {
-            base = std::max(base, std::min<std::uint64_t>(*after, max_backoff_ms));
+            base = std::max(base, std::min<std::uint64_t>(*after, cap));
         }
         return base;
     }
@@ -1062,9 +1068,11 @@ private:
 
     // ---- one request ----------------------------------------------------
 
+    /// Trouble with the ledger (its server, or signing): tried again with a
+    /// backoff of at most max_server_backoff_ms.
     void later(JournalEntry& e, std::string note, std::optional<std::uint64_t> after = {}) {
         ++e.failures;
-        const std::uint64_t delay = backoff(e.failures, after);
+        const std::uint64_t delay = backoff(e.failures, after, max_server_backoff_ms);
         e.next_at = now() + delay;
         e.note = std::move(note);
         save(e);
