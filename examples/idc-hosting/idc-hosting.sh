@@ -205,7 +205,7 @@ start_member() {
 }
 start_cluster() {
     for n in 1 2 3; do start_member "$n"; done
-    eventually 60 has_leader 1
+    for n in 1 2 3; do eventually 60 has_leader "$n"; done
 }
 run checkpoint create --ledger node1 --log-key provider-log.key > /dev/null
 run cluster init --ledger node1 --id 1 --raft "127.0.0.1:${RPORT[1]}" --api "${API[1]}" > /dev/null
