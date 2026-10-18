@@ -186,6 +186,10 @@ if(TARGET cexchain_bo)
     # A concert ticket in the words of a vocabulary pack of one's own.
     add_test(NAME demo_events
         COMMAND bash ${PROJECT_SOURCE_DIR}/examples/events/events.sh $<TARGET_FILE:cexchain>)
+    # A server rented and billed each month: a cluster with its keeper, an
+    # executor with two webhooks, an AI agent through MCP, a payment by hand.
+    add_test(NAME demo_idc_hosting
+        COMMAND bash ${PROJECT_SOURCE_DIR}/examples/idc-hosting/idc-hosting.sh $<TARGET_FILE:cexchain>)
 endif()
 
 # Keys on tokens (HSMs, USB keys), when SoftHSM is installed to stand in.
