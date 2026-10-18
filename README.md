@@ -1075,8 +1075,10 @@ Nothing yet keeps a field's value unique across a contract's instances: unique k
 To try time rules on a real ledger without waiting, set `CEXCHAIN_CLOCK_OFFSET` (such as `30d`,
 `12h`, or `90m`; at most 3660 days): every command, the server and its keeper included, runs its
 clock that far ahead. It is for demonstrations and tests only. A ledger keeps the times it
-records, `serve` prints the offset, and a client ahead of its ledger is refused (a statement
-may not claim to be issued in the future). `examples/idc-hosting` moves a month this way.
+records, so `serve` refuses to start with an offset unless it is given `--allow-clock-offset`,
+then prints it and shows it in `/v1/status` (`clock_offset_ms`); a client ahead of its ledger
+is refused (a statement may not claim to be issued in the future). `examples/idc-hosting`
+moves a month this way.
 
 ### Lists and charges
 

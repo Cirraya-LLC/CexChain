@@ -197,9 +197,10 @@ has_leader() { [ "$(status "$1" | json 'd["cluster"]["leader"] is not None')" = 
 member_count() { [ "$(run cluster status --server "${API[1]}" --token-file admin.token --json | json 'len(d["members"])')" = "$1" ]; }
 start_member() {
     local n="$1"
+    # A server refuses a clock run ahead unless told it is meant.
     "$CEXCHAIN" serve --cluster --ledger "node$n" --listen "127.0.0.1:${APORT[$n]}" \
         --log-key provider-log.key --keeper-key keeper.key --keeper-interval 1 --json \
-        > "node$n.json" 2> "node$n.log" &
+        ${CEXCHAIN_CLOCK_OFFSET:+--allow-clock-offset} > "node$n.json" 2> "node$n.log" &
     MEMBERS+=("$!")
     eventually 60 status "$n"
 }

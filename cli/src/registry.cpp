@@ -845,6 +845,9 @@ std::vector<CommandSpec> build() {
                {"keeper-interval", "SECONDS", "How often the keeper looks (default: 60)"},
                {"expiry-grace", "SECONDS",
                 "The keeper expires a request this long after its deadline (default: 900)"},
+               {"allow-clock-offset", "",
+                "Serve with $CEXCHAIN_CLOCK_OFFSET set, the ledger's clock ahead (demonstrations "
+                "and tests only)"},
                passphrase_file_option}),
          cmd_serve,
          "Routes (API v1; binary objects are CBOR or COSE, everything else JSON):\n"
@@ -880,6 +883,9 @@ std::vector<CommandSpec> build() {
          "I/O threads at once; writes queue for one writer, which commits whatever has queued\n"
          "as a group with one sync. The server holds the ledger's lock only while writing, so\n"
          "other cexchain commands keep working on it.\n"
+         "With $CEXCHAIN_CLOCK_OFFSET set, the ledger's clock runs ahead and what it records\n"
+         "keeps the later times: serve refuses to start unless --allow-clock-offset is given\n"
+         "(demonstrations and tests only), and /v1/status shows clock_offset_ms.\n"
          "SIGINT or SIGTERM stops it gracefully."},
         {{"cluster", "init"},
          "Make this ledger the first member of a cluster",

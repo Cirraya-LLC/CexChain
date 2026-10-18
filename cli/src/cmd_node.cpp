@@ -130,6 +130,17 @@ void raise_descriptor_limit(std::uint64_t wanted) {
 } // namespace
 
 int cmd_serve(const Args& args) {
+    // A server stamps every write with its clock, so one run ahead
+    // ($CEXCHAIN_CLOCK_OFFSET) records later times for everyone who writes
+    // through it, and keeps them: it takes an explicit flag, so that a
+    // variable left in an environment does not move a ledger's clock.
+    if (ledger::SystemClock::offset() != 0 && !args.has("allow-clock-offset")) {
+        throw UsageError{std::format(
+            "CEXCHAIN_CLOCK_OFFSET runs the clock {} s ahead, and a server would record the later "
+            "times for good: unset it, or pass --allow-clock-offset (demonstrations and tests "
+            "only)",
+            ledger::SystemClock::offset() / 1000)};
+    }
     const std::filesystem::path dir = args.ledger();
     require_ledger_directory(dir);
     node::ApiOptions options;

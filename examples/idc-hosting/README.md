@@ -127,7 +127,8 @@ and the customer's consent at each allocation (R3).
 A month cannot pass in a test. Every `cexchain` command reads `CEXCHAIN_CLOCK_OFFSET` (such as
 `30d` or `2067754s`) and runs its clock that far ahead; the script sets it and restarts the
 cluster to move time on, and the customer, the executor, and the agent move with the provider.
-It is for demonstrations and tests only: a ledger keeps the times it records, and a client whose
+It is for demonstrations and tests only: a ledger keeps the times it records, so `serve` starts
+with an offset only when given `--allow-clock-offset` (as the script does), and a client whose
 clock runs ahead of its ledger's is refused (a statement from the future).
 
 ## Running it

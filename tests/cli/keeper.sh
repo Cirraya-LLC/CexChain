@@ -280,9 +280,20 @@ SERVERS=()
 CEXCHAIN_CLOCK_OFFSET=14d run keeper run --as default.key --ledger "$A" > ahead.txt
 contains "fired when.suspend on ${S3:0:12}" ahead.txt
 has_status "$S3" suspended
-CEXCHAIN_CLOCK_OFFSET=14d start_server ahead.json --ledger "$A"
+# A server stamps every write: it refuses a clock ahead unless told it is
+# meant, and its status shows it.
+CEXCHAIN_CLOCK_OFFSET=14d expect_exit 1 serve --ledger "$A" --listen 127.0.0.1:0
+contains 'pass --allow-clock-offset' out.txt
+CEXCHAIN_CLOCK_OFFSET=14d start_server ahead.json --ledger "$A" --allow-clock-offset
 json 'd["clock_offset_ms"]' < ahead.json | contains -x 1209600000
 contains 'runs 1209600 s ahead' ahead.json.log
+AHEAD_URL="$(json 'd["url"]' < ahead.json)"
+python3 - "$AHEAD_URL" "$(cat reader.token)" << 'PY' | contains -x 1209600000
+import json, sys, urllib.request
+request = urllib.request.Request(sys.argv[1] + "/v1/status",
+                                 headers={"Authorization": "Bearer " + sys.argv[2]})
+print(json.load(urllib.request.urlopen(request, timeout=5))["clock_offset_ms"])
+PY
 CEXCHAIN_CLOCK_OFFSET=14d a audit | contains 'audit passed'
 
 echo "keeper end-to-end: ok"

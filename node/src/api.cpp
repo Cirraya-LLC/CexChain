@@ -861,6 +861,9 @@ struct LedgerApi::State {
                   {"registrar", options.registrar != nullptr},
                   {"keeper", options.keeper != nullptr},
                   {"cluster", cluster ? cluster_json() : json(nullptr)},
+                  // How far the ledger's clock runs ahead ($CEXCHAIN_CLOCK_OFFSET,
+                  // demonstrations and tests only): 0 normally.
+                  {"clock_offset_ms", ledger::SystemClock::offset()},
                   {"version", options.version}});
     }
 
