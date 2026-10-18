@@ -52,7 +52,7 @@ const std::vector<OptionSpec> client_options{
 /// Commands that work on a ledger directory only: they administer the
 /// server's files and keys, or peers' exchanges with it.
 const std::set<std::string_view> local_only{"init",  "serve", "token",  "replica", "backup",
-                                            "vault", "peer",  "access", "mcp",     "cluster"};
+                                            "vault", "peer",  "access", "cluster"};
 /// Single commands of other groups that need the directory (its peers).
 const std::set<std::pair<std::string_view, std::string_view>> local_only_commands{
     {"contract", "send"}, {"contract", "fetch"}, {"keeper", "due"}};
@@ -2491,6 +2491,9 @@ std::vector<CommandSpec> build() {
          "                                   or expired), under the agent's delegation\n\n"
          "Contract tools reach other organizations as this ledger's peers (peer add). Consents\n"
          "travel as evidence, which needs a checkpoint: give --log-key to let the agent consent.\n"
+         "With --server, the agent works on the ledger a server (or a cluster) serves, through a\n"
+         "verified local mirror, as every command does; the tools that reach other organizations\n"
+         "then refuse, since peers belong to a ledger directory.\n"
          "Contract arguments are CBOR diagnostic notation; a JSON value works as well. MCP\n"
          "clients start the server without a terminal: give key passphrases with\n"
          "--passphrase-file or $CEXCHAIN_PASSPHRASE."},

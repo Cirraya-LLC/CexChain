@@ -183,6 +183,7 @@ REGISTRAR="$(run actor add --ledger ledger --as root.key --kind device --name "C
 run delegation grant --ledger ledger --as root.key --to "$REGISTRAR" --allow contract-call \
     --contracts "$COUNTING" > /dev/null
 run token create bank --scope peer --out bank.token --ledger ledger > /dev/null
+run token create agent --scope read,submit --out agent.token --ledger ledger > /dev/null
 "$CEXCHAIN" serve --ledger ledger --log-key log.key --registrar-key registrar.key --listen 127.0.0.1:0 \
     --json --quiet > factory.json 2> factory.log &
 SERVERS+=("$!")
@@ -372,6 +373,27 @@ json '[t["name"] for t in d["calls"][1]["provenance"]["tools"]]' < asking.json \
     | contains -Fx "['mcp:cexchain_answer_request']" || fail "the answer through MCP"
 json 'd["calls"][1]["called_by"]["kind"]' < asking.json | contains -x agent || fail "the answer's signer"
 json 'd["calls"][1]["answer"]["status"]' < asking.json | contains -x done || fail "the answer's status"
+
+# Client mode: the agent works on the ledger the factory's server serves,
+# through a verified mirror, as every command can with --server; the tools
+# that reach other organizations need the ledger directory's peers.
+served() { run "$@" --server "$URL" --token-file agent.token --ledger-id "$LEDGER_ID" --cache "$WORK/cache"; }
+served contract create "$REQ" open --as root.key --args '[["notify", {"about": "served"}, 3600000]]' > /dev/null
+R_SERVED="$(served request list --kind notify --open --json | json 'd[0]["id"]')"
+{
+    call 1 cexchain_get_request "{\"request\":\"$R_SERVED\"}"
+    call 2 cexchain_answer_request "{\"request\":\"$R_SERVED\",\"status\":\"done\",\"arguments\":{\"ref\":\"served-1\"}}"
+    call 3 cexchain_list_pending_calls '{"home":"factory"}'
+} > served-requests.jsonl
+served mcp --as agent.key < served-requests.jsonl > responses.txt 2> /dev/null
+[ "$(result 1 "['params']")" = '{"about": "served"}' ] || fail "a request, through the server"
+[ "$(result 2 "['recorded']")" = True ] || fail "the agent's answer, through the server"
+[ "$(served request show "$R_SERVED" --json | json 'd["answer"]["by"]["name"]')" = "Drafting Agent" ] \
+    || fail "answered by the agent"
+line 3 | contains 'works through a server' || fail "peer tools need a ledger directory"
+if served mcp --as agent.key --log-key log.key < /dev/null > out.txt 2>&1; then fail "--log-key with --server"; fi
+contains 'goes with a ledger directory' out.txt || fail "--log-key with --server"
+run mcp --help | contains -- '--server'
 
 run mcp --help | contains 'cexchain_consent_contract_call'
 run mcp --help | contains 'cexchain_answer_request'

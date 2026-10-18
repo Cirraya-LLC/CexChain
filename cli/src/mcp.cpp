@@ -210,9 +210,12 @@ public:
     /// `args` are the command's: the ledger, and the log key (--log-key) that
     /// checkpoints it for the evidence of the agent's contract consents.
     Server(const Args& args, std::unique_ptr<crypto::Signer> key)
-        : args_(args), ledger_(args.ledger()), key_(std::move(key)) {
+        : args_(args), key_(std::move(key)) {
         define_tools();
-        Session session(ledger_);
+        Session session(args_);
+        if (!session.remote()) {
+            ledger_ = session.directory();
+        }
         const protocol::ActorState& me = session.actor_for(*key_);
         std::string responsible = "your organization";
         if (me.responsible) {
@@ -442,7 +445,7 @@ private:
             "Your identity on the ledger: name, kind, accountable person, and the delegations "
             "that define what you may do.",
             json::object(), json::array(), read_only, [this](const Tool&, const json&) {
-                Session session(ledger_);
+                Session session(args_);
                 const protocol::ActorState& me = session.actor_for(*key_);
                 json delegations = json::array();
                 for (const auto& [k, d] : session.state().delegations()) {
@@ -471,7 +474,7 @@ private:
             "The ledger's identity, size, and latest checkpoint, and its peers: other "
             "organizations' ledgers, by the names the contract tools take as 'home'.",
             json::object(), json::array(), read_only, [this](const Tool&, const json&) {
-                Session session(ledger_);
+                Session session(args_);
                 json out = {{"ledger_id", hex_id(session.state().ledger_id())},
                             {"organization", session.state().organization()},
                             {"hash", std::string(crypto::name(session.state().hash()))},
@@ -524,7 +527,7 @@ private:
             {{"record",
               {{"type", "string"}, {"description", "Record id or unique prefix (8+ hex)."}}}},
             json::array({"record"}), read_only, [this](const Tool&, const json& arguments) {
-                Session session(ledger_);
+                Session session(args_);
                 const protocol::Id id = session.record_id(text_arg(arguments, "record"));
                 const protocol::RecordState& r = *session.state().record(id);
                 json endorsements = json::array();
@@ -571,7 +574,7 @@ private:
              {"inputs", inputs_property}},
             json::array({"record_type", "fields"}), writes,
             [this](const Tool& tool, const json& arguments) {
-                Session session(ledger_);
+                Session session(args_);
                 IssueRequest request;
                 request.record_type = text_arg(arguments, "record_type");
                 request.fields = string_map(arguments, "fields");
@@ -597,7 +600,7 @@ private:
              {"inputs", inputs_property}},
             json::array({"record", "role"}), writes,
             [this](const Tool& tool, const json& arguments) {
-                Session session(ledger_);
+                Session session(args_);
                 const protocol::RecordEndorseBody body{
                     session.record_id(text_arg(arguments, "record")), text_arg(arguments, "role")};
                 const protocol::Id id =
@@ -613,7 +616,7 @@ private:
              {"inputs", inputs_property}},
             json::array({"record", "to_state"}), writes,
             [this](const Tool& tool, const json& arguments) {
-                Session session(ledger_);
+                Session session(args_);
                 const protocol::Id record = session.record_id(text_arg(arguments, "record"));
                 const std::string from = session.state().record(record)->state;
                 const protocol::RecordTransitionBody body{record, from,
@@ -626,7 +629,7 @@ private:
             "This ledger's contracts: their functions (create makes an instance, call acts on "
             "one), language, whether retired, and how many instances each governs.",
             json::object(), json::array(), read_only, [this](const Tool&, const json&) {
-                Session session(ledger_);
+                Session session(args_);
                 json contracts = json::array();
                 for (const auto& [key, contract] : session.state().contracts()) {
                     contracts.push_back(json::parse(contract_json(session, contract).dump()));
@@ -647,7 +650,7 @@ private:
             {{"instance",
               {{"type", "string"}, {"description", "Instance id or unique prefix (8+ hex)."}}}},
             json::array({"instance"}), read_only, [this](const Tool&, const json& arguments) {
-                Session session(ledger_);
+                Session session(args_);
                 const protocol::Id id = session.instance_id(text_arg(arguments, "instance"));
                 return json::parse(instance_json(session, *session.state().instance(id)).dump());
             });
@@ -728,7 +731,7 @@ private:
                {"description", "Only show what the contract would decide (default: false)."}}},
              {"inputs", inputs_property}},
             json::array({"function"}), writes, [this](const Tool& tool, const json& arguments) {
-                Session session(ledger_);
+                Session session(args_);
                 const auto contract = optional_text(arguments, "contract");
                 const auto instance = optional_text(arguments, "instance");
                 if (contract.has_value() == instance.has_value()) {
@@ -784,8 +787,8 @@ private:
               {{"type", "string"},
                {"description", "Only this call: its full id (64 hex digits)."}}}},
             json::array({"home"}), remote_read, [this](const Tool&, const json& arguments) {
-                const Session session(ledger_);
-                const node::Peer home = peer_named(ledger_, text_arg(arguments, "home"));
+                const Session session(args_);
+                const node::Peer home = peer_named(peers_dir(), text_arg(arguments, "home"));
                 std::optional<std::string> call;
                 if (const auto text = optional_text(arguments, "call")) {
                     call = hex_id(full_id(*text, "call"));
@@ -811,7 +814,7 @@ private:
               {{"type", "string"}, {"description", "The instance's full id (64 hex digits)."}}}},
             json::array({"home", "instance"}), remote_read,
             [this](const Tool&, const json& arguments) {
-                const node::Peer home = peer_named(ledger_, text_arg(arguments, "home"));
+                const node::Peer home = peer_named(peers_dir(), text_arg(arguments, "home"));
                 const protocol::ContractReport report =
                     fetch_instance(home, full_id(text_arg(arguments, "instance"), "instance"))
                         .second;
@@ -847,9 +850,9 @@ private:
                {"description", "The call lapses after this many days (default: the home's, 7)."}}}},
             json::array({"home", "instance", "function"}), remote_writes,
             [this](const Tool&, const json& arguments) {
-                const Session session(ledger_);
+                const Session session(args_);
                 require_consent_delegation(session);
-                const node::Peer home = peer_named(ledger_, text_arg(arguments, "home"));
+                const node::Peer home = peer_named(peers_dir(), text_arg(arguments, "home"));
                 node::PendingCall proposal;
                 proposal.instance = full_id(text_arg(arguments, "instance"), "instance");
                 proposal.function = text_arg(arguments, "function");
@@ -903,8 +906,8 @@ private:
                     throw ToolError{"this MCP server cannot export a consent's evidence: its "
                                     "operator starts it with --log-key (the ledger's log key)"};
                 }
-                Session session(ledger_);
-                const node::Peer home = peer_named(ledger_, text_arg(arguments, "home"));
+                Session session(args_);
+                const node::Peer home = peer_named(peers_dir(), text_arg(arguments, "home"));
                 const protocol::Id call = full_id(text_arg(arguments, "call"), "call");
                 const bool send = optional_flag(arguments, "send", true);
                 const auto out_path = optional_text(arguments, "out");
@@ -966,7 +969,7 @@ private:
               {{"type", "string"}, {"description", "Only requests on this contract's instances."}}},
              {"instance", {{"type", "string"}, {"description", "Only this instance's requests."}}}},
             json::array(), read_only, [this](const Tool&, const json& arguments) {
-                Session session(ledger_);
+                Session session(args_);
                 RequestFilter filter;
                 const std::string state = optional_text(arguments, "state").value_or("all");
                 if (state == "open") {
@@ -1007,7 +1010,7 @@ private:
             "whether it is open or overdue, and its answer if it has one.",
             {{"request", request_property}}, json::array({"request"}), read_only,
             [this](const Tool&, const json& arguments) {
-                Session session(ledger_);
+                Session session(args_);
                 const protocol::RequestState& r =
                     *session.state().request(session.request_id(text_arg(arguments, "request")));
                 return plain(request_json(session, r, ledger::SystemClock{}.now()));
@@ -1041,7 +1044,7 @@ private:
              {"inputs", inputs_property}},
             json::array({"request", "status"}), writes,
             [this](const Tool& tool, const json& arguments) {
-                Session session(ledger_);
+                Session session(args_);
                 const protocol::Id id = session.request_id(text_arg(arguments, "request"));
                 const auto status = parse_answer_status(text_arg(arguments, "status"));
                 if (!status) {
@@ -1114,6 +1117,16 @@ private:
             });
     }
 
+    /// The ledger directory, whose peers the contract tools reach; empty in
+    /// client mode (--server), where those tools are refused.
+    [[nodiscard]] const std::filesystem::path& peers_dir() const {
+        if (ledger_.empty()) {
+            throw ToolError{"this tool works on a ledger directory, with its peers (peer add); "
+                            "this MCP server works through a server (--server)"};
+        }
+        return ledger_;
+    }
+
     const Args& args_;
     std::filesystem::path ledger_;
     std::unique_ptr<crypto::Signer> key_;
@@ -1124,6 +1137,10 @@ private:
 } // namespace
 
 int cmd_mcp(const Args& args) {
+    if (args.has("log-key") && args.has("server")) {
+        throw UsageError{"--log-key goes with a ledger directory: through --server, the tools "
+                         "that send consents to other organizations are not available"};
+    }
     if (const auto log_key = args.get("log-key")) {
         // Opened now, so that a wrong passphrase shows before any client connects.
         static_cast<void>(load_signer(*log_key, args));
