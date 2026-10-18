@@ -1,0 +1,109 @@
+bo 1
+use commerce
+use services
+# A server rented from a hosting provider (we) by a customer, billed each
+# month. The contract decides; it never acts outside the ledger. It asks
+# instead: subscribe, suspend, resume, terminate, and reclaim go to the
+# provider's control panel, invoice and collect to its billing system, and
+# notify to whoever tells the customer. An executor of the provider's carries
+# them out and answers; a keeper fires the time rules.
+contract Hosting
+parties we, customer
+
+# The bills and payments come with the services pack: subscribing and each
+# renewal bill one month (an invoice, then its collection), and a payment in
+# full moves the date the server is paid until one month on.
+service Server
+  price monthly HKD 800
+  # The panel's name for the server, from its answer to subscribe: never
+  # its address, which stays in the panel.
+  machine text = ""
+
+can subscribe by customer
+can renew by customer
+# Terminating, by the customer or by the keeper's rule below, also asks the
+# panel to take the server's address back into its pool.
+can terminate by customer
+  request reclaim with machine = machine within 1 day
+
+when subscribe done
+  machine = result
+# A reminder while the server runs; a terminated server takes no more calls.
+when 7 days before due
+  requires active or suspended
+  notify customer
+when overdue 3 days suspend
+when overdue 30 days terminate
+when suspend fails notify we
+when collect fails notify we
+
+# Its tests: bo test runs each on an instance of its own, as the ledger
+# would; executor steps answer the requests as the panel and the billing
+# system would.
+test "subscribed, provisioned, invoiced, paid, and renewed"
+  we create at 2027-01-10
+  customer subscribe -> active, paid until = 2027-01-10, billed until = 2027-02-10
+  executor subscribe done with result = "srv-1" -> machine = "srv-1"
+  executor invoice done with result = "INV-1"
+  executor collect done with result = "RCPT-1" -> active, paid until = 2027-02-10
+  customer renew at 2027-02-01 -> billed until = 2027-03-10
+  customer renew -> refused "bo:requires renew 2"
+  executor invoice done with result = "INV-2"
+  executor collect done -> paid until = 2027-03-10, billed until = 2027-03-10
+
+test "reminded seven days before the due date"
+  we create at 2027-01-10
+  keeper notify -> refused "bo:when when.notify"
+  customer subscribe
+  keeper notify
+  executor notify done with result = "MSG-1"
+  executor invoice done
+  executor collect done -> paid until = 2027-02-10
+  keeper notify at 2027-02-02 -> refused "bo:when when.notify"
+  keeper notify at 2027-02-03
+  executor notify done
+
+test "unpaid: suspended, paid by hand, and resumed"
+  we create at 2027-01-10
+  customer subscribe
+  executor subscribe done with result = "srv-1"
+  executor invoice done
+  executor collect done -> paid until = 2027-02-10
+  customer renew at 2027-02-01
+  executor invoice done with result = "INV-2"
+  keeper suspend at 2027-02-12 -> refused "bo:when when.suspend"
+  keeper suspend at 2027-02-13 -> suspended
+  executor suspend done
+  we collect done with result = "BANK-1" at 2027-02-14 -> active, paid until = 2027-03-10
+  executor resume done
+
+test "terminated by the customer: the server removed, its address reclaimed"
+  we create at 2027-01-10
+  customer subscribe
+  executor subscribe done with result = "srv-1"
+  executor invoice done
+  executor collect done
+  customer terminate at 2027-01-20 -> terminated
+  executor terminate done
+  executor reclaim done with result = "released"
+  customer renew -> refused
+
+test "a declined payment closes the bill, and the provider is told"
+  we create at 2027-01-10
+  customer subscribe
+  executor invoice done
+  executor collect fails with reason = "card declined" -> billed until = 2027-01-10
+  executor notify done
+  customer renew at 2027-01-11 -> billed until = 2027-02-10
+
+test "30 days overdue: terminated, its address reclaimed"
+  we create at 2027-01-10
+  customer subscribe
+  executor subscribe done with result = "srv-1"
+  keeper suspend at 2027-01-13 -> suspended
+  executor suspend fails with reason = "panel down"
+  executor notify done
+  keeper terminate at 2027-02-08 -> refused "bo:when when.terminate"
+  keeper terminate at 2027-02-09 -> terminated
+  executor terminate done
+  executor reclaim done
