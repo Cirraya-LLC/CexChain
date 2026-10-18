@@ -121,7 +121,24 @@ struct Concept {
     /// The vocabulary pack that defines it (vocab.hpp): an official pack's
     /// current version, or a user's pack; nullptr for the core.
     const VocabularyPack* owner = nullptr;
+    /// A keyword added after the official packs' first versions (E8's
+    /// `request`): the version of the official language packs that first
+    /// spells it. Their earlier versions, which a compiler carries so that
+    /// old deploys rebuild, are read without it. 0 for every other concept.
+    std::uint64_t since = 0;
 };
+
+/// The version of the official language packs that brought requests (E8):
+/// `request`, and the outcomes `done`, `fails`, and `expires`.
+inline constexpr std::uint64_t requests_version = 5;
+
+/// True for the words a source may also use as names (E8): the outcomes of a
+/// request (`done`, `fails`, `expires`), keywords only where a rule or a test
+/// step names an answer (`when notify done`, `executor notify done`), and an
+/// answer's `result` and `reason`, words only in a rule for answers (unless
+/// the contract declares them) and in a test step's answer; so that `done`
+/// and `reason` stay names everywhere else, as earlier sources used them.
+[[nodiscard]] bool is_contextual(const Concept* c) noexcept;
 
 /// Every concept of the edition, the core's and the official vocabulary
 /// packs' (whose files define theirs: bo/vocab/), sorted by id. A user's

@@ -46,6 +46,14 @@ constexpr Concept unsorted_concepts[] = {
     {"kw.reject", keyword, 0},
     {"kw.test", keyword, 0},
     {"kw.use", keyword, 0},
+    // Requests (E8, language packs version 5): `request KIND [to PARTY]
+    // [with NAME = VALUE, ...] within DURATION`, and the rules and test
+    // steps for their answers, `when KIND done`, `fails`, or `expires`. The
+    // outcomes are keywords only there (is_contextual).
+    {"kw.request", keyword, 0, Vocab::core, {}, 0, false, nullptr, requests_version},
+    {"kw.done", keyword, 0, Vocab::core, {}, 0, false, nullptr, requests_version},
+    {"kw.fails", keyword, 0, Vocab::core, {}, 0, false, nullptr, requests_version},
+    {"kw.expires", keyword, 0, Vocab::core, {}, 0, false, nullptr, requests_version},
     // What a block declares.
     {"kind.thing", kind, 0},
     // Retired (Concept::retired): spelled only by the packs of before
@@ -153,6 +161,9 @@ constexpr Concept unsorted_concepts[] = {
     // The device that calls a contract's time rules when their time comes
     // (a test step `keeper suspend`; milestone 12).
     {"actor.keeper", actor, 0},
+    // The device that carries out a contract's requests outside the ledger
+    // and answers them (a test step `executor notify done`; E8).
+    {"actor.executor", actor, 0},
     // Common roles.
     {"role.we", role, 0},
     // The party an action names after `to`: in the standard library's terms,
@@ -165,6 +176,10 @@ constexpr Concept unsorted_concepts[] = {
     // `frozen -> previous state`: the state the instance was in before it
     // entered its current one.
     {"expr.previous_state", expression, 0},
+    // In a rule for answers (E8): the answer's result and reason, as texts;
+    // names everywhere else (is_contextual).
+    {"expr.result", expression, 0},
+    {"expr.reason", expression, 0},
 };
 
 constexpr std::size_t concept_count = std::size(unsorted_concepts);
@@ -182,7 +197,7 @@ static_assert(std::ranges::adjacent_find(sorted_concepts, {}, &Concept::id) ==
 
 constexpr std::size_t keywords =
     static_cast<std::size_t>(std::ranges::count(unsorted_concepts, keyword, &Concept::category));
-static_assert(keywords == 18, "bo-1.0 has 18 keywords");
+static_assert(keywords == 22, "bo-1.0 has 18 keywords, and E8 added four");
 
 constexpr std::size_t words_of(Vocab pack) {
     return static_cast<std::size_t>(std::ranges::count_if(unsorted_concepts, [&](const Concept& c) {
@@ -191,8 +206,9 @@ constexpr std::size_t words_of(Vocab pack) {
 }
 
 // D-054: an 80-word core and three official vocabulary packs; G5b added a
-// unit of temperature to the core.
-static_assert(words_of(Vocab::core) == 81, "the core has 81 words");
+// unit of temperature to the core, and E8 the executor and an answer's result
+// and reason.
+static_assert(words_of(Vocab::core) == 84, "the core has 84 words");
 static_assert(std::ranges::all_of(unsorted_concepts,
                                   [](const Concept& c) {
                                       return (c.category == field) == !c.type.empty() || c.retired;
@@ -323,6 +339,8 @@ constexpr MessageSpec unsorted_messages[] = {
     {"parse.expected-set", Severity::error, "after"},
     {"parse.can", Severity::error, "found"},
     {"parse.when", Severity::error, ""},
+    // `request KIND [to PARTY] [with NAME = VALUE, ...] within DURATION` (E8).
+    {"parse.request", Severity::error, "found"},
     {"parse.each", Severity::error, ""},
     {"parse.bare-condition", Severity::error, ""},
     // Expressions.
@@ -404,6 +422,14 @@ constexpr MessageSpec unsorted_messages[] = {
     {"check.charge-bill", Severity::error, "name document"},
     // Checking: what comes in later steps.
     {"check.needs-executor", Severity::warning, "action"},
+    // Checking: requests and the rules for their answers (E8).
+    {"check.request-kind", Severity::error, "text"},
+    {"check.request-value", Severity::error, "name type"},
+    {"check.request-within", Severity::error, "text"},
+    {"check.request-count", Severity::error, "function count"},
+    {"check.answer-twice", Severity::error, "text"},
+    {"check.answer-unasked", Severity::warning, "kind"},
+    {"check.answer-line", Severity::error, "text"},
     // Checking: tests (U8).
     {"check.test-start", Severity::error, "action"},
     {"check.test-again", Severity::error, "action"},
@@ -428,6 +454,8 @@ constexpr MessageSpec unsorted_messages[] = {
     {"check.test-needs-to", Severity::error, "action"},
     {"check.test-rule", Severity::error, "action"},
     {"check.test-keeper", Severity::error, "text"},
+    // A step answers a request the contract makes (E8).
+    {"check.test-answer", Severity::error, "text"},
     // A step names the instance it acts on by its holder (milestone 17).
     {"check.test-part", Severity::error, "text"},
     // Issuing parts (R30, milestone 17).
@@ -477,6 +505,9 @@ constexpr MessageSpec unsorted_messages[] = {
     {"run.fired", Severity::error, "rule"},
     {"run.depth", Severity::error, "action"},
     {"run.parts", Severity::error, "action"},
+    // Requests and answers (E8).
+    {"run.request", Severity::error, "kind"},
+    {"run.answer", Severity::error, ""},
     // The formatter (bo fmt).
     {"fmt.unstable", Severity::error, "language"},
     {"fmt.internal", Severity::error, ""},
@@ -519,6 +550,7 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"section-actions", ""},
     {"section-time", ""},
     {"section-rules", ""},
+    {"section-answers", ""},
     // Parties.
     {"party-creation", "party"},
     {"party-action", "party action"},
@@ -592,6 +624,19 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"when-date", "date"},
     {"when-keeper", "function"},
     {"utc-offset", "offset"},
+    // Requests and the rules for their answers (E8).
+    {"request", "kind duration"},
+    {"request-to", "kind party duration"},
+    {"request-values", "values"},
+    {"request-failure", "kind"},
+    {"request-failure-expiry", "kind"},
+    {"request-expiry-only", "kind"},
+    {"request-no-failure", ""},
+    {"answers-note", "function"},
+    {"answer-done", "kind"},
+    {"answer-fails", "kind"},
+    {"answer-fails-expired", "kind"},
+    {"answer-expires", "kind"},
     // Charges.
     {"charge", "kind name"},
     {"charge-rate", "rate"},
@@ -619,6 +664,8 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"value-text", "text"},
     {"value-now", ""},
     {"value-today", ""},
+    {"value-result", ""},
+    {"value-reason", ""},
     {"value-amount", ""},
     {"value-separator", ""},
     {"list-separator", ""},
@@ -761,6 +808,7 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"rule-R30", ""},
     {"rule-R31", ""},
     {"rule-R32", ""},
+    {"rule-R33", ""},
 };
 
 constexpr auto sorted_sentences = [] {
@@ -806,9 +854,10 @@ constexpr RuleSpec rules[] = {
     {"R27", "charges", Vocab::commerce},         // charges in order: on the price and earlier ones
     {"R28", "rate-in-force", Vocab::commerce},   // the rate in force at the bill's time (U9)
     {"R29", "one-item"},                         // one value where a list is needed: a list of one
-    {"R30", "issue-parts"}, // issue PARTS to RECIPIENTS: parts are instances of their own
-    {"R31", "role-taking"}, // a counterparty made holder, pledgee, or payee consents
-    {"R32", "whole-times"}, // a duration by a duration: whole times, the rest dropped
+    {"R30", "issue-parts"},   // issue PARTS to RECIPIENTS: parts are instances of their own
+    {"R31", "role-taking"},   // a counterparty made holder, pledgee, or payee consents
+    {"R32", "whole-times"},   // a duration by a duration: whole times, the rest dropped
+    {"R33", "expired-fails"}, // an expired request is a failed one, unless a rule says otherwise
 };
 
 template <class T, std::size_t N, class Key>
@@ -842,6 +891,11 @@ const Concept* find_core_concept(std::string_view id) noexcept {
 
 std::size_t keyword_count() noexcept {
     return keywords;
+}
+
+bool is_contextual(const Concept* c) noexcept {
+    return c != nullptr && (c->id == "kw.done" || c->id == "kw.fails" || c->id == "kw.expires" ||
+                            c->id == "expr.result" || c->id == "expr.reason");
 }
 
 std::span<const MessageSpec> message_specs() noexcept {

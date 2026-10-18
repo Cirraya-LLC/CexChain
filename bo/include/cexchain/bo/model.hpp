@@ -196,8 +196,30 @@ struct Do {
     std::string_view rule;
 };
 
+/// `request KIND [to PARTY] [with NAME = VALUE, ...] within DURATION` (E8):
+/// the call asks an executor to act outside the ledger. Compiled code adds
+/// the request to the call's accept (key 7): its kind, its params (a map of
+/// `to` and each value by name), its deadline (the time of the call plus the
+/// duration), and the function an answer calls (reply_function).
+struct Request {
+    static constexpr std::string_view tag = "request";
+    Span span;
+    /// The kind, as compiled code names it: a name as written, or an action
+    /// word's name (act.notify: notify).
+    std::string kind;
+    /// The action word it is spelled as, if any (for the contract text).
+    const Concept* word = nullptr;
+    /// The party it concerns: params key "to".
+    std::optional<Expr> to;
+    /// The values it carries, by name: each target holds the name (or a
+    /// word), its value typed.
+    std::vector<Set> with;
+    /// Within how long it is to be answered: a duration literal.
+    Expr within;
+};
+
 struct Statement {
-    std::variant<Requires, If, Each, Reject, Set, Transition, Do> node;
+    std::variant<Requires, If, Each, Reject, Set, Transition, Do, Request> node;
 };
 
 // ---------------------------------------------------------------------------
@@ -348,6 +370,29 @@ struct Action {
     bool rule_only = false;
 };
 
+/// How a request went, as a rule for its answers names it (E8): done, or
+/// failed, or expired (no answer by the deadline).
+enum class Outcome : std::uint8_t { done, fails, expires };
+
+inline constexpr std::array<std::string_view, 3> outcome_names{"done", "fails", "expires"};
+
+/// `when KIND done`, `when KIND fails`, `when KIND expires` (E8): what the
+/// contract does when an answer to one of its requests of that kind comes.
+/// Compiled code runs it in the reply function (reply_function), which takes
+/// every answer: it never refuses one, so its block asks no consent and
+/// refuses nothing.
+struct AnswerRule {
+    Span span;
+    std::string kind;
+    const Concept* word = nullptr;
+    Outcome outcome = Outcome::done;
+    std::vector<Statement> body;
+    /// R33: a rule for failures that also takes the kind's expired answers,
+    /// as the contract has no rule for them.
+    bool expired = false;
+    std::string_view rule;
+};
+
 /// `when EVENT`: a time rule. The event is a date (`due`) or a condition on
 /// time (`7 days before due`, `overdue 3 days`, `suspended 30 days`), with
 /// other conditions joined by `and` (trigger_of finds its time). Unless it
@@ -422,6 +467,12 @@ struct Step {
     bool in_person = false;
     /// `by AI agent`: the subject's signer is an AI agent.
     bool agent = false;
+    /// An answer to a request (E8): `executor notify done`, `keeper notify
+    /// expires`: the oldest open request of the kind is answered, with the
+    /// values `with` gives (result, reason). The subject signs it.
+    bool answer = false;
+    std::string request_kind;
+    Outcome outcome = Outcome::done;
     Expectation expect = Expectation::accepted;
     Span expect_span;
     /// Expectation::state: the state, a word or a name.
@@ -473,6 +524,8 @@ struct Model {
     std::vector<State> states;
     std::vector<Action> actions;
     std::vector<TimeRule> rules;
+    /// The rules for the answers to requests (E8), in source order.
+    std::vector<AnswerRule> answers;
     DueKind due = DueKind::none;
     std::string_view due_rule;
     /// The contract's offset from UTC, in milliseconds east (U6): its `UTC
@@ -588,7 +641,8 @@ struct Trigger {
 
 /// The function compiled code gives each time rule, in the model's order
 /// (empty for a rule that only states duties): "when." and the first action
-/// it does, else the state its first state change leads to, else "rule";
+/// it does, else the kind of the first request it makes (E8), else the state
+/// its first state change leads to, else "rule";
 /// ".2", ".3", ... when that name is taken by an earlier rule.
 [[nodiscard]] std::vector<std::string> rule_functions(const Model& model);
 
@@ -602,5 +656,31 @@ struct Trigger {
 /// True if compiled code keeps the time the instance last changed state
 /// (`since`): some expression asks `within N`, or how long a state is held.
 [[nodiscard]] bool uses_since(const Model& model) noexcept;
+
+// ---------------------------------------------------------------------------
+// Requests (E8).
+
+/// The function every request names as its reply: answers call it.
+inline constexpr std::string_view reply_function = "result";
+/// The most requests one call makes, and the most bytes a request's params
+/// take (spec section 15).
+inline constexpr std::uint64_t max_call_requests = 16;
+inline constexpr std::uint64_t max_request_params = 4'096;
+/// A request's deadline is at most this long after its call (366 days).
+inline constexpr std::int64_t max_request_ms = 31'622'400'000;
+
+/// The requests in a block, depth first, in order (those of actions it does
+/// not included).
+[[nodiscard]] std::vector<const Request*> requests_in(const std::vector<Statement>& list);
+
+/// True if the contract makes requests: compiled code then has the reply
+/// function.
+[[nodiscard]] bool makes_requests(const Model& model);
+
+/// The rule that takes an answer of `status` (1 done, 2 failed, 3 expired)
+/// to a request of `kind`, if the contract has one: a rule for failures
+/// takes expired answers too unless one is for expiry (R33).
+[[nodiscard]] const AnswerRule* answer_rule(const Model& model, std::string_view kind,
+                                            int status) noexcept;
 
 } // namespace cexchain::bo::model

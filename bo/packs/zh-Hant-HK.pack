@@ -8,7 +8,7 @@
 {
   "format": 1,
   "id": "zh-Hant-HK",
-  "version": 4,
+  "version": 5,
   "language": "zh-Hant-HK",
   "name": "繁體中文（香港）",
   "official": true,
@@ -52,7 +52,11 @@
     "kw.in": "於",
     "kw.reject": "拒絕",
     "kw.test": "測試",
-    "kw.use": "使用"
+    "kw.use": "使用",
+    "kw.request": "請求",
+    "kw.done": "完成",
+    "kw.fails": "失敗",
+    "kw.expires": "過期"
   },
 
   "vocabulary": {
@@ -141,6 +145,7 @@
     "actor.ai_agent": ["AI 代理", "AI代理"],
     "actor.device": "裝置",
     "actor.keeper": "排程器",
+    "actor.executor": "執行器",
 
     "role.we": ["我方", "本公司"],
     "role.counterparty": "相對方",
@@ -148,7 +153,9 @@
     "expr.sum_of": "… 總和",
     "expr.count_of": "… 數目",
     "expr.at_most": "最多 …",
-    "expr.previous_state": "原先狀態"
+    "expr.previous_state": "原先狀態",
+    "expr.result": "結果",
+    "expr.reason": "原因"
   },
 
   "messages": {
@@ -264,6 +271,7 @@
     "parse.expected-set": "{after} 之後須有欄位及其數值：金額 = HKD 100，以逗號分隔",
     "parse.can": "{found} 不可接在此動作之後：可寫 由 訂約方、予 訂約方 或 連同 輸入項，每項最多一次",
     "parse.when": "當 之後須先寫事件，再寫動作：當 逾期 3日 暫停、當 到期前 7日 通知 客戶",
+    "parse.request": "請求的寫法是：請求 種類 [予 訂約方] [連同 名稱 = 值，……] 時間長度內（如 1日內），種類為名稱或動作的詞語；此處是 {found}",
     "parse.each": "逐一 的寫法是 逐一 名稱 於 清單，要重複的各行寫在其下的區塊內",
     "parse.bare-condition": "單獨的條件不會產生作用：請在前面加上 須 或 如；如要設定欄位，請寫 欄位 = 數值",
     "parse.unclosed": "此 ( 在同一行內沒有對應的 )",
@@ -304,7 +312,7 @@
     "check.zero-division": "{text} 除以零",
     "check.list-items": "{text} 的各項並非同一類型",
     "check.list-bound": "{text}：清單可有 1 至 {limit} 項",
-    "check.each-body": "{text}：逐一 之下的區塊每項執行一次，故不可轉變狀態或執行動作；請移至 逐一 之外",
+    "check.each-body": "{text}：逐一 之下的區塊每項執行一次，故不可轉變狀態、執行動作或發出請求；請移至 逐一 之外",
     "check.set-constant": "{field} 是常數（區塊已給出其數值），任何動作都不可更改；如要讓動作更改，請改為宣告其類型（層級 數值）",
     "check.set-target": "{text} 不可設定：只有實例的欄位可以設定",
     "check.initial-state": "實例可以從 {states} 任何一個狀態開始，因為沒有狀態轉變通往它們；Bo 從不猜測：實例從唯一沒有狀態轉變通往的狀態開始，否則從 正常 開始",
@@ -334,6 +342,13 @@
     "check.charge-rounding": "{name} 是定額，不會捨入：請勿為其寫捨入方式",
     "check.charge-bill": "{name} 每份{document}捨入一次，但合約的單據並非{document}",
     "check.needs-executor": "{action} 要求執行器在賬本以外行事，此功能於 6b 步驟推出：bo check 接受它，但在此之前 bo build 會拒絕",
+    "check.request-kind": "{text} 不是請求的種類：請寫一個以小寫拉丁字母開頭、由小寫拉丁字母、數字、.、_ 及 - 組成的名稱（最多 64 個字節），或動作的詞語",
+    "check.request-value": "{name}：請求可附帶數字、金額、數量、比率、日期、時間長度、文字、是否、訂約方及其清單，但不可附帶{type}",
+    "check.request-within": "{text}：請求須寫明期限，即寫出的時間長度之內，由 1日 至 366日（12個月）",
+    "check.request-count": "{function} 一次調用可發出 {count} 個請求；一次調用最多只可發出 16 個",
+    "check.answer-twice": "{text} 已有另一條規則：每個種類的 完成、失敗 及 過期 各只可有一條規則",
+    "check.answer-unasked": "合約沒有發出種類為 {kind} 的請求，因此這條規則永不適用",
+    "check.answer-line": "{text}：答覆永不被拒絕，亦不附帶同意，因此答覆規則不執行動作、不拒絕任何事、不設定訂約方；它可設定欄位、以 -> 狀態（或 如 狀態 -> 狀態）轉變狀態，及發出請求",
     "check.test-start": "測試須以建立實例開始：訂約方 {action} 連同 欄位 = 數值, …；建立實例的一方即所屬賬本，由其賬本執行合約",
     "check.test-again": "每個測試只在第一步建立一次實例",
     "check.test-creation": "{text}：此合約的實例以 {action} 建立（資產用 發出，其他用 建立）",
@@ -361,6 +376,7 @@
     "check.parts-shape": "{text}：發出 各部分 予 各接收方 [連同 欄位 = 值, ...]：各部分須為金額清單，單位與實例的金額相同；各接收方須為訂約方清單；連同 只可設定實例的欄位，金額及持有人除外",
     "check.parts-instance": "{action} 會發出各部分，因此每個實例須有金額（金錢或數量）及持有人，且不可有賬單",
     "check.test-keeper": "{text}：排程器調用 當 規則時不帶其他內容：不可寫 予、連同、親身確認或由 AI 代理",
+    "check.test-answer": "{text}：步驟答覆合約發出的請求，寫法如 執行器 種類 完成、失敗 或 過期，最多附帶 結果 及 原因 兩項文字",
     "build.fragment": "此檔案沒有 合約 一行，屬片段：只有合約（合約 名稱）可以編譯",
     "build.standard-action": "{action} 是內置動作：其範本隨標準庫於日後版本的編譯器提供；現階段請宣告自訂動作（可 名稱 由 訂約方）",
     "build.executor": "{action} 要求執行器在賬本以外行事，此功能於 6b 步驟推出：已部署的程式碼永不改變，因此在此之前無法編譯",
@@ -401,6 +417,8 @@
     "run.fired": "{rule} 已就此時間適用過",
     "run.depth": "{action} 會建立部分，但此實例已是深度 8 的部分，即賬本容許的最深層",
     "run.parts": "{action} 為每個接收方發出一個部分：部分的數目須與接收方相同，且至少一個",
+    "run.request": "請求 {kind} 附帶的內容多於 4,096 個字節",
+    "run.answer": "函數 result 只接受合約所發請求的答覆",
     "fmt.unstable": "以 {language} 書寫時，此處原始碼的讀法會改變：合約自訂的名稱或某個字詞會與周圍的字詞連讀成 {language} 的另一個字詞；因此未有格式化任何內容：請把該名稱改名或改寫此行，或格式化為另一種語言",
     "fmt.internal": "按標準版面編排後，此處原始碼的讀法會改變，因此未有格式化任何內容；這是格式化工具的錯誤，請回報",
     "bo.truncated": "尚有其他問題；只顯示首 {limit} 個"
@@ -422,6 +440,7 @@
     "section-actions": "動作",
     "section-time": "時間規則",
     "section-rules": "Bo 所採用的規則",
+    "section-answers": "請求的答覆",
     "party-creation": "{party}：於建立實例時確定賬本。",
     "party-action": "{party}：由首次{action}確定賬本，並須經{party}同意。",
     "party-each": "{party}：由每次{action}確定賬本，並須經{party}同意。",
@@ -490,6 +509,18 @@
     "when-date": "於{date}：",
     "when-keeper": "函數 {function}：時間一到，排程器便會調用。早於此時間的調用會被拒絕；每個時間只適用一次，其事件會記錄調用遲了多久。",
     "utc-offset": "日期及日數按 UTC{offset} 計算，全年不變，不設夏令時間；某日加一個月而下月沒有該日（1 月 31 日加一個月）時，以該月最後一日為準。",
+    "request": "向執行器請求{kind}，在賬本以外辦理，須於調用後{duration}內答覆（即其期限）。",
+    "request-to": "向執行器請求{kind}（對象：{party}），在賬本以外辦理，須於調用後{duration}內答覆（即其期限）。",
+    "request-values": "請求附帶{values}。",
+    "request-failure": "如請求失敗或過期，即適用請求{kind}失敗時的規則（見「請求的答覆」）。",
+    "request-failure-expiry": "如請求失敗，即適用請求{kind}失敗時的規則；如過期，則適用過期時的規則（見「請求的答覆」）。",
+    "request-expiry-only": "如請求過期，即適用請求{kind}過期時的規則（見「請求的答覆」）；如失敗，則不再有其他事發生：答覆記錄為事件。",
+    "request-no-failure": "如請求失敗或過期，不再有其他事發生：答覆記錄為事件。",
+    "answers-note": "函數 {function} 接受合約所有請求的答覆：執行器的答覆、由人親手作出的答覆，或期限過後由排程器作出的答覆（過期）。它把答覆記錄為事件，並適用以下相應的規則（如有）。答覆永不被拒絕，因此這些規則不要求同意，亦不拒絕任何事；實例結束後，它們不轉變狀態，亦不發出請求。",
+    "answer-done": "請求{kind}完成時：",
+    "answer-fails": "請求{kind}失敗時：",
+    "answer-fails-expired": "請求{kind}失敗或過期時：",
+    "answer-expires": "請求{kind}過期（期限前沒有答覆）時：",
     "charge": "{kind}{name}：",
     "charge-rate": "比率為{rate}。",
     "charge-amount": "金額為{value}。",
@@ -515,6 +546,8 @@
     "value-text": "「{text}」",
     "value-now": "調用時間",
     "value-today": "調用當日",
+    "value-result": "答覆的結果",
+    "value-reason": "答覆的原因",
     "value-amount": "金額",
     "value-separator": "；",
     "list-separator": "、",
@@ -651,6 +684,7 @@
     "rule-R29": "需要清單之處如只寫一個值，即為只有該項的清單。",
     "rule-R30": "發出 各部分 予 各接收方，會令每一部分各自成為同一合約的實例，由該調用建立：其金額為該部分，持有人為其接收方，而發出各部分的實例隨即終結。部分可再拆分，最多向下八層；部分的證據載有其所源自的每個實例的紀錄（規範第 15 節）。",
     "rule-R31": "動作如令其相對方（予 之後）成為持有人、質權人或收款人（如轉讓、質押及分配），每次調用均須經該相對方同意，即使其角色已於建立實例時或由另一動作確定賬本：任何訂約方均不會未經同意而成為持有人、質權人或收款人。",
-    "rule-R32": "時間長度除以時間長度，得出後者在前者中完整包含的次數，餘數捨去（向零取整）：2 日 20 小時除以 1 日得 2。"
+    "rule-R32": "時間長度除以時間長度，得出後者在前者中完整包含的次數，餘數捨去（向零取整）：2 日 20 小時除以 1 日得 2。",
+    "rule-R33": "請求過期（期限前沒有答覆）即當作失敗處理，除非合約另有過期的規則。"
   }
 }

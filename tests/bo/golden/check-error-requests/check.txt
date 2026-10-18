@@ -1,0 +1,63 @@
+edition 1
+contract Requests
+party role.we bound=creation{R3}
+party buyer bound=creation{R3}
+kind kind.thing Order
+field field.amount instance money cur.HKD
+field owner instance party = buyer{R2}
+field picks instance list 3 number
+state state.active first{R4}
+state shipped{R5}
+can ship own by=role.we agents=delegation{R14}
+  request Notify within=(duration time.day 1)
+  request notify within=(duration time.day 400)
+  request notify to=buyer within=0
+  request notify within=(duration time.day 1)
+    set state state.active
+  each i in=picks
+    request notify within=(duration time.day 1)
+can flood own by=role.we agents=delegation{R14}
+  request a1 within=(duration time.day 1)
+  request a2 within=(duration time.day 1)
+  request a3 within=(duration time.day 1)
+  request a4 within=(duration time.day 1)
+  request a5 within=(duration time.day 1)
+  request a6 within=(duration time.day 1)
+  request a7 within=(duration time.day 1)
+  request a8 within=(duration time.day 1)
+  request a9 within=(duration time.day 1)
+  request a10 within=(duration time.day 1)
+  request a11 within=(duration time.day 1)
+  request a12 within=(duration time.day 1)
+  request a13 within=(duration time.day 1)
+  request a14 within=(duration time.day 1)
+  request a15 within=(duration time.day 1)
+  request a16 within=(duration time.day 1)
+  request a17 within=(duration time.day 1)
+answer notify done function=result
+  requires (> field.amount 0{R22})
+  set owner role.we
+answer notify done function=result
+  transition -> shipped
+answer ping fails function=result expired{R33}
+  transition -> shipped
+test "answers"
+  step role.we act.create creation expect=accepted
+    set field.amount (money cur.HKD 1)
+    set picks (list 1 2)
+  step role.we ship expect=accepted
+  step actor.executor ping answer=ping done expect=accepted
+  step actor.executor act.notify answer=notify done expect=accepted
+    set field.amount "x"
+10:11 error check.request-kind: Notify is not a request kind: write a name of lowercase Latin letters, digits, ., _, and -, starting with a letter (at most 64 bytes), or an action's word
+11:18 error check.request-within: within 400 days: a request names its deadline, within a duration written out, from 1 day to 366 days (12 months)
+12:3 error check.request-within: request notify to buyer: a request names its deadline, within a duration written out, from 1 day to 366 days (12 months)
+13:31 error check.request-value: state: a request carries numbers, money, quantities, rates, dates, durations, texts, yes or no, parties, and lists of them, not a state
+15:5 error check.each-body: request notify within 1 day: the block of each runs once for each item, so it cannot change the state, do an action, or make a request; move it out of each
+17:1 error check.request-count: flood can make 17 requests in one call; a call makes at most 16
+37:3 error check.answer-line: requires amount > 0: an answer is never refused and cites no consent, so a rule for answers does no action, refuses nothing, and sets no party; it sets fields, changes the state with -> STATE (or if STATE -> STATE), and makes requests
+38:3 error check.answer-line: owner = we: an answer is never refused and cites no consent, so a rule for answers does no action, refuses nothing, and sets no party; it sets fields, changes the state with -> STATE (or if STATE -> STATE), and makes requests
+40:6 error check.answer-twice: a second rule for notify: one rule for each kind and outcome
+43:1 warning check.answer-unasked: the contract makes no request ping, so this rule never applies
+49:12 error check.test-answer: executor ping done: a step answers a request the contract makes, as executor KIND done, fails, or expires, giving at most a result and a reason, both texts
+50:29 error check.test-answer: amount = "x": a step answers a request the contract makes, as executor KIND done, fails, or expires, giving at most a result and a reason, both texts

@@ -1,0 +1,57 @@
+edition 1
+contract Notice
+parties shipper consignee
+block kind.thing Parcel
+  field field.holder shipper
+  field field.due type.date
+  field notified type.yes_no = val.no
+  field note type.text = ""
+  field tries type.number = 0
+can deliver by=shipper
+  transition state.active -> delivered
+  set field.holder consignee
+  request act.notify to=consignee within=(cond.within (duration time.day 1))
+    set message "delivered"
+    set tries tries
+can close by=consignee
+  transition delivered -> done
+when (and cond.overdue state.active)
+  request remind to=shipper within=(cond.within (duration time.day 2))
+answer act.notify kw.done
+  set notified val.yes
+  set note expr.result
+answer act.notify kw.fails
+  set note expr.reason
+  set tries (+ tries 1)
+  if (< tries 3)
+    request act.notify to=shipper within=(cond.within (duration time.day 2))
+      set message "notice failed"
+answer remind kw.expires
+  transition -> late
+test "notified on delivery"
+  do subject=shipper act.create
+    set field.due 2027-03-10
+  do subject=shipper deliver (time.at 2027-03-08)
+  expect delivered
+  do subject=actor.executor act.notify outcome=kw.done
+    set expr.result "MSG-1"
+  expect
+    set notified val.yes
+    set note "MSG-1"
+  do subject=consignee close
+  expect done
+test "a failed notice, and an expired reminder"
+  do subject=shipper act.create
+    set field.due 2027-03-10
+  do subject=actor.keeper remind (time.at 2027-03-11)
+  do subject=actor.keeper remind (time.at 2027-03-13) outcome=kw.expires
+  expect late
+  do subject=shipper deliver
+  do subject=actor.executor act.notify outcome=kw.fails
+    set expr.reason "no_route"
+  expect
+    set note "no_route"
+    set tries 1
+  do subject=actor.keeper act.notify (time.at 2027-03-20) outcome=kw.expires
+  expect
+    set tries 2

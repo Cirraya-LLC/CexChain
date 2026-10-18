@@ -5,8 +5,9 @@
 // read once. Official packs are append-only: a version never changes, and
 // later compilers carry every earlier release so that old sources rebuild,
 // in bo/packs/history/, byte for byte as they were: version 1 of each, from
-// before vocabulary packs (D-054), and version 2, from before temperatures
-// and field defaults (G5b).
+// before vocabulary packs (D-054), version 2, from before temperatures and
+// field defaults (G5b), version 3, from before vocabulary pack files (G6),
+// and version 4, from before requests (E8).
 
 #include <cstdio>
 #include <cstdlib>
@@ -127,6 +128,28 @@ constexpr unsigned char zh_hans_cn_3_bytes[] = {
 #include "history/zh-Hans-CN-3.pack.inc"
 #endif
 };
+// Version 4 of each, from before requests (E8).
+constexpr unsigned char en_4_bytes[] = {
+#if CEXCHAIN_BO_EMBED
+#embed "../../packs/history/en-4.pack"
+#else
+#include "history/en-4.pack.inc"
+#endif
+};
+constexpr unsigned char zh_hant_hk_4_bytes[] = {
+#if CEXCHAIN_BO_EMBED
+#embed "../../packs/history/zh-Hant-HK-4.pack"
+#else
+#include "history/zh-Hant-HK-4.pack.inc"
+#endif
+};
+constexpr unsigned char zh_hans_cn_4_bytes[] = {
+#if CEXCHAIN_BO_EMBED
+#embed "../../packs/history/zh-Hans-CN-4.pack"
+#else
+#include "history/zh-Hans-CN-4.pack.inc"
+#endif
+};
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif
@@ -153,6 +176,12 @@ const PackText texts_2[] = {
     {"zh-Hans-CN", as_text(zh_hans_cn_2_bytes)},
 };
 
+const PackText texts_4[] = {
+    {"en", as_text(en_4_bytes)},
+    {"zh-Hant-HK", as_text(zh_hant_hk_4_bytes)},
+    {"zh-Hans-CN", as_text(zh_hans_cn_4_bytes)},
+};
+
 const PackText texts_3[] = {
     {"en", as_text(en_3_bytes)},
     {"zh-Hant-HK", as_text(zh_hant_hk_3_bytes)},
@@ -160,13 +189,16 @@ const PackText texts_3[] = {
 };
 
 /// Every release carried, the current one first, then newest first.
-constexpr Officials release_order[] = {Officials::current, Officials::before_pack_files,
-                                       Officials::before_temperature, Officials::before_vocabulary};
+constexpr Officials release_order[] = {Officials::current, Officials::before_requests,
+                                       Officials::before_pack_files, Officials::before_temperature,
+                                       Officials::before_vocabulary};
 
 std::span<const PackText> texts_of(const Officials which) noexcept {
     switch (which) {
     case Officials::current:
         return texts;
+    case Officials::before_requests:
+        return texts_4;
     case Officials::before_pack_files:
         return texts_3;
     case Officials::before_temperature:
@@ -219,6 +251,8 @@ const std::vector<Pack>& read_release(const Officials which) {
     switch (which) {
     case Officials::current:
         return read_once<Officials::current>();
+    case Officials::before_requests:
+        return read_once<Officials::before_requests>();
     case Officials::before_pack_files:
         return read_once<Officials::before_pack_files>();
     case Officials::before_temperature:

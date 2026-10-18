@@ -220,7 +220,7 @@ TEST_CASE("the official vocabulary packs are files, their concepts the edition's
     for (const Concept* c : concepts()) {
         core += c->owner == nullptr && !c->retired && c->category != Category::keyword ? 1 : 0;
     }
-    CHECK(core == 81);
+    CHECK(core == 84);
     // Each release reads with its own versions.
     CHECK(vocabulary_packs(Officials::current).front()->version == 2);
     CHECK(vocabulary_packs(Officials::before_pack_files).front()->version == 1);

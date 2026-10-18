@@ -423,7 +423,7 @@ OpenedSource open_source_bundle(const SourceBundle& bundle, const crypto::Provid
     }
     // The users' vocabulary packs (key 7), each read, in the order of their
     // ids, and named by key 6. They came with vocabulary pack files (G6),
-    // so the official language packs are the current ones.
+    // so the official language packs are those of G6 (version 4) or later.
     std::vector<VocabularyHandle> users;
     const std::string* previous_user = nullptr;
     for (const cbor::Value& value : bundle.embedded_vocabulary) {
@@ -442,7 +442,7 @@ OpenedSource open_source_bundle(const SourceBundle& bundle, const crypto::Provid
         }
         users.push_back(std::move(read.pack));
     }
-    if (!users.empty() && which != Officials::current) {
+    if (!users.empty() && which != Officials::current && which != Officials::before_requests) {
         return problem(OpenProblem::conflict,
                        "the bundle embeds vocabulary packs, which came after its official "
                        "language packs");

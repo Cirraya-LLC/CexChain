@@ -319,11 +319,11 @@ TEST_CASE("another compiler's output is reported as such", "[bo][build]") {
     newer.compiler = other_codegen();
     auto bundle = decode_source_bundle(*deploy.source);
     REQUIRE(bundle.has_value());
-    bundle->packs[2].version = 5;
+    bundle->packs[2].version = 6;
     newer.source = *encode_source_bundle(*bundle);
     r = rebuilt(newer);
     CHECK(r.status == RebuildStatus::other_compiler);
-    CHECK(mentions(r, "zh-Hant-HK version 5; this compiler carries version 4"));
+    CHECK(mentions(r, "zh-Hant-HK version 6; this compiler carries version 5"));
     // A vocabulary pack version this compiler does not carry.
     bundle = decode_source_bundle(*deploy.source);
     REQUIRE(bundle->vocabulary.size() == 1);

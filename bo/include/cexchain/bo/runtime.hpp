@@ -235,6 +235,11 @@ enum class Routine : std::uint8_t {
     /// [text, text_length, i64 n] -> []: aborts with the text (at most 128
     /// bytes) followed by n in decimal (n at least 0): "bo:requires sign 2".
     fail_numbered,
+
+    /// [start] -> []: hands the output from `start` on to the host
+    /// (output_write): a contract that makes requests (E8) writes them
+    /// first, at the start of the output region, and its output after them.
+    out_finish_at,
 };
 
 /// The runtime's globals.

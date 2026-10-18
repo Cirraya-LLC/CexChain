@@ -55,7 +55,7 @@ TEST_CASE("a pack's facts, written member by member", "[bo][names]") {
     CHECK(f.id == "zh-Hant-HK");
     CHECK(f.official);
     CHECK(f.separation == "none");
-    CHECK(f.keywords == 18);
+    CHECK(f.keywords == 22);
     CHECK(f.words == pack.vocabulary.size());
     CHECK(f.size == pack.canonical.size());
     CHECK(f.hash == "SM3");
@@ -72,7 +72,7 @@ TEST_CASE("a pack's facts, written member by member", "[bo][names]") {
     CHECK(*map[4].key.as_text() == "official");
     CHECK(map[4].value.as_bool() == true);
     CHECK(*map[7].key.as_text() == "keywords");
-    CHECK(map[7].value.as_uint64() == 18U);
+    CHECK(map[7].value.as_uint64() == 22U);
     CHECK(*map[14].key.as_text() == "digest");
 }
 
@@ -137,7 +137,7 @@ TEST_CASE("a checked model, written member by member", "[bo][names]") {
     const cbor::Value value = to_cbor(checked.model);
     // Model's members by name, in declaration order.
     const cbor::Map& map = *value.as_map();
-    REQUIRE(map.size() == 17);
+    REQUIRE(map.size() == 18);
     CHECK(*map[0].key.as_text() == "edition");
     CHECK(*map[1].key.as_text() == "packs");
     CHECK(*map[1].value.as_array()->at(0).as_text() == "finance");

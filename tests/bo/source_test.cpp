@@ -143,7 +143,7 @@ TEST_CASE("a source bundle names every official pack and round-trips", "[bo][sou
     CHECK(sm3.packs[0].digest != bundle.packs[0].digest);
     const OpenedSource wrong = open_source_bundle(sm3, provider(), crypto::HashAlg::sha256);
     CHECK(wrong.problem == OpenProblem::official_differs);
-    CHECK(wrong.detail.find("the official pack en version 4") != std::string::npos);
+    CHECK(wrong.detail.find("the official pack en version 5") != std::string::npos);
     const OpenedSource right = open_source_bundle(sm3, provider(), crypto::HashAlg::sm3);
     CHECK(right.problem == OpenProblem::none);
     REQUIRE(right.packs.has_value());
@@ -221,12 +221,12 @@ TEST_CASE("opening a bundle names what this compiler cannot read it with", "[bo]
     const SourceBundle bundle = bundle_of(pack_set());
     SECTION("an official pack version this compiler does not carry") {
         SourceBundle newer = bundle;
-        newer.packs[0].version = 5;
+        newer.packs[0].version = 6;
         const OpenedSource opened = open_source_bundle(newer, provider(), crypto::HashAlg::sha256);
         CHECK(opened.problem == OpenProblem::unknown_official);
         CHECK(opened.detail ==
-              "the source was read with the official pack en version 5; this compiler carries "
-              "version 4 (and the versions of earlier releases)");
+              "the source was read with the official pack en version 6; this compiler carries "
+              "version 5 (and the versions of earlier releases)");
     }
     SECTION("official packs of two releases") {
         SourceBundle mixed = bundle;

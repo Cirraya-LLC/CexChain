@@ -534,4 +534,11 @@ void define_out_finish(Runtime& rt, FunctionBuilder& b) {
                        {layout::output_end - layout::output_base});
 }
 
+void define_out_finish_at(Runtime& rt, FunctionBuilder& b) {
+    const Local start = b.param(0);
+    b.get(start).global_get(rt.var(Var::out)).get(start);
+    b.op(i32_sub).call(rt.module().host(wasm::Host::output_write),
+                       {layout::output_end - layout::output_base});
+}
+
 } // namespace cexchain::bo::runtime::detail

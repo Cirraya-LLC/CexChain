@@ -611,6 +611,7 @@ public:
         states();
         actions();
         time_rules();
+        answers();
         rules_section();
         write_text();
         return std::move(out_);
@@ -819,6 +820,12 @@ private:
         }
         if (is(c, "time.today")) {
             return w_.say("value-today");
+        }
+        if (is(c, "expr.result")) {
+            return w_.say("value-result");
+        }
+        if (is(c, "expr.reason")) {
+            return w_.say("value-reason");
         }
         if (is(c, "cond.overdue")) {
             return w_.say("cond-overdue");
@@ -1110,6 +1117,11 @@ private:
                         [&](const m::Set& set) { return in(set.value, in); },
                         [&](const m::Transition&) { return false; },
                         [&](const m::Do&) { return false; },
+                        [&](const m::Request& r) {
+                            return (r.to && in(*r.to, in)) ||
+                                   std::ranges::any_of(
+                                       r.with, [&](const m::Set& w) { return in(w.value, in); });
+                        },
                     },
                     st.node);
             });
@@ -1361,9 +1373,60 @@ private:
                         add(out, parent, n, "transition", std::move(text), rules);
                     },
                     [&](const m::Do& d) { act(d, out, parent, n); },
+                    [&](const m::Request& r) { request(r, out, parent, n); },
                 },
                 statement.node);
         }
+    }
+
+    /// A request kind as the text names it: an action's word in the
+    /// reader's language, or the name as written.
+    Phrase kind(const Concept* word, const std::string& name) const {
+        return word != nullptr ? w_.word(word) : plain(name);
+    }
+
+    /// E8: a request, what it carries, and what happens if it fails.
+    void request(const m::Request& r, std::vector<ExplainedClause>& out, const std::string& parent,
+                 std::size_t& n) {
+        Rules rules;
+        const Phrase what = kind(r.word, r.kind);
+        const std::string within = expr(r.within, rules);
+        const std::string text =
+            r.to ? w_.say("request-to",
+                          {{"kind", what}, {"party", party(*r.to)}, {"duration", plain(within)}})
+                 : w_.say("request", {{"kind", what}, {"duration", plain(within)}});
+        const std::string number = add(out, parent, n, "request", text, rules);
+        std::size_t k = 0;
+        if (!r.with.empty()) {
+            Rules values;
+            std::vector<std::string> items;
+            for (const m::Set& w : r.with) {
+                const Concept* c = w.target.concept_entry;
+                items.push_back(
+                    w_.say("value-labelled",
+                           {{"label", plain(c != nullptr ? w_.word(c).text : w.target.name)},
+                            {"value", plain(expr(w.value, values))}}));
+            }
+            add(out, number, k, "request-values",
+                w_.say("request-values", {{"values", plain(w_.parts(items))}}), values);
+        }
+        // What happens if it fails or expires (R33: an expired request is a
+        // failed one, unless a rule is for its expiry).
+        const m::AnswerRule* fails = m::answer_rule(model_, r.kind, 2);
+        const m::AnswerRule* expires = m::answer_rule(model_, r.kind, 3);
+        Rules failure;
+        std::string said;
+        if (fails != nullptr && expires == fails) {
+            note(failure, fails->rule);
+            said = w_.say("request-failure", {{"kind", what}});
+        } else if (fails != nullptr && expires != nullptr) {
+            said = w_.say("request-failure-expiry", {{"kind", what}});
+        } else if (expires != nullptr) {
+            said = w_.say("request-expiry-only", {{"kind", what}});
+        } else {
+            said = w_.say("request-no-failure");
+        }
+        add(out, number, k, "request-failure", std::move(said), failure);
     }
 
     void requirement(const m::Requires& r, std::vector<ExplainedClause>& out,
@@ -1693,6 +1756,36 @@ private:
             for (const m::Do& d : r.actions) {
                 act(d, s.clauses, number, k);
             }
+            statements(r.body, s.clauses, number, k);
+        }
+        function_.clear();
+    }
+
+    // --- Answers to requests (E8).
+
+    void answers() {
+        if (!m::makes_requests(model_) && model_.answers.empty()) {
+            return;
+        }
+        ExplainedSection& s = section("answers", "section-answers");
+        std::size_t n = 0;
+        function_ = std::string(m::reply_function);
+        add(s.clauses, s.number, n, "answers",
+            w_.say("answers-note", {{"function", plain(function_)}}), {});
+        for (const m::AnswerRule& r : model_.answers) {
+            requirement_ = 0;
+            Rules rules;
+            note(rules, r.rule);
+            const Phrase what = kind(r.word, r.kind);
+            std::string id = "answer-done";
+            if (r.outcome == m::Outcome::fails) {
+                id = r.expired ? "answer-fails-expired" : "answer-fails";
+            } else if (r.outcome == m::Outcome::expires) {
+                id = "answer-expires";
+            }
+            const std::string number =
+                add(s.clauses, s.number, n, "when", w_.say(id, {{"kind", what}}), rules);
+            std::size_t k = 0;
             statements(r.body, s.clauses, number, k);
         }
         function_.clear();

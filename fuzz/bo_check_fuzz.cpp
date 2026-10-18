@@ -160,6 +160,21 @@ public:
                                expr(t.to, 1);
                            },
                            [&](const m::Do& d) { action(d); },
+                           [&](const m::Request& r) {
+                               place(r.span);
+                               // A kind the ledger takes, or an error said so.
+                               if (r.kind.empty()) {
+                                   std::abort();
+                               }
+                               if (r.to) {
+                                   expr(*r.to, 1);
+                               }
+                               for (const m::Set& w : r.with) {
+                                   expr(w.target, 1);
+                                   expr(w.value, 1);
+                               }
+                               expr(r.within, 1);
+                           },
                        },
                        s.node);
         }
@@ -243,6 +258,14 @@ public:
             expr(r.event, 1);
             for (const m::Do& d : r.actions) {
                 action(d);
+            }
+            statements(r.body, 1);
+        }
+        for (const m::AnswerRule& r : model.answers) {
+            place(r.span);
+            rule(r.rule);
+            if (r.expired != (r.outcome == m::Outcome::fails && !r.rule.empty())) {
+                std::abort();
             }
             statements(r.body, 1);
         }

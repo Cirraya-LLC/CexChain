@@ -7,7 +7,7 @@
 {
   "format": 1,
   "id": "zh-Hans-CN",
-  "version": 4,
+  "version": 5,
   "language": "zh-Hans-CN",
   "name": "简体中文（中国大陆）",
   "official": true,
@@ -51,7 +51,11 @@
     "kw.in": "在",
     "kw.reject": "拒绝",
     "kw.test": "测试",
-    "kw.use": "使用"
+    "kw.use": "使用",
+    "kw.request": "请求",
+    "kw.done": "完成",
+    "kw.fails": "失败",
+    "kw.expires": "过期"
   },
 
   "vocabulary": {
@@ -140,6 +144,7 @@
     "actor.ai_agent": ["AI 代理", "AI代理"],
     "actor.device": "设备",
     "actor.keeper": "调度器",
+    "actor.executor": "执行器",
 
     "role.we": ["我方", "本公司"],
     "role.counterparty": "相对方",
@@ -147,7 +152,9 @@
     "expr.sum_of": "… 总和",
     "expr.count_of": "… 数目",
     "expr.at_most": "最多 …",
-    "expr.previous_state": "原先状态"
+    "expr.previous_state": "原先状态",
+    "expr.result": "结果",
+    "expr.reason": "原因"
   },
 
   "messages": {
@@ -263,6 +270,7 @@
     "parse.expected-set": "{after} 后面必须是字段及其值：金额 = HKD 100，用逗号分隔",
     "parse.can": "{found} 不能接在此动作之后：可以写 由 参与方、给 参与方 或 附带 输入项，每项最多一次",
     "parse.when": "当 后面必须先写事件，再写动作：当 逾期 3天 暂停、当 到期前 7天 通知 客户",
+    "parse.request": "请求的写法是：请求 种类 [给 参与方] [附带 名称 = 值，……] 时长内（如 1天内），种类为名称或动作的词语；此处是 {found}",
     "parse.each": "逐个 的写法是 逐个 名称 在 列表，要重复的各行写在其下的代码块中",
     "parse.bare-condition": "单独的条件不起作用：请在前面加上 须 或 如果；如要设置字段，请写 字段 = 值",
     "parse.unclosed": "此 ( 在同一行内没有对应的 )",
@@ -303,7 +311,7 @@
     "check.zero-division": "{text} 除以零",
     "check.list-items": "{text} 的各项不是同一类型",
     "check.list-bound": "{text}：列表可以有 1 到 {limit} 项",
-    "check.each-body": "{text}：逐个 之下的区块每项执行一次，因此不能改变状态或执行动作；请移到 逐个 之外",
+    "check.each-body": "{text}：逐个 之下的区块每项执行一次，因此不能改变状态、执行动作或发出请求；请移到 逐个 之外",
     "check.set-constant": "{field} 是常量（代码块已给出其值），任何动作都不能更改；如要让动作更改，请改为声明其类型（层级 数值）",
     "check.set-target": "{text} 不能设置：只有实例的字段可以设置",
     "check.initial-state": "实例可以从 {states} 中任何一个状态开始，因为没有状态变化通往它们；Bo 从不猜测：实例从唯一没有状态变化通往的状态开始，否则从 正常 开始",
@@ -333,6 +341,13 @@
     "check.charge-rounding": "{name} 是定额，不会舍入：请不要为其写舍入方式",
     "check.charge-bill": "{name} 每张{document}舍入一次，但合约的单据不是{document}",
     "check.needs-executor": "{action} 要求执行器在账本之外执行，此功能在 6b 步骤推出：bo check 接受它，但在此之前 bo build 会拒绝",
+    "check.request-kind": "{text} 不是请求的种类：请写一个以小写拉丁字母开头、由小写拉丁字母、数字、.、_ 和 - 组成的名称（最多 64 个字节），或动作的词语",
+    "check.request-value": "{name}：请求可以附带数字、金额、数量、比率、日期、时长、文本、是否、参与方及其列表，但不能附带{type}",
+    "check.request-within": "{text}：请求必须写明期限，即写出的时长之内，从 1天 到 366天（12个月）",
+    "check.request-count": "{function} 一次调用可发出 {count} 个请求；一次调用最多只能发出 16 个",
+    "check.answer-twice": "{text} 已有另一条规则：每个种类的 完成、失败 和 过期 各只能有一条规则",
+    "check.answer-unasked": "合约没有发出种类为 {kind} 的请求，因此这条规则永远不会适用",
+    "check.answer-line": "{text}：答复永远不会被拒绝，也不附带同意，因此答复规则不执行动作、不拒绝任何内容、不设置参与方；它可以设置字段、用 -> 状态（或 如果 状态 -> 状态）改变状态，以及发出请求",
     "check.test-start": "测试须以创建实例开始：参与方 {action} 附带 字段 = 数值, …；创建实例的一方即所属账本，由其账本执行合约",
     "check.test-again": "每个测试只在第一步创建一次实例",
     "check.test-creation": "{text}：本合约的实例以 {action} 创建（资产用 签发，其他用 创建）",
@@ -360,6 +375,7 @@
     "check.parts-shape": "{text}：签发 各部分 给 各接收方 [附带 字段 = 值, ...]：各部分须为金额列表，单位与实例的金额相同；各接收方须为参与方列表；附带 只能设置实例的字段，金额和持有人除外",
     "check.parts-instance": "{action} 会签发各部分，因此每个实例须有金额（金钱或数量）和持有人，且不能有账单",
     "check.test-keeper": "{text}：调度器调用 当 规则时不带其他内容：不能写 给、附带、本人确认或由 AI 代理",
+    "check.test-answer": "{text}：步骤答复合约发出的请求，写法如 执行器 种类 完成、失败 或 过期，最多附带 结果 和 原因 两项文本",
     "build.fragment": "此文件没有 合约 一行，属于片段：只有合约（合约 名称）可以编译",
     "build.standard-action": "{action} 是内置动作：其模板随标准库在以后版本的编译器中提供；目前请声明自定义动作（可 名称 由 参与方）",
     "build.executor": "{action} 要求执行器在账本之外执行，此功能在 6b 步骤推出：已部署的代码永不改变，因此在此之前无法编译",
@@ -400,6 +416,8 @@
     "run.fired": "{rule} 已就此时间适用过",
     "run.depth": "{action} 会创建部分，但此实例已是深度 8 的部分，即账本允许的最深层",
     "run.parts": "{action} 为每个接收方签发一个部分：部分的数目须与接收方相同，且至少一个",
+    "run.request": "请求 {kind} 附带的内容超过 4,096 个字节",
+    "run.answer": "函数 result 只接受合约所发请求的答复",
     "fmt.unstable": "用 {language} 书写时，此处源代码的读法会改变：合约自定义的名称或某个词语会与周围的词语连读成 {language} 的另一个词语；因此没有格式化任何内容：请给该名称改名或改写此行，或格式化为另一种语言",
     "fmt.internal": "按标准版式排版后，此处源代码的读法会改变，因此没有格式化任何内容；这是格式化工具的错误，请报告",
     "bo.truncated": "还有其他问题；只显示前 {limit} 个"
@@ -421,6 +439,7 @@
     "section-actions": "动作",
     "section-time": "时间规则",
     "section-rules": "Bo 采用的规则",
+    "section-answers": "请求的答复",
     "party-creation": "{party}：在创建实例时确定账本。",
     "party-action": "{party}：由首次{action}确定账本，并须经{party}同意。",
     "party-each": "{party}：由每次{action}确定账本，并须经{party}同意。",
@@ -489,6 +508,18 @@
     "when-date": "于{date}：",
     "when-keeper": "函数 {function}：时间一到，调度器就会调用。早于此时间的调用会被拒绝；每个时间只适用一次，其事件会记录调用迟了多久。",
     "utc-offset": "日期和天数按 UTC{offset} 计算，全年不变，不设夏令时；某日加一个月而下月没有该日（1 月 31 日加一个月）时，以该月最后一天为准。",
+    "request": "向执行器请求{kind}，在账本之外办理，须在调用后{duration}内答复（即其期限）。",
+    "request-to": "向执行器请求{kind}（对象：{party}），在账本之外办理，须在调用后{duration}内答复（即其期限）。",
+    "request-values": "请求附带{values}。",
+    "request-failure": "如果请求失败或过期，即适用请求{kind}失败时的规则（见“请求的答复”）。",
+    "request-failure-expiry": "如果请求失败，即适用请求{kind}失败时的规则；如果过期，则适用过期时的规则（见“请求的答复”）。",
+    "request-expiry-only": "如果请求过期，即适用请求{kind}过期时的规则（见“请求的答复”）；如果失败，则不再发生其他事情：答复记录为事件。",
+    "request-no-failure": "如果请求失败或过期，不再发生其他事情：答复记录为事件。",
+    "answers-note": "函数 {function} 接受合约所有请求的答复：执行器的答复、由人亲手作出的答复，或期限过后由调度器作出的答复（过期）。它把答复记录为事件，并适用以下相应的规则（如有）。答复永远不会被拒绝，因此这些规则不要求同意，也不拒绝任何内容；实例结束后，它们不改变状态，也不发出请求。",
+    "answer-done": "请求{kind}完成时：",
+    "answer-fails": "请求{kind}失败时：",
+    "answer-fails-expired": "请求{kind}失败或过期时：",
+    "answer-expires": "请求{kind}过期（期限前没有答复）时：",
     "charge": "{kind}{name}：",
     "charge-rate": "比率为{rate}。",
     "charge-amount": "金额为{value}。",
@@ -514,6 +545,8 @@
     "value-text": "“{text}”",
     "value-now": "调用时间",
     "value-today": "调用当日",
+    "value-result": "答复的结果",
+    "value-reason": "答复的原因",
     "value-amount": "金额",
     "value-separator": "；",
     "list-separator": "、",
@@ -650,6 +683,7 @@
     "rule-R29": "需要列表之处如果只写一个值，即为只有该项的列表。",
     "rule-R30": "签发 各部分 给 各接收方，会使每一部分各自成为同一合约的实例，由该调用创建：其金额为该部分，持有人为其接收方，而签发各部分的实例随即终结。部分可以再拆分，最多向下八层；部分的证据载有其所源自的每个实例的记录（规范第 15 节）。",
     "rule-R31": "动作如果使其相对方（给 之后）成为持有人、质权人或收款人（如转让、质押和分配），每次调用均须经该相对方同意，即使其角色已在创建实例时或由另一动作确定账本：任何参与方都不会未经同意而成为持有人、质权人或收款人。",
-    "rule-R32": "时长除以时长，得出后者在前者中完整包含的次数，余数舍去（向零取整）：2 天 20 小时除以 1 天得 2。"
+    "rule-R32": "时长除以时长，得出后者在前者中完整包含的次数，余数舍去（向零取整）：2 天 20 小时除以 1 天得 2。",
+    "rule-R33": "请求过期（期限前没有答复）即视为失败，除非合约另有过期的规则。"
   }
 }

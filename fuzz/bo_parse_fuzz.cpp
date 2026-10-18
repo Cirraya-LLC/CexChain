@@ -219,6 +219,21 @@ public:
                                expr(w.value, depth + 1);
                            }
                        },
+                       [&](const bo::ast::Request& r) {
+                           place(r.span);
+                           expr(r.kind, depth + 1);
+                           if (r.to) {
+                               expr(*r.to, depth + 1);
+                           }
+                           for (const bo::ast::Set& w : r.with) {
+                               place(w.span);
+                               expr(w.target, depth + 1);
+                               expr(w.value, depth + 1);
+                           }
+                           if (r.within) {
+                               expr(*r.within, depth + 1);
+                           }
+                       },
                    },
                    s.node);
     }
@@ -275,6 +290,14 @@ public:
                        [&](const bo::ast::Test& t) {
                            place(t.span);
                            statements(t.steps, 1);
+                       },
+                       [&](const bo::ast::AnswerRule& r) {
+                           place(r.span);
+                           expr(r.kind, 1);
+                           for (const bo::ast::Do& d : r.actions) {
+                               action(d, 1);
+                           }
+                           statements(r.body, 1);
                        },
                    },
                    c);

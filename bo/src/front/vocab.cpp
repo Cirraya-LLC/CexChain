@@ -875,6 +875,7 @@ std::span<const VocabularyPack* const> vocabulary_packs() noexcept {
 std::span<const VocabularyPack* const> vocabulary_packs(const Officials officials) noexcept {
     switch (officials) {
     case Officials::current:
+    case Officials::before_requests:
         return registry().current;
     case Officials::before_pack_files:
     case Officials::before_temperature:

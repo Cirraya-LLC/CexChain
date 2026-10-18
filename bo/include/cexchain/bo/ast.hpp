@@ -132,6 +132,22 @@ struct Do {
     std::optional<Expr> to;
     std::optional<Expr> by;
     std::vector<Set> with;
+    /// A test's step that answers a request (E8), `executor notify done`:
+    /// the outcome's keyword (kw.done, kw.fails, or kw.expires) after the
+    /// request's kind, which `action` holds; null for any other step.
+    const Concept* outcome = nullptr;
+};
+
+/// `request KIND [to PARTY] [with NAME = VALUE, ...] within DURATION` (E8):
+/// asks an executor to act outside the ledger. The kind is a name or an
+/// action's word; `within` is the word `within` and its duration.
+struct Request {
+    static constexpr std::string_view tag = "request";
+    Span span;
+    Expr kind;
+    std::optional<Expr> to;
+    std::vector<Set> with;
+    std::optional<Expr> within;
 };
 
 /// `requires CONDITION`, or `GUARD requires CONDITION` (`over 5_000_000
@@ -198,7 +214,7 @@ struct Each {
 };
 
 struct Statement {
-    std::variant<Requires, Permit, If, Each, Reject, Set, Transition, Do, Expect> node;
+    std::variant<Requires, Permit, If, Each, Reject, Set, Transition, Do, Expect, Request> node;
 };
 
 // ---------------------------------------------------------------------------
@@ -246,6 +262,19 @@ struct When {
     std::vector<Statement> body;
 };
 
+/// `when KIND done`, `when KIND fails`, `when KIND expires` (E8): a rule
+/// for the answers to the contract's requests of a kind (a name or an
+/// action's word), its outcome the keyword after it, then the actions on its
+/// line and its block, as for a time rule.
+struct AnswerRule {
+    static constexpr std::string_view tag = "answer";
+    Span span;
+    Expr kind;
+    const Concept* outcome = nullptr;
+    std::vector<Do> actions;
+    std::vector<Statement> body;
+};
+
 /// `test [NAME | "TEXT"]` and its steps (Do) and expectations (Expect).
 struct Test {
     static constexpr std::string_view tag = "test";
@@ -254,7 +283,7 @@ struct Test {
     std::vector<Statement> steps;
 };
 
-using Clause = std::variant<Contract, Parties, Block, Can, When, Test>;
+using Clause = std::variant<Contract, Parties, Block, Can, When, Test, AnswerRule>;
 
 /// `use finance`: the source uses a vocabulary pack (D-054). Pack ids are
 /// ASCII and stay as written in every language (`使用 finance`).

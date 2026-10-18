@@ -628,7 +628,14 @@ private:
                 continue;
             }
             if (entry.category == Category::keyword) {
-                if (!pack_.keywords.contains(entry.id)) {
+                // A keyword added later (Concept::since) is spelled by the
+                // official packs from that version on; packs of before it,
+                // and others' packs, may lack it (it is read and written in
+                // English then, as missing words are), so that the packs
+                // old deploys embed still read.
+                const bool earlier =
+                    entry.since > 0 && (!pack_.official || pack_.version < entry.since);
+                if (!earlier && !pack_.keywords.contains(entry.id)) {
                     fail("pack.missing-keyword",
                          {{"pack", pack_.id}, {"concept", std::string(entry.id)}});
                 }

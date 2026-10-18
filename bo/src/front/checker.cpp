@@ -86,6 +86,7 @@ constexpr std::string_view rule_one_item = "R29";
 constexpr std::string_view rule_issue_parts = "R30";
 constexpr std::string_view rule_role_taking = "R31";
 constexpr std::string_view rule_whole_times = "R32";
+constexpr std::string_view rule_expired = "R33";
 
 /// The fields the standard terms may add to an instance (R20), in the order
 /// R20 adds them: those their packs mark as added (Concept::flags; parties
@@ -411,6 +412,13 @@ void each_expression(Statement& s, const F& f) {
                     one(w.target);
                     one(w.value);
                 }
+            } else if constexpr (std::is_same_v<N, ast::Request>) {
+                if (node.to) {
+                    one(*node.to);
+                }
+                for (auto& w : node.with) {
+                    one(w.value);
+                }
             } else if constexpr (std::is_same_v<N, ast::Expect>) {
                 if (node.outcome) {
                     one(*node.outcome);
@@ -585,6 +593,7 @@ enum class Place : std::uint8_t {
     action,      ///< a `can` block (a call someone starts)
     rule,        ///< a `when` block (the keeper fires it)
     event,       ///< a `when`'s event
+    answer,      ///< a rule for answers (E8): `when notify done`
 };
 
 struct Decl {
@@ -687,6 +696,9 @@ private:
     void check_can(const ast::Can& c, std::size_t index);
     void check_to(const ast::Expr& to, m::Action& a, const std::string& action);
     void check_when(const ast::When& w);
+    void check_answer(const ast::AnswerRule& r);
+    m::Request request_statement(const ast::Request& r);
+    void check_requests();
     std::vector<m::Statement> statements(const std::vector<ast::Statement>& list);
     m::Set set_statement(const ast::Set& s);
     m::Do do_action(const ast::Do& d);
@@ -697,6 +709,7 @@ private:
     // --- Tests.
     void check_tests();
     m::Step test_step(const ast::Do& d, bool first, std::optional<std::int64_t>& clock);
+    m::Step answer_step(const ast::Do& d, bool first, std::optional<std::int64_t>& clock);
     void test_with(const ast::Do& d, m::Step& step, const m::Action* action,
                    const std::string& action_key);
     void test_expect(const ast::Expect& e, m::Step& step);
@@ -732,7 +745,8 @@ private:
     void needs_due(const ast::Expr& e);
     void not_a_value(const ast::Expr& e, m::Expr& out);
     [[nodiscard]] bool in_call() const noexcept {
-        return place_ == Place::action || place_ == Place::rule || place_ == Place::event;
+        return place_ == Place::action || place_ == Place::rule || place_ == Place::event ||
+               place_ == Place::answer;
     }
 
     std::string_view source_;
@@ -748,6 +762,10 @@ private:
     std::vector<const ast::Block*> charges_;
     std::vector<const ast::Can*> cans_;
     std::vector<const ast::When*> whens_;
+    std::vector<const ast::AnswerRule*> answers_;
+    /// The kinds of the requests the contract makes (E8), as compiled code
+    /// names them.
+    std::set<std::string, std::less<>> requested_;
     std::vector<const ast::Test*> tests_;
     std::vector<const ast::Clause*> clauses_;
     std::deque<ast::Can> synthetic_;
@@ -1731,6 +1749,14 @@ void Checker::mentions(const std::vector<ast::Statement>& list,
                        [&](const ast::Transition&) {},
                        [&](const ast::Do& d) { do_mentions(d); },
                        [&](const ast::Expect&) {},
+                       [&](const ast::Request& r) {
+                           if (r.to) {
+                               mentions(*r.to, out);
+                           }
+                           for (const ast::Set& w : r.with) {
+                               mentions(w.value, out);
+                           }
+                       },
                    },
                    s.node);
     }
@@ -1786,6 +1812,8 @@ void Checker::bind_roles() {
                 std::vector<ast::Statement> one{ast::Statement{d}};
                 mentions(one, named);
             }
+        } else if (const auto* a = std::get_if<ast::AnswerRule>(clause)) {
+            mentions(a->body, named);
         }
         seen.insert(named.begin(), named.end());
     }
@@ -2308,98 +2336,295 @@ void Checker::check_when(const ast::When& w) {
     model_.rules.push_back(std::move(r));
 }
 
+/// A request's kind as the ledger takes it: 1 to 64 bytes, a lowercase
+/// ASCII letter, then lowercase letters, digits, `.`, `_`, or `-`.
+bool request_kind(std::string_view kind) noexcept {
+    if (kind.empty() || kind.size() > 64 || kind[0] < 'a' || kind[0] > 'z') {
+        return false;
+    }
+    return std::ranges::all_of(kind, [](const char c) {
+        return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-';
+    });
+}
+
+/// A type a request's value may have: one with a JSON form (numbers,
+/// texts, yes or no, parties as their ledger ids), or a list of them.
+bool request_value(const Type& t) {
+    switch (t.kind) {
+    case TypeKind::number:
+    case TypeKind::money:
+    case TypeKind::quantity:
+    case TypeKind::rate:
+    case TypeKind::date:
+    case TypeKind::duration:
+    case TypeKind::text:
+    case TypeKind::yes_no:
+    case TypeKind::party:
+        return true;
+    case TypeKind::list:
+        return t.element.size() == 1 && t.element[0].kind != TypeKind::list &&
+               request_value(t.element[0]);
+    default:
+        return false;
+    }
+}
+
+m::Request Checker::request_statement(const ast::Request& r) {
+    m::Request out;
+    out.span = r.span;
+    if (r.kind.kind == ExprKind::word) {
+        out.word = r.kind.concept_entry;
+        out.kind = wire_name(out.word, {});
+    } else {
+        out.kind = r.kind.name;
+    }
+    if (!request_kind(out.kind)) {
+        error(r.kind.span, "check.request-kind", {{"text", written(r.kind.span)}});
+    } else {
+        requested_.insert(out.kind);
+    }
+    if (r.to) {
+        out.to = value(*r.to);
+        expect_kind(*out.to, TypeKind::party);
+    }
+    std::set<std::string> names;
+    for (const ast::Set& w : r.with) {
+        m::Set item;
+        item.span = w.span;
+        item.target = plain(w.target);
+        const std::string name = wire_name(
+            w.target.kind == ExprKind::word ? w.target.concept_entry : nullptr, w.target.name);
+        if (!names.insert(name).second || (name == "to" && r.to)) {
+            error(w.target.span, "check.duplicate", {{"name", name}});
+        }
+        item.value = value(w.value);
+        if (known(item.value.type) && !request_value(item.value.type)) {
+            error(w.value.span, "check.request-value",
+                  {{"name", name}, {"type", encode(item.value.type)}});
+        }
+        item.target.type = item.value.type;
+        out.with.push_back(std::move(item));
+    }
+    // Within a duration written out: more than nothing, at most 366 days
+    // (12 months), the ledger's limit.
+    const ast::Expr* duration =
+        r.within && r.within->operands.size() == 1 ? &r.within->operands[0] : nullptr;
+    std::optional<std::int64_t> amount;
+    if (duration != nullptr && duration->kind == ExprKind::literal &&
+        duration->literal.kind == ast::LiteralKind::duration) {
+        amount = literal_value(duration->literal, model_.utc_offset_ms);
+    }
+    if (!amount) {
+        error(r.within ? r.within->span : r.span, "check.request-within",
+              {{"text", written(r.within ? r.within->span : r.span)}});
+    } else {
+        out.within = value(*duration);
+        const bool calendar = out.within.type.calendar;
+        if (*amount <= 0 || *amount > (calendar ? 12 : m::max_request_ms)) {
+            error(r.within->span, "check.request-within", {{"text", written(r.within->span)}});
+        }
+    }
+    return out;
+}
+
+void Checker::check_answer(const ast::AnswerRule& r) {
+    m::AnswerRule out;
+    out.span = r.span;
+    if (r.kind.kind == ExprKind::word) {
+        out.word = r.kind.concept_entry;
+        out.kind = wire_name(out.word, {});
+    } else {
+        out.kind = r.kind.name;
+    }
+    if (!request_kind(out.kind)) {
+        error(r.kind.span, "check.request-kind", {{"text", written(r.kind.span)}});
+    }
+    out.outcome = is(r.outcome, "kw.done")    ? m::Outcome::done
+                  : is(r.outcome, "kw.fails") ? m::Outcome::fails
+                                              : m::Outcome::expires;
+    for (const m::AnswerRule& other : model_.answers) {
+        if (other.kind == out.kind && other.outcome == out.outcome) {
+            error(r.kind.span, "check.answer-twice", {{"text", written(r.kind.span)}});
+        }
+    }
+    frames_.emplace_back();
+    place_ = Place::answer;
+    // An answer is never refused and cites no consent: its rule does no
+    // action, refuses nothing, and sets no party's field.
+    std::vector<m::Consent> consents;
+    consents_ = &consents;
+    for (const ast::Do& d : r.actions) {
+        error(d.span, "check.answer-line", {{"text", written(d.span)}});
+    }
+    out.body = statements(r.body);
+    each_statement(out.body, [&](const m::Statement& st) {
+        const Span* at = nullptr;
+        if (const auto* q = std::get_if<m::Requires>(&st.node)) {
+            at = &q->span;
+        } else if (const auto* j = std::get_if<m::Reject>(&st.node)) {
+            at = &j->span;
+        } else if (const auto* d = std::get_if<m::Do>(&st.node)) {
+            at = &d->span;
+        } else if (const auto* t = std::get_if<m::Transition>(&st.node); t && !t->from.empty()) {
+            at = &t->span;
+        }
+        if (at != nullptr) {
+            error(*at, "check.answer-line", {{"text", written(*at)}});
+        }
+    });
+    for (const m::Consent& c : consents) {
+        error(c.span, "check.answer-line", {{"text", written(c.span)}});
+    }
+    frames_.pop_back();
+    consents_ = nullptr;
+    place_ = Place::declaration;
+    model_.answers.push_back(std::move(out));
+}
+
+/// What the whole contract's requests need: a reply function, at most 16
+/// requests in any one call, and rules for kinds it requests.
+void Checker::check_requests() {
+    // R33: a rule for failures takes a kind's expired answers too, unless
+    // a rule for its expiry does.
+    for (m::AnswerRule& r : model_.answers) {
+        if (r.outcome == m::Outcome::fails && m::answer_rule(model_, r.kind, 3) == &r) {
+            r.expired = true;
+            r.rule = rule_expired;
+        }
+        if (!requested_.contains(r.kind) && request_kind(r.kind)) {
+            error(r.span, "check.answer-unasked", {{"kind", r.kind}});
+        }
+    }
+    const auto count = [](const std::vector<m::Statement>& list) {
+        return static_cast<std::uint64_t>(m::requests_in(list).size());
+    };
+    const auto too_many = [&](const Span& span, std::string_view function, std::uint64_t n) {
+        if (n > m::max_call_requests) {
+            error(span, "check.request-count",
+                  {{"function", std::string(function)}, {"count", std::to_string(n)}});
+        }
+    };
+    std::uint64_t proposals = 0;
+    for (const m::Action& a : model_.actions) {
+        too_many(a.span, wire_name(a.word, a.name), count(a.body));
+        if (a.agents_propose) {
+            proposals = std::max(proposals, count(a.body));
+        }
+    }
+    too_many(model_.actions.empty() ? Span{} : model_.actions.front().span, m::approve_function,
+             proposals);
+    const std::vector<std::string> functions = m::rule_functions(model_);
+    for (std::size_t i = 0; i < model_.rules.size(); ++i) {
+        const m::TimeRule& r = model_.rules[i];
+        std::uint64_t n = count(r.body);
+        for (const m::Do* d : m::rule_actions(r)) {
+            if (const m::Action* a = m::action_of(model_, *d)) {
+                n += count(a->body);
+            }
+        }
+        too_many(r.span, functions[i], n);
+    }
+    for (const m::AnswerRule& r : model_.answers) {
+        too_many(r.span, m::reply_function, count(r.body));
+    }
+}
+
 std::vector<m::Statement> Checker::statements(const std::vector<ast::Statement>& list) {
     std::vector<m::Statement> out;
     for (const ast::Statement& s : list) {
-        std::visit(Overloaded{
-                       [&](const ast::Requires& r) {
-                           m::Requires req;
-                           req.span = r.span;
-                           if (r.guard) {
-                               req.guard = condition(*r.guard);
-                           }
-                           req.condition = condition(r.condition);
-                           out.push_back(m::Statement{std::move(req)});
-                       },
-                       [&](const ast::Permit& p) {
-                           if (place_ != Place::action || action_ == nullptr) {
-                               error(p.span, "check.when-person", {{"text", written(p.span)}});
-                           } else if (word_is(p.who, "actor.ai_agent") &&
-                                      word_is(p.action, "act.propose")) {
-                               action_->agents_propose = true;
-                           } else {
-                               error(p.span, "check.permit", {{"text", written(p.span)}});
-                           }
-                       },
-                       [&](const ast::If& i) {
-                           m::If node;
-                           node.span = i.span;
-                           node.condition = condition(i.condition);
-                           node.then = statements(i.then);
-                           node.otherwise = statements(i.otherwise);
-                           out.push_back(m::Statement{std::move(node)});
-                       },
-                       [&](const ast::Each& e) {
-                           m::Each node;
-                           node.span = e.span;
-                           node.name = e.name.name;
-                           node.list = value(e.list);
-                           Type item = of(TypeKind::unknown);
-                           if (node.list.type.kind == TypeKind::list &&
-                               !node.list.type.element.empty()) {
-                               item = node.list.type.element[0];
-                           } else if (known(node.list.type)) {
-                               error(e.list.span, "check.type",
-                                     {{"text", written(e.list.span)},
-                                      {"type", encode(node.list.type)},
-                                      {"expected_type", encode(of(TypeKind::list))}});
-                           }
-                           if (declared(node.name)) {
-                               error(e.name.span, "check.duplicate", {{"name", node.name}});
-                           }
-                           frames_.emplace_back();
-                           frames_.back().emplace(node.name, Local{Refers::item, item});
-                           node.body = statements(e.body);
-                           frames_.pop_back();
-                           // Once per item: no state change, no action done.
-                           each_statement(node.body, [&](const m::Statement& st) {
-                               const Span* at = nullptr;
-                               if (const auto* t = std::get_if<m::Transition>(&st.node)) {
-                                   at = &t->span;
-                               } else if (const auto* d = std::get_if<m::Do>(&st.node)) {
-                                   at = &d->span;
-                               }
-                               if (at != nullptr) {
-                                   error(*at, "check.each-body", {{"text", written(*at)}});
-                               }
-                           });
-                           out.push_back(m::Statement{std::move(node)});
-                       },
-                       [&](const ast::Reject& r) {
-                           out.push_back(m::Statement{m::Reject{r.span, r.message}});
-                       },
-                       [&](const ast::Set& st) { out.push_back(m::Statement{set_statement(st)}); },
-                       [&](const ast::Transition& t) {
-                           m::Transition node;
-                           node.span = t.span;
-                           for (const ast::Expr& from : t.from) {
-                               node.from.push_back(value(from));
-                               expect_kind(node.from.back(), TypeKind::state);
-                           }
-                           if (word_is(t.to, "expr.previous_state")) {
-                               // Back to the state before the current one.
-                               node.to = plain(t.to);
-                               node.to.type = of(TypeKind::state);
-                           } else {
-                               node.to = value(t.to);
-                               expect_kind(node.to, TypeKind::state);
-                           }
-                           out.push_back(m::Statement{std::move(node)});
-                       },
-                       [&](const ast::Do& d) { out.push_back(m::Statement{do_action(d)}); },
-                       [&](const ast::Expect&) {},
-                   },
-                   s.node);
+        std::visit(
+            Overloaded{
+                [&](const ast::Requires& r) {
+                    m::Requires req;
+                    req.span = r.span;
+                    if (r.guard) {
+                        req.guard = condition(*r.guard);
+                    }
+                    req.condition = condition(r.condition);
+                    out.push_back(m::Statement{std::move(req)});
+                },
+                [&](const ast::Permit& p) {
+                    if (place_ != Place::action || action_ == nullptr) {
+                        error(p.span, "check.when-person", {{"text", written(p.span)}});
+                    } else if (word_is(p.who, "actor.ai_agent") &&
+                               word_is(p.action, "act.propose")) {
+                        action_->agents_propose = true;
+                    } else {
+                        error(p.span, "check.permit", {{"text", written(p.span)}});
+                    }
+                },
+                [&](const ast::If& i) {
+                    m::If node;
+                    node.span = i.span;
+                    node.condition = condition(i.condition);
+                    node.then = statements(i.then);
+                    node.otherwise = statements(i.otherwise);
+                    out.push_back(m::Statement{std::move(node)});
+                },
+                [&](const ast::Each& e) {
+                    m::Each node;
+                    node.span = e.span;
+                    node.name = e.name.name;
+                    node.list = value(e.list);
+                    Type item = of(TypeKind::unknown);
+                    if (node.list.type.kind == TypeKind::list && !node.list.type.element.empty()) {
+                        item = node.list.type.element[0];
+                    } else if (known(node.list.type)) {
+                        error(e.list.span, "check.type",
+                              {{"text", written(e.list.span)},
+                               {"type", encode(node.list.type)},
+                               {"expected_type", encode(of(TypeKind::list))}});
+                    }
+                    if (declared(node.name)) {
+                        error(e.name.span, "check.duplicate", {{"name", node.name}});
+                    }
+                    frames_.emplace_back();
+                    frames_.back().emplace(node.name, Local{Refers::item, item});
+                    node.body = statements(e.body);
+                    frames_.pop_back();
+                    // Once per item: no state change, no action done,
+                    // no request (a call makes at most 16).
+                    each_statement(node.body, [&](const m::Statement& st) {
+                        const Span* at = nullptr;
+                        if (const auto* t = std::get_if<m::Transition>(&st.node)) {
+                            at = &t->span;
+                        } else if (const auto* d = std::get_if<m::Do>(&st.node)) {
+                            at = &d->span;
+                        } else if (const auto* r = std::get_if<m::Request>(&st.node)) {
+                            at = &r->span;
+                        }
+                        if (at != nullptr) {
+                            error(*at, "check.each-body", {{"text", written(*at)}});
+                        }
+                    });
+                    out.push_back(m::Statement{std::move(node)});
+                },
+                [&](const ast::Reject& r) {
+                    out.push_back(m::Statement{m::Reject{r.span, r.message}});
+                },
+                [&](const ast::Set& st) { out.push_back(m::Statement{set_statement(st)}); },
+                [&](const ast::Transition& t) {
+                    m::Transition node;
+                    node.span = t.span;
+                    for (const ast::Expr& from : t.from) {
+                        node.from.push_back(value(from));
+                        expect_kind(node.from.back(), TypeKind::state);
+                    }
+                    if (word_is(t.to, "expr.previous_state")) {
+                        // Back to the state before the current one.
+                        node.to = plain(t.to);
+                        node.to.type = of(TypeKind::state);
+                    } else {
+                        node.to = value(t.to);
+                        expect_kind(node.to, TypeKind::state);
+                    }
+                    out.push_back(m::Statement{std::move(node)});
+                },
+                [&](const ast::Do& d) { out.push_back(m::Statement{do_action(d)}); },
+                [&](const ast::Expect&) {},
+                [&](const ast::Request& r) { out.push_back(m::Statement{request_statement(r)}); },
+            },
+            s.node);
     }
     return out;
 }
@@ -2812,7 +3037,95 @@ void Checker::check_tests() {
     }
 }
 
+m::Step Checker::answer_step(const ast::Do& d, const bool first,
+                             std::optional<std::int64_t>& clock) {
+    // `executor notify done [with result = TEXT, reason = TEXT] [at DATE]
+    // [in person]`: the oldest open request of the kind is answered.
+    m::Step step;
+    step.span = d.span;
+    step.answer = true;
+    const Concept* word = d.action.kind == ExprKind::word ? d.action.concept_entry : nullptr;
+    step.word = word;
+    if (word == nullptr) {
+        step.name = d.action.name;
+    }
+    step.request_kind = wire_name(word, step.name);
+    step.outcome = is(d.outcome, "kw.done")    ? m::Outcome::done
+                   : is(d.outcome, "kw.fails") ? m::Outcome::fails
+                                               : m::Outcome::expires;
+    if (first) {
+        error(d.span, "check.test-start", {{"action", creation_word()}});
+    }
+    if (!requested_.contains(step.request_kind)) {
+        error(d.action.span, "check.test-answer", {{"text", written(d.span)}});
+    }
+    // Who answers: the executor or the keeper (the home's devices), or a
+    // party of the test (by hand).
+    if (d.subject &&
+        (word_is(*d.subject, "actor.executor") || word_is(*d.subject, "actor.keeper"))) {
+        step.subject.span = d.subject->span;
+        step.subject.word = d.subject->concept_entry;
+    } else if (d.subject) {
+        if (std::optional<m::TestParty> p = test_party(*d.subject)) {
+            step.subject = std::move(*p);
+        }
+    }
+    if (d.to || d.by) {
+        error(d.span, "check.test-answer", {{"text", written(d.span)}});
+    }
+    for (const ast::Expr& a : d.args) {
+        if (a.kind == ExprKind::apply && is(a.concept_entry, "time.at") && !step.at) {
+            const ast::Expr* date = a.operands.empty() ? nullptr : &a.operands[0];
+            const std::optional<std::int64_t> when =
+                date != nullptr && date->kind == ExprKind::literal &&
+                        date->literal.kind == ast::LiteralKind::date
+                    ? literal_value(date->literal, model_.utc_offset_ms)
+                    : std::nullopt;
+            if (!when || *when < 0) {
+                error(a.span, "check.test-time", {{"text", written(a.span)}});
+                continue;
+            }
+            step.at = value(*date);
+            if (clock && *when < *clock) {
+                error(a.span, "check.test-time-back", {{"text", written(a.span)}});
+            } else {
+                clock = when;
+            }
+        } else if (word_is(a, "cond.in_person") && !step.in_person &&
+                   !(step.subject.word != nullptr &&
+                     step.subject.word->category == Category::actor)) {
+            step.in_person = true;
+        } else {
+            error(a.span, "check.test-step", {{"text", written(a.span)}});
+        }
+    }
+    // The answer's values: its result and its reason, texts.
+    std::set<std::string> given;
+    for (const ast::Set& w : d.with) {
+        m::Set item;
+        item.span = w.span;
+        item.target = plain(w.target);
+        if (!word_is(w.target, "expr.result") && !word_is(w.target, "expr.reason")) {
+            error(w.target.span, "check.test-answer", {{"text", written(w.span)}});
+        } else if (!given.insert(std::string(w.target.concept_entry->id)).second) {
+            error(w.target.span, "check.duplicate", {{"name", written(w.target.span)}});
+        }
+        item.target.type = of(TypeKind::text);
+        if (w.value.kind != ExprKind::literal || w.value.literal.kind != ast::LiteralKind::text) {
+            error(w.value.span, "check.test-value", {{"text", written(w.value.span)}});
+            item.value = plain(w.value);
+        } else {
+            item.value = value(w.value);
+        }
+        step.with.push_back(std::move(item));
+    }
+    return step;
+}
+
 m::Step Checker::test_step(const ast::Do& d, const bool first, std::optional<std::int64_t>& clock) {
+    if (d.outcome != nullptr) {
+        return answer_step(d, first, clock);
+    }
     m::Step step;
     step.span = d.span;
     const Concept* word = d.action.kind == ExprKind::word ? d.action.concept_entry : nullptr;
@@ -3483,6 +3796,13 @@ void Checker::word_value(const ast::Expr& e, m::Expr& out) {
             return;
         }
         break;
+    case Category::expression:
+        // An answer's result and reason (E8): texts, in its rule only.
+        if ((id == "expr.result" || id == "expr.reason") && place_ == Place::answer) {
+            out.type = of(TypeKind::text);
+            return;
+        }
+        break;
     case Category::condition:
         if (id == "cond.in_person") {
             if (place_ == Place::action) {
@@ -3490,7 +3810,7 @@ void Checker::word_value(const ast::Expr& e, m::Expr& out) {
                 out.rule = rule_presence;
                 return;
             }
-            if (place_ == Place::rule || place_ == Place::event) {
+            if (place_ == Place::rule || place_ == Place::event || place_ == Place::answer) {
                 error(e.span, "check.when-person", {{"text", written(e.span)}});
                 return;
             }
@@ -4071,6 +4391,7 @@ m::Model Checker::run(const ast::File& file) {
                        [&](const ast::Can& c) { cans_.push_back(&c); },
                        [&](const ast::When& w) { whens_.push_back(&w); },
                        [&](const ast::Test& t) { tests_.push_back(&t); },
+                       [&](const ast::AnswerRule& r) { answers_.push_back(&r); },
                    },
                    clause);
     }
@@ -4095,6 +4416,9 @@ m::Model Checker::run(const ast::File& file) {
     for (const ast::When* w : whens_) {
         collect_states(w->body);
     }
+    for (const ast::AnswerRule* r : answers_) {
+        collect_states(r->body);
+    }
     for (const auto& [i, terms] : terms_) {
         collect_terms_states(terms.body);
     }
@@ -4109,9 +4433,13 @@ m::Model Checker::run(const ast::File& file) {
     for (const ast::When* w : whens_) {
         check_when(*w);
     }
+    for (const ast::AnswerRule* r : answers_) {
+        check_answer(*r);
+    }
     finish_terms();
     check_states();
     check_recursion();
+    check_requests();
     check_tests();
     return std::move(model_);
 }

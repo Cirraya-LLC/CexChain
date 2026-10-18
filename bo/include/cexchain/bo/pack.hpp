@@ -233,7 +233,11 @@ struct Meaning {
 ///   - before_pack_files: version 3 of each, from before vocabulary pack
 ///     files (G6): they spell the official vocabulary packs' words too,
 ///     whose versions of this release (version 1) carry no spellings;
-///   - current: version 4 of each, which spell the core's words alone; the
+///   - before_requests: version 4 of each, which spell the core's words
+///     alone, from before requests (E8): it reads like the current release
+///     (with the same vocabulary packs), but spells no `request` and no
+///     outcome of one;
+///   - current: version 5 of each, which spell the core's words alone; the
 ///     official vocabulary packs (version 2) spell theirs (vocab.hpp), and
 ///     the release's packs hold them as their own.
 enum class Officials : std::uint8_t {
@@ -241,6 +245,7 @@ enum class Officials : std::uint8_t {
     before_vocabulary,
     before_temperature,
     before_pack_files,
+    before_requests,
 };
 
 /// The packs a source is read with: the official packs, always, and any

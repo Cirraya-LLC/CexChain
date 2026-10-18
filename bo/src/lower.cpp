@@ -382,6 +382,15 @@ struct Ctx {
     /// new ones each time, so that thousands could exceed the 4,096 locals
     /// a function may have).
     std::optional<std::pair<Local, Local>> scratch;
+    /// In the reply function (E8): whether the instance had ended before the
+    /// answer (its state changes and requests are then skipped), and the
+    /// answer's result and reason, texts (empty when it gives none).
+    bool answer = false;
+    Local final_before{};
+    Local result_p{};
+    Local result_n{};
+    Local reason_p{};
+    Local reason_n{};
 };
 
 class Lowering {
@@ -412,6 +421,7 @@ private:
     void plan_rules();
     void plan_charges();
     void plan_finals();
+    void plan_answers();
     [[nodiscard]] std::optional<std::pair<Span, std::string>>
     unsupported_in(const m::Expr& e, const ActionInfo* action, bool consent_ok, int depth) const;
     void support(ActionInfo& action, const std::vector<m::Statement>& list, bool rule = false);
@@ -471,6 +481,11 @@ private:
     void emit_core(const ActionInfo& action);
     void emit_approve(wasm::Func f);
     void emit_rule(const RuleInfo& rule);
+    void emit_reply(wasm::Func f);
+    void request(Ctx& c, const m::Request& r);
+    void write_answer_event(FunctionBuilder& b);
+    /// The params of the contract's requests, the most any has (E8).
+    [[nodiscard]] Shape params_shape() const;
     void run_action(Ctx& c, const m::Do& d);
     void now(Ctx& c);
     void due(Ctx& c);
@@ -619,6 +634,21 @@ private:
     wasm::Global parts_made_{};
     wasm::Global parts_list_{};
     wasm::Global parts_to_{};
+    /// Requests (E8): the contract makes some, so it has the reply function;
+    /// the requests a call has made so far (drafted at the start of the
+    /// output region); and an answer's event: 1 once there is one, the
+    /// request's kind (address, length), its id, and the answer's status.
+    bool requests_used_ = false;
+    std::size_t answer_transitions_ = 0;
+    /// The most requests one call makes (at most 16, the checker sees to it).
+    std::uint64_t most_requests_ = 0;
+    wasm::Func reply_function_{};
+    wasm::Global requests_{};
+    wasm::Global answer_event_{};
+    wasm::Global answer_kind_{};
+    wasm::Global answer_kind_length_{};
+    wasm::Global answer_id_{};
+    wasm::Global answer_status_{};
 };
 
 // ---------------------------------------------------------------------------
@@ -789,7 +819,8 @@ std::optional<std::pair<Span, std::string>> Lowering::unsupported_in(const m::Ex
         }
         if (is(e.concept_entry, "val.yes") || is(e.concept_entry, "val.no") ||
             is(e.concept_entry, "val.none") || is(e.concept_entry, "time.now") ||
-            is(e.concept_entry, "time.today") ||
+            is(e.concept_entry, "time.today") || is(e.concept_entry, "expr.result") ||
+            is(e.concept_entry, "expr.reason") ||
             (is(e.concept_entry, "cond.in_person") && action != nullptr) ||
             (is(e.concept_entry, "cond.overdue") && model_.due == m::DueKind::field)) {
             return std::nullopt;
@@ -1023,6 +1054,19 @@ void Lowering::support(ActionInfo& action, const std::vector<m::Statement>& list
                         unsupported(d.span, key);
                     }
                 },
+                [&](const m::Request& r) {
+                    // E8: a request, its party, and its values.
+                    requests_used_ = true;
+                    if (r.to) {
+                        check(*r.to, false);
+                    }
+                    for (const m::Set& w : r.with) {
+                        check(w.value, false);
+                        if (rep_of(w.value.type) == Rep::none) {
+                            unsupported(w.span, feature_of(w.value.type));
+                        }
+                    }
+                },
             },
             s.node);
     }
@@ -1031,6 +1075,9 @@ void Lowering::support(ActionInfo& action, const std::vector<m::Statement>& list
 void Lowering::plan_actions() {
     creation_ = std::string(m::creation_function(model_));
     std::set<std::string> names{creation_};
+    if (m::makes_requests(model_)) {
+        names.emplace(m::reply_function);
+    }
     proposals_ = m::has_proposals(model_);
     if (proposals_) {
         names.emplace(m::approve_function);
@@ -1159,6 +1206,65 @@ void Lowering::plan_rules() {
     }
 }
 
+void Lowering::plan_answers() {
+    // E8: a contract that makes requests has the reply function, which takes
+    // every answer and runs the rule for it.
+    if (!m::makes_requests(model_)) {
+        return;
+    }
+    requests_used_ = true;
+    // The most one call makes: an action's, a time rule's with the actions
+    // it does, or one rule for answers (only one runs).
+    const auto count = [](const std::vector<m::Statement>& list) {
+        return static_cast<std::uint64_t>(m::requests_in(list).size());
+    };
+    for (const m::Action& a : model_.actions) {
+        most_requests_ = std::max(most_requests_, count(a.body));
+    }
+    for (const m::TimeRule& r : model_.rules) {
+        std::uint64_t n = count(r.body);
+        for (const m::Do* d : m::rule_actions(r)) {
+            if (const m::Action* a = m::action_of(model_, *d)) {
+                n += count(a->body);
+            }
+        }
+        most_requests_ = std::max(most_requests_, n);
+    }
+    for (const m::AnswerRule& r : model_.answers) {
+        most_requests_ = std::max(most_requests_, count(r.body));
+    }
+    most_requests_ = std::min(most_requests_, m::max_call_requests);
+    for (const m::AnswerRule& r : model_.answers) {
+        ActionInfo own;
+        own.wire = std::string(m::reply_function);
+        support(own, r.body, true);
+        answer_transitions_ = std::max(answer_transitions_, own.transitions);
+    }
+    // The answer's event, and each state change.
+    if (answer_transitions_ + 1 > max_build_events) {
+        error(model_.answers.front().span, "build.too-many-events",
+              {{"action", std::string(m::reply_function)},
+               {"limit", std::to_string(max_build_events)}});
+    }
+    max_transitions_ = std::max(max_transitions_, answer_transitions_);
+    // An instance that issues parts ends, which its state alone may not
+    // show: answers to its requests could not tell (a later version).
+    if (parts_used_) {
+        for (const m::Action& a : model_.actions) {
+            if (const std::vector<const m::Request*> list = m::requests_in(a.body); !list.empty()) {
+                unsupported(list.front()->span, "kw.request");
+                return;
+            }
+        }
+        for (const m::TimeRule& r : model_.rules) {
+            if (const std::vector<const m::Request*> list = m::requests_in(r.body); !list.empty()) {
+                unsupported(list.front()->span, "kw.request");
+                return;
+            }
+        }
+    }
+}
+
 void Lowering::plan_charges() {
     // R26: the field that holds the bill, and the charges computed on it.
     if (const m::Field* bill = m::bill_field(model_); bill != nullptr) {
@@ -1220,10 +1326,11 @@ void Lowering::plan() {
     plan_states();
     plan_actions();
     plan_rules();
+    plan_answers();
     plan_charges();
     // The interface: the creation, each action that has a function, approve,
-    // and each time rule (at most 256, spec section 15).
-    std::size_t functions = 1 + rules_.size() + (proposals_ ? 1U : 0U);
+    // each time rule, and the reply (at most 256, spec section 15).
+    std::size_t functions = 1 + rules_.size() + (proposals_ ? 1U : 0U) + (requests_used_ ? 1U : 0U);
     for (const ActionInfo& a : actions_) {
         functions += a.rule_only ? 0U : 1U;
     }
@@ -1264,6 +1371,7 @@ void Lowering::plan() {
     }
     globals += (previous_used_ ? 1U : 0U) + (proposals_ ? 8U : 0U) + (since_used_ ? 1U : 0U);
     globals += rules_.empty() ? 0 : 2 * rules_.size() + 5;
+    globals += requests_used_ ? 6U : 0U;
     if (bill_slot_) {
         globals += 9;
         for (const ChargeInfo& k : charges_) {
@@ -2375,6 +2483,13 @@ wasm::Func Lowering::write_accept() {
     const wasm::Func out_int = rt_.get(Routine::out_int);
     // Routines are emitted in the order of first use (runtime.hpp).
     static_cast<void>(rt_.get(Routine::out_raw));
+    // E8: the requests the call made are drafted at the start of the output
+    // region; the accept goes after them, and copies them into key 7.
+    std::optional<Local> start;
+    if (requests_used_) {
+        start = b.local(I32);
+        b.global_get(rt_.var(rt::Var::out)).set(*start);
+    }
 
     b.global_get(state_).set(index);
     b.get(index).load(i32_load8_u, final_table_).set(final);
@@ -2413,6 +2528,10 @@ wasm::Func Lowering::write_accept() {
         // A bill made: one more event.
         b.global_get(bill_new_).get(events).op(i32_add).set(events);
     }
+    if (requests_used_) {
+        // An answer: one more event.
+        b.global_get(answer_event_).get(events).op(i32_add).set(events);
+    }
     if (parts_used_) {
         // R30: an instance that issued parts ends.
         b.global_get(parts_made_).get(final).op(i32_or).set(final);
@@ -2425,6 +2544,9 @@ wasm::Func Lowering::write_accept() {
     b.get(events).op(i32_eqz).op(i32_eqz).op(i32_add).get(final).op(i32_add);
     if (parts_used_) {
         b.global_get(parts_made_).op(i32_add);
+    }
+    if (requests_used_) {
+        b.global_get(requests_).op(i32_eqz).op(i32_eqz).op(i32_add);
     }
     b.op(i64_extend_i32_u).set(count);
     b.i32(5).get(count).call(head);
@@ -2569,11 +2691,14 @@ wasm::Func Lowering::write_accept() {
         if (!rules_.empty()) {
             write_rule_event(b);
         }
+        if (requests_used_) {
+            write_answer_event(b);
+        }
         // Each state change a call made: at most the most an action makes.
         const Label done = b.block();
         const Label next = b.loop({max_transitions_ + 1});
         b.get(i);
-        if (proposals_ || !rules_.empty() || bill_slot_) {
+        if (proposals_ || !rules_.empty() || bill_slot_ || requests_used_) {
             b.global_get(events_);
         } else {
             b.get(events);
@@ -2695,7 +2820,20 @@ wasm::Func Lowering::write_accept() {
         b.region_end();
         b.end(made);
     }
-    b.call(rt_.get(Routine::out_finish));
+    if (requests_used_) {
+        // 7: the requests, as drafted (at most 16, each at most 4,096 bytes
+        // of params and its kind, deadline, and reply).
+        b.global_get(requests_);
+        const Label some = b.if_();
+        b.i64(7).call(out_int);
+        b.i32(4).global_get(requests_).op(i64_extend_i32_u).call(head);
+        b.u32(rt::layout::output_base).get(*start).u32(rt::layout::output_base).op(i32_sub);
+        out_raw(b, most_requests_ * (m::max_request_params + 128));
+        b.end(some);
+        b.get(*start).call(rt_.get(Routine::out_finish_at));
+    } else {
+        b.call(rt_.get(Routine::out_finish));
+    }
     module_.define(std::move(b));
     return f;
 }
@@ -2703,6 +2841,10 @@ wasm::Func Lowering::write_accept() {
 void Lowering::finish(FunctionBuilder& b) {
     b.global_get(rt_.var(rt::Var::needs));
     const Label needs = b.if_();
+    if (requests_used_) {
+        // A call that waits for consents makes no requests: its drafts go.
+        b.u32(rt::layout::output_base).global_set(rt_.var(rt::Var::out));
+    }
     b.call(rt_.get(Routine::out_needs)).call(rt_.get(Routine::out_finish));
     b.else_(needs);
     b.call(write_accept());
@@ -2846,6 +2988,9 @@ void Lowering::emit_entry(const wasm::Func entry) {
     }
     for (const RuleInfo& r : rules_) {
         functions.emplace_back(r.wire, r.function);
+    }
+    if (requests_used_) {
+        functions.emplace_back(std::string(m::reply_function), reply_function_);
     }
     std::ranges::sort(functions, {}, &std::pair<std::string, wasm::Func>::first);
     for (const auto& [name, f] : functions) {
@@ -3495,6 +3640,7 @@ void Lowering::statements(Ctx& c, const std::vector<m::Statement>& list) {
                         run_action(c, d);
                     }
                 },
+                [&](const m::Request& r) { request(c, r); },
             },
             s.node);
     }
@@ -3537,6 +3683,16 @@ void Lowering::requirement(Ctx& c, const m::Requires& r) {
 
 void Lowering::transition(Ctx& c, const m::Transition& t) {
     FunctionBuilder& b = *c.b;
+    if (c.answer) {
+        // E8: an answer to an instance that has ended changes no state.
+        b.get(c.final_before).op(i32_eqz);
+        const Label live = b.if_();
+        c.answer = false;
+        transition(c, t);
+        c.answer = true;
+        b.end(live);
+        return;
+    }
     if (!t.from.empty()) {
         for (std::size_t i = 0; i < t.from.size(); ++i) {
             const std::size_t from =
@@ -3739,6 +3895,278 @@ void Lowering::emit_rule(const RuleInfo& info) {
     module_.define(std::move(b));
 }
 
+void Lowering::request(Ctx& c, const m::Request& r) {
+    // E8: {1: kind, 2: params, 3: deadline, 4: reply}, drafted where the
+    // output goes (write_accept copies it into the accept's key 7).
+    FunctionBuilder& b = *c.b;
+    std::optional<Label> live;
+    if (c.answer) {
+        // An instance that has ended makes no requests (spec section 15).
+        b.get(c.final_before).op(i32_eqz);
+        live = b.if_();
+    }
+    const wasm::Func head = rt_.get(Routine::out_head);
+    const wasm::Func out_int = rt_.get(Routine::out_int);
+    static_cast<void>(rt_.get(Routine::out_raw));
+    const Local mark = b.local(I32);
+    const Local who = b.local(I32);
+    const Local at = b.local(I32);
+    const Local size = b.local(I32);
+    b.global_get(requests_).i32(1).op(i32_add).global_set(requests_);
+    b.i32(5).i64(4).call(head);
+    b.i64(1).call(out_int);
+    b.u32(intern(r.kind)).u32(static_cast<std::uint32_t>(r.kind.size()));
+    out_text(b, r.kind.size());
+    // The params: `to` and each value, by name, in canonical order; a party
+    // as its ledger id, or null for none.
+    b.i64(2).call(out_int);
+    b.global_get(rt_.var(rt::Var::out)).set(mark);
+    std::vector<std::pair<Bytes, const m::Expr*>> params;
+    if (r.to) {
+        params.emplace_back(text_cbor("to"), &*r.to);
+    }
+    for (const m::Set& w : r.with) {
+        params.emplace_back(text_cbor(wire_name(w.target.concept_entry, w.target.name)), &w.value);
+    }
+    std::ranges::sort(params, {}, &std::pair<Bytes, const m::Expr*>::first);
+    b.i32(5).i64(static_cast<std::int64_t>(params.size())).call(head);
+    for (const auto& [key, e] : params) {
+        out_key(b, key);
+        const Rep rep = rep_of(e->type);
+        if (rep == Rep::ledger) {
+            party_raw(c, *e);
+            b.tee(who).op(i32_eqz);
+            const Label none = b.if_();
+            b.call(rt_.get(Routine::out_null));
+            b.else_(none);
+            b.get(who);
+            out_value(b, Rep::ledger);
+            b.end(none);
+        } else if (pair_rep(rep)) {
+            // A text or a list longer than the params may be is refused
+            // before it is written.
+            value(c, *e);
+            b.set(size).set(at);
+            b.get(size).u32(static_cast<std::uint32_t>(m::max_request_params)).op(i32_gt_u);
+            {
+                const Label large = b.if_();
+                refuse(b, "bo:request " + r.kind);
+                b.end(large);
+            }
+            b.get(at).get(size);
+            if (rep == Rep::text) {
+                out_text(b, m::max_request_params);
+            } else {
+                out_raw(b, m::max_request_params);
+            }
+        } else {
+            value(c, *e);
+            out_value(b, rep);
+        }
+    }
+    // At most 4,096 bytes of params (spec section 15).
+    b.global_get(rt_.var(rt::Var::out)).get(mark).op(i32_sub);
+    b.u32(static_cast<std::uint32_t>(m::max_request_params)).op(i32_gt_u);
+    {
+        const Label large = b.if_();
+        refuse(b, "bo:request " + r.kind);
+        b.end(large);
+    }
+    // The deadline: so long after the call's registration time.
+    b.i64(3).call(out_int);
+    now(c);
+    shift(c, r.within, false);
+    b.call(out_int);
+    b.i64(4).call(out_int);
+    b.u32(intern(m::reply_function)).u32(static_cast<std::uint32_t>(m::reply_function.size()));
+    out_text(b, m::reply_function.size());
+    if (live) {
+        b.end(*live);
+    }
+}
+
+void Lowering::emit_reply(const wasm::Func f) {
+    // E8: every answer to the contract's requests calls this function. It
+    // records the answer as an event and runs the rule for it, if the
+    // contract has one; it refuses only what is not an answer.
+    FunctionBuilder b = module_.begin(f);
+    Ctx c;
+    c.b = &b;
+    c.wire = std::string(m::reply_function);
+    c.signer = b.local(I32);
+    c.t32 = b.local(I32);
+    c.t64 = b.local(I64);
+    c.t64b = b.local(I64);
+    c.answer = true;
+    c.final_before = b.local(I32);
+    c.result_p = b.local(I32);
+    c.result_n = b.local(I32);
+    c.reason_p = b.local(I32);
+    c.reason_n = b.local(I32);
+    const Local args = b.local(I32);
+    const Local view = b.local(I32);
+    const Local status = b.local(I32);
+    const Local kind = b.local(I32);
+    const Local kind_n = b.local(I32);
+    const Local id = b.local(I32);
+    const Local item = b.local(I32);
+    const std::string_view input = rt::text_of(rt::Reason::input);
+    b.call(load_instance());
+    // Its arguments: null, or a map (an executor's result, reason, and
+    // response, or anything a person gives by hand).
+    call_item(b, 2);
+    b.tee(args).load(i32_load8_u).u32(0xF6).op(i32_ne);
+    b.get(args).load(i32_load8_u).u32(0xE0).op(i32_and).u32(0xA0).op(i32_ne).op(i32_and);
+    {
+        const Label other = b.if_();
+        refuse(b, "bo:arguments");
+        b.end(other);
+    }
+    // The request it answers: input key 9, which only an answer has.
+    b.u32(rt::layout::input_base);
+    lookup(b, Bytes{0x09}, 9);
+    b.tee(view).op(i32_eqz);
+    {
+        const Label none = b.if_();
+        refuse(b, "bo:answer");
+        b.end(none);
+    }
+    b.get(view);
+    lookup(b, Bytes{0x01}, 6);
+    expect(b, Rep::ledger, input);
+    b.set(id);
+    b.get(view);
+    lookup(b, Bytes{0x02}, 6);
+    expect(b, Rep::text, input);
+    b.set(kind_n).set(kind);
+    b.get(view);
+    lookup(b, Bytes{0x06}, 6);
+    expect(b, Rep::i64, input);
+    b.op(i32_wrap_i64).set(status);
+    b.get(status).i32(1).op(i32_lt_u).get(status).i32(3).op(i32_gt_u).op(i32_or);
+    {
+        const Label other = b.if_();
+        refuse(b, input);
+        b.end(other);
+    }
+    // The answer's result and reason: texts of its arguments, else empty.
+    for (const auto& [key, p, n] : {std::tuple{"result", c.result_p, c.result_n},
+                                    std::tuple{"reason", c.reason_p, c.reason_n}}) {
+        b.get(args).load(i32_load8_u).u32(0xE0).op(i32_and).u32(0xA0).op(i32_eq);
+        const Label map = b.if_();
+        b.get(args);
+        lookup(b, text_cbor(key), 3);
+        b.tee(item).op(i32_eqz).op(i32_eqz);
+        b.get(item).load(i32_load8_u).u32(0xE0).op(i32_and).u32(0x60).op(i32_eq).op(i32_and);
+        const Label text = b.if_();
+        b.get(item).call(rt_.get(Routine::content)).set(p);
+        b.get(item).call(rt_.get(Routine::head_arg)).op(i32_wrap_i64).set(n);
+        b.end(text);
+        b.end(map);
+    }
+    // Whether the instance had ended: then the rule changes no state and
+    // makes no requests (spec section 15).
+    b.global_get(state_).load(i32_load8_u, final_table_).set(c.final_before);
+    // Its event first: the request's kind, its id, and how it went.
+    b.i32(1).global_set(answer_event_);
+    b.get(kind).global_set(answer_kind_);
+    b.get(kind_n).global_set(answer_kind_length_);
+    b.get(id).global_set(answer_id_);
+    b.get(status).global_set(answer_status_);
+    // The rule for it: done (1), failed (2), expired (3; a rule for failures
+    // takes it unless one is for expiry, R33).
+    for (const m::AnswerRule& r : model_.answers) {
+        b.get(kind).get(kind_n).u32(intern(r.kind)).u32(static_cast<std::uint32_t>(r.kind.size()));
+        equal_bytes(b, r.kind.size());
+        switch (r.outcome) {
+        case m::Outcome::done:
+            b.get(status).i32(1).op(i32_eq);
+            break;
+        case m::Outcome::fails:
+            b.get(status).i32(2).op(i32_eq);
+            if (r.expired) {
+                b.get(status).i32(3).op(i32_eq).op(i32_or);
+            }
+            break;
+        case m::Outcome::expires:
+            b.get(status).i32(3).op(i32_eq);
+            break;
+        }
+        b.op(i32_and);
+        const Label applies = b.if_();
+        statements(c, r.body);
+        b.end(applies);
+    }
+    finish(b);
+    module_.define(std::move(b));
+}
+
+void Lowering::write_answer_event(FunctionBuilder& b) {
+    // ["answer", {"kind": KIND, "status": "done" / "failed" / "expired",
+    // "request": ID}], keys in canonical order.
+    b.global_get(answer_event_);
+    const Label some = b.if_();
+    const wasm::Func head = rt_.get(Routine::out_head);
+    b.i32(4).i64(2).call(head);
+    constexpr std::string_view answer_event = "answer";
+    b.u32(intern(answer_event)).u32(static_cast<std::uint32_t>(answer_event.size()));
+    out_text(b, answer_event.size());
+    b.i32(5).i64(3).call(head);
+    std::vector<std::pair<Bytes, int>> keys{
+        {text_cbor("kind"), 0}, {text_cbor("request"), 1}, {text_cbor("status"), 2}};
+    std::ranges::sort(keys);
+    for (const auto& [key, which] : keys) {
+        out_key(b, key);
+        if (which == 0) {
+            b.global_get(answer_kind_).global_get(answer_kind_length_);
+            out_text(b, 64);
+        } else if (which == 1) {
+            b.global_get(answer_id_);
+            out_value(b, Rep::ledger);
+        } else {
+            for (const auto& [n, text] : {std::pair{1, std::string_view("done")},
+                                          std::pair{2, std::string_view("failed")}}) {
+                b.global_get(answer_status_).i32(n).op(i32_eq);
+                const Label same = b.if_();
+                b.u32(intern(text)).u32(static_cast<std::uint32_t>(text.size()));
+                out_text(b, text.size());
+                b.end(same);
+            }
+            constexpr std::string_view expired = "expired";
+            b.global_get(answer_status_).i32(3).op(i32_eq);
+            const Label same = b.if_();
+            b.u32(intern(expired)).u32(static_cast<std::uint32_t>(expired.size()));
+            out_text(b, expired.size());
+            b.end(same);
+        }
+    }
+    b.end(some);
+}
+
+Shape Lowering::params_shape() const {
+    Shape most;
+    const auto consider = [&](const std::vector<m::Statement>& list) {
+        for (const m::Request* r : m::requests_in(list)) {
+            Shape one = map_shape(r->with.size() + (r->to ? 1U : 0U));
+            one += Shape{r->to ? 1U : 0U, 0};
+            for (const m::Set& w : r->with) {
+                one += value_shape(w.value.type);
+            }
+            most = {std::max(most.items, one.items), std::max(most.keys, one.keys)};
+        }
+    };
+    for (const m::Action& a : model_.actions) {
+        consider(a.body);
+    }
+    for (const m::TimeRule& r : model_.rules) {
+        consider(r.body);
+    }
+    for (const m::AnswerRule& r : model_.answers) {
+        consider(r.body);
+    }
+    return most;
+}
+
 bool Lowering::may_be_empty(const m::Expr& e) const {
     if (e.kind == ExprKind::word && is(e.concept_entry, "val.none")) {
         return true;
@@ -3930,6 +4358,14 @@ void Lowering::reference(Ctx& c, const m::Expr& e) {
     }
     if (is(e.concept_entry, "cond.in_person")) {
         in_person(c);
+        return;
+    }
+    if (is(e.concept_entry, "expr.result")) {
+        b.get(c.result_p).get(c.result_n);
+        return;
+    }
+    if (is(e.concept_entry, "expr.reason")) {
+        b.get(c.reason_p).get(c.reason_n);
         return;
     }
     BO_ASSERT(false);
@@ -4244,6 +4680,12 @@ void Lowering::emit() {
             }
         }
     }
+    if (requests_used_) {
+        for (wasm::Global* g : {&requests_, &answer_event_, &answer_kind_, &answer_kind_length_,
+                                &answer_id_, &answer_status_}) {
+            *g = module_.add_global(I32, 0);
+        }
+    }
     if (parts_used_) {
         for (wasm::Global* g : {&parts_made_, &parts_list_, &parts_to_}) {
             *g = module_.add_global(I32, 0);
@@ -4291,6 +4733,9 @@ void Lowering::emit() {
     for (RuleInfo& r : rules_) {
         r.function = module_.declare({});
     }
+    if (requests_used_) {
+        reply_function_ = module_.declare({});
+    }
     emit_entry(entry);
     emit_creation(creation_function_);
     for (const ActionInfo& a : actions_) {
@@ -4303,6 +4748,9 @@ void Lowering::emit() {
     }
     for (const RuleInfo& r : rules_) {
         emit_rule(r);
+    }
+    if (requests_used_) {
+        emit_reply(reply_function_);
     }
     module_.entry(entry);
 }
@@ -4335,6 +4783,9 @@ Lowered Lowering::run() {
     }
     for (const RuleInfo& r : rules_) {
         build.interface.emplace(r.wire, protocol::FunctionKind::call);
+    }
+    if (requests_used_) {
+        build.interface.emplace(std::string(m::reply_function), protocol::FunctionKind::call);
     }
     if (codegen_ >= 2) {
         bounds(build);
@@ -4525,6 +4976,19 @@ void Lowering::bounds(Build& build) {
         }
         const bool bill = sets_bill(all) || sets_bill(r.rule->body);
         functions.push_back({r.wire, r.function, Shape{1, 0}, absent(false, bill)});
+    }
+    if (requests_used_) {
+        // The answer's arguments (a result, a reason, a response), and the
+        // request it answers: input key 9, {1: id, 2: kind, 3: params, 4:
+        // deadline, 5: asked at, 6: status}.
+        bool bill = false;
+        for (const m::AnswerRule& r : model_.answers) {
+            bill = bill || sets_bill(r.body);
+        }
+        functions.push_back(
+            {std::string(m::reply_function), reply_function_,
+             map_shape(3) + Shape{3, 0} + Shape{1, 1} + map_shape(6) + Shape{5, 0} + params_shape(),
+             absent(false, bill)});
     }
     std::vector<wasm::Func> interface;
     for (const Entry& f : functions) {

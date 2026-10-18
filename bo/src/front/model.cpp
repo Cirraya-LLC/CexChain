@@ -296,6 +296,16 @@ void statements(std::string& out, const std::vector<model::Statement>& list, std
                            add_line(out, depth, line + " -> " + text(t.to));
                        },
                        [&](const model::Do& d) { do_lines(out, d, depth); },
+                       [&](const model::Request& r) {
+                           std::string line = "request " + r.kind;
+                           if (r.to) {
+                               line += " to=" + text(*r.to);
+                           }
+                           add_line(out, depth, line + " within=" + text(r.within));
+                           for (const model::Set& w : r.with) {
+                               set_line(out, w, depth + 1);
+                           }
+                       },
                    },
                    statement.node);
     }
@@ -362,6 +372,10 @@ void test_lines(std::string& out, const model::Test& t) {
         }
         if (s.agent) {
             line += " agent";
+        }
+        if (s.answer) {
+            line += " answer=" + s.request_kind + " " +
+                    std::string(model::outcome_names[static_cast<std::size_t>(s.outcome)]);
         }
         line +=
             " expect=" + std::string(model::expectation_names[static_cast<std::size_t>(s.expect)]);
@@ -735,6 +749,10 @@ bool any_expression(const std::vector<Statement>& list, const F& f) {
                     return std::ranges::any_of(d.args, walk) ||
                            std::ranges::any_of(d.with, [&](const Set& w) { return walk(w.value); });
                 },
+                [&](const Request& r) {
+                    return (r.to && walk(*r.to)) ||
+                           std::ranges::any_of(r.with, [&](const Set& w) { return walk(w.value); });
+                },
             },
             s.node);
         if (found) {
@@ -863,6 +881,12 @@ std::vector<std::string> rule_functions(const Model& model) {
         }
         each_do(r.body, name_of);
         if (!what) {
+            // E8: else the kind of the first request it makes.
+            if (const std::vector<const Request*> asked = requests_in(r.body); !asked.empty()) {
+                what = asked.front()->kind;
+            }
+        }
+        if (!what) {
             if (const Transition* t = first_transition(r.body)) {
                 what = word_is(t->to, "expr.previous_state")
                            ? std::string("previous")
@@ -892,9 +916,62 @@ bool uses_since(const Model& model) noexcept {
     };
     return std::ranges::any_of(model.actions,
                                [&](const Action& a) { return any_expression(a.body, asks); }) ||
-           std::ranges::any_of(model.rules, [&](const TimeRule& r) {
-               return rule_runs(r) && (in(r.event, in) || any_expression(r.body, asks));
-           });
+           std::ranges::any_of(model.rules,
+                               [&](const TimeRule& r) {
+                                   return rule_runs(r) &&
+                                          (in(r.event, in) || any_expression(r.body, asks));
+                               }) ||
+           std::ranges::any_of(model.answers,
+                               [&](const AnswerRule& r) { return any_expression(r.body, asks); });
+}
+
+std::vector<const Request*> requests_in(const std::vector<Statement>& list) {
+    std::vector<const Request*> out;
+    for (const Statement& s : list) {
+        if (const auto* r = std::get_if<Request>(&s.node)) {
+            out.push_back(r);
+        } else if (const auto* i = std::get_if<If>(&s.node)) {
+            std::ranges::copy(requests_in(i->then), std::back_inserter(out));
+            std::ranges::copy(requests_in(i->otherwise), std::back_inserter(out));
+        } else if (const auto* e = std::get_if<Each>(&s.node)) {
+            std::ranges::copy(requests_in(e->body), std::back_inserter(out));
+        }
+    }
+    return out;
+}
+
+bool makes_requests(const Model& model) {
+    return std::ranges::any_of(model.actions,
+                               [](const Action& a) { return !requests_in(a.body).empty(); }) ||
+           std::ranges::any_of(model.rules,
+                               [](const TimeRule& r) { return !requests_in(r.body).empty(); }) ||
+           std::ranges::any_of(model.answers,
+                               [](const AnswerRule& r) { return !requests_in(r.body).empty(); });
+}
+
+const AnswerRule* answer_rule(const Model& model, std::string_view kind,
+                              const int status) noexcept {
+    const auto find = [&](const Outcome outcome) -> const AnswerRule* {
+        for (const AnswerRule& r : model.answers) {
+            if (r.kind == kind && r.outcome == outcome) {
+                return &r;
+            }
+        }
+        return nullptr;
+    };
+    switch (status) {
+    case 1:
+        return find(Outcome::done);
+    case 2:
+        return find(Outcome::fails);
+    case 3:
+        if (const AnswerRule* r = find(Outcome::expires)) {
+            return r;
+        }
+        return find(Outcome::fails);
+    default:
+        return nullptr;
+    }
 }
 
 } // namespace model
@@ -1089,6 +1166,16 @@ std::string dump(const model::Model& m) {
         for (const model::Do& d : r.actions) {
             do_lines(out, d, 1);
         }
+        statements(out, r.body, 1);
+    }
+    for (const model::AnswerRule& r : m.answers) {
+        std::string line = "answer " + r.kind + " " +
+                           std::string(model::outcome_names[static_cast<std::size_t>(r.outcome)]) +
+                           " function=" + std::string(model::reply_function);
+        if (r.expired) {
+            line += " " + ruled("expired", r.rule);
+        }
+        add_line(out, 0, line);
         statements(out, r.body, 1);
     }
     for (const model::Test& t : m.tests) {

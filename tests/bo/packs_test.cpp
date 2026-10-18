@@ -146,7 +146,8 @@ TEST_CASE("the official packs read, and their digests match the goldens", "[bo][
     // kind word thing, and spells the retired kind.record; version 2 lacks
     // the words added since (a temperature).
     for (const auto& [which, version] :
-         {std::pair{Officials::before_pack_files, 3U}, std::pair{Officials::before_temperature, 2U},
+         {std::pair{Officials::before_requests, 4U}, std::pair{Officials::before_pack_files, 3U},
+          std::pair{Officials::before_temperature, 2U},
           std::pair{Officials::before_vocabulary, 1U}}) {
         REQUIRE(official_pack_texts(which).size() == 3);
         REQUIRE(official_packs(which).size() == 3);
@@ -184,7 +185,7 @@ TEST_CASE("the official packs read, and their digests match the goldens", "[bo][
                                  digest_hex(*r.pack, crypto::HashAlg::sm3));
         }
     }
-    CHECK(official_releases().size() == 4);
+    CHECK(official_releases().size() == 5);
     CHECK(official_releases().front() == Officials::current);
     // The official vocabulary packs (vocab.hpp), current and carried.
     const crypto::openssl::Provider provider;
@@ -220,7 +221,7 @@ static std::size_t vocabulary_words() {
 TEST_CASE("the official packs spell every keyword, word, message, and sentence", "[bo][packs]") {
     for (const Pack& pack : official_packs()) {
         INFO(pack.id);
-        CHECK(pack.version == 4);
+        CHECK(pack.version == 5);
         // Every concept but the retired ones, which only the earlier
         // official packs spell: the core's from the pack's file, the
         // official vocabulary packs' from theirs (vocab.hpp).
@@ -251,7 +252,7 @@ TEST_CASE("the official packs spell every keyword, word, message, and sentence",
             CHECK(pack.sentences.contains(s.id) == !s.retired);
         }
     }
-    CHECK(keyword_count() == 18);
+    CHECK(keyword_count() == 22);
     CHECK(english_pack().id == "en");
     CHECK(official_pack("zh-Hant-HK")->name == "繁體中文（香港）");
     CHECK(official_pack("zh-Hans-CN")->keywords.at("kw.each").spellings.front() == "逐个");
@@ -333,7 +334,7 @@ TEST_CASE("a pack that misses a keyword is refused", "[bo][packs]") {
     // counted are the core's (the vocabulary packs spell their own).
     const PackRead partial = read(TestPack{});
     REQUIRE(partial.pack);
-    CHECK(reports(partial.diagnostics, "pack.partial", {{"missing", "81"}, {"total", "81"}}));
+    CHECK(reports(partial.diagnostics, "pack.partial", {{"missing", "84"}, {"total", "84"}}));
 }
 
 TEST_CASE("one spelling with two meanings is refused, within a pack and across packs",

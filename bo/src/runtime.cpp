@@ -121,6 +121,7 @@ const std::array<Spec, all_routines>& specs() {
         {expect_ledger, {{I32, I32, I32}, {I32}}, define_expect_ledger},
         {expect_bool, {{I32, I32, I32}, {I32}}, define_expect_bool},
         {fail_numbered, {{I32, I32, I64}, {}}, define_fail_numbered},
+        {out_finish_at, {{I32}, {}}, define_out_finish_at},
     }};
     return table;
 }

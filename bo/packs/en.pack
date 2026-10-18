@@ -7,7 +7,7 @@
 {
   "format": 1,
   "id": "en",
-  "version": 4,
+  "version": 5,
   "language": "en",
   "name": "English",
   "official": true,
@@ -40,7 +40,11 @@
     "kw.in": "in",
     "kw.reject": "reject",
     "kw.test": "test",
-    "kw.use": "use"
+    "kw.use": "use",
+    "kw.request": "request",
+    "kw.done": "done",
+    "kw.fails": "fails",
+    "kw.expires": "expires"
   },
 
   "vocabulary": {
@@ -141,6 +145,7 @@
     "actor.ai_agent": {"word": "AI agent", "forms": {"plural": "AI agents"}},
     "actor.device": {"word": "device", "forms": {"plural": "devices"}},
     "actor.keeper": {"word": "keeper", "forms": {"plural": "keepers"}},
+    "actor.executor": {"word": "executor", "forms": {"plural": "executors"}},
 
     # Common roles. The contract text says "the counterparty must ...", "started by us".
     "role.we": {"word": "we", "forms": {"object": "us"}},
@@ -150,7 +155,9 @@
     "expr.sum_of": "sum of …",
     "expr.count_of": "count of …",
     "expr.at_most": "at most …",
-    "expr.previous_state": "previous state"
+    "expr.previous_state": "previous state",
+    "expr.result": "result",
+    "expr.reason": "reason"
   },
 
   "messages": {
@@ -266,6 +273,7 @@
     "parse.expected-set": "a field and its value must follow {after}: amount = HKD 100, with commas between them",
     "parse.can": "{found} cannot follow the action here: write by PARTY, to PARTY, or with INPUTS, each at most once",
     "parse.when": "when needs an event before its action: when overdue 3 days suspend, when 7 days before due notify customer",
+    "parse.request": "a request is written request KIND [to PARTY] [with NAME = VALUE, ...] within DURATION, its kind a name or an action's word; found {found}",
     "parse.each": "each is written each NAME in LIST, with the lines to repeat in a block under it",
     "parse.bare-condition": "a condition alone does nothing: write requires or if before it; to set a field, write FIELD = VALUE",
     "parse.unclosed": "this ( is not closed on its line",
@@ -306,7 +314,7 @@
     "check.zero-division": "{text} divides by zero",
     "check.list-items": "the items of {text} are not all of one type",
     "check.list-bound": "{text}: a list holds from 1 to {limit} items",
-    "check.each-body": "{text}: the block of each runs once for each item, so it cannot change the state or do an action; move it out of each",
+    "check.each-body": "{text}: the block of each runs once for each item, so it cannot change the state, do an action, or make a request; move it out of each",
     "check.set-constant": "{field} is a constant (the block gives its value), so no action can change it; to let actions change it, declare its type instead (tier number)",
     "check.set-target": "{text} cannot be set: only a field of the instance can",
     "check.initial-state": "an instance could start in any of {states}, since no state change leads to them; Bo never guesses: an instance starts in the one state nothing leads to, otherwise in active",
@@ -336,6 +344,13 @@
     "check.charge-rounding": "{name} is a fixed amount, which is never rounded: give it no rounding mode",
     "check.charge-bill": "{name} is rounded once per {document}, but the contract's bill is another document",
     "check.needs-executor": "{action} asks an executor to act outside the ledger, which comes in step 6b: bo check accepts it, and bo build will refuse it until then",
+    "check.request-kind": "{text} is not a request kind: write a name of lowercase Latin letters, digits, ., _, and -, starting with a letter (at most 64 bytes), or an action's word",
+    "check.request-value": "{name}: a request carries numbers, money, quantities, rates, dates, durations, texts, yes or no, parties, and lists of them, not {type}",
+    "check.request-within": "{text}: a request names its deadline, within a duration written out, from 1 day to 366 days (12 months)",
+    "check.request-count": "{function} can make {count} requests in one call; a call makes at most 16",
+    "check.answer-twice": "a second rule for {text}: one rule for each kind and outcome",
+    "check.answer-unasked": "the contract makes no request {kind}, so this rule never applies",
+    "check.answer-line": "{text}: an answer is never refused and cites no consent, so a rule for answers does no action, refuses nothing, and sets no party; it sets fields, changes the state with -> STATE (or if STATE -> STATE), and makes requests",
     "check.test-start": "a test begins by creating its instance: PARTY {action} with FIELD = VALUE, ...; the party that creates it is the home, whose ledger runs the contract",
     "check.test-again": "a test creates its instance once, in its first step",
     "check.test-creation": "{text}: an instance of this contract is created with {action} (issue for an asset, create otherwise)",
@@ -363,6 +378,7 @@
     "check.parts-shape": "{text}: issue PARTS to RECIPIENTS [with FIELD = VALUE, ...]: the parts a list of amounts in the unit of the instance's amount, the recipients a list of parties, and with sets fields of the instance other than the amount and the holder",
     "check.parts-instance": "{action} issues parts, so each instance needs an amount (money or a quantity) and a holder, and no bill",
     "check.test-keeper": "{text}: the keeper calls a when rule with nothing else: no to, with, in person, or by AI agent",
+    "check.test-answer": "{text}: a step answers a request the contract makes, as executor KIND done, fails, or expires, giving at most a result and a reason, both texts",
     "build.fragment": "this file has no contract line, so it is a fragment: only a contract (contract NAME) compiles",
     "build.standard-action": "{action} is a built-in action: its template comes with the standard library, in a later version of the compiler; for now, declare an action of your own (can NAME by PARTY)",
     "build.executor": "{action} asks an executor to act outside the ledger, which comes in step 6b: deployed code never changes, so it cannot be compiled before then",
@@ -403,6 +419,8 @@
     "run.fired": "{rule} has already applied for this time",
     "run.depth": "{action} creates parts, but this instance is a part at depth 8, the deepest the ledger allows",
     "run.parts": "{action} issues one part to each recipient: give as many parts as recipients, one at least",
+    "run.request": "the request {kind} carries more than 4,096 bytes",
+    "run.answer": "function result takes only the answers to the contract's requests",
     "fmt.unstable": "written in {language}, the source would read differently here: a name the contract gives, or a word, would read together with the words around it as another word of {language}; nothing was formatted: rename the name or reword the line, or format into another language",
     "fmt.internal": "laid out canonically, the source would read differently here, so nothing was formatted; this is a bug in the formatter: please report it",
     "bo.truncated": "more problems were found; only the first {limit} are shown"
@@ -424,6 +442,7 @@
     "section-actions": "Actions",
     "section-time": "Time rules",
     "section-rules": "Rules Bo applied",
+    "section-answers": "Answers to requests",
     "party-creation": "{party}: bound to a ledger when an instance is created.",
     "party-action": "{party}: bound to a ledger by the first {action}, with the consent of {party.object}.",
     "party-each": "{party}: bound to a ledger by each {action}, with the consent of {party.object}.",
@@ -492,6 +511,18 @@
     "when-date": "On {date}:",
     "when-keeper": "Function {function}: a keeper calls it once this time has come. An earlier call is refused; the rule applies once for each such time, and its event records how late the call came.",
     "utc-offset": "Dates and days are counted at UTC{offset} all year, with no daylight saving; a month after a day the next month lacks (31 January plus a month) ends on that month's last day.",
+    "request": "It asks an executor for {kind}, outside the ledger, to be answered within {duration} of the call (its deadline).",
+    "request-to": "It asks an executor for {kind} for {party.object}, outside the ledger, to be answered within {duration} of the call (its deadline).",
+    "request-values": "The request carries {values}.",
+    "request-failure": "If it fails, or expires, the rule for a failed {kind} applies (see the answers to requests).",
+    "request-failure-expiry": "If it fails, the rule for a failed {kind} applies; if it expires, the rule for an expired one (see the answers to requests).",
+    "request-expiry-only": "If it expires, the rule for an expired {kind} applies (see the answers to requests); if it fails, nothing more happens: the answer is recorded as an event.",
+    "request-no-failure": "If it fails or expires, nothing more happens: the answer is recorded as an event.",
+    "answers-note": "The function {function} takes every answer to the contract's requests: an executor's, a person's by hand, or a keeper's once a deadline has passed (expired). It records the answer as an event and applies the rule below for it, if there is one. An answer is never refused, so these rules ask no consent and refuse nothing; on an instance that has ended, they change no state and make no requests.",
+    "answer-done": "When a request {kind} is done:",
+    "answer-fails": "When a request {kind} fails:",
+    "answer-fails-expired": "When a request {kind} fails, or expires:",
+    "answer-expires": "When a request {kind} expires (no answer by its deadline):",
     "charge": "The {kind} {name}:",
     "charge-rate": "Its rate is {rate}.",
     "charge-amount": "Its amount is {value}.",
@@ -517,6 +548,8 @@
     "value-text": "\"{text}\"",
     "value-now": "the time of the call",
     "value-today": "the day of the call",
+    "value-result": "the answer's result",
+    "value-reason": "the answer's reason",
     "value-amount": "the amount",
     "value-separator": "; ",
     "list-separator": ", ",
@@ -653,6 +686,7 @@
     "rule-R29": "A single value where a list is needed is a list of that one item.",
     "rule-R30": "Issue PARTS to RECIPIENTS makes each part an instance of its own, of the same contract, created by the call: its amount is the part and its holder its recipient, and the instance that issued it ends. A part may be split again, at most eight levels down, and its evidence carries the history of every instance it came from (spec section 15).",
     "rule-R31": "An action that makes its counterparty (after to) the holder, the pledgee, or the payee, as transfer, pledge, and allocate do, needs the counterparty's consent at every call, even when its role was bound to a ledger when the instance was created or by another action: nobody becomes a holder, a pledgee, or a payee without agreeing.",
-    "rule-R32": "A duration divided by a duration is the number of whole times the second fits in the first; the rest is dropped (rounded toward zero): 2 days and 20 hours divided by 1 day is 2."
+    "rule-R32": "A duration divided by a duration is the number of whole times the second fits in the first; the rest is dropped (rounded toward zero): 2 days and 20 hours divided by 1 day is 2.",
+    "rule-R33": "A request that expires (no answer by its deadline) is treated as one that failed, unless the contract has a rule for its expiry."
   }
 }

@@ -1,0 +1,50 @@
+contract Requests
+parties we, buyer
+
+thing Order
+  amount HKD
+  owner buyer
+  picks list number at most 3
+
+can ship by we
+  request Notify within 1 day
+  request notify within 400 days
+  request notify to buyer
+  request notify with state = active within 1 day
+  each i in picks
+    request notify within 1 day
+
+can flood by we
+  request a1 within 1 day
+  request a2 within 1 day
+  request a3 within 1 day
+  request a4 within 1 day
+  request a5 within 1 day
+  request a6 within 1 day
+  request a7 within 1 day
+  request a8 within 1 day
+  request a9 within 1 day
+  request a10 within 1 day
+  request a11 within 1 day
+  request a12 within 1 day
+  request a13 within 1 day
+  request a14 within 1 day
+  request a15 within 1 day
+  request a16 within 1 day
+  request a17 within 1 day
+
+when notify done
+  requires amount > 0
+  owner = we
+
+when notify done
+  -> shipped
+
+when ping fails
+  -> shipped
+
+test "answers"
+  we create with amount = HKD 1, picks = (1, 2)
+  we ship
+  executor ping done
+  executor notify done with amount = "x"

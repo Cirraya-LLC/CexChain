@@ -68,5 +68,6 @@ void define_expect_text(Runtime& rt, FunctionBuilder& b);
 void define_expect_ledger(Runtime& rt, FunctionBuilder& b);
 void define_expect_bool(Runtime& rt, FunctionBuilder& b);
 void define_fail_numbered(Runtime& rt, FunctionBuilder& b);
+void define_out_finish_at(Runtime& rt, FunctionBuilder& b);
 
 } // namespace cexchain::bo::runtime::detail

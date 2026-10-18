@@ -164,6 +164,7 @@ TEST_CASE("each example, in each language or mixed, gives the same tree", "[bo][
         {"example-tax", {"en", "zh-hant", "zh-hans", "mixed"}},
         {"parse-statements", {"en", "zh-hant", "zh-hans"}},
         {"parse-test", {"en", "zh-hant", "zh-hans"}},
+        {"parse-requests", {"en", "zh-hant", "zh-hans"}},
     };
     for (const auto& [group, languages] : groups) {
         const std::string first = tree(read_text(golden_dir / (group + "-en") / "source.bo"));
@@ -440,7 +441,7 @@ TEST_CASE("the parser's messages are in every official pack", "[bo][parser]") {
             }
         }
     }
-    CHECK(parser_codes == 30);
+    CHECK(parser_codes == 31);
     const Parsed parsed = parse_text("can x\n  requires a < b < c\n");
     REQUIRE(parsed.diagnostics.size() == 1);
     const Diagnostic& d = parsed.diagnostics[0];

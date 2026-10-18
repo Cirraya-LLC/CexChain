@@ -25,4 +25,4 @@ can tidy own by=role.we agents=delegation{R14}
 12:13 error check.type: 5 is a number, but a list is needed here
 14:11 error check.list-bound: (1, 2, 3, 4, 5): a list holds from 1 to 4 items
 16:19 error check.operands: + cannot combine a text with a text
-21:7 error check.each-body: active -> tidied: the block of each runs once for each item, so it cannot change the state or do an action; move it out of each
+21:7 error check.each-body: active -> tidied: the block of each runs once for each item, so it cannot change the state, do an action, or make a request; move it out of each

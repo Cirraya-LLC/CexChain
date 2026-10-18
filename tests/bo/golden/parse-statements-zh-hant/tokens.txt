@@ -32,7 +32,7 @@
 10:10 word kw.by | 由
 10:12 word role.supplier | 供應商
 10:16 word kw.with | 連同
-10:19 name reason | reason
+10:19 word expr.reason | reason
 10:26 word type.text | 文字
 10:28 symbol , | ,
 10:30 name limit | limit

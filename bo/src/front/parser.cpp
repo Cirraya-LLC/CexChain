@@ -61,6 +61,8 @@ struct Known {
     const Concept* applies_to;
     const Concept* at;
     const Concept* in_person;
+    const Concept* request;
+    const Concept* within;
 };
 
 const Concept* concept_of(std::string_view id) noexcept {
@@ -78,7 +80,8 @@ const Known& known() {
         concept_of("kw.not"),        concept_of("kw.each"),        concept_of("kw.in"),
         concept_of("kw.reject"),     concept_of("kw.test"),        concept_of("kw.use"),
         concept_of("charge.charge"), concept_of("charge.tax"),     concept_of("charge.applies_to"),
-        concept_of("time.at"),       concept_of("cond.in_person"),
+        concept_of("time.at"),       concept_of("cond.in_person"), concept_of("kw.request"),
+        concept_of("cond.within"),
     };
     return k;
 }
@@ -172,6 +175,7 @@ public:
 
     ast::File run(std::uint64_t edition);
     [[nodiscard]] const Declared& found() const noexcept { return found_; }
+    [[nodiscard]] const std::vector<std::size_t>& outcomes() const noexcept { return outcomes_; }
 
 private:
     // --- Tokens.
@@ -225,6 +229,37 @@ private:
         }
         return t.kind == TokenKind::name && declared_.parties.contains(t.text);
     }
+    /// A request's outcome (E8): a contextual word, which the parser reads
+    /// as a name (parse), unless the contract declares it as an action or a
+    /// party.
+    [[nodiscard]] bool is_outcome(const Token& t) const {
+        return t.kind == TokenKind::name && is_contextual(t.concept_entry) &&
+               t.concept_entry->category == Category::keyword &&
+               !declared_.actions.contains(t.text) && !declared_.parties.contains(t.text);
+    }
+    /// An answer's `result` or `reason` (E8): a contextual word, read as one
+    /// in a rule for answers and in a test step's answer, unless the
+    /// contract declares the name.
+    [[nodiscard]] bool is_answer_word(const Token& t) const {
+        return t.kind == TokenKind::name && is_contextual(t.concept_entry) &&
+               t.concept_entry->category == Category::expression &&
+               !declared_.names.contains(t.text);
+    }
+    /// The expression of the token just taken, as a word if it is an
+    /// answer's word where one is read.
+    void promote(Expr& e) {
+        if (e.kind == ExprKind::name && is_answer_word(at(last_))) {
+            e.kind = ExprKind::word;
+            e.concept_entry = at(last_).concept_entry;
+            e.name.clear();
+            outcomes_.push_back(last_);
+        }
+    }
+    /// A request's kind: an action's word, or a name.
+    [[nodiscard]] bool is_kind(const Token& t) const {
+        return t.kind == TokenKind::name || (t.kind == TokenKind::word && t.piece == Piece::whole &&
+                                             t.concept_entry->category == Category::action);
+    }
     /// An action begins at `i`: an action, or a party just before one.
     [[nodiscard]] bool starts_action(std::size_t i) const {
         return is_action(at(i)) || (is_party(at(i)) && is_action(at(i + 1)));
@@ -245,6 +280,11 @@ private:
     [[nodiscard]] bool starts_value() const {
         if (step_with_ && peek().kind == TokenKind::word &&
             (peek().concept_entry == known().at || peek().concept_entry == known().in_person)) {
+            return false;
+        }
+        // A request's values end before its deadline (`within 1 day`).
+        if (request_with_ && peek().kind == TokenKind::word &&
+            peek().concept_entry == known().within && peek().piece != Piece::tail) {
             return false;
         }
         return starts_operand(peek()) && !starts_action(pos_);
@@ -434,7 +474,9 @@ private:
     void block_clause(std::vector<ast::Clause>& out);
     void can(std::vector<ast::Clause>& out);
     void when(std::vector<ast::Clause>& out);
+    void answer_rule(std::vector<ast::Clause>& out);
     void test(std::vector<ast::Clause>& out);
+    bool request(std::vector<Statement>& out);
     std::optional<ast::Field> field(bool input);
     std::optional<ast::Set> set_item();
     std::optional<ast::Do> action(bool step);
@@ -481,8 +523,14 @@ private:
     std::size_t last_ = 0;
     std::size_t expr_depth_ = 0;
     bool failed_ = false;
-    /// Reading the values of a test step's `with`.
+    /// Reading the values of a test step's `with`, or of a request's.
     bool step_with_ = false;
+    bool request_with_ = false;
+    /// The tokens read as contextual words (E8): an outcome of a request,
+    /// an answer's result or reason; names everywhere else (is_contextual).
+    std::vector<std::size_t> outcomes_;
+    /// Reading a rule for answers, or a test step's answer.
+    bool in_answer_ = false;
     bool have_contract_ = false;
     bool have_parties_ = false;
 };
@@ -521,6 +569,9 @@ std::optional<Expr> Parser::operand() {
         (t.kind == TokenKind::word && t.piece == Piece::whole &&
          t.concept_entry->category != Category::keyword)) {
         e = token_expr(take());
+        if (in_answer_) {
+            promote(e);
+        }
     } else if (t.kind == TokenKind::word && t.concept_entry->category != Category::keyword &&
                (t.piece == Piece::head || t.piece == Piece::open)) {
         const Token& head = take();
@@ -1075,6 +1126,11 @@ void Parser::can(std::vector<ast::Clause>& out) {
 }
 
 void Parser::when(std::vector<ast::Clause>& out) {
+    // `when notify done`: a rule for the answers to requests (E8).
+    if (is_kind(peek(1)) && is_outcome(peek(2))) {
+        answer_rule(out);
+        return;
+    }
     const std::size_t first = pos_;
     const Token& keyword = take();
     ast::When w;
@@ -1101,6 +1157,116 @@ void Parser::when(std::vector<ast::Clause>& out) {
         return;
     }
     out.emplace_back(std::move(w));
+}
+
+void Parser::answer_rule(std::vector<ast::Clause>& out) {
+    const std::size_t first = pos_;
+    const Token& keyword = take();
+    ast::AnswerRule r;
+    r.kind = token_expr(take());
+    outcomes_.push_back(pos_);
+    r.outcome = take().concept_entry;
+    bool ok = true;
+    in_answer_ = true;
+    if (at_kw(known().request)) {
+        ok = request(r.body);
+    } else if (!at_line_end()) {
+        ok = starts_action(pos_) ? actions(r.actions) : fail_found("parse.trailing");
+    }
+    r.span = span_from(first);
+    end_line(ok);
+    if (failed_) {
+        in_answer_ = false;
+        skip_block();
+        return;
+    }
+    const bool has_block = body(r.body, 1);
+    in_answer_ = false;
+    if (!has_block && r.actions.empty() && r.body.empty()) {
+        fail(keyword.span, "parse.empty-block", {{"word", written(keyword)}});
+        return;
+    }
+    out.emplace_back(std::move(r));
+}
+
+/// `request KIND [to PARTY] [with NAME = VALUE, ...] within DURATION`, the
+/// parts after the kind in any order, each once.
+bool Parser::request(std::vector<Statement>& out) {
+    const Known& k = known();
+    const std::size_t first = pos_;
+    take();
+    ast::Request r;
+    if (!is_kind(peek())) {
+        return fail_found("parse.request");
+    }
+    r.kind = token_expr(take());
+    while (!at_line_end()) {
+        const Token& t = peek();
+        if (is_kw(t, k.to)) {
+            const Token& keyword = take();
+            if (r.to) {
+                return fail(keyword.span, "parse.duplicate", {{"word", written(keyword)}});
+            }
+            r.to = required_operand("parse.expected-party");
+            if (!r.to) {
+                return false;
+            }
+        } else if (is_kw(t, k.with)) {
+            const Token& keyword = take();
+            if (!r.with.empty()) {
+                return fail(keyword.span, "parse.duplicate", {{"word", written(keyword)}});
+            }
+            while (true) {
+                request_with_ = true;
+                std::optional<ast::Set> item = set_item();
+                request_with_ = false;
+                if (!item) {
+                    return false;
+                }
+                r.with.push_back(std::move(*item));
+                if (!at_symbol(Symbol::comma)) {
+                    break;
+                }
+                take();
+            }
+        } else if (starts_value()) {
+            const Token& at_start = peek();
+            std::optional<Expr> deadline = operand();
+            if (!deadline) {
+                return false;
+            }
+            if (r.within) {
+                return fail(at_start.span, "parse.duplicate", {{"word", written(at_start)}});
+            }
+            if (deadline->kind != ExprKind::apply || deadline->concept_entry != k.within) {
+                return fail(deadline->span, "parse.request", {{"found", written(at_start)}});
+            }
+            r.within = std::move(*deadline);
+        } else {
+            return fail_found("parse.trailing");
+        }
+    }
+    // A deadline written after its argument (`連同 message = "已送達" 1日內`)
+    // ends the last value: the value is the phrase before it.
+    if (!r.within && !r.with.empty()) {
+        Expr& last = r.with.back().value;
+        if (last.kind == ExprKind::phrase && !last.operands.empty() &&
+            last.operands.back().kind == ExprKind::apply &&
+            last.operands.back().concept_entry == k.within) {
+            r.within = std::move(last.operands.back());
+            last.operands.pop_back();
+            if (last.operands.size() == 1) {
+                Expr only = std::move(last.operands.front());
+                last = std::move(only);
+            } else {
+                last.span = join(last.operands.front().span, last.operands.back().span);
+            }
+            r.with.back().span = join(r.with.back().target.span, last.span);
+        }
+    }
+    r.span = span_from(first);
+    out.push_back(Statement{std::move(r)});
+    return true;
 }
 
 void Parser::test(std::vector<ast::Clause>& out) {
@@ -1198,6 +1364,9 @@ std::optional<ast::Set> Parser::set_item() {
     }
     ast::Set s;
     s.target = token_expr(take());
+    if (in_answer_) {
+        promote(s.target);
+    }
     take();
     std::optional<Expr> value = required_condition();
     if (!value) {
@@ -1225,6 +1394,24 @@ std::optional<ast::Do> Parser::action(bool step) {
         fail_expected("parse.expected-action");
         return std::nullopt;
     }
+    // `executor notify done`: a step that answers a request (E8).
+    bool answering = false;
+    if (step && is_outcome(peek())) {
+        outcomes_.push_back(pos_);
+        d.outcome = take().concept_entry;
+        in_answer_ = true;
+        answering = true;
+    }
+    // The answer's words are read only in this step.
+    struct Reset {
+        bool& flag;
+        bool on;
+        ~Reset() {
+            if (on) {
+                flag = false;
+            }
+        }
+    } reset{in_answer_, answering};
     while (!at_line_end()) {
         const Token& t = peek();
         if (is_kw(t, k.to) || is_kw(t, k.by)) {
@@ -1336,6 +1523,9 @@ bool Parser::simple(std::vector<Statement>& out) {
         r.span = span_from(first);
         out.push_back(Statement{std::move(r)});
         return true;
+    }
+    if (is_kw(t, k.request)) {
+        return request(out);
     }
     if (is_kw(t, k.reject)) {
         take();
@@ -1455,7 +1645,7 @@ void Parser::if_statement(std::vector<Statement>& out, std::size_t depth) {
         s.condition = std::move(*cond);
         // One statement may follow on the same line: if not paid reject "...".
         const Known& k = known();
-        if (at_kw(k.requires_) || at_kw(k.reject) || at_symbol(Symbol::arrow) ||
+        if (at_kw(k.requires_) || at_kw(k.reject) || at_kw(k.request) || at_symbol(Symbol::arrow) ||
             starts_action(pos_)) {
             ok = simple(s.then);
         } else if (!at_line_end()) {
@@ -1660,6 +1850,9 @@ std::string do_text(const ast::Do& d) {
     if (d.by) {
         text += " by=" + dump(*d.by);
     }
+    if (d.outcome != nullptr) {
+        text += " outcome=" + std::string(d.outcome->id);
+    }
     return text;
 }
 
@@ -1718,6 +1911,19 @@ void statement(std::string& out, const Statement& s, std::size_t depth) {
                 add_line(out, depth, text + " -> " + dump(t.to));
             },
             [&](const ast::Do& d) { do_lines(out, d, depth); },
+            [&](const ast::Request& r) {
+                std::string text = "request " + dump(r.kind);
+                if (r.to) {
+                    text += " to=" + dump(*r.to);
+                }
+                if (r.within) {
+                    text += " within=" + dump(*r.within);
+                }
+                add_line(out, depth, text);
+                for (const ast::Set& w : r.with) {
+                    add_line(out, depth + 1, set_text(w));
+                }
+            },
             [&](const ast::Expect& e) {
                 std::string text = "expect";
                 if (e.outcome) {
@@ -1752,21 +1958,35 @@ Parsed parse(std::string_view source, const Lexed& lexed) {
             quiet.insert(d.span.line);
         }
     }
+    // The outcomes of a request (E8) are names wherever the grammar does not
+    // read them as outcomes: the parser keeps their concept, and makes those
+    // it reads as outcomes words again below.
+    std::vector<Token> contextual = lexed.tokens;
+    for (Token& t : contextual) {
+        if (t.kind == TokenKind::word && is_contextual(t.concept_entry)) {
+            t.kind = TokenKind::name;
+            t.text = std::string(source.substr(t.span.offset, t.span.length));
+            t.form.clear();
+        }
+    }
     const Declared none;
     detail::Diagnostics ignored;
-    Parser first(source, lexed.tokens, none, quiet, ignored);
+    Parser first(source, contextual, none, quiet, ignored);
     static_cast<void>(first.run(lexed.edition));
     const Declared declared = first.found();
 
     detail::Diagnostics diagnostics;
     std::set<std::uint32_t> ambiguous;
-    std::vector<Token> tokens =
-        resolve_splits(lexed.tokens, declared, diagnostics, quiet, ambiguous);
+    std::vector<Token> tokens = resolve_splits(contextual, declared, diagnostics, quiet, ambiguous);
     // A line with an ambiguous name has its error: the parser adds none.
     ambiguous.insert(quiet.begin(), quiet.end());
     Parser second(source, tokens, declared, ambiguous, diagnostics);
     Parsed out;
     out.file = second.run(lexed.edition);
+    for (const std::size_t i : second.outcomes()) {
+        tokens[i].kind = TokenKind::word;
+        tokens[i].text.clear();
+    }
     out.file.implicit_vocabulary = lexed.implicit_vocabulary;
     out.file.vocabularies = lexed.vocabularies;
     // A `use` line's pack id is a name, whatever it reads as elsewhere; the
@@ -1892,6 +2112,13 @@ std::string dump(const ast::File& file) {
                 [&](const ast::Test& t) {
                     add_line(out, 0, t.name ? "test " + dump(*t.name) : "test");
                     statements(out, t.steps, 1);
+                },
+                [&](const ast::AnswerRule& r) {
+                    add_line(out, 0, "answer " + dump(r.kind) + " " + std::string(r.outcome->id));
+                    for (const ast::Do& d : r.actions) {
+                        do_lines(out, d, 1);
+                    }
+                    statements(out, r.body, 1);
                 },
             },
             clause);
