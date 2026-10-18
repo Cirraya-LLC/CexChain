@@ -39,7 +39,7 @@ executor for an `invoice` and, once it is done, a `collect`; a collection done p
 and resumes a suspended server; `subscribe`, `suspend`, `resume`, and `terminate` each ask an
 executor to do the same outside the ledger. The contract decides; it never acts on the world
 outside its ledger, it asks. Every party reads the same text in its own language, Bo's lines
-marked with their rules (`bo explain --language zh-Hant-HK`):
+marked with their rules (`bo explain --language zh-Hant-HK`, in part):
 
 ```
 4.1 訂購（函數 subscribe）
