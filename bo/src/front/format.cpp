@@ -990,7 +990,8 @@ std::string write(std::string_view source, const PackSet& packs, const Lexicon& 
 }
 
 /// Each token as describe() writes it, those of `use` lines (which the
-/// formatter moves) left out.
+/// formatter moves) left out, but for the block structure: a `use` line
+/// right after a block carries the block's dedent, which stays in place.
 std::vector<std::string> token_texts(const std::vector<Token>& tokens) {
     std::vector<std::string> out;
     std::set<std::uint32_t> uses;
@@ -1000,7 +1001,8 @@ std::vector<std::string> token_texts(const std::vector<Token>& tokens) {
         }
     }
     for (const Token& t : tokens) {
-        if (!uses.contains(t.span.line) || t.kind == TokenKind::end) {
+        if (!uses.contains(t.span.line) || t.kind == TokenKind::end ||
+            t.kind == TokenKind::indent || t.kind == TokenKind::dedent) {
             out.push_back(describe(t));
         }
     }

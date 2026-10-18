@@ -328,6 +328,14 @@ TEST_CASE("the layout rules", "[bo][format]") {
     CHECK(formatted("when due issuer pays\n", pack("en")) == "when due issuer pays\n");
     CHECK(formatted("when due issuer pays\n", pack("zh-Hant-HK")) == "當到期日 發行人 支付\n");
     CHECK(formatted("當到期日 發行人 支付\n", pack("en")) == "when due issuer pay\n");
+    // A `use` line right after a block moves first; the block's end, which
+    // the lexer puts on that line, stays (found by bo_parse_fuzz in E11).
+    CHECK(formatted("thing R\n  amount HKD\nuse commerce\n", nullptr) ==
+          "use commerce\n\nthing R\n  amount HKD\n");
+    CHECK(formatted("thing R\n  amount HKD\n\nuse services\ncan pay by we\n  requires now < due\n"
+                    "use commerce\n",
+                    nullptr) == "use commerce\nuse services\n\nthing R\n  amount HKD\n\ncan pay by "
+                                "we\n  requires now < due\n");
 }
 
 TEST_CASE("words the new language would read together get parentheses", "[bo][format]") {

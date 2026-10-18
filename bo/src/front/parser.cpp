@@ -2001,7 +2001,10 @@ Parsed parse(std::string_view source, const Lexed& lexed) {
     }
     for (Token& t : tokens) {
         if (use_lines.contains(t.span.line)) {
+            // A use line right after a block carries the block's dedent:
+            // structure stays structure.
             if (t.kind != TokenKind::newline && t.kind != TokenKind::end &&
+                t.kind != TokenKind::indent && t.kind != TokenKind::dedent &&
                 !(t.kind == TokenKind::word && t.concept_entry == known().use)) {
                 t.kind = TokenKind::name;
                 t.text = std::string(source.substr(t.span.offset, t.span.length));
