@@ -46,9 +46,6 @@ namespace {
 namespace executor = node::executor;
 namespace connector = node::connector;
 
-/// The HPKE `info` for an executor's sealed secrets; the secret's name is
-/// the associated data, so a sealed file cannot be renamed into another.
-constexpr std::string_view secret_info = "CexChain executor secret v1";
 constexpr std::size_t max_secret = 4096;
 
 std::atomic<bool> stop_requested{false};
@@ -154,35 +151,18 @@ Bytes secrets_public_key(const Args& args, const std::filesystem::path& state) {
 }
 
 Bytes seal_secret(const std::string& name, ByteView value, ByteView public_key) {
-    const auto sealed = unwrap(crypto::openssl::hpke_seal(public_key, as_bytes(secret_info),
-                                                          as_bytes(std::string_view(name)), value),
-                               "sealing the secret");
-    const auto& suite = crypto::openssl::hpke_suite;
-    return unwrap(cbor::encode(cbor::Value::map(
-                      {{cbor::Value::integer(1), cbor::Value::unsigned_integer(1)},
-                       {cbor::Value::integer(2),
-                        cbor::Value::array({cbor::Value::unsigned_integer(suite.kem),
-                                            cbor::Value::unsigned_integer(suite.kdf),
-                                            cbor::Value::unsigned_integer(suite.aead)})},
-                       {cbor::Value::integer(3), cbor::Value::bytes(sealed.encapsulated_key)},
-                       {cbor::Value::integer(4), cbor::Value::bytes(sealed.ciphertext)}})),
-                  "encoding the sealed secret");
+    const auto sealed =
+        unwrap(crypto::openssl::hpke_seal(public_key, as_bytes(executor::secret_info),
+                                          as_bytes(std::string_view(name)), value),
+               "sealing the secret");
+    return executor::encode_sealed_secret(sealed);
 }
 
 SecureBytes open_secret(const std::string& name, ByteView file,
                         const crypto::openssl::HpkeKey& key) {
-    const auto value = cbor::decode(file);
-    const cbor::Value* enc = value ? value->find(3) : nullptr;
-    const cbor::Value* ct = value ? value->find(4) : nullptr;
-    if (enc == nullptr || ct == nullptr || enc->as_bytes() == nullptr ||
-        ct->as_bytes() == nullptr) {
-        throw CommandError{"the sealed secret " + name + " is damaged"};
-    }
-    auto opened = key.open({*enc->as_bytes(), *ct->as_bytes()}, as_bytes(secret_info),
-                           as_bytes(std::string_view(name)));
+    auto opened = executor::open_sealed_secret(name, file, key);
     if (!opened) {
-        throw CommandError{"the secret " + name +
-                           " does not open with this secrets key (sealed to another, or altered)"};
+        throw CommandError{opened.error()};
     }
     return std::move(*opened);
 }

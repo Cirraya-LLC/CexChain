@@ -20,6 +20,7 @@
 #include <cexchain/core/crypto.hpp>
 #include <cexchain/core/error.hpp>
 #include <cexchain/core/protocol/common.hpp>
+#include <cexchain/crypto/openssl.hpp>
 #include <cexchain/node/client.hpp>
 #include <cexchain/node/connector.hpp>
 #include <cexchain/node/connectors.hpp>
@@ -150,6 +151,26 @@ struct JournalEntry {
 /// The journal's files as JSON text, and back.
 [[nodiscard]] std::string entry_text(const JournalEntry& entry);
 [[nodiscard]] std::optional<JournalEntry> parse_entry(std::string_view text);
+
+/// The discovery cursor file's text (cursor.json: {"server": URL, "after":
+/// N}): N if it belongs to `server`, else 0 (start over).
+[[nodiscard]] std::uint64_t parse_cursor(std::string_view text, std::string_view server);
+
+/// The HPKE `info` of an executor's sealed secrets; the secret's name is the
+/// associated data, so a sealed file cannot be renamed into another.
+inline constexpr std::string_view secret_info = "CexChain executor secret v1";
+
+/// A sealed secret's file (<state>/secrets/NAME.sealed, `executor secret
+/// set`): CBOR {1: 1, 2: [kem, kdf, aead], 3: the encapsulated key, 4: the
+/// ciphertext}, sealed with crypto::openssl::hpke_suite to the state's
+/// secrets key.
+[[nodiscard]] Bytes encode_sealed_secret(const crypto::openssl::HpkeSealed& sealed);
+/// Parses one; nullopt unless it is exactly that shape, in that suite.
+[[nodiscard]] std::optional<crypto::openssl::HpkeSealed> parse_sealed_secret(ByteView file);
+/// Opens the sealed secret NAME's file with the secrets key: the error says
+/// whether the file is damaged or does not open with this key.
+[[nodiscard]] std::expected<SecureBytes, std::string>
+open_sealed_secret(std::string_view name, ByteView file, const crypto::openssl::HpkeKey& key);
 
 /// A state directory: journal/, cursor.json, and secrets/.
 class Journal {

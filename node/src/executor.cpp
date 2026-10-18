@@ -536,18 +536,75 @@ Status Journal::save(const JournalEntry& entry) const {
                               as_bytes(std::string_view(text)), true);
 }
 
+std::uint64_t parse_cursor(std::string_view text, std::string_view server) {
+    const auto parsed = detail::parse_integral_json(text);
+    if (!parsed || !parsed->is_object() || !parsed->contains("server") ||
+        (*parsed)["server"] != server || !parsed->contains("after") ||
+        !(*parsed)["after"].is_number_unsigned()) {
+        return 0;
+    }
+    return (*parsed)["after"].get<std::uint64_t>();
+}
+
 std::uint64_t Journal::cursor(std::string_view server) const {
     const auto bytes = detail::read_file(state_ / "cursor.json");
     if (!bytes) {
         return 0;
     }
-    const auto parsed = detail::parse_integral_json(
-        std::string_view(reinterpret_cast<const char*>(bytes->data()), bytes->size()));
-    if (!parsed || !parsed->is_object() || !parsed->contains("server") ||
-        (*parsed)["server"] != server || !(*parsed)["after"].is_number_unsigned()) {
-        return 0;
+    return parse_cursor(
+        std::string_view(reinterpret_cast<const char*>(bytes->data()), bytes->size()), server);
+}
+
+Bytes encode_sealed_secret(const crypto::openssl::HpkeSealed& sealed) {
+    const auto& suite = crypto::openssl::hpke_suite;
+    auto bytes = cbor::encode(cbor::Value::map(
+        {{cbor::Value::integer(1), cbor::Value::unsigned_integer(1)},
+         {cbor::Value::integer(2), cbor::Value::array({cbor::Value::unsigned_integer(suite.kem),
+                                                       cbor::Value::unsigned_integer(suite.kdf),
+                                                       cbor::Value::unsigned_integer(suite.aead)})},
+         {cbor::Value::integer(3), cbor::Value::bytes(sealed.encapsulated_key)},
+         {cbor::Value::integer(4), cbor::Value::bytes(sealed.ciphertext)}}));
+    return bytes ? std::move(*bytes) : Bytes{};
+}
+
+std::optional<crypto::openssl::HpkeSealed> parse_sealed_secret(ByteView file) {
+    const auto value = cbor::decode(file);
+    if (!value || value->as_map() == nullptr || value->as_map()->size() != 4) {
+        return std::nullopt;
     }
-    return (*parsed)["after"].get<std::uint64_t>();
+    const cbor::Value* version = value->find(1);
+    const cbor::Value* suite = value->find(2);
+    const cbor::Value* enc = value->find(3);
+    const cbor::Value* ct = value->find(4);
+    if (version == nullptr || version->as_uint64() != 1U || suite == nullptr ||
+        suite->as_array() == nullptr || suite->as_array()->size() != 3 || enc == nullptr ||
+        enc->as_bytes() == nullptr ||
+        enc->as_bytes()->size() != crypto::openssl::hpke_public_key_size || ct == nullptr ||
+        ct->as_bytes() == nullptr || ct->as_bytes()->empty()) {
+        return std::nullopt;
+    }
+    const auto& ids = *suite->as_array();
+    const auto& ours = crypto::openssl::hpke_suite;
+    if (ids[0].as_uint64() != ours.kem || ids[1].as_uint64() != ours.kdf ||
+        ids[2].as_uint64() != ours.aead) {
+        return std::nullopt;
+    }
+    return crypto::openssl::HpkeSealed{*enc->as_bytes(), *ct->as_bytes()};
+}
+
+std::expected<SecureBytes, std::string> open_sealed_secret(std::string_view name, ByteView file,
+                                                           const crypto::openssl::HpkeKey& key) {
+    const auto sealed = parse_sealed_secret(file);
+    if (!sealed) {
+        return std::unexpected(std::format("the sealed secret {} is damaged", name));
+    }
+    auto opened = key.open(*sealed, as_bytes(secret_info), as_bytes(name));
+    if (!opened) {
+        return std::unexpected(std::format(
+            "the secret {} does not open with this secrets key (sealed to another, or altered)",
+            name));
+    }
+    return std::move(*opened);
 }
 
 Status Journal::save_cursor(std::string_view server, std::uint64_t cursor) const {

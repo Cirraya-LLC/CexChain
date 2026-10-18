@@ -710,3 +710,40 @@ TEST_CASE("an executor's config is checked", "[node][executor]") {
     CHECK(!executor::parse_config(R"({"ledger_id":"abc"})"));
     CHECK(!executor::parse_config("[]"));
 }
+
+TEST_CASE("an executor's sealed secrets and cursor are read strictly", "[node][executor]") {
+    namespace openssl = cexchain::crypto::openssl;
+    const auto key = openssl::HpkeKey::generate();
+    REQUIRE(key.has_value());
+    const std::string_view value = "hook-secret";
+    const auto sealed = openssl::hpke_seal(
+        key->public_key(), cexchain::as_bytes(executor::secret_info),
+        cexchain::as_bytes(std::string_view("hook-key")), cexchain::as_bytes(value));
+    REQUIRE(sealed.has_value());
+    const Bytes file = executor::encode_sealed_secret(*sealed);
+    const auto parsed = executor::parse_sealed_secret(file);
+    REQUIRE(parsed.has_value());
+    CHECK(parsed->ciphertext == sealed->ciphertext);
+    const auto opened = executor::open_sealed_secret("hook-key", file, *key);
+    REQUIRE(opened.has_value());
+    CHECK(std::string(opened->view().begin(), opened->view().end()) == value);
+    // Renamed into another secret, it does not open; damaged, it is refused.
+    const auto renamed = executor::open_sealed_secret("panel-token", file, *key);
+    REQUIRE(!renamed.has_value());
+    CHECK(renamed.error().find("does not open") != std::string::npos);
+    Bytes damaged = file;
+    damaged[6] ^= 0x01; // the suite's KEM: 0x21, not 0x20
+    CHECK(!executor::parse_sealed_secret(damaged).has_value());
+    const auto refused = executor::open_sealed_secret("hook-key", damaged, *key);
+    REQUIRE(!refused.has_value());
+    CHECK(refused.error().find("damaged") != std::string::npos);
+    CHECK(!executor::parse_sealed_secret(Bytes(file.begin(), file.end() - 1)).has_value());
+    // The cursor belongs to one server.
+    const std::string cursor = R"({"after":9,"server":"http://127.0.0.1:8080"})";
+    CHECK(executor::parse_cursor(cursor, "http://127.0.0.1:8080") == 9);
+    CHECK(executor::parse_cursor(cursor, "http://127.0.0.1:8081") == 0);
+    CHECK(executor::parse_cursor(R"({"server":"http://127.0.0.1:8080"})",
+                                 "http://127.0.0.1:8080") == 0);
+    CHECK(executor::parse_cursor(R"({"after":-1,"server":"x"})", "x") == 0);
+    CHECK(executor::parse_cursor("not json", "x") == 0);
+}

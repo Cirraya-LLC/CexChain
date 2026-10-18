@@ -64,6 +64,9 @@ if(TARGET cexchain_node)
     # The connector protocol's JSON lines (node/connector.hpp, 6b).
     cexchain_add_fuzzer(connector_line_fuzz cexchain::node)
     target_compile_features(connector_line_fuzz PRIVATE cxx_std_26)
+    # An executor's config and state files: journal, cursor, sealed secrets.
+    cexchain_add_fuzzer(executor_state_fuzz cexchain::node cexchain::crypto_openssl)
+    target_compile_features(executor_state_fuzz PRIVATE cxx_std_26)
     cexchain_add_fuzzer(backup_restore_fuzz cexchain::ledger)
     cexchain_add_fuzzer(pending_call_fuzz cexchain::node)
     # The cluster's internals (node/src/cluster_parts.hpp).

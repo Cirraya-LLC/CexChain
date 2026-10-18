@@ -480,6 +480,57 @@ void text_seeds(const Seeds& seeds) {
     seeds.write("connector_line_fuzz", "cancel",
                 std::string(1, '\1') + R"({"type":"cancel","id":")" + request +
                     R"(","reason":"answered"})");
+    // An executor's config and state files (executor_state_fuzz): the first
+    // byte chooses the reader (0 config, 1 journal entry, 2 cursor, 3 sealed
+    // secret, sealed to another key than the fuzzer's).
+    seeds.write(
+        "executor_state_fuzz", "config",
+        std::string(1, '\0') +
+            R"({"actor":"ad2b642072ec3bf0f7ec67acbd7cfb8a9591c792570204f328553e7714b6f206",)"
+            R"("connectors":[{"args":["/usr/local/bin/notify"],"kinds":["notify"],"name":"n)"
+            R"(otices","program":"/bin/sh","secrets":["notify-token"],"timeout":10,"type":")"
+            R"(command"},{"kinds":["http.post"],"name":"hook","secret":"hook-key","timeo)"
+            R"(ut":30,"type":"webhook","url":"https://hooks.example.com/ledger"}],"delegati)"
+            R"(on":"121c8bce2e0e28889ccf8ef5349609a6adc5139c28c96ece04c2a80d2ace9954","ledg)"
+            R"(er_id":"9b7b02745f0a609a0fdf7ca3562b0a803641d9cdc7fb708c4b9ca816f8f82cf9","v)"
+            R"(ersion":1})");
+    seeds.write(
+        "executor_state_fuzz", "entry",
+        std::string(1, '\1') +
+            R"({"answered_by":null,"answered_status":null,"asked_at":1792355896652,"attempt)"
+            R"(s":1,"connector":"notices","contract":"79a2e9893ce98db050f5e07884f1bfd3b5db8)"
+            R"(030a4e76a3351bb7883fca16768","deadline":1792442296652,"digest":"df609e5b1cb9)"
+            R"(a24d1fe22390ca0be19ac7d30e49c73681325a9c151a7b29e08d","failures":0,"first_se)"
+            R"(en":1792355896661,"head":6,"index":8,"instance":"7eac7697cc4709a495c963f20f6)"
+            R"(33c3059060a965524ae24a5580bbca24ec269","kind":"notify","next_at":0,"note":"")"
+            R"(,"params":"a262746f58209b7b02745f0a609a0fdf7ca3562b0a803641d9cdc7fb708c4b9ca)"
+            R"(816f8f82cf9676d657373616765626869","reason":null,"reply":"result","request":)"
+            R"("e526fc7e4bba9f9a0c68ae72097eb49362e5ed47b2e5d9cc1560808051f4fe44","response)"
+            R"(":"7b22726573756c74223a20224e2d6535323666633765227d0a","result":"6a4e2d65353)"
+            R"(23666633765","salt":"412fed8ce7f14c97ad80d38901316f41","stage":"answered","s)"
+            R"(tatement":"d284584ca301320378236170706c69636174696f6e2f636578636861696e2d737)"
+            R"(46174656d656e742b63626f7204582015aa39bc1685dcb52f561fd46107f7d7eb1bfb1f2e8dd)"
+            R"(dae5ae5fa496db2d413a059011da8000101160258209b7b02745f0a609a0fdf7ca3562b0a803)"
+            R"(641d9cdc7fb708c4b9ca816f8f82cf9035820ad2b642072ec3bf0f7ec67acbd7cfb8a9591c79)"
+            R"(2570204f328553e7714b6f206045820121c8bce2e0e28889ccf8ef5349609a6adc5139c28c96)"
+            R"(ece04c2a80d2ace9954051b000001a150bc8d860650e32ddaab59d176484d05dc1f584388ce0)"
+            R"(7a50258207eac7697cc4709a495c963f20f633c3059060a965524ae24a5580bbca24ec269036)"
+            R"(6726573756c7404a266726573756c746a4e2d653532366663376568726573706f6e73655820d)"
+            R"(f609e5b1cb9a24d1fe22390ca0be19ac7d30e49c73681325a9c151a7b29e08d050608825820e)"
+            R"(526fc7e4bba9f9a0c68ae72097eb49362e5ed47b2e5d9cc1560808051f4fe44015840372268d)"
+            R"(74814100af5a223854ed5bd811be3bba9618a8d167ec37b4db3e7096327dfb0c629dd50b5b4e)"
+            R"(26c2f8b71815a2273959065d71a4a61301babfbbeed04","statement_id":"c374ca2442e79)"
+            R"(a5f2c6ce07055b360262b9c9f095133defca679739cee2bcb20","status":"done","update)"
+            R"(d":1792355896718})");
+    seeds.write("executor_state_fuzz", "cursor",
+                std::string(1, '\2') + R"({"after":9,"server":"http://127.0.0.1:8080"})");
+    const auto sealed_body =
+        must(from_hex("a40101028318200102035820bac16c9f9381ae30de93b8468bf7ec3c52ee911122d933a960f7"
+                      "e9815647720f04581c371435ad80bbb1cab639e63f9e93910b17926d111ce26c4d1cc0212f"),
+             "a sealed secret");
+    Bytes sealed_secret{3};
+    sealed_secret.insert(sealed_secret.end(), sealed_body.begin(), sealed_body.end());
+    seeds.write("executor_state_fuzz", "sealed", sealed_secret);
     seeds.write("pkcs11_uri_fuzz", "key",
                 "pkcs11:token=CexChain;object=alice;type=private?module-path=/usr/lib/"
                 "softhsm/libsofthsm2.so&pin-source=file:/run/pin");
