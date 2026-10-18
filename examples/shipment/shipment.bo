@@ -9,7 +9,8 @@ parties shipper, carrier, warehouse, consignee, insurer
 
 # The holder has the goods. They are due by the due date, insured up to the
 # amount, and kept between lowest and highest. The days late, the late
-# charge, and the excursions start at 0: creation need not give them.
+# charge, and the excursions start at 0: creation need not give them; the
+# delivery notice is not sent yet, and has no receipt.
 thing Goods
   holder shipper
   due date
@@ -18,6 +19,8 @@ thing Goods
   days_late number = 0
   late_charge HKD = HKD 0
   excursions number = 0
+  notified yes or no = no
+  notice text = ""
   lowest 2 °C
   highest 8 °C
 
@@ -48,7 +51,10 @@ can drop_off by carrier
   holder = warehouse
 
 # Delivered late, the carrier owes a charge for each full day after the due
-# date: the days late count whole days, the rest of a day dropped.
+# date: the days late count whole days, the rest of a day dropped. The
+# consignee's system is told of the delivery within a day: an executor, a
+# program of the shipper's, carries the notice outside the ledger and
+# answers how it went.
 can deliver by carrier
   requires in person
   requires holder = carrier
@@ -58,6 +64,17 @@ can deliver by carrier
   if overdue
     days_late = (now - due) / 1 day
     late_charge = penalty_per_day * days_late
+  request notify to consignee with message = "delivered", late_charge = late_charge within 1 day
+
+# The notice delivered, its receipt is kept. If it fails, or no answer comes
+# within the day, the shipper is told instead, with the reason kept.
+when notify done
+  notified = yes
+  notice = result
+
+when notify fails
+  notice = reason
+  request notify to shipper with message = "notice failed" within 1 day
 
 # Goods that left the range are claimed within 7 days of delivery; the
 # insurer pays at most the amount, or declines.
@@ -100,6 +117,22 @@ test "two days late: the keeper marks it late, and the delivery charges two days
   carrier drop_off in person
   carrier pick_up in person -> late
   carrier deliver in person at 2027-03-12 -> delivered, days_late = 2, late_charge = HKD 4_000
+
+test "the consignee's system is told of the delivery"
+  shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000
+  carrier pick_up in person at 2027-03-08
+  carrier deliver in person at 2027-03-09 -> delivered, notified = no
+  executor notify done with result = "RCPT-1" -> delivered, notified = yes, notice = "RCPT-1"
+  executor notify done -> refused
+
+test "a notice that fails goes to the shipper"
+  shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000
+  carrier pick_up in person at 2027-03-08
+  carrier deliver in person at 2027-03-09
+  keeper notify expires at 2027-03-09 -> refused
+  executor notify fails with reason = "unreachable" -> notified = no, notice = "unreachable"
+  keeper notify expires at 2027-03-11 -> notified = no, notice = ""
+  executor notify done with result = "RCPT-2" -> notified = yes, notice = "RCPT-2"
 
 test "five days late: a charge for each of them"
   shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000

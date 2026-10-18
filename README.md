@@ -1049,7 +1049,7 @@ of these things, and every one of them can be changed or written anew.
 | [supply-agreement](examples/supply-agreement/) | Trade: an agreement signed once a supplier's manager and a bank's AI agent (through MCP) consent; a registrar; SM2 and SM3 |
 | [receivable-financing](examples/receivable-financing/) | Supply-chain finance: a receivable pledged to a bank, a second pledge refused, released, sold, and paid; a regulator as witness |
 | [multi-tier-split](examples/multi-tier-split/) | Supply-chain finance: a receivable split down a supply chain across six organizations, a part pledged after its chain is verified offline |
-| [shipment](examples/shipment/) | A chain of custody: goods kept cold handed from a shipper to a carrier, a transit warehouse, and a consignee; a driver signs each handover in person, a data logger (a device) posts readings, a keeper marks the shipment late, a charge per day late, a QR code at delivery, an insurer's claim; SM2 and SM3 |
+| [shipment](examples/shipment/) | A chain of custody: goods kept cold handed from a shipper to a carrier, a transit warehouse, and a consignee; a driver signs each handover in person, a data logger (a device) posts readings, a keeper marks the shipment late, a charge per day late, a QR code at delivery, a delivery notice an executor sends and answers, an insurer's claim; SM2 and SM3 |
 
 The scripts run in the test suite (`ctest -R demo_`), so they keep working.
 

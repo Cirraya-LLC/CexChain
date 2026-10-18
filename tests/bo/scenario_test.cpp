@@ -125,7 +125,8 @@ std::vector<std::pair<std::string, std::filesystem::path>> cases() {
         // Measures (G5b): durations divided by durations, field defaults,
         // temperatures and negative literals, expectations on fields.
         {"measures", golden_dir / "test/measures/source.bo"},
-        {"shipment", source_dir / "examples/shipment/shipment.bo"},
+        {"shipment", golden_dir / "test/shipment/source.bo"},
+        {"shipment-notice", source_dir / "examples/shipment/shipment.bo"},
         // Requests (E8): made by actions and time rules, answered done,
         // failed, and expired, refused by the ledger, and after the end.
         {"requests", golden_dir / "check-requests/source.bo"},

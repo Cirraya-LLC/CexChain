@@ -1634,10 +1634,13 @@ TEST_CASE("bo build: write the runs for the Python reference", "[.codegen-refere
              // Measures (G5b): durations divided by durations, field
              // defaults, temperatures and negative literals.
              {"measures", golden_dir / "test" / "measures" / "source.bo"},
-             {"shipment", golden_dir.parent_path().parent_path().parent_path() / "examples" /
-                              "shipment" / "shipment.bo"},
-             // Requests (E8): made, answered, and refused.
-             {"requests", golden_dir / "check-requests" / "source.bo"}}) {
+             // The shipment as G5b wrote it (its deploys keep their code).
+             {"shipment", golden_dir / "test" / "shipment" / "source.bo"},
+             // Requests (E8): made, answered, and refused; the shipment's
+             // delivery notice (examples/).
+             {"requests", golden_dir / "check-requests" / "source.bo"},
+             {"shipment-notice", golden_dir.parent_path().parent_path().parent_path() / "examples" /
+                                     "shipment" / "shipment.bo"}}) {
         const std::string text = read_text(file);
         const bo::Compiled compiled = bo::compile(text, *bo::make_pack_set({}).set);
         REQUIRE(compiled.build.has_value());

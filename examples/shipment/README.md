@@ -5,7 +5,8 @@ degrees Celsius, to a clinic. A carrier picks them up, leaves them overnight at 
 warehouse, picks them up again, and delivers them, two days after the deadline; on the way, the
 shipper's data logger records two readings above 8 degrees, and the clinic claims from the
 insurer. Five organizations, five ledgers on one computer (the carrier's on the Chinese SM2 and
-SM3 algorithms), no server: consents travel as files.
+SM3 algorithms); consents travel as files. At delivery the contract asks for a notice to the
+clinic's system, which an executor of the shipper's sends and answers on the ledger.
 
 CexChain knows nothing about shipments, carriers, or temperatures. The parties, the fields, the
 states, and the actions are the contract's own words, in
@@ -50,13 +51,51 @@ here in Traditional Chinese (`--language zh-Hant-HK`), with rule R32 explained a
     4.4.8.2 將 late_charge 改為 penalty_per_day × days_late。
 ```
 
+Delivery also asks the outside world for something: a delivery notice to the consignee's
+system, which the ledger cannot send itself. The contract states the request, its deadline,
+and what happens when it is answered:
+
+```
+can deliver by carrier
+  ...
+  request notify to consignee with message = "delivered", late_charge = late_charge within 1 day
+
+when notify done
+  notified = yes
+  notice = result
+
+when notify fails
+  notice = reason
+  request notify to shipper with message = "notice failed" within 1 day
+```
+
+An executor, a program of the shipper's with a key of its own, sends the notice and answers:
+done, with a receipt the contract keeps (`result`), or failed, with a reason; a request no
+answer reaches within the day expires, and counts as failed (rule R33). The text, in
+Traditional Chinese:
+
+```
+  4.4.9 向執行器請求通知（對象：consignee），在賬本以外辦理，須於調用後 1 日內答覆（即其期限）。
+    4.4.9.1 請求附帶 message：「delivered」；late_charge：late_charge。
+    4.4.9.2 如請求失敗或過期，即適用請求通知失敗時的規則（見「請求的答覆」）。〔R33〕
+...
+6.2 請求通知完成時：
+  6.2.1 將 notified 改為是。
+  6.2.2 將 notice 改為答覆的結果。
+6.3 請求通知失敗或過期時：〔R33〕
+  6.3.1 將 notice 改為答覆的原因。
+  6.3.2 向執行器請求通知（對象：shipper），在賬本以外辦理，須於調用後 1 日內答覆（即其期限）。
+```
+
 ## What each step shows
 
 1. **Five organizations, each with a ledger of its own.** Each keeps the others' ledger ids;
    the carrier signs with SM2 and hashes with SM3, the others with the defaults.
-2. **Rules the shipper writes.** It tests the contract (`bo test`: eight tests, which check the
+2. **Rules the shipper writes.** It tests the contract (`bo test`: ten tests, which check the
    state and the fields after each step, such as `-> delivered, days_late = 2, late_charge = HKD
-   4_000`) and deploys it on its ledger, the shipment's home; every party reads the same contract
+   4_000`, and answer its notice as an executor would: `executor notify done with result =
+   "RCPT-1"`, `executor notify fails with reason = "unreachable"`, `keeper notify expires at
+   2027-03-11`) and deploys it on its ledger, the shipment's home; every party reads the same contract
    text in its own language.
 3. **Who signs.** The carrier registers its driver, a person who signs with a key of his own
    and proves presence with a hardware key (SoftHSM stands in for a USB key; a passkey in a
@@ -86,13 +125,23 @@ here in Traditional Chinese (`--language zh-Hant-HK`), with rule R32 explained a
    the command line (`cexchain verify`), then the chain of custody (`contract verify`: every
    call run again, every consent checked on its own ledger, the contract rebuilt from its
    source), and consents to receive the goods. The contract counts the whole days late, `(now -
-   due) / 1 day`, two, and charges HKD 2,000 for each: HKD 4,000.
-9. **A claim.** The consignee claims the excursion within 7 days of delivery; the insurer
-   checks the evidence, readings included, and pays HKD 120,000 (at most the insured amount).
-   The shipment is final.
-10. **Anyone verifies the whole history offline**, and sees who signed each step: the data
-    logger and the keeper (devices), the driver (a person, present with a hardware key), the
-    organizations with their own keys.
+   due) / 1 day`, two, and charges HKD 2,000 for each: HKD 4,000. The delivery makes a
+   request: a notice to the consignee, to be answered within a day.
+9. **An executor sends the notice.** The shipper registers an executor (`executor add
+   Notices --contract ... --kinds notify`): a device whose delegation lets it answer this
+   contract's `notify` requests and nothing else. Its connector is a command, a script run
+   without a shell, that drops the notice in the consignee's inbox (a `webhook` to the clinic's
+   system works the same). The shipper's server runs while the executor works: `executor run
+   --once` finds the request there, verifies it in the shipment's signed evidence before
+   acting, runs the command, and answers done with its receipt, `INBOX-1`. The contract's rule
+   for a done notice records it: `notified` is yes, `notice` holds the receipt.
+10. **A claim.** The consignee claims the excursion within 7 days of delivery; the insurer
+    checks the evidence, readings included, and pays HKD 120,000 (at most the insured amount).
+    The shipment is final.
+11. **Anyone verifies the whole history offline**, and sees who signed each step: the data
+    logger, the keeper, and the executor (devices), the driver (a person, present with a
+    hardware key), the organizations with their own keys; and every request with its answer
+    (`1 made by its calls, 1 answered, 0 open`).
 
 To show lateness without waiting days, the script books the shipment with a deadline two days
 before today: a ledger registers each call at its own clock. (`contract call --dry-run --at`
@@ -101,7 +150,7 @@ and `keeper due --at` ask what would happen at another time, recording nothing.)
 ## Running it
 
 ```sh
-cexchain bo test examples/shipment/shipment.bo                           # its eight tests
+cexchain bo test examples/shipment/shipment.bo                           # its ten tests
 cexchain bo explain examples/shipment/shipment.bo --language zh-Hant-HK   # the contract text
 examples/shipment/shipment.sh [CEXCHAIN] [DIR] [PKCS11_MODULE]           # CTest: demo_shipment
 ```
@@ -114,7 +163,9 @@ keep the ledgers and look around afterwards.
 ## Words
 
 The contract uses Bo's core words only (`holder`, `due`, `amount`, `overdue`, `within`, `in
-person`, `consent of`, money, dates, temperatures in `°C`, lists); no finance or commerce words.
+person`, `consent of`, `request`, money, dates, temperatures in `°C`, lists); no finance or
+commerce words. `notify` is a request kind, which an executor's connector serves; any name of
+lowercase letters works as one (`http.post`, `sync`).
 The days late are a duration divided by a duration, which counts whole days and drops the rest
 (rule R32, stated in the contract text). The late charge is a field the contract computes, not a
 `charge` on a bill, which needs the `commerce` pack. The kind word is the core's `thing`.
@@ -144,20 +195,18 @@ Four limitations of the first version are gone (milestone G5b): days late are a 
 (`(now - due) / 1 day`), counters start at 0 without being given, readings are temperatures to
 a tenth of a degree (or a hundredth), and tests expect the fields' values.
 
-## After executors
+## Executors
 
-*Not possible yet: executors are being built (Phase 6b). This section says what the example will
-add then.* An executor is a device or an AI agent that acts outside the ledger when a contract
-asks, and answers on the ledger. Once a contract's own actions can make requests (milestone E8)
-and the executor runtime runs connectors (E5: `webhook`, `command`):
+The delivery notice is the example's one request. Others fit the same pattern, each a few lines
+of Bo and a connector configured by the organization that runs it, not built into CexChain:
 
-- **Notify the consignee** when the goods are picked up and when they are late: the deadline
-  rule asks a `notify` executor, and its answer, done or failed, is recorded.
-- **Sync a transport or warehouse system:** each handover asks a `webhook` executor to post
-  the new holder to the carrier's transport management system or the warehouse's system, and
-  the contract sees the answer.
-- **The claim:** asking the insurer's claims system when the consignee claims, through the
-  same connectors, with the insurer's staff answering by hand until a connector exists.
+- **Notices along the way:** a `notify` request when the goods are picked up, or when the keeper
+  marks the shipment late.
+- **Syncing a transport or warehouse system:** each handover requests a post of the new holder
+  to the carrier's transport management system or the warehouse's system (a `webhook`), and a
+  rule reacts if it fails.
+- **The claim:** a request to the insurer's claims system when the consignee claims, answered
+  by the insurer's staff by hand (`cexchain request answer`) until a connector exists.
 
-The contract, its parties, and its rules stay generic: the executors are configured per
-organization, not built into CexChain.
+The services vocabulary pack's own requests (a VPS suspended when overdue, a renewal's
+invoice) come next (milestone E9).

@@ -18,11 +18,16 @@
 #   - the warehouse takes the goods and gives them back; a handover the
 #     contract does not allow is refused;
 #   - at delivery the consignee scans a QR code, verifies offline, and
-#     receives the goods; the contract charges each day late;
+#     receives the goods; the contract charges each day late, and asks for a
+#     delivery notice (a request);
+#   - an executor of the shipper's finds the request at the shipper's server,
+#     verifies it in the signed evidence, drops the notice in the consignee's
+#     inbox (a command connector), and answers with the receipt;
 #   - the consignee claims the excursion, and the insurer pays;
 #   - anyone verifies the whole history offline: who signed each step (a
 #     device, a person present, the keeper), every consent on its own ledger.
-# No server: consents travel as files, by any channel. It needs a cexchain
+# Consents travel as files, by any channel; the shipper's server runs only
+# while the executor answers its request. It needs a cexchain
 # built with the Bo compiler (GCC 16; the release build and the Docker image
 # have it) and SoftHSM (brew install softhsm, or apt install softhsm2).
 #
@@ -58,7 +63,12 @@ else
     WORK="$(mktemp -d)"; KEEP=0
 fi
 WORK="$(cd "$WORK" && pwd)"
+SERVER_PID=""
 cleanup() {
+    if [ -n "$SERVER_PID" ]; then
+        kill "$SERVER_PID" 2> /dev/null || true
+        wait "$SERVER_PID" 2> /dev/null || true
+    fi
     [ "$KEEP" = 0 ] && rm -rf "$WORK"
     return 0
 }
@@ -358,7 +368,59 @@ case "$DAYS $LATE" in
 esac
 say "Delivered: the consignee holds the goods. $DAYS days late: HKD $((LATE / 100000)),000 (HKD 2,000 a day)."
 
-step "9. The consignee claims the excursion, and the insurer pays"
+step "9. An executor tells the consignee's system of the delivery"
+# The delivery asked for a notice: a request of kind notify, to be answered
+# within a day. An executor carries it out: a program of the shipper's, with
+# a key of its own and a delegation to answer this contract's notify
+# requests and nothing else. It finds the request at the shipper's server,
+# verifies it in the shipment's signed evidence before acting, runs its
+# connector (here a command that drops the notice in the consignee's inbox;
+# a webhook to the consignee's system works the same), and answers with the
+# receipt.
+run executor add Notices --contract "$CONTRACT" --kinds notify --key-out notices.key \
+    --config-out notices.json --as shipper-root.key --ledger "$(dir shipper)" > /dev/null
+cat > inbox.sh << INBOX
+#!/bin/sh
+# A connector program (spec/connectors.md): the request comes as JSON on its
+# standard input; it is run without a shell. It answers done with a receipt.
+cat > "$WORK/inbox-last.json"
+n=\$(( \$(cat "$WORK/inbox.count" 2> /dev/null || echo 0) + 1 ))
+echo "\$n" > "$WORK/inbox.count"
+echo "{\"result\": \"INBOX-\$n\"}"
+INBOX
+chmod +x inbox.sh
+run executor connector add inbox --config notices.json --type command --kinds notify \
+    --program "$WORK/inbox.sh" --timeout 10 > /dev/null
+run token create notices --scope executor --out notices.token --ledger "$(dir shipper)" > /dev/null
+PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
+URL="http://127.0.0.1:$PORT"
+run serve --listen "127.0.0.1:$PORT" --ledger "$(dir shipper)" --log-key shipper-log.key --quiet \
+    > server.out 2> server.log &
+SERVER_PID="$!"
+for _ in $(seq 1 100); do
+    python3 -c "import urllib.request; urllib.request.urlopen('$URL/healthz', timeout=1)" \
+        2> /dev/null && break
+    sleep 0.1
+done
+run executor run --config notices.json --state notices-state --server "$URL" \
+    --token-file notices.token --as notices.key --once --json > executor.jsonl
+check executor.jsonl '"event":"answered"'
+kill "$SERVER_PID"
+wait "$SERVER_PID" 2> /dev/null || true
+SERVER_PID=""
+python3 - inbox-last.json << 'NOTICE' | indent
+import json, sys
+request = json.load(open(sys.argv[1]))
+params = request["params"]
+print("Consignee's inbox: notice \"" + params["message"] + "\", late charge "
+      + str(params["late_charge"]) + " cents, for ledger " + params["to"][:16] + "...")
+NOTICE
+[ "$(state_field notified)" = true ] || { echo "the notice was not recorded" >&2; exit 1; }
+[ "$(state_field notice)" = '"INBOX-1"' ] || { echo "the receipt was not kept" >&2; exit 1; }
+say "Answered: notified, receipt INBOX-1, recorded on the shipper's ledger."
+say "Had it failed or expired, the contract would ask to tell the shipper instead."
+
+step "10. The consignee claims the excursion, and the insurer pays"
 consent consignee claim "{}" claim.cbor --as consignee-root.key
 call claim "{}" claim.txt --consent claim.cbor
 check claim.txt 'status: claimed'
@@ -371,7 +433,7 @@ call compensate "$PAYOUT" compensate.txt --consent payout.cbor
 check compensate.txt 'status: compensated'
 say "Compensated: HKD 120,000. The shipment is final and takes no more calls."
 
-step "10. Anyone verifies the whole history offline"
+step "11. Anyone verifies the whole history offline"
 evidence history.cbor
 run contract verify history.cbor --ledger-id "$SHIPPER_ID" > history.txt
 check history.txt 'rebuilds'
@@ -381,6 +443,10 @@ check history.txt 'rebuilds'
 check history.txt 'call measure by "Data logger DL-7" [device]'
 check history.txt 'call when.late by "Keeper" [device]'
 check history.txt 'given by "Driver Lee" (a person, present: hardware key)'
+# The delivery's notice, and the executor's answer: done, on time.
+check history.txt 'call result by "Notices" [device]'
+check history.txt '(notify, asked by #'
+check history.txt '1 made by its calls, 1 answered, 0 open'
 grep -E ' (create|call) |consent of' history.txt \
     | sed -E 's/^ +//; s/^(#[0-9]+) +[0-9-]{10} [0-9:]{8} UTC +/\1 /; s/^consent of/      consent of/' \
     | indent
