@@ -106,8 +106,9 @@ class Panel(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def log_message(self, *args):
-        pass
+    def log_message(self, format: str, *args: object) -> None:
+        # Quiet: the script narrates, and each request is in the log file.
+        del format, args
 
 
 server = ThreadingHTTPServer(("127.0.0.1", 0), Panel)

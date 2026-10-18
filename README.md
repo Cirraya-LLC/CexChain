@@ -13,7 +13,7 @@ Like a spreadsheet, CexChain knows nothing of what you keep in it: there are no 
 purchase orders, invoices, or certificates. Those are things you define, and the
 [examples](examples/) show how such things are built.
 
-> **Status:** early development (specification v0.9 draft: [the protocol in prose](spec/README.md), [`spec/cexchain.cddl`](spec/cexchain.cddl); the contract language: [`spec/bo.md`](spec/bo.md)). Interfaces and formats may still change. Planned, not built yet: the services pack's own requests (renewals, invoices), a local web console, installers, and a public witness service.
+> **Status:** early development (specification v0.9 draft: [the protocol in prose](spec/README.md), [`spec/cexchain.cddl`](spec/cexchain.cddl); the contract language: [`spec/bo.md`](spec/bo.md)). Interfaces and formats may still change. Planned, not built yet: connectors for billing and accounting systems (Zoho first), a local web console, installers, and a public witness service; see [Known limits](#known-limits).
 
 ## Why
 
@@ -1152,6 +1152,37 @@ of these things, and every one of them can be changed or written anew.
 | [idc-hosting](examples/idc-hosting/) | Services: a server rented and billed each month, on the `services` and `commerce` packs; the provider's ledger on a three-member cluster with its keeper; an executor with two webhooks (a control panel, a billing system); a notice answered by an AI agent through MCP and a payment answered by hand; suspended when overdue, resumed when paid, terminated and its address reclaimed |
 
 The scripts run in the test suite (`ctest -R demo_`), so they keep working.
+
+## Known limits
+
+What requests, executors, and services do not do yet, as of this version:
+
+- **Parts and requests.** A Bo contract that splits an instance into parts makes no requests:
+  the compiler refuses a `request` in such a contract (`build.unsupported`), since an instance
+  that issued parts has ended and an answer could not tell.
+- **Request kinds in Bo** are lowercase letters, digits, and `_` (`notify`, `http_post`): the
+  ledger also takes dotted kinds (`http.post`), which Bo cannot write, so a connector for a
+  dotted kind needs a Bo-writable kind beside it.
+- **A service's bills** bill one period of the price on subscribing and on each renewal. Charges
+  and usage on a service's bills, proration (upgrading or downgrading mid-period), refunds (a
+  service terminated with a period paid ahead gets nothing back), and paying ahead (one bill is
+  open at a time) are not built.
+- **A payment answered by hand** (`request answer` on a `collect`) pays the period on the
+  ledger, but nothing posts it to the billing system: post it there too, by hand or by a
+  connector of your own.
+- **The first "N days before due" reminder** applies at the subscription: the first due date is
+  the subscription day, so a rule such as `when 7 days before due` fires at once.
+- **An executor's journal** closes a request that someone else answered (a person by hand, a
+  keeper's expiry) only when its next retry comes up, after its backoff.
+- **An executor asks one server** (`--server`): while that member is down it waits and tries
+  again; it does not fail over to another member by itself. Point it at a load balancer, or
+  restart it with another member's address.
+- **MCP through a server** (`mcp --server`) works on the home ledger only: its tools that reach
+  other organizations' ledgers need their peers, which belong to a ledger directory.
+- **Connectors:** `webhook` and `command` ship with CexChain; first-party connectors for
+  billing and accounting systems (Zoho first) come later, on the same protocol.
+- **`CEXCHAIN_CLOCK_OFFSET`** is for demonstrations and tests only (`serve` refuses it without
+  `--allow-clock-offset`); a ledger keeps the later times it recorded.
 
 ## Building
 
