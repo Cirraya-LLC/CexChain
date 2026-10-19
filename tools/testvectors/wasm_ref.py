@@ -5,8 +5,9 @@
 to produce test vectors. It favours clarity over speed.
 
     load(wasm_bytes) -> Module        raises Refused for a module outside the profile
-    run(module, input, hash_name) -> (outcome, output, fuel)
-        outcome is "ok" or the name of a trap
+    run(module, input, hash_name, fuel) -> (outcome, output, fuel used, reason)
+        outcome is "ok" or the name of a trap; fuel is the limit (the spec's
+        10,000,000 unless given)
 
 Also an assembler for building test modules (see `assemble`), and a checker
 for runs another engine recorded:
@@ -15,10 +16,12 @@ for runs another engine recorded:
 
 FILE is JSON: {"format": 1, "modules": {NAME: HEX}, "runs": [{"module": NAME,
 "input": HEX, "outcome": "ok" or a trap, "output": HEX, "fuel": N, "reason":
-HEX, ? "oracle": NAME}]}. Each run must give here exactly the outcome, output,
-fuel, and abort reason recorded; an oracle also checks what the run means
-(see ORACLES). The Bo compiler's runtime tests write such a file (CTest
-bo_reference). Exit status 1 if any run differs.
+HEX, ? "oracle": NAME, ? "hash": "sha256" or "sm3", ? "limit": N}]}. Each
+run must give here exactly the outcome, output, fuel, and abort reason
+recorded; an oracle also checks what the run means (see ORACLES); a limit is
+the fuel the run had, if not the spec's. The Bo compiler's runtime tests
+write such a file (CTest bo_reference), and so does the interpreter's fuel
+sweep (CTest vm_fuel_reference). Exit status 1 if any run differs.
 """
 
 from __future__ import annotations
@@ -767,7 +770,7 @@ def _ceil64(n):
 
 
 class Instance:
-    def __init__(self, m: Module, input_: bytes, hash_name: str):
+    def __init__(self, m: Module, input_: bytes, hash_name: str, fuel: int = FUEL):
         self.m = m
         self.input = input_
         self.hash_name = hash_name
@@ -785,7 +788,7 @@ class Instance:
                 self.data.append(b"")  # active segments are dropped after use
             else:
                 self.data.append(raw)
-        self.fuel = FUEL
+        self.fuel = fuel
         self.depth = 0
         self.budget = 0
         self.output: bytes | None = None
@@ -1146,14 +1149,15 @@ class Instance:
         stack.append(out & mask)
 
 
-def run(m: Module, input_: bytes, hash_name: str = "sha256") -> tuple[str, bytes, int, bytes]:
-    """Runs cexchain_call: (outcome, output, fuel used, abort reason)."""
-    inst = Instance(m, input_, hash_name)
+def run(m: Module, input_: bytes, hash_name: str = "sha256",
+        fuel: int = FUEL) -> tuple[str, bytes, int, bytes]:
+    """Runs cexchain_call with `fuel`: (outcome, output, fuel used, abort reason)."""
+    inst = Instance(m, input_, hash_name, fuel)
     try:
         inst.invoke(m.entry, [])
     except Trap as t:
-        return t.kind, b"", FUEL - inst.fuel, t.reason
-    return "ok", inst.output or b"", FUEL - inst.fuel, b""
+        return t.kind, b"", fuel - inst.fuel, t.reason
+    return "ok", inst.output or b"", fuel - inst.fuel, b""
 
 
 # ---------------------------------------------------------------------------
@@ -1615,7 +1619,9 @@ def check(path: str) -> int:
     fuel_total = 0
     for i, recorded in enumerate(doc["runs"]):
         raw = bytes.fromhex(recorded["input"])
-        outcome, output, fuel, reason = run(modules[recorded["module"]], raw)
+        outcome, output, fuel, reason = run(modules[recorded["module"]], raw,
+                                            recorded.get("hash", "sha256"),
+                                            recorded.get("limit", FUEL))
         fuel_total += fuel
         problems = []
         want = (recorded["outcome"], bytes.fromhex(recorded["output"]), recorded["fuel"],

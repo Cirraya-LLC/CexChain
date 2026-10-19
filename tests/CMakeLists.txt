@@ -50,9 +50,11 @@ target_link_libraries(cexchain_tests PRIVATE
     Catch2::Catch2WithMain
     nlohmann_json::nlohmann_json
     OpenSSL::Crypto)
-# Tests may reach into internal headers (e.g. ledger/src/crc32c.hpp).
+# Tests may reach into internal headers (e.g. ledger/src/crc32c.hpp,
+# core/src/vm/internal.hpp).
 target_include_directories(cexchain_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/core/src
     ${PROJECT_SOURCE_DIR}/ledger/src
     ${PROJECT_SOURCE_DIR}/node/src)
 # The cluster's internals (node/src/cluster_parts.hpp) use NuRaft's headers.
@@ -65,6 +67,24 @@ cexchain_target_defaults(cexchain_tests)
 list(APPEND CMAKE_MODULE_PATH "${catch2_SOURCE_DIR}/extras")
 include(Catch)
 catch_discover_tests(cexchain_tests)
+
+# The interpreter's fuel at every instruction (D-056, P3): a hidden case
+# writes runs of vm-v1.json and bo-v1.json with less fuel than they use, and
+# the independent Python interpreter must reproduce each exactly. Skipped
+# where there is no Python 3.
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+    set(vm_fuel_file ${CMAKE_CURRENT_BINARY_DIR}/vm-fuel-reference.json)
+    add_test(NAME vm_fuel_reference_runs COMMAND cexchain_tests "[.fuel-reference]")
+    set_tests_properties(vm_fuel_reference_runs PROPERTIES FIXTURES_SETUP vm_fuel_reference
+        ENVIRONMENT CEXCHAIN_VM_FUEL_REFERENCE=${vm_fuel_file})
+    add_test(NAME vm_fuel_reference COMMAND ${Python3_EXECUTABLE}
+        ${PROJECT_SOURCE_DIR}/tools/testvectors/wasm_ref.py --check ${vm_fuel_file})
+    set_tests_properties(vm_fuel_reference PROPERTIES FIXTURES_REQUIRED vm_fuel_reference)
+else()
+    message(STATUS "vm_fuel_reference: no Python 3, so the interpreter's fuel is not checked "
+        "on the Python reference interpreter")
+endif()
 
 # The Bo compiler (D-053): its front end with any compiler, the rest where it
 # builds (GCC 16). Labelled "bo": the GCC ASan+UBSan configuration builds and
