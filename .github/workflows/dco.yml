@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cirraya
+
+# Every commit of a pull request must be signed off by its author under the
+# Developer Certificate of Origin (CONTRIBUTING.md).
+name: DCO
+
+on:
+  pull_request:
+
+concurrency:
+  group: dco-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  dco:
+    name: Developer Certificate of Origin
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The pull request's commits and its base, to list what it adds.
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Every commit is signed off by its author
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: bash .github/scripts/check-dco.sh "$PR_BASE" "$PR_HEAD"
