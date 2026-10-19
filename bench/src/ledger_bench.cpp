@@ -30,14 +30,6 @@ namespace cexchain::bench {
 
 namespace {
 
-template <class T>
-T must(Result<T> result, const char* what) {
-    if (!result) {
-        throw std::runtime_error(std::string(what) + ": " + std::string(result.error().detail));
-    }
-    return std::move(*result);
-}
-
 double peak_rss_mb() {
     rusage usage{};
     getrusage(RUSAGE_SELF, &usage);

@@ -29,6 +29,7 @@
 #include <cexchain/node/tokens.hpp>
 
 #include "bench.hpp"
+#include "fixture.hpp"
 
 namespace cexchain::bench {
 
@@ -36,20 +37,6 @@ namespace {
 
 using asio::ip::tcp;
 constexpr auto use_tuple = asio::as_tuple(asio::use_awaitable);
-
-template <class T>
-T must(Result<T> result, const char* what) {
-    if (!result) {
-        throw std::runtime_error(std::string(what) + ": " + std::string(result.error().detail));
-    }
-    return std::move(*result);
-}
-
-void must(Status status, const char* what) {
-    if (!status) {
-        throw std::runtime_error(std::string(what) + ": " + std::string(status.error().detail));
-    }
-}
 
 /// Requests to send, shared by every connection: each takes the next.
 struct Load {
@@ -182,8 +169,9 @@ std::string post_request(std::string_view target, std::string_view token, ByteVi
 
 int http_bench(const Options& options) {
     const std::string mode = options.text("mode", "read");
-    if (mode != "read" && mode != "submit" && mode != "health") {
-        throw std::invalid_argument("--mode is read, submit, or health");
+    const bool contracts = mode == "create" || mode == "call";
+    if (mode != "read" && mode != "submit" && mode != "health" && !contracts) {
+        throw std::invalid_argument("--mode is read, submit, health, create, or call");
     }
     const std::uint64_t connections = std::max<std::uint64_t>(1, options.number("connections", 64));
     const std::uint64_t hardware = std::max(1U, std::thread::hardware_concurrency());
@@ -193,7 +181,15 @@ int http_bench(const Options& options) {
         options.number("client-threads", std::max<std::uint64_t>(1, hardware / 2));
     const std::uint64_t prefill = options.number("prefill", mode == "read" ? 10000 : 0);
     const std::uint64_t requests = options.number("requests", 20000);
-    const std::uint64_t seconds = options.number("seconds", mode == "submit" ? 0 : 5);
+    const std::uint64_t seconds = options.number("seconds", mode == "submit" || contracts ? 0 : 5);
+    // Contract calls come in rounds, one call on each instance per round:
+    // each call names its instance's head, known once the round before is in.
+    const std::uint64_t instances = options.number("instances", 4096);
+    const std::uint64_t calls = options.number("calls", 4);
+    std::optional<Workload> workload;
+    if (contracts) {
+        workload = make_workload(options.text("contract", "small"), options);
+    }
     const std::filesystem::path dir =
         options.text("dir", (std::filesystem::temp_directory_path() /
                              std::format("cexchain-bench-http-{}", ::getpid()))
@@ -210,6 +206,17 @@ int http_bench(const Options& options) {
     std::filesystem::remove_all(dir);
     std::vector<protocol::Id> ids;
     protocol::Id ledger_id;
+    protocol::Id contract;
+    auto sign_body = [&](protocol::Body body) {
+        protocol::Statement s;
+        s.ledger_id = ledger_id;
+        s.actor_id = ledger_id;
+        s.issued_at = clock.now();
+        s.nonce = entropy.bytes<16>();
+        s.body = std::move(body);
+        return must(protocol::sign_statement(org, provider, crypto::HashAlg::sha256, s), "sign")
+            .encoded;
+    };
     auto sign_record = [&] {
         protocol::Statement s;
         s.ledger_id = ledger_id;
@@ -248,6 +255,34 @@ int http_bench(const Options& options) {
             }
             done += n;
         }
+        if (workload) {
+            // The contract, and for calls the instances (registered here,
+            // before the server opens the ledger).
+            protocol::Statement s;
+            s.ledger_id = ledger_id;
+            s.actor_id = ledger_id;
+            s.issued_at = clock.now();
+            s.nonce = entropy.bytes<16>();
+            s.body = workload->deploy;
+            contract = must(ledger.submit(must(protocol::sign_statement(org, provider,
+                                                                        crypto::HashAlg::sha256, s),
+                                               "sign")
+                                              .encoded),
+                            "deploy")
+                           .statement_id;
+            for (std::uint64_t done = 0; mode == "call" && done < instances;) {
+                const std::uint64_t n = std::min<std::uint64_t>(1000, instances - done);
+                std::vector<Bytes> batch;
+                for (std::uint64_t i = 0; i < n; ++i) {
+                    batch.push_back(sign_body(workload->create(contract, ledger_id)));
+                }
+                const std::vector<ByteView> views(batch.begin(), batch.end());
+                for (auto& r : ledger.submit_batch(views)) {
+                    ids.push_back(must(std::move(r), "create").statement_id);
+                }
+                done += n;
+            }
+        }
     }
     const std::string read_token = node::generate_token(entropy);
     const std::string submit_token = node::generate_token(entropy);
@@ -269,10 +304,13 @@ int http_bench(const Options& options) {
             load.requests.push_back(
                 get_request("/v1/statements/" + to_hex(id.bytes()), read_token));
         }
-    } else {
+    } else if (mode == "submit" || mode == "create") {
         const auto t = Clock::now();
         for (std::uint64_t i = 0; i < requests; ++i) {
-            load.requests.push_back(post_request("/v1/statements", submit_token, sign_record()));
+            load.requests.push_back(
+                post_request("/v1/statements", submit_token,
+                             mode == "submit" ? sign_record()
+                                              : sign_body(workload->create(contract, ledger_id))));
         }
         results.add("sign (client side)", elapsed_ms(t) * 1000 / static_cast<double>(requests),
                     "us/statement");
@@ -297,23 +335,60 @@ int http_bench(const Options& options) {
     }
     std::vector<Tally> tallies(connections);
     const tcp::endpoint endpoint(asio::ip::make_address("127.0.0.1"), server.port());
-    if (mode != "submit" && seconds > 0) {
-        load.until = Clock::now() + std::chrono::seconds(seconds);
+    double wall_ms = 0;
+    auto run_load = [&](Load& l) {
+        const auto started = Clock::now();
+        for (std::uint64_t c = 0; c < connections; ++c) {
+            asio::co_spawn(*loops[c % loops.size()],
+                           connection(endpoint, l, tallies[c], std::chrono::milliseconds(c / 8)),
+                           asio::detached);
+        }
+        std::vector<std::thread> clients;
+        for (const auto& loop : loops) {
+            clients.emplace_back([&lp = *loop] {
+                lp.restart();
+                lp.run();
+            });
+        }
+        for (std::thread& t : clients) {
+            t.join();
+        }
+        wall_ms += elapsed_ms(started);
+    };
+    if (mode == "call") {
+        double signing_ms = 0;
+        std::uint64_t signed_calls = 0;
+        for (std::uint64_t round = 0; round < calls; ++round) {
+            Load calls_load;
+            const auto t = Clock::now();
+            api->ledger().read_state([&](const protocol::LedgerState& state) {
+                for (const protocol::Id& id : ids) {
+                    const protocol::InstanceState* instance = state.instance(id);
+                    if (instance == nullptr || instance->final) {
+                        continue;
+                    }
+                    calls_load.requests.push_back(post_request(
+                        "/v1/statements", submit_token,
+                        sign_body(workload->call(id, instance->head, ledger_id, round))));
+                }
+            });
+            signing_ms += elapsed_ms(t);
+            signed_calls += calls_load.requests.size();
+            if (calls_load.requests.empty()) {
+                break;
+            }
+            run_load(calls_load);
+        }
+        results.add("sign (client side)",
+                    signing_ms * 1000 /
+                        static_cast<double>(std::max<std::uint64_t>(signed_calls, 1)),
+                    "us/statement");
+    } else {
+        if (mode != "submit" && mode != "create" && seconds > 0) {
+            load.until = Clock::now() + std::chrono::seconds(seconds);
+        }
+        run_load(load);
     }
-    const auto started = Clock::now();
-    for (std::uint64_t c = 0; c < connections; ++c) {
-        asio::co_spawn(*loops[c % loops.size()],
-                       connection(endpoint, load, tallies[c], std::chrono::milliseconds(c / 8)),
-                       asio::detached);
-    }
-    std::vector<std::thread> clients;
-    for (const auto& loop : loops) {
-        clients.emplace_back([&l = *loop] { l.run(); });
-    }
-    for (std::thread& t : clients) {
-        t.join();
-    }
-    const double wall_ms = elapsed_ms(started);
     server.stop();
     serving.join();
 

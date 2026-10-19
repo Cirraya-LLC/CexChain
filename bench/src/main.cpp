@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
+#include <algorithm>
 #include <cstdio>
 #include <format>
+#include <numeric>
 #include <print>
 #include <stdexcept>
 
@@ -23,6 +25,35 @@ void Results::print(bool json) const {
     for (const Row& r : rows_) {
         std::println("{:<40} {:>14.3f} {}", r.name, r.value, r.unit);
     }
+}
+
+double Latencies::total_us() const noexcept {
+    return std::accumulate(us_.begin(), us_.end(), 0.0);
+}
+
+double Latencies::percentile(double p) {
+    if (us_.empty()) {
+        return 0;
+    }
+    if (!sorted_) {
+        std::ranges::sort(us_);
+        sorted_ = true;
+    }
+    const auto at = static_cast<std::size_t>(p * static_cast<double>(us_.size() - 1));
+    return us_[at];
+}
+
+void Latencies::report(Results& results, const std::string& name, const std::string& unit) {
+    const double total = total_us();
+    sorted_ = false;
+    if (!unit.empty()) {
+        results.add(name + " throughput",
+                    total > 0 ? static_cast<double>(us_.size()) * 1e6 / total : 0.0, unit);
+    }
+    results.add(name + " mean", us_.empty() ? 0.0 : total / static_cast<double>(us_.size()), "us");
+    results.add(name + " p50", percentile(0.50), "us");
+    results.add(name + " p99", percentile(0.99), "us");
+    results.add(name + " p99.9", percentile(0.999), "us");
 }
 
 Options::Options(int argc, char** argv, int first) {
@@ -63,7 +94,20 @@ int main(int argc, char** argv) {
         "                             [--disk DIR] [--json]\n"
         "       cexchain-bench http [--mode read|submit|health] [--connections C]\n"
         "                           [--server-threads T] [--client-threads T] [--seconds S]\n"
-        "                           [--requests N] [--prefill N] [--dir DIR] [--keep] [--json]\n";
+        "                           [--requests N] [--prefill N] [--dir DIR] [--keep] [--json]\n"
+        "       cexchain-bench http --mode create|call [--instances N] [--calls K]\n"
+        "                           [--contract small|heavy] [--connections C] ...\n"
+        "       cexchain-bench contracts [--contract small,heavy,split] [--instances N]\n"
+        "                                [--calls K] [--lines L] [--batch B] [--disk DIR] "
+        "[--json]\n"
+        "       cexchain-bench evidence [--history H] [--entries N] [--repeat R] [--json]\n"
+        "       cexchain-bench keeper [--instances N,N,...] [--json]\n"
+        "       cexchain-bench executor [--requests N] [--cexchain PATH] [--in-process] [--json]\n"
+        "       cexchain-bench registrar [--instances N] [--calls K] [--json]\n"
+        "       cexchain-bench bo [--repeat R] [--examples DIR] [--json]\n"
+        "Contracts are Bo builds (examples/lending, a bill, examples/multi-tier-split,\n"
+        "examples/idc-hosting): every scenario but ledger, http, and executor needs\n"
+        "the Bo compiler (a GCC 16 build).\n";
     if (argc < 2) {
         std::print(stderr, "{}", usage);
         return 1;
@@ -76,6 +120,24 @@ int main(int argc, char** argv) {
         }
         if (scenario == "http") {
             return http_bench(options);
+        }
+        if (scenario == "contracts") {
+            return contracts_bench(options);
+        }
+        if (scenario == "evidence") {
+            return evidence_bench(options);
+        }
+        if (scenario == "keeper") {
+            return keeper_bench(options);
+        }
+        if (scenario == "executor") {
+            return executor_bench(options);
+        }
+        if (scenario == "registrar") {
+            return registrar_bench(options);
+        }
+        if (scenario == "bo") {
+            return bo_bench(options);
         }
     } catch (const std::exception& e) {
         std::println(stderr, "error: {}", e.what());

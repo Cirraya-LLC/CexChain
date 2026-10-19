@@ -220,3 +220,30 @@ if(TARGET cexchain_crypto_pkcs11)
         message(STATUS "SoftHSM not found: skipping the token tests")
     endif()
 endif()
+
+# The benchmark's scenarios at a small scale (D-056), so that they keep
+# working; their numbers are not checked here. Contracts are Bo builds, so
+# most need the compiler.
+set(bench_smoke
+    "ledger\;--entries\;300\;--checkpoint-every\;100"
+    "http\;--mode\;submit\;--requests\;100\;--connections\;4\;--server-threads\;1\;--client-threads\;1"
+    "executor\;--requests\;3")
+if(TARGET cexchain_bo)
+    list(APPEND bench_smoke
+        "contracts\;--instances\;10\;--calls\;2\;--lines\;10\;--repeat\;2"
+        "evidence\;--history\;6\;--entries\;20\;--repeat\;1"
+        "keeper\;--instances\;10"
+        "registrar\;--instances\;4\;--calls\;2\;--client-threads\;2"
+        "http\;--mode\;call\;--instances\;10\;--calls\;2\;--connections\;4\;--server-threads\;1\;--client-threads\;1"
+        "http\;--mode\;create\;--requests\;20\;--connections\;4\;--server-threads\;1\;--client-threads\;1"
+        "bo\;--repeat\;1")
+endif()
+foreach(arguments IN LISTS bench_smoke)
+    # bench_SCENARIO, and _MODE for http.
+    string(REPLACE ";" "_" flat "${arguments}")
+    string(REGEX REPLACE "_--.*" "" name "${flat}")
+    string(REGEX MATCH "--mode_[a-z]+" mode "${flat}")
+    string(REPLACE "--mode_" "_" mode "${mode}")
+    add_test(NAME bench_${name}${mode} COMMAND cexchain-bench ${arguments})
+    set_tests_properties(bench_${name}${mode} PROPERTIES LABELS bench)
+endforeach()
