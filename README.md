@@ -13,7 +13,12 @@ Like a spreadsheet, CexChain knows nothing of what you keep in it: there are no 
 purchase orders, invoices, or certificates. Those are things you define, and the
 [examples](examples/) show how such things are built.
 
-> **Status:** early development (specification v0.9 draft: [the protocol in prose](spec/README.md), [`spec/cexchain.cddl`](spec/cexchain.cddl); the contract language: [`spec/bo.md`](spec/bo.md)). Interfaces and formats may still change. Planned, not built yet: connectors for billing and accounting systems (Zoho first), a local web console, installers, and a public witness service; see [Known limits](#known-limits).
+> **Alpha: pre-release software.** The protocol specification (v0.9) is a draft and may change,
+> and so may interfaces and file formats; ledgers and evidence made with this version may need
+> to be made again with a later one. The code has not been audited yet; see
+> [Security](#security) for how to report a vulnerability and the known open items.
+>
+> The specification: [the protocol in prose](spec/README.md), [`spec/cexchain.cddl`](spec/cexchain.cddl); the contract language: [`spec/bo.md`](spec/bo.md). Planned, not built yet: connectors for billing and accounting systems (Zoho first), a local web console, installers, and a public witness service; see [Known limits](#known-limits).
 
 ## Why
 
@@ -1184,6 +1189,33 @@ What requests, executors, and services do not do yet, as of this version:
 - **`CEXCHAIN_CLOCK_OFFSET`** is for demonstrations and tests only (`serve` refuses it without
   `--allow-clock-offset`); a ledger keeps the later times it recorded.
 
+## Security
+
+Please report vulnerabilities privately, as [SECURITY.md](SECURITY.md) describes, not in public
+issues. What evidence proves, and what it does not, is in
+[the specification's security considerations](spec/README.md#17-security-considerations).
+
+### Known security items
+
+Open items from the security review of this version:
+
+- **Checkpoints hold up writes.** Making a checkpoint holds the ledger's state lock across two
+  disk syncs, so writes wait while a checkpoint is made (a performance trade-off).
+- **A log file shortened from outside the ledger** can crash the process that maps it (a bus
+  error) instead of failing with an error. It takes write access to the ledger's files.
+- **The HTTP server parses a request's headers again on each read**, so a client that sends its
+  headers slowly costs more CPU than it should (the header timeout and connection limits bound
+  it).
+- **PINs typed at a prompt** (for keys on tokens) are not wiped from memory after use.
+- **The vault key is not anchored in the log.** The key that seals records' private values is
+  not recorded in the ledger's signed log: a replica takes it from its primary as served.
+  Anchoring it is a protocol change.
+- **A restore holds the backup's files in memory**, so restoring a large backup needs as much
+  memory.
+- **Delivered records are not required to be witnessed.** `access accept` checks a delivery
+  against the granter's ledger, but cannot yet require witness cosignatures on the delivered
+  record's evidence.
+
 ## Building
 
 Requirements:
@@ -1236,8 +1268,15 @@ Test vectors in `testvectors/` come from implementations independent of CexChain
 
 On macOS, Homebrew's LLVM is keg-only. To use it with the Clang presets, add a `CMakeUserPresets.json` that inherits a Clang preset and sets `CMAKE_CXX_COMPILER` to `/opt/homebrew/opt/llvm/bin/clang++`. Homebrew's `openssl@3` is detected automatically.
 
+## Contributing
+
+Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md) for the principles, the
+definition of done, and the Developer Certificate of Origin sign-off every commit needs. Discuss
+large changes in an issue first.
+
 ## License
 
-Licensed under the [Apache License, Version 2.0](LICENSE).
+Licensed under the [Apache License, Version 2.0](LICENSE). Third-party components and their
+licenses: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Copyright 2026 Cirraya.
