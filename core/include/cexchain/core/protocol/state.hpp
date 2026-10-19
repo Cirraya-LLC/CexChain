@@ -97,6 +97,54 @@ struct SignatureCheck {
     Status result;
 };
 
+/// A value no other state has had, unless it is a copy: see LedgerState. A
+/// copy keeps it (the copy is the same state); a state moved from, and one
+/// that changes, takes a new one.
+class StateStamp {
+public:
+    StateStamp() noexcept : value_(next()) {}
+    StateStamp(const StateStamp&) noexcept = default;
+    StateStamp& operator=(const StateStamp&) noexcept = default;
+    StateStamp(StateStamp&& other) noexcept : value_(other.value_) { other.value_ = next(); }
+    StateStamp& operator=(StateStamp&& other) noexcept {
+        value_ = other.value_;
+        other.value_ = next();
+        return *this;
+    }
+    ~StateStamp() = default;
+
+    void renew() noexcept { value_ = next(); }
+    [[nodiscard]] std::uint64_t value() const noexcept { return value_; }
+
+private:
+    /// Never 0, never the same twice.
+    static std::uint64_t next() noexcept;
+    std::uint64_t value_;
+};
+
+/// What `validate` found that `apply` can use, so that a contract call runs
+/// once: the call's accepted run, for that statement, at that time, on that
+/// state. `apply` uses it only if all three still hold (the state's stamp
+/// is the one `validate` saw: it changes with every apply), else it runs the
+/// call again. Debug builds run it again anyway and compare.
+class Validation {
+public:
+    /// The accepted run of the contract call `validate` passed: null for
+    /// other statements, if it failed, and once `apply` has taken it.
+    [[nodiscard]] const ContractRun* run() const noexcept { return run_ ? &*run_ : nullptr; }
+    /// Whether the last `apply` given this used its run instead of running
+    /// the call again.
+    [[nodiscard]] bool reused() const noexcept { return reused_; }
+
+private:
+    friend class LedgerState;
+    Id statement_;
+    Timestamp time_ = 0;
+    std::uint64_t stamp_ = 0;
+    std::optional<ContractRun> run_;
+    bool reused_ = false;
+};
+
 class LedgerState {
 public:
     /// Builds the initial state from a verified genesis statement.
@@ -108,15 +156,21 @@ public:
     /// `checked` ahead of time counts only if it was checked with exactly the
     /// signer's current key, and its outcome then stands (either way: a
     /// failed check is not repeated). Otherwise the signature is checked
-    /// here.
+    /// here. With `validation`, a contract call's accepted run is kept there
+    /// for `apply` (and whatever was there before is dropped).
     [[nodiscard]] Status validate(const crypto::Provider& provider,
                                   const SignedStatement& statement, Timestamp now,
-                                  const SignatureCheck* checked = nullptr) const;
+                                  const SignatureCheck* checked = nullptr,
+                                  Validation* validation = nullptr) const;
 
     /// Applies a statement that `validate` accepted at `now`, its
-    /// registration time. `index` is its log index.
+    /// registration time. `index` is its log index. A contract call's run is
+    /// taken from `validation` if `validate` left it there for this
+    /// statement, at this time, on this state as it still is; otherwise the
+    /// call runs again.
     [[nodiscard]] Status apply(const crypto::Provider& provider, const SignedStatement& statement,
-                               std::uint64_t index, Timestamp now);
+                               std::uint64_t index, Timestamp now,
+                               Validation* validation = nullptr);
 
     [[nodiscard]] const Id& ledger_id() const noexcept { return ledger_id_; }
     [[nodiscard]] crypto::HashAlg hash() const noexcept { return hash_; }
@@ -241,6 +295,8 @@ private:
     /// even re-signed with a rotated key.
     NonceSet nonces_;
     std::vector<IdKey> changes_;
+    /// Changes with every apply: the states a Validation is good for.
+    StateStamp stamp_;
 };
 
 /// An ancestor of a child instance, and the log index of its call that

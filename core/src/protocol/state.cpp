@@ -2,6 +2,7 @@
 // Copyright 2026 Cirraya
 
 #include <algorithm>
+#include <atomic>
 #include <utility>
 #include <variant>
 
@@ -12,6 +13,11 @@
 #include "reader.hpp"
 
 namespace cexchain::protocol {
+
+std::uint64_t StateStamp::next() noexcept {
+    static std::atomic<std::uint64_t> last{0};
+    return last.fetch_add(1, std::memory_order_relaxed) + 1;
+}
 
 namespace {
 
@@ -365,7 +371,10 @@ std::optional<std::string> LedgerState::record_type_of(const Statement& statemen
 
 Status LedgerState::validate(const crypto::Provider& provider,
                              const SignedStatement& signed_statement, Timestamp now,
-                             const SignatureCheck* checked) const {
+                             const SignatureCheck* checked, Validation* validation) const {
+    if (validation != nullptr) {
+        validation->run_.reset();
+    }
     const Statement& statement = signed_statement.statement;
     if (statement.type() == StatementType::genesis) {
         return fail(Errc::rejected, "the ledger already has a genesis statement");
@@ -440,8 +449,15 @@ Status LedgerState::validate(const crypto::Provider& provider,
     }
     // A call is registered only if its contract accepts it (spec section 15).
     if (std::holds_alternative<ContractCallBody>(statement.body)) {
-        if (auto run = accepted_run(provider, signed_statement, now); !run) {
+        auto run = accepted_run(provider, signed_statement, now);
+        if (!run) {
             return std::unexpected(run.error());
+        }
+        if (validation != nullptr) {
+            validation->statement_ = signed_statement.id;
+            validation->time_ = now;
+            validation->stamp_ = stamp_.value();
+            validation->run_ = std::move(*run);
         }
     }
     return {};
@@ -862,9 +878,25 @@ Status LedgerState::check_rules(const crypto::Provider& provider, const Statemen
 }
 
 Status LedgerState::apply(const crypto::Provider& provider, const SignedStatement& signed_statement,
-                          std::uint64_t index, Timestamp now) {
+                          std::uint64_t index, Timestamp now, Validation* validation) {
     const Statement& statement = signed_statement.statement;
     const Id& id = signed_statement.id;
+    // A contract call's run from validate(), if it was made for this
+    // statement at this time on this state as it is (and so is this call's
+    // run: a run is a function of the module and its input, and the input
+    // and the checks after the run are functions of the state, the
+    // statement, and the time).
+    std::optional<ContractRun> validated;
+    if (validation != nullptr) {
+        if (validation->run_ && validation->stamp_ == stamp_.value() && validation->time_ == now &&
+            validation->statement_ == id) {
+            validated = std::move(validation->run_);
+        }
+        validation->run_.reset();
+        validation->reused_ = validated.has_value();
+    }
+    // The state changes from here on.
+    stamp_.renew();
     statements_.insert_or_assign(key_of(id), index);
     if (statement.actor_id) {
         // validate() found the signer.
@@ -1013,11 +1045,25 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
             },
             [&](const ContractCallBody& b) -> Status {
                 // validate() ran it on this state at this time: the same run.
-                const auto run = accepted_run(provider, signed_statement, now);
-                if (!run) {
-                    return std::unexpected(run.error());
+                std::optional<ContractRun> run = std::move(validated);
+#ifndef NDEBUG
+                // Debug builds check the reuse: a fresh run must equal it.
+                if (run) {
+                    CEXCHAIN_TRY(const ContractRun fresh,
+                                 accepted_run(provider, signed_statement, now));
+                    if (fresh.input != run->input || fresh.outcome.trap != run->outcome.trap ||
+                        fresh.outcome.output != run->outcome.output ||
+                        fresh.outcome.fuel_used != run->outcome.fuel_used) {
+                        return fail(Errc::verification_failed,
+                                    "a contract run kept from validation differs from a new one");
+                    }
                 }
-                ContractAccept accept = *run->accepted();
+#endif
+                if (!run) {
+                    CEXCHAIN_TRY(run, accepted_run(provider, signed_statement, now));
+                }
+                // accepted_run() checked that the output is an accept.
+                ContractAccept accept = std::get<ContractAccept>(std::move(*run->output));
                 const Id& target = b.instance ? *b.instance : id;
                 if (!b.instance) {
                     InstanceState instance;

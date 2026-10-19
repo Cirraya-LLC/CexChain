@@ -202,3 +202,82 @@ TEST_CASE("v0.6 contracts from an independent encoder and interpreter",
         }
     }
 }
+
+TEST_CASE("v0.6 contracts: a call runs once, its validation reused only where it holds",
+          "[protocol][vectors][contracts]") {
+    // validate() keeps a call's accepted run for apply(), which takes it only
+    // for the same statement, at the same time, on the same state (a copy
+    // counts; any change since does not); otherwise the call runs again.
+    const auto document = load_vectors("protocol-v0.6.json");
+    const auto t0 = document["t0"].get<protocol::Timestamp>();
+    const auto same_run = [](const protocol::ContractRun& a, const protocol::ContractRun& b) {
+        return a.input == b.input && a.outcome.trap == b.outcome.trap &&
+               a.outcome.output == b.outcome.output && a.outcome.fuel_used == b.outcome.fuel_used;
+    };
+    std::size_t calls = 0;
+    for (const auto& ledger : document["ledgers"]) {
+        const auto hash = *crypto::hash_alg_from_cose(ledger["hash"].get<std::int64_t>());
+        std::vector<protocol::SignedStatement> statements;
+        for (const auto& st : ledger["statements"]) {
+            statements.push_back(
+                *protocol::parse_statement(provider(), hex(text(st["encoded"])), hash));
+        }
+        auto state = protocol::LedgerState::from_genesis(provider(), statements.front());
+        REQUIRE(state);
+        auto plain = *state; // replayed without validations, for comparison
+        for (std::size_t i = 1; i < statements.size(); ++i) {
+            INFO(i);
+            const protocol::SignedStatement& s = statements[i];
+            const protocol::Timestamp at = t0 + 1000 + i;
+            const bool is_call =
+                std::holds_alternative<protocol::ContractCallBody>(s.statement.body);
+            protocol::Validation validation;
+            REQUIRE(state->validate(provider(), s, at, nullptr, &validation));
+            REQUIRE((validation.run() != nullptr) == is_call);
+            if (is_call) {
+                ++calls;
+                CHECK(same_run(*validation.run(), *state->run_contract(provider(), s, at)));
+
+                // Another time, another statement id, or a state changed
+                // since: run again. A copy of the state: reused.
+                auto other = *state;
+                protocol::Validation v;
+                REQUIRE(state->validate(provider(), s, at, nullptr, &v));
+                (void)other.apply(provider(), s, i, at + 1, &v);
+                CHECK_FALSE(v.reused());
+                CHECK(v.run() == nullptr);
+
+                other = *state;
+                REQUIRE(state->validate(provider(), s, at, nullptr, &v));
+                protocol::SignedStatement renamed = s;
+                renamed.id = statements.front().id;
+                (void)other.apply(provider(), renamed, i, at, &v);
+                CHECK_FALSE(v.reused());
+
+                other = *state;
+                REQUIRE(other.validate(provider(), s, at, nullptr, &v));
+                REQUIRE(other.apply(provider(), s, i, at));
+                (void)other.apply(provider(), s, i, at, &v);
+                CHECK_FALSE(v.reused());
+
+                other = *state;
+                REQUIRE(state->validate(provider(), s, at, nullptr, &v));
+                auto moved = std::move(other);
+                CHECK(moved.apply(provider(), s, i, at, &v));
+                CHECK(v.reused());
+            }
+            REQUIRE(state->apply(provider(), s, i, at, &validation));
+            CHECK(validation.reused() == is_call);
+            CHECK(validation.run() == nullptr);
+            REQUIRE(plain.validate(provider(), s, at));
+            REQUIRE(plain.apply(provider(), s, i, at));
+        }
+        for (const auto& [key, instance] : state->instances()) {
+            const protocol::InstanceState* expected = plain.instance(instance.id);
+            REQUIRE(expected != nullptr);
+            CHECK(instance.head == expected->head);
+            CHECK(*cbor::encode(instance.state) == *cbor::encode(expected->state));
+        }
+    }
+    CHECK(calls > 0);
+}

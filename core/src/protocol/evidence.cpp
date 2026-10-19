@@ -495,19 +495,21 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
                 }
             }
         }
-        if (!state->validate(provider, item.statement, item.log_entry.registered_at)) {
+        // A contract call runs once: what validate ran is the outcome, and
+        // apply takes it.
+        Validation validation;
+        if (!state->validate(provider, item.statement, item.log_entry.registered_at, nullptr,
+                             &validation)) {
             return verification_failure(
                 "an included statement fails the ledger rules or depends on a missing statement");
         }
-        if (std::holds_alternative<ContractCallBody>(item.statement.statement.body)) {
-            CEXCHAIN_TRY(ContractRun run, state->run_contract(provider, item.statement,
-                                                              item.log_entry.registered_at));
-            if (const ContractAccept* accept = run.accepted()) {
+        if (const ContractRun* run = validation.run()) {
+            if (const ContractAccept* accept = run->accepted()) {
                 outcomes.emplace(item.index, *accept);
             }
         }
-        CEXCHAIN_CHECK(
-            state->apply(provider, item.statement, item.index, item.log_entry.registered_at));
+        CEXCHAIN_CHECK(state->apply(provider, item.statement, item.index,
+                                    item.log_entry.registered_at, &validation));
     }
 
     // Now the keys: the checkpoint and every receipt with the log key in

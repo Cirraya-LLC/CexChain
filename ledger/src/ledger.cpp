@@ -285,7 +285,7 @@ struct Ledger::Impl {
     /// one: registered no earlier than the entry before it, and either a
     /// statement that passes validation at its registration time or a state
     /// commitment, signed by the log key, of exactly the current state.
-    Status check(const Decoded& d, std::uint64_t index) {
+    Status check(const Decoded& d, std::uint64_t index, protocol::Validation* validation) {
         if (d.error) {
             return std::unexpected(*d.error);
         }
@@ -310,7 +310,7 @@ struct Ledger::Impl {
             return fail(Errc::verification_failed, "a log entry has the wrong statement id");
         }
         if (auto s = state.validate(*provider, *d.statement, entry.registered_at,
-                                    d.signature ? &*d.signature : nullptr);
+                                    d.signature ? &*d.signature : nullptr, validation);
             !s) {
             return fail(Errc::verification_failed,
                         "a logged statement does not pass validation on replay");
@@ -320,9 +320,11 @@ struct Ledger::Impl {
 
     /// Applies a checked entry at `index` to the state. (The Merkle tree
     /// takes it when it is durable: see append_merkle.)
-    Status apply(const Decoded& d, std::uint64_t index) {
+    Status apply(const Decoded& d, std::uint64_t index, protocol::Validation* validation) {
         if (d.statement) {
-            if (auto s = state.apply(*provider, *d.statement, index, d.entry->registered_at); !s) {
+            if (auto s =
+                    state.apply(*provider, *d.statement, index, d.entry->registered_at, validation);
+                !s) {
                 return s;
             }
         } else {
@@ -360,12 +362,14 @@ struct Ledger::Impl {
     Replayed replay(std::span<const ByteView> entries, std::uint64_t first) {
         Replayed out;
         const auto decoded = decode(entries);
+        // Each contract call runs once: apply takes check's run.
+        protocol::Validation validation;
         for (std::size_t i = 0; i < decoded.size(); ++i) {
-            if (auto s = check(decoded[i], first + i); !s) {
+            if (auto s = check(decoded[i], first + i, &validation); !s) {
                 out.error = s.error();
                 return out;
             }
-            if (auto s = apply(decoded[i], first + i); !s) {
+            if (auto s = apply(decoded[i], first + i, &validation); !s) {
                 out.error = s.error();
                 out.fatal = true;
                 return out;
@@ -777,6 +781,8 @@ std::vector<Result<Registration>> Ledger::submit_batch(std::span<const ByteView>
     std::vector<Bytes> entries;
     {
         const std::unique_lock lock(impl_->state_mutex);
+        // Each contract call runs once: apply takes validate's run.
+        protocol::Validation validation;
         for (std::size_t i = 0; i < n; ++i) {
             if (errors[i]) {
                 results.emplace_back(std::unexpected(*errors[i]));
@@ -800,7 +806,7 @@ std::vector<Result<Registration>> Ledger::submit_batch(std::span<const ByteView>
                 continue;
             }
             if (auto s = impl_->state.validate(*impl_->provider, statement, now,
-                                               checks[i] ? &*checks[i] : nullptr);
+                                               checks[i] ? &*checks[i] : nullptr, &validation);
                 !s) {
                 results.emplace_back(std::unexpected(s.error()));
                 continue;
@@ -811,7 +817,8 @@ std::vector<Result<Registration>> Ledger::submit_batch(std::span<const ByteView>
                 continue;
             }
             const std::uint64_t index = first + entries.size();
-            if (auto s = impl_->state.apply(*impl_->provider, statement, index, now); !s) {
+            if (auto s = impl_->state.apply(*impl_->provider, statement, index, now, &validation);
+                !s) {
                 // The state moved partway: nothing of this batch may be
                 // written, and the ledger must be reopened.
                 impl_->failed = true;
