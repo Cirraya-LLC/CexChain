@@ -60,9 +60,13 @@ enum class Trap : std::uint8_t {
 /// The trap's name in the spec, e.g. "out of fuel".
 [[nodiscard]] std::string_view name(Trap trap) noexcept;
 
+class Module;
+
 namespace detail {
 struct ModuleData;
 struct ArenaData;
+struct Translation;
+[[nodiscard]] Result<Module> load(ByteView wasm, const Translation& translation);
 } // namespace detail
 
 /// A module that is in the profile, decoded and validated, ready to run.
@@ -77,6 +81,7 @@ private:
     explicit Module(std::shared_ptr<const detail::ModuleData> data) : data_(std::move(data)) {}
     std::shared_ptr<const detail::ModuleData> data_;
     friend Result<Module> load(ByteView wasm);
+    friend Result<Module> detail::load(ByteView wasm, const detail::Translation& translation);
 };
 
 /// Decodes and validates a module. Errc::unsupported for a module outside the

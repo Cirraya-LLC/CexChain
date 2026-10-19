@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <string_view>
@@ -53,29 +54,14 @@ std::string_view name(Trap trap) noexcept {
 namespace {
 
 using detail::Branch;
+using detail::charged;
 using detail::Function;
 using detail::Host;
 using detail::Instr;
 using detail::ModuleData;
+using detail::Op;
 
 constexpr std::uint64_t mask32 = 0xFFFF'FFFF;
-
-/// Fuel charged before each translated operation runs (spec section 14.3).
-/// The ones at 0 cost nothing (else, the function's end) or charge once they
-/// know their size (memory.grow and the bulk memory operations).
-constexpr auto base_costs = [] {
-    std::array<std::uint8_t, detail::op_memory_fill + 1> costs{};
-    costs.fill(1);
-    costs[detail::op_else] = 0;
-    costs[detail::op_end_function] = 0;
-    costs[detail::op_call] = 2;
-    costs[detail::op_call_indirect] = 2;
-    costs[detail::op_memory_grow] = 0;
-    costs[detail::op_memory_init] = 0;
-    costs[detail::op_memory_copy] = 0;
-    costs[detail::op_memory_fill] = 0;
-    return costs;
-}();
 
 /// 1 per 64 bytes, rounded up.
 constexpr std::uint64_t per64(std::uint64_t n) noexcept {
@@ -127,6 +113,210 @@ void store_le(std::uint8_t* p, std::uint64_t v) noexcept {
     }
 }
 
+/// A branch target: an offset from the branch's own instruction.
+constexpr std::ptrdiff_t offset(std::uint32_t a) noexcept {
+    return static_cast<std::int32_t>(a);
+}
+
+/// The value a load pushes, from the `raw` bytes it read (little-endian,
+/// zero-extended).
+template <Op O>
+constexpr std::uint64_t loaded(std::uint64_t raw) noexcept {
+    if constexpr (O == detail::op_i32_load8_s) {
+        return i32(std::int32_t{static_cast<std::int8_t>(raw)});
+    } else if constexpr (O == detail::op_i32_load16_s) {
+        return i32(std::int32_t{static_cast<std::int16_t>(raw)});
+    } else if constexpr (O == detail::op_i64_load8_s) {
+        return i64(static_cast<std::int8_t>(raw));
+    } else if constexpr (O == detail::op_i64_load16_s) {
+        return i64(static_cast<std::int16_t>(raw));
+    } else if constexpr (O == detail::op_i64_load32_s) {
+        return i64(static_cast<std::int32_t>(raw));
+    } else {
+        return raw;
+    }
+}
+
+template <Op O>
+constexpr std::uint64_t unary(std::uint64_t v) noexcept {
+    using namespace detail;
+    if constexpr (O == op_i32_eqz) {
+        return flag(lo32(v) == 0);
+    } else if constexpr (O == op_i64_eqz) {
+        return flag(v == 0);
+    } else if constexpr (O == op_i32_clz) {
+        return static_cast<std::uint64_t>(std::countl_zero(lo32(v)));
+    } else if constexpr (O == op_i32_ctz) {
+        return static_cast<std::uint64_t>(std::countr_zero(lo32(v)));
+    } else if constexpr (O == op_i32_popcnt) {
+        return static_cast<std::uint64_t>(std::popcount(lo32(v)));
+    } else if constexpr (O == op_i64_clz) {
+        return static_cast<std::uint64_t>(std::countl_zero(v));
+    } else if constexpr (O == op_i64_ctz) {
+        return static_cast<std::uint64_t>(std::countr_zero(v));
+    } else if constexpr (O == op_i64_popcnt) {
+        return static_cast<std::uint64_t>(std::popcount(v));
+    } else if constexpr (O == op_i32_wrap_i64 || O == op_i64_extend_i32_u) {
+        return v & mask32;
+    } else if constexpr (O == op_i64_extend_i32_s) {
+        return i64(s32(v));
+    } else if constexpr (O == op_i32_extend8_s) {
+        return i32(std::int32_t{static_cast<std::int8_t>(v)});
+    } else if constexpr (O == op_i32_extend16_s) {
+        return i32(std::int32_t{static_cast<std::int16_t>(v)});
+    } else if constexpr (O == op_i64_extend8_s) {
+        return i64(static_cast<std::int8_t>(v));
+    } else if constexpr (O == op_i64_extend16_s) {
+        return i64(static_cast<std::int16_t>(v));
+    } else {
+        static_assert(O == op_i64_extend32_s);
+        return i64(static_cast<std::int32_t>(v));
+    }
+}
+
+/// The binary operations that cannot trap, on operands `a` (pushed first)
+/// and `b`.
+template <Op O>
+constexpr std::uint64_t binary(std::uint64_t a, std::uint64_t b) noexcept {
+    using namespace detail;
+    if constexpr (O == op_i32_eq) {
+        return flag(lo32(a) == lo32(b));
+    } else if constexpr (O == op_i32_ne) {
+        return flag(lo32(a) != lo32(b));
+    } else if constexpr (O == op_i32_lt_s) {
+        return flag(s32(a) < s32(b));
+    } else if constexpr (O == op_i32_lt_u) {
+        return flag(lo32(a) < lo32(b));
+    } else if constexpr (O == op_i32_gt_s) {
+        return flag(s32(a) > s32(b));
+    } else if constexpr (O == op_i32_gt_u) {
+        return flag(lo32(a) > lo32(b));
+    } else if constexpr (O == op_i32_le_s) {
+        return flag(s32(a) <= s32(b));
+    } else if constexpr (O == op_i32_le_u) {
+        return flag(lo32(a) <= lo32(b));
+    } else if constexpr (O == op_i32_ge_s) {
+        return flag(s32(a) >= s32(b));
+    } else if constexpr (O == op_i32_ge_u) {
+        return flag(lo32(a) >= lo32(b));
+    } else if constexpr (O == op_i32_add) {
+        return i32(lo32(a + b));
+    } else if constexpr (O == op_i32_sub) {
+        return i32(lo32(a - b));
+    } else if constexpr (O == op_i32_mul) {
+        return i32(lo32(a) * lo32(b));
+    } else if constexpr (O == op_i32_and) {
+        return i32(lo32(a) & lo32(b));
+    } else if constexpr (O == op_i32_or) {
+        return i32(lo32(a) | lo32(b));
+    } else if constexpr (O == op_i32_xor) {
+        return i32(lo32(a) ^ lo32(b));
+    } else if constexpr (O == op_i32_shl) {
+        return i32(lo32(a) << (b & 31U));
+    } else if constexpr (O == op_i32_shr_s) {
+        return i32(s32(a) >> (b & 31U));
+    } else if constexpr (O == op_i32_shr_u) {
+        return i32(lo32(a) >> (b & 31U));
+    } else if constexpr (O == op_i32_rotl) {
+        return i32(std::rotl(lo32(a), static_cast<int>(b & 31U)));
+    } else if constexpr (O == op_i32_rotr) {
+        return i32(std::rotr(lo32(a), static_cast<int>(b & 31U)));
+    } else if constexpr (O == op_i64_eq) {
+        return flag(a == b);
+    } else if constexpr (O == op_i64_ne) {
+        return flag(a != b);
+    } else if constexpr (O == op_i64_lt_s) {
+        return flag(s64(a) < s64(b));
+    } else if constexpr (O == op_i64_lt_u) {
+        return flag(a < b);
+    } else if constexpr (O == op_i64_gt_s) {
+        return flag(s64(a) > s64(b));
+    } else if constexpr (O == op_i64_gt_u) {
+        return flag(a > b);
+    } else if constexpr (O == op_i64_le_s) {
+        return flag(s64(a) <= s64(b));
+    } else if constexpr (O == op_i64_le_u) {
+        return flag(a <= b);
+    } else if constexpr (O == op_i64_ge_s) {
+        return flag(s64(a) >= s64(b));
+    } else if constexpr (O == op_i64_ge_u) {
+        return flag(a >= b);
+    } else if constexpr (O == op_i64_add) {
+        return a + b;
+    } else if constexpr (O == op_i64_sub) {
+        return a - b;
+    } else if constexpr (O == op_i64_mul) {
+        return a * b;
+    } else if constexpr (O == op_i64_and) {
+        return a & b;
+    } else if constexpr (O == op_i64_or) {
+        return a | b;
+    } else if constexpr (O == op_i64_xor) {
+        return a ^ b;
+    } else if constexpr (O == op_i64_shl) {
+        return a << (b & 63U);
+    } else if constexpr (O == op_i64_shr_s) {
+        return i64(s64(a) >> (b & 63U));
+    } else if constexpr (O == op_i64_shr_u) {
+        return a >> (b & 63U);
+    } else if constexpr (O == op_i64_rotl) {
+        return std::rotl(a, static_cast<int>(b & 63U));
+    } else {
+        static_assert(O == op_i64_rotr);
+        return std::rotr(a, static_cast<int>(b & 63U));
+    }
+}
+
+/// Division and remainder: the quotient or remainder of `a` by `b`, or the
+/// trap.
+template <Op O>
+constexpr std::optional<Trap> divide(std::uint64_t a, std::uint64_t b,
+                                     std::uint64_t& out) noexcept {
+    using namespace detail;
+    if constexpr (O == op_i32_div_s || O == op_i32_rem_s) {
+        const std::int32_t x = s32(a);
+        const std::int32_t y = s32(b);
+        if (y == 0) {
+            return Trap::divide_by_zero;
+        }
+        if constexpr (O == op_i32_div_s) {
+            if (x == INT32_MIN && y == -1) {
+                return Trap::integer_overflow;
+            }
+            out = i32(x / y);
+        } else {
+            out = y == -1 ? std::uint64_t{0} : i32(x % y);
+        }
+    } else if constexpr (O == op_i32_div_u || O == op_i32_rem_u) {
+        const std::uint32_t y = lo32(b);
+        if (y == 0) {
+            return Trap::divide_by_zero;
+        }
+        out = O == op_i32_div_u ? i32(lo32(a) / y) : i32(lo32(a) % y);
+    } else if constexpr (O == op_i64_div_s || O == op_i64_rem_s) {
+        const std::int64_t x = s64(a);
+        const std::int64_t y = s64(b);
+        if (y == 0) {
+            return Trap::divide_by_zero;
+        }
+        if constexpr (O == op_i64_div_s) {
+            if (x == INT64_MIN && y == -1) {
+                return Trap::integer_overflow;
+            }
+            out = i64(x / y);
+        } else {
+            out = y == -1 ? std::uint64_t{0} : i64(x % y);
+        }
+    } else {
+        static_assert(O == op_i64_div_u || O == op_i64_rem_u);
+        if (b == 0) {
+            return Trap::divide_by_zero;
+        }
+        out = O == op_i64_div_u ? a / b : a % b;
+    }
+    return std::nullopt;
+}
+
 } // namespace
 
 namespace detail {
@@ -134,13 +324,9 @@ namespace detail {
 struct Frame {
     const Function* function = nullptr;
     /// Where the function continues after a call returns.
-    std::uint32_t pc = 0;
+    const Instr* pc = nullptr;
     /// Its locals, parameters first; its results go here on return.
     std::uint64_t* locals = nullptr;
-    /// The bottom of its operand stack.
-    std::uint64_t* base = nullptr;
-    /// Its share of the stack budget: locals and maximum operand stack height.
-    std::uint32_t slots = 0;
 };
 
 /// The space of runs, see Arena. Memory is tracked in chunks: a run marks
@@ -153,6 +339,7 @@ struct Frame {
 /// parameters are zeroed on entry; globals are set at instantiation).
 struct ArenaData {
     static constexpr unsigned chunk_shift = 10;
+    static constexpr std::size_t slack = 8;
     static constexpr std::size_t memory_bytes = std::size_t{max_pages} * page_size;
     static constexpr std::size_t chunks = memory_bytes >> chunk_shift;
     static_assert(chunks % 8 == 0);
@@ -160,7 +347,9 @@ struct ArenaData {
     std::unique_ptr<std::uint8_t[]> memory = std::make_unique<std::uint8_t[]>(memory_bytes);
     /// 1 for each chunk the current run has written.
     std::array<std::uint8_t, chunks> dirty{};
-    std::vector<std::uint64_t> stack = std::vector<std::uint64_t>(stack_budget);
+    /// The budget's slots, and `slack` more that a call may zero beyond its
+    /// locals.
+    std::vector<std::uint64_t> stack = std::vector<std::uint64_t>(stack_budget + slack);
     std::array<Frame, max_call_depth> frames{};
     std::vector<std::uint64_t> globals;
     std::vector<ByteView> segments;
@@ -217,14 +406,41 @@ private:
     detail::ArenaData& arena_;
 };
 
+// Threaded dispatch needs labels as values, a GNU extension (GCC, Clang);
+// other compilers use the switch alone, and so does WebAssembly, which has
+// no indirect jumps: Emscripten turns computed gotos into a switch on label
+// numbers, which ran Bo's conformance runs 2.7 times slower than the switch
+// itself (Node.js, 2026-10-20). Defining CEXCHAIN_VM_THREADED as 0 builds
+// the switch alone anywhere.
+#if !defined(CEXCHAIN_VM_THREADED)
+#if defined(__GNUC__) && !defined(__EMSCRIPTEN__)
+#define CEXCHAIN_VM_THREADED 1
+#else
+#define CEXCHAIN_VM_THREADED 0
+#endif
+#endif
+
 /// One invocation of cexchain_call. Traps are returned, not thrown.
+///
+/// Fuel (spec section 14.3) is charged before each WebAssembly instruction
+/// runs. The translated code charges a whole run at once, at its first
+/// instruction: the run's instructions all execute unless one of them traps,
+/// since only the last one can branch, call, or cost more than its fixed
+/// fuel. When a run costs more than the fuel left, it is executed again
+/// instruction by instruction ("step" mode), each charged before it runs, so
+/// the instruction that runs out of fuel, and any trap before it, are the
+/// spec's; within a fused instruction only the last part can trap, so the
+/// parts before it charging one by one would change nothing. A trap in the
+/// middle of a run gives back the fuel of the run's instructions after it.
 class Machine {
 public:
     Machine(const ModuleData& m, ByteView input, const crypto::Provider& provider,
-            crypto::HashAlg hash, std::uint64_t fuel, detail::ArenaData& arena)
+            crypto::HashAlg hash, std::uint64_t fuel, detail::ArenaData& arena,
+            detail::Dispatch dispatch)
         : m_(m), input_(input), provider_(provider), hash_(hash), fuel_limit_(fuel), fuel_(fuel),
           arena_(arena), memory_(arena.memory.get()), dirty_(arena.dirty.data()),
-          globals_(arena.globals), segments_(arena.segments), frames_(arena.frames.data()) {
+          globals_(arena.globals), segments_(arena.segments), frames_(arena.frames.data()),
+          dispatch_(dispatch) {
         const detail::Limits limits = *m.memory;
         memory_size_ = std::uint64_t{limits.min} * page_size;
         max_pages_ = limits.max;
@@ -282,25 +498,8 @@ private:
         return addr + n <= memory_size_;
     }
 
-    /// Enters a function whose arguments are on top of the operand stack.
-    std::optional<Trap> enter(const Function& f) {
-        if (depth_ + 1 > max_call_depth) {
-            return Trap::call_depth_exceeded;
-        }
-        const auto slots = static_cast<std::uint32_t>(f.locals.size() + f.max_height);
-        if (budget_ + slots > stack_budget) {
-            return Trap::stack_budget_exceeded;
-        }
-        const std::size_t params = m_.types[f.type].params.size();
-        std::uint64_t* locals = sp_ - params;
-        std::uint64_t* base = locals + f.locals.size();
-        std::fill(sp_, base, std::uint64_t{0});
-        frames_[depth_++] = Frame{&f, 0, locals, base, slots};
-        budget_ += slots;
-        sp_ = base;
-        return std::nullopt;
-    }
-
+    /// Runs a host function, its arguments on top of the operand stack
+    /// (`sp_`), charging `fuel_`.
     std::optional<Trap> call_host(Host host) {
         switch (host) {
         case Host::input_size:
@@ -377,52 +576,32 @@ private:
         return Trap::unreachable;
     }
 
-    /// Calls function `index`: a host function at once, or by entering it.
-    std::optional<Trap> call(std::uint32_t index) {
-        const Function& f = m_.functions[index];
-        if (f.host != Host::none) {
-            return call_host(f.host);
-        }
-        frames_[depth_ - 1].pc = pc_;
-        if (auto trap = enter(f)) {
+    /// Ends the invocation with `trap`, raised by the instruction before
+    /// `next`, with `fuel` left. In fast mode the trapping instruction's run
+    /// was charged whole: the fuel of its instructions after this one comes
+    /// back.
+    template <bool Step>
+    std::optional<Trap> stop(Trap trap, const Instr* next, std::uint64_t fuel) noexcept {
+        if (trap == Trap::out_of_fuel) {
+            fuel_ = 0;
             return trap;
         }
-        code_ = f.code.data();
-        pc_ = 0;
-        return std::nullopt;
-    }
-
-    void branch(std::uint32_t target, std::uint32_t arity, std::uint64_t height) noexcept {
-        std::uint64_t* dest = frames_[depth_ - 1].base + height;
-        std::uint64_t* src = sp_ - arity;
-        if (dest != src) {
-            for (std::uint32_t i = 0; i < arity; ++i) {
-                dest[i] = src[i];
+        if constexpr (!Step) {
+            const Function& f = *frames_[depth_ - 1].function;
+            for (auto i = static_cast<std::size_t>(next - f.code.data());
+                 i < f.code.size() && f.code[i].op < charged; ++i) {
+                fuel += f.costs[i];
             }
         }
-        sp_ = dest + arity;
-        pc_ = target;
-    }
-
-    /// Returns from the current function; false when it was the entry.
-    bool leave(std::uint32_t arity) noexcept {
-        Frame& frame = frames_[depth_ - 1];
-        std::uint64_t* src = sp_ - arity;
-        for (std::uint32_t i = 0; i < arity; ++i) {
-            frame.locals[i] = src[i];
-        }
-        sp_ = frame.locals + arity;
-        budget_ -= frame.slots;
-        if (--depth_ == 0) {
-            return false;
-        }
-        const Frame& caller = frames_[depth_ - 1];
-        code_ = caller.function->code.data();
-        pc_ = caller.pc;
-        return true;
+        fuel_ = fuel;
+        return trap;
     }
 
     std::optional<Trap> execute();
+
+    template <bool Threaded, bool Step>
+    std::optional<Trap> loop(const Instr* pc, std::uint64_t* sp, std::uint64_t* locals,
+                             std::uint64_t fuel);
 
     const ModuleData& m_;
     ByteView input_;
@@ -430,6 +609,7 @@ private:
     crypto::HashAlg hash_;
 
     std::uint64_t fuel_limit_;
+    /// The fuel left, while no loop runs (a loop keeps its own).
     std::uint64_t fuel_;
     detail::ArenaData& arena_;
     std::uint8_t* memory_;
@@ -439,12 +619,13 @@ private:
     std::vector<std::uint64_t>& globals_;
     std::vector<ByteView>& segments_;
 
+    /// The operand stack's top, for host functions.
     std::uint64_t* sp_ = nullptr;
     Frame* frames_;
     std::uint32_t depth_ = 0;
     std::uint32_t budget_ = 0;
-    const Instr* code_ = nullptr;
-    std::uint32_t pc_ = 0;
+    /// Unused where every dispatch is the switch.
+    [[maybe_unused]] detail::Dispatch dispatch_;
 
     std::optional<Bytes> output_;
     Bytes abort_reason_;
@@ -452,435 +633,593 @@ private:
 };
 
 std::optional<Trap> Machine::execute() {
-    sp_ = arena_.stack.data();
+    std::uint64_t* const locals = arena_.stack.data();
     const Function& entry = m_.functions[m_.entry];
-    if (auto trap = enter(entry)) {
-        return trap;
+    if (entry.slots > stack_budget) {
+        return Trap::stack_budget_exceeded;
     }
-    code_ = entry.code.data();
-    pc_ = 0;
+    // The entry takes no parameters.
+    std::uint64_t* const base = locals + entry.locals.size();
+    std::fill(locals, base, std::uint64_t{0});
+    frames_[0] = Frame{&entry, nullptr, locals};
+    depth_ = 1;
+    budget_ = entry.slots;
+#if CEXCHAIN_VM_THREADED
+    if (dispatch_ == detail::Dispatch::threaded) {
+        return loop<true, false>(entry.code.data(), base, locals, fuel_);
+    }
+#endif
+    return loop<false, false>(entry.code.data(), base, locals, fuel_);
+}
 
-    for (;;) {
-        const Instr& in = code_[pc_++];
-        if (!charge(base_costs[in.op])) {
-            return Trap::out_of_fuel;
+// The interpreter's loop: `Threaded` dispatches through labels (GNU), else
+// through the switch; `Step` charges each instruction's own fuel before it
+// runs (see Machine) instead of each run's at its first instruction.
+//
+// Each operation's code is written once, for both dispatches: TARGET(name)
+// opens it (a case of the switch, and labels for threaded dispatch: C_name
+// charges the run and falls through to L_name), NEXT() goes to the next
+// instruction, TRAP(trap) ends the invocation.
+#if CEXCHAIN_VM_THREADED
+// Labels as values and computed gotos are GNU extensions, used on purpose:
+// -Wpedantic would refuse them, here only.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
+#if defined(__clang__)
+#pragma clang diagnostic ignored "-Wgnu-label-as-value"
+#endif
+#define CEXCHAIN_VM_LABEL(prefix, name) prefix##name:
+#else
+#define CEXCHAIN_VM_LABEL(prefix, name)
+#endif
+
+#define TARGET(name)                                                                               \
+    case detail::op_##name + charged:                                                              \
+        CEXCHAIN_VM_LABEL(C_, name)                                                                \
+        if (!Step) {                                                                               \
+            if (in->fuel > fuel) {                                                                 \
+                goto out_of_run_fuel;                                                              \
+            }                                                                                      \
+            fuel -= in->fuel;                                                                      \
+        }                                                                                          \
+        [[fallthrough]];                                                                           \
+    case detail::op_##name:                                                                        \
+        CEXCHAIN_VM_LABEL(L_, name)
+
+#if CEXCHAIN_VM_THREADED
+#define NEXT()                                                                                     \
+    do {                                                                                           \
+        if constexpr (Threaded) {                                                                  \
+            in = pc++;                                                                             \
+            goto* labels[in->op];                                                                  \
+        } else {                                                                                   \
+            goto dispatch;                                                                         \
+        }                                                                                          \
+    } while (false)
+#else
+#define NEXT() goto dispatch
+#endif
+
+#define TRAP(trap)                                                                                 \
+    do {                                                                                           \
+        depth_ = static_cast<std::uint32_t>(frame - frames_) + 1;                                  \
+        return stop<Step>(trap, pc, fuel);                                                         \
+    } while (false)
+
+template <bool Threaded, bool Step>
+std::optional<Trap> Machine::loop(const Instr* pc, std::uint64_t* sp, std::uint64_t* locals,
+                                  std::uint64_t fuel) {
+    static_assert(!(Threaded && Step));
+    std::uint8_t* const memory = memory_;
+    std::uint8_t* const dirty = dirty_;
+    std::uint64_t* const globals = globals_.data();
+    const Function* const functions = m_.functions.data();
+    std::uint64_t memory_size = memory_size_;
+    const Instr* in = nullptr;
+    const Function* callee = nullptr;
+    // The current function's frame, and the stack budget the active frames
+    // take (members again when the loop ends).
+    Frame* frame = frames_ + depth_ - 1;
+    std::uint32_t budget = budget_;
+
+#if CEXCHAIN_VM_THREADED
+#define CEXCHAIN_VM_LABEL_ADDRESS(name, ...) &&L_##name,
+#define CEXCHAIN_VM_CHARGED_ADDRESS(name, ...) &&C_##name,
+    [[maybe_unused]] static const void* const labels[] = {
+        CEXCHAIN_VM_OPS(CEXCHAIN_VM_LABEL_ADDRESS) CEXCHAIN_VM_OPS(CEXCHAIN_VM_CHARGED_ADDRESS)};
+#undef CEXCHAIN_VM_LABEL_ADDRESS
+#undef CEXCHAIN_VM_CHARGED_ADDRESS
+    static_assert(std::size(labels) == 2 * std::size_t{detail::op_count});
+#endif
+
+    // The first instruction goes through the switch in either dispatch.
+    goto dispatch;
+dispatch:
+    in = pc++;
+    if constexpr (Step) {
+        const Function& f = *frame->function;
+        const std::uint16_t cost = f.costs[static_cast<std::size_t>(in - f.code.data())];
+        if (cost > fuel) {
+            TRAP(Trap::out_of_fuel);
         }
-        std::uint64_t* const sp = sp_;
-        switch (in.op) {
-        case detail::op_unreachable:
-            return Trap::unreachable;
-        case detail::op_nop:
-            break;
-        case detail::op_if:
-            sp_ = sp - 1;
-            if (sp[-1] == 0) {
-                pc_ = in.a;
-            }
-            break;
-        case detail::op_else:
-            pc_ = in.a;
-            break;
-        case detail::op_br:
-            branch(in.a, in.arity, in.b);
-            break;
-        case detail::op_br_if:
-            sp_ = sp - 1;
-            if (sp[-1] != 0) {
-                branch(in.a, in.arity, in.b);
-            }
-            break;
-        case detail::op_br_table: {
-            sp_ = sp - 1;
-            const std::uint64_t i = sp[-1];
-            const Branch& e =
-                frames_[depth_ - 1]
-                    .function->branches[in.a + static_cast<std::size_t>(std::min(i, in.b))];
-            branch(e.target, e.arity, e.height);
-            break;
+        fuel -= cost;
+    }
+    switch (in->op) {
+        TARGET(unreachable) {
+            TRAP(Trap::unreachable);
         }
-        case detail::op_return:
-        case detail::op_end_function:
-            if (!leave(in.arity)) {
-                return std::nullopt;
+        TARGET(nop) {
+            NEXT();
+        }
+        TARGET(if) {
+            if (*--sp == 0) {
+                pc = in + offset(in->a);
             }
-            break;
-        case detail::op_call:
-            if (auto trap = call(in.a)) {
-                return trap;
+            NEXT();
+        }
+        TARGET(jump) {
+            pc = in + offset(in->a);
+            NEXT();
+        }
+        TARGET(jump_if) {
+            if (*--sp != 0) {
+                pc = in + offset(in->a);
             }
-            break;
-        case detail::op_call_indirect: {
-            sp_ = sp - 1;
-            const std::uint64_t i = sp[-1];
+            NEXT();
+        }
+        TARGET(br_if) {
+            if (*--sp == 0) {
+                NEXT();
+            }
+            goto branch;
+        }
+        TARGET(br) {
+            goto branch;
+        }
+        TARGET(br_table) {
+            const std::uint64_t i = *--sp;
+            const Function& f = *frame->function;
+            const Branch& e = f.branches[in->a + static_cast<std::size_t>(std::min(i, in->b))];
+            std::uint64_t* const dest = locals + f.locals.size() + e.height;
+            std::copy_n(sp - e.arity, e.arity, dest);
+            sp = dest + e.arity;
+            pc = f.code.data() + e.target;
+            NEXT();
+        }
+        TARGET(return) {
+            const auto arity = static_cast<std::uint32_t>(in->b);
+            if (arity == 1) {
+                locals[0] = sp[-1];
+            } else {
+                std::copy_n(sp - arity, arity, locals);
+            }
+            sp = locals + arity;
+            goto leave;
+        }
+        TARGET(call) {
+            callee = &functions[in->a];
+            goto enter;
+        }
+        TARGET(call_host) {
+            callee = &functions[in->a];
+            goto host;
+        }
+        TARGET(call_indirect) {
+            const std::uint64_t i = *--sp;
             if (i >= m_.table_functions.size()) {
-                return Trap::indirect_call_out_of_range;
+                TRAP(Trap::indirect_call_out_of_range);
             }
             const std::uint32_t fi = m_.table_functions[static_cast<std::size_t>(i)];
             if (fi == detail::null_function) {
-                return Trap::indirect_call_to_null;
+                TRAP(Trap::indirect_call_to_null);
             }
-            if (m_.type_ids[m_.functions[fi].type] != m_.type_ids[in.a]) {
-                return Trap::indirect_call_type_mismatch;
+            if (m_.type_ids[functions[fi].type] != m_.type_ids[in->a]) {
+                TRAP(Trap::indirect_call_type_mismatch);
             }
-            if (auto trap = call(fi)) {
-                return trap;
+            callee = &functions[fi];
+            if (callee->host != Host::none) {
+                goto host;
             }
-            break;
+            goto enter;
         }
-        case detail::op_drop:
-            sp_ = sp - 1;
-            break;
-        case detail::op_select:
-            sp_ = sp - 2;
-            if (sp[-1] == 0) {
-                sp[-3] = sp[-2];
+        TARGET(drop) {
+            --sp;
+            NEXT();
+        }
+        TARGET(select) {
+            sp -= 2;
+            if (sp[1] == 0) {
+                sp[-1] = sp[0];
             }
-            break;
-        case detail::op_local_get:
-            *sp = frames_[depth_ - 1].locals[in.a];
-            sp_ = sp + 1;
-            break;
-        case detail::op_local_set:
-            frames_[depth_ - 1].locals[in.a] = sp[-1];
-            sp_ = sp - 1;
-            break;
-        case detail::op_local_tee:
-            frames_[depth_ - 1].locals[in.a] = sp[-1];
-            break;
-        case detail::op_global_get:
-            *sp = globals_[in.a];
-            sp_ = sp + 1;
-            break;
-        case detail::op_global_set:
-            globals_[in.a] = sp[-1];
-            sp_ = sp - 1;
-            break;
-
-            // Loads: the address is replaced by the value.
-#define CEXCHAIN_VM_LOAD(opcode, width, convert)                                                   \
-    case opcode: {                                                                                 \
-        const std::uint64_t addr = sp[-1] + in.b;                                                  \
-        if (!in_bounds(addr, width)) {                                                             \
-            return Trap::out_of_bounds;                                                            \
-        }                                                                                          \
-        const std::uint64_t raw = load_le<width>(at(addr));                                        \
-        sp[-1] = convert;                                                                          \
-        break;                                                                                     \
-    }
-            CEXCHAIN_VM_LOAD(0x28, 4, raw) // i32.load
-            CEXCHAIN_VM_LOAD(0x29, 8, raw) // i64.load
-            CEXCHAIN_VM_LOAD(0x2C, 1,
-                             i32(std::int32_t{static_cast<std::int8_t>(raw)})) // i32.load8_s
-            CEXCHAIN_VM_LOAD(0x2D, 1, raw)                                     // i32.load8_u
-            CEXCHAIN_VM_LOAD(0x2E, 2,
-                             i32(std::int32_t{static_cast<std::int16_t>(raw)})) // i32.load16_s
-            CEXCHAIN_VM_LOAD(0x2F, 2, raw)                                      // i32.load16_u
-            CEXCHAIN_VM_LOAD(0x30, 1, i64(static_cast<std::int8_t>(raw)))       // i64.load8_s
-            CEXCHAIN_VM_LOAD(0x31, 1, raw)                                      // i64.load8_u
-            CEXCHAIN_VM_LOAD(0x32, 2, i64(static_cast<std::int16_t>(raw)))      // i64.load16_s
-            CEXCHAIN_VM_LOAD(0x33, 2, raw)                                      // i64.load16_u
-            CEXCHAIN_VM_LOAD(0x34, 4, i64(static_cast<std::int32_t>(raw)))      // i64.load32_s
-            CEXCHAIN_VM_LOAD(0x35, 4, raw)                                      // i64.load32_u
-#undef CEXCHAIN_VM_LOAD
-
-            // Stores: address and value are popped.
-#define CEXCHAIN_VM_STORE(opcode, width)                                                           \
-    case opcode: {                                                                                 \
-        const std::uint64_t addr = sp[-2] + in.b;                                                  \
-        if (!in_bounds(addr, width)) {                                                             \
-            return Trap::out_of_bounds;                                                            \
-        }                                                                                          \
-        store_le<width>(at(addr), sp[-1]);                                                         \
-        dirty_[static_cast<std::size_t>(addr >> detail::ArenaData::chunk_shift)] = 1;              \
-        dirty_[static_cast<std::size_t>((addr + (width - 1)) >> detail::ArenaData::chunk_shift)] = \
-            1;                                                                                     \
-        sp_ = sp - 2;                                                                              \
-        break;                                                                                     \
-    }
-            CEXCHAIN_VM_STORE(0x36, 4) // i32.store
-            CEXCHAIN_VM_STORE(0x37, 8) // i64.store
-            CEXCHAIN_VM_STORE(0x3A, 1) // i32.store8
-            CEXCHAIN_VM_STORE(0x3B, 2) // i32.store16
-            CEXCHAIN_VM_STORE(0x3C, 1) // i64.store8
-            CEXCHAIN_VM_STORE(0x3D, 2) // i64.store16
-            CEXCHAIN_VM_STORE(0x3E, 4) // i64.store32
-#undef CEXCHAIN_VM_STORE
-
-        case detail::op_memory_size:
-            *sp = memory_size_ / page_size;
-            sp_ = sp + 1;
-            break;
-        case detail::op_memory_grow: {
+            NEXT();
+        }
+        TARGET(local_get) {
+            *sp++ = locals[in->a];
+            NEXT();
+        }
+        TARGET(local_set) {
+            locals[in->a] = *--sp;
+            NEXT();
+        }
+        TARGET(local_tee) {
+            locals[in->a] = sp[-1];
+            NEXT();
+        }
+        TARGET(global_get) {
+            *sp++ = globals[in->a];
+            NEXT();
+        }
+        TARGET(global_set) {
+            globals[in->a] = *--sp;
+            NEXT();
+        }
+        TARGET(const) {
+            *sp++ = in->b;
+            NEXT();
+        }
+        TARGET(memory_size) {
+            *sp++ = memory_size / page_size;
+            NEXT();
+        }
+        TARGET(memory_grow) {
             const std::uint64_t delta = sp[-1];
-            const std::uint64_t pages = memory_size_ / page_size;
-            if (pages + delta > max_pages_) {
-                if (!charge(1)) {
-                    return Trap::out_of_fuel;
-                }
-                sp[-1] = mask32;
-            } else {
-                if (!charge(1 + 1024 * delta)) {
-                    return Trap::out_of_fuel;
-                }
-                memory_size_ += delta * page_size;
+            const std::uint64_t pages = memory_size / page_size;
+            const bool grows = pages + delta <= max_pages_;
+            const std::uint64_t cost = grows ? 1 + 1024 * delta : 1;
+            if (cost > fuel) {
+                TRAP(Trap::out_of_fuel);
+            }
+            fuel -= cost;
+            if (grows) {
+                memory_size += delta * page_size;
+                memory_size_ = memory_size;
                 sp[-1] = pages;
+            } else {
+                sp[-1] = mask32;
             }
-            break;
+            NEXT();
         }
-        case detail::op_i32_const:
-        case detail::op_i64_const:
-            *sp = in.b;
-            sp_ = sp + 1;
-            break;
-
-        // i32 comparisons.
-        case 0x45: // eqz
-            sp[-1] = flag(lo32(sp[-1]) == 0);
-            break;
-#define CEXCHAIN_VM_BINARY(opcode, expr)                                                           \
-    case opcode: {                                                                                 \
-        const std::uint64_t a = sp[-2];                                                            \
-        const std::uint64_t b = sp[-1];                                                            \
-        sp[-2] = (expr);                                                                           \
-        sp_ = sp - 1;                                                                              \
-        break;                                                                                     \
-    }
-            CEXCHAIN_VM_BINARY(0x46, flag(lo32(a) == lo32(b))) // eq
-            CEXCHAIN_VM_BINARY(0x47, flag(lo32(a) != lo32(b))) // ne
-            CEXCHAIN_VM_BINARY(0x48, flag(s32(a) < s32(b)))    // lt_s
-            CEXCHAIN_VM_BINARY(0x49, flag(lo32(a) < lo32(b)))  // lt_u
-            CEXCHAIN_VM_BINARY(0x4A, flag(s32(a) > s32(b)))    // gt_s
-            CEXCHAIN_VM_BINARY(0x4B, flag(lo32(a) > lo32(b)))  // gt_u
-            CEXCHAIN_VM_BINARY(0x4C, flag(s32(a) <= s32(b)))   // le_s
-            CEXCHAIN_VM_BINARY(0x4D, flag(lo32(a) <= lo32(b))) // le_u
-            CEXCHAIN_VM_BINARY(0x4E, flag(s32(a) >= s32(b)))   // ge_s
-            CEXCHAIN_VM_BINARY(0x4F, flag(lo32(a) >= lo32(b))) // ge_u
-
-        // i64 comparisons.
-        case 0x50: // eqz
-            sp[-1] = flag(sp[-1] == 0);
-            break;
-            CEXCHAIN_VM_BINARY(0x51, flag(a == b))           // eq
-            CEXCHAIN_VM_BINARY(0x52, flag(a != b))           // ne
-            CEXCHAIN_VM_BINARY(0x53, flag(s64(a) < s64(b)))  // lt_s
-            CEXCHAIN_VM_BINARY(0x54, flag(a < b))            // lt_u
-            CEXCHAIN_VM_BINARY(0x55, flag(s64(a) > s64(b)))  // gt_s
-            CEXCHAIN_VM_BINARY(0x56, flag(a > b))            // gt_u
-            CEXCHAIN_VM_BINARY(0x57, flag(s64(a) <= s64(b))) // le_s
-            CEXCHAIN_VM_BINARY(0x58, flag(a <= b))           // le_u
-            CEXCHAIN_VM_BINARY(0x59, flag(s64(a) >= s64(b))) // ge_s
-            CEXCHAIN_VM_BINARY(0x5A, flag(a >= b))           // ge_u
-
-        // i32 arithmetic.
-        case 0x67: // clz
-            sp[-1] = static_cast<std::uint64_t>(std::countl_zero(lo32(sp[-1])));
-            break;
-        case 0x68: // ctz
-            sp[-1] = static_cast<std::uint64_t>(std::countr_zero(lo32(sp[-1])));
-            break;
-        case 0x69: // popcnt
-            sp[-1] = static_cast<std::uint64_t>(std::popcount(lo32(sp[-1])));
-            break;
-            CEXCHAIN_VM_BINARY(0x6A, i32(lo32(a + b)))                                   // add
-            CEXCHAIN_VM_BINARY(0x6B, i32(lo32(a - b)))                                   // sub
-            CEXCHAIN_VM_BINARY(0x6C, i32(lo32(a) * lo32(b)))                             // mul
-            CEXCHAIN_VM_BINARY(0x71, i32(lo32(a) & lo32(b)))                             // and
-            CEXCHAIN_VM_BINARY(0x72, i32(lo32(a) | lo32(b)))                             // or
-            CEXCHAIN_VM_BINARY(0x73, i32(lo32(a) ^ lo32(b)))                             // xor
-            CEXCHAIN_VM_BINARY(0x74, i32(lo32(a) << (b & 31U)))                          // shl
-            CEXCHAIN_VM_BINARY(0x75, i32(s32(a) >> (b & 31U)))                           // shr_s
-            CEXCHAIN_VM_BINARY(0x76, i32(lo32(a) >> (b & 31U)))                          // shr_u
-            CEXCHAIN_VM_BINARY(0x77, i32(std::rotl(lo32(a), static_cast<int>(b & 31U)))) // rotl
-            CEXCHAIN_VM_BINARY(0x78, i32(std::rotr(lo32(a), static_cast<int>(b & 31U)))) // rotr
-        case 0x6D: {                                                                     // div_s
-            const std::int32_t b = s32(sp[-1]);
-            const std::int32_t a = s32(sp[-2]);
-            if (b == 0) {
-                return Trap::divide_by_zero;
-            }
-            if (a == INT32_MIN && b == -1) {
-                return Trap::integer_overflow;
-            }
-            sp[-2] = i32(a / b);
-            sp_ = sp - 1;
-            break;
-        }
-        case 0x6E: { // div_u
-            const std::uint32_t b = lo32(sp[-1]);
-            if (b == 0) {
-                return Trap::divide_by_zero;
-            }
-            sp[-2] = i32(lo32(sp[-2]) / b);
-            sp_ = sp - 1;
-            break;
-        }
-        case 0x6F: { // rem_s
-            const std::int32_t b = s32(sp[-1]);
-            const std::int32_t a = s32(sp[-2]);
-            if (b == 0) {
-                return Trap::divide_by_zero;
-            }
-            sp[-2] = b == -1 ? std::uint64_t{0} : i32(a % b);
-            sp_ = sp - 1;
-            break;
-        }
-        case 0x70: { // rem_u
-            const std::uint32_t b = lo32(sp[-1]);
-            if (b == 0) {
-                return Trap::divide_by_zero;
-            }
-            sp[-2] = i32(lo32(sp[-2]) % b);
-            sp_ = sp - 1;
-            break;
-        }
-
-        // i64 arithmetic.
-        case 0x79: // clz
-            sp[-1] = static_cast<std::uint64_t>(std::countl_zero(sp[-1]));
-            break;
-        case 0x7A: // ctz
-            sp[-1] = static_cast<std::uint64_t>(std::countr_zero(sp[-1]));
-            break;
-        case 0x7B: // popcnt
-            sp[-1] = static_cast<std::uint64_t>(std::popcount(sp[-1]));
-            break;
-            CEXCHAIN_VM_BINARY(0x7C, a + b)                                   // add
-            CEXCHAIN_VM_BINARY(0x7D, a - b)                                   // sub
-            CEXCHAIN_VM_BINARY(0x7E, a * b)                                   // mul
-            CEXCHAIN_VM_BINARY(0x83, a & b)                                   // and
-            CEXCHAIN_VM_BINARY(0x84, a | b)                                   // or
-            CEXCHAIN_VM_BINARY(0x85, a ^ b)                                   // xor
-            CEXCHAIN_VM_BINARY(0x86, a << (b & 63U))                          // shl
-            CEXCHAIN_VM_BINARY(0x87, i64(s64(a) >> (b & 63U)))                // shr_s
-            CEXCHAIN_VM_BINARY(0x88, a >> (b & 63U))                          // shr_u
-            CEXCHAIN_VM_BINARY(0x89, std::rotl(a, static_cast<int>(b & 63U))) // rotl
-            CEXCHAIN_VM_BINARY(0x8A, std::rotr(a, static_cast<int>(b & 63U))) // rotr
-#undef CEXCHAIN_VM_BINARY
-        case 0x7F: { // div_s
-            const std::int64_t b = s64(sp[-1]);
-            const std::int64_t a = s64(sp[-2]);
-            if (b == 0) {
-                return Trap::divide_by_zero;
-            }
-            if (a == INT64_MIN && b == -1) {
-                return Trap::integer_overflow;
-            }
-            sp[-2] = i64(a / b);
-            sp_ = sp - 1;
-            break;
-        }
-        case 0x80: { // div_u
-            const std::uint64_t b = sp[-1];
-            if (b == 0) {
-                return Trap::divide_by_zero;
-            }
-            sp[-2] /= b;
-            sp_ = sp - 1;
-            break;
-        }
-        case 0x81: { // rem_s
-            const std::int64_t b = s64(sp[-1]);
-            const std::int64_t a = s64(sp[-2]);
-            if (b == 0) {
-                return Trap::divide_by_zero;
-            }
-            sp[-2] = b == -1 ? std::uint64_t{0} : i64(a % b);
-            sp_ = sp - 1;
-            break;
-        }
-        case 0x82: { // rem_u
-            const std::uint64_t b = sp[-1];
-            if (b == 0) {
-                return Trap::divide_by_zero;
-            }
-            sp[-2] %= b;
-            sp_ = sp - 1;
-            break;
-        }
-
-        // Conversions and sign extension.
-        case 0xA7: // i32.wrap_i64
-            sp[-1] &= mask32;
-            break;
-        case 0xAC: // i64.extend_i32_s
-            sp[-1] = i64(s32(sp[-1]));
-            break;
-        case 0xAD: // i64.extend_i32_u
-            sp[-1] &= mask32;
-            break;
-        case 0xC0: // i32.extend8_s
-            sp[-1] = i32(std::int32_t{static_cast<std::int8_t>(sp[-1])});
-            break;
-        case 0xC1: // i32.extend16_s
-            sp[-1] = i32(std::int32_t{static_cast<std::int16_t>(sp[-1])});
-            break;
-        case 0xC2: // i64.extend8_s
-            sp[-1] = i64(static_cast<std::int8_t>(sp[-1]));
-            break;
-        case 0xC3: // i64.extend16_s
-            sp[-1] = i64(static_cast<std::int16_t>(sp[-1]));
-            break;
-        case 0xC4: // i64.extend32_s
-            sp[-1] = i64(static_cast<std::int32_t>(sp[-1]));
-            break;
-
         // Bulk memory: charged by size once the operands are known.
-        case detail::op_memory_init: {
+        TARGET(memory_init) {
             const std::uint64_t n = sp[-1];
             const std::uint64_t s = sp[-2];
             const std::uint64_t d = sp[-3];
-            sp_ = sp - 3;
-            if (!charge(1 + per64(n))) {
-                return Trap::out_of_fuel;
+            sp -= 3;
+            if (1 + per64(n) > fuel) {
+                TRAP(Trap::out_of_fuel);
             }
-            const ByteView segment = segments_[in.a];
-            if (s + n > segment.size() || !in_bounds(d, n)) {
-                return Trap::out_of_bounds;
+            fuel -= 1 + per64(n);
+            const ByteView segment = segments_[in->a];
+            if (s + n > segment.size() || d + n > memory_size) {
+                TRAP(Trap::out_of_bounds);
             }
             std::ranges::copy(
-                segment.subspan(static_cast<std::size_t>(s), static_cast<std::size_t>(n)), at(d));
+                segment.subspan(static_cast<std::size_t>(s), static_cast<std::size_t>(n)),
+                memory + d);
             arena_.mark(d, n);
-            break;
+            NEXT();
         }
-        case detail::op_data_drop:
-            segments_[in.a] = {};
-            break;
-        case detail::op_memory_copy: {
+        TARGET(data_drop) {
+            segments_[in->a] = {};
+            NEXT();
+        }
+        TARGET(memory_copy) {
             const std::uint64_t n = sp[-1];
             const std::uint64_t s = sp[-2];
             const std::uint64_t d = sp[-3];
-            sp_ = sp - 3;
-            if (!charge(1 + per64(n))) {
-                return Trap::out_of_fuel;
+            sp -= 3;
+            if (1 + per64(n) > fuel) {
+                TRAP(Trap::out_of_fuel);
             }
-            if (!in_bounds(s, n) || !in_bounds(d, n)) {
-                return Trap::out_of_bounds;
+            fuel -= 1 + per64(n);
+            if (s + n > memory_size || d + n > memory_size) {
+                TRAP(Trap::out_of_bounds);
             }
-            std::memmove(at(d), at(s), static_cast<std::size_t>(n));
+            std::memmove(memory + d, memory + s, static_cast<std::size_t>(n));
             arena_.mark(d, n);
-            break;
+            NEXT();
         }
-        case detail::op_memory_fill: {
+        TARGET(memory_fill) {
             const std::uint64_t n = sp[-1];
             const auto value = static_cast<std::uint8_t>(sp[-2]);
             const std::uint64_t d = sp[-3];
-            sp_ = sp - 3;
-            if (!charge(1 + per64(n))) {
-                return Trap::out_of_fuel;
+            sp -= 3;
+            if (1 + per64(n) > fuel) {
+                TRAP(Trap::out_of_fuel);
             }
-            if (!in_bounds(d, n)) {
-                return Trap::out_of_bounds;
+            fuel -= 1 + per64(n);
+            if (d + n > memory_size) {
+                TRAP(Trap::out_of_bounds);
             }
-            std::memset(at(d), value, static_cast<std::size_t>(n));
+            std::memset(memory + d, value, static_cast<std::size_t>(n));
             arena_.mark(d, n);
-            break;
+            NEXT();
         }
-        default:
-            // Validation admits no other operation.
-            return Trap::unreachable;
+
+        // Loads: the address is replaced by the value.
+#define CEXCHAIN_VM_LOAD(name, opcode, width)                                                      \
+    TARGET(name) {                                                                                 \
+        const std::uint64_t addr = sp[-1] + in->b;                                                 \
+        if (addr + (width) > memory_size) {                                                        \
+            TRAP(Trap::out_of_bounds);                                                             \
+        }                                                                                          \
+        sp[-1] = loaded<detail::op_##name>(load_le<width>(memory + addr));                         \
+        NEXT();                                                                                    \
+    }
+        CEXCHAIN_VM_LOADS(CEXCHAIN_VM_LOAD)
+#undef CEXCHAIN_VM_LOAD
+
+        // Stores: address and value are popped.
+#define CEXCHAIN_VM_STORE(name, opcode, width)                                                     \
+    TARGET(name) {                                                                                 \
+        const std::uint64_t addr = sp[-2] + in->b;                                                 \
+        if (addr + (width) > memory_size) {                                                        \
+            TRAP(Trap::out_of_bounds);                                                             \
+        }                                                                                          \
+        store_le<width>(memory + addr, sp[-1]);                                                    \
+        dirty[static_cast<std::size_t>(addr >> detail::ArenaData::chunk_shift)] = 1;               \
+        dirty[static_cast<std::size_t>((addr + ((width) - 1)) >>                                   \
+                                       detail::ArenaData::chunk_shift)] = 1;                       \
+        sp -= 2;                                                                                   \
+        NEXT();                                                                                    \
+    }
+        CEXCHAIN_VM_STORES(CEXCHAIN_VM_STORE)
+#undef CEXCHAIN_VM_STORE
+
+#define CEXCHAIN_VM_UNARY_OP(name, opcode)                                                         \
+    TARGET(name) {                                                                                 \
+        sp[-1] = unary<detail::op_##name>(sp[-1]);                                                 \
+        NEXT();                                                                                    \
+    }
+        CEXCHAIN_VM_UNARY(CEXCHAIN_VM_UNARY_OP)
+#undef CEXCHAIN_VM_UNARY_OP
+
+#define CEXCHAIN_VM_DIVISION_OP(name, opcode)                                                      \
+    TARGET(name) {                                                                                 \
+        if (const auto trap = divide<detail::op_##name>(sp[-2], sp[-1], sp[-2])) {                 \
+            TRAP(*trap);                                                                           \
+        }                                                                                          \
+        --sp;                                                                                      \
+        NEXT();                                                                                    \
+    }
+        CEXCHAIN_VM_DIVISION(CEXCHAIN_VM_DIVISION_OP)
+#undef CEXCHAIN_VM_DIVISION_OP
+
+#define CEXCHAIN_VM_BINARY_OP(name, opcode)                                                        \
+    TARGET(name) {                                                                                 \
+        sp[-2] = binary<detail::op_##name>(sp[-2], sp[-1]);                                        \
+        --sp;                                                                                      \
+        NEXT();                                                                                    \
+    }
+        CEXCHAIN_VM_BINARY(CEXCHAIN_VM_BINARY_OP)
+#undef CEXCHAIN_VM_BINARY_OP
+
+        // Fused instructions (see internal.hpp).
+#define CEXCHAIN_VM_FUSED_C(fused, name)                                                           \
+    TARGET(fused) {                                                                                \
+        sp[-1] = binary<detail::op_##name>(sp[-1], in->b);                                         \
+        NEXT();                                                                                    \
+    }
+#define CEXCHAIN_VM_FUSED_L(fused, name)                                                           \
+    TARGET(fused) {                                                                                \
+        sp[-1] = binary<detail::op_##name>(sp[-1], locals[in->a]);                                 \
+        NEXT();                                                                                    \
+    }
+#define CEXCHAIN_VM_FUSED_LC(fused, name)                                                          \
+    TARGET(fused) {                                                                                \
+        *sp++ = binary<detail::op_##name>(locals[in->a], in->b);                                   \
+        NEXT();                                                                                    \
+    }
+#define CEXCHAIN_VM_FUSED_LL(fused, name)                                                          \
+    TARGET(fused) {                                                                                \
+        *sp++ = binary<detail::op_##name>(locals[in->a], locals[lo32(in->b)]);                     \
+        NEXT();                                                                                    \
+    }
+        CEXCHAIN_VM_BINARY_LIST(CEXCHAIN_VM_FUSED_C, CEXCHAIN_VM_WITH_C)
+        CEXCHAIN_VM_BINARY_LIST(CEXCHAIN_VM_FUSED_L, CEXCHAIN_VM_WITH_L)
+        CEXCHAIN_VM_BINARY_LIST(CEXCHAIN_VM_FUSED_LC, CEXCHAIN_VM_WITH_LC)
+        CEXCHAIN_VM_BINARY_LIST(CEXCHAIN_VM_FUSED_LL, CEXCHAIN_VM_WITH_LL)
+#define CEXCHAIN_VM_FUSED_IF(fused, name)                                                          \
+    TARGET(fused) {                                                                                \
+        sp -= 2;                                                                                   \
+        if (binary<detail::op_##name>(sp[0], sp[1]) == 0) {                                        \
+            pc = in + offset(in->a);                                                               \
+        }                                                                                          \
+        NEXT();                                                                                    \
+    }
+#define CEXCHAIN_VM_FUSED_JUMP_IF(fused, name)                                                     \
+    TARGET(fused) {                                                                                \
+        sp -= 2;                                                                                   \
+        if (binary<detail::op_##name>(sp[0], sp[1]) != 0) {                                        \
+            pc = in + offset(in->a);                                                               \
+        }                                                                                          \
+        NEXT();                                                                                    \
+    }
+        CEXCHAIN_VM_COMPARE_LIST(CEXCHAIN_VM_FUSED_IF, CEXCHAIN_VM_WITH_IF)
+        CEXCHAIN_VM_COMPARE_LIST(CEXCHAIN_VM_FUSED_JUMP_IF, CEXCHAIN_VM_WITH_JUMP_IF)
+#undef CEXCHAIN_VM_FUSED_IF
+#undef CEXCHAIN_VM_FUSED_JUMP_IF
+#define CEXCHAIN_VM_FUSED_BRANCH(fused, name, x, y, taken)                                         \
+    TARGET(fused) {                                                                                \
+        if ((binary<detail::op_##name>(x, y) != 0) == (taken)) {                                   \
+            pc = in + offset(in->a);                                                               \
+        }                                                                                          \
+        NEXT();                                                                                    \
+    }
+#define CEXCHAIN_VM_FUSED_C_IF(fused, name)                                                        \
+    CEXCHAIN_VM_FUSED_BRANCH(fused, name, *--sp, in->b, false)
+#define CEXCHAIN_VM_FUSED_C_JUMP_IF(fused, name)                                                   \
+    CEXCHAIN_VM_FUSED_BRANCH(fused, name, *--sp, in->b, true)
+#define CEXCHAIN_VM_FUSED_LL_IF(fused, name)                                                       \
+    CEXCHAIN_VM_FUSED_BRANCH(fused, name, locals[lo32(in->b)], locals[in->b >> 32U], false)
+#define CEXCHAIN_VM_FUSED_LL_JUMP_IF(fused, name)                                                  \
+    CEXCHAIN_VM_FUSED_BRANCH(fused, name, locals[lo32(in->b)], locals[in->b >> 32U], true)
+        CEXCHAIN_VM_COMPARE_LIST(CEXCHAIN_VM_FUSED_C_IF, CEXCHAIN_VM_WITH_C_IF)
+        CEXCHAIN_VM_COMPARE_LIST(CEXCHAIN_VM_FUSED_C_JUMP_IF, CEXCHAIN_VM_WITH_C_JUMP_IF)
+        CEXCHAIN_VM_COMPARE_LIST(CEXCHAIN_VM_FUSED_LL_IF, CEXCHAIN_VM_WITH_LL_IF)
+        CEXCHAIN_VM_COMPARE_LIST(CEXCHAIN_VM_FUSED_LL_JUMP_IF, CEXCHAIN_VM_WITH_LL_JUMP_IF)
+#undef CEXCHAIN_VM_FUSED_BRANCH
+#undef CEXCHAIN_VM_FUSED_C_IF
+#undef CEXCHAIN_VM_FUSED_C_JUMP_IF
+#undef CEXCHAIN_VM_FUSED_LL_IF
+#undef CEXCHAIN_VM_FUSED_LL_JUMP_IF
+#undef CEXCHAIN_VM_FUSED_C
+#undef CEXCHAIN_VM_FUSED_L
+#undef CEXCHAIN_VM_FUSED_LC
+#undef CEXCHAIN_VM_FUSED_LL
+
+#define CEXCHAIN_VM_FUSED_LOAD(fused, name, width)                                                 \
+    TARGET(fused) {                                                                                \
+        const std::uint64_t addr = locals[in->a] + in->b;                                          \
+        if (addr + (width) > memory_size) {                                                        \
+            TRAP(Trap::out_of_bounds);                                                             \
+        }                                                                                          \
+        *sp++ = loaded<detail::op_##name>(load_le<width>(memory + addr));                          \
+        NEXT();                                                                                    \
+    }
+        CEXCHAIN_VM_FUSED_LOADS(CEXCHAIN_VM_FUSED_LOAD)
+#undef CEXCHAIN_VM_FUSED_LOAD
+
+        TARGET(set_get) {
+            locals[in->a] = sp[-1];
+            sp[-1] = locals[lo32(in->b)];
+            NEXT();
+        }
+        TARGET(tee_jump_if) {
+            const std::uint64_t v = *--sp;
+            locals[lo32(in->b)] = v;
+            if (v != 0) {
+                pc = in + offset(in->a);
+            }
+            NEXT();
+        }
+        TARGET(set_jump) {
+            locals[lo32(in->b)] = *--sp;
+            pc = in + offset(in->a);
+            NEXT();
+        }
+        TARGET(if_l) {
+            if (locals[lo32(in->b)] == 0) {
+                pc = in + offset(in->a);
+            }
+            NEXT();
+        }
+        TARGET(jump_if_l) {
+            if (locals[lo32(in->b)] != 0) {
+                pc = in + offset(in->a);
+            }
+            NEXT();
+        }
+        TARGET(call_l) {
+            *sp++ = locals[lo32(in->b)];
+            callee = &functions[in->a];
+            goto enter;
+        }
+        TARGET(call_c) {
+            *sp++ = in->b;
+            callee = &functions[in->a];
+            goto enter;
+        }
+        TARGET(return_l) {
+            locals[0] = locals[in->a];
+            sp = locals + 1;
+            goto leave;
+        }
+        TARGET(const2) {
+            sp[0] = in->a;
+            sp[1] = in->b;
+            sp += 2;
+            NEXT();
+        }
+
+    default:
+        // Translation makes no other operation.
+        TRAP(Trap::unreachable);
+    }
+
+branch:
+    // br and br_if: moves the values the label takes down to its height.
+    {
+        const auto arity = static_cast<std::uint32_t>(in->b >> 32U);
+        std::uint64_t* const dest = locals + frame->function->locals.size() + lo32(in->b);
+        std::copy_n(sp - arity, arity, dest);
+        sp = dest + arity;
+        pc = in + offset(in->a);
+    }
+    NEXT();
+
+    // Calls, after their cost: a host function at once, or by entering it.
+host:
+    sp_ = sp;
+    fuel_ = fuel;
+    {
+        const std::optional<Trap> trap = call_host(callee->host);
+        sp = sp_;
+        fuel = fuel_;
+        if (trap) {
+            TRAP(*trap);
         }
     }
+    NEXT();
+
+enter:
+    if (frame + 1 == frames_ + max_call_depth) {
+        TRAP(Trap::call_depth_exceeded);
+    }
+    if (budget + callee->slots > stack_budget) {
+        TRAP(Trap::stack_budget_exceeded);
+    }
+    {
+        frame->pc = pc;
+        // Its declared locals start at zero. Most functions declare a few:
+        // the first slots are zeroed without a call (into the callee's
+        // operand stack, or the arena's slack, when it declares fewer).
+        for (std::size_t i = 0; i < detail::ArenaData::slack; ++i) {
+            sp[i] = 0;
+        }
+        if (callee->declared > detail::ArenaData::slack) {
+            std::fill(sp + detail::ArenaData::slack, sp + callee->declared, std::uint64_t{0});
+        }
+        locals = sp - callee->params;
+        sp += callee->declared;
+        *++frame = Frame{callee, nullptr, locals};
+        budget += callee->slots;
+        pc = callee->code.data();
+    }
+    NEXT();
+
+leave:
+    // Returns to the caller, the results in place.
+    budget -= frame->function->slots;
+    if (frame == frames_) {
+        depth_ = 0;
+        budget_ = budget;
+        fuel_ = fuel;
+        return std::nullopt;
+    }
+    --frame;
+    locals = frame->locals;
+    pc = frame->pc;
+    NEXT();
+
+out_of_run_fuel:
+    // The run costs more than the fuel left: step through it.
+    if constexpr (!Step) {
+        depth_ = static_cast<std::uint32_t>(frame - frames_) + 1;
+        budget_ = budget;
+        return loop<false, true>(in, sp, locals, fuel);
+    } else {
+        TRAP(Trap::out_of_fuel);
+    }
 }
+
+#undef TARGET
+#undef NEXT
+#undef TRAP
+#undef CEXCHAIN_VM_LABEL
+#if CEXCHAIN_VM_THREADED
+#pragma GCC diagnostic pop
+#endif
 
 /// The calling thread's arena. (Portable to wasm32: without threads it is a
 /// plain static.)
@@ -924,7 +1263,7 @@ bool Arena::clean() const noexcept {
 namespace detail {
 
 Result<Outcome> run(const Module& module, ByteView input, const crypto::Provider& provider,
-                    crypto::HashAlg hash, std::uint64_t fuel, Arena& arena) {
+                    crypto::HashAlg hash, std::uint64_t fuel, Arena& arena, Dispatch dispatch) {
     if (crypto::digest_size(hash) != 32) {
         return fail(Errc::unsupported, "contracts need a 32-byte ledger hash");
     }
@@ -934,10 +1273,10 @@ Result<Outcome> run(const Module& module, ByteView input, const crypto::Provider
     ArenaData& data = ArenaAccess::data(arena);
     if (data.busy) {
         Arena fresh;
-        return run(module, input, provider, hash, fuel, fresh);
+        return run(module, input, provider, hash, fuel, fresh, dispatch);
     }
     const Lease lease(data);
-    return Machine(module.data(), input, provider, hash, fuel, data).run();
+    return Machine(module.data(), input, provider, hash, fuel, data, dispatch).run();
 }
 
 Result<Outcome> run(const Module& module, ByteView input, const crypto::Provider& provider,

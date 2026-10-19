@@ -313,6 +313,146 @@ constexpr NumericType numeric_type(std::uint8_t op) noexcept {
     }
 }
 
+/// The interpreter's operation for a load, a store, or a numeric instruction
+/// (op_count for any other opcode).
+constexpr auto operations = [] {
+    std::array<std::uint16_t, 256> ops{};
+    ops.fill(op_count);
+#define CEXCHAIN_VM_MAP(name, opcode, ...) ops[opcode] = op_##name;
+    CEXCHAIN_VM_LOADS(CEXCHAIN_VM_MAP)
+    CEXCHAIN_VM_STORES(CEXCHAIN_VM_MAP)
+    CEXCHAIN_VM_UNARY(CEXCHAIN_VM_MAP)
+    CEXCHAIN_VM_DIVISION(CEXCHAIN_VM_MAP)
+    CEXCHAIN_VM_BINARY(CEXCHAIN_VM_MAP)
+#undef CEXCHAIN_VM_MAP
+    return ops;
+}();
+
+/// For each operation, the fused operation it ends (op_count if none): `c`
+/// after a const, `l` after a local.get, `lc` after local.get and const, `ll`
+/// after two local.gets; `load_l` a load after a local.get; `if_` and
+/// `jump_if` a comparison (plain, `_c`, or `_ll`) before an if or a br_if
+/// with nothing to move.
+struct Fusions {
+    std::array<std::uint16_t, op_count> c{};
+    std::array<std::uint16_t, op_count> l{};
+    std::array<std::uint16_t, op_count> lc{};
+    std::array<std::uint16_t, op_count> ll{};
+    std::array<std::uint16_t, op_count> load_l{};
+    std::array<std::uint16_t, op_count> if_{};
+    std::array<std::uint16_t, op_count> jump_if{};
+    /// Operations whose `a` is a branch target.
+    std::array<bool, op_count> branches{};
+    /// Operations on two locals, a and b (`_ll`).
+    std::array<bool, op_count> two_locals{};
+    /// Operations that cannot trap and continue a run: a `nop` after one
+    /// within its run adds its fuel to it.
+    std::array<bool, op_count> quiet{};
+};
+
+constexpr Fusions fusions = [] {
+    Fusions f;
+    f.c.fill(op_count);
+    f.l.fill(op_count);
+    f.lc.fill(op_count);
+    f.ll.fill(op_count);
+    f.load_l.fill(op_count);
+    f.if_.fill(op_count);
+    f.jump_if.fill(op_count);
+#define CEXCHAIN_VM_FUSE(table)                                                                    \
+    [&f](std::uint16_t fused, std::uint16_t name) {                                                \
+        f.table[name] = fused;                                                                     \
+    }
+#define CEXCHAIN_VM_C(fused, name) CEXCHAIN_VM_FUSE(c)(op_##fused, op_##name);
+#define CEXCHAIN_VM_L(fused, name) CEXCHAIN_VM_FUSE(l)(op_##fused, op_##name);
+#define CEXCHAIN_VM_LC(fused, name) CEXCHAIN_VM_FUSE(lc)(op_##fused, op_##name);
+#define CEXCHAIN_VM_LL(fused, name)                                                                \
+    CEXCHAIN_VM_FUSE(ll)(op_##fused, op_##name);                                                   \
+    f.two_locals[op_##fused] = true;
+#define CEXCHAIN_VM_LOAD_L(fused, name, width) CEXCHAIN_VM_FUSE(load_l)(op_##fused, op_##name);
+#define CEXCHAIN_VM_IF(fused, name)                                                                \
+    CEXCHAIN_VM_FUSE(if_)(op_##fused, op_##name);                                                  \
+    f.branches[op_##fused] = true;
+#define CEXCHAIN_VM_JUMP_IF(fused, name)                                                           \
+    CEXCHAIN_VM_FUSE(jump_if)(op_##fused, op_##name);                                              \
+    f.branches[op_##fused] = true;
+#define CEXCHAIN_VM_C_IF(fused, name)                                                              \
+    CEXCHAIN_VM_FUSE(if_)(op_##fused, op_##name##_c);                                              \
+    f.branches[op_##fused] = true;
+#define CEXCHAIN_VM_C_JUMP_IF(fused, name)                                                         \
+    CEXCHAIN_VM_FUSE(jump_if)(op_##fused, op_##name##_c);                                          \
+    f.branches[op_##fused] = true;
+#define CEXCHAIN_VM_LL_IF(fused, name)                                                             \
+    CEXCHAIN_VM_FUSE(if_)(op_##fused, op_##name##_ll);                                             \
+    f.branches[op_##fused] = true;
+#define CEXCHAIN_VM_LL_JUMP_IF(fused, name)                                                        \
+    CEXCHAIN_VM_FUSE(jump_if)(op_##fused, op_##name##_ll);                                         \
+    f.branches[op_##fused] = true;
+#define CEXCHAIN_VM_QUIET(name, ...) f.quiet[op_##name] = true;
+    CEXCHAIN_VM_BINARY_LIST(CEXCHAIN_VM_C, CEXCHAIN_VM_WITH_C)
+    CEXCHAIN_VM_BINARY_LIST(CEXCHAIN_VM_L, CEXCHAIN_VM_WITH_L)
+    CEXCHAIN_VM_BINARY_LIST(CEXCHAIN_VM_LC, CEXCHAIN_VM_WITH_LC)
+    CEXCHAIN_VM_BINARY_LIST(CEXCHAIN_VM_LL, CEXCHAIN_VM_WITH_LL)
+    CEXCHAIN_VM_FUSED_LOADS(CEXCHAIN_VM_LOAD_L)
+    CEXCHAIN_VM_COMPARE_LIST(CEXCHAIN_VM_IF, CEXCHAIN_VM_WITH_IF)
+    CEXCHAIN_VM_COMPARE_LIST(CEXCHAIN_VM_JUMP_IF, CEXCHAIN_VM_WITH_JUMP_IF)
+    CEXCHAIN_VM_COMPARE_LIST(CEXCHAIN_VM_C_IF, CEXCHAIN_VM_WITH_C_IF)
+    CEXCHAIN_VM_COMPARE_LIST(CEXCHAIN_VM_C_JUMP_IF, CEXCHAIN_VM_WITH_C_JUMP_IF)
+    CEXCHAIN_VM_COMPARE_LIST(CEXCHAIN_VM_LL_IF, CEXCHAIN_VM_WITH_LL_IF)
+    CEXCHAIN_VM_COMPARE_LIST(CEXCHAIN_VM_LL_JUMP_IF, CEXCHAIN_VM_WITH_LL_JUMP_IF)
+    CEXCHAIN_VM_UNARY(CEXCHAIN_VM_QUIET)
+    CEXCHAIN_VM_BINARY(CEXCHAIN_VM_QUIET)
+    CEXCHAIN_VM_BINARY_LIST(CEXCHAIN_VM_QUIET, CEXCHAIN_VM_WITH_C)
+    CEXCHAIN_VM_BINARY_LIST(CEXCHAIN_VM_QUIET, CEXCHAIN_VM_WITH_L)
+    CEXCHAIN_VM_BINARY_LIST(CEXCHAIN_VM_QUIET, CEXCHAIN_VM_WITH_LC)
+    CEXCHAIN_VM_BINARY_LIST(CEXCHAIN_VM_QUIET, CEXCHAIN_VM_WITH_LL)
+#undef CEXCHAIN_VM_FUSE
+#undef CEXCHAIN_VM_C
+#undef CEXCHAIN_VM_L
+#undef CEXCHAIN_VM_LC
+#undef CEXCHAIN_VM_LL
+#undef CEXCHAIN_VM_LOAD_L
+#undef CEXCHAIN_VM_IF
+#undef CEXCHAIN_VM_JUMP_IF
+#undef CEXCHAIN_VM_C_IF
+#undef CEXCHAIN_VM_C_JUMP_IF
+#undef CEXCHAIN_VM_LL_IF
+#undef CEXCHAIN_VM_LL_JUMP_IF
+#undef CEXCHAIN_VM_QUIET
+    for (const Op op : {op_if, op_jump, op_jump_if, op_br, op_br_if, op_tee_jump_if, op_set_jump,
+                        op_if_l, op_jump_if_l}) {
+        f.branches[op] = true;
+    }
+    for (const Op op :
+         {op_nop, op_drop, op_select, op_local_get, op_local_set, op_local_tee, op_global_get,
+          op_global_set, op_const, op_memory_size, op_data_drop, op_set_get, op_const2}) {
+        f.quiet[op] = true;
+    }
+    return f;
+}();
+
+/// Whether the operation's `a` is a branch target.
+constexpr bool branches(std::uint16_t op) noexcept {
+    return fusions.branches[op];
+}
+
+/// Fuel of `block` and `loop` markers carried to the next instruction at
+/// most; beyond it a `nop` takes them, so that an instruction's own fuel
+/// stays small.
+constexpr std::uint32_t max_carried = 1024;
+
+/// The most fuel one run charges at once (Instr::fuel); a longer run is
+/// split in two.
+constexpr std::uint32_t max_run_fuel = 0xFFFF;
+
+/// The most fuel of one fused instruction (else its parts stay apart).
+constexpr std::uint32_t max_fused_fuel = 0x3FFF;
+
+/// Fusion passes over a function: the second fuses a comparison made in the
+/// first with the branch after it. Bounded, so that a long chain (each pass
+/// fusing one more `i32.eqz` before a branch) cannot make loading slow.
+constexpr int fusion_passes = 3;
+
 constexpr std::uint8_t unknown = 0;
 constexpr std::array<std::uint8_t, 1> single_i32{type_i32};
 constexpr std::array<std::uint8_t, 1> single_i64{type_i64};
@@ -344,7 +484,8 @@ struct Ctrl {
 /// and translates it into the interpreter's form.
 class Translator {
 public:
-    Translator(const ModuleData& m, Function& f, Reader body) : m_(m), f_(f), r_(body) {}
+    Translator(const ModuleData& m, Function& f, Reader body, const Translation& translation)
+        : m_(m), f_(f), r_(body), translation_(translation) {}
 
     Status run() {
         const FuncType& type = m_.types[f_.type];
@@ -362,6 +503,15 @@ public:
             r_.fail(Errc::unsupported, "operand stack too high");
         }
         f_.max_height = static_cast<std::uint32_t>(max_height_);
+        f_.slots = static_cast<std::uint32_t>(f_.locals.size()) + f_.max_height;
+        f_.declared = static_cast<std::uint32_t>(f_.locals.size()) - f_.params;
+        if (!r_.failed()) {
+            // A fused instruction can be the first part of another (a
+            // comparison before a branch).
+            for (int pass = 0; translation_.fuse && pass < fusion_passes && fuse(); ++pass) {
+            }
+            runs();
+        }
         return r_.status();
     }
 
@@ -442,10 +592,207 @@ private:
         return static_cast<std::uint32_t>(f_.code.size());
     }
 
-    Instr& emit(std::uint16_t op) {
+    /// Appends an instruction of `cost` fuel, plus that of the markers just
+    /// before it.
+    Instr& emit(Op op, std::uint32_t cost = 1) {
         Instr in;
         in.op = op;
+        f_.costs.push_back(static_cast<std::uint16_t>(cost + carried_));
+        starts_.push_back(start_next_ || f_.code.empty() ? 1 : 0);
+        carried_ = 0;
+        start_next_ = false;
         return f_.code.emplace_back(in);
+    }
+
+    /// Ends the current run after the instruction just emitted: what comes
+    /// next is reached by a branch, after a call returns, or after an
+    /// instruction whose fuel depends on its operands.
+    void end_run() { start_next_ = true; }
+
+    /// A `block` or `loop` marker: its fuel goes to the next instruction.
+    void marker() {
+        if (++carried_ >= max_carried) {
+            emit(op_nop, 0);
+        }
+    }
+
+    /// The fused instruction for the `n` instructions from `i`, or nothing.
+    /// None of them after the first may start a run: no branch lands there.
+    [[nodiscard]] std::optional<Instr> fused(const std::vector<Instr>& code,
+                                             const std::vector<std::uint8_t>& starts, std::size_t i,
+                                             std::size_t n) const {
+        if (i + n > code.size()) {
+            return std::nullopt;
+        }
+        for (std::size_t k = i + 1; k < i + n; ++k) {
+            if (starts[k] != 0) {
+                return std::nullopt;
+            }
+        }
+        const Instr& x = code[i];
+        const Instr& y = code[i + 1];
+        Instr out;
+        if (n == 3 && x.op == op_local_get) {
+            const std::uint16_t z = code[i + 2].op;
+            if (y.op == op_const && fusions.lc[z] != op_count) {
+                out.op = fusions.lc[z];
+                out.a = x.a;
+                out.b = y.b;
+                return out;
+            }
+            if (y.op == op_local_get && fusions.ll[z] != op_count) {
+                out.op = fusions.ll[z];
+                out.a = x.a;
+                out.b = y.a;
+                return out;
+            }
+            return std::nullopt;
+        }
+        if (n != 2) {
+            return std::nullopt;
+        }
+        if (x.op == op_const && fusions.c[y.op] != op_count) {
+            out.op = fusions.c[y.op];
+            out.b = x.b;
+        } else if (x.op == op_local_get && fusions.l[y.op] != op_count) {
+            out.op = fusions.l[y.op];
+            out.a = x.a;
+        } else if (x.op == op_local_get && fusions.load_l[y.op] != op_count) {
+            out.op = fusions.load_l[y.op];
+            out.a = x.a;
+            out.b = y.b;
+        } else if (x.op == op_local_set && y.op == op_local_get) {
+            out.op = op_set_get;
+            out.a = x.a;
+            out.b = y.a;
+        } else if (x.op == op_local_tee && y.op == op_jump_if) {
+            out.op = op_tee_jump_if;
+            out.a = y.a;
+            out.b = x.a;
+        } else if ((x.op == op_i32_eqz || x.op == op_i64_eqz) &&
+                   (y.op == op_if || y.op == op_jump_if)) {
+            // A branch on a value being zero is a branch on it not being so.
+            out.op = y.op == op_if ? op_jump_if : op_if;
+            out.a = y.a;
+        } else if ((y.op == op_if && fusions.if_[x.op] != op_count) ||
+                   (y.op == op_jump_if && fusions.jump_if[x.op] != op_count)) {
+            out.op = y.op == op_if ? fusions.if_[x.op] : fusions.jump_if[x.op];
+            out.a = y.a;
+            // The comparison's own operands: none, a const, or two locals.
+            out.b = fusions.two_locals[x.op] ? x.a | (x.b << 32U) : x.b;
+        } else if (x.op == op_local_get && (y.op == op_if || y.op == op_jump_if)) {
+            out.op = y.op == op_if ? op_if_l : op_jump_if_l;
+            out.a = y.a;
+            out.b = x.a;
+        } else if (x.op == op_local_set && y.op == op_jump) {
+            out.op = op_set_jump;
+            out.a = y.a;
+            out.b = x.a;
+        } else if ((x.op == op_local_get || x.op == op_const) && y.op == op_call) {
+            out.op = x.op == op_local_get ? op_call_l : op_call_c;
+            out.a = y.a;
+            out.b = x.op == op_local_get ? x.a : x.b;
+        } else if (x.op == op_local_get && y.op == op_return && y.b == 1) {
+            out.op = op_return_l;
+            out.a = x.a;
+        } else if (x.op == op_const && y.op == op_const && x.b <= 0xFFFF'FFFF) {
+            out.op = op_const2;
+            out.a = static_cast<std::uint32_t>(x.b);
+            out.b = y.b;
+        } else {
+            return std::nullopt;
+        }
+        return out;
+    }
+
+    /// Replaces frequent sequences within a run by one instruction each, of
+    /// their fuel together; false if there were none.
+    bool fuse() {
+        const std::vector<Instr> code = std::move(f_.code);
+        const std::vector<std::uint16_t> costs = std::move(f_.costs);
+        const std::vector<std::uint8_t> starts = std::move(starts_);
+        f_.code.clear();
+        f_.costs.clear();
+        starts_.clear();
+        // Where each instruction went (for those that start a fused one).
+        std::vector<std::uint32_t> moved(code.size());
+        auto fuel = [&](std::size_t i, std::size_t n) {
+            std::uint32_t sum = 0;
+            for (std::size_t k = i; k < i + n; ++k) {
+                sum += costs[k];
+            }
+            return sum;
+        };
+        for (std::size_t i = 0; i < code.size();) {
+            std::size_t n = 3;
+            std::optional<Instr> in = fused(code, starts, i, n);
+            if (!in) {
+                n = 2;
+                in = fused(code, starts, i, n);
+            }
+            if (in && fuel(i, n) > max_fused_fuel) {
+                in.reset();
+            }
+            if (!in) {
+                n = 1;
+                in = code[i];
+                if (in->op == op_nop && starts[i] == 0 && !f_.code.empty() &&
+                    fusions.quiet[f_.code.back().op] &&
+                    f_.costs.back() + costs[i] <= max_fused_fuel) {
+                    // The instruction before it in its run can take its fuel.
+                    f_.costs.back() = static_cast<std::uint16_t>(f_.costs.back() + costs[i]);
+                    moved[i] = size() - 1;
+                    ++i;
+                    continue;
+                }
+            }
+            moved[i] = size();
+            f_.code.push_back(*in);
+            f_.costs.push_back(static_cast<std::uint16_t>(fuel(i, n)));
+            starts_.push_back(starts[i]);
+            i += n;
+        }
+        // Targets start runs, so they are never inside a fused instruction.
+        for (Instr& in : f_.code) {
+            if (branches(in.op)) {
+                in.a = moved[in.a];
+            }
+        }
+        for (Branch& b : f_.branches) {
+            b.target = moved[b.target];
+        }
+        return f_.code.size() < code.size();
+    }
+
+    /// Charges each run's fuel at its first instruction, splitting runs whose
+    /// fuel would not fit, and makes branch targets offsets from the branch.
+    void runs() {
+        for (std::size_t i = 0; i < f_.code.size(); ++i) {
+            Instr& in = f_.code[i];
+            if (branches(in.op)) {
+                in.a = static_cast<std::uint32_t>(in.a - static_cast<std::uint32_t>(i));
+            }
+        }
+        std::size_t start = 0;
+        std::uint32_t fuel = 0;
+        auto close = [&] {
+            if (fuel != 0) {
+                f_.code[start].op = static_cast<std::uint16_t>(f_.code[start].op + charged);
+                f_.code[start].fuel = static_cast<std::uint16_t>(fuel);
+            }
+        };
+        for (std::size_t i = 0; i < f_.code.size(); ++i) {
+            if (i == 0 || starts_[i] != 0 || !translation_.runs ||
+                fuel + f_.costs[i] > max_run_fuel) {
+                if (i != 0) {
+                    close();
+                }
+                start = i;
+                fuel = 0;
+            }
+            fuel += f_.costs[i];
+        }
+        close();
     }
 
     /// The label `depth` levels out, or null (after failing) if there is none.
@@ -457,11 +804,10 @@ private:
         return &ctrls_[ctrls_.size() - 1 - depth];
     }
 
-    /// Points the instruction at index `at` (br or br_if) at the label.
+    /// Points the instruction at index `at` (a branch) at the label.
     void target(Ctrl& c, std::uint32_t at) {
         Instr& in = f_.code[at];
-        in.arity = static_cast<std::uint16_t>(c.label_types().size());
-        in.b = c.height;
+        in.b = c.height | (std::uint64_t{c.label_types().size()} << 32U);
         if (c.kind == Kind::loop) {
             in.a = c.loop_target;
         } else {
@@ -550,6 +896,7 @@ private:
         switch (op) {
         case 0x00: // unreachable
             emit(op_unreachable);
+            end_run();
             unreachable();
             return false;
         case 0x01: // nop
@@ -564,7 +911,18 @@ private:
             }
             pop(ins);
             const std::uint32_t at = size();
-            emit(op == 0x04 ? op_if : op_nop);
+            if (op == 0x02) {
+                marker();
+            } else if (op == 0x03) {
+                // Branches to the loop resume after its marker, so its fuel
+                // is charged here, and its body starts a run.
+                marker();
+                emit(op_nop, 0);
+                end_run();
+            } else {
+                emit(op_if);
+                end_run();
+            }
             push_ctrl(op == 0x02 ? Kind::block : op == 0x03 ? Kind::loop : Kind::if_, ins, outs);
             if (op == 0x04 && !r_.failed()) {
                 ctrls_.back().if_instr = at;
@@ -578,7 +936,8 @@ private:
             }
             Ctrl c = pop_ctrl();
             const std::uint32_t at = size();
-            emit(op_else);
+            emit(op_jump, 0);
+            end_run();
             c.fixups.push_back(at);
             f_.code[c.if_instr].a = size();
             push_ctrl(Kind::else_, c.ins, c.outs);
@@ -595,6 +954,13 @@ private:
                 r_.fail(Errc::malformed, "if without else must keep its type");
                 return false;
             }
+            // Reached by a branch (or a false condition) too: markers inside
+            // the block are charged before it ends, and a run starts after.
+            const bool target =
+                !c.fixups.empty() || !c.branch_fixups.empty() || c.if_instr != no_instr;
+            if (target && carried_ != 0) {
+                emit(op_nop, 0);
+            }
             const std::uint32_t next = size();
             for (const std::uint32_t at : c.fixups) {
                 f_.code[at].a = next;
@@ -605,11 +971,14 @@ private:
             if (c.if_instr != no_instr) {
                 f_.code[c.if_instr].a = next;
             }
+            if (target) {
+                end_run();
+            }
             push(c.outs);
             if (!ctrls_.empty()) {
                 return false;
             }
-            emit(op_end_function).arity = static_cast<std::uint16_t>(c.outs.size());
+            emit(op_return, 0).b = c.outs.size();
             if (!r_.done()) {
                 r_.fail(Errc::malformed, "code after the function's end");
             }
@@ -625,9 +994,15 @@ private:
                 pop(type_i32);
             }
             const Types ts = c->label_types();
+            // Nothing to move when the label's values are already where the
+            // label wants them (code after an unconditional branch, never
+            // run, keeps the general form).
+            const bool in_place =
+                !ctrls_.back().unreachable && vals_.size() == c->height + ts.size();
             pop(ts);
             const std::uint32_t at = size();
-            emit(op == 0x0C ? op_br : op_br_if);
+            emit(op == 0x0C ? (in_place ? op_jump : op_br) : (in_place ? op_jump_if : op_br_if));
+            end_run();
             target(*c, at);
             if (op == 0x0C) {
                 unreachable();
@@ -657,6 +1032,7 @@ private:
             pop(type_i32);
             const std::size_t arity = label(depths.back())->label_types().size();
             Instr& in = emit(op_br_table);
+            end_run();
             in.a = static_cast<std::uint32_t>(f_.branches.size());
             in.b = n;
             for (std::uint32_t i = 0; i < n; ++i) {
@@ -684,7 +1060,8 @@ private:
         }
         case 0x0F: // return
             pop(ctrls_.front().outs);
-            emit(op_return).arity = static_cast<std::uint16_t>(ctrls_.front().outs.size());
+            emit(op_return).b = ctrls_.front().outs.size();
+            end_run();
             unreachable();
             return false;
         case 0x10: { // call
@@ -699,7 +1076,8 @@ private:
             const FuncType& t = m_.types[m_.functions[idx].type];
             pop(t.params);
             push(t.results);
-            emit(op_call).a = idx;
+            emit(m_.functions[idx].host != Host::none ? op_call_host : op_call, 2).a = idx;
+            end_run();
             return false;
         }
         case 0x11: { // call_indirect
@@ -719,7 +1097,8 @@ private:
             pop(type_i32);
             pop(m_.types[idx].params);
             push(m_.types[idx].results);
-            emit(op_call_indirect).a = idx;
+            emit(op_call_indirect, 2).a = idx;
+            end_run();
             return false;
         }
         case 0x1A: // drop
@@ -761,7 +1140,7 @@ private:
             if (op != 0x21) {
                 push(t);
             }
-            emit(op).a = idx;
+            emit(op == 0x20 ? op_local_get : op == 0x21 ? op_local_set : op_local_tee).a = idx;
             return false;
         }
         case 0x23:   // global.get
@@ -780,7 +1159,7 @@ private:
                 }
                 pop(g->type);
             }
-            emit(op).a = idx;
+            emit(op == 0x23 ? op_global_get : op_global_set).a = idx;
             return false;
         }
         case 0x3F:   // memory.size
@@ -790,15 +1169,21 @@ private:
                 pop(type_i32);
             }
             push(type_i32);
-            emit(op);
+            if (op == 0x3F) {
+                emit(op_memory_size);
+            } else {
+                // Charged by size once it knows its operand.
+                emit(op_memory_grow, 0);
+                end_run();
+            }
             return false;
         }
         case 0x41: // i32.const
-            emit(op).b = static_cast<std::uint64_t>(r_.sleb(32)) & mask32;
+            emit(op_const).b = static_cast<std::uint64_t>(r_.sleb(32)) & mask32;
             push(type_i32);
             return false;
         case 0x42: // i64.const
-            emit(op).b = static_cast<std::uint64_t>(r_.sleb(64));
+            emit(op_const).b = static_cast<std::uint64_t>(r_.sleb(64));
             push(type_i64);
             return false;
         case 0xFC:
@@ -828,7 +1213,7 @@ private:
                 pop(type_i32);
                 push(t);
             }
-            emit(op).b = offset;
+            emit(static_cast<Op>(operations[op])).b = offset;
             return false;
         }
         if (const NumericType n = numeric_type(op); n.pops != 0) {
@@ -836,7 +1221,7 @@ private:
                 pop(n.in);
             }
             push(n.out);
-            emit(op);
+            emit(static_cast<Op>(operations[op]));
             return false;
         }
         r_.fail(Errc::unsupported, "instruction outside the profile");
@@ -857,7 +1242,9 @@ private:
             }
             data_index(idx);
             pop3_i32();
-            emit(op_memory_init).a = idx;
+            // Charged by size once it knows its operands.
+            emit(op_memory_init, 0).a = idx;
+            end_run();
             return false;
         }
         case 9: { // data.drop
@@ -873,12 +1260,14 @@ private:
             zero_byte();
             zero_byte();
             pop3_i32();
-            emit(op_memory_copy);
+            emit(op_memory_copy, 0);
+            end_run();
             return false;
         case 11: // memory.fill
             zero_byte();
             pop3_i32();
-            emit(op_memory_fill);
+            emit(op_memory_fill, 0);
+            end_run();
             return false;
         default:
             r_.fail(Errc::unsupported, "instruction outside the profile");
@@ -889,9 +1278,15 @@ private:
     const ModuleData& m_;
     Function& f_;
     Reader r_;
+    Translation translation_;
     std::vector<std::uint8_t> vals_;
     std::vector<Ctrl> ctrls_;
     std::size_t max_height_ = 0;
+    /// For each instruction, 1 if a run must start there.
+    std::vector<std::uint8_t> starts_;
+    bool start_next_ = false;
+    /// Fuel of the markers since the last instruction.
+    std::uint32_t carried_ = 0;
 };
 
 struct Body {
@@ -908,7 +1303,7 @@ struct Export {
 /// Decodes the sections into `m`, checking each against the profile.
 class Loader {
 public:
-    explicit Loader(ModuleData& m) : m_(m) {}
+    Loader(ModuleData& m, const Translation& translation) : m_(m), translation_(translation) {}
 
     Status run() {
         const ByteView wasm = m_.bytes;
@@ -1061,6 +1456,7 @@ private:
             Function f;
             f.type = type;
             f.host = spec->host;
+            f.params = spec->params;
             m_.functions.push_back(std::move(f));
         }
         m_.imports = static_cast<std::uint32_t>(m_.functions.size());
@@ -1285,6 +1681,7 @@ private:
             }
             f.locals = params;
             f.locals.insert(f.locals.end(), bodies_[i].locals.begin(), bodies_[i].locals.end());
+            f.params = static_cast<std::uint32_t>(params.size());
             m_.functions.push_back(std::move(f));
         }
 
@@ -1330,7 +1727,7 @@ private:
 
         for (std::size_t i = 0; i < bodies_.size(); ++i) {
             Function& f = m_.functions[m_.imports + i];
-            Translator t(m_, f, Reader(m_.bytes, bodies_[i].begin, bodies_[i].end));
+            Translator t(m_, f, Reader(m_.bytes, bodies_[i].begin, bodies_[i].end), translation_);
             if (auto status = t.run(); !status) {
                 return status;
             }
@@ -1355,12 +1752,22 @@ private:
     }
 
     ModuleData& m_;
+    Translation translation_;
     std::vector<std::uint32_t> func_types_;
     std::vector<Body> bodies_;
     std::map<std::string_view, Export> exports_;
 };
 
 } // namespace
+
+Result<Module> load(ByteView wasm, const Translation& translation) {
+    auto data = std::make_shared<ModuleData>();
+    data->bytes.assign(wasm.begin(), wasm.end());
+    if (auto status = Loader(*data, translation).run(); !status) {
+        return std::unexpected(status.error());
+    }
+    return Module(std::move(data));
+}
 
 } // namespace detail
 
@@ -1369,12 +1776,7 @@ ByteView Module::bytes() const noexcept {
 }
 
 Result<Module> load(ByteView wasm) {
-    auto data = std::make_shared<detail::ModuleData>();
-    data->bytes.assign(wasm.begin(), wasm.end());
-    if (auto status = detail::Loader(*data).run(); !status) {
-        return std::unexpected(status.error());
-    }
-    return Module(std::move(data));
+    return detail::load(wasm, detail::Translation{});
 }
 
 } // namespace cexchain::vm
