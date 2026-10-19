@@ -542,7 +542,9 @@ void text_seeds(const Seeds& seeds) {
 } // namespace
 
 /// Every module of the interpreter's vectors, valid and refused: they cover
-/// each instruction, trap, and validation rule.
+/// each instruction, trap, and validation rule. And the code of the Bo
+/// conformance contracts: what the interpreter runs most, in the sequences
+/// it fuses.
 void vm_seeds(const Seeds& seeds) {
     std::ifstream in(CEXCHAIN_TESTVECTORS_DIR "/vm-v1.json");
     if (!in) {
@@ -553,6 +555,15 @@ void vm_seeds(const Seeds& seeds) {
     for (const auto& module : doc.at("modules")) {
         const auto wasm = must(from_hex(module.at("wasm").get<std::string>()), "module");
         seeds.write("vm_fuzz", std::format("module-{:03}", n++), ByteView(wasm));
+    }
+    std::ifstream bo_in(CEXCHAIN_TESTVECTORS_DIR "/bo-v1.json");
+    if (!bo_in) {
+        throw std::runtime_error("cannot read bo-v1.json");
+    }
+    const auto bo = nlohmann::json::parse(bo_in);
+    for (const auto& contract : bo.at("contracts")) {
+        const auto wasm = must(from_hex(contract.at("code").get<std::string>()), "code");
+        seeds.write("vm_fuzz", "bo-" + contract.at("name").get<std::string>(), ByteView(wasm));
     }
 }
 
