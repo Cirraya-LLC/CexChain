@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
+#include <algorithm>
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <cexchain/core/crypto.hpp>
@@ -60,8 +62,10 @@ TEST_CASE("ESP256 low-S boundary and canonicalization", "[core][crypto]") {
     const auto order =
         *cexchain::from_hex("ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551");
 
-    Bytes at_half(32, 0x11);
-    at_half.insert(at_half.end(), half.begin(), half.end());
+    // r || s, each 32 bytes, written in place (GCC 16.2 reports a false
+    // -Warray-bounds on growing a vector here, in release builds).
+    Bytes at_half(64, 0x11);
+    std::ranges::copy(half, at_half.begin() + 32);
     CHECK(crypto::is_canonical_signature(crypto::SigAlg::esp256, at_half));
 
     Bytes above_half = at_half;
@@ -76,12 +80,12 @@ TEST_CASE("ESP256 low-S boundary and canonicalization", "[core][crypto]") {
     CHECK(normalized == at_half); // idempotent
 
     // s = n - 1 becomes 1.
-    Bytes near_order(32, 0x22);
-    near_order.insert(near_order.end(), order.begin(), order.end());
+    Bytes near_order(64, 0x22);
+    std::ranges::copy(order, near_order.begin() + 32);
     near_order.back() = 0x50;
     crypto::canonicalize_signature(crypto::SigAlg::esp256, near_order);
-    Bytes one(31, 0);
-    one.push_back(1);
+    Bytes one(32, 0);
+    one.back() = 1;
     CHECK(Bytes(near_order.begin() + 32, near_order.end()) == one);
 
     // Other algorithms are left alone.
