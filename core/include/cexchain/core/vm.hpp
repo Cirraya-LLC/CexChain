@@ -62,7 +62,8 @@ enum class Trap : std::uint8_t {
 
 namespace detail {
 struct ModuleData;
-}
+struct ArenaData;
+} // namespace detail
 
 /// A module that is in the profile, decoded and validated, ready to run.
 /// Cheap to copy.
@@ -94,8 +95,39 @@ struct Outcome {
     [[nodiscard]] bool ok() const noexcept { return !trap; }
 };
 
-/// Runs `cexchain_call` once with `input`; `hash` is the ledger's hash, for
-/// the `hash` host function. Fails only if the crypto backend does.
+/// Where runs keep their linear memory, operand stack, and frames, reused
+/// from one run to the next. The space is allocated on the first run; each
+/// run notes the memory it writes and zeroes exactly that when it ends, so
+/// every run starts from the state the spec defines (memory all zero but for
+/// the data segments) without allocating or zeroing the whole of it. One run
+/// at a time per arena: a run that finds its arena in use (a run inside a
+/// run) uses a fresh one. Move-only.
+class Arena {
+public:
+    Arena() noexcept;
+    ~Arena();
+    Arena(Arena&& other) noexcept;
+    Arena& operator=(Arena&& other) noexcept;
+    Arena(const Arena&) = delete;
+    Arena& operator=(const Arena&) = delete;
+
+    /// For tests: true if nothing of a run is left in it (all memory zero).
+    [[nodiscard]] bool clean() const noexcept;
+
+private:
+    std::unique_ptr<detail::ArenaData> data_;
+    friend struct ArenaAccess;
+};
+
+/// Runs `cexchain_call` once with `input` in `arena`; `hash` is the ledger's
+/// hash, for the `hash` host function. Fails only if the crypto backend
+/// does. The outcome does not depend on the arena or on what ran in it
+/// before.
+[[nodiscard]] Result<Outcome> run(const Module& module, ByteView input,
+                                  const crypto::Provider& provider, crypto::HashAlg hash,
+                                  Arena& arena);
+
+/// The same, in the calling thread's own arena (made on its first run).
 [[nodiscard]] Result<Outcome> run(const Module& module, ByteView input,
                                   const crypto::Provider& provider, crypto::HashAlg hash);
 

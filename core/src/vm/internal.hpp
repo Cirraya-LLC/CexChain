@@ -146,6 +146,9 @@ struct ModuleData {
 /// `run` is this with fuel_limit.
 [[nodiscard]] Result<Outcome> run(const Module& module, ByteView input,
                                   const crypto::Provider& provider, crypto::HashAlg hash,
+                                  std::uint64_t fuel, Arena& arena);
+[[nodiscard]] Result<Outcome> run(const Module& module, ByteView input,
+                                  const crypto::Provider& provider, crypto::HashAlg hash,
                                   std::uint64_t fuel);
 
 } // namespace cexchain::vm::detail

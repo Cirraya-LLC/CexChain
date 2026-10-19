@@ -6,6 +6,8 @@
 #include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
+#include <memory>
 #include <optional>
 #include <string_view>
 #include <vector>
@@ -125,6 +127,10 @@ void store_le(std::uint8_t* p, std::uint64_t v) noexcept {
     }
 }
 
+} // namespace
+
+namespace detail {
+
 struct Frame {
     const Function* function = nullptr;
     /// Where the function continues after a call returns.
@@ -137,26 +143,103 @@ struct Frame {
     std::uint32_t slots = 0;
 };
 
+/// The space of runs, see Arena. Memory is tracked in chunks: a run marks
+/// each chunk it writes (stores, data segments, input_read, hash, the bulk
+/// operations), and when it ends those chunks are zeroed and unmarked. The
+/// rest of the memory was never written since it was last zeroed, so the
+/// whole of it is zero between runs. The operand stack, frames, and globals
+/// are not cleared: a run writes every slot before reading it (validation
+/// guarantees it for the operand stack; a frame's locals other than its
+/// parameters are zeroed on entry; globals are set at instantiation).
+struct ArenaData {
+    static constexpr unsigned chunk_shift = 10;
+    static constexpr std::size_t memory_bytes = std::size_t{max_pages} * page_size;
+    static constexpr std::size_t chunks = memory_bytes >> chunk_shift;
+    static_assert(chunks % 8 == 0);
+
+    std::unique_ptr<std::uint8_t[]> memory = std::make_unique<std::uint8_t[]>(memory_bytes);
+    /// 1 for each chunk the current run has written.
+    std::array<std::uint8_t, chunks> dirty{};
+    std::vector<std::uint64_t> stack = std::vector<std::uint64_t>(stack_budget);
+    std::array<Frame, max_call_depth> frames{};
+    std::vector<std::uint64_t> globals;
+    std::vector<ByteView> segments;
+    bool busy = false;
+
+    void mark(std::uint64_t first, std::uint64_t n) noexcept {
+        if (n == 0) {
+            return;
+        }
+        const std::size_t last = static_cast<std::size_t>((first + n - 1) >> chunk_shift);
+        for (auto c = static_cast<std::size_t>(first >> chunk_shift); c <= last; ++c) {
+            dirty[c] = 1;
+        }
+    }
+
+    /// Zeroes the chunks the run wrote.
+    void wipe() noexcept {
+        for (std::size_t word = 0; word < chunks; word += 8) {
+            std::uint64_t flags = 0;
+            std::memcpy(&flags, dirty.data() + word, 8);
+            if (flags == 0) {
+                continue;
+            }
+            for (std::size_t c = word; c < word + 8; ++c) {
+                if (dirty[c] != 0) {
+                    std::memset(memory.get() + (c << chunk_shift), 0,
+                                std::size_t{1} << chunk_shift);
+                    dirty[c] = 0;
+                }
+            }
+        }
+    }
+};
+
+} // namespace detail
+
+namespace {
+
+using detail::Frame;
+
+/// A run's hold on an arena: wiped and released when the run ends, however
+/// it ends.
+class Lease {
+public:
+    explicit Lease(detail::ArenaData& arena) noexcept : arena_(arena) { arena_.busy = true; }
+    ~Lease() {
+        arena_.wipe();
+        arena_.busy = false;
+    }
+    Lease(const Lease&) = delete;
+    Lease& operator=(const Lease&) = delete;
+
+private:
+    detail::ArenaData& arena_;
+};
+
 /// One invocation of cexchain_call. Traps are returned, not thrown.
 class Machine {
 public:
     Machine(const ModuleData& m, ByteView input, const crypto::Provider& provider,
-            crypto::HashAlg hash, std::uint64_t fuel)
+            crypto::HashAlg hash, std::uint64_t fuel, detail::ArenaData& arena)
         : m_(m), input_(input), provider_(provider), hash_(hash), fuel_limit_(fuel), fuel_(fuel),
-          globals_(m.globals.size()), stack_(stack_budget) {
+          arena_(arena), memory_(arena.memory.get()), dirty_(arena.dirty.data()),
+          globals_(arena.globals), segments_(arena.segments), frames_(arena.frames.data()) {
         const detail::Limits limits = *m.memory;
-        memory_.resize(std::size_t{limits.max} * page_size);
         memory_size_ = std::uint64_t{limits.min} * page_size;
         max_pages_ = limits.max;
+        globals_.resize(m.globals.size());
         for (std::size_t i = 0; i < m.globals.size(); ++i) {
             globals_[i] = m.globals[i].init;
         }
         // Active segments are copied in, then dropped; passive ones stay.
+        segments_.clear();
         segments_.reserve(m.data.size());
         for (const detail::DataSegment& d : m.data) {
             const ByteView bytes = ByteView(m.bytes).subspan(d.begin, d.size);
             if (d.offset) {
-                std::ranges::copy(bytes, memory_.begin() + static_cast<std::ptrdiff_t>(*d.offset));
+                std::ranges::copy(bytes, memory_ + *d.offset);
+                arena_.mark(*d.offset, bytes.size());
                 segments_.emplace_back();
             } else {
                 segments_.push_back(bytes);
@@ -188,6 +271,11 @@ private:
         }
         fuel_ -= cost;
         return true;
+    }
+
+    /// The memory at `addr`, which the caller has checked is in bounds.
+    [[nodiscard]] std::uint8_t* at(std::uint64_t addr) const noexcept {
+        return memory_ + static_cast<std::size_t>(addr);
     }
 
     [[nodiscard]] bool in_bounds(std::uint64_t addr, std::uint64_t n) const noexcept {
@@ -229,7 +317,8 @@ private:
             if (!in_bounds(ptr, input_.size())) {
                 return Trap::out_of_bounds;
             }
-            std::ranges::copy(input_, memory_.begin() + static_cast<std::ptrdiff_t>(ptr));
+            std::ranges::copy(input_, at(ptr));
+            arena_.mark(ptr, input_.size());
             return std::nullopt;
         }
         case Host::output_write: {
@@ -247,8 +336,7 @@ private:
             if (!in_bounds(ptr, n)) {
                 return Trap::out_of_bounds;
             }
-            output_ = Bytes(memory_.begin() + static_cast<std::ptrdiff_t>(ptr),
-                            memory_.begin() + static_cast<std::ptrdiff_t>(ptr + n));
+            output_ = Bytes(at(ptr), at(ptr + n));
             return std::nullopt;
         }
         case Host::hash: {
@@ -262,13 +350,13 @@ private:
                 return Trap::out_of_bounds;
             }
             const auto digest =
-                provider_.digest(hash_, ByteView(memory_).subspan(static_cast<std::size_t>(ptr),
-                                                                  static_cast<std::size_t>(n)));
+                provider_.digest(hash_, ByteView(at(ptr), static_cast<std::size_t>(n)));
             if (!digest) {
                 error_ = digest.error();
                 return Trap::aborted;
             }
-            std::ranges::copy(digest->bytes(), memory_.begin() + static_cast<std::ptrdiff_t>(out));
+            std::ranges::copy(digest->bytes(), at(out));
+            arena_.mark(out, 32);
             return std::nullopt;
         }
         case Host::abort: {
@@ -280,8 +368,7 @@ private:
             if (!in_bounds(ptr, n)) {
                 return Trap::out_of_bounds;
             }
-            abort_reason_.assign(memory_.begin() + static_cast<std::ptrdiff_t>(ptr),
-                                 memory_.begin() + static_cast<std::ptrdiff_t>(ptr + n));
+            abort_reason_.assign(at(ptr), at(ptr + n));
             return Trap::aborted;
         }
         case Host::none:
@@ -344,15 +431,16 @@ private:
 
     std::uint64_t fuel_limit_;
     std::uint64_t fuel_;
-    std::vector<std::uint8_t> memory_;
+    detail::ArenaData& arena_;
+    std::uint8_t* memory_;
+    std::uint8_t* dirty_;
     std::uint64_t memory_size_ = 0;
     std::uint32_t max_pages_ = 0;
-    std::vector<std::uint64_t> globals_;
-    std::vector<ByteView> segments_;
+    std::vector<std::uint64_t>& globals_;
+    std::vector<ByteView>& segments_;
 
-    std::vector<std::uint64_t> stack_;
     std::uint64_t* sp_ = nullptr;
-    std::array<Frame, max_call_depth> frames_{};
+    Frame* frames_;
     std::uint32_t depth_ = 0;
     std::uint32_t budget_ = 0;
     const Instr* code_ = nullptr;
@@ -364,7 +452,7 @@ private:
 };
 
 std::optional<Trap> Machine::execute() {
-    sp_ = stack_.data();
+    sp_ = arena_.stack.data();
     const Function& entry = m_.functions[m_.entry];
     if (auto trap = enter(entry)) {
         return trap;
@@ -475,7 +563,7 @@ std::optional<Trap> Machine::execute() {
         if (!in_bounds(addr, width)) {                                                             \
             return Trap::out_of_bounds;                                                            \
         }                                                                                          \
-        const std::uint64_t raw = load_le<width>(memory_.data() + addr);                           \
+        const std::uint64_t raw = load_le<width>(at(addr));                                        \
         sp[-1] = convert;                                                                          \
         break;                                                                                     \
     }
@@ -502,7 +590,10 @@ std::optional<Trap> Machine::execute() {
         if (!in_bounds(addr, width)) {                                                             \
             return Trap::out_of_bounds;                                                            \
         }                                                                                          \
-        store_le<width>(memory_.data() + addr, sp[-1]);                                            \
+        store_le<width>(at(addr), sp[-1]);                                                         \
+        dirty_[static_cast<std::size_t>(addr >> detail::ArenaData::chunk_shift)] = 1;              \
+        dirty_[static_cast<std::size_t>((addr + (width - 1)) >> detail::ArenaData::chunk_shift)] = \
+            1;                                                                                     \
         sp_ = sp - 2;                                                                              \
         break;                                                                                     \
     }
@@ -747,8 +838,8 @@ std::optional<Trap> Machine::execute() {
                 return Trap::out_of_bounds;
             }
             std::ranges::copy(
-                segment.subspan(static_cast<std::size_t>(s), static_cast<std::size_t>(n)),
-                memory_.begin() + static_cast<std::ptrdiff_t>(d));
+                segment.subspan(static_cast<std::size_t>(s), static_cast<std::size_t>(n)), at(d));
+            arena_.mark(d, n);
             break;
         }
         case detail::op_data_drop:
@@ -765,14 +856,8 @@ std::optional<Trap> Machine::execute() {
             if (!in_bounds(s, n) || !in_bounds(d, n)) {
                 return Trap::out_of_bounds;
             }
-            const auto first = memory_.begin() + static_cast<std::ptrdiff_t>(s);
-            const auto last = first + static_cast<std::ptrdiff_t>(n);
-            const auto dest = memory_.begin() + static_cast<std::ptrdiff_t>(d);
-            if (d <= s) {
-                std::copy(first, last, dest);
-            } else {
-                std::copy_backward(first, last, dest + static_cast<std::ptrdiff_t>(n));
-            }
+            std::memmove(at(d), at(s), static_cast<std::size_t>(n));
+            arena_.mark(d, n);
             break;
         }
         case detail::op_memory_fill: {
@@ -786,8 +871,8 @@ std::optional<Trap> Machine::execute() {
             if (!in_bounds(d, n)) {
                 return Trap::out_of_bounds;
             }
-            std::fill_n(memory_.begin() + static_cast<std::ptrdiff_t>(d),
-                        static_cast<std::ptrdiff_t>(n), value);
+            std::memset(at(d), value, static_cast<std::size_t>(n));
+            arena_.mark(d, n);
             break;
         }
         default:
@@ -797,26 +882,79 @@ std::optional<Trap> Machine::execute() {
     }
 }
 
+/// The calling thread's arena. (Portable to wasm32: without threads it is a
+/// plain static.)
+Arena& thread_arena() noexcept {
+    thread_local Arena arena;
+    return arena;
+}
+
 } // namespace
+
+struct ArenaAccess {
+    static detail::ArenaData& data(Arena& arena) {
+        if (!arena.data_) {
+            arena.data_ = std::make_unique<detail::ArenaData>();
+        }
+        return *arena.data_;
+    }
+};
+
+Arena::Arena() noexcept = default;
+Arena::~Arena() = default;
+Arena::Arena(Arena&& other) noexcept = default;
+Arena& Arena::operator=(Arena&& other) noexcept = default;
+
+bool Arena::clean() const noexcept {
+    if (!data_) {
+        return true;
+    }
+    if (data_->busy || std::ranges::any_of(data_->dirty, [](std::uint8_t d) { return d != 0; })) {
+        return false;
+    }
+    std::uint64_t any = 0;
+    for (std::size_t i = 0; i < detail::ArenaData::memory_bytes; i += 8) {
+        std::uint64_t word = 0;
+        std::memcpy(&word, data_->memory.get() + i, 8);
+        any |= word;
+    }
+    return any == 0;
+}
 
 namespace detail {
 
 Result<Outcome> run(const Module& module, ByteView input, const crypto::Provider& provider,
-                    crypto::HashAlg hash, std::uint64_t fuel) {
+                    crypto::HashAlg hash, std::uint64_t fuel, Arena& arena) {
     if (crypto::digest_size(hash) != 32) {
         return fail(Errc::unsupported, "contracts need a 32-byte ledger hash");
     }
     if (input.size() > 0xFFFF'FFFF) {
         return fail(Errc::invalid_argument, "contract input too large");
     }
-    return Machine(module.data(), input, provider, hash, fuel).run();
+    ArenaData& data = ArenaAccess::data(arena);
+    if (data.busy) {
+        Arena fresh;
+        return run(module, input, provider, hash, fuel, fresh);
+    }
+    const Lease lease(data);
+    return Machine(module.data(), input, provider, hash, fuel, data).run();
+}
+
+Result<Outcome> run(const Module& module, ByteView input, const crypto::Provider& provider,
+                    crypto::HashAlg hash, std::uint64_t fuel) {
+    return run(module, input, provider, hash, fuel, thread_arena());
 }
 
 } // namespace detail
 
 Result<Outcome> run(const Module& module, ByteView input, const crypto::Provider& provider,
+                    crypto::HashAlg hash, Arena& arena) {
+    return detail::run(module, input, provider, hash, fuel_limit, arena);
+}
+
+Result<Outcome> run(const Module& module, ByteView input, const crypto::Provider& provider,
                     crypto::HashAlg hash) {
-    return detail::run(module, input, provider, hash, fuel_limit);
+    return detail::run(module, input, provider, hash, fuel_limit, thread_arena());
 }
 
 } // namespace cexchain::vm

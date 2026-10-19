@@ -3,7 +3,8 @@
 
 // Contract modules come from anyone who can deploy one (spec section 14).
 // Loading must never crash; a module that loads must run without crashing,
-// within its fuel, and the same way twice.
+// within its fuel, and the same way twice: on a fresh arena, and on one that
+// every earlier input ran in, which each run must leave clean.
 
 #include <algorithm>
 #include <cstddef>
@@ -40,15 +41,18 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
         return 0;
     }
     const std::span<const std::uint8_t> input = wasm.first(std::min<std::size_t>(size, 64));
-    const auto first =
-        vm::detail::run(*module, input, provider, cexchain::crypto::HashAlg::sha256, fuzz_fuel);
+    static vm::Arena reused;
+    vm::Arena fresh;
+    const auto first = vm::detail::run(*module, input, provider, cexchain::crypto::HashAlg::sha256,
+                                       fuzz_fuel, fresh);
     require(first.has_value());
     require(first->fuel_used <= fuzz_fuel);
     require(first->ok() || first->output.empty());
     require(first->abort_reason.size() <= vm::max_abort_reason);
-    const auto second =
-        vm::detail::run(*module, input, provider, cexchain::crypto::HashAlg::sha256, fuzz_fuel);
+    const auto second = vm::detail::run(*module, input, provider, cexchain::crypto::HashAlg::sha256,
+                                        fuzz_fuel, reused);
     require(second.has_value());
+    require(reused.clean());
     require(second->trap == first->trap && second->output == first->output &&
             second->fuel_used == first->fuel_used && second->abort_reason == first->abort_reason);
     return 0;

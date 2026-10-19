@@ -6,6 +6,8 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -113,6 +115,61 @@ TEST_CASE("vm: runs match the reference interpreter, fuel included", "[vm][vecto
         INFO(expected);
         CHECK(outcomes[expected] > 0);
     }
+}
+
+TEST_CASE("vm: a reused arena gives every run the outcome of a fresh one", "[vm][vectors]") {
+    // Each run leaves its arena clean, whatever it wrote and however it
+    // ended, so runs in any order on one arena equal runs on fresh ones.
+    const auto doc = load_vectors("vm-v1.json");
+    std::map<std::string, vm::Module> modules;
+    for (const auto& m : doc.at("modules")) {
+        if (m.at("valid").get<bool>()) {
+            modules.emplace(m.at("name").get<std::string>(), *vm::load(hex_field(m.at("wasm"))));
+        }
+    }
+    struct Run {
+        const vm::Module* module;
+        Bytes input;
+        crypto::HashAlg hash;
+    };
+    std::vector<Run> runs;
+    for (const auto& r : doc.at("runs")) {
+        runs.push_back({&modules.at(r.at("module").get<std::string>()), hex_field(r.at("input")),
+                        hash_by_name(r.at("hash").get<std::string>())});
+    }
+    const auto same = [](const vm::Outcome& a, const vm::Outcome& b) {
+        return a.trap == b.trap && a.output == b.output && a.fuel_used == b.fuel_used &&
+               a.abort_reason == b.abort_reason;
+    };
+    vm::Arena forward;
+    vm::Arena backward;
+    std::vector<vm::Outcome> fresh;
+    for (const Run& r : runs) {
+        vm::Arena arena;
+        fresh.push_back(*vm::run(*r.module, r.input, provider(), r.hash, arena));
+    }
+    for (std::size_t i = 0; i < runs.size(); ++i) {
+        INFO(i);
+        const Run& r = runs[i];
+        const auto outcome = vm::run(*r.module, r.input, provider(), r.hash, forward);
+        REQUIRE(outcome);
+        CHECK(same(*outcome, fresh[i]));
+        REQUIRE(forward.clean());
+        // Twice in a row on the same arena, too.
+        CHECK(same(*vm::run(*r.module, r.input, provider(), r.hash, forward), fresh[i]));
+    }
+    for (std::size_t i = runs.size(); i-- > 0;) {
+        INFO(i);
+        const Run& r = runs[i];
+        CHECK(same(*vm::run(*r.module, r.input, provider(), r.hash, backward), fresh[i]));
+    }
+    CHECK(backward.clean());
+    // A moved-from arena is empty, and runs again.
+    vm::Arena moved = std::move(forward);
+    CHECK(same(*vm::run(*runs[0].module, runs[0].input, provider(), runs[0].hash, forward),
+               fresh[0]));
+    CHECK(moved.clean());
+    CHECK(forward.clean());
 }
 
 TEST_CASE("vm: the smallest module runs and uses no fuel but its end", "[vm]") {
