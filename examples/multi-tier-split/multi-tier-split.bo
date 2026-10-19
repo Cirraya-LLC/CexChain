@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cirraya
+#
 # A core enterprise's receivable, split down its supply chain (multi-tier
 # supply-chain finance). The core enterprise (the issuer) owes its tier-1
 # supplier and pays at maturity. The supplier splits the receivable among its

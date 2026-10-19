@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cirraya
+#
 # The Bo goldens are exact bytes (CRLF, invalid UTF-8, invisible characters):
 # never convert their line endings.
 tests/bo/golden/** -text

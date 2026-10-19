@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cirraya
+#
 # A supply agreement between a core enterprise (we), its supplier, and its
 # bank. We propose the terms; they take effect once the supplier and the
 # bank have both consented, each on its own ledger; we close the agreement
