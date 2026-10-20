@@ -108,7 +108,8 @@ bool loopback(const std::string& host) {
 class Webhook final : public Performer {
 public:
     Webhook(Url url, ClientOptions options, SecureBytes secret)
-        : url_(std::move(url)), options_(std::move(options)), secret_(std::move(secret)) {}
+        : url_(std::move(url)), secret_(std::move(secret)),
+          connection_(Url{url_.tls, url_.host, url_.port, ""}, std::move(options)) {}
 
     Outcome perform(const Perform& p) override {
         const std::string body = request_document(p);
@@ -120,16 +121,18 @@ public:
         if (!signature) {
             return outcome(p, OutcomeStatus::failed, "unavailable");
         }
-        ClientOptions options = options_;
-        options.headers = {{"X-CexChain-Request", hex(p.request)},
-                           {"X-CexChain-Attempt", std::to_string(p.attempt)},
-                           {"X-CexChain-Timestamp", timestamp},
-                           {"X-CexChain-Signature", "sha256=" + *signature},
-                           {"Idempotency-Key", hex(p.request)}};
-        const Client client(Url{url_.tls, url_.host, url_.port, ""}, options);
+        // One connection kept alive across requests (this copy of the
+        // connector performs one at a time); a request the receiver never
+        // saw on a connection it had closed is sent again, under the same
+        // idempotency key.
         const std::string path = url_.base_path.empty() ? "/" : url_.base_path;
         const auto answer =
-            client.request("POST", path, as_bytes(std::string_view(body)), "application/json");
+            connection_.request("POST", path, as_bytes(std::string_view(body)), "application/json",
+                                {{"X-CexChain-Request", hex(p.request)},
+                                 {"X-CexChain-Attempt", std::to_string(p.attempt)},
+                                 {"X-CexChain-Timestamp", timestamp},
+                                 {"X-CexChain-Signature", "sha256=" + *signature},
+                                 {"Idempotency-Key", hex(p.request)}});
         if (!answer) {
             // Nothing reached the receiver, or no answer came: try again.
             return outcome(p, OutcomeStatus::retry,
@@ -173,8 +176,8 @@ public:
 
 private:
     Url url_;
-    ClientOptions options_;
     SecureBytes secret_;
+    Connection connection_;
 };
 
 class Command final : public Performer {

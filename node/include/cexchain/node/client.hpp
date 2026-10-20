@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -78,6 +79,42 @@ private:
 
     Url base_;
     ClientOptions options_;
+};
+
+/// A keep-alive HTTP/1.1 client to one server: requests go one after
+/// another over one connection, opened on the first request and again
+/// whenever the server has closed it. A request that fails on a reused
+/// connection before any byte of an answer arrives (the server closed it
+/// while idle) is sent once more on a new connection, so use it for
+/// requests that may be repeated: reads, statements (registered once by
+/// id), webhooks (an idempotency key). Redirects (with follow_redirects)
+/// go through a one-off Client. Not for concurrent use: one per thread.
+class Connection {
+public:
+    Connection(Url base, ClientOptions options);
+    Connection(const Connection&) = delete;
+    Connection& operator=(const Connection&) = delete;
+    Connection(Connection&&) noexcept;
+    Connection& operator=(Connection&&) noexcept;
+    ~Connection();
+
+    /// As Client::request; `headers` are sent with this request only,
+    /// after the options' own.
+    [[nodiscard]] Result<http::ClientResponse>
+    request(std::string_view method, std::string_view path, ByteView body = {},
+            std::string_view content_type = {},
+            const std::vector<std::pair<std::string, std::string>>& headers = {});
+    /// Closes the connection; the next request opens a new one.
+    void close() noexcept;
+
+    [[nodiscard]] const Url& base() const noexcept { return base_; }
+
+private:
+    struct State;
+
+    Url base_;
+    ClientOptions options_;
+    std::unique_ptr<State> state_;
 };
 
 } // namespace cexchain::node
