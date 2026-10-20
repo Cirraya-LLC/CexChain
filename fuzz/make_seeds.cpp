@@ -566,6 +566,19 @@ void vm_seeds(const Seeds& seeds) {
         const auto wasm = must(from_hex(contract.at("code").get<std::string>()), "code");
         seeds.write("vm_fuzz", "bo-" + contract.at("name").get<std::string>(), ByteView(wasm));
     }
+    // Real contract inputs and outputs, states in them (D-056, P6).
+    n = 0;
+    for (const auto& contract : bo.at("contracts")) {
+        for (const auto& run : contract.at("runs")) {
+            for (const char* part : {"input", "output"}) {
+                const auto bytes = must(from_hex(run.at(part).get<std::string>()), part);
+                if (!bytes.empty()) {
+                    seeds.write("cbor_validate_fuzz", std::format("bo-{}-{:04}", part, n++),
+                                ByteView(bytes));
+                }
+            }
+        }
+    }
 }
 
 /// Contract outputs (every verdict) and consent metadata from the v0.6
