@@ -487,7 +487,8 @@ void text_seeds(const Seeds& seeds) {
         "executor_state_fuzz", "config",
         std::string(1, '\0') +
             R"({"actor":"ad2b642072ec3bf0f7ec67acbd7cfb8a9591c792570204f328553e7714b6f206",)"
-            R"("connectors":[{"args":["/usr/local/bin/notify"],"kinds":["notify"],"name":"n)"
+            R"("connectors":[{"args":["/usr/local/bin/notify"],"concurrency":4,"kinds":["notify"],)"
+            R"("name":"n)"
             R"(otices","program":"/bin/sh","secrets":["notify-token"],"timeout":10,"type":")"
             R"(command"},{"kinds":["http.post"],"name":"hook","secret":"hook-key","timeo)"
             R"(ut":30,"type":"webhook","url":"https://hooks.example.com/ledger"}],"delegati)"
