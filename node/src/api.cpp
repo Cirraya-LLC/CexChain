@@ -370,9 +370,11 @@ struct LedgerApi::State {
     std::thread writer;
 
     /// The writer's: the registrar's pending contract calls (with a
-    /// registrar), and randomness for the statements it signs.
+    /// registrar), and randomness for the statements it signs (the
+    /// system's, or ApiOptions::entropy).
     std::optional<CallRegistrar> calls;
-    ledger::SystemEntropy entropy;
+    ledger::SystemEntropy system_entropy;
+    ledger::Entropy* entropy = &system_entropy;
 
     /// Long polls of GET /v1/requests waiting for a request to match: each
     /// is answered once one does, once its wait is over, or when the server
@@ -2016,7 +2018,7 @@ struct LedgerApi::State {
         const protocol::Timestamp now = clock->now();
         Result<CallProgress> progress = fail(Errc::unavailable, "no state");
         ledger->read_state([&](const protocol::LedgerState& s) {
-            progress = calls->propose(*provider, s, std::move(proposal), party, now, entropy);
+            progress = calls->propose(*provider, s, std::move(proposal), party, now, *entropy);
         });
         if (!progress) {
             return error_response(progress.error());
@@ -2076,7 +2078,7 @@ struct LedgerApi::State {
         const protocol::Timestamp now = clock->now();
         Result<CallProgress> progress = fail(Errc::unavailable, "no state");
         ledger->read_state([&](const protocol::LedgerState& s) {
-            progress = calls->consent(*provider, s, party, bundle, now, entropy);
+            progress = calls->consent(*provider, s, party, bundle, now, *entropy);
         });
         if (!progress) {
             const Error e = progress.error();
@@ -2354,7 +2356,8 @@ struct LedgerApi::State {
             }
             Result<protocol::SignedStatement> signed_call = fail(Errc::unavailable, "no state");
             ledger->read_state([&](const protocol::LedgerState& s) {
-                signed_call = sign_contract_call(*provider, s, *options.keeper, call, now, entropy);
+                signed_call =
+                    sign_contract_call(*provider, s, *options.keeper, call, now, *entropy);
             });
             auto recorded =
                 signed_call ? record(*signed_call, std::nullopt, now)
@@ -2838,6 +2841,9 @@ Result<std::unique_ptr<LedgerApi>> LedgerApi::open(ApiOptions options,
     state->provider = &provider;
     if (options.clock != nullptr) {
         state->clock = options.clock;
+    }
+    if (options.entropy != nullptr) {
+        state->entropy = options.entropy;
     }
     std::error_code ec;
     if (!std::filesystem::is_directory(options.directory, ec)) {

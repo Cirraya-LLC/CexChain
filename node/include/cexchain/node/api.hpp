@@ -97,6 +97,11 @@ struct ApiOptions {
     /// For tests: the clock the ledger registers statements by, and the
     /// keeper runs at (default: the system's). It must outlive the API.
     ledger::Clock* clock = nullptr;
+    /// For tests and benchmarks: the randomness of the statements the server
+    /// signs, the registrar's and the keeper's nonces (default: the
+    /// system's), so that a run can be repeated byte for byte. It must
+    /// outlive the API.
+    ledger::Entropy* entropy = nullptr;
 };
 
 class LedgerApi final : public Application {

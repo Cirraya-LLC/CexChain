@@ -5,14 +5,19 @@
 // in memory or on disk, where one call's time goes (parsing, the signature,
 // validation, the contract run, the VM alone), checkpoints, and replay of a
 // contract-heavy log; the evidence of instances (small, long, and deep
-// parts) exported and verified; and the keeper's scans for due work.
+// parts) exported and verified; and the keeper's scans for due work, and
+// (--record) the server's keeper making the due calls.
 
 #include <algorithm>
+#include <chrono>
+#include <filesystem>
 #include <format>
+#include <memory>
 #include <print>
 #include <ranges>
 #include <stdexcept>
 #include <string>
+#include <unistd.h>
 #include <vector>
 
 #include <cexchain/core/protocol/contract_evidence.hpp>
@@ -20,6 +25,7 @@
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/vm.hpp>
 #include <cexchain/ledger/parallel.hpp>
+#include <cexchain/node/api.hpp>
 #include <cexchain/node/keeper.hpp>
 
 #include "bench.hpp"
@@ -301,6 +307,49 @@ void add(Results& results, const std::string& p, const Scan& s, std::uint64_t in
     results.add(p + "due (rules, expiries)", static_cast<double>(s.rules + s.expiries), "");
 }
 
+/// The server's keeper (`serve --keeper-key`) making the calls due at `at`
+/// on the ledger in `directory`: ticks, each followed by a wait for what it
+/// queued, until `expected` calls are in the log, or until 40 ticks in a
+/// row add nothing. A seeded nonce source and a manual clock make the run
+/// repeatable: the same log, byte for byte, whatever the keeper's threads.
+struct Recording {
+    double ms = 0;
+    std::uint64_t calls = 0;
+    std::uint64_t ticks = 0;
+    std::string root;
+};
+
+Recording record_due(const std::filesystem::path& directory, const std::string& name,
+                     protocol::Timestamp at, std::uint64_t expected) {
+    using namespace std::chrono_literals;
+    ledger::ManualClock clock(at);
+    ledger::SeededEntropy entropy(7);
+    node::ApiOptions o;
+    o.directory = directory;
+    o.log_keys = {std::make_shared<const crypto::openssl::KeyPair>(named_key(name + " log"))};
+    o.keeper = std::make_shared<const crypto::openssl::KeyPair>(named_key("keeper device"));
+    o.keeper_interval = 0s;
+    o.clock = &clock;
+    o.entropy = &entropy;
+    auto api = must(node::LedgerApi::open(o, provider()), "api");
+    const std::uint64_t first = api->ledger().size();
+    Recording out;
+    std::uint64_t idle = 0;
+    const auto started = Clock::now();
+    while (api->ledger().size() - first < expected && idle < 40) {
+        const std::uint64_t before = api->ledger().size();
+        api->tick();
+        api->stop(); // waits for what the tick queued
+        ++out.ticks;
+        idle = api->ledger().size() == before ? idle + 1 : 0;
+    }
+    out.ms = elapsed_ms(started);
+    const std::uint64_t size = api->ledger().size();
+    out.calls = size - first;
+    out.root = to_hex(must(api->ledger().root(size), "root").bytes());
+    return out;
+}
+
 } // namespace
 
 int keeper_bench(const Options& options) {
@@ -309,10 +358,36 @@ int keeper_bench(const Options& options) {
         read_text(examples_directory(options) / "idc-hosting" / "hosting.bo");
     double build_ms = 0;
     const protocol::ContractDeployBody deploy = bo_deploy(hosting, &build_ms);
+    const bool recording = options.flag("record");
+    bool short_of_due = false;
+    const std::filesystem::path scratch =
+        options.text("dir", (std::filesystem::temp_directory_path() /
+                             std::format("cexchain-bench-keeper-{}", ::getpid()))
+                                .string());
     for (const auto part : std::views::split(options.text("instances", "1000,10000,100000"), ',')) {
         const std::uint64_t n = std::stoull(std::string(part.begin(), part.end()));
-        Home home("keeper");
+        // On disk when the server's keeper is to record (it opens the
+        // directory), else in memory.
+        Home home("keeper", recording ? scratch / std::to_string(n) : std::filesystem::path());
         const protocol::Id contract = home.submit(deploy).statement_id;
+        if (recording) {
+            // A keeper device: contract calls on the contract, its time
+            // rules and its requests' reply only (as `keeper add` grants).
+            const protocol::Id keeper =
+                home.submit(protocol::ActorRegisterBody{protocol::ActorKind::device,
+                                                        "Keeper",
+                                                        named_key("keeper device").public_key(),
+                                                        {},
+                                                        {}})
+                    .statement_id;
+            protocol::Scope scope;
+            scope.statement_types = {protocol::StatementType::contract_call};
+            scope.contracts = std::vector<protocol::Id>{contract};
+            std::vector<std::string> functions = node::time_rules(*home.state().contract(contract));
+            functions.emplace_back("result");
+            scope.functions = std::move(functions);
+            home.submit(protocol::DelegationGrantBody{keeper, scope});
+        }
         // Every instance created and subscribed (the home is both parties):
         // its time rules then look at real dates, and its requests are open.
         const auto started = Clock::now();
@@ -344,11 +419,34 @@ int keeper_bench(const Options& options) {
         const std::string p = std::format("{} instances: ", n);
         results.add(p + "setup (create and subscribe)", elapsed_ms(started), "ms");
         const protocol::Timestamp now = home.clock().now();
-        add(results, p + "now: ", scan(home, now + 1000), n);
+        const Scan due_now = scan(home, now + 1000);
+        add(results, p + "now: ", due_now, n);
         add(results, p + "40 days on: ", scan(home, now + 40 * day), n);
+        if (recording) {
+            home.close();
+            const Recording r = record_due(home.directory(), "keeper", now + 1000,
+                                           due_now.rules + due_now.expiries);
+            results.add(p + "server's keeper: calls recorded", static_cast<double>(r.calls), "");
+            results.add(p + "server's keeper: ticks", static_cast<double>(r.ticks), "");
+            results.add(p + "server's keeper: wall", r.ms, "ms");
+            results.add(p + "server's keeper: calls/s",
+                        r.ms > 0 ? static_cast<double>(r.calls) * 1000 / r.ms : 0, "calls/s");
+            std::println(stderr, "{}server's keeper: log root {}", p, r.root);
+            short_of_due = short_of_due || r.calls != due_now.rules + due_now.expiries;
+            if (!options.flag("keep")) {
+                std::filesystem::remove_all(home.directory());
+            }
+        }
+    }
+    if (recording && !options.flag("keep")) {
+        std::filesystem::remove_all(scratch);
     }
     results.add("hosting bo build", build_ms, "ms");
     results.print(options.flag("json"));
+    if (short_of_due) {
+        std::println(stderr, "error: the server's keeper did not make every call due");
+        return 1;
+    }
     return 0;
 }
 

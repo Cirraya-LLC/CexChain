@@ -256,7 +256,7 @@ if(TARGET cexchain_bo)
     list(APPEND bench_smoke
         "contracts\;--instances\;10\;--calls\;2\;--lines\;10\;--repeat\;2"
         "evidence\;--history\;6\;--entries\;20\;--repeat\;1"
-        "keeper\;--instances\;10"
+        "keeper\;--instances\;10\;--record"
         "registrar\;--instances\;4\;--calls\;2\;--client-threads\;2"
         "http\;--mode\;call\;--instances\;10\;--calls\;2\;--connections\;4\;--server-threads\;1\;--client-threads\;1"
         "http\;--mode\;create\;--requests\;20\;--connections\;4\;--server-threads\;1\;--client-threads\;1"
