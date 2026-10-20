@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <random>
 #include <string>
+#include <vector>
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
@@ -11,7 +12,10 @@
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/cbor.hpp>
 
+#include "support/vectors.hpp"
+
 using cexchain::Bytes;
+using cexchain::ByteView;
 using cexchain::Errc;
 using cexchain::from_hex;
 using cexchain::to_hex;
@@ -513,4 +517,154 @@ TEST_CASE("decoding is bounded by an item budget", "[core][cbor]") {
     const auto decoded = cbor::decode(input, larger);
     REQUIRE(decoded);
     CHECK(decoded->as_array()->size() == 200'000);
+}
+
+namespace {
+
+/// `validate` against `decode` on `bytes`, under the default limits and
+/// tighter ones: the same verdict, and the same error. Counts checks and
+/// differences (a few reported).
+struct Agreement {
+    std::size_t checked = 0;
+    std::size_t differing = 0;
+
+    void check(ByteView bytes) {
+        static const cbor::DecodeOptions limits[] = {
+            {},
+            {.max_depth = 0},
+            {.max_depth = 2},
+            {.max_depth = 64},
+            {.max_items = 3},
+            {.max_depth = 5, .max_items = 40},
+        };
+        for (const cbor::DecodeOptions& options : limits) {
+            ++checked;
+            const auto decoded = cbor::decode(bytes, options);
+            const auto validated = cbor::validate(bytes, options);
+            const bool same = decoded.has_value() == validated.has_value() &&
+                              (decoded || (decoded.error().code == validated.error().code &&
+                                           decoded.error().detail == validated.error().detail));
+            if (!same && ++differing <= 5) {
+                UNSCOPED_INFO("validate differs from decode on " << to_hex(bytes));
+            }
+        }
+    }
+};
+
+} // namespace
+
+TEST_CASE("validate decides as decode does, with the same errors", "[core][cbor][property]") {
+    using cexchain::test::hex_field;
+    using cexchain::test::load_vectors;
+    std::vector<Bytes> samples;
+    for (const auto& r : load_vectors("vm-v1.json")["runs"]) {
+        samples.push_back(hex_field(r["input"]));
+        samples.push_back(hex_field(r["output"]));
+    }
+    for (const auto& c : load_vectors("bo-v1.json")["contracts"]) {
+        for (const auto& r : c["runs"]) {
+            samples.push_back(hex_field(r["input"]));
+            samples.push_back(hex_field(r["output"]));
+        }
+    }
+    for (const char* file :
+         {"protocol-v0.6.json", "protocol-v0.7.json", "protocol-v0.8.json", "protocol-v0.9.json"}) {
+        for (const auto& ledger : load_vectors(file)["ledgers"]) {
+            for (const auto& st : ledger["statements"]) {
+                samples.push_back(hex_field(st["encoded"]));
+                samples.push_back(hex_field(st["payload"]));
+            }
+        }
+    }
+    std::mt19937_64 rng(0x5EED'0006u);
+    for (int i = 0; i < 3000; ++i) {
+        samples.push_back(*cbor::encode(random_value(rng, 0)));
+    }
+    Agreement agreement;
+    for (const Bytes& sample : samples) {
+        agreement.check(sample);
+    }
+    // Damaged: every prefix of the short ones, a byte changed at random
+    // (heads, lengths, keys out of order, invalid UTF-8, floats, ...), and
+    // a byte too many.
+    for (const Bytes& sample : samples) {
+        if (sample.empty()) {
+            continue;
+        }
+        if (sample.size() <= 96) {
+            for (std::size_t cut = 0; cut < sample.size(); ++cut) {
+                agreement.check(ByteView(sample).first(cut));
+            }
+        }
+        for (int m = 0; m < 6; ++m) {
+            Bytes damaged = sample;
+            const std::size_t at = rng() % damaged.size();
+            damaged[at] =
+                static_cast<std::uint8_t>(m % 2 == 0 ? rng() : damaged[at] ^ (1U << (rng() % 8)));
+            agreement.check(damaged);
+        }
+        Bytes longer = sample;
+        longer.push_back(0x00);
+        agreement.check(longer);
+    }
+    INFO(agreement.checked << " checks");
+    CHECK(agreement.checked > 100'000);
+    CHECK(agreement.differing == 0);
+}
+
+TEST_CASE("an Encoded item is its deterministic encoding", "[core][cbor]") {
+    const cbor::Encoded null;
+    CHECK(to_hex(null.bytes()) == "f6");
+    CHECK(null.size() == 1);
+    CHECK(null.value().is_null());
+    CHECK(null == *cbor::Encoded::encode(Value::null()));
+    CHECK(null == *cbor::Encoded::from_bytes(hex("f6")));
+
+    // Keys in any order encode in canonical order; equal values, equal
+    // encodings.
+    const Value unsorted =
+        Value::map({{text("bb"), Value::integer(-1)}, {text("a"), Value::null()}});
+    const auto encoded = cbor::Encoded::encode(unsorted);
+    REQUIRE(encoded);
+    CHECK(to_hex(encoded->bytes()) == "a26161f662626220");
+    CHECK(*encoded == *cbor::Encoded::from_bytes(hex("a26161f662626220")));
+    CHECK(cbor::diagnostic(*encoded) == R"({"a": null, "bb": -1})");
+    CHECK(encoded->value() == *cbor::decode(hex("a26161f662626220")));
+    CHECK_FALSE(*encoded == null);
+
+    // Only one canonical item is accepted, with decode's errors.
+    for (const char* refused : {"a2626262206161f6", "1817", "f6f6", "", "5f41ff", "f97e00"}) {
+        INFO(refused);
+        const auto from = cbor::Encoded::from_bytes(hex(refused));
+        REQUIRE_FALSE(from);
+        CHECK(from.error().code == decode_error(refused));
+    }
+    CHECK(cbor::Encoded::from_bytes(hex("8181818180"), {.max_depth = 3}).error().code ==
+          Errc::limit_exceeded);
+    CHECK_FALSE(cbor::Encoded::encode(Value::tagged(2, Value::null())));
+
+    // A move leaves null; a trusted slice is kept as it is.
+    cbor::Encoded moved = *encoded;
+    const cbor::Encoded taken = std::move(moved);
+    CHECK(taken == *encoded);
+    CHECK(moved == null); // NOLINT(bugprone-use-after-move)
+    const Bytes outer = hex("82a26161f66262622001");
+    CHECK(cbor::Encoded::trusted(ByteView(outer).subspan(1, 8)) == *encoded);
+}
+
+TEST_CASE("writers of fixed shapes: heads, and values at a depth", "[core][cbor]") {
+    Bytes out;
+    cbor::append_head(out, cbor::Major::map, 1);
+    cbor::append_head(out, cbor::Major::unsigned_integer, 24);
+    cbor::append_head(out, cbor::Major::text, 0);
+    cbor::append_head(out, cbor::Major::negative_integer, 0x1'0000);
+    cbor::append_head(out, cbor::Major::tag, 0x1'0000'0000);
+    CHECK(to_hex(out) == "a11818603a00010000db0000000100000000");
+    // encode_to appends; an item inside 63 containers may itself be one,
+    // inside 64 not (encode's limit, counted from where the item sits).
+    const Value empty = Value::array({});
+    REQUIRE(cbor::encode_to(out, empty, 63));
+    CHECK(to_hex(out) == "a11818603a00010000db000000010000000080");
+    CHECK(cbor::encode_to(out, empty, 64).error().code == Errc::limit_exceeded);
+    CHECK(cbor::encode_to(out, Value::integer(5), 64));
 }

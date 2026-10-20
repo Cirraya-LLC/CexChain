@@ -3,12 +3,14 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -179,6 +181,30 @@ inline constexpr std::size_t max_nesting_depth = 64;
 /// `max_nesting_depth`.
 [[nodiscard]] Result<Bytes> encode(const Value& value);
 
+/// Appends the deterministic encoding of `value` to `out`, as an item that
+/// sits inside `depth` containers (arrays, maps, tags): `encode` is
+/// `encode_to` at depth 0 on an empty buffer. Fails as `encode` does; `out`
+/// is then left with part of the encoding.
+[[nodiscard]] Status encode_to(Bytes& out, const Value& value, std::size_t depth = 0);
+
+/// The major types of RFC 8949 §3.1.
+enum class Major : std::uint8_t {
+    unsigned_integer = 0,
+    negative_integer = 1,
+    bytes = 2,
+    text = 3,
+    array = 4,
+    map = 5,
+    tag = 6,
+    simple = 7,
+};
+
+/// Appends a head in its shortest form: an integer, a string's length, an
+/// array's or a map's count, or a tag. Writers of fixed shapes (the contract
+/// input) write heads and splice `Encoded` items directly; they keep map keys
+/// in canonical order and text valid UTF-8 themselves.
+void append_head(Bytes& out, Major major, std::uint64_t argument);
+
 struct DecodeOptions {
     /// Maximum nesting of arrays, maps, and tags. Values above
     /// `max_nesting_depth` are treated as `max_nesting_depth`.
@@ -193,8 +219,55 @@ struct DecodeOptions {
 /// Decodes exactly one data item spanning the whole input.
 [[nodiscard]] Result<Value> decode(ByteView input, const DecodeOptions& options = {});
 
+/// Checks that `input` is exactly one data item that `decode` accepts with
+/// `options`, without building it (no allocation): the same checks in the
+/// same order, so the same error when it refuses.
+[[nodiscard]] Status validate(ByteView input, const DecodeOptions& options = {});
+
+/// One data item kept as its deterministic encoding: what `encode` writes and
+/// `decode` accepts. It is copied into other encodings, compared, and hashed
+/// as bytes; a tree is built only for a reader that needs one (`value`).
+/// Equal values have equal encodings, so `==` is the values' equality.
+class Encoded {
+public:
+    /// null.
+    Encoded() noexcept;
+
+    /// The encoding of `value`; fails as `encode` does.
+    [[nodiscard]] static Result<Encoded> encode(const Value& value);
+    /// `bytes`, if they are one data item that `decode` accepts with
+    /// `options`; fails as `decode` does otherwise.
+    [[nodiscard]] static Result<Encoded> from_bytes(ByteView bytes,
+                                                    const DecodeOptions& options = {});
+    /// `bytes` as they are. The caller vouches that they are one data item
+    /// that `encode` wrote or `validate` accepted (say, an item sliced from an
+    /// encoding `validate` accepted as a whole). Debug builds check it.
+    [[nodiscard]] static Encoded trusted(ByteView bytes);
+
+    [[nodiscard]] ByteView bytes() const noexcept {
+        return bytes_.empty() ? ByteView(null_encoding) : ByteView(bytes_);
+    }
+    [[nodiscard]] std::size_t size() const noexcept { return bytes().size(); }
+    /// The value. It never fails: the bytes are always an item that
+    /// `encode` wrote or `decode` accepts (decoded here without item limits).
+    [[nodiscard]] Value value() const;
+
+    friend bool operator==(const Encoded& a, const Encoded& b) noexcept {
+        return std::ranges::equal(a.bytes(), b.bytes());
+    }
+
+private:
+    static constexpr std::uint8_t null_encoding[1] = {0xf6};
+
+    explicit Encoded(Bytes bytes) noexcept : bytes_(std::move(bytes)) {}
+    /// Empty for null, so that null (also what a move leaves) allocates
+    /// nothing.
+    Bytes bytes_;
+};
+
 /// Renders a value in RFC 8949 §8 diagnostic notation, for logs and tests.
 [[nodiscard]] std::string diagnostic(const Value& value);
+[[nodiscard]] std::string diagnostic(const Encoded& value);
 
 /// Parses diagnostic notation (RFC 8949 §8), as people and programs type
 /// values: JSON without floating point, plus byte strings and integer keys.

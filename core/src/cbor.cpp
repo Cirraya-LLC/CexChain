@@ -3,8 +3,10 @@
 
 #include <algorithm>
 #include <compare>
+#include <cstdlib>
 #include <limits>
 #include <string>
+#include <type_traits>
 #include <utility>
 
 #include <cexchain/core/cbor.hpp>
@@ -13,7 +15,7 @@ namespace cexchain::cbor {
 
 namespace {
 
-enum Major : std::uint8_t {
+enum MajorCode : std::uint8_t {
     major_unsigned = 0,
     major_negative = 1,
     major_bytes = 2,
@@ -78,14 +80,14 @@ void append(Bytes& out, ByteView bytes) {
 Status encode_into(Bytes& out, const Value& value, std::size_t depth);
 
 Status encode_map(Bytes& out, const Map& map, std::size_t depth) {
-    struct Encoded {
+    struct EncodedEntry {
         Bytes key;
         Bytes value;
     };
-    std::vector<Encoded> entries;
+    std::vector<EncodedEntry> entries;
     entries.reserve(map.size());
     for (const MapEntry& entry : map) {
-        Encoded encoded;
+        EncodedEntry encoded;
         if (auto s = encode_into(encoded.key, entry.key, depth + 1); !s) {
             return s;
         }
@@ -94,14 +96,14 @@ Status encode_map(Bytes& out, const Map& map, std::size_t depth) {
         }
         entries.push_back(std::move(encoded));
     }
-    std::ranges::sort(entries, std::ranges::less{}, &Encoded::key);
+    std::ranges::sort(entries, std::ranges::less{}, &EncodedEntry::key);
     const auto duplicate =
-        std::ranges::adjacent_find(entries, std::ranges::equal_to{}, &Encoded::key);
+        std::ranges::adjacent_find(entries, std::ranges::equal_to{}, &EncodedEntry::key);
     if (duplicate != entries.end()) {
         return fail(Errc::invalid_argument, "map has duplicate keys");
     }
     write_head(out, major_map, entries.size());
-    for (const Encoded& entry : entries) {
+    for (const EncodedEntry& entry : entries) {
         append(out, entry.key);
         append(out, entry.value);
     }
@@ -179,11 +181,20 @@ struct Head {
     std::uint64_t argument;
 };
 
+/// What the checking decoder makes of an item: nothing.
+struct Checked {};
+
+/// Decodes one item strictly. `Build` makes the Value; without it the same
+/// checks run in the same order and nothing is allocated (`validate`), so
+/// both accept and refuse exactly the same inputs, with the same errors.
+template <bool Build>
 class Decoder {
 public:
+    using Item = std::conditional_t<Build, Value, Checked>;
+
     Decoder(ByteView input, const DecodeOptions& options) : input_(input), options_(options) {}
 
-    Result<Value> decode_top_level() {
+    Result<Item> decode_top_level() {
         auto value = decode_item(0);
         if (!value) {
             return value;
@@ -241,7 +252,7 @@ private:
         return Head{major, info, argument};
     }
 
-    Result<Value> decode_item(std::size_t depth) {
+    Result<Item> decode_item(std::size_t depth) {
         if (++items_ > options_.max_items) {
             return fail(Errc::limit_exceeded, "input has too many data items");
         }
@@ -251,9 +262,17 @@ private:
         }
         switch (head->major) {
         case major_unsigned:
-            return Value::unsigned_integer(head->argument);
+            if constexpr (Build) {
+                return Value::unsigned_integer(head->argument);
+            } else {
+                return Checked{};
+            }
         case major_negative:
-            return Value::negative(head->argument);
+            if constexpr (Build) {
+                return Value::negative(head->argument);
+            } else {
+                return Checked{};
+            }
         case major_bytes:
         case major_text:
             return decode_string(*head);
@@ -268,21 +287,30 @@ private:
         }
     }
 
-    Result<Value> decode_string(const Head& head) {
+    Result<Item> decode_string(const Head& head) {
         if (head.argument > remaining()) {
             return fail(Errc::truncated, "string length exceeds the remaining input");
         }
         const auto length = static_cast<std::size_t>(head.argument);
         const ByteView content = input_.subspan(pos_, length);
         pos_ += length;
-        if (head.major == major_bytes) {
-            return Value::bytes(content);
+        if constexpr (Build) {
+            if (head.major == major_bytes) {
+                return Value::bytes(content);
+            }
+            std::string text(content.begin(), content.end());
+            if (!is_valid_utf8(text)) {
+                return fail(Errc::malformed, "text string is not valid UTF-8");
+            }
+            return Value::text(std::move(text));
+        } else {
+            if (head.major == major_text &&
+                !is_valid_utf8(std::string_view(reinterpret_cast<const char*>(content.data()),
+                                                content.size()))) {
+                return fail(Errc::malformed, "text string is not valid UTF-8");
+            }
+            return Checked{};
         }
-        std::string text(content.begin(), content.end());
-        if (!is_valid_utf8(text)) {
-            return fail(Errc::malformed, "text string is not valid UTF-8");
-        }
-        return Value::text(std::move(text));
     }
 
     Status enter(std::size_t depth) const {
@@ -292,7 +320,7 @@ private:
         return {};
     }
 
-    Result<Value> decode_array(const Head& head, std::size_t depth) {
+    Result<Item> decode_array(const Head& head, std::size_t depth) {
         if (auto s = enter(depth); !s) {
             return std::unexpected(s.error());
         }
@@ -301,27 +329,37 @@ private:
         if (head.argument > remaining()) {
             return fail(Errc::truncated, "array count exceeds the remaining input");
         }
-        Array items;
-        items.reserve(std::min(static_cast<std::size_t>(head.argument), max_reserved_items));
+        [[maybe_unused]] Array items;
+        if constexpr (Build) {
+            items.reserve(std::min(static_cast<std::size_t>(head.argument), max_reserved_items));
+        }
         for (std::uint64_t i = 0; i < head.argument; ++i) {
             auto item = decode_item(depth + 1);
             if (!item) {
                 return item;
             }
-            items.push_back(std::move(*item));
+            if constexpr (Build) {
+                items.push_back(std::move(*item));
+            }
         }
-        return Value::array(std::move(items));
+        if constexpr (Build) {
+            return Value::array(std::move(items));
+        } else {
+            return Checked{};
+        }
     }
 
-    Result<Value> decode_map(const Head& head, std::size_t depth) {
+    Result<Item> decode_map(const Head& head, std::size_t depth) {
         if (auto s = enter(depth); !s) {
             return std::unexpected(s.error());
         }
         if (head.argument > remaining() / 2) {
             return fail(Errc::truncated, "map count exceeds the remaining input");
         }
-        Map entries;
-        entries.reserve(std::min(static_cast<std::size_t>(head.argument), max_reserved_items));
+        [[maybe_unused]] Map entries;
+        if constexpr (Build) {
+            entries.reserve(std::min(static_cast<std::size_t>(head.argument), max_reserved_items));
+        }
         ByteView previous_key;
         for (std::uint64_t i = 0; i < head.argument; ++i) {
             const std::size_t key_start = pos_;
@@ -347,12 +385,18 @@ private:
             if (!value) {
                 return value;
             }
-            entries.push_back(MapEntry{std::move(*key), std::move(*value)});
+            if constexpr (Build) {
+                entries.push_back(MapEntry{std::move(*key), std::move(*value)});
+            }
         }
-        return Value::map(std::move(entries));
+        if constexpr (Build) {
+            return Value::map(std::move(entries));
+        } else {
+            return Checked{};
+        }
     }
 
-    Result<Value> decode_tag(const Head& head, std::size_t depth) {
+    Result<Item> decode_tag(const Head& head, std::size_t depth) {
         if (auto s = enter(depth); !s) {
             return std::unexpected(s.error());
         }
@@ -363,17 +407,24 @@ private:
         if (!item) {
             return item;
         }
-        return Value::tagged(head.argument, std::move(*item));
+        if constexpr (Build) {
+            return Value::tagged(head.argument, std::move(*item));
+        } else {
+            return Checked{};
+        }
     }
 
-    static Result<Value> decode_simple(const Head& head) {
+    static Result<Item> decode_simple(const Head& head) {
         switch (head.info) {
         case simple_false:
-            return Value::boolean(false);
         case simple_true:
-            return Value::boolean(true);
         case simple_null:
-            return Value::null();
+            if constexpr (Build) {
+                return head.info == simple_null ? Value::null()
+                                                : Value::boolean(head.info == simple_true);
+            } else {
+                return Checked{};
+            }
         case 24:
             if (head.argument < 32) {
                 return fail(Errc::malformed, "two-byte encoding of a simple value below 32");
@@ -395,6 +446,11 @@ private:
     std::size_t pos_ = 0;
     std::size_t items_ = 0;
 };
+
+/// Limits under which every item `encode` writes decodes: the encoder's own
+/// nesting limit, and no limit on the number of items.
+constexpr DecodeOptions unlimited{.max_depth = max_nesting_depth,
+                                  .max_items = std::numeric_limits<std::size_t>::max()};
 
 // ---------------------------------------------------------------------------
 // Diagnostic notation
@@ -677,14 +733,64 @@ Result<Bytes> encode(const Value& value) {
     return out;
 }
 
+Status encode_to(Bytes& out, const Value& value, std::size_t depth) {
+    return encode_into(out, value, depth);
+}
+
+void append_head(Bytes& out, Major major, std::uint64_t argument) {
+    write_head(out, static_cast<std::uint8_t>(major), argument);
+}
+
 Result<Value> decode(ByteView input, const DecodeOptions& options) {
-    return Decoder(input, options).decode_top_level();
+    return Decoder<true>(input, options).decode_top_level();
+}
+
+Status validate(ByteView input, const DecodeOptions& options) {
+    if (auto checked = Decoder<false>(input, options).decode_top_level(); !checked) {
+        return std::unexpected(checked.error());
+    }
+    return {};
+}
+
+Encoded::Encoded() noexcept = default;
+
+Result<Encoded> Encoded::encode(const Value& value) {
+    auto bytes = cbor::encode(value);
+    if (!bytes) {
+        return std::unexpected(bytes.error());
+    }
+    return Encoded(std::move(*bytes));
+}
+
+Result<Encoded> Encoded::from_bytes(ByteView bytes, const DecodeOptions& options) {
+    if (auto s = validate(bytes, options); !s) {
+        return std::unexpected(s.error());
+    }
+    return Encoded(Bytes(bytes.begin(), bytes.end()));
+}
+
+Encoded Encoded::trusted(ByteView bytes) {
+#ifndef NDEBUG
+    if (!validate(bytes, unlimited)) {
+        std::abort();
+    }
+#endif
+    return Encoded(Bytes(bytes.begin(), bytes.end()));
+}
+
+Value Encoded::value() const {
+    auto value = decode(bytes_, unlimited);
+    return value ? std::move(*value) : Value::null();
 }
 
 std::string diagnostic(const Value& value) {
     std::string out;
     append_diagnostic(out, value);
     return out;
+}
+
+std::string diagnostic(const Encoded& value) {
+    return diagnostic(value.value());
 }
 
 bool is_valid_utf8(std::string_view text) noexcept {
