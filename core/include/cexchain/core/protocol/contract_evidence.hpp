@@ -61,6 +61,16 @@ check_contract_consent(const crypto::Provider& provider, const ContractConsentRe
                        crypto::HashAlg home_hash, Timestamp at,
                        std::span<const crypto::PublicKey> trusted_witnesses = {});
 
+/// The same checks for a bundle verified already: `report` must be what
+/// `verify_bundle` reports for exactly `bundle` with `expected_ledger` set to
+/// `ref.ledger` and no trusted witnesses (a registrar verifies a consent once,
+/// on another thread, before it checks the consent against a call).
+[[nodiscard]] Result<ContractConsentCheck>
+check_verified_contract_consent(const crypto::Provider& provider, const ContractConsentRef& ref,
+                                ByteView bundle, EvidenceReport report,
+                                const ContractCallBody& call, const Id& home,
+                                crypto::HashAlg home_hash, Timestamp at);
+
 /// One call on the instance (for a child, or on one of its ancestors), with
 /// its consents.
 struct ContractStep {

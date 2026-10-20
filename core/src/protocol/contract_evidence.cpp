@@ -85,6 +85,47 @@ Result<ContractEvidence> decode_contract_evidence(ByteView encoded) {
     return e;
 }
 
+namespace {
+
+/// What check_contract_consent checks once the bundle verified.
+Result<ContractConsentCheck> check_consent_report(const crypto::Provider& provider,
+                                                  const ContractConsentRef& ref,
+                                                  EvidenceReport report,
+                                                  const ContractCallBody& call, const Id& home,
+                                                  crypto::HashAlg home_hash, Timestamp at) {
+    if (report.record != ref.record || report.record_type != contract_consent_type) {
+        return verification_failure("the consent bundle is not about the cited consent record");
+    }
+    if (!report.complete) {
+        return verification_failure(
+            "the consent's evidence does not prove its complete history (it could be withdrawn)");
+    }
+    if (report.revoked || report.state != consent_given) {
+        return verification_failure("the consent was withdrawn");
+    }
+    if (!report.metadata) {
+        return verification_failure("the consent record has no terms");
+    }
+    auto consent = decode_contract_consent(*report.metadata);
+    if (!consent) {
+        return verification_failure("the consent record's terms are malformed");
+    }
+    CEXCHAIN_TRY(Id arguments, contract_arguments_digest(provider, home_hash, call.arguments));
+    if (!consent_matches(*consent, home, call, arguments)) {
+        return verification_failure("the consent is to other terms than the call's");
+    }
+    if (consent->until < at) {
+        return verification_failure("the consent had lapsed when the call was recorded");
+    }
+    if (report.events.empty() || registration_signer(report.events.front()) != ref.signer) {
+        return verification_failure(
+            "the call claims another signer for the consent than its evidence shows");
+    }
+    return ContractConsentCheck{ref, std::move(*consent), std::move(report)};
+}
+
+} // namespace
+
 Result<ContractConsentCheck>
 check_contract_consent(const crypto::Provider& provider, const ContractConsentRef& ref,
                        ByteView bundle, const ContractCallBody& call, const Id& home,
@@ -101,35 +142,19 @@ check_contract_consent(const crypto::Provider& provider, const ContractConsentRe
     if (!report) {
         return std::unexpected(report.error());
     }
-    if (report->record != ref.record || report->record_type != contract_consent_type) {
-        return verification_failure("the consent bundle is not about the cited consent record");
+    return check_consent_report(provider, ref, std::move(*report), call, home, home_hash, at);
+}
+
+Result<ContractConsentCheck>
+check_verified_contract_consent(const crypto::Provider& provider, const ContractConsentRef& ref,
+                                ByteView bundle, EvidenceReport report,
+                                const ContractCallBody& call, const Id& home,
+                                crypto::HashAlg home_hash, Timestamp at) {
+    CEXCHAIN_TRY(crypto::Digest digest, provider.digest(home_hash, bundle));
+    if (digest != ref.bundle) {
+        return verification_failure("the consent bundle is not the one the call cites");
     }
-    if (!report->complete) {
-        return verification_failure(
-            "the consent's evidence does not prove its complete history (it could be withdrawn)");
-    }
-    if (report->revoked || report->state != consent_given) {
-        return verification_failure("the consent was withdrawn");
-    }
-    if (!report->metadata) {
-        return verification_failure("the consent record has no terms");
-    }
-    auto consent = decode_contract_consent(*report->metadata);
-    if (!consent) {
-        return verification_failure("the consent record's terms are malformed");
-    }
-    CEXCHAIN_TRY(Id arguments, contract_arguments_digest(provider, home_hash, call.arguments));
-    if (!consent_matches(*consent, home, call, arguments)) {
-        return verification_failure("the consent is to other terms than the call's");
-    }
-    if (consent->until < at) {
-        return verification_failure("the consent had lapsed when the call was recorded");
-    }
-    if (report->events.empty() || registration_signer(report->events.front()) != ref.signer) {
-        return verification_failure(
-            "the call claims another signer for the consent than its evidence shows");
-    }
-    return ContractConsentCheck{ref, std::move(*consent), std::move(*report)};
+    return check_consent_report(provider, ref, std::move(report), call, home, home_hash, at);
 }
 
 Result<ContractReport> verify_contract_evidence(const crypto::Provider& provider, ByteView encoded,

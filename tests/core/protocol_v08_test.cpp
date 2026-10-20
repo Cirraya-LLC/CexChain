@@ -310,11 +310,39 @@ TEST_CASE("v0.8 requests: evidence bundles and consents",
                     protocol::contract_arguments_digest(provider(), hash, call->arguments);
                 REQUIRE(digest);
                 CHECK(protocol::consent_matches(*consent, home, *call, *digest));
-                const auto check = protocol::check_contract_consent(
-                    provider(), ref, hex(text((*c)["bundle"])), *call, home, hash,
-                    st["registered_at"].get<protocol::Timestamp>());
+                const Bytes bundle = hex(text((*c)["bundle"]));
+                const auto at = st["registered_at"].get<protocol::Timestamp>();
+                const auto check = protocol::check_contract_consent(provider(), ref, bundle, *call,
+                                                                    home, hash, at);
                 INFO((check ? std::string() : std::string(check.error().detail)));
                 CHECK(check);
+                // The same checks on a bundle verified ahead (a registrar's
+                // consent, verified before its writer takes it): the same
+                // answer, and the same refusal for other terms.
+                protocol::VerifyOptions party;
+                party.expected_ledger = ref.ledger;
+                const auto report = protocol::verify_bundle(provider(), bundle, party);
+                REQUIRE(report);
+                const auto ahead = protocol::check_verified_contract_consent(
+                    provider(), ref, bundle, *report, *call, home, hash, at);
+                REQUIRE(ahead);
+                CHECK(ahead->ref == check->ref);
+                CHECK(ahead->consent == check->consent);
+                CHECK(ahead->report.record == check->report.record);
+                protocol::ContractCallBody other = *call;
+                other.function = "other";
+                CHECK(protocol::check_verified_contract_consent(provider(), ref, bundle, *report,
+                                                                other, home, hash, at)
+                          .error() == protocol::check_contract_consent(provider(), ref, bundle,
+                                                                       other, home, hash, at)
+                                          .error());
+                CHECK(protocol::check_verified_contract_consent(provider(), ref, bundle, *report,
+                                                                *call, home, hash,
+                                                                at + 400 * 86'400'000ULL)
+                          .error() == protocol::check_contract_consent(provider(), ref, bundle,
+                                                                       *call, home, hash,
+                                                                       at + 400 * 86'400'000ULL)
+                                          .error());
                 ++cited;
             }
         }
