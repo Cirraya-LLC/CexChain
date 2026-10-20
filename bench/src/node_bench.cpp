@@ -17,6 +17,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <print>
 #include <stdexcept>
 #include <string>
@@ -103,12 +104,35 @@ protocol::Timestamp system_now() {
 
 // --- executor ---
 
+namespace {
+
+/// A webhook receiver: takes every POST, done, with a result.
+class Receiver final : public node::Application {
+public:
+    void handle(node::http::Request, std::string, Respond respond) override {
+        node::http::Response r;
+        const std::string body = R"({"result":{"ref":"R-1"}})";
+        r.body.assign(body.begin(), body.end());
+        respond(std::move(r));
+    }
+};
+
+} // namespace
+
 int executor_bench(const Options& options) {
     const std::uint64_t n = options.number("requests", 200);
     const std::filesystem::path dir = scratch(options, "executor");
     const std::filesystem::path ledger_dir = dir / "ledger";
-    const std::filesystem::path state_dir = dir / "state";
+    // The executor's state: beside the ledger, or elsewhere (--state: another
+    // volume, as when the executor runs on a machine of its own).
+    const std::filesystem::path state_dir =
+        options.text("state", (dir / "state").string()) + "/executor-bench-state";
+    std::filesystem::remove_all(state_dir);
     std::filesystem::create_directories(state_dir);
+    const std::string type = options.text("connector", "command");
+    if (type != "command" && type != "webhook") {
+        throw std::runtime_error("--connector is command or webhook");
+    }
     Results results;
 
     // The home: the requesting test contract (testvectors/test-contracts.json,
@@ -161,39 +185,61 @@ int executor_bench(const Options& options) {
         std::make_shared<const crypto::openssl::KeyPair>(named_key("executor home log"))};
     auto api = must(node::LedgerApi::open(api_options, provider()), "api");
     auto serving = std::make_unique<Serving>(*api, options.number("server-threads", 2));
+    Receiver receiver;
+    std::unique_ptr<Serving> hooks;
 
     node::executor::Config config;
     config.ledger = home.id();
     config.actor = actor;
     config.delegation = delegation;
-    node::executor::ConnectorConfig commands;
-    commands.name = "commands";
-    commands.type = "command";
-    commands.kinds = {"notify"};
-    commands.config = json{{"program", options.text("program", "/usr/bin/true")}}.dump();
-    config.connectors.push_back(commands);
+    node::executor::ConnectorConfig connector;
+    connector.name = "notices";
+    connector.type = type;
+    connector.kinds = {"notify"};
+    node::executor::RunOptions o;
+    if (type == "command") {
+        connector.config = json{{"program", options.text("program", "/usr/bin/true")}}.dump();
+    } else {
+        hooks = std::make_unique<Serving>(receiver, options.number("hook-threads", 2));
+        connector.config = json{{"url", hooks->url() + "/hook"}, {"secret", "hook-key"}}.dump();
+        connector.secrets = {"hook-key"};
+        const std::string secret = "bench-hook-secret";
+        o.secrets.emplace("hook-key", SecureBytes(Bytes(secret.begin(), secret.end())));
+    }
+    config.connectors.push_back(connector);
 
     const std::string cli = options.text("cexchain", CEXCHAIN_BENCH_CLI);
     const bool in_process = options.flag("in-process") || !std::filesystem::exists(cli);
-    node::executor::RunOptions o;
     o.server = serving->url();
     o.client.bearer_token = token;
     o.state = state_dir;
-    o.channels = in_process ? node::executor::local_channels(node::connector::make_command)
+    o.channels = in_process ? node::executor::local_channels(type == "command"
+                                                                 ? node::connector::make_command
+                                                                 : node::connector::make_webhook)
                             : node::executor::process_channels(cli);
     o.signer = &device;
     o.provider = &provider();
     o.once = true;
     o.wait = 0s;
+    o.concurrency = options.number("concurrency", 0);
+    // Each event with the thread it came from: a worker works its requests
+    // one after another, so a request's time runs from that worker's last
+    // event (or, for its first, from when the request was listed).
     struct Event {
         Clock::time_point at;
         std::string name;
         std::string request;
+        std::thread::id thread;
     };
     std::vector<Event> events;
+    std::uint64_t concurrency = 0;
     o.on_event = [&](std::string_view line) {
         const json e = json::parse(line);
-        events.push_back({Clock::now(), e.value("event", ""), e.value("request", "")});
+        events.push_back({Clock::now(), e.value("event", ""), e.value("request", ""),
+                          std::this_thread::get_id()});
+        if (e.value("event", "") == "started") {
+            concurrency = e.value("concurrency", std::uint64_t{0});
+        }
     };
     const auto started = Clock::now();
     const auto ran = node::executor::run(config, o);
@@ -202,60 +248,75 @@ int executor_bench(const Options& options) {
         throw std::runtime_error("the executor stopped: " + ran.error());
     }
 
-    // Each request's time, from the event before its "verified" (the
-    // previous answer, or the poll) to its "answered", and its parts.
+    // Each request's time, from its worker's previous event to its
+    // "answered", and its parts.
     Latencies total;
     Latencies verify;
     Latencies prepare;
-    Latencies connector;
+    Latencies connector_run;
     Latencies answer;
+    std::map<std::string, Clock::time_point> seen;
     std::map<std::string, Clock::time_point> verified;
     std::map<std::string, Clock::time_point> acting;
     std::map<std::string, Clock::time_point> outcome;
     std::map<std::string, Clock::time_point> since;
+    std::map<std::thread::id, Clock::time_point> last;
+    std::optional<Clock::time_point> first_verified;
+    std::optional<Clock::time_point> last_answered;
     auto us = [](Clock::time_point a, Clock::time_point b) {
         return std::chrono::duration<double, std::micro>(b - a).count();
     };
-    for (std::size_t i = 1; i < events.size(); ++i) {
-        const Event& e = events[i];
-        if (e.name == "verified") {
-            since[e.request] = events[i - 1].at;
+    for (const Event& e : events) {
+        if (e.name == "seen") {
+            seen[e.request] = e.at;
+        } else if (e.name == "verified") {
+            const auto previous = last.find(e.thread);
+            since[e.request] = previous != last.end()     ? previous->second
+                               : seen.contains(e.request) ? seen[e.request]
+                                                          : e.at;
             verified[e.request] = e.at;
-            verify.add(us(events[i - 1].at, e.at));
+            verify.add(us(since[e.request], e.at));
+            first_verified = first_verified.value_or(e.at);
         } else if (e.name == "acting" && verified.contains(e.request)) {
             acting[e.request] = e.at;
             prepare.add(us(verified[e.request], e.at));
         } else if (e.name == "outcome" && acting.contains(e.request)) {
             outcome[e.request] = e.at;
-            connector.add(us(acting[e.request], e.at));
+            connector_run.add(us(acting[e.request], e.at));
         } else if (e.name == "answered" && outcome.contains(e.request)) {
             answer.add(us(outcome[e.request], e.at));
             total.add(us(since[e.request], e.at));
+            last_answered = e.at;
         }
+        last[e.thread] = e.at;
     }
+    auto mean = [](const Latencies& l) {
+        return l.total_us() / static_cast<double>(std::max<std::size_t>(l.size(), 1));
+    };
     results.add("connector", in_process ? 0 : 1, "(1: a child process, 0: in this process)");
+    results.add(type == "command" ? "connector type: command" : "connector type: webhook", 1, "");
+    results.add("concurrency", static_cast<double>(concurrency), "requests at once");
     results.add("requests", static_cast<double>(n), "");
     results.add("answered", static_cast<double>(total.size()), "");
     results.add("wall", wall_ms, "ms");
     results.add("throughput", static_cast<double>(total.size()) * 1000 / wall_ms, "answers/s");
+    if (first_verified && last_answered && *last_answered > *first_verified) {
+        results.add("throughput, first verified to last answered",
+                    static_cast<double>(total.size()) * 1e6 / us(*first_verified, *last_answered),
+                    "answers/s");
+    }
     total.report(results, "request", "");
-    results.add("verify the request (evidence fetched and checked)",
-                verify.total_us() / static_cast<double>(std::max<std::size_t>(verify.size(), 1)),
-                "us");
-    results.add("journal before acting",
-                prepare.total_us() / static_cast<double>(std::max<std::size_t>(prepare.size(), 1)),
-                "us");
-    results.add("connector (the program run)",
-                connector.total_us() /
-                    static_cast<double>(std::max<std::size_t>(connector.size(), 1)),
-                "us");
-    results.add("answer (evidence again, sign, submit durably)",
-                answer.total_us() / static_cast<double>(std::max<std::size_t>(answer.size(), 1)),
-                "us");
+    results.add("verify the request (evidence fetched and checked)", mean(verify), "us");
+    results.add("journal before acting", mean(prepare), "us");
+    results.add(type == "command" ? "connector (the program run)" : "connector (the webhook)",
+                mean(connector_run), "us");
+    results.add("answer (sign, submit durably)", mean(answer), "us");
     serving.reset();
+    hooks.reset();
     api.reset();
     results.print(options.flag("json"));
     if (!options.flag("keep")) {
+        std::filesystem::remove_all(state_dir);
         std::filesystem::remove_all(dir);
     }
     return total.size() == n ? 0 : 1;
