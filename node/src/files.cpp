@@ -30,7 +30,8 @@ Result<Bytes> read_file(const std::filesystem::path& path) {
     return out;
 }
 
-Status write_file(const std::filesystem::path& path, ByteView data, bool private_file) {
+Status write_file(const std::filesystem::path& path, ByteView data, bool private_file,
+                  bool sync_parent) {
     // Unique, so that threads (or processes) writing the same file at once
     // do not write into each other's temporary file.
     static std::atomic<std::uint64_t> counter = 0;
@@ -57,12 +58,17 @@ Status write_file(const std::filesystem::path& path, ByteView data, bool private
         ::unlink(temporary.c_str());
         return fail(Errc::unavailable, "cannot write a file");
     }
-    const std::filesystem::path parent = path.parent_path().empty() ? "." : path.parent_path();
-    if (const int dir = ::open(parent.c_str(), O_RDONLY | O_CLOEXEC); dir >= 0) {
+    if (sync_parent) {
+        detail::sync_directory(path.parent_path().empty() ? "." : path.parent_path());
+    }
+    return {};
+}
+
+void sync_directory(const std::filesystem::path& directory) {
+    if (const int dir = ::open(directory.c_str(), O_RDONLY | O_CLOEXEC); dir >= 0) {
         ::fsync(dir);
         ::close(dir);
     }
-    return {};
 }
 
 } // namespace cexchain::node::detail

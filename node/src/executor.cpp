@@ -3,9 +3,14 @@
 
 #include <algorithm>
 #include <asio/ip/address.hpp>
+#include <atomic>
+#include <condition_variable>
 #include <deque>
 #include <fcntl.h>
 #include <format>
+#include <map>
+#include <memory>
+#include <mutex>
 #include <random>
 #include <set>
 #include <sys/file.h>
@@ -133,6 +138,13 @@ std::expected<ConnectorConfig, std::string> connector_of(const json& entry) {
         }
         c.timeout = std::chrono::seconds(t->get<std::uint64_t>());
     }
+    if (const auto n = entry.find("concurrency"); n != entry.end()) {
+        if (!n->is_number_unsigned() || n->get<std::uint64_t>() == 0 ||
+            n->get<std::uint64_t>() > max_concurrency) {
+            return bad(std::format("its concurrency is 1 to {}", max_concurrency));
+        }
+        c.concurrency = static_cast<std::size_t>(n->get<std::uint64_t>());
+    }
     auto secrets = names_of(entry, "secrets");
     if (!secrets) {
         return bad(secrets.error());
@@ -226,6 +238,9 @@ json connector_json(const ConnectorConfig& c) {
         o["contracts"] = std::move(contracts);
     }
     o["timeout"] = c.timeout.count();
+    if (c.concurrency != 0) {
+        o["concurrency"] = c.concurrency;
+    }
     const json config = json::parse(c.config, nullptr, false);
     if (c.type == "program") {
         o["program"] = c.program;
@@ -527,13 +542,32 @@ std::optional<JournalEntry> Journal::find(const protocol::Id& request) const {
 }
 
 Status Journal::save(const JournalEntry& entry) const {
-    std::error_code ec;
-    std::filesystem::create_directories(state_ / "journal", ec);
-    std::filesystem::permissions(state_ / "journal", std::filesystem::perms::owner_all,
-                                 std::filesystem::perm_options::replace, ec);
-    const std::string text = entry_text(entry);
-    return detail::write_file(state_ / "journal" / (hex(entry.request) + ".json"),
-                              as_bytes(std::string_view(text)), true);
+    return save_all(std::span(&entry, 1));
+}
+
+Status Journal::save_all(std::span<const JournalEntry> entries) const {
+    if (entries.empty()) {
+        return {};
+    }
+    const auto dir = state_ / "journal";
+    if (!ready_.load()) {
+        std::error_code ec;
+        std::filesystem::create_directories(dir, ec);
+        std::filesystem::permissions(dir, std::filesystem::perms::owner_all,
+                                     std::filesystem::perm_options::replace, ec);
+        ready_.store(true);
+    }
+    for (const JournalEntry& entry : entries) {
+        // Each file's own data synced, the directory once for them all.
+        const std::string text = entry_text(entry);
+        if (auto written = detail::write_file(dir / (hex(entry.request) + ".json"),
+                                              as_bytes(std::string_view(text)), true, false);
+            !written) {
+            return written;
+        }
+    }
+    detail::sync_directory(dir);
+    return {};
 }
 
 std::uint64_t parse_cursor(std::string_view text, std::string_view server) {
@@ -787,6 +821,10 @@ open_connector(const ConnectorConfig& config, const ChannelFactory& channels,
 
 // ---- the runtime ------------------------------------------------------------
 
+std::size_t default_concurrency() noexcept {
+    return std::clamp<std::size_t>(std::thread::hardware_concurrency(), 1, max_concurrency);
+}
+
 namespace {
 
 /// A failure on the ledger's side: transient (try again later) or not.
@@ -816,19 +854,58 @@ private:
     bool held_ = false;
 };
 
+using steady = std::chrono::steady_clock;
+
+/// How renewing the lease before an action went.
+enum class Lease : std::uint8_t { held, denied, unreachable };
+
+/// The runtime. One dispatcher (the thread that calls run) polls the server
+/// and journals what it lists; workers take the oldest request that is due,
+/// whose instance has no other request in hand, and whose connector has a
+/// copy to spare, and work it to its end (verify, act, answer). The
+/// scheduler's state is under `mutex_`; a request in hand belongs to its
+/// worker alone until it is given back.
 class Runtime {
 public:
     Runtime(const Config& config, RunOptions& options)
         : config_(config), options_(options), journal_(options.state),
-          url_(*Url::parse(options.server)), client_(url_, options.client),
-          poller_(url_, polling(options)) {}
+          url_(*Url::parse(options.server)), poller_(url_, polling(options)),
+          concurrency_(options.concurrency == 0 ? default_concurrency() : options.concurrency) {}
 
     std::expected<void, std::string> run();
 
 private:
-    struct Connector {
+    /// A connector's copies, each performing one request at a time: at most
+    /// `limit` of them, started as they are needed.
+    struct Pool {
         const ConnectorConfig* config = nullptr;
-        std::unique_ptr<Channel> channel;
+        std::size_t limit = 1;
+        std::mutex mutex;
+        std::condition_variable freed;
+        std::vector<std::unique_ptr<Channel>> idle;
+        /// Started and not dropped: idle or in use.
+        std::size_t live = 0;
+        /// Copies started so far, to number them in events.
+        std::size_t started = 0;
+    };
+
+    /// A request the runtime knows and has not finished.
+    struct Slot {
+        JournalEntry entry;
+        /// The contract the server's list named: a hint, for routing only.
+        std::optional<protocol::Id> contract_hint;
+        bool in_hand = false;
+        /// Worked in this round (with `once`, each request once).
+        bool worked = false;
+    };
+
+    /// A request in a worker's hands.
+    struct Pick {
+        std::string key;
+        std::string instance;
+        /// The connector whose copy it holds a place for ("" if none).
+        std::string connector;
+        JournalEntry entry;
     };
 
     static ClientOptions polling(const RunOptions& options) {
@@ -845,6 +922,7 @@ private:
     [[nodiscard]] bool stopping() const {
         return options_.stop != nullptr && options_.stop->load();
     }
+    [[nodiscard]] bool failed() const { return failed_.load(); }
 
     void event(json e) {
         if (!options_.on_event) {
@@ -852,7 +930,9 @@ private:
         }
         json line = {{"at", now()}};
         line.update(e);
-        options_.on_event(dump(line));
+        const std::string text = dump(line);
+        const std::lock_guard lock(event_mutex_);
+        options_.on_event(text);
     }
     void event(std::string_view name, const JournalEntry& e, json more = json::object()) {
         json o = {{"event", name}, {"request", hex(e.request)}};
@@ -865,19 +945,19 @@ private:
 
     /// Sleeps up to `ms`, waking early to stop.
     void pause(std::uint64_t ms) const {
-        const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
-        while (!stopping() && std::chrono::steady_clock::now() < until) {
-            std::this_thread::sleep_for(std::min<std::chrono::steady_clock::duration>(
-                100ms, until - std::chrono::steady_clock::now()));
+        const auto until = steady::now() + std::chrono::milliseconds(ms);
+        while (!stopping() && !failed() && steady::now() < until) {
+            std::this_thread::sleep_for(std::min<steady::duration>(100ms, until - steady::now()));
         }
     }
 
-    std::uint64_t backoff(std::uint32_t failures, std::optional<std::uint64_t> after = {},
-                          const std::uint64_t cap = max_backoff_ms) {
+    static std::uint64_t backoff(std::uint32_t failures, std::optional<std::uint64_t> after = {},
+                                 const std::uint64_t cap = max_backoff_ms) {
+        thread_local std::mt19937_64 random{std::random_device{}()};
         const std::uint32_t shift = std::min<std::uint32_t>(failures == 0 ? 0 : failures - 1, 9);
         std::uint64_t base = std::min<std::uint64_t>(1000ull << shift, cap);
         std::uniform_int_distribution<std::uint64_t> jitter(base * 8 / 10, base * 12 / 10);
-        base = std::min<std::uint64_t>(jitter(random_), cap);
+        base = std::min<std::uint64_t>(jitter(random), cap);
         if (after) {
             base = std::max(base, std::min<std::uint64_t>(*after, cap));
         }
@@ -893,19 +973,26 @@ private:
 
     // ---- connectors --------------------------------------------------
 
-    std::expected<void, std::string> start(Connector& c) {
+    /// Starts a copy of the pool's connector (hello, then ready).
+    std::expected<std::unique_ptr<Channel>, std::string> start(Pool& pool) {
+        const ConnectorConfig& config = *pool.config;
         auto opened =
-            open_connector(*c.config, options_.channels, options_.secrets,
-                           [&](const connector::Log& log) { connector_log(*c.config, log); });
+            open_connector(config, options_.channels, options_.secrets,
+                           [&](const connector::Log& log) { connector_log(config, log); });
         if (!opened) {
             return Fail(opened.error());
         }
-        c.channel = std::move(opened->channel);
+        std::size_t copy = 0;
+        {
+            const std::lock_guard lock(pool.mutex);
+            copy = ++pool.started;
+        }
         event({{"event", "connector-ready"},
-               {"connector", c.config->name},
+               {"connector", config.name},
+               {"copy", copy},
                {"name", opened->ready.name},
                {"version", opened->ready.version}});
-        return {};
+        return std::move(opened->channel);
     }
 
     void connector_log(const ConnectorConfig& c, const connector::Log& log) {
@@ -919,37 +1006,61 @@ private:
         event(std::move(o));
     }
 
-    Connector* connector_for(const std::string& name) {
-        const auto it = connectors_.find(name);
-        if (it == connectors_.end()) {
-            return nullptr;
-        }
-        if (!it->second.channel) {
-            if (auto started = start(it->second); !started) {
+    /// An idle copy of the pool's connector, or a new one if fewer than its
+    /// limit run; else waits for one. Null if a new one does not start.
+    std::unique_ptr<Channel> acquire(Pool& pool) {
+        std::unique_lock lock(pool.mutex);
+        for (;;) {
+            if (!pool.idle.empty()) {
+                std::unique_ptr<Channel> channel = std::move(pool.idle.back());
+                pool.idle.pop_back();
+                return channel;
+            }
+            if (pool.live < pool.limit) {
+                ++pool.live;
+                lock.unlock();
+                auto started = start(pool);
+                if (started) {
+                    return std::move(*started);
+                }
                 event({{"event", "error"}, {"message", started.error()}});
+                lock.lock();
+                --pool.live;
+                pool.freed.notify_one();
                 return nullptr;
             }
-        }
-        return &it->second;
-    }
-
-    void drop(Connector& c) {
-        if (c.channel) {
-            c.channel->close();
-            c.channel.reset();
+            pool.freed.wait(lock);
         }
     }
 
-    /// Hands the request to its connector and waits for the outcome. A
-    /// connector that fails or does not answer in time is restarted, and the
-    /// attempt counts as one to retry.
+    /// A copy back after its request: ready for the next.
+    static void release(Pool& pool, std::unique_ptr<Channel> channel) {
+        const std::lock_guard lock(pool.mutex);
+        pool.idle.push_back(std::move(channel));
+        pool.freed.notify_one();
+    }
+
+    /// A copy that failed or did not answer in time: stopped; the next
+    /// request starts another.
+    static void drop(Pool& pool, std::unique_ptr<Channel> channel) {
+        channel->close();
+        channel.reset();
+        const std::lock_guard lock(pool.mutex);
+        --pool.live;
+        pool.freed.notify_one();
+    }
+
+    /// Hands the request to a copy of its connector and waits for the
+    /// outcome. A copy that fails or does not answer in time is stopped, and
+    /// the attempt counts as one to retry.
     connector::Outcome act(const ConnectorConfig& route, const JournalEntry& e) {
         connector::Outcome retry;
         retry.request = e.request;
         retry.status = connector::OutcomeStatus::retry;
         retry.reason = "connector";
-        Connector* c = connector_for(route.name);
-        if (c == nullptr) {
+        Pool& pool = *pools_.at(route.name);
+        std::unique_ptr<Channel> copy = acquire(pool);
+        if (copy == nullptr) {
             return retry;
         }
         connector::Perform p;
@@ -966,17 +1077,16 @@ private:
         p.attempt = e.attempts;
         p.timeout_ms = static_cast<std::uint64_t>(
             std::chrono::duration_cast<std::chrono::milliseconds>(route.timeout).count());
-        if (!c->channel->send(connector::encode(connector::ToConnector(std::move(p))))) {
-            drop(*c);
+        if (!copy->send(connector::encode(connector::ToConnector(std::move(p))))) {
+            drop(pool, std::move(copy));
             return retry;
         }
-        const auto until = std::chrono::steady_clock::now() + route.timeout + 5s;
-        while (std::chrono::steady_clock::now() < until) {
-            auto received =
-                c->channel->receive(std::chrono::duration_cast<std::chrono::milliseconds>(
-                    until - std::chrono::steady_clock::now()));
+        const auto until = steady::now() + route.timeout + 5s;
+        while (steady::now() < until) {
+            auto received = copy->receive(
+                std::chrono::duration_cast<std::chrono::milliseconds>(until - steady::now()));
             if (!received) {
-                drop(*c);
+                drop(pool, std::move(copy));
                 return retry;
             }
             if (!*received) {
@@ -995,20 +1105,40 @@ private:
                 connector_log(route, *log);
             } else if (auto* outcome = std::get_if<connector::Outcome>(&*message)) {
                 if (outcome->request == e.request) {
-                    return std::move(*outcome);
+                    connector::Outcome result = std::move(*outcome);
+                    release(pool, std::move(copy));
+                    return result;
                 }
             }
         }
-        drop(*c);
+        drop(pool, std::move(copy));
         retry.reason = "timeout";
         return retry;
     }
 
+    /// Tells an idle copy of the request's connector that the request was
+    /// answered elsewhere (copies perform one at a time, so none is still
+    /// working on it; first-party connectors ignore it).
     void cancel(const JournalEntry& e, std::string_view reason) {
-        const auto it = connectors_.find(e.connector);
-        if (it != connectors_.end() && it->second.channel) {
-            (void)it->second.channel->send(connector::encode(
-                connector::ToConnector(connector::Cancel{e.request, std::string(reason)})));
+        const auto it = pools_.find(e.connector);
+        if (it == pools_.end()) {
+            return;
+        }
+        Pool& pool = *it->second;
+        std::unique_ptr<Channel> copy;
+        {
+            const std::lock_guard lock(pool.mutex);
+            if (pool.idle.empty()) {
+                return;
+            }
+            copy = std::move(pool.idle.back());
+            pool.idle.pop_back();
+        }
+        if (copy->send(connector::encode(
+                connector::ToConnector(connector::Cancel{e.request, std::string(reason)})))) {
+            release(pool, std::move(copy));
+        } else {
+            drop(pool, std::move(copy));
         }
     }
 
@@ -1022,7 +1152,8 @@ private:
         bool more = false;
     };
 
-    std::expected<Poll, std::string> poll(std::uint64_t after, std::chrono::seconds wait,
+    std::expected<Poll, std::string> poll(Connection& server, std::uint64_t after,
+                                          std::chrono::seconds wait,
                                           const std::optional<protocol::Id>& instance = {},
                                           std::uint64_t limit = 100) {
         std::string kinds;
@@ -1036,7 +1167,7 @@ private:
         if (instance) {
             path += "&instance=" + hex(*instance);
         }
-        const auto response = (wait.count() > 0 ? poller_ : client_).request("GET", path);
+        const auto response = server.request("GET", path);
         if (!response) {
             return Fail(std::format("the server: {}", response.error().detail));
         }
@@ -1056,31 +1187,45 @@ private:
             p.retry_ms = body["lease"].value("retry_ms", std::uint64_t{1000});
         }
         if (p.granted) {
-            lease_at_ = std::chrono::steady_clock::now();
+            lease_at_.store(steady::now().time_since_epoch().count());
         }
         return p;
     }
 
-    /// Renews the lease before an action if a third of its time has passed.
-    bool hold_lease(const protocol::Id& instance) {
-        if (std::chrono::steady_clock::now() - lease_at_ < options_.lease_ttl / 3) {
-            return true;
+    /// Renews the lease before an action if a third of its time has passed
+    /// since a poll was granted it (one worker renews; the others wait for
+    /// it).
+    Lease hold_lease(Connection& server, const protocol::Id& instance, std::string& why) {
+        auto fresh = [&] {
+            return steady::now() - steady::time_point(steady::duration(lease_at_.load())) <
+                   options_.lease_ttl / 3;
+        };
+        if (fresh()) {
+            return holding_.load() ? Lease::held : Lease::denied;
         }
-        auto p = poll(0, 0s, instance, 1);
+        const std::lock_guard lock(lease_mutex_);
+        if (fresh()) {
+            return holding_.load() ? Lease::held : Lease::denied;
+        }
+        auto p = poll(server, 0, 0s, instance, 1);
         if (!p) {
             event({{"event", "error"}, {"message", p.error()}});
-            return false;
+            why = p.error();
+            return Lease::unreachable;
         }
         if (!p->granted) {
-            holding_ = false;
-            event({{"event", "lease"}, {"granted", false}, {"holder", holder_}});
+            if (holding_.exchange(false)) {
+                event({{"event", "lease"}, {"granted", false}, {"holder", holder_}});
+            }
+            return Lease::denied;
         }
-        return p->granted;
+        return Lease::held;
     }
 
     /// The instance's contract evidence, verified for the home ledger.
-    std::expected<protocol::ContractReport, Trouble> evidence(const protocol::Id& instance) {
-        const auto response = client_.request("GET", "/v1/contracts/instances/" + hex(instance));
+    std::expected<protocol::ContractReport, Trouble> evidence(Connection& server,
+                                                              const protocol::Id& instance) {
+        const auto response = server.request("GET", "/v1/contracts/instances/" + hex(instance));
         if (!response) {
             return std::unexpected(
                 Trouble{true, std::format("the server: {}", response.error().detail)});
@@ -1175,12 +1320,12 @@ private:
         event("closed", e, std::move(more));
     }
 
-    void work(JournalEntry& e) {
+    void work(JournalEntry& e, Connection& server) {
         if (e.stage == Stage::outcome || e.stage == Stage::answering) {
-            answer(e);
+            answer(e, server, nullptr);
             return;
         }
-        auto report = evidence(e.instance);
+        auto report = evidence(server, e.instance);
         if (!report) {
             if (report.error().transient) {
                 later(e, report.error().message);
@@ -1215,18 +1360,27 @@ private:
         }
         e.connector = route->name;
         if (e.stage == Stage::seen || e.stage == Stage::unverified) {
+            // Journaled with the stage that follows at once (acting, or the
+            // outcome), or below if nothing does.
             e.stage = Stage::verified;
-            save(e);
             event("verified", e, {{"instance", hex(e.instance)}, {"deadline", e.deadline}});
         }
         const auto longest = static_cast<protocol::Timestamp>(
             std::chrono::duration_cast<std::chrono::milliseconds>(route->timeout).count());
         if (now() + longest >= e.deadline) {
             // Never start work that could end after the deadline.
-            decide(e, *report, connector::OutcomeStatus::failed, "deadline");
+            decide(e, server, *report, connector::OutcomeStatus::failed, "deadline");
             return;
         }
-        if (!hold_lease(e.instance)) {
+        std::string why;
+        switch (hold_lease(server, e.instance, why)) {
+        case Lease::held:
+            break;
+        case Lease::denied:
+            save(e); // verified; worked again once the lease is back
+            return;
+        case Lease::unreachable:
+            later(e, why);
             return;
         }
         e.stage = Stage::acting;
@@ -1238,7 +1392,7 @@ private:
             ++e.failures;
             const std::uint64_t delay = backoff(e.failures, o.retry_after_ms);
             if (now() + delay + longest >= e.deadline) {
-                decide(e, *report, connector::OutcomeStatus::failed, "deadline");
+                decide(e, server, *report, connector::OutcomeStatus::failed, "deadline");
                 return;
             }
             e.stage = Stage::verified;
@@ -1252,7 +1406,7 @@ private:
             return;
         }
         e.failures = 0;
-        decide(e, *report, o.status, o.reason, std::move(o.result), std::move(o.response));
+        decide(e, server, *report, o.status, o.reason, std::move(o.result), std::move(o.response));
     }
 
     void unverified(JournalEntry& e, std::string why) {
@@ -1263,10 +1417,10 @@ private:
     }
 
     /// Journals the outcome (with the response's salted digest), then
-    /// answers.
-    void decide(JournalEntry& e, const protocol::ContractReport& r, connector::OutcomeStatus status,
-                std::optional<std::string> reason, std::optional<cbor::Value> result = {},
-                std::optional<Bytes> response = {}) {
+    /// answers on the head `r` verified.
+    void decide(JournalEntry& e, Connection& server, const protocol::ContractReport& r,
+                connector::OutcomeStatus status, std::optional<std::string> reason,
+                std::optional<cbor::Value> result = {}, std::optional<Bytes> response = {}) {
         e.status = status == connector::OutcomeStatus::done ? "done" : "failed";
         e.reason = status == connector::OutcomeStatus::done
                        ? std::nullopt
@@ -1299,7 +1453,7 @@ private:
         save(e);
         event("outcome", e,
               {{"status", *e.status}, {"reason", e.reason ? json(*e.reason) : json(nullptr)}});
-        answer(e);
+        answer(e, server, &r);
     }
 
     std::expected<protocol::SignedStatement, std::string>
@@ -1333,6 +1487,9 @@ private:
                                                               ? protocol::AnswerStatus::done
                                                               : protocol::AnswerStatus::failed};
         st.body = std::move(body);
+        // A signer (a token through PKCS #11, say) need not take two
+        // signatures at once.
+        const std::lock_guard lock(sign_mutex_);
         auto signed_statement =
             protocol::sign_statement(*options_.signer, *options_.provider, r.instance.hash, st);
         if (!signed_statement) {
@@ -1341,49 +1498,74 @@ private:
         return std::move(*signed_statement);
     }
 
-    void answer(JournalEntry& e) {
+    /// Signs and sends the answer. `verified` is the evidence the request
+    /// was just verified in: the first answer is built on its head without
+    /// fetching it again (if the head has moved since, the ledger refuses
+    /// it, and the answer is built again on fresh evidence).
+    void answer(JournalEntry& e, Connection& server, const protocol::ContractReport* verified) {
         std::optional<std::string> refusal;
         std::optional<std::uint64_t> refused_head;
         for (int round = 0; round < 5; ++round) {
             const bool resend = round == 0 && e.stage == Stage::answering && e.statement;
+            // An answer on the verified head goes out before it is journaled
+            // as answering: the outcome it carries is journaled, and if it
+            // was recorded, fresh evidence shows it as this executor's.
+            const bool reused = round == 0 && !resend && verified != nullptr;
             if (!resend) {
-                auto report = evidence(e.instance);
-                if (!report) {
-                    later(e, report.error().message);
-                    return;
+                std::optional<protocol::ContractReport> fetched;
+                if (!reused) {
+                    auto report = evidence(server, e.instance);
+                    if (!report) {
+                        later(e, report.error().message);
+                        return;
+                    }
+                    fetched = std::move(*report);
                 }
-                const protocol::RequestReport* q = find_request(*report, e.request);
-                if (q == nullptr) {
-                    later(e, "the request is missing from the evidence");
-                    return;
+                const protocol::ContractReport& report = reused ? *verified : *fetched;
+                if (!reused) {
+                    const protocol::RequestReport* q = find_request(report, e.request);
+                    if (q == nullptr) {
+                        later(e, "the request is missing from the evidence");
+                        return;
+                    }
+                    if (q->status) {
+                        closed_by(e, *q, report);
+                        return;
+                    }
+                    if (refusal && refused_head == report.instance.instance->head) {
+                        // Refused on the head it named: the contract or a
+                        // ledger rule refuses this answer. The request stays
+                        // open.
+                        e.stage = Stage::closed;
+                        e.note = "the ledger refused its answer: " + *refusal;
+                        save(e);
+                        event("refused", e, {{"message", *refusal}});
+                        return;
+                    }
                 }
-                if (q->status) {
-                    closed_by(e, *q, *report);
-                    return;
-                }
-                if (refusal && refused_head == report->instance.instance->head) {
-                    // Refused on the head it named: the contract or a ledger
-                    // rule refuses this answer. The request stays open.
-                    e.stage = Stage::closed;
-                    e.note = "the ledger refused its answer: " + *refusal;
-                    save(e);
-                    event("refused", e, {{"message", *refusal}});
-                    return;
-                }
-                auto signed_answer = sign_answer(e, *report);
+                auto signed_answer = sign_answer(e, report);
                 if (!signed_answer) {
                     later(e, signed_answer.error());
                     return;
                 }
-                e.stage = Stage::answering;
                 e.statement = signed_answer->encoded;
                 e.statement_id = signed_answer->id;
-                e.head = report->instance.instance->head;
-                save(e);
+                e.head = report.instance.instance->head;
+                if (!reused) {
+                    e.stage = Stage::answering;
+                    save(e);
+                }
             }
             const auto response =
-                client_.request("POST", "/v1/statements", *e.statement, "application/cose");
+                server.request("POST", "/v1/statements", *e.statement, "application/cose");
             if (!response) {
+                if (reused) {
+                    // Nothing came back: it is built again on fresh evidence
+                    // (which shows it if the ledger took it after all).
+                    e.statement.reset();
+                    e.statement_id.reset();
+                    e.head.reset();
+                }
                 later(e, std::format("the server: {}", response.error().detail));
                 return;
             }
@@ -1408,6 +1590,8 @@ private:
             }
             if (response->status >= 500 || response->status == 401 || response->status == 403 ||
                 response->status == 429 || response->status == 307) {
+                // Signed and refused for now: sent again as it is.
+                e.stage = Stage::answering;
                 later(e, "the server: " + message);
                 return;
             }
@@ -1420,84 +1604,291 @@ private:
         later(e, "the instance keeps changing; it will answer again");
     }
 
-    // ---- the loop -------------------------------------------------------
+    // ---- the scheduler (under mutex_) ------------------------------------
 
-    bool schedulable(const JournalEntry& e) const {
+    static bool schedulable(const JournalEntry& e) {
         return !is_final(e.stage) && e.stage != Stage::unverified;
     }
 
-    void work_due() {
-        // Oldest first; a copy, since work may close entries.
-        std::vector<std::string> due;
-        for (const auto& [key, e] : pending_) {
-            if (schedulable(e) && e.next_at <= now()) {
-                due.push_back(key);
+    /// The connector a request will likely go to, from what is known before
+    /// it is verified (the contract the list named, else any contract's).
+    const ConnectorConfig* likely_route(const Slot& slot) const {
+        const auto contract = slot.entry.contract ? slot.entry.contract : slot.contract_hint;
+        return config_.route(contract.value_or(protocol::Id{}), slot.entry.kind);
+    }
+
+    void add(const std::string& key, JournalEntry e, std::optional<protocol::Id> contract_hint) {
+        Slot& slot = slots_[key];
+        slot.entry = std::move(e);
+        slot.contract_hint = std::move(contract_hint);
+        if (schedulable(slot.entry)) {
+            order_.emplace(slot.entry.first_seen, key);
+        }
+    }
+
+    /// The oldest request that is due, not yet worked this round (with
+    /// `once`), whose instance has nothing else in hand, and whose connector
+    /// has a copy to spare.
+    std::optional<Pick> take(protocol::Timestamp t) {
+        for (auto it = order_.begin(); it != order_.end(); ++it) {
+            Slot& slot = slots_.at(it->second);
+            const JournalEntry& e = slot.entry;
+            if (e.next_at > t || (options_.once && slot.worked)) {
+                continue;
+            }
+            std::string instance = hex(e.instance);
+            if (busy_.contains(instance)) {
+                continue;
+            }
+            std::string connector;
+            if (const ConnectorConfig* route = likely_route(slot)) {
+                const Pool& pool = *pools_.at(route->name);
+                if (reserved_[route->name] >= pool.limit) {
+                    continue;
+                }
+                connector = route->name;
+                ++reserved_[connector];
+            }
+            busy_.insert(instance);
+            slot.in_hand = true;
+            ++in_hand_;
+            // The slot's entry is the worker's until it is given back.
+            Pick pick{it->second, std::move(instance), std::move(connector), std::move(slot.entry)};
+            order_.erase(it);
+            return pick;
+        }
+        return std::nullopt;
+    }
+
+    /// A request back from a worker.
+    void give_back(Pick& pick, JournalEntry e) {
+        busy_.erase(pick.instance);
+        if (!pick.connector.empty()) {
+            --reserved_[pick.connector];
+        }
+        --in_hand_;
+        Slot& slot = slots_.at(pick.key);
+        slot.in_hand = false;
+        slot.worked = true;
+        if (is_final(e.stage)) {
+            slots_.erase(pick.key);
+            return;
+        }
+        slot.entry = std::move(e);
+        if (schedulable(slot.entry)) {
+            order_.emplace(slot.entry.first_seen, pick.key);
+        }
+    }
+
+    /// How long an idle worker may sleep: until the soonest retry, at most
+    /// 100 ms (stops are checked that often).
+    steady::duration idle_for(protocol::Timestamp t) const {
+        protocol::Timestamp soonest = UINT64_MAX;
+        if (holding_.load()) {
+            for (const auto& [first_seen, key] : order_) {
+                const Slot& slot = slots_.at(key);
+                if (!(options_.once && slot.worked)) {
+                    soonest = std::min(soonest, slot.entry.next_at);
+                }
             }
         }
-        std::ranges::sort(due, [&](const std::string& a, const std::string& b) {
-            return pending_[a].first_seen < pending_[b].first_seen;
-        });
-        for (const std::string& key : due) {
-            if (stopping() || !holding_) {
+        if (soonest == UINT64_MAX || soonest <= t) {
+            return 100ms;
+        }
+        return std::min<steady::duration>(100ms, std::chrono::milliseconds(soonest - t));
+    }
+
+    [[nodiscard]] bool halted() const { return shutdown_ || stopping() || failed(); }
+
+    void worker() {
+        Connection server(url_, options_.client);
+        std::unique_lock lock(mutex_);
+        while (!halted()) {
+            std::optional<Pick> pick;
+            const protocol::Timestamp t = now();
+            if (holding_.load() && reachable_.load()) {
+                pick = take(t);
+            }
+            if (!pick) {
+                if (options_.once && listed_all_ && in_hand_ == 0) {
+                    // The round is over: nothing in hand, nothing due.
+                    round_over_ = true;
+                    wake_.notify_all();
+                    return;
+                }
+                wake_.wait_for(lock, idle_for(t));
+                continue;
+            }
+            lock.unlock();
+            JournalEntry e = std::move(pick->entry);
+            try {
+                work(e, server);
+            } catch (const std::exception& error) {
+                lock.lock();
+                if (!failed_.exchange(true)) {
+                    failure_ = error.what();
+                }
+                give_back(*pick, std::move(e));
+                wake_.notify_all();
                 return;
             }
-            JournalEntry& e = pending_[key];
-            work(e);
-            if (is_final(e.stage)) {
-                pending_.erase(key);
-            }
+            lock.lock();
+            give_back(*pick, std::move(e));
+            wake_.notify_all();
         }
     }
 
-    std::uint64_t until_due() {
-        std::uint64_t soonest = UINT64_MAX;
-        for (const auto& [key, e] : pending_) {
-            if (schedulable(e)) {
-                soonest = std::min(soonest, e.next_at);
-            }
-        }
-        const protocol::Timestamp t = now();
-        return soonest == UINT64_MAX ? UINT64_MAX : (soonest <= t ? 0 : soonest - t);
-    }
+    // ---- the dispatcher ---------------------------------------------------
 
+    /// Journals the requests a poll listed that it does not know yet (as
+    /// seen, with one sync for them all, before the cursor moves past them)
+    /// and hands them to the workers.
     void note_listed(const json& listed) {
-        for (const json& r : listed) {
-            const auto id = detail::id_from_hex(r.value("id", std::string()));
-            const auto instance = detail::id_from_hex(r.value("instance", std::string()));
-            if (!id || !instance) {
-                continue;
-            }
-            const std::string key = hex(*id);
-            if (const auto it = pending_.find(key); it != pending_.end()) {
-                if (it->second.stage == Stage::unverified) {
-                    // Listed again: look again.
-                    it->second.stage = Stage::seen;
-                    it->second.next_at = 0;
+        struct Listed {
+            protocol::Id id;
+            protocol::Id instance;
+            std::string kind;
+            std::optional<protocol::Id> contract;
+        };
+        std::vector<Listed> unknown;
+        {
+            const std::lock_guard lock(mutex_);
+            for (const json& r : listed) {
+                const auto id = detail::id_from_hex(r.value("id", std::string()));
+                const auto instance = detail::id_from_hex(r.value("instance", std::string()));
+                if (!id || !instance) {
+                    continue;
                 }
-                continue;
+                const auto it = slots_.find(hex(*id));
+                if (it == slots_.end()) {
+                    unknown.push_back({*id, *instance, r.value("kind", std::string()),
+                                       detail::id_from_hex(r.value("contract", std::string()))});
+                } else if (!it->second.in_hand && it->second.entry.stage == Stage::unverified) {
+                    // Listed again: look again.
+                    it->second.entry.stage = Stage::seen;
+                    it->second.entry.next_at = 0;
+                    it->second.worked = false;
+                    order_.emplace(it->second.entry.first_seen, it->first);
+                }
             }
-            if (const auto known = journal_.find(*id); known && is_final(known->stage)) {
+        }
+        std::vector<JournalEntry> fresh;
+        std::vector<std::optional<protocol::Id>> hints; // fresh's contracts, as listed
+        std::vector<std::pair<JournalEntry, std::optional<protocol::Id>>> known;
+        for (Listed& r : unknown) {
+            if (const auto entry = journal_.find(r.id); entry && is_final(entry->stage)) {
                 continue;
-            } else if (known) {
-                JournalEntry e = *known;
+            } else if (entry) {
+                JournalEntry e = *entry;
                 if (e.stage == Stage::unverified) {
                     e.stage = Stage::seen;
                     e.next_at = 0;
                 }
-                pending_[key] = std::move(e);
+                known.emplace_back(std::move(e), r.contract);
                 continue;
             }
             JournalEntry e;
-            e.request = *id;
-            e.instance = *instance;
-            e.kind = r.value("kind", std::string());
+            e.request = r.id;
+            e.instance = r.instance;
+            e.kind = std::move(r.kind);
             if (!protocol::is_request_kind(e.kind)) {
                 e.kind.clear();
             }
             e.first_seen = now();
-            save(e);
+            e.updated = e.first_seen;
+            fresh.push_back(std::move(e));
+            hints.push_back(r.contract);
+        }
+        if (const auto saved = journal_.save_all(fresh); !saved) {
+            throw std::runtime_error("cannot write the journal in " + options_.state.string());
+        }
+        for (const JournalEntry& e : fresh) {
             event("seen", e, {{"instance", hex(e.instance)}});
-            pending_[key] = std::move(e);
+        }
+        const std::lock_guard lock(mutex_);
+        for (std::size_t i = 0; i < fresh.size(); ++i) {
+            const std::string key = hex(fresh[i].request);
+            if (!slots_.contains(key)) {
+                add(key, std::move(fresh[i]), hints[i]);
+            }
+        }
+        for (auto& [e, contract] : known) {
+            const std::string key = hex(e.request);
+            if (!slots_.contains(key)) {
+                add(key, std::move(e), contract);
+            }
+        }
+        wake_.notify_all();
+    }
+
+    void set_holding(bool granted) {
+        if (granted && !holding_.exchange(true)) {
+            event({{"event", "lease"}, {"granted", true}, {"holder", holder_}});
+            const std::lock_guard lock(mutex_);
+            wake_.notify_all();
+        }
+    }
+
+    /// The dispatcher's loop: polls, and journals and hands over what is
+    /// listed, until a stop (or, with `once`, the end of the round).
+    void dispatch() {
+        std::uint64_t cursor = journal_.cursor(options_.server);
+        bool more = false;
+        bool first = true;
+        while (!stopping() && !failed()) {
+            // The first poll does not wait, so that work resumed from the
+            // journal starts as soon as the lease is known.
+            const std::chrono::seconds wait = options_.once || more || first ? 0s : options_.wait;
+            auto p = poll(poller_, cursor, wait);
+            if (!p) {
+                // Workers wait too while the server cannot be reached: their
+                // retries resume once a poll gets through, so that an outage
+                // does not run their backoffs up.
+                reachable_.store(false);
+                event({{"event", "error"}, {"message", p.error()}});
+                if (options_.once) {
+                    break;
+                }
+                pause(5000);
+                continue;
+            }
+            if (!reachable_.exchange(true)) {
+                const std::lock_guard lock(mutex_);
+                wake_.notify_all();
+            }
+            if (!p->granted) {
+                if (holding_.exchange(false) || first) {
+                    event({{"event", "lease"}, {"granted", false}, {"holder", holder_}});
+                }
+                first = false;
+                if (options_.once) {
+                    break;
+                }
+                pause(std::min<std::uint64_t>(
+                    p->retry_ms + 100, static_cast<std::uint64_t>(options_.wait.count()) * 1000));
+                continue;
+            }
+            set_holding(true);
+            first = false;
+            note_listed(p->requests);
+            cursor = p->cursor;
+            more = p->more;
+            if (const auto saved = journal_.save_cursor(options_.server, cursor); !saved) {
+                throw std::runtime_error("cannot write the cursor in " + options_.state.string());
+            }
+            if (options_.once && !more) {
+                break;
+            }
+        }
+        if (!options_.once) {
+            return;
+        }
+        // One round: what was due, worked to its end.
+        std::unique_lock lock(mutex_);
+        listed_all_ = true;
+        wake_.notify_all();
+        while (!round_over_ && !failed() && !stopping()) {
+            wake_.wait_for(lock, 100ms);
         }
     }
 
@@ -1505,14 +1896,35 @@ private:
     RunOptions& options_;
     Journal journal_;
     Url url_;
-    Client client_;
-    Client poller_;
-    std::map<std::string, Connector> connectors_;
-    std::map<std::string, JournalEntry> pending_;
+    Connection poller_;
+    std::size_t concurrency_;
+    std::map<std::string, std::unique_ptr<Pool>> pools_;
     std::string holder_;
-    bool holding_ = false;
-    std::chrono::steady_clock::time_point lease_at_{};
-    std::mt19937_64 random_{std::random_device{}()};
+    std::atomic<bool> holding_{false};
+    /// The dispatcher's last poll reached the server.
+    std::atomic<bool> reachable_{true};
+    /// When a poll was last granted the lease (steady clock ticks).
+    std::atomic<steady::rep> lease_at_{0};
+    std::mutex lease_mutex_;
+    std::mutex event_mutex_;
+    std::mutex sign_mutex_;
+    std::atomic<bool> failed_{false};
+    std::string failure_; // under mutex_
+
+    // The scheduler.
+    std::mutex mutex_;
+    std::condition_variable wake_;
+    std::map<std::string, Slot> slots_;
+    /// Slots that are not in hand and may be worked, oldest first.
+    std::set<std::pair<protocol::Timestamp, std::string>> order_;
+    /// Instances with a request in hand.
+    std::set<std::string> busy_;
+    /// Copies of each connector promised to requests in hand.
+    std::map<std::string, std::size_t> reserved_;
+    std::size_t in_hand_ = 0;
+    bool listed_all_ = false;
+    bool round_over_ = false;
+    bool shutdown_ = false;
 };
 
 std::expected<void, std::string> Runtime::run() {
@@ -1546,15 +1958,32 @@ std::expected<void, std::string> Runtime::run() {
             return Fail("cannot write in the state directory " + options_.state.string());
         }
     }
-    for (const ConnectorConfig& c : config_.connectors) {
-        Connector& slot = connectors_[c.name];
-        slot.config = &c;
-        if (auto started = start(slot); !started) {
-            for (auto& [name, other] : connectors_) {
-                drop(other);
+    auto stop_connectors = [&](bool politely) {
+        for (auto& [name, pool] : pools_) {
+            for (std::unique_ptr<Channel>& copy : pool->idle) {
+                if (politely) {
+                    (void)copy->send(connector::encode(connector::ToConnector(connector::Stop{})));
+                }
+                copy->close();
             }
-            return Fail(started.error());
+            pool->idle.clear();
+            pool->live = 0;
         }
+    };
+    // One copy of each connector at once, so that a config that does not
+    // work fails here; more as requests need them.
+    for (const ConnectorConfig& c : config_.connectors) {
+        auto pool = std::make_unique<Pool>();
+        pool->config = &c;
+        pool->limit = c.concurrency != 0 ? c.concurrency : c.type == "program" ? 1 : concurrency_;
+        auto copy = start(*pool);
+        if (!copy) {
+            stop_connectors(false);
+            return Fail(copy.error());
+        }
+        pool->idle.push_back(std::move(*copy));
+        pool->live = 1;
+        pools_.emplace(c.name, std::move(pool));
     }
     // An answer waiting to be sent is sent at once after a restart; an
     // action waiting for its retry keeps its backoff (the outside system's).
@@ -1563,81 +1992,47 @@ std::expected<void, std::string> Runtime::run() {
             if (e.stage == Stage::outcome || e.stage == Stage::answering) {
                 e.next_at = 0;
             }
-            pending_[hex(e.request)] = std::move(e);
+            const std::string key = hex(e.request);
+            add(key, std::move(e), std::nullopt);
         }
     }
-    std::uint64_t cursor = journal_.cursor(options_.server);
     event({{"event", "started"},
            {"holder", holder_},
            {"kinds", config_.kinds()},
-           {"cursor", cursor},
-           {"resumed", pending_.size()}});
+           {"cursor", journal_.cursor(options_.server)},
+           {"concurrency", concurrency_},
+           {"resumed", slots_.size()}});
 
-    bool more = false;
-    bool first = true;
+    std::vector<std::thread> workers;
+    workers.reserve(concurrency_);
+    for (std::size_t i = 0; i < concurrency_; ++i) {
+        workers.emplace_back([this] { worker(); });
+    }
     try {
-        while (!stopping()) {
-            std::chrono::seconds wait = options_.once || more ? 0s : options_.wait;
-            if (const std::uint64_t due = until_due(); due != UINT64_MAX && holding_) {
-                // Wake for the next retry (rounded up: never a busy loop).
-                wait = std::min(wait, std::chrono::seconds((due + 999) / 1000));
-            }
-            auto p = poll(cursor, wait);
-            if (!p) {
-                event({{"event", "error"}, {"message", p.error()}});
-                if (options_.once) {
-                    break;
-                }
-                pause(5000);
-                continue;
-            }
-            if (!p->granted) {
-                if (holding_ || first) {
-                    event({{"event", "lease"}, {"granted", false}, {"holder", holder_}});
-                }
-                holding_ = false;
-                first = false;
-                if (options_.once) {
-                    break;
-                }
-                pause(std::min<std::uint64_t>(
-                    p->retry_ms + 100, static_cast<std::uint64_t>(options_.wait.count()) * 1000));
-                continue;
-            }
-            if (!holding_) {
-                event({{"event", "lease"}, {"granted", true}, {"holder", holder_}});
-                holding_ = true;
-            }
-            first = false;
-            note_listed(p->requests);
-            cursor = p->cursor;
-            more = p->more;
-            if (const auto saved = journal_.save_cursor(options_.server, cursor); !saved) {
-                throw std::runtime_error("cannot write the cursor in " + options_.state.string());
-            }
-            if (more) {
-                continue;
-            }
-            work_due();
-            if (options_.once) {
-                break;
-            }
-        }
+        dispatch();
     } catch (const std::exception& error) {
-        for (auto& [name, c] : connectors_) {
-            drop(c);
+        const std::lock_guard guard(mutex_);
+        if (!failed_.exchange(true)) {
+            failure_ = error.what();
         }
-        return Fail(error.what());
     }
-    for (auto& [name, c] : connectors_) {
-        if (c.channel) {
-            (void)c.channel->send(connector::encode(connector::ToConnector(connector::Stop{})));
-        }
-        drop(c);
+    {
+        // Workers finish the requests in hand.
+        const std::lock_guard guard(mutex_);
+        shutdown_ = true;
+        wake_.notify_all();
     }
+    for (std::thread& t : workers) {
+        t.join();
+    }
+    if (failed()) {
+        stop_connectors(false);
+        return Fail(failure_);
+    }
+    stop_connectors(true);
     std::size_t waiting = 0;
-    for (const auto& [key, e] : pending_) {
-        waiting += is_final(e.stage) ? 0u : 1u;
+    for (const auto& [key, slot] : slots_) {
+        waiting += is_final(slot.entry.stage) ? 0u : 1u;
     }
     event({{"event", "stopped"}, {"waiting", waiting}});
     return {};
@@ -1657,6 +2052,9 @@ std::expected<void, std::string> run(const Config& config, RunOptions& options) 
     }
     if (options.lease_ttl < 5s || options.lease_ttl > 300s) {
         return Fail("the lease's time to live is 5 to 300 seconds");
+    }
+    if (options.concurrency > max_concurrency) {
+        return Fail(std::format("the concurrency is 1 to {}", max_concurrency));
     }
     Runtime runtime(config, options);
     return runtime.run();

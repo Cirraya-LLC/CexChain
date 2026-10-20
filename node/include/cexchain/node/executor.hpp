@@ -12,6 +12,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -32,11 +33,21 @@
 /// home ledger before acting (a compromised API cannot make it act on a
 /// request that is not open in the signed log), keeps a journal synced
 /// before every outside action, acts through a connector (a child process,
-/// spec/connectors.md), and signs and submits the answer. Transient failures
-/// back off (1 s doubling to 5 min, with jitter) until the deadline. One
-/// copy of an executor acts at a time, by the server's lease (spec section
-/// 16); a stop finishes the request in hand.
+/// spec/connectors.md), and signs and submits the answer on the head it
+/// verified (a stale head is refused, and the answer is built again).
+/// Requests are worked concurrently, never two of one instance at once (an
+/// answer names the instance's head); each copy of a connector performs one
+/// at a time. Transient failures back off (1 s doubling to 5 min, with
+/// jitter) until the deadline. One copy of an executor acts at a time, by
+/// the server's lease (spec section 16); a stop finishes the requests in
+/// hand.
 namespace cexchain::node::executor {
+
+/// The most requests worked at once, and the most copies of a connector.
+inline constexpr std::size_t max_concurrency = 256;
+
+/// The default number of requests worked at once: the number of cores.
+[[nodiscard]] std::size_t default_concurrency() noexcept;
 
 /// A connector in an executor's config: which requests it serves (kinds,
 /// and contracts: empty for any the delegation allows) and how to run it.
@@ -56,6 +67,11 @@ struct ConnectorConfig {
     std::vector<std::string> secrets;
     /// The longest one action may take: 1 to 300 seconds (default 30).
     std::chrono::seconds timeout{30};
+    /// How many of its requests may be worked at once, each by a copy of
+    /// the connector: 1 to max_concurrency. 0: as many as the run works at
+    /// once for webhook and command (stateless per request), 1 for program
+    /// (which may keep state of its own).
+    std::size_t concurrency = 0;
 };
 
 /// An executor's config file (JSON): the home ledger, the executor's actor
@@ -182,6 +198,9 @@ public:
     [[nodiscard]] std::optional<JournalEntry> find(const protocol::Id& request) const;
     /// Writes atomically, owner-only, synced.
     [[nodiscard]] Status save(const JournalEntry& entry) const;
+    /// Writes each as save does, with one sync of the journal's directory
+    /// for all of them: every one is durable once it returns.
+    [[nodiscard]] Status save_all(std::span<const JournalEntry> entries) const;
 
     /// The discovery cursor (the `after` of the next poll) and the server it
     /// belongs to.
@@ -190,6 +209,8 @@ public:
 
 private:
     std::filesystem::path state_;
+    /// journal/ made, owner-only (by the first save).
+    mutable std::atomic<bool> ready_{false};
 };
 
 /// The answer's arguments for an outcome: a map with "result" (if any),
@@ -253,11 +274,15 @@ struct RunOptions {
     std::chrono::seconds wait{25};
     /// The lease's time to live: 5 to 300 seconds.
     std::chrono::seconds lease_ttl{60};
+    /// How many requests are worked at once (never two of one instance):
+    /// 1 to max_concurrency; 0: default_concurrency().
+    std::size_t concurrency = 0;
     /// One round: one poll without waiting, then what is due now.
     bool once = false;
-    /// Set to stop: the request in hand is finished first.
+    /// Set to stop: the requests in hand are finished first.
     const std::atomic<bool>* stop = nullptr;
-    /// Events, one JSON object per call (never secrets or params).
+    /// Events, one JSON object per call (never secrets or params); called
+    /// on the thread that works the request, one call at a time.
     std::function<void(std::string_view json)> on_event;
 };
 
