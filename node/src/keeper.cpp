@@ -2,13 +2,18 @@
 // Copyright 2026 Cirraya
 
 #include <algorithm>
+#include <iterator>
 #include <map>
+#include <optional>
+#include <span>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 
 #include <cexchain/core/bytes.hpp>
+#include <cexchain/ledger/parallel.hpp>
 #include <cexchain/node/contracts.hpp>
 #include <cexchain/node/keeper.hpp>
 
@@ -70,6 +75,22 @@ struct DryRun {
     std::string refused;
 };
 
+/// What the scan of one instance found, in the order it found it.
+struct Found {
+    std::vector<DueRule> rules;
+    std::vector<DueExpiry> expiries;
+    std::vector<DueRefusal> refused;
+    std::size_t runs = 0;
+    std::uint64_t fuel = 0;
+};
+
+/// Instances a wave of the scan takes at most: the most found at once.
+constexpr std::size_t max_wave = 8192;
+
+/// Finds what is due. Each instance's scan depends on the state, the
+/// options, and that instance only, so instances are scanned in waves on
+/// worker threads, each into its own slot, and the slots merged in log
+/// order: the same result as one instance after another.
 class Scanner {
 public:
     Scanner(const crypto::Provider& provider, const protocol::LedgerState& state,
@@ -80,6 +101,10 @@ public:
             if (a != nullptr && !a->revoked) {
                 keepers_.push_back(k);
             }
+        }
+        // Each contract's rules, once.
+        for (const auto& [key, c] : state_.contracts()) {
+            rules_.emplace(c.id.key(), time_rules(c));
         }
     }
 
@@ -119,7 +144,7 @@ public:
 
     /// A dry run of the call by the caller under `delegation`.
     DryRun run(const protocol::ContractCallBody& call,
-               const std::optional<protocol::Id>& delegation) {
+               const std::optional<protocol::Id>& delegation, Found& found) const {
         protocol::SignedStatement s;
         s.statement.ledger_id = state_.ledger_id();
         s.statement.actor_id = caller_;
@@ -128,12 +153,12 @@ public:
         s.statement.body = call;
         DryRun out;
         auto run = state_.run_contract(provider_, s, options_.now);
-        ++work_.runs;
+        ++found.runs;
         if (!run) {
             out.refused = std::string(run.error().detail);
             return out;
         }
-        work_.fuel += run->outcome.fuel_used;
+        found.fuel += run->outcome.fuel_used;
         if (const protocol::ContractAccept* accept = run->accepted()) {
             Status allowed = state_.check_children(call, *accept);
             if (allowed) {
@@ -168,9 +193,16 @@ public:
                options_.now - r.deadline >= options_.grace;
     }
 
-    void scan_instance(const protocol::InstanceState& instance,
-                       const std::vector<std::string>& rules) {
-        ++work_.instances;
+    /// The contract's time rules (none if it has none).
+    [[nodiscard]] const std::vector<std::string>& rules_of(const protocol::InstanceState& i) const {
+        static const std::vector<std::string> none;
+        const auto found = rules_.find(i.contract.key());
+        return found == rules_.end() ? none : found->second;
+    }
+
+    /// Scans one instance into `found`: any thread.
+    void scan_instance(const protocol::InstanceState& instance, Found& found) const {
+        const std::vector<std::string>& rules = rules_of(instance);
         const protocol::Id contract = instance.contract.id();
         // Expiries first: their deadlines have passed.
         if (options_.expiries) {
@@ -192,13 +224,13 @@ public:
                 if (!delegation) {
                     continue; // not the keeper's to answer
                 }
-                DryRun dry = run(call, *delegation);
+                DryRun dry = run(call, *delegation, found);
                 if (!dry.refused.empty()) {
-                    work_.refused.push_back({e.instance, e.reply, e.request, dry.refused});
+                    found.refused.push_back({e.instance, e.reply, e.request, dry.refused});
                     continue;
                 }
                 e.keepers = covering(contract, call);
-                work_.expiries.push_back(std::move(e));
+                found.expiries.push_back(std::move(e));
             }
         }
         if (!options_.rules || instance.final) {
@@ -218,57 +250,96 @@ public:
             if (!delegation) {
                 continue;
             }
-            DryRun dry = run(call, *delegation);
+            DryRun dry = run(call, *delegation, found);
             const protocol::ContractAccept* accept = dry.run ? dry.run->accepted() : nullptr;
             if (accept == nullptr || changes_nothing(instance, *accept)) {
                 continue; // not due: refused, or nothing to do
             }
             if (!dry.refused.empty()) {
-                work_.refused.push_back({rule.instance, function, std::nullopt, dry.refused});
+                found.refused.push_back({rule.instance, function, std::nullopt, dry.refused});
                 continue;
             }
             rule_timing(*accept, rule);
             rule.keepers = covering(contract, call);
-            work_.rules.push_back(std::move(rule));
+            found.rules.push_back(std::move(rule));
         }
+    }
+
+    /// Scans the instances of a wave, each into its slot.
+    void scan_wave(std::span<const protocol::InstanceState* const> wave,
+                   std::vector<Found>& found) const {
+        found.assign(wave.size(), Found{});
+        auto scan_range = [&](std::size_t begin, std::size_t end) {
+            for (std::size_t i = begin; i < end; ++i) {
+                scan_instance(*wave[i], found[i]);
+            }
+        };
+        if (options_.parallel) {
+            ledger::parallel_for(wave.size(), scan_range);
+        } else {
+            scan_range(0, wave.size());
+        }
+    }
+
+    void merge(Found& f) {
+        ++work_.instances;
+        std::ranges::move(f.rules, std::back_inserter(work_.rules));
+        std::ranges::move(f.expiries, std::back_inserter(work_.expiries));
+        std::ranges::move(f.refused, std::back_inserter(work_.refused));
+        work_.runs += f.runs;
+        work_.fuel += f.fuel;
     }
 
     Result<DueWork> scan() {
         work_.at = options_.now;
         work_.grace = options_.grace;
         work_.keeper = options_.keeper;
-        // Each contract's rules, once.
-        std::map<protocol::IdKey, std::vector<std::string>> rules;
-        for (const auto& [key, c] : state_.contracts()) {
-            rules.emplace(c.id.key(), time_rules(c));
-        }
-        auto scan_one = [&](const protocol::InstanceState& instance, std::uint64_t position) {
-            if (options_.contract && !(instance.contract == *options_.contract)) {
-                return true;
-            }
-            const auto found = rules.find(instance.contract.key());
-            static const std::vector<std::string> none;
-            const std::vector<std::string>& its = found == rules.end() ? none : found->second;
-            const std::size_t needs = cost(instance, its);
-            if (needs > 0 && work_.runs > 0 && work_.runs + needs > options_.max_runs) {
-                work_.next = position;
-                return false;
-            }
-            scan_instance(instance, its);
-            return true;
-        };
+        std::vector<Found> found;
         if (options_.instance) {
-            if (const protocol::InstanceState* i = state_.instance(*options_.instance)) {
-                scan_one(*i, 0);
+            if (const protocol::InstanceState* i = state_.instance(*options_.instance);
+                i != nullptr && (!options_.contract || i->contract == *options_.contract)) {
+                const protocol::InstanceState* const one[] = {i};
+                scan_wave(one, found);
+                merge(found.front());
             }
             return std::move(work_);
         }
-        std::uint64_t position = 0;
-        for (const auto& [key, instance] : state_.instances()) {
-            if (position >= options_.start && !scan_one(instance, position)) {
+        // Instances in log order from `start`. A scan stops before an
+        // instance whose runs would take it past max_runs, counting the runs
+        // made so far (each finishes at least one instance). A wave takes
+        // instances while the runs they could need fit, which never passes
+        // where the scan would stop: an instance makes at most the runs it
+        // needs. After the wave, the next instance is weighed against the
+        // runs actually made.
+        const auto& instances = state_.instances();
+        std::uint64_t position = options_.start;
+        std::vector<const protocol::InstanceState*> wave;
+        while (position < instances.size()) {
+            wave.clear();
+            std::size_t estimate = work_.runs;
+            for (; position < instances.size() && wave.size() < max_wave; ++position) {
+                const protocol::InstanceState& instance =
+                    instances.at_position(static_cast<std::uint32_t>(position)).value;
+                if (options_.contract && !(instance.contract == *options_.contract)) {
+                    continue;
+                }
+                const std::size_t needs = cost(instance, rules_of(instance));
+                if (needs > 0 && estimate > 0 && estimate + needs > options_.max_runs) {
+                    break;
+                }
+                wave.push_back(&instance);
+                estimate += needs;
+            }
+            if (wave.empty()) {
+                if (position < instances.size()) {
+                    work_.next = position; // past max_runs
+                }
                 break;
             }
-            ++position;
+            scan_wave(wave, found);
+            for (Found& f : found) {
+                merge(f);
+            }
         }
         return std::move(work_);
     }
@@ -279,6 +350,7 @@ private:
     const DueOptions& options_;
     protocol::Id caller_;
     std::vector<protocol::Id> keepers_;
+    std::map<protocol::IdKey, std::vector<std::string>> rules_;
     DueWork work_;
 };
 

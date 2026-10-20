@@ -418,6 +418,178 @@ TEST_CASE("time rules are due once their contract accepts them, within a keeper'
     CHECK(j["next"].is_null());
 }
 
+namespace {
+
+/// A random ledger for scans: Bo's time contract and the requesting
+/// contract, `n` instances of each in random order, with due dates and
+/// deadlines spread over two months, some suspended and some terminated
+/// (final) by the time the scans look; the full and the narrow keeper.
+struct RandomLedger {
+    World world;
+    protocol::Id timed;
+    protocol::Id requesting;
+    protocol::Id keeper;
+    protocol::Id narrow;
+    std::vector<protocol::Id> instances;
+
+    RandomLedger(std::uint64_t seed, std::size_t n) {
+        ledger::SeededEntropy random(seed);
+        const protocol::Id org = world.org_id();
+        auto submit = [&](protocol::Body body) {
+            return world.ok(world.org(), world.statement(org, std::nullopt, std::move(body)));
+        };
+        const auto bo = load_vectors("bo-v1.json");
+        for (const auto& c : bo["contracts"]) {
+            if (c["name"] != "time") {
+                continue;
+            }
+            protocol::ContractDeployBody deploy;
+            deploy.code = hex(c["code"].get<std::string>());
+            for (const auto& [name, kind] : c["interface"].items()) {
+                deploy.interface.emplace(name, kind == "create" ? protocol::FunctionKind::create
+                                                                : protocol::FunctionKind::call);
+            }
+            deploy.language = "wasm";
+            deploy.compiler = c["compiler"].get<std::string>();
+            deploy.name = "Timed";
+            timed = submit(deploy);
+        }
+        const auto vectors = load_vectors("test-contracts.json");
+        protocol::ContractDeployBody deploy;
+        deploy.code = hex(vectors["request"].get<std::string>());
+        for (const auto& [name, kind] : vectors["request_interface"].items()) {
+            deploy.interface.emplace(name, static_cast<protocol::FunctionKind>(kind.get<int>()));
+        }
+        deploy.language = "wasm";
+        deploy.compiler = "test_contracts.py 1";
+        deploy.name = "Requesting";
+        requesting = submit(deploy);
+        const KeyPair keeper_key = key("random keeper");
+        const KeyPair narrow_key = key("random narrow keeper");
+        keeper = world.register_actor(world.org(), org, std::nullopt, protocol::ActorKind::device,
+                                      keeper_key);
+        auto calls = scope({StatementType::contract_call});
+        calls.contracts = std::vector<protocol::Id>{timed, requesting};
+        std::ranges::sort(*calls.contracts, {},
+                          [](const protocol::Id& c) { return protocol::key_of(c); });
+        calls.functions = std::vector<std::string>{"result", "when.suspend", "when.terminate"};
+        world.grant(world.org(), org, std::nullopt, keeper, calls);
+        narrow = world.register_actor(world.org(), org, std::nullopt, protocol::ActorKind::device,
+                                      narrow_key);
+        auto only = scope({StatementType::contract_call});
+        only.contracts = std::vector<protocol::Id>{timed};
+        only.functions = std::vector<std::string>{"when.suspend"};
+        world.grant(world.org(), org, std::nullopt, narrow, only);
+
+        std::vector<protocol::Id> services;
+        for (std::size_t i = 0; i < 2 * n; ++i) {
+            protocol::ContractCallBody create;
+            if (random.below(2) == 0) {
+                create.contract = timed;
+                create.function = "create";
+                const protocol::Timestamp due = t0 + random.below(20) * day;
+                create.arguments = cbor::Value::map(
+                    {{text("fields"),
+                      cbor::Value::map({{text("due"), cbor::Value::unsigned_integer(due)}})},
+                     {text("parties"),
+                      cbor::Value::map(
+                          {{text("we"), cbor::Value::bytes(org.bytes())},
+                           {text("customer"), cbor::Value::bytes(Bytes(32, 0xc5))}})}});
+                services.push_back(submit(create));
+                instances.push_back(services.back());
+            } else {
+                create.contract = requesting;
+                create.function = "open";
+                cbor::Array asks;
+                const std::uint64_t count = 1 + random.below(3);
+                for (std::uint64_t k = 0; k < count; ++k) {
+                    asks.push_back(cbor::Value::array(
+                        {text("notify"), cbor::Value::null(),
+                         cbor::Value::unsigned_integer(hour + random.below(40) * day)}));
+                }
+                create.arguments = cbor::Value::array(std::move(asks));
+                instances.push_back(submit(create));
+            }
+        }
+        // Some services suspended, and some of those terminated.
+        auto fire = [&](const protocol::Id& instance, const std::string& function) {
+            protocol::ContractCallBody call;
+            call.instance = instance;
+            call.head = world.ledger().state().instance(instance)->head;
+            call.function = function;
+            call.arguments = cbor::Value::null();
+            static_cast<void>(world.submit(world.org(), world.statement(org, std::nullopt, call)));
+            world.clock().advance(1000);
+        };
+        world.clock().set(t0 + 25 * day);
+        for (const protocol::Id& s : services) {
+            if (random.below(3) == 0) {
+                fire(s, "when.suspend");
+            }
+        }
+        world.clock().set(t0 + 60 * day);
+        for (const protocol::Id& s : services) {
+            if (random.below(3) == 0) {
+                fire(s, "when.terminate");
+            }
+        }
+    }
+};
+
+/// The scan as one text: everything it found, its counts, and `next`.
+std::string scanned(const protocol::LedgerState& state, node::DueOptions o) {
+    auto work = node::find_due(provider(), state, o);
+    REQUIRE(work);
+    return node::due_json_text(*work);
+}
+
+} // namespace
+
+TEST_CASE("a scan spread over threads finds what one thread finds, on random ledgers",
+          "[node][keeper]") {
+    for (std::uint64_t seed = 1; seed <= 6; ++seed) {
+        RandomLedger r(seed, 40 + 15 * seed);
+        const protocol::LedgerState& state = r.world.ledger().state();
+        ledger::SeededEntropy random(seed * 977);
+        const std::optional<protocol::Id> keepers[] = {std::nullopt, r.keeper, r.narrow};
+        const std::optional<protocol::Id> contracts[] = {std::nullopt, r.timed, r.requesting};
+        std::size_t compared = 0;
+        std::size_t cut = 0;
+        for (int round = 0; round < 40; ++round) {
+            node::DueOptions o;
+            o.now = t0 + random.below(90) * day + random.below(day);
+            o.grace = random.below(2) == 0 ? node::default_expiry_grace : 0;
+            o.keeper = keepers[random.below(3)];
+            o.contract = contracts[random.below(3)];
+            o.rules = random.below(5) != 0;
+            o.expiries = random.below(5) != 0;
+            o.max_runs = random.below(3) == 0 ? node::max_due_runs : 1 + random.below(120);
+            if (random.below(10) == 0) {
+                o.instance = r.instances[random.below(r.instances.size())];
+            }
+            // A whole scan, slice after slice from a random start, both ways.
+            o.start = random.below(4) == 0 ? random.below(r.instances.size()) : 0;
+            for (int slice = 0; slice < 1000; ++slice) {
+                node::DueOptions sequential = o;
+                sequential.parallel = false;
+                const std::string expected = scanned(state, sequential);
+                o.parallel = true;
+                INFO("seed " << seed << ", round " << round << ", slice " << slice);
+                REQUIRE(scanned(state, o) == expected);
+                ++compared;
+                const json j = json::parse(expected);
+                if (j["next"].is_null()) {
+                    break;
+                }
+                ++cut;
+                o.start = j["next"].get<std::uint64_t>();
+            }
+        }
+        CHECK(compared > 40);
+        CHECK(cut > 0);
+    }
+}
+
 TEST_CASE("the server's keeper fires what is due as its clock moves, and serves the due route",
           "[node][keeper]") {
     Home home;

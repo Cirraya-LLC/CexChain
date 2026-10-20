@@ -79,6 +79,11 @@ struct DueOptions {
     /// Stop before an instance whose runs would pass this many in all (each
     /// scan finishes at least one instance).
     std::size_t max_runs = default_due_runs;
+    /// Scan instances on the process's worker threads (ledger::parallel_for)
+    /// rather than on the calling thread alone. Each instance's dry runs
+    /// depend on the state, the options, and that instance only, and the
+    /// results are merged in log order, so the answer is the same either way.
+    bool parallel = true;
 };
 
 /// A time rule whose call the contract accepts now.
@@ -136,8 +141,10 @@ struct DueWork {
     std::optional<std::uint64_t> next;
 };
 
-/// What is due on the ledger at `options.now`. Fails if `options.keeper`
-/// is not an active actor of the ledger.
+/// What is due on the ledger at `options.now`: a function of the state and
+/// the options alone. Fails if `options.keeper` is not an active actor of
+/// the ledger. The state must not change while it runs (a ledger's
+/// `read_state`).
 [[nodiscard]] Result<DueWork> find_due(const crypto::Provider& provider,
                                        const protocol::LedgerState& state,
                                        const DueOptions& options);
