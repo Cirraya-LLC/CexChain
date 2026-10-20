@@ -7,6 +7,7 @@
 // its parties. The supplier keeps a SHA-256 ledger, the bank an SM3 one.
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <functional>
@@ -583,6 +584,113 @@ TEST_CASE("a registrar refuses calls it cannot use, and drops what lapsed", "[no
           std::string::npos);
     CHECK(api->ledger().size() == size);
     CHECK(api->ledger().state().instance(home.agreement)->status == "effective");
+}
+
+TEST_CASE("a registrar takes many consents at once, as it would one after another",
+          "[node][contracts]") {
+    // Agreements that the supplier's consent alone takes into effect, each
+    // proposed, then every consent posted at once from several threads,
+    // some twice: each call is recorded once, with its consent, and a
+    // consent sent again finds its instance moved on, whether or not it
+    // came in the same group as the first.
+    World supplier{crypto::HashAlg::sha256, "Supplier"};
+    World bank{crypto::HashAlg::sm3, "Bank"};
+    World buyer{crypto::HashAlg::sha256, "Buyer"};
+    Home home(supplier, bank, buyer);
+    const protocol::Id s = supplier.ledger().id();
+    const cbor::Value arguments = outputs({needs({s}), accept("effective")});
+    constexpr std::size_t count = 24;
+    std::vector<protocol::Id> agreements;
+    {
+        auto fs = ledger::PosixFileSystem::open_directory(home.dir);
+        REQUIRE(fs);
+        auto ledger = ledger::Ledger::open(*fs, home.clock, provider());
+        REQUIRE(ledger);
+        std::vector<Bytes> creations;
+        for (std::size_t i = 0; i < count; ++i) {
+            protocol::ContractCallBody create;
+            create.contract = home.contract;
+            create.function = "propose";
+            create.arguments = outputs(
+                {accept("proposed " + std::to_string(i), protocol::Parties{{"supplier", s}})});
+            creations.push_back(home.sign(create));
+        }
+        const std::vector<cexchain::ByteView> views(creations.begin(), creations.end());
+        for (auto& r : ledger->submit_batch(views)) {
+            REQUIRE(r);
+            agreements.push_back(r->statement_id);
+        }
+    }
+    auto api = home.api();
+    Running server(*api);
+    const auto staff = server.client(home.staff);
+
+    std::vector<Bytes> bundles;
+    for (const protocol::Id& a : agreements) {
+        node::PendingCall p;
+        p.instance = a;
+        p.head = api->ledger().state().instance(a)->head;
+        p.function = "sign";
+        p.arguments = arguments;
+        auto encoded = node::encode_call_proposal(p);
+        REQUIRE(encoded);
+        const auto proposed = send(staff, "POST", "/v1/contracts/calls", *encoded);
+        INFO(text(proposed));
+        REQUIRE(proposed.status == 202);
+        bundles.push_back(consent(supplier, home.id, crypto::HashAlg::sha256, a, p.head, "sign",
+                                  arguments, now() + 30 * day));
+    }
+    // Every consent, and every third one again.
+    std::vector<std::size_t> order;
+    for (std::size_t i = 0; i < count; ++i) {
+        order.push_back(i);
+        if (i % 3 == 0) {
+            order.push_back(i);
+        }
+    }
+    std::vector<int> statuses(order.size(), 0);
+    std::atomic<std::size_t> next = 0;
+    std::vector<std::thread> threads;
+    for (int t = 0; t < 8; ++t) {
+        threads.emplace_back([&] {
+            const auto client = server.client(home.supplier_token);
+            for (std::size_t k; (k = next.fetch_add(1)) < order.size();) {
+                auto r = client.request("POST", "/v1/contracts/consents", bundles[order[k]],
+                                        "application/cbor");
+                statuses[k] = r ? r->status : -1;
+            }
+        });
+    }
+    for (std::thread& t : threads) {
+        t.join();
+    }
+    std::vector<int> recorded(count, 0);
+    std::vector<int> stale(count, 0);
+    for (std::size_t k = 0; k < order.size(); ++k) {
+        INFO("consent " << k << " to agreement " << order[k]);
+        CHECK((statuses[k] == 201 || statuses[k] == 409));
+        ++(statuses[k] == 201 ? recorded : stale)[order[k]];
+    }
+    for (std::size_t i = 0; i < count; ++i) {
+        INFO("agreement " << i);
+        CHECK(recorded[i] == 1);
+        CHECK(stale[i] == (i % 3 == 0 ? 1 : 0));
+        CHECK(api->ledger().state().instance(agreements[i])->status == "effective");
+    }
+    // Nothing is pending, and each call's consent is kept: its evidence
+    // verifies.
+    CHECK(body_json(send(staff, "GET", "/v1/contracts/calls"))["calls"].empty());
+    protocol::VerifyOptions options;
+    options.expected_ledger = home.id;
+    for (const std::size_t i : {std::size_t{0}, count - 1}) {
+        const auto evidence =
+            send(staff, "GET", "/v1/contracts/instances/" + hex_id(agreements[i]));
+        REQUIRE(evidence.status == 200);
+        auto report = protocol::verify_contract_evidence(provider(), evidence.body, options);
+        INFO((report ? std::string() : std::string(report.error().detail)));
+        REQUIRE(report);
+        CHECK(report->steps.back().consents.size() == 1);
+    }
 }
 
 TEST_CASE("a contract call arrives with its consents, and only so", "[node][contracts]") {

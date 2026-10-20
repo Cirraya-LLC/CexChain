@@ -412,12 +412,22 @@ struct LedgerApi::State {
     /// if that could not be had, gets the answer to give instead.
     using Locked = std::function<void(const http::Response* refusal)>;
     using Job = std::function<void()>;
+    /// A locked job as queued. The registrar's (a proposal or a consent)
+    /// leave what they write to their group's commit (registrar_flush);
+    /// any other job commits the group first.
+    struct Queued {
+        enum class Kind : std::uint8_t { other, proposal, consent };
+        Locked run;
+        Kind kind = Kind::other;
+        /// The instance a consent acts on, if its terms name one.
+        std::optional<protocol::IdKey> instance = std::nullopt;
+    };
 
     std::mutex queue_mutex;
     std::condition_variable queue_ready;
     std::condition_variable queue_idle;
     std::deque<Submission> submissions;
-    std::vector<Locked> locked;
+    std::vector<Queued> locked;
     /// Reads that found another process had written: they run once the
     /// writer has caught up.
     std::vector<Job> after_refresh;
@@ -561,7 +571,9 @@ struct LedgerApi::State {
         queue_ready.notify_one();
     }
 
-    void queue_locked(Locked job) {
+    void queue_locked(Locked job) { queue_job({std::move(job)}); }
+
+    void queue_job(Queued job) {
         {
             const std::lock_guard lock(queue_mutex);
             locked.push_back(std::move(job));
@@ -580,7 +592,7 @@ struct LedgerApi::State {
     void run_writer() {
         for (;;) {
             std::vector<Submission> batch;
-            std::vector<Locked> jobs;
+            std::vector<Queued> jobs;
             std::vector<Job> reads;
             bool stopped = false;
             {
@@ -608,8 +620,8 @@ struct LedgerApi::State {
                 for (Submission& s : batch) {
                     finish(s.done, s.principal, refusal);
                 }
-                for (Locked& job : jobs) {
-                    job(&refusal);
+                for (Queued& job : jobs) {
+                    job.run(&refusal);
                 }
                 for (Job& read : reads) {
                     read(); // the ledger is still there, and reads are quick
@@ -630,6 +642,7 @@ struct LedgerApi::State {
                     for (Submission& s : batch) {
                         finish(s.done, s.principal, broken);
                     }
+                    registrar_abandon(broken);
                     event("writer-error", "a write group failed with an exception");
                 }
             }
@@ -649,7 +662,7 @@ struct LedgerApi::State {
     /// One group commit: the queued statements in one batch, then the other
     /// writes, all under one lock of the directory. True if it caught up
     /// with the files.
-    bool write_group(std::vector<Submission>& batch, std::vector<Locked>& jobs) {
+    bool write_group(std::vector<Submission>& batch, std::vector<Queued>& jobs) {
         if (cluster) {
             write_cluster_group(batch, jobs);
             return true;
@@ -668,8 +681,8 @@ struct LedgerApi::State {
             for (Submission& s : batch) {
                 finish(s.done, s.principal, *refusal);
             }
-            for (Locked& job : jobs) {
-                job(&*refusal);
+            for (Queued& job : jobs) {
+                job.run(&*refusal);
             }
             return false;
         }
@@ -689,22 +702,34 @@ struct LedgerApi::State {
                 finish(batch[i].done, batch[i].principal, std::move(response));
             }
         }
-        for (Locked& job : jobs) {
-            try {
-                job(nullptr);
-            } catch (const std::exception&) {
-                event("writer-error", "a write job failed with an exception");
-            }
-        }
+        run_jobs(jobs);
         if (!batch.empty()) {
             check_waiters(false); // a long poll learns of new requests at once
         }
         return true;
     }
 
+    /// The locked jobs of a group, in order. Consecutive registrar jobs make
+    /// one group of their own writes, committed before any other job runs,
+    /// before a job on an instance the group records a call on, and at the
+    /// end.
+    void run_jobs(std::vector<Queued>& jobs) {
+        for (Queued& job : jobs) {
+            if (registrar_conflicts(job)) {
+                registrar_commit();
+            }
+            try {
+                job.run(nullptr);
+            } catch (const std::exception&) {
+                event("writer-error", "a write job failed with an exception");
+            }
+        }
+        registrar_commit();
+    }
+
     /// A cluster member's group: the statements as one Raft entry, applied
     /// on every node; the other writes as entries of their own.
-    void write_cluster_group(std::vector<Submission>& batch, std::vector<Locked>& jobs) {
+    void write_cluster_group(std::vector<Submission>& batch, std::vector<Queued>& jobs) {
         if (!batch.empty()) {
             if (!cluster->leads()) {
                 for (Submission& s : batch) {
@@ -737,13 +762,7 @@ struct LedgerApi::State {
                 check_waiters(false);
             }
         }
-        for (Locked& job : jobs) {
-            try {
-                job(nullptr);
-            } catch (const std::exception&) {
-                event("writer-error", "a write job failed with an exception");
-            }
-        }
+        run_jobs(jobs);
     }
 
     /// For a write at a follower: where the leader is (307), or that there
@@ -2030,39 +2049,197 @@ struct LedgerApi::State {
             {*statement->as_bytes(), std::move(principal), std::move(done), std::nullopt, sidecar});
     }
 
-    /// Writes or removes the registrar's pending calls: on every node of a
-    /// cluster, or here.
+    // ---- the registrar (D-053) ------------------------------------------
+
+    /// The registrar's group on the writer (D-056 P5): consecutive
+    /// proposals and consents run one after another, each on the state the
+    /// ones before it left, and what they write is committed together. The
+    /// pending calls and consents they write are synced file by file, their
+    /// directories once; the calls the contracts accepted are recorded as one
+    /// batch (one sync), with their consents; the pending calls their
+    /// instances left behind are swept once; and only then is any answer
+    /// given that depends on those writes. The writer's only.
+    struct RegistrarRecord {
+        protocol::SignedStatement statement;
+        Sidecar sidecar;
+        CallProgress progress;
+    };
+    /// An answer held for the commit: given as it is, or, for a consent
+    /// whose call the group records, made from what became of the call.
+    struct HeldAnswer {
+        Done done;
+        std::string principal;
+        http::Response response;
+        std::optional<std::size_t> record = std::nullopt;
+    };
+    struct RegistrarGroup {
+        bool active = false;
+        bool consents_written = false;
+        bool pending_written = false;
+        std::vector<RegistrarRecord> records;
+        /// The instances whose calls the group records.
+        std::set<protocol::IdKey> instances;
+        /// In the order of the jobs.
+        std::vector<HeldAnswer> answers;
+    };
+    RegistrarGroup registrar;
+
+    /// Whether `job` must wait for the registrar's group to be committed.
+    [[nodiscard]] bool registrar_conflicts(const Queued& job) const {
+        if (!registrar.active) {
+            return false;
+        }
+        switch (job.kind) {
+        case Queued::Kind::other:
+            return true;
+        case Queued::Kind::proposal:
+            // It counts and reads the pending calls the records leave stale.
+            return !registrar.records.empty();
+        case Queued::Kind::consent:
+            return job.instance && registrar.instances.contains(*job.instance);
+        }
+        return true;
+    }
+
+    /// Writes or removes pending calls: through the cluster (on every node,
+    /// at once), or here, leaving the directory's sync to the group's commit.
     Status keep_pending(std::span<const PendingChange> changes) {
         if (changes.empty()) {
             return {};
         }
-        return cluster ? cluster->change_pending(changes)
-                       : apply_pending_changes(options.directory, changes);
+        if (cluster) {
+            return cluster->change_pending(changes);
+        }
+        const bool writes =
+            std::ranges::any_of(changes, [](const PendingChange& c) { return c.file.has_value(); });
+        auto s = apply_pending_changes(options.directory, changes, false);
+        registrar.pending_written = registrar.pending_written || writes;
+        return s;
     }
 
-    /// Records a signed statement as the registrar or the keeper: through
-    /// the cluster with its sidecar, if any, or here.
-    Result<ledger::Registration> record(const protocol::SignedStatement& statement,
-                                        const std::optional<Sidecar>& sidecar,
-                                        protocol::Timestamp now) {
-        Result<ledger::Registration> recorded = fail(Errc::unavailable, "not registered");
-        if (cluster) {
-            const ByteView bytes = statement.encoded;
-            auto results = cluster->submit(std::span(&bytes, 1), std::span(&sidecar, 1), now);
-            if (!results) {
-                recorded = std::unexpected(results.error());
-            } else {
-                recorded = std::move(results->front());
-            }
-        } else {
-            recorded = ledger->submit(statement.encoded);
+    /// Answers a registrar's job: at once, or, if the job wrote anything the
+    /// answer relies on, once the group is committed.
+    void registrar_answer(bool after_commit, Done done, std::string principal,
+                          http::Response response) {
+        if (!after_commit) {
+            finish(done, principal, std::move(response));
+            return;
         }
+        registrar.answers.push_back(
+            {std::move(done), std::move(principal), std::move(response), std::nullopt});
+    }
+
+    /// Commits the registrar's group (see RegistrarGroup).
+    void registrar_commit() {
+        if (!registrar.active) {
+            return;
+        }
+        RegistrarGroup group = std::move(registrar);
+        registrar = {};
+        if (group.consents_written) {
+            detail::sync_directory(contract_consents_directory(options.directory));
+        }
+        if (group.pending_written) {
+            detail::sync_directory(pending_calls_directory(options.directory));
+        }
+        const protocol::Timestamp now = clock->now();
+        if (!group.records.empty()) {
+            std::vector<ByteView> views;
+            std::vector<std::optional<Sidecar>> sidecars;
+            for (const RegistrarRecord& r : group.records) {
+                views.emplace_back(r.statement.encoded);
+                sidecars.emplace_back(r.sidecar);
+            }
+            std::vector<Result<ledger::Registration>> results;
+            if (cluster) {
+                auto batch = cluster->submit(views, sidecars, now);
+                if (batch) {
+                    results = std::move(*batch);
+                } else {
+                    results.assign(views.size(), std::unexpected(batch.error()));
+                }
+            } else {
+                results = ledger->submit_batch(views);
+            }
+            std::vector<http::Response> answers(results.size());
+            // What the calls' instances left pending is stale now; and what
+            // became of each call.
+            std::vector<PendingChange> stale;
+            ledger->read_state([&](const protocol::LedgerState& s) {
+                stale = calls->sweep(s, now, false);
+                for (std::size_t i = 0; i < results.size(); ++i) {
+                    answers[i] = recorded_call(s, group.records[i], results[i]);
+                }
+            });
+            sweep_stale(stale);
+            for (HeldAnswer& held : group.answers) {
+                finish(held.done, held.principal,
+                       held.record ? std::move(answers[*held.record]) : std::move(held.response));
+            }
+            return;
+        }
+        std::vector<PendingChange> stale;
+        ledger->read_state(
+            [&](const protocol::LedgerState& s) { stale = calls->sweep(s, now, false); });
+        sweep_stale(stale);
+        for (HeldAnswer& held : group.answers) {
+            finish(held.done, held.principal, std::move(held.response));
+        }
+    }
+
+    void sweep_stale(std::span<const PendingChange> stale) {
+        if (stale.empty()) {
+            return;
+        }
+        if (auto s = cluster ? cluster->change_pending(stale)
+                             : apply_pending_changes(options.directory, stale);
+            !s) {
+            event("contract-pending-failed", s.error().detail);
+        }
+    }
+
+    /// The answer to a consent whose call the group recorded (or not), on
+    /// the state after it.
+    http::Response recorded_call(const protocol::LedgerState& s, const RegistrarRecord& r,
+                                 const Result<ledger::Registration>& recorded) {
         if (!recorded) {
             ++refused;
-        } else {
-            ++(recorded->newly_registered ? registered : duplicates);
+            return error_response(recorded.error());
         }
-        return recorded;
+        ++(recorded->newly_registered ? registered : duplicates);
+        const CallProgress& progress = r.progress;
+        std::optional<std::string> status;
+        if (const protocol::InstanceState* i = s.instance(progress.call.instance)) {
+            status = i->status;
+        }
+        // The instances the call created (v0.7), in order.
+        json children = json::array();
+        for (std::uint32_t n = 0; n < protocol::max_contract_children; ++n) {
+            auto child =
+                protocol::child_instance_id(*provider, s.hash(), recorded->statement_id, n);
+            if (!child || s.instance(*child) == nullptr) {
+                break;
+            }
+            children.push_back(hex(*child));
+        }
+        event("contract-call", hex(progress.call.instance) + " " + progress.call.function);
+        return json_response(201, {{"status", "recorded"},
+                                   {"call", hex(progress.id)},
+                                   {"instance", hex(progress.call.instance)},
+                                   {"function", progress.call.function},
+                                   {"statement_id", hex(recorded->statement_id)},
+                                   {"index", recorded->index},
+                                   {"instance_status", status ? json(*status) : json(nullptr)},
+                                   {"children", std::move(children)}});
+    }
+
+    /// After a writer's failure: every answer the group holds is `broken`.
+    void registrar_abandon(const http::Response& broken) {
+        RegistrarGroup group = std::move(registrar);
+        registrar = {};
+        for (HeldAnswer& held : group.answers) {
+            finish(held.done, held.principal, broken);
+        }
     }
 
     /// POST /v1/contracts/calls: a call proposed to the registrar (D-053),
@@ -2101,44 +2278,54 @@ struct LedgerApi::State {
             party = peer->ledger_id;
         }
         proposal->proposer = principal;
-        queue_locked([this, proposal = std::move(*proposal), party, scopes,
-                      principal = std::move(principal),
-                      done = std::move(done)](const http::Response* refusal) mutable {
-            if (refusal != nullptr) {
-                finish(done, principal, *refusal);
-                return;
-            }
-            finish(done, principal, take_proposal(std::move(proposal), party, scopes));
-        });
+        queue_job({[this, proposal = std::move(*proposal), party, scopes,
+                    principal = std::move(principal),
+                    done = std::move(done)](const http::Response* refusal) mutable {
+                       if (refusal != nullptr) {
+                           finish(done, principal, *refusal);
+                           return;
+                       }
+                       take_proposal(std::move(proposal), party, scopes, std::move(principal),
+                                     std::move(done));
+                   },
+                   Queued::Kind::proposal});
     }
 
     /// On the writer: runs the proposal and holds it.
-    http::Response take_proposal(PendingCall proposal, const std::optional<protocol::Id>& party,
-                                 Scopes scopes) {
+    void take_proposal(PendingCall proposal, const std::optional<protocol::Id>& party,
+                       Scopes scopes, std::string principal, Done done) {
+        registrar.active = true;
         const protocol::Timestamp now = clock->now();
         Result<CallProgress> progress = fail(Errc::unavailable, "no state");
         ledger->read_state([&](const protocol::LedgerState& s) {
             progress = calls->propose(*provider, s, std::move(proposal), party, now, entropy);
         });
         if (!progress) {
-            return error_response(progress.error());
+            finish(done, principal, error_response(progress.error()));
+            return;
         }
+        const bool writes = !progress->changes.empty();
         if (auto s = keep_pending(progress->changes); !s) {
-            return error_response(s.error());
+            finish(done, principal, error_response(s.error()));
+            return;
         }
         if (progress->verdict == CallProgress::Verdict::refused) {
-            return error_response(409, "rejected", progress->reason);
+            registrar_answer(writes, std::move(done), std::move(principal),
+                             error_response(409, "rejected", progress->reason));
+            return;
         }
         event("contract-proposal", progress->call.proposer + " " + hex(progress->call.instance) +
                                        " " + progress->call.function);
         json body = pending_json(progress->id, progress->call, has_scope(scopes, Scope::submit));
         body["status"] = "waiting";
-        return json_response(202, body);
+        registrar_answer(writes, std::move(done), std::move(principal), json_response(202, body));
     }
 
     /// POST /v1/contracts/consents: a party's consent to a pending call,
     /// from its own ledger; once the contract accepts the call with the
-    /// consents held, the registrar signs and records it.
+    /// consents held, the registrar signs and records it. The consent's
+    /// evidence (and that of the consents held for the call) is verified
+    /// here, before the writer takes it.
     void contract_consent(const http::Request& r, std::string principal, Done& done) {
         if (auto denied = refuse_peer_write()) {
             finish(done, principal, std::move(*denied));
@@ -2160,89 +2347,86 @@ struct LedgerApi::State {
             finish(done, principal, error_response(403, "forbidden", peer.error().detail));
             return;
         }
-        queue_locked([this, bundle = r.body, party = peer->ledger_id, name = peer->name,
-                      principal = std::move(principal),
-                      done = std::move(done)](const http::Response* refusal) mutable {
-            if (refusal != nullptr) {
-                finish(done, principal, *refusal);
-                return;
-            }
-            finish(done, principal, take_call_consent(bundle, party, name));
-        });
+        auto prepared = calls->prepare(*provider, peer->ledger_id, r.body);
+        if (!prepared) {
+            finish(done, principal, consent_error(prepared.error()));
+            return;
+        }
+        std::optional<protocol::IdKey> instance;
+        if (prepared->instance) {
+            instance = protocol::key_of(*prepared->instance);
+        }
+        queue_job({[this, prepared = std::make_shared<const PreparedConsent>(std::move(*prepared)),
+                    name = peer->name, principal = std::move(principal),
+                    done = std::move(done)](const http::Response* refusal) mutable {
+                       if (refusal != nullptr) {
+                           finish(done, principal, *refusal);
+                           return;
+                       }
+                       take_call_consent(*prepared, name, std::move(principal), std::move(done));
+                   },
+                   Queued::Kind::consent, instance});
     }
 
-    /// On the writer: holds the consent, and records the call once the
-    /// contract accepts it.
-    http::Response take_call_consent(ByteView bundle, const protocol::Id& party,
-                                     const std::string& name) {
+    /// A registrar's refusal of a consent, as answered.
+    static http::Response consent_error(const Error& e) {
+        return e.code == Errc::invalid_argument ? error_response(403, "forbidden", e.detail)
+                                                : error_response(e);
+    }
+
+    /// On the writer: holds the consent, and once the contract accepts the
+    /// call, records it with the group.
+    void take_call_consent(const PreparedConsent& prepared, const std::string& name,
+                           std::string principal, Done done) {
+        registrar.active = true;
         const protocol::Timestamp now = clock->now();
         Result<CallProgress> progress = fail(Errc::unavailable, "no state");
         ledger->read_state([&](const protocol::LedgerState& s) {
-            progress = calls->consent(*provider, s, party, bundle, now, entropy);
+            progress = calls->consent(*provider, s, prepared, now, entropy);
         });
         if (!progress) {
-            const Error e = progress.error();
-            return e.code == Errc::invalid_argument ? error_response(403, "forbidden", e.detail)
-                                                    : error_response(e);
+            finish(done, principal, consent_error(progress.error()));
+            return;
         }
+        const bool writes = !progress->changes.empty();
         if (auto s = keep_pending(progress->changes); !s) {
-            return error_response(s.error());
+            finish(done, principal, error_response(s.error()));
+            return;
         }
         event("contract-consent", name + " " + hex(progress->id));
         if (progress->verdict == CallProgress::Verdict::refused) {
-            return error_response(409, "rejected", progress->reason);
+            registrar_answer(writes, std::move(done), std::move(principal),
+                             error_response(409, "rejected", progress->reason));
+            return;
         }
         if (progress->verdict == CallProgress::Verdict::waiting) {
             json body = pending_json(progress->id, progress->call, false);
             body["status"] = "waiting";
-            return json_response(202, body);
+            registrar_answer(writes, std::move(done), std::move(principal),
+                             json_response(202, body));
+            return;
         }
-        const protocol::SignedStatement& statement = *progress->statement;
+        protocol::SignedStatement statement = *progress->statement;
         auto encoded = encode_consent_bundles(progress->bundles);
         if (!encoded) {
-            return error_response(encoded.error());
+            finish(done, principal, error_response(encoded.error()));
+            return;
         }
-        // Kept first: a registered call always has its consents here.
+        // Kept first: a registered call always has its consents here. The
+        // directory is synced with the group, before the call is recorded.
         if (auto s = store_consents_file(contract_consents_path(options.directory, statement.id),
-                                         *encoded);
+                                         *encoded, false);
             !s) {
-            return error_response(s.error());
+            finish(done, principal, error_response(s.error()));
+            return;
         }
-        auto recorded = record(statement, Sidecar{Sidecar::Kind::contract_consents, *encoded}, now);
-        if (!recorded) {
-            return error_response(recorded.error());
-        }
-        // The instance moved on: what was pending on it is stale now.
-        std::vector<PendingChange> stale;
-        std::optional<std::string> status;
-        json children = json::array();
-        ledger->read_state([&](const protocol::LedgerState& s) {
-            stale = calls->sweep(s, clock->now(), false);
-            if (const protocol::InstanceState* i = s.instance(progress->call.instance)) {
-                status = i->status;
-            }
-            // The instances the call created (v0.7), in order.
-            for (std::uint32_t n = 0; n < protocol::max_contract_children; ++n) {
-                auto child =
-                    protocol::child_instance_id(*provider, s.hash(), recorded->statement_id, n);
-                if (!child || s.instance(*child) == nullptr) {
-                    break;
-                }
-                children.push_back(hex(*child));
-            }
-        });
-        if (auto s = keep_pending(stale); !s) {
-            event("contract-pending-failed", s.error().detail);
-        }
-        event("contract-call", hex(progress->call.instance) + " " + progress->call.function);
-        return json_response(201, {{"status", "recorded"},
-                                   {"call", hex(progress->id)},
-                                   {"instance", hex(progress->call.instance)},
-                                   {"function", progress->call.function},
-                                   {"statement_id", hex(recorded->statement_id)},
-                                   {"index", recorded->index},
-                                   {"instance_status", status ? json(*status) : json(nullptr)},
-                                   {"children", std::move(children)}});
+        registrar.consents_written = true;
+        registrar.instances.insert(protocol::key_of(progress->call.instance));
+        const std::size_t k = registrar.records.size();
+        registrar.records.push_back({std::move(statement),
+                                     Sidecar{Sidecar::Kind::contract_consents, std::move(*encoded)},
+                                     std::move(*progress)});
+        registrar.answers.push_back({std::move(done), std::move(principal), {}, k});
     }
 
     /// Membership changes and stepping down, on the leader's writer.

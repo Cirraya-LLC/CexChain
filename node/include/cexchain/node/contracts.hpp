@@ -52,8 +52,11 @@ pending_calls_directory(const std::filesystem::path& ledger_directory);
 decode_consent_bundles(ByteView encoded, std::size_t max = protocol::max_contract_consents);
 
 /// Keeps a statement's consent bundles (encoded) at `path`, once: the same
-/// bytes again are fine, other bytes are refused (Errc::rejected).
-[[nodiscard]] Status store_consents_file(const std::filesystem::path& path, ByteView encoded);
+/// bytes again are fine, other bytes are refused (Errc::rejected). Without
+/// `sync_directory`, the file is synced but its directory is the caller's
+/// to sync (once for several files) before anything relies on it.
+[[nodiscard]] Status store_consents_file(const std::filesystem::path& path, ByteView encoded,
+                                         bool sync_directory = true);
 
 /// The newest valid delegation of `actor` for `type`, on records of
 /// `record_type` and on `contract` if given, at `now`. For a contract call
@@ -188,8 +191,12 @@ struct PendingChange {
 
 /// Applies changes under <ledger>/contracts/pending: names must be pending
 /// calls' and files must decode, or nothing is changed (Errc::malformed).
+/// Each file written is synced, and then the directory once (unless
+/// `sync_directory` is false: the caller syncs it before anything relies on
+/// the changes).
 [[nodiscard]] Status apply_pending_changes(const std::filesystem::path& ledger_directory,
-                                           std::span<const PendingChange> changes);
+                                           std::span<const PendingChange> changes,
+                                           bool sync_directory = true);
 
 /// A pending call as held, with its file name.
 struct HeldCall {
@@ -208,6 +215,30 @@ struct HeldCall {
 [[nodiscard]] bool concerns(const protocol::LedgerState& state, const PendingCall& call,
                             const protocol::Id& ledger);
 
+/// A consent's evidence verified for its party's ledger, as a verifier
+/// would (`verify_bundle` with that ledger expected, no trusted witnesses):
+/// a pure function of the bundle and the party, so any thread may do it.
+struct VerifiedConsent {
+    protocol::Id party;
+    Bytes bundle;
+    protocol::EvidenceReport report;
+};
+
+[[nodiscard]] Result<VerifiedConsent> verify_consent(const crypto::Provider& provider,
+                                                     const protocol::Id& party, ByteView bundle);
+
+/// A consent sent to a registrar, verified before the registrar takes it
+/// (CallRegistrar::prepare), with the consents held for the same call.
+struct PreparedConsent {
+    VerifiedConsent consent;
+    /// The instance its terms name, if they decode: a registrar takes the
+    /// calls on one instance one after another.
+    std::optional<protocol::Id> instance;
+    /// The consents held for the call when it was prepared, those that
+    /// verified. `consent` verifies again any held then that is not here.
+    std::vector<VerifiedConsent> held;
+};
+
 /// What a registrar made of a proposal or a consent.
 struct CallProgress {
     enum class Verdict : std::uint8_t { waiting, accepted, refused };
@@ -220,14 +251,16 @@ struct CallProgress {
     /// bundles it cites, in its order.
     std::optional<protocol::SignedStatement> statement;
     std::vector<Bytes> bundles;
-    /// The changes to make to the pending calls (the call itself, and those
-    /// that went stale or lapsed).
+    /// The changes to make to the pending calls: the call itself, and, for
+    /// a proposal at the limit, those that went stale or lapsed. (Calls
+    /// whose instance moved on are the caller's to sweep.)
     std::vector<PendingChange> changes;
 };
 
 /// The registrar's logic for contract calls. It reads the pending calls
 /// from `ledger_directory` and leaves writing them to the caller (directly,
-/// or through a cluster), so it changes nothing itself.
+/// or through a cluster), so it changes nothing itself. The caller also
+/// sweeps (`sweep`) after the proposals, consents, and calls it records.
 class CallRegistrar {
 public:
     CallRegistrar(std::filesystem::path ledger_directory, const crypto::Signer& signer);
@@ -244,15 +277,21 @@ public:
                                                const std::optional<protocol::Id>& party,
                                                protocol::Timestamp now, ledger::Entropy& entropy);
 
-    /// Takes `bundle`, the evidence of a consent on `party`'s ledger to a
-    /// pending call, which the contract asked for: the consent is checked
-    /// as a verifier would, and the citation's signer taken from the
-    /// consent's registration. Then the contract runs with the consents
-    /// held (lapsed ones dropped): accepted, the call is ready to record;
-    /// asking for more, it waits; refusing, the consent is not kept.
+    /// Verifies `bundle`, the evidence of a consent on `party`'s ledger, as
+    /// a verifier would, and the consents held for the call it names: the
+    /// work `consent` needs that depends on no state, for any thread.
+    [[nodiscard]] Result<PreparedConsent> prepare(const crypto::Provider& provider,
+                                                  const protocol::Id& party, ByteView bundle) const;
+
+    /// Takes a prepared consent to a pending call, which the contract asked
+    /// for: the consent is checked against the call, and the citation's
+    /// signer taken from the consent's registration. Then the contract runs
+    /// with the consents held (lapsed ones dropped): accepted, the call is
+    /// ready to record; asking for more, it waits; refusing, the consent is
+    /// not kept.
     [[nodiscard]] Result<CallProgress> consent(const crypto::Provider& provider,
                                                const protocol::LedgerState& state,
-                                               const protocol::Id& party, ByteView bundle,
+                                               const PreparedConsent& prepared,
                                                protocol::Timestamp now, ledger::Entropy& entropy);
 
     /// Removals of the pending calls whose instance moved on (or is gone, or
@@ -264,7 +303,8 @@ private:
     [[nodiscard]] Result<CallProgress> run(const crypto::Provider& provider,
                                            const protocol::LedgerState& state,
                                            CallProgress progress, protocol::Timestamp now,
-                                           ledger::Entropy& entropy) const;
+                                           ledger::Entropy& entropy,
+                                           std::span<const VerifiedConsent> verified) const;
 
     std::filesystem::path directory_;
     const crypto::Signer* signer_;

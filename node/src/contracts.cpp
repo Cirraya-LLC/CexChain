@@ -234,18 +234,35 @@ void hold(std::vector<std::pair<protocol::Id, Bytes>>& consents, const protocol:
     }
 }
 
+/// The report verified ahead for exactly this party and bundle, if any.
+const protocol::EvidenceReport* verified_report(std::span<const VerifiedConsent> verified,
+                                                const protocol::Id& party, ByteView bundle) {
+    for (const VerifiedConsent& v : verified) {
+        if (v.party == party && std::ranges::equal(v.bundle, bundle)) {
+            return &v.report;
+        }
+    }
+    return nullptr;
+}
+
 /// A consent's citation, checked against `call` at `now`: its signer is the
-/// one the bundle shows signed the consent's registration.
-Result<protocol::ContractConsentRef> citation(const crypto::Provider& provider,
-                                              const protocol::LedgerState& state,
-                                              const protocol::ContractCallBody& call,
-                                              const protocol::Id& party, ByteView bundle,
-                                              protocol::Timestamp now) {
-    protocol::VerifyOptions options;
-    options.expected_ledger = party;
-    auto report = protocol::verify_bundle(provider, bundle, options);
-    if (!report) {
-        return std::unexpected(report.error());
+/// one the bundle shows signed the consent's registration. The bundle is
+/// verified here unless `verified` holds it.
+Result<protocol::ContractConsentRef>
+citation(const crypto::Provider& provider, const protocol::LedgerState& state,
+         const protocol::ContractCallBody& call, const protocol::Id& party, ByteView bundle,
+         protocol::Timestamp now, std::span<const VerifiedConsent> verified) {
+    std::optional<protocol::EvidenceReport> report;
+    if (const protocol::EvidenceReport* ahead = verified_report(verified, party, bundle)) {
+        report = *ahead;
+    } else {
+        protocol::VerifyOptions options;
+        options.expected_ledger = party;
+        auto checked = protocol::verify_bundle(provider, bundle, options);
+        if (!checked) {
+            return std::unexpected(checked.error());
+        }
+        report = std::move(*checked);
     }
     if (report->events.empty()) {
         return fail(Errc::verification_failed, "the consent's evidence shows no registration");
@@ -253,23 +270,56 @@ Result<protocol::ContractConsentRef> citation(const crypto::Provider& provider,
     CEXCHAIN_TRY(crypto::Digest digest, provider.digest(state.hash(), bundle));
     const protocol::ContractConsentRef ref{party, report->record, digest,
                                            protocol::registration_signer(report->events.front())};
-    CEXCHAIN_CHECK(protocol::check_contract_consent(provider, ref, bundle, call, state.ledger_id(),
-                                                    state.hash(), now));
+    CEXCHAIN_CHECK(protocol::check_verified_contract_consent(
+        provider, ref, bundle, std::move(*report), call, state.ledger_id(), state.hash(), now));
     return ref;
 }
 
+/// The pending calls' names under `ledger_directory`, in name order.
 std::vector<PendingName> pending_names(const std::filesystem::path& ledger_directory) {
-    std::vector<PendingName> out;
+    std::vector<std::pair<std::string, PendingName>> named;
     std::error_code ec;
     for (auto it =
              std::filesystem::directory_iterator(pending_calls_directory(ledger_directory), ec);
          !ec && it != std::filesystem::directory_iterator(); it.increment(ec)) {
-        if (auto name = parse_pending_call_name(it->path().filename().string())) {
-            out.push_back(*name);
+        std::string file = it->path().filename().string();
+        if (auto name = parse_pending_call_name(file)) {
+            named.emplace_back(std::move(file), *name);
         }
     }
-    std::ranges::sort(out, {}, [](const PendingName& n) { return pending_call_name(n); });
+    // A name's text is the name itself: sort by the text read.
+    std::ranges::sort(named, {}, &std::pair<std::string, PendingName>::first);
+    std::vector<PendingName> out;
+    out.reserve(named.size());
+    for (auto& [file, name] : named) {
+        out.push_back(name);
+    }
     return out;
+}
+
+/// How many pending calls are held (as pending_names counts them).
+std::size_t pending_count(const std::filesystem::path& ledger_directory) {
+    std::size_t n = 0;
+    std::error_code ec;
+    for (auto it =
+             std::filesystem::directory_iterator(pending_calls_directory(ledger_directory), ec);
+         !ec && it != std::filesystem::directory_iterator(); it.increment(ec)) {
+        n += parse_pending_call_name(it->path().filename().string()) ? 1U : 0U;
+    }
+    return n;
+}
+
+/// The pending call held under exactly this name, if its file decodes.
+std::optional<HeldCall> held_at(const std::filesystem::path& ledger_directory,
+                                const PendingName& name) {
+    auto file =
+        detail::read_file(pending_calls_directory(ledger_directory) / pending_call_name(name));
+    auto call =
+        file ? decode_pending_call(*file) : Result<PendingCall>(std::unexpected(file.error()));
+    if (!call) {
+        return std::nullopt;
+    }
+    return HeldCall{name, std::move(*call)};
 }
 
 PendingChange removal(const PendingName& name) {
@@ -333,7 +383,8 @@ Result<std::vector<Bytes>> decode_consent_bundles(ByteView encoded, std::size_t 
     return out;
 }
 
-Status store_consents_file(const std::filesystem::path& path, ByteView encoded) {
+Status store_consents_file(const std::filesystem::path& path, ByteView encoded,
+                           bool sync_directory) {
     if (auto held = detail::read_file(path)) {
         if (!std::ranges::equal(*held, encoded)) {
             return fail(Errc::rejected, "other consent evidence is kept for this call");
@@ -345,7 +396,7 @@ Status store_consents_file(const std::filesystem::path& path, ByteView encoded) 
     if (ec) {
         return fail(Errc::unavailable, "cannot create the consents' directory");
     }
-    return detail::write_file(path, encoded, true);
+    return detail::write_file(path, encoded, true, sync_directory);
 }
 
 std::optional<protocol::Id>
@@ -651,7 +702,7 @@ Result<std::vector<PendingChange>> decode_pending_changes(const cbor::Value& val
 }
 
 Status apply_pending_changes(const std::filesystem::path& ledger_directory,
-                             std::span<const PendingChange> changes) {
+                             std::span<const PendingChange> changes, bool sync_directory) {
     for (const PendingChange& c : changes) {
         const auto name = parse_pending_call_name(c.name);
         if (!name) {
@@ -666,16 +717,22 @@ Status apply_pending_changes(const std::filesystem::path& ledger_directory,
     }
     const std::filesystem::path directory = pending_calls_directory(ledger_directory);
     std::error_code ec;
+    bool written = false;
     for (const PendingChange& c : changes) {
         if (c.file) {
             std::filesystem::create_directories(directory, ec);
             if (ec) {
                 return fail(Errc::unavailable, "cannot create the pending calls' directory");
             }
-            CEXCHAIN_CHECK(detail::write_file(directory / c.name, *c.file, true));
+            CEXCHAIN_CHECK(detail::write_file(directory / c.name, *c.file, true, false));
+            written = true;
         } else {
             std::filesystem::remove(directory / c.name, ec);
         }
+    }
+    // The files renamed into place, durable at once.
+    if (written && sync_directory) {
+        detail::sync_directory(directory);
     }
     return {};
 }
@@ -767,8 +824,8 @@ Result<CallProgress> CallRegistrar::propose(const crypto::Provider& provider,
     }
     CallProgress progress;
     CEXCHAIN_TRY(progress.id, pending_call_id(provider, state.hash(), proposal));
-    progress.changes = sweep(state, now, false);
-    if (auto held = held_call(directory_, progress.id); held && held->call.until >= now) {
+    if (auto held = held_at(directory_, {proposal.instance, proposal.head, progress.id});
+        held && held->call.until >= now) {
         if (held->call.reference != proposal.reference) {
             return fail(Errc::rejected,
                         "a call with these terms is pending with another reference");
@@ -776,8 +833,7 @@ Result<CallProgress> CallRegistrar::propose(const crypto::Provider& provider,
         progress.call = std::move(held->call);
         return progress; // waiting, as it stands
     }
-    if (const std::size_t held_now = pending_names(directory_).size();
-        held_now >= max_pending_calls) {
+    if (const std::size_t held_now = pending_count(directory_); held_now >= max_pending_calls) {
         progress.changes = sweep(state, now, true); // removals of held calls only
         if (held_now - progress.changes.size() >= max_pending_calls) {
             return fail(Errc::unavailable,
@@ -787,7 +843,7 @@ Result<CallProgress> CallRegistrar::propose(const crypto::Provider& provider,
     proposal.missing.clear();
     proposal.consents.clear();
     progress.call = std::move(proposal);
-    CEXCHAIN_TRY(progress, run(provider, state, std::move(progress), now, entropy));
+    CEXCHAIN_TRY(progress, run(provider, state, std::move(progress), now, entropy, {}));
     if (progress.verdict == CallProgress::Verdict::accepted) {
         return fail(Errc::rejected,
                     "the contract takes this call without consents: the home signs it itself");
@@ -801,22 +857,61 @@ Result<CallProgress> CallRegistrar::propose(const crypto::Provider& provider,
     return progress;
 }
 
-Result<CallProgress> CallRegistrar::consent(const crypto::Provider& provider,
-                                            const protocol::LedgerState& state,
-                                            const protocol::Id& party, ByteView bundle,
-                                            protocol::Timestamp now, ledger::Entropy& entropy) {
-    // The terms, from the party's own ledger.
+Result<VerifiedConsent> verify_consent(const crypto::Provider& provider, const protocol::Id& party,
+                                       ByteView bundle) {
     protocol::VerifyOptions options;
     options.expected_ledger = party;
     auto report = protocol::verify_bundle(provider, bundle, options);
     if (!report) {
         return std::unexpected(report.error());
     }
-    if (report->record_type != protocol::contract_consent_type || !report->metadata) {
+    return VerifiedConsent{party, Bytes(bundle.begin(), bundle.end()), std::move(*report)};
+}
+
+Result<PreparedConsent> CallRegistrar::prepare(const crypto::Provider& provider,
+                                               const protocol::Id& party, ByteView bundle) const {
+    PreparedConsent out;
+    CEXCHAIN_TRY(out.consent, verify_consent(provider, party, bundle));
+    const protocol::EvidenceReport& report = out.consent.report;
+    if (report.record_type != protocol::contract_consent_type || !report.metadata) {
+        return out; // `consent` says why
+    }
+    auto terms = protocol::decode_contract_consent(*report.metadata);
+    if (!terms) {
+        return out;
+    }
+    out.instance = terms->instance;
+    // The consents held for the call: verified here too, so that the writer
+    // need not (a file changed meanwhile is read and checked again there).
+    auto id =
+        pending_call_id(provider, terms->instance, terms->head, terms->function, terms->arguments);
+    auto held = id ? held_at(directory_, {terms->instance, terms->head, *id}) : std::nullopt;
+    if (held) {
+        for (const auto& [ledger, held_bundle] : held->call.consents) {
+            if (ledger == party && std::ranges::equal(held_bundle, bundle)) {
+                continue;
+            }
+            if (auto v = verify_consent(provider, ledger, held_bundle)) {
+                out.held.push_back(std::move(*v));
+            }
+        }
+    }
+    return out;
+}
+
+Result<CallProgress> CallRegistrar::consent(const crypto::Provider& provider,
+                                            const protocol::LedgerState& state,
+                                            const PreparedConsent& prepared,
+                                            protocol::Timestamp now, ledger::Entropy& entropy) {
+    // The terms, from the party's own ledger.
+    const protocol::Id& party = prepared.consent.party;
+    const ByteView bundle = prepared.consent.bundle;
+    const protocol::EvidenceReport& report = prepared.consent.report;
+    if (report.record_type != protocol::contract_consent_type || !report.metadata) {
         return fail(Errc::invalid_argument, "the evidence is not of a contract consent");
     }
     CEXCHAIN_TRY(protocol::ContractConsent terms,
-                 protocol::decode_contract_consent(*report->metadata));
+                 protocol::decode_contract_consent(*report.metadata));
     if (terms.ledger != state.ledger_id()) {
         return fail(Errc::invalid_argument, "the consent is to a call on another ledger");
     }
@@ -833,8 +928,7 @@ Result<CallProgress> CallRegistrar::consent(const crypto::Provider& provider,
     CallProgress progress;
     CEXCHAIN_TRY(progress.id, pending_call_id(provider, terms.instance, terms.head, terms.function,
                                               terms.arguments));
-    progress.changes = sweep(state, now, false);
-    auto held = held_call(directory_, progress.id);
+    auto held = held_at(directory_, {terms.instance, terms.head, progress.id});
     if (!held) {
         return fail(Errc::not_found, "no call with these terms is pending: propose it first");
     }
@@ -846,10 +940,15 @@ Result<CallProgress> CallRegistrar::consent(const crypto::Provider& provider,
                                &std::pair<protocol::Id, Bytes>::first)) {
         return fail(Errc::invalid_argument, "the contract did not ask for your ledger's consent");
     }
-    CEXCHAIN_CHECK(citation(provider, state, call_body(held->call), party, bundle, now));
+    // Verified ahead: the consent and the held ones.
+    std::vector<VerifiedConsent> verified;
+    verified.reserve(1 + prepared.held.size());
+    verified.push_back(prepared.consent);
+    verified.insert(verified.end(), prepared.held.begin(), prepared.held.end());
+    CEXCHAIN_CHECK(citation(provider, state, call_body(held->call), party, bundle, now, verified));
     progress.call = std::move(held->call);
     hold(progress.call.consents, party, bundle);
-    CEXCHAIN_TRY(progress, run(provider, state, std::move(progress), now, entropy));
+    CEXCHAIN_TRY(progress, run(provider, state, std::move(progress), now, entropy, verified));
     if (progress.verdict == CallProgress::Verdict::waiting) {
         CEXCHAIN_TRY(Bytes file, encode_pending_call(progress.call));
         progress.changes.push_back(
@@ -883,12 +982,13 @@ std::vector<PendingChange> CallRegistrar::sweep(const protocol::LedgerState& sta
 
 Result<CallProgress> CallRegistrar::run(const crypto::Provider& provider,
                                         const protocol::LedgerState& state, CallProgress progress,
-                                        protocol::Timestamp now, ledger::Entropy& entropy) const {
+                                        protocol::Timestamp now, ledger::Entropy& entropy,
+                                        std::span<const VerifiedConsent> verified) const {
     // The consents held, checked again: they may have lapsed while waiting.
     protocol::ContractCallBody body = call_body(progress.call);
     std::vector<std::pair<protocol::Id, Bytes>> live;
     for (auto& [ledger, bundle] : progress.call.consents) {
-        if (auto ref = citation(provider, state, body, ledger, bundle, now)) {
+        if (auto ref = citation(provider, state, body, ledger, bundle, now, verified)) {
             body.consents.push_back(*ref);
             live.emplace_back(ledger, std::move(bundle));
         }
