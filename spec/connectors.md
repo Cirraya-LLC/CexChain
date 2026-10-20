@@ -51,6 +51,7 @@ The runtime starts a connector without a shell (the program and its arguments as
 - `params` are the request's params as JSON (byte strings as hex text); absent if they have no JSON form (a tag, a map key that is not text). `params_cbor` is their exact CBOR, in hex.
 - `deadline` and `asked_at` are milliseconds since the epoch; `home` is the home ledger's id; `reply` is the function the answer calls.
 - `attempt` counts from 1. `timeout_ms` is how long the runtime waits for the outcome; a connector that does not answer in time is stopped and restarted, and the attempt counts as one to retry.
+- The runtime sends a connector one `perform` at a time: the next only after the outcome of the last. To work several requests at once it starts several copies of a connector, each greeted with its own `hello` (section 4, **Concurrency**).
 
 **`cancel`** `{"type": "cancel", "id": "...", "reason": "answered"}`: stop working on a request (answered elsewhere, or expired). A connector that performs one request at a time MAY ignore it.
 
@@ -97,6 +98,7 @@ The runtime starts a connector without a shell (the program and its arguments as
   The response and its salt stay in the journal, so the response can be disclosed later with proof (`executor journal show --response-out`).
 - **Refusals.** If the ledger refuses the answer, the runtime fetches the evidence again: a request now closed was answered elsewhere (a keeper's expiry, a person by hand, another copy), and the entry is closed, its own answer never sent again; a request still open on a newer head gets a new answer on that head; a request still open on the same head means the contract or a ledger rule refuses this answer, and the entry is closed (the request stays open for others).
 - **Restarts.** After a crash the runtime resumes from the journal: an outcome already journaled is answered, not acted on again; an attempt journaled as acting is performed again (the idempotency key makes that harmless).
+- **Concurrency.** The runtime works several requests at once (`executor run --concurrency`, by default as many as the computer has cores), oldest first, and never two requests of one instance at once: an answer names the instance's head, which the other's answer would move. Each copy of a connector performs one request at a time; the runtime starts copies as requests need them, up to the connector's `concurrency` in the executor's config: by default as many as the runtime works at once for `webhook` and `command`, which keep nothing between requests, and one for a `program`, which may keep state of its own (`executor connector add --concurrency N` allows more). The answer is built on the evidence the request was verified in; if the instance changed in between, the ledger refuses the answer and it is built again on fresh evidence (as under **Refusals**).
 
 ## 5. Secrets
 
@@ -122,7 +124,7 @@ Each `perform` becomes a `POST` to the URL, with the body the perform's fields a
 | `X-CexChain-Timestamp` | milliseconds since the epoch |
 | `X-CexChain-Signature` | `sha256=` and the hex of HMAC-SHA-256(secret, timestamp ‖ `.` ‖ body) |
 
-A receiver SHOULD check the signature in constant time and refuse timestamps more than five minutes away from its clock. TLS certificates and host names are verified; redirects are not followed.
+A receiver SHOULD check the signature in constant time and refuse timestamps more than five minutes away from its clock. TLS certificates and host names are verified; redirects are not followed. Each copy of the connector keeps its connection to the receiver open between requests (HTTP/1.1 keep-alive); a request sent on a connection the receiver had closed, and never answered, is sent once more on a new connection, with the same `Idempotency-Key`.
 
 | Answer | Outcome |
 |---|---|

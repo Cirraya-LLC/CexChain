@@ -571,6 +571,8 @@ cexchain executor run --config notifier.json --state notifier-state \
 cexchain executor journal list --state notifier-state   # what it did, and why
 ```
 
+It works several requests at once (`--concurrency`, by default one per core), never two of one
+instance, each verified once: the answer is built on the evidence its request was verified in.
 An answer carries the connector's result (external ids, statuses, codes: never personal data), a
 failure's reason, and the salted digest of the outside system's response, which stays in the
 journal for later disclosure. Transient failures are retried, with backoff, until the deadline; a
