@@ -8,9 +8,11 @@
 // journal without acting twice, takes an answer recorded elsewhere as final,
 // and lets one copy at a time act, by the server's lease.
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -746,4 +748,174 @@ TEST_CASE("an executor's sealed secrets and cursor are read strictly", "[node][e
                                  "http://127.0.0.1:8080") == 0);
     CHECK(executor::parse_cursor(R"({"after":-1,"server":"x"})", "x") == 0);
     CHECK(executor::parse_cursor("not json", "x") == 0);
+}
+
+namespace {
+
+/// A connector in this process that notes, for each request it performs,
+/// its instance and how many requests were in its hands at once, overall
+/// and per instance. Checked on the test's thread once the runs are over
+/// (never assertions on the runtime's threads).
+struct Overlaps {
+    std::mutex mutex;
+    std::map<std::string, std::string> instance_of; // request -> instance (hex)
+    std::map<std::string, int> performed;           // request (hex) -> times
+    std::map<std::string, int> in_flight;           // instance (hex) -> now
+    int most_per_instance = 0;
+    int now = 0;
+    int most = 0;
+    int unknown = 0;
+    int total = 0;
+    int stop_after = 0;
+    std::atomic<bool>* stop = nullptr;
+
+    connector::PerformerFactory factory() {
+        struct Performer final : connector::Performer {
+            Overlaps* o = nullptr;
+            connector::Outcome perform(const connector::Perform& p) override {
+                const std::string instance = hex_id(p.instance);
+                {
+                    const std::lock_guard lock(o->mutex);
+                    const auto it = o->instance_of.find(hex_id(p.request));
+                    if (it == o->instance_of.end() || it->second != instance) {
+                        ++o->unknown;
+                    }
+                    ++o->performed[hex_id(p.request)];
+                    o->most_per_instance = std::max(o->most_per_instance, ++o->in_flight[instance]);
+                    o->most = std::max(o->most, ++o->now);
+                    if (++o->total == o->stop_after && o->stop != nullptr) {
+                        o->stop->store(true);
+                    }
+                }
+                // A few milliseconds of work, so that others overlap it.
+                std::this_thread::sleep_for(
+                    std::chrono::milliseconds(2 + p.request.bytes()[0] % 5));
+                {
+                    const std::lock_guard lock(o->mutex);
+                    --o->in_flight[instance];
+                    --o->now;
+                }
+                connector::Outcome out;
+                out.request = p.request;
+                out.result = cbor::Value::map({{text("ref"), text("C-1")}});
+                return out;
+            }
+        };
+        return [this](const connector::Hello&, std::string&) {
+            auto p = std::make_unique<Performer>();
+            p->o = this;
+            return p;
+        };
+    }
+};
+
+} // namespace
+
+TEST_CASE("an executor works requests at once, one per instance, each once across stops",
+          "[node][executor]") {
+    Home home;
+    const auto api = home.api();
+    Running running(*api);
+    node::ClientOptions staff;
+    staff.bearer_token = home.staff;
+    const node::Client client(*node::Url::parse(running.url()), staff);
+
+    // Twelve more instances with four notices each, and the home's own
+    // notice: 49 requests, several per instance.
+    Overlaps overlaps;
+    std::vector<protocol::Id> notices{home.requests[0]};
+    overlaps.instance_of.emplace(hex_id(home.requests[0]), hex_id(home.instance));
+    for (int i = 0; i < 12; ++i) {
+        protocol::ContractCallBody create;
+        create.contract = home.contract;
+        create.function = "open";
+        create.arguments =
+            asks({{"notify", hour}, {"notify", hour}, {"notify", hour}, {"notify", hour}});
+        const auto made =
+            client.request("POST", "/v1/statements",
+                           home.sign(home.org, home.id, std::nullopt, create), "application/cose");
+        REQUIRE(made);
+        REQUIRE(made->status == 201);
+        const protocol::Id instance = *protocol::to_id(*cexchain::from_hex(
+            json::parse(made->body.begin(), made->body.end())["statement_id"].get<std::string>()));
+        for (std::uint64_t position = 0; position < 4; ++position) {
+            const auto id =
+                protocol::request_id(provider(), crypto::HashAlg::sha256, instance, position);
+            REQUIRE(id);
+            notices.push_back(*id);
+            overlaps.instance_of.emplace(hex_id(*id), hex_id(instance));
+        }
+    }
+
+    executor::Config config = home.config();
+    config.connectors[0].concurrency = 8;
+    const auto state = fresh_directory();
+    std::atomic<bool> stop{false};
+    overlaps.stop = &stop;
+    std::vector<json> events;
+    std::mutex events_mutex;
+    auto run = [&](bool once) {
+        executor::RunOptions o;
+        o.server = running.url();
+        o.client.bearer_token = home.executor_token;
+        o.client.timeout = 10s;
+        o.state = state;
+        o.channels = executor::local_channels(overlaps.factory());
+        o.signer = &home.device;
+        o.provider = &provider();
+        o.once = once;
+        o.wait = once ? 0s : 1s;
+        o.lease_ttl = 5s;
+        o.concurrency = 8;
+        o.stop = &stop;
+        o.on_event = [&](std::string_view line) {
+            const std::lock_guard lock(events_mutex);
+            events.push_back(json::parse(line));
+        };
+        return executor::run(config, o);
+    };
+    // Stopped twice while it works (the requests in hand are finished),
+    // then a last round: every request acted on once, never two of one
+    // instance at once.
+    for (const int stop_after : {12, 30}) {
+        overlaps.stop_after = stop_after;
+        stop = false;
+        const auto ran = run(false);
+        INFO((ran ? std::string() : ran.error()));
+        REQUIRE(ran);
+    }
+    stop = false;
+    overlaps.stop_after = 0;
+    const auto last = run(true);
+    INFO((last ? std::string() : last.error()));
+    REQUIRE(last);
+
+    CHECK(overlaps.unknown == 0);
+    CHECK(overlaps.most_per_instance == 1);
+    CHECK(overlaps.most > 1);
+    CHECK(overlaps.performed.size() == notices.size());
+    CHECK(std::ranges::all_of(overlaps.performed, [](const auto& p) { return p.second == 1; }));
+    for (const protocol::Id& r : notices) {
+        INFO(hex_id(r));
+        CHECK(status_of(*api, r) == protocol::AnswerStatus::done);
+        const auto entry = executor::Journal(state).find(r);
+        REQUIRE(entry);
+        CHECK(entry->stage == executor::Stage::answered);
+        CHECK(entry->attempts == 1);
+    }
+    CHECK(!status_of(*api, home.requests[1])); // no connector serves it
+    // The runs' events: each started with its concurrency, each request
+    // answered once.
+    std::size_t answered = 0;
+    std::size_t started = 0;
+    for (const json& e : events) {
+        answered += e["event"] == "answered" ? 1U : 0U;
+        if (e["event"] == "started") {
+            ++started;
+            CHECK(e["concurrency"] == 8);
+        }
+    }
+    CHECK(started == 3);
+    CHECK(answered == notices.size());
+    std::filesystem::remove_all(state);
 }

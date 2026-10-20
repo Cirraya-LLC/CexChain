@@ -183,6 +183,9 @@ add_test(NAME cluster_end_to_end
 # An executor as a service while the cluster's members restart (E11).
 add_test(NAME executor_cluster_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/executor_cluster.sh $<TARGET_FILE:cexchain>)
+# An executor working requests at once, killed and restarted (D-056, P4).
+add_test(NAME executor_concurrency_end_to_end
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/executor_concurrency.sh $<TARGET_FILE:cexchain>)
 # The product's own texts are generic (D-054): no industry words in help,
 # completion, MCP descriptions, or the browser page.
 add_test(NAME generic_words
