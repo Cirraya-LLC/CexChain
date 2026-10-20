@@ -88,9 +88,47 @@ void breakdown(Home& home, const protocol::ContractCallBody& body, std::uint64_t
     const vm::Module& module = *state.contract(contract)->module;
     const double vm_us = mean_us(
         repeat, [&] { must(vm::run(module, run.input, provider, crypto::HashAlg::sha256), "vm"); });
+    // The input and the output alone: the input built from the state as
+    // run_contract builds it, and the run's output read back.
+    const protocol::InstanceState* instance = b.instance ? state.instance(*b.instance) : nullptr;
+    const auto input = [&] {
+        protocol::ContractInput in;
+        in.function = b.function;
+        in.arguments = b.arguments;
+        in.home = state.ledger_id();
+        in.contract = contract;
+        if (instance != nullptr) {
+            in.instance = protocol::ContractInstanceView{
+                .id = *b.instance,
+                .head = instance->head,
+                .state = instance->state,
+                .status = instance->status,
+                .parties = instance->parties,
+                .parent = instance->parent ? std::optional<protocol::Id>(instance->parent->id())
+                                           : std::nullopt,
+                .depth = instance->depth,
+            };
+        }
+        in.caller = *parsed.statement.actor_id;
+        in.caller_signer = must(state.contract_signer(parsed.statement), "signer");
+        in.time = now;
+        for (const protocol::ContractConsentRef& c : b.consents) {
+            in.consents.emplace_back(c.ledger, c.signer);
+        }
+        return must(protocol::encode_contract_input(in), "input");
+    };
+    if (b.answer || input() != run.input) {
+        throw std::runtime_error("the breakdown's input differs from the run's");
+    }
+    const double input_us = mean_us(repeat, input);
+    const double output_us = mean_us(repeat, [&] {
+        must(protocol::decode_contract_output(run.outcome.output, state.ledger_id()), "output");
+    });
     results.add(p + "run contract (input, VM, output)", run_us, "us");
     results.add(p + "  VM run alone", vm_us, "us");
     results.add(p + "  input and output (the rest)", run_us - vm_us, "us");
+    results.add(p + "    input alone (from the state)", input_us, "us");
+    results.add(p + "    output alone (read back)", output_us, "us");
     results.add(p + "fuel", static_cast<double>(run.outcome.fuel_used), "");
     results.add(p + "input", static_cast<double>(run.input.size()), "bytes");
     results.add(p + "output", static_cast<double>(run.outcome.output.size()), "bytes");
