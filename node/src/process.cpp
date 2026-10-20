@@ -5,6 +5,7 @@
 #include <array>
 #include <cerrno>
 #include <csignal>
+#include <cstdint>
 #include <cstring>
 #include <fcntl.h>
 #include <mutex>
@@ -14,6 +15,16 @@
 #include <thread>
 #include <unistd.h>
 #include <utility>
+
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+#include <sys/event.h>
+#define CEXCHAIN_PROCESS_KQUEUE 1
+#elif defined(__linux__)
+#include <sys/syscall.h>
+#if defined(SYS_pidfd_open)
+#define CEXCHAIN_PROCESS_PIDFD 1
+#endif
+#endif
 
 #include <cexchain/node/process.hpp>
 
@@ -70,6 +81,95 @@ int left_ms(clock::time_point until) noexcept {
     const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(until - clock::now());
     return static_cast<int>(std::clamp<std::int64_t>(left.count(), 0, 1'000'000));
 }
+
+/// How waiting for a child's exit went, short of reaping it.
+enum class Exit : std::uint8_t {
+    /// It may have exited: ask waitpid.
+    maybe,
+    /// Still running at the deadline.
+    timeout,
+    /// The kernel cannot tell us: wait by polling.
+    unsupported,
+};
+
+#if defined(CEXCHAIN_PROCESS_KQUEUE)
+/// Blocks until `pid` exits or `until`, by kqueue's EVFILT_PROC (macOS, the
+/// BSDs). A child that has already exited (a zombie) cannot be registered:
+/// that is an exit too.
+Exit block_until_exit(pid_t pid, clock::time_point until) noexcept {
+    const int queue = ::kqueue();
+    if (queue < 0) {
+        return Exit::unsupported;
+    }
+    struct kevent change{};
+    EV_SET(&change, static_cast<uintptr_t>(pid), EVFILT_PROC, EV_ADD | EV_ONESHOT, NOTE_EXIT, 0,
+           nullptr);
+    Exit result = Exit::maybe;
+    if (::kevent(queue, &change, 1, nullptr, 0, nullptr) < 0) {
+        // ESRCH: gone already (the zombie waits to be reaped).
+        result = errno == ESRCH ? Exit::maybe : Exit::unsupported;
+    } else {
+        // Registered: if it exited between the caller's waitpid and the
+        // registration, the event is already pending.
+        for (;;) {
+            const auto left = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::max(until - clock::now(), clock::duration::zero()));
+            const timespec timeout{static_cast<time_t>(left.count() / 1'000'000'000),
+                                   static_cast<long>(left.count() % 1'000'000'000)};
+            struct kevent event{};
+            const int n = ::kevent(queue, nullptr, 0, &event, 1, &timeout);
+            if (n > 0) {
+                break;
+            }
+            if (n == 0) {
+                result = Exit::timeout;
+                break;
+            }
+            if (errno != EINTR) {
+                result = Exit::unsupported;
+                break;
+            }
+        }
+    }
+    ::close(queue);
+    return result;
+}
+#elif defined(CEXCHAIN_PROCESS_PIDFD)
+/// Blocks until `pid` exits or `until`, by a pidfd (Linux 5.3 and later),
+/// which polls readable once the process has exited.
+Exit block_until_exit(pid_t pid, clock::time_point until) noexcept {
+    const int fd = static_cast<int>(::syscall(SYS_pidfd_open, pid, 0));
+    if (fd < 0) {
+        return Exit::unsupported;
+    }
+    Exit result = Exit::maybe;
+    for (;;) {
+        pollfd p{fd, POLLIN, 0};
+        const int ready = ::poll(&p, 1, left_ms(until));
+        if (ready > 0) {
+            break;
+        }
+        if (ready == 0) {
+            // poll's milliseconds round down: go on to the deadline itself.
+            if (clock::now() < until) {
+                continue;
+            }
+            result = Exit::timeout;
+            break;
+        }
+        if (errno != EINTR) {
+            result = Exit::unsupported;
+            break;
+        }
+    }
+    ::close(fd);
+    return result;
+}
+#else
+Exit block_until_exit(pid_t, clock::time_point) noexcept {
+    return Exit::unsupported;
+}
+#endif
 
 } // namespace
 
@@ -316,6 +416,11 @@ std::optional<ExitStatus> ChildProcess::wait(std::chrono::milliseconds timeout) 
         return std::nullopt;
     }
     const auto until = clock::now() + timeout;
+    // Without a way to block on the exit: a backoff from 50 µs, so that a
+    // quick child is reaped at once and a slow one costs few wakeups.
+    std::chrono::microseconds backoff(50);
+    bool blocking = true;
+    clock::duration slice = std::chrono::milliseconds(1);
     for (;;) {
         int raw = 0;
         const pid_t r = ::waitpid(pid_, &raw, WNOHANG);
@@ -327,10 +432,26 @@ std::optional<ExitStatus> ChildProcess::wait(std::chrono::milliseconds timeout) 
             exited_ = ExitStatus{127, 0};
             return exited_;
         }
+        if (r < 0) {
+            continue; // EINTR
+        }
         if (clock::now() >= until) {
             return std::nullopt;
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        if (blocking) {
+            // In slices that grow from 1 ms to 1 s, each followed by waitpid:
+            // macOS may post a child's exit just before waitpid can reap it,
+            // and a registration in between would never fire.
+            const auto end = std::min(until, clock::now() + slice);
+            slice = std::min<clock::duration>(slice * 2, std::chrono::seconds(1));
+            if (block_until_exit(pid_, end) != Exit::unsupported) {
+                continue;
+            }
+            blocking = false;
+        }
+        std::this_thread::sleep_for(
+            std::min<clock::duration>(backoff, std::max(until - clock::now(), clock::duration{})));
+        backoff = std::min(backoff * 2, std::chrono::microseconds(10'000));
     }
 }
 
