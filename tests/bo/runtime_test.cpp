@@ -1194,7 +1194,7 @@ Bytes typical_input(const bool creation) {
         cbor::Map state;
         state.push_back({cbor::Value::text("fields"), cbor::Value::map(std::move(fields))});
         state.push_back({cbor::Value::text("state"), cbor::Value::text("issued")});
-        instance.state = cbor::Value::map(std::move(state));
+        instance.state = *cbor::Encoded::encode(cbor::Value::map(std::move(state)));
         instance.status = "issued";
         instance.parties = {{"issuer", id(0x01)}, {"supplier", id(0x11)}};
         input.instance = std::move(instance);

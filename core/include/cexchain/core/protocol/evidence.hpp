@@ -191,7 +191,7 @@ struct InstanceReport {
     /// complete report).
     bool contract_retired = false;
     std::uint64_t head = 0;
-    cbor::Value state;
+    cbor::Encoded state;
     std::optional<std::string> status;
     Parties parties;
     bool final = false;

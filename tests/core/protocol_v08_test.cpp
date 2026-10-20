@@ -570,7 +570,7 @@ TEST_CASE("v0.8 requests: replay, refusals in place, and every request",
             CHECK(instance->head == expected["head"].get<std::uint64_t>());
             CHECK(instance->history.to_vector() ==
                   expected["history"].get<std::vector<std::uint64_t>>());
-            CHECK(to_hex(*cbor::encode(instance->state)) == text(expected["state"]));
+            CHECK(to_hex(instance->state.bytes()) == text(expected["state"]));
             CHECK(instance->status.has_value() == !expected["status"].is_null());
             if (instance->status) {
                 CHECK(*instance->status == text(expected["status"]));
@@ -909,7 +909,7 @@ TEST_CASE("v0.8 requests: what the vectors cannot reach", "[protocol][contracts]
     input.contract = call;
     input.caller = call;
     input.instance =
-        protocol::ContractInstanceView{call, 7, cbor::Value::null(), std::nullopt, {}, {}, 0};
+        protocol::ContractInstanceView{call, 7, cbor::Encoded(), std::nullopt, {}, {}, 0};
     const auto without = cbor::decode(*protocol::encode_contract_input(input));
     REQUIRE(without);
     CHECK(without->find(9) == nullptr);

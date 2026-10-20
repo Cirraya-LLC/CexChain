@@ -420,6 +420,10 @@ std::string encoded_hex(const cbor::Value& value) {
     return encoded ? to_hex(*encoded) : std::string();
 }
 
+std::string encoded_hex(const cbor::Encoded& value) {
+    return to_hex(value.bytes());
+}
+
 /// Party ledgers by id: the home, and each ledger that consented, as their
 /// own evidence declares them.
 PartyNames contract_party_names(const protocol::ContractReport& r) {

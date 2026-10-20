@@ -480,9 +480,10 @@ test "two days paused"
     const auto* accept = std::get_if<protocol::ContractAccept>(&*kept.output);
     REQUIRE(accept != nullptr);
     const std::int64_t at = days_from_civil(2027, 3, 2) * day - offset;
-    CHECK(*accept->state.find("since")->as_int64() == at);
-    CHECK(*accept->state.find("fired")->find("when.ended")->as_int64() == at);
-    CHECK(accept->state.find("fired")->find("when.rule")->is_null());
+    const cbor::Value state = accept->state.value();
+    CHECK(*state.find("since")->as_int64() == at);
+    CHECK(*state.find("fired")->find("when.ended")->as_int64() == at);
+    CHECK(state.find("fired")->find("when.rule")->is_null());
     REQUIRE(accept->events.size() == 2);
     CHECK(accept->events[0].name == "when");
     CHECK(*accept->events[0].data.find("time")->as_int64() == at);
@@ -640,7 +641,8 @@ can pay
     REQUIRE(id.has_value());
     CHECK(in.instance->id == *id);
     // The parts' states: the amount, the holder, one tier down.
-    const cbor::Value* fields = in.instance->state.find("fields");
+    const cbor::Value state = in.instance->state.value();
+    const cbor::Value* fields = state.find("fields");
     REQUIRE(fields != nullptr);
     CHECK(fields->find("amount")->as_int64() == 500);
     CHECK(fields->find("tier")->as_int64() == 3);

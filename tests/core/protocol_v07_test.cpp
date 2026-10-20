@@ -416,7 +416,7 @@ TEST_CASE("v0.7 children: replay, refusals in place, and every instance",
             CHECK(instance->head == expected["head"].get<std::uint64_t>());
             CHECK(instance->history.to_vector() ==
                   expected["history"].get<std::vector<std::uint64_t>>());
-            CHECK(to_hex(*cbor::encode(instance->state)) == text(expected["state"]));
+            CHECK(to_hex(instance->state.bytes()) == text(expected["state"]));
             CHECK(instance->status.has_value() == !expected["status"].is_null());
             if (instance->status) {
                 CHECK(*instance->status == text(expected["status"]));
@@ -657,7 +657,7 @@ TEST_CASE("v0.7 children: the limits of an output, which the vectors' contracts 
     REQUIRE(decoded);
     const auto& accept = std::get<protocol::ContractAccept>(*decoded);
     REQUIRE(accept.children.size() == 1);
-    CHECK(accept.children[0].state == state_of_size(65'536));
+    CHECK(accept.children[0].state.value() == state_of_size(65'536));
     CHECK_FALSE(accept.children[0].status);
     CHECK(accept.children[0].parties.empty());
     const auto over = protocol::decode_contract_output(
@@ -744,7 +744,7 @@ TEST_CASE("v0.7 children: the limits of an output, which the vectors' contracts 
     input.contract = call;
     input.caller = call;
     input.instance =
-        protocol::ContractInstanceView{call, 7, cbor::Value::null(), std::nullopt, {}, {}, 0};
+        protocol::ContractInstanceView{call, 7, cbor::Encoded(), std::nullopt, {}, {}, 0};
     const auto without = cbor::decode(*protocol::encode_contract_input(input));
     REQUIRE(without);
     input.instance->parent = home_ledger;

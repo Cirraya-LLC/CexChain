@@ -79,7 +79,9 @@ struct InstanceState {
     CompactId contract;
     /// The log index of its latest call (at first, the call that created it).
     std::uint64_t head = 0;
-    cbor::Value state;
+    /// Kept encoded: inputs splice it, outputs are sliced into it, and a tree
+    /// is built only for a reader (`state.value()`).
+    cbor::Encoded state;
     std::optional<std::string> status;
     Parties parties;
     bool final = false;
@@ -138,7 +140,7 @@ struct ContractEvent {
 
 /// An instance an accepted call creates (`contract-child`, v0.7).
 struct ContractChild {
-    cbor::Value state;
+    cbor::Encoded state;
     /// None when absent.
     std::optional<std::string> status;
     /// None when empty (an encoded child never has an empty map).
@@ -164,7 +166,7 @@ struct ContractRequest {
 
 /// An accepted call's effect on its instance.
 struct ContractAccept {
-    cbor::Value state;
+    cbor::Encoded state;
     std::optional<std::string> status;
     /// Replaces the parties when set.
     std::optional<Parties> parties;
@@ -191,7 +193,9 @@ using ContractOutput = std::variant<ContractAccept, ContractNeeds>;
 
 /// Decodes a contract's output and checks it against section 15: deterministic
 /// CBOR within the limits of section 2, matching `contract-output`, and never
-/// needing the home's consent. Errc::malformed otherwise.
+/// needing the home's consent. Errc::malformed otherwise. The states (the
+/// accept's, its children's) are sliced from the output as they are encoded;
+/// trees are built only for the parts kept as trees (events, params).
 [[nodiscard]] Result<ContractOutput> decode_contract_output(ByteView output, const Id& home);
 
 /// Encodes an output, as a contract would write it.
@@ -229,7 +233,7 @@ struct ContractRequestView {
 struct ContractInstanceView {
     Id id;
     std::uint64_t head = 0;
-    cbor::Value state;
+    cbor::Encoded state;
     std::optional<std::string> status;
     Parties parties;
     /// For a child only (v0.7): its parent and depth, view key 6.
@@ -255,6 +259,8 @@ struct ContractInput {
     std::optional<ContractRequestView> request;
 };
 
+/// Writes the input in deterministic CBOR, the instance's state spliced in as
+/// it is encoded.
 [[nodiscard]] Result<Bytes> encode_contract_input(const ContractInput& input);
 
 /// One run of a call's contract.

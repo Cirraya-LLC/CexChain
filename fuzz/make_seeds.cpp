@@ -612,7 +612,7 @@ void contract_seeds(const Seeds& seeds) {
     create.contract = deployed.id;
     create.function = "propose";
     create.arguments =
-        arguments(protocol::ContractAccept{cbor::Value::text("draft"),
+        arguments(protocol::ContractAccept{*cbor::Encoded::encode(cbor::Value::text("draft")),
                                            "proposed",
                                            protocol::Parties{{"supplier", supplier.id()}},
                                            {},
@@ -625,8 +625,14 @@ void contract_seeds(const Seeds& seeds) {
     protocol::ContractCallBody sign;
     sign.instance = created.id;
     sign.function = "sign";
-    sign.arguments = arguments(protocol::ContractAccept{
-        cbor::Value::text("signed"), "effective", std::nullopt, {}, false, {}, {}});
+    sign.arguments =
+        arguments(protocol::ContractAccept{*cbor::Encoded::encode(cbor::Value::text("signed")),
+                                           "effective",
+                                           std::nullopt,
+                                           {},
+                                           false,
+                                           {},
+                                           {}});
     sign.head = home.ledger->state().instance(created.id)->head;
     const auto digest = must(
         protocol::contract_arguments_digest(home.provider, crypto::HashAlg::sha256, sign.arguments),

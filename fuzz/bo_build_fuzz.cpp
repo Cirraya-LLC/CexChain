@@ -1959,7 +1959,8 @@ void run_calls(const bo::Build& build, const m::Model& model, Choices& c) {
             input.instance = instance;
             if (input.function == bo::model::approve_function && !c.one_in(10)) {
                 // The first proposal kept, as approve names one.
-                const cbor::Value* pending = instance->state.find("pending");
+                const cbor::Value state = instance->state.value();
+                const cbor::Value* pending = state.find("pending");
                 const cbor::Array* list = pending != nullptr ? pending->as_array() : nullptr;
                 if (list != nullptr && !list->empty() && list->front().as_array() != nullptr &&
                     list->front().as_array()->size() == 2) {
@@ -1980,7 +1981,8 @@ void run_calls(const bo::Build& build, const m::Model& model, Choices& c) {
                 }
                 // Parts that add up to the instance's amount, one for each
                 // recipient (R30): the split's arguments, as a holder gives them.
-                const cbor::Value* fields = instance->state.find("fields");
+                const cbor::Value state = instance->state.value();
+                const cbor::Value* fields = state.find("fields");
                 const cbor::Value* amount = fields != nullptr ? fields->find("amount") : nullptr;
                 const std::int64_t total =
                     amount != nullptr && amount->as_int64() ? *amount->as_int64() : 0;
@@ -2080,13 +2082,13 @@ void run_calls(const bo::Build& build, const m::Model& model, Choices& c) {
         needed += std::holds_alternative<protocol::ContractNeeds>(*output) ? 1U : 0U;
         if (const auto* accept = std::get_if<protocol::ContractAccept>(&*output)) {
             ++accepted;
-            require(accept->state.find("state") != nullptr &&
-                        accept->state.find("fields") != nullptr,
+            const cbor::Value state = accept->state.value();
+            require(state.find("state") != nullptr && state.find("fields") != nullptr,
                     "a state without its name and fields");
             // A bill made: its event and the state's bill are the same, and
             // its total is its price and its added charges (R26, R27).
             if (const m::Field* bill = m::bill_field(model); bill != nullptr) {
-                const cbor::Value* kept = accept->state.find("bill");
+                const cbor::Value* kept = state.find("bill");
                 require(kept != nullptr, "an instance with a bill field keeps no bill");
                 for (const protocol::ContractEvent& e : accept->events) {
                     if (e.name == bo::wire_name(bill->word, bill->name)) {
@@ -2137,8 +2139,8 @@ void run_calls(const bo::Build& build, const m::Model& model, Choices& c) {
                 require(accept->final, "an instance that issued parts did not end");
                 require(accept->children.size() <= 16, "more than 16 parts");
                 for (const protocol::ContractChild& child : accept->children) {
-                    require(child.state.find("state") != nullptr &&
-                                child.state.find("fields") != nullptr &&
+                    const cbor::Value made = child.state.value();
+                    require(made.find("state") != nullptr && made.find("fields") != nullptr &&
                                 child.parties.contains("holder") && child.status.has_value(),
                             "a part without its state, fields, status, or holder");
                 }

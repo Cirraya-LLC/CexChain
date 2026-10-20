@@ -101,7 +101,13 @@ cbor::Value outputs(const std::vector<protocol::ContractOutput>& list) {
 
 protocol::ContractAccept accept(std::string status, std::optional<protocol::Parties> parties = {},
                                 bool final = false) {
-    return {cbor::Value::text("state: " + status), status, std::move(parties), {}, final, {}, {}};
+    return {*cbor::Encoded::encode(cbor::Value::text("state: " + status)),
+            status,
+            std::move(parties),
+            {},
+            final,
+            {},
+            {}};
 }
 
 protocol::ContractNeeds needs(std::vector<protocol::Id> ledgers) {
@@ -330,8 +336,9 @@ Bytes proposal_on(const node::LedgerApi& api, const protocol::Id& instance,
 protocol::ContractAccept split_among(const std::vector<protocol::Id>& holders) {
     protocol::ContractAccept a = accept("split", {}, true);
     for (std::size_t n = 0; n < holders.size(); ++n) {
-        a.children.push_back({cbor::Value::text("part " + std::to_string(n)), "part",
-                              protocol::Parties{{"holder", holders[n]}}});
+        a.children.push_back(
+            {*cbor::Encoded::encode(cbor::Value::text("part " + std::to_string(n))), "part",
+             protocol::Parties{{"holder", holders[n]}}});
     }
     return a;
 }

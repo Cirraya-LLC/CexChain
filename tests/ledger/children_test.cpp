@@ -226,8 +226,8 @@ TEST_CASE("a receivable splits across three ledgers, and a tier-3 part verifies 
     const std::uint64_t split_r_index = c.instance(a).created_by;
     CHECK(c.instance(r).head == split_r_index);
     CHECK(c.instance(a).history.to_vector() == std::vector<std::uint64_t>{split_r_index});
-    CHECK(*cbor::encode(c.instance(a).state) ==
-          *cbor::encode(cbor::Value::array(
+    CHECK(c.instance(a).state ==
+          *cbor::Encoded::encode(cbor::Value::array(
               {cbor::Value::unsigned_integer(600), cbor::Value::unsigned_integer(2)})));
     // A final parent takes no more calls.
     CHECK(c.home.rejected(c.home.org(),
@@ -287,9 +287,8 @@ TEST_CASE("a receivable splits across three ledgers, and a tier-3 part verifies 
     CHECK(i.parent == a);
     CHECK(i.position == 1);
     CHECK(i.parties.at("holder") == supplier);
-    CHECK(*cbor::encode(i.state) ==
-          *cbor::encode(cbor::Value::array(
-              {cbor::Value::unsigned_integer(150), cbor::Value::unsigned_integer(3)})));
+    CHECK(i.state == *cbor::Encoded::encode(cbor::Value::array(
+                         {cbor::Value::unsigned_integer(150), cbor::Value::unsigned_integer(3)})));
     REQUIRE(i.ancestors.size() == 2);
     CHECK(i.ancestors[0].id == r);
     CHECK(i.ancestors[0].depth == 0);

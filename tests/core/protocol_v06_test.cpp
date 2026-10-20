@@ -153,7 +153,7 @@ TEST_CASE("v0.6 contracts from an independent encoder and interpreter",
             REQUIRE(instance != nullptr);
             CHECK(instance->contract == id(expected["contract"]));
             CHECK(instance->head == expected["head"].get<std::uint64_t>());
-            CHECK(to_hex(*cbor::encode(instance->state)) == text(expected["state"]));
+            CHECK(to_hex(instance->state.bytes()) == text(expected["state"]));
             CHECK(instance->status.has_value() == !expected["status"].is_null());
             if (instance->status) {
                 CHECK(*instance->status == text(expected["status"]));
@@ -276,7 +276,7 @@ TEST_CASE("v0.6 contracts: a call runs once, its validation reused only where it
             const protocol::InstanceState* expected = plain.instance(instance.id);
             REQUIRE(expected != nullptr);
             CHECK(instance.head == expected->head);
-            CHECK(*cbor::encode(instance.state) == *cbor::encode(expected->state));
+            CHECK(instance.state == expected->state);
         }
     }
     CHECK(calls > 0);

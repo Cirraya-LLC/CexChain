@@ -182,7 +182,8 @@ void compare(const Kind& kind, const std::vector<Step>& steps) {
         CHECK(party("pledgee") == id_of(expected.pledgee));
         CHECK(party("payee") == id_of(expected.payee));
         if (expected.grams) {
-            const cbor::Value* fields = accept->state.find("fields");
+            const cbor::Value state = accept->state.value();
+            const cbor::Value* fields = state.find("fields");
             REQUIRE(fields != nullptr);
             const cbor::Value* quantity = fields->find("quantity");
             REQUIRE(quantity != nullptr);

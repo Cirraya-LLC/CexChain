@@ -205,15 +205,17 @@ struct Outcome {
 };
 
 /// A field of an accepted state.
-const cbor::Value* field(const protocol::ContractAccept& accept, std::string_view name) {
-    const cbor::Value* fields = accept.state.find("fields");
+std::optional<cbor::Value> field(const protocol::ContractAccept& accept, std::string_view name) {
+    const cbor::Value state = accept.state.value();
+    const cbor::Value* fields = state.find("fields");
     REQUIRE(fields != nullptr);
-    return fields->find(name);
+    const cbor::Value* value = fields->find(name);
+    return value != nullptr ? std::optional(*value) : std::nullopt;
 }
 
 std::int64_t int_field(const protocol::ContractAccept& accept, std::string_view name) {
-    const cbor::Value* v = field(accept, name);
-    REQUIRE(v != nullptr);
+    const auto v = field(accept, name);
+    REQUIRE(v.has_value());
     REQUIRE(v->as_int64().has_value());
     return *v->as_int64();
 }
@@ -828,13 +830,14 @@ Home split_scenario() {
         const protocol::ContractChild& c = a.children[i];
         INFO(i);
         CHECK(c.status == "active");
-        const cbor::Value* fields = c.state.find("fields");
+        const cbor::Value state = c.state.value();
+        const cbor::Value* fields = state.find("fields");
         REQUIRE(fields != nullptr);
         CHECK(fields->find("amount")->as_int64() == 100'000);
         CHECK(fields->find("tier")->as_int64() == 2);
         CHECK(fields->find("due")->as_int64() == date(2027, 6, 30));
         CHECK(cbor::diagnostic(*fields->find("pledgee")) == "null");
-        CHECK(cbor::diagnostic(*c.state.find("state")) == "\"active\"");
+        CHECK(cbor::diagnostic(*state.find("state")) == "\"active\"");
         CHECK(c.parties.at("holder") == sixteen[i]);
         CHECK(c.parties.at("issuer") == we);
         CHECK(c.parties.at("supplier") == customer);
@@ -1040,7 +1043,8 @@ std::string vat_expected(const VatVariant& v, const std::vector<std::int64_t>& l
 std::string bill_of(const Outcome& o) {
     const protocol::ContractAccept* a = o.accepted();
     REQUIRE(a != nullptr);
-    const cbor::Value* bill = a->state.find("bill");
+    const cbor::Value state = a->state.value();
+    const cbor::Value* bill = state.find("bill");
     REQUIRE(bill != nullptr);
     REQUIRE(!a->events.empty());
     CHECK(a->events.back().name == "invoice");
@@ -1529,7 +1533,7 @@ nlohmann::ordered_json call_json(const protocol::ContractInput& c) {
         }
         out["instance"] = {{"id", hex(c.instance->id.bytes())},
                            {"head", c.instance->head},
-                           {"state", encoded(c.instance->state)},
+                           {"state", hex(c.instance->state.bytes())},
                            {"status", c.instance->status
                                           ? nlohmann::ordered_json(*c.instance->status)
                                           : nlohmann::ordered_json()},

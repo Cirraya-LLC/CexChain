@@ -138,18 +138,21 @@ const m::Action* action_named(const m::Model& model, std::string_view wire) {
 }
 
 /// The first proposal the instance keeps: [function, arguments].
-const cbor::Array* first_proposal(const std::optional<protocol::ContractInstanceView>& instance) {
+std::optional<cbor::Array>
+first_proposal(const std::optional<protocol::ContractInstanceView>& instance) {
     if (!instance) {
-        return nullptr;
+        return std::nullopt;
     }
-    const cbor::Value* pending = instance->state.find("pending");
+    const cbor::Value state = instance->state.value();
+    const cbor::Value* pending = state.find("pending");
     const cbor::Array* list = pending != nullptr ? pending->as_array() : nullptr;
     if (list == nullptr || list->empty()) {
-        return nullptr;
+        return std::nullopt;
     }
     const cbor::Array* entry = list->front().as_array();
-    return entry != nullptr && entry->size() == 2 && entry->front().as_text() != nullptr ? entry
-                                                                                         : nullptr;
+    return entry != nullptr && entry->size() == 2 && entry->front().as_text() != nullptr
+               ? std::optional(*entry)
+               : std::nullopt;
 }
 
 /// A request an instance made that no answer has closed (E8).
@@ -297,12 +300,10 @@ cbor::Value Runner::arguments(const m::Step& step, const m::Action* action, cons
     }
     if (step.approve) {
         // {"function": NAME, "arguments": ARGS}: the first proposal kept.
-        const cbor::Array* proposal = first_proposal(l.instance);
-        return canonical(
-            cbor::Map{{cbor::Value::text("function"),
-                       proposal != nullptr ? proposal->front() : cbor::Value::text("")},
-                      {cbor::Value::text("arguments"),
-                       proposal != nullptr ? proposal->back() : cbor::Value::null()}});
+        const auto proposal = first_proposal(l.instance);
+        return canonical(cbor::Map{
+            {cbor::Value::text("function"), proposal ? proposal->front() : cbor::Value::text("")},
+            {cbor::Value::text("arguments"), proposal ? proposal->back() : cbor::Value::null()}});
     }
     // R21: a counterparty each call names, as the argument counterparty.
     if (action != nullptr && action->to && action->to->refers == m::Refers::input && step.to) {
@@ -393,8 +394,10 @@ std::string bill_text(const cbor::Value& bill) {
 void Runner::expect_fields(const m::Step& step, const Ledger& l, StepResult& r) {
     // The values the step expects after its call, and, accepted, those the
     // instance holds otherwise.
-    const cbor::Value* held =
-        r.happened == Happened::accepted && l.instance ? l.instance->state.find("fields") : nullptr;
+    const cbor::Value state = r.happened == Happened::accepted && l.instance
+                                  ? l.instance->state.value()
+                                  : cbor::Value::null();
+    const cbor::Value* held = state.find("fields");
     for (const m::Set& f : step.fields) {
         std::string wire = wire_name(f.target.concept_entry, f.target.name);
         cbor::Value want = f.value.kind == ast::ExprKind::word &&
@@ -433,7 +436,8 @@ void Runner::accept(const m::Step& step, const protocol::ContractAccept& a, Ledg
         }
     }
     r.happened = Happened::accepted;
-    if (const cbor::Value* state = a.state.find("state");
+    const cbor::Value held = a.state.value();
+    if (const cbor::Value* state = held.find("state");
         state != nullptr && state->as_text() != nullptr) {
         r.state = *state->as_text();
     }
@@ -634,8 +638,8 @@ void Runner::run_step(const m::Step& step, Ledger& l, StepResult& r) {
     // An approval is started by the proposed action's starter.
     const m::Action* starts = action;
     if (step.approve) {
-        const cbor::Array* proposal = first_proposal(l.instance);
-        starts = proposal != nullptr ? action_named(model_, *proposal->front().as_text()) : nullptr;
+        const auto proposal = first_proposal(l.instance);
+        starts = proposal ? action_named(model_, *proposal->front().as_text()) : nullptr;
     }
     // The keeper is the home's device.
     const Id subject = step.keeper ? l.home : ledger_of(step.subject, l);

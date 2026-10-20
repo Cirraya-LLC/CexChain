@@ -50,6 +50,10 @@ std::string encoded_hex(const cbor::Value& value) {
     return to_hex(unwrap(cbor::encode(value), "encoding a value"));
 }
 
+std::string encoded_hex(const cbor::Encoded& value) {
+    return to_hex(value.bytes());
+}
+
 /// Long values (arguments and states reach 64 KiB) shortened for a terminal.
 std::string shortened(const std::string& text) {
     constexpr std::size_t limit = 200;
@@ -1260,10 +1264,11 @@ int cmd_contract_explain(const Args& args) {
     if (instance != nullptr && text.model && text.explained) {
         const bo::Pack* language =
             bo::find_language(bo::official_packs(), text.explained->language);
-        values = bo::explain_state(*text.model, instance->state, language, [&](ByteView ledger) {
-            const auto id = protocol::Id::from_bytes(ledger);
-            return id ? ledger_label(session, *id) : to_hex(ledger);
-        });
+        values =
+            bo::explain_state(*text.model, instance->state.value(), language, [&](ByteView ledger) {
+                const auto id = protocol::Id::from_bytes(ledger);
+                return id ? ledger_label(session, *id) : to_hex(ledger);
+            });
     }
     if (instance != nullptr) {
         j["instance"] = {{"id", id_json(instance->id)},
