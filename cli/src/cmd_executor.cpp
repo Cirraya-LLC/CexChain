@@ -80,6 +80,14 @@ std::filesystem::path state_of(const Args& args) {
     return args.need("state");
 }
 
+std::size_t parse_concurrency(const std::string& text) {
+    const auto n = parse_number(text, "--concurrency");
+    if (n == 0 || n > executor::max_concurrency) {
+        throw UsageError{std::format("--concurrency is 1 to {}", executor::max_concurrency)};
+    }
+    return static_cast<std::size_t>(n);
+}
+
 std::string text_of(ByteView bytes) {
     return std::string(bytes.begin(), bytes.end());
 }
@@ -215,8 +223,8 @@ std::string event_text(const Json& e) {
         line += " " + e["kind"].get<std::string>();
     }
     for (const char* key :
-         {"connector", "attempt", "status", "reason", "index", "in_ms", "why", "note", "message",
-          "granted", "holder", "level", "waiting", "resumed"}) {
+         {"connector", "copy", "attempt", "status", "reason", "index", "in_ms", "why", "note",
+          "message", "granted", "holder", "level", "concurrency", "waiting", "resumed"}) {
         if (e.contains(key) && !e[key].is_null()) {
             const Json& v = e[key];
             line += std::format("  {}={}", key, v.is_string() ? v.get<std::string>() : v.dump());
@@ -316,6 +324,9 @@ int cmd_executor_run(const Args& args) {
         }
         options.lease_ttl = std::chrono::seconds(seconds);
     }
+    if (const auto concurrency = args.get("concurrency")) {
+        options.concurrency = parse_concurrency(*concurrency);
+    }
     stop_requested.store(false);
     std::signal(SIGINT, executor_stop_signal);
     std::signal(SIGTERM, executor_stop_signal);
@@ -406,6 +417,9 @@ int cmd_executor_connector_add(const Args& args) {
     if (const auto timeout = args.get("timeout")) {
         entry["timeout"] = parse_number(*timeout, "--timeout");
     }
+    if (const auto concurrency = args.get("concurrency")) {
+        entry["concurrency"] = parse_concurrency(*concurrency);
+    }
     if (const auto secrets = args.get("secrets")) {
         entry["secrets"] = split(*secrets, ',');
     }
@@ -481,10 +495,13 @@ int cmd_executor_connector_list(const Args& args) {
         for (const auto& k : c.kinds) {
             kinds += (kinds.empty() ? "" : ",") + k;
         }
-        std::println("{:<16} {:<8} serves {}{} (timeout {} s)", c.name, c.type, kinds,
+        std::println("{:<16} {:<8} serves {}{} (timeout {} s, {})", c.name, c.type, kinds,
                      c.contracts.empty() ? std::string(" on any contract")
                                          : std::format(" on {} contract(s)", c.contracts.size()),
-                     c.timeout.count());
+                     c.timeout.count(),
+                     c.concurrency != 0    ? std::format("{} at once", c.concurrency)
+                     : c.type == "program" ? std::string("1 at once")
+                                           : std::string("as many at once as executor run"));
     }
     return exit_ok;
 }

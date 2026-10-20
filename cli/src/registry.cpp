@@ -1746,7 +1746,9 @@ std::vector<CommandSpec> build() {
                 "One round: what is open now, then exit (retries wait for the next run)"},
                {"wait", "S", "How long each poll waits for new requests (0 to 25; default: 25)"},
                {"lease-ttl", "S",
-                "How long its lease outlives its last poll (5 to 300; default: 60)"}}),
+                "How long its lease outlives its last poll (5 to 300; default: 60)"},
+               {"concurrency", "N",
+                "How many requests it works at once (1 to 256; default: the number of cores)"}}),
          cmd_executor_run,
          "Polls the home's server (GET /v1/requests, long polls) for open requests of the kinds\n"
          "its connectors serve. The list is a hint: before acting, it fetches the instance's\n"
@@ -1763,9 +1765,14 @@ std::vector<CommandSpec> build() {
          "person by hand) is closed in the journal, and its own answer is not sent. After a\n"
          "crash it resumes from the journal: an outcome already journaled is answered, not\n"
          "acted on again.\n\n"
+         "It works up to --concurrency requests at once, never two of one instance (an answer\n"
+         "names the instance's head), oldest first; each copy of a connector performs one at a\n"
+         "time (executor connector add --concurrency limits its copies). The evidence a request\n"
+         "was verified in also builds its answer: if the instance changed meanwhile, the ledger\n"
+         "refuses it and the answer is built again on fresh evidence.\n\n"
          "One copy of an executor acts at a time: by the server's lease (a standby with the same\n"
          "key and its own DIR takes over once the active copy stops polling), and by a lock on\n"
-         "DIR. SIGINT or SIGTERM finishes the request in hand, stops the connectors, and exits\n"
+         "DIR. SIGINT or SIGTERM finishes the requests in hand, stops the connectors, and exits\n"
          "0. It logs requests, kinds, and outcomes; never params, results, responses, or\n"
          "secrets.\n\n"
          "  cexchain executor run --config notifier.json --state /var/lib/notifier \\\n"
@@ -1801,7 +1808,9 @@ std::vector<CommandSpec> build() {
                {"program", "PATH", "command, program: what it runs"},
                {"arg", "VALUE", "command, program: an argument for the program", false, true},
                {"secrets", "NAMES", "command, program: secrets it is handed, comma-separated"},
-               {"connector-config", "JSON", "program: its own configuration, a JSON object"}}),
+               {"connector-config", "JSON", "program: its own configuration, a JSON object"},
+               {"concurrency", "N",
+                "How many of its requests run at once, one copy of it each (1 to 256)"}}),
          cmd_executor_connector_add,
          "A webhook POSTs each request as JSON to --url, signed with HMAC-SHA-256 under the\n"
          "secret --secret (executor secret set NAME). A command runs --program with the --arg\n"
@@ -1810,7 +1819,10 @@ std::vector<CommandSpec> build() {
          "that speaks the connector protocol (spec/connectors.md), in any language. A connector\n"
          "serves --kinds on --contracts, or on any contract; one for some contracts takes them\n"
          "over from one for any. Two that serve the same kind on the same contracts are\n"
-         "refused.\n\n"
+         "refused. executor run starts copies of a connector as requests need them, each\n"
+         "performing one request at a time: up to --concurrency of them; by default, as many\n"
+         "as executor run works at once for a webhook or a command, and one for a program\n"
+         "(which may keep state of its own).\n\n"
          "  cexchain executor connector add notices --config notifier.json --type webhook \\\n"
          "      --kinds notify --url https://hooks.example.com/ledger --secret hook-key\n"
          "  cexchain executor connector add script --config notifier.json --type command \\\n"
