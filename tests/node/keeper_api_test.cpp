@@ -24,6 +24,7 @@
 #include <cexchain/core/protocol/contracts.hpp>
 #include <cexchain/node/api.hpp>
 #include <cexchain/node/client.hpp>
+#include <cexchain/node/contracts.hpp>
 #include <cexchain/node/keeper.hpp>
 #include <cexchain/node/server.hpp>
 #include <cexchain/node/tokens.hpp>
@@ -663,6 +664,233 @@ TEST_CASE("the server's keeper fires what is due as its clock moves, and serves 
     CHECK(posted->status == 405);
     // The status says a keeper runs.
     CHECK(get_json(reader, "/v1/status")["keeper"] == true);
+}
+
+namespace {
+
+/// A ledger on disk for the server's keeper: Bo's time contract, `timed`
+/// instances due at t0 (their suspension due 3 days later), and
+/// `requesting` instances whose creations each make 16 requests due an hour
+/// after; a keeper device that may call the time rules and result on both.
+/// The same seed makes the same ledger.
+struct Fleet {
+    std::filesystem::path dir = fresh_directory();
+    TestClock clock{t0};
+    ledger::SeededEntropy entropy;
+    KeyPair org = key("fleet org");
+    std::shared_ptr<const KeyPair> log_key = std::make_shared<const KeyPair>(key("fleet log"));
+    std::shared_ptr<const KeyPair> keeper_key =
+        std::make_shared<const KeyPair>(key("fleet keeper"));
+    protocol::Id id;
+    protocol::Id keeper;
+    std::vector<protocol::Id> services;
+    std::vector<protocol::Id> askers;
+
+    Fleet(std::uint64_t seed, std::size_t timed, std::size_t requesting) : entropy(seed) {
+        auto fs = ledger::PosixFileSystem::open_directory(dir);
+        REQUIRE(fs);
+        protocol::Statement genesis;
+        genesis.issued_at = clock.now();
+        genesis.nonce = entropy.bytes<16>();
+        genesis.body = protocol::GenesisBody{crypto::HashAlg::sha256, "Fleet", org.public_key(),
+                                             log_key->public_key()};
+        auto signed_genesis =
+            protocol::sign_statement(org, provider(), crypto::HashAlg::sha256, genesis);
+        REQUIRE(signed_genesis);
+        auto ledger = ledger::Ledger::create(*fs, clock, provider(), signed_genesis->encoded);
+        REQUIRE(ledger);
+        id = ledger->id();
+        auto sign = [&](protocol::Body body) {
+            protocol::Statement st;
+            st.ledger_id = id;
+            st.actor_id = id;
+            st.issued_at = clock.now();
+            st.nonce = entropy.bytes<16>();
+            st.body = std::move(body);
+            auto signed_statement =
+                protocol::sign_statement(org, provider(), crypto::HashAlg::sha256, st);
+            REQUIRE(signed_statement);
+            return signed_statement->encoded;
+        };
+        auto submit = [&](protocol::Body body) {
+            auto registered = ledger->submit(sign(std::move(body)));
+            REQUIRE(registered);
+            return registered->statement_id;
+        };
+        auto submit_all = [&](const std::vector<Bytes>& statements) {
+            std::vector<cexchain::ByteView> views(statements.begin(), statements.end());
+            std::vector<protocol::Id> out;
+            for (auto& r : ledger->submit_batch(views)) {
+                REQUIRE(r);
+                out.push_back(r->statement_id);
+            }
+            return out;
+        };
+        protocol::Id timed_contract;
+        const auto bo = load_vectors("bo-v1.json");
+        for (const auto& c : bo["contracts"]) {
+            if (c["name"] != "time") {
+                continue;
+            }
+            protocol::ContractDeployBody deploy;
+            deploy.code = hex(c["code"].get<std::string>());
+            for (const auto& [name, kind] : c["interface"].items()) {
+                deploy.interface.emplace(name, kind == "create" ? protocol::FunctionKind::create
+                                                                : protocol::FunctionKind::call);
+            }
+            deploy.language = "wasm";
+            deploy.compiler = c["compiler"].get<std::string>();
+            deploy.name = "Timed";
+            timed_contract = submit(deploy);
+        }
+        const auto vectors = load_vectors("test-contracts.json");
+        protocol::ContractDeployBody deploy;
+        deploy.code = hex(vectors["request"].get<std::string>());
+        for (const auto& [name, kind] : vectors["request_interface"].items()) {
+            deploy.interface.emplace(name, static_cast<protocol::FunctionKind>(kind.get<int>()));
+        }
+        deploy.language = "wasm";
+        deploy.compiler = "test_contracts.py 1";
+        deploy.name = "Requesting";
+        const protocol::Id requesting_contract = submit(deploy);
+        keeper = submit(protocol::ActorRegisterBody{
+            protocol::ActorKind::device, "Keeper", keeper_key->public_key(), {}, {}});
+        auto calls = scope({StatementType::contract_call});
+        calls.contracts = std::vector<protocol::Id>{timed_contract, requesting_contract};
+        std::ranges::sort(*calls.contracts, {},
+                          [](const protocol::Id& c) { return protocol::key_of(c); });
+        calls.functions = std::vector<std::string>{"result", "when.suspend", "when.terminate"};
+        submit(protocol::DelegationGrantBody{keeper, calls});
+        std::vector<Bytes> statements;
+        for (std::size_t i = 0; i < timed; ++i) {
+            protocol::ContractCallBody create;
+            create.contract = timed_contract;
+            create.function = "create";
+            create.arguments = cbor::Value::map(
+                {{text("fields"),
+                  cbor::Value::map({{text("due"), cbor::Value::unsigned_integer(t0 + i)}})},
+                 {text("parties"),
+                  cbor::Value::map({{text("we"), cbor::Value::bytes(id.bytes())},
+                                    {text("customer"), cbor::Value::bytes(Bytes(32, 0xc5))}})}});
+            statements.push_back(sign(create));
+        }
+        services = submit_all(statements);
+        statements.clear();
+        for (std::size_t i = 0; i < requesting; ++i) {
+            protocol::ContractCallBody open;
+            open.contract = requesting_contract;
+            open.function = "open";
+            cbor::Array asks;
+            for (int k = 0; k < 16; ++k) {
+                asks.push_back(cbor::Value::array({text("notify"), cbor::Value::unsigned_integer(i),
+                                                   cbor::Value::unsigned_integer(hour)}));
+            }
+            open.arguments = cbor::Value::array(std::move(asks));
+            statements.push_back(sign(open));
+        }
+        askers = submit_all(statements);
+        REQUIRE(ledger->checkpoint(*log_key));
+    }
+    Fleet(const Fleet&) = delete;
+    Fleet& operator=(const Fleet&) = delete;
+    ~Fleet() { std::filesystem::remove_all(dir); }
+
+    std::unique_ptr<node::LedgerApi> api(ledger::Entropy& nonces) {
+        node::ApiOptions o;
+        o.directory = dir;
+        o.log_keys = {log_key};
+        o.keeper = keeper_key;
+        o.keeper_interval = std::chrono::seconds(0);
+        o.clock = &clock;
+        o.entropy = &nonces;
+        auto opened = node::LedgerApi::open(o, provider());
+        REQUIRE(opened);
+        return std::move(*opened);
+    }
+};
+
+} // namespace
+
+TEST_CASE("the server's keeper records a slice's calls together, as calls made one by one would",
+          "[node][keeper]") {
+    // Two copies of one ledger, its suspensions due: the server's keeper
+    // fires them on one, and they are made one by one, in the scan's order,
+    // signed with the same nonces, on the other. The logs are the same.
+    constexpr std::size_t services = 300;
+    const protocol::Timestamp at = t0 + 3 * day + 1000;
+    Fleet served(17, services, 0);
+    Fleet by_hand(17, services, 0);
+    served.clock.set(at);
+    by_hand.clock.set(at);
+
+    ledger::SeededEntropy served_nonces(99);
+    const auto api = served.api(served_nonces);
+    const std::uint64_t size = api->ledger().size();
+    api->tick();
+    api->stop(); // waits for the slice and its group
+    REQUIRE(api->ledger().size() == size + services);
+    for (const protocol::Id& s : served.services) {
+        api->ledger().read_state([&](const protocol::LedgerState& state) {
+            CHECK(state.instance(s)->status == std::optional<std::string>("suspended"));
+        });
+    }
+    api->tick();
+    api->stop();
+    CHECK(api->ledger().size() == size + services); // nothing more is due
+
+    ledger::SeededEntropy by_hand_nonces(99);
+    auto fs = ledger::PosixFileSystem::open_directory(by_hand.dir);
+    REQUIRE(fs);
+    auto ledger = ledger::Ledger::open(*fs, by_hand.clock, provider());
+    REQUIRE(ledger);
+    node::DueOptions o;
+    o.now = at;
+    o.keeper = by_hand.keeper;
+    o.parallel = false;
+    auto work = node::find_due(provider(), ledger->state(), o);
+    REQUIRE(work);
+    REQUIRE(work->rules.size() == services);
+    for (const node::DueRule& r : work->rules) {
+        auto call = node::sign_contract_call(provider(), ledger->state(), *by_hand.keeper_key,
+                                             node::rule_call(r), at, by_hand_nonces);
+        REQUIRE(call);
+        REQUIRE(ledger->submit(call->encoded));
+    }
+    REQUIRE(ledger->size() == api->ledger().size());
+    const auto served_root = api->ledger().root(api->ledger().size());
+    const auto by_hand_root = ledger->root(ledger->size());
+    REQUIRE(served_root);
+    REQUIRE(by_hand_root);
+    CHECK(*served_root == *by_hand_root);
+}
+
+TEST_CASE("the server's keeper finishes a pass over more instances than sixteen slices hold",
+          "[node][keeper]") {
+    // Each instance makes 16 runs (its expiries; the keeper may not call
+    // when.due), so a slice of 2,000 runs holds 124 instances: 2,400
+    // instances take 20 slices. Every instance gets an expiry in the first
+    // pass, the last slices' included.
+    constexpr std::size_t instances = 2'400;
+    Fleet fleet(23, 0, instances);
+    fleet.clock.set(t0 + 2 * hour);
+    ledger::SeededEntropy nonces(5);
+    const auto api = fleet.api(nonces);
+    const std::uint64_t size = api->ledger().size();
+    int ticks = 0;
+    while (api->ledger().size() < size + instances && ticks < 40) {
+        api->tick();
+        api->stop();
+        ++ticks;
+    }
+    CHECK(ticks == 20);
+    REQUIRE(api->ledger().size() == size + instances);
+    api->ledger().read_state([&](const protocol::LedgerState& state) {
+        std::size_t answered = 0;
+        for (const protocol::Id& asker : fleet.askers) {
+            answered += state.instance(asker)->open_requests.size() == 15 ? 1U : 0U;
+        }
+        CHECK(answered == instances);
+    });
 }
 
 TEST_CASE("the due route's query is parsed strictly", "[node][keeper]") {

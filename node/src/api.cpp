@@ -293,6 +293,62 @@ using detail::RequestQuery;
 /// Long polls waiting at once; another one is answered at once.
 constexpr std::size_t max_waiters = 1024;
 
+/// Randomness shared by the threads that sign (the writer, for the
+/// registrar; the keeper's thread): one draw at a time.
+class SharedEntropy final : public ledger::Entropy {
+public:
+    void use(ledger::Entropy& source) noexcept { source_ = &source; }
+    void fill(std::span<std::uint8_t> out) override {
+        const std::lock_guard lock(mutex_);
+        source_->fill(out);
+    }
+
+private:
+    std::mutex mutex_;
+    ledger::SystemEntropy system_;
+    ledger::Entropy* source_ = &system_;
+};
+
+/// A job handed to the writer by another thread, which waits for it: done
+/// once it has run, or once the writer refused it (busy, unusable,
+/// stopping) or dropped it.
+class Handoff {
+public:
+    void finish(bool ran) {
+        {
+            const std::lock_guard lock(mutex_);
+            if (finished_) {
+                return;
+            }
+            finished_ = true;
+            ran_ = ran;
+        }
+        done_.notify_all();
+    }
+    /// True if the job ran.
+    [[nodiscard]] bool wait() {
+        std::unique_lock lock(mutex_);
+        done_.wait(lock, [&] { return finished_; });
+        return ran_;
+    }
+
+private:
+    std::mutex mutex_;
+    std::condition_variable done_;
+    bool finished_ = false;
+    bool ran_ = false;
+};
+
+/// Held by the queued job only: a job destroyed without running finishes
+/// its handoff as not run.
+struct HandoffGuard {
+    explicit HandoffGuard(std::shared_ptr<Handoff> h) : handoff(std::move(h)) {}
+    std::shared_ptr<Handoff> handoff;
+    HandoffGuard(const HandoffGuard&) = delete;
+    HandoffGuard& operator=(const HandoffGuard&) = delete;
+    ~HandoffGuard() { handoff->finish(false); }
+};
+
 } // namespace
 
 /// Requests run on the server's I/O threads, all at once. Reads go straight
@@ -370,11 +426,10 @@ struct LedgerApi::State {
     std::thread writer;
 
     /// The writer's: the registrar's pending contract calls (with a
-    /// registrar), and randomness for the statements it signs (the
-    /// system's, or ApiOptions::entropy).
+    /// registrar). Randomness for the statements the server signs (the
+    /// system's, or ApiOptions::entropy): the writer's and the keeper's.
     std::optional<CallRegistrar> calls;
-    ledger::SystemEntropy system_entropy;
-    ledger::Entropy* entropy = &system_entropy;
+    SharedEntropy entropy;
 
     /// Long polls of GET /v1/requests waiting for a request to match: each
     /// is answered once one does, once its wait is over, or when the server
@@ -399,18 +454,31 @@ struct LedgerApi::State {
     };
     std::map<std::string, Lease> leases;
 
-    /// The keeper (6b): its scans run as writer jobs, a slice of runs at a
-    /// time. The tick's and the writer's, under keeper_mutex.
+    /// The keeper (6b): its scans run on its own thread, a slice of runs at
+    /// a time on worker threads, and each slice's calls go to the writer as
+    /// one group. The tick's and the keeper thread's, under keeper_mutex.
     std::mutex keeper_mutex;
+    /// Wakes the keeper's thread (a slice to run, or stopping), and drain()
+    /// once a slice is done.
+    std::condition_variable keeper_wake;
+    std::thread keeper_thread;
     /// When the last whole scan ended (the epoch: none yet).
     steady::time_point keeper_last{};
     /// Where the next slice starts (instances in log order), and whether it
-    /// goes on at the next tick: a scan cut short, or an instance with more
-    /// due than one call (each call moves its head).
+    /// goes on at the next tick: a pass over the instances not finished, or
+    /// an instance with more due than one call (each call moves its head),
+    /// which the next pass takes.
     std::uint64_t keeper_next = 0;
     bool keeper_more = false;
+    /// An instance of the pass so far had more due than one call.
+    bool keeper_pass_more = false;
+    /// Passes in a row since the interval last began.
     std::uint32_t keeper_rounds = 0;
-    bool keeper_queued = false;
+    /// A slice is asked for (keeper_signal) or running (keeper_busy, until it
+    /// is done and its calls recorded).
+    bool keeper_signal = false;
+    bool keeper_busy = false;
+    bool keeper_stopping = false;
     /// This node led at the last tick (a new leader scans at once).
     bool keeper_leading = false;
     std::atomic<std::uint64_t> keeper_rules{0};
@@ -429,10 +497,18 @@ struct LedgerApi::State {
 
     void start() {
         writer = std::thread([this] { run_writer(); });
+        if (options.keeper && !replica && !options.read_only) {
+            keeper_thread = std::thread([this] { run_keeper(); });
+        }
     }
 
-    /// Waits until everything queued so far is done.
+    /// Waits until everything queued so far is done: the keeper's slice
+    /// too, and the writes it queued.
     void drain() {
+        {
+            std::unique_lock lock(keeper_mutex);
+            keeper_wake.wait(lock, [&] { return !keeper_busy; });
+        }
         std::unique_lock lock(queue_mutex);
         queue_idle.wait(lock, [&] {
             return !writing && submissions.empty() && locked.empty() && after_refresh.empty();
@@ -440,6 +516,15 @@ struct LedgerApi::State {
     }
 
     void stop() {
+        // The keeper first: its slice may wait for the writer.
+        {
+            const std::lock_guard lock(keeper_mutex);
+            keeper_stopping = true;
+        }
+        keeper_wake.notify_all();
+        if (keeper_thread.joinable()) {
+            keeper_thread.join();
+        }
         {
             const std::lock_guard lock(queue_mutex);
             if (stopping) {
@@ -451,6 +536,21 @@ struct LedgerApi::State {
         if (writer.joinable()) {
             writer.join();
         }
+    }
+
+    /// Runs `work` on the writer, holding the ledger's lock, caught up, and
+    /// waits for it: false if the writer refused it (busy, unusable,
+    /// stopping) or it failed. From threads other than the writer's.
+    bool on_writer(const std::function<void()>& work) {
+        auto handoff = std::make_shared<Handoff>();
+        queue_locked([guard = std::make_shared<HandoffGuard>(handoff),
+                      &work](const http::Response* refusal) {
+            if (refusal == nullptr) {
+                work();
+            }
+            guard->handoff->finish(refusal == nullptr);
+        });
+        return handoff->wait();
     }
 
     void queue_submission(Submission submission) {
@@ -2018,7 +2118,7 @@ struct LedgerApi::State {
         const protocol::Timestamp now = clock->now();
         Result<CallProgress> progress = fail(Errc::unavailable, "no state");
         ledger->read_state([&](const protocol::LedgerState& s) {
-            progress = calls->propose(*provider, s, std::move(proposal), party, now, *entropy);
+            progress = calls->propose(*provider, s, std::move(proposal), party, now, entropy);
         });
         if (!progress) {
             return error_response(progress.error());
@@ -2078,7 +2178,7 @@ struct LedgerApi::State {
         const protocol::Timestamp now = clock->now();
         Result<CallProgress> progress = fail(Errc::unavailable, "no state");
         ledger->read_state([&](const protocol::LedgerState& s) {
-            progress = calls->consent(*provider, s, party, bundle, now, *entropy);
+            progress = calls->consent(*provider, s, party, bundle, now, entropy);
         });
         if (!progress) {
             const Error e = progress.error();
@@ -2266,58 +2366,104 @@ struct LedgerApi::State {
 
     // ---- the keeper (6b) ------------------------------------------------
 
-    /// From tick(): queues a slice of the keeper's scan when its interval has
-    /// passed, or when the last slice left work to go on with. Leaders only.
+    /// From tick(): asks the keeper's thread for a slice of its scan when the
+    /// interval has passed, or when the last slice left work to go on with.
+    /// Leaders only.
     void keep() {
         if (!options.keeper || failed || replica || options.read_only) {
             return;
         }
         const bool leads = !cluster || cluster->leads();
-        const std::lock_guard lock(keeper_mutex);
-        if (!leads) {
-            keeper_leading = false;
-            return;
+        {
+            const std::lock_guard lock(keeper_mutex);
+            if (!leads) {
+                keeper_leading = false;
+                return;
+            }
+            if (!keeper_leading) {
+                // Just started, or just elected: scan now, from the start.
+                keeper_leading = true;
+                keeper_more = true;
+                keeper_next = 0;
+                keeper_pass_more = false;
+                keeper_rounds = 0;
+            }
+            if (keeper_busy || keeper_stopping ||
+                (!keeper_more && steady::now() - keeper_last < options.keeper_interval)) {
+                return;
+            }
+            keeper_busy = true;
+            keeper_signal = true;
         }
-        if (!keeper_leading) {
-            // Just started, or just elected: scan now, from the start.
-            keeper_leading = true;
-            keeper_more = true;
-            keeper_next = 0;
-            keeper_rounds = 0;
-        }
-        if (keeper_queued ||
-            (!keeper_more && steady::now() - keeper_last < options.keeper_interval)) {
-            return;
-        }
-        keeper_queued = true;
-        queue_locked([this](const http::Response* refusal) { keeper_slice(refusal != nullptr); });
+        keeper_wake.notify_all();
     }
 
-    /// Calls in a row the keeper makes without waiting for its interval
-    /// (instances with more than one thing due, scans cut short).
+    /// The keeper's thread: a slice each time keep() asks for one.
+    void run_keeper() {
+        std::unique_lock lock(keeper_mutex);
+        for (;;) {
+            keeper_wake.wait(lock, [&] { return keeper_stopping || keeper_signal; });
+            if (keeper_stopping) {
+                keeper_busy = false;
+                keeper_signal = false;
+                keeper_wake.notify_all();
+                return;
+            }
+            keeper_signal = false;
+            lock.unlock();
+            try {
+                keeper_slice();
+            } catch (const std::exception&) {
+                event("keeper-error", "a keeper slice failed with an exception");
+            }
+            lock.lock();
+            keeper_busy = false;
+            keeper_wake.notify_all();
+        }
+    }
+
+    /// Passes over the instances in a row (instances with more due than
+    /// one call) before the keeper waits for its interval.
     static constexpr std::uint32_t max_keeper_rounds = 16;
-    /// Contract runs in one slice: a slice holds the writer for at most
-    /// about a tenth of a second at Bo's 10,000 to 13,000 fuel a run.
+    /// Contract runs in one slice: its calls are one group for the writer.
     static constexpr std::size_t keeper_slice_runs = 2'000;
 
-    /// On the writer, holding the ledger's lock, caught up: finds what is due
-    /// (a slice of the scan) and makes the calls, one per instance.
-    void keeper_slice(bool busy) {
+    /// A call of a slice: what it is for, the event it makes, and its
+    /// signed statement (or why it could not be signed).
+    struct KeeperCall {
+        protocol::ContractCallBody body;
+        bool expiry = false;
+        std::string detail;
+        Result<protocol::Statement> statement = fail(Errc::unavailable, "not prepared");
+        Result<protocol::SignedStatement> signed_call = fail(Errc::unavailable, "not signed");
+        /// Its instance moved on before the writer took it: the next pass
+        /// looks again.
+        bool dropped = false;
+    };
+
+    /// On the keeper's thread: finds what is due (a slice of the scan, on
+    /// worker threads, under the state's read lock), signs one call per
+    /// instance, and has the writer record them as one group: one sync.
+    void keeper_slice() {
         std::uint64_t start = 0;
         {
             const std::lock_guard lock(keeper_mutex);
-            keeper_queued = false;
-            if (busy) {
-                return; // the ledger is busy or unusable: next tick
-            }
             start = keeper_next;
         }
         if (cluster && !cluster->leads()) {
             return;
         }
+        // What other processes wrote first, as the writer's jobs see it.
+        if (!cluster && ledger->outdated() && !on_writer([] {})) {
+            return; // the ledger is busy or unusable: next tick
+        }
         const protocol::Timestamp now = clock->now();
         std::optional<protocol::Id> actor;
         Result<DueWork> work = fail(Errc::unavailable, "no state");
+        // One call per instance: each moves the instance's head, so what
+        // else is due on it waits for the next pass.
+        std::vector<KeeperCall> due_calls;
+        bool more = false;
         ledger->read_state([&](const protocol::LedgerState& s) {
             const auto kid = protocol::key_id(*provider, s.hash(), options.keeper->public_key());
             const protocol::ActorState* a = kid ? s.actor_by_kid(*kid) : nullptr;
@@ -2332,6 +2478,49 @@ struct LedgerApi::State {
             o.start = start;
             o.max_runs = keeper_slice_runs;
             work = find_due(*provider, s, o);
+            if (!work) {
+                return;
+            }
+            std::set<protocol::IdKey> touched;
+            auto take = [&](protocol::ContractCallBody body, bool expiry, std::string detail) {
+                if (!touched.insert(protocol::key_of(*body.instance)).second) {
+                    more = true;
+                    return;
+                }
+                due_calls.push_back({.body = std::move(body),
+                                     .expiry = expiry,
+                                     .detail = std::move(detail),
+                                     .statement = fail(Errc::unavailable, "not prepared"),
+                                     .signed_call = fail(Errc::unavailable, "not signed"),
+                                     .dropped = false});
+            };
+            for (const DueExpiry& e : work->expiries) {
+                take(expiry_call(e), true,
+                     std::format("request {} ({}) on {}", hex(e.request), e.kind, hex(e.instance)));
+            }
+            for (const DueRule& r : work->rules) {
+                take(rule_call(r), false,
+                     std::format("{} on {}{}", r.function, hex(r.instance),
+                                 r.late ? std::format(", {} ms late", *r.late) : std::string()));
+            }
+            // The statements in order, each with its nonce drawn in turn;
+            // the signatures on worker threads.
+            for (KeeperCall& c : due_calls) {
+                c.statement = contract_call_statement(*provider, s, *options.keeper, c.body, now);
+                if (c.statement) {
+                    c.statement->nonce = entropy.bytes<16>();
+                }
+            }
+            ledger::parallel_for(due_calls.size(), [&](std::size_t begin, std::size_t end) {
+                for (std::size_t i = begin; i < end; ++i) {
+                    KeeperCall& c = due_calls[i];
+                    c.signed_call = c.statement
+                                        ? protocol::sign_statement(*options.keeper, *provider,
+                                                                   s.hash(), *c.statement)
+                                        : Result<protocol::SignedStatement>(
+                                              std::unexpected(c.statement.error()));
+                }
+            });
         });
         if (!actor || !work) {
             event("keeper-idle", !actor ? "the keeper key is not an active actor's of this ledger"
@@ -2339,78 +2528,118 @@ struct LedgerApi::State {
             keeper_done(false, std::nullopt);
             return;
         }
-        // One call per instance: each moves the instance's head, so what
-        // else is due on it waits for the next slice.
-        std::set<protocol::IdKey> touched;
-        bool more = false;
-        bool recorded_any = false;
-        // What became of a call: recorded, passed over (another call on its
-        // instance came first, or the ledger refused it), or the end of the
-        // slice (this node no longer leads).
-        enum class Fired : std::uint8_t { recorded, passed, stop };
-        auto fire = [&](const protocol::ContractCallBody& call, std::string_view what,
-                        const std::string& detail) {
-            if (!touched.insert(protocol::key_of(*call.instance)).second) {
-                more = true;
-                return Fired::passed;
+        bool stop = false;
+        const bool ran =
+            due_calls.empty() || on_writer([&] { record_keeper_calls(due_calls, more, stop); });
+        if (!ran || stop) {
+            // Busy or unusable: the next tick tries this slice again. No
+            // longer leading: keep() starts afresh if this node leads again.
+            return;
+        }
+        keeper_done(more, work->next);
+    }
+
+    /// On the writer: records a slice's due_calls as one group, then tells what
+    /// became of each, in order. A call whose instance moved on since the
+    /// scan (another write came first) is left for the next pass; `stop`
+    /// is set if this node no longer leads.
+    void record_keeper_calls(std::vector<KeeperCall>& due_calls, bool& more, bool& stop) {
+        if (cluster && !cluster->leads()) {
+            stop = true;
+            return;
+        }
+        std::vector<ByteView> views;
+        std::vector<std::size_t> submitted;
+        ledger->read_state([&](const protocol::LedgerState& s) {
+            for (std::size_t i = 0; i < due_calls.size(); ++i) {
+                KeeperCall& c = due_calls[i];
+                if (!c.signed_call) {
+                    continue;
+                }
+                const protocol::InstanceState* instance = s.instance(*c.body.instance);
+                if (instance == nullptr || instance->head != c.body.head) {
+                    c.dropped = true;
+                    more = true;
+                    continue;
+                }
+                views.emplace_back(c.signed_call->encoded);
+                submitted.push_back(i);
             }
-            Result<protocol::SignedStatement> signed_call = fail(Errc::unavailable, "no state");
-            ledger->read_state([&](const protocol::LedgerState& s) {
-                signed_call =
-                    sign_contract_call(*provider, s, *options.keeper, call, now, *entropy);
-            });
-            auto recorded =
-                signed_call ? record(*signed_call, std::nullopt, now)
-                            : Result<ledger::Registration>(std::unexpected(signed_call.error()));
+        });
+        std::vector<Result<ledger::Registration>> results;
+        if (!views.empty()) {
+            if (cluster) {
+                const std::vector<std::optional<Sidecar>> none(views.size());
+                auto batch = cluster->submit(views, none, clock->now());
+                if (batch) {
+                    results = std::move(*batch);
+                } else {
+                    results.assign(views.size(), std::unexpected(batch.error()));
+                }
+            } else {
+                results = ledger->submit_batch(views);
+            }
+        }
+        std::vector<std::optional<Result<ledger::Registration>>> outcome(due_calls.size());
+        for (std::size_t k = 0; k < submitted.size(); ++k) {
+            outcome[submitted[k]] = std::move(results[k]);
+        }
+        bool recorded_any = false;
+        for (std::size_t i = 0; i < due_calls.size(); ++i) {
+            KeeperCall& c = due_calls[i];
+            if (c.dropped) {
+                continue;
+            }
+            const Result<ledger::Registration>& recorded =
+                outcome[i] ? *outcome[i]
+                           : Result<ledger::Registration>(std::unexpected(c.signed_call.error()));
+            if (outcome[i]) {
+                if (!recorded) {
+                    ++refused;
+                } else {
+                    ++(recorded->newly_registered ? registered : duplicates);
+                }
+            }
             if (!recorded) {
                 ++keeper_refusals;
-                event("keeper-refused", std::format("{}: {}", detail, recorded.error().detail));
-                // A follower now: the new leader's keeper carries on.
-                return cluster && !cluster->leads() ? Fired::stop : Fired::passed;
+                event("keeper-refused", std::format("{}: {}", c.detail, recorded.error().detail));
+                if (cluster && !cluster->leads()) {
+                    stop = true; // a follower now: the new leader's keeper carries on
+                    break;
+                }
+                continue;
             }
             recorded_any = true;
-            event(what, std::format("{} #{}", detail, recorded->index));
-            return Fired::recorded;
-        };
-        Fired last = Fired::passed;
-        for (const DueExpiry& e : work->expiries) {
-            last =
-                fire(expiry_call(e), "keeper-expired",
-                     std::format("request {} ({}) on {}", hex(e.request), e.kind, hex(e.instance)));
-            if (last == Fired::stop) {
-                break;
-            }
-            keeper_expiries += last == Fired::recorded ? 1U : 0U;
-        }
-        for (const DueRule& r : work->rules) {
-            if (last == Fired::stop) {
-                break;
-            }
-            last = fire(rule_call(r), "keeper-fired",
-                        std::format("{} on {}{}", r.function, hex(r.instance),
-                                    r.late ? std::format(", {} ms late", *r.late) : std::string()));
-            keeper_rules += last == Fired::recorded ? 1U : 0U;
+            ++(c.expiry ? keeper_expiries : keeper_rules);
+            event(c.expiry ? "keeper-expired" : "keeper-fired",
+                  std::format("{} #{}", c.detail, recorded->index));
         }
         if (recorded_any) {
             check_waiters(false); // expiries close requests that long polls may watch
         }
-        if (last == Fired::stop) {
-            return; // keep() starts afresh if this node leads again
-        }
-        keeper_done(more || work->next.has_value(), work->next);
     }
 
-    /// A slice ended: go on at the next tick, or wait for the interval.
-    void keeper_done(bool go_on, std::optional<std::uint64_t> next) {
+    /// A slice ended. A pass over the instances goes on where it stopped;
+    /// once it is over, another starts at once if an instance had more due
+    /// than one call (up to max_keeper_rounds passes), else the keeper waits
+    /// for its interval.
+    void keeper_done(bool more, std::optional<std::uint64_t> next) {
         const std::lock_guard lock(keeper_mutex);
-        if (go_on && keeper_rounds < max_keeper_rounds) {
+        keeper_pass_more = keeper_pass_more || more;
+        if (next) {
+            keeper_more = true;
+            keeper_next = *next;
+            return;
+        }
+        const bool again = keeper_pass_more && keeper_rounds < max_keeper_rounds;
+        keeper_next = 0;
+        keeper_pass_more = false;
+        if (again) {
             ++keeper_rounds;
             keeper_more = true;
-            keeper_next = next.value_or(0);
             return;
         }
         keeper_more = false;
-        keeper_next = 0;
         keeper_rounds = 0;
         keeper_last = steady::now();
     }
@@ -2843,7 +3072,7 @@ Result<std::unique_ptr<LedgerApi>> LedgerApi::open(ApiOptions options,
         state->clock = options.clock;
     }
     if (options.entropy != nullptr) {
-        state->entropy = options.entropy;
+        state->entropy.use(*options.entropy);
     }
     std::error_code ec;
     if (!std::filesystem::is_directory(options.directory, ec)) {

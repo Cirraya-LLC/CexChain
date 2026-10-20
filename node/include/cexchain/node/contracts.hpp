@@ -100,6 +100,14 @@ sign_contract_call(const crypto::Provider& provider, const protocol::LedgerState
                    const crypto::Signer& signer, const protocol::ContractCallBody& call,
                    protocol::Timestamp now, ledger::Entropy& entropy);
 
+/// The statement `sign_contract_call` signs, but for its nonce (all zero):
+/// the signer's actor, its delegation, the time, and the call. For callers
+/// that draw the nonces in one order and sign elsewhere (on other threads).
+[[nodiscard]] Result<protocol::Statement>
+contract_call_statement(const crypto::Provider& provider, const protocol::LedgerState& state,
+                        const crypto::Signer& signer, const protocol::ContractCallBody& call,
+                        protocol::Timestamp now);
+
 /// Pending calls a registrar holds at most.
 inline constexpr std::size_t max_pending_calls = 1024;
 /// A proposal lapses this long after it is made, unless it says otherwise;

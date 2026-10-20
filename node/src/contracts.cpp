@@ -480,10 +480,11 @@ Result<Bytes> contract_evidence(const crypto::Provider& provider,
     return protocol::encode_contract_evidence(evidence);
 }
 
-Result<protocol::SignedStatement>
-sign_contract_call(const crypto::Provider& provider, const protocol::LedgerState& state,
-                   const crypto::Signer& signer, const protocol::ContractCallBody& call,
-                   protocol::Timestamp now, ledger::Entropy& entropy) {
+Result<protocol::Statement> contract_call_statement(const crypto::Provider& provider,
+                                                    const protocol::LedgerState& state,
+                                                    const crypto::Signer& signer,
+                                                    const protocol::ContractCallBody& call,
+                                                    protocol::Timestamp now) {
     auto kid = protocol::key_id(provider, state.hash(), signer.public_key());
     if (!kid) {
         return std::unexpected(kid.error());
@@ -512,9 +513,20 @@ sign_contract_call(const crypto::Provider& provider, const protocol::LedgerState
         }
     }
     statement.issued_at = now;
-    statement.nonce = entropy.bytes<16>();
     statement.body = call;
-    return protocol::sign_statement(signer, provider, state.hash(), statement);
+    return statement;
+}
+
+Result<protocol::SignedStatement>
+sign_contract_call(const crypto::Provider& provider, const protocol::LedgerState& state,
+                   const crypto::Signer& signer, const protocol::ContractCallBody& call,
+                   protocol::Timestamp now, ledger::Entropy& entropy) {
+    auto statement = contract_call_statement(provider, state, signer, call, now);
+    if (!statement) {
+        return std::unexpected(statement.error());
+    }
+    statement->nonce = entropy.bytes<16>();
+    return protocol::sign_statement(signer, provider, state.hash(), *statement);
 }
 
 Result<Bytes> encode_call_proposal(const PendingCall& proposal) {
