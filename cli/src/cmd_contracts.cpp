@@ -1025,9 +1025,10 @@ int cmd_contract_consent(const Args& args) {
         } else if (const auto evidence = args.get("evidence")) {
             protocol::VerifyOptions options;
             options.expected_ledger = consent.ledger;
-            const auto report = unwrap(protocol::verify_contract_evidence(
-                                           session.provider(), read_file(*evidence), options),
-                                       "the instance's evidence does not verify");
+            const auto report =
+                unwrap(ledger::verify_contract_evidence(session.provider(), read_file(*evidence),
+                                                        options, on_all_cores()),
+                       "the instance's evidence does not verify");
             if (report.instance.record != consent.instance) {
                 throw UsageError{"the evidence is of another instance"};
             }
@@ -1141,8 +1142,8 @@ int cmd_contract_verify(const Args& args) {
     for (const std::string& path : args.all("witness")) {
         options.trusted_witnesses.push_back(load_public_key(path));
     }
-    const auto report =
-        protocol::verify_contract_evidence(provider, read_file(args.positional().front()), options);
+    const auto report = ledger::verify_contract_evidence(
+        provider, read_file(args.positional().front()), options, on_all_cores());
     if (!report) {
         if (args.json()) {
             print_json({{"verified", false}, {"error", report.error().detail}});

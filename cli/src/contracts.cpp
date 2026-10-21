@@ -156,8 +156,9 @@ std::vector<Bytes> cite_consents(const Session& session, protocol::ContractCallB
         const protocol::Id ledger = unwrap(protocol::bundle_ledger_id(bundle), "reading " + path);
         protocol::VerifyOptions options;
         options.expected_ledger = ledger;
-        const auto report = unwrap(protocol::verify_bundle(session.provider(), bundle, options),
-                                   path + " does not verify");
+        const auto report =
+            unwrap(ledger::verify_bundle(session.provider(), bundle, options, on_all_cores()),
+                   path + " does not verify");
         if (report.events.empty()) {
             throw CommandError{path + " shows no registration"};
         }
@@ -355,9 +356,9 @@ std::pair<Bytes, protocol::ContractReport> fetch_instance(const node::Peer& home
     }
     protocol::VerifyOptions options;
     options.expected_ledger = home.ledger_id;
-    auto report =
-        unwrap(protocol::verify_contract_evidence(shared_provider(), response.body, options),
-               "the instance's evidence from " + home.name + " does not verify");
+    auto report = unwrap(
+        ledger::verify_contract_evidence(shared_provider(), response.body, options, on_all_cores()),
+        "the instance's evidence from " + home.name + " does not verify");
     if (report.instance.record != instance) {
         throw CommandError{"peer " + home.name + " sent evidence of another instance"};
     }

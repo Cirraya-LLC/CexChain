@@ -320,7 +320,11 @@ page: the same verification code as `cexchain verify` and `contract verify`, com
 WebAssembly together with OpenSSL and the contract interpreter. It takes a record's evidence bundle
 or a contract instance's evidence, which it checks by running the contract again on every call. It
 runs entirely in the browser and uploads nothing. It works offline, even opened from disk, and it
-can be hosted on any static web server.
+can be hosted on any static web server. The page checks one signature after another; the CLI checks
+a bundle's signatures on every core first, then runs the same verification, which takes each
+outcome only for the very same key, message, and signature bytes. Long-running processes (the
+server, executors, the MCP server) also remember the signatures they have verified, so a ledger's
+genesis, checkpoints, and receipts are verified once, not for every bundle that carries them.
 
 ```sh
 tools/wasm/build.sh            # needs Emscripten; writes build/wasm/cexchain-verify.html

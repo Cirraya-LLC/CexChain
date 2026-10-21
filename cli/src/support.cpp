@@ -1111,7 +1111,7 @@ protocol::EvidenceBundle Session::evidence(const Args& args, const protocol::Id&
     // verified, before anything is built on it.
     protocol::VerifyOptions options;
     options.expected_ledger = state().ledger_id();
-    const auto report = protocol::verify_bundle(provider_, encoded, options);
+    const auto report = ledger::verify_bundle(provider_, encoded, options, on_all_cores());
     if (!report || report->record != record) {
         throw CommandError{"the server sent evidence that does not verify"};
     }
@@ -1141,7 +1141,8 @@ Bytes Session::contract_evidence(const Args& args, const protocol::Id& instance)
     const Bytes encoded = call("GET", "/v1/contracts/instances/" + hex_id(instance));
     protocol::VerifyOptions options;
     options.expected_ledger = state().ledger_id();
-    const auto report = protocol::verify_contract_evidence(provider_, encoded, options);
+    const auto report =
+        ledger::verify_contract_evidence(provider_, encoded, options, on_all_cores());
     if (!report || report->instance.record != instance) {
         throw CommandError{"the server sent contract evidence that does not verify"};
     }

@@ -508,8 +508,8 @@ int cmd_verify(const Args& args) {
         auto [name, path] = split_pair(item, "--attachment");
         options.attachment_contents[name] = read_file(path);
     }
-    const auto report =
-        protocol::verify_bundle(provider, read_file(args.positional().front()), options);
+    const auto report = ledger::verify_bundle(provider, read_file(args.positional().front()),
+                                              options, on_all_cores());
     if (!report) {
         if (args.json()) {
             print_json({{"verified", false}, {"error", report.error().detail}});

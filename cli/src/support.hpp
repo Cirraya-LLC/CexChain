@@ -23,12 +23,19 @@
 #include <cexchain/ledger/environment.hpp>
 #include <cexchain/ledger/ledger.hpp>
 #include <cexchain/ledger/storage.hpp>
+#include <cexchain/ledger/verify.hpp>
 #include <cexchain/node/client.hpp>
 #include <cexchain/verifier/report.hpp>
 
 #include "args.hpp"
 
 namespace cexchain::cli {
+
+/// How the CLI verifies evidence: signatures checked ahead on all cores,
+/// and remembered for the process (the MCP server verifies again and again).
+[[nodiscard]] inline ledger::Verifying on_all_cores() {
+    return {true, &ledger::signature_cache()};
+}
 
 using verifier::format_time;
 using verifier::iso_time;

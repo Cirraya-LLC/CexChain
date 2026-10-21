@@ -665,12 +665,14 @@ private:
             json::array({"evidence_path"}), read_only, [](const Tool&, const json& arguments) {
                 const crypto::openssl::Provider provider;
                 protocol::VerifyOptions options;
+                options.modules = &ledger::loaded_modules();
                 if (const auto ledger_id = optional_text(arguments, "expected_ledger_id")) {
                     options.expected_ledger = unwrap(
                         protocol::to_id(unwrap(from_hex(*ledger_id), "ledger id")), "ledger id");
                 }
-                const auto report = protocol::verify_contract_evidence(
-                    provider, read_file(text_arg(arguments, "evidence_path")), options);
+                const auto report = ledger::verify_contract_evidence(
+                    provider, read_file(text_arg(arguments, "evidence_path")), options,
+                    on_all_cores());
                 if (!report) {
                     return json{{"verified", false}, {"error", report.error().detail}};
                 }
@@ -1103,8 +1105,9 @@ private:
                 for (const auto& [name, path] : string_map(arguments, "attachments")) {
                     options.attachment_contents[name] = read_file(path);
                 }
-                const auto report = protocol::verify_bundle(
-                    provider, read_file(text_arg(arguments, "bundle_path")), options);
+                const auto report =
+                    ledger::verify_bundle(provider, read_file(text_arg(arguments, "bundle_path")),
+                                          options, on_all_cores());
                 if (!report) {
                     throw ToolError{"VERIFICATION FAILED: " + std::string(report.error().detail)};
                 }

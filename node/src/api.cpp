@@ -24,6 +24,7 @@
 #include <cexchain/core/protocol/statement.hpp>
 #include <cexchain/core/protocol/witness.hpp>
 #include <cexchain/ledger/parallel.hpp>
+#include <cexchain/ledger/verify.hpp>
 #include <cexchain/node/api.hpp>
 #include <cexchain/node/cluster.hpp>
 #include <cexchain/node/contracts.hpp>
@@ -1876,6 +1877,7 @@ struct LedgerApi::State {
         auto delivery = protocol::decode_delivery(*bytes);
         protocol::VerifyOptions own;
         own.expected_ledger = ledger->id();
+        own.signatures = &ledger::signature_cache();
         auto report = delivery
                           ? protocol::verify_bundle(*provider, delivery->grant_bundle, own)
                           : Result<protocol::EvidenceReport>(std::unexpected(delivery.error()));
@@ -1914,6 +1916,7 @@ struct LedgerApi::State {
         // Which grant: from the receipt's metadata, checked below.
         protocol::VerifyOptions pinned;
         pinned.expected_ledger = peer->ledger_id;
+        pinned.signatures = &ledger::signature_cache();
         auto report = protocol::verify_bundle(*provider, r.body, pinned);
         auto receipt =
             report && report->metadata

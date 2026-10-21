@@ -25,6 +25,7 @@
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/vm.hpp>
 #include <cexchain/ledger/parallel.hpp>
+#include <cexchain/ledger/verify.hpp>
 #include <cexchain/node/api.hpp>
 #include <cexchain/node/keeper.hpp>
 
@@ -215,6 +216,12 @@ namespace {
 struct Verified {
     double export_ms = 0;
     double verify_ms = 0;
+    /// On all cores (signatures checked ahead), nothing remembered.
+    double ahead_ms = 0;
+    /// One core, with every signature and module remembered (as an
+    /// executor checking the same instance again), and with both.
+    double remembered_ms = 0;
+    double both_ms = 0;
     std::size_t bytes = 0;
 };
 
@@ -229,11 +236,29 @@ Verified verify_instance(Home& home, const protocol::Id& instance, std::uint64_t
     out.bytes = evidence.size();
     protocol::VerifyOptions o;
     o.expected_ledger = home.id();
+    const auto alone = must(protocol::verify_contract_evidence(provider(), evidence, o), "verify");
     out.verify_ms =
         mean_us(
             repeat,
             [&] { must(protocol::verify_contract_evidence(provider(), evidence, o), "verify"); }) /
         1000;
+    ledger::LoadedModules modules;
+    protocol::VerifyOptions with_modules = o;
+    with_modules.modules = &modules;
+    const auto on_cores = [&](const ledger::Verifying& how) {
+        const auto report =
+            must(ledger::verify_contract_evidence(provider(), evidence,
+                                                  how.cache != nullptr ? with_modules : o, how),
+                 "verify on all cores");
+        if (!(report == alone)) {
+            throw std::runtime_error("verify on all cores: a different report");
+        }
+    };
+    out.ahead_ms = mean_us(repeat, [&] { on_cores({true, nullptr}); }) / 1000;
+    ledger::SignatureCache cache;
+    on_cores({false, &cache});
+    out.remembered_ms = mean_us(repeat, [&] { on_cores({false, &cache}); }) / 1000;
+    out.both_ms = mean_us(repeat, [&] { on_cores({true, &cache}); }) / 1000;
     return out;
 }
 
@@ -243,6 +268,9 @@ void add(Results& results, const std::string& p, const Verified& v, std::uint64_
     results.add(p + "export", v.export_ms, "ms");
     results.add(p + "verify (contract evidence)", v.verify_ms, "ms");
     results.add(p + "  per statement", v.verify_ms * 1000 / static_cast<double>(statements), "us");
+    results.add(p + "verify on all cores", v.ahead_ms, "ms");
+    results.add(p + "verify, signatures and modules remembered", v.remembered_ms, "ms");
+    results.add(p + "verify on all cores, remembered", v.both_ms, "ms");
 }
 
 } // namespace
@@ -297,7 +325,12 @@ int evidence_bench(const Options& options) {
     }
     must(home.ledger().checkpoint(home.log_key()), "checkpoint");
 
+    results.add("threads", static_cast<double>(ledger::parallelism()), "");
     results.add("ledger entries", static_cast<double>(home.ledger().size()), "");
+    // What a verification pays twice for each contract it meets (validate
+    // and apply of the deployment).
+    results.add("load the small contract's module",
+                mean_us(repeat, [&] { must(vm::load(small.deploy.code), "load"); }), "us");
     add(results, "small instance: ", verify_instance(home, short_one, repeat), 3);
     add(results, "long history: ", verify_instance(home, long_one, repeat), history + 1);
     add(results, std::format("part at depth {}: ", depth), verify_instance(home, part, repeat),

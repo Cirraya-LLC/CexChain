@@ -11,6 +11,7 @@
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/log.hpp>
+#include <cexchain/ledger/verify.hpp>
 #include <cexchain/node/contracts.hpp>
 
 #include "files.hpp"
@@ -258,6 +259,7 @@ citation(const crypto::Provider& provider, const protocol::LedgerState& state,
     } else {
         protocol::VerifyOptions options;
         options.expected_ledger = party;
+        options.signatures = &ledger::signature_cache();
         auto checked = protocol::verify_bundle(provider, bundle, options);
         if (!checked) {
             return std::unexpected(checked.error());
@@ -444,8 +446,10 @@ Status check_call_consents(const crypto::Provider& provider, const protocol::Id&
         return fail(Errc::invalid_argument,
                     "a contract call comes with the evidence of each consent it cites, in order");
     }
+    // A party's genesis and checkpoints recur from consent to consent.
+    const protocol::CheckedProvider remembering(provider, ledger::signature_cache());
     for (std::size_t i = 0; i < bundles.size(); ++i) {
-        auto checked = protocol::check_contract_consent(provider, call.consents[i], bundles[i],
+        auto checked = protocol::check_contract_consent(remembering, call.consents[i], bundles[i],
                                                         call, home, hash, now);
         if (!checked) {
             return std::unexpected(checked.error());
@@ -861,6 +865,7 @@ Result<VerifiedConsent> verify_consent(const crypto::Provider& provider, const p
                                        ByteView bundle) {
     protocol::VerifyOptions options;
     options.expected_ledger = party;
+    options.signatures = &ledger::signature_cache();
     auto report = protocol::verify_bundle(provider, bundle, options);
     if (!report) {
         return std::unexpected(report.error());
