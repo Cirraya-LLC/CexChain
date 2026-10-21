@@ -5,6 +5,7 @@
 #include <array>
 #include <bit>
 #include <cstddef>
+#include <vector>
 
 #include <cexchain/core/merkle.hpp>
 
@@ -318,7 +319,8 @@ Result<std::vector<Digest>> Tree::consistency_proof(std::uint64_t old_size,
 
 Result<Digest> root_from_inclusion_proof(const crypto::Provider& provider, HashAlg alg,
                                          const Digest& leaf, std::uint64_t index,
-                                         std::uint64_t tree_size, std::span<const Digest> proof) {
+                                         std::uint64_t tree_size, std::span<const Digest> proof,
+                                         InclusionMemo* memo) {
     if (index >= tree_size) {
         return fail(Errc::verification_failed, "leaf index is outside the tree");
     }
@@ -332,7 +334,30 @@ Result<Digest> root_from_inclusion_proof(const crypto::Provider& provider, HashA
     std::uint64_t fn = index;
     std::uint64_t sn = tree_size - 1;
     Digest r = leaf;
-    for (const Digest& p : proof) {
+    // The positions passed on the way, remembered with the root at the end.
+    struct Passed {
+        std::uint64_t fn;
+        std::uint64_t sn;
+        Digest hash;
+        std::size_t at;
+    };
+    std::vector<Passed> passed;
+    const auto remember = [&](const Digest& root) {
+        for (const Passed& p : passed) {
+            memo->steps_.try_emplace({p.fn, p.sn}, alg, p.hash, proof.subspan(p.at), root);
+        }
+        return root;
+    };
+    for (std::size_t i = 0; i < proof.size(); ++i) {
+        const Digest& p = proof[i];
+        if (memo != nullptr) {
+            if (const auto it = memo->steps_.find({fn, sn});
+                it != memo->steps_.end() && it->second.alg == alg && it->second.hash == r &&
+                std::ranges::equal(it->second.rest, proof.subspan(i))) {
+                return remember(it->second.root);
+            }
+            passed.push_back({fn, sn, r, i});
+        }
         if (sn == 0) {
             return fail(Errc::verification_failed, "inclusion proof is too long");
         }
@@ -358,7 +383,7 @@ Result<Digest> root_from_inclusion_proof(const crypto::Provider& provider, HashA
     if (sn != 0) {
         return fail(Errc::verification_failed, "inclusion proof is too short");
     }
-    return r;
+    return memo != nullptr ? remember(r) : r;
 }
 
 Status verify_inclusion(const crypto::Provider& provider, HashAlg alg, const Digest& leaf,

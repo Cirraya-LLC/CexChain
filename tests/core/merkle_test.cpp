@@ -148,6 +148,55 @@ TEST_CASE("every proof in trees up to 70 entries verifies", "[core][merkle][prop
     }
 }
 
+TEST_CASE("proofs sharing a memo lead where each leads alone, damaged ones too",
+          "[core][merkle][property]") {
+    const auto tree = build_tree(HashAlg::sha256, 70);
+    const auto same = [](const cexchain::Result<Digest>& alone,
+                         const cexchain::Result<Digest>& shared) {
+        REQUIRE(alone.has_value() == shared.has_value());
+        if (alone) {
+            CHECK(*alone == *shared);
+        } else {
+            CHECK(alone.error() == shared.error());
+        }
+    };
+    for (std::uint64_t n = 1; n <= tree.size(); ++n) {
+        const Digest root = *tree.root(n);
+        merkle::InclusionMemo memo;
+        // Kept as long as the memo (it points into them).
+        std::vector<std::vector<Digest>> proofs;
+        const auto both = [&](const Digest& leaf, std::uint64_t i, std::vector<Digest> proof) {
+            proofs.push_back(std::move(proof));
+            const auto alone = merkle::root_from_inclusion_proof(provider(), HashAlg::sha256, leaf,
+                                                                 i, n, proofs.back());
+            same(alone, merkle::root_from_inclusion_proof(provider(), HashAlg::sha256, leaf, i, n,
+                                                          proofs.back(), &memo));
+            return alone;
+        };
+        for (std::uint64_t i = 0; i < n; ++i) {
+            const auto proof = *tree.inclusion_proof(i, n);
+            CHECK(*both(*tree.leaf(i), i, proof) == root);
+            // Each part damaged in turn, once the memo knows the rest.
+            for (std::size_t k = 0; k < proof.size(); ++k) {
+                auto damaged = proof;
+                damaged[k] = mutate(damaged[k]);
+                const auto r = both(*tree.leaf(i), i, damaged);
+                CHECK((!r || *r != root));
+            }
+            const auto other = both(mutate(*tree.leaf(i)), i, proof);
+            CHECK((!other || *other != root));
+            if (!proof.empty()) {
+                static_cast<void>(
+                    both(*tree.leaf(i), i, std::vector<Digest>(proof.begin(), proof.end() - 1)));
+            }
+            auto longer = proof;
+            longer.push_back(root);
+            static_cast<void>(both(*tree.leaf(i), i, longer));
+            CHECK(*both(*tree.leaf(i), i, proof) == root); // found in the memo
+        }
+    }
+}
+
 TEST_CASE("a compact range grows to the same roots as the tree", "[core][merkle][property]") {
     for (std::uint64_t start = 0; start <= 40; ++start) {
         merkle::Tree tree(provider(), HashAlg::sha256);

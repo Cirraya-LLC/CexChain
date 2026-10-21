@@ -11,6 +11,7 @@
 #include <cexchain/core/cose.hpp>
 #include <cexchain/core/crypto.hpp>
 #include <cexchain/core/error.hpp>
+#include <cexchain/core/merkle.hpp>
 #include <cexchain/core/protocol/common.hpp>
 
 /// Log entries, checkpoints, witness cosignatures, and receipts.
@@ -194,8 +195,11 @@ struct ReceiptSeal {
 /// The two halves of verify_receipt, for a verifier that learns the log key
 /// in effect only later (from rotations among the entries): the root the
 /// receipt's proof leads to, and the log key's signature over that root.
+/// Receipts into one tree may share a `memo` (see merkle::InclusionMemo);
+/// their proofs must outlive it.
 [[nodiscard]] Result<crypto::Digest> receipt_root(const crypto::Provider& provider,
-                                                  const Receipt& receipt, ByteView entry);
+                                                  const Receipt& receipt, ByteView entry,
+                                                  merkle::InclusionMemo* memo = nullptr);
 [[nodiscard]] Status verify_receipt_signature(const crypto::Provider& provider,
                                               const Receipt& receipt, const crypto::Digest& root,
                                               const crypto::PublicKey& log_key);

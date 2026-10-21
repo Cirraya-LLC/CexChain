@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <utility>
 #include <vector>
 
 #include <cexchain/core/merkle.hpp>
@@ -68,5 +69,27 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
                                                          new_size, proof, new_root));
     static_cast<void>(cexchain::merkle::verify_consistency(provider, HashAlg::sha256, old_size,
                                                            new_size, old_root, new_root, proof));
+
+    // Roots computed with a shared memo (D-056 P8) are those computed alone:
+    // the proof twice, then another leaf at another index with the same
+    // proof, into the same tree.
+    const auto alone = [&](const cexchain::crypto::Digest& l, std::uint64_t i) {
+        return cexchain::merkle::root_from_inclusion_proof(provider, HashAlg::sha256, l, i,
+                                                           new_size, proof);
+    };
+    cexchain::merkle::InclusionMemo memo;
+    const auto shared = [&](const cexchain::crypto::Digest& l, std::uint64_t i) {
+        return cexchain::merkle::root_from_inclusion_proof(provider, HashAlg::sha256, l, i,
+                                                           new_size, proof, &memo);
+    };
+    for (const auto& [l, i] : {std::pair(leaf, index), std::pair(leaf, index),
+                               std::pair(old_root, old_size), std::pair(leaf, index ^ 1U)}) {
+        const auto expected = alone(l, i);
+        const auto got = shared(l, i);
+        if (expected.has_value() != got.has_value() ||
+            (expected ? !(*expected == *got) : !(expected.error() == got.error()))) {
+            __builtin_trap();
+        }
+    }
     return 0;
 }

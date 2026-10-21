@@ -5,7 +5,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <span>
+#include <utility>
 #include <vector>
 
 #include <cexchain/core/bytes.hpp>
@@ -144,14 +146,44 @@ private:
     std::vector<HashArray> levels_;
 };
 
+/// What `root_from_inclusion_proof` computed, remembered so that proofs
+/// sharing the upper part of their path (an evidence bundle's receipts, all
+/// into one tree) hash it once. The rest of a computation is a function of
+/// the algorithm, the position reached, the hash there, and the rest of the
+/// path: a proof that reaches a position with the same hash and the same
+/// rest of the path as one before takes that one's root, with the same
+/// outcome. Remembers successes only. The proofs it was given must outlive
+/// it, unchanged.
+class InclusionMemo {
+public:
+    InclusionMemo() = default;
+
+private:
+    friend Result<Digest> root_from_inclusion_proof(const crypto::Provider& provider, HashAlg alg,
+                                                    const Digest& leaf, std::uint64_t index,
+                                                    std::uint64_t tree_size,
+                                                    std::span<const Digest> proof,
+                                                    InclusionMemo* memo);
+    struct Step {
+        HashAlg alg;
+        Digest hash;
+        std::span<const Digest> rest;
+        Digest root;
+    };
+    /// By (fn, sn) in RFC 9162's terms (ordered: no hash flooding).
+    std::map<std::pair<std::uint64_t, std::uint64_t>, Step> steps_;
+};
+
 /// Computes the root that an inclusion proof leads to (RFC 9162 §2.1.3.2,
 /// without the final comparison). Use this when the root is signed over
 /// rather than supplied, as in RFC 9942 receipts. The same caveat as
 /// `verify_inclusion` applies: the proof does not authenticate `tree_size`.
+/// With `memo`, takes and leaves what proofs share there (see InclusionMemo).
 [[nodiscard]] Result<Digest> root_from_inclusion_proof(const crypto::Provider& provider,
                                                        HashAlg alg, const Digest& leaf,
                                                        std::uint64_t index, std::uint64_t tree_size,
-                                                       std::span<const Digest> proof);
+                                                       std::span<const Digest> proof,
+                                                       InclusionMemo* memo = nullptr);
 
 /// Verifies an inclusion proof (RFC 9162 §2.1.3.2).
 ///

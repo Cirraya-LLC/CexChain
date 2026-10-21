@@ -393,11 +393,11 @@ Result<Receipt> parse_receipt(ByteView encoded) {
 }
 
 Result<crypto::Digest> receipt_root(const crypto::Provider& provider, const Receipt& receipt,
-                                    ByteView entry_bytes) {
+                                    ByteView entry_bytes, merkle::InclusionMemo* memo) {
     CEXCHAIN_TRY(crypto::Digest leaf, merkle::leaf_hash(provider, receipt.tree_hash, entry_bytes));
     return merkle::root_from_inclusion_proof(provider, receipt.tree_hash, leaf,
                                              receipt.proof.leaf_index, receipt.proof.tree_size,
-                                             receipt.proof.path);
+                                             receipt.proof.path, memo);
 }
 
 Status verify_receipt_signature(const crypto::Provider& provider, const Receipt& receipt,

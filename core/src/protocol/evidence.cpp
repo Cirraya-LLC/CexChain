@@ -431,7 +431,12 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
     }
 
     // Every entry is proven to lead to the checkpoint's root, in order.
+    // Receipts share the upper parts of their paths: each part is hashed
+    // once (the memo points into the receipts, kept in `included`, which
+    // never reallocates).
     std::vector<Included> included;
+    included.reserve(bundle.entries.size());
+    merkle::InclusionMemo memo;
     std::optional<std::uint64_t> previous_index;
     Timestamp previous_time = 0;
     for (const EvidenceEntry& e : bundle.entries) {
@@ -439,7 +444,7 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
         if (!receipt) {
             return verification_failure("a receipt is malformed");
         }
-        auto root = receipt_root(provider, *receipt, e.entry);
+        auto root = receipt_root(provider, *receipt, e.entry, &memo);
         if (!root || receipt->tree_hash != state->hash() ||
             receipt->proof.tree_size != checkpoint.checkpoint.tree_size ||
             *root != checkpoint.checkpoint.root) {
