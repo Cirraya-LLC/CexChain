@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cirraya
+#
+# ThreadSanitizer suppressions for the clang-tsan test preset.
+#
+# The system's OpenSSL is not built with ThreadSanitizer, so its own locking
+# around its internal caches (algorithms fetched, keys imported) is invisible,
+# and ThreadSanitizer sees only the memcpy and memcmp it intercepts inside
+# libcrypto. When a process's first signature checks run on several threads at
+# once (evidence verified on all cores), it reports those as races between two
+# threads that are both inside libcrypto, on memory libcrypto allocated.
+# Accesses made from libcrypto are ignored; races in CexChain's own code are
+# still reported.
+called_from_lib:libcrypto

@@ -104,6 +104,11 @@
         },
         { "name": "clang-debug", "inherits": "base", "configurePreset": "clang-debug" },
         { "name": "clang-asan", "inherits": "base", "configurePreset": "clang-asan" },
-        { "name": "clang-tsan", "inherits": "base", "configurePreset": "clang-tsan" }
+        {
+            "name": "clang-tsan",
+            "inherits": "base",
+            "configurePreset": "clang-tsan",
+            "environment": { "TSAN_OPTIONS": "suppressions=${sourceDir}/tests/tsan.supp" }
+        }
     ]
 }
