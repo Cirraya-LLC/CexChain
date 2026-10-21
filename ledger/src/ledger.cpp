@@ -444,6 +444,10 @@ struct Ledger::Impl {
                 calls.push_back(i);
             }
         }
+        if (calls.size() < 2) {
+            // Nothing to run alongside: validation runs it, unlocked too.
+            return runs;
+        }
         parallel_for(
             calls.size(),
             [&](std::size_t begin, std::size_t end) {
