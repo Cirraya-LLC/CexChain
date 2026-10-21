@@ -270,8 +270,15 @@ public:
     /// repeated), in order: what an incremental state tree must update.
     [[nodiscard]] std::vector<Id> take_changes();
 
+    /// Contracts' code is loaded through `modules` from now on (this state
+    /// and its copies): none by default. It must outlive them.
+    void load_modules_with(ModuleCache* modules) noexcept { modules_ = modules; }
+
 private:
     LedgerState() = default;
+
+    /// `vm::load(code)`, asking `modules_` first and telling it.
+    [[nodiscard]] Result<vm::Module> load_module(ByteView code) const;
 
     [[nodiscard]] Status check_authority(const Statement& statement, const ActorState& signer,
                                          Timestamp now) const;
@@ -321,6 +328,7 @@ private:
     std::vector<IdKey> changes_;
     /// Changes with every apply: the states a Validation is good for.
     StateStamp stamp_;
+    ModuleCache* modules_ = nullptr;
 };
 
 /// An ancestor of a child instance, and the log index of its call that

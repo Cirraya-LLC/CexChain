@@ -72,6 +72,59 @@ inline constexpr std::size_t max_bundle_size = std::size_t{64} << 20;
 /// without verifying anything: to pick the ledger to pin, then verify once.
 [[nodiscard]] Result<Id> bundle_ledger_id(ByteView encoded);
 
+/// Signature checks made ahead of time (say, on other threads) or remembered
+/// from earlier verifications. A verification given one asks it before each
+/// signature it would check, and takes its answer instead of checking: an
+/// answer must be what `crypto::Provider::verify` returns for exactly that
+/// algorithm, key, message, and signature, all compared byte for byte (a
+/// signature check is a function of these four alone). One shared by
+/// verifications that run at once must be safe to call from their threads.
+class SignatureChecks {
+public:
+    virtual ~SignatureChecks() = default;
+    /// The outcome of checking `signature` over `message` with `key`, if this
+    /// knows it. Asked only with a well-formed key and signature (see
+    /// `crypto::Provider::verify`).
+    [[nodiscard]] virtual std::optional<Status> find(const crypto::PublicKey& key, ByteView message,
+                                                     ByteView signature) = 0;
+    /// Told each signature the verification checked itself, and the outcome.
+    virtual void checked(const crypto::PublicKey& key, ByteView message, ByteView signature,
+                         const Status& outcome) = 0;
+
+protected:
+    SignatureChecks() = default;
+    SignatureChecks(const SignatureChecks&) = default;
+    SignatureChecks(SignatureChecks&&) = default;
+    SignatureChecks& operator=(const SignatureChecks&) = default;
+    SignatureChecks& operator=(SignatureChecks&&) = default;
+};
+
+/// A provider that asks `checks` before checking a signature with `provider`
+/// and tells it every outcome it checked; hashing is `provider`'s. Keys and
+/// signatures `crypto::Provider::verify` refuses unseen are refused as
+/// before, without asking.
+class CheckedProvider final : public crypto::Provider {
+public:
+    CheckedProvider(const crypto::Provider& provider, SignatureChecks& checks) noexcept
+        : provider_(provider), checks_(checks) {}
+
+    [[nodiscard]] bool supports(crypto::HashAlg alg) const noexcept override {
+        return provider_.supports(alg);
+    }
+    [[nodiscard]] bool supports(crypto::SigAlg alg) const noexcept override {
+        return provider_.supports(alg);
+    }
+
+private:
+    [[nodiscard]] Result<crypto::Digest> do_digest(crypto::HashAlg alg,
+                                                   std::span<const ByteView> parts) const override;
+    [[nodiscard]] Status do_verify(const crypto::PublicKey& key, ByteView message,
+                                   ByteView signature) const override;
+
+    const crypto::Provider& provider_;
+    SignatureChecks& checks_;
+};
+
 struct VerifyOptions {
     /// If set, the bundle must come from this ledger. Verifiers learn the
     /// expected ledger out of band (for example from a QR code or a contract).
@@ -81,6 +134,13 @@ struct VerifyOptions {
     std::vector<crypto::PublicKey> trusted_witnesses;
     /// Attachment contents to check, by attachment name.
     std::map<std::string, Bytes> attachment_contents;
+    /// Signatures checked ahead of time or remembered, asked before each
+    /// signature (see `SignatureChecks`): none by default, so every
+    /// signature is checked here, one after another.
+    SignatureChecks* signatures = nullptr;
+    /// Modules loaded before, asked before each contract's code is loaded
+    /// (see `ModuleCache`): none by default.
+    ModuleCache* modules = nullptr;
 };
 
 struct ActorSummary {
@@ -94,6 +154,8 @@ struct ActorSummary {
     /// Revoked as of the checkpoint (known for certain only in a complete
     /// report).
     bool revoked = false;
+
+    friend bool operator==(const ActorSummary&, const ActorSummary&) = default;
 };
 
 /// A request (v0.8) as an instance's evidence shows it, derived by replaying
@@ -155,6 +217,8 @@ struct RecordEvent {
     /// For an answer (v0.8): the request it answered (closed by it), with
     /// the answer's status and how late it was.
     std::optional<RequestReport> answered;
+
+    friend bool operator==(const RecordEvent&, const RecordEvent&) = default;
 };
 
 /// An ancestor of a child instance (v0.7), as the child's evidence shows it:
@@ -173,6 +237,8 @@ struct AncestorReport {
     /// Its calls from `created_by` to `until`, as positions in the report's
     /// `events`.
     std::vector<std::size_t> events;
+
+    friend bool operator==(const AncestorReport&, const AncestorReport&) = default;
 };
 
 /// A contract instance as of the checkpoint (spec section 15).
@@ -216,6 +282,8 @@ struct InstanceReport {
     /// are overdue at the checkpoint's time.
     [[nodiscard]] std::vector<std::size_t> open_requests() const;
     [[nodiscard]] std::vector<std::size_t> overdue_requests() const;
+
+    friend bool operator==(const InstanceReport&, const InstanceReport&) = default;
 };
 
 enum class AttachmentStatus : std::uint8_t {
@@ -229,6 +297,8 @@ struct AttachmentCheck {
     std::string media_type;
     std::uint64_t size = 0;
     AttachmentStatus status = AttachmentStatus::not_provided;
+
+    friend bool operator==(const AttachmentCheck&, const AttachmentCheck&) = default;
 };
 
 struct EvidenceReport {
@@ -264,6 +334,8 @@ struct EvidenceReport {
     bool complete = false;
     /// That state commitment (the last entry the checkpoint covers).
     std::optional<StateCommitment> state_commitment;
+
+    friend bool operator==(const EvidenceReport&, const EvidenceReport&) = default;
 };
 
 /// The objects whose complete history a bundle about `record` must prove:

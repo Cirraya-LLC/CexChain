@@ -7,6 +7,7 @@
 
 #include <cexchain/core/protocol/contract_evidence.hpp>
 
+#include "evidence_detail.hpp"
 #include "reader.hpp"
 
 namespace cexchain::protocol {
@@ -157,11 +158,15 @@ check_verified_contract_consent(const crypto::Provider& provider, const Contract
     return check_consent_report(provider, ref, std::move(report), call, home, home_hash, at);
 }
 
-Result<ContractReport> verify_contract_evidence(const crypto::Provider& provider, ByteView encoded,
-                                                const VerifyOptions& options) {
+namespace {
+
+Result<ContractReport> verify_contract_evidence_as_given(const crypto::Provider& provider,
+                                                         ByteView encoded,
+                                                         const VerifyOptions& options) {
     CEXCHAIN_TRY(ContractEvidence evidence, decode_contract_evidence(encoded));
     ContractReport out;
-    CEXCHAIN_TRY(out.instance, verify_bundle(provider, evidence.instance_bundle, options));
+    CEXCHAIN_TRY(out.instance,
+                 detail::verify_bundle_as_given(provider, evidence.instance_bundle, options));
     if (!out.instance.instance) {
         return verification_failure("the evidence is not about a contract instance");
     }
@@ -208,6 +213,18 @@ Result<ContractReport> verify_contract_evidence(const crypto::Provider& provider
         }
     }
     return out;
+}
+
+} // namespace
+
+Result<ContractReport> verify_contract_evidence(const crypto::Provider& provider, ByteView encoded,
+                                                const VerifyOptions& options) {
+    // Every signature, the consents' included, goes through one provider.
+    if (options.signatures == nullptr) {
+        return verify_contract_evidence_as_given(provider, encoded, options);
+    }
+    const CheckedProvider checked(provider, *options.signatures);
+    return verify_contract_evidence_as_given(checked, encoded, options);
 }
 
 } // namespace cexchain::protocol

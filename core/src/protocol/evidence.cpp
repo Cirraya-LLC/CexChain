@@ -11,6 +11,7 @@
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/state.hpp>
 
+#include "evidence_detail.hpp"
 #include "reader.hpp"
 
 namespace cexchain::protocol {
@@ -403,8 +404,33 @@ Result<EvidenceReport> count_witnesses(const crypto::Provider& provider, const L
 
 } // namespace
 
+Result<crypto::Digest> CheckedProvider::do_digest(crypto::HashAlg alg,
+                                                  std::span<const ByteView> parts) const {
+    return provider_.digest(alg, parts);
+}
+
+Status CheckedProvider::do_verify(const crypto::PublicKey& key, ByteView message,
+                                  ByteView signature) const {
+    if (std::optional<Status> known = checks_.find(key, message, signature)) {
+        return std::move(*known);
+    }
+    Status outcome = provider_.verify(key, message, signature);
+    checks_.checked(key, message, signature, outcome);
+    return outcome;
+}
+
 Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView encoded,
                                      const VerifyOptions& options) {
+    if (options.signatures == nullptr) {
+        return detail::verify_bundle_as_given(provider, encoded, options);
+    }
+    const CheckedProvider checked(provider, *options.signatures);
+    return detail::verify_bundle_as_given(checked, encoded, options);
+}
+
+Result<EvidenceReport> detail::verify_bundle_as_given(const crypto::Provider& provider,
+                                                      ByteView encoded,
+                                                      const VerifyOptions& options) {
     CEXCHAIN_TRY(EvidenceBundle bundle, decode_bundle(encoded));
 
     // Genesis fixes the ledger's identity, hash, and keys.
@@ -417,6 +443,7 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
     if (!state) {
         return verification_failure("the genesis statement does not verify");
     }
+    state->load_modules_with(options.modules);
     if (options.expected_ledger && *options.expected_ledger != state->ledger_id()) {
         return verification_failure("the bundle comes from a different ledger");
     }

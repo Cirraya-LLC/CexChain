@@ -47,6 +47,8 @@ struct ContractConsentCheck {
     ContractConsent consent;
     /// The consent record's evidence, verified for the party's ledger.
     EvidenceReport report;
+
+    friend bool operator==(const ContractConsentCheck&, const ContractConsentCheck&) = default;
 };
 
 /// Checks a party's consent to `call`, registered (or to be registered) at
@@ -77,6 +79,8 @@ struct ContractStep {
     /// The call's event in the instance report's `events`.
     std::size_t event = 0;
     std::vector<ContractConsentCheck> consents;
+
+    friend bool operator==(const ContractStep&, const ContractStep&) = default;
 };
 
 struct ContractReport {
@@ -85,6 +89,8 @@ struct ContractReport {
     /// Its calls, oldest first; for a child, its ancestors' calls up to each
     /// one that created the next generation come first (v0.7).
     std::vector<ContractStep> steps;
+
+    friend bool operator==(const ContractReport&, const ContractReport&) = default;
 };
 
 /// Verifies contract evidence: the instance bundle for the home ledger

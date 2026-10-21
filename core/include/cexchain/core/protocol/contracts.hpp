@@ -57,6 +57,29 @@ inline constexpr std::size_t max_request_params = 4096;
 /// this far after it: 366 days, in milliseconds (v0.8).
 inline constexpr Timestamp max_request_deadline = 31'622'400'000;
 
+/// Modules loaded before (say, by earlier verifications of the same
+/// ledger's evidence), asked before a contract's code is loaded. A module
+/// found must be what `vm::load` gives for exactly that code: a load is a
+/// function of the bytes alone, and a module never changes once loaded
+/// (`vm::Module::bytes` is the code, to compare byte for byte). One shared
+/// by verifications that run at once must be safe to call from their
+/// threads.
+class ModuleCache {
+public:
+    virtual ~ModuleCache() = default;
+    /// The module `vm::load(code)` gave, if this knows it.
+    [[nodiscard]] virtual std::optional<vm::Module> find(ByteView code) = 0;
+    /// Told each module loaded (not found).
+    virtual void loaded(const vm::Module& module) = 0;
+
+protected:
+    ModuleCache() = default;
+    ModuleCache(const ModuleCache&) = default;
+    ModuleCache(ModuleCache&&) = default;
+    ModuleCache& operator=(const ModuleCache&) = default;
+    ModuleCache& operator=(ModuleCache&&) = default;
+};
+
 struct ContractState {
     CompactId id;
     CompactId deployer;

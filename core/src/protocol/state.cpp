@@ -387,6 +387,18 @@ std::optional<std::string> LedgerState::record_type_of(const Statement& statemen
         statement.body);
 }
 
+Result<vm::Module> LedgerState::load_module(ByteView code) const {
+    if (modules_ == nullptr) {
+        return vm::load(code);
+    }
+    if (std::optional<vm::Module> known = modules_->find(code)) {
+        return std::move(*known);
+    }
+    CEXCHAIN_TRY(vm::Module module, vm::load(code));
+    modules_->loaded(module);
+    return module;
+}
+
 Status LedgerState::validate(const crypto::Provider& provider,
                              const SignedStatement& signed_statement, Timestamp now,
                              const SignatureCheck* checked, Validation* validation) const {
@@ -809,7 +821,7 @@ Status LedgerState::check_rules(const crypto::Provider& provider, const Statemen
                 return {};
             },
             [&](const ContractDeployBody& b) -> Status {
-                if (auto module = vm::load(b.code); !module) {
+                if (auto module = load_module(b.code); !module) {
                     return fail(Errc::rejected,
                                 "the contract's code is not a module in the profile");
                 }
@@ -1053,7 +1065,7 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
                 return {};
             },
             [&](const ContractDeployBody& b) -> Status {
-                CEXCHAIN_TRY(vm::Module module, vm::load(b.code));
+                CEXCHAIN_TRY(vm::Module module, load_module(b.code));
                 ContractState contract;
                 contract.id = id;
                 contract.deployer = *statement.actor_id;
