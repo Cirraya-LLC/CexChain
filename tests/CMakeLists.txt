@@ -26,6 +26,7 @@ add_executable(cexchain_tests
     ledger/concurrency_test.cpp
     ledger/evidence_test.cpp
     ledger/ledger_test.cpp
+    ledger/parallel_test.cpp
     ledger/presence_test.cpp
     ledger/replica_test.cpp
     ledger/rotation_test.cpp

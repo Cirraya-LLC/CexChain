@@ -131,13 +131,13 @@ std::size_t parallelism() noexcept {
 }
 
 void parallel_for(std::size_t count,
-                  const std::function<void(std::size_t begin, std::size_t end)>& work) {
-    constexpr std::size_t min_parallel = 8;
+                  const std::function<void(std::size_t begin, std::size_t end)>& work,
+                  std::size_t serial_below) {
     if (count == 0) {
         return;
     }
     Pool& p = pool();
-    if (count < min_parallel || p.workers() == 0 || inside_pool) {
+    if (count < std::max<std::size_t>(serial_below, 2) || p.workers() == 0 || inside_pool) {
         work(0, count);
         return;
     }

@@ -3,11 +3,14 @@
 
 #include <algorithm>
 #include <atomic>
+#include <condition_variable>
+#include <deque>
 #include <limits>
 #include <map>
 #include <mutex>
 #include <set>
 #include <shared_mutex>
+#include <thread>
 #if defined(__GLIBC__)
 #include <pthread.h>
 #endif
@@ -157,6 +160,138 @@ struct Ledger::Impl {
     /// files; the ledger must be reopened.
     std::atomic<bool> failed = false;
 
+    // ---- the pipelined commit (D-056 P7) --------------------------------
+    /// A batch validated and applied in memory, waiting to be written.
+    struct Commit {
+        /// Its new entries, from log index `first`.
+        std::vector<Bytes> entries;
+        std::uint64_t first = 0;
+        std::vector<Result<Registration>> results;
+        Durable durable;
+    };
+    /// The commit thread's queue, and whether it is writing (under
+    /// commit_mutex). It writes whatever is queued as one write and sync.
+    std::mutex commit_mutex;
+    std::condition_variable commit_wake;
+    std::condition_variable commit_idle;
+    std::deque<Commit> commits;
+    bool commit_busy = false;
+    bool commit_stop = false;
+    std::thread commit_thread;
+    /// The writer's: the log index after the last entry it staged, and the
+    /// registration time of each batch in flight, by its first index (for
+    /// repeats of statements not durable yet).
+    std::uint64_t staged_end = 0;
+    /// The commit thread's: the first log index a failed write lost.
+    static constexpr std::uint64_t no_failure = std::numeric_limits<std::uint64_t>::max();
+    std::uint64_t failed_from = no_failure;
+    std::map<std::uint64_t, std::pair<std::uint64_t, protocol::Timestamp>> staged_times;
+
+    /// A batch validated and applied in memory: its new entries (from log
+    /// index `first`, at time `now`) and a result per statement. `fatal`:
+    /// the state moved partway, the ledger must be reopened.
+    struct Staged {
+        std::vector<Bytes> entries;
+        std::uint64_t first = 0;
+        protocol::Timestamp now = 0;
+        std::vector<Result<Registration>> results;
+        bool fatal = false;
+    };
+    /// Parses, checks, runs ahead, validates, and applies a batch (the
+    /// writer's): see Ledger::submit_batch.
+    Staged stage(std::span<const ByteView> signed_statements, std::optional<protocol::Timestamp> at,
+                 Offers offers);
+    /// When the entry at `index` (not later than this batch's) was
+    /// registered: from the log below `durable`, else its batch's time.
+    Result<protocol::Timestamp> registration_time(std::uint64_t index, std::uint64_t durable,
+                                                  protocol::Timestamp now) const;
+
+    ~Impl() { stop_commits(); }
+    Impl(const Impl&) = delete;
+    Impl& operator=(const Impl&) = delete;
+
+    void stop_commits() {
+        {
+            const std::lock_guard lock(commit_mutex);
+            commit_stop = true;
+        }
+        commit_wake.notify_all();
+        if (commit_thread.joinable()) {
+            commit_thread.join();
+        }
+    }
+
+    /// Waits until the commit thread has written (or failed) everything
+    /// queued and called back.
+    void drain() {
+        std::unique_lock lock(commit_mutex);
+        commit_idle.wait(lock, [&] { return commits.empty() && !commit_busy; });
+    }
+
+    /// The commit thread: writes every batch queued (in order, one write and
+    /// sync for all), makes the entries visible, then calls each back.
+    void run_commits() {
+        std::unique_lock lock(commit_mutex);
+        for (;;) {
+            commit_wake.wait(lock, [&] { return commit_stop || !commits.empty(); });
+            if (commits.empty()) {
+                return; // stopping, with nothing left
+            }
+            std::vector<Commit> work;
+            while (!commits.empty()) {
+                work.push_back(std::move(commits.front()));
+                commits.pop_front();
+            }
+            commit_busy = true;
+            lock.unlock();
+            std::vector<ByteView> views;
+            for (const Commit& c : work) {
+                views.insert(views.end(), c.entries.begin(), c.entries.end());
+            }
+            Status written;
+            if (!views.empty()) {
+                if (auto pending = log.write(views)) {
+                    const std::unique_lock log_lock(log_mutex);
+                    log.publish(*pending);
+                    written = append_merkle(views);
+                } else {
+                    written = std::unexpected(pending.error());
+                }
+            }
+            if (!written) {
+                failed = true;
+                failed_from = std::min(failed_from, work.front().first);
+            }
+            for (Commit& c : work) {
+                if (failed_from != no_failure) {
+                    // Every registration at or after the first entry lost,
+                    // repeats of those entries included.
+                    for (auto& r : c.results) {
+                        if (r && r->index >= failed_from) {
+                            r = std::unexpected(
+                                written ? Error{Errc::unavailable, "an earlier write failed"}
+                                        : written.error());
+                        }
+                    }
+                }
+                if (c.durable) {
+                    c.durable(std::move(c.results));
+                }
+            }
+            lock.lock();
+            commit_busy = false;
+            if (commits.empty()) {
+                commit_idle.notify_all();
+            }
+        }
+    }
+
+    /// The durable size (the Merkle tree's), which the commit thread moves.
+    std::uint64_t durable_size() const {
+        const std::shared_lock lock(log_mutex);
+        return tree.size();
+    }
+
     /// Checks that `bytes` may be the log entry at `index`, the next one:
     /// registered no earlier than the entry before it, and either a statement
     /// that passes validation at its registration time or a state commitment,
@@ -281,11 +416,64 @@ struct Ledger::Impl {
         return out;
     }
 
+    /// Contract runs made ahead (D-056 P7): how many, and how many validation
+    /// took (their input was the one built in turn).
+    std::atomic<std::uint64_t> runs_ahead{0};
+    std::atomic<std::uint64_t> runs_taken{0};
+
+    /// Runs the contract calls among `statements` (null: none) on the state
+    /// as it is, each at its `times[i]`, on all cores: their runs are offered
+    /// to validation in turn, which takes one only if the input it builds
+    /// then is the run's. The state must not change meanwhile: only the
+    /// writer changes it, and it is here.
+    std::vector<std::optional<protocol::ContractRun>>
+    run_ahead(std::span<const protocol::SignedStatement* const> statements,
+              std::span<const protocol::Timestamp> times) const {
+        std::vector<std::optional<protocol::ContractRun>> runs(statements.size());
+        std::vector<std::size_t> calls;
+        for (std::size_t i = 0; i < statements.size(); ++i) {
+            if (statements[i] != nullptr &&
+                std::holds_alternative<protocol::ContractCallBody>(statements[i]->statement.body)) {
+                calls.push_back(i);
+            }
+        }
+        parallel_for(
+            calls.size(),
+            [&](std::size_t begin, std::size_t end) {
+                for (std::size_t k = begin; k < end; ++k) {
+                    const std::size_t i = calls[k];
+                    if (auto run = state.run_contract(*provider, *statements[i], times[i])) {
+                        runs[i] = std::move(*run);
+                    }
+                }
+            },
+            2);
+        return runs;
+    }
+
+    /// Validates `statement` at `now`, offering it the run made ahead.
+    Status validate_with(const protocol::SignedStatement& statement, protocol::Timestamp now,
+                         const protocol::SignatureCheck* checked,
+                         std::optional<protocol::ContractRun>& ahead,
+                         protocol::Validation& validation) {
+        if (ahead) {
+            validation.offer(std::move(*ahead));
+            ahead.reset();
+            runs_ahead.fetch_add(1, std::memory_order_relaxed);
+        }
+        auto s = state.validate(*provider, statement, now, checked, &validation);
+        if (validation.took_offer()) {
+            runs_taken.fetch_add(1, std::memory_order_relaxed);
+        }
+        return s;
+    }
+
     /// Checks that a decoded entry may be the log entry at `index`, the next
     /// one: registered no earlier than the entry before it, and either a
     /// statement that passes validation at its registration time or a state
     /// commitment, signed by the log key, of exactly the current state.
-    Status check(const Decoded& d, std::uint64_t index, protocol::Validation* validation) {
+    Status check(const Decoded& d, std::uint64_t index, protocol::Validation& validation,
+                 std::optional<protocol::ContractRun>& ahead) {
         if (d.error) {
             return std::unexpected(*d.error);
         }
@@ -309,8 +497,8 @@ struct Ledger::Impl {
         if (d.statement->id != entry.statement_id) {
             return fail(Errc::verification_failed, "a log entry has the wrong statement id");
         }
-        if (auto s = state.validate(*provider, *d.statement, entry.registered_at,
-                                    d.signature ? &*d.signature : nullptr, validation);
+        if (auto s = validate_with(*d.statement, entry.registered_at,
+                                   d.signature ? &*d.signature : nullptr, ahead, validation);
             !s) {
             return fail(Errc::verification_failed,
                         "a logged statement does not pass validation on replay");
@@ -359,22 +547,54 @@ struct Ledger::Impl {
     /// Checks and applies entries that follow the log's current end (index
     /// `first`), decoding and verifying them in parallel. Stops at the first
     /// that fails.
-    Replayed replay(std::span<const ByteView> entries, std::uint64_t first) {
+    /// Contract calls run ahead together, at most this many at once.
+    static constexpr std::size_t run_window = 256;
+
+    /// With `locking`, the caller holds no lock: each change of the state
+    /// is made under the exclusive lock, and the checks and contract runs
+    /// outside it, alongside readers. Without, the caller holds it.
+    Replayed replay(std::span<const ByteView> entries, std::uint64_t first, bool locking) {
         Replayed out;
         const auto decoded = decode(entries);
-        // Each contract call runs once: apply takes check's run.
+        auto exclusive = [&] {
+            return locking ? std::unique_lock(state_mutex) : std::unique_lock<SharedMutex>();
+        };
+        // Each contract call runs once: run ahead in parallel a window at a
+        // time, check takes the run if its input still holds, and apply
+        // takes check's.
         protocol::Validation validation;
+        std::vector<const protocol::SignedStatement*> statements(decoded.size(), nullptr);
+        std::vector<protocol::Timestamp> times(decoded.size(), 0);
         for (std::size_t i = 0; i < decoded.size(); ++i) {
-            if (auto s = check(decoded[i], first + i, &validation); !s) {
-                out.error = s.error();
-                return out;
+            if (decoded[i].statement && decoded[i].entry) {
+                statements[i] = &*decoded[i].statement;
+                times[i] = decoded[i].entry->registered_at;
             }
-            if (auto s = apply(decoded[i], first + i, &validation); !s) {
-                out.error = s.error();
-                out.fatal = true;
-                return out;
+        }
+        for (std::size_t start = 0; start < decoded.size(); start += run_window) {
+            const std::size_t end = std::min(decoded.size(), start + run_window);
+            auto ahead = run_ahead(std::span(statements).subspan(start, end - start),
+                                   std::span(times).subspan(start, end - start));
+            for (std::size_t i = start; i < end; ++i) {
+                const bool commitment = decoded[i].entry && decoded[i].entry->is_state_commitment();
+                Status checked;
+                {
+                    // A commitment's check brings the state tree up to date.
+                    const auto lock = commitment ? exclusive() : std::unique_lock<SharedMutex>();
+                    checked = check(decoded[i], first + i, validation, ahead[i - start]);
+                }
+                if (!checked) {
+                    out.error = checked.error();
+                    return out;
+                }
+                const auto lock = exclusive();
+                if (auto s = apply(decoded[i], first + i, &validation); !s) {
+                    out.error = s.error();
+                    out.fatal = true;
+                    return out;
+                }
+                ++out.applied;
             }
-            ++out.applied;
         }
         return out;
     }
@@ -397,7 +617,8 @@ struct Ledger::Impl {
                 }
                 views.push_back(*view);
             }
-            const Replayed part = replay(views, begin);
+            // Open (no readers yet) or refresh (which holds the locks).
+            const Replayed part = replay(views, begin, false);
             // These are already durable: the tree takes them at once.
             if (auto s = append_merkle(std::span(views).first(part.applied)); !s) {
                 total.error = s.error();
@@ -722,6 +943,11 @@ std::uint64_t Ledger::size() const noexcept {
     return impl_->tree.size();
 }
 
+Ledger::RunsAhead Ledger::runs_ahead() const noexcept {
+    return {impl_->runs_ahead.load(std::memory_order_relaxed),
+            impl_->runs_taken.load(std::memory_order_relaxed)};
+}
+
 std::optional<std::uint64_t> Ledger::statement_index(const protocol::Id& id) const {
     const std::shared_lock state(impl_->state_mutex);
     const std::shared_lock log(impl_->log_mutex);
@@ -739,25 +965,19 @@ Result<Registration> Ledger::submit(ByteView signed_statement) {
     return std::move(submit_batch(std::span(&signed_statement, 1)).front());
 }
 
-std::vector<Result<Registration>> Ledger::submit_batch(std::span<const ByteView> signed_statements,
-                                                       std::optional<protocol::Timestamp> at) {
+Ledger::Impl::Staged Ledger::Impl::stage(std::span<const ByteView> signed_statements,
+                                         std::optional<protocol::Timestamp> at, Offers offers) {
     const std::size_t n = signed_statements.size();
-    std::vector<Result<Registration>> results;
-    results.reserve(n);
-    if (auto s = impl_->require_usable(); !s) {
-        for (std::size_t i = 0; i < n; ++i) {
-            results.emplace_back(std::unexpected(s.error()));
-        }
-        return results;
-    }
+    Staged out;
+    out.results.reserve(n);
     // Parse and check signatures on all cores. (Only this thread changes the
-    // ledger, so reading the state here needs no lock.)
+    // state, so reading it here needs no lock.)
     std::vector<std::optional<protocol::SignedStatement>> parsed(n);
     std::vector<std::optional<Error>> errors(n);
     parallel_for(n, [&](std::size_t begin, std::size_t end) {
         for (std::size_t i = begin; i < end; ++i) {
             if (auto st =
-                    protocol::parse_statement(*impl_->provider, signed_statements[i], hash())) {
+                    protocol::parse_statement(*provider, signed_statements[i], state.hash())) {
                 parsed[i] = std::move(*st);
             } else {
                 errors[i] = st.error();
@@ -771,79 +991,134 @@ std::vector<Result<Registration>> Ledger::submit_batch(std::span<const ByteView>
         }
     }
     std::vector<std::optional<protocol::SignatureCheck>> checks(n);
-    impl_->pre_verify(pointers, checks);
+    pre_verify(pointers, checks);
 
     // Validate and apply in order, each statement against the state the ones
-    // before it left.
-    const protocol::Timestamp now =
-        at ? std::max(*at, impl_->last_registered_at) : impl_->next_time();
-    const std::uint64_t first = impl_->tree.size();
-    std::vector<Bytes> entries;
-    {
-        const std::unique_lock lock(impl_->state_mutex);
-        // Each contract call runs once: apply takes validate's run.
-        protocol::Validation validation;
-        for (std::size_t i = 0; i < n; ++i) {
-            if (errors[i]) {
-                results.emplace_back(std::unexpected(*errors[i]));
-                continue;
-            }
-            const protocol::SignedStatement& statement = *parsed[i];
-            if (const auto index = impl_->state.statement_index(statement.id)) {
-                // Already registered: before this batch, or earlier in it.
-                protocol::Timestamp registered = now;
-                if (*index < first) {
-                    auto bytes = impl_->log.read(*index);
-                    auto entry = bytes ? protocol::decode_log_entry(*bytes)
-                                       : Result<protocol::LogEntry>(std::unexpected(bytes.error()));
-                    if (!entry) {
-                        results.emplace_back(std::unexpected(entry.error()));
-                        continue;
-                    }
-                    registered = entry->registered_at;
-                }
-                results.emplace_back(Registration{statement.id, *index, registered, false});
-                continue;
-            }
-            if (auto s = impl_->state.validate(*impl_->provider, statement, now,
-                                               checks[i] ? &*checks[i] : nullptr, &validation);
-                !s) {
-                results.emplace_back(std::unexpected(s.error()));
-                continue;
-            }
-            auto encoded = protocol::encode_log_entry({statement.id, now, statement.encoded});
-            if (!encoded) {
-                results.emplace_back(std::unexpected(encoded.error()));
-                continue;
-            }
-            const std::uint64_t index = first + entries.size();
-            if (auto s = impl_->state.apply(*impl_->provider, statement, index, now, &validation);
-                !s) {
-                // The state moved partway: nothing of this batch may be
-                // written, and the ledger must be reopened.
-                impl_->failed = true;
-                results.emplace_back(std::unexpected(s.error()));
-                for (auto& r : results) {
-                    if (r && r->index >= first) {
-                        r = std::unexpected(s.error());
-                    }
-                }
-                while (results.size() < n) {
-                    results.emplace_back(std::unexpected(s.error()));
-                }
-                return results;
-            }
-            entries.push_back(std::move(*encoded));
-            results.emplace_back(Registration{statement.id, index, now, true});
+    // before it left. The contract calls run first, on all cores, on the
+    // state before the batch; each run counts only if the input built in
+    // turn is the run's (else the call runs again). Only this thread changes
+    // the state, so it reads it unlocked; it locks it only to change it.
+    // Batches still syncing (pipelined) come first in the log.
+    out.now = at ? std::max(*at, last_registered_at) : next_time();
+    const std::uint64_t durable = durable_size();
+    out.first = std::max(staged_end, durable);
+    std::erase_if(staged_times, [&](const auto& t) { return t.second.first <= durable; });
+    // The calls the caller ran ahead itself are not run again here.
+    offers.resize(n);
+    std::vector<const protocol::SignedStatement*> to_run = pointers;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (offers[i]) {
+            to_run[i] = nullptr;
         }
     }
-    if (entries.empty()) {
-        return results;
+    const std::vector<protocol::Timestamp> times(n, out.now);
+    auto ahead = run_ahead(to_run, times);
+    for (std::size_t i = 0; i < n; ++i) {
+        if (offers[i]) {
+            ahead[i] = std::move(offers[i]);
+        }
+    }
+    // Each contract call runs once: apply takes validate's run.
+    protocol::Validation validation;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (errors[i]) {
+            out.results.emplace_back(std::unexpected(*errors[i]));
+            continue;
+        }
+        const protocol::SignedStatement& statement = *parsed[i];
+        if (const auto index = state.statement_index(statement.id)) {
+            // Already registered: before this batch, or earlier in it.
+            out.results.emplace_back(registration_time(*index, durable, out.now)
+                                         .transform([&](protocol::Timestamp registered) {
+                                             return Registration{statement.id, *index, registered,
+                                                                 false};
+                                         }));
+            continue;
+        }
+        if (auto s = validate_with(statement, out.now, checks[i] ? &*checks[i] : nullptr, ahead[i],
+                                   validation);
+            !s) {
+            out.results.emplace_back(std::unexpected(s.error()));
+            continue;
+        }
+        auto encoded = protocol::encode_log_entry({statement.id, out.now, statement.encoded});
+        if (!encoded) {
+            out.results.emplace_back(std::unexpected(encoded.error()));
+            continue;
+        }
+        const std::uint64_t index = out.first + out.entries.size();
+        Status applied;
+        {
+            const std::unique_lock lock(state_mutex);
+            applied = state.apply(*provider, statement, index, out.now, &validation);
+        }
+        if (!applied) {
+            // The state moved partway: nothing of this batch may be
+            // written, and the ledger must be reopened.
+            failed = true;
+            out.fatal = true;
+            out.entries.clear();
+            out.results.emplace_back(std::unexpected(applied.error()));
+            for (auto& r : out.results) {
+                if (r && r->index >= out.first) {
+                    r = std::unexpected(applied.error());
+                }
+            }
+            while (out.results.size() < n) {
+                out.results.emplace_back(std::unexpected(applied.error()));
+            }
+            return out;
+        }
+        out.entries.push_back(std::move(*encoded));
+        out.results.emplace_back(Registration{statement.id, index, out.now, true});
+    }
+    if (!out.entries.empty()) {
+        staged_end = out.first + out.entries.size();
+        staged_times[out.first] = {staged_end, out.now};
+        last_registered_at = out.now;
+    }
+    return out;
+}
+
+Result<protocol::Timestamp> Ledger::Impl::registration_time(std::uint64_t index,
+                                                            std::uint64_t durable,
+                                                            protocol::Timestamp now) const {
+    if (index < durable) {
+        const std::shared_lock lock(log_mutex);
+        auto bytes = log.read(index);
+        auto entry = bytes ? protocol::decode_log_entry(*bytes)
+                           : Result<protocol::LogEntry>(std::unexpected(bytes.error()));
+        if (!entry) {
+            return std::unexpected(entry.error());
+        }
+        return entry->registered_at;
+    }
+    // In a batch still syncing, or in this one.
+    if (auto it = staged_times.upper_bound(index); it != staged_times.begin()) {
+        --it;
+        if (index < it->second.first) {
+            return it->second.second;
+        }
+    }
+    return now;
+}
+
+std::vector<Result<Registration>> Ledger::submit_batch(std::span<const ByteView> signed_statements,
+                                                       std::optional<protocol::Timestamp> at,
+                                                       Offers offers) {
+    impl_->drain();
+    if (auto s = impl_->require_usable(); !s) {
+        return std::vector<Result<Registration>>(signed_statements.size(),
+                                                 std::unexpected(s.error()));
+    }
+    Impl::Staged staged = impl_->stage(signed_statements, at, std::move(offers));
+    if (staged.entries.empty()) {
+        return std::move(staged.results);
     }
     // One sync for the batch, with no lock held: readers carry on, and see
     // the entries once they are durable. If the files cannot catch up with
     // the state, the ledger must be reopened.
-    const std::vector<ByteView> views(entries.begin(), entries.end());
+    const std::vector<ByteView> views(staged.entries.begin(), staged.entries.end());
     Status written;
     if (auto pending = impl_->log.write(views)) {
         const std::unique_lock lock(impl_->log_mutex);
@@ -856,29 +1131,51 @@ std::vector<Result<Registration>> Ledger::submit_batch(std::span<const ByteView>
         impl_->failed = true;
         // Every registration in this batch, including a repeat of one made
         // earlier in it.
-        for (auto& r : results) {
-            if (r && r->index >= first) {
+        for (auto& r : staged.results) {
+            if (r && r->index >= staged.first) {
                 r = std::unexpected(written.error());
             }
         }
-        return results;
     }
-    impl_->last_registered_at = now;
-    return results;
+    return std::move(staged.results);
+}
+
+void Ledger::submit_batch_pipelined(std::span<const ByteView> signed_statements, Durable durable,
+                                    std::optional<protocol::Timestamp> at, Offers offers) {
+    Impl::Commit commit;
+    commit.durable = std::move(durable);
+    if (auto s = impl_->require_usable(); !s) {
+        commit.results.assign(signed_statements.size(), std::unexpected(s.error()));
+    } else {
+        Impl::Staged staged = impl_->stage(signed_statements, at, std::move(offers));
+        commit.entries = std::move(staged.entries);
+        commit.first = staged.first;
+        commit.results = std::move(staged.results);
+    }
+    {
+        const std::lock_guard lock(impl_->commit_mutex);
+        if (!impl_->commit_thread.joinable()) {
+            impl_->commit_thread = std::thread([impl = impl_.get()] { impl->run_commits(); });
+        }
+        impl_->commits.push_back(std::move(commit));
+    }
+    impl_->commit_wake.notify_one();
+}
+
+void Ledger::wait_durable() {
+    impl_->drain();
 }
 
 Status Ledger::append_entries(std::span<const Bytes> entries) {
+    impl_->drain(); // pipelined batches first
     if (auto s = impl_->require_usable(); !s) {
         return s;
     }
-    // Check and apply in memory (signatures on all cores), then write the
-    // valid prefix at once: one sync. Entries before a bad one are kept.
+    // Check and apply in memory (signatures and contract runs on all cores,
+    // the state locked only to change it), then write the valid prefix at
+    // once: one sync. Entries before a bad one are kept.
     const std::vector<ByteView> views(entries.begin(), entries.end());
-    Impl::Replayed replayed;
-    {
-        const std::unique_lock lock(impl_->state_mutex);
-        replayed = impl_->replay(views, impl_->tree.size());
-    }
+    const Impl::Replayed replayed = impl_->replay(views, impl_->tree.size(), true);
     if (replayed.fatal) {
         impl_->failed = true;
         return std::unexpected(*replayed.error);
@@ -903,6 +1200,7 @@ Status Ledger::append_entries(std::span<const Bytes> entries) {
 }
 
 Status Ledger::store_checkpoint(ByteView encoded) {
+    impl_->drain(); // pipelined batches first
     if (auto s = impl_->require_usable(); !s) {
         return s;
     }
@@ -924,6 +1222,7 @@ Status Ledger::store_checkpoint(ByteView encoded) {
 }
 
 Result<RefreshReport> Ledger::refresh(FileSystem& fs, bool recover) {
+    impl_->drain(); // pipelined batches first
     if (auto s = impl_->require_usable(); !s) {
         return std::unexpected(s.error());
     }
@@ -1156,6 +1455,7 @@ Result<std::vector<StoredCosignature>> Ledger::cosignatures(std::uint64_t start,
 }
 
 Status Ledger::add_cosignature(ByteView encoded, const crypto::PublicKey& witness) {
+    impl_->drain(); // pipelined batches first
     if (std::ranges::any_of(impl_->state.log_keys(),
                             [&](const protocol::KeyEpoch& e) { return e.key == witness; })) {
         return fail(Errc::rejected, "the log key cannot witness its own checkpoints");
@@ -1319,6 +1619,7 @@ Result<protocol::SignedCheckpoint> Ledger::checkpoint(const crypto::Signer& log_
 }
 
 Result<protocol::SignedCheckpoint> Ledger::checkpoint(LogKeys log_keys) {
+    impl_->drain(); // pipelined batches first
     if (auto s = impl_->require_usable(); !s) {
         return std::unexpected(s.error());
     }
@@ -1408,6 +1709,7 @@ Result<protocol::SignedCheckpoint> Ledger::checkpoint(LogKeys log_keys) {
 }
 
 Result<Ledger::PreparedCheckpoint> Ledger::prepare_checkpoint(LogKeys log_keys) {
+    impl_->drain(); // pipelined batches first
     if (auto s = impl_->require_usable(); !s) {
         return std::unexpected(s.error());
     }
@@ -1476,6 +1778,7 @@ Result<Ledger::PreparedCheckpoint> Ledger::prepare_checkpoint(LogKeys log_keys) 
 }
 
 Status Ledger::apply_checkpoint(const std::optional<Bytes>& commitment, ByteView checkpoint) {
+    impl_->drain(); // pipelined batches first
     if (commitment) {
         auto entry = protocol::decode_log_entry(*commitment);
         auto signed_commitment =

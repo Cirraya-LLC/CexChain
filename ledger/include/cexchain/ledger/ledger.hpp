@@ -115,6 +115,16 @@ public:
     /// the files were found not to validate: the ledger must be reopened.
     [[nodiscard]] bool usable() const noexcept;
 
+    /// Contract calls run ahead of their validation, in parallel (D-056
+    /// P7), and how many of those runs validation took: the rest ran again,
+    /// their input having changed (an earlier statement of the batch moved
+    /// what they read).
+    struct RunsAhead {
+        std::uint64_t made = 0;
+        std::uint64_t taken = 0;
+    };
+    [[nodiscard]] RunsAhead runs_ahead() const noexcept;
+
     /// The log index of a durable statement.
     [[nodiscard]] std::optional<std::uint64_t> statement_index(const protocol::Id& id) const;
     /// Calls `read` with the state, safe alongside the writer.
@@ -132,9 +142,38 @@ public:
     /// With `at`, the batch is registered at max(`at`, the last registration
     /// time) instead of the clock's time: a cluster's nodes apply one batch
     /// at the time its leader chose, so they all keep the same entries.
+    ///
+    /// `offers` (one slot per statement, or empty) are runs of the calls the
+    /// caller made ahead, say dry runs on the state it read: validation
+    /// takes one only if its input is the one built in turn (see
+    /// protocol::Validation::offer). The ledger runs the other calls ahead
+    /// itself, in parallel.
+    using Offers = std::vector<std::optional<protocol::ContractRun>>;
     [[nodiscard]] std::vector<Result<Registration>>
     submit_batch(std::span<const ByteView> signed_statements,
-                 std::optional<protocol::Timestamp> at = std::nullopt);
+                 std::optional<protocol::Timestamp> at = std::nullopt, Offers offers = {});
+
+    /// What became of a pipelined batch, once its entries are durable (or
+    /// writing them failed). Called on the ledger's commit thread, in the
+    /// order the batches were submitted; it must not call the ledger's
+    /// writing methods, and should be quick (the next sync waits for it).
+    using Durable = std::function<void(std::vector<Result<Registration>>)>;
+
+    /// submit_batch, pipelined (D-056 P7): returns once the batch is
+    /// validated and applied in memory; its entries are written and synced
+    /// on the ledger's commit thread, together with any batches submitted
+    /// meanwhile (one sync for all), and then `durable` gets the results.
+    /// The next batch is validated while this one syncs. As with
+    /// submit_batch, readers see the entries (and statement_index finds
+    /// them) only once they are durable. Every other method that writes
+    /// waits for the batches in flight first.
+    void submit_batch_pipelined(std::span<const ByteView> signed_statements, Durable durable,
+                                std::optional<protocol::Timestamp> at = std::nullopt,
+                                Offers offers = {});
+
+    /// Waits until every pipelined batch is durable or has failed, and its
+    /// `durable` has returned.
+    void wait_durable();
 
     /// Appends log entries copied from the original ledger, in order from
     /// index `size()`. Each must pass the checks a replay applies: time
