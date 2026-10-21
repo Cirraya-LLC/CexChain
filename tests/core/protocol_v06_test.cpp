@@ -281,3 +281,84 @@ TEST_CASE("v0.6 contracts: a call runs once, its validation reused only where it
     }
     CHECK(calls > 0);
 }
+
+TEST_CASE("v0.6 contracts: a run offered ahead is taken only for the input built at validation",
+          "[protocol][vectors][contracts]") {
+    // A run made ahead of time (another thread, an earlier state) stands in
+    // for the call's run only if its input bytes are the ones validate()
+    // builds; any other is dropped and the call runs.
+    const auto document = load_vectors("protocol-v0.6.json");
+    const auto t0 = document["t0"].get<protocol::Timestamp>();
+    const auto same_run = [](const protocol::ContractRun& a, const protocol::ContractRun& b) {
+        return a.input == b.input && a.outcome.trap == b.outcome.trap &&
+               a.outcome.output == b.outcome.output && a.outcome.fuel_used == b.outcome.fuel_used;
+    };
+    std::size_t taken = 0;
+    std::size_t dropped = 0;
+    for (const auto& ledger : document["ledgers"]) {
+        const auto hash = *crypto::hash_alg_from_cose(ledger["hash"].get<std::int64_t>());
+        std::vector<protocol::SignedStatement> statements;
+        for (const auto& st : ledger["statements"]) {
+            statements.push_back(
+                *protocol::parse_statement(provider(), hex(text(st["encoded"])), hash));
+        }
+        auto state = protocol::LedgerState::from_genesis(provider(), statements.front());
+        REQUIRE(state);
+        // The state as it was before the previous statement, and that
+        // statement's id: runs made on it are stale once it changed things.
+        std::optional<protocol::LedgerState> before;
+        for (std::size_t i = 1; i < statements.size(); ++i) {
+            INFO(i);
+            const protocol::SignedStatement& s = statements[i];
+            const protocol::Timestamp at = t0 + 1000 + i;
+            const bool is_call =
+                std::holds_alternative<protocol::ContractCallBody>(s.statement.body);
+            if (is_call) {
+                const auto fresh = state->run_contract(provider(), s, at);
+                REQUIRE(fresh);
+                // Made on this state at this time: taken.
+                protocol::Validation v;
+                v.offer(*fresh);
+                REQUIRE(state->validate(provider(), s, at, nullptr, &v));
+                CHECK(v.took_offer());
+                REQUIRE(v.run() != nullptr);
+                CHECK(same_run(*v.run(), *fresh));
+                ++taken;
+                // Made at another time: dropped, and the call runs.
+                if (auto later = state->run_contract(provider(), s, at + 1)) {
+                    protocol::Validation w;
+                    w.offer(std::move(*later));
+                    REQUIRE(state->validate(provider(), s, at, nullptr, &w));
+                    CHECK_FALSE(w.took_offer());
+                    CHECK(same_run(*w.run(), *fresh));
+                    ++dropped;
+                }
+                // Made on the state before the previous statement: taken
+                // exactly when the input is the same.
+                if (before) {
+                    if (auto old = before->run_contract(provider(), s, at)) {
+                        const bool same_input = old->input == fresh->input;
+                        protocol::Validation w;
+                        w.offer(std::move(*old));
+                        REQUIRE(state->validate(provider(), s, at, nullptr, &w));
+                        CHECK(w.took_offer() == same_input);
+                        CHECK(same_run(*w.run(), *fresh));
+                        ++(same_input ? taken : dropped);
+                    }
+                }
+                // The next validate never sees an offer made for this one.
+                protocol::Validation once;
+                once.offer(*fresh);
+                (void)state->validate(provider(), statements.front(), at, nullptr, &once);
+                CHECK_FALSE(once.took_offer());
+                (void)state->validate(provider(), s, at, nullptr, &once);
+                CHECK_FALSE(once.took_offer());
+            }
+            before = *state;
+            REQUIRE(state->validate(provider(), s, at));
+            REQUIRE(state->apply(provider(), s, i, at));
+        }
+    }
+    CHECK(taken > 0);
+    CHECK(dropped > 0);
+}

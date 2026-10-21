@@ -176,6 +176,13 @@ Result<ContractSigner> LedgerState::contract_signer(const Statement& statement) 
 Result<ContractRun> LedgerState::run_contract(const crypto::Provider& provider,
                                               const SignedStatement& signed_statement,
                                               Timestamp now) const {
+    return run_contract(provider, signed_statement, now, nullptr, nullptr);
+}
+
+Result<ContractRun> LedgerState::run_contract(const crypto::Provider& provider,
+                                              const SignedStatement& signed_statement,
+                                              Timestamp now, std::optional<ContractRun>* offered,
+                                              bool* took_offer) const {
     const Statement& statement = signed_statement.statement;
     const auto* call = std::get_if<ContractCallBody>(&statement.body);
     if (call == nullptr || !statement.actor_id) {
@@ -231,6 +238,16 @@ Result<ContractRun> LedgerState::run_contract(const crypto::Provider& provider,
     }
     ContractRun run;
     CEXCHAIN_TRY(run.input, encode_contract_input(input));
+    // A run made ahead of time on this very input is this run: the input
+    // names the contract, whose module never changes.
+    if (offered != nullptr && *offered && (*offered)->input == run.input) {
+        run = std::move(**offered);
+        offered->reset();
+        if (took_offer != nullptr) {
+            *took_offer = true;
+        }
+        return run;
+    }
     CEXCHAIN_TRY(run.outcome, vm::run(*contract->module, run.input, provider, hash_));
     if (!run.outcome.trap) {
         if (auto output = decode_contract_output(run.outcome.output, ledger_id_)) {
@@ -243,9 +260,10 @@ Result<ContractRun> LedgerState::run_contract(const crypto::Provider& provider,
 }
 
 Result<ContractRun> LedgerState::accepted_run(const crypto::Provider& provider,
-                                              const SignedStatement& signed_call,
-                                              Timestamp now) const {
-    CEXCHAIN_TRY(ContractRun run, run_contract(provider, signed_call, now));
+                                              const SignedStatement& signed_call, Timestamp now,
+                                              std::optional<ContractRun>* offered,
+                                              bool* took_offer) const {
+    CEXCHAIN_TRY(ContractRun run, run_contract(provider, signed_call, now, offered, took_offer));
     if (run.outcome.trap == vm::Trap::aborted) {
         return fail(Errc::rejected, "the contract rejected the call");
     }
@@ -372,8 +390,13 @@ std::optional<std::string> LedgerState::record_type_of(const Statement& statemen
 Status LedgerState::validate(const crypto::Provider& provider,
                              const SignedStatement& signed_statement, Timestamp now,
                              const SignatureCheck* checked, Validation* validation) const {
+    // The offered run is this call's to take, or dropped.
+    std::optional<ContractRun> offered;
     if (validation != nullptr) {
         validation->run_.reset();
+        validation->took_offer_ = false;
+        offered = std::move(validation->offered_);
+        validation->offered_.reset();
     }
     const Statement& statement = signed_statement.statement;
     if (statement.type() == StatementType::genesis) {
@@ -449,7 +472,8 @@ Status LedgerState::validate(const crypto::Provider& provider,
     }
     // A call is registered only if its contract accepts it (spec section 15).
     if (std::holds_alternative<ContractCallBody>(statement.body)) {
-        auto run = accepted_run(provider, signed_statement, now);
+        auto run = accepted_run(provider, signed_statement, now, &offered,
+                                validation != nullptr ? &validation->took_offer_ : nullptr);
         if (!run) {
             return std::unexpected(run.error());
         }

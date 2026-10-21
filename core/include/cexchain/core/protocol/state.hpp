@@ -127,6 +127,12 @@ private:
 /// state. `apply` uses it only if all three still hold (the state's stamp
 /// is the one `validate` saw: it changes with every apply), else it runs the
 /// call again. Debug builds run it again anyway and compare.
+///
+/// A run made ahead of time (on another thread, on an earlier state: see
+/// `offer`) is used by the next `validate` only if the input it builds for
+/// the call is byte for byte that run's: a run is a function of its module
+/// and its input, and the input names the contract, whose module never
+/// changes once deployed.
 class Validation {
 public:
     /// The accepted run of the contract call `validate` passed: null for
@@ -136,13 +142,23 @@ public:
     /// the call again.
     [[nodiscard]] bool reused() const noexcept { return reused_; }
 
+    /// Offers the next `validate` a run of its call made ahead of time
+    /// (`LedgerState::run_contract`, say on an earlier state). `validate`
+    /// drops it either way.
+    void offer(ContractRun run) { offered_ = std::move(run); }
+    /// Whether the last `validate` given this took the offered run (its
+    /// input was the one it built) instead of running the call.
+    [[nodiscard]] bool took_offer() const noexcept { return took_offer_; }
+
 private:
     friend class LedgerState;
     Id statement_;
     Timestamp time_ = 0;
     std::uint64_t stamp_ = 0;
     std::optional<ContractRun> run_;
+    std::optional<ContractRun> offered_;
     bool reused_ = false;
+    bool took_offer_ = false;
 };
 
 class LedgerState {
@@ -270,10 +286,18 @@ private:
     [[nodiscard]] std::optional<Id> contract_of(const Statement& statement) const;
     /// Runs a call's contract and requires it to accept, and any children it
     /// creates (v0.7: the contract not retired, the instance below the depth
-    /// limit) and requests it makes (v0.8) to be allowed.
+    /// limit) and requests it makes (v0.8) to be allowed. An `offered` run
+    /// whose input is the one built here is taken (and reset) instead of
+    /// running the contract.
     [[nodiscard]] Result<ContractRun> accepted_run(const crypto::Provider& provider,
                                                    const SignedStatement& signed_call,
-                                                   Timestamp now) const;
+                                                   Timestamp now,
+                                                   std::optional<ContractRun>* offered = nullptr,
+                                                   bool* took_offer = nullptr) const;
+    [[nodiscard]] Result<ContractRun> run_contract(const crypto::Provider& provider,
+                                                   const SignedStatement& call, Timestamp now,
+                                                   std::optional<ContractRun>* offered,
+                                                   bool* took_offer) const;
 
     Id ledger_id_;
     crypto::HashAlg hash_ = crypto::HashAlg::sha256;
