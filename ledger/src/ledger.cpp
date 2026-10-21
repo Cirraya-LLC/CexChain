@@ -177,6 +177,8 @@ struct Ledger::Impl {
     std::deque<Commit> commits;
     bool commit_busy = false;
     bool commit_stop = false;
+    /// Batches queued wait for release_commits (or a drain).
+    bool commit_hold = false;
     std::thread commit_thread;
     /// The writer's: the log index after the last entry it staged, and the
     /// registration time of each batch in flight, by its first index (for
@@ -225,6 +227,10 @@ struct Ledger::Impl {
     /// queued and called back.
     void drain() {
         std::unique_lock lock(commit_mutex);
+        if (commit_hold) {
+            commit_hold = false;
+            commit_wake.notify_all();
+        }
         commit_idle.wait(lock, [&] { return commits.empty() && !commit_busy; });
     }
 
@@ -233,7 +239,8 @@ struct Ledger::Impl {
     void run_commits() {
         std::unique_lock lock(commit_mutex);
         for (;;) {
-            commit_wake.wait(lock, [&] { return commit_stop || !commits.empty(); });
+            commit_wake.wait(lock,
+                             [&] { return commit_stop || (!commits.empty() && !commit_hold); });
             if (commits.empty()) {
                 return; // stopping, with nothing left
             }
@@ -1164,6 +1171,19 @@ void Ledger::submit_batch_pipelined(std::span<const ByteView> signed_statements,
 
 void Ledger::wait_durable() {
     impl_->drain();
+}
+
+void Ledger::hold_commits() {
+    const std::lock_guard lock(impl_->commit_mutex);
+    impl_->commit_hold = true;
+}
+
+void Ledger::release_commits() {
+    {
+        const std::lock_guard lock(impl_->commit_mutex);
+        impl_->commit_hold = false;
+    }
+    impl_->commit_wake.notify_all();
 }
 
 Status Ledger::append_entries(std::span<const Bytes> entries) {

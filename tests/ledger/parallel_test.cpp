@@ -492,6 +492,11 @@ TEST_CASE("ledger: pipelined groups give what one at a time gives, each answered
             groups.push_back(group);
         }
         const std::vector<ByteView> views(group.begin(), group.end());
+        // Some groups are held back to be written with the next ones (one
+        // sync for several), as a server's round does.
+        if (round % 3 == 0) {
+            p.batch.ledger().hold_commits();
+        }
         p.batch.ledger().submit_batch_pipelined(
             views, [&, size = group.size()](std::vector<cexchain::Result<ledger::Registration>> r) {
                 // Called once its entries are durable: the readers' size
@@ -504,6 +509,9 @@ TEST_CASE("ledger: pipelined groups give what one at a time gives, each answered
                 durable_first = durable_first && r.size() == size;
                 answers.push_back(std::move(r));
             });
+        if (round % 3 == 2) {
+            p.batch.ledger().release_commits();
+        }
         std::vector<std::optional<std::uint64_t>> indexes;
         for (const Bytes& b : group) {
             const auto one = p.single.ledger().submit(b);

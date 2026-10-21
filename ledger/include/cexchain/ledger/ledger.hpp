@@ -175,6 +175,14 @@ public:
     /// `durable` has returned.
     void wait_durable();
 
+    /// Holds pipelined batches back from the commit thread (a write already
+    /// under way finishes), so that several batches submitted in a row are
+    /// written with one sync: until release_commits, or until anything
+    /// waits for the batches in flight (wait_durable, submit_batch, every
+    /// other writing method), which releases them first.
+    void hold_commits();
+    void release_commits();
+
     /// Appends log entries copied from the original ledger, in order from
     /// index `size()`. Each must pass the checks a replay applies: time
     /// order, statements valid under the ledger's rules when they were
