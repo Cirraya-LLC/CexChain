@@ -44,6 +44,10 @@ struct Load {
     std::atomic<std::size_t> next = 0;
     /// With a duration, requests repeat until it is over; else each goes once.
     std::optional<Clock::time_point> until;
+    /// Set to end a load that repeats until told (readers alongside writes).
+    std::atomic<bool> stop = false;
+    /// While set, answers are not timed (readers between rounds of calls).
+    std::atomic<bool> quiet = false;
 };
 
 /// What one connection saw.
@@ -111,7 +115,8 @@ asio::awaitable<void> connection(tcp::endpoint server, Load& load, Tally& tally,
     std::array<char, 16 * 1024> chunk{};
     for (;;) {
         const std::size_t i = load.next.fetch_add(1, std::memory_order_relaxed);
-        if (load.until ? Clock::now() >= *load.until : i >= load.requests.size()) {
+        if (load.stop.load(std::memory_order_relaxed) ||
+            (load.until ? Clock::now() >= *load.until : i >= load.requests.size())) {
             co_return;
         }
         const std::string& request = load.requests[i % load.requests.size()];
@@ -137,7 +142,9 @@ asio::awaitable<void> connection(tcp::endpoint server, Load& load, Tally& tally,
         buffer.erase(0, head->second);
         const auto us =
             std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - started);
-        tally.latencies_us.push_back(static_cast<std::uint32_t>(us.count()));
+        if (!load.quiet.load(std::memory_order_relaxed)) {
+            tally.latencies_us.push_back(static_cast<std::uint32_t>(us.count()));
+        }
         if (head->first < 200 || head->first >= 300) {
             ++tally.bad_statuses;
         }
@@ -336,7 +343,27 @@ int http_bench(const Options& options) {
     std::vector<Tally> tallies(connections);
     const tcp::endpoint endpoint(asio::ip::make_address("127.0.0.1"), server.port());
     double wall_ms = 0;
+    // Readers alongside the calls (`--readers N`): connections that read
+    // the state (GET /v1/status) on their own thread until the calls end,
+    // to show how long reads wait behind the writer.
+    const std::uint64_t readers = mode == "call" ? options.number("readers", 0) : 0;
+    Load reads;
+    std::vector<Tally> read_tallies(readers);
+    asio::io_context read_loop(1);
+    std::thread reading;
+    if (readers > 0) {
+        reads.requests.push_back(get_request("/v1/status", read_token));
+        reads.until = Clock::now() + std::chrono::hours(24);
+        for (std::uint64_t c = 0; c < readers; ++c) {
+            asio::co_spawn(
+                read_loop,
+                connection(endpoint, reads, read_tallies[c], std::chrono::milliseconds(0)),
+                asio::detached);
+        }
+        reading = std::thread([&] { read_loop.run(); });
+    }
     auto run_load = [&](Load& l) {
+        reads.quiet = false;
         const auto started = Clock::now();
         for (std::uint64_t c = 0; c < connections; ++c) {
             asio::co_spawn(*loops[c % loops.size()],
@@ -354,6 +381,7 @@ int http_bench(const Options& options) {
             t.join();
         }
         wall_ms += elapsed_ms(started);
+        reads.quiet = true;
     };
     if (mode == "call") {
         double signing_ms = 0;
@@ -388,6 +416,10 @@ int http_bench(const Options& options) {
             load.until = Clock::now() + std::chrono::seconds(seconds);
         }
         run_load(load);
+    }
+    if (reading.joinable()) {
+        reads.stop = true;
+        reading.join();
     }
     server.stop();
     serving.join();
@@ -429,6 +461,29 @@ int http_bench(const Options& options) {
     results.add("latency p50", percentile(0.50), "us");
     results.add("latency p99", percentile(0.99), "us");
     results.add("latency p99.9", percentile(0.999), "us");
+    if (readers > 0) {
+        std::vector<std::uint32_t> read_latencies;
+        std::uint64_t read_errors = 0;
+        for (const Tally& t : read_tallies) {
+            read_latencies.insert(read_latencies.end(), t.latencies_us.begin(),
+                                  t.latencies_us.end());
+            read_errors += t.failed_connects + t.io_errors + t.bad_statuses;
+        }
+        std::ranges::sort(read_latencies);
+        auto read_percentile = [&](double p) {
+            return read_latencies.empty()
+                       ? 0.0
+                       : static_cast<double>(read_latencies[static_cast<std::size_t>(
+                             p * static_cast<double>(read_latencies.size() - 1))]);
+        };
+        results.add("reads alongside (connections)", static_cast<double>(readers), "");
+        results.add("reads", static_cast<double>(read_latencies.size()), "");
+        results.add("read errors", static_cast<double>(read_errors), "");
+        results.add("read latency p50", read_percentile(0.50), "us");
+        results.add("read latency p99", read_percentile(0.99), "us");
+        results.add("read latency p99.9", read_percentile(0.999), "us");
+        results.add("read latency max", read_percentile(1.0), "us");
+    }
     results.add("ledger entries", static_cast<double>(api->ledger().size()), "");
     results.print(options.flag("json"));
     api.reset();

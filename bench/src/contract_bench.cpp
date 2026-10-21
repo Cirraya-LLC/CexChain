@@ -186,6 +186,10 @@ void contracts_of(const std::string& name, const Options& options, Results& resu
     must(home.ledger().checkpoint(home.log_key()), "checkpoint");
     results.add(p + "checkpoint", elapsed_ms(started), "ms");
     const auto entries = home.ledger().size();
+    // The log's root: the same before and after a change that must not
+    // change what is registered.
+    std::println(stderr, "{}log root {}", p,
+                 to_hex(must(home.ledger().root(entries), "root").bytes()));
     const double open_ms = home.reopen();
     results.add(p + "entries", static_cast<double>(entries), "");
     results.add(p + "open (full replay)", open_ms, "ms");
