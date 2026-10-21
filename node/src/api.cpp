@@ -434,6 +434,11 @@ struct LedgerApi::State {
     bool writing = false;
     bool stopping = false;
     std::thread writer;
+    /// The ledger directory's lock, the writer's, kept from one group to the
+    /// next while statements are still syncing (D-056 P7: the next group
+    /// validates meanwhile), so no other process writes in between and no
+    /// catch-up is needed; let go once the writer runs out of work.
+    std::optional<ledger::DirectoryLock> held_lock;
 
     /// The writer's: the registrar's pending contract calls (with a
     /// registrar). Randomness for the statements the server signs (the
@@ -597,6 +602,14 @@ struct LedgerApi::State {
             bool stopped = false;
             {
                 std::unique_lock lock(queue_mutex);
+                if (held_lock && !stopping && submissions.empty() && locked.empty() &&
+                    after_refresh.empty()) {
+                    // Out of work: what is syncing finishes, and other
+                    // processes get the directory.
+                    lock.unlock();
+                    release_lock();
+                    lock.lock();
+                }
                 writing = false;
                 queue_idle.notify_all();
                 queue_ready.wait(lock, [&] {
@@ -626,6 +639,7 @@ struct LedgerApi::State {
                 for (Job& read : reads) {
                     read(); // the ledger is still there, and reads are quick
                 }
+                release_lock();
                 const std::lock_guard lock(queue_mutex);
                 writing = false;
                 queue_idle.notify_all();
@@ -647,7 +661,9 @@ struct LedgerApi::State {
                 }
             }
             if (!reads.empty()) {
-                if (!caught_up) {
+                // Holding the directory's lock since the last catch-up, the
+                // writer is caught up: no other process can have written.
+                if (!caught_up && !held_lock) {
                     static_cast<void>(refresh(false)); // a failure answers the reads
                 }
                 ledger::parallel_for(reads.size(), [&](std::size_t begin, std::size_t end) {
@@ -661,21 +677,29 @@ struct LedgerApi::State {
 
     /// One group commit: the queued statements in one batch, then the other
     /// writes, all under one lock of the directory. True if it caught up
-    /// with the files.
+    /// with the files. The statements' batch is pipelined (D-056 P7): it is
+    /// validated and applied here, and answered from the ledger's commit
+    /// thread once it is durable, while this thread goes on with the next
+    /// group; the directory's lock is kept until the writer runs out of work.
     bool write_group(std::vector<Submission>& batch, std::vector<Queued>& jobs) {
         if (cluster) {
             write_cluster_group(batch, jobs);
             return true;
         }
         std::optional<http::Response> refusal;
-        auto lock = ledger::DirectoryLock::acquire(options.directory, 2000);
         if (failed) {
             refusal = error_response(503, "unavailable", "the ledger is unusable");
-        } else if (!lock) {
-            refusal = error_response(503, "unavailable", "the ledger is busy; retry");
-            refusal->headers.emplace_back("Retry-After", "1");
-        } else if (auto s = refresh(true); !s) {
-            refusal = error_response(503, "unavailable", "the ledger is unusable");
+        } else if (!held_lock) {
+            // Not held since a catch-up: take it, then catch up.
+            auto lock = ledger::DirectoryLock::acquire(options.directory, 2000);
+            if (!lock) {
+                refusal = error_response(503, "unavailable", "the ledger is busy; retry");
+                refusal->headers.emplace_back("Retry-After", "1");
+            } else if (auto s = refresh(true); !s) {
+                refusal = error_response(503, "unavailable", "the ledger is unusable");
+            } else {
+                held_lock.emplace(std::move(*lock));
+            }
         }
         if (refusal) {
             for (Submission& s : batch) {
@@ -686,27 +710,53 @@ struct LedgerApi::State {
             }
             return false;
         }
+        // The round's batches (the statements', the registrar's) are
+        // written with one sync, once the round is over or something waits
+        // for them.
+        ledger->hold_commits();
+        struct Release {
+            explicit Release(ledger::Ledger& held) : target(held) {}
+            Release(const Release&) = delete;
+            Release& operator=(const Release&) = delete;
+            ~Release() { target.release_commits(); }
+            ledger::Ledger& target;
+        } const release(*ledger);
         if (!batch.empty()) {
             std::vector<ByteView> views;
             views.reserve(batch.size());
             for (const Submission& s : batch) {
                 views.emplace_back(s.statement);
             }
-            auto results = ledger->submit_batch(views);
-            for (std::size_t i = 0; i < batch.size(); ++i) {
-                auto response = registration_response(results[i]);
-                if (results[i] && batch[i].vault) {
-                    response =
-                        store_vault(results[i]->statement_id, *batch[i].vault, std::move(response));
-                }
-                finish(batch[i].done, batch[i].principal, std::move(response));
-            }
+            // The statements stay alive (and their answers wait) until the
+            // batch is durable.
+            auto held = std::make_shared<std::vector<Submission>>(std::move(batch));
+            batch.clear();
+            ledger->submit_batch_pipelined(
+                views, [this, held](std::vector<Result<ledger::Registration>> results) {
+                    for (std::size_t i = 0; i < held->size(); ++i) {
+                        Submission& s = (*held)[i];
+                        auto response = registration_response(results[i]);
+                        if (results[i] && s.vault) {
+                            response = store_vault(results[i]->statement_id, *s.vault,
+                                                   std::move(response));
+                        }
+                        finish(s.done, s.principal, std::move(response));
+                    }
+                    check_waiters(false); // a long poll learns of new requests at once
+                });
         }
         run_jobs(jobs);
-        if (!batch.empty()) {
-            check_waiters(false); // a long poll learns of new requests at once
-        }
         return true;
+    }
+
+    /// Once the writer runs out of work: waits for the statements still
+    /// syncing, then lets go of the directory's lock (other processes may
+    /// write; the next group catches up first).
+    void release_lock() {
+        if (held_lock) {
+            ledger->wait_durable();
+            held_lock.reset();
+        }
     }
 
     /// The locked jobs of a group, in order. Consecutive registrar jobs make
@@ -2063,6 +2113,9 @@ struct LedgerApi::State {
         protocol::SignedStatement statement;
         Sidecar sidecar;
         CallProgress progress;
+        /// Its consents file is to be written at the commit (none was kept
+        /// yet): all of the group's at once, before the calls are recorded.
+        bool write_consents = false;
     };
     /// An answer held for the commit: given as it is, or, for a consent
     /// whose call the group records, made from what became of the call.
@@ -2136,7 +2189,30 @@ struct LedgerApi::State {
         }
         RegistrarGroup group = std::move(registrar);
         registrar = {};
+        // The consents files of the calls to record, written and synced at
+        // once (D-056 P7), then their directory: a call is recorded only
+        // with its consents kept.
+        std::vector<std::optional<Error>> unkept(group.records.size());
         if (group.consents_written) {
+            std::error_code ec;
+            std::filesystem::create_directories(contract_consents_directory(options.directory), ec);
+            ledger::parallel_for(
+                group.records.size(),
+                [&](std::size_t begin, std::size_t end) {
+                    for (std::size_t i = begin; i < end; ++i) {
+                        const RegistrarRecord& r = group.records[i];
+                        if (!r.write_consents) {
+                            continue;
+                        }
+                        if (auto s = detail::write_file(
+                                contract_consents_path(options.directory, r.statement.id),
+                                r.sidecar.bytes, true, false);
+                            !s) {
+                            unkept[i] = s.error();
+                        }
+                    }
+                },
+                2);
             detail::sync_directory(contract_consents_directory(options.directory));
         }
         if (group.pending_written) {
@@ -2146,20 +2222,44 @@ struct LedgerApi::State {
         if (!group.records.empty()) {
             std::vector<ByteView> views;
             std::vector<std::optional<Sidecar>> sidecars;
-            for (const RegistrarRecord& r : group.records) {
+            ledger::Ledger::Offers offers;
+            std::vector<std::size_t> recorded;
+            for (std::size_t i = 0; i < group.records.size(); ++i) {
+                RegistrarRecord& r = group.records[i];
+                if (unkept[i]) {
+                    continue;
+                }
                 views.emplace_back(r.statement.encoded);
                 sidecars.emplace_back(r.sidecar);
+                offers.push_back(std::move(r.progress.run));
+                recorded.push_back(i);
             }
-            std::vector<Result<ledger::Registration>> results;
-            if (cluster) {
-                auto batch = cluster->submit(views, sidecars, now);
-                if (batch) {
-                    results = std::move(*batch);
+            std::vector<Result<ledger::Registration>> batch;
+            if (views.empty()) {
+                // Nothing to record.
+            } else if (cluster) {
+                auto submitted = cluster->submit(views, sidecars, now);
+                if (submitted) {
+                    batch = std::move(*submitted);
                 } else {
-                    results.assign(views.size(), std::unexpected(batch.error()));
+                    batch.assign(views.size(), std::unexpected(submitted.error()));
                 }
             } else {
-                results = ledger->submit_batch(views);
+                // Pipelined behind the round's statements, if any, so that
+                // both are written with one sync; then waited for.
+                ledger->submit_batch_pipelined(
+                    views,
+                    [&batch](std::vector<Result<ledger::Registration>> r) { batch = std::move(r); },
+                    std::nullopt, std::move(offers));
+                ledger->wait_durable();
+            }
+            std::vector<Result<ledger::Registration>> results;
+            for (std::size_t i = 0; i < group.records.size(); ++i) {
+                results.emplace_back(
+                    std::unexpected(unkept[i].value_or(Error{Errc::unavailable, "not recorded"})));
+            }
+            for (std::size_t k = 0; k < recorded.size(); ++k) {
+                results[recorded[k]] = std::move(batch[k]);
             }
             std::vector<http::Response> answers(results.size());
             // What the calls' instances left pending is stale now; and what
@@ -2413,19 +2513,26 @@ struct LedgerApi::State {
             return;
         }
         // Kept first: a registered call always has its consents here. The
-        // directory is synced with the group, before the call is recorded.
-        if (auto s = store_consents_file(contract_consents_path(options.directory, statement.id),
-                                         *encoded, false);
-            !s) {
-            finish(done, principal, error_response(s.error()));
-            return;
+        // group's files are written (and synced) together at its commit,
+        // then their directory, before the calls are recorded.
+        bool write_consents = false;
+        if (auto held =
+                detail::read_file(contract_consents_path(options.directory, statement.id))) {
+            if (!std::ranges::equal(*held, *encoded)) {
+                finish(done, principal,
+                       error_response(
+                           Error{Errc::rejected, "other consent evidence is kept for this call"}));
+                return;
+            }
+        } else {
+            write_consents = true;
+            registrar.consents_written = true;
         }
-        registrar.consents_written = true;
         registrar.instances.insert(protocol::key_of(progress->call.instance));
         const std::size_t k = registrar.records.size();
         registrar.records.push_back({std::move(statement),
                                      Sidecar{Sidecar::Kind::contract_consents, std::move(*encoded)},
-                                     std::move(*progress)});
+                                     std::move(*progress), write_consents});
         registrar.answers.push_back({std::move(done), std::move(principal), {}, k});
     }
 
@@ -2623,6 +2730,9 @@ struct LedgerApi::State {
         /// Its instance moved on before the writer took it: the next pass
         /// looks again.
         bool dropped = false;
+        /// The scan's dry run, offered to the ledger (taken if the call's
+        /// input is the same when it is registered).
+        std::optional<protocol::ContractRun> run = std::nullopt;
     };
 
     /// On the keeper's thread: finds what is due (a slice of the scan, on
@@ -2661,12 +2771,14 @@ struct LedgerApi::State {
             o.keeper = actor;
             o.start = start;
             o.max_runs = keeper_slice_runs;
+            o.keep_runs = true;
             work = find_due(*provider, s, o);
             if (!work) {
                 return;
             }
             std::set<protocol::IdKey> touched;
-            auto take = [&](protocol::ContractCallBody body, bool expiry, std::string detail) {
+            auto take = [&](protocol::ContractCallBody body, bool expiry, std::string detail,
+                            std::optional<protocol::ContractRun>& run) {
                 if (!touched.insert(protocol::key_of(*body.instance)).second) {
                     more = true;
                     return;
@@ -2676,16 +2788,19 @@ struct LedgerApi::State {
                                      .detail = std::move(detail),
                                      .statement = fail(Errc::unavailable, "not prepared"),
                                      .signed_call = fail(Errc::unavailable, "not signed"),
-                                     .dropped = false});
+                                     .dropped = false,
+                                     .run = std::move(run)});
             };
-            for (const DueExpiry& e : work->expiries) {
+            for (DueExpiry& e : work->expiries) {
                 take(expiry_call(e), true,
-                     std::format("request {} ({}) on {}", hex(e.request), e.kind, hex(e.instance)));
+                     std::format("request {} ({}) on {}", hex(e.request), e.kind, hex(e.instance)),
+                     e.run);
             }
-            for (const DueRule& r : work->rules) {
+            for (DueRule& r : work->rules) {
                 take(rule_call(r), false,
                      std::format("{} on {}{}", r.function, hex(r.instance),
-                                 r.late ? std::format(", {} ms late", *r.late) : std::string()));
+                                 r.late ? std::format(", {} ms late", *r.late) : std::string()),
+                     r.run);
             }
             // The statements in order, each with its nonce drawn in turn;
             // the signatures on worker threads.
@@ -2726,17 +2841,22 @@ struct LedgerApi::State {
     /// On the writer: records a slice's due_calls as one group, then tells what
     /// became of each, in order. A call whose instance moved on since the
     /// scan (another write came first) is left for the next pass; `stop`
-    /// is set if this node no longer leads.
+    /// is set if this node no longer leads. Off a cluster the group is
+    /// pipelined (D-056 P7): what became of its calls is told from the
+    /// ledger's commit thread once they are durable, while the keeper scans
+    /// on; the scan's dry runs are offered to the ledger.
     void record_keeper_calls(std::vector<KeeperCall>& due_calls, bool& more, bool& stop) {
         if (cluster && !cluster->leads()) {
             stop = true;
             return;
         }
         std::vector<ByteView> views;
-        std::vector<std::size_t> submitted;
+        ledger::Ledger::Offers offers;
+        // What each submitted call is for: its detail, and whether it expires
+        // a request.
+        auto told = std::make_shared<std::vector<std::pair<std::string, bool>>>();
         ledger->read_state([&](const protocol::LedgerState& s) {
-            for (std::size_t i = 0; i < due_calls.size(); ++i) {
-                KeeperCall& c = due_calls[i];
+            for (KeeperCall& c : due_calls) {
                 if (!c.signed_call) {
                     continue;
                 }
@@ -2747,56 +2867,65 @@ struct LedgerApi::State {
                     continue;
                 }
                 views.emplace_back(c.signed_call->encoded);
-                submitted.push_back(i);
+                offers.push_back(std::move(c.run));
+                told->emplace_back(c.detail, c.expiry);
             }
         });
-        std::vector<Result<ledger::Registration>> results;
-        if (!views.empty()) {
-            if (cluster) {
-                const std::vector<std::optional<Sidecar>> none(views.size());
-                auto batch = cluster->submit(views, none, clock->now());
-                if (batch) {
-                    results = std::move(*batch);
-                } else {
-                    results.assign(views.size(), std::unexpected(batch.error()));
-                }
-            } else {
-                results = ledger->submit_batch(views);
-            }
-        }
-        std::vector<std::optional<Result<ledger::Registration>>> outcome(due_calls.size());
-        for (std::size_t k = 0; k < submitted.size(); ++k) {
-            outcome[submitted[k]] = std::move(results[k]);
-        }
-        bool recorded_any = false;
-        for (std::size_t i = 0; i < due_calls.size(); ++i) {
-            KeeperCall& c = due_calls[i];
-            if (c.dropped) {
-                continue;
-            }
-            const Result<ledger::Registration>& recorded =
-                outcome[i] ? *outcome[i]
-                           : Result<ledger::Registration>(std::unexpected(c.signed_call.error()));
-            if (outcome[i]) {
-                if (!recorded) {
-                    ++refused;
-                } else {
-                    ++(recorded->newly_registered ? registered : duplicates);
-                }
-            }
-            if (!recorded) {
+        // Calls that could not be signed are refused at once.
+        for (const KeeperCall& c : due_calls) {
+            if (!c.dropped && !c.signed_call) {
                 ++keeper_refusals;
-                event("keeper-refused", std::format("{}: {}", c.detail, recorded.error().detail));
-                if (cluster && !cluster->leads()) {
-                    stop = true; // a follower now: the new leader's keeper carries on
+                event("keeper-refused",
+                      std::format("{}: {}", c.detail, c.signed_call.error().detail));
+            }
+        }
+        if (views.empty()) {
+            return;
+        }
+        if (!cluster) {
+            ledger->submit_batch_pipelined(
+                views,
+                [this, told](std::vector<Result<ledger::Registration>> results) {
+                    keeper_recorded(*told, results, nullptr);
+                },
+                std::nullopt, std::move(offers));
+            return;
+        }
+        const std::vector<std::optional<Sidecar>> none(views.size());
+        auto batch = cluster->submit(views, none, clock->now());
+        std::vector<Result<ledger::Registration>> results;
+        if (batch) {
+            results = std::move(*batch);
+        } else {
+            results.assign(views.size(), std::unexpected(batch.error()));
+        }
+        keeper_recorded(*told, results, &stop);
+    }
+
+    /// What became of a keeper group's calls (each told's detail), in order:
+    /// counters and events. On a cluster, `stop` is set (and the rest left
+    /// untold) if this node no longer leads.
+    void keeper_recorded(const std::vector<std::pair<std::string, bool>>& told,
+                         const std::vector<Result<ledger::Registration>>& results, bool* stop) {
+        bool recorded_any = false;
+        for (std::size_t i = 0; i < told.size() && i < results.size(); ++i) {
+            const auto& [detail, expiry] = told[i];
+            const Result<ledger::Registration>& recorded = results[i];
+            if (!recorded) {
+                ++refused;
+                ++keeper_refusals;
+                event("keeper-refused", std::format("{}: {}", detail, recorded.error().detail));
+                if (stop != nullptr && cluster && !cluster->leads()) {
+                    *stop = true; // a follower now: the new leader's keeper carries on
                     break;
                 }
                 continue;
             }
+            ++(recorded->newly_registered ? registered : duplicates);
             recorded_any = true;
-            ++(c.expiry ? keeper_expiries : keeper_rules);
-            event(c.expiry ? "keeper-expired" : "keeper-fired",
-                  std::format("{} #{}", c.detail, recorded->index));
+            ++(expiry ? keeper_expiries : keeper_rules);
+            event(expiry ? "keeper-expired" : "keeper-fired",
+                  std::format("{} #{}", detail, recorded->index));
         }
         if (recorded_any) {
             check_waiters(false); // expiries close requests that long polls may watch

@@ -251,6 +251,9 @@ struct CallProgress {
     /// bundles it cites, in its order.
     std::optional<protocol::SignedStatement> statement;
     std::vector<Bytes> bundles;
+    /// Accepted: the run that accepted it, offered to the ledger when the
+    /// call is recorded (taken if its input is still the same).
+    std::optional<protocol::ContractRun> run;
     /// The changes to make to the pending calls: the call itself, and, for
     /// a proposal at the limit, those that went stale or lapsed. (Calls
     /// whose instance moved on are the caller's to sweep.)

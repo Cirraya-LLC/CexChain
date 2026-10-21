@@ -84,6 +84,10 @@ struct DueOptions {
     /// depend on the state, the options, and that instance only, and the
     /// results are merged in log order, so the answer is the same either way.
     bool parallel = true;
+    /// Keep each due call's dry run (DueRule::run, DueExpiry::run): a keeper
+    /// that makes the calls offers them to the ledger (D-056 P7), which
+    /// takes one only if the input it builds is the run's.
+    bool keep_runs = false;
 };
 
 /// A time rule whose call the contract accepts now.
@@ -101,6 +105,8 @@ struct DueRule {
     /// The keepers whose active delegations cover the call (filled without
     /// DueOptions::keeper).
     std::vector<protocol::Id> keepers;
+    /// The dry run, with DueOptions::keep_runs.
+    std::optional<protocol::ContractRun> run;
 };
 
 /// An open request past its deadline plus the grace, whose expiry the
@@ -114,6 +120,8 @@ struct DueExpiry {
     std::string reply;
     protocol::Timestamp deadline = 0;
     std::vector<protocol::Id> keepers;
+    /// The dry run, with DueOptions::keep_runs.
+    std::optional<protocol::ContractRun> run;
 };
 
 /// Work that is due but would not be recorded: an expiry the contract or

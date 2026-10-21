@@ -341,13 +341,17 @@ person or AI agent, under whose authority.
 
 `cexchain serve` exposes a ledger over HTTP (API v1, described by `cexchain serve --help`). Signed
 statements are the authorization: the server only checks API tokens, which gate access because
-statements reveal metadata. The server holds the ledger's lock only while it writes, so
-every other command keeps working on the same ledger.
+statements reveal metadata. The server holds the ledger's lock only while it writes (groups
+back to back keep it until the writer runs out of work), so every other command keeps working on
+the same ledger.
 
 The server is built for many clients at once. Connections are spread over a pool of I/O threads
 (`--threads`, one per core by default), and reads run on all of them in parallel. Writes queue for a
 single writer, which commits everything that queued during the previous sync as one group: one
-lock, one sync, and signatures checked on every core. Readers only ever see durable entries.
+lock, one sync, and signatures checked and contract calls run on every core (a call's run counts
+only if its input is still the same when the call's turn comes). The next group is validated while
+one syncs, and readers wait only while a statement is applied, never for a group's contract runs or
+its sync. Readers only ever see durable entries, and nothing is answered before it is durable.
 `cexchain-bench http` measures it.
 
 ```sh

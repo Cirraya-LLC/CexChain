@@ -218,7 +218,8 @@ public:
                             .kind = r->kind,
                             .reply = r->reply,
                             .deadline = r->deadline,
-                            .keepers = {}};
+                            .keepers = {},
+                            .run = std::nullopt};
                 const protocol::ContractCallBody call = expiry_call(e);
                 const auto delegation = authority(caller_, contract, call);
                 if (!delegation) {
@@ -230,6 +231,9 @@ public:
                     continue;
                 }
                 e.keepers = covering(contract, call);
+                if (options_.keep_runs) {
+                    e.run = std::move(dry.run);
+                }
                 found.expiries.push_back(std::move(e));
             }
         }
@@ -244,7 +248,8 @@ public:
                          .function = function,
                          .time = std::nullopt,
                          .late = std::nullopt,
-                         .keepers = {}};
+                         .keepers = {},
+                         .run = std::nullopt};
             const protocol::ContractCallBody call = rule_call(rule);
             const auto delegation = authority(caller_, contract, call);
             if (!delegation) {
@@ -261,6 +266,9 @@ public:
             }
             rule_timing(*accept, rule);
             rule.keepers = covering(contract, call);
+            if (options_.keep_runs) {
+                rule.run = std::move(dry.run);
+            }
             found.rules.push_back(std::move(rule));
         }
     }

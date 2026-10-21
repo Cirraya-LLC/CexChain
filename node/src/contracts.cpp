@@ -994,11 +994,17 @@ Result<CallProgress> CallRegistrar::run(const crypto::Provider& provider,
         }
     }
     progress.call.consents = std::move(live);
-    auto signed_call = sign_contract_call(provider, state, *signer_, body, now, entropy);
-    if (!signed_call) {
-        return std::unexpected(signed_call.error());
+    // The call as the registrar would sign it (its nonce drawn now), run
+    // unsigned: it is signed only if the contract and the ledger's rules
+    // accept it (a run reads the statement, never its signature).
+    auto statement = contract_call_statement(provider, state, *signer_, body, now);
+    if (!statement) {
+        return std::unexpected(statement.error());
     }
-    auto run = state.run_contract(provider, *signed_call, now);
+    statement->nonce = entropy.bytes<16>();
+    protocol::SignedStatement unsigned_call;
+    unsigned_call.statement = *statement;
+    auto run = state.run_contract(provider, unsigned_call, now);
     if (!run) {
         return std::unexpected(run.error());
     }
@@ -1036,12 +1042,17 @@ Result<CallProgress> CallRegistrar::run(const crypto::Provider& provider,
         progress.reason = "the ledger refuses the call: " + std::string(allowed.error().detail);
         return progress;
     }
+    auto signed_call = protocol::sign_statement(*signer_, provider, state.hash(), *statement);
+    if (!signed_call) {
+        return std::unexpected(signed_call.error());
+    }
     progress.verdict = CallProgress::Verdict::accepted;
     progress.call.missing.clear();
     for (const auto& [ledger, bundle] : progress.call.consents) {
         progress.bundles.push_back(bundle);
     }
     progress.statement = std::move(*signed_call);
+    progress.run = std::move(*run);
     return progress;
 }
 
