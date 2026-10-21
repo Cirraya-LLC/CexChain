@@ -17,11 +17,12 @@ cexchain_add_fuzzer(cbor_decode_fuzz)
 cexchain_add_fuzzer(diagnostic_fuzz)
 cexchain_add_fuzzer(cose_parse_fuzz)
 cexchain_add_fuzzer(merkle_verify_fuzz cexchain::crypto_openssl)
-cexchain_add_fuzzer(protocol_parse_fuzz cexchain::crypto_openssl)
+cexchain_add_fuzzer(protocol_parse_fuzz cexchain::crypto_openssl cexchain::ledger)
 cexchain_add_fuzzer(access_parse_fuzz)
 cexchain_add_fuzzer(webauthn_registration_fuzz cexchain::crypto_openssl)
 cexchain_add_fuzzer(vm_fuzz cexchain::crypto_openssl)
-cexchain_add_fuzzer(contract_parse_fuzz cexchain::crypto_openssl cexchain::verifier)
+cexchain_add_fuzzer(contract_parse_fuzz cexchain::crypto_openssl cexchain::verifier
+    cexchain::ledger)
 # The check without building against the decoder, and contract outputs and
 # inputs from bytes against the trees (D-056, P6; tests/support).
 cexchain_add_fuzzer(cbor_validate_fuzz)

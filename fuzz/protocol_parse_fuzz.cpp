@@ -19,6 +19,7 @@
 #include <cexchain/core/protocol/statement.hpp>
 #include <cexchain/core/protocol/witness.hpp>
 #include <cexchain/crypto/openssl.hpp>
+#include <cexchain/ledger/verify.hpp>
 
 namespace protocol = cexchain::protocol;
 
@@ -99,6 +100,13 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
         if (report) {
             require(report->complete || !report->state_commitment);
         }
+        // On all cores, with signatures remembered across inputs (D-056 P8):
+        // exactly core's outcome.
+        static cexchain::ledger::SignatureCache remembered;
+        const auto on_cores =
+            cexchain::ledger::verify_bundle(provider, input, options, {true, &remembered});
+        require(report.has_value() == on_cores.has_value());
+        require(report ? *report == *on_cores : report.error() == on_cores.error());
         // The access checks, as each side would run them.
         if (ledger) {
             const auto other = *cexchain::crypto::Digest::from_bytes(cexchain::Bytes(32, 0x44));

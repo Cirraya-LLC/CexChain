@@ -18,6 +18,7 @@
 #include <cexchain/core/protocol/contract_evidence.hpp>
 #include <cexchain/core/protocol/contracts.hpp>
 #include <cexchain/crypto/openssl.hpp>
+#include <cexchain/ledger/verify.hpp>
 #include <cexchain/verifier/report.hpp>
 
 namespace protocol = cexchain::protocol;
@@ -41,8 +42,15 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
         require(again && std::ranges::equal(*again, input));
         // Verification replays bundles, contracts included: it must refuse
         // anything not genuine without crashing, and accept only complete
-        // evidence about an instance.
-        if (const auto report = protocol::verify_contract_evidence(provider, input)) {
+        // evidence about an instance. On all cores, with signatures
+        // remembered across inputs (D-056 P8), exactly as core alone.
+        const auto verified = protocol::verify_contract_evidence(provider, input);
+        static cexchain::ledger::SignatureCache remembered;
+        const auto on_cores =
+            cexchain::ledger::verify_contract_evidence(provider, input, {}, {true, &remembered});
+        require(verified.has_value() == on_cores.has_value());
+        require(verified ? *verified == *on_cores : verified.error() == on_cores.error());
+        if (const auto& report = verified) {
             require(report->instance.complete && report->instance.instance.has_value());
             // A child's report shows one ancestor per generation, oldest
             // first, its own calls after theirs, and one step per call.

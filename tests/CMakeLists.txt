@@ -32,6 +32,7 @@ add_executable(cexchain_tests
     ledger/rotation_test.cpp
     ledger/state_tree_test.cpp
     ledger/storage_test.cpp
+    ledger/verify_test.cpp
     ledger/witness_test.cpp
     node/api_test.cpp
     node/contracts_api_test.cpp

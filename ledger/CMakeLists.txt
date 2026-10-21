@@ -10,7 +10,8 @@ add_library(cexchain_ledger
     src/ledger.cpp
     src/parallel.cpp
     src/record_log.cpp
-    src/storage.cpp)
+    src/storage.cpp
+    src/verify.cpp)
 add_library(cexchain::ledger ALIAS cexchain_ledger)
 
 target_include_directories(cexchain_ledger PUBLIC
