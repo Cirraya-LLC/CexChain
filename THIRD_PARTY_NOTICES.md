@@ -13,7 +13,8 @@ Where each component ends up:
   that carries it.
 - **Browser verifier**: `cexchain-verify.html`, the self-contained page that
   `tools/wasm/build.sh` builds (and its module, `cexchain-verifier.js`). The page lists these
-  components and their notices itself, under "Third-party software in this page".
+  components, their notices, and the full MIT and Apache 2.0 license texts itself, under
+  "Third-party software in this page".
 - **Build and test only**: used to build, test, fuzz, or generate test vectors; not part of
   anything CexChain distributes.
 
