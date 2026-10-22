@@ -422,8 +422,8 @@ OpenedSource open_source_bundle(const SourceBundle& bundle, const crypto::Provid
                        "pack without naming it");
     }
     // The users' vocabulary packs (key 7), each read, in the order of their
-    // ids, and named by key 6. They came with vocabulary pack files (G6),
-    // so the official language packs are those of G6 (version 4) or later.
+    // ids, and named by key 6. They came with vocabulary pack files,
+    // so the official language packs are those of version 4 or later.
     std::vector<VocabularyHandle> users;
     const std::string* previous_user = nullptr;
     for (const cbor::Value& value : bundle.embedded_vocabulary) {

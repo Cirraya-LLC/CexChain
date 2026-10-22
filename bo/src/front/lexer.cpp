@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// The lexer (milestone 2 of the Bo compiler): source to tokens, under the
+// The lexer: source to tokens, under the
 // reading rules of a pack set. Each line is read in three steps:
 //   1. characters to raw items: runs of word characters, numbers (with any
 //      suffix joined to them), dates, texts, and symbols;
@@ -40,7 +40,7 @@ struct Lexicon::Impl {
     bool implicit_vocabulary = false;
     std::shared_ptr<const Vocabularies> vocabularies;
     /// The unit a degree symbol (°C, ℃) reads as, where the set spells it
-    /// (G5b; version 2 of the official packs did not).
+    /// (version 2 of the official packs did not).
     const Concept* celsius = nullptr;
     /// A spelling's words: all of them, or those on one side of the
     /// argument's place.
@@ -725,7 +725,7 @@ void Lexer::scan(std::size_t i, std::vector<Raw>& raws) {
         const char32_t c = cps_[i].c;
         const char m = mapped(i);
         if (m == '-' && is_digit(i + 1) && sign_at(i, start)) {
-            // -18 °C, HKD -5: a negative number where a value begins (G5b).
+            // -18 °C, HKD -5: a negative number where a value begins.
             i = number(i + 1, raws, i);
         } else if (m == ' ') {
             ++i;
@@ -745,7 +745,7 @@ void Lexer::scan(std::size_t i, std::vector<Raw>& raws) {
             }
             raws.push_back(Raw{true, from, i, {}, false});
         } else if (const std::size_t degrees = degree(i); degrees != i) {
-            // °C or ℃: the unit of temperature, in every language (G5b).
+            // °C or ℃: the unit of temperature, in every language.
             raws.push_back(
                 Raw{false, i, degrees, word(lx_.celsius, Piece::whole, {}, i, degrees), false});
             i = degrees;

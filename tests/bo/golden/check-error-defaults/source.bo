@@ -1,4 +1,4 @@
-# Defaults (G5b) that do not check: on a constant, on a party field, on a
+# Defaults that do not check: on a constant, on a party field, on a
 # charge's line; one that is no value written out; one of another type;
 # and a list bound that is negative.
 use commerce

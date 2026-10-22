@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// One writer and many readers on one ledger (D-048): readers never see an
+// One writer and many readers on one ledger: readers never see an
 // entry before it is durable, and everything they read is consistent.
 
 #include <array>

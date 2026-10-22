@@ -36,7 +36,7 @@
 ///         evidence before acting; with wait=S, a long poll of up to 25 seconds)
 /// read:   GET /v1/contracts/due?at=&grace=&keeper=&contract=&instance=&start=&limit=
 ///         (what a keeper would do: the time rules due and the requests to expire)
-/// executor (6b): GET /v1/requests, GET /v1/contracts/instances/{instance}, and
+/// executor: GET /v1/requests, GET /v1/contracts/instances/{instance}, and
 ///         POST /v1/statements for answers to requests only
 /// admin:  POST /v1/checkpoint, POST /v1/cosignatures ([cosignature, witness key])
 /// peer:   POST /v1/access/requests (a request's evidence), GET /v1/access/deliveries/{request},
@@ -75,17 +75,17 @@ struct ApiOptions {
     /// Cosigns a cosign request as this organization's witness of a peer's
     /// ledger; without it, POST /v1/witness/cosign answers 501.
     std::function<Result<Bytes>(ByteView)> witness;
-    /// Serve as a member of the cluster configured in `directory`/cluster
-    /// (D-051): the node holds the ledger's lock for as long as it runs,
+    /// Serve as a member of the cluster configured in `directory`/cluster:
+    /// the node holds the ledger's lock for as long as it runs,
     /// writes go through Raft, and followers send writers to the leader.
     bool cluster = false;
-    /// The registrar (D-053): an actor of this ledger with a delegation for
+    /// The registrar: an actor of this ledger with a delegation for
     /// contract calls. With it, the server takes proposed contract calls
     /// (POST /v1/contracts/calls) and the consents their contracts ask for
     /// (POST /v1/contracts/consents), and records each call once its
     /// contract accepts it. Without it, those routes answer 501.
     std::shared_ptr<const crypto::Signer> registrar;
-    /// The keeper (6b): an actor of this ledger whose delegations cover the
+    /// The keeper: an actor of this ledger whose delegations cover the
     /// time rules (functions `when.*`) and the requests' replies it may
     /// call. With it, the server fires the time rules that are due and
     /// expires the requests open past their deadline plus `expiry_grace`,

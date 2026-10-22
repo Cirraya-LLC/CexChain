@@ -1,6 +1,6 @@
 use commerce
 use finance
-# Time rules (milestone 12): each kind of time a rule fires at, conditions on
+# Time rules: each kind of time a rule fires at, conditions on
 # time in actions, a written UTC offset, and the keeper's steps.
 contract Membership
 parties we, customer

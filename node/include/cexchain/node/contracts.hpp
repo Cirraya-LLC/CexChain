@@ -22,7 +22,7 @@
 #include <cexchain/core/protocol/state.hpp>
 #include <cexchain/ledger/environment.hpp>
 
-/// A home ledger's side of contracts (D-053, spec section 15): it records a
+/// A home ledger's side of contracts (spec section 15): it records a
 /// call that cites consents only with their evidence, keeps the bundles, and
 /// serves them with the instance's evidence. A registrar takes proposed
 /// calls, runs each without consents to learn whose the contract needs,

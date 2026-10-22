@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// The contract text (milestone 8 of the Bo compiler): the goldens in
+// The contract text: the goldens in
 // tests/bo/golden/explain/CASE/{en,zh-hant,zh-hans}.txt (the text of each
 // example in each official language), the same text from every spelling of
 // a contract (English, Traditional and Simplified Chinese, mixed), what
@@ -106,26 +106,26 @@ std::vector<Case> cases() {
     }
     out.push_back({"check-agreement", {golden_dir / "check-agreement/source.bo"}});
     out.push_back({"recognized", {golden_dir / "check-recognized/source.bo"}});
-    // The standard library's terms (milestone 11).
+    // The standard library's terms.
     out.push_back({"receivable-flow", {golden_dir / "test/receivable/source.bo"}});
     out.push_back({"warehouse-receipt", {golden_dir / "test/warehouse-receipt/source.bo"}});
     out.push_back({"standard", {golden_dir / "check-standard/source.bo"}});
-    // Time rules and the keeper (milestone 12).
+    // Time rules and the keeper.
     out.push_back({"time", {golden_dir / "test/time/source.bo"}});
     out.push_back({"membership", {golden_dir / "check-time/source.bo"}});
     out.push_back({"ip-pool-tests", {golden_dir / "test/ip-pool/source.bo"}});
-    // Lists and charges (milestone 13).
+    // Lists and charges.
     out.push_back({"tax-tests", {golden_dir / "test/tax/source.bo"}});
     out.push_back({"charges", {golden_dir / "test/charges/source.bo"}});
     out.push_back({"lists", {golden_dir / "test/lists/source.bo"}});
-    // Splitting (milestone 17): the demo's receivable, split down its chain.
+    // Splitting: the demo's receivable, split down its chain.
     out.push_back(
         {"multi-tier-split", {source_dir / "examples/multi-tier-split/multi-tier-split.bo"}});
     // R31: a counterparty made holder or pledgee consents at every call.
     out.push_back({"role-taking", {golden_dir / "check-role-taking/source.bo"}});
-    // A service billed each period (E9): its executors, bills, and payments.
+    // A service billed each period: its executors, bills, and payments.
     out.push_back({"services", {golden_dir / "check-services/source.bo"}});
-    // A time rule's action on the next line of its block (E11): final states.
+    // A time rule's action on the next line of its block: final states.
     out.push_back({"rule-block", {golden_dir / "test/rule-block/source.bo"}});
     return out;
 }

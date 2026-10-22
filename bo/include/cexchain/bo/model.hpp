@@ -62,7 +62,7 @@ enum class Dimension : std::uint8_t {
     bandwidth,   ///< bits per second: Mbps, Gbps
     count,       ///< items
     mass,        ///< grams: kg, tonnes
-    temperature, ///< hundredths of a degree Celsius: °C (G5b)
+    temperature, ///< hundredths of a degree Celsius: °C
 };
 
 inline constexpr std::array<std::string_view, 6> dimension_names{"none",  "data", "bandwidth",
@@ -173,8 +173,8 @@ struct Transition {
 
 /// An action done. In a time rule, an action with a subject is a duty of
 /// that party (R9: `when due issuer pays`), never a call. `executor` marks an
-/// action that asks an executor to act outside the ledger (R10), which comes
-/// in step 6b: checked and explained, but not built yet.
+/// action that asks an executor to act outside the ledger (R10): checked
+/// and explained, but not built (a request does that work).
 ///
 /// `parts` marks the creation word in an action's own block (R30): `issue
 /// PARTS to RECIPIENTS [with FIELD = VALUE, ...]` issues parts, each an
@@ -196,7 +196,7 @@ struct Do {
     std::string_view rule;
 };
 
-/// `request KIND [to PARTY] [with NAME = VALUE, ...] within DURATION` (E8):
+/// `request KIND [to PARTY] [with NAME = VALUE, ...] within DURATION` :
 /// the call asks an executor to act outside the ledger. Compiled code adds
 /// the request to the call's accept (key 7): its kind, its params (a map of
 /// `to` and each value by name), its deadline (the time of the call plus the
@@ -216,7 +216,7 @@ struct Request {
     std::vector<Set> with;
     /// Within how long it is to be answered: a duration literal.
     Expr within;
-    /// R34 (E9): counted from the due date (paid until) rather than from
+    /// R34: counted from the due date (paid until) rather than from
     /// the call, and kept at least a day and at most 366 days after the call
     /// (a service's collection: by the latest overdue rule's time).
     bool from_due = false;
@@ -235,7 +235,7 @@ struct Statement {
 
 enum class Binding : std::uint8_t {
     creation, ///< bound to a ledger when an instance is created
-    action,   ///< bound by the action that first names it after `to` (U4)
+    action,   ///< bound by the action that first names it after `to`
 };
 
 inline constexpr std::array<std::string_view, 2> binding_names{"creation", "action"};
@@ -378,13 +378,13 @@ struct Action {
     bool rule_only = false;
 };
 
-/// How a request went, as a rule for its answers names it (E8): done, or
+/// How a request went, as a rule for its answers names it : done, or
 /// failed, or expired (no answer by the deadline).
 enum class Outcome : std::uint8_t { done, fails, expires };
 
 inline constexpr std::array<std::string_view, 3> outcome_names{"done", "fails", "expires"};
 
-/// `when KIND done`, `when KIND fails`, `when KIND expires` (E8): what the
+/// `when KIND done`, `when KIND fails`, `when KIND expires` : what the
 /// contract does when an answer to one of its requests of that kind comes.
 /// Compiled code runs it in the reply function (reply_function), which takes
 /// every answer: it never refuses one, so its block asks no consent and
@@ -416,7 +416,7 @@ struct TimeRule {
 };
 
 // ---------------------------------------------------------------------------
-// Tests (`test` blocks, U8): scenarios `bo test` runs on the compiled
+// Tests (`test` blocks): scenarios `bo test` runs on the compiled
 // contract as a ledger would. They are no part of the code.
 
 /// What a step expects.
@@ -475,7 +475,7 @@ struct Step {
     bool in_person = false;
     /// `by AI agent`: the subject's signer is an AI agent.
     bool agent = false;
-    /// An answer to a request (E8): `executor notify done`, `keeper notify
+    /// An answer to a request : `executor notify done`, `keeper notify
     /// expires`: the oldest open request of the kind is answered, with the
     /// values `with` gives (result, reason). The subject signs it.
     bool answer = false;
@@ -532,11 +532,11 @@ struct Model {
     std::vector<State> states;
     std::vector<Action> actions;
     std::vector<TimeRule> rules;
-    /// The rules for the answers to requests (E8), in source order.
+    /// The rules for the answers to requests , in source order.
     std::vector<AnswerRule> answers;
     DueKind due = DueKind::none;
     std::string_view due_rule;
-    /// The contract's offset from UTC, in milliseconds east (U6): its `UTC
+    /// The contract's offset from UTC, in milliseconds east: its `UTC
     /// offset`, else +08:00 (R25, `offset_rule`).
     std::int64_t utc_offset_ms = 8 * 3'600'000;
     std::string_view offset_rule;
@@ -620,7 +620,7 @@ inline constexpr std::uint64_t max_list_bound = 1'000;
 inline constexpr std::string_view approve_function = "approve";
 
 // ---------------------------------------------------------------------------
-// Time rules (milestone 12).
+// Time rules.
 
 enum class TriggerKind : std::uint8_t {
     date,       ///< a date: `when due`, `when start + 3 days`
@@ -659,7 +659,7 @@ struct Trigger {
 
 /// The function compiled code gives each time rule, in the model's order
 /// (empty for a rule that only states duties): "when." and the first action
-/// it does, else the kind of the first request it makes (E8), else the state
+/// it does, else the kind of the first request it makes , else the state
 /// its first state change leads to, else "rule";
 /// ".2", ".3", ... when that name is taken by an earlier rule.
 [[nodiscard]] std::vector<std::string> rule_functions(const Model& model);
@@ -676,7 +676,7 @@ struct Trigger {
 [[nodiscard]] bool uses_since(const Model& model) noexcept;
 
 // ---------------------------------------------------------------------------
-// Requests (E8).
+// Requests .
 
 /// The function every request names as its reply: answers call it.
 inline constexpr std::string_view reply_function = "result";

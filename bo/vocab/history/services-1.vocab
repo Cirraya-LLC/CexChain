@@ -1,6 +1,6 @@
 # Bo vocabulary pack: services, version 1 (official), carried.
 #
-# The version G5 released (D-054): the compiler's tables then, as canonical
+# The first released version: the compiler's tables then, as canonical
 # CBOR. It has no "languages": version 3 of the official language packs
 # (bo/packs/history/*-3.pack) and version 2 spell its words. Released
 # versions never change; deploys that name this one rebuild with it.
@@ -24,6 +24,6 @@
     "state.allocated": {"category": "state"},
     "state.cooling": {"category": "state"}
   },
-  # bo/stdlib/services.bo as G5 compiled it in.
+  # bo/stdlib/services.bo as that version compiled it in.
   "terms": "bo 1\nuse services\n# The standard terms of the services pack's built-in actions (D-054): they\n# allocate a resource to one holder at a time. A contract that uses the pack\n# (`use services`) and writes `can allocate to customer` gets the allocation\n# below; `cexchain bo stdlib show allocate` prints it.\n#\n# The fields these terms use: holder (a party, which Bo adds to a resource,\n# holding no party while the resource is in its pool; R20) and cooling period.\n\n# The home allocates the resource to the counterparty, which becomes its holder\n# and consents to every allocation (R31 if its role was bound before); one the\n# allocation binds is named by each allocation (R23). After a reclaim the\n# resource cools: it is allocated again only once its cooling period has passed\n# since the reclaim.\ncan allocate to counterparty\n  if cooling requires not within cooling period\n  active, cooling -> allocated\n  holder = counterparty\n\n# The home takes the resource back from its holder; it then cools.\ncan reclaim\n  allocated -> cooling\n  holder = none\n"
 }

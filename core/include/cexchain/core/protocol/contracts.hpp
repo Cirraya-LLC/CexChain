@@ -21,7 +21,7 @@
 #include <cexchain/core/protocol/statement.hpp>
 #include <cexchain/core/vm.hpp>
 
-/// Contracts (D-053, spec v0.6, section 15): modules deployed on a ledger,
+/// Contracts (spec v0.6, section 15): modules deployed on a ledger,
 /// their home, that govern instances. A call is registered only if its
 /// contract, run on the call's input, accepts it, so every replay runs it
 /// again and reaches the same instance state. Since v0.7 an accepted call may

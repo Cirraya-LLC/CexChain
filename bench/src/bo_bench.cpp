@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// Bo builds (D-056): each example under examples/ and the bench's bill,
+// Bo builds: each example under examples/ and the bench's bill,
 // built from source (lex, parse, check, lower, emit) again and again.
 
 #include <algorithm>

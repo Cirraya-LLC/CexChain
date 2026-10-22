@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// Fuzzes lowering (milestone 6 of the Bo compiler): source, or a contract
+// Fuzzes lowering: source, or a contract
 // generated from the input's bytes, through the lexer, the parser, and the
 // checker, and on a model without errors, through `lower`. Properties:
 //   - lowering never fails an assertion (its contracts and the emitter's are
@@ -23,17 +23,17 @@
 //     out of bounds, no unreachable);
 //   - generated contracts also carry due dates, UTC offsets, resources with
 //     allocate and reclaim, conditions on time (within, overdue, before due,
-//     a state held), and time rules (milestone 12) whose functions the calls
+//     a state held), and time rules whose functions the calls
 //     and the tests' keeper steps run; and lists (in fields, inputs, and
 //     the state: each, sum of, count of, in, set) and a bill with charges
-//     of every shape (milestone 13), which calls with random lines make;
-//   - generated contracts also split (milestone 17): the standard library's
+//     of every shape, which calls with random lines make;
+//   - generated contracts also split: the standard library's
 //     split, with steps giving parts and recipients, and calls whose parts
 //     add up to the amount on instances that are parts at depths up to 8; a
 //     call that makes parts ends its instance, never at depth 8, and each
 //     part has its state, fields, status, and holder;
 //   - every call with arguments of its function's shape uses no more fuel
-//     than the function's bound (milestone 18; bo::bound_for), nor does any
+//     than the function's bound (bo::bound_for), nor does any
 //     call a test makes (a step beyond it breaks);
 //   - its test blocks (generated: a creation, then steps with parties,
 //     counterparties, inputs, dates, signers, and expectations) run as `bo
@@ -254,10 +254,10 @@ struct GField {
     T type = T::text;
     bool constant = false;
     std::string party; // a party field's starting role
-    /// A list of `type` (milestone 13): at most `bound` items (0: 16).
+    /// A list of `type`: at most `bound` items (0: 16).
     bool list = false;
     std::uint32_t bound = 0;
-    /// An instance field with a default (G5b): a creation may leave it out.
+    /// An instance field with a default: a creation may leave it out.
     bool initial = false;
 };
 
@@ -273,7 +273,7 @@ std::uint32_t most(const std::uint32_t bound) {
     return bound == 0 ? 16 : bound;
 }
 
-/// A charge generated (milestone 13): what later ones may be computed on.
+/// A charge generated: what later ones may be computed on.
 struct GCharge {
     std::string name;
     bool per_line = true;
@@ -289,7 +289,7 @@ struct GAction {
     bool open_to = false;
     /// AI agents may only propose it.
     bool proposes = false;
-    /// The standard library's split (milestone 17): its parts and
+    /// The standard library's split: its parts and
     /// recipients, given by each step.
     bool split = false;
 };
@@ -314,7 +314,7 @@ private:
     Line time_condition();
     void statements(int indent, int depth, std::vector<std::pair<int, Line>>& out);
     void time_rules(std::vector<std::pair<int, Line>>& out);
-    /// E8: `request KIND [to PARTY] [with NAME = VALUE, ...] within N days`
+    /// `request KIND [to PARTY] [with NAME = VALUE, ...] within N days`
     /// (now and then a kind or a deadline the checker refuses), and the
     /// rules for the answers to the kinds requested.
     Line request();
@@ -335,7 +335,7 @@ private:
     Tok test_party();
     Line step(const GAction& a, int& month, int& day);
     /// `, FIELD = VALUE, ...` after an expectation's state, or the values
-    /// alone (G5b): instance fields of value types, often their literal.
+    /// alone: instance fields of value types, often their literal.
     void expect_fields(Line& line, bool after_state);
     void tests(std::vector<std::pair<int, Line>>& out);
 
@@ -358,18 +358,18 @@ private:
     bool active_first_ = false;
     /// The instance has a due date (field.due, or a service's paid until).
     bool due_ = false;
-    /// E9: a service with a recurring price, billed each period once it is
+    /// A service with a recurring price, billed each period once it is
     /// subscribed to.
     bool service_ = false;
     std::vector<GAction> actions_;
     /// What keeper steps name: the action each time rule does.
     std::vector<Tok> keeper_;
-    /// The bill's charges (milestone 13), and the items each loop names.
+    /// The bill's charges, and the items each loop names.
     std::vector<GCharge> charges_;
     std::vector<std::pair<std::string, T>> items_;
     /// The amount the test's creation gives, which a split may pass on whole.
     Line amount_given_;
-    /// The kinds of the requests made (E8); none once the contract splits.
+    /// The kinds of the requests made; none once the contract splits.
     std::vector<Tok> kinds_;
     bool splits_ = false;
 };
@@ -409,7 +409,7 @@ Line Generator::literal(const T t) {
         return {raw("\"" + std::string(texts[c_.below(5)]) + "\"")};
     }
     case T::number:
-        // Now and then negative (G5b): a minus directly before the digits.
+        // Now and then negative: a minus directly before the digits.
         return {raw((c_.one_in(8) ? "-" : "") +
                     std::to_string(c_.below(4) == 0 ? 0 : c_.between(1, 1'000'000)))};
     case T::money:
@@ -489,7 +489,7 @@ std::vector<std::pair<Tok, std::pair<T, std::uint32_t>>> Generator::lists() cons
     return out;
 }
 
-/// Charges on the bill (milestone 13), mostly as the checker accepts them:
+/// Charges on the bill, mostly as the checker accepts them:
 /// a rate (now and then only from a date on) or a fixed amount, now and
 /// then a condition, included or added, a way of rounding, and what it is
 /// computed on (the price and earlier charges it may be computed on).
@@ -611,7 +611,7 @@ Line Generator::value(const T t, const int depth) {
         leaves.push_back({word("time.now")});
         leaves.push_back({word("time.today")});
     }
-    // Lists (milestone 13): their counts and sums; each loop's items; the
+    // Lists: their counts and sums; each loop's items; the
     // bill's charges, in an action or a time rule.
     for (const auto& [list, of] : lists()) {
         if (t == T::number) {
@@ -661,7 +661,7 @@ Line Generator::value(const T t, const int depth) {
             return join(value(t, depth - 1), "*", value(T::number, depth - 1));
         case 3:
             if (t == T::number && c_.one_in(3)) {
-                // R32: a duration by a duration, in whole times (G5b).
+                // R32: a duration by a duration, in whole times.
                 const T of = c_.one_in(3) ? T::months : T::days;
                 // Mostly a divisor written out, which is not 0.
                 return join(value(of, depth - 1), "/",
@@ -693,7 +693,7 @@ Line Generator::value(const T t, const int depth) {
     }
 }
 
-/// A condition on time (milestone 12): within N, overdue (N), N before
+/// A condition on time: within N, overdue (N), N before
 /// due, a state held N.
 Line Generator::time_condition() {
     const std::string days = std::format("{} days", c_.between(0, 60));
@@ -783,7 +783,7 @@ void Generator::statements(const int indent, const int depth,
     for (std::uint32_t k = 0; k < count; ++k) {
         switch (c_.below(depth > 0 ? 12 : 11)) {
         case 9: {
-            // A list's count, or whether it holds a value (milestone 13).
+            // A list's count, or whether it holds a value.
             const auto in_reach = lists();
             if (in_reach.empty()) {
                 break;
@@ -980,7 +980,7 @@ void Generator::statements(const int indent, const int depth,
 
 std::vector<std::pair<int, Line>> Generator::contract() {
     std::vector<std::pair<int, Line>> out;
-    // Every vocabulary pack (D-054): the generator draws on all their words.
+    // Every vocabulary pack: the generator draws on all their words.
     for (const std::string_view pack : {"commerce", "finance", "services"}) {
         out.push_back({0, {word("kw.use"), raw(std::string(pack))}});
     }
@@ -1011,7 +1011,7 @@ std::vector<std::pair<int, Line>> Generator::contract() {
                                      : "kind.thing"),
                     raw("Thing")}});
     if (service_) {
-        // E9: due on the date it is paid until, each period (R11).
+        // Due on the date it is paid until, each period (R11).
         static constexpr std::string_view periods[] = {"time.monthly", "time.weekly", "time.daily",
                                                        "time.yearly"};
         due_ = true;
@@ -1024,7 +1024,7 @@ std::vector<std::pair<int, Line>> Generator::contract() {
         out.push_back({2, {word("field.due"), word("type.date")}});
     }
     if (c_.one_in(6)) {
-        // U6: a fixed offset from UTC, east or west, in quarter hours.
+        // A fixed offset from UTC, east or west, in quarter hours.
         const auto quarters = c_.between(-56, 56);
         const auto minutes = (quarters < 0 ? -quarters : quarters) * 15;
         out.push_back({2,
@@ -1064,7 +1064,7 @@ std::vector<std::pair<int, Line>> Generator::contract() {
             l.insert(l.end(), v.begin(), v.end());
         } else {
             l.push_back(type_word(f.type));
-            // A default (G5b): `f0 number = 0`.
+            // A default: `f0 number = 0`.
             if (c_.one_in(3)) {
                 f.initial = true;
                 l.push_back(raw("="));
@@ -1075,7 +1075,7 @@ std::vector<std::pair<int, Line>> Generator::contract() {
         out.push_back({2, l});
         fields_.push_back(std::move(f));
     }
-    // Lists (milestone 13): fields of numbers, texts, or money, bounded.
+    // Lists: fields of numbers, texts, or money, bounded.
     for (std::uint32_t i = 0, n = c_.below(3); i < n; ++i) {
         static constexpr T of[] = {T::number, T::text, T::money};
         GField f{std::format("l{}", i),
@@ -1149,7 +1149,7 @@ std::vector<std::pair<int, Line>> Generator::contract() {
                 GInput input{std::format("i{}", i), static_cast<T>(c_.below(value_types))};
                 head.push_back(raw(input.name));
                 if (c_.one_in(4)) {
-                    // A list (milestone 13).
+                    // A list.
                     static constexpr T of[] = {T::number, T::text, T::money};
                     input.type = of[c_.below(3)];
                     input.list = true;
@@ -1171,7 +1171,7 @@ std::vector<std::pair<int, Line>> Generator::contract() {
         }
         actions_.push_back(std::move(made));
         if (c_.one_in(4)) {
-            // AI agents only propose it; a person approves (U3).
+            // AI agents only propose it; a person approves.
             out.push_back({2, {word("actor.ai_agent"), word("kw.can"), word("act.propose")}});
             actions_.back().proposes = true;
         }
@@ -1182,7 +1182,7 @@ std::vector<std::pair<int, Line>> Generator::contract() {
         }
         in_action_ = false;
     }
-    // Built-in actions with the standard library's terms (milestone 11), when
+    // Built-in actions with the standard library's terms, when
     // the instance has a holder: in groups whose states lead to each other.
     const bool holder =
         std::ranges::any_of(fields_, [](const GField& f) { return f.name == "holder"; });
@@ -1252,7 +1252,7 @@ std::vector<std::pair<int, Line>> Generator::contract() {
         out.push_back({0, {word("kw.can"), word(reclaim.word)}});
         actions_.push_back(std::move(reclaim));
     }
-    // A service (E9): subscribed to, renewed, its plan changed; each asks an
+    // A service: subscribed to, renewed, its plan changed; each asks an
     // executor (R10), and subscribing and renewing bill a period (R34).
     if (service_) {
         static constexpr std::string_view words[] = {"act.subscribe", "act.renew", "act.upgrade",
@@ -1401,7 +1401,7 @@ Line Generator::answer_step(int& month, int& day) {
     return line;
 }
 
-/// Time rules (milestone 12): each fires at a date, N before due, overdue
+/// Time rules: each fires at a date, N before due, overdue
 /// (N), or a state held N, now and then joined to a condition; it does a
 /// built-in action, one of the contract's own, or a block.
 void Generator::time_rules(std::vector<std::pair<int, Line>>& out) {
@@ -1464,7 +1464,7 @@ void Generator::time_rules(std::vector<std::pair<int, Line>>& out) {
                 const bool suspends = std::ranges::any_of(
                     keeper_, [](const Tok& t) { return t.concept_id == "act.suspend"; });
                 does = word(std::string(built_in[c_.below(suspends ? 3 : 2)]));
-                // E9: renewed automatically, before its due date.
+                // Renewed automatically, before its due date.
                 if (service_ && c_.one_in(3)) {
                     does = word("act.renew");
                 }
@@ -1618,7 +1618,7 @@ Line Generator::step(const GAction& a, int& month, int& day) {
         }
         break;
     case 8:
-        // Values of fields alone (G5b): the call accepted.
+        // Values of fields alone: the call accepted.
         line.push_back(raw("->"));
         expect_fields(line, false);
         break;
@@ -1689,7 +1689,7 @@ void Generator::tests(std::vector<std::pair<int, Line>>& out) {
         Line create{home, word(asset_ ? "act.issue" : "act.create")};
         bool first = true;
         for (const GField& f : fields_) {
-            // A field with a default may be left out (G5b).
+            // A field with a default may be left out.
             if (f.constant || f.type == T::party || (f.initial && c_.one_in(2))) {
                 continue;
             }
@@ -1733,7 +1733,7 @@ void Generator::tests(std::vector<std::pair<int, Line>>& out) {
                 continue;
             }
             if (!kinds_.empty() && c_.one_in(4)) {
-                // E8: an executor or a keeper answers a request.
+                // An executor or a keeper answers a request.
                 out.push_back({2, answer_step(month, day)});
                 continue;
             }
@@ -1822,18 +1822,18 @@ std::size_t tests_run = 0;
 std::size_t steps_run = 0;
 std::map<std::string, std::size_t> happenings;
 std::size_t built = 0;
-/// Builds with a built-in action's standard terms (milestone 11); with lists,
-/// and with a bill and its charges (milestone 13); calls that made a bill.
+/// Builds with a built-in action's standard terms; with lists,
+/// and with a bill and its charges; calls that made a bill.
 std::size_t standard_built = 0;
 std::size_t lists_built = 0;
 std::size_t bills_built = 0;
 std::size_t bills_made = 0;
-/// Builds that issue parts (milestone 17), and calls that made parts.
+/// Builds that issue parts, and calls that made parts.
 std::size_t parts_built = 0;
-/// Builds that make requests (E8), and calls that made some.
+/// Builds that make requests, and calls that made some.
 std::size_t requests_built = 0;
 std::size_t requests_made = 0;
-/// Builds of services due each period (E9), and those billing it.
+/// Builds of services due each period, and those billing it.
 std::size_t services_built = 0;
 std::size_t billing_built = 0;
 std::size_t parts_made = 0;
@@ -2050,7 +2050,7 @@ void run_calls(const bo::Build& build, const m::Model& model, Choices& c) {
         require(outcome.has_value(), "vm::run failed");
 
         ++runs_done;
-        // The fuel bound (milestone 18) holds for arguments of the
+        // The fuel bound holds for arguments of the
         // function's shape: refusals of other arguments aside.
         const std::string why(outcome->abort_reason.begin(), outcome->abort_reason.end());
         if (const auto bound = bo::bound_for(build, *encoded);
@@ -2117,7 +2117,7 @@ void run_calls(const bo::Build& build, const m::Model& model, Choices& c) {
             }
             // Parts (R30): only from an instance above depth 8, which then
             // ends; each with its state and its holder.
-            // Requests (E8): at most 16, each well formed, its deadline
+            // Requests: at most 16, each well formed, its deadline
             // within 366 days of the call, its reply the contract's own.
             if (!accept->requests.empty()) {
                 ++requests_made;
@@ -2192,7 +2192,7 @@ std::string run_scenarios(const bo::Build& build, const m::Model& model, std::st
                 ++steps_run;
                 ++happenings[std::string(bo::happened_names[static_cast<std::size_t>(r.happened)])];
                 happenings["(proposals)"] += r.proposed.empty() ? 0U : 1U;
-                // Parts made, and steps on a part (milestone 17).
+                // Parts made, and steps on a part.
                 happenings["(splits)"] += r.parts > 0 ? 1U : 0U;
                 happenings["(on parts)"] += r.part.empty() ? 0U : 1U;
             }

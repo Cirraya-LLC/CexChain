@@ -32,7 +32,7 @@ inline constexpr Timestamp max_clock_skew_ms = 5 * 60 * 1000;
 /// links.
 inline constexpr std::size_t max_delegation_depth = 16;
 
-// Ids in state objects are CompactIds: millions of objects (D-048).
+// Ids in state objects are CompactIds: millions of objects.
 struct ActorState {
     CompactId id;
     /// nullopt for the organization actor created by genesis.

@@ -15,7 +15,7 @@
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/cbor.hpp>
 
-/// The contract text (pass 8 of the plan, `bo explain`): a checked model
+/// The contract text (`bo explain`): a checked model
 /// written out in one language, from the sentences of that language's pack.
 /// This is the text the parties read and confirm before they sign, so it
 /// says what the compiled contract does, and nothing else:

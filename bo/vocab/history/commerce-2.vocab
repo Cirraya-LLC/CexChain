@@ -1,7 +1,7 @@
 # Bo vocabulary pack: commerce (official).
 #
-# Prices, charges (taxes among them), bills, refunds, and customers
-# (D-054). A source that writes `use commerce` reads these words; prices,
+# Prices, charges (taxes among them), bills, refunds, and customers.
+# A source that writes `use commerce` reads these words; prices,
 # charges, and bills are the compiler's mechanisms. No action of this pack
 # has standard terms yet.
 #

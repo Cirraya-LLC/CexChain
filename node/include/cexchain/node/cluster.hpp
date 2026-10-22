@@ -19,7 +19,7 @@
 #include <cexchain/ledger/ledger.hpp>
 #include <cexchain/node/contracts.hpp>
 
-/// Clusters: a ledger kept by several nodes, with automatic failover (D-051).
+/// Clusters: a ledger kept by several nodes, with automatic failover.
 ///
 /// The nodes run Raft (NuRaft). The leader takes the writes: a group of
 /// statements becomes one Raft entry, {time, statements, sealed vault files},
@@ -35,9 +35,9 @@
 /// and config (Raft's), raft-log, applied, snapshot. A batch entry carries
 /// the files kept with its statements: [i, bytes] for a vault file,
 /// [i, bytes, 3] for a contract call's consents (kind 2, the consents of
-/// D-052's actions, is reserved: spec v0.9 removed them, and a node ignores
+/// the native asset actions, is reserved: spec v0.9 removed them, and a node ignores
 /// it as any unknown kind). The calls a registrar holds until their consents
-/// are in (D-053) are replicated too, so a new leader carries on with them.
+/// are in are replicated too, so a new leader carries on with them.
 namespace cexchain::node {
 
 inline constexpr std::string_view cluster_directory = "cluster";
@@ -107,7 +107,7 @@ using BatchResult = std::vector<Result<ledger::Registration>>;
 /// (stored once it is registered), or the consent bundles a contract call
 /// cites (stored before, so a registered call always has them).
 struct Sidecar {
-    /// 2 is reserved (D-052's consents, removed in spec v0.9).
+    /// 2 is reserved (the native asset actions' consents, removed in spec v0.9).
     enum class Kind : std::uint8_t { vault = 1, contract_consents = 3 };
     Kind kind = Kind::vault;
     Bytes bytes;

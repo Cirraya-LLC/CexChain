@@ -43,7 +43,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
         // Verification replays bundles, contracts included: it must refuse
         // anything not genuine without crashing, and accept only complete
         // evidence about an instance. On all cores, with signatures
-        // remembered across inputs (D-056 P8), exactly as core alone.
+        // remembered across inputs, exactly as core alone.
         const auto verified = protocol::verify_contract_evidence(provider, input);
         static cexchain::ledger::SignatureCache remembered;
         const auto on_cores =

@@ -81,7 +81,7 @@ Compiled compile(std::string_view source, const PackSet& packs, const CompileOpt
             append(out.diagnostics, lowered.diagnostics);
             out.build = std::move(lowered.build);
             if (out.build && options.check_bounds) {
-                // Milestone 18: no call may run out of fuel; an output beyond
+                // No call may run out of fuel; an output beyond
                 // the code's region is refused, which the author should know.
                 bool refused = false;
                 for (const auto& [function, bound] : out.build->bounds) {

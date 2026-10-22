@@ -115,8 +115,8 @@ public:
     /// the files were found not to validate: the ledger must be reopened.
     [[nodiscard]] bool usable() const noexcept;
 
-    /// Contract calls run ahead of their validation, in parallel (D-056
-    /// P7), and how many of those runs validation took: the rest ran again,
+    /// Contract calls run ahead of their validation, in parallel,
+    /// and how many of those runs validation took: the rest ran again,
     /// their input having changed (an earlier statement of the batch moved
     /// what they read).
     struct RunsAhead {
@@ -159,7 +159,7 @@ public:
     /// writing methods, and should be quick (the next sync waits for it).
     using Durable = std::function<void(std::vector<Result<Registration>>)>;
 
-    /// submit_batch, pipelined (D-056 P7): returns once the batch is
+    /// submit_batch, pipelined: returns once the batch is
     /// validated and applied in memory; its entries are written and synced
     /// on the ledger's commit thread, together with any batches submitted
     /// meanwhile (one sync for all), and then `durable` gets the results.

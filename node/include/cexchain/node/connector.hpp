@@ -17,7 +17,7 @@
 #include <cexchain/core/error.hpp>
 #include <cexchain/core/protocol/common.hpp>
 
-/// The connector protocol (6b; spec/connectors.md, informative): how an
+/// The connector protocol (spec/connectors.md, informative): how an
 /// executor's runtime and a connector, the program that speaks one outside
 /// system's API, talk. The connector is a child process of the runtime; they
 /// exchange JSON objects, one per line, over the child's stdin and stdout.
@@ -110,7 +110,7 @@ enum class OutcomeStatus : std::uint8_t { done, failed, retry };
 struct Outcome {
     protocol::Id request;
     OutcomeStatus status = OutcomeStatus::done;
-    /// What the answer carries (P8: external ids, statuses, amounts, codes;
+    /// What the answer carries (only external ids, statuses, amounts, codes;
     /// never personal data, secrets, or raw error texts). At most
     /// max_result bytes of CBOR.
     std::optional<cbor::Value> result;

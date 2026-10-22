@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// The keeper (6b, E4): what is due, found by dry runs (time rules whose
+// The keeper: what is due, found by dry runs (time rules whose
 // contract accepts the call and that would change something; requests open
 // past their deadline plus a grace, whose expiry the contract takes), within
 // a keeper's delegations; and the server's keeper, which fires what is due

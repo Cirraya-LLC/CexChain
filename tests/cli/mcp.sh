@@ -106,7 +106,7 @@ printf '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{%s,"name":"cexch
     "$META" "$LEDGER_ID" | run mcp --ledger ledger --as agent.key > responses.txt 2> /dev/null
 contains '"verified":true' responses.txt || fail "verify through MCP"
 
-# Contracts (D-053): the agent reads them and verifies an instance's evidence.
+# Contracts: the agent reads them and verifies an instance's evidence.
 # The vectors' oracle contract writes the output its byte-string argument holds.
 python3 -c "import json, sys; open('oracle.wasm', 'wb').write(bytes.fromhex(json.load(open(sys.argv[1]))['contract']))" \
     "$VECTORS/protocol-v0.6.json"
@@ -125,7 +125,7 @@ contains 'Test agreement' responses.txt || fail "contract tools"
 contains '"status":"open"' responses.txt || fail "instance status"
 contains 'CexChain contract report' responses.txt || fail "contract evidence through MCP"
 
-# --- Contracts across organizations, through MCP (D-053) ------------------------------
+# --- Contracts across organizations, through MCP ------------------------------
 # The factory's ledger is the home of a supply agreement; a bank, whose ledger
 # hashes with SM3, is a party. The counting contract writes its arguments'
 # item n for a call citing n consents (each item is an output, as CBOR in a

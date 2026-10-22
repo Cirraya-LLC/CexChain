@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// Running a contract's tests (milestone 10 of the Bo compiler): each test
+// Running a contract's tests: each test
 // creates its own instance and runs its steps through the compiled code as a
 // ledger runs a call (scenario.hpp says how ledgers, signers, consents, and
 // time are chosen), then checks what happened against what the step expects.
@@ -40,7 +40,7 @@ constexpr std::string_view ledger_prefix = "cexchain-bo-test ledger ";
 constexpr std::string_view contract_seed = "cexchain-bo-test contract";
 constexpr std::string_view actor_seed = "cexchain-bo-test actor";
 constexpr std::string_view instance_seed = "cexchain-bo-test instance";
-/// A call's statement id, which request ids derive from (E8): this prefix,
+/// A call's statement id, which request ids derive from: this prefix,
 /// the instance's id in hex, a space, and its head before the call.
 constexpr std::string_view call_prefix = "cexchain-bo-test call ";
 /// More rounds than a call can need: it asks for at most 16 consents.
@@ -155,7 +155,7 @@ first_proposal(const std::optional<protocol::ContractInstanceView>& instance) {
                : std::nullopt;
 }
 
-/// A request an instance made that no answer has closed (E8).
+/// A request an instance made that no answer has closed.
 struct OpenRequest {
     Id id;
     std::string kind;
@@ -417,7 +417,7 @@ void Runner::expect_fields(const m::Step& step, const Ledger& l, StepResult& r) 
 
 void Runner::accept(const m::Step& step, const protocol::ContractAccept& a, Ledger& l,
                     StepResult& r) {
-    // E8: the ledger refuses an accept that would leave the instance more
+    // The ledger refuses an accept that would leave the instance more
     // than 64 open requests, or whose requests break its rules (which
     // compiled Bo never writes).
     if (l.open.size() + a.requests.size() > protocol::max_open_requests) {
@@ -473,7 +473,7 @@ void Runner::accept(const m::Step& step, const protocol::ContractAccept& a, Ledg
     if (step.creation) {
         l.instance = protocol::ContractInstanceView{instance_id_, 0, {}, {}, {}, {}, 0};
     }
-    // The requests the call made (E8), each with its id: the hash of the
+    // The requests the call made, each with its id: the hash of the
     // call's (here derived) statement id and its position.
     const Id call = hash_of(std::string(call_prefix) + hex(l.instance->id) + " " +
                                 std::to_string(l.instance->head),
@@ -512,7 +512,7 @@ std::optional<protocol::ContractOutput> Runner::invoke(const protocol::ContractI
         return std::nullopt;
     }
     call.run = std::move(*run);
-    // The fuel bound (milestone 18) holds for every call a test makes with
+    // The fuel bound holds for every call a test makes with
     // arguments of the function's shape: one beyond it is a bug in the
     // compiler, which the test reports.
     const std::string why(call.run.abort_reason.begin(), call.run.abort_reason.end());
@@ -544,7 +544,7 @@ std::optional<protocol::ContractOutput> Runner::invoke(const protocol::ContractI
 }
 
 void Runner::answer(const m::Step& step, Ledger& l, StepResult& r) {
-    // E8: the oldest open request of the kind is answered, as an executor,
+    // The oldest open request of the kind is answered, as an executor,
     // a keeper (expiry), or a person by hand would: a call of the request's
     // reply on the instance, with the request in input key 9 and no
     // consents. A final instance takes it too.
@@ -1102,7 +1102,7 @@ std::string state_word(std::string_view state, const Pack* language) {
     return std::string(state);
 }
 
-/// A request's kind in a pack's language (E8): an action's word, or the
+/// A request's kind in a pack's language: an action's word, or the
 /// name as written.
 std::string kind_word(std::string_view kind, const Pack* language) {
     if (const Concept* c = find_concept("act." + std::string(kind)); c != nullptr) {

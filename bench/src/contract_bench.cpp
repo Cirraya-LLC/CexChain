@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// Contracts in-process (D-056): creations and calls registered on a ledger
+// Contracts in-process: creations and calls registered on a ledger
 // in memory or on disk, where one call's time goes (parsing, the signature,
 // validation, the contract run, the VM alone), checkpoints, and replay of a
 // contract-heavy log; the evidence of instances (small, long, and deep

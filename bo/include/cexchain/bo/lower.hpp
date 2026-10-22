@@ -17,9 +17,8 @@
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/protocol/statement.hpp>
 
-/// Part of cexchain::bo, the compiler proper (GCC 16). Lowering (passes 6 and
-/// 7 of the plan): a checked model to a contract module in the profile of
-/// spec section 14, which reads the call's input and writes its output as
+/// Part of cexchain::bo, the compiler proper (GCC 16). Lowering: a checked model to a contract
+/// module in the profile of spec section 14, which reads the call's input and writes its output as
 /// spec section 15 says.
 ///
 /// The compiled contract:
@@ -56,7 +55,7 @@
 /// It depends only on the model's concepts and names, never on spellings or
 /// places, so a contract written in any language gives the same bytes.
 ///
-/// What this version compiles (milestones 6, 11, 12, and 13): creation, the
+/// What this version compiles: creation, the
 /// contract's own actions with inputs, the vocabulary's actions with the
 /// standard library's terms (R19), fields (party fields that may hold none
 /// among them), states (and a return to the previous one), `requires` (with
@@ -67,7 +66,7 @@
 /// expressions over numbers, money, quantities, rates, dates, durations,
 /// texts, yes or no, parties, and lists. Anything else is reported (build.*)
 /// and nothing is built: the built-in actions whose terms come later,
-/// executors (6b), a service's period due (6b), a list built from values that
+/// executors, a service's period due, a list built from values that
 /// are not constants, and actions done inside actions.
 namespace cexchain::bo {
 
@@ -84,7 +83,7 @@ inline constexpr std::size_t max_build_charges = 64;
 /// a call is refused with bo:output.
 inline constexpr std::uint64_t max_build_output = 196'608;
 
-/// The most a call of one function can use (milestone 18; cost.hpp). It
+/// The most a call of one function can use (cost.hpp). It
 /// holds for every call whose arguments are of the function's shape (a map
 /// of its inputs, each of its type, lists within their bounds; arguments of
 /// another shape are refused, and reading very large ones may run out of

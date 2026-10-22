@@ -14,7 +14,7 @@
 #include <cexchain/core/protocol/contracts.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 
-/// Contract evidence (D-053, spec section 15): an instance's evidence bundle
+/// Contract evidence (spec section 15): an instance's evidence bundle
 /// from its home ledger, with the consent bundles from other ledgers that its
 /// calls cite. Verified offline, it shows every call, what the contract made
 /// of it, and who consented on their own ledger. See `contract-evidence` in

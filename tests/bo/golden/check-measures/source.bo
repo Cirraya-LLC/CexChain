@@ -1,4 +1,4 @@
-# Measures (G5b): durations divided by durations count whole times (R32);
+# Measures: durations divided by durations count whole times (R32);
 # defaults of instance fields; temperatures and negative values.
 contract Delivery
 parties we, carrier

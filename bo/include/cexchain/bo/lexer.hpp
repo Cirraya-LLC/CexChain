@@ -120,7 +120,7 @@ inline constexpr std::array<std::string_view, 14> symbol_texts{
 /// An exact decimal: `digits` / 10^`scale`, negated if `negative`. "0.10"
 /// is {10, 2}: the scale is as written, and multipliers fold into the digits
 /// (1.5萬 is {15000, 0}). A literal is negative where a minus is written
-/// directly before its first digit, at the start of a value (-18 °C, G5b).
+/// directly before its first digit, at the start of a value (-18 °C).
 struct Decimal {
     std::uint64_t digits = 0;
     std::uint8_t scale = 0;

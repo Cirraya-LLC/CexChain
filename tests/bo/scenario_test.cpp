@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// Running tests (milestone 10 of the Bo compiler): `bo test` runs a
+// Running tests: `bo test` runs a
 // contract's test blocks on its compiled code as a ledger runs calls
 // (scenario.hpp). The goldens in tests/bo/golden/test/CASE/ hold each case's
 // results as canonical text (results.txt) and its report in each official
@@ -100,43 +100,43 @@ std::vector<std::pair<std::string, std::filesystem::path>> cases() {
         {"failing", golden_dir / "test/failing/source.bo"},
         {"loan", golden_dir / "check-tests/source.bo"},
         {"supply-agreement", source_dir / "examples/supply-agreement/supply-agreement.bo"},
-        // The standard library (milestone 11): the spec's ReceivableFinancing,
+        // The standard library: the spec's ReceivableFinancing,
         // the native assets' flows, and an AI agent's proposal.
         {"receivable-financing", golden_dir / "test/receivable-financing/source.bo"},
         {"receivable", golden_dir / "test/receivable/source.bo"},
         {"warehouse-receipt", golden_dir / "test/warehouse-receipt/source.bo"},
         {"standard", golden_dir / "check-standard/source.bo"},
-        // Time rules and the keeper (milestone 12): the spec's "3 days
+        // Time rules and the keeper: the spec's "3 days
         // overdue, suspend", every kind of time, and the IP pool.
         {"time", golden_dir / "test/time/source.bo"},
         {"membership", golden_dir / "check-time/source.bo"},
         {"ip-pool", golden_dir / "test/ip-pool/source.bo"},
-        // Lists and charges (milestone 13): the spec's VAT on both sides of
+        // Lists and charges: the spec's VAT on both sides of
         // its rate change, charges of every kind on one bill, and lists.
         {"tax", golden_dir / "test/tax/source.bo"},
         {"charges", golden_dir / "test/charges/source.bo"},
         {"lists", golden_dir / "test/lists/source.bo"},
-        // Splitting (milestone 17): parts, and the demo's receivable.
+        // Splitting: parts, and the demo's receivable.
         {"split", golden_dir / "test/split/source.bo"},
         {"multi-tier-split", source_dir / "examples/multi-tier-split/multi-tier-split.bo"},
         // R31: a counterparty made holder or pledgee consents, whenever its
         // role was bound.
         {"role-taking", golden_dir / "check-role-taking/source.bo"},
-        // Measures (G5b): durations divided by durations, field defaults,
+        // Measures: durations divided by durations, field defaults,
         // temperatures and negative literals, expectations on fields.
         {"measures", golden_dir / "test/measures/source.bo"},
         {"shipment", golden_dir / "test/shipment/source.bo"},
         {"shipment-notice", source_dir / "examples/shipment/shipment.bo"},
-        // Requests (E8): made by actions and time rules, answered done,
+        // Requests: made by actions and time rules, answered done,
         // failed, and expired, refused by the ledger, and after the end.
         {"requests", golden_dir / "check-requests/source.bo"},
-        // A service (E9): subscribed, invoiced, paid, renewed, suspended,
+        // A service: subscribed, invoiced, paid, renewed, suspended,
         // resumed, and terminated; the spec's VPS, in English and in
         // Traditional Chinese.
         {"vps", golden_dir / "test/vps/source.bo"},
         {"vps-zh-hant", golden_dir / "test/vps-zh-hant/source.bo"},
         {"services", golden_dir / "check-services/source.bo"},
-        // A time rule's action on the next line of its block (E11, codegen
+        // A time rule's action on the next line of its block (codegen
         // 4): the states it ends in are final.
         {"rule-block", golden_dir / "test/rule-block/source.bo"},
     };
@@ -225,7 +225,7 @@ TEST_CASE("bo test: one contract and its tests, in any language, give the same r
             read_text(golden_dir / "build" / ("agreement-" + std::string(spelling)) / "source.bo");
         CHECK(results_of(source) == english);
     }
-    // The spec's VPS (E9): its contract in four spellings, with the same
+    // The spec's VPS: its contract in four spellings, with the same
     // tests.
     {
         const std::string vps = read_text(golden_dir / "test/vps/source.bo");
@@ -254,7 +254,7 @@ TEST_CASE("bo test: one contract and its tests, in any language, give the same r
 }
 
 TEST_CASE("bo test: a step expects the values of fields after its call", "[bo][test]") {
-    // G5b: `-> STATE, FIELD = VALUE`, or values alone (accepted); a party
+    // `-> STATE, FIELD = VALUE`, or values alone (accepted); a party
     // field by its party.
     const std::string source =
         with_tests("test \"values\"\n"
@@ -432,8 +432,8 @@ TEST_CASE("bo test: time, from 2026-01-01 or the first at, never going back", "[
 }
 
 TEST_CASE("bo test: time rules, the keeper, a UTC offset, and month ends", "[bo][test]") {
-    // Due on 31 January at UTC-05:00: a month later is the end of February
-    // (U6), and days are counted at -05:00.
+    // Due on 31 January at UTC-05:00: a month later is the end of February,
+    // and days are counted at -05:00.
     constexpr std::string_view source = R"(use commerce
 contract Rent
 parties we, customer
@@ -590,7 +590,7 @@ TEST_CASE("bo test: a refusal names the clause of the contract text it comes fro
 }
 
 TEST_CASE("bo test: parts, by the party that holds them", "[bo][test]") {
-    // A receivable split twice (milestone 17): each part is an instance of
+    // A receivable split twice: each part is an instance of
     // its own, with its parent's id and its depth in the view, and a step
     // acts on the part its party holds or the party it names holds.
     constexpr std::string_view contract = R"(use finance

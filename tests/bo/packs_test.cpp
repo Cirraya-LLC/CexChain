@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// Language packs (milestone 1 of the Bo compiler): the official packs, their
+// Language packs: the official packs, their
 // digests, and every rule a pack must keep. Set CEXCHAIN_UPDATE_GOLDENS=1 to
 // rewrite tests/bo/golden/pack-digests.txt after a deliberate change.
 
@@ -230,7 +230,7 @@ TEST_CASE("the official packs spell every keyword, word, message, and sentence",
             INFO(c.id);
             CHECK((pack.word(c.id) != nullptr) == !c.retired);
         }
-        // The pack's own file spells the core's words alone (G6).
+        // The pack's own file spells the core's words alone.
         for (const PackText& text : official_pack_texts()) {
             if (text.id != pack.id) {
                 continue;

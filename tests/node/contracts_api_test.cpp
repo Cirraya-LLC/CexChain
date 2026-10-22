@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// A home ledger's server as a contract registrar (D-053): it takes a proposed
+// A home ledger's server as a contract registrar: it takes a proposed
 // call, asks the parties the contract names for their consents, records the
 // call once the contract accepts it, and serves the instance's evidence to
 // its parties. The supplier keeps a SHA-256 ledger, the bank an SM3 one.

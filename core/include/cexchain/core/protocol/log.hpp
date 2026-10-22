@@ -44,7 +44,7 @@ struct LogEntry {
 // ---------------------------------------------------------------------------
 
 /// A signed statement of the ledger's tree size and root. The size and root
-/// are signed together (D-023).
+/// are signed together.
 struct Checkpoint {
     Id ledger_id;
     crypto::HashAlg tree_hash = crypto::HashAlg::sha256;

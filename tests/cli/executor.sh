@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
 #
-# The executor runtime (6b, E5), end to end: Alpha's requesting contract asks
+# The executor runtime, end to end: Alpha's requesting contract asks
 # for notices (answered through a webhook to a local receiver that checks
 # the HMAC signature) and posts (answered by a command connector, a script
 # run without a shell). The executor finds requests at Alpha's server with an

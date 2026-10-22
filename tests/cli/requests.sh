@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
 #
-# Requests and answers (spec v0.8, 6b E3), end to end across two
+# Requests and answers (spec v0.8), end to end across two
 # organizations: Alpha (SHA-256) runs a contract whose calls ask executors
 # for work, and Beta (SM3) is a party of one of its instances and runs one of
 # its own. Alpha registers an executor device that answers only notify

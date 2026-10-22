@@ -1,6 +1,6 @@
 # Bo vocabulary pack: services (official).
 #
-# Services, resources, and their allocation (D-054). A source that writes
+# Services, resources, and their allocation. A source that writes
 # `use services` reads these words; the kinds `service` and `resource`
 # are the compiler's mechanisms, `allocate` and `reclaim` have standard
 # terms (below).
@@ -11,7 +11,7 @@
 # (bo/vocab/history/). Version 1 had no "languages": the language packs
 # spelled its words until version 4 of theirs. Version 3 added a service's
 # paid and billed periods and the terms of subscribe, renew, upgrade, and
-# downgrade (E9); version 2's terms are the first lines of its terms.
+# downgrade; version 2's terms are the first lines of its terms.
 
 {
   "format": 1,

@@ -353,10 +353,10 @@ function-kind = &(create: 1, call: 2)
 ; strictly ascend by id. Embedded packs strictly ascend by id too, and each
 ; is a referenced pack that is not official; a reference without an
 ; embedded pack names an official pack, which a Bo compiler carries in every
-; released version. Key 6 (v0.9, D-054) lists the vocabulary packs the
+; released version. Key 6 (v0.9) lists the vocabulary packs the
 ; source's `use` lines name, exactly those, strictly ascending by id; it is
 ; absent without `use` lines, and a bundle read with the official language
-; packs of before vocabulary packs (version 1) has none. Key 7 (v0.9, G6)
+; packs of before vocabulary packs (version 1) has none. Key 7 (v0.9)
 ; embeds the vocabulary packs of key 6 that are not official, each as its
 ; canonical CBOR, strictly ascending by id; it is absent if there are none.
 bo-source = {
@@ -369,7 +369,7 @@ bo-source = {
                                ; covers the pack's canonical CBOR (Bo
                                ; reference, section 3.9)
   ? 7 => [1*64 bo-vocab-pack], ; those of key 6 that are not official
-                               ; (users' packs, G6), in full
+                               ; (users' packs), in full
 }
 bo-pack-ref = [
   id: tstr,                    ; the pack's id: for a language pack, ASCII

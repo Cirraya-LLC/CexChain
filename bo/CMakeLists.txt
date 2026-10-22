@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
 
-# The Bo compiler (D-053), in two libraries:
+# The Bo compiler, in two libraries:
 #   cexchain::bo_front  everything that reads untrusted text (language packs,
 #                       the lexer, the parser). C++26 without reflection,
 #                       contracts only through BO_PRE, BO_POST, and BO_ASSERT,

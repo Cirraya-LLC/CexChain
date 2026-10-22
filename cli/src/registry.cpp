@@ -37,7 +37,7 @@ const OptionSpec log_key_option{"log-key", "KEY", "The ledger's log key file", t
 const OptionSpec signing_log_key_option{
     "log-key", "KEY",
     "The ledger's log key file (required, except with --server: the server signs)"};
-/// Client mode (D-050), added to every command that can work through a
+/// Client mode, added to every command that can work through a
 /// server.
 const std::vector<OptionSpec> client_options{
     {"server", "URL",

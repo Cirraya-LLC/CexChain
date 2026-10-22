@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// Bo commands (D-053, step 6): checking and building Bo source, and the
+// Bo commands: checking and building Bo source, and the
 // language packs it is read with; building the deploy of `contract deploy
 // --bo`. Built only with the Bo compiler (cexchain::bo: GCC 16, for C++26
 // reflection and contracts).
@@ -533,7 +533,7 @@ std::string grouped(const std::uint64_t n) {
     return digits;
 }
 
-/// Each function's bound (milestone 18), as `bo build --json` shows it.
+/// Each function's bound, as `bo build --json` shows it.
 Json bounds_json(const bo::Build& build) {
     Json out = Json::object();
     for (const auto& [name, b] : build.bounds) {
@@ -643,7 +643,7 @@ Json expectation_json(const bo::model::Step& step, const bo::StepResult& r,
     case bo::model::Expectation::proposed:
         break;
     }
-    // Values of fields the step expects after its call (G5b), as compiled
+    // Values of fields the step expects after its call, as compiled
     // code keeps them.
     if (!r.expected_fields.empty()) {
         Json fields = Json::object();
@@ -693,7 +693,7 @@ Json step_json(const bo::model::Model& model, const bo::Explained& text,
             result["parts"] = r.parts;
         }
         if (!r.requests.empty()) {
-            // The requests the call made (E8): kind and deadline.
+            // The requests the call made: kind and deadline.
             Json made = Json::array();
             for (const auto& [kind, deadline] : r.requests) {
                 made.push_back({{"kind", kind}, {"deadline", deadline}});
@@ -736,7 +736,7 @@ Json step_json(const bo::model::Model& model, const bo::Explained& text,
                 {"status", bo::step_status_names[static_cast<std::size_t>(r.status)]},
                 {"time", r.time},
                 {"expected", expectation_json(step, r, results)}};
-    // A step that answers a request (E8): its kind and how it went.
+    // A step that answers a request: its kind and how it went.
     if (step.answer) {
         out["answer"] = {
             {"kind", step.request_kind},

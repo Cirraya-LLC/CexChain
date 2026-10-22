@@ -22,7 +22,7 @@
 #include <cexchain/core/vm.hpp>
 
 /// Part of cexchain::bo, the compiler proper (GCC 16). Running a contract's
-/// `test` blocks (`bo test`, D-053 milestone 10, U8): each test runs its own
+/// `test` blocks (`bo test`): each test runs its own
 /// instance of the compiled contract exactly as a ledger would, every call
 /// through protocol::encode_contract_input, vm::run, and
 /// protocol::decode_contract_output.
@@ -65,7 +65,7 @@
 ///     names (local midnight, +08:00); a test starts on 2026-01-01, or on its
 ///     first `at` date if that is earlier. Time never goes back (the checker
 ///     sees to it).
-/// A step that answers a request (E8), `executor notify done [with result =
+/// A step that answers a request , `executor notify done [with result =
 /// TEXT, reason = TEXT] [at DATE]`, `keeper notify expires at DATE`, or a
 /// party's by hand, answers the instance's oldest open request of that kind,
 /// as the ledger takes answers: a call of the request's reply with the
@@ -95,8 +95,8 @@ enum class Happened : std::uint8_t {
     final_instance, ///< the ledger refuses: the instance is final
     broken,         ///< the code did what compiled code never does (a bug)
     no_part,        ///< the step names no single instance of the test's (it fails)
-    no_request,     ///< the ledger refuses an answer: no request of the kind is open (E8)
-    early,          ///< the ledger refuses an expiry before the request's deadline (E8)
+    no_request,     ///< the ledger refuses an answer: no request of the kind is open
+    early,          ///< the ledger refuses an expiry before the request's deadline
     too_many,       ///< the ledger refuses: the instance would have more than 64 open requests
 };
 
@@ -148,7 +148,7 @@ struct StepResult {
     std::size_t parts = 0;
     /// No part: the party the step named as the holder, if it named one.
     std::optional<protocol::Id> holder;
-    /// Accepted: the requests the call made (E8), each its kind and
+    /// Accepted: the requests the call made , each its kind and
     /// deadline. An answer: the kind, and the deadline of the request it
     /// answers (no_request: none).
     std::vector<std::pair<std::string, std::int64_t>> requests;

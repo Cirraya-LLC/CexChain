@@ -1,4 +1,4 @@
-# Vocabulary packs (D-054): a pack the compiler does not have, and words of
+# Vocabulary packs: a pack the compiler does not have, and words of
 # packs the source does not use, whatever language they are written in.
 use commerce
 use acme

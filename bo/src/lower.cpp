@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// Lowering (milestone 6 of the Bo compiler): a checked model to a contract
+// Lowering: a checked model to a contract
 // module. lower.hpp says what the compiled contract does and what this
 // version compiles. The work is in two passes: the first checks that the
 // model is within the subset and the limits and plans the tables (fields,
@@ -250,7 +250,7 @@ struct FieldSlot {
     /// R20: not given at creation; each instance starts with none.
     bool empty_at_start = false;
     /// A date field that may hold no date (R20: a service's paid until and
-    /// billed until, E9): `present` says whether it holds one, and the
+    /// billed until): `present` says whether it holds one, and the
     /// state holds null while it does not.
     bool dated = false;
     wasm::Global present{};
@@ -387,7 +387,7 @@ struct Ctx {
     /// new ones each time, so that thousands could exceed the 4,096 locals
     /// a function may have).
     std::optional<std::pair<Local, Local>> scratch;
-    /// In the reply function (E8): whether the instance had ended before the
+    /// In the reply function: whether the instance had ended before the
     /// answer (its state changes and requests are then skipped), and the
     /// answer's result and reason, texts (empty when it gives none).
     bool answer = false;
@@ -468,7 +468,7 @@ private:
     void out_value(FunctionBuilder& b, Rep rep);
     void state_name(FunctionBuilder& b, Local index);
 
-    // --- Bounds (milestone 18): the input each function meets at most.
+    // --- Bounds: the input each function meets at most.
     [[nodiscard]] Shape arguments_shape(const ActionInfo& action) const;
     [[nodiscard]] Shape creation_shape() const;
     [[nodiscard]] Shape proposal_shape() const;
@@ -489,7 +489,7 @@ private:
     void emit_reply(wasm::Func f);
     void request(Ctx& c, const m::Request& r);
     void write_answer_event(FunctionBuilder& b);
-    /// The params of the contract's requests, the most any has (E8).
+    /// The params of the contract's requests, the most any has.
     [[nodiscard]] Shape params_shape() const;
     void run_action(Ctx& c, const m::Do& d);
     /// A service's paid until (R11), which is its due date.
@@ -521,7 +521,7 @@ private:
     void binary(Ctx& c, const m::Expr& e);
     void arithmetic(Ctx& c, const m::Expr& e);
     void in_person(Ctx& c);
-    // --- Bills and charges (milestone 13).
+    // --- Bills and charges.
     [[nodiscard]] wasm::Func compute_bill();
     [[nodiscard]] wasm::Func line_charges();
     void charge_base(Ctx& c, const ChargeInfo& k, std::optional<Local> price, bool per_line);
@@ -529,7 +529,7 @@ private:
     void write_bill(FunctionBuilder& b);
     [[nodiscard]] std::vector<const ChargeInfo*> sorted_charges(bool per_line_only) const;
 
-    // --- Lists (milestone 13).
+    // --- Lists.
     [[nodiscard]] wasm::Func list_reader(Rep element);
     [[nodiscard]] wasm::Func list_sum();
     [[nodiscard]] wasm::Func list_has(Rep element);
@@ -643,7 +643,7 @@ private:
     wasm::Global parts_made_{};
     wasm::Global parts_list_{};
     wasm::Global parts_to_{};
-    /// Requests (E8): the contract makes some, so it has the reply function;
+    /// Requests: the contract makes some, so it has the reply function;
     /// the requests a call has made so far (drafted at the start of the
     /// output region); and an answer's event: 1 once there is one, the
     /// request's kind (address, length), its id, and the answer's status.
@@ -1065,7 +1065,7 @@ void Lowering::support(ActionInfo& action, const std::vector<m::Statement>& list
                     }
                 },
                 [&](const m::Request& r) {
-                    // E8: a request, its party, and its values.
+                    // A request, its party, and its values.
                     requests_used_ = true;
                     if (r.to) {
                         check(*r.to, false);
@@ -1178,7 +1178,7 @@ void Lowering::plan_rules() {
             continue;
         }
         std::optional<m::Trigger> trigger = m::trigger_of(r.event);
-        // A service is due on the date it is paid until (R11, E9).
+        // A service is due on the date it is paid until (R11).
         if (!trigger || (model_.due == m::DueKind::none && reads_due(r.event))) {
             error(r.span, "build.time-rule", {{"text", quote(source_, r.span)}});
             continue;
@@ -1216,7 +1216,7 @@ void Lowering::plan_rules() {
 }
 
 void Lowering::plan_answers() {
-    // E8: a contract that makes requests has the reply function, which takes
+    // A contract that makes requests has the reply function, which takes
     // every answer and runs the rule for it.
     if (!m::makes_requests(model_)) {
         return;
@@ -1574,7 +1574,7 @@ void Lowering::state_name(FunctionBuilder& b, const Local index) {
 }
 
 // ---------------------------------------------------------------------------
-// Bills and charges (milestone 13). A bill is made when the field that holds
+// Bills and charges. A bill is made when the field that holds
 // its lines is set (at creation, or by an action): the charges are computed
 // on its lines at the call's time (R26), in the order written, each on the
 // price and the charges it names (R27), with the rate in force then (R28).
@@ -1890,7 +1890,7 @@ void Lowering::write_bill(FunctionBuilder& b) {
 }
 
 // ---------------------------------------------------------------------------
-// Lists (milestone 13). A list is kept as its CBOR array, an address and a
+// Lists. A list is kept as its CBOR array, an address and a
 // length: an instance's list in the state and an action's in its arguments
 // where the input holds them, a list of constants written into the module.
 // Lists from the input are checked once, when read (an array of at most the
@@ -2513,7 +2513,7 @@ wasm::Func Lowering::write_accept() {
     const wasm::Func out_int = rt_.get(Routine::out_int);
     // Routines are emitted in the order of first use (runtime.hpp).
     static_cast<void>(rt_.get(Routine::out_raw));
-    // E8: the requests the call made are drafted at the start of the output
+    // The requests the call made are drafted at the start of the output
     // region; the accept goes after them, and copies them into key 7.
     std::optional<Local> start;
     if (requests_used_) {
@@ -3460,7 +3460,7 @@ void Lowering::emit_action(const ActionInfo& info) {
 }
 
 void Lowering::emit_core(const ActionInfo& info) {
-    // AI agents may only propose this action (U3): an agent's call is kept
+    // AI agents may only propose this action: an agent's call is kept
     // as a proposal; approve runs it again, with the proposal's arguments,
     // and then its starter must be a person who proves presence.
     FunctionBuilder b = module_.begin(info.core);
@@ -3730,7 +3730,7 @@ void Lowering::requirement(Ctx& c, const m::Requires& r) {
 void Lowering::transition(Ctx& c, const m::Transition& t) {
     FunctionBuilder& b = *c.b;
     if (c.answer) {
-        // E8: an answer to an instance that has ended changes no state.
+        // An answer to an instance that has ended changes no state.
         b.get(c.final_before).op(i32_eqz);
         const Label live = b.if_();
         c.answer = false;
@@ -3959,7 +3959,7 @@ void Lowering::emit_rule(const RuleInfo& info) {
 }
 
 void Lowering::request(Ctx& c, const m::Request& r) {
-    // E8: {1: kind, 2: params, 3: deadline, 4: reply}, drafted where the
+    // {1: kind, 2: params, 3: deadline, 4: reply}, drafted where the
     // output goes (write_accept copies it into the accept's key 7).
     FunctionBuilder& b = *c.b;
     std::optional<Label> live;
@@ -4076,7 +4076,7 @@ void Lowering::request(Ctx& c, const m::Request& r) {
 }
 
 void Lowering::emit_reply(const wasm::Func f) {
-    // E8: every answer to the contract's requests calls this function. It
+    // Every answer to the contract's requests calls this function. It
     // records the answer as an event and runs the rule for it, if the
     // contract has one; it refuses only what is not an answer.
     FunctionBuilder b = module_.begin(f);
@@ -4448,7 +4448,7 @@ void Lowering::reference(Ctx& c, const m::Expr& e) {
         call_item(b, 7);
         expect(b, Rep::i64, rt::text_of(rt::Reason::input));
         if (is(e.concept_entry, "time.today")) {
-            // The local midnight that starts the day (U6).
+            // The local midnight that starts the day.
             b.tee(c.t64).i64(model_.utc_offset_ms).call(rt_.get(Routine::local_days));
             b.set(c.t64b).op(drop);
             b.get(c.t64).get(c.t64b).op(i64_sub);
@@ -4920,7 +4920,7 @@ Lowered Lowering::run() {
 }
 
 // ---------------------------------------------------------------------------
-// Bounds (milestone 18): what a call of each function can use at most.
+// Bounds: what a call of each function can use at most.
 
 Shape Lowering::arguments_shape(const ActionInfo& action) const {
     // A map of the inputs and the role the action binds; null for none.

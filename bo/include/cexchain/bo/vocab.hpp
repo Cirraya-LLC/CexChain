@@ -23,7 +23,7 @@
 #include <cexchain/core/crypto.hpp>
 #include <cexchain/core/error.hpp>
 
-/// Bo's vocabulary packs (D-054): Bo's core words (holder, transfer, money,
+/// Bo's vocabulary packs: Bo's core words (holder, transfer, money,
 /// ...) are in every source; a pack's words are read only in a source that
 /// declares the pack (`use finance`). Unlike a language pack, which spells
 /// concepts in one language, a vocabulary pack says which concepts exist,

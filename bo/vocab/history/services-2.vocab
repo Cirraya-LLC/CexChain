@@ -1,6 +1,6 @@
 # Bo vocabulary pack: services (official).
 #
-# Services, resources, and their allocation (D-054). A source that writes
+# Services, resources, and their allocation. A source that writes
 # `use services` reads these words; the kinds `service` and `resource`
 # are the compiler's mechanisms, `allocate` and `reclaim` have standard
 # terms (below).

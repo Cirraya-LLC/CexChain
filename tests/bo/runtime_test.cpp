@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// The Bo runtime (M5): the emitter's modules load and match the validator's
+// The Bo runtime: the emitter's modules load and match the validator's
 // bookkeeping; each routine, run through a harness module, agrees with core
 // (the CBOR decoder and encoder) and with exact arithmetic; the fuel each
 // costs is a golden. A hidden case writes every run for the Python reference
@@ -1405,7 +1405,7 @@ TEST_CASE("bo runtime: arithmetic, rounding, dates, and texts agree with exact v
                      {}};
         check_math(c, run(c.module, c.input));
     }
-    // U5's examples: 3.875% of HKD 1,234.56 (rates in millionths), half up.
+    // Rounding examples: 3.875% of HKD 1,234.56 (rates in millionths), half up.
     const Run rate = run("math", math_input(MathOp::muldiv, {123'456, 38'750, 1'000'000, 0}));
     CHECK(rate.output == results_bytes({4'784})); // 4,783.92 cents
     const Run even = run("math", math_input(MathOp::muldiv, {25, 1, 10, 1}));
@@ -1607,7 +1607,7 @@ void count_items(const cbor::Value& v, std::uint64_t& items, std::uint64_t& keys
 } // namespace
 
 TEST_CASE("bo runtime: read_input stays within its bound", "[bo][runtime]") {
-    // Milestone 18: what reading an input costs, against the bound the
+    // What reading an input costs, against the bound the
     // compiler counts for its items and keys (read_bound.hpp). Every kind of
     // item, many times over, as array items, map keys (each compared with
     // the one before it), map values, and nested; then inputs at the limits.

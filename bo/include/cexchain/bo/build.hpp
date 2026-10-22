@@ -20,8 +20,7 @@
 
 /// Part of cexchain::bo, the compiler proper (GCC 16). Building a source all
 /// the way (lex, parse, check, lower), and rebuilding a deploy from the
-/// bo-source bundle it carries to compare it with its code (D-053,
-/// milestone 7; plan section 2).
+/// bo-source bundle it carries to compare it with its code.
 namespace cexchain::bo {
 
 /// This compiler: its release (the project's version), codegen version, and
@@ -66,7 +65,7 @@ struct CompileOptions {
 [[nodiscard]] Compiled compile(std::string_view source, const PackSet& packs,
                                const CompileOptions& options = {});
 
-/// The fuel bound of one call (milestone 18): the function's bound, with
+/// The fuel bound of one call: the function's bound, with
 /// reading counted for this input's own items and map keys instead of the
 /// most a call's input can hold, so that a test can check the bound against
 /// a call's fuel closely. None if the input does not decode, names no

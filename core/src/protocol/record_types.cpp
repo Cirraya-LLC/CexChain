@@ -10,7 +10,7 @@ namespace cexchain::protocol {
 
 namespace {
 
-// Access across organizations (D-046): a request on the asker's ledger, a
+// Access across organizations: a request on the asker's ledger, a
 // grant on the granter's (ended by revoking it), a receipt on the asker's.
 constexpr std::array access_request_transitions{
     Transition{"requested", "withdrawn"},

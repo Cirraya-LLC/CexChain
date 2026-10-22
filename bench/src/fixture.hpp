@@ -5,7 +5,7 @@
 
 // What the contract scenarios share: a home ledger and its organization
 // (deterministic keys, a manual clock, seeded nonces), Bo builds, and the
-// three contract workloads (D-056).
+// three contract workloads.
 
 #include <cstdint>
 #include <filesystem>

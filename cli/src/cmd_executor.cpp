@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// Executors at work (6b, E5; spec section 15 and spec/connectors.md): the
+// Executors at work (spec section 15 and spec/connectors.md): the
 // runtime that finds requests, verifies them in evidence, acts through
 // connectors, and answers; its config (connectors and routes), its sealed
 // secrets, and its journal; and the first-party connectors it runs.

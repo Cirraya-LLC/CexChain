@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// Instance states kept as encoded CBOR (D-056, P6): contract inputs splice
+// Instance states kept as encoded CBOR: contract inputs splice
 // encoded states, and outputs are read from their bytes. Nothing on the wire
 // changes: canonical CBOR has one encoding per value, so every input and
 // output equals what the trees gave (tests/support/contract_reference.hpp,
-// the code before P6), on every vector and on random states.
+// the code before states were read as bytes), on every vector and on random states.
 
 #include <cstdint>
 #include <map>

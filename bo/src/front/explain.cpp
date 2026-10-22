@@ -1083,7 +1083,7 @@ private:
             w_.say("creation", {{"function", plain(std::string(m::creation_function(model_)))}}),
             {});
         if (dated()) {
-            // U6: the contract's offset from UTC, fixed (R25 unless written).
+            // The contract's offset from UTC, fixed (R25 unless written).
             Rules rules;
             note(rules, model_.offset_rule);
             const std::int64_t minutes = model_.utc_offset_ms / 60'000;
@@ -1156,7 +1156,7 @@ private:
         if (mode != nullptr && mode->kind == ExprKind::word) {
             return w_.word(mode->concept_entry).text;
         }
-        // U5: half up, unless the charge says otherwise.
+        // Half up, unless the charge says otherwise.
         note(rules, "R17");
         return w_.word(find_concept("round.half_up")).text;
     }
@@ -1393,7 +1393,7 @@ private:
         return word != nullptr ? w_.word(word) : plain(name);
     }
 
-    /// E8: a request, what it carries, and what happens if it fails.
+    /// A request, what it carries, and what happens if it fails.
     void request(const m::Request& r, std::vector<ExplainedClause>& out, const std::string& parent,
                  std::size_t& n) {
         Rules rules;
@@ -1636,7 +1636,7 @@ private:
             consents(a.consents, s.clauses, number, k);
             if (a.terms) {
                 const auto split = a.body.begin() + static_cast<std::ptrdiff_t>(a.terms_from);
-                // After the terms, the lines Bo adds (E9): a service's bill
+                // After the terms, the lines Bo adds: a service's bill
                 // (R34) and the request of R10, marked by their own rules.
                 const auto added = std::find_if(split, a.body.end(), [](const m::Statement& st) {
                     const auto* r = std::get_if<m::Request>(&st.node);
@@ -1783,7 +1783,7 @@ private:
         function_.clear();
     }
 
-    // --- Answers to requests (E8).
+    // --- Answers to requests.
 
     void answers() {
         if (!m::makes_requests(model_) && model_.answers.empty()) {

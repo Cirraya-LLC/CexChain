@@ -31,7 +31,7 @@ constexpr UnitInfo unit_table[] = {
     {"unit.item", Dimension::count, 1},
     {"unit.kg", Dimension::mass, 1'000},
     {"unit.tonne", Dimension::mass, 1'000'000},
-    // A temperature in hundredths of a degree Celsius (G5b): 4.5 °C is 450.
+    // A temperature in hundredths of a degree Celsius: 4.5 °C is 450.
     {"unit.celsius", Dimension::temperature, 100},
 };
 

@@ -13,7 +13,7 @@
 #include <cexchain/bo/contracts.hpp>
 
 /// Part of cexchain::bo, the compiler proper (GCC 16). What compiled code can
-/// cost at most (milestone 18): the emitter records, as it writes each
+/// cost at most: the emitter records, as it writes each
 /// function, a tree of what the function's instructions cost (spec section
 /// 14.3), with every loop bounded and every call named; evaluating the tree
 /// gives an upper bound on the fuel a call uses and on the bytes of output it

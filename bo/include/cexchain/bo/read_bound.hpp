@@ -6,7 +6,7 @@
 #include <cstdint>
 
 /// The bound on what reading a call's input costs compiled Bo code (codegen 2
-/// on; milestone 18), header-only and with no other dependency, so that the
+/// on), header-only and with no other dependency, so that the
 /// fuzz target of the runtime's reader (Clang, without the compiler) checks
 /// the same bound the compiler counts.
 namespace cexchain::bo::runtime {

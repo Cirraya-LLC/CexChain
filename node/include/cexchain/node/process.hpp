@@ -14,7 +14,7 @@
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/error.hpp>
 
-/// Child processes for executors (6b): connectors, and the programs the
+/// Child processes for executors: connectors, and the programs the
 /// `command` connector runs. POSIX only.
 namespace cexchain::node {
 

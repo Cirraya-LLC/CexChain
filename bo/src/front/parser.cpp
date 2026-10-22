@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// The parser (milestone 3 of the Bo compiler): tokens to the tree of
+// The parser: tokens to the tree of
 // ast.hpp, by recursive descent, one line at a time. The grammar is in
 // parser.hpp. Two passes: the first collects the names the contract
 // declares, which decide the prefix splits the lexer left open (可提款) and
@@ -229,7 +229,7 @@ private:
         }
         return t.kind == TokenKind::name && declared_.parties.contains(t.text);
     }
-    /// A request's outcome (E8): a contextual word, which the parser reads
+    /// A request's outcome: a contextual word, which the parser reads
     /// as a name (parse), unless the contract declares it as an action or a
     /// party.
     [[nodiscard]] bool is_outcome(const Token& t) const {
@@ -237,7 +237,7 @@ private:
                t.concept_entry->category == Category::keyword &&
                !declared_.actions.contains(t.text) && !declared_.parties.contains(t.text);
     }
-    /// An answer's `result` or `reason` (E8): a contextual word, read as one
+    /// An answer's `result` or `reason`: a contextual word, read as one
     /// in a rule for answers and in a test step's answer, unless the
     /// contract declares the name.
     [[nodiscard]] bool is_answer_word(const Token& t) const {
@@ -255,7 +255,7 @@ private:
             outcomes_.push_back(last_);
         }
     }
-    /// A request's kind: an action's word, a document's (invoice, E9), or a
+    /// A request's kind: an action's word, a document's (invoice), or a
     /// name.
     [[nodiscard]] bool is_kind(const Token& t) const {
         return t.kind == TokenKind::name || (t.kind == TokenKind::word && t.piece == Piece::whole &&
@@ -528,7 +528,7 @@ private:
     /// Reading the values of a test step's `with`, or of a request's.
     bool step_with_ = false;
     bool request_with_ = false;
-    /// The tokens read as contextual words (E8): an outcome of a request,
+    /// The tokens read as contextual words: an outcome of a request,
     /// an answer's result or reason; names everywhere else (is_contextual).
     std::vector<std::size_t> outcomes_;
     /// Reading a rule for answers, or a test step's answer.
@@ -1128,7 +1128,7 @@ void Parser::can(std::vector<ast::Clause>& out) {
 }
 
 void Parser::when(std::vector<ast::Clause>& out) {
-    // `when notify done`: a rule for the answers to requests (E8).
+    // `when notify done`: a rule for the answers to requests.
     if (is_kind(peek(1)) && is_outcome(peek(2))) {
         answer_rule(out);
         return;
@@ -1397,7 +1397,7 @@ std::optional<ast::Do> Parser::action(bool step) {
         fail_expected("parse.expected-action");
         return std::nullopt;
     }
-    // `executor notify done`: a step that answers a request (E8).
+    // `executor notify done`: a step that answers a request.
     bool answering = false;
     if (step && is_outcome(peek())) {
         outcomes_.push_back(pos_);
@@ -1961,7 +1961,7 @@ Parsed parse(std::string_view source, const Lexed& lexed) {
             quiet.insert(d.span.line);
         }
     }
-    // The outcomes of a request (E8) are names wherever the grammar does not
+    // The outcomes of a request are names wherever the grammar does not
     // read them as outcomes: the parser keeps their concept, and makes those
     // it reads as outcomes words again below.
     std::vector<Token> contextual = lexed.tokens;

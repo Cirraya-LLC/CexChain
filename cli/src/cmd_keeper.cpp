@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// Keepers (6b; spec section 15): a ledger acts only on calls, so a keeper,
+// Keepers (spec section 15): a ledger acts only on calls, so a keeper,
 // a device of the home, calls each contract's time rules (functions
 // when.*) once they are due, and expires the requests left open past their
 // deadline plus a grace period. Its delegation covers contract calls only,

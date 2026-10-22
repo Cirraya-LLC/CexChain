@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// An executor's config and state directory (6b): files its tools write and
+// An executor's config and state directory: files its tools write and
 // the runtime, `executor journal`, and `executor secret` read back, which a
 // damaged disk or someone with access to the directory could alter: the
 // config (parse_config), a journal entry (parse_entry), the discovery cursor

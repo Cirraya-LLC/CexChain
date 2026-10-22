@@ -2,7 +2,7 @@
 # Copyright 2026 Cirraya
 
 # cexchain-bench: where the time goes, measured the same way before and after
-# every performance change (D-048, D-056). Not run in CI as a benchmark;
+# every performance change. Not run in CI as a benchmark;
 # built there so it keeps compiling, and its scenarios run at a small scale
 # as tests (label "bench").
 add_executable(cexchain-bench src/main.cpp src/ledger_bench.cpp src/http_bench.cpp

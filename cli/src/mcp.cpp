@@ -683,7 +683,7 @@ private:
                 return out;
             });
 
-        // Contracts with other organizations (D-053). Their homes' servers
+        // Contracts with other organizations. Their homes' servers
         // are reached as peers of this ledger.
         const json remote_read = {{"readOnlyHint", true}, {"openWorldHint", true}};
         const json remote_writes = {{"readOnlyHint", false},
@@ -947,7 +947,7 @@ private:
                 return out;
             });
 
-        // Requests and answers (spec v0.8, 6b): work a contract asked for
+        // Requests and answers (spec v0.8): work a contract asked for
         // outside the ledger, and the answers that close them.
         const json request_property = {
             {"type", "string"}, {"description", "The request's id or a unique prefix (8+ hex)."}};

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// Evidence verified on all cores (D-056, P8): signatures checked ahead and
+// Evidence verified on all cores: signatures checked ahead and
 // remembered give exactly core's outcome, report or refusal, for every
 // evidence vector, ledger-made bundles with rotations and witnesses, and
 // damaged copies of them; a remembered or pre-checked signature counts only

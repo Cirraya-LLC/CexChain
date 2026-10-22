@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// Vocabulary packs of users' are untrusted (G6 of D-054): anyone may share a
+// Vocabulary packs of users' are untrusted: anyone may share a
 // pack file, and a deploy's source bundle embeds the packs it uses as CBOR
 // (key 7), which every verifier reads. The input is read as a pack file
 // (diagnostic notation) and as CBOR. Properties:

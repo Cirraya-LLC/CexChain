@@ -15,7 +15,7 @@
 #include <cexchain/core/protocol/contracts.hpp>
 #include <cexchain/core/protocol/state.hpp>
 
-/// The keeper (6b; spec section 15): a ledger acts only on calls, so an actor
+/// The keeper (spec section 15): a ledger acts only on calls, so an actor
 /// of the home calls each contract's time rules once they are due, and
 /// expires the requests left open past their deadline plus a grace period.
 /// `serve --keeper-key` runs one inside the server (the leader, in a
@@ -85,7 +85,7 @@ struct DueOptions {
     /// results are merged in log order, so the answer is the same either way.
     bool parallel = true;
     /// Keep each due call's dry run (DueRule::run, DueExpiry::run): a keeper
-    /// that makes the calls offers them to the ledger (D-056 P7), which
+    /// that makes the calls offers them to the ledger, which
     /// takes one only if the input it builds is the run's.
     bool keep_runs = false;
 };

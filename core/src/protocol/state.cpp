@@ -1155,7 +1155,7 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
                 }
                 // Then its requests, in order (v0.8): the instance's, open.
                 // They have no state leaf, so nothing changes for the tree.
-                // `instance` stays valid: instances never move (D-048).
+                // `instance` stays valid: instances never move.
                 for (std::size_t position = 0; position < accept.requests.size(); ++position) {
                     CEXCHAIN_TRY(const Id made, request_id(provider, hash_, id, position));
                     ContractRequest& from = accept.requests[position];

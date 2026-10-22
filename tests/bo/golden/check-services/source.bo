@@ -1,7 +1,7 @@
 bo 1
 use commerce
 use services
-# A service billed each period (E9): the requests to its executors, its
+# A service billed each period: the requests to its executors, its
 # bills, and its payments, with the rules a contract adds to them. Renewal
 # is automatic, 14 days before the due date; the customer changes plans.
 contract Hosting

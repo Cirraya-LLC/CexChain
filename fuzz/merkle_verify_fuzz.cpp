@@ -70,7 +70,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     static_cast<void>(cexchain::merkle::verify_consistency(provider, HashAlg::sha256, old_size,
                                                            new_size, old_root, new_root, proof));
 
-    // Roots computed with a shared memo (D-056 P8) are those computed alone:
+    // Roots computed with a shared memo are those computed alone:
     // the proof twice, then another leaf at another index with the same
     // proof, into the same tree.
     const auto alone = [&](const cexchain::crypto::Digest& l, std::uint64_t i) {

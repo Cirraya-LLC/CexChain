@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// The formatter (milestone 9 of the Bo compiler): a source in canonical
+// The formatter: a source in canonical
 // layout, and on request in one language. format.hpp states the rules. It
 // writes the parser's tokens line by line; the one change of order is a word
 // with an argument that another language spells on the other side of it
@@ -882,7 +882,7 @@ std::string use_pack(const std::vector<Token>& tokens, const CodeLine& line) {
     return line.first + 1 < line.last ? tokens[line.first + 1].text : std::string();
 }
 
-/// `use` lines first (after `bo N`), sorted by pack id (D-054): if they are
+/// `use` lines first (after `bo N`), sorted by pack id: if they are
 /// not, they move there, each a line after the other, and the rest follows
 /// after a blank line.
 void first_uses(std::vector<Item>& items, const std::vector<CodeLine>& lines,

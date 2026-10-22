@@ -128,7 +128,7 @@ int cmd_access_grant(const Args& args);
 int cmd_access_receipt(const Args& args);
 int cmd_access_list(const Args& args);
 
-// Contracts (D-053)
+// Contracts
 int cmd_contract_deploy(const Args& args);
 int cmd_contract_show(const Args& args);
 int cmd_contract_list(const Args& args);
@@ -147,7 +147,7 @@ int cmd_contract_fetch(const Args& args);
 int cmd_contract_verify(const Args& args);
 int cmd_contract_explain(const Args& args);
 
-// Requests and executors (6b, spec v0.8)
+// Requests and executors (spec v0.8)
 int cmd_request_list(const Args& args);
 int cmd_request_show(const Args& args);
 int cmd_request_answer(const Args& args);
@@ -170,7 +170,7 @@ int cmd_executor_journal_list(const Args& args);
 int cmd_executor_journal_show(const Args& args);
 int cmd_connector_webhook(const Args& args);
 int cmd_connector_command(const Args& args);
-// Keepers (6b): time rules and expiries
+// Keepers: time rules and expiries
 int cmd_keeper_add(const Args& args);
 int cmd_keeper_list(const Args& args);
 int cmd_keeper_show(const Args& args);
@@ -178,7 +178,7 @@ int cmd_keeper_revoke(const Args& args);
 int cmd_keeper_due(const Args& args);
 int cmd_keeper_run(const Args& args);
 
-// The Bo language (D-053, step 6); only in builds with the Bo compiler
+// The Bo language; only in builds with the Bo compiler
 // (CEXCHAIN_HAVE_BO).
 int cmd_bo_check(const Args& args);
 int cmd_bo_build(const Args& args);

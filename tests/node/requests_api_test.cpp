@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// Requests and answers (spec v0.8) through a home's server (6b, E3): the
+// Requests and answers (spec v0.8) through a home's server: the
 // discovery route, GET /v1/requests, filtered and paged by a cursor, and as a
 // long poll that ends when a request is made, when its wait is over, or when
 // the server stops; and the executor token scope, which reads requests and

@@ -100,7 +100,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
         if (report) {
             require(report->complete || !report->state_commitment);
         }
-        // On all cores, with signatures remembered across inputs (D-056 P8):
+        // On all cores, with signatures remembered across inputs:
         // exactly core's outcome.
         static cexchain::ledger::SignatureCache remembered;
         const auto on_cores =

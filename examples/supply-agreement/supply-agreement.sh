@@ -14,7 +14,7 @@
 # HTTP.
 #
 # The contract is supply-agreement.bo, next to this script: Bo, CexChain's
-# contract language (Phase 6, step 6). The deploy records its source, so
+# contract language. The deploy records its source, so
 # whoever verifies an agreement can read the terms the code enforces and
 # check that the code is built from them. It needs a cexchain built with the
 # Bo compiler (GCC 16; the release build and the Docker image have it).

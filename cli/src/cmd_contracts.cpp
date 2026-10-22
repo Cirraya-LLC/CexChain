@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// Contracts (D-053): WebAssembly modules deployed on a ledger, their home,
+// Contracts: WebAssembly modules deployed on a ledger, their home,
 // that govern instances such as agreements and orders. The home records a
 // call only if the contract accepts it; parties on other ledgers consent on
 // their own, and anyone holding an instance's evidence replays every call.

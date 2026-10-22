@@ -14,11 +14,11 @@
 //     rule it names is a rule of the edition; every type it holds encodes
 //     and describes;
 //   - checking again gives the same model and the same diagnostics;
-//   - the contract text (explain, milestone 8) is written for every model, in
+//   - the contract text (explain) is written for every model, in
 //     each official language: valid UTF-8, every clause in the text, every
 //     rule it marks a rule of the edition and explained in its last section,
 //     and the same text twice;
-//   - test blocks (milestone 10): every step's places lie in the source; a
+//   - test blocks: every step's places lie in the source; a
 //     party is a role word, or a name; what a step expects carries what that
 //     expectation needs (a state, a reason only with refused); `at` is a
 //     date; only the creation word creates; and in a model without errors,
@@ -162,7 +162,7 @@ public:
                            [&](const m::Do& d) { action(d); },
                            [&](const m::Request& r) {
                                place(r.span);
-                               // E9: the rule that added it, if Bo did.
+                               // The rule that added it, if Bo did.
                                rule(r.rule);
                                // A kind the ledger takes, or an error said so.
                                if (r.kind.empty()) {
@@ -299,7 +299,7 @@ public:
                 }
             } else if (s.answer && s.subject.word != nullptr &&
                        s.subject.word->category == bo::Category::actor) {
-                // E8: an answer by the executor or the keeper (the home's
+                // An answer by the executor or the keeper (the home's
                 // devices), of a kind the ledger would take.
                 place(s.subject.span);
                 if ((s.subject.word->id != "actor.executor" &&

@@ -71,7 +71,7 @@ list(APPEND CMAKE_MODULE_PATH "${catch2_SOURCE_DIR}/extras")
 include(Catch)
 catch_discover_tests(cexchain_tests)
 
-# The interpreter's fuel at every instruction (D-056, P3): a hidden case
+# The interpreter's fuel at every instruction: a hidden case
 # writes runs of vm-v1.json and bo-v1.json with less fuel than they use, and
 # the independent Python interpreter must reproduce each exactly. Skipped
 # where there is no Python 3.
@@ -89,7 +89,7 @@ else()
         "on the Python reference interpreter")
 endif()
 
-# The Bo compiler (D-053): its front end with any compiler, the rest where it
+# The Bo compiler: its front end with any compiler, the rest where it
 # builds (GCC 16). Labelled "bo": the GCC ASan+UBSan configuration builds and
 # runs these alone.
 add_executable(cexchain_bo_tests bo/check_test.cpp bo/explain_test.cpp bo/format_test.cpp
@@ -117,7 +117,7 @@ if(TARGET cexchain_bo)
 endif()
 catch_discover_tests(cexchain_bo_tests PROPERTIES LABELS bo)
 
-# Fuzzing lowering (D-053, M6). cexchain::bo needs C++26 reflection (GCC) and
+# Fuzzing lowering. cexchain::bo needs C++26 reflection (GCC) and
 # libFuzzer needs Clang, so bo_build_fuzz is built here with GCC and drives
 # itself from a contract generator (fuzz/bo_build_fuzz.cpp says how); CTest
 # runs a short round of it, under ASan and UBSan in gcc-asan.
@@ -132,7 +132,7 @@ if(TARGET cexchain_bo)
     set_tests_properties(bo_build_fuzz PROPERTIES LABELS bo)
 endif()
 
-# The Bo runtime on two engines (D-053, M5): a hidden case writes every run of
+# The Bo runtime on two engines: a hidden case writes every run of
 # the runtime's harness modules (module, input, outcome, output, fuel), and
 # the independent Python interpreter must reproduce each exactly. Skipped
 # where there is no Python 3 (it needs the standard library only).
@@ -146,7 +146,7 @@ if(TARGET cexchain_bo)
         add_test(NAME bo_reference COMMAND ${Python3_EXECUTABLE}
             ${PROJECT_SOURCE_DIR}/tools/testvectors/wasm_ref.py --check ${bo_reference_file})
         set_tests_properties(bo_reference PROPERTIES LABELS bo FIXTURES_REQUIRED bo_reference)
-        # Compiled contracts (M6): every run of the codegen tests' scenarios.
+        # Compiled contracts: every run of the codegen tests' scenarios.
         set(bo_codegen_file ${CMAKE_CURRENT_BINARY_DIR}/bo-codegen-reference.json)
         add_test(NAME bo_codegen_reference_runs COMMAND cexchain_bo_tests "[.codegen-reference]")
         set_tests_properties(bo_codegen_reference_runs PROPERTIES LABELS bo
@@ -183,13 +183,13 @@ add_test(NAME client_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/client.sh $<TARGET_FILE:cexchain>)
 add_test(NAME cluster_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/cluster.sh $<TARGET_FILE:cexchain>)
-# An executor as a service while the cluster's members restart (E11).
+# An executor as a service while the cluster's members restart.
 add_test(NAME executor_cluster_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/executor_cluster.sh $<TARGET_FILE:cexchain>)
-# An executor working requests at once, killed and restarted (D-056, P4).
+# An executor working requests at once, killed and restarted.
 add_test(NAME executor_concurrency_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/executor_concurrency.sh $<TARGET_FILE:cexchain>)
-# The product's own texts are generic (D-054): no industry words in help,
+# The product's own texts are generic: no industry words in help,
 # completion, MCP descriptions, or the browser page.
 add_test(NAME generic_words
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/generic_words.sh $<TARGET_FILE:cexchain>)
@@ -247,7 +247,7 @@ if(TARGET cexchain_crypto_pkcs11)
     endif()
 endif()
 
-# The benchmark's scenarios at a small scale (D-056), so that they keep
+# The benchmark's scenarios at a small scale, so that they keep
 # working; their numbers are not checked here. Contracts are Bo builds, so
 # most need the compiler.
 set(bench_smoke

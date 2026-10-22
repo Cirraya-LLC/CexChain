@@ -21,7 +21,7 @@
 # demo only), and the members, once. For production, give each member its
 # own host and disks, keep the log key in an HSM, and serve TLS.
 #
-# The executor service answers requests that contracts make (6b): bootstrap
+# The executor service answers requests that contracts make: bootstrap
 # deploys a sample contract (executor/notices.bo, whose `ask` asks for a
 # notice), registers an executor for it, and writes its config with one
 # connector (a `command` connector running executor/notify.sh, which logs

@@ -89,7 +89,7 @@ bool backup_path_allowed(std::string_view path) {
         return node::parse_pending_call_name(path.substr(pending.size())).has_value();
     }
     // Any other file is refused: so is a backup made before spec v0.9 that
-    // holds the consents of D-052's actions.
+    // holds the consents of the native asset actions it removed.
     for (const std::string_view prefix : {"vault/records/", "contracts/consents/"}) {
         if (!path.starts_with(prefix) || !path.ends_with(".cbor")) {
             continue;
@@ -674,7 +674,7 @@ int cmd_backup_create(const Args& args) {
         }
     };
     add(std::string(node::tokens_file));
-    // The consents contract calls (D-053) cite: their evidence needs them.
+    // The consents contract calls cite: their evidence needs them.
     // And the calls a registrar holds.
     auto add_directory = [&](const std::filesystem::path& directory, const std::string& prefix) {
         if (!std::filesystem::is_directory(directory)) {

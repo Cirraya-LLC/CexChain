@@ -223,22 +223,22 @@ struct Meaning {
 /// Which release of the official language packs a set is built on: the
 /// current one, or an earlier one, which a compiler carries so that the
 /// deploys made with it rebuild (bo/packs/history/). Releases:
-///   - before_vocabulary: version 1 of each, from before vocabulary packs
-///     (D-054). A source read with them uses every vocabulary pack without
+///   - before_vocabulary: version 1 of each, from before vocabulary packs.
+///     A source read with them uses every vocabulary pack without
 ///     declaring it (they had no `use`), and its kind word `record`
 ///     (kind.record) is today's `thing`;
 ///   - before_temperature: version 2 of each, with vocabulary packs, from
-///     before temperatures and field defaults (G5b): it reads like the
+///     before temperatures and field defaults: it reads like the
 ///     current release, but spells no word for a temperature;
 ///   - before_pack_files: version 3 of each, from before vocabulary pack
-///     files (G6): they spell the official vocabulary packs' words too,
+///     files: they spell the official vocabulary packs' words too,
 ///     whose versions of this release (version 1) carry no spellings;
 ///   - before_requests: version 4 of each, which spell the core's words
-///     alone, from before requests (E8): it reads like the current release
+///     alone, from before requests: it reads like the current release
 ///     (with the same vocabulary packs), but spells no `request` and no
 ///     outcome of one;
 ///   - before_billing: version 5 of each, from before a service's periods
-///     and bills (E9): it reads like before_requests with requests, with
+///     and bills: it reads like before_requests with requests, with
 ///     version 2 of the official vocabulary packs;
 ///   - current: version 6 of each, which spell the core's words alone; the
 ///     official vocabulary packs (commerce and services version 3, finance

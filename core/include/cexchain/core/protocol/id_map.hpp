@@ -22,7 +22,7 @@
 
 #include <cexchain/core/protocol/common.hpp>
 
-/// Containers for ledger state that holds millions of objects (D-048): no
+/// Containers for ledger state that holds millions of objects: no
 /// allocation per element, and no ordering work on insert. Iteration is in
 /// insertion order, which for ledger state is log order, so it is as
 /// deterministic as the log. The hash tables only find elements; their

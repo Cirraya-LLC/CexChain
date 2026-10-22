@@ -1,7 +1,7 @@
 bo 1
 use commerce
 use services
-# A service's bills and notices that do not check (E9).
+# A service's bills and notices that do not check.
 contract Billed
 parties we, customer
 

@@ -15,7 +15,7 @@
 #include <cexchain/core/protocol/contract_evidence.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 
-/// Evidence verification on all cores (D-056, P8). Core verifies a bundle
+/// Evidence verification on all cores. Core verifies a bundle
 /// one signature after another (as the browser does); here a bundle's
 /// signatures are checked first, in parallel, and core's verification then
 /// takes those outcomes for exactly the same algorithm, key, message, and

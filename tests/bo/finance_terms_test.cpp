@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// The finance pack's standard terms (milestone 11 of the Bo compiler; a pack
-// since D-054): a Bo contract that uses the pack and whose actions are its
+// The finance pack's standard terms (of the standard library, now a
+// vocabulary pack's): a Bo contract that uses the pack and whose actions are its
 // built-in ones gives, call by call, the states, holders, pledgees, payees,
 // quantities, consents, and refusals that CexChain's native assets gave
 // (spec v0.5 to v0.8, section 13). Spec v0.9 removed the native assets from
-// the protocol (D-054); their verdicts on these flows, taken from core's
+// the protocol; their verdicts on these flows, taken from core's
 // asset rules before the removal, are kept here as goldens. And a built-in
 // action copied under a name of the contract's own compiles and behaves as
 // the original.
@@ -332,7 +332,7 @@ TEST_CASE("the standard library's receivable acts as the native one", "[bo][stdl
 }
 
 TEST_CASE("a counterparty bound at creation consents as the native one does", "[bo][stdlib]") {
-    // Q17 (R31): the bank, bound when the receivable is issued, consents to
+    // R31: the bank, bound when the receivable is issued, consents to
     // each pledge and transfer to it; it enforces with its own consent alone.
     compare(receivable_with_bank(),
             {

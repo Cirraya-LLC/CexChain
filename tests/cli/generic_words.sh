@@ -154,7 +154,7 @@ for file, phrase, needs_bo in EXEMPT:
         problems.append(f"stale exemption ({file}): '{phrase}' no longer appears; remove it")
 
 if problems:
-    print("Industry words in the product's own texts (D-054: things are what users define;")
+    print("Industry words in the product's own texts (the product is generic: things are what users define;")
     print("industry stories belong in examples/ and the docs):")
     for p in problems:
         print("  " + p)

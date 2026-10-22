@@ -19,8 +19,8 @@
 #include "output.hpp"
 #include "support.hpp"
 
-/// Contract operations shared by the command line and the MCP server
-/// (D-053): calls run here before they are recorded, proposals to a home's
+/// Contract operations shared by the command line and the MCP server:
+/// calls run here before they are recorded, proposals to a home's
 /// registrar, and consents to the calls it holds.
 namespace cexchain::cli {
 

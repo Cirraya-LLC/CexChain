@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// Bo's standard library (milestone 11): bo/stdlib/{core,finance,services}.bo,
-// compiled in (D-054 split it by pack). Each file reads, is laid out
+// Bo's standard library: bo/stdlib/{core,finance,services}.bo,
+// compiled in (split by vocabulary pack). Each file reads, is laid out
 // canonically, and reads the same in every language; each clause is a
 // built-in action's terms; a contract that declares them all checks without
 // a problem; their contract text has goldens in three languages
@@ -89,7 +89,7 @@ TEST_CASE("the standard library reads, as compiled in, in every language", "[bo]
         CHECK(f.pack == files[i].first);
         // The core's terms are bo/stdlib/core.bo; a pack's are in its file
         // (bo/vocab/), whose carried versions hold the terms they begin
-        // with (services version 3 added a subscription's, E9).
+        // with (services version 3 added a subscription's).
         if (f.pack == Vocab::core) {
             CHECK(f.source == read_text(source_dir / "bo/stdlib/core.bo"));
         } else {
@@ -120,7 +120,7 @@ TEST_CASE("the standard library reads, as compiled in, in every language", "[bo]
         actions.emplace_back(can->action.concept_entry->id);
         CHECK(library.find(can->action.concept_entry->id) == can);
     }
-    // The core's five, then finance's ten, then services' six (D-054, E9).
+    // The core's five, then finance's ten, then services' six.
     CHECK(actions == std::vector<std::string>{
                          "act.transfer",  "act.cancel",    "act.suspend",         "act.resume",
                          "act.terminate", "act.pledge",    "act.release",         "act.enforce",

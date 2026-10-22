@@ -2,7 +2,7 @@
 // Copyright 2026 Cirraya
 
 // Building a source all the way, and rebuilding a deploy from the bo-source
-// bundle it carries (milestone 7 of the Bo compiler): a deploy rebuilds when
+// bundle it carries: a deploy rebuilds when
 // its source is its code's; it differs when the compiler it names builds
 // something else; another compiler's or version's output is reported as
 // such, never as a forgery; a deploy without a usable bundle is malformed.
@@ -458,7 +458,7 @@ TEST_CASE("a deploy with a user's vocabulary pack carries it, and rebuilds anywh
 }
 
 TEST_CASE("a deploy made before vocabulary packs still rebuilds", "[bo][build]") {
-    // The agreement as it was written and deployed before D-054: no `use`
+    // The agreement as it was written and deployed before vocabulary packs: no `use`
     // line, and the kind word `record`, read with the official packs of
     // then (version 1).
     std::string old_source;
@@ -507,7 +507,7 @@ TEST_CASE("a deploy's use lines are its bundle's vocabulary packs", "[bo][build]
 }
 
 TEST_CASE("a deploy built as codegen 1 still rebuilds", "[bo][build]") {
-    // Codegen 2 (milestone 18) stopped checking texts' UTF-8 in the input and
+    // Codegen 2 stopped checking texts' UTF-8 in the input and
     // shares two locals where codegen 1 took new ones; the compiler still
     // writes codegen 1, so that deploys made with it rebuild.
     const Compiled first = compile(agreement(), official_set(), CompileOptions{1, false});
@@ -582,7 +582,7 @@ TEST_CASE("a deploy built as codegen 2 still rebuilds, without R31's consents", 
 
 TEST_CASE("a deploy built as codegen 3 still rebuilds, with no final state", "[bo][build]") {
     // Codegen 4 reads a time rule's block with the actions it does (spec/bo.md
-    // 6.10, E11): `when overdue 3 days` then `suspend` on the next line applies
+    // 6.10): `when overdue 3 days` then `suspend` on the next line applies
     // only where suspend can start, as `when overdue 3 days suspend` does.
     // Codegen 3 read such a block as able to apply in any state, so that no
     // state was final; the compiler still writes it, so that its deploys

@@ -1246,7 +1246,7 @@ private:
         protocol::VerifyOptions verify;
         verify.expected_ledger = config_.ledger;
         // The same genesis, deployment, checkpoint, and receipt seal for
-        // request after request: each signature checked once (P8).
+        // request after request: each signature checked once.
         verify.signatures = &ledger::signature_cache();
         verify.modules = &ledger::loaded_modules();
         auto report =

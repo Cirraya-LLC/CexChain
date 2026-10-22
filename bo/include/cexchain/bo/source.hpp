@@ -19,15 +19,15 @@
 #include <cexchain/core/error.hpp>
 #include <cexchain/core/protocol/statement.hpp>
 
-/// What a Bo deploy records besides its code (D-053, plan section 2; spec
+/// What a Bo deploy records besides its code (spec
 /// section 15 and `bo-source` in spec/cexchain.cddl), so that anyone can
 /// rebuild the code from the source and compare:
 ///   - the compiler string: "cexchain-bo RELEASE; codegen N; edition E";
 ///   - the source, as a `bo-source` bundle: the source as written, its
 ///     edition, every language pack it was read with (id, version, and the
 ///     home's hash of the pack's canonical CBOR), the packs that are not
-///     official embedded in full, and every vocabulary pack it uses (D-054;
-///     vocab.hpp), each as its id, version, and digest:
+///     official embedded in full, and every vocabulary pack it uses
+///     (vocab.hpp), each as its id, version, and digest:
 ///
 ///       {1: 1, 2: edition, 3: source, 4: [+ [id, version, digest]],
 ///        ? 5: [+ pack], ? 6: [+ [id, version, digest]],
@@ -39,7 +39,7 @@
 ///     compiler carries in every released version. Key 6 lists exactly the
 ///     packs the source's `use` lines name; without `use` lines it is
 ///     absent. Key 7 embeds those of them that are not official (users'
-///     vocabulary packs, G6) in full, each its canonical CBOR, by ascending
+///     vocabulary packs) in full, each its canonical CBOR, by ascending
 ///     id, so that anyone rebuilds without fetching anything.
 ///   - `bo build --out` writes the same as a `.boc` file, ready to deploy.
 ///

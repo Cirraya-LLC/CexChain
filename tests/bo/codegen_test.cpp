@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// Lowering (milestone 6 of the Bo compiler): compiled contracts run as the
+// Lowering: compiled contracts run as the
 // ledger runs them, through protocol::encode_contract_input, vm::run, and
 // protocol::decode_contract_output. The two-party agreement in
 // tests/bo/golden/build/agreement-*/ (proposed, amended, signed, effective,
@@ -289,7 +289,7 @@ public:
         out.run = std::move(*result);
         // Compiled code never traps but to refuse.
         CHECK((!out.run.trap || *out.run.trap == vm::Trap::aborted));
-        // Nor uses more fuel than its bound (milestone 18), for arguments of
+        // Nor uses more fuel than its bound, for arguments of
         // the function's shape.
         const std::string why(out.run.abort_reason.begin(), out.run.abort_reason.end());
         if (const auto bound = bo::bound_for(build_, out.input);
@@ -650,7 +650,7 @@ Home values_scenario() {
     const Outcome small = fill("fill, HKD 12.50 x 3", 1250, 3, "any");
     REQUIRE(small.accepted() != nullptr);
     CHECK(int_field(*small.accepted(), "total") == 3750);
-    // 31 January plus three months is 30 April (U6: month ends clamp).
+    // 31 January plus three months is 30 April (month ends clamp).
     CHECK(int_field(*small.accepted(), "ends") == date(2027, 4, 30));
     CHECK(cbor::diagnostic(*field(*small.accepted(), "approved")) == "false");
     CHECK(cbor::diagnostic(*field(*small.accepted(), "label")) == "\"any\"");
@@ -677,7 +677,7 @@ Home values_scenario() {
     return home;
 }
 
-/// Fields with defaults (G5b): each may be left out at creation, and takes
+/// Fields with defaults: each may be left out at creation, and takes
 /// its default then; every other field must be given, and nothing else.
 constexpr std::string_view defaults_source = R"(contract Defaults
 parties we, buyer
@@ -744,7 +744,7 @@ Home defaults_scenario() {
 }
 
 /// The demo's receivable (examples/multi-tier-split/multi-tier-split.bo) split at its
-/// bounds (milestone 17): a part at depth 7 split into 16 parts, the holder
+/// bounds: a part at depth 7 split into 16 parts, the holder
 /// keeping one and 15 recipients consenting, the most a call can carry; the
 /// refusals on the way; and a part at depth 8.
 Home split_scenario() {
@@ -1228,7 +1228,7 @@ can replace by we with others list number at most 1000
 
 TEST_CASE("bo build: splitting into 16 parts at depth 7 stays within a call's fuel",
           "[bo][build]") {
-    // The demo's receivable (milestone 17): its code's size and hash, and
+    // The demo's receivable: its code's size and hash, and
     // each run's fuel, kept as a golden (tests/bo/golden/build/split.txt).
     const Home home = split_scenario();
     const auto digest = provider().digest(cexchain::crypto::HashAlg::sha256, home.code());
@@ -1275,7 +1275,7 @@ TEST_CASE("bo build: the agreement runs as the ledger runs it, with its fuel as 
         text += std::format(" {} {}", name, static_cast<int>(kind));
     }
     text += "\n";
-    // Each function's bound (milestone 18): fuel, reading the input, output.
+    // Each function's bound: fuel, reading the input, output.
     for (const auto& [name, b] : build.bounds) {
         text += std::format("bound {}: fuel {}, reading {} ({} items, {} keys), output {}\n", name,
                             b.fuel, b.input, b.input_items, b.input_keys, b.output);
@@ -1323,7 +1323,7 @@ TEST_CASE("bo build: one contract in any language compiles to the same bytes", "
                                       {"issue", protocol::FunctionKind::create},
                                       {"pledge", protocol::FunctionKind::call},
                                       {"transfer", protocol::FunctionKind::call}});
-    // The tax example builds since milestone 13, to the same code in every
+    // The tax example builds, to the same code in every
     // language.
     const bo::Build tax = build_text(example_source("tax", "en"));
     for (const std::string_view language : {"zh-hant", "zh-hans", "mixed"}) {
@@ -1333,7 +1333,7 @@ TEST_CASE("bo build: one contract in any language compiles to the same bytes", "
     CHECK(tax.interface ==
           std::map<std::string, protocol::FunctionKind>{{"create", protocol::FunctionKind::create},
                                                         {"结算", protocol::FunctionKind::call}});
-    // Splitting (milestone 17): the standard library's split, in each
+    // Splitting: the standard library's split, in each
     // language, issues the same parts.
     const bo::Build split = build_text(example_source("split", "en"));
     for (const std::string_view language : {"zh-hant", "zh-hans", "mixed"}) {
@@ -1343,8 +1343,8 @@ TEST_CASE("bo build: one contract in any language compiles to the same bytes", "
     CHECK(split.interface ==
           std::map<std::string, protocol::FunctionKind>{{"issue", protocol::FunctionKind::create},
                                                         {"split", protocol::FunctionKind::call}});
-    // The VPS builds since E9 (its executors and its bills), to the same
-    // code in every language; the IP pool since milestone 12.
+    // The VPS builds (its executors and its bills), to the same
+    // code in every language; the IP pool too.
     const bo::Build vps = build_text(example_source("vps", "en"));
     for (const std::string_view language : {"zh-hant", "zh-hans", "mixed"}) {
         INFO(language);
@@ -1410,15 +1410,15 @@ TEST_CASE("bo build: fields with defaults may be left out at creation", "[bo][bu
 TEST_CASE("bo build: what this version does not compile yet", "[bo][build]") {
     const std::string head =
         "use commerce\nuse finance\nuse services\ncontract C\nparties we, customer\n\n";
-    // A vocabulary action builds with its standard terms (M11); one whose
+    // A vocabulary action builds with its standard terms; one whose
     // terms come later does not.
     CHECK(
         vm::load(build_text(head + "asset Note\n  amount HKD\n  holder we\n\ncan transfer\n").code)
             .has_value());
     CHECK(build_codes(head + "asset Note\n  amount HKD\n  holder we\n\ncan refund by we\n") ==
           "build.standard-action");
-    // Time rules build (M12), a service's due date too since E9 (its rules
-    // wait for its subscription); lists and charges (M13), but a list built
+    // Time rules build, a service's due date too (its rules
+    // wait for its subscription); lists and charges, but a list built
     // from values that are not constants; agents' proposals.
     CHECK(vm::load(build_text(head + "thing R\n  ends date\n\ncan go by we\n  -> active\n"
                                      "when ends\n  -> active\n")
@@ -1448,7 +1448,7 @@ TEST_CASE("bo build: what this version does not compile yet", "[bo][build]") {
               .has_value());
     CHECK(build_codes(head + "can go by we\n  -> active\ncan stop by we\n  go\n") ==
           "build.unsupported");
-    // notify PARTY is a request (R10, E9); notify as an action of its own
+    // notify PARTY is a request (R10); notify as an action of its own
     // has no terms.
     CHECK(vm::load(build_text(head + "service S\n  price monthly HKD 120\n\ncan go by we\n"
                                      "  notify customer\n")
@@ -1602,7 +1602,7 @@ TEST_CASE("bo build: write the runs for the Python reference", "[.codegen-refere
             runs.push_back(std::move(run));
         }
     }
-    // The test blocks' runs (bo test, milestone 10): every call each step
+    // The test blocks' runs (bo test): every call each step
     // made, under the contract it ran on.
     for (const auto& [name, file] : std::vector<std::pair<std::string, std::filesystem::path>>{
              {"agreement", build_dir / "agreement-en" / "source.bo"},
@@ -1613,38 +1613,38 @@ TEST_CASE("bo build: write the runs for the Python reference", "[.codegen-refere
              {"receivable", golden_dir / "test" / "receivable" / "source.bo"},
              {"warehouse-receipt", golden_dir / "test" / "warehouse-receipt" / "source.bo"},
              {"standard", golden_dir / "check-standard" / "source.bo"},
-             // Time rules and the keeper (milestone 12).
+             // Time rules and the keeper.
              {"time", golden_dir / "test" / "time" / "source.bo"},
              {"membership", golden_dir / "check-time" / "source.bo"},
              {"ip-pool", golden_dir / "test" / "ip-pool" / "source.bo"},
-             // Lists and charges (milestone 13).
+             // Lists and charges.
              {"tax", golden_dir / "test" / "tax" / "source.bo"},
              {"charges", golden_dir / "test" / "charges" / "source.bo"},
              {"lists", golden_dir / "test" / "lists" / "source.bo"},
              {"supply-agreement", golden_dir.parent_path().parent_path().parent_path() /
                                       "examples" / "supply-agreement" / "supply-agreement.bo"},
-             // Splitting (milestone 17): parts, and the demo's receivable.
+             // Splitting: parts, and the demo's receivable.
              {"split-tests", golden_dir / "test" / "split" / "source.bo"},
              {"multi-tier-split", golden_dir.parent_path().parent_path().parent_path() /
                                       "examples" / "multi-tier-split" / "multi-tier-split.bo"},
              // R31: a counterparty made holder or pledgee consents at every
              // call, its role bound at creation or by another action.
              {"role-taking", golden_dir / "check-role-taking" / "source.bo"},
-             // Measures (G5b): durations divided by durations, field
+             // Measures: durations divided by durations, field
              // defaults, temperatures and negative literals.
              {"measures", golden_dir / "test" / "measures" / "source.bo"},
-             // The shipment as G5b wrote it (its deploys keep their code).
+             // The shipment as first written (its deploys keep their code).
              {"shipment", golden_dir / "test" / "shipment" / "source.bo"},
-             // Requests (E8): made, answered, and refused; the shipment's
+             // Requests: made, answered, and refused; the shipment's
              // delivery notice (examples/).
              {"requests", golden_dir / "check-requests" / "source.bo"},
              {"shipment-notice", golden_dir.parent_path().parent_path().parent_path() / "examples" /
                                      "shipment" / "shipment.bo"},
-             // A service's executors, bills, and payments (E9): the spec's
+             // A service's executors, bills, and payments: the spec's
              // VPS and its tests.
              {"vps", golden_dir / "test" / "vps" / "source.bo"},
              {"services", golden_dir / "check-services" / "source.bo"},
-             // A time rule's action on the next line of its block (E11):
+             // A time rule's action on the next line of its block:
              // codegen 4's final states, which codegen 3 did not have.
              {"rule-block", golden_dir / "test" / "rule-block" / "source.bo"}}) {
         const std::string text = read_text(file);
@@ -1709,7 +1709,7 @@ TEST_CASE("bo build: write the runs for the Python reference", "[.codegen-refere
         }
         sources[name] = std::move(texts);
     }
-    // What a deploy of each records (milestone 18): the interface, the
+    // What a deploy of each records: the interface, the
     // bo-source bundle (official packs, SHA-256 digests), the compiler, the
     // code codegens 1 to 3 wrote, and each function's bounds (informative).
     const bo::PackSet set = *bo::make_pack_set({}).set;

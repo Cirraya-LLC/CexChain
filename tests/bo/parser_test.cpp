@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// The parser (milestone 3 of the Bo compiler): the goldens in
+// The parser: the goldens in
 // tests/bo/golden/CASE/ast.txt (for the cases named example-*, parse-*, and
 // error-parse-*, as `bo check --stage parse` prints the tree, followed by the
 // parser's problems), the same tree for the same contract in every language,
@@ -174,7 +174,7 @@ TEST_CASE("each example, in each language or mixed, gives the same tree", "[bo][
             CHECK(tree(read_text(golden_dir / (group + "-" + language) / "source.bo")) == first);
         }
     }
-    // The receivable's tree, as the plan's milestone asks: an example
+    // The receivable's tree: an example
     // clause in English, Traditional and Simplified Chinese, and mixed.
     for (const std::string_view source :
          {"can pledge to bank\n  over 5_000_000 requires in person\n",
@@ -229,8 +229,8 @@ TEST_CASE("= sets a field at the start of an action's line, and compares in a co
     // Not one field before =: a condition alone, which does nothing.
     CHECK(body_codes("  sum of parts = amount\n") == "parse.bare-condition");
     CHECK(body_codes("  tier + 1 = 2\n") == "parse.bare-condition");
-    // In a block of fields, = gives a field's default, after its type
-    // (G5b), once, at the end of the line.
+    // In a block of fields, = gives a field's default, after its type,
+    // once, at the end of the line.
     CHECK(codes(parse_text("asset A\n  amount = HKD 1\n")).empty());
     CHECK(codes(parse_text("thing A\n  count number = 0\n")).empty());
     CHECK(codes(parse_text("thing A\n  count number = 0 = 1\n")) == "parse.field");
@@ -360,7 +360,7 @@ TEST_CASE("blocks: if, otherwise, each, and the lines that open none", "[bo][par
     CHECK(dump(recovered.file) == "edition 1\ncan act.transfer\n");
 }
 
-TEST_CASE("tests: steps and expectations (U8)", "[bo][parser]") {
+TEST_CASE("tests: steps and expectations", "[bo][parser]") {
     CHECK(tree("test\n  supplier pledge to bank1 at 2027-01-06 in person\n  -> pledged\n"
                "  supplier pledge to bank2 by AI agent -> refused \"already pledged\"\n") ==
           "edition 1\ntest\n"

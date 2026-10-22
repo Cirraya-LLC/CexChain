@@ -15,7 +15,7 @@
 #include <cexchain/core/protocol/common.hpp>
 #include <cexchain/ledger/ledger.hpp>
 
-/// Peers: other organizations' ledgers this one deals with (D-046). Each is
+/// Peers: other organizations' ledgers this one deals with. Each is
 /// pinned by its ledger id, which commits to its genesis, root key, and log
 /// key, and is learned out of band (a contract, a call). Operational config,
 /// kept in <ledger>/peers.json; what was granted to whom is on the ledger.

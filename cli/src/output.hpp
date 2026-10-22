@@ -41,7 +41,7 @@ void print_json(const Json& value);
 [[nodiscard]] Json delegation_json(const Session& session,
                                    const protocol::DelegationState& delegation);
 [[nodiscard]] Json record_json(const Session& session, const protocol::RecordState& record);
-/// A contract (D-053): its interface, language, code, and instances.
+/// A contract: its interface, language, code, and instances.
 [[nodiscard]] Json contract_json(const Session& session, const protocol::ContractState& contract);
 /// A contract instance: its status, parties, state, head, and calls.
 [[nodiscard]] Json instance_json(const Session& session, const protocol::InstanceState& instance);

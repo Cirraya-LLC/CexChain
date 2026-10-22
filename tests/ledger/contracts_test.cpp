@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// Contracts across three ledgers (D-053, spec section 15): a home deploys a
+// Contracts across three ledgers (spec section 15): a home deploys a
 // contract, proposes an agreement, and records it as effective once the
 // supplier and the bank consent on their own ledgers; anyone then verifies
 // the instance offline, the contract run again included.

@@ -191,7 +191,7 @@ What this example could not say with today's Bo and CLI, each a candidate for a 
   packing list. The browser verifier already checks an instance that a link names
   (`#l=LEDGER&r=INSTANCE&b=URL`), which the script prints; no command draws it.
 
-Four limitations of the first version are gone (milestone G5b): days late are a number
+Four limitations of the first version are gone: days late are a number
 (`(now - due) / 1 day`), counters start at 0 without being given, readings are temperatures to
 a tenth of a degree (or a hundredth), and tests expect the fields' values.
 
@@ -209,4 +209,4 @@ of Bo and a connector configured by the organization that runs it, not built int
   by the insurer's staff by hand (`cexchain request answer`) until a connector exists.
 
 The services vocabulary pack's own requests (a VPS suspended when overdue, a renewal's
-invoice) come next (milestone E9).
+invoice) come next.

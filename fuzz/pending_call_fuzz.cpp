@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// A registrar's pending calls (D-053): proposals come from the home's people
+// A registrar's pending calls: proposals come from the home's people
 // and from peers, pending files from disk, from Raft entries, from snapshots,
 // and from backups. Decoding must never crash, and whatever decodes must
 // encode back to the same bytes; a file name that parses must be the name

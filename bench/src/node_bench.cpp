@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// The node's contract services against an in-process server (D-056):
+// The node's contract services against an in-process server:
 //   executor   an executor answering open requests through the command
 //              connector (a child process running a program per request),
 //              with where each request's time goes, from its events;

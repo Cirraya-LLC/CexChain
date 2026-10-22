@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// The formatter (milestone 9 of the Bo compiler): the goldens in
+// The formatter: the goldens in
 // tests/bo/golden/format/CASE/{keep,en,zh-hant,zh-hans}.bo; the language
 // invariance property over every golden source and example (formatted as
 // written or into each official language, a source parses to the same tree
@@ -329,7 +329,7 @@ TEST_CASE("the layout rules", "[bo][format]") {
     CHECK(formatted("when due issuer pays\n", pack("zh-Hant-HK")) == "當到期日 發行人 支付\n");
     CHECK(formatted("當到期日 發行人 支付\n", pack("en")) == "when due issuer pay\n");
     // A `use` line right after a block moves first; the block's end, which
-    // the lexer puts on that line, stays (found by bo_parse_fuzz in E11).
+    // the lexer puts on that line, stays (found by bo_parse_fuzz).
     CHECK(formatted("thing R\n  amount HKD\nuse commerce\n", nullptr) ==
           "use commerce\n\nthing R\n  amount HKD\n");
     CHECK(formatted("thing R\n  amount HKD\n\nuse services\ncan pay by we\n  requires now < due\n"

@@ -17,9 +17,9 @@
 #include <cexchain/bo/pack.hpp>
 #include <cexchain/bo/parser.hpp>
 
-/// Bo's standard library (milestone 11): the built-in actions, written in Bo
+/// Bo's standard library: the built-in actions, written in Bo
 /// itself and compiled in: the core's (bo/stdlib/core.bo), then each
-/// official vocabulary pack's (its file's terms, bo/vocab/; D-054). A user's
+/// official vocabulary pack's (its file's terms, bo/vocab/). A user's
 /// vocabulary pack brings terms of its own (UserTerms, read with the pack
 /// set that reads the pack). Each is a `can` clause: who starts the action, its counterparty,
 /// the consents it asks for, the states it starts from and leads to, and

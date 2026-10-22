@@ -132,7 +132,7 @@ def official_packs(vocabulary: list) -> dict:
         assert isinstance(value["concepts"], dict) and value["concepts"], path.name
         # A carried version's terms begin the current version's (the
         # compiler's library holds one meaning per action, and a later
-        # version only adds actions' terms: services version 3, E9).
+        # version only adds actions' terms: services version 3).
         if path.parent == VOCAB:
             terms[value["id"]] = terms_of(value)
         else:

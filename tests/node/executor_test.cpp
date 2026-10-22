@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// The executor runtime (6b, E5) against a home's server: it finds requests
+// The executor runtime against a home's server: it finds requests
 // (a hint), verifies each in the instance's evidence before acting, journals
 // before every action, answers through the ledger, retries transient
 // failures, never acts on what a lying server invents, resumes from its

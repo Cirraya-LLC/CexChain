@@ -110,7 +110,7 @@ struct Ledger::Impl {
 
     Clock* clock;
     const crypto::Provider* provider;
-    /// Concurrency (D-048): any number of threads may read while one thread
+    /// Concurrency: any number of threads may read while one thread
     /// writes. `state_mutex` guards the state, the state tree, and the
     /// commitment it reflects; `log_mutex` guards the logs' indexes, the
     /// Merkle tree, and the latest checkpoint. Lock order: state, then log.
@@ -126,7 +126,7 @@ struct Ledger::Impl {
     merkle::Tree tree;
     /// The state tree as of the latest state commitment in the log: what
     /// changed after it is staged in `state` until the next one. Updated
-    /// incrementally (D-048), it gives roots and proofs in O(log n).
+    /// incrementally, it gives roots and proofs in O(log n).
     protocol::StateTree state_tree;
     /// That commitment, and its log index.
     std::optional<protocol::StateCommitment> tree_commitment;
@@ -160,7 +160,7 @@ struct Ledger::Impl {
     /// files; the ledger must be reopened.
     std::atomic<bool> failed = false;
 
-    // ---- the pipelined commit (D-056 P7) --------------------------------
+    // ---- the pipelined commit --------------------------------
     /// A batch validated and applied in memory, waiting to be written.
     struct Commit {
         /// Its new entries, from log index `first`.
@@ -423,7 +423,7 @@ struct Ledger::Impl {
         return out;
     }
 
-    /// Contract runs made ahead (D-056 P7): how many, and how many validation
+    /// Contract runs made ahead: how many, and how many validation
     /// took (their input was the one built in turn).
     std::atomic<std::uint64_t> runs_ahead{0};
     std::atomic<std::uint64_t> runs_taken{0};

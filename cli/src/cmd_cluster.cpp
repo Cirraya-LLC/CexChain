@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// Clusters (D-051): several nodes keep one ledger with Raft, and a new
+// Clusters: several nodes keep one ledger with Raft, and a new
 // leader takes over within seconds if the leader fails.
 //
 //   cexchain cluster init     the first member (on a fully checkpointed ledger)

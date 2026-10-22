@@ -5,10 +5,10 @@
 // read once. Official packs are append-only: a version never changes, and
 // later compilers carry every earlier release so that old sources rebuild,
 // in bo/packs/history/, byte for byte as they were: version 1 of each, from
-// before vocabulary packs (D-054), version 2, from before temperatures and
-// field defaults (G5b), version 3, from before vocabulary pack files (G6),
-// version 4, from before requests (E8), and version 5, from before a
-// service's periods and bills (E9).
+// before vocabulary packs, version 2, from before temperatures and
+// field defaults, version 3, from before vocabulary pack files,
+// version 4, from before requests, and version 5, from before a
+// service's periods and bills.
 
 #include <cstdio>
 #include <cstdlib>
@@ -56,7 +56,7 @@ constexpr unsigned char zh_hans_cn_bytes[] = {
 #endif
 };
 
-// Version 1 of each, from before vocabulary packs (D-054), carried so that
+// Version 1 of each, from before vocabulary packs, carried so that
 // the deploys made with them rebuild (bo/packs/history/).
 constexpr unsigned char en_1_bytes[] = {
 #if CEXCHAIN_BO_EMBED
@@ -83,7 +83,7 @@ constexpr unsigned char zh_hans_cn_1_bytes[] = {
 };
 
 // Version 2 of each, with vocabulary packs, from before temperatures and
-// field defaults (G5b).
+// field defaults.
 constexpr unsigned char en_2_bytes[] = {
 #if CEXCHAIN_BO_EMBED
 #embed "../../packs/history/en-2.pack"
@@ -129,7 +129,7 @@ constexpr unsigned char zh_hans_cn_3_bytes[] = {
 #include "history/zh-Hans-CN-3.pack.inc"
 #endif
 };
-// Version 4 of each, from before requests (E8).
+// Version 4 of each, from before requests.
 constexpr unsigned char en_4_bytes[] = {
 #if CEXCHAIN_BO_EMBED
 #embed "../../packs/history/en-4.pack"
@@ -151,7 +151,7 @@ constexpr unsigned char zh_hans_cn_4_bytes[] = {
 #include "history/zh-Hans-CN-4.pack.inc"
 #endif
 };
-// Version 5 of each, from before a service's periods and bills (E9).
+// Version 5 of each, from before a service's periods and bills.
 constexpr unsigned char en_5_bytes[] = {
 #if CEXCHAIN_BO_EMBED
 #embed "../../packs/history/en-5.pack"

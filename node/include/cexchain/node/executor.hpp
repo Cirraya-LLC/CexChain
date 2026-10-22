@@ -26,7 +26,7 @@
 #include <cexchain/node/connector.hpp>
 #include <cexchain/node/connectors.hpp>
 
-/// The executor runtime (6b, design section 3): `cexchain executor run`.
+/// The executor runtime: `cexchain executor run`.
 ///
 /// It finds open requests at the home's server (GET /v1/requests, a long
 /// poll; a hint), verifies each in the instance's contract evidence for the

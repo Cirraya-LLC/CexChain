@@ -16,7 +16,7 @@
 #include "output.hpp"
 #include "support.hpp"
 
-/// Requests and answers (spec v0.8, 6b): what the command line and the MCP
+/// Requests and answers (spec v0.8): what the command line and the MCP
 /// server share. A contract's accepted call may ask executors for work
 /// outside the ledger; an executor, or a person by hand, answers with a call
 /// on the instance that names the request and its status.

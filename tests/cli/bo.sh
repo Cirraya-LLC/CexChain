@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
 #
-# The Bo commands, end to end (D-053, step 6): the official language packs and
+# The Bo commands, end to end: the official language packs and
 # their digests, a company's own pack, and packs that are refused (a missing
 # keyword, one spelling with two meanings, a word an attaching rule could
 # split), with messages in each official language; checking source, its
@@ -181,7 +181,7 @@ run bo stdlib list finance > out.txt
 [ "$(wc -l < out.txt)" -eq 10 ] || fail "stdlib list finance: ten actions"
 expect_exit 1 bo stdlib list acme
 
-echo "== vocabulary packs of your own (G6): checked, shown, used, and refused"
+echo "== vocabulary packs of your own: checked, shown, used, and refused"
 EVENTS="$SOURCE/examples/events/events.vocab"
 TICKETS="$SOURCE/examples/events/tickets.bo"
 run bo vocab check "$EVENTS" > out.txt
@@ -362,7 +362,7 @@ for language in zh-hant zh-hans en mixed; do
     sed '$d' tree.txt > printed.txt
     diff "$GOLDENS/example-vps-$language/ast.txt" printed.txt > /dev/null || fail "tree ($language)"
     diff "$GOLDENS/example-vps-zh-hant/ast.txt" printed.txt > /dev/null || fail "the same tree ($language)"
-    # It builds since E9, to the same code in every language.
+    # It builds, to the same code in every language.
     run bo build "vps-$language.bo" --json 2> /dev/null | json 'd["code_hash"]' > "code-$language.txt"
 done
 for language in zh-hans en mixed; do
@@ -380,7 +380,7 @@ contains -Fx "[('120', 'cur.HKD'), ('0.10', 'cur.HKD')]" out.txt || fail "money 
 run bo check vps-en.bo --json > out.txt
 json '"tokens" in d, d["stage"], d["checked"], d["diagnostics"]' < out.txt > keys.txt
 contains -Fx "False check True []" keys.txt || fail "check --json without --stage"
-# Its tests (E9): executors answer the subscription, its invoices, and its
+# Its tests: executors answer the subscription, its invoices, and its
 # collections; the keeper fires the reminder, the suspension, and the
 # termination. In English and in Traditional Chinese.
 cp "$GOLDENS/test/vps/source.bo" vps-tests.bo
@@ -555,7 +555,7 @@ contains -F "code       $GOLDEN_SIZE bytes, SHA-256 $GOLDEN_HASH" out.txt || fai
 contains -F "compiler   $COMPILER" out.txt || fail "compiler"
 contains -F "the packs en 6, zh-Hans-CN 6, zh-Hant-HK 6, and the vocabulary packs commerce 3 (SHA-256 digests)" out.txt || fail "packs"
 contains -F "wrote" out.txt && fail "nothing written without --out"
-# The highest fuel and output bounds (milestone 18), as the golden keeps them.
+# The highest fuel and output bounds, as the golden keeps them.
 AMEND_FUEL="$(sed -n 's/^bound amend: fuel \([0-9]*\),.*/\1/p' "$BUILDS/agreement-en/build.txt")"
 AMEND_GROUPED="$(python3 -c "print(f'{$AMEND_FUEL:,}')")"
 contains -F "fuel       at most $AMEND_GROUPED a call (amend), of 10,000,000; output at most" out.txt || fail "the fuel bound"
@@ -694,7 +694,7 @@ run bo explain fragment.bo > text.txt 2> warnings.txt
 contains -F '  2.2.2 It applies when the customer location is "中国内地". [R18]' text.txt || fail "R18 in quotes"
 contains -F "(check.fragment)" warnings.txt || fail "warnings on stderr"
 run bo explain fragment.bo --language zh-Hant-HK 2> /dev/null | contains -F "適用條件：客戶所在地為「中国内地」。〔R18〕" || fail "R18 in zh-Hant"
-# The VPS states its requests (E9), from any spelling.
+# The VPS states its requests, from any spelling.
 run bo explain vps-zh-hant.bo > text.txt 2> warnings.txt
 diff "$TEXTS/vps/en.txt" text.txt > /dev/null || fail "the VPS text"
 [ ! -s warnings.txt ] || fail "the VPS checks clean"
@@ -1265,7 +1265,7 @@ run contract explain "$RC" --ledger "$H" | contains -F "4.1.5 Requirement 2: the
 for dir in "$H" "$P" "$B" "$F"; do run audit --ledger "$dir" | contains 'audit passed' || fail "audit"; done
 
 echo "== splitting: parts through the registrar, a recipient that is no party yet"
-# The standard library's split (milestone 17): the supplier splits a
+# The standard library's split: the supplier splits a
 # receivable, keeping a part and passing one to the factor, which is no
 # party of this contract yet: it sees the held call (it is asked for its
 # consent) and consents on its own ledger. Each part is an instance of its
@@ -1490,7 +1490,7 @@ run contract verify sale.cbor --ledger-id "$SHOP_ID" > verify.txt
 contains -F "rebuilds: the source rebuilds to the deployed code" verify.txt || fail "bill: verify rebuilds"
 contains -F "VERIFICATION FAILED" verify.txt && fail "bill: verified"
 
-echo "== measures (G5b): durations divided, defaults, temperatures, negatives, field tests"
+echo "== measures: durations divided, defaults, temperatures, negatives, field tests"
 cp "$GOLDENS/test/measures/source.bo" measures.bo
 run bo test measures.bo > report.txt
 contains -Fx "6 tests: 6 passed, 0 failed." report.txt || fail "measures: the tests"
@@ -1518,7 +1518,7 @@ CEXCHAIN_LANGUAGE=zh-Hans expect_exit 2 bo check defaults.bo
 contains -F "lowest 不能设默认值" out.txt || fail "measures: check.default-field in zh-Hans"
 contains -F "(check.default-value)" out.txt || fail "measures: check.default-value"
 
-echo "== requests (E8): request KIND ... within N, and when KIND done, fails, or expires"
+echo "== requests: request KIND ... within N, and when KIND done, fails, or expires"
 cp "$GOLDENS/check-requests/source.bo" requests.bo
 run bo test requests.bo > report.txt
 contains -Fx "3 tests: 3 passed, 0 failed." report.txt || fail "requests: the tests"

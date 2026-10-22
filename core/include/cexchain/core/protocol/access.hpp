@@ -16,7 +16,7 @@
 #include <cexchain/core/protocol/common.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 
-/// Access across organizations (D-046): one organization asks for a record
+/// Access across organizations: one organization asks for a record
 /// on another's ledger, the other grants it and delivers the record's
 /// private data sealed to the asker, and the asker acknowledges it. Each step
 /// is a record on the acting organization's own ledger; the other side

@@ -62,10 +62,10 @@ inline constexpr std::array<std::string_view, 18> category_names{
 
 [[nodiscard]] std::optional<Category> category_from_name(std::string_view name) noexcept;
 
-/// Where a concept belongs (D-054): Bo's core, which every source reads, or
+/// Where a concept belongs: Bo's core, which every source reads, or
 /// one of the official vocabulary packs, whose words a source uses only after
-/// declaring the pack (`use finance`), or a user's vocabulary pack (G6;
-/// vocab.hpp). Official pack words are reserved even where their pack is not
+/// declaring the pack (`use finance`), or a user's vocabulary pack
+/// (vocab.hpp). Official pack words are reserved even where their pack is not
 /// used: Bo never reads `pledge` as a name of the contract's own.
 enum class Vocab : std::uint8_t {
     core,
@@ -121,18 +121,18 @@ struct Concept {
     /// The vocabulary pack that defines it (vocab.hpp): an official pack's
     /// current version, or a user's pack; nullptr for the core.
     const VocabularyPack* owner = nullptr;
-    /// A keyword added after the official packs' first versions (E8's
-    /// `request`): the version of the official language packs that first
+    /// A keyword added after the official packs' first versions
+    /// (`request`): the version of the official language packs that first
     /// spells it. Their earlier versions, which a compiler carries so that
     /// old deploys rebuild, are read without it. 0 for every other concept.
     std::uint64_t since = 0;
 };
 
-/// The version of the official language packs that brought requests (E8):
+/// The version of the official language packs that brought requests:
 /// `request`, and the outcomes `done`, `fails`, and `expires`.
 inline constexpr std::uint64_t requests_version = 5;
 
-/// True for the words a source may also use as names (E8): the outcomes of a
+/// True for the words a source may also use as names: the outcomes of a
 /// request (`done`, `fails`, `expires`), keywords only where a rule or a test
 /// step names an answer (`when notify done`, `executor notify done`), and an
 /// answer's `result` and `reason`, words only in a rule for answers (unless
@@ -146,7 +146,7 @@ inline constexpr std::uint64_t requests_version = 5;
 [[nodiscard]] std::span<const Concept* const> concepts() noexcept;
 
 /// The symbol a unit is written as in every language, or empty: "°C" for
-/// unit.celsius (G5b), which sources may also write ℃, and which the packs
+/// unit.celsius, which sources may also write ℃, and which the packs
 /// also spell in words ("degrees Celsius", 攝氏度). Tools write the symbol.
 [[nodiscard]] std::string_view unit_symbol(const Concept* c) noexcept;
 /// A concept of the edition (the core's or an official pack's), or nullptr.
@@ -181,7 +181,7 @@ struct SentenceSpec {
     std::string_view params;
     /// No longer written: only the official packs of earlier releases have
     /// it (the official vocabulary packs' names, which their files give
-    /// since G6: vocabulary_name in vocab.hpp).
+    /// since vocabulary pack files: vocabulary_name in vocab.hpp).
     bool retired = false;
 };
 

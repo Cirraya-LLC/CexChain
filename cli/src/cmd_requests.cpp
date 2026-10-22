@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// Requests and answers (spec v0.8, 6b): a contract's accepted call may ask
+// Requests and answers (spec v0.8): a contract's accepted call may ask
 // executors for work outside the ledger (send a notice, call a system). An
 // executor, an AI agent, or a person by hand answers with a call on the
 // instance that names the request: done, failed, or expired. Executors are

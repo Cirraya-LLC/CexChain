@@ -147,7 +147,7 @@ void save_key(const std::filesystem::path& path, const crypto::openssl::KeyPair&
 using SealVault = std::function<Bytes(const protocol::Id& record)>;
 
 /// An open ledger with the environment needed to act on it: a ledger
-/// directory, or, in client mode (D-050), a verified mirror of the ledger a
+/// directory, or, in client mode, a verified mirror of the ledger a
 /// server serves.
 ///
 /// Client mode, with --server URL (or $CEXCHAIN_SERVER), for commands that
@@ -190,7 +190,7 @@ public:
     /// With `seal_vault`, the record's sealed private data is kept with it:
     /// written to the vault here, or sent with the statement in client mode.
     /// With `consents` (a contract call's, in the order it cites them), the
-    /// consents' evidence is kept with it the same way (D-053).
+    /// consents' evidence is kept with it the same way.
     protocol::Id submit(const crypto::Signer& signer, protocol::Body body,
                         const std::optional<std::string>& delegation,
                         std::optional<protocol::Provenance> provenance = std::nullopt,
@@ -244,8 +244,8 @@ public:
     // server, and checked against the mirror before it is used.
     [[nodiscard]] protocol::SignedCheckpoint checkpoint(const Args& args);
     [[nodiscard]] protocol::EvidenceBundle evidence(const Args& args, const protocol::Id& record);
-    /// An instance's contract evidence with the consents its calls cite
-    /// (D-053), without private data: built here with --log-key (after a
+    /// An instance's contract evidence with the consents its calls cite,
+    /// without private data: built here with --log-key (after a
     /// checkpoint, if the latest does not cover the instance's last call), or
     /// the server's, verified against the mirror.
     [[nodiscard]] Bytes contract_evidence(const Args& args, const protocol::Id& instance);

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// The lexer (milestone 2 of the Bo compiler): the goldens in
+// The lexer: the goldens in
 // tests/bo/golden/CASE/ (source.bo, and tokens.txt as `bo check --stage lex`
 // prints it), the same concepts in every language, the spec's cases, and the
 // rules that keep a reading from being a guess. Set CEXCHAIN_UPDATE_GOLDENS=1
@@ -170,7 +170,7 @@ TEST_CASE("one line in each language, or mixed, gives the same concept tokens", 
             CHECK(concepts_of(source) == first);
         }
     }
-    // And line by line, as the plan asks.
+    // And line by line.
     const std::vector<std::string> pledge{"word kw.can", "word act.pledge", "word kw.to",
                                           "word role.bank"};
     for (const std::string_view line : {"can pledge to bank", "可質押 予 銀行", "可质押 给 银行",
@@ -211,7 +211,7 @@ TEST_CASE("the spec's cases lex as it says", "[bo][lexer]") {
     CHECK(money.kind == TokenKind::money);
     CHECK(money.concept_entry->id == "cur.HKD");
     CHECK(money.number == Decimal{100, 0});
-    // 須 is a prefix in the middle of a line too (decided in M1).
+    // 須 is a prefix in the middle of a line too.
     CHECK(lexed.tokens[2].concept_entry->id == "kw.requires");
 }
 

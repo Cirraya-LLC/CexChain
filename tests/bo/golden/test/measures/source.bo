@@ -1,4 +1,4 @@
-# Measures (G5b): a duration divided by a duration counts whole times, the
+# Measures: a duration divided by a duration counts whole times, the
 # rest dropped toward zero (R32); fields with defaults need not be given at
 # creation; temperatures, in hundredths of a degree, and negative values;
 # tests that expect the values of fields.

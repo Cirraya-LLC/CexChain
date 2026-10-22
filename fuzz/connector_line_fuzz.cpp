@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// The connector protocol (6b, spec/connectors.md): an executor's runtime
+// The connector protocol (spec/connectors.md): an executor's runtime
 // reads lines from connectors, which may be any program, buggy or hostile;
 // a connector reads lines from its runtime. Decoding must never crash, and
 // what it accepts must be within the protocol's limits and encode to a line

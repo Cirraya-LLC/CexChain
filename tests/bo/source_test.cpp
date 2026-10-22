@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// What a Bo deploy records besides its code (milestone 7 of the Bo compiler):
+// What a Bo deploy records besides its code:
 // the bo-source bundle, the compiler string, and the .boc file. Front end
 // only, so these run with every compiler; rebuilding is in build_test.cpp.
 
@@ -313,7 +313,7 @@ TEST_CASE("opening a bundle names what this compiler cannot read it with", "[bo]
 
 TEST_CASE("a bundle read before vocabulary packs opens with the packs it was read with",
           "[bo][source]") {
-    // What a deploy recorded before D-054: the official packs version 1, no
+    // What a deploy recorded before vocabulary packs: the official packs version 1, no
     // key 6, and a source without `use` lines whose kind word is `record`.
     constexpr std::string_view old_source =
         "contract Deal\nparties we, customer\nrecord Terms\n  holder customer\n";
@@ -349,7 +349,7 @@ TEST_CASE("a bundle read before vocabulary packs opens with the packs it was rea
 
 TEST_CASE("a bundle read with version 2 of the official packs opens with them", "[bo][source]") {
     // What a deploy recorded with vocabulary packs, before temperatures and
-    // field defaults (G5b): the official packs version 2, key 6, `use`.
+    // field defaults: the official packs version 2, key 6, `use`.
     constexpr std::string_view second_source =
         "use commerce\ncontract Deal\nparties we, customer\nthing Terms\n  holder customer\n";
     PackSetRead second = make_pack_set({}, Officials::before_temperature);
@@ -376,7 +376,7 @@ TEST_CASE("a bundle read with version 2 of the official packs opens with them", 
 }
 
 TEST_CASE("a bundle read with version 3 of the official packs opens with them", "[bo][source]") {
-    // What a deploy recorded before vocabulary pack files (G6): the official
+    // What a deploy recorded before vocabulary pack files: the official
     // language packs version 3, which spell the vocabulary packs' words, and
     // key 6 naming version 1 of the vocabulary packs, which spell none.
     constexpr std::string_view third_source =

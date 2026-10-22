@@ -12,7 +12,7 @@
 #include <cexchain/bo/model.hpp>
 #include <cexchain/bo/pack.hpp>
 
-/// The checker (passes 4 and 5 of the plan): a parsed tree, with the
+/// The checker (the passes after parsing): a parsed tree, with the
 /// standard library's terms of its built-in actions (stdlib.hpp), to the
 /// checked model of model.hpp, and every problem found.
 ///
@@ -55,7 +55,7 @@
 ///     their terms need are the instance's;
 ///   - thresholds (R6), presence (R13), agents (R14), and the places of
 ///     each (`in person` never in a time rule).
-/// Executor clauses (R10) are accepted with a warning: they come in 6b.
+/// Executor clauses (R10) are accepted with a warning: requests do that work.
 /// `test` blocks: their steps, parties, values, and expectations (a state of
 /// the contract, a refusal, a wait, or an AI agent's proposal).
 namespace cexchain::bo {

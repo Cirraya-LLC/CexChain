@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// The checker (milestone 4 of the Bo compiler): the goldens in
+// The checker: the goldens in
 // tests/bo/golden/CASE/check.txt (for the cases named example-* and check-*,
 // as `bo check --stage model` prints the model, followed by the checker's
 // problems), the same model for the same contract in every language, every
@@ -192,7 +192,7 @@ TEST_CASE("each example, in each language or mixed, gives the same model", "[bo]
             CHECK(codes(other) == codes(english));
         }
     }
-    // The examples check clean: the VPS example's executors since E9.
+    // The examples check clean: the VPS example's executors too.
     CHECK(check_codes(read_text(golden_dir / "example-receivable-en" / "source.bo")).empty());
     CHECK(check_codes(read_text(golden_dir / "example-ip-pool-en" / "source.bo")).empty());
     CHECK(check_codes(read_text(golden_dir / "example-split-en" / "source.bo")).empty());
@@ -235,7 +235,7 @@ TEST_CASE("every check has an error golden, and every rule is seen", "[bo][check
 }
 
 TEST_CASE("a service is billed each period where it is due on its paid-until date", "[bo][check]") {
-    // E9: R34 and R35 add the bill and the payment's lines; with a due date
+    // R34 and R35 add the bill and the payment's lines; with a due date
     // of its own (field.due) a service is due then, and is not billed.
     const std::string head = "use commerce\nuse services\ncontract S\nparties we, customer\n"
                              "service S\n  price monthly HKD 10\n";
@@ -463,7 +463,7 @@ TEST_CASE("states: collected, the first one, and reachable", "[bo][check]") {
           "check.type");
 }
 
-TEST_CASE("roles: bound at creation, or by the first to (U4)", "[bo][check]") {
+TEST_CASE("roles: bound at creation, or by the first to", "[bo][check]") {
     const std::string model = model_of(
         "use finance\ncontract C\nparties issuer, supplier, bank\nasset A\n  holder supplier\n"
         "can audit by bank\n  -> active\ncan pledge to bank\n");

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// Differential (D-056, P6): `cbor::validate`, which checks without building,
+// Differential: `cbor::validate`, which checks without building,
 // must decide exactly as `cbor::decode` does, with the same error, under the
 // default limits and limits taken from the input. A contract's output read
 // from its bytes must equal the output read through trees, as the core read
-// it before P6 (tests/support/contract_reference.hpp): the same verdict and
+// it before reading states as bytes (tests/support/contract_reference.hpp): the same verdict and
 // error, the states sliced from the bytes equal to the trees encoded, and an
 // input with each state spliced in equal to the tree-built input.
 

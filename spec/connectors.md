@@ -75,7 +75,7 @@ The runtime starts a connector without a shell (the program and its arguments as
 ```
 
 - `status`: `done`, `failed` (a permanent failure: a refusal, a mapping the connector cannot make), or `retry` (a transient one: a timeout, the outside system busy or down).
-- `result` (optional): what the answer publishes (section 4), at most 16 KiB of CBOR. Under the protocol's privacy rule (P8, [`README.md`](README.md) section 15) it MAY carry external ids, statuses, amounts, and reason codes, and MUST NOT carry names, e-mail addresses, phone numbers, postal addresses, document content, secrets, or raw error texts from outside systems.
+- `result` (optional): what the answer publishes (section 4), at most 16 KiB of CBOR. Under the protocol's privacy rule ([`README.md`](README.md) section 15) it MAY carry external ids, statuses, amounts, and reason codes, and MUST NOT carry names, e-mail addresses, phone numbers, postal addresses, document content, secrets, or raw error texts from outside systems.
 - `reason` (optional): a code written like a request kind (`[a-z][a-z0-9._-]*`, at most 64 bytes), such as `rejected`, `unmapped`, `unavailable`.
 - `response` (optional): the outside system's response, unpadded base64url, at most 512 KiB. The runtime keeps it in its journal; the answer carries only its salted digest.
 - `retry_after_ms` (optional, with `retry`): wait at least this long.

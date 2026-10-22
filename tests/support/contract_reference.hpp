@@ -3,8 +3,8 @@
 
 #pragma once
 
-// A contract's input and output as the core built and read them before
-// D-056 P6: through CBOR trees. The core now splices encoded states into
+// A contract's input and output as the core built and read them before it
+// read states as bytes: through CBOR trees. The core now splices encoded states into
 // inputs and slices them out of outputs; this reference must agree with it
 // byte for byte (tests/core/contract_bytes_test.cpp, fuzz/cbor_validate_fuzz).
 // Header-only, for the tests and the fuzz target; needs core/src on the

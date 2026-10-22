@@ -13,7 +13,7 @@
 #include <cexchain/core/error.hpp>
 #include <cexchain/node/connector.hpp>
 
-/// First-party connectors (6b): `webhook` and `command`, which serve any
+/// First-party connectors: `webhook` and `command`, which serve any
 /// request kind, and the loop every connector built here runs. The
 /// `cexchain connector webhook|command` commands run them over stdin and
 /// stdout, as an executor's runtime starts any connector.

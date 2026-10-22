@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
 #
-# Contracts across four organizations, end to end (D-053): a core enterprise
+# Contracts across four organizations, end to end: a core enterprise
 # deploys a contract and proposes an agreement to its supplier and its bank,
 # whose ledger hashes with SM3. The supplier proposes signing it to the core
 # enterprise's registrar; the supplier's organization and the bank's AI agent

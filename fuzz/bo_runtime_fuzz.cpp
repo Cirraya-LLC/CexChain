@@ -11,7 +11,7 @@
 // does not check texts' UTF-8 (the ledger's input holds valid UTF-8 only), so
 // an input core refuses for that alone it may accept. And reading alone
 // (read_only_module) must cost no more than the bound the compiler counts
-// for the input's items and keys (read_bound.hpp, milestone 18).
+// for the input's items and keys (read_bound.hpp).
 //
 // The emitter that writes the harnesses is C++26 with reflection and
 // contracts (GCC only), and libFuzzer is Clang's. So the modules come from

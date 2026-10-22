@@ -2,7 +2,7 @@
 // Copyright 2026 Cirraya
 
 // The runtime's arithmetic: checked 64-bit operations, a 128-bit multiply
-// and divide with rounding (U5), civil dates at a fixed offset (U6), and
+// and divide with rounding, civil dates at a fixed offset, and
 // bytewise comparison of texts.
 
 #include <cstdint>

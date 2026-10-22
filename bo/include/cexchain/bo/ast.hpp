@@ -132,13 +132,13 @@ struct Do {
     std::optional<Expr> to;
     std::optional<Expr> by;
     std::vector<Set> with;
-    /// A test's step that answers a request (E8), `executor notify done`:
+    /// A test's step that answers a request , `executor notify done`:
     /// the outcome's keyword (kw.done, kw.fails, or kw.expires) after the
     /// request's kind, which `action` holds; null for any other step.
     const Concept* outcome = nullptr;
 };
 
-/// `request KIND [to PARTY] [with NAME = VALUE, ...] within DURATION` (E8):
+/// `request KIND [to PARTY] [with NAME = VALUE, ...] within DURATION` :
 /// asks an executor to act outside the ledger. The kind is a name or an
 /// action's word; `within` is the word `within` and its duration.
 struct Request {
@@ -262,7 +262,7 @@ struct When {
     std::vector<Statement> body;
 };
 
-/// `when KIND done`, `when KIND fails`, `when KIND expires` (E8): a rule
+/// `when KIND done`, `when KIND fails`, `when KIND expires` : a rule
 /// for the answers to the contract's requests of a kind (a name or an
 /// action's word), its outcome the keyword after it, then the actions on its
 /// line and its block, as for a time rule.
@@ -285,7 +285,7 @@ struct Test {
 
 using Clause = std::variant<Contract, Parties, Block, Can, When, Test, AnswerRule>;
 
-/// `use finance`: the source uses a vocabulary pack (D-054). Pack ids are
+/// `use finance`: the source uses a vocabulary pack. Pack ids are
 /// ASCII and stay as written in every language (`使用 finance`).
 struct Use {
     static constexpr std::string_view tag = "use";

@@ -13,7 +13,7 @@
 #include <cexchain/core/error.hpp>
 #include <cexchain/core/protocol/common.hpp>
 
-/// JSON for executors and connectors (6b): integers only, bounded nesting,
+/// JSON for executors and connectors: integers only, bounded nesting,
 /// and the CBOR it maps to.
 namespace cexchain::node::detail {
 

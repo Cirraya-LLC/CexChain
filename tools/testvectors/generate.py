@@ -2505,7 +2505,7 @@ def generate_protocol_v08() -> None:
 
         def response(name, text):
             """An outside system's response, kept by the executor: the answer
-            carries HASH(salt || response) under the home's hash (P8)."""
+            carries HASH(salt || response) under the home's hash."""
             salt = hashlib.sha256(f"salt: {name}".encode()).digest()[:16]
             raw = text.encode()
             digest = lg.h(salt + raw)

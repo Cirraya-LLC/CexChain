@@ -21,7 +21,7 @@ namespace {
 
 using enum Category;
 
-// Edition 1: the keywords of bo-1.0 and Bo's core words (D-054). Append only:
+// Edition 1: the keywords of bo-1.0 and Bo's core words. Append only:
 // once an edition is released, its concepts never change meaning. The
 // official vocabulary packs' words, which a source declares with `use`, are
 // defined by their files (bo/vocab/; vocab.cpp), and join these in the
@@ -46,7 +46,7 @@ constexpr Concept unsorted_concepts[] = {
     {"kw.reject", keyword, 0},
     {"kw.test", keyword, 0},
     {"kw.use", keyword, 0},
-    // Requests (E8, language packs version 5): `request KIND [to PARTY]
+    // Requests (language packs version 5): `request KIND [to PARTY]
     // [with NAME = VALUE, ...] within DURATION`, and the rules and test
     // steps for their answers, `when KIND done`, `fails`, or `expires`. The
     // outcomes are keywords only there (is_contextual).
@@ -105,7 +105,7 @@ constexpr Concept unsorted_concepts[] = {
     {"unit.item", unit, 0},
     {"unit.kg", unit, 0},
     {"unit.tonne", unit, 0},
-    // A temperature (G5b), also written °C or ℃ in every language.
+    // A temperature, also written °C or ℃ in every language.
     {"unit.celsius", unit, 0},
     // Currencies.
     {"cur.HKD", currency, 0},
@@ -128,7 +128,7 @@ constexpr Concept unsorted_concepts[] = {
     // A test's expectation that a step is refused (`-> refused`).
     {"val.refused", value, 0},
     // No party: what a party field holds before an action sets it
-    // (`pledgee = none`; milestone 11).
+    // (`pledgee = none`).
     {"val.none", value, 0},
     // A test's expectation that an AI agent's call is kept as a proposal
     // (`-> pending approval`).
@@ -139,11 +139,11 @@ constexpr Concept unsorted_concepts[] = {
     {"field.due", field, 0, Vocab::core, "date"},
     {"field.quantity", field, 0, Vocab::core, "quantity"},
     {"field.parts", field, 0, Vocab::core, "list"},
-    // The contract's offset from UTC (U6, milestone 12): a constant text
+    // The contract's offset from UTC: a constant text
     // such as "+08:00" in the kind's block.
     {"field.utc_offset", field, 0, Vocab::core, "offset"},
     // The parties a split's parts go to, one for each part (the standard
-    // library's split; milestone 17): a list of parties (R1).
+    // library's split): a list of parties (R1).
     {"field.recipients", field, 0, Vocab::core, "parties"},
     // States.
     {"state.active", state, 0},
@@ -159,10 +159,10 @@ constexpr Concept unsorted_concepts[] = {
     {"actor.ai_agent", actor, 0},
     {"actor.device", actor, 0},
     // The device that calls a contract's time rules when their time comes
-    // (a test step `keeper suspend`; milestone 12).
+    // (a test step `keeper suspend`).
     {"actor.keeper", actor, 0},
     // The device that carries out a contract's requests outside the ledger
-    // and answers them (a test step `executor notify done`; E8).
+    // and answers them (a test step `executor notify done`).
     {"actor.executor", actor, 0},
     // Common roles.
     {"role.we", role, 0},
@@ -176,7 +176,7 @@ constexpr Concept unsorted_concepts[] = {
     // `frozen -> previous state`: the state the instance was in before it
     // entered its current one.
     {"expr.previous_state", expression, 0},
-    // In a rule for answers (E8): the answer's result and reason, as texts;
+    // In a rule for answers: the answer's result and reason, as texts;
     // names everywhere else (is_contextual).
     {"expr.result", expression, 0},
     {"expr.reason", expression, 0},
@@ -197,7 +197,7 @@ static_assert(std::ranges::adjacent_find(sorted_concepts, {}, &Concept::id) ==
 
 constexpr std::size_t keywords =
     static_cast<std::size_t>(std::ranges::count(unsorted_concepts, keyword, &Concept::category));
-static_assert(keywords == 22, "bo-1.0 has 18 keywords, and E8 added four");
+static_assert(keywords == 22, "bo-1.0 has 18 keywords, and requests added four");
 
 constexpr std::size_t words_of(Vocab pack) {
     return static_cast<std::size_t>(std::ranges::count_if(unsorted_concepts, [&](const Concept& c) {
@@ -205,9 +205,9 @@ constexpr std::size_t words_of(Vocab pack) {
     }));
 }
 
-// D-054: an 80-word core and three official vocabulary packs; G5b added a
-// unit of temperature to the core, and E8 the executor and an answer's result
-// and reason.
+// An 80-word core and three official vocabulary packs; temperatures added
+// a unit to the core, and requests the executor and an answer's result and
+// reason.
 static_assert(words_of(Vocab::core) == 84, "the core has 84 words");
 static_assert(std::ranges::all_of(unsorted_concepts,
                                   [](const Concept& c) {
@@ -339,7 +339,7 @@ constexpr MessageSpec unsorted_messages[] = {
     {"parse.expected-set", Severity::error, "after"},
     {"parse.can", Severity::error, "found"},
     {"parse.when", Severity::error, ""},
-    // `request KIND [to PARTY] [with NAME = VALUE, ...] within DURATION` (E8).
+    // `request KIND [to PARTY] [with NAME = VALUE, ...] within DURATION`.
     {"parse.request", Severity::error, "found"},
     {"parse.each", Severity::error, ""},
     {"parse.bare-condition", Severity::error, ""},
@@ -356,7 +356,7 @@ constexpr MessageSpec unsorted_messages[] = {
     // Checking: the contract and its declarations.
     {"check.fragment", Severity::warning, ""},
     {"check.no-parties", Severity::error, ""},
-    // Vocabulary packs (D-054): `use finance`.
+    // Vocabulary packs: `use finance`.
     {"check.unknown-pack", Severity::error, "pack"},
     {"check.pack-not-used", Severity::error, "word pack"},
     {"check.pack-requires", Severity::error, "pack other"},
@@ -397,7 +397,7 @@ constexpr MessageSpec unsorted_messages[] = {
     {"check.permit", Severity::error, "text"},
     {"check.subject", Severity::error, "text"},
     {"check.threshold-amount", Severity::error, "text action"},
-    // Checking: built-in actions and their standard terms (milestone 11).
+    // Checking: built-in actions and their standard terms.
     {"check.standard-by", Severity::error, "action party"},
     {"check.standard-to", Severity::error, "action"},
     {"check.standard-change", Severity::error, "action text"},
@@ -413,7 +413,7 @@ constexpr MessageSpec unsorted_messages[] = {
     {"check.charge-field", Severity::error, "text"},
     {"check.charge-rate", Severity::error, "name"},
     {"check.charge-included", Severity::error, "name"},
-    // Bills and charges computed (milestone 13).
+    // Bills and charges computed.
     {"check.document", Severity::error, "field"},
     {"check.charge-document", Severity::error, "name"},
     {"check.charge-twice", Severity::error, "name text"},
@@ -422,10 +422,10 @@ constexpr MessageSpec unsorted_messages[] = {
     {"check.charge-bill", Severity::error, "name document"},
     // Checking: what comes in later steps.
     {"check.needs-executor", Severity::warning, "action"},
-    // notify PARTY, a request of its own (R10, E9).
+    // notify PARTY, a request of its own (R10).
     {"check.notify", Severity::error, "text"},
     {"check.service-bill", Severity::error, "text"},
-    // Checking: requests and the rules for their answers (E8).
+    // Checking: requests and the rules for their answers.
     {"check.request-kind", Severity::error, "text"},
     {"check.request-value", Severity::error, "name type"},
     {"check.request-within", Severity::error, "text"},
@@ -433,7 +433,7 @@ constexpr MessageSpec unsorted_messages[] = {
     {"check.answer-twice", Severity::error, "text"},
     {"check.answer-unasked", Severity::warning, "kind"},
     {"check.answer-line", Severity::error, "text"},
-    // Checking: tests (U8).
+    // Checking: tests.
     {"check.test-start", Severity::error, "action"},
     {"check.test-again", Severity::error, "action"},
     {"check.test-creation", Severity::error, "text action"},
@@ -457,11 +457,11 @@ constexpr MessageSpec unsorted_messages[] = {
     {"check.test-needs-to", Severity::error, "action"},
     {"check.test-rule", Severity::error, "action"},
     {"check.test-keeper", Severity::error, "text"},
-    // A step answers a request the contract makes (E8).
+    // A step answers a request the contract makes.
     {"check.test-answer", Severity::error, "text"},
-    // A step names the instance it acts on by its holder (milestone 17).
+    // A step names the instance it acts on by its holder.
     {"check.test-part", Severity::error, "text"},
-    // Issuing parts (R30, milestone 17).
+    // Issuing parts (R30).
     {"check.parts-place", Severity::error, "text"},
     {"check.parts-shape", Severity::error, "text"},
     {"check.parts-instance", Severity::error, "action"},
@@ -508,7 +508,7 @@ constexpr MessageSpec unsorted_messages[] = {
     {"run.fired", Severity::error, "rule"},
     {"run.depth", Severity::error, "action"},
     {"run.parts", Severity::error, "action"},
-    // Requests and answers (E8).
+    // Requests and answers.
     {"run.request", Severity::error, "kind"},
     {"run.answer", Severity::error, ""},
     // The formatter (bo fmt).
@@ -536,7 +536,7 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"contract", "name"},
     {"fragment", ""},
     {"intro", "edition"},
-    // The vocabulary packs a contract uses (D-054): "the finance pack,
+    // The vocabulary packs a contract uses: "the finance pack,
     // version 1", each named in the reader's language.
     {"packs-used", "packs"},
     {"vocab-pack", "pack version"},
@@ -628,7 +628,7 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"when-date", "date"},
     {"when-keeper", "function"},
     {"utc-offset", "offset"},
-    // Requests and the rules for their answers (E8).
+    // Requests and the rules for their answers.
     {"request", "kind duration"},
     {"request-to", "kind party duration"},
     {"request-due", "kind duration"},
@@ -764,7 +764,7 @@ constexpr SentenceSpec unsorted_sentences[] = {
     {"outcome-refused-code", "reason code"},
     {"outcome-no-instance", ""},
     {"outcome-final-instance", ""},
-    // Answers to requests (E8).
+    // Answers to requests.
     {"outcome-no-request", "kind"},
     {"outcome-early", "kind deadline"},
     {"outcome-too-many-requests", ""},
@@ -844,39 +844,39 @@ static_assert(std::ranges::adjacent_find(sorted_sentences, {}, &SentenceSpec::id
 constexpr RuleSpec rules[] = {
     {"R1", "field-meaning"},                 // a vocabulary field has the vocabulary's type
     {"R2", "party-field"},                   // a field given a party: per instance, and may change
-    {"R3", "role-binding"},                  // roles: at creation, or by the first `to` (U4)
+    {"R3", "role-binding"},                  // roles: at creation, or by the first `to`
     {"R4", "first-state"},                   // the one state nothing leads to, else active
     {"R5", "states"},                        // the states are those state changes name
-    {"R6", "threshold"},                     // over N: the action's one amount (plan 5.1, item 7)
+    {"R6", "threshold"},                     // over N: the action's one amount
     {"R7", "state-condition"},               // a state as a condition: the instance is in it
     {"R8", "consent-taken"},                 // changing a party's field needs that party's consent
-    {"R9", "obligation"},                    // when due issuer pays: a duty, no call (U7)
-    {"R10", "executor"},                     // notify, a service's changes: requests (E9)
+    {"R9", "obligation"},                    // when due issuer pays: a duty, no call
+    {"R10", "executor"},                     // notify, a service's changes: requests
     {"R11", "service-due", Vocab::services}, // a recurring price: due when paid until
     {"R12", "customer-location", Vocab::commerce}, // customer location: text each instance holds
-    {"R13", "presence"},                           // in person: the starter's presence (U2)
-    {"R14", "agents"},          // AI agents within delegation, unless propose (U3)
-    {"R15", "parts"},           // parts: a list of amounts
-    {"R16", "list-bound"},      // lists: at most 16 items (plan 5.1, item 8)
-    {"R17", "rounding"},        // products and quotients round half up (U5)
-    {"R18", "bare-text"},       // an undeclared name compared with text is text
+    {"R13", "presence"},                           // in person: the starter's presence
+    {"R14", "agents"},                             // AI agents within delegation, unless propose
+    {"R15", "parts"},                              // parts: a list of amounts
+    {"R16", "list-bound"},                         // lists: at most 16 items
+    {"R17", "rounding"},                           // products and quotients round half up
+    {"R18", "bare-text"},                          // an undeclared name compared with text is text
     {"R19", "standard-terms"},  // a built-in action has the standard library's terms
     {"R20", "standard-fields"}, // fields the standard terms use: added, empty at first
     {"R21", "counterparty"},    // an undeclared counterparty: each call names it
     {"R22", "zero"},            // a bare 0 is zero of any amount
     {"R23", "each-allocation", Vocab::services}, // allocate binds its role again on each call
     {"R24", "keeper"},                           // a time rule: a function a keeper calls in time
-    {"R25", "utc-offset"},                       // dates and days at UTC+08:00 unless written (U6)
+    {"R25", "utc-offset"},                       // dates and days at UTC+08:00 unless written
     {"R26", "bill", Vocab::commerce},            // a document's field: a bill, made when it is set
     {"R27", "charges", Vocab::commerce},         // charges in order: on the price and earlier ones
-    {"R28", "rate-in-force", Vocab::commerce},   // the rate in force at the bill's time (U9)
+    {"R28", "rate-in-force", Vocab::commerce},   // the rate in force at the bill's time
     {"R29", "one-item"},                         // one value where a list is needed: a list of one
     {"R30", "issue-parts"},   // issue PARTS to RECIPIENTS: parts are instances of their own
     {"R31", "role-taking"},   // a counterparty made holder, pledgee, or payee consents
     {"R32", "whole-times"},   // a duration by a duration: whole times, the rest dropped
     {"R33", "expired-fails"}, // an expired request is a failed one, unless a rule says otherwise
-    {"R34", "service-bill", Vocab::services}, // each period billed: invoice, then collect (E9)
-    {"R35", "service-paid", Vocab::services}, // a collection done pays a period, resumes (E9)
+    {"R34", "service-bill", Vocab::services}, // each period billed: invoice, then collect
+    {"R35", "service-paid", Vocab::services}, // a collection done pays a period, resumes
 };
 
 template <class T, std::size_t N, class Key>

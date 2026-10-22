@@ -386,7 +386,7 @@ void cluster_seeds(const Seeds& seeds) {
                         Value::unsigned_integer(1), Value::array({Value::bytes(Bytes(40, 0xd2))}),
                         Value::array({Value::array(
                             {Value::unsigned_integer(0), Value::bytes(Bytes{0xa0})})})}));
-    // Kind 2 is reserved (spec v0.9 removed D-052's consents): ignored.
+    // Kind 2 is reserved (spec v0.9 removed the native asset actions' consents): ignored.
     write("batch-reserved-kind", 0,
           Value::array({Value::unsigned_integer(1), Value::unsigned_integer(1'791'244'800'000),
                         Value::unsigned_integer(1), Value::array({Value::bytes(Bytes(40, 0xd2))}),
@@ -566,7 +566,7 @@ void vm_seeds(const Seeds& seeds) {
         const auto wasm = must(from_hex(contract.at("code").get<std::string>()), "code");
         seeds.write("vm_fuzz", "bo-" + contract.at("name").get<std::string>(), ByteView(wasm));
     }
-    // Real contract inputs and outputs, states in them (D-056, P6).
+    // Real contract inputs and outputs, states in them.
     n = 0;
     for (const auto& contract : bo.at("contracts")) {
         for (const auto& run : contract.at("runs")) {
@@ -859,7 +859,7 @@ void bo_seeds(const Seeds& seeds) {
     }
 
     // The examples' contracts (examples/): a supply agreement, and a
-    // receivable split down a supply chain (milestone 17), with their tests.
+    // receivable split down a supply chain, with their tests.
     for (const std::string_view demo : {"supply-agreement", "multi-tier-split"}) {
         std::ifstream in(std::filesystem::path(CEXCHAIN_BO_GOLDEN_DIR)
                                  .parent_path()
@@ -873,8 +873,8 @@ void bo_seeds(const Seeds& seeds) {
         seeds.write("bo_check_fuzz", "demo-" + std::string(demo) + ".bo", text.str());
     }
 
-    // The standard library (milestone 11; one file for the core and one for
-    // each vocabulary pack with terms, D-054), and a contract that declares
+    // The standard library (one file for the core and one for
+    // each vocabulary pack with terms), and a contract that declares
     // all its actions: built-in actions with their terms.
     for (const bo::StandardFile& file : bo::standard_library().files) {
         const std::string name = "stdlib-" + std::string(bo::vocab_name(file.pack)) + ".bo";
@@ -943,7 +943,7 @@ void bo_seeds(const Seeds& seeds) {
     seeds.write("bo_source_fuzz", "embedded-pack",
                 ByteView(must(bo::encode_source_bundle(embedded), "bundle")));
 
-    // Vocabulary packs (G6): the official files, current and carried, as
+    // Vocabulary packs: the official files, current and carried, as
     // written and as CBOR; users' packs (the example's, the goldens'); and a
     // bundle that embeds one (key 7).
     for (const bo::VocabularyText& text : bo::official_vocabulary_texts()) {

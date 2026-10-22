@@ -42,7 +42,7 @@
 /// most fuel and output an invocation can use.
 namespace cexchain::bo::wasm {
 
-/// It goes up whenever any emitted byte changes (the plan's section 2).
+/// It goes up whenever any emitted byte changes.
 /// Lowering still writes every version from `oldest_codegen_version` on, so
 /// that a deploy built with an earlier one rebuilds. 2: the input's texts
 /// are not checked for UTF-8 again, and scratch locals are shared; 3: an

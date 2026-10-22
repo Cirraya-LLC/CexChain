@@ -1,5 +1,5 @@
 use commerce
-# Bills and charges that cannot be computed (milestone 13): a second field
+# Bills and charges that cannot be computed: a second field
 # for a bill, an input named by a document, a charge that says something
 # twice, a fixed amount with a rounding mode or in another currency, charges
 # computed on charges they cannot be computed on, and a document that is not

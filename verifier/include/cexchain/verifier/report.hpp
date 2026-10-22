@@ -50,7 +50,7 @@ using Json = nlohmann::ordered_json;
 /// True if any attachment content was provided and did not match.
 [[nodiscard]] bool has_attachment_mismatch(const protocol::EvidenceReport& report);
 
-/// A contract instance's verification report (D-053): the instance as of
+/// A contract instance's verification report: the instance as of
 /// the checkpoint (its contract, status, parties, state, and whether it is
 /// final), and every call: who called under whose authority, the arguments,
 /// what the contract made of it, and each consent the call cites, verified

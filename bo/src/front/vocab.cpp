@@ -86,7 +86,7 @@ constexpr unsigned char services_1_bytes[] = {
 #endif
 };
 // Version 2 of commerce and services, from before a service's periods and
-// bills (E9).
+// bills.
 constexpr unsigned char commerce_2_bytes[] = {
 #if CEXCHAIN_BO_EMBED
 #embed "../../vocab/history/commerce-2.vocab"
@@ -411,7 +411,7 @@ private:
                     return;
                 }
                 // An official pack's added field may be a date, which holds
-                // no date until an action sets it (a service's periods, E9).
+                // no date until an action sets it (a service's periods).
                 if (c.type != "party" && !(c.type == "date" && key == std::string_view("added") &&
                                            mode_ == Mode::official)) {
                     fail("vocab.flag", {{"path", join(path, key)}});
@@ -760,7 +760,7 @@ struct Registry {
     std::vector<std::shared_ptr<VocabularyPack>> all;
     std::vector<const VocabularyPack*> current;
     std::vector<const VocabularyPack*> first;
-    /// Version 2 of each, from before a service's periods and bills (E9).
+    /// Version 2 of each, from before a service's periods and bills.
     std::vector<const VocabularyPack*> second;
     /// The core's concepts and the current official packs', by id.
     std::vector<const Concept*> table;

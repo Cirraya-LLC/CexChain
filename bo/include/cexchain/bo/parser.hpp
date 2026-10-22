@@ -51,7 +51,7 @@
 ///
 /// Rules that are not in the grammar's shape:
 ///   - `=` sets a field at the start of an action's line, and compares
-///     inside a condition (plan 5.1, item 4).
+///     inside a condition.
 ///   - A word with an argument takes one operand as its argument, so that
 ///     `consent of bank` and `經 銀行 同意` agree; `applies to` takes the
 ///     rest of the condition (`applies to customer location = 中国内地`).

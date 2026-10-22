@@ -41,8 +41,8 @@ if(NOT EMSCRIPTEN)
     target_link_libraries(cexchain_asio INTERFACE Threads::Threads)
 endif()
 
-# NuRaft (eBay, Apache-2.0): Raft for clustered nodes with automatic failover
-# (D-051). Built here from its sources, with the project's compiler, standard
+# NuRaft (eBay, Apache-2.0): Raft for clustered nodes with automatic failover.
+# Built here from its sources, with the project's compiler, standard
 # library, and Asio, as a library apart: its own code is not held to the
 # project's warnings, and its headers are included as system headers.
 if(NOT EMSCRIPTEN)

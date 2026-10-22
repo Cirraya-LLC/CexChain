@@ -14,7 +14,7 @@
 #include <cexchain/core/protocol/common.hpp>
 #include <cexchain/node/http.hpp>
 
-/// The queries of the routes for executors and keepers (6b). GET
+/// The queries of the routes for executors and keepers. GET
 /// /v1/requests (spec v0.8): the query an executor sends to learn of
 /// requests. What the route answers is a hint: an executor checks a request
 /// in the instance's evidence before acting on it (spec section 15).
@@ -41,7 +41,7 @@ struct RequestQuery {
     /// A long poll: if nothing matches, wait this long for something to (at
     /// most max_request_wait seconds).
     std::chrono::seconds wait{0};
-    /// An executor's lease (6b): the copy `lease` (8 to 64 letters, digits,
+    /// An executor's lease: the copy `lease` (8 to 64 letters, digits,
     /// '-' or '_', random per process) of the executor `executor` (an actor
     /// id) takes or renews the lease for `ttl` after the answer; a copy that
     /// does not hold it is told so and gets no requests. Both or neither.
@@ -65,7 +65,7 @@ struct QueryError {
 /// ttl; anything else is refused.
 [[nodiscard]] std::variant<RequestQuery, QueryError> parse_request_query(const http::Request& r);
 
-/// GET /v1/contracts/due (6b): what a keeper would do at a time.
+/// GET /v1/contracts/due: what a keeper would do at a time.
 struct DueQuery {
     /// The time to run at, in milliseconds since the epoch (default: now).
     std::optional<protocol::Timestamp> at;

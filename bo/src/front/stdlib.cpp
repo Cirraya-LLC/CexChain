@@ -2,7 +2,7 @@
 // Copyright 2026 Cirraya
 
 // The standard library of edition 1: the core's terms, compiled in from
-// bo/stdlib/core.bo with #embed, then the official vocabulary packs' (D-054),
+// bo/stdlib/core.bo with #embed, then the official vocabulary packs',
 // from their files (bo/vocab/) and read once with the
 // official packs. Like the official packs, it is
 // part of the compiler and of edition 1: once released, a template's terms

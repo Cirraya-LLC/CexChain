@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// Vocabulary pack files (G6 of D-054): the official ones as the compiler
+// Vocabulary pack files: the official ones as the compiler
 // carries them, and users' packs: their reader, the checks a pack set makes
 // of them, `use`, and the bundle key that carries them (key 7). Front end
 // only; rebuilding a deploy that uses one is in build_test.cpp.

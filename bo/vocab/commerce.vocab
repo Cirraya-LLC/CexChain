@@ -1,7 +1,7 @@
 # Bo vocabulary pack: commerce (official).
 #
-# Prices, charges (taxes among them), bills, refunds, and customers
-# (D-054). A source that writes `use commerce` reads these words; prices,
+# Prices, charges (taxes among them), bills, refunds, and customers.
+# A source that writes `use commerce` reads these words; prices,
 # charges, and bills are the compiler's mechanisms. No action of this pack
 # has standard terms yet.
 #
@@ -10,7 +10,7 @@
 # change is a new version, and the compiler carries every released one
 # (bo/vocab/history/). Version 1 had no "languages": the language packs
 # spelled its words until version 4 of theirs.
-# Version 3 added collect, the request for a bill's payment (E9).
+# Version 3 added collect, the request for a bill's payment.
 
 {
   "format": 1,

@@ -174,7 +174,7 @@ cbor::Value digests_value(const std::vector<crypto::Digest>& digests) {
 
 /// read_or_peer, submit_or_peer: a read (or submit) token, or a peer's (whom
 /// the route then checks). The ones with executor take an executor's token
-/// too (6b), which the route then restricts.
+/// too, which the route then restricts.
 enum class Access {
     open,
     read,
@@ -436,7 +436,7 @@ struct LedgerApi::State {
     bool stopping = false;
     std::thread writer;
     /// The ledger directory's lock, the writer's, kept from one group to the
-    /// next while statements are still syncing (D-056 P7: the next group
+    /// next while statements are still syncing (the next group
     /// validates meanwhile), so no other process writes in between and no
     /// catch-up is needed; let go once the writer runs out of work.
     std::optional<ledger::DirectoryLock> held_lock;
@@ -461,7 +461,7 @@ struct LedgerApi::State {
     std::vector<Waiter> waiters;
     /// Set once the server stops: long polls are answered at once.
     bool polls_stopped = false;
-    /// Executors' leases (6b, design 3.5), by executor actor (hex): one
+    /// Executors' leases, by executor actor (hex): one
     /// active copy per executor. In memory only: after a restart or a
     /// failover, the first copy to poll takes it. Under waiters_mutex.
     struct Lease {
@@ -470,7 +470,7 @@ struct LedgerApi::State {
     };
     std::map<std::string, Lease> leases;
 
-    /// The keeper (6b): its scans run on its own thread, a slice of runs at
+    /// The keeper: its scans run on its own thread, a slice of runs at
     /// a time on worker threads, and each slice's calls go to the writer as
     /// one group. The tick's and the keeper thread's, under keeper_mutex.
     std::mutex keeper_mutex;
@@ -501,7 +501,7 @@ struct LedgerApi::State {
     std::atomic<std::uint64_t> keeper_expiries{0};
     std::atomic<std::uint64_t> keeper_refusals{0};
 
-    /// A cluster member's (D-051): the ledger's lock, held for life, and
+    /// A cluster member's: the ledger's lock, held for life, and
     /// Raft. Declared last, so they stop before anything they use.
     std::optional<ledger::DirectoryLock> member_lock;
     std::unique_ptr<Cluster> cluster;
@@ -678,7 +678,7 @@ struct LedgerApi::State {
 
     /// One group commit: the queued statements in one batch, then the other
     /// writes, all under one lock of the directory. True if it caught up
-    /// with the files. The statements' batch is pipelined (D-056 P7): it is
+    /// with the files. The statements' batch is pipelined: it is
     /// validated and applied here, and answered from the ledger's commit
     /// thread once it is durable, while this thread goes on with the next
     /// group; the directory's lock is kept until the writer runs out of work.
@@ -1265,8 +1265,8 @@ struct LedgerApi::State {
         return peer == peers->end() ? std::nullopt : std::optional<Peer>(*peer);
     }
 
-    /// An instance's contract evidence with the consents its calls cite
-    /// (D-053), for read tokens and for the instance's current parties; to
+    /// An instance's contract evidence with the consents its calls cite,
+    /// for read tokens and for the instance's current parties; to
     /// other peers it does not exist.
     http::Response instance_evidence_of(std::string_view id_text, const std::string& principal,
                                         Scopes scopes) const {
@@ -1359,7 +1359,7 @@ struct LedgerApi::State {
         });
     }
 
-    // ---- requests (v0.8, 6b) ---------------------------------------------
+    // ---- requests (v0.8) ---------------------------------------------
 
     /// A request as GET /v1/requests shows it: params as hex CBOR, times in
     /// milliseconds; `overdue` by this server's clock, `head` the instance's
@@ -1589,7 +1589,7 @@ struct LedgerApi::State {
         check_waiters(true);
     }
 
-    // ---- contracts (D-053) ----------------------------------------------
+    // ---- contracts ----------------------------------------------
 
     static json contract_json(const protocol::ContractState& c, std::size_t instances) {
         json functions = json::object();
@@ -1973,7 +1973,7 @@ struct LedgerApi::State {
 
     void submit(http::Request& r, std::string principal, Scopes scopes, Done& done) {
         const auto type = r.header("content-type");
-        // An executor's token (6b) submits answers to requests, and nothing
+        // An executor's token submits answers to requests, and nothing
         // else: no record with private data, no call with consents.
         if (!has_scope(scopes, Scope::submit)) {
             const auto parsed = protocol::parse_statement(*provider, r.body, ledger->hash());
@@ -2102,9 +2102,9 @@ struct LedgerApi::State {
             {*statement->as_bytes(), std::move(principal), std::move(done), std::nullopt, sidecar});
     }
 
-    // ---- the registrar (D-053) ------------------------------------------
+    // ---- the registrar ------------------------------------------
 
-    /// The registrar's group on the writer (D-056 P5): consecutive
+    /// The registrar's group on the writer: consecutive
     /// proposals and consents run one after another, each on the state the
     /// ones before it left, and what they write is committed together. The
     /// pending calls and consents they write are synced file by file, their
@@ -2193,7 +2193,7 @@ struct LedgerApi::State {
         RegistrarGroup group = std::move(registrar);
         registrar = {};
         // The consents files of the calls to record, written and synced at
-        // once (D-056 P7), then their directory: a call is recorded only
+        // once, then their directory: a call is recorded only
         // with its consents kept.
         std::vector<std::optional<Error>> unkept(group.records.size());
         if (group.consents_written) {
@@ -2345,7 +2345,7 @@ struct LedgerApi::State {
         }
     }
 
-    /// POST /v1/contracts/calls: a call proposed to the registrar (D-053),
+    /// POST /v1/contracts/calls: a call proposed to the registrar,
     /// by the home's people (a submit token) or by one of the instance's
     /// parties (a peer). The contract runs without consents and names whose
     /// it needs; the registrar holds the call until they are in.
@@ -2658,7 +2658,7 @@ struct LedgerApi::State {
         });
     }
 
-    // ---- the keeper (6b) ------------------------------------------------
+    // ---- the keeper ------------------------------------------------
 
     /// From tick(): asks the keeper's thread for a slice of its scan when the
     /// interval has passed, or when the last slice left work to go on with.
@@ -2845,7 +2845,7 @@ struct LedgerApi::State {
     /// became of each, in order. A call whose instance moved on since the
     /// scan (another write came first) is left for the next pass; `stop`
     /// is set if this node no longer leads. Off a cluster the group is
-    /// pipelined (D-056 P7): what became of its calls is told from the
+    /// pipelined: what became of its calls is told from the
     /// ledger's commit thread once they are durable, while the keeper scans
     /// on; the scan's dry runs are offered to the ledger.
     void record_keeper_calls(std::vector<KeeperCall>& due_calls, bool& more, bool& stop) {

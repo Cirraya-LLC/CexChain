@@ -17,7 +17,7 @@
 #include "args.hpp"
 #include "output.hpp"
 
-/// Contracts written in Bo (D-053, milestone 7), for the contract commands:
+/// Contracts written in Bo, for the contract commands:
 /// building a deploy from a source or a .boc file, and checking a deploy's
 /// source against its code. Every build has the second, but only builds
 /// with the Bo compiler (GCC 16) can rebuild; the others say so.

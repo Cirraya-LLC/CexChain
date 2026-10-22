@@ -54,9 +54,9 @@ constexpr std::string_view snapshot_file = "snapshot";
 // Raft entries (CBOR arrays), each applied at the ledger size it names.
 constexpr std::uint64_t entry_batch = 1; // [1, at, size, [statement], [sidecar]]
 /// A sidecar is [i, vault file], or [i, consent bundles, 3] for a contract
-/// call (D-053); snapshots carry them as [id, bytes(, kind)], and the
-/// pending calls as [name, file, 4]. Kind 2 (D-052's consents, removed in
-/// spec v0.9) is reserved: batches and snapshots that carry it are applied
+/// call; snapshots carry them as [id, bytes(, kind)], and the
+/// pending calls as [name, file, 4]. Kind 2 (the native asset actions' consents,
+/// removed in spec v0.9) is reserved: batches and snapshots that carry it are applied
 /// without it, as with any unknown kind.
 constexpr std::uint64_t sidecar_contract_consents = 3;
 constexpr std::uint64_t snapshot_pending_call = 4;

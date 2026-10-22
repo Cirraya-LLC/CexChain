@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// Contract calls run ahead in parallel (D-056 P7): random mixes of
+// Contract calls run ahead in parallel: random mixes of
 // statements (creations, calls on shared and distinct instances, children,
 // requests and answers, key rotations, revocations, cited consents, repeats,
 // records) registered in groups give the results, the log, the state root,

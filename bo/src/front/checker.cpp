@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// The checker (milestone 4 of the Bo compiler): a parsed tree to the checked
+// The checker: a parsed tree to the checked
 // model of model.hpp. What it reads and checks is listed in checker.hpp. It
 // works in passes over the tree: the declarations (parties, the kind and its
 // fields, the actions and their inputs, the states the state changes name),
@@ -96,7 +96,7 @@ constexpr std::string_view rule_service_paid = "R35";
 /// resource's holder (it has none while in the pool). The order is the
 /// model's, which compiled code follows; vocab_test.cpp checks the list
 /// against the packs.
-/// Then a service's periods (E9): the dates it is paid until and billed
+/// Then a service's periods: the dates it is paid until and billed
 /// until, which hold no date until it is subscribed to (R11, R34).
 constexpr std::string_view standard_fields[] = {"field.pledgee", "field.payee", "field.holder",
                                                 "field.paid_until", "field.billed_until"};
@@ -323,7 +323,7 @@ bool is_label(const ast::Expr& e) noexcept {
 
 /// R10: the actions that ask an executor to act outside the ledger: notify,
 /// and on a service the changes of its subscription. Each makes a request
-/// of its own kind after its clauses (E9).
+/// of its own kind after its clauses.
 bool executor_action(const Concept* word, const Concept* kind) {
     if (word == nullptr) {
         return false;
@@ -339,7 +339,7 @@ bool executor_action(const Concept* word, const Concept* kind) {
 }
 
 // ---------------------------------------------------------------------------
-// Lines Bo adds to a contract (E9): written as the tree would hold them, at
+// Lines Bo adds to a contract: written as the tree would hold them, at
 // the place of the clause they belong to, then checked as the contract's own.
 
 ast::Expr word_node(std::string_view id, const Span& span) {
@@ -652,7 +652,7 @@ enum class Place : std::uint8_t {
     action,      ///< a `can` block (a call someone starts)
     rule,        ///< a `when` block (the keeper fires it)
     event,       ///< a `when`'s event
-    answer,      ///< a rule for answers (E8): `when notify done`
+    answer,      ///< a rule for answers: `when notify done`
 };
 
 struct Decl {
@@ -760,7 +760,7 @@ private:
     void check_when(const ast::When& w);
     void check_answer(const ast::AnswerRule& r);
     m::Request request_statement(const ast::Request& r);
-    // E9: notify PARTY, a request (R10); the requests and the bills Bo adds
+    // notify PARTY, a request (R10); the requests and the bills Bo adds
     // to a service (R10, R34, R35).
     m::Request notify_request(const ast::Do& d);
     [[nodiscard]] bool is_notify(const ast::Do& d) const;
@@ -838,7 +838,7 @@ private:
     std::vector<const ast::Can*> cans_;
     std::vector<const ast::When*> whens_;
     std::vector<const ast::AnswerRule*> answers_;
-    /// The kinds of the requests the contract makes (E8), as compiled code
+    /// The kinds of the requests the contract makes, as compiled code
     /// names them.
     std::set<std::string, std::less<>> requested_;
     /// A service's period bill (R34): made by some action, and where.
@@ -1270,7 +1270,7 @@ void Checker::read_default(const ast::Field& f, m::Field& field) {
 }
 
 void Checker::read_utc_offset(const ast::Field& f) {
-    // U6: `UTC offset "+08:00"`, a fixed offset, with no daylight saving.
+    // `UTC offset "+08:00"`, a fixed offset, with no daylight saving.
     if (offset_read_) {
         error(f.head.span, "check.duplicate", {{"name", std::string("field.utc_offset")}});
         return;
@@ -1876,7 +1876,7 @@ void Checker::mentions(const std::vector<ast::Statement>& list,
 }
 
 void Checker::bind_roles() {
-    // R3 (U4): a role first named after a `can`'s `to` is bound by that
+    // R3: a role first named after a `can`'s `to` is bound by that
     // action; every other role when an instance is created.
     std::set<std::string> seen;
     for (const ast::Clause* clause : clauses_) {
@@ -2092,7 +2092,7 @@ m::ChargeLine Checker::charge_line(const ast::Field& f, m::Charge& charge, Charg
         date.rule = rule_rate_in_force;
         line.argument->rule = rule_rate_in_force;
         if (when.kind != ExprKind::literal || when.literal.kind != ast::LiteralKind::date) {
-            // Rates and their dates are written in the contract (U9).
+            // Rates and their dates are written in the contract.
             refuse();
         } else {
             const Date& d = when.literal.date;
@@ -3118,7 +3118,7 @@ m::Do Checker::do_action(const ast::Do& d) {
         if (place_ == Place::action) {
             error(d.span, "check.subject", {{"text", written(d.span)}});
         } else {
-            // R9 (U7): a party's duty, which sets what is due; no call.
+            // R9: a party's duty, which sets what is due; no call.
             out.obligation = true;
             out.rule = rule_obligation;
         }
@@ -3357,7 +3357,7 @@ void Checker::check_recursion() {
     }
 }
 
-// --- Tests (U8).
+// --- Tests.
 
 std::optional<m::TestParty> Checker::test_party(const ast::Expr& e) {
     m::TestParty p;
@@ -4215,7 +4215,7 @@ void Checker::word_value(const ast::Expr& e, m::Expr& out) {
         }
         break;
     case Category::expression:
-        // An answer's result and reason (E8): texts, in its rule only.
+        // An answer's result and reason: texts, in its rule only.
         if ((id == "expr.result" || id == "expr.reason") && place_ == Place::answer) {
             out.type = of(TypeKind::text);
             return;
@@ -4376,7 +4376,7 @@ void Checker::phrase_value(const ast::Expr& e, m::Expr& out) {
         out.type = recurring(head.concept_entry, inner);
         return;
     }
-    // per GB HKD 0.10: a unit price, to six decimal places (U5).
+    // per GB HKD 0.10: a unit price, to six decimal places.
     if (word_is(head, "price.per")) {
         if (ops.size() != 3 || unit_info(ops[1].concept_entry) == nullptr ||
             ops[1].kind != ExprKind::word || ops[2].kind != ExprKind::literal ||
@@ -4746,7 +4746,7 @@ void Checker::binary_value(const ast::Expr& e, m::Expr& out) {
 
 m::Model Checker::run(const ast::File& file) {
     model_.edition = file.edition;
-    // The vocabulary packs (D-054): each `use` names one, and each pack's
+    // The vocabulary packs: each `use` names one, and each pack's
     // words need its `use` (all of them, read with the official packs of
     // before vocabulary packs).
     vocabularies_ = file.vocabularies.get();

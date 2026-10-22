@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
 #
-# An executor as a long-running service beside a three-member cluster (6b,
-# E11): one `executor run` (no --once) keeps answering while members restart
+# An executor as a long-running service beside a three-member cluster:
+# one `executor run` (no --once) keeps answering while members restart
 # under it: a follower; its own member, killed (kill -9) between the action
 # and the answer; the leader; and the whole cluster at once. Every request is
 # acted on once and answered once, none is lost, the executor never stops,

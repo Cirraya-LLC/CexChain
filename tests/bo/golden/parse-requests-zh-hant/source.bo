@@ -1,4 +1,4 @@
-# Requests (E8): an action asks an executor for something outside the
+# Requests: an action asks an executor for something outside the
 # ledger; rules for the answers react to how it went. `done`, `result`, and
 # `reason` stay names elsewhere: this contract has a state named done.
 合約 Notice

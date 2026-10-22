@@ -1,5 +1,5 @@
 use commerce
-# Lists (milestone 13): bounded lists in fields, inputs, and the state;
+# Lists: bounded lists in fields, inputs, and the state;
 # each, sum of, count of, and in; one value where a list is needed is a list
 # of one item (R29). A batch keeps its codes and sizes; loading adds rows.
 contract Batches

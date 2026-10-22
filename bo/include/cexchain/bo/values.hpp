@@ -38,7 +38,7 @@ struct UnitInfo {
 inline constexpr std::uint64_t max_value = std::numeric_limits<std::int64_t>::max();
 /// Every edition-1 currency has cents: two decimal places.
 inline constexpr std::uint64_t money_factor = 100;
-/// Unit prices keep six decimal places (U5).
+/// Unit prices keep six decimal places.
 inline constexpr std::uint64_t unit_price_factor = 1'000'000;
 /// Rates are kept in millionths; a percent is 10,000 of them.
 inline constexpr std::uint64_t rate_factor = 10'000;
@@ -47,7 +47,7 @@ inline constexpr std::int64_t rate_one = 1'000'000;
 inline constexpr std::uint64_t day_ms = 86'400'000;
 /// Calendar durations are counted in months; ten thousand years at most.
 inline constexpr std::uint64_t max_months = 120'000;
-/// The contract's offset from UTC (U6), in milliseconds east, when it names
+/// The contract's offset from UTC, in milliseconds east, when it names
 /// none (R25): +08:00. A contract names another with `UTC offset "-05:00"`.
 inline constexpr std::int64_t default_offset_ms = 8 * 3'600'000;
 

@@ -77,7 +77,7 @@ TEST_CASE("v0.7 children: statements, runs, ids, the state, and the log",
 
         // Every statement parses and re-encodes; the refused ones parse
         // unless they break the CDDL. (Replaying them under the rules of v0.7
-        // is M15's.)
+        // is another test's.)
         std::vector<protocol::SignedStatement> statements;
         for (const auto& st : ledger["statements"]) {
             INFO(text(st["name"]));

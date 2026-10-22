@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// Clusters (D-051), in one process: three nodes on loopback, each with its
+// Clusters, in one process: three nodes on loopback, each with its
 // own ledger directory and Raft port.
 
 #include <chrono>
@@ -399,7 +399,7 @@ TEST_CASE("a node far behind gets the ledger itself as a snapshot", "[node][clus
     REQUIRE(eventually([&] { return trio.agree(); }));
 
     // A contract call with its consent, kept on every node, and a call a
-    // registrar holds (D-053).
+    // registrar holds.
     World party{crypto::HashAlg::sha256, "Party"};
     const auto [call, pending] = trio.contract_call(party, t0 + 26000);
     for (int n = 0; n < 2; ++n) {

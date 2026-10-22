@@ -913,7 +913,7 @@ std::vector<std::string> rule_functions(const Model& model) {
         }
         each_do(r.body, name_of);
         if (!what) {
-            // E8: else the kind of the first request it makes.
+            // Else the kind of the first request it makes.
             if (const std::vector<const Request*> asked = requests_in(r.body); !asked.empty()) {
                 what = asked.front()->kind;
             }
@@ -1093,7 +1093,7 @@ std::string dump(const model::Model& m) {
         add_line(out, 0, line);
     }
     if (m.offset_rule.empty() || !m.rules.empty()) {
-        // U6: written, or the default (R25) for a contract with time rules.
+        // Written, or the default (R25) for a contract with time rules.
         const std::int64_t minutes = m.utc_offset_ms / 60'000;
         const std::int64_t whole = minutes < 0 ? -minutes : minutes;
         add_line(out, 0,

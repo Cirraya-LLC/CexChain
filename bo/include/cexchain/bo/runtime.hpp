@@ -237,7 +237,7 @@ enum class Routine : std::uint8_t {
     fail_numbered,
 
     /// [start] -> []: hands the output from `start` on to the host
-    /// (output_write): a contract that makes requests (E8) writes them
+    /// (output_write): a contract that makes requests writes them
     /// first, at the start of the output region, and its output after them.
     out_finish_at,
 };

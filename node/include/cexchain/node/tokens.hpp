@@ -25,7 +25,7 @@ enum class Scope : std::uint8_t {
     admin = 4,     ///< Checkpoints and witness cosignatures.
     peer = 8,      ///< For another organization: access requests and receipts, deliveries, and
                    ///< cosigning as this ledger's witness.
-    executor = 16, ///< For an executor (6b): the open requests (a hint), instances' evidence,
+    executor = 16, ///< For an executor: the open requests (a hint), instances' evidence,
                    ///< and submitting answers to requests, no other statements.
 };
 using Scopes = std::uint8_t;

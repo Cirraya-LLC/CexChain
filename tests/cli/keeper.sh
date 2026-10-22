@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
 #
-# Keepers (6b E4), end to end. A ledger acts only on calls: a keeper, a
+# Keepers, end to end. A ledger acts only on calls: a keeper, a
 # device of the home, fires each contract's time rules once they are due and
 # expires the requests left open past their deadline plus a grace. Alpha runs
 # Bo's time contract (`when overdue 3 days suspend`, `when suspended 30 days

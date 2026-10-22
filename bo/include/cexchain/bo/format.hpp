@@ -17,8 +17,8 @@
 /// with every keyword and word written in one language. It works on the
 /// tokens, line by line, so every clause stays on its line and every comment
 /// in its place; the tree, the checked model, the compiled code, and the
-/// contract text of the result are those of the source (D-053: languages
-/// are shells over one core).
+/// contract text of the result are those of the source (languages are
+/// shells over one core).
 ///
 /// Layout:
 ///   - each line is indented by two spaces per block, whatever the source

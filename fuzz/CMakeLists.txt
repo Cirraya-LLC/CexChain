@@ -24,7 +24,7 @@ cexchain_add_fuzzer(vm_fuzz cexchain::crypto_openssl)
 cexchain_add_fuzzer(contract_parse_fuzz cexchain::crypto_openssl cexchain::verifier
     cexchain::ledger)
 # The check without building against the decoder, and contract outputs and
-# inputs from bytes against the trees (D-056, P6; tests/support).
+# inputs from bytes against the trees (tests/support).
 cexchain_add_fuzzer(cbor_validate_fuzz)
 target_include_directories(cbor_validate_fuzz PRIVATE
     ${PROJECT_SOURCE_DIR}/tests ${PROJECT_SOURCE_DIR}/core/src)
@@ -36,7 +36,7 @@ if(TARGET cexchain_bo_front)
     cexchain_add_fuzzer(bo_check_fuzz cexchain::bo_front)
     # A deploy's bo-source bundle, the packs it names, and .boc files.
     cexchain_add_fuzzer(bo_source_fuzz cexchain::bo_front cexchain::crypto_openssl)
-    # Vocabulary pack files of users' (G6), and the CBOR a bundle embeds.
+    # Vocabulary pack files of users', and the CBOR a bundle embeds.
     cexchain_add_fuzzer(bo_vocab_fuzz cexchain::bo_front)
 endif()
 # The Bo runtime's CBOR reader, in the harness module the GCC tests keep equal
@@ -67,7 +67,7 @@ if(TARGET cexchain_node)
     cexchain_add_fuzzer(http_parse_fuzz cexchain::node)
     # The requests and due routes' queries (node/src/request_query.hpp).
     target_include_directories(http_parse_fuzz PRIVATE ${PROJECT_SOURCE_DIR}/node/src)
-    # The connector protocol's JSON lines (node/connector.hpp, 6b).
+    # The connector protocol's JSON lines (node/connector.hpp).
     cexchain_add_fuzzer(connector_line_fuzz cexchain::node)
     target_compile_features(connector_line_fuzz PRIVATE cxx_std_26)
     # An executor's config and state files: journal, cursor, sealed secrets.

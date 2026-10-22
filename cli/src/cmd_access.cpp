@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// Working with other organizations (D-046): peers, and access to records
+// Working with other organizations: peers, and access to records
 // across ledgers. A requester asks (a request record on its ledger), the
 // granter grants (a grant record on its ledger) and delivers the record's
 // private data sealed to a key made for that request, and the requester

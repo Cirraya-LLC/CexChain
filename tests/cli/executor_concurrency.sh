@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
 #
-# An executor works requests at once (D-056, P4), end to end: many requests
+# An executor works requests at once, end to end: many requests
 # over many instances, several per instance, through a command connector run
 # as several copies. The connector's program notes every action and checks
 # that no two requests of one instance are acted on at once. The executor is
