@@ -1,71 +1,71 @@
 Test "split across three tiers, financed by a bank, paid at maturity": passed
-  Step 1 (line 35) passed: issuer issue with amount = CNY 1_000_000, due = 2027-06-30, tier = 1
+  Step 1 (line 38) passed: issuer issue with amount = CNY 1_000_000, due = 2027-06-30, tier = 1
     Result: accepted, and the instance is active.
-  Step 2 (line 36) passed: supplier split with parts = (CNY 600_000, CNY 400_000), recipients = (gears, castings) -> divided
+  Step 2 (line 39) passed: supplier split with parts = (CNY 600_000, CNY 400_000), recipients = (gears, castings) -> divided
     Result: accepted with the consent of the supplier, castings, and gears, and the instance is divided; it is final and takes no more calls.
-  Step 3 (line 37) passed: gears split with parts = (CNY 250_000, CNY 350_000), recipients = (forge, gears) -> divided
+  Step 3 (line 40) passed: gears split with parts = (CNY 250_000, CNY 350_000), recipients = (forge, gears) -> divided
     On part 1.
     Result: accepted with the consent of forge and gears, and the instance is divided; it is final and takes no more calls.
-  Step 4 (line 38) passed: forge pledge to bank1 -> pledged
+  Step 4 (line 41) passed: forge pledge to bank1 -> pledged
     On part 1.1.
     Result: accepted with the consent of forge and bank1, and the instance is pledged.
-  Step 5 (line 39) passed: issuer pay forge at 2027-06-30 -> paid
+  Step 5 (line 42) passed: issuer pay forge at 2027-06-30 -> paid
     On part 1.1.
     Result: accepted, and the instance is paid.
-  Step 6 (line 40) passed: bank1 confirm payment -> settled
+  Step 6 (line 43) passed: bank1 confirm payment -> settled
     On part 1.1.
     Result: accepted with the consent of bank1, and the instance is settled; it is final and takes no more calls.
-  Step 7 (line 41) passed: issuer pay gears -> paid
+  Step 7 (line 44) passed: issuer pay gears -> paid
     On part 1.2.
     Result: accepted, and the instance is paid.
-  Step 8 (line 42) passed: gears confirm payment -> settled
+  Step 8 (line 45) passed: gears confirm payment -> settled
     On part 1.2.
     Result: accepted with the consent of gears, and the instance is settled; it is final and takes no more calls.
-  Step 9 (line 43) passed: issuer pay castings -> paid
+  Step 9 (line 46) passed: issuer pay castings -> paid
     On part 2.
     Result: accepted, and the instance is paid.
-  Step 10 (line 44) passed: castings confirm payment -> settled
+  Step 10 (line 47) passed: castings confirm payment -> settled
     On part 2.
     Result: accepted with the consent of castings, and the instance is settled; it is final and takes no more calls.
 
 Test "every recipient consents, and only the holder splits": passed
-  Step 1 (line 47) passed: issuer issue with amount = CNY 1_000_000, due = 2027-06-30, tier = 1
+  Step 1 (line 50) passed: issuer issue with amount = CNY 1_000_000, due = 2027-06-30, tier = 1
     Result: accepted, and the instance is active.
-  Step 2 (line 48) passed: supplier split with parts = (CNY 600_000, CNY 400_000), recipients = (gears, castings) -> consent of castings
+  Step 2 (line 51) passed: supplier split with parts = (CNY 600_000, CNY 400_000), recipients = (gears, castings) -> consent of castings
     Result: the call waits for the consent of castings.
-  Step 3 (line 49) passed: gears split with parts = CNY 1_000_000, recipients = gears -> consent of supplier
+  Step 3 (line 52) passed: gears split with parts = CNY 1_000_000, recipients = gears -> consent of supplier
     Result: the call waits for the consent of the supplier.
 
 Test "the parts add up to the amount": passed
-  Step 1 (line 52) passed: issuer issue with amount = CNY 1_000_000, due = 2027-06-30, tier = 1
+  Step 1 (line 55) passed: issuer issue with amount = CNY 1_000_000, due = 2027-06-30, tier = 1
     Result: accepted, and the instance is active.
-  Step 2 (line 53) passed: supplier split with parts = (CNY 600_000, CNY 300_000), recipients = (gears, castings) -> refused "bo:requires split 5"
+  Step 2 (line 56) passed: supplier split with parts = (CNY 600_000, CNY 300_000), recipients = (gears, castings) -> refused "bo:requires split 5"
     Result: refused, since requirement 5 of split is not met (bo:requires split 5).
     The contract text, 4.1.8: Requirement 5: the sum of the parts is the amount.
 
 Test "parts go down to tier 5": passed
-  Step 1 (line 56) passed: issuer issue with amount = CNY 1_000_000, due = 2027-06-30, tier = 4
+  Step 1 (line 59) passed: issuer issue with amount = CNY 1_000_000, due = 2027-06-30, tier = 4
     Result: accepted, and the instance is active.
-  Step 2 (line 57) passed: supplier split with parts = CNY 1_000_000, recipients = gears -> divided
+  Step 2 (line 60) passed: supplier split with parts = CNY 1_000_000, recipients = gears -> divided
     Result: accepted with the consent of the supplier and gears, and the instance is divided; it is final and takes no more calls.
-  Step 3 (line 58) passed: gears split with parts = CNY 1_000_000, recipients = forge -> refused "bo:requires split 1"
+  Step 3 (line 61) passed: gears split with parts = CNY 1_000_000, recipients = forge -> refused "bo:requires split 1"
     On part 1.
     Result: refused, since requirement 1 of split is not met (bo:requires split 1).
     The contract text, 4.1.4: Requirement 1: the tier is less than 5.
 
 Test "a pledged part neither splits nor moves": passed
-  Step 1 (line 61) passed: issuer issue with amount = CNY 1_000_000, due = 2027-06-30, tier = 1
+  Step 1 (line 64) passed: issuer issue with amount = CNY 1_000_000, due = 2027-06-30, tier = 1
     Result: accepted, and the instance is active.
-  Step 2 (line 62) passed: supplier split with parts = (CNY 600_000, CNY 400_000), recipients = (gears, castings)
+  Step 2 (line 65) passed: supplier split with parts = (CNY 600_000, CNY 400_000), recipients = (gears, castings)
     Result: accepted with the consent of the supplier, castings, and gears, and the instance is divided; it is final and takes no more calls.
-  Step 3 (line 63) passed: gears pledge to bank1 -> pledged
+  Step 3 (line 66) passed: gears pledge to bank1 -> pledged
     On part 1.
     Result: accepted with the consent of gears and bank1, and the instance is pledged.
-  Step 4 (line 64) passed: gears split with parts = CNY 600_000, recipients = forge -> refused "bo:state split"
+  Step 4 (line 67) passed: gears split with parts = CNY 600_000, recipients = forge -> refused "bo:state split"
     On part 1.
     Result: refused, since split is not possible in the instance's current state (bo:state split).
     The contract text, 4.1.10: If the instance is active, it becomes divided; otherwise the call is refused.
-  Step 5 (line 65) passed: gears transfer to forge -> refused "bo:state transfer"
+  Step 5 (line 68) passed: gears transfer to forge -> refused "bo:state transfer"
     On part 1.
     Result: refused, since transfer is not possible in the instance's current state (bo:state transfer).
     The contract text, 4.2.6: If the instance is active, it becomes active; otherwise the call is refused.

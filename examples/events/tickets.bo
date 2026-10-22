@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cirraya
+#
 # A ticket for a concert, kept on the organizer's ledger, in the words of a
 # vocabulary pack of the organizer's own (events.vocab, next to this file):
 # the organizer reserves it for a fan, who agrees on their own ledger, and

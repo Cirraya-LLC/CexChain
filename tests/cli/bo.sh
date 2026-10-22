@@ -812,7 +812,7 @@ echo "== bo test: the test blocks, run as a ledger runs calls"
 cp "$SOURCE/examples/supply-agreement/supply-agreement.bo" supply.bo
 run bo test supply.bo > report.txt
 contains -Fx 'Test "signed by all three, then closed": passed' report.txt || fail "test: passed"
-contains -Fx '  Step 2 (line 27) passed: we sign -> signed' report.txt || fail "test: a step as written"
+contains -Fx '  Step 2 (line 30) passed: we sign -> signed' report.txt || fail "test: a step as written"
 contains -Fx '    Result: accepted with the consent of the supplier and the bank, and the instance is signed.' report.txt || fail "test: implicit consents"
 contains -Fx '    Result: the call waits for the consent of the bank.' report.txt || fail "test: a consent withheld"
 contains -Fx '    Result: the call waits for us to make it.' report.txt || fail "test: the home starts sign"
