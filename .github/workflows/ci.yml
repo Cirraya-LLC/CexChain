@@ -19,12 +19,15 @@ permissions:
   contents: read
 
 jobs:
+  # The test suites run one test at a time (the end-to-end tests start
+  # servers), so each compiler gets its own job, and the limits leave room
+  # for the hosted runners' four cores.
   linux:
-    name: Linux (GCC 16; Clang 23 with sanitizers)
+    name: Linux (GCC 16)
     runs-on: ubuntu-latest
     # Debian trixie: OpenSSL 3.5, CMake 3.31.
     container: gcc:16-trixie
-    timeout-minutes: 40
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
 
@@ -45,6 +48,17 @@ jobs:
           build/gcc-release/cli/cexchain version
           build/gcc-release/cli/cexchain bo packs list
 
+  address-sanitizer:
+    name: Linux (Clang 23 with sanitizers)
+    runs-on: ubuntu-latest
+    container: gcc:16-trixie
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install tools
+        run: .github/scripts/install-linux-tools.sh
+
       # Clang has no C++26 reflection or contracts yet: it builds everything
       # but the Bo compiler proper, its front end included.
       - name: Clang 23 with AddressSanitizer and UndefinedBehaviorSanitizer
@@ -64,7 +78,7 @@ jobs:
     name: Linux (GCC 16 with sanitizers, the Bo compiler)
     runs-on: ubuntu-latest
     container: gcc:16-trixie
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
 
@@ -81,7 +95,7 @@ jobs:
     name: Linux (Clang 23 with ThreadSanitizer)
     runs-on: ubuntu-latest
     container: gcc:16-trixie
-    timeout-minutes: 40
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v7
 
