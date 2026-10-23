@@ -3,11 +3,19 @@
 
 // The web console's commands (the console itself runs in `serve --console`).
 
+#include <cerrno>
+#include <chrono>
+#include <csignal>
 #include <exception>
 #include <filesystem>
 #include <format>
 #include <print>
 #include <ranges>
+#include <spawn.h>
+#include <string>
+#include <sys/wait.h>
+#include <thread>
+#include <unistd.h>
 
 #include <cexchain/app/support.hpp>
 #include <cexchain/console/sessions.hpp>
@@ -17,6 +25,9 @@
 
 #include "commands.hpp"
 #include "output.hpp"
+
+// POSIX: the process's environment, for the browser it opens.
+extern char** environ;
 
 namespace cexchain::cli {
 
@@ -346,6 +357,165 @@ int cmd_console_user_revoke(const Args& args) {
         std::println("revoked {}{} (their sessions end at their next request)", name,
                      invitations > 0 ? " and their invitations" : "");
     }
+    return exit_ok;
+}
+
+namespace {
+
+/// The first line of a small file of the console's, if it exists.
+std::optional<std::string> state_line(const std::filesystem::path& file) {
+    if (!std::filesystem::exists(file)) {
+        return std::nullopt;
+    }
+    const Bytes bytes = app::read_file(file);
+    std::string line(bytes.begin(), bytes.end());
+    line = line.substr(0, line.find('\n'));
+    return line;
+}
+
+/// The running console's process, if its pid file names a live one.
+std::optional<pid_t> running_console(const std::filesystem::path& state) {
+    const auto line = state_line(state / "pid");
+    if (!line) {
+        return std::nullopt;
+    }
+    pid_t pid = 0;
+    try {
+        pid = static_cast<pid_t>(std::stol(*line));
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+    if (pid <= 0 || (::kill(pid, 0) != 0 && errno == ESRCH)) {
+        return std::nullopt;
+    }
+    return pid;
+}
+
+} // namespace
+
+int cmd_console_run(const Args& args) {
+    const std::filesystem::path dir = args.ledger();
+    require_ledger_directory(dir);
+    const std::filesystem::path state = console::state_directory(dir);
+    if (const auto pid = running_console(state)) {
+        throw CommandError{
+            std::format("the console runs already (process {}): console open", *pid)};
+    }
+    std::uint64_t port = 7470;
+    if (const auto asked = args.get("port")) {
+        port = parse_number(*asked, "--port");
+    } else if (const auto remembered = state_line(state / "port")) {
+        port = parse_number(*remembered, "the remembered port");
+    }
+    if (port == 0 || port > 65535) {
+        throw UsageError{"--port is 1 to 65535"};
+    }
+    ServeDefaults defaults;
+    defaults.listen = std::format("127.0.0.1:{}", port);
+    defaults.console = true;
+    // The next free port if this one is taken, unless one was asked for.
+    defaults.port_fallback = args.has("port") ? 1 : 20;
+    defaults.on_listening = [state](std::uint16_t got) {
+        std::filesystem::create_directories(state);
+        app::write_file(state / "port", as_bytes(std::to_string(got) + "\n"), true);
+        app::write_file(state / "pid", as_bytes(std::to_string(::getpid()) + "\n"), true);
+    };
+    const int code = serve(args, defaults);
+    std::error_code ignored;
+    std::filesystem::remove(state / "pid", ignored);
+    return code;
+}
+
+int cmd_console_status(const Args& args) {
+    const std::filesystem::path dir = args.ledger();
+    require_ledger_directory(dir);
+    const std::filesystem::path state = console::state_directory(dir);
+    const auto pid = running_console(state);
+    const auto url = state_line(state / "url");
+    const console::People people = read_people(state);
+    std::size_t sessions = 0;
+    try {
+        sessions = console::published_sessions(state).size();
+    } catch (const std::exception& e) {
+        throw CommandError{e.what()};
+    }
+    if (args.json()) {
+        print_json({{"running", pid.has_value()},
+                    {"pid", pid ? Json(*pid) : Json()},
+                    {"url", pid && url ? Json(*url) : Json()},
+                    {"users", people.users.size()},
+                    {"owner", people.has_owner()},
+                    {"sessions", pid ? sessions : 0}});
+        return exit_ok;
+    }
+    if (pid) {
+        std::println("the console runs (process {}) at {}", *pid, url.value_or("(unknown)"));
+        std::println("{} session{}", sessions, sessions == 1 ? "" : "s");
+    } else {
+        std::println("the console is not running (console run)");
+    }
+    std::println("{} user{}{}", people.users.size(), people.users.size() == 1 ? "" : "s",
+                 people.has_owner() ? "" : " and no owner yet (console setup-link)");
+    return exit_ok;
+}
+
+int cmd_console_stop(const Args& args) {
+    const std::filesystem::path dir = args.ledger();
+    require_ledger_directory(dir);
+    const std::filesystem::path state = console::state_directory(dir);
+    const auto pid = running_console(state);
+    if (!pid) {
+        throw CommandError{"the console is not running"};
+    }
+    if (::kill(*pid, SIGTERM) != 0) {
+        throw CommandError{std::format("could not stop process {}", *pid)};
+    }
+    // A graceful stop finishes what it was writing; wait for it.
+    for (int i = 0; i < 300 && running_console(state); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    if (running_console(state)) {
+        throw CommandError{std::format("process {} is still stopping", *pid)};
+    }
+    if (args.json()) {
+        print_json({{"stopped", *pid}});
+    } else {
+        std::println("stopped the console (process {})", *pid);
+    }
+    return exit_ok;
+}
+
+int cmd_console_open(const Args& args) {
+    const std::filesystem::path dir = args.ledger();
+    require_ledger_directory(dir);
+    const std::filesystem::path state = console::state_directory(dir);
+    const auto url = state_line(state / "url");
+    if (!running_console(state) || !url) {
+        throw CommandError{"the console is not running (console run)"};
+    }
+    if (args.json() || args.has("print")) {
+        if (args.json()) {
+            print_json({{"url", *url}});
+        } else {
+            std::println("{}", *url);
+        }
+        return exit_ok;
+    }
+#if defined(__APPLE__)
+    const char* opener = "open";
+#else
+    const char* opener = "xdg-open";
+#endif
+    std::string target = *url;
+    std::vector<char*> argv{const_cast<char*>(opener), target.data(), nullptr};
+    pid_t child = 0;
+    if (::posix_spawnp(&child, opener, nullptr, nullptr, argv.data(), environ) != 0) {
+        std::println("open {} in your browser", *url);
+        return exit_ok;
+    }
+    int status = 0;
+    ::waitpid(child, &status, 0);
+    std::println("opened {}", *url);
     return exit_ok;
 }
 

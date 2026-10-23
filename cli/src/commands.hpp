@@ -3,6 +3,11 @@
 
 #pragma once
 
+#include <cstdint>
+#include <functional>
+#include <optional>
+#include <string>
+
 #include "args.hpp"
 
 /// Command handlers, one per registry entry (see registry.cpp). Each returns
@@ -106,6 +111,21 @@ int cmd_token_create(const Args& args);
 int cmd_token_list(const Args& args);
 int cmd_token_show(const Args& args);
 int cmd_token_revoke(const Args& args);
+/// What `serve` uses when its options leave it open: `console run` serves
+/// the console on localhost, trying the next ports when one is taken, and
+/// learns the port it got.
+struct ServeDefaults {
+    std::optional<std::string> listen;
+    bool console = false;
+    /// How many ports to try, from the one asked for (0 or 1: only it).
+    unsigned port_fallback = 0;
+    std::function<void(std::uint16_t port)> on_listening;
+};
+int serve(const Args& args, const ServeDefaults& defaults);
+int cmd_console_run(const Args& args);
+int cmd_console_status(const Args& args);
+int cmd_console_stop(const Args& args);
+int cmd_console_open(const Args& args);
 int cmd_console_session_list(const Args& args);
 int cmd_console_setup_link(const Args& args);
 int cmd_console_user_add(const Args& args);

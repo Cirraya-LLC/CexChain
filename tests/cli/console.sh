@@ -180,4 +180,28 @@ expect_exit 2 console user revoke Bob
 run console user revoke --help > out.txt
 grep -q "only owner" out.txt || fail "console user revoke --help"
 
+# --- console run, status, open, stop ------------------------------------------------
+kill "${SERVERS[-1]}"
+run console status > out.txt
+grep -q "the console is not running" out.txt || fail "status when stopped"
+expect_exit 2 console stop
+FREE=$(python3 -c "import socket; s=socket.socket(); s.bind(('127.0.0.1', 0)); print(s.getsockname()[1])")
+"$CEXCHAIN" console run --port "$FREE" --quiet > run.log 2>&1 &
+SERVERS+=("$!")
+for _ in $(seq 1 300); do
+    [ "$(run console status --json | json 'd["running"]')" = True ] && break
+    sleep 0.1
+done
+run console status > out.txt
+grep -q "the console runs (process [0-9]*) at http://localhost:$FREE/console/" out.txt ||
+    fail "status when running"
+[ "$(run console open --print)" = "http://localhost:$FREE/console/" ] || fail "console open --print"
+[ "$(status_of GET "$FREE" /console/ "localhost:$FREE")" = 200 ] || fail "console run serves"
+expect_exit 2 console run --port "$FREE"
+grep -q "the console runs already" out.txt || fail "a second console run"
+run console stop > out.txt
+grep -q "stopped the console" out.txt || fail "console stop"
+[ "$(run console status --json | json 'd["running"]')" = False ] || fail "stopped"
+expect_exit 1 console run --port 70000
+
 echo "console: all checks passed"

@@ -130,7 +130,8 @@ void raise_descriptor_limit(std::uint64_t wanted) {
 
 } // namespace
 
-int cmd_serve(const Args& args) {
+int serve(const Args& args, const ServeDefaults& defaults) {
+    const bool with_console = defaults.console || args.has("console");
     // A server stamps every write with its clock, so one run ahead
     // ($CEXCHAIN_CLOCK_OFFSET) records later times for everyone who writes
     // through it, and keeps them: it takes an explicit flag, so that a
@@ -209,7 +210,7 @@ int cmd_serve(const Args& args) {
     // for this computer's loopback names once the port is known.
     std::optional<console::Origin> public_origin;
     if (const auto url = args.get("public-url")) {
-        if (!args.has("console")) {
+        if (!with_console) {
             throw UsageError{"--public-url goes with --console"};
         }
         auto parsed = console::parse_origin(*url);
@@ -223,7 +224,7 @@ int cmd_serve(const Args& args) {
     ledger::SystemEntropy console_entropy;
     std::unique_ptr<console::Sessions> sessions;
     std::shared_ptr<console::Console> web;
-    if (args.has("console")) {
+    if (with_console) {
         sessions = std::make_unique<console::Sessions>(
             console::state_directory(dir), shared_provider(), console_clock, console_entropy);
         web = std::make_shared<console::Console>(
@@ -239,7 +240,8 @@ int cmd_serve(const Args& args) {
     }
 
     node::ServerOptions server_options;
-    const auto [host, port] = parse_listen(args.get("listen").value_or("127.0.0.1:8080"));
+    const auto [host, port] =
+        parse_listen(args.get("listen").value_or(defaults.listen.value_or("127.0.0.1:8080")));
     server_options.host = host;
     server_options.port = port;
     if (const auto cert = args.get("tls-cert")) {
@@ -267,8 +269,21 @@ int cmd_serve(const Args& args) {
     server_options.access_log = args.has("quiet") ? nullptr : &std::cerr;
     const bool tls = server_options.tls_certificate.has_value();
 
-    node::Server server(*api, server_options);
-    unwrap(server.listen(), "starting the server");
+    // With a fallback, the next ports are tried when this one is taken.
+    std::optional<node::Server> listening;
+    for (unsigned tried = 0;; ++tried) {
+        listening.emplace(*api, server_options);
+        auto status = listening->listen();
+        if (status) {
+            break;
+        }
+        if (tried + 1 >= defaults.port_fallback) {
+            unwrap(std::move(status), "starting the server");
+        }
+        listening.reset();
+        ++server_options.port;
+    }
+    node::Server& server = *listening;
     const std::string url =
         std::format("{}://{}:{}", tls ? "https" : "http",
                     host.find(':') != std::string::npos ? "[" + host + "]" : host, server.port());
@@ -318,8 +333,15 @@ int cmd_serve(const Args& args) {
                      offset / 1000);
     }
     std::fflush(stdout);
+    if (defaults.on_listening) {
+        defaults.on_listening(server.port());
+    }
     server.run();
     return exit_ok;
+}
+
+int cmd_serve(const Args& args) {
+    return serve(args, {});
 }
 
 // ---------------------------------------------------------------------------
