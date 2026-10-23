@@ -393,21 +393,35 @@ stderr, automatic checkpoints (`--checkpoint-interval`), and graceful shutdown o
 
 ### The web console (in progress)
 
-`cexchain serve --console` also serves a web console at `/console/`, beside the API. So far it
-serves its page (a placeholder) and the checks every request passes first:
+`cexchain console run` serves a web console for the ledger on this computer, at
+`http://localhost:7470/console/` (or the next free port, remembered); `console status`,
+`console open`, and `console stop` manage it. A company serves it beside its API with
+`cexchain serve --console --public-url https://ledger.example.com`. So far the console has its
+sign-in and its first views; its page is a placeholder.
 
-- a Content-Security-Policy with nothing inline and nothing from elsewhere, and no framing,
-  sniffing, referrers, or caching;
-- answers only for its own names (this computer's `localhost` names on the server's port, or
-  the one name given with `--public-url https://...`), so a page on another name that resolves
-  to this address cannot reach it;
-- a request from another site's page is refused, and one that changes something must come from
-  the console's own page.
+```sh
+cexchain console run &
+cexchain console setup-link        # a one-time link: open it, register a passkey, be the owner
+cexchain console user add Bob --role member   # a link for Bob to register his own passkey
+cexchain console user list
+```
 
-Sessions are bearer tokens that the node keeps only as hashes, in memory; a session ends after
-30 idle minutes, after 12 hours at most, on signing out, or when it is revoked with
-`cexchain console session revoke ID` (`console session list` shows them). Signing in with a
-passkey, and the console's screens, come next.
+- **People.** Each user has a role (owner, admin, member, or viewer) and one or more passkeys.
+  Roles gate the console, never the ledger: what someone may do on the ledger stays in their
+  delegations. An invitation is a one-time code, valid for a day, kept only as a hash; it
+  registers a passkey for the console's own name (never an address), made on the console's own
+  page. The first owner's comes from `console setup-link`, which works only while the console
+  has no owner.
+- **Signing in** takes a passkey assertion over a fresh challenge from the console, used once
+  within five minutes, with the person verified (a PIN or a biometric). A session is a bearer
+  token that the node keeps only as a hash, in memory; it ends after 30 idle minutes, after 12
+  hours at most, on signing out, when the console stops, or with
+  `cexchain console session revoke ID` (`console session list` shows them).
+- **Every request** first passes the console's checks: a Content-Security-Policy with nothing
+  inline and nothing from elsewhere, and no framing, sniffing, referrers, or caching; answers
+  only for the console's own names, so a page on another name that resolves to this address
+  cannot reach it; and a request from another site's page is refused, while one that changes
+  something must come from the console's own page.
 
 ## Working through a server
 
