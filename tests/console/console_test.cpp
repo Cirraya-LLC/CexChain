@@ -4,6 +4,8 @@
 // The web console's server side: its page, its headers, and the Host and
 // Origin checks every request passes first.
 
+#include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <string>
 #include <string_view>
@@ -15,6 +17,7 @@
 
 #include <cexchain/app/support.hpp>
 #include <cexchain/console/console.hpp>
+#include <cexchain/console/keystore.hpp>
 #include <cexchain/console/sessions.hpp>
 #include <cexchain/console/users.hpp>
 #include <cexchain/crypto/openssl.hpp>
@@ -500,4 +503,87 @@ TEST_CASE("the console's home and things views read the node's ledger", "[consol
 
     CHECK(w.get("/console/api/things", "cxs_" + std::string(43, 'Z')).status == 401);
     CHECK(w.web.handle(request("GET", "/console/api/home", "localhost:7470")).status == 401);
+}
+
+TEST_CASE("recovery codes", "[console][keys]") {
+    cexchain::ledger::SeededEntropy entropy(21);
+    const std::string code = console::make_recovery_code(entropy);
+    CHECK(code.size() == 26 + 6);
+    CHECK(code[4] == '-');
+    const auto canonical = console::canonical_recovery_code(code);
+    REQUIRE(canonical);
+    CHECK(canonical->size() == 26);
+    std::string typed = code;
+    std::ranges::transform(typed, typed.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    CHECK(console::canonical_recovery_code(typed) == canonical);
+    CHECK_FALSE(console::canonical_recovery_code(code.substr(1)));
+    CHECK_FALSE(console::canonical_recovery_code(code + "A"));
+    CHECK_FALSE(console::canonical_recovery_code("ABCD-EFGH-IJKL-MNOP-QRST-UVWX-Y1"));
+    CHECK(console::make_recovery_code(entropy) != code);
+}
+
+TEST_CASE("the console's keys are sealed to its node key", "[console][keys]") {
+    const TempDirectory dir;
+    cexchain::ledger::SeededEntropy entropy(22);
+    console::KeyStore store(dir.path);
+    CHECK_FALSE(store.initialized());
+    const std::string code = store.initialize(entropy);
+    CHECK(store.initialized());
+    CHECK(store.unlocked());
+    CHECK_THROWS(store.initialize(entropy));
+
+    auto key = cexchain::crypto::openssl::KeyPair::generate(cexchain::crypto::SigAlg::esp256);
+    REQUIRE(key);
+    store.seal("alice", *key);
+    REQUIRE(store.keys().size() == 1);
+    CHECK(store.keys()[0].public_key == key->public_key());
+    CHECK(store.open("alice").public_key() == key->public_key());
+    CHECK_THROWS(store.seal("Alice", *key));
+
+    // Locked, nothing opens; the recovery code unlocks it, a wrong one does not.
+    store.lock();
+    CHECK_FALSE(store.unlocked());
+    CHECK_THROWS(store.open("alice"));
+    const console::Slot recovery{console::SlotKind::recovery, {}};
+    CHECK_FALSE(store.unlock(recovery, "AAAA-AAAA-AAAA-AAAA-AAAA-AAAA-AA"));
+    CHECK_FALSE(store.unlock(recovery, "not a code"));
+    REQUIRE(store.unlock(recovery, code));
+    CHECK(store.open("alice").public_key() == key->public_key());
+
+    // A passphrase slot and a passkey's slot, added while unlocked.
+    const console::Slot passphrase{console::SlotKind::passphrase, {}};
+    const console::Slot passkey{console::SlotKind::prf, "AAECAwQFBgcICQoLDA0ODw"};
+    CHECK_THROWS(store.add_slot(passphrase, "short"));
+    store.add_slot(passphrase, "a long enough passphrase");
+    store.add_slot(passkey, "prf output as base64url, 43 characters long");
+    CHECK(store.slots().size() == 3);
+    store.lock();
+    CHECK_THROWS(store.add_slot(passphrase, "while locked, nothing"));
+    CHECK_FALSE(store.unlock(passphrase, "the wrong passphrase"));
+    REQUIRE(store.unlock(passphrase, "a long enough passphrase"));
+    store.lock();
+    REQUIRE(store.unlock(passkey, "prf output as base64url, 43 characters long"));
+    CHECK(store.remove_slot(passphrase));
+    CHECK_FALSE(store.unlock(passphrase, "a long enough passphrase"));
+    CHECK_THROWS(store.remove_slot(recovery));
+    CHECK_THROWS(store.add_slot({console::SlotKind::prf, "../escape"}, "a long enough secret"));
+
+    // The name is part of what is sealed: a file renamed does not open.
+    auto other = cexchain::crypto::openssl::KeyPair::generate(cexchain::crypto::SigAlg::ed25519);
+    REQUIRE(other);
+    store.seal("bob", *other);
+    std::filesystem::copy_file(dir.path / "keys" / "bob.sealed",
+                               dir.path / "keys" / "mallory.sealed");
+    CHECK_THROWS(store.open("mallory"));
+    CHECK(store.remove_key("mallory"));
+    CHECK(store.open("bob").public_key() == other->public_key());
+    CHECK(store.keys().size() == 2);
+
+    // Another console's store, from the files alone, starts locked.
+    console::KeyStore reopened(dir.path);
+    CHECK(reopened.initialized());
+    CHECK_FALSE(reopened.unlocked());
+    REQUIRE(reopened.unlock(recovery, code));
+    CHECK(reopened.open("alice").public_key() == key->public_key());
 }
