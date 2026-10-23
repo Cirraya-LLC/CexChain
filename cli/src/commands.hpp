@@ -106,6 +106,8 @@ int cmd_token_create(const Args& args);
 int cmd_token_list(const Args& args);
 int cmd_token_show(const Args& args);
 int cmd_token_revoke(const Args& args);
+int cmd_console_session_list(const Args& args);
+int cmd_console_session_revoke(const Args& args);
 int cmd_replica_init(const Args& args);
 int cmd_replica_sync(const Args& args);
 int cmd_replica_status(const Args& args);

@@ -8,6 +8,7 @@
 #include <string_view>
 #include <vector>
 
+#include <cexchain/console/sessions.hpp>
 #include <cexchain/core/error.hpp>
 #include <cexchain/node/http.hpp>
 
@@ -50,7 +51,8 @@ struct Origin {
 
 class Console {
 public:
-    Console() = default;
+    /// Without sessions, every route that needs one answers 503.
+    explicit Console(Sessions* sessions = nullptr) noexcept : sessions_(sessions) {}
 
     /// The origins it answers for. Until they are set (once the server knows
     /// its port), every request is refused.
@@ -60,6 +62,9 @@ public:
     [[nodiscard]] http::Response handle(const http::Request& request) const;
 
 private:
+    [[nodiscard]] http::Response session_route(const http::Request& request) const;
+
+    Sessions* sessions_ = nullptr;
     mutable std::mutex mutex_;
     std::vector<Origin> origins_;
 };

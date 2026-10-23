@@ -207,7 +207,6 @@ int cmd_serve(const Args& args) {
     }
     // The web console, beside the API: it answers for the public URL, or
     // for this computer's loopback names once the port is known.
-    std::shared_ptr<console::Console> web;
     std::optional<console::Origin> public_origin;
     if (const auto url = args.get("public-url")) {
         if (!args.has("console")) {
@@ -219,8 +218,15 @@ int cmd_serve(const Args& args) {
         }
         public_origin = std::move(*parsed);
     }
+    // Declared before the API, which holds the console, so they outlive it.
+    ledger::SystemClock console_clock;
+    ledger::SystemEntropy console_entropy;
+    std::unique_ptr<console::Sessions> sessions;
+    std::shared_ptr<console::Console> web;
     if (args.has("console")) {
-        web = std::make_shared<console::Console>();
+        sessions = std::make_unique<console::Sessions>(
+            console::state_directory(dir), shared_provider(), console_clock, console_entropy);
+        web = std::make_shared<console::Console>(sessions.get());
         options.console = [web](const node::http::Request& r) {
             return web->handle(r);
         };

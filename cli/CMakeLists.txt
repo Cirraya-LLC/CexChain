@@ -14,6 +14,7 @@ add_executable(cexchain
     src/cmd_keeper.cpp
     src/cmd_keys.cpp
     src/cmd_ledger.cpp
+    src/cmd_console.cpp
     src/cmd_node.cpp
     src/cmd_presence.cpp
     src/cmd_qr.cpp

@@ -426,6 +426,18 @@ void cluster_seeds(const Seeds& seeds) {
 }
 
 void text_seeds(const Seeds& seeds) {
+    seeds.write("console_request_fuzz", "page",
+                "GET /console/ HTTP/1.1\r\nHost: localhost:7470\r\n\r\n");
+    seeds.write("console_request_fuzz", "session",
+                "GET /console/api/session HTTP/1.1\r\nHost: 127.0.0.1:7470\r\n"
+                "Authorization: Bearer cxs_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\r\n\r\n");
+    seeds.write("console_request_fuzz", "sign-out",
+                "DELETE /console/api/session HTTP/1.1\r\nHost: [::1]:7470\r\n"
+                "Origin: http://[::1]:7470\r\n"
+                "Authorization: bearer cxs_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\r\n\r\n");
+    seeds.write("console_request_fuzz", "rebinding",
+                "GET /console/ HTTP/1.1\r\nHost: attacker.example:7470\r\n"
+                "Origin: https://attacker.example\r\n\r\n");
     seeds.write("http_parse_fuzz", "get",
                 "GET /v1/entries?start=0&count=10 HTTP/1.1\r\nHost: ledger\r\n"
                 "Authorization: Bearer cxt_x\r\n\r\n");

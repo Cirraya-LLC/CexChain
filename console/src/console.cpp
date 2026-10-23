@@ -243,6 +243,9 @@ http::Response Console::handle(const http::Request& request) const {
         moved.headers.emplace_back("Location", "/console/");
         return moved;
     }
+    if (request.path == "/console/api/session") {
+        return session_route(request);
+    }
     if (request.path.starts_with("/console/api/")) {
         return error(404, "not_found", "no such console route");
     }
@@ -260,6 +263,34 @@ http::Response Console::handle(const http::Request& request) const {
     response.body.assign(file->bytes.begin(), file->bytes.end());
     secure(response);
     return response;
+}
+
+/// GET: who is signed in with this session; DELETE: sign out.
+http::Response Console::session_route(const http::Request& request) const {
+    if (sessions_ == nullptr) {
+        return error(503, "unavailable", "this console keeps no sessions");
+    }
+    if (request.method != "GET" && request.method != "DELETE") {
+        http::Response refused = error(405, "unsupported", "method not allowed");
+        refused.headers.emplace_back("Allow", "GET, DELETE");
+        return refused;
+    }
+    const auto authorization = request.header("authorization");
+    const auto token = authorization ? bearer_token(*authorization) : std::nullopt;
+    const auto session = token ? sessions_->use(*token) : std::nullopt;
+    if (!session) {
+        http::Response refused = error(401, "unauthorized", "sign in to the console");
+        refused.headers.emplace_back("WWW-Authenticate", "Bearer");
+        return refused;
+    }
+    if (request.method == "DELETE") {
+        static_cast<void>(sessions_->end(*token));
+        return json(200, {{"signed_out", true}});
+    }
+    return json(200, {{"id", session->id},
+                      {"user", session->user},
+                      {"created", session->created},
+                      {"expires", session->expires()}});
 }
 
 } // namespace cexchain::console

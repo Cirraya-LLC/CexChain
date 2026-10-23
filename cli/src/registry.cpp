@@ -1009,6 +1009,26 @@ std::vector<CommandSpec> build() {
          1,
          with({ledger_option}),
          cmd_token_revoke},
+        {{"console", "session", "list"},
+         "List the web console's sessions",
+         "Console",
+         "",
+         0,
+         0,
+         with({ledger_option}),
+         cmd_console_session_list,
+         "The sessions of the console running on this ledger (serve --console), as it last\n"
+         "published them: who signed in, and when. A session ends after 30 idle minutes,\n"
+         "after 12 hours at most, when its user signs out, or when the console stops."},
+        {{"console", "session", "revoke"},
+         "End a web console session",
+         "Console",
+         "ID",
+         1,
+         1,
+         with({ledger_option}),
+         cmd_console_session_revoke,
+         "The console ends the session at its next request; its user signs in again."},
 
         // ------------------------------------------------------------------
         {{"replica", "init"},

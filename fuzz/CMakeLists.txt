@@ -75,6 +75,11 @@ if(TARGET cexchain_node)
     target_compile_features(executor_state_fuzz PRIVATE cxx_std_26)
     cexchain_add_fuzzer(backup_restore_fuzz cexchain::ledger)
     cexchain_add_fuzzer(pending_call_fuzz cexchain::node)
+    # The web console's Host, Origin, and session checks (C++26, like the console).
+    if(TARGET cexchain_console)
+        cexchain_add_fuzzer(console_request_fuzz cexchain::console cexchain::crypto_openssl)
+        target_compile_features(console_request_fuzz PRIVATE cxx_std_26)
+    endif()
     # The cluster's internals (node/src/cluster_parts.hpp).
     cexchain_add_fuzzer(cluster_entry_fuzz cexchain::node cexchain::crypto_openssl cexchain_nuraft)
     target_include_directories(cluster_entry_fuzz PRIVATE

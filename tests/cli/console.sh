@@ -128,4 +128,16 @@ PORT=$(json 'd["port"]' < public.json)
 [ "$(status_of GET "$PORT" /console/ "ledger.example.com")" = 200 ] || fail "the public name"
 [ "$(status_of GET "$PORT" /console/ "localhost:$PORT")" = 421 ] || fail "localhost refused"
 
+# --- Sessions -----------------------------------------------------------------
+# Signing in begins one; until then there are none, and none to revoke.
+[ "$(status_of GET "$PORT" /console/api/session "ledger.example.com")" = 401 ] ||
+    fail "no session without a token"
+run console session list > out.txt
+grep -q "no console sessions" out.txt || fail "console session list"
+[ "$(run console session list --json)" = "[]" ] || fail "console session list --json"
+expect_exit 2 console session revoke 0123456789abcdef
+grep -q "no console session 0123456789abcdef" out.txt || fail "revoking an unknown session"
+run console session revoke --help > out.txt
+grep -q "End a web console session" out.txt || fail "console session revoke --help"
+
 echo "console: all checks passed"
