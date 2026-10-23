@@ -11,7 +11,8 @@
 #   - the shell completion scripts (bash and zsh);
 #   - the MCP server's instructions and every tool's description and schema;
 #   - the browser verifier's page: its HTML and script, and the verifier's
-#     sources whose texts the page shows.
+#     sources whose texts the page shows;
+#   - the web console's page, its script, and its three catalogs.
 # Exemptions are exact phrases, each with the reason it may stay and the
 # milestone that removes it; an exemption that no longer matches fails too,
 # so none outlives its reason.
@@ -74,6 +75,11 @@ for f in "$SOURCE"/verifier/wasm/page.html "$SOURCE"/verifier/wasm/verifier-api.
     "$SOURCE"/verifier/wasm/verifier_wasm.cpp "$SOURCE"/verifier/src/*.cpp \
     "$SOURCE"/verifier/include/cexchain/verifier/*.hpp; do
     cp "$f" "texts/page-$(basename "$f")"
+done
+
+# --- The web console's page and its three catalogs --------------------------------
+for f in "$SOURCE"/console/web/*.html "$SOURCE"/console/web/*.js "$SOURCE"/console/web/i18n/*.json; do
+    cp "$f" "texts/console-$(basename "$f")"
 done
 
 # --- The scan ------------------------------------------------------------------

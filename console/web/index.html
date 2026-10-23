@@ -5,14 +5,35 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
 <title>CexChain</title>
 <link rel="stylesheet" href="console.css">
 <script type="module" src="console.js"></script>
 </head>
 <body>
-<main id="main">
-<h1>CexChain</h1>
-<p id="status">The console is being built. This page has no actions yet.</p>
-</main>
+<a class="skip" href="#main" data-text="app.skip">Skip to the content</a>
+<header class="bar">
+  <span class="brand" data-text="app.name">CexChain</span>
+  <nav id="nav" aria-label="Main" data-label="nav.label" hidden>
+    <ul>
+      <li><a href="#/" data-route="home" data-text="nav.home">Home</a></li>
+      <li><a href="#/things" data-route="things" data-text="nav.things">Things</a></li>
+    </ul>
+  </nav>
+  <div class="tools">
+    <label class="language">
+      <span data-text="language.label">Language</span>
+      <select id="language">
+        <option value="en" lang="en">English</option>
+        <option value="zh-Hant-HK" lang="zh-Hant-HK">繁體中文</option>
+        <option value="zh-Hans-CN" lang="zh-Hans-CN">简体中文</option>
+      </select>
+    </label>
+    <span id="who" hidden></span>
+    <button id="sign-out" type="button" data-text="session.sign_out" hidden>Sign out</button>
+  </div>
+</header>
+<main id="main" tabindex="-1"></main>
+<p id="status" class="status" role="status" aria-live="polite"></p>
 </body>
 </html>

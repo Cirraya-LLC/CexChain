@@ -15,7 +15,8 @@ cexchain_target_defaults(cexchain_console)
 
 # The page's files are compiled in with #embed where the compiler has it
 # (bo/ probes for it), and otherwise from byte lists CMake writes.
-set(web_files web/index.html web/console.css web/console.js)
+set(web_files web/index.html web/console.css web/console.js web/i18n/en.json
+    web/i18n/zh-Hant-HK.json web/i18n/zh-Hans-CN.json)
 if(CEXCHAIN_HAVE_EMBED)
     target_compile_definitions(cexchain_console PRIVATE CEXCHAIN_CONSOLE_EMBED=1)
 else()

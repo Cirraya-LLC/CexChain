@@ -54,6 +54,27 @@ constexpr unsigned char console_js[] = {
 #include "console.js.inc"
 #endif
 };
+constexpr unsigned char catalog_en[] = {
+#if CEXCHAIN_CONSOLE_EMBED
+#embed "../web/i18n/en.json"
+#else
+#include "en.json.inc"
+#endif
+};
+constexpr unsigned char catalog_zh_Hant_HK[] = {
+#if CEXCHAIN_CONSOLE_EMBED
+#embed "../web/i18n/zh-Hant-HK.json"
+#else
+#include "zh-Hant-HK.json.inc"
+#endif
+};
+constexpr unsigned char catalog_zh_Hans_CN[] = {
+#if CEXCHAIN_CONSOLE_EMBED
+#embed "../web/i18n/zh-Hans-CN.json"
+#else
+#include "zh-Hans-CN.json.inc"
+#endif
+};
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif
@@ -68,6 +89,9 @@ constexpr std::array files{
     File{"/console/", "text/html; charset=utf-8", index_html},
     File{"/console/console.css", "text/css; charset=utf-8", console_css},
     File{"/console/console.js", "text/javascript; charset=utf-8", console_js},
+    File{"/console/i18n/en.json", "application/json; charset=utf-8", catalog_en},
+    File{"/console/i18n/zh-Hant-HK.json", "application/json; charset=utf-8", catalog_zh_Hant_HK},
+    File{"/console/i18n/zh-Hans-CN.json", "application/json; charset=utf-8", catalog_zh_Hans_CN},
 };
 
 std::string lower(std::string_view text) {
