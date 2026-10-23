@@ -48,6 +48,8 @@ else()
     # The Bo compiler: not in the browser (verifying a contract replays its
     # code; rebuilding it from source is the command line's job).
     add_subdirectory(bo)
+    # The command line's actions, shared with the web console.
+    add_subdirectory(app)
     add_subdirectory(cli)
     add_subdirectory(bench)
 endif()

@@ -99,6 +99,10 @@ int cmd_actor_show(const Args& args) {
     Session session(args);
     const protocol::ActorState& actor =
         *session.state().actor(session.actor_id(args.positional().front()));
+    if (args.json()) {
+        print_json(actor_detail_json(session, actor));
+        return exit_ok;
+    }
     const protocol::Timestamp now = ledger::SystemClock{}.now();
     std::vector<const protocol::DelegationState*> granted_to;
     std::vector<const protocol::DelegationState*> granted_by;
@@ -113,22 +117,6 @@ int cmd_actor_show(const Args& args) {
     std::size_t records = 0;
     for (const auto& [key, r] : session.state().records()) {
         records += r.registrant == actor.id ? 1U : 0U;
-    }
-    if (args.json()) {
-        Json out = actor_json(session, actor);
-        Json to = Json::array();
-        for (const auto* d : granted_to) {
-            to.push_back(delegation_json(session, *d));
-        }
-        Json by = Json::array();
-        for (const auto* d : granted_by) {
-            by.push_back(delegation_json(session, *d));
-        }
-        out["delegations_received"] = std::move(to);
-        out["delegations_granted"] = std::move(by);
-        out["records_issued"] = records;
-        print_json(out);
-        return exit_ok;
     }
     std::println("actor:         {}", hex_id(actor.id));
     std::println("name:          {}", actor.display_name);

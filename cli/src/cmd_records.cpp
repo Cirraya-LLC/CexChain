@@ -171,16 +171,7 @@ int cmd_record_fields(const Args& args) {
     const protocol::RecordState& record = find_record(session, args);
     const Vault vault = read_vault(session, record.id, args);
     if (args.json()) {
-        Json fields = Json::object();
-        for (const protocol::RecordField& f : vault.fields) {
-            fields[f.name] = cbor_json(f.value);
-        }
-        Json attachments = Json::array();
-        for (const VaultAttachment& a : vault.attachments) {
-            attachments.push_back(a.name);
-        }
-        print_json(
-            {{"record", id_json(record.id)}, {"fields", fields}, {"attachments", attachments}});
+        print_json(vault_json(record.id, vault));
         return exit_ok;
     }
     for (const protocol::RecordField& f : vault.fields) {

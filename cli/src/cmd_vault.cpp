@@ -20,15 +20,6 @@ std::string fingerprint(ByteView public_key) {
 
 } // namespace
 
-void save_hpke_key(const std::filesystem::path& path, const crypto::openssl::HpkeKey& key,
-                   const std::optional<std::string>& secret) {
-    if (secret) {
-        write_file(path, unwrap(key.to_encrypted_pkcs8(*secret), "encrypting the vault key"), true);
-    } else {
-        write_file(path, unwrap(key.to_pkcs8(), "encoding the vault key").view(), true);
-    }
-}
-
 int cmd_vault_status(const Args& args) {
     Session session(args);
     const bool has_key = std::filesystem::exists(vault_public_key_path(session));

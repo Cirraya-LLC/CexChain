@@ -107,6 +107,7 @@ purchase orders, invoices, or certificates. Those are things you define, and the
 | `ledger` | Ledger node: crash-safe storage, rule engine, checkpoints, receipts, evidence export, backups (C++26) |
 | `node` | HTTP API server and client (Asio), API tokens, and replicas (C++26) |
 | `bo` | The Bo contract language's compiler (in progress): language packs, the lexer, the parser, the checker, the WebAssembly emitter with its runtime, lowering a first subset of Bo, the contract text, the formatter (one contract in any language), and the source bundle a deploy records, rebuilt by verifiers. C++26 with static reflection and contracts, built with GCC 16; its front end (everything that reads source) also builds with Clang, for fuzzing |
+| `app` | The actions behind the command line, to be shared with the web console: opening a ledger or a verified mirror of a server's, building, signing, and submitting statements, records and their vault, contract calls and consents, requests and answers, peers, and JSON views of ledger objects (C++26) |
 | `cli` | `cexchain` command-line tool: full control of keys, ledgers, actors, delegations, records, contracts, proofs, and evidence |
 | `cexchain mcp` | MCP server through which an AI agent acts under its own key and delegation |
 | `examples` | Complete stories built on the generic core, each a Bo contract with its tests and a narrated script ([below](#examples)) |

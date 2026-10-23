@@ -10,17 +10,17 @@
 #include <string_view>
 #include <vector>
 
+#include <cexchain/app/errors.hpp>
+
 namespace cexchain::cli {
 
-/// A mistake in how the command was invoked.
-struct UsageError {
-    std::string message;
-};
+/// The command line is built on the actions of the app library, which it
+/// shares with the console: their names are the command line's too.
+using namespace app;
 
+/// A mistake in how the command was invoked: app::UsageError.
 /// Any other failure, with a message for the user.
-struct CommandError {
-    std::string message;
-};
+using CommandError = app::ActionError;
 
 struct CommandSpec;
 

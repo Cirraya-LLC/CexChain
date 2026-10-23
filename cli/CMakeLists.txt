@@ -30,7 +30,9 @@ add_executable(cexchain
     src/requests.cpp
     src/support.cpp
     src/webauthn.cpp)
-target_link_libraries(cexchain PRIVATE cexchain::ledger cexchain::node cexchain::verifier cexchain_qrcodegen nlohmann_json::nlohmann_json)
+# The actions it shares with the console: sessions, statements, records,
+# contracts, requests, peers, and views.
+target_link_libraries(cexchain PRIVATE cexchain::app cexchain::ledger cexchain::node cexchain::verifier cexchain_qrcodegen nlohmann_json::nlohmann_json)
 # The Bo front end, in every build: it reads a Bo deploy's source bundle, so
 # contract show and contract verify can say what they can of it without the
 # compiler.

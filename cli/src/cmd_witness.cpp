@@ -14,11 +14,11 @@
 
 #include <print>
 
+#include <cexchain/app/peers.hpp>
 #include <cexchain/core/protocol/witness.hpp>
 
 #include "commands.hpp"
 #include "output.hpp"
-#include "peers.hpp"
 #include "witness.hpp"
 
 // Like CEXCHAIN_TRY, for the non-throwing witness path.

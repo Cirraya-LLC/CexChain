@@ -19,6 +19,7 @@
 #include <set>
 #include <variant>
 
+#include <cexchain/app/peers.hpp>
 #include <cexchain/core/protocol/contracts.hpp>
 #include <cexchain/node/client.hpp>
 #include <cexchain/node/executor.hpp>
@@ -26,7 +27,6 @@
 #include "commands.hpp"
 #include "contracts.hpp"
 #include "output.hpp"
-#include "peers.hpp"
 #include "requests.hpp"
 
 namespace cexchain::cli {

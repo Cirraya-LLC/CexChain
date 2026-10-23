@@ -23,6 +23,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cexchain/app/peers.hpp>
 #include <cexchain/core/protocol/contract_evidence.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/record_types.hpp>
@@ -32,7 +33,6 @@
 #include "commands.hpp"
 #include "contracts.hpp"
 #include "output.hpp"
-#include "peers.hpp"
 #include "records.hpp"
 #include "requests.hpp"
 #include "support.hpp"
