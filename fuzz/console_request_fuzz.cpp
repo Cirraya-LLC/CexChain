@@ -47,9 +47,9 @@ struct World {
     cexchain::ledger::SeededEntropy entropy{1};
     console::Sessions sessions{std::filesystem::temp_directory_path() / "cexchain-console-fuzz",
                                provider, clock, entropy};
-    console::Console web{console::Services{std::filesystem::temp_directory_path() /
-                                               "cexchain-console-fuzz",
-                                           &provider, &clock, &entropy, &sessions}};
+    console::Console web{
+        console::Services{std::filesystem::temp_directory_path() / "cexchain-console-fuzz",
+                          &provider, &clock, &entropy, &sessions}};
     World() { web.set_origins(console::loopback_origins(7470)); }
 };
 
