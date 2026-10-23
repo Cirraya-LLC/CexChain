@@ -5,7 +5,7 @@
 # binary, the headers every answer carries, and the Host and Origin checks.
 # The node serves it beside its API through a hook (ApiOptions::console), so
 # the node does not depend on this library.
-add_library(cexchain_console src/console.cpp src/passkeys.cpp src/sessions.cpp src/users.cpp)
+add_library(cexchain_console src/console.cpp src/passkeys.cpp src/sessions.cpp src/users.cpp src/views.cpp)
 add_library(cexchain::console ALIAS cexchain_console)
 target_include_directories(cexchain_console PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 target_link_libraries(cexchain_console

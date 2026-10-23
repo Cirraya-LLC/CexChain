@@ -21,6 +21,7 @@
 #include <cexchain/ledger/environment.hpp>
 
 #include "support/authenticator.hpp"
+#include "support/ledger_world.hpp"
 
 namespace console = cexchain::console;
 namespace http = cexchain::node::http;
@@ -301,6 +302,20 @@ struct ConsoleWorld {
         return code;
     }
 
+    /// A session for a user of the console, made without a passkey.
+    std::string session_for(const std::string& name, console::Role role) {
+        auto people = console::load_people(dir.path);
+        people.users.push_back({name, role, clock.now(), {}});
+        console::save_people(dir.path, people);
+        return sessions.create(name);
+    }
+
+    http::Response get(const std::string& path, const std::string& token) {
+        auto r = request("GET", path, "localhost:7470");
+        r.headers.emplace_back("authorization", "Bearer " + token);
+        return web.handle(r);
+    }
+
     /// Registers `passkey` with an invitation code; returns the answer.
     http::Response enroll(const cexchain::test::SoftPasskey& passkey, const std::string& code,
                           const std::string& name = {}) {
@@ -455,4 +470,34 @@ TEST_CASE("invitations name their user and role; a removed user is signed out",
     console::save_people(w.dir.path, people);
     CHECK(w.web.handle(who).status == 401);
     CHECK(w.sign_in(bob).status == 401);
+}
+
+TEST_CASE("the console's home and things views read the node's ledger", "[console][views]") {
+    cexchain::test::World ledger;
+    const cexchain::Bytes root(32, 7);
+    for (int i = 0; i < 3; ++i) {
+        ledger.ok(ledger.org(),
+                  ledger.statement(ledger.org_id(), std::nullopt,
+                                   cexchain::protocol::RecordRegisterBody{
+                                       "example.thing/1", root, 1, {}, std::nullopt}));
+    }
+    ConsoleWorld w;
+    const std::string token = w.session_for("Vera", console::Role::viewer);
+    CHECK(w.get("/console/api/home", token).status == 503);
+    w.web.set_ledger(&ledger.ledger());
+
+    const auto home = nlohmann::json::parse(body(w.get("/console/api/home", token)));
+    CHECK(home["counts"]["records"] == 3);
+    CHECK(home["ledger"]["organization"] == ledger.ledger().state().organization());
+    CHECK(home["you"]["role"] == "viewer");
+
+    const auto things = nlohmann::json::parse(body(w.get("/console/api/things", token)));
+    REQUIRE(things["records"].size() == 3);
+    CHECK(things["records"][0]["type"] == "example.thing/1");
+    CHECK(things["records"][0]["index"] > things["records"][1]["index"]);
+    CHECK(things["more"] == false);
+    CHECK(things["instances"].empty());
+
+    CHECK(w.get("/console/api/things", "cxs_" + std::string(43, 'Z')).status == 401);
+    CHECK(w.web.handle(request("GET", "/console/api/home", "localhost:7470")).status == 401);
 }

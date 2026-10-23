@@ -14,6 +14,7 @@
 #include <string_view>
 #include <system_error>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -224,6 +225,21 @@ http::Response Console::route(const http::Request& request) const {
     if (request.path == "/console/api/session") {
         return session_route(request);
     }
+    if (request.path == "/console/api/home" || request.path == "/console/api/things") {
+        if (request.method != "GET") {
+            http::Response refused = error(405, "unsupported", "method not allowed");
+            refused.headers.emplace_back("Allow", "GET");
+            return refused;
+        }
+        if (request.path == "/console/api/things") {
+            return things_route(request);
+        }
+        auto who = authenticate(request);
+        if (auto* refused = std::get_if<http::Response>(&who)) {
+            return std::move(*refused);
+        }
+        return home_route(std::get<Signed>(who));
+    }
     using Route = http::Response (Console::*)(const http::Request&) const;
     static constexpr std::array<std::pair<std::string_view, Route>, 4> posts{{
         {"/console/api/enroll/begin", &Console::enroll_begin},
@@ -270,41 +286,57 @@ bool Console::ready() const noexcept {
            services_.clock != nullptr && services_.entropy != nullptr;
 }
 
-http::Response Console::session_route(const http::Request& request) const {
+namespace {
+
+http::Response sign_in_first() {
+    http::Response refused = error(401, "unauthorized", "sign in to the console");
+    refused.headers.emplace_back("WWW-Authenticate", "Bearer");
+    return refused;
+}
+
+} // namespace
+
+std::variant<Console::Signed, http::Response>
+Console::authenticate(const http::Request& request) const {
     if (!ready()) {
         return error(503, "unavailable", "this console keeps no sessions");
     }
-    if (request.method != "GET" && request.method != "DELETE") {
-        http::Response refused = error(405, "unsupported", "method not allowed");
-        refused.headers.emplace_back("Allow", "GET, DELETE");
-        return refused;
-    }
     const auto authorization = request.header("authorization");
     const auto token = authorization ? bearer_token(*authorization) : std::nullopt;
-    const auto session = token ? services_.sessions->use(*token) : std::nullopt;
+    auto session = token ? services_.sessions->use(*token) : std::nullopt;
     if (!session) {
-        http::Response refused = error(401, "unauthorized", "sign in to the console");
-        refused.headers.emplace_back("WWW-Authenticate", "Bearer");
-        return refused;
-    }
-    if (request.method == "DELETE") {
-        static_cast<void>(services_.sessions->end(*token));
-        return json(200, {{"signed_out", true}});
+        return sign_in_first();
     }
     // A user removed since signing in is signed out.
     const People people = load_people(services_.directory);
     const User* user = people.find(session->user);
     if (user == nullptr) {
         static_cast<void>(services_.sessions->end(*token));
-        http::Response refused = error(401, "unauthorized", "sign in to the console");
-        refused.headers.emplace_back("WWW-Authenticate", "Bearer");
+        return sign_in_first();
+    }
+    return Signed{std::string(*token), std::move(*session), user->name, user->role};
+}
+
+http::Response Console::session_route(const http::Request& request) const {
+    if (request.method != "GET" && request.method != "DELETE") {
+        http::Response refused = error(405, "unsupported", "method not allowed");
+        refused.headers.emplace_back("Allow", "GET, DELETE");
         return refused;
     }
-    return json(200, {{"id", session->id},
-                      {"user", session->user},
-                      {"role", name_of(user->role)},
-                      {"created", session->created},
-                      {"expires", session->expires()}});
+    auto who = authenticate(request);
+    if (auto* refused = std::get_if<http::Response>(&who)) {
+        return std::move(*refused);
+    }
+    const Signed& signed_in = std::get<Signed>(who);
+    if (request.method == "DELETE") {
+        static_cast<void>(services_.sessions->end(signed_in.token));
+        return json(200, {{"signed_out", true}});
+    }
+    return json(200, {{"id", signed_in.session.id},
+                      {"user", signed_in.user},
+                      {"role", name_of(signed_in.role)},
+                      {"created", signed_in.session.created},
+                      {"expires", signed_in.session.expires()}});
 }
 
 } // namespace cexchain::console

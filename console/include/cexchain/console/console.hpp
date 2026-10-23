@@ -9,11 +9,14 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 #include <cexchain/console/sessions.hpp>
+#include <cexchain/console/users.hpp>
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/error.hpp>
+#include <cexchain/ledger/ledger.hpp>
 #include <cexchain/node/http.hpp>
 
 /// The web console's server side: the page's files, compiled into the
@@ -90,13 +93,28 @@ public:
     /// its port), every request is refused.
     void set_origins(std::vector<Origin> origins);
 
+    /// The ledger the node serves, which the console's views read (under its
+    /// readers' lock). Until it is set, they answer 503.
+    void set_ledger(const ledger::Ledger* ledger) noexcept { ledger_ = ledger; }
+
     /// Answers a request whose path is /console or under /console/.
     [[nodiscard]] http::Response handle(const http::Request& request) const;
 
 private:
     [[nodiscard]] http::Response route(const http::Request& request) const;
     [[nodiscard]] bool ready() const noexcept;
+    /// Who signed this request: the session's user, or the 401 to answer.
+    struct Signed {
+        std::string token;
+        Session session;
+        std::string user;
+        Role role = Role::viewer;
+    };
+    [[nodiscard]] std::variant<Signed, http::Response>
+    authenticate(const http::Request& request) const;
     [[nodiscard]] http::Response session_route(const http::Request& request) const;
+    [[nodiscard]] http::Response home_route(const Signed& who) const;
+    [[nodiscard]] http::Response things_route(const http::Request& request) const;
     [[nodiscard]] http::Response enroll_begin(const http::Request& request) const;
     [[nodiscard]] http::Response enroll_finish(const http::Request& request) const;
     [[nodiscard]] http::Response sign_in_begin(const http::Request& request) const;
@@ -107,6 +125,7 @@ private:
     [[nodiscard]] std::optional<Ceremony> take(std::string_view id) const;
 
     Services services_;
+    const ledger::Ledger* ledger_ = nullptr;
     mutable std::mutex mutex_;
     std::vector<Origin> origins_;
     mutable std::map<std::string, Ceremony> ceremonies_;

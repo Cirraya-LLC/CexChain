@@ -234,6 +234,9 @@ int cmd_serve(const Args& args) {
         };
     }
     auto api = unwrap(node::LedgerApi::open(options, shared_provider()), "opening the ledger");
+    if (web) {
+        web->set_ledger(&api->ledger());
+    }
 
     node::ServerOptions server_options;
     const auto [host, port] = parse_listen(args.get("listen").value_or("127.0.0.1:8080"));
