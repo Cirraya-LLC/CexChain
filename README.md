@@ -391,6 +391,24 @@ Operations: `GET /healthz`, Prometheus metrics at `GET /metrics`, an access log 
 stderr, automatic checkpoints (`--checkpoint-interval`), and graceful shutdown on SIGTERM. The
 `Dockerfile` builds a small image that runs as a non-root user with the ledger in `/data`.
 
+### The web console (in progress)
+
+`cexchain serve --console` also serves a web console at `/console/`, beside the API. So far it
+serves its page (a placeholder) and the checks every request passes first:
+
+- a Content-Security-Policy with nothing inline and nothing from elsewhere, and no framing,
+  sniffing, referrers, or caching;
+- answers only for its own names (this computer's `localhost` names on the server's port, or
+  the one name given with `--public-url https://...`), so a page on another name that resolves
+  to this address cannot reach it;
+- a request from another site's page is refused, and one that changes something must come from
+  the console's own page.
+
+Sessions are bearer tokens that the node keeps only as hashes, in memory; a session ends after
+30 idle minutes, after 12 hours at most, on signing out, or when it is revoked with
+`cexchain console session revoke ID` (`console session list` shows them). Signing in with a
+passkey, and the console's screens, come next.
+
 ## Working through a server
 
 Most commands also run against a server instead of a ledger directory: pass `--server URL` (or set
