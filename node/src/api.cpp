@@ -3298,6 +3298,10 @@ struct LedgerApi::State {
             finish(done, "public", std::move(h));
             return;
         }
+        if (options.console && (r.path == "/console" || r.path.starts_with("/console/"))) {
+            finish(done, "console", options.console(r));
+            return;
+        }
         if (failed) {
             finish(done, {},
                    error_response(503, "unavailable",

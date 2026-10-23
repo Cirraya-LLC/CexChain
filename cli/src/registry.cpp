@@ -848,6 +848,10 @@ std::vector<CommandSpec> build() {
                {"allow-clock-offset", "",
                 "Serve with $CEXCHAIN_CLOCK_OFFSET set, the ledger's clock ahead (demonstrations "
                 "and tests only)"},
+               {"console", "", "Also serve the web console at /console/"},
+               {"public-url", "URL",
+                "The console's address as browsers reach it, e.g. https://ledger.example.com "
+                "(default: this computer's localhost names); only requests for it are answered"},
                passphrase_file_option}),
          cmd_serve,
          "Routes (API v1; binary objects are CBOR or COSE, everything else JSON):\n"

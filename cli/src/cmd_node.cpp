@@ -15,6 +15,7 @@
 #include <sys/resource.h>
 #include <thread>
 
+#include <cexchain/console/console.hpp>
 #include <cexchain/ledger/backup.hpp>
 #include <cexchain/node/api.hpp>
 #include <cexchain/node/client.hpp>
@@ -204,6 +205,26 @@ int cmd_serve(const Args& args) {
         }
         options.expiry_grace = std::chrono::seconds(seconds);
     }
+    // The web console, beside the API: it answers for the public URL, or
+    // for this computer's loopback names once the port is known.
+    std::shared_ptr<console::Console> web;
+    std::optional<console::Origin> public_origin;
+    if (const auto url = args.get("public-url")) {
+        if (!args.has("console")) {
+            throw UsageError{"--public-url goes with --console"};
+        }
+        auto parsed = console::parse_origin(*url);
+        if (!parsed) {
+            throw UsageError{std::format("--public-url: {}", parsed.error().detail)};
+        }
+        public_origin = std::move(*parsed);
+    }
+    if (args.has("console")) {
+        web = std::make_shared<console::Console>();
+        options.console = [web](const node::http::Request& r) {
+            return web->handle(r);
+        };
+    }
     auto api = unwrap(node::LedgerApi::open(options, shared_provider()), "opening the ledger");
 
     node::ServerOptions server_options;
@@ -240,6 +261,14 @@ int cmd_serve(const Args& args) {
     const std::string url =
         std::format("{}://{}:{}", tls ? "https" : "http",
                     host.find(':') != std::string::npos ? "[" + host + "]" : host, server.port());
+    std::optional<std::string> console_url;
+    if (web) {
+        web->set_origins(public_origin ? std::vector{*public_origin}
+                                       : console::loopback_origins(server.port()));
+        console_url = (public_origin ? public_origin->text()
+                                     : std::format("http://localhost:{}", server.port())) +
+                      "/console/";
+    }
     const std::string role = api->is_replica() ? "replica" : "primary";
     if (args.json()) {
         print_json({{"url", url},
@@ -250,9 +279,13 @@ int cmd_serve(const Args& args) {
                     {"log_key", !options.log_keys.empty()},
                     {"checkpoint_interval", interval},
                     {"keeper", options.keeper != nullptr},
+                    {"console", console_url ? nlohmann::json(*console_url) : nlohmann::json()},
                     {"clock_offset_ms", ledger::SystemClock::offset()}});
     } else {
         std::println("serving ledger {} ({}) at {}", hex_id(api->ledger().id()), role, url);
+        if (console_url) {
+            std::println("console: {}", *console_url);
+        }
         if (options.log_keys.empty()) {
             std::println("no --log-key: receipts, evidence, and checkpoints are not served");
         }

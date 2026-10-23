@@ -42,9 +42,11 @@ add_executable(cexchain_tests
     node/connectors_test.cpp
     node/executor_test.cpp
     node/http_test.cpp
-    node/keeper_api_test.cpp)
+    node/keeper_api_test.cpp
+    console/console_test.cpp)
 
 target_link_libraries(cexchain_tests PRIVATE
+    cexchain::console
     cexchain::core
     cexchain::crypto_openssl
     cexchain::ledger
@@ -169,6 +171,8 @@ add_test(NAME mcp_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/mcp.sh $<TARGET_FILE:cexchain>)
 add_test(NAME serve_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/serve.sh $<TARGET_FILE:cexchain>)
+add_test(NAME console_end_to_end
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/console.sh $<TARGET_FILE:cexchain>)
 add_test(NAME access_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/access.sh $<TARGET_FILE:cexchain>)
 add_test(NAME contracts_end_to_end

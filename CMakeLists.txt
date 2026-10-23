@@ -50,6 +50,8 @@ else()
     add_subdirectory(bo)
     # The command line's actions, shared with the web console.
     add_subdirectory(app)
+    # The web console's server side, which the command line serves.
+    add_subdirectory(console)
     add_subdirectory(cli)
     add_subdirectory(bench)
 endif()

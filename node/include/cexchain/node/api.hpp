@@ -75,6 +75,11 @@ struct ApiOptions {
     /// Cosigns a cosign request as this organization's witness of a peer's
     /// ledger; without it, POST /v1/witness/cosign answers 501.
     std::function<Result<Bytes>(ByteView)> witness;
+    /// The web console: answers every request whose path is /console or
+    /// under /console/, before the API's routes and without their tokens
+    /// (the console checks its own sessions). Without it, those paths answer
+    /// 404 like any unknown path.
+    std::function<http::Response(const http::Request&)> console;
     /// Serve as a member of the cluster configured in `directory`/cluster:
     /// the node holds the ledger's lock for as long as it runs,
     /// writes go through Raft, and followers send writers to the leader.
