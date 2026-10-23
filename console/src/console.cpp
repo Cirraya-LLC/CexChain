@@ -6,6 +6,7 @@
 #include <cctype>
 #include <charconv>
 #include <cstddef>
+#include <exception>
 #include <mutex>
 #include <optional>
 #include <span>
@@ -18,6 +19,9 @@
 #include <nlohmann/json.hpp>
 
 #include <cexchain/console/console.hpp>
+#include <cexchain/console/users.hpp>
+
+#include "responses.hpp"
 
 namespace cexchain::console {
 
@@ -74,42 +78,6 @@ std::string lower(std::string_view text) {
 
 unsigned default_port(std::string_view scheme) {
     return scheme == "https" ? 443 : 80;
-}
-
-/// Every console answer: no framing, no sniffing, no referrer, no caching
-/// (no stale page code), and the CSP.
-void secure(http::Response& response) {
-    response.headers.emplace_back("Content-Security-Policy", std::string(content_security_policy));
-    response.headers.emplace_back("X-Content-Type-Options", "nosniff");
-    response.headers.emplace_back("X-Frame-Options", "DENY");
-    response.headers.emplace_back("Referrer-Policy", "no-referrer");
-    response.headers.emplace_back("Cross-Origin-Opener-Policy", "same-origin");
-    response.headers.emplace_back("Cross-Origin-Resource-Policy", "same-origin");
-    response.headers.emplace_back("Cache-Control", "no-store");
-}
-
-http::Response json(int status, const nlohmann::json& value) {
-    http::Response response;
-    response.status = status;
-    response.content_type = "application/json";
-    const std::string text = value.dump();
-    response.body.assign(text.begin(), text.end());
-    secure(response);
-    return response;
-}
-
-http::Response error(int status, std::string_view code, std::string_view message) {
-    return json(status, {{"error", {{"code", code}, {"message", message}}}});
-}
-
-http::Response text(int status, std::string_view message) {
-    http::Response response;
-    response.status = status;
-    response.content_type = "text/plain; charset=utf-8";
-    response.body.assign(message.begin(), message.end());
-    response.body.push_back('\n');
-    secure(response);
-    return response;
 }
 
 /// A host as a URL or a Host header names it: a DNS name or IPv4 address
@@ -202,6 +170,16 @@ void Console::set_origins(std::vector<Origin> origins) {
 }
 
 http::Response Console::handle(const http::Request& request) const {
+    try {
+        return route(request);
+    } catch (const std::exception&) {
+        // A damaged file of the console's, or a failed write: the request
+        // fails, the server goes on.
+        return error(500, "internal", "the console could not answer; see its files");
+    }
+}
+
+http::Response Console::route(const http::Request& request) const {
     std::vector<Origin> origins;
     {
         const std::lock_guard lock(mutex_);
@@ -246,6 +224,27 @@ http::Response Console::handle(const http::Request& request) const {
     if (request.path == "/console/api/session") {
         return session_route(request);
     }
+    using Route = http::Response (Console::*)(const http::Request&) const;
+    static constexpr std::array<std::pair<std::string_view, Route>, 4> posts{{
+        {"/console/api/enroll/begin", &Console::enroll_begin},
+        {"/console/api/enroll/finish", &Console::enroll_finish},
+        {"/console/api/sign-in/begin", &Console::sign_in_begin},
+        {"/console/api/sign-in/finish", &Console::sign_in_finish},
+    }};
+    for (const auto& [path, route] : posts) {
+        if (request.path != path) {
+            continue;
+        }
+        if (request.method != "POST") {
+            http::Response refused = error(405, "unsupported", "method not allowed");
+            refused.headers.emplace_back("Allow", "POST");
+            return refused;
+        }
+        if (!ready()) {
+            return error(503, "unavailable", "this console keeps no users or sessions");
+        }
+        return (this->*route)(request);
+    }
     if (request.path.starts_with("/console/api/")) {
         return error(404, "not_found", "no such console route");
     }
@@ -266,8 +265,13 @@ http::Response Console::handle(const http::Request& request) const {
 }
 
 /// GET: who is signed in with this session; DELETE: sign out.
+bool Console::ready() const noexcept {
+    return services_.sessions != nullptr && services_.provider != nullptr &&
+           services_.clock != nullptr && services_.entropy != nullptr;
+}
+
 http::Response Console::session_route(const http::Request& request) const {
-    if (sessions_ == nullptr) {
+    if (!ready()) {
         return error(503, "unavailable", "this console keeps no sessions");
     }
     if (request.method != "GET" && request.method != "DELETE") {
@@ -277,18 +281,28 @@ http::Response Console::session_route(const http::Request& request) const {
     }
     const auto authorization = request.header("authorization");
     const auto token = authorization ? bearer_token(*authorization) : std::nullopt;
-    const auto session = token ? sessions_->use(*token) : std::nullopt;
+    const auto session = token ? services_.sessions->use(*token) : std::nullopt;
     if (!session) {
         http::Response refused = error(401, "unauthorized", "sign in to the console");
         refused.headers.emplace_back("WWW-Authenticate", "Bearer");
         return refused;
     }
     if (request.method == "DELETE") {
-        static_cast<void>(sessions_->end(*token));
+        static_cast<void>(services_.sessions->end(*token));
         return json(200, {{"signed_out", true}});
+    }
+    // A user removed since signing in is signed out.
+    const People people = load_people(services_.directory);
+    const User* user = people.find(session->user);
+    if (user == nullptr) {
+        static_cast<void>(services_.sessions->end(*token));
+        http::Response refused = error(401, "unauthorized", "sign in to the console");
+        refused.headers.emplace_back("WWW-Authenticate", "Bearer");
+        return refused;
     }
     return json(200, {{"id", session->id},
                       {"user", session->user},
+                      {"role", name_of(user->role)},
                       {"created", session->created},
                       {"expires", session->expires()}});
 }

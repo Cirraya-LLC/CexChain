@@ -32,21 +32,23 @@ expect_exit() {
     [ "$actual" -eq "$code" ] || fail "expected exit $code, got $actual: $*"
 }
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
-# request METHOD PORT PATH HOST [ORIGIN]: prints the status, the headers
+# request METHOD PORT PATH HOST [ORIGIN [BODY]]: prints the status, the headers
 # (lower-case names), a blank line, then the body.
 request() {
     python3 - "$@" << 'PY'
 import http.client, sys
 method, port, path, host = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
 origin = sys.argv[5] if len(sys.argv) > 5 else ""
+body = sys.argv[6].encode() if len(sys.argv) > 6 else b""
 connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
 connection.putrequest(method, path, skip_host=True)
 connection.putheader("Host", host)
 if origin:
     connection.putheader("Origin", origin)
 if method == "POST":
-    connection.putheader("Content-Length", "0")
-connection.endheaders()
+    connection.putheader("Content-Length", str(len(body)))
+    connection.putheader("Content-Type", "application/json")
+connection.endheaders(body if method == "POST" else None)
 response = connection.getresponse()
 print(response.status)
 for name, value in response.getheaders():
@@ -139,5 +141,43 @@ expect_exit 2 console session revoke 0123456789abcdef
 grep -q "no console session 0123456789abcdef" out.txt || fail "revoking an unknown session"
 run console session revoke --help > out.txt
 grep -q "End a web console session" out.txt || fail "console session revoke --help"
+
+# --- Users and invitations -------------------------------------------------------
+run console user list > out.txt
+grep -q "no console users" out.txt || fail "no users at first"
+# The console running above published its address; setup-link uses it.
+run console setup-link > out.txt
+grep -q "https://ledger.example.com/console/#/enroll/cxi_" out.txt || fail "the setup link"
+CODE=$(sed -n 's|.*#/enroll/\(cxi_[A-Za-z0-9_-]*\).*|\1|p' out.txt)
+LOCAL=$(run console setup-link --url "http://localhost:7470/" --json)
+[ "$(echo "$LOCAL" | json 'd["role"]')" = owner ] || fail "setup-link --json"
+echo "$LOCAL" | json 'd["link"]' | grep -q "^http://localhost:7470/console/#/enroll/cxi_" ||
+    fail "setup-link --url"
+# A new setup link replaces the last: the first code no longer begins a registration.
+BEGIN=$(request POST "$PORT" /console/api/enroll/begin "ledger.example.com" \
+    "https://ledger.example.com" "{\"code\": \"$CODE\", \"name\": \"Alice\"}")
+[ "$(echo "$BEGIN" | sed -n 1p)" = 404 ] || fail "a replaced setup link"
+CODE=$(echo "$LOCAL" | json 'd["link"].split("/enroll/")[1]')
+BEGIN=$(request POST "$PORT" /console/api/enroll/begin "ledger.example.com" \
+    "https://ledger.example.com" "{\"code\": \"$CODE\", \"name\": \"Alice\"}")
+[ "$(echo "$BEGIN" | sed -n 1p)" = 200 ] || fail "the setup link begins a registration"
+echo "$BEGIN" | grep -q '"rp":{"id":"ledger.example.com"' || fail "the passkey's relying party"
+
+run console user add Bob --role viewer > out.txt
+grep -q "invite Bob" out.txt || fail "console user add"
+run console user list > out.txt
+grep -q "^Bob .*viewer .*invited" out.txt || fail "the invitation listed"
+grep -q "^(setup) .*owner .*invited" out.txt || fail "the setup invitation listed"
+[ "$(run console user list --json | json 'len(d["invitations"])')" = 2 ] || fail "--json"
+expect_exit 1 console user add "Bad Name!"
+expect_exit 1 console user add Carol --role boss
+expect_exit 1 console user role Bob boss
+expect_exit 2 console user show Bob
+expect_exit 2 console user role Bob admin
+run console user revoke Bob > out.txt
+grep -q "revoked Bob and their invitations" out.txt || fail "revoking an invitation"
+expect_exit 2 console user revoke Bob
+run console user revoke --help > out.txt
+grep -q "only owner" out.txt || fail "console user revoke --help"
 
 echo "console: all checks passed"

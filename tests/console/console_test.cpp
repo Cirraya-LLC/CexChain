@@ -11,12 +11,16 @@
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
+#include <nlohmann/json.hpp>
 
 #include <cexchain/app/support.hpp>
 #include <cexchain/console/console.hpp>
 #include <cexchain/console/sessions.hpp>
+#include <cexchain/console/users.hpp>
 #include <cexchain/crypto/openssl.hpp>
 #include <cexchain/ledger/environment.hpp>
+
+#include "support/authenticator.hpp"
 
 namespace console = cexchain::console;
 namespace http = cexchain::node::http;
@@ -229,7 +233,7 @@ TEST_CASE("the console's session route", "[console][sessions]") {
     cexchain::ledger::ManualClock clock(1'800'000'000'000);
     cexchain::ledger::SeededEntropy entropy(8);
     console::Sessions sessions(dir.path, provider(), clock, entropy);
-    console::Console c(&sessions);
+    console::Console c(console::Services{dir.path, &provider(), &clock, &entropy, &sessions});
     c.set_origins(console::loopback_origins(7470));
     const std::string host = "localhost:7470";
     const std::string origin = "http://localhost:7470";
@@ -239,6 +243,10 @@ TEST_CASE("the console's session route", "[console][sessions]") {
     CHECK(header(none, "WWW-Authenticate") == "Bearer");
     CHECK(header(none, "Cache-Control") == "no-store");
 
+    // Sessions belong to the console's users.
+    console::People people;
+    people.users.push_back({"alice", console::Role::viewer, clock.now(), {}});
+    console::save_people(dir.path, people);
     const std::string token = sessions.create("alice");
     auto mine = request("GET", "/console/api/session", host);
     mine.headers.emplace_back("authorization", "Bearer " + token);
@@ -262,4 +270,189 @@ TEST_CASE("the console's session route", "[console][sessions]") {
     console::Console without;
     without.set_origins(console::loopback_origins(7470));
     CHECK(without.handle(mine).status == 503);
+}
+
+namespace {
+
+/// A console with its services, on localhost:7470.
+struct ConsoleWorld {
+    TempDirectory dir;
+    cexchain::ledger::ManualClock clock{1'800'000'000'000};
+    cexchain::ledger::SeededEntropy entropy{11};
+    console::Sessions sessions{dir.path, provider(), clock, entropy};
+    console::Console web{console::Services{dir.path, &provider(), &clock, &entropy, &sessions}};
+    std::string origin = "http://localhost:7470";
+
+    ConsoleWorld() { web.set_origins(console::loopback_origins(7470)); }
+
+    http::Response post(const std::string& path, const nlohmann::json& body) {
+        auto r = request("POST", path, "localhost:7470", origin);
+        const std::string text = body.dump();
+        r.body.assign(text.begin(), text.end());
+        return web.handle(r);
+    }
+
+    std::string invite(std::string user, console::Role role) {
+        auto people = console::load_people(dir.path);
+        auto [code, invitation] =
+            console::make_invitation(provider(), entropy, std::move(user), role, clock.now());
+        people.invitations.push_back(invitation);
+        console::save_people(dir.path, people);
+        return code;
+    }
+
+    /// Registers `passkey` with an invitation code; returns the answer.
+    http::Response enroll(const cexchain::test::SoftPasskey& passkey, const std::string& code,
+                          const std::string& name = {}) {
+        const auto begun = post("/console/api/enroll/begin", {{"code", code}, {"name", name}});
+        if (begun.status != 200) {
+            return begun;
+        }
+        const auto options = nlohmann::json::parse(body(begun));
+        const auto challenge =
+            *cexchain::from_base64url(options["public_key"]["challenge"].get<std::string>());
+        return post(
+            "/console/api/enroll/finish",
+            {{"ceremony", options["ceremony"]},
+             {"attestation_object", cexchain::to_base64url(passkey.attestation(provider()))},
+             {"client_data_json",
+              cexchain::to_base64url(passkey.client_data("webauthn.create", challenge))},
+             {"label", "laptop"}});
+    }
+
+    /// Signs in with `passkey`; returns the answer.
+    http::Response sign_in(const cexchain::test::SoftPasskey& passkey) {
+        const auto begun = post("/console/api/sign-in/begin", nlohmann::json::object());
+        REQUIRE(begun.status == 200);
+        const auto options = nlohmann::json::parse(body(begun));
+        const auto challenge =
+            *cexchain::from_base64url(options["public_key"]["challenge"].get<std::string>());
+        const auto proof = passkey.sign(provider(), challenge);
+        return post("/console/api/sign-in/finish",
+                    {{"ceremony", options["ceremony"]},
+                     {"credential_id", cexchain::to_base64url(proof.credential_id)},
+                     {"authenticator_data", cexchain::to_base64url(proof.authenticator_data)},
+                     {"client_data_json", cexchain::to_base64url(proof.client_data_json)},
+                     {"signature", cexchain::to_base64url(proof.signature)}});
+    }
+};
+
+cexchain::test::SoftPasskey passkey(std::uint8_t id) {
+    auto key = cexchain::crypto::openssl::KeyPair::generate(cexchain::crypto::SigAlg::esp256);
+    REQUIRE(key);
+    auto shared = std::make_shared<const cexchain::crypto::openssl::KeyPair>(std::move(*key));
+    cexchain::test::SoftPasskey p;
+    p.public_key = shared->public_key();
+    p.key = shared;
+    p.credential_id = cexchain::Bytes(16, id);
+    return p;
+}
+
+std::string session_of(const http::Response& r) {
+    return nlohmann::json::parse(body(r))["session"].get<std::string>();
+}
+
+} // namespace
+
+TEST_CASE("the first owner sets the console up with a passkey, then signs in",
+          "[console][passkeys]") {
+    ConsoleWorld w;
+    const auto alice = passkey(1);
+    const std::string setup = w.invite("", console::Role::owner);
+
+    const auto made = w.enroll(alice, setup, "Alice");
+    REQUIRE(made.status == 200);
+    auto who = request("GET", "/console/api/session", "localhost:7470");
+    who.headers.emplace_back("authorization", "Bearer " + session_of(made));
+    const auto me = nlohmann::json::parse(body(w.web.handle(who)));
+    CHECK(me["user"] == "Alice");
+    CHECK(me["role"] == "owner");
+    const auto people = console::load_people(w.dir.path);
+    REQUIRE(people.users.size() == 1);
+    CHECK(people.users[0].passkeys.size() == 1);
+    CHECK(people.users[0].passkeys[0].label == "laptop");
+    CHECK(people.invitations.empty());
+
+    // The setup code is used up, and a second setup finds an owner.
+    CHECK(w.enroll(passkey(2), setup, "Mallory").status == 404);
+    CHECK(w.enroll(passkey(2), w.invite("", console::Role::owner), "Mallory").status == 409);
+
+    const auto signed_in = w.sign_in(alice);
+    REQUIRE(signed_in.status == 200);
+    CHECK(nlohmann::json::parse(body(signed_in))["user"] == "Alice");
+}
+
+TEST_CASE("signing in refuses what a passkey did not sign for this console",
+          "[console][passkeys]") {
+    ConsoleWorld w;
+    auto alice = passkey(1);
+    REQUIRE(w.enroll(alice, w.invite("", console::Role::owner), "Alice").status == 200);
+
+    // A passkey not registered here.
+    CHECK(w.sign_in(passkey(9)).status == 401);
+    // Present but not verified (no PIN or biometric).
+    alice.flags = 0x01;
+    CHECK(w.sign_in(alice).status == 401);
+    alice.flags = 0x05;
+    // Signed on another page.
+    alice.origin = "http://localhost:7471";
+    CHECK(w.sign_in(alice).status == 401);
+    alice.origin = "http://localhost:7470";
+    CHECK(w.sign_in(alice).status == 200);
+
+    // A challenge is used once, and expires.
+    const auto begun = w.post("/console/api/sign-in/begin", nlohmann::json::object());
+    const auto options = nlohmann::json::parse(body(begun));
+    const auto challenge =
+        *cexchain::from_base64url(options["public_key"]["challenge"].get<std::string>());
+    const auto proof = alice.sign(provider(), challenge);
+    const nlohmann::json finish{
+        {"ceremony", options["ceremony"]},
+        {"credential_id", cexchain::to_base64url(proof.credential_id)},
+        {"authenticator_data", cexchain::to_base64url(proof.authenticator_data)},
+        {"client_data_json", cexchain::to_base64url(proof.client_data_json)},
+        {"signature", cexchain::to_base64url(proof.signature)}};
+    CHECK(w.post("/console/api/sign-in/finish", finish).status == 200);
+    CHECK(w.post("/console/api/sign-in/finish", finish).status == 404);
+    const auto late = w.post("/console/api/sign-in/begin", nlohmann::json::object());
+    w.clock.advance(console::ceremony_lifetime);
+    nlohmann::json expired = finish;
+    expired["ceremony"] = nlohmann::json::parse(body(late))["ceremony"];
+    CHECK(w.post("/console/api/sign-in/finish", expired).status == 404);
+
+    // Passkeys need a name: not an address.
+    w.origin = "http://127.0.0.1:7470";
+    CHECK(w.post("/console/api/sign-in/begin", nlohmann::json::object()).status == 400);
+    // Only POST, and only from the console's page.
+    CHECK(w.web.handle(request("GET", "/console/api/sign-in/begin", "localhost:7470")).status ==
+          405);
+    CHECK(w.web.handle(request("POST", "/console/api/sign-in/begin", "localhost:7470")).status ==
+          403);
+}
+
+TEST_CASE("invitations name their user and role; a removed user is signed out",
+          "[console][passkeys]") {
+    ConsoleWorld w;
+    REQUIRE(w.enroll(passkey(1), w.invite("", console::Role::owner), "Alice").status == 200);
+    const auto bob = passkey(2);
+    const auto made = w.enroll(bob, w.invite("Bob", console::Role::member));
+    REQUIRE(made.status == 200);
+    CHECK(nlohmann::json::parse(body(made))["role"] == "member");
+    // The same passkey twice, a bad code, a bad name.
+    CHECK(w.enroll(bob, w.invite("Bob", console::Role::member)).status == 409);
+    CHECK(w.enroll(passkey(3), "cxi_nothing").status == 400);
+    CHECK(w.enroll(passkey(3), w.invite("", console::Role::owner), " ").status == 400);
+    // A second passkey for Bob, from his own invitation.
+    REQUIRE(w.enroll(passkey(4), w.invite("Bob", console::Role::member)).status == 200);
+    CHECK(console::load_people(w.dir.path).find("Bob")->passkeys.size() == 2);
+
+    const std::string token = session_of(w.sign_in(bob));
+    auto who = request("GET", "/console/api/session", "localhost:7470");
+    who.headers.emplace_back("authorization", "Bearer " + token);
+    CHECK(w.web.handle(who).status == 200);
+    auto people = console::load_people(w.dir.path);
+    std::erase_if(people.users, [](const console::User& u) { return u.name == "Bob"; });
+    console::save_people(w.dir.path, people);
+    CHECK(w.web.handle(who).status == 401);
+    CHECK(w.sign_in(bob).status == 401);
 }

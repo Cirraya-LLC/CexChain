@@ -3,12 +3,16 @@
 
 #pragma once
 
+#include <filesystem>
+#include <map>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include <cexchain/console/sessions.hpp>
+#include <cexchain/core/bytes.hpp>
 #include <cexchain/core/error.hpp>
 #include <cexchain/node/http.hpp>
 
@@ -49,10 +53,38 @@ struct Origin {
 /// localhost, 127.0.0.1, and [::1], over http.
 [[nodiscard]] std::vector<Origin> loopback_origins(unsigned port);
 
+/// What the console's routes use; each must outlive the console.
+struct Services {
+    /// The console's folder in the ledger directory (state_directory).
+    std::filesystem::path directory;
+    const crypto::Provider* provider = nullptr;
+    ledger::Clock* clock = nullptr;
+    ledger::Entropy* entropy = nullptr;
+    Sessions* sessions = nullptr;
+};
+
+/// A passkey ceremony begun and not yet finished: registering one with an
+/// invitation, or signing in. Its challenge is used once.
+struct Ceremony {
+    bool enroll = false;
+    Bytes challenge;
+    std::string rp_id;
+    std::string origin;
+    /// For registering: the invitation's hash and the name to register.
+    std::string invitation;
+    std::string name;
+    protocol::Timestamp expires = 0;
+};
+
+/// A ceremony must finish within five minutes; at most this many wait.
+inline constexpr protocol::Timestamp ceremony_lifetime = 5 * 60'000;
+inline constexpr std::size_t max_ceremonies = 256;
+
 class Console {
 public:
-    /// Without sessions, every route that needs one answers 503.
-    explicit Console(Sessions* sessions = nullptr) noexcept : sessions_(sessions) {}
+    /// Without services, every route that needs them answers 503.
+    Console() = default;
+    explicit Console(Services services) : services_(std::move(services)) {}
 
     /// The origins it answers for. Until they are set (once the server knows
     /// its port), every request is refused.
@@ -62,11 +94,22 @@ public:
     [[nodiscard]] http::Response handle(const http::Request& request) const;
 
 private:
+    [[nodiscard]] http::Response route(const http::Request& request) const;
+    [[nodiscard]] bool ready() const noexcept;
     [[nodiscard]] http::Response session_route(const http::Request& request) const;
+    [[nodiscard]] http::Response enroll_begin(const http::Request& request) const;
+    [[nodiscard]] http::Response enroll_finish(const http::Request& request) const;
+    [[nodiscard]] http::Response sign_in_begin(const http::Request& request) const;
+    [[nodiscard]] http::Response sign_in_finish(const http::Request& request) const;
+    /// Stores a ceremony and returns its id; nothing if too many wait.
+    [[nodiscard]] std::optional<std::string> begin(Ceremony ceremony) const;
+    /// Takes (and forgets) a ceremony that has not expired.
+    [[nodiscard]] std::optional<Ceremony> take(std::string_view id) const;
 
-    Sessions* sessions_ = nullptr;
+    Services services_;
     mutable std::mutex mutex_;
     std::vector<Origin> origins_;
+    mutable std::map<std::string, Ceremony> ceremonies_;
 };
 
 } // namespace cexchain::console

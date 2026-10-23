@@ -226,7 +226,9 @@ int cmd_serve(const Args& args) {
     if (args.has("console")) {
         sessions = std::make_unique<console::Sessions>(
             console::state_directory(dir), shared_provider(), console_clock, console_entropy);
-        web = std::make_shared<console::Console>(sessions.get());
+        web = std::make_shared<console::Console>(
+            console::Services{console::state_directory(dir), &shared_provider(), &console_clock,
+                              &console_entropy, sessions.get()});
         options.console = [web](const node::http::Request& r) {
             return web->handle(r);
         };
@@ -274,6 +276,9 @@ int cmd_serve(const Args& args) {
         console_url = (public_origin ? public_origin->text()
                                      : std::format("http://localhost:{}", server.port())) +
                       "/console/";
+        // For console setup-link and console user add.
+        std::filesystem::create_directories(console::state_directory(dir));
+        app::write_file(console::state_directory(dir) / "url", as_bytes(*console_url + "\n"), true);
     }
     const std::string role = api->is_replica() ? "replica" : "primary";
     if (args.json()) {

@@ -435,6 +435,16 @@ void text_seeds(const Seeds& seeds) {
                 "DELETE /console/api/session HTTP/1.1\r\nHost: [::1]:7470\r\n"
                 "Origin: http://[::1]:7470\r\n"
                 "Authorization: bearer cxs_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\r\n\r\n");
+    seeds.write(
+        "console_request_fuzz", "enroll",
+        "POST /console/api/enroll/begin HTTP/1.1\r\nHost: localhost:7470\r\n"
+        "Origin: http://localhost:7470\r\nContent-Length: 73\r\n\r\n"
+        "{\"code\":\"cxi_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"name\":\"Alice\"}");
+    seeds.write("console_request_fuzz", "sign-in",
+                "POST /console/api/sign-in/finish HTTP/1.1\r\nHost: localhost:7470\r\n"
+                "Origin: http://localhost:7470\r\nContent-Length: 106\r\n\r\n"
+                "{\"ceremony\":\"00\",\"credential_id\":\"AA\",\"authenticator_data\":\"AA\","
+                "\"client_data_json\":\"e30\",\"signature\":\"AA\"}");
     seeds.write("console_request_fuzz", "rebinding",
                 "GET /console/ HTTP/1.1\r\nHost: attacker.example:7470\r\n"
                 "Origin: https://attacker.example\r\n\r\n");
