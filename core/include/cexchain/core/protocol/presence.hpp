@@ -58,6 +58,17 @@ verify_presence(const crypto::Provider& provider, crypto::HashAlg ledger_hash,
                 const Statement& statement, const Id& kid,
                 std::span<const PresenceCredential> credentials);
 
+/// Verifies a WebAuthn assertion (what navigator.credentials.get returns)
+/// over `challenge`, for challenges that are not a statement's, such as
+/// signing in: the credential is one of `credentials` (a passkey's, not a
+/// hardware key's), its relying party id hash, the user-present flag, client
+/// data of type "webauthn.get" with this challenge from an origin allowed for
+/// the credential's relying party, and the signature. The caller checks the
+/// origin it expects and, where it needs one, that the user was verified.
+[[nodiscard]] Result<PresenceCheck>
+verify_assertion(const crypto::Provider& provider, ByteView challenge, const PresenceProof& proof,
+                 std::span<const PresenceCredential> credentials);
+
 /// Turns a WebAuthn registration (the attestation object and client data
 /// returned by navigator.credentials.create) into a credential, after
 /// checking the client data against `challenge` and `rp_id`. The attestation

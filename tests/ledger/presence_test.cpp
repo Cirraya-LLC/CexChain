@@ -676,3 +676,40 @@ TEST_CASE("a presence key is a second key, and taking over needs the person veri
     again.presence = ukey.sign(challenge_for(f.w, again, next));
     f.w.ok(next, again);
 }
+
+TEST_CASE("a passkey's assertion over a challenge of the caller's", "[presence]") {
+    const Bytes challenge(32, 0x33);
+    auto passkey = authenticator(crypto::SigAlg::esp256, 9);
+    const std::vector credentials{passkey.credential()};
+
+    const auto check =
+        protocol::verify_assertion(provider(), challenge, passkey.sign(challenge), credentials);
+    REQUIRE(check);
+    CHECK(check->user_verified);
+    CHECK(check->origin == passkey.origin);
+    CHECK(check->rp_id == "localhost");
+
+    // Another challenge, another kind of client data, or a passkey not registered.
+    CHECK_FALSE(protocol::verify_assertion(provider(), Bytes(32, 0x34), passkey.sign(challenge),
+                                           credentials));
+    CHECK_FALSE(protocol::verify_assertion(
+        provider(), challenge, passkey.sign(challenge, "webauthn.create"), credentials));
+    const auto stranger = authenticator(crypto::SigAlg::esp256, 10);
+    CHECK_FALSE(
+        protocol::verify_assertion(provider(), challenge, stranger.sign(challenge), credentials));
+    // A person not verified is reported, and one not present refused.
+    passkey.flags = 0x01;
+    const auto present =
+        protocol::verify_assertion(provider(), challenge, passkey.sign(challenge), credentials);
+    REQUIRE(present);
+    CHECK_FALSE(present->user_verified);
+    passkey.flags = 0x04;
+    CHECK_FALSE(
+        protocol::verify_assertion(provider(), challenge, passkey.sign(challenge), credentials));
+    // A hardware key's credential never signs in.
+    auto hardware = passkey.credential();
+    hardware.method = protocol::PresenceMethod::hardware_key;
+    passkey.flags = 0x05;
+    CHECK_FALSE(protocol::verify_assertion(provider(), challenge, passkey.sign(challenge),
+                                           std::vector{hardware}));
+}

@@ -174,6 +174,10 @@ Result<crypto::PublicKey> public_key_from_cose(const cbor::Value& value) {
     return fail(Errc::unsupported, "the passkey uses an algorithm other than ES256 or EdDSA");
 }
 
+Result<PresenceCheck> verify_webauthn(const crypto::Provider& provider,
+                                      const PresenceCredential& credential,
+                                      const PresenceProof& proof, ByteView challenge);
+
 } // namespace
 
 bool origin_matches_rp_id(std::string_view origin, std::string_view rp_id) {
@@ -240,6 +244,30 @@ Result<PresenceCheck> verify_presence(const crypto::Provider& provider, crypto::
         }
         return PresenceCheck{false, {}, {}, credential->label, PresenceMethod::hardware_key};
     }
+    CEXCHAIN_TRY(Bytes challenge, presence_challenge(provider, ledger_hash, statement, kid));
+    return verify_webauthn(provider, *credential, proof, challenge);
+}
+
+Result<PresenceCheck> verify_assertion(const crypto::Provider& provider, ByteView challenge,
+                                       const PresenceProof& proof,
+                                       std::span<const PresenceCredential> credentials) {
+    const auto credential =
+        std::ranges::find(credentials, proof.credential_id, &PresenceCredential::credential_id);
+    if (credential == credentials.end()) {
+        return fail(Errc::verification_failed, "the passkey is not registered");
+    }
+    if (credential->method != PresenceMethod::webauthn) {
+        return fail(Errc::verification_failed, "a hardware key cannot sign in");
+    }
+    return verify_webauthn(provider, *credential, proof, challenge);
+}
+
+namespace {
+
+/// A passkey's assertion over `challenge`, for `credential`.
+Result<PresenceCheck> verify_webauthn(const crypto::Provider& provider,
+                                      const PresenceCredential& credential,
+                                      const PresenceProof& proof, ByteView challenge) {
     if (proof.authenticator_data.empty()) {
         return fail(Errc::verification_failed, "a passkey's proof needs its WebAuthn data");
     }
@@ -247,31 +275,32 @@ Result<PresenceCheck> verify_presence(const crypto::Provider& provider, crypto::
     if (data.size() < authenticator_data_header) {
         return fail(Errc::malformed, "the WebAuthn authenticator data is too short");
     }
-    CEXCHAIN_CHECK(check_rp_id_hash(provider, data, credential->rp_id));
+    CEXCHAIN_CHECK(check_rp_id_hash(provider, data, credential.rp_id));
     const std::uint8_t flags = data[rp_id_hash_size];
     if ((flags & flag_user_present) == 0) {
         return fail(Errc::verification_failed,
                     "the authenticator did not confirm that a person was present");
     }
-    CEXCHAIN_TRY(Bytes challenge, presence_challenge(provider, ledger_hash, statement, kid));
     CEXCHAIN_TRY(std::string origin, check_client_data(proof.client_data_json, "webauthn.get",
-                                                       challenge, credential->rp_id));
+                                                       challenge, credential.rp_id));
     CEXCHAIN_TRY(crypto::Digest client_hash,
                  provider.digest(crypto::HashAlg::sha256, proof.client_data_json));
     Bytes message(data.begin(), data.end());
     message.insert(message.end(), client_hash.bytes().begin(), client_hash.bytes().end());
     Bytes signature = proof.signature;
-    if (credential->key.algorithm == crypto::SigAlg::esp256) {
+    if (credential.key.algorithm == crypto::SigAlg::esp256) {
         // Authenticators sign in DER and need not use low-S.
         CEXCHAIN_TRY(signature, der_ecdsa_to_raw(proof.signature));
         crypto::canonicalize_signature(crypto::SigAlg::esp256, signature);
     }
-    if (auto s = provider.verify(credential->key, message, signature); !s) {
+    if (auto s = provider.verify(credential.key, message, signature); !s) {
         return fail(Errc::verification_failed, "the passkey signature does not verify");
     }
-    return PresenceCheck{(flags & flag_user_verified) != 0, std::move(origin), credential->rp_id,
-                         credential->label, PresenceMethod::webauthn};
+    return PresenceCheck{(flags & flag_user_verified) != 0, std::move(origin), credential.rp_id,
+                         credential.label, PresenceMethod::webauthn};
 }
+
+} // namespace
 
 Result<PresenceCredential> credential_from_registration(const crypto::Provider& provider,
                                                         ByteView attestation_object,
