@@ -244,7 +244,7 @@ http::Response Console::enroll_finish(const http::Request& request) const {
         if (invitation->user.empty() && role == Role::owner && people.has_owner()) {
             return error(409, "conflict", "the console has an owner already");
         }
-        people.users.push_back({ceremony->name, role, now, {std::move(*credential)}});
+        people.users.push_back({ceremony->name, role, now, {std::move(*credential)}, {}, {}});
     }
     people.invitations.erase(invitation);
     save_people(services_.directory, people);

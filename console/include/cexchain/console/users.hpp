@@ -35,6 +35,10 @@ struct User {
     Role role = Role::viewer;
     protocol::Timestamp created = 0;
     std::vector<protocol::PresenceCredential> passkeys;
+    /// The ledger's actor this person acts as, in hex, and the name of the
+    /// key the console holds for it (console user link); empty until linked.
+    std::string actor;
+    std::string key;
 };
 
 [[nodiscard]] bool valid_user_name(std::string_view name) noexcept;

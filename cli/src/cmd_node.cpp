@@ -246,13 +246,16 @@ int serve(const Args& args, const ServeDefaults& defaults) {
         web = std::make_shared<console::Console>(
             console::Services{console::state_directory(dir), &shared_provider(), &console_clock,
                               &console_entropy, sessions.get(), keys.get()});
-        options.console = [web](const node::http::Request& r) {
-            return web->handle(r);
+        options.console = [web](const node::http::Request& r, auto respond) {
+            web->handle(r, std::move(respond));
         };
     }
     auto api = unwrap(node::LedgerApi::open(options, shared_provider()), "opening the ledger");
     if (web) {
         web->set_ledger(&api->ledger());
+        web->set_submitter([api = api.get()](Bytes statement, auto respond) {
+            api->submit_statement(std::move(statement), std::move(respond));
+        });
     }
 
     node::ServerOptions server_options;

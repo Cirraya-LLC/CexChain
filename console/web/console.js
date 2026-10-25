@@ -371,6 +371,9 @@ function table(caption, columns, rows) {
     const body = rows.map((row) =>
         el("tr", {}, columns.map(([key, cell]) => {
             const value = cell(row);
+            if (value instanceof Node) {
+                return el("td", { "data-label": t(key) }, value);
+            }
             return el("td", { "data-label": t(key), class: value.id ? "id" : null,
                               text: value.text ?? value });
         })));
@@ -389,6 +392,12 @@ async function thingsScreen() {
         ["column.registrant", (r) => r.registrant.name ?? short(r.registrant.id).text],
         ["column.endorsements", (r) => String(r.endorsements)],
         ["column.id", (r) => short(r.id)],
+        ...(state.who.role === "viewer" ? [] : [["column.actions", (r) => {
+            const button = el("button", { type: "button", text: t("act.button"),
+                                          "aria-label": t("act.label", { type: r.type }) });
+            button.addEventListener("click", () => actScreen(r));
+            return button;
+        }]]),
     ], things.records);
     const instances = table(t("things.instances"), [
         ["column.contract", (i) => i.contract_name ?? short(i.contract).text],
@@ -400,6 +409,101 @@ async function thingsScreen() {
     show(el("h1", { text: t("things.title") }), el("p", { class: "hint", text: t("things.hint") }),
          ...records, ...instances,
          things.more ? el("p", { class: "hint", text: t("things.more") }) : null);
+}
+
+// --- Acting, approved with a passkey ---------------------------------------------
+
+/// Back to the list (the address is still #/things, so a link would not move).
+function backButton(text) {
+    const button = el("button", { type: "button", text });
+    button.addEventListener("click", () => route());
+    return button;
+}
+
+/// What to do with a record: the person chooses, the console prepares it.
+function actScreen(record) {
+    const endorse = el("input", { type: "radio", name: "act", id: "act-endorse", value: "endorse",
+                                  checked: true });
+    const revoke = el("input", { type: "radio", name: "act", id: "act-revoke", value: "revoke" });
+    const [roleField, role] = field("act-role", t("act.role"), t("act.role_hint"),
+                                    { maxlength: 64 });
+    const [reasonField, reason] = field("act-reason", t("act.reason"), t("act.reason_hint"),
+                                        { maxlength: 200 });
+    const notice = el("div");
+    const form = el("form", { novalidate: true },
+                    el("fieldset", {}, el("legend", { text: t("act.what") }),
+                       el("label", {}, endorse, " ", t("act.endorse")),
+                       el("label", {}, revoke, " ", t("act.revoke"))),
+                    roleField, reasonField, notice,
+                    el("button", { type: "submit", class: "primary", text: t("act.prepare") }),
+                    " ", backButton(t("approve.cancel")));
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const intent = endorse.checked
+            ? { action: "record.endorse", record: record.id, role: role.value.trim() }
+            : { action: "record.revoke", record: record.id, reason: reason.value.trim() };
+        try {
+            approveScreen(await api("POST", "prepare", intent));
+        } catch (error) {
+            notice.replaceChildren(problem(error.status === 423 ? t("keys.locked")
+                                                                : passkeyProblem(error)));
+        }
+    });
+    show(el("h1", { text: t("act.title") }),
+         el("p", { class: "id", text: `${record.type} ${record.id}` }), form);
+}
+
+/// What the person approves, as the console prepared it, then the tap.
+function approveScreen(prepared) {
+    const summary = prepared.summary;
+    const facts = el("dl", { class: "facts" });
+    const fact = (key, value) => {
+        if (value !== undefined && value !== null) {
+            facts.append(el("dt", { text: t(key) }), el("dd", { text: String(value) }));
+        }
+    };
+    fact("approve.action", t(`approve.type.${summary.type}`));
+    fact("column.type", summary.record_type);
+    fact("column.id", summary.record);
+    fact("act.role", summary.role);
+    fact("act.reason", summary.reason);
+    const button = el("button", { type: "button", class: "primary", text: t("approve.button") });
+    const notice = el("div");
+    button.addEventListener("click", async () => {
+        button.disabled = true;
+        status(t("status.working"));
+        try {
+            const options = prepared.public_key;
+            const credential = await navigator.credentials.get({
+                publicKey: {
+                    challenge: fromBase64url(options.challenge),
+                    rpId: options.rpId,
+                    allowCredentials: options.allowCredentials.map((c) => ({
+                        type: c.type, id: fromBase64url(c.id),
+                    })),
+                    userVerification: options.userVerification,
+                    timeout: options.timeout,
+                },
+            });
+            const done = await api("POST", "approve", {
+                prepared: prepared.prepared,
+                credential_id: toBase64url(credential.rawId),
+                authenticator_data: toBase64url(credential.response.authenticatorData),
+                client_data_json: toBase64url(credential.response.clientDataJSON),
+                signature: toBase64url(credential.response.signature),
+            });
+            show(el("h1", { text: t("approve.done_title") }),
+                 el("p", { role: "status", text: t("approve.done", { index: done.index }) }),
+                 el("p", { class: "id", text: done.statement_id }), backButton(t("nav.things")));
+        } catch (error) {
+            notice.replaceChildren(problem(passkeyProblem(error)));
+            button.disabled = false;
+        } finally {
+            status("");
+        }
+    });
+    show(el("h1", { text: t("approve.title") }), el("p", { text: t("approve.intro") }), facts,
+         notice, button, " ", backButton(t("approve.cancel")));
 }
 
 // --- Navigation ------------------------------------------------------------------

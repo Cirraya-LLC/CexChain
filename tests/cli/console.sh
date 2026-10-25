@@ -201,6 +201,12 @@ run console key remove root > out.txt
 expect_exit 2 console key remove root
 expect_exit 1 serve --unlock-file unlock.txt
 printf 'not the passphrase at all\n' > wrong.txt
+# Linking a user to a person of the ledger needs a sealed key, the user, and a person.
+expect_exit 1 console user link Nobody --key root
+expect_exit 2 console user link Nobody --actor 00000000 --key root
+grep -q "holds no key named root" out.txt || fail "linking with no such key"
+expect_exit 2 console user passkeys Nobody --out passkeys
+grep -q "no console user named Nobody" out.txt || fail "passkeys of no such user"
 
 # --- console run, status, open, stop ------------------------------------------------
 kill "${SERVERS[-1]}"

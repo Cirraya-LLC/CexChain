@@ -40,8 +40,11 @@ async function waitRunning() {
 
 (async () => {
   for (const k of ["root", "log"]) run("key", "generate", "--out", k + ".key");
-  run("init", "--org", "Console Test Org", "--root-key", "root.key", "--log-key", "log.key");
-  run("record", "issue", "--as", "root.key", "--type", "example.document/1", "--field", "result=pass");
+  const idFrom = (text) => text.match(/[0-9a-f]{64}/)[0];
+  const ledgerId = idFrom(run("init", "--org", "Console Test Org", "--root-key", "root.key", "--log-key",
+                              "log.key"));
+  const record = idFrom(run("record", "issue", "--as", "root.key", "--type", "example.document/1",
+                            "--field", "result=pass"));
   // Sealed keys: the console starts locked.
   fs.writeFileSync(path.join(work, "unlock.txt"), "the unlock passphrase of this test\n");
   run("console", "key", "init", "--unlock-file", "unlock.txt");
@@ -98,7 +101,7 @@ async function waitRunning() {
     await page.getByRole("link", { name: "Things" }).focus();
     await page.keyboard.press("Enter");
     await page.getByRole("heading", { name: "Things" }).waitFor();
-    await page.getByRole("cell", { name: "example.document/1" }).waitFor();
+    await page.getByRole("cell", { name: "example.document/1", exact: true }).waitFor();
     const snapshot = await page.locator("main").ariaSnapshot();
     assert.match(snapshot, /heading "Things" \[level=1\]/);
     assert.match(snapshot, /table "Records"/);
@@ -122,7 +125,52 @@ async function waitRunning() {
     await page.getByRole("heading", { name: "Home" }).waitFor();
     assert.equal(await page.getByText("This console is locked").count(), 0);
 
+    // Alice acts as a person of the ledger: her key sealed in the console,
+    // her console passkey registered for her on the ledger, and a delegation
+    // that requires her presence.
+    run("key", "generate", "--out", "alice.key");
+    const alice = idFrom(run("actor", "add", "--as", "root.key", "--kind", "person", "--name", "Alice",
+                             "--key", "alice.key"));
+    run("console", "key", "import", "alice", "alice.key");
+    run("console", "user", "link", "Alice", "--actor", alice, "--key", "alice");
+    run("console", "user", "passkeys", "Alice", "--out", "passkeys");
+    run("actor", "set-presence", alice, "--as", "root.key", "--add", "--credential", "passkeys/Alice-1.passkey");
+    run("delegation", "grant", "--as", "root.key", "--to", alice, "--allow", "record-endorse,record-revoke",
+        "--days", "30", "--require-presence");
+
+    // Prepared, then cancelled: nothing is signed.
+    await page.getByRole("link", { name: "Things" }).click();
+    await page.getByRole("button", { name: "Act on this example.document/1 record" }).click();
+    await page.getByLabel("Role of the endorsement").fill("cancelled");
+    await page.getByRole("button", { name: "Prepare" }).click();
+    await page.getByRole("heading", { name: "Approve with your passkey" }).waitFor();
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await page.getByRole("heading", { name: "Things" }).waitFor();
+
+    // Prepared and approved with one tap.
+    await page.getByRole("button", { name: "Act on this example.document/1 record" }).click();
+    await page.getByLabel("Role of the endorsement").fill("reviewed");
+    await page.getByRole("button", { name: "Prepare" }).click();
+    await page.getByText("Endorse a record").waitFor();
+    await page.getByText("reviewed").waitFor();
+    await page.getByRole("button", { name: "Approve with your passkey" }).click();
+    await page.getByRole("heading", { name: "Done" }).waitFor();
+    const shown = JSON.parse(run("record", "show", record, "--json"));
+    assert.deepEqual(shown.endorsements.map((e) => e.role), ["reviewed"]);
+
+    // Anyone verifying the evidence sees Alice was present, verified, on this console.
+    run("checkpoint", "create", "--log-key", "log.key");
+    run("export", record, "--log-key", "log.key", "--out", "bundle.cbor");
+    const report = JSON.parse(run("verify", "bundle.cbor", "--ledger-id", ledgerId, "--json"));
+    assert.equal(report.verified, true);
+    const present = report.events.filter((e) => e.presence);
+    assert.equal(present.length, 1);
+    assert.equal(present[0].presence.user_verified, true);
+    assert.match(run("verify", "bundle.cbor", "--ledger-id", ledgerId), /present: passkey, user verified/);
+
     // The page in the other two languages, from its own catalogs.
+    await page.getByRole("link", { name: "Home" }).click();
+    await page.getByRole("heading", { name: "Home" }).waitFor();
     await page.getByLabel("Language").selectOption("zh-Hant-HK");
     await page.getByRole("heading", { name: "首頁" }).waitFor();
     assert.equal(await page.evaluate(() => document.documentElement.lang), "zh-Hant-HK");

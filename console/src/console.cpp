@@ -204,7 +204,38 @@ http::Response Console::handle(const http::Request& request) const {
     }
 }
 
-http::Response Console::route(const http::Request& request) const {
+void Console::handle(const http::Request& request, Respond respond) const {
+    // Approving submits to the ledger, which answers once the statement is
+    // durable: that answer goes out through `respond`, with nothing waiting.
+    if (request.path == "/console/api/approve" && request.method == "POST") {
+        try {
+            if (auto refused = refuse(request)) {
+                respond(std::move(*refused));
+                return;
+            }
+            if (!ready()) {
+                respond(error(503, "unavailable", "this console keeps no users or sessions"));
+                return;
+            }
+            auto signed_or = sign_approval(request);
+            if (auto* answer = std::get_if<http::Response>(&signed_or)) {
+                respond(std::move(*answer));
+                return;
+            }
+            submit_(std::get<Bytes>(std::move(signed_or)),
+                    [respond = std::move(respond)](http::Response registered) {
+                        secure(registered);
+                        respond(std::move(registered));
+                    });
+        } catch (const std::exception&) {
+            respond(error(500, "internal", "the console could not answer; see its files"));
+        }
+        return;
+    }
+    respond(handle(request));
+}
+
+std::optional<http::Response> Console::refuse(const http::Request& request) const {
     std::vector<Origin> origins;
     {
         const std::lock_guard lock(mutex_);
@@ -241,6 +272,13 @@ http::Response Console::route(const http::Request& request) const {
         return error(403, "forbidden",
                      "a request that changes something must come from the console");
     }
+    return std::nullopt;
+}
+
+http::Response Console::route(const http::Request& request) const {
+    if (auto refused = refuse(request)) {
+        return std::move(*refused);
+    }
     if (request.path == "/console") {
         http::Response moved = text(308, "the console is at /console/");
         moved.headers.emplace_back("Location", "/console/");
@@ -265,12 +303,14 @@ http::Response Console::route(const http::Request& request) const {
         return home_route(std::get<Signed>(who));
     }
     using Route = http::Response (Console::*)(const http::Request&) const;
-    static constexpr std::array<std::pair<std::string_view, Route>, 5> posts{{
+    static constexpr std::array<std::pair<std::string_view, Route>, 7> posts{{
         {"/console/api/enroll/begin", &Console::enroll_begin},
         {"/console/api/enroll/finish", &Console::enroll_finish},
         {"/console/api/sign-in/begin", &Console::sign_in_begin},
         {"/console/api/sign-in/finish", &Console::sign_in_finish},
         {"/console/api/unlock", &Console::unlock_route},
+        {"/console/api/prepare", &Console::prepare_route},
+        {"/console/api/approve", &Console::approve_route},
     }};
     for (const auto& [path, route] : posts) {
         if (request.path != path) {
@@ -293,7 +333,7 @@ http::Response Console::route(const http::Request& request) const {
     if (file == files.end()) {
         return text(404, "not found");
     }
-    if (!reads) {
+    if (request.method != "GET" && request.method != "HEAD") {
         http::Response refused = text(405, "method not allowed");
         refused.headers.emplace_back("Allow", "GET");
         return refused;

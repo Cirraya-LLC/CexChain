@@ -4,6 +4,7 @@
 #pragma once
 
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -19,6 +20,7 @@
 #include <cexchain/console/users.hpp>
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/error.hpp>
+#include <cexchain/core/protocol/statement.hpp>
 #include <cexchain/ledger/ledger.hpp>
 #include <cexchain/node/http.hpp>
 
@@ -84,6 +86,23 @@ struct Ceremony {
     protocol::Timestamp expires = 0;
 };
 
+/// A statement prepared for a person's approval: built and held by the
+/// console, approved once, within two minutes, by that person's passkey tap.
+struct Prepared {
+    std::string user;
+    protocol::Statement statement;
+    /// The signer's key id, which the presence challenge names.
+    protocol::Id kid;
+    /// The console's sealed key that signs it.
+    std::string key;
+    Bytes challenge;
+    std::string rp_id;
+    std::string origin;
+    protocol::Timestamp expires = 0;
+};
+
+inline constexpr protocol::Timestamp approval_lifetime = 2 * 60'000;
+
 /// A ceremony must finish within five minutes; at most this many wait.
 inline constexpr protocol::Timestamp ceremony_lifetime = 5 * 60'000;
 inline constexpr std::size_t max_ceremonies = 256;
@@ -102,11 +121,28 @@ public:
     /// readers' lock). Until it is set, they answer 503.
     void set_ledger(const ledger::Ledger* ledger) noexcept { ledger_ = ledger; }
 
+    /// Registers a signed statement on the node's ledger, answering as
+    /// POST /v1/statements would (through the callback). Until it is set,
+    /// approvals answer 503.
+    using Submit = std::function<void(Bytes statement, std::function<void(http::Response)>)>;
+    void set_submitter(Submit submit) { submit_ = std::move(submit); }
+
     /// Answers a request whose path is /console or under /console/.
     [[nodiscard]] http::Response handle(const http::Request& request) const;
+    /// The same through `respond`: an approval's answer comes when the ledger
+    /// has registered it, so the caller's thread never waits for the writer.
+    using Respond = std::function<void(http::Response)>;
+    void handle(const http::Request& request, Respond respond) const;
 
 private:
     [[nodiscard]] http::Response route(const http::Request& request) const;
+    /// The answer to a request that fails the checks every request passes
+    /// first (the console started, its Host, its Origin); nothing if it passes.
+    [[nodiscard]] std::optional<http::Response> refuse(const http::Request& request) const;
+    /// Checks an approval and signs its statement: the signed statement, or
+    /// the answer that refuses it.
+    [[nodiscard]] std::variant<Bytes, http::Response>
+    sign_approval(const http::Request& request) const;
     [[nodiscard]] bool ready() const noexcept;
     /// Who signed this request: the session's user, or the 401 to answer.
     struct Signed {
@@ -125,6 +161,8 @@ private:
     [[nodiscard]] http::Response sign_in_begin(const http::Request& request) const;
     [[nodiscard]] http::Response sign_in_finish(const http::Request& request) const;
     [[nodiscard]] http::Response unlock_route(const http::Request& request) const;
+    [[nodiscard]] http::Response prepare_route(const http::Request& request) const;
+    [[nodiscard]] http::Response approve_route(const http::Request& request) const;
     /// The salt every PRF evaluation of this console uses (made once).
     [[nodiscard]] std::string prf_salt() const;
     /// After a passkey signed in: unlock with its PRF output, or, unlocked,
@@ -138,9 +176,11 @@ private:
 
     Services services_;
     const ledger::Ledger* ledger_ = nullptr;
+    Submit submit_;
     mutable std::mutex mutex_;
     std::vector<Origin> origins_;
     mutable std::map<std::string, Ceremony> ceremonies_;
+    mutable std::map<std::string, Prepared> prepared_;
 };
 
 } // namespace cexchain::console

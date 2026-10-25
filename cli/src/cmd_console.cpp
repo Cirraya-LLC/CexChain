@@ -21,6 +21,7 @@
 #include <cexchain/console/keystore.hpp>
 #include <cexchain/console/sessions.hpp>
 #include <cexchain/console/users.hpp>
+#include <cexchain/core/protocol/statement.hpp>
 #include <cexchain/ledger/environment.hpp>
 #include <cexchain/ledger/storage.hpp>
 
@@ -209,7 +210,9 @@ Json user_json(const console::User& user) {
     return {{"name", user.name},
             {"role", console::name_of(user.role)},
             {"created", format_time(user.created)},
-            {"passkeys", passkeys}};
+            {"passkeys", passkeys},
+            {"actor", user.actor.empty() ? Json() : Json(user.actor)},
+            {"key", user.key.empty() ? Json() : Json(user.key)}};
 }
 
 std::size_t owners(const console::People& people) {
@@ -648,6 +651,102 @@ int cmd_console_key_remove(const Args& args) {
         print_json({{"removed", name}});
     } else {
         std::println("removed the key {} from the console", name);
+    }
+    return exit_ok;
+}
+
+int cmd_console_user_link(const Args& args) {
+    const std::filesystem::path dir = args.ledger();
+    require_ledger_directory(dir);
+    const std::filesystem::path state = console::state_directory(dir);
+    const std::string name = args.positional().front();
+    const std::string key_name = args.need("key");
+    console::KeyStore store(state);
+    std::optional<crypto::PublicKey> key;
+    for (const auto& k : store.keys()) {
+        if (k.name == key_name) {
+            key = k.public_key;
+        }
+    }
+    if (!key) {
+        throw CommandError{"the console holds no key named " + key_name + " (console key list)"};
+    }
+    Session session(args);
+    const protocol::Id actor = session.actor_id(args.need("actor"));
+    const protocol::ActorState* a = session.state().actor(actor);
+    if (a == nullptr || a->revoked) {
+        throw CommandError{"no live actor " + hex_id(actor)};
+    }
+    if (a->kind != protocol::ActorKind::person) {
+        throw CommandError{"a console user acts as a person: machines act without one"};
+    }
+    if (a->key != *key) {
+        throw CommandError{"the key " + key_name + " is not this person's current key"};
+    }
+    std::size_t registered = 0;
+    std::size_t passkeys = 0;
+    change_people(state, [&](console::People& people) {
+        console::User* user = people.find(name);
+        if (user == nullptr) {
+            throw CommandError{"no console user named " + name};
+        }
+        user->actor = to_hex(actor.bytes());
+        user->key = key_name;
+        passkeys = user->passkeys.size();
+        for (const auto& p : user->passkeys) {
+            registered +=
+                std::ranges::any_of(
+                    a->presence, [&](const auto& c) { return c.credential_id == p.credential_id; })
+                    ? 1U
+                    : 0U;
+        }
+    });
+    if (args.json()) {
+        print_json({{"user", name},
+                    {"actor", id_json(actor)},
+                    {"key", key_name},
+                    {"passkeys_on_ledger", registered},
+                    {"passkeys", passkeys}});
+        return exit_ok;
+    }
+    std::println("{} now acts as {} with the key {}", name, a->display_name, key_name);
+    if (registered < passkeys) {
+        std::println("{} of {}'s passkeys are registered on the ledger; for approvals to prove "
+                     "presence, register them: console user passkeys \"{}\" --out DIR, then "
+                     "actor set-presence {} --add --credential FILE",
+                     registered, name, name, hex_id(actor));
+    }
+    return exit_ok;
+}
+
+int cmd_console_user_passkeys(const Args& args) {
+    const std::filesystem::path dir = args.ledger();
+    require_ledger_directory(dir);
+    const console::People people = read_people(console::state_directory(dir));
+    const std::string name = args.positional().front();
+    const console::User* user = people.find(name);
+    if (user == nullptr) {
+        throw CommandError{"no console user named " + name};
+    }
+    const std::filesystem::path out = args.need("out");
+    std::filesystem::create_directories(out);
+    std::string stem = name;
+    std::ranges::replace(stem, ' ', '-');
+    Json files = Json::array();
+    for (std::size_t i = 0; i < user->passkeys.size(); ++i) {
+        const std::filesystem::path file = out / std::format("{}-{}.passkey", stem, i + 1);
+        write_file(
+            file,
+            unwrap(protocol::encode_presence_credential(user->passkeys[i]), "encoding the passkey"),
+            false);
+        files.push_back(file.string());
+    }
+    if (args.json()) {
+        print_json({{"user", name}, {"files", files}});
+        return exit_ok;
+    }
+    for (const auto& f : files) {
+        std::println("wrote {}", f.get<std::string>());
     }
     return exit_ok;
 }

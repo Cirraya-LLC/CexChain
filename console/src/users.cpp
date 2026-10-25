@@ -152,7 +152,9 @@ People load_people(const std::filesystem::path& directory) {
         User user{u.value("name", ""),
                   role_of(u.value("role", nlohmann::json())),
                   u.value("created", protocol::Timestamp{0}),
-                  {}};
+                  {},
+                  u.value("actor", ""),
+                  u.value("key", "")};
         for (const auto& p : u["passkeys"]) {
             user.passkeys.push_back(passkey_of(p));
         }
@@ -180,10 +182,15 @@ void save_people(const std::filesystem::path& directory, const People& people) {
         for (const auto& p : u.passkeys) {
             passkeys.push_back(passkey_json(p));
         }
-        users.push_back({{"name", u.name},
-                         {"role", name_of(u.role)},
-                         {"created", u.created},
-                         {"passkeys", passkeys}});
+        nlohmann::json user{{"name", u.name},
+                            {"role", name_of(u.role)},
+                            {"created", u.created},
+                            {"passkeys", passkeys}};
+        if (!u.actor.empty()) {
+            user["actor"] = u.actor;
+            user["key"] = u.key;
+        }
+        users.push_back(std::move(user));
     }
     nlohmann::json invitations = nlohmann::json::array();
     for (const Invitation& i : people.invitations) {

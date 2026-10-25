@@ -249,7 +249,7 @@ TEST_CASE("the console's session route", "[console][sessions]") {
 
     // Sessions belong to the console's users.
     console::People people;
-    people.users.push_back({"alice", console::Role::viewer, clock.now(), {}});
+    people.users.push_back({"alice", console::Role::viewer, clock.now(), {}, {}, {}});
     console::save_people(dir.path, people);
     const std::string token = sessions.create("alice");
     auto mine = request("GET", "/console/api/session", host);
@@ -310,7 +310,7 @@ struct ConsoleWorld {
     /// A session for a user of the console, made without a passkey.
     std::string session_for(const std::string& name, console::Role role) {
         auto people = console::load_people(dir.path);
-        people.users.push_back({name, role, clock.now(), {}});
+        people.users.push_back({name, role, clock.now(), {}, {}, {}});
         console::save_people(dir.path, people);
         return sessions.create(name);
     }
@@ -646,4 +646,177 @@ TEST_CASE("the console's keys unlock with a passphrase, then with the owner's pa
     // The recovery code unlocks it too.
     w.keys.lock();
     CHECK(unlock(token, {{"secret", code}}).status == 200);
+}
+
+namespace {
+
+namespace protocol = cexchain::protocol;
+
+/// A ledger with Alice, a person whose delegation requires presence and
+/// whose passkey the organization registered, and a console that holds her
+/// key and knows her as its user Alice.
+struct ApprovalWorld {
+    cexchain::test::World ledger;
+    cexchain::crypto::openssl::KeyPair alice_key = cexchain::test::key("alice");
+    protocol::Id alice;
+    cexchain::test::SoftPasskey alice_passkey = passkey(5);
+    protocol::Id record;
+    TempDirectory dir;
+    cexchain::ledger::SeededEntropy entropy{31};
+    console::Sessions sessions{dir.path, provider(), ledger.clock(), entropy};
+    console::KeyStore keys{dir.path};
+    console::Console web{
+        console::Services{dir.path, &provider(), &ledger.clock(), &entropy, &sessions, &keys}};
+    std::string token;
+
+    ApprovalWorld() {
+        web.set_origins(console::loopback_origins(7470));
+        web.set_ledger(&ledger.ledger());
+        // As POST /v1/statements answers.
+        web.set_submitter([this](cexchain::Bytes statement, auto respond) {
+            const auto registered = ledger.ledger().submit(statement);
+            const nlohmann::json value =
+                registered ? nlohmann::json{{"statement_id",
+                                             cexchain::to_hex(registered->statement_id.bytes())},
+                                            {"index", registered->index}}
+                           : nlohmann::json{{"error", {{"message", registered.error().detail}}}};
+            http::Response r;
+            r.status = registered ? 200 : 422;
+            const std::string text = value.dump();
+            r.body.assign(text.begin(), text.end());
+            respond(std::move(r));
+        });
+        alice = ledger.register_actor(ledger.org(), ledger.org_id(), std::nullopt,
+                                      protocol::ActorKind::person, alice_key);
+        const protocol::PresenceCredential credential{
+            alice_passkey.rp_id, alice_passkey.credential_id, alice_passkey.public_key, "laptop"};
+        ledger.ok(ledger.org(),
+                  ledger.statement(ledger.org_id(), std::nullopt,
+                                   protocol::ActorSetPresenceBody{alice, {credential}}));
+        protocol::Scope scope;
+        scope.statement_types = {protocol::StatementType::record_endorse,
+                                 protocol::StatementType::record_revoke};
+        scope.require_presence = true;
+        ledger.grant(ledger.org(), ledger.org_id(), std::nullopt, alice, scope);
+        record = ledger.ok(ledger.org(),
+                           ledger.statement(ledger.org_id(), std::nullopt,
+                                            ledger.record_body(cexchain::test::document_type)));
+        static_cast<void>(keys.initialize(entropy));
+        keys.seal("alice", alice_key);
+        console::People people;
+        people.users.push_back({"Alice",
+                                console::Role::member,
+                                ledger.clock().now(),
+                                {credential},
+                                cexchain::to_hex(alice.bytes()),
+                                "alice"});
+        people.users.push_back({"Bob", console::Role::member, ledger.clock().now(), {}, {}, {}});
+        people.users.push_back({"Vera", console::Role::viewer, ledger.clock().now(), {}, {}, {}});
+        console::save_people(dir.path, people);
+        token = sessions.create("Alice");
+    }
+
+    http::Response post(const std::string& path, const nlohmann::json& body,
+                        const std::string& session) {
+        auto r = request("POST", path, "localhost:7470", "http://localhost:7470");
+        r.headers.emplace_back("authorization", "Bearer " + session);
+        const std::string text = body.dump();
+        r.body.assign(text.begin(), text.end());
+        return web.handle(r);
+    }
+
+    nlohmann::json endorse(const std::string& role, const std::string& session) {
+        const auto r = post("/console/api/prepare",
+                            {{"action", "record.endorse"},
+                             {"record", cexchain::to_hex(record.bytes())},
+                             {"role", role}},
+                            session);
+        auto answer = nlohmann::json::parse(body(r));
+        answer["status"] = r.status;
+        return answer;
+    }
+
+    /// Approves what `prepared` holds, with `with` signing `challenge`.
+    http::Response approve(const nlohmann::json& prepared, const cexchain::test::SoftPasskey& with,
+                           const cexchain::Bytes& challenge, const std::string& session) {
+        const auto proof = with.sign(provider(), challenge);
+        return post("/console/api/approve",
+                    {{"prepared", prepared["prepared"]},
+                     {"credential_id", cexchain::to_base64url(proof.credential_id)},
+                     {"authenticator_data", cexchain::to_base64url(proof.authenticator_data)},
+                     {"client_data_json", cexchain::to_base64url(proof.client_data_json)},
+                     {"signature", cexchain::to_base64url(proof.signature)}},
+                    session);
+    }
+
+    static cexchain::Bytes challenge_of(const nlohmann::json& prepared) {
+        return *cexchain::from_base64url(prepared["public_key"]["challenge"].get<std::string>());
+    }
+};
+
+} // namespace
+
+TEST_CASE("a person approves a statement with one passkey tap", "[console][approve]") {
+    ApprovalWorld w;
+    const auto prepared = w.endorse("inspector", w.token);
+    REQUIRE(prepared["status"] == 200);
+    CHECK(prepared["summary"]["type"] == "record-endorse");
+    CHECK(prepared["summary"]["role"] == "inspector");
+    CHECK(prepared["public_key"]["allowCredentials"].size() == 1);
+
+    const auto approved = w.approve(prepared, w.alice_passkey, w.challenge_of(prepared), w.token);
+    REQUIRE(approved.status == 200);
+    const auto registered = nlohmann::json::parse(body(approved));
+    const auto id =
+        *protocol::to_id(*cexchain::from_hex(registered["statement_id"].get<std::string>()));
+    // On the ledger: Alice's endorsement, with her proof of presence.
+    const auto index = w.ledger.ledger().state().statement_index(id);
+    REQUIRE(index);
+    const protocol::RecordState* r = w.ledger.ledger().state().record(w.record);
+    REQUIRE(r->endorsements.size() == 1);
+    CHECK(r->endorsements[0].role == "inspector");
+    CHECK(r->endorsements[0].actor == w.alice);
+
+    // Approved once: the same approval again finds nothing.
+    CHECK(w.approve(prepared, w.alice_passkey, w.challenge_of(prepared), w.token).status == 404);
+}
+
+TEST_CASE("approvals refuse a wrong tap, a late one, another's, and the locked or unlinked",
+          "[console][approve]") {
+    ApprovalWorld w;
+    // A tap over other bytes, or with a passkey not registered on the ledger.
+    auto prepared = w.endorse("first", w.token);
+    CHECK(w.approve(prepared, w.alice_passkey, cexchain::Bytes(32, 9), w.token).status == 403);
+    prepared = w.endorse("second", w.token);
+    CHECK(w.approve(prepared, passkey(6), w.challenge_of(prepared), w.token).status == 403);
+    // Late: after two minutes the prepared statement is gone.
+    prepared = w.endorse("third", w.token);
+    w.ledger.clock().advance(console::approval_lifetime);
+    CHECK(w.approve(prepared, w.alice_passkey, w.challenge_of(prepared), w.token).status == 404);
+    // Another user cannot approve Alice's.
+    prepared = w.endorse("fourth", w.token);
+    const std::string bob = w.sessions.create("Bob");
+    CHECK(w.approve(prepared, w.alice_passkey, w.challenge_of(prepared), bob).status == 404);
+    CHECK(w.endorse("bob's", bob)["status"] == 409);
+    // A viewer acts on nothing; locked, the console prepares nothing.
+    CHECK(w.endorse("vera's", w.sessions.create("Vera"))["status"] == 403);
+    w.keys.lock();
+    CHECK(w.endorse("locked", w.token)["status"] == 423);
+    CHECK(w.ledger.ledger().state().record(w.record)->endorsements.empty());
+    // An action the console does not know, or a record that does not exist.
+    CHECK(w.post("/console/api/prepare", {{"action", "anything"}}, w.token).status != 200);
+}
+
+TEST_CASE("a person revokes a record with a passkey tap", "[console][approve]") {
+    ApprovalWorld w;
+    const auto r = w.post("/console/api/prepare",
+                          {{"action", "record.revoke"},
+                           {"record", cexchain::to_hex(w.record.bytes())},
+                           {"reason", "issued by mistake"}},
+                          w.token);
+    REQUIRE(r.status == 200);
+    const auto prepared = nlohmann::json::parse(body(r));
+    CHECK(prepared["summary"]["reason"] == "issued by mistake");
+    REQUIRE(w.approve(prepared, w.alice_passkey, w.challenge_of(prepared), w.token).status == 200);
+    CHECK(w.ledger.ledger().state().record(w.record)->revoked);
 }
