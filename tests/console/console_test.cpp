@@ -284,7 +284,9 @@ struct ConsoleWorld {
     cexchain::ledger::ManualClock clock{1'800'000'000'000};
     cexchain::ledger::SeededEntropy entropy{11};
     console::Sessions sessions{dir.path, provider(), clock, entropy};
-    console::Console web{console::Services{dir.path, &provider(), &clock, &entropy, &sessions}};
+    console::KeyStore keys{dir.path};
+    console::Console web{
+        console::Services{dir.path, &provider(), &clock, &entropy, &sessions, &keys}};
     std::string origin = "http://localhost:7470";
 
     ConsoleWorld() { web.set_origins(console::loopback_origins(7470)); }
@@ -338,8 +340,9 @@ struct ConsoleWorld {
              {"label", "laptop"}});
     }
 
-    /// Signs in with `passkey`; returns the answer.
-    http::Response sign_in(const cexchain::test::SoftPasskey& passkey) {
+    /// Signs in with `passkey` (and its PRF output, if any); returns the answer.
+    http::Response sign_in(const cexchain::test::SoftPasskey& passkey,
+                           const std::string& prf = {}) {
         const auto begun = post("/console/api/sign-in/begin", nlohmann::json::object());
         REQUIRE(begun.status == 200);
         const auto options = nlohmann::json::parse(body(begun));
@@ -351,7 +354,8 @@ struct ConsoleWorld {
                      {"credential_id", cexchain::to_base64url(proof.credential_id)},
                      {"authenticator_data", cexchain::to_base64url(proof.authenticator_data)},
                      {"client_data_json", cexchain::to_base64url(proof.client_data_json)},
-                     {"signature", cexchain::to_base64url(proof.signature)}});
+                     {"signature", cexchain::to_base64url(proof.signature)},
+                     {"prf", prf}});
     }
 };
 
@@ -586,4 +590,60 @@ TEST_CASE("the console's keys are sealed to its node key", "[console][keys]") {
     CHECK_FALSE(reopened.unlocked());
     REQUIRE(reopened.unlock(recovery, code));
     CHECK(reopened.open("alice").public_key() == key->public_key());
+}
+
+TEST_CASE("the console's keys unlock with a passphrase, then with the owner's passkey",
+          "[console][keys]") {
+    ConsoleWorld w;
+    const auto alice = passkey(1);
+    REQUIRE(w.enroll(alice, w.invite("", console::Role::owner), "Alice").status == 200);
+    const std::string token = session_of(w.sign_in(alice));
+    auto unlock = [&](const std::string& session, const nlohmann::json& body) {
+        auto r = request("POST", "/console/api/unlock", "localhost:7470", w.origin);
+        r.headers.emplace_back("authorization", "Bearer " + session);
+        const std::string text = body.dump();
+        r.body.assign(text.begin(), text.end());
+        return w.web.handle(r);
+    };
+    // Before setup there is nothing to unlock, and no PRF is asked for.
+    CHECK(unlock(token, {{"secret", "anything at all"}}).status == 409);
+    const auto plain = w.post("/console/api/sign-in/begin", nlohmann::json::object());
+    CHECK_FALSE(nlohmann::json::parse(body(plain))["public_key"].contains("extensions"));
+
+    const std::string code = w.keys.initialize(w.entropy);
+    w.keys.add_slot({console::SlotKind::passphrase, {}}, "the owner's passphrase");
+    w.keys.lock();
+    const auto begun = w.post("/console/api/sign-in/begin", nlohmann::json::object());
+    const auto salt =
+        nlohmann::json::parse(body(begun))["public_key"]["extensions"]["prf"]["eval"]["first"];
+    CHECK(salt.get<std::string>().size() == 43);
+
+    // Locked: a PRF the console has no slot for does not unlock it.
+    const std::string prf = cexchain::to_base64url(cexchain::Bytes(32, 0x42));
+    const auto first = w.sign_in(alice, prf);
+    REQUIRE(first.status == 200);
+    CHECK(nlohmann::json::parse(body(first))["keys"] == "locked");
+    CHECK(unlock(token, {{"secret", "not the passphrase"}}).status == 403);
+    const auto opened = unlock(token, {{"secret", "the owner's passphrase"}});
+    REQUIRE(opened.status == 200);
+    CHECK(nlohmann::json::parse(body(opened))["keys"] == "unlocked");
+
+    // Unlocked, the owner's next sign-in gives her passkey a slot of its own...
+    REQUIRE(w.sign_in(alice, prf).status == 200);
+    CHECK(w.keys.slots().size() == 3);
+    CHECK(nlohmann::json::parse(body(unlock(token, {{"lock", true}})))["keys"] == "locked");
+    // ...so that the next one unlocks the console.
+    const auto again = w.sign_in(alice, prf);
+    CHECK(nlohmann::json::parse(body(again))["keys"] == "unlocked");
+
+    // A member's passkey gets no slot, and a viewer cannot unlock.
+    const auto bob = passkey(2);
+    REQUIRE(w.enroll(bob, w.invite("Bob", console::Role::member)).status == 200);
+    REQUIRE(w.sign_in(bob, cexchain::to_base64url(cexchain::Bytes(32, 0x43))).status == 200);
+    CHECK(w.keys.slots().size() == 3);
+    const std::string viewer = w.session_for("Vera", console::Role::viewer);
+    CHECK(unlock(viewer, {{"secret", "the owner's passphrase"}}).status == 403);
+    // The recovery code unlocks it too.
+    w.keys.lock();
+    CHECK(unlock(token, {{"secret", code}}).status == 200);
 }

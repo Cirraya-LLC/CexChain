@@ -265,11 +265,12 @@ http::Response Console::route(const http::Request& request) const {
         return home_route(std::get<Signed>(who));
     }
     using Route = http::Response (Console::*)(const http::Request&) const;
-    static constexpr std::array<std::pair<std::string_view, Route>, 4> posts{{
+    static constexpr std::array<std::pair<std::string_view, Route>, 5> posts{{
         {"/console/api/enroll/begin", &Console::enroll_begin},
         {"/console/api/enroll/finish", &Console::enroll_finish},
         {"/console/api/sign-in/begin", &Console::sign_in_begin},
         {"/console/api/sign-in/finish", &Console::sign_in_finish},
+        {"/console/api/unlock", &Console::unlock_route},
     }};
     for (const auto& [path, route] : posts) {
         if (request.path != path) {
@@ -360,7 +361,8 @@ http::Response Console::session_route(const http::Request& request) const {
                       {"user", signed_in.user},
                       {"role", name_of(signed_in.role)},
                       {"created", signed_in.session.created},
-                      {"expires", signed_in.session.expires()}});
+                      {"expires", signed_in.session.expires()},
+                      {"keys", key_state()}});
 }
 
 } // namespace cexchain::console

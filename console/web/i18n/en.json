@@ -54,5 +54,10 @@
   "error.no_passkeys": "This browser cannot use passkeys. Try a recent browser, or another device.",
   "error.cancelled": "The passkey was not used. Try again when you are ready.",
   "error.address": "Passkeys need this console's name: open it at http://localhost (not an IP address).",
-  "error.server": "The console answered: {message}"
+  "error.server": "The console answered: {message}",
+  "keys.locked": "This console is locked: it signs nothing until it is unlocked.",
+  "keys.secret": "Passphrase or recovery code",
+  "keys.secret_hint": "A passkey that unlocked the console before unlocks it when you sign in.",
+  "keys.unlock": "Unlock",
+  "keys.wrong": "That does not unlock the console."
 }

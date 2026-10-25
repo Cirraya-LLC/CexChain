@@ -123,6 +123,10 @@ struct ServeDefaults {
 };
 int serve(const Args& args, const ServeDefaults& defaults);
 int cmd_console_run(const Args& args);
+int cmd_console_key_init(const Args& args);
+int cmd_console_key_import(const Args& args);
+int cmd_console_key_list(const Args& args);
+int cmd_console_key_remove(const Args& args);
 int cmd_console_status(const Args& args);
 int cmd_console_stop(const Args& args);
 int cmd_console_open(const Args& args);

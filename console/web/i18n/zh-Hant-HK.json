@@ -54,5 +54,10 @@
   "error.no_passkeys": "此瀏覽器無法使用通行密鑰。請改用較新的瀏覽器或另一部裝置。",
   "error.cancelled": "未有使用通行密鑰。準備好後請再試。",
   "error.address": "通行密鑰需要此控制台的名稱：請以 http://localhost 開啟（不要用 IP 位址）。",
-  "error.server": "控制台回覆：{message}"
+  "error.server": "控制台回覆：{message}",
+  "keys.locked": "此控制台已上鎖：解鎖前不會簽署任何東西。",
+  "keys.secret": "密碼短語或復原碼",
+  "keys.secret_hint": "曾解鎖此控制台的通行密鑰，在你登入時會自動解鎖。",
+  "keys.unlock": "解鎖",
+  "keys.wrong": "這不能解鎖此控制台。"
 }

@@ -54,5 +54,10 @@
   "error.no_passkeys": "此浏览器无法使用通行密钥。请换用较新的浏览器或另一台设备。",
   "error.cancelled": "没有使用通行密钥。准备好后请重试。",
   "error.address": "通行密钥需要此控制台的名称：请用 http://localhost 打开（不要用 IP 地址）。",
-  "error.server": "控制台回复：{message}"
+  "error.server": "控制台回复：{message}",
+  "keys.locked": "此控制台已锁定：解锁前不会签署任何东西。",
+  "keys.secret": "口令或恢复码",
+  "keys.secret_hint": "曾解锁此控制台的通行密钥，在你登录时会自动解锁。",
+  "keys.unlock": "解锁",
+  "keys.wrong": "这不能解锁此控制台。"
 }

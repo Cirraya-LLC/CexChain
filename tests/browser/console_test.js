@@ -42,9 +42,13 @@ async function waitRunning() {
   for (const k of ["root", "log"]) run("key", "generate", "--out", k + ".key");
   run("init", "--org", "Console Test Org", "--root-key", "root.key", "--log-key", "log.key");
   run("record", "issue", "--as", "root.key", "--type", "example.document/1", "--field", "result=pass");
+  // Sealed keys: the console starts locked.
+  fs.writeFileSync(path.join(work, "unlock.txt"), "the unlock passphrase of this test\n");
+  run("console", "key", "init", "--unlock-file", "unlock.txt");
 
   const port = await freePort();
-  const consoleProcess = spawn(cexchain, ["console", "run", "--port", String(port), "--quiet"], { cwd: work, env });
+  const start = () => spawn(cexchain, ["console", "run", "--port", String(port), "--quiet"], { cwd: work, env });
+  let consoleProcess = start();
   let browser;
   try {
     await waitRunning();
@@ -64,7 +68,7 @@ async function waitRunning() {
     await cdp.send("WebAuthn.enable");
     await cdp.send("WebAuthn.addVirtualAuthenticator", { options: {
       protocol: "ctap2", transport: "internal", hasResidentKey: true, hasUserVerification: true,
-      isUserVerified: true, automaticPresenceSimulation: true } });
+      isUserVerified: true, automaticPresenceSimulation: true, hasPrf: true } });
 
     // The setup link: the code leaves the address bar at once.
     await page.goto(setup);
@@ -76,6 +80,15 @@ async function waitRunning() {
     await page.getByRole("heading", { name: "Home" }).waitFor();
     await page.getByText("Console Test Org").waitFor();
     await page.getByText("Signed in as Alice (owner)").waitFor();
+    // Locked: the owner unlocks it with the passphrase.
+    await page.getByText("This console is locked").waitFor();
+    await page.getByLabel("Passphrase or recovery code").fill("not it");
+    await page.getByRole("button", { name: "Unlock" }).click();
+    await page.getByText("That does not unlock the console.").waitFor();
+    await page.getByLabel("Passphrase or recovery code").fill("the unlock passphrase of this test");
+    await page.getByRole("button", { name: "Unlock" }).click();
+    await page.getByText("This console is locked").waitFor({ state: "detached" });
+    await page.getByRole("heading", { name: "Home" }).waitFor();
     const people = JSON.parse(run("console", "user", "list", "--json"));
     assert.equal(people.users[0].name, "Alice");
     assert.equal(people.users[0].role, "owner");
@@ -97,6 +110,17 @@ async function waitRunning() {
     assert.equal(JSON.parse(run("console", "status", "--json")).sessions, 0);
     await page.getByRole("button", { name: "Sign in with a passkey" }).click();
     await page.getByRole("heading", { name: "Home" }).waitFor();
+    // Signed in while unlocked, the owner's passkey got a slot of its own...
+    const slots = JSON.parse(run("console", "key", "list", "--json")).slots.map((x) => x.kind).sort();
+    assert.deepEqual(slots, ["passkey", "passphrase", "recovery"]);
+    // ...so after a restart, signing in with it unlocks the console.
+    run("console", "stop");
+    consoleProcess = start();
+    await waitRunning();
+    await page.goto(base);
+    await page.getByRole("button", { name: "Sign in with a passkey" }).click();
+    await page.getByRole("heading", { name: "Home" }).waitFor();
+    assert.equal(await page.getByText("This console is locked").count(), 0);
 
     // The page in the other two languages, from its own catalogs.
     await page.getByLabel("Language").selectOption("zh-Hant-HK");

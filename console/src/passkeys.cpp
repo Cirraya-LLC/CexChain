@@ -180,6 +180,9 @@ http::Response Console::enroll_begin(const http::Request& request) const {
                      {"requireResidentKey", true},
                      {"userVerification", "required"}}},
                    {"attestation", "none"},
+                   // The PRF extension must be asked for when the passkey is
+                   // made, for its sign-ins to unlock sealed keys.
+                   {"extensions", {{"prf", nlohmann::json::object()}}},
                    {"excludeCredentials", exclude},
                    {"timeout", ceremony_lifetime}}}});
 }
@@ -245,7 +248,10 @@ http::Response Console::enroll_finish(const http::Request& request) const {
     }
     people.invitations.erase(invitation);
     save_people(services_.directory, people);
-    return signed_in(*services_.sessions, *people.find(ceremony->name));
+    http::Response answer = signed_in(*services_.sessions, *people.find(ceremony->name));
+    auto fields = nlohmann::json::parse(answer.body.begin(), answer.body.end());
+    fields["keys"] = key_state();
+    return json(200, fields);
 }
 
 http::Response Console::sign_in_begin(const http::Request& request) const {
@@ -260,12 +266,16 @@ http::Response Console::sign_in_begin(const http::Request& request) const {
     if (!id) {
         return error(429, "unavailable", "too many passkey requests are waiting; try again soon");
     }
-    return json(200, {{"ceremony", *id},
-                      {"public_key",
-                       {{"challenge", to_base64url(challenge)},
-                        {"rpId", *rp_id},
-                        {"userVerification", "required"},
-                        {"timeout", ceremony_lifetime}}}});
+    nlohmann::json options{{"challenge", to_base64url(challenge)},
+                           {"rpId", *rp_id},
+                           {"userVerification", "required"},
+                           {"timeout", ceremony_lifetime}};
+    // With sealed keys, the passkey's PRF output (where it has one) unlocks
+    // them: the same salt every time, so the same passkey gives the same.
+    if (services_.keys != nullptr && services_.keys->initialized()) {
+        options["extensions"] = {{"prf", {{"eval", {{"first", prf_salt()}}}}}};
+    }
+    return json(200, {{"ceremony", *id}, {"public_key", options}});
 }
 
 http::Response Console::sign_in_finish(const http::Request& request) const {
@@ -305,7 +315,11 @@ http::Response Console::sign_in_finish(const http::Request& request) const {
         refused.headers.emplace_back("WWW-Authenticate", "Bearer");
         return refused;
     }
-    return signed_in(*services_.sessions, *user);
+    use_prf(*user, *id, text_field(*body, "prf"));
+    http::Response answer = signed_in(*services_.sessions, *user);
+    auto fields = nlohmann::json::parse(answer.body.begin(), answer.body.end());
+    fields["keys"] = key_state();
+    return json(200, fields);
 }
 
 } // namespace cexchain::console

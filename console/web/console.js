@@ -103,7 +103,7 @@ function el(tag, attributes = {}, ...children) {
 
 function show(...children) {
     const main = document.getElementById("main");
-    main.replaceChildren(...children);
+    main.replaceChildren(...children.filter((c) => c !== null));
     main.focus();
 }
 
@@ -196,6 +196,7 @@ async function register(code, name, device) {
             pubKeyCredParams: options.pubKeyCredParams,
             authenticatorSelection: options.authenticatorSelection,
             attestation: options.attestation,
+            extensions: options.extensions,
             excludeCredentials: options.excludeCredentials.map((c) => ({
                 type: c.type,
                 id: fromBase64url(c.id),
@@ -214,20 +215,27 @@ async function register(code, name, device) {
 async function signIn() {
     const begun = await api("POST", "sign-in/begin", {});
     const options = begun.public_key;
-    const credential = await navigator.credentials.get({
-        publicKey: {
-            challenge: fromBase64url(options.challenge),
-            rpId: options.rpId,
-            userVerification: options.userVerification,
-            timeout: options.timeout,
-        },
-    });
+    const publicKey = {
+        challenge: fromBase64url(options.challenge),
+        rpId: options.rpId,
+        userVerification: options.userVerification,
+        timeout: options.timeout,
+    };
+    // With sealed keys, the passkey's PRF output unlocks them (where the
+    // passkey has one); the console sends the salt.
+    const salt = options.extensions?.prf?.eval?.first;
+    if (salt) {
+        publicKey.extensions = { prf: { eval: { first: fromBase64url(salt) } } };
+    }
+    const credential = await navigator.credentials.get({ publicKey });
+    const prf = credential.getClientExtensionResults?.().prf?.results?.first;
     return api("POST", "sign-in/finish", {
         ceremony: begun.ceremony,
         credential_id: toBase64url(credential.rawId),
         authenticator_data: toBase64url(credential.response.authenticatorData),
         client_data_json: toBase64url(credential.response.clientDataJSON),
         signature: toBase64url(credential.response.signature),
+        prf: prf ? toBase64url(prf) : undefined,
     });
 }
 
@@ -235,8 +243,41 @@ async function signIn() {
 
 function signedIn(answer) {
     store(sessionStorage, SESSION, answer.session);
-    state.who = { user: answer.user, role: answer.role };
+    state.who = { user: answer.user, role: answer.role, keys: answer.keys ?? "none" };
     home();
+}
+
+/// While the console's keys are locked, it signs nothing: say so, and let
+/// an owner or an admin unlock it with a passphrase or the recovery code.
+function keysNotice() {
+    if (state.who?.keys !== "locked") {
+        return null;
+    }
+    const box = el("section", { class: "notice", "aria-labelledby": "keys-locked" },
+                   el("p", { id: "keys-locked", text: t("keys.locked") }));
+    if (state.who.role === "owner" || state.who.role === "admin") {
+        const [secretField, secret] = field("unlock-secret", t("keys.secret"), t("keys.secret_hint"),
+                                            { type: "password", autocomplete: "current-password" });
+        const button = el("button", { type: "submit", text: t("keys.unlock") });
+        const answer = el("div");
+        const form = el("form", { novalidate: true }, secretField, answer, button);
+        form.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            button.disabled = true;
+            try {
+                const result = await api("POST", "unlock", { secret: secret.value });
+                state.who.keys = result.keys;
+                route();
+            } catch (error) {
+                answer.replaceChildren(problem(error.status === 403 ? t("keys.wrong")
+                                                                    : passkeyProblem(error)));
+            } finally {
+                button.disabled = false;
+            }
+        });
+        box.append(form);
+    }
+    return box;
 }
 
 /// To Home: through the hash when it changes, else at once.
@@ -315,7 +356,7 @@ async function homeScreen() {
         counts.append(el("dt", { text: t(`count.${key}`) }),
                       el("dd", { text: String(home.counts[key]) }));
     }
-    show(el("h1", { text: t("home.title") }),
+    show(keysNotice(), el("h1", { text: t("home.title") }),
          el("dl", { class: "facts" },
             el("dt", { text: t("home.organization") }), el("dd", { text: home.ledger.organization }),
             el("dt", { text: t("home.ledger") }), el("dd", { class: "id", text: home.ledger.id })),
@@ -400,7 +441,7 @@ async function route() {
     if (state.who === null && stored(sessionStorage, SESSION)) {
         try {
             const me = await api("GET", "session");
-            state.who = { user: me.user, role: me.role };
+            state.who = { user: me.user, role: me.role, keys: me.keys ?? "none" };
         } catch {
             store(sessionStorage, SESSION, null);
         }

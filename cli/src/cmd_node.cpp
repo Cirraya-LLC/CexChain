@@ -16,6 +16,7 @@
 #include <thread>
 
 #include <cexchain/console/console.hpp>
+#include <cexchain/console/keystore.hpp>
 #include <cexchain/ledger/backup.hpp>
 #include <cexchain/node/api.hpp>
 #include <cexchain/node/client.hpp>
@@ -223,13 +224,28 @@ int serve(const Args& args, const ServeDefaults& defaults) {
     ledger::SystemClock console_clock;
     ledger::SystemEntropy console_entropy;
     std::unique_ptr<console::Sessions> sessions;
+    std::unique_ptr<console::KeyStore> keys;
     std::shared_ptr<console::Console> web;
+    if (args.has("unlock-file") && !with_console) {
+        throw UsageError{"--unlock-file goes with --console"};
+    }
     if (with_console) {
         sessions = std::make_unique<console::Sessions>(
             console::state_directory(dir), shared_provider(), console_clock, console_entropy);
+        keys = std::make_unique<console::KeyStore>(console::state_directory(dir));
+        // A server that starts unattended unlocks its keys from a file.
+        if (const auto file = args.get("unlock-file")) {
+            const Bytes bytes = read_file(*file);
+            std::string secret(bytes.begin(), bytes.end());
+            secret = secret.substr(0, secret.find('\n'));
+            if (!keys->initialized() ||
+                !keys->unlock({console::SlotKind::passphrase, {}}, secret)) {
+                throw UsageError{"--unlock-file does not unlock the console's keys"};
+            }
+        }
         web = std::make_shared<console::Console>(
             console::Services{console::state_directory(dir), &shared_provider(), &console_clock,
-                              &console_entropy, sessions.get()});
+                              &console_entropy, sessions.get(), keys.get()});
         options.console = [web](const node::http::Request& r) {
             return web->handle(r);
         };

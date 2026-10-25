@@ -18,6 +18,7 @@
 #include <unistd.h>
 
 #include <cexchain/app/support.hpp>
+#include <cexchain/console/keystore.hpp>
 #include <cexchain/console/sessions.hpp>
 #include <cexchain/console/users.hpp>
 #include <cexchain/ledger/environment.hpp>
@@ -25,6 +26,7 @@
 
 #include "commands.hpp"
 #include "output.hpp"
+#include "support.hpp"
 
 // POSIX: the process's environment, for the browser it opens.
 extern char** environ;
@@ -516,6 +518,137 @@ int cmd_console_open(const Args& args) {
     int status = 0;
     ::waitpid(child, &status, 0);
     std::println("opened {}", *url);
+    return exit_ok;
+}
+
+namespace {
+
+/// The first line of an unlock file: a passphrase slot's secret.
+std::string unlock_secret(const std::string& file) {
+    const Bytes bytes = app::read_file(file);
+    std::string text(bytes.begin(), bytes.end());
+    text = text.substr(0, text.find('\n'));
+    if (text.size() < 8) {
+        throw UsageError{"the unlock file " + file + " holds fewer than 8 characters"};
+    }
+    return text;
+}
+
+Json slot_json(const console::Slot& slot) {
+    return {{"kind", console::name_of(slot.kind)},
+            {"id", slot.id.empty() ? Json() : Json(slot.id)}};
+}
+
+} // namespace
+
+int cmd_console_key_init(const Args& args) {
+    const std::filesystem::path dir = args.ledger();
+    require_ledger_directory(dir);
+    console::KeyStore store(console::state_directory(dir));
+    if (store.initialized()) {
+        throw CommandError{"the console's keys are set up already (console key list)"};
+    }
+    const std::optional<std::string> unlock =
+        args.get("unlock-file") ? std::optional(unlock_secret(*args.get("unlock-file")))
+                                : std::nullopt;
+    ledger::SystemEntropy entropy;
+    const std::string code = store.initialize(entropy);
+    if (unlock) {
+        store.add_slot({console::SlotKind::passphrase, {}}, *unlock);
+    }
+    if (args.json()) {
+        Json slots = Json::array();
+        for (const auto& slot : store.slots()) {
+            slots.push_back(slot_json(slot));
+        }
+        print_json({{"recovery_code", code}, {"slots", slots}});
+        return exit_ok;
+    }
+    std::println("The console's recovery code (shown once: write it down and keep it safe):");
+    std::println("");
+    std::println("    {}", code);
+    std::println("");
+    std::println("It unlocks the console's keys if every passkey and passphrase is lost.");
+    if (unlock) {
+        std::println("The unlock file opens them too (console run --unlock-file).");
+    }
+    return exit_ok;
+}
+
+int cmd_console_key_import(const Args& args) {
+    const std::filesystem::path dir = args.ledger();
+    require_ledger_directory(dir);
+    const std::string name = args.positional()[0];
+    if (!console::valid_key_name(name)) {
+        throw UsageError{"a key's name is 1 to 64 lower-case letters, digits, '.', '_', or '-'"};
+    }
+    console::KeyStore store(console::state_directory(dir));
+    if (!store.initialized()) {
+        throw CommandError{"the console's keys are not set up (console key init)"};
+    }
+    const auto key = load_key(args.positional()[1], args);
+    store.seal(name, key);
+    if (args.json()) {
+        print_json({{"imported", name}, {"public_key", app::public_key_json(key.public_key())}});
+    } else {
+        std::println("sealed the key {} in the console ({}); the file itself is unchanged", name,
+                     crypto::name(key.algorithm()));
+    }
+    return exit_ok;
+}
+
+int cmd_console_key_list(const Args& args) {
+    const std::filesystem::path dir = args.ledger();
+    require_ledger_directory(dir);
+    console::KeyStore store(console::state_directory(dir));
+    std::vector<console::SealedKeyInfo> keys;
+    try {
+        keys = store.keys();
+    } catch (const std::exception& e) {
+        throw CommandError{e.what()};
+    }
+    if (args.json()) {
+        Json slots = Json::array();
+        for (const auto& slot : store.slots()) {
+            slots.push_back(slot_json(slot));
+        }
+        Json list = Json::array();
+        for (const auto& k : keys) {
+            list.push_back({{"name", k.name}, {"public_key", app::public_key_json(k.public_key)}});
+        }
+        print_json({{"set_up", store.initialized()}, {"slots", slots}, {"keys", list}});
+        return exit_ok;
+    }
+    if (!store.initialized()) {
+        std::println("the console's keys are not set up (console key init)");
+        return exit_ok;
+    }
+    for (const auto& slot : store.slots()) {
+        std::println("slot: {}{}", console::name_of(slot.kind),
+                     slot.id.empty() ? "" : " " + slot.id.substr(0, 12));
+    }
+    if (keys.empty()) {
+        std::println("no keys sealed (console key import NAME FILE)");
+    }
+    for (const auto& k : keys) {
+        std::println("key: {:<24} {}", k.name, crypto::name(k.public_key.algorithm));
+    }
+    return exit_ok;
+}
+
+int cmd_console_key_remove(const Args& args) {
+    const std::filesystem::path dir = args.ledger();
+    require_ledger_directory(dir);
+    const std::string name = args.positional().front();
+    console::KeyStore store(console::state_directory(dir));
+    if (!store.remove_key(name)) {
+        throw CommandError{"the console holds no key named " + name};
+    }
+    if (args.json()) {
+        print_json({{"removed", name}});
+    } else {
+        std::println("removed the key {} from the console", name);
+    }
     return exit_ok;
 }
 

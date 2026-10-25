@@ -12,6 +12,9 @@
 #include <variant>
 #include <vector>
 
+#include <nlohmann/json.hpp>
+
+#include <cexchain/console/keystore.hpp>
 #include <cexchain/console/sessions.hpp>
 #include <cexchain/console/users.hpp>
 #include <cexchain/core/bytes.hpp>
@@ -64,6 +67,8 @@ struct Services {
     ledger::Clock* clock = nullptr;
     ledger::Entropy* entropy = nullptr;
     Sessions* sessions = nullptr;
+    /// The console's sealed keys; without it, nothing is ever unlocked.
+    KeyStore* keys = nullptr;
 };
 
 /// A passkey ceremony begun and not yet finished: registering one with an
@@ -119,6 +124,13 @@ private:
     [[nodiscard]] http::Response enroll_finish(const http::Request& request) const;
     [[nodiscard]] http::Response sign_in_begin(const http::Request& request) const;
     [[nodiscard]] http::Response sign_in_finish(const http::Request& request) const;
+    [[nodiscard]] http::Response unlock_route(const http::Request& request) const;
+    /// The salt every PRF evaluation of this console uses (made once).
+    [[nodiscard]] std::string prf_salt() const;
+    /// After a passkey signed in: unlock with its PRF output, or, unlocked,
+    /// give it a slot when its user may.
+    void use_prf(const User& user, ByteView credential, std::string_view prf) const;
+    [[nodiscard]] nlohmann::json key_state() const;
     /// Stores a ceremony and returns its id; nothing if too many wait.
     [[nodiscard]] std::optional<std::string> begin(Ceremony ceremony) const;
     /// Takes (and forgets) a ceremony that has not expired.

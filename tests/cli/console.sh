@@ -180,6 +180,28 @@ expect_exit 2 console user revoke Bob
 run console user revoke --help > out.txt
 grep -q "only owner" out.txt || fail "console user revoke --help"
 
+# --- The console's sealed keys ------------------------------------------------------
+run console key list > out.txt
+grep -q "keys are not set up" out.txt || fail "keys before setup"
+expect_exit 2 console key import root root.key
+printf 'the unlock passphrase of these tests\n' > unlock.txt
+run console key init --unlock-file unlock.txt > out.txt
+grep -q "recovery code (shown once" out.txt || fail "console key init"
+grep -qE '^    [A-Z2-7]{4}(-[A-Z2-7]{4}){5}-[A-Z2-7]{2}$' out.txt || fail "the recovery code's form"
+expect_exit 2 console key init
+grep -q "set up already" out.txt || fail "a second key init"
+run console key import root root.key > out.txt
+grep -q "sealed the key root" out.txt || fail "console key import"
+KEYS=$(run console key list --json)
+[ "$(echo "$KEYS" | json 'd["keys"][0]["name"]')" = root ] || fail "console key list --json"
+[ "$(echo "$KEYS" | json 'sorted(s["kind"] for s in d["slots"])')" = "['passphrase', 'recovery']" ] ||
+    fail "the slots"
+expect_exit 1 console key import Root root.key
+run console key remove root > out.txt
+expect_exit 2 console key remove root
+expect_exit 1 serve --unlock-file unlock.txt
+printf 'not the passphrase at all\n' > wrong.txt
+
 # --- console run, status, open, stop ------------------------------------------------
 kill "${SERVERS[-1]}"
 run console status > out.txt
@@ -203,5 +225,7 @@ run console stop > out.txt
 grep -q "stopped the console" out.txt || fail "console stop"
 [ "$(run console status --json | json 'd["running"]')" = False ] || fail "stopped"
 expect_exit 1 console run --port 70000
+expect_exit 1 console run --port "$FREE" --unlock-file wrong.txt
+grep -q "does not unlock the console's keys" out.txt || fail "a wrong unlock file"
 
 echo "console: all checks passed"
