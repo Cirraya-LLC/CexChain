@@ -396,8 +396,8 @@ stderr, automatic checkpoints (`--checkpoint-interval`), and graceful shutdown o
 `cexchain console run` serves a web console for the ledger on this computer, at
 `http://localhost:7470/console/` (or the next free port, remembered); `console status`,
 `console open`, and `console stop` manage it. A company serves it beside its API with
-`cexchain serve --console --public-url https://ledger.example.com`. So far the console has its
-sign-in and its first views; its page is a placeholder.
+`cexchain serve --console --public-url https://ledger.example.com`. So far it signs people in,
+shows Home and Things, and approves endorsements and revocations with a passkey.
 
 ```sh
 cexchain console run &
@@ -417,6 +417,18 @@ cexchain console user list
   token that the node keeps only as a hash, in memory; it ends after 30 idle minutes, after 12
   hours at most, on signing out, when the console stops, or with
   `cexchain console session revoke ID` (`console session list` shows them).
+- **Sealed keys, unlocked by a passkey.** `console key init` makes the console's node key and
+  prints its recovery code once; `console key import NAME FILE` seals a key in the console. The
+  node key is stored only wrapped: under the recovery code, a passphrase or an unlock file
+  (`console run --unlock-file`), and each owner's or admin's passkey (its PRF output). A
+  console starts locked and signs nothing until a passkey's sign-in, a passphrase, or the
+  recovery code unlocks it.
+- **Approving: one tap per statement.** `console user link NAME --actor ID --key KEY` lets a user
+  act as a person of the ledger; `console user passkeys NAME --out DIR` writes their passkeys
+  for `actor set-presence`. The console then prepares what the person asks for (so far,
+  endorsing or revoking a record), shows exactly what will be signed, and signs only after the
+  person's passkey approves it; with a delegation that requires presence, the ledger itself
+  refuses it otherwise, and the evidence shows the person was present.
 - **Every request** first passes the console's checks: a Content-Security-Policy with nothing
   inline and nothing from elsewhere, and no framing, sniffing, referrers, or caching; answers
   only for the console's own names, so a page on another name that resolves to this address
