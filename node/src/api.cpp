@@ -3281,6 +3281,25 @@ struct LedgerApi::State {
         }
     }
 
+    /// A statement from the node's own console: as POST /v1/statements with
+    /// the submit scope, where the API takes writes at all.
+    void submit_as_node(http::Request r, Done done) {
+        if (failed) {
+            finish(done, "console",
+                   error_response(503, "unavailable",
+                                  "the ledger's files do not validate; run cexchain audit"));
+            return;
+        }
+        if (options.read_only || replica) {
+            finish(done, "console",
+                   error_response(403, "read_only",
+                                  replica ? "this ledger is a replica; write to its primary"
+                                          : "this server is read-only"));
+            return;
+        }
+        submit(r, "console", static_cast<Scopes>(Scope::submit), done);
+    }
+
     void serve(http::Request r, Done done) {
         if (r.path == "/healthz") {
             if (r.method != "GET") {
@@ -3299,7 +3318,18 @@ struct LedgerApi::State {
             return;
         }
         if (options.console && (r.path == "/console" || r.path.starts_with("/console/"))) {
-            finish(done, "console", options.console(r));
+            // Like reads: once the writer has caught up with what another
+            // process wrote, the console sees it too.
+            auto answer = [this, done](http::Response response) mutable {
+                finish(done, "console", std::move(response));
+            };
+            if (!failed && ledger->outdated()) {
+                queue_read([this, r = std::move(r), answer = std::move(answer)]() mutable {
+                    options.console(r, std::move(answer));
+                });
+                return;
+            }
+            options.console(r, std::move(answer));
             return;
         }
         if (failed) {
@@ -3475,6 +3505,15 @@ LedgerApi::~LedgerApi() = default;
 
 void LedgerApi::handle(http::Request request, std::string, Respond respond) {
     state_->serve(std::move(request), std::move(respond));
+}
+
+void LedgerApi::submit_statement(Bytes statement, Respond respond) {
+    http::Request r;
+    r.method = "POST";
+    r.target = r.path = "/v1/statements";
+    r.headers.emplace_back("content-type", "application/cose");
+    r.body = std::move(statement);
+    state_->submit_as_node(std::move(r), std::move(respond));
 }
 
 void LedgerApi::tick() {

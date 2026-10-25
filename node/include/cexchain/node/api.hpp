@@ -77,9 +77,9 @@ struct ApiOptions {
     std::function<Result<Bytes>(ByteView)> witness;
     /// The web console: answers every request whose path is /console or
     /// under /console/, before the API's routes and without their tokens
-    /// (the console checks its own sessions). Without it, those paths answer
-    /// 404 like any unknown path.
-    std::function<http::Response(const http::Request&)> console;
+    /// (the console checks its own sessions), answered through the callback,
+    /// now or later. Without it, those paths answer 404 like any unknown path.
+    std::function<void(const http::Request&, std::function<void(http::Response)>)> console;
     /// Serve as a member of the cluster configured in `directory`/cluster:
     /// the node holds the ledger's lock for as long as it runs,
     /// writes go through Raft, and followers send writers to the leader.
@@ -123,6 +123,10 @@ public:
     /// Reads run on the calling thread; writes queue for the API's writer
     /// thread, which commits whatever has queued as one group.
     void handle(http::Request request, std::string peer, Respond respond) override;
+    /// Registers a signed statement as POST /v1/statements does, for the
+    /// node's own console, which has no token: answers through `respond`.
+    /// A read-only server or a replica refuses it, as it refuses any write.
+    void submit_statement(Bytes statement, Respond respond);
     void tick() override;
     /// Answers the long polls of GET /v1/requests.
     void stopping() override;
