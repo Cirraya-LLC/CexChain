@@ -80,5 +80,8 @@
   "approve.button": "以通行密鑰批准",
   "approve.cancel": "取消",
   "approve.done_title": "完成",
-  "approve.done": "已簽署，並登記在賬本上，為第 {index} 項。"
+  "approve.done": "已簽署，並登記在賬本上，為第 {index} 項。",
+  "approve.checked_here": "已在這個瀏覽器內核實：你的通行密鑰簽署的正是這些內容。",
+  "approve.checked_by_console": "此控制台未能在瀏覽器內核實：你看到的是控制台的描述。",
+  "approve.mismatch": "控制台的回覆與它要求你簽署的內容不符。沒有簽署任何東西。"
 }

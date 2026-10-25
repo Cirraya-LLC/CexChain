@@ -217,6 +217,7 @@ http::Response Console::prepare_route(const http::Request& request) const {
                       {"summary", summary},
                       {"payload", to_base64url(*payload)},
                       {"kid", kid},
+                      {"hash", crypto::cose_id(hash)},
                       {"public_key",
                        {{"challenge", challenge},
                         {"rpId", parsed_origin->host},

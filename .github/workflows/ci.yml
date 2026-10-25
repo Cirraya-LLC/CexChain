@@ -112,7 +112,7 @@ jobs:
     name: Browser verifier (WebAssembly)
     runs-on: ubuntu-latest
     container: gcc:16-trixie
-    timeout-minutes: 40
+    timeout-minutes: 50
     defaults:
       run:
         # emsdk_env.sh finds its own directory only when sourced from bash.
@@ -125,12 +125,13 @@ jobs:
           .github/scripts/install-linux-tools.sh
           .github/scripts/install-emscripten.sh
 
-      - name: Build the native tool and the WebAssembly verifier
+      # The WebAssembly first: the native tool embeds the console's checks.
+      - name: Build the WebAssembly verifier and the console's checks, then the native tool
         run: |
-          cmake --preset gcc-debug -DCMAKE_CXX_COMPILER=g++ -DCEXCHAIN_BUILD_TESTS=OFF
+          (. /opt/emsdk/emsdk_env.sh && tools/wasm/build.sh build/wasm)
+          cmake --preset gcc-debug -DCMAKE_CXX_COMPILER=g++ -DCEXCHAIN_BUILD_TESTS=OFF \
+              -DCEXCHAIN_CONSOLE_WASM_DIR="$PWD/build/wasm"
           cmake --build --preset gcc-debug --target cexchain
-          . /opt/emsdk/emsdk_env.sh
-          tools/wasm/build.sh build/wasm
 
       - name: Test in Node.js and Chromium
         run: |

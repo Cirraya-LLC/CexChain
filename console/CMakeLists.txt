@@ -34,3 +34,31 @@ else()
 endif()
 list(TRANSFORM web_files PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 set_source_files_properties(src/console.cpp PROPERTIES OBJECT_DEPENDS "${web_files}")
+
+# The console's checks in the browser, built by tools/wasm/build.sh: embedded
+# when CEXCHAIN_CONSOLE_WASM_DIR names a directory holding them. Without them
+# the console works, and its page says that its approvals are checked by the
+# console only.
+set(CEXCHAIN_CONSOLE_WASM_DIR "" CACHE PATH
+    "Directory with cexchain-console.mjs and cexchain-console.wasm (tools/wasm/build.sh)")
+set(console_wasm OFF)
+if(CEXCHAIN_CONSOLE_WASM_DIR AND CEXCHAIN_HAVE_EMBED)
+    set(wasm_js "${CEXCHAIN_CONSOLE_WASM_DIR}/cexchain-console.mjs")
+    set(wasm_bin "${CEXCHAIN_CONSOLE_WASM_DIR}/cexchain-console.wasm")
+    if(EXISTS "${wasm_js}" AND EXISTS "${wasm_bin}")
+        configure_file("${wasm_js}" "${CMAKE_CURRENT_BINARY_DIR}/wasm/cexchain-console.mjs" COPYONLY)
+        configure_file("${wasm_bin}" "${CMAKE_CURRENT_BINARY_DIR}/wasm/cexchain-console.wasm" COPYONLY)
+        # #embed looks in --embed-dir directories, not in include directories.
+        target_compile_options(cexchain_console PRIVATE
+            "--embed-dir=${CMAKE_CURRENT_BINARY_DIR}/wasm")
+        set(console_wasm ON)
+    else()
+        message(WARNING "CEXCHAIN_CONSOLE_WASM_DIR has no cexchain-console.mjs and .wasm")
+    endif()
+endif()
+if(console_wasm)
+    target_compile_definitions(cexchain_console PRIVATE CEXCHAIN_CONSOLE_WASM=1)
+    message(STATUS "Console: with its checks in the browser (${CEXCHAIN_CONSOLE_WASM_DIR})")
+else()
+    target_compile_definitions(cexchain_console PRIVATE CEXCHAIN_CONSOLE_WASM=0)
+endif()

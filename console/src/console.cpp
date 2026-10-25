@@ -75,6 +75,16 @@ constexpr unsigned char catalog_zh_Hans_CN[] = {
 #include "zh-Hans-CN.json.inc"
 #endif
 };
+#if CEXCHAIN_CONSOLE_WASM
+// The console's checks in the browser (tools/wasm/build.sh), when the build
+// was given them.
+constexpr unsigned char console_wasm_module[] = {
+#embed "cexchain-console.mjs"
+};
+constexpr unsigned char console_wasm_binary[] = {
+#embed "cexchain-console.wasm"
+};
+#endif
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif
@@ -92,6 +102,11 @@ constexpr std::array files{
     File{"/console/i18n/en.json", "application/json; charset=utf-8", catalog_en},
     File{"/console/i18n/zh-Hant-HK.json", "application/json; charset=utf-8", catalog_zh_Hant_HK},
     File{"/console/i18n/zh-Hans-CN.json", "application/json; charset=utf-8", catalog_zh_Hans_CN},
+#if CEXCHAIN_CONSOLE_WASM
+    File{"/console/wasm/cexchain-console.mjs", "text/javascript; charset=utf-8",
+         console_wasm_module},
+    File{"/console/wasm/cexchain-console.wasm", "application/wasm", console_wasm_binary},
+#endif
 };
 
 std::string lower(std::string_view text) {

@@ -411,6 +411,57 @@ async function thingsScreen() {
          things.more ? el("p", { class: "hint", text: t("things.more") }) : null);
 }
 
+// --- The checks in this browser --------------------------------------------------
+
+/// The core, compiled to WebAssembly and served by the console, decodes what a
+/// passkey is about to approve and computes its challenge here; without it
+/// (a console built without Emscripten), the page says so.
+let checker;
+
+async function loadChecker() {
+    if (checker !== undefined) {
+        return checker;
+    }
+    try {
+        const { default: create } = await import("./wasm/cexchain-console.mjs");
+        const module = await create();
+        const call = (name, bytes, ...rest) => {
+            const pointer = module._malloc(Math.max(bytes.length, 1));
+            module.HEAPU8.set(bytes, pointer);
+            const pointers = [pointer];
+            const args = rest.map((r) => {
+                if (r instanceof Uint8Array) {
+                    const p = module._malloc(Math.max(r.length, 1));
+                    module.HEAPU8.set(r, p);
+                    pointers.push(p);
+                    return [p, r.length];
+                }
+                return [r];
+            }).flat();
+            const out = module[name](pointer, bytes.length, ...args);
+            const text = module.UTF8ToString(out);
+            module._cexchain_free(out);
+            pointers.forEach((p) => module._free(p));
+            return JSON.parse(text);
+        };
+        checker = {
+            describe: (payload) => call("_cexchain_describe_payload", payload),
+            challenge: (payload, kid, hash) =>
+                call("_cexchain_presence_challenge", payload, kid, hash),
+        };
+    } catch {
+        checker = null;
+    }
+    return checker;
+}
+
+/// What the page decoded itself agrees with what the console described.
+function agrees(decoded, summary) {
+    return decoded.ok && decoded.type === summary.type && decoded.record === summary.record &&
+           (decoded.role ?? null) === (summary.role ?? null) &&
+           (decoded.reason ?? null) === (summary.reason ?? null);
+}
+
 // --- Acting, approved with a passkey ---------------------------------------------
 
 /// Back to the list (the address is still #/things, so a link would not move).
@@ -443,7 +494,7 @@ function actScreen(record) {
             ? { action: "record.endorse", record: record.id, role: role.value.trim() }
             : { action: "record.revoke", record: record.id, reason: reason.value.trim() };
         try {
-            approveScreen(await api("POST", "prepare", intent));
+            await approveScreen(await api("POST", "prepare", intent));
         } catch (error) {
             notice.replaceChildren(problem(error.status === 423 ? t("keys.locked")
                                                                 : passkeyProblem(error)));
@@ -453,9 +504,26 @@ function actScreen(record) {
          el("p", { class: "id", text: `${record.type} ${record.id}` }), form);
 }
 
-/// What the person approves, as the console prepared it, then the tap.
-function approveScreen(prepared) {
+/// What the person approves, as the console prepared it and this page
+/// decoded it, then the tap.
+async function approveScreen(prepared) {
     const summary = prepared.summary;
+    const check = await loadChecker();
+    let challenge = prepared.public_key.challenge;
+    let checkedHere = false;
+    if (check) {
+        const payload = new Uint8Array(fromBase64url(prepared.payload));
+        const decoded = check.describe(payload);
+        const own = check.challenge(payload, new Uint8Array(fromBase64url(prepared.kid)),
+                                    prepared.hash);
+        if (!agrees(decoded, summary) || !own.ok || own.challenge !== challenge) {
+            show(el("h1", { text: t("approve.title") }), problem(t("approve.mismatch")),
+                 backButton(t("nav.things")));
+            return;
+        }
+        challenge = own.challenge;
+        checkedHere = true;
+    }
     const facts = el("dl", { class: "facts" });
     const fact = (key, value) => {
         if (value !== undefined && value !== null) {
@@ -476,7 +544,7 @@ function approveScreen(prepared) {
             const options = prepared.public_key;
             const credential = await navigator.credentials.get({
                 publicKey: {
-                    challenge: fromBase64url(options.challenge),
+                    challenge: fromBase64url(challenge),
                     rpId: options.rpId,
                     allowCredentials: options.allowCredentials.map((c) => ({
                         type: c.type, id: fromBase64url(c.id),
@@ -503,6 +571,8 @@ function approveScreen(prepared) {
         }
     });
     show(el("h1", { text: t("approve.title") }), el("p", { text: t("approve.intro") }), facts,
+         el("p", { class: "hint", text: t(checkedHere ? "approve.checked_here"
+                                                      : "approve.checked_by_console") }),
          notice, button, " ", backButton(t("approve.cancel")));
 }
 

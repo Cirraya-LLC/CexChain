@@ -153,9 +153,29 @@ async function waitRunning() {
     await page.getByRole("button", { name: "Prepare" }).click();
     await page.getByText("Endorse a record").waitFor();
     await page.getByText("reviewed").waitFor();
+    // The page decoded the bytes and computed their challenge itself.
+    await page.getByText("Checked in this browser").waitFor();
     await page.getByRole("button", { name: "Approve with your passkey" }).click();
     await page.getByRole("heading", { name: "Done" }).waitFor();
-    const shown = JSON.parse(run("record", "show", record, "--json"));
+    let shown = JSON.parse(run("record", "show", record, "--json"));
+    assert.deepEqual(shown.endorsements.map((e) => e.role), ["reviewed"]);
+
+    // A console answer that describes something else than what it would have
+    // signed: the page notices, and nothing is signed.
+    await page.route("**/console/api/prepare", async (route) => {
+      const response = await route.fetch();
+      const answer = await response.json();
+      answer.summary.role = "something else";
+      await route.fulfill({ response, json: answer });
+    });
+    await page.getByRole("button", { name: "Things" }).click();
+    await page.getByRole("button", { name: "Act on this example.document/1 record" }).click();
+    await page.getByLabel("Role of the endorsement").fill("tampered");
+    await page.getByRole("button", { name: "Prepare" }).click();
+    await page.getByText("does not match what it asked you to sign").waitFor();
+    assert.equal(await page.getByRole("button", { name: "Approve with your passkey" }).count(), 0);
+    await page.unroute("**/console/api/prepare");
+    shown = JSON.parse(run("record", "show", record, "--json"));
     assert.deepEqual(shown.endorsements.map((e) => e.role), ["reviewed"]);
 
     // Anyone verifying the evidence sees Alice was present, verified, on this console.

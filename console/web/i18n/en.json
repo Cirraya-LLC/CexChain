@@ -80,5 +80,8 @@
   "approve.button": "Approve with your passkey",
   "approve.cancel": "Cancel",
   "approve.done_title": "Done",
-  "approve.done": "Signed and registered on the ledger as entry {index}."
+  "approve.done": "Signed and registered on the ledger as entry {index}.",
+  "approve.checked_here": "Checked in this browser: these are the bytes your passkey signs.",
+  "approve.checked_by_console": "This console has no check in the browser: what you see is the console's description.",
+  "approve.mismatch": "The console's answer does not match what it asked you to sign. Nothing was signed."
 }

@@ -4,7 +4,8 @@
 #
 # Builds the browser verifier with Emscripten. Usage: build.sh [BUILD_DIR]
 # Produces BUILD_DIR/cexchain-verify.html (self-contained: open it from disk or
-# host it anywhere) and BUILD_DIR/cexchain-verifier.js (the module, for Node.js).
+# host it anywhere), BUILD_DIR/cexchain-verifier.js (the module, for Node.js),
+# and the web console's checks, BUILD_DIR/cexchain-console.mjs and .wasm.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -25,4 +26,6 @@ emcmake cmake -S "$ROOT" -B "$BUILD/cmake" -G Ninja \
     -DCMAKE_EXE_LINKER_FLAGS="-fwasm-exceptions" > /dev/null
 cmake --build "$BUILD/cmake"
 cp "$BUILD/cmake/verifier/wasm/cexchain-verify.html" "$BUILD/cmake/verifier/wasm/cexchain-verifier.js" "$BUILD/"
+# The console's checks, for a native build: -DCEXCHAIN_CONSOLE_WASM_DIR="$BUILD".
+cp "$BUILD/cmake/verifier/wasm/cexchain-console.mjs" "$BUILD/cmake/verifier/wasm/cexchain-console.wasm" "$BUILD/"
 ls -l "$BUILD/cexchain-verify.html"
