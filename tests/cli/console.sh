@@ -257,6 +257,32 @@ run console settings set --language browser --backup-folder none > /dev/null
 run console settings set --help > out.txt
 grep -q -- "--backup-folder DIR" out.txt || fail "console settings set --help"
 
+# --- Document kinds ---------------------------------------------------------------
+cat > photo-kind.json << 'JSON'
+{"sheet": 1, "kind": "document", "type": "example.org.photo/1", "name": "Photo",
+ "fields": [{"name": "place", "label": "Place", "required": true},
+            {"name": "taken", "type": "date"}],
+ "files": "required"}
+JSON
+run console kind list > out.txt
+grep -q "no kinds" out.txt || fail "no kinds at first"
+run console kind add photo-kind.json > out.txt
+grep -q "added the kind Photo (example.org.photo/1)" out.txt || fail "console kind add"
+expect_exit 2 console kind add photo-kind.json
+grep -q -- "--replace" out.txt || fail "a second add"
+run console kind add photo-kind.json --replace > /dev/null
+[ "$(run console kind list --json | json 'd[0]["fields"][1]["type"]')" = date ] || fail "kind list --json"
+run console kind show example.org.photo/1 > out.txt
+grep -q "field taken .* date .* private" out.txt || fail "console kind show"
+printf '{"sheet": 1, "kind": "document", "type": "x/1", "name": "X", "fields": []}' > bad-kind.json
+expect_exit 1 console kind add bad-kind.json
+grep -q "1 to 32 fields" out.txt || fail "a bad kind sheet"
+run console kind remove example.org.photo/1 > out.txt
+grep -q "its records stay on the ledger" out.txt || fail "console kind remove"
+expect_exit 2 console kind show example.org.photo/1
+run console kind add --help > out.txt
+grep -q '"sheet": 1' out.txt || fail "console kind add --help"
+
 # --- console setup: the first run, for scripts -------------------------------------
 # A passkey's credential file, as presence enroll writes one: a CBOR map of its
 # relying party, its credential id, and its public key.
@@ -286,6 +312,9 @@ KEYS=$(run console key list --ledger "$SCRIPTED" --json)
     fail "setup seals the root, log, and owner keys"
 [ "$(echo "$KEYS" | json 'sorted(s["kind"] for s in d["slots"])')" = "['passphrase', 'recovery']" ] ||
     fail "setup's slots"
+[ "$(echo "$KEYS" | json 'd["vault_key"]')" = True ] || fail "setup seals a vault key"
+[ -f "$SCRIPTED/vault/vault.pub" ] && [ ! -f "$SCRIPTED/vault/vault.key" ] ||
+    fail "the vault's private key only sealed"
 USERS=$(run console user list --ledger "$SCRIPTED" --json)
 [ "$(echo "$USERS" | json 'd["users"][0]["role"]')" = owner ] || fail "setup's owner"
 run delegation list --ledger "$SCRIPTED" --json > out.txt
@@ -372,6 +401,11 @@ mkdir "$QUICK"
     run console key init --unlock-file "$WORK/unlock.txt" > /dev/null
     run console key import log log.key > /dev/null
     run console key import alice alice.key > /dev/null
+    run console key import vault ledger/vault/vault.key | grep -q "vault key" ||
+        fail "console key import vault"
+    run console key list --json | python3 -c 'import json,sys; assert json.load(sys.stdin)["vault_key"]'
+    run key generate --out other.key > /dev/null
+    if run console key import vault other.key > /dev/null 2>&1; then fail "another key as the vault key"; fi
     run token create reader --scope read --out "$WORK/quick.token" > /dev/null
 )
 start_console "$QUICK/ledger" --unlock-file unlock.txt

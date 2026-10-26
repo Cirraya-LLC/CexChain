@@ -21,7 +21,7 @@
 /// passkey tap per statement.
 namespace cexchain::console {
 
-/// The sealed keys' names.
+/// The sealed keys' names (and the vault key, sealed apart: KeyStore).
 inline constexpr std::string_view root_key_name = "root";
 inline constexpr std::string_view log_key_name = "log";
 inline constexpr std::string_view owner_key_name = "owner";

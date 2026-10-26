@@ -15,10 +15,12 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
+#include <cexchain/app/records.hpp>
 #include <cexchain/app/session.hpp>
 #include <cexchain/app/support.hpp>
 #include <cexchain/console/console.hpp>
 #include <cexchain/console/keystore.hpp>
+#include <cexchain/console/kinds.hpp>
 #include <cexchain/console/sessions.hpp>
 #include <cexchain/console/settings.hpp>
 #include <cexchain/console/setup.hpp>
@@ -942,6 +944,13 @@ TEST_CASE("the first run makes the ledger, its keys, and its owner", "[console][
     }
     std::ranges::sort(sealed);
     CHECK(sealed == std::vector<std::string>{"log", "owner", "root"});
+    // The vault: its public key on disk, its private key sealed in the console.
+    const auto vault_public = cexchain::app::decode_vault_public_key(
+        cexchain::app::read_file(f.w.dir.path / "vault" / "vault.pub"));
+    REQUIRE(vault_public);
+    CHECK(f.w.keys.vault_public_key() == vault_public);
+    CHECK(std::ranges::equal(f.w.keys.open_vault_key().public_key(), *vault_public));
+    CHECK_FALSE(std::filesystem::exists(f.w.dir.path / "vault" / "vault.key"));
 
     // The code unlocks the keys; nothing sets the console up twice.
     f.w.keys.lock();
@@ -1157,4 +1166,85 @@ TEST_CASE("after the first run, the owner approves with the passkey", "[console]
     const auto* r = served.session.ledger().state().record(record);
     REQUIRE(r->endorsements.size() == 1);
     CHECK(r->endorsements[0].role == "reviewed");
+}
+
+TEST_CASE("a document kind's sheet", "[console][kinds]") {
+    const nlohmann::json photo{{"sheet", 1},
+                               {"kind", "document"},
+                               {"type", "example.org.photo/1"},
+                               {"name", "Photo"},
+                               {"fields",
+                                {{{"name", "place"}, {"type", "text"}, {"required", true}},
+                                 {{"name", "taken"}, {"type", "date"}},
+                                 {{"name", "caption"}, {"private", false}}}},
+                               {"files", "required"}};
+    const console::Kind kind = console::parse_kind(photo);
+    CHECK(kind.type == "example.org.photo/1");
+    REQUIRE(kind.fields.size() == 3);
+    CHECK(kind.fields[0].is_private);
+    CHECK(kind.fields[0].required);
+    CHECK(kind.fields[1].type == console::FieldType::date);
+    CHECK_FALSE(kind.fields[2].is_private);
+    CHECK(kind.files == console::KindFiles::required);
+    CHECK(kind.keep_files);
+    CHECK(console::parse_kind(console::kind_json(kind)).fields.size() == 3);
+
+    auto with = [&](const std::string& key, nlohmann::json value) {
+        nlohmann::json sheet = photo;
+        sheet[key] = std::move(value);
+        return sheet;
+    };
+    CHECK_THROWS_AS(console::parse_kind(with("sheet", 2)), std::invalid_argument);
+    CHECK_THROWS_AS(console::parse_kind(with("kind", "thing")), std::invalid_argument);
+    CHECK_THROWS_AS(console::parse_kind(with("type", "cexchain.access-request/1")),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(console::parse_kind(with("type", "a\nb")), std::invalid_argument);
+    CHECK_THROWS_AS(console::parse_kind(with("fields", nlohmann::json::array())),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(console::parse_kind(with("fields", {{{"name", "a"}}, {{"name", "a"}}})),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(console::parse_kind(with("fields", {{{"name", "a"}, {"private", false}}})),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(console::parse_kind(with("fields", {{{"name", "a"}, {"type", "colour"}}})),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(console::parse_kind(with("files", "many")), std::invalid_argument);
+
+    const console::KindField date{"taken", "", console::FieldType::date, true, false};
+    CHECK_FALSE(console::check_value(date, "2026-10-16"));
+    CHECK(console::check_value(date, "16/10/2026"));
+    CHECK(console::check_value(date, "2026-13-01"));
+    const console::KindField number{"n", "", console::FieldType::number, true, false};
+    CHECK_FALSE(console::check_value(number, "-3.5"));
+    CHECK(console::check_value(number, "3."));
+    CHECK(console::check_value(number, "1e9"));
+    const console::KindField yes{"y", "", console::FieldType::yes_no, true, false};
+    CHECK_FALSE(console::check_value(yes, "no"));
+    CHECK(console::check_value(yes, "maybe"));
+}
+
+TEST_CASE("the console's kinds route", "[console][kinds]") {
+    ConsoleWorld w;
+    const std::string owner = w.session_for("Olive", console::Role::owner);
+    const std::string member = w.session_for("Mia", console::Role::member);
+    const nlohmann::json sheet{{"sheet", 1},
+                               {"kind", "document"},
+                               {"type", "example.org.photo/1"},
+                               {"name", "Photo"},
+                               {"fields", {{{"name", "place"}}}}};
+    CHECK(w.post_as("/console/api/kinds", sheet, member).status == 403);
+    REQUIRE(w.post_as("/console/api/kinds", sheet, owner).status == 200);
+    nlohmann::json renamed = sheet;
+    renamed["name"] = "Picture";
+    REQUIRE(w.post_as("/console/api/kinds", renamed, owner).status == 200);
+    const auto listed = nlohmann::json::parse(body(w.get("/console/api/kinds", member)));
+    REQUIRE(listed["kinds"].size() == 1);
+    CHECK(listed["kinds"][0]["name"] == "Picture");
+    CHECK(listed["may_change"] == false);
+    nlohmann::json broken = sheet;
+    broken["files"] = "many";
+    CHECK(w.post_as("/console/api/kinds", broken, owner).status == 400);
+    CHECK(w.post_as("/console/api/kinds", {{"remove", "nothing/1"}}, owner).status == 404);
+    REQUIRE(w.post_as("/console/api/kinds", {{"remove", "example.org.photo/1"}}, owner).status ==
+            200);
+    CHECK(console::load_kinds(w.state).empty());
 }

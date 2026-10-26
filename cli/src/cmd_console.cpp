@@ -25,6 +25,7 @@
 #include <cexchain/app/support.hpp>
 #include <cexchain/console/deferred.hpp>
 #include <cexchain/console/keystore.hpp>
+#include <cexchain/console/kinds.hpp>
 #include <cexchain/console/sessions.hpp>
 #include <cexchain/console/settings.hpp>
 #include <cexchain/console/setup.hpp>
@@ -37,6 +38,7 @@
 
 #include "commands.hpp"
 #include "output.hpp"
+#include "records.hpp"
 #include "support.hpp"
 
 // POSIX: the process's environment, for the browser it opens.
@@ -788,6 +790,24 @@ int cmd_console_key_import(const Args& args) {
     if (!store.initialized()) {
         throw CommandError{"the console's keys are not set up (console key init)"};
     }
+    if (name == "vault") {
+        // The ledger's vault key: it opens records' private data and kept files.
+        auto vault = load_hpke_key(args.positional()[1], args);
+        const std::filesystem::path pub = dir / "vault" / "vault.pub";
+        const auto expected =
+            std::filesystem::exists(pub) ? decode_vault_public_key(read_file(pub)) : std::nullopt;
+        if (!expected || !std::ranges::equal(*expected, vault.public_key())) {
+            throw CommandError{"this is not the ledger's vault key"};
+        }
+        store.seal_vault_key(vault);
+        if (args.json()) {
+            print_json({{"imported", "vault"}, {"algorithm", "x25519"}});
+        } else {
+            std::println("sealed the ledger's vault key in the console; the file itself is "
+                         "unchanged");
+        }
+        return exit_ok;
+    }
     const auto key = load_key(args.positional()[1], args);
     store.seal(name, key);
     if (args.json()) {
@@ -818,7 +838,10 @@ int cmd_console_key_list(const Args& args) {
         for (const auto& k : keys) {
             list.push_back({{"name", k.name}, {"public_key", app::public_key_json(k.public_key)}});
         }
-        print_json({{"set_up", store.initialized()}, {"slots", slots}, {"keys", list}});
+        print_json({{"set_up", store.initialized()},
+                    {"slots", slots},
+                    {"keys", list},
+                    {"vault_key", store.vault_public_key().has_value()}});
         return exit_ok;
     }
     if (!store.initialized()) {
@@ -835,6 +858,9 @@ int cmd_console_key_list(const Args& args) {
     for (const auto& k : keys) {
         std::println("key: {:<24} {}", k.name, crypto::name(k.public_key.algorithm));
     }
+    if (store.vault_public_key()) {
+        std::println("key: {:<24} {}", "vault", "X25519 (the ledger's vault key)");
+    }
     return exit_ok;
 }
 
@@ -843,7 +869,7 @@ int cmd_console_key_remove(const Args& args) {
     require_ledger_directory(dir);
     const std::string name = args.positional().front();
     console::KeyStore store(console::state_directory(dir));
-    if (!store.remove_key(name)) {
+    if (name == "vault" ? !store.remove_vault_key() : !store.remove_key(name)) {
         throw CommandError{"the console holds no key named " + name};
     }
     if (args.json()) {
@@ -1021,6 +1047,136 @@ int cmd_console_settings_set(const Args& args) {
     }
     console::save_settings(state, settings);
     print_settings(args, settings);
+    return exit_ok;
+}
+
+namespace {
+
+/// A kind sheet in the command line's JSON (keys in the sheet's order).
+Json kind_value(const console::Kind& kind) {
+    return Json::parse(console::kind_json(kind).dump());
+}
+
+std::vector<console::Kind> read_kinds(const std::filesystem::path& state) {
+    try {
+        return console::load_kinds(state);
+    } catch (const std::runtime_error& e) {
+        throw CommandError{e.what()};
+    }
+}
+
+void print_kind(const console::Kind& kind) {
+    std::println("{} ({})", kind.name, kind.type);
+    if (!kind.description.empty()) {
+        std::println("  {}", kind.description);
+    }
+    for (const console::KindField& f : kind.fields) {
+        std::println("  field {:<24} {:<8} {}{}", f.name, console::name_of(f.type),
+                     f.is_private ? "private" : "public", f.required ? ", required" : "");
+    }
+    std::println(
+        "  files: {}{}",
+        kind.files == console::KindFiles::none       ? "none"
+        : kind.files == console::KindFiles::required ? "required"
+                                                     : "optional",
+        kind.files != console::KindFiles::none && kind.keep_files ? ", kept with the record" : "");
+}
+
+} // namespace
+
+int cmd_console_kind_add(const Args& args) {
+    const std::filesystem::path dir = args.ledger();
+    require_ledger_directory(dir);
+    const std::string file = args.positional().front();
+    const Bytes bytes = read_file(file);
+    const auto sheet = Json::parse(bytes.begin(), bytes.end(), nullptr, false);
+    console::Kind kind;
+    try {
+        kind = console::parse_kind(sheet);
+    } catch (const std::invalid_argument& e) {
+        throw UsageError{file + ": " + e.what()};
+    }
+    const std::filesystem::path state = console::state_directory(dir);
+    std::filesystem::create_directories(state);
+    const auto lock = unwrap(ledger::DirectoryLock::acquire(state), "locking the console's kinds");
+    std::vector<console::Kind> kinds = read_kinds(state);
+    const auto same = std::ranges::find(kinds, kind.type, &console::Kind::type);
+    const bool replaced = same != kinds.end();
+    if (replaced && !args.has("replace")) {
+        throw CommandError{"a kind of type " + kind.type + " exists (--replace replaces it)"};
+    }
+    if (replaced) {
+        *same = kind;
+    } else {
+        kinds.push_back(kind);
+    }
+    try {
+        console::save_kinds(state, kinds);
+    } catch (const std::invalid_argument& e) {
+        throw CommandError{e.what()};
+    }
+    if (args.json()) {
+        print_json(kind_value(kind));
+    } else {
+        std::println("{} the kind {} ({})", replaced ? "replaced" : "added", kind.name, kind.type);
+    }
+    return exit_ok;
+}
+
+int cmd_console_kind_list(const Args& args) {
+    const std::filesystem::path dir = args.ledger();
+    require_ledger_directory(dir);
+    const auto kinds = read_kinds(console::state_directory(dir));
+    if (args.json()) {
+        Json list = Json::array();
+        for (const auto& k : kinds) {
+            list.push_back(kind_value(k));
+        }
+        print_json(list);
+        return exit_ok;
+    }
+    if (kinds.empty()) {
+        std::println("no kinds (console kind add FILE)");
+    }
+    for (const auto& k : kinds) {
+        std::println("{:<32} {} ({} fields)", k.type, k.name, k.fields.size());
+    }
+    return exit_ok;
+}
+
+int cmd_console_kind_show(const Args& args) {
+    const std::filesystem::path dir = args.ledger();
+    require_ledger_directory(dir);
+    const auto kinds = read_kinds(console::state_directory(dir));
+    const auto found = std::ranges::find(kinds, args.positional().front(), &console::Kind::type);
+    if (found == kinds.end()) {
+        throw CommandError{"no kind of type " + args.positional().front()};
+    }
+    if (args.json()) {
+        print_json(kind_value(*found));
+    } else {
+        print_kind(*found);
+    }
+    return exit_ok;
+}
+
+int cmd_console_kind_remove(const Args& args) {
+    const std::filesystem::path dir = args.ledger();
+    require_ledger_directory(dir);
+    const std::filesystem::path state = console::state_directory(dir);
+    const std::string type = args.positional().front();
+    std::filesystem::create_directories(state);
+    const auto lock = unwrap(ledger::DirectoryLock::acquire(state), "locking the console's kinds");
+    std::vector<console::Kind> kinds = read_kinds(state);
+    if (std::erase_if(kinds, [&](const console::Kind& k) { return k.type == type; }) == 0) {
+        throw CommandError{"no kind of type " + type};
+    }
+    console::save_kinds(state, kinds);
+    if (args.json()) {
+        print_json({{"removed", type}});
+    } else {
+        std::println("removed the kind {}; its records stay on the ledger", type);
+    }
     return exit_ok;
 }
 

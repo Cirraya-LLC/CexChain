@@ -336,6 +336,10 @@ http::Response Console::route(const http::Request& request) const {
                           {"language", settings.language ? nlohmann::json(*settings.language)
                                                          : nlohmann::json()}});
     }
+    if (request.path == "/console/api/kinds") {
+        return ready() ? kinds_route(request)
+                       : error(503, "unavailable", "this console keeps no users or sessions");
+    }
     if (request.path == "/console/api/settings") {
         return ready() ? settings_route(request)
                        : error(503, "unavailable", "this console keeps no users or sessions");

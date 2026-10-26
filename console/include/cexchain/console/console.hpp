@@ -178,6 +178,7 @@ private:
     [[nodiscard]] http::Response home_route(const Signed& who) const;
     [[nodiscard]] http::Response things_route(const http::Request& request) const;
     [[nodiscard]] http::Response settings_route(const http::Request& request) const;
+    [[nodiscard]] http::Response kinds_route(const http::Request& request) const;
     [[nodiscard]] nlohmann::json settings_view(Role role) const;
     [[nodiscard]] http::Response enroll_begin(const http::Request& request) const;
     [[nodiscard]] http::Response enroll_finish(const http::Request& request) const;

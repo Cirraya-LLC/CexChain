@@ -86,6 +86,15 @@ public:
     /// Opens a sealed key. Needs the store unlocked.
     [[nodiscard]] crypto::openssl::KeyPair open(std::string_view name) const;
 
+    /// The ledger's vault key (an X25519 HPKE key, which opens records'
+    /// private data and kept files), sealed the same way as `vault.sealed`.
+    void seal_vault_key(const crypto::openssl::HpkeKey& key) const;
+    /// Its public key, if the console holds it.
+    [[nodiscard]] std::optional<Bytes> vault_public_key() const;
+    /// Opens it. Needs the store unlocked.
+    [[nodiscard]] crypto::openssl::HpkeKey open_vault_key() const;
+    bool remove_vault_key() const;
+
 private:
     [[nodiscard]] std::filesystem::path slot_file(const Slot& slot) const;
 

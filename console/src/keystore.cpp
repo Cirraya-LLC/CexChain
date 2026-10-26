@@ -314,4 +314,79 @@ crypto::openssl::KeyPair KeyStore::open(std::string_view name) const {
     return std::move(*key);
 }
 
+namespace {
+
+constexpr std::string_view vault_file = "vault.sealed";
+/// The sealed vault key's name, as its associated data: no other sealed
+/// key's file opens as it.
+constexpr std::string_view vault_aad = "vault key";
+
+} // namespace
+
+void KeyStore::seal_vault_key(const crypto::openssl::HpkeKey& key) const {
+    const auto public_text = app::read_file(directory_ / node_public_file);
+    std::string encoded = text_of(public_text);
+    encoded = encoded.substr(0, encoded.find('\n'));
+    const auto node_public = from_base64url(encoded);
+    const auto pkcs8 = key.to_pkcs8();
+    if (!node_public || !pkcs8) {
+        throw std::runtime_error("the console's node key or the vault key cannot be read");
+    }
+    const auto sealed = crypto::openssl::hpke_seal(*node_public, as_bytes(sealed_info),
+                                                   as_bytes(vault_aad), pkcs8->view());
+    if (!sealed) {
+        throw std::runtime_error("sealing the vault key failed");
+    }
+    const nlohmann::json file{{"name", "vault"},
+                              {"algorithm", "x25519"},
+                              {"public_key", to_base64url(key.public_key())},
+                              {"enc", to_base64url(sealed->encapsulated_key)},
+                              {"ciphertext", to_base64url(sealed->ciphertext)}};
+    const std::string text = file.dump(2) + "\n";
+    app::write_file(directory_ / vault_file, as_bytes(text), true);
+}
+
+std::optional<Bytes> KeyStore::vault_public_key() const {
+    const std::filesystem::path file = directory_ / vault_file;
+    if (!std::filesystem::exists(file)) {
+        return std::nullopt;
+    }
+    const Bytes bytes = app::read_file(file);
+    const auto j = nlohmann::json::parse(bytes.begin(), bytes.end(), nullptr, false);
+    if (!j.is_object()) {
+        throw std::runtime_error("the console's sealed vault key is damaged");
+    }
+    return decoded(j, "public_key");
+}
+
+crypto::openssl::HpkeKey KeyStore::open_vault_key() const {
+    const std::filesystem::path file = directory_ / vault_file;
+    if (!std::filesystem::exists(file)) {
+        throw std::invalid_argument("the console holds no vault key (console key import vault)");
+    }
+    const Bytes bytes = app::read_file(file);
+    const auto j = nlohmann::json::parse(bytes.begin(), bytes.end(), nullptr, false);
+    if (!j.is_object()) {
+        throw std::runtime_error("the console's sealed vault key is damaged");
+    }
+    const crypto::openssl::HpkeSealed sealed{decoded(j, "enc"), decoded(j, "ciphertext")};
+    const std::lock_guard lock(mutex_);
+    if (!node_) {
+        throw std::runtime_error("the console is locked");
+    }
+    const auto pkcs8 = node_->open(sealed, as_bytes(sealed_info), as_bytes(vault_aad));
+    if (!pkcs8) {
+        throw std::runtime_error("the vault key does not open");
+    }
+    auto key = crypto::openssl::HpkeKey::from_pkcs8(pkcs8->view());
+    if (!key) {
+        throw std::runtime_error("the vault key is damaged");
+    }
+    return std::move(*key);
+}
+
+bool KeyStore::remove_vault_key() const {
+    return std::filesystem::remove(directory_ / vault_file);
+}
+
 } // namespace cexchain::console

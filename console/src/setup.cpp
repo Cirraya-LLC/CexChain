@@ -8,6 +8,7 @@
 #include <system_error>
 #include <utility>
 
+#include <cexchain/app/records.hpp>
 #include <cexchain/app/session.hpp>
 #include <cexchain/app/support.hpp>
 #include <cexchain/console/sessions.hpp>
@@ -95,7 +96,8 @@ FirstRun make_first_run(const SetUp& request, KeyStore& keys, ledger::Entropy& e
     auto root = crypto::openssl::KeyPair::generate(crypto::SigAlg::ed25519);
     auto log = crypto::openssl::KeyPair::generate(crypto::SigAlg::ed25519);
     auto owner = crypto::openssl::KeyPair::generate(crypto::SigAlg::ed25519);
-    if (!root || !log || !owner) {
+    auto vault = crypto::openssl::HpkeKey::generate();
+    if (!root || !log || !owner || !vault) {
         throw std::runtime_error("making the ledger's keys failed");
     }
     FirstRun out;
@@ -109,10 +111,16 @@ FirstRun make_first_run(const SetUp& request, KeyStore& keys, ledger::Entropy& e
     keys.seal(root_key_name, *root);
     keys.seal(log_key_name, *log);
     keys.seal(owner_key_name, *owner);
+    keys.seal_vault_key(*vault);
 
     std::filesystem::create_directories(request.ledger);
     app::create_ledger(request.ledger, *root, log->public_key(), crypto::HashAlg::sha256,
                        request.name);
+    // The vault: its public key for whoever registers records, its private
+    // key sealed in the console only.
+    std::filesystem::create_directories(request.ledger / "vault" / "records");
+    app::write_file(request.ledger / "vault" / "vault.pub",
+                    app::encode_vault_public_key(vault->public_key()), false);
     {
         // The root key's three statements, then it leaves memory with `root`.
         app::Session session(app::Location{request.ledger});

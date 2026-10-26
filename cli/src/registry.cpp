@@ -1126,7 +1126,9 @@ std::vector<CommandSpec> build() {
          with({ledger_option, passphrase_file_option}),
          cmd_console_key_import,
          "Reads the private key FILE (asking its passphrase if it is encrypted) and seals it\n"
-         "to the console's node key as NAME. The file is left as it is."},
+         "to the console's node key as NAME. The file is left as it is. NAME vault takes the\n"
+         "ledger's vault key (vault/vault.key), which opens records' private data and kept\n"
+         "files in the console."},
         {{"console", "key", "list"},
          "List the web console's sealed keys and its unlock slots",
          "Console",
@@ -1158,6 +1160,45 @@ std::vector<CommandSpec> build() {
          "What the console's first run does, for scripts: makes the console's keys (sealed),\n"
          "the ledger, and its owner, who acts in person with the passkey given, and prints the\n"
          "recovery code once. The directory must hold no ledger yet."},
+        {{"console", "kind", "add"},
+         "Add a document kind to the web console",
+         "Console",
+         "FILE",
+         1,
+         1,
+         with({ledger_option, {"replace", "", "Replace the kind of the same type"}}),
+         cmd_console_kind_add,
+         "FILE is a kind sheet (JSON): {\"sheet\": 1, \"kind\": \"document\", \"type\": TYPE,\n"
+         "\"name\": NAME, \"fields\": [{\"name\", \"label\", \"type\": text|number|date|yes-no,\n"
+         "\"private\", \"required\"}, ...], \"files\": optional|required|none, \"keep_files\"}.\n"
+         "A kind is the console's form for registering records of TYPE: private fields are\n"
+         "committed by salted hash, public ones go into the record's metadata. Kinds are not\n"
+         "part of the ledger."},
+        {{"console", "kind", "list"},
+         "List the web console's document kinds",
+         "Console",
+         "",
+         0,
+         0,
+         with({ledger_option}),
+         cmd_console_kind_list},
+        {{"console", "kind", "show"},
+         "Show a document kind of the web console",
+         "Console",
+         "TYPE",
+         1,
+         1,
+         with({ledger_option}),
+         cmd_console_kind_show},
+        {{"console", "kind", "remove"},
+         "Remove a document kind from the web console",
+         "Console",
+         "TYPE",
+         1,
+         1,
+         with({ledger_option}),
+         cmd_console_kind_remove,
+         "Its records stay on the ledger; only the console's form goes."},
         {{"console", "settings", "show"},
          "Show the web console's settings",
          "Console",
