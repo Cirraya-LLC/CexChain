@@ -2,12 +2,16 @@
 // Copyright 2026 Cirraya
 
 #include <algorithm>
+#include <array>
 #include <format>
 #include <string>
+#include <variant>
+#include <vector>
 
 #include <cexchain/app/records.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/crypto/openssl.hpp>
+#include <cexchain/node/record_files.hpp>
 
 namespace cexchain::app {
 
@@ -277,6 +281,17 @@ Vault read_vault(const Session& session, const protocol::Id& record,
     return load_vault(session, record, nullptr);
 }
 
+Vault read_vault(const Session& session, const protocol::Id& record,
+                 const crypto::openssl::HpkeKey& key) {
+    if (session.remote()) {
+        session.fetch_vault_public_key();
+        if (!session.fetch_vault(record)) {
+            throw ActionError{"the server holds no private data for the record"};
+        }
+    }
+    return load_vault(session, record, &key);
+}
+
 protocol::Id issue_record(Session& session, const crypto::Signer& signer,
                           const IssueRequest& request) {
     ledger::SystemEntropy entropy;
@@ -296,8 +311,14 @@ protocol::Id issue_record(Session& session, const crypto::Signer& signer,
     body.record_type = request.record_type;
     body.field_root = Bytes(commitment.root.bytes().begin(), commitment.root.bytes().end());
     body.field_count = commitment.leaves.size();
+    std::vector<Bytes> kept;
     for (const std::filesystem::path& path : request.attachments) {
         const Bytes content = read_file(path);
+        if (request.keep_files && content.size() > node::max_record_file) {
+            throw UsageError{path.string() +
+                             " is larger than a kept file may be (16 MiB): attach it without "
+                             "keeping it"};
+        }
         const VaultAttachment attachment{path.filename().string(), entropy.bytes<16>()};
         const auto digest =
             unwrap(protocol::attachment_commitment(session.provider(), session.state().hash(),
@@ -306,6 +327,9 @@ protocol::Id issue_record(Session& session, const crypto::Signer& signer,
         body.attachments.push_back({attachment.name, media_type_for(path), content.size(),
                                     Bytes(digest.bytes().begin(), digest.bytes().end())});
         vault.attachments.push_back(attachment);
+        if (request.keep_files) {
+            kept.push_back(content);
+        }
     }
     if (request.metadata_value) {
         body.metadata = request.metadata_value;
@@ -319,11 +343,195 @@ protocol::Id issue_record(Session& session, const crypto::Signer& signer,
     // Sealed once the record's id is known, and kept with it (sent along in
     // client mode).
     const Bytes vault_key = vault_public_key(session);
-    return session.submit(signer, body, request.delegation, request.provenance, request.presence,
-                          [&](const protocol::Id& record) {
-                              return seal_vault(session.state().ledger_id(), record, vault,
-                                                vault_key);
-                          });
+    const protocol::Id ledger = session.state().ledger_id();
+    SealFiles seal_files;
+    if (request.keep_files) {
+        seal_files = [&](const protocol::Id& record) {
+            std::vector<node::SealedFile> files;
+            for (std::size_t i = 0; i < kept.size(); ++i) {
+                files.push_back({i, seal_record_file(ledger, record, body.attachments[i].name,
+                                                     kept[i], vault_key)});
+            }
+            return files;
+        };
+    }
+    return session.submit(
+        signer, body, request.delegation, request.provenance, request.presence,
+        [&](const protocol::Id& record) { return seal_vault(ledger, record, vault, vault_key); },
+        {}, seal_files);
+}
+
+namespace {
+
+Bytes record_file_aad(const protocol::Id& ledger, const protocol::Id& record,
+                      std::string_view name) {
+    Bytes aad(ledger.bytes().begin(), ledger.bytes().end());
+    aad.insert(aad.end(), record.bytes().begin(), record.bytes().end());
+    aad.insert(aad.end(), name.begin(), name.end());
+    return aad;
+}
+
+std::string files_route(const protocol::Id& record) {
+    return "/v1/vault/files/" + hex_id(record);
+}
+
+/// The salt the record's private data keeps for its attachment `name`.
+const VaultAttachment& salt_of(const Vault& vault, std::string_view name) {
+    const auto found = std::ranges::find(vault.attachments, name, &VaultAttachment::name);
+    if (found == vault.attachments.end()) {
+        throw ActionError{"the record's private data has no salt for the file " +
+                          std::string(name)};
+    }
+    return *found;
+}
+
+/// Whether `content` is the attachment the record committed to.
+bool matches(const Session& session, const protocol::Attachment& attachment,
+             const VaultAttachment& salt, ByteView content) {
+    const auto digest = protocol::attachment_commitment(session.provider(), session.state().hash(),
+                                                        salt.salt, content);
+    return digest && content.size() == attachment.size &&
+           std::ranges::equal(digest->bytes(), attachment.commitment);
+}
+
+} // namespace
+
+Bytes seal_record_file(const protocol::Id& ledger, const protocol::Id& record,
+                       std::string_view name, ByteView content, ByteView public_key) {
+    const SecureBytes plain(Bytes(content.begin(), content.end()));
+    const auto sealed =
+        unwrap(crypto::openssl::hpke_seal(public_key, as_bytes(record_file_info),
+                                          record_file_aad(ledger, record, name), plain.view()),
+               "sealing the file");
+    const auto& suite = crypto::openssl::hpke_suite;
+    return unwrap(cbor::encode(cbor::Value::map(
+                      {{cbor::Value::integer(1), cbor::Value::unsigned_integer(1)},
+                       {cbor::Value::integer(2),
+                        cbor::Value::array({cbor::Value::unsigned_integer(suite.kem),
+                                            cbor::Value::unsigned_integer(suite.kdf),
+                                            cbor::Value::unsigned_integer(suite.aead)})},
+                       {cbor::Value::integer(3), cbor::Value::bytes(sealed.encapsulated_key)},
+                       {cbor::Value::integer(4), cbor::Value::bytes(sealed.ciphertext)}})),
+                  "encoding the sealed file");
+}
+
+protocol::RecordRegisterBody registration_of(const Session& session, const protocol::Id& record) {
+    const auto index = session.state().statement_index(record);
+    if (!index || session.state().record(record) == nullptr) {
+        throw ActionError{"no record " + short_id(record) + " on this ledger"};
+    }
+    const protocol::SignedStatement statement = session.statement(*index);
+    const auto* body = std::get_if<protocol::RecordRegisterBody>(&statement.statement.body);
+    if (body == nullptr) {
+        throw ActionError{"the entry of record " + short_id(record) + " is no registration"};
+    }
+    return *body;
+}
+
+std::vector<RecordFile> record_files(const Session& session, const protocol::Id& record) {
+    const protocol::RecordRegisterBody body = registration_of(session, record);
+    std::vector<std::uint64_t> kept;
+    if (session.remote()) {
+        const Bytes answer = session.request("GET", files_route(record));
+        const auto j = Json::parse(answer.begin(), answer.end(), nullptr, false);
+        if (j.is_object() && j.contains("files") && j["files"].is_array()) {
+            for (const auto& i : j["files"]) {
+                if (i.is_number_unsigned()) {
+                    kept.push_back(i.get<std::uint64_t>());
+                }
+            }
+        }
+    } else {
+        kept = node::kept_record_files(session.directory(), record);
+    }
+    std::vector<RecordFile> out;
+    for (std::size_t i = 0; i < body.attachments.size(); ++i) {
+        out.push_back({i, body.attachments[i], std::ranges::contains(kept, i)});
+    }
+    return out;
+}
+
+RecordFile record_file(const Session& session, const protocol::Id& record, std::string_view name) {
+    const std::vector<RecordFile> files = record_files(session, record);
+    for (const RecordFile& f : files) {
+        if (f.attachment.name == name) {
+            return f;
+        }
+    }
+    for (const RecordFile& f : files) {
+        if (std::to_string(f.index) == name) {
+            return f;
+        }
+    }
+    throw UsageError{"record " + short_id(record) + " attaches no file named " + std::string(name)};
+}
+
+Bytes open_record_file(const Session& session, const protocol::Id& record, const RecordFile& file,
+                       const Vault& vault, const crypto::openssl::HpkeKey& key) {
+    Bytes sealed;
+    if (session.remote()) {
+        sealed = session.request("GET", files_route(record) + "/" + std::to_string(file.index));
+    } else {
+        const auto path = node::record_file_path(session.directory(), record, file.index);
+        if (!std::filesystem::exists(path)) {
+            throw ActionError{"no copy of " + file.attachment.name + " is kept"};
+        }
+        sealed = read_file(path);
+    }
+    const auto box = node::parse_sealed_box(sealed);
+    const auto& suite = crypto::openssl::hpke_suite;
+    if (!box || box->suite != std::array<std::uint64_t, 3>{suite.kem, suite.kdf, suite.aead}) {
+        throw ActionError{"the kept copy of " + file.attachment.name + " is damaged"};
+    }
+    const auto plain =
+        unwrap(key.open({box->encapsulated_key, box->ciphertext}, as_bytes(record_file_info),
+                        record_file_aad(session.state().ledger_id(), record, file.attachment.name)),
+               "opening the kept copy of " + file.attachment.name);
+    Bytes content(plain.view().begin(), plain.view().end());
+    if (!matches(session, file.attachment, salt_of(vault, file.attachment.name), content)) {
+        throw ActionError{"the kept copy of " + file.attachment.name +
+                          " is not the file the record committed to"};
+    }
+    return content;
+}
+
+bool keep_record_file(Session& session, const protocol::Id& record, const RecordFile& file,
+                      const Vault& vault, ByteView content) {
+    if (content.size() > node::max_record_file) {
+        throw UsageError{"the file is larger than a kept file may be (16 MiB)"};
+    }
+    if (!matches(session, file.attachment, salt_of(vault, file.attachment.name), content)) {
+        throw ActionError{"that is not the file the record committed to as " +
+                          file.attachment.name};
+    }
+    if (file.kept) {
+        return false;
+    }
+    const Bytes sealed = seal_record_file(session.state().ledger_id(), record, file.attachment.name,
+                                          content, vault_public_key(session));
+    if (session.remote()) {
+        static_cast<void>(session.request("PUT",
+                                          files_route(record) + "/" + std::to_string(file.index),
+                                          sealed, "application/cbor"));
+        return true;
+    }
+    session.require_primary();
+    unwrap(node::store_record_file(session.directory(), record, {file.index, sealed}),
+           "keeping " + file.attachment.name);
+    return true;
+}
+
+bool remove_record_file(Session& session, const protocol::Id& record, const RecordFile& file) {
+    if (session.remote()) {
+        if (!file.kept) {
+            return false;
+        }
+        static_cast<void>(
+            session.request("DELETE", files_route(record) + "/" + std::to_string(file.index)));
+        return true;
+    }
+    session.require_primary();
+    return node::remove_record_file(session.directory(), record, file.index);
 }
 
 std::string_view record_type_purpose(std::string_view type) {

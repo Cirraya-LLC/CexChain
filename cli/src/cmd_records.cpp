@@ -40,6 +40,10 @@ int cmd_record_issue(const Args& args) {
     for (const std::string& path : args.all("attach")) {
         request.attachments.emplace_back(path);
     }
+    request.keep_files = args.has("keep-files");
+    if (request.keep_files && request.attachments.empty()) {
+        throw UsageError{"--keep-files keeps the files given with --attach"};
+    }
     request.delegation = args.get("delegation");
     request.provenance = session.provenance(args);
     request.presence = presence_request(args);
@@ -257,6 +261,104 @@ int cmd_record_types(const Args& args) {
             roles += (roles.empty() ? "" : ", ") + role.get<std::string>();
         }
         std::println("  endorsed in: {}", roles.empty() ? std::string("no role") : roles);
+    }
+    return exit_ok;
+}
+
+namespace {
+
+Json record_file_json(const RecordFile& f) {
+    return {{"index", f.index},
+            {"name", f.attachment.name},
+            {"media_type", f.attachment.media_type},
+            {"size", f.attachment.size},
+            {"kept", f.kept}};
+}
+
+} // namespace
+
+int cmd_record_file_list(const Args& args) {
+    Session session(args);
+    const protocol::RecordState& record = find_record(session, args);
+    const std::vector<RecordFile> files = record_files(session, record.id);
+    if (args.json()) {
+        Json list = Json::array();
+        for (const RecordFile& f : files) {
+            list.push_back(record_file_json(f));
+        }
+        print_json({{"record", id_json(record.id)}, {"files", list}});
+        return exit_ok;
+    }
+    if (files.empty()) {
+        std::println("record {} attaches no files", short_id(record.id));
+    }
+    for (const RecordFile& f : files) {
+        std::println("{}  {:<32} {:>10} bytes  {:<24} {}", f.index, f.attachment.name,
+                     f.attachment.size, f.attachment.media_type, f.kept ? "kept" : "not kept");
+    }
+    return exit_ok;
+}
+
+int cmd_record_file_get(const Args& args) {
+    Session session(args);
+    const protocol::RecordState& record = find_record(session, args);
+    const RecordFile file = record_file(session, record.id, args.positional()[1]);
+    if (!file.kept) {
+        throw CommandError{"no copy of " + file.attachment.name +
+                           " is kept: its owner has it (record file add keeps one)"};
+    }
+    const auto key = load_vault_key(session, args);
+    const Vault vault = read_vault(session, record.id, key);
+    const Bytes content = open_record_file(session, record.id, file, vault, key);
+    const std::filesystem::path out = args.need("out");
+    write_file(out, content, true);
+    if (args.json()) {
+        Json j = record_file_json(file);
+        j["file"] = out.string();
+        print_json(j);
+    } else {
+        std::println("wrote {} ({} bytes, checked against the record) to {}", file.attachment.name,
+                     content.size(), out.string());
+    }
+    return exit_ok;
+}
+
+int cmd_record_file_add(const Args& args) {
+    Session session(args);
+    const protocol::RecordState& record = find_record(session, args);
+    const std::filesystem::path path = args.positional()[1];
+    const RecordFile file =
+        record_file(session, record.id, args.get("name").value_or(path.filename().string()));
+    const auto key = load_vault_key(session, args);
+    const Vault vault = read_vault(session, record.id, key);
+    const bool added = keep_record_file(session, record.id, file, vault, read_file(path));
+    if (args.json()) {
+        Json j = record_file_json(file);
+        j["kept"] = true;
+        j["added"] = added;
+        print_json(j);
+    } else if (added) {
+        std::println("kept {} with record {}, sealed to the vault key", file.attachment.name,
+                     short_id(record.id));
+    } else {
+        std::println("a copy of {} is kept already (record file remove, then add, replaces it)",
+                     file.attachment.name);
+    }
+    return exit_ok;
+}
+
+int cmd_record_file_remove(const Args& args) {
+    Session session(args);
+    const protocol::RecordState& record = find_record(session, args);
+    const RecordFile file = record_file(session, record.id, args.positional()[1]);
+    if (!remove_record_file(session, record.id, file)) {
+        throw CommandError{"no copy of " + file.attachment.name + " is kept"};
+    }
+    if (args.json()) {
+        print_json({{"record", id_json(record.id)}, {"removed", file.attachment.name}});
+    } else {
+        std::println("removed the kept copy of {}; the record still commits to it",
+                     file.attachment.name);
     }
     return exit_ok;
 }

@@ -90,6 +90,23 @@ bool backup_path_allowed(std::string_view path) {
     if (path.starts_with(pending)) {
         return node::parse_pending_call_name(path.substr(pending.size())).has_value();
     }
+    auto hex_id = [](std::string_view name) {
+        return name.size() == 64 && std::ranges::all_of(name, [](char c) {
+                   return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+               });
+    };
+    // A kept file: vault/files/<record id>/<attachment index>.cbor.
+    constexpr std::string_view files = "vault/files/";
+    if (path.starts_with(files) && path.ends_with(".cbor")) {
+        const std::string_view rest = path.substr(files.size(), path.size() - files.size() - 5);
+        const std::size_t slash = rest.find('/');
+        const std::string_view index =
+            slash == std::string_view::npos ? std::string_view() : rest.substr(slash + 1);
+        return slash != std::string_view::npos && hex_id(rest.substr(0, slash)) && !index.empty() &&
+               index.size() <= 6 &&
+               std::ranges::all_of(index, [](char c) { return c >= '0' && c <= '9'; }) &&
+               (index.size() == 1 || index.front() != '0');
+    }
     // Any other file is refused: so is a backup made before spec v0.9 that
     // holds the consents of the native asset actions it removed.
     for (const std::string_view prefix : {"vault/records/", "contracts/consents/"}) {
@@ -97,9 +114,7 @@ bool backup_path_allowed(std::string_view path) {
             continue;
         }
         const std::string_view name = path.substr(prefix.size(), path.size() - prefix.size() - 5);
-        return name.size() == 64 && std::ranges::all_of(name, [](char c) {
-                   return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
-               });
+        return hex_id(name);
     }
     return false;
 }
@@ -785,6 +800,19 @@ int cmd_backup_create(const Args& args) {
     if (!args.has("no-vault")) {
         add("vault/vault.pub");
         add("vault/vault.key");
+        // The kept files, record by record.
+        if (std::filesystem::is_directory(dir / "vault" / "files")) {
+            std::vector<std::string> records;
+            for (const auto& e : std::filesystem::directory_iterator(dir / "vault" / "files")) {
+                if (e.is_directory()) {
+                    records.push_back(e.path().filename().string());
+                }
+            }
+            std::ranges::sort(records);
+            for (const std::string& r : records) {
+                add_directory(dir / "vault" / "files" / r, "vault/files/" + r + "/");
+            }
+        }
         if (std::filesystem::is_directory(dir / "vault" / "records")) {
             std::vector<std::string> names;
             for (const auto& e : std::filesystem::directory_iterator(dir / "vault" / "records")) {

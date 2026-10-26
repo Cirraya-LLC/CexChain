@@ -328,14 +328,19 @@ protocol::Id Session::submit(const crypto::Signer& signer, protocol::Body body,
                              const std::optional<std::string>& delegation,
                              std::optional<protocol::Provenance> provenance,
                              const std::optional<PresenceRequest>& presence,
-                             const SealVault& seal_vault, std::span<const Bytes> consents) {
+                             const SealVault& seal_vault, std::span<const Bytes> consents,
+                             const SealFiles& seal_files) {
     const protocol::SignedStatement signed_statement =
         sign(signer, std::move(body), delegation, std::move(provenance), presence);
     std::optional<Bytes> sealed;
     if (seal_vault) {
         sealed = seal_vault(signed_statement.id);
     }
-    return submit_signed(signed_statement, sealed, consents);
+    std::vector<node::SealedFile> files;
+    if (seal_files) {
+        files = seal_files(signed_statement.id);
+    }
+    return submit_signed(signed_statement, sealed, consents, files);
 }
 
 protocol::SignedStatement Session::sign(const crypto::Signer& signer, protocol::Body body,
@@ -393,7 +398,8 @@ protocol::SignedStatement Session::sign(const crypto::Signer& signer, protocol::
 
 protocol::Id Session::submit_signed(const protocol::SignedStatement& signed_statement,
                                     const std::optional<Bytes>& sealed,
-                                    std::span<const Bytes> consents) {
+                                    std::span<const Bytes> consents,
+                                    std::span<const node::SealedFile> files) {
     if (remote_) {
         // Signed here; the server registers it, with its private data if
         // any, and the mirror shows it once it re-validated it.
@@ -410,11 +416,13 @@ protocol::Id Session::submit_signed(const protocol::SignedStatement& signed_stat
             static_cast<void>(
                 call("POST", "/v1/statements", submission, node::submission_content_type));
         } else if (sealed) {
+            cbor::Map map{{cbor::Value::integer(1), cbor::Value::bytes(signed_statement.encoded)},
+                          {cbor::Value::integer(2), cbor::Value::bytes(*sealed)}};
+            if (!files.empty()) {
+                map.push_back({cbor::Value::integer(4), node::encode_sealed_files(files)});
+            }
             const Bytes submission =
-                unwrap(cbor::encode(cbor::Value::map(
-                           {{cbor::Value::integer(1), cbor::Value::bytes(signed_statement.encoded)},
-                            {cbor::Value::integer(2), cbor::Value::bytes(*sealed)}})),
-                       "encoding the submission");
+                unwrap(cbor::encode(cbor::Value::map(std::move(map))), "encoding the submission");
             static_cast<void>(
                 call("POST", "/v1/statements", submission, node::submission_content_type));
         } else {
@@ -439,6 +447,10 @@ protocol::Id Session::submit_signed(const protocol::SignedStatement& signed_stat
     if (sealed) {
         std::filesystem::create_directories(vault_path(registration.statement_id).parent_path());
         write_file(vault_path(registration.statement_id), *sealed, true);
+    }
+    for (const node::SealedFile& file : files) {
+        unwrap(node::store_record_file(directory_, registration.statement_id, file),
+               "keeping the record's files");
     }
     return registration.statement_id;
 }

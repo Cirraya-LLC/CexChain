@@ -24,6 +24,7 @@
 #include <cexchain/ledger/ledger.hpp>
 #include <cexchain/ledger/storage.hpp>
 #include <cexchain/node/client.hpp>
+#include <cexchain/node/record_files.hpp>
 
 namespace cexchain::app {
 
@@ -87,6 +88,8 @@ using Location = std::variant<std::filesystem::path, ServerLocation>;
 /// Makes the sealed private data of the record `id` names (for record
 /// registrations, which keep it in the vault).
 using SealVault = std::function<Bytes(const protocol::Id& record)>;
+/// Makes the sealed files of the record `id` names, to keep with it.
+using SealFiles = std::function<std::vector<node::SealedFile>(const protocol::Id& record)>;
 
 /// An open ledger with the environment needed to act on it: a ledger
 /// directory, or, in client mode, a verified mirror of the ledger a
@@ -133,7 +136,8 @@ public:
                         const std::optional<std::string>& delegation,
                         std::optional<protocol::Provenance> provenance = std::nullopt,
                         const std::optional<PresenceRequest>& presence = std::nullopt,
-                        const SealVault& seal_vault = {}, std::span<const Bytes> consents = {});
+                        const SealVault& seal_vault = {}, std::span<const Bytes> consents = {},
+                        const SealFiles& seal_files = {});
 
     /// Builds and signs a statement as `submit` does, without registering
     /// it: to run a contract call first, or for a dry run.
@@ -146,7 +150,8 @@ public:
     /// its consents' evidence, as `submit` does.
     protocol::Id submit_signed(const protocol::SignedStatement& statement,
                                const std::optional<Bytes>& sealed = std::nullopt,
-                               std::span<const Bytes> consents = {});
+                               std::span<const Bytes> consents = {},
+                               std::span<const node::SealedFile> files = {});
 
     /// Resolves an index or (abbreviated) statement id to a log index.
     [[nodiscard]] std::uint64_t entry_index(std::string_view text) const;

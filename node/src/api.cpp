@@ -30,6 +30,7 @@
 #include <cexchain/node/contracts.hpp>
 #include <cexchain/node/keeper.hpp>
 #include <cexchain/node/peers.hpp>
+#include <cexchain/node/record_files.hpp>
 #include <cexchain/node/tokens.hpp>
 
 #include "files.hpp"
@@ -236,6 +237,12 @@ enum class Endpoint {
     evidence,
     vault_public_key,
     vault_record,
+    /// GET /v1/vault/files/RECORD: the indexes of its kept files.
+    vault_files,
+    /// GET, PUT (once), and DELETE /v1/vault/files/RECORD/INDEX.
+    vault_file_get,
+    vault_file_put,
+    vault_file_delete,
     access_request,
     access_delivery,
     access_receipt,
@@ -268,21 +275,7 @@ struct Routed {
 /// encapsulated key, 4: ciphertext}: the server cannot open one, but stores
 /// nothing else.
 bool is_sealed_vault(ByteView file) {
-    const auto value = cbor::decode(file);
-    const cbor::Map* map = value ? value->as_map() : nullptr;
-    if (map == nullptr || map->size() != 4) {
-        return false;
-    }
-    const cbor::Value* version = value->find(1);
-    const cbor::Value* suite = value->find(2);
-    const cbor::Value* enc = value->find(3);
-    const cbor::Value* ciphertext = value->find(4);
-    const cbor::Array* ids = suite != nullptr ? suite->as_array() : nullptr;
-    return version != nullptr && version->as_uint64() == 1 && ids != nullptr && ids->size() == 3 &&
-           std::ranges::all_of(*ids,
-                               [](const cbor::Value& id) { return id.as_uint64().has_value(); }) &&
-           enc != nullptr && enc->as_bytes() != nullptr && ciphertext != nullptr &&
-           ciphertext->as_bytes() != nullptr;
+    return parse_sealed_box(file).has_value();
 }
 
 constexpr std::size_t max_group = 4096;
@@ -408,6 +401,8 @@ struct LedgerApi::State {
         /// The consent bundles a contract call cites, checked, encoded, and
         /// stored already (a cluster replicates them with it).
         std::optional<Sidecar> consents = std::nullopt;
+        /// The record's attached files, sealed the same way, kept with it.
+        std::vector<SealedFile> files = {};
     };
     /// Runs on the writer thread holding the ledger's lock, caught up; or,
     /// if that could not be had, gets the answer to give instead.
@@ -424,6 +419,9 @@ struct LedgerApi::State {
         std::optional<protocol::IdKey> instance = std::nullopt;
     };
 
+    /// Kept files are stored once: one store at a time, so two cannot both
+    /// find none and both write.
+    std::mutex record_files_mutex;
     std::mutex queue_mutex;
     std::condition_variable queue_ready;
     std::condition_variable queue_idle;
@@ -741,6 +739,10 @@ struct LedgerApi::State {
                             response = store_vault(results[i]->statement_id, *s.vault,
                                                    std::move(response));
                         }
+                        if (results[i] && !s.files.empty() && response.status < 300) {
+                            response =
+                                store_files(results[i]->statement_id, s.files, std::move(response));
+                        }
                         finish(s.done, s.principal, std::move(response));
                     }
                     check_waiters(false); // a long poll learns of new requests at once
@@ -858,6 +860,103 @@ struct LedgerApi::State {
                                   "be stored: send it again");
         }
         return answer;
+    }
+
+    /// Keeps a record's sealed files, each once, as store_vault does.
+    http::Response store_files(const protocol::Id& record, const std::vector<SealedFile>& files,
+                               http::Response answer) {
+        const std::lock_guard lock(record_files_mutex);
+        for (const SealedFile& file : files) {
+            if (auto s = store_record_file(options.directory, record, file); !s) {
+                return s.error().code == Errc::rejected
+                           ? error_response(409, "conflict",
+                                            "the statement is registered, but another file was "
+                                            "kept for one of its attachments before")
+                           : error_response(500, "internal",
+                                            "the statement is registered, but its files could "
+                                            "not be kept: send them again");
+            }
+        }
+        return answer;
+    }
+
+    /// A record's registration, as its log entry holds it.
+    std::optional<protocol::RecordRegisterBody> registration_of(const protocol::Id& record) const {
+        const auto index = ledger->statement_index(record);
+        if (!index) {
+            return std::nullopt;
+        }
+        std::optional<protocol::RecordRegisterBody> out;
+        static_cast<void>(ledger->visit_entry(*index, [&](ByteView bytes) {
+            const auto entry = protocol::decode_log_entry(bytes);
+            const auto parsed =
+                entry ? protocol::parse_statement(*provider, entry->statement, ledger->hash())
+                      : Result<protocol::SignedStatement>(std::unexpected(entry.error()));
+            if (parsed) {
+                if (const auto* body =
+                        std::get_if<protocol::RecordRegisterBody>(&parsed->statement.body)) {
+                    out = *body;
+                }
+            }
+        }));
+        return out;
+    }
+
+    /// The kept files' routes: the record's id, then perhaps "/" and an
+    /// attachment's index.
+    http::Response vault_files_route(const http::Request& r, Endpoint endpoint,
+                                     std::string_view rest) {
+        const std::size_t slash = rest.find('/');
+        const auto record = id_from(rest.substr(0, slash));
+        if (!record) {
+            return error_response(400, "invalid_argument", "a record id is 64 hex digits");
+        }
+        if (endpoint == Endpoint::vault_files) {
+            json indexes = json::array();
+            for (const std::uint64_t i : kept_record_files(options.directory, *record)) {
+                indexes.push_back(i);
+            }
+            return json_response(200, {{"record", hex(*record)}, {"files", indexes}});
+        }
+        const std::string_view text = rest.substr(slash + 1);
+        std::uint64_t index = 0;
+        const auto [end, ec] = std::from_chars(text.data(), text.data() + text.size(), index);
+        if (ec != std::errc{} || end != text.data() + text.size() ||
+            (text.size() > 1 && text.front() == '0')) {
+            return error_response(400, "invalid_argument", "an attachment's index is a number");
+        }
+        if (endpoint == Endpoint::vault_file_get) {
+            return vault_file(std::filesystem::path("files") / hex(*record) /
+                              (std::to_string(index) + ".cbor"));
+        }
+        if (options.read_only || replica) {
+            return error_response(403, "read_only",
+                                  replica ? "this ledger is a replica; write to its primary"
+                                          : "this server is read-only");
+        }
+        if (cluster) {
+            return error_response(501, "unsupported", "a cluster does not keep files yet");
+        }
+        if (endpoint == Endpoint::vault_file_delete) {
+            return remove_record_file(options.directory, *record, index)
+                       ? json_response(200, {{"record", hex(*record)}, {"removed", index}})
+                       : error_response(404, "not_found", "no file is kept there");
+        }
+        const auto registration = registration_of(*record);
+        if (!registration) {
+            return error_response(404, "not_found", "no such record");
+        }
+        const SealedFile file{index, r.body};
+        if (auto checked = check_sealed_file(*registration, file); !checked) {
+            return error_response(checked.error());
+        }
+        const std::lock_guard lock(record_files_mutex);
+        if (auto stored = store_record_file(options.directory, *record, file); !stored) {
+            return stored.error().code == Errc::rejected
+                       ? error_response(409, "conflict", "another file is kept for this attachment")
+                       : error_response(stored.error());
+        }
+        return json_response(201, {{"record", hex(*record)}, {"kept", index}});
     }
 
     http::Response registration_response(const Result<ledger::Registration>& registration) {
@@ -2020,7 +2119,9 @@ struct LedgerApi::State {
 
     /// {1: signed statement, 2: sealed private data}: a record's
     /// registration together with its vault file, so the data arrives with
-    /// the record and nobody can store other data for it first.
+    /// the record and nobody can store other data for it first; with
+    /// 4: [[index, sealed file], ...], its attached files too, each checked
+    /// against the attachment it is for.
     /// {1: signed statement, 3: [consent bundles]}: a contract call with the
     /// evidence of the consents it cites, checked and kept before it is
     /// registered.
@@ -2032,24 +2133,50 @@ struct LedgerApi::State {
         }
         const cbor::Value* statement = value ? value->find(1) : nullptr;
         const cbor::Value* sealed = value ? value->find(2) : nullptr;
+        const cbor::Value* files = value ? value->find(4) : nullptr;
         if (statement == nullptr || statement->as_bytes() == nullptr || sealed == nullptr ||
-            sealed->as_bytes() == nullptr || value->as_map()->size() != 2 ||
+            sealed->as_bytes() == nullptr ||
+            value->as_map()->size() != (files != nullptr ? 3U : 2U) ||
             !is_sealed_vault(*sealed->as_bytes())) {
             finish(done, principal,
                    error_response(400, "malformed",
-                                  "send {1: signed statement, 2: sealed private data}"));
+                                  "send {1: signed statement, 2: sealed private data, "
+                                  "4: [[index, sealed file], ...] if files are kept}"));
             return;
         }
         auto parsed = protocol::parse_statement(*provider, *statement->as_bytes(), ledger->hash());
-        if (!parsed ||
-            !std::holds_alternative<protocol::RecordRegisterBody>(parsed->statement.body)) {
+        const auto* body =
+            parsed ? std::get_if<protocol::RecordRegisterBody>(&parsed->statement.body) : nullptr;
+        if (body == nullptr) {
             finish(done, principal,
                    error_response(400, "invalid_argument",
                                   "only a record's registration carries private data"));
             return;
         }
-        queue_submission(
-            {*statement->as_bytes(), std::move(principal), std::move(done), *sealed->as_bytes()});
+        std::vector<SealedFile> kept;
+        if (files != nullptr && cluster) {
+            finish(done, principal,
+                   error_response(501, "unsupported",
+                                  "a cluster does not keep files yet: register the record "
+                                  "without them"));
+            return;
+        }
+        if (files != nullptr) {
+            auto decoded = decode_sealed_files(*files);
+            if (!decoded) {
+                finish(done, principal, error_response(decoded.error()));
+                return;
+            }
+            for (const SealedFile& f : *decoded) {
+                if (auto checked = check_sealed_file(*body, f); !checked) {
+                    finish(done, principal, error_response(checked.error()));
+                    return;
+                }
+            }
+            kept = std::move(*decoded);
+        }
+        queue_submission({*statement->as_bytes(), std::move(principal), std::move(done),
+                          *sealed->as_bytes(), std::nullopt, std::move(kept)});
     }
 
     void submit_with_consents(const cbor::Value& value, std::string principal, Done& done) {
@@ -3147,6 +3274,27 @@ struct LedgerApi::State {
                            : path == "/v1/cluster/members/remove" ? Endpoint::cluster_remove
                                                                   : Endpoint::cluster_step_down,
                            Access::admin};
+        } else if (path.starts_with("/v1/vault/files/") &&
+                   path.size() > std::string_view("/v1/vault/files/").size()) {
+            // RECORD lists the kept files; RECORD/INDEX is one of them.
+            rest = std::string_view("/v1/vault/files/").size();
+            const std::size_t slash = path.find('/', rest);
+            if (slash == std::string_view::npos) {
+                if (!get) {
+                    return method_not_allowed("GET");
+                }
+                found = Routed{Endpoint::vault_files, Access::read, rest};
+            } else if (path.find('/', slash + 1) != std::string_view::npos) {
+                return error_response(404, "not_found", "no such route");
+            } else if (get) {
+                found = Routed{Endpoint::vault_file_get, Access::read, rest};
+            } else if (r.method == "PUT") {
+                found = Routed{Endpoint::vault_file_put, Access::submit, rest};
+            } else if (r.method == "DELETE") {
+                found = Routed{Endpoint::vault_file_delete, Access::admin, rest};
+            } else {
+                return method_not_allowed("GET, PUT, DELETE");
+            }
         } else if (path == "/v1/cosignatures") {
             found = post ? Routed{Endpoint::add_cosignature, Access::admin}
                          : Routed{Endpoint::cosignatures, Access::read};
@@ -3183,7 +3331,8 @@ struct LedgerApi::State {
         if (!found) {
             return error_response(404, "not_found", "no such route");
         }
-        if (!get && !post) {
+        if (!get && !post && found->endpoint != Endpoint::vault_file_put &&
+            found->endpoint != Endpoint::vault_file_delete) {
             const bool posts = found->endpoint == Endpoint::make_checkpoint ||
                                found->endpoint == Endpoint::add_cosignature ||
                                found->endpoint == Endpoint::cluster_add ||
@@ -3238,6 +3387,11 @@ struct LedgerApi::State {
                 return error_response(400, "invalid_argument", "a record id is 64 hex digits");
             }
             return vault_file(std::filesystem::path("records") / (std::string(rest) + ".cbor"));
+        case Endpoint::vault_files:
+        case Endpoint::vault_file_get:
+        case Endpoint::vault_file_put:
+        case Endpoint::vault_file_delete:
+            return vault_files_route(r, routed.endpoint, rest);
         case Endpoint::access_request:
             return access_request(r, principal);
         case Endpoint::access_delivery:
@@ -3513,6 +3667,15 @@ void LedgerApi::submit_statement(Bytes statement, Respond respond) {
     r.target = r.path = "/v1/statements";
     r.headers.emplace_back("content-type", "application/cose");
     r.body = std::move(statement);
+    state_->submit_as_node(std::move(r), std::move(respond));
+}
+
+void LedgerApi::submit_submission(Bytes submission, Respond respond) {
+    http::Request r;
+    r.method = "POST";
+    r.target = r.path = "/v1/statements";
+    r.headers.emplace_back("content-type", std::string(submission_content_type));
+    r.body = std::move(submission);
     state_->submit_as_node(std::move(r), std::move(respond));
 }
 

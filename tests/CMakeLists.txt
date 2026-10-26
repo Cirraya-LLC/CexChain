@@ -35,6 +35,7 @@ add_executable(cexchain_tests
     ledger/verify_test.cpp
     ledger/witness_test.cpp
     node/api_test.cpp
+    node/record_files_test.cpp
     node/contracts_api_test.cpp
     node/requests_api_test.cpp
     node/cluster_test.cpp
@@ -183,6 +184,8 @@ add_test(NAME keeper_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/keeper.sh $<TARGET_FILE:cexchain>)
 add_test(NAME executor_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/executor.sh $<TARGET_FILE:cexchain>)
+add_test(NAME files_end_to_end
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/files.sh $<TARGET_FILE:cexchain>)
 add_test(NAME client_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/client.sh $<TARGET_FILE:cexchain>)
 add_test(NAME cluster_end_to_end

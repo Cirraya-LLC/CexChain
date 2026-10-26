@@ -373,6 +373,26 @@ void pending_call_seeds(const Seeds& seeds) {
 
 /// Raft entries and snapshot objects, as a cluster member receives them:
 /// [kind][CBOR] (see cluster_entry_fuzz).
+void record_file_seeds(const Seeds& seeds) {
+    // A sealed file the size of a 5-byte attachment, alone and in a list.
+    const auto sealed = cbor::Value::map(
+        {{cbor::Value::integer(1), cbor::Value::unsigned_integer(1)},
+         {cbor::Value::integer(2),
+          cbor::Value::array({cbor::Value::unsigned_integer(32), cbor::Value::unsigned_integer(1),
+                              cbor::Value::unsigned_integer(2)})},
+         {cbor::Value::integer(3), cbor::Value::bytes(Bytes(32, 7))},
+         {cbor::Value::integer(4), cbor::Value::bytes(Bytes(21, 9))}});
+    const Bytes file = must(cbor::encode(sealed), "encode");
+    seeds.write("record_files_fuzz", "sealed", file);
+    seeds.write(
+        "record_files_fuzz", "list",
+        must(cbor::encode(cbor::Value::array(
+                 {cbor::Value::array({cbor::Value::unsigned_integer(0), cbor::Value::bytes(file)}),
+                  cbor::Value::array(
+                      {cbor::Value::unsigned_integer(1), cbor::Value::bytes(file)})})),
+             "encode"));
+}
+
 void cluster_seeds(const Seeds& seeds) {
     using cbor::Value;
     auto write = [&](const std::string& name, std::uint8_t kind, const Value& value) {
@@ -1066,6 +1086,7 @@ int main(int argc, char** argv) {
         webauthn_seed(seeds);
         cluster_seeds(seeds);
         pending_call_seeds(seeds);
+        record_file_seeds(seeds);
         text_seeds(seeds);
         vm_seeds(seeds);
         contract_seeds(seeds);

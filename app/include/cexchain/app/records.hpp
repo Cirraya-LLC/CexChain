@@ -27,6 +27,9 @@ struct IssueRequest {
     /// `metadata`.
     std::optional<cbor::Value> metadata_value;
     std::vector<std::filesystem::path> attachments;
+    /// Also keep the attached files, sealed, with the record (each at most
+    /// node::max_record_file bytes).
+    bool keep_files = false;
     std::optional<std::string> delegation;
     std::optional<protocol::Provenance> provenance;
     /// Prove presence first, if set.
@@ -95,9 +98,54 @@ using VaultKeySource = std::function<crypto::openssl::HpkeKey()>;
 /// asking `vault_key` only if the file is sealed.
 [[nodiscard]] Vault read_vault(const Session& session, const protocol::Id& record,
                                const VaultKeySource& vault_key);
+/// The same with the key at hand (to open the record's kept files too).
+[[nodiscard]] Vault read_vault(const Session& session, const protocol::Id& record,
+                               const crypto::openssl::HpkeKey& key);
 /// A record's private data as JSON: the record, its fields' values, and its
 /// attachments' names.
 [[nodiscard]] Json vault_json(const protocol::Id& record, const Vault& vault);
+
+// Kept files: a record's attached files, sealed to the vault key as its
+// private data is, and bound to the ledger, the record, and the attachment's
+// name (node/record_files.hpp has the format and where they are kept).
+
+/// The HPKE `info` for kept files.
+inline constexpr std::string_view record_file_info = "CexChain record file v1";
+
+[[nodiscard]] Bytes seal_record_file(const protocol::Id& ledger, const protocol::Id& record,
+                                     std::string_view name, ByteView content, ByteView public_key);
+
+/// One of a record's attachments, and whether a sealed copy is kept.
+struct RecordFile {
+    std::uint64_t index = 0;
+    protocol::Attachment attachment;
+    bool kept = false;
+};
+
+/// A record's registration, as the ledger holds it.
+[[nodiscard]] protocol::RecordRegisterBody registration_of(const Session& session,
+                                                           const protocol::Id& record);
+/// Its attachments, and which of them are kept (in client mode, by the
+/// server).
+[[nodiscard]] std::vector<RecordFile> record_files(const Session& session,
+                                                   const protocol::Id& record);
+/// The attachment named `name`, or the one at the index `name` spells.
+[[nodiscard]] RecordFile record_file(const Session& session, const protocol::Id& record,
+                                     std::string_view name);
+/// A kept file's content, opened with the vault key and checked against the
+/// record's commitment (with the salt in the record's private data).
+[[nodiscard]] Bytes open_record_file(const Session& session, const protocol::Id& record,
+                                     const RecordFile& file, const Vault& vault,
+                                     const crypto::openssl::HpkeKey& key);
+/// Keeps `content` as the record's attachment `file`, sealed: it must be
+/// that attachment (checked against the commitment with the vault's salt).
+/// False if a copy was kept already (nothing changes: remove it first to
+/// replace it).
+bool keep_record_file(Session& session, const protocol::Id& record, const RecordFile& file,
+                      const Vault& vault, ByteView content);
+/// Removes a kept file (the ledger still commits to it); false if none was
+/// kept.
+bool remove_record_file(Session& session, const protocol::Id& record, const RecordFile& file);
 
 /// What one of the protocol's own record types is for, in a few words (the
 /// command that registers it in parentheses); empty for any other type.

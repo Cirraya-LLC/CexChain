@@ -127,6 +127,9 @@ public:
     /// node's own console, which has no token: answers through `respond`.
     /// A read-only server or a replica refuses it, as it refuses any write.
     void submit_statement(Bytes statement, Respond respond);
+    /// The same with a submission (application/cexchain-submission+cbor):
+    /// a record's registration with its sealed private data and files.
+    void submit_submission(Bytes submission, Respond respond);
     void tick() override;
     /// Answers the long polls of GET /v1/requests.
     void stopping() override;

@@ -146,6 +146,11 @@ The verification report shows every event in the record's history, who performed
 AI agent, with the agent's model and accountable person), under whose delegation, which fields
 were disclosed, and whether attachments match.
 
+The ledger holds only an attachment's salted commitment, so the photo itself stays with you. Add
+`--keep-files` to keep it with the record too, sealed to the ledger's vault key (16 MiB a file at
+most): `record file get <record-id> photo.jpg --out photo.jpg` opens it, checked against the
+record, and backups include it.
+
 The report also proves that it shows everything. Before each checkpoint, the ledger appends to its
 own log a signed commitment (a sparse Merkle root) to the complete history of every actor,
 delegation, and record. A bundle proves the history of the record and of everyone involved against
@@ -203,7 +208,7 @@ The `cexchain` tool controls every part of a ledger:
 | Ledger | `init`, `status`, `audit`, `log list`, `log show`, `log export`, `ledger keys`, `ledger genesis`, `ledger rotate-log-key`, `ledger rotate-root-key` |
 | Actors | `actor add`, `actor list`, `actor show`, `actor revoke`, `actor rotate-key`, `actor set-presence`, `presence enroll` |
 | Delegations | `delegation grant`, `delegation list`, `delegation show`, `delegation revoke` |
-| Records | `record issue`, `record list`, `record show`, `record history`, `record fields`, `record endorse`, `record transition`, `record revoke`, `record types` |
+| Records | `record issue`, `record list`, `record show`, `record history`, `record fields`, `record file list\|get\|add\|remove`, `record endorse`, `record transition`, `record revoke`, `record types` |
 | Proofs | `checkpoint create`, `checkpoint list`, `checkpoint show`, `checkpoint cosign-request`, `checkpoint add-cosignature`, `proof inclusion`, `proof consistency`, `proof state`, `receipt` |
 | Witnesses | `witness add-log`, `witness cosign`, `witness status`, `witness remove-log` |
 | Evidence | `export`, `verify`, `inspect`, `qr` |
@@ -1262,6 +1267,9 @@ What requests, executors, and services do not do yet, as of this version:
   other organizations' ledgers need their peers, which belong to a ledger directory.
 - **Connectors:** `webhook` and `command` ship with CexChain; first-party connectors for
   billing and accounting systems (Zoho first) come later, on the same protocol.
+- **Kept files** (`record issue --keep-files`, `record file add`) are kept by a single server or
+  ledger directory: a cluster refuses them for now (it would not replicate them), and a backup
+  of a cluster's member does not hold them.
 - **`CEXCHAIN_CLOCK_OFFSET`** is for demonstrations and tests only (`serve` refuses it without
   `--allow-clock-offset`); a ledger keeps the later times it recorded.
 
