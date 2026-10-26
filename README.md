@@ -396,15 +396,36 @@ stderr, automatic checkpoints (`--checkpoint-interval`), and graceful shutdown o
 `cexchain console run` serves a web console for the ledger on this computer, at
 `http://localhost:7470/console/` (or the next free port, remembered); `console status`,
 `console open`, and `console stop` manage it. A company serves it beside its API with
-`cexchain serve --console --public-url https://ledger.example.com`. So far it signs people in,
-shows Home and Things, and approves endorsements and revocations with a passkey.
+`cexchain serve --console --public-url https://ledger.example.com`. So far it sets a ledger
+up for one person, signs people in, shows Home, Things, and Settings, and approves endorsements
+and revocations with a passkey.
 
 ```sh
-cexchain console run &
-cexchain console setup-link        # a one-time link: open it, register a passkey, be the owner
+cexchain console run --ledger ./ledger   # an empty directory: the browser opens the setup page
 cexchain console user add Bob --role member   # a link for Bob to register his own passkey
 cexchain console user list
+cexchain console settings show
 ```
+
+- **The first run.** On a directory with no ledger, `console run` opens a one-time setup page
+  (valid for an hour; also in `console/setup-link` in the ledger directory). The person gives a
+  name (a nickname works; it also names the ledger) and creates a passkey; the console makes the
+  ledger, its root and log keys, and the person's own key, all sealed, and registers the person
+  as the owner: acting in person with that passkey, under a delegation of every statement type
+  but the ledger's key rotations, which requires presence. Then the recovery sheet (the
+  recovery code, shown once, to print or save) and a backup folder, and Home. For scripts,
+  `console setup --name NAME --credential FILE` does the same with a passkey from
+  `presence enroll`.
+- **A lost passkey.** "Lost your passkey?" on the sign-in page takes the recovery code and a
+  new passkey: the root key makes the new passkey the owner's only one on the ledger, the lost
+  one stops signing in, approving, and unlocking, and the owner's other sessions end. A few
+  wrong codes a minute are tried at most.
+- **A ledger of your own** (the quick start's, with its keys in files) opens in the console once
+  its log key is sealed: `console key init`, `console key import log log.key`, then
+  `console setup-link` for the owner's passkey, and `console user link` to act as a person.
+- **Settings** show the ledger and its folder, the language new browsers start in, and the
+  backup folder (`console settings show|set` from the command line). Scheduled backups to that
+  folder are not written yet; until they are, use `cexchain backup create`.
 
 - **People.** Each user has a role (owner, admin, member, or viewer) and one or more passkeys.
   Roles gate the console, never the ledger: what someone may do on the ledger stays in their
