@@ -9,7 +9,8 @@ const LANGUAGES = ["en", "zh-Hant-HK", "zh-Hans-CN"];
 const SESSION = "cexchain.session";
 const LANGUAGE = "cexchain.language";
 
-const state = { language: "en", text: {}, english: {}, who: null };
+const state = { language: "en", text: {}, english: {}, who: null, firstRun: false,
+                defaultLanguage: null, flash: null };
 
 // --- Text ----------------------------------------------------------------
 
@@ -43,6 +44,10 @@ function preferredLanguage() {
     if (LANGUAGES.includes(saved)) {
         return saved;
     }
+    // The console's own choice (Settings), then the browser's.
+    if (LANGUAGES.includes(state.defaultLanguage)) {
+        return state.defaultLanguage;
+    }
     for (const tag of navigator.languages ?? []) {
         const lower = tag.toLowerCase();
         if (/^zh-(hant|hk|tw|mo)/.test(lower)) {
@@ -66,11 +71,13 @@ async function catalog(language) {
     return response.json();
 }
 
-async function setLanguage(language) {
+async function setLanguage(language, remember = true) {
     state.text = language === "en" ? state.english : await catalog(language);
     state.language = language;
     document.documentElement.lang = language;
-    store(localStorage, LANGUAGE, language);
+    if (remember) {
+        store(localStorage, LANGUAGE, language);
+    }
     document.getElementById("language").value = language;
     for (const element of document.querySelectorAll("[data-text]")) {
         element.textContent = t(element.dataset.text);
@@ -181,9 +188,16 @@ function passkeyProblem(error) {
     return t("error.server", { message: String(error?.message ?? error) });
 }
 
-async function register(code, name, device) {
-    const begun = await api("POST", "enroll/begin", { code, name });
-    const options = begun.public_key;
+/// Makes a passkey with the console's registration options; what the
+/// console needs back from it.
+async function createPasskey(options, device) {
+    // The PRF salt, where the console sends one, so that the new passkey
+    // unlocks the console's keys from its first use.
+    const extensions = { ...options.extensions };
+    const salt = extensions.prf?.eval?.first;
+    if (salt) {
+        extensions.prf = { eval: { first: fromBase64url(salt) } };
+    }
     const credential = await navigator.credentials.create({
         publicKey: {
             challenge: fromBase64url(options.challenge),
@@ -196,7 +210,7 @@ async function register(code, name, device) {
             pubKeyCredParams: options.pubKeyCredParams,
             authenticatorSelection: options.authenticatorSelection,
             attestation: options.attestation,
-            extensions: options.extensions,
+            extensions,
             excludeCredentials: options.excludeCredentials.map((c) => ({
                 type: c.type,
                 id: fromBase64url(c.id),
@@ -204,12 +218,27 @@ async function register(code, name, device) {
             timeout: options.timeout,
         },
     });
-    return api("POST", "enroll/finish", {
-        ceremony: begun.ceremony,
+    const prf = credential.getClientExtensionResults?.().prf?.results?.first;
+    return {
         attestation_object: toBase64url(credential.response.attestationObject),
         client_data_json: toBase64url(credential.response.clientDataJSON),
         label: device,
-    });
+        prf: prf ? toBase64url(prf) : undefined,
+    };
+}
+
+async function register(code, name, device) {
+    const begun = await api("POST", "enroll/begin", { code, name });
+    const made = await createPasskey(begun.public_key, device);
+    return api("POST", "enroll/finish", { ceremony: begun.ceremony, ...made });
+}
+
+/// A lost passkey: the recovery code opens the console, a new passkey is
+/// made here, and the console makes it the owner's only one.
+async function recover(code, name, device) {
+    const begun = await api("POST", "recover/begin", { recovery_code: code, name });
+    const made = await createPasskey(begun.public_key, device);
+    return api("POST", "recover/finish", { ceremony: begun.ceremony, ...made });
 }
 
 async function signIn() {
@@ -241,10 +270,33 @@ async function signIn() {
 
 // --- Screens -------------------------------------------------------------------
 
-function signedIn(answer) {
+function signedIn(answer, next = home) {
     store(sessionStorage, SESSION, answer.session);
-    state.who = { user: answer.user, role: answer.role, keys: answer.keys ?? "none" };
-    home();
+    state.who = { user: answer.user, role: answer.role, keys: answer.keys ?? "none",
+                  // A new passkey that could not unlock the console yet.
+                  needsSlot: answer.key_slot === false && answer.keys === "unlocked" &&
+                             (answer.role === "owner" || answer.role === "admin") };
+    next();
+}
+
+/// A new passkey that gave no PRF output when it was made unlocks the
+/// console only after one sign-in with it: offered on Home.
+function slotNotice() {
+    if (!state.who?.needsSlot || state.who.keys !== "unlocked") {
+        return null;
+    }
+    const button = el("button", { type: "button", text: t("slot.button") });
+    const answer = el("div");
+    button.addEventListener("click", async () => {
+        button.disabled = true;
+        try {
+            signedIn(await signIn(), route);
+        } catch (error) {
+            answer.replaceChildren(problem(passkeyProblem(error)));
+            button.disabled = false;
+        }
+    });
+    return el("section", { class: "notice" }, el("p", { text: t("slot.intro") }), answer, button);
 }
 
 /// While the console's keys are locked, it signs nothing: say so, and let
@@ -312,7 +364,7 @@ function signInScreen(message) {
         }
     });
     show(el("h1", { text: t("sign_in.title") }), el("p", { text: t("sign_in.intro") }), notice,
-         button);
+         button, el("p", {}, el("a", { href: "#/recover", text: t("recover.link") })));
 }
 
 function field(id, label, hint, attributes = {}) {
@@ -326,7 +378,9 @@ function enrollScreen(code) {
                                     { autocomplete: "name", maxlength: 64 });
     const [deviceField, device] = field("enroll-device", t("enroll.device"),
                                         t("enroll.device_hint"), { maxlength: 64 });
-    const button = el("button", { type: "submit", class: "primary", text: t("enroll.button") });
+    const firstRun = state.firstRun;
+    const button = el("button", { type: "submit", class: "primary",
+                                  text: t(firstRun ? "setup.button" : "enroll.button") });
     const notice = el("div");
     const form = el("form", { novalidate: true }, nameField, deviceField, notice, button);
     form.addEventListener("submit", async (event) => {
@@ -338,7 +392,15 @@ function enrollScreen(code) {
         button.disabled = true;
         status(t("status.working"));
         try {
-            signedIn(await register(code, name.value.trim(), device.value.trim()));
+            const answer = await register(code, name.value.trim(), device.value.trim());
+            state.pendingCode = null;
+            if (answer.first_run) {
+                // The ledger is made: the recovery sheet next, shown once.
+                state.firstRun = false;
+                signedIn(answer, () => sheetScreen(answer));
+            } else {
+                signedIn(answer);
+            }
         } catch (error) {
             notice.replaceChildren(problem(passkeyProblem(error)));
         } finally {
@@ -346,17 +408,164 @@ function enrollScreen(code) {
             status("");
         }
     });
-    show(el("h1", { text: t("enroll.title") }), el("p", { text: t("enroll.intro") }), form);
+    if (firstRun) {
+        show(el("p", { class: "step", text: t("setup.step", { step: 1 }) }),
+             el("h1", { text: t("setup.title") }), el("p", { text: t("setup.intro") }), form);
+    } else {
+        show(el("h1", { text: t("enroll.title") }), el("p", { text: t("enroll.intro") }), form);
+    }
+}
+
+/// The recovery sheet: the code, shown this once, to print or save before
+/// going on.
+function sheetScreen(answer) {
+    const made = new Date().toISOString().slice(0, 10);
+    const consoleAddress = `${location.origin}${location.pathname}`;
+    const facts = el("dl", { class: "facts" },
+                     el("dt", { text: t("sheet.organization") }), el("dd", { text: answer.user }),
+                     el("dt", { text: t("sheet.ledger") }),
+                     el("dd", { class: "id", text: answer.ledger }),
+                     el("dt", { text: t("sheet.console") }), el("dd", { text: consoleAddress }),
+                     el("dt", { text: t("sheet.date") }), el("dd", { text: made }));
+    const code = el("p", { class: "code", id: "recovery-code", text: answer.recovery_code });
+    const print = el("button", { type: "button", text: t("sheet.print") });
+    print.addEventListener("click", () => window.print());
+    const save = el("button", { type: "button", text: t("sheet.save") });
+    save.addEventListener("click", () => {
+        const lines = [t("sheet.title"), "", `${t("sheet.organization")}: ${answer.user}`,
+                       `${t("sheet.ledger")}: ${answer.ledger}`,
+                       `${t("sheet.console")}: ${consoleAddress}`, `${t("sheet.date")}: ${made}`,
+                       "", `${t("sheet.code")}: ${answer.recovery_code}`, "", t("sheet.intro"), ""];
+        const url = URL.createObjectURL(new Blob([lines.join("\n")],
+                                                 { type: "text/plain;charset=utf-8" }));
+        const link = el("a", { href: url, download: "cexchain-recovery-code.txt" });
+        document.body.append(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+    const kept = el("input", { type: "checkbox", id: "sheet-kept" });
+    const notice = el("div");
+    const next = el("button", { type: "submit", class: "primary", text: t("sheet.continue") });
+    const form = el("form", { novalidate: true, class: "no-print" },
+                    el("label", { class: "check" }, kept, " ", t("sheet.saved")), notice, next);
+    // The code is never shown again: leaving the page asks first.
+    const leaving = (event) => {
+        event.preventDefault();
+        event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", leaving);
+    form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        if (!kept.checked) {
+            notice.replaceChildren(problem(t("sheet.needed")));
+            return;
+        }
+        window.removeEventListener("beforeunload", leaving);
+        backupScreen();
+    });
+    show(el("p", { class: "step no-print", text: t("setup.step", { step: 2 }) }),
+         el("section", { class: "sheet", "aria-labelledby": "sheet-title" },
+            el("h1", { id: "sheet-title", text: t("sheet.title") }),
+            el("p", { text: t("sheet.intro") }), facts,
+            el("p", { class: "label", text: t("sheet.code") }), code,
+            el("p", { class: "hint", text: t("sheet.once") })),
+         el("p", { class: "no-print" }, print, " ", save), form);
+}
+
+/// Where backups go: a folder the person chooses, or later in Settings.
+async function backupScreen() {
+    const settings = await api("GET", "settings");
+    const [folderField, folder] = field("backup-folder", t("backup.folder"),
+                                        t("backup.folder_hint"),
+                                        { value: settings.backup_folder ??
+                                                 settings.suggested_backup_folder });
+    const notice = el("div");
+    const use = el("button", { type: "submit", class: "primary", text: t("backup.use") });
+    const later = el("button", { type: "button", text: t("backup.later") });
+    later.addEventListener("click", () => home());
+    const form = el("form", { novalidate: true }, folderField, notice, use, " ", later);
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        use.disabled = true;
+        try {
+            await api("POST", "settings", { backup_folder: folder.value.trim() });
+            home();
+        } catch (error) {
+            notice.replaceChildren(problem(t("error.server", { message: error.message })));
+        } finally {
+            use.disabled = false;
+        }
+    });
+    show(el("p", { class: "step", text: t("setup.step", { step: 3 }) }),
+         el("h1", { text: t("backup.title") }), el("p", { text: t("backup.intro") }), form);
+}
+
+/// The recovery code and a new passkey, for an owner who lost theirs.
+function recoverScreen() {
+    const [codeField, code] = field("recover-code", t("recover.code"), t("recover.code_hint"),
+                                    { autocomplete: "off", spellcheck: "false",
+                                      autocapitalize: "characters" });
+    const [nameField, name] = field("recover-name", t("recover.name"), t("recover.name_hint"),
+                                    { autocomplete: "name", maxlength: 64 });
+    const [deviceField, device] = field("recover-device", t("enroll.device"),
+                                        t("enroll.device_hint"), { maxlength: 64 });
+    const button = el("button", { type: "submit", class: "primary", text: t("recover.button") });
+    const notice = el("div");
+    const form = el("form", { novalidate: true }, codeField, nameField, deviceField, notice,
+                    button);
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!passkeysAvailable()) {
+            notice.replaceChildren(problem(t("error.no_passkeys")));
+            return;
+        }
+        button.disabled = true;
+        status(t("status.working"));
+        try {
+            const answer = await recover(code.value.trim(), name.value.trim(),
+                                         device.value.trim());
+            code.value = "";
+            state.flash = t("recover.done");
+            signedIn(answer);
+        } catch (error) {
+            notice.replaceChildren(problem(error instanceof ApiError && error.status === 403
+                ? t("recover.wrong") : passkeyProblem(error)));
+        } finally {
+            button.disabled = false;
+            status("");
+        }
+    });
+    show(el("h1", { text: t("recover.title") }), el("p", { text: t("recover.intro") }), form);
+}
+
+/// A message for the next screen only.
+function flash() {
+    const message = state.flash;
+    state.flash = null;
+    return message ? el("p", { class: "notice", role: "status", text: message }) : null;
 }
 
 async function homeScreen() {
-    const home = await api("GET", "home");
+    let home;
+    try {
+        home = await api("GET", "home");
+    } catch (error) {
+        // Locked: Home waits for the unlock, and says how.
+        if (error instanceof ApiError && error.status === 423) {
+            state.who.keys = "locked";
+            show(flash(), keysNotice(), el("h1", { text: t("home.title") }),
+                 el("p", { class: "hint", text: t("home.locked") }));
+            return;
+        }
+        throw error;
+    }
     const counts = el("dl", { class: "facts" });
     for (const key of ["actors", "records", "contracts", "instances", "open_requests"]) {
         counts.append(el("dt", { text: t(`count.${key}`) }),
                       el("dd", { text: String(home.counts[key]) }));
     }
-    show(keysNotice(), el("h1", { text: t("home.title") }),
+    show(flash(), keysNotice(), slotNotice(), el("h1", { text: t("home.title") }),
          el("dl", { class: "facts" },
             el("dt", { text: t("home.organization") }), el("dd", { text: home.ledger.organization }),
             el("dt", { text: t("home.ledger") }), el("dd", { class: "id", text: home.ledger.id })),
@@ -409,6 +618,87 @@ async function thingsScreen() {
     show(el("h1", { text: t("things.title") }), el("p", { class: "hint", text: t("things.hint") }),
          ...records, ...instances,
          things.more ? el("p", { class: "hint", text: t("things.more") }) : null);
+}
+
+// --- Settings ----------------------------------------------------------------------
+
+async function settingsScreen() {
+    const settings = await api("GET", "settings");
+    const parts = [el("h1", { text: t("settings.title") })];
+    const ledger = settings.ledger;
+    parts.push(el("h2", { text: t("settings.ledger") }));
+    if (ledger) {
+        parts.push(el("dl", { class: "facts" },
+                      el("dt", { text: t("home.organization") }),
+                      el("dd", { text: ledger.organization }),
+                      el("dt", { text: t("home.ledger") }), el("dd", { class: "id", text: ledger.id }),
+                      el("dt", { text: t("settings.entries") }),
+                      el("dd", { text: String(ledger.entries) }),
+                      el("dt", { text: t("settings.hash") }), el("dd", { text: ledger.hash }),
+                      el("dt", { text: t("settings.directory") }),
+                      el("dd", { class: "id", text: settings.directory })));
+    } else {
+        parts.push(el("p", { class: "hint", text: t("home.locked") }));
+    }
+
+    parts.push(el("h2", { text: t("settings.language") }),
+               el("p", { class: "hint", text: t("settings.language_here") }));
+    const notice = el("div", { role: "status" });
+    const changeable = settings.may_change;
+    const language = el("select", { id: "default-language", disabled: !changeable },
+                        el("option", { value: "", text: t("settings.browser_language") }),
+                        settings.languages.map((l) => el("option", {
+                            value: l, lang: l,
+                            text: document.querySelector(`#language option[value="${l}"]`)
+                                ?.textContent ?? l,
+                        })));
+    language.value = settings.language ?? "";
+    parts.push(el("div", { class: "field" },
+                  el("label", { for: "default-language", text: t("settings.default_language") }),
+                  language));
+
+    parts.push(el("h2", { text: t("settings.backups") }));
+    const [folderField, folder] = field("settings-backup", t("backup.folder"),
+                                        t("backup.folder_hint"),
+                                        { value: settings.backup_folder ?? "",
+                                          placeholder: settings.suggested_backup_folder,
+                                          disabled: !changeable });
+    parts.push(folderField, el("p", { class: "hint", text: t("settings.backup_note") }));
+    if (changeable) {
+        const save = el("button", { type: "button", class: "primary", text: t("settings.save") });
+        save.addEventListener("click", async () => {
+            save.disabled = true;
+            try {
+                const typed = folder.value.trim();
+                const saved = await api("POST", "settings", {
+                    language: language.value === "" ? null : language.value,
+                    backup_folder: typed === "" ? null : typed,
+                });
+                state.defaultLanguage = saved.language;
+                notice.replaceChildren(el("p", { text: t("settings.saved") }));
+            } catch (error) {
+                notice.replaceChildren(problem(t("error.server", { message: error.message })));
+            } finally {
+                save.disabled = false;
+            }
+        });
+        parts.push(notice, save);
+    } else {
+        parts.push(el("p", { class: "hint", text: t("settings.read_only") }));
+    }
+
+    parts.push(el("h2", { text: t("settings.keys") }),
+               el("p", { id: "keys-state", text: t(`settings.keys_state.${settings.keys}`) }));
+    if (changeable && settings.keys === "unlocked") {
+        const lock = el("button", { type: "button", text: t("settings.lock") });
+        lock.addEventListener("click", async () => {
+            const result = await api("POST", "unlock", { lock: true });
+            state.who.keys = result.keys;
+            route();
+        });
+        parts.push(lock);
+    }
+    show(keysNotice(), ...parts);
 }
 
 // --- The checks in this browser --------------------------------------------------
@@ -587,7 +877,8 @@ function chrome() {
     who.textContent = signedIn
         ? t("session.signed_in_as", { user: state.who.user, role: t(`role.${state.who.role}`) })
         : "";
-    const current = location.hash.startsWith("#/things") ? "things" : "home";
+    const current = location.hash.startsWith("#/things") ? "things"
+        : location.hash.startsWith("#/settings") ? "settings" : "home";
     for (const link of document.querySelectorAll("nav a")) {
         if (link.dataset.route === current) {
             link.setAttribute("aria-current", "page");
@@ -622,11 +913,16 @@ async function route() {
     }
     chrome();
     if (state.who === null) {
-        signInScreen();
+        if (hash.startsWith("#/recover")) {
+            recoverScreen();
+        } else {
+            signInScreen();
+        }
         return;
     }
     try {
-        await (hash.startsWith("#/things") ? thingsScreen() : homeScreen());
+        await (hash.startsWith("#/things") ? thingsScreen()
+            : hash.startsWith("#/settings") ? settingsScreen() : homeScreen());
     } catch (error) {
         if (error instanceof ApiError && error.status === 401) {
             state.who = null;
@@ -652,7 +948,15 @@ async function signOut() {
 
 async function start() {
     state.english = await catalog("en");
-    await setLanguage(preferredLanguage());
+    try {
+        const begun = await api("GET", "start");
+        state.firstRun = begun.first_run;
+        state.defaultLanguage = begun.language;
+    } catch {
+        // An older console, or one starting: the defaults do.
+    }
+    const saved = LANGUAGES.includes(stored(localStorage, LANGUAGE));
+    await setLanguage(preferredLanguage(), saved);
     document.getElementById("language").addEventListener("change", async (event) => {
         await setLanguage(event.target.value);
         route();

@@ -45,9 +45,11 @@ async function waitRunning() {
                               "log.key"));
   const record = idFrom(run("record", "issue", "--as", "root.key", "--type", "example.document/1",
                             "--field", "result=pass"));
-  // Sealed keys: the console starts locked.
+  // Sealed keys, the log key among them: the console starts locked, and
+  // serves the ledger once unlocked.
   fs.writeFileSync(path.join(work, "unlock.txt"), "the unlock passphrase of this test\n");
   run("console", "key", "init", "--unlock-file", "unlock.txt");
+  run("console", "key", "import", "log", "log.key");
 
   const port = await freePort();
   const start = () => spawn(cexchain, ["console", "run", "--port", String(port), "--quiet"], { cwd: work, env });
@@ -81,10 +83,10 @@ async function waitRunning() {
     await page.getByLabel("This device's name (optional)").fill("test laptop");
     await page.getByRole("button", { name: "Register a passkey" }).click();
     await page.getByRole("heading", { name: "Home" }).waitFor();
-    await page.getByText("Console Test Org").waitFor();
     await page.getByText("Signed in as Alice (owner)").waitFor();
-    // Locked: the owner unlocks it with the passphrase.
+    // Locked: the ledger waits, and the owner unlocks it with the passphrase.
     await page.getByText("This console is locked").waitFor();
+    await page.getByText("The ledger shows here once the console is unlocked.").waitFor();
     await page.getByLabel("Passphrase or recovery code").fill("not it");
     await page.getByRole("button", { name: "Unlock" }).click();
     await page.getByText("That does not unlock the console.").waitFor();
@@ -92,6 +94,7 @@ async function waitRunning() {
     await page.getByRole("button", { name: "Unlock" }).click();
     await page.getByText("This console is locked").waitFor({ state: "detached" });
     await page.getByRole("heading", { name: "Home" }).waitFor();
+    await page.getByText("Console Test Org").waitFor();
     const people = JSON.parse(run("console", "user", "list", "--json"));
     assert.equal(people.users[0].name, "Alice");
     assert.equal(people.users[0].role, "owner");

@@ -245,3 +245,57 @@ td {
     border-left: 4px solid var(--accent);
     background: var(--panel);
 }
+
+.step {
+    color: var(--muted);
+    margin-bottom: 0;
+}
+
+.sheet {
+    max-width: 40rem;
+    padding: 1rem 1.25rem;
+    border: 2px solid var(--line);
+    border-radius: 8px;
+}
+
+.sheet .label {
+    margin-bottom: 0;
+    color: var(--muted);
+}
+
+.code {
+    margin-top: 0.25rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 1.4rem;
+    letter-spacing: 0.05em;
+    overflow-wrap: anywhere;
+}
+
+label.check {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 44px;
+    margin: 1rem 0;
+}
+
+label.check input {
+    min-height: auto;
+    width: 1.25rem;
+    height: 1.25rem;
+}
+
+/* The recovery sheet prints alone. */
+@media print {
+    .bar,
+    .skip,
+    .status,
+    .no-print {
+        display: none !important;
+    }
+
+    .sheet {
+        border-color: #000;
+        color: #000;
+    }
+}
