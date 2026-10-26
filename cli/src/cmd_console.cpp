@@ -6,24 +6,34 @@
 #include <cerrno>
 #include <chrono>
 #include <csignal>
+#include <cstdlib>
 #include <exception>
 #include <filesystem>
 #include <format>
+#include <iostream>
+#include <memory>
+#include <optional>
 #include <print>
 #include <ranges>
 #include <spawn.h>
+#include <stdexcept>
 #include <string>
 #include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
 
 #include <cexchain/app/support.hpp>
+#include <cexchain/console/deferred.hpp>
 #include <cexchain/console/keystore.hpp>
 #include <cexchain/console/sessions.hpp>
+#include <cexchain/console/settings.hpp>
+#include <cexchain/console/setup.hpp>
 #include <cexchain/console/users.hpp>
 #include <cexchain/core/protocol/statement.hpp>
 #include <cexchain/ledger/environment.hpp>
 #include <cexchain/ledger/storage.hpp>
+#include <cexchain/node/api.hpp>
+#include <cexchain/node/server.hpp>
 
 #include "commands.hpp"
 #include "output.hpp"
@@ -106,7 +116,8 @@ int cmd_console_setup_link(const Args& args) {
     ledger::SystemClock clock;
     ledger::SystemEntropy entropy;
     auto [code, invitation] =
-        console::make_invitation(shared_provider(), entropy, "", console::Role::owner, clock.now());
+        console::make_invitation(shared_provider(), entropy, "", console::Role::owner, clock.now(),
+                                 console::setup_link_lifetime);
     const std::string link = invitation_link(args, state, code);
     change_people(state, [&](console::People& people) {
         if (people.has_owner()) {
@@ -398,10 +409,153 @@ std::optional<pid_t> running_console(const std::filesystem::path& state) {
 
 } // namespace
 
+namespace {
+
+std::string unlock_secret(const std::string& file);
+
+/// Opens `target` (a URL or a file) in the person's browser; false if this
+/// computer has no opener.
+bool open_in_browser(const std::string& target) {
+#if defined(__APPLE__)
+    const char* opener = "open";
+#else
+    const char* opener = "xdg-open";
+#endif
+    std::string argument = target;
+    std::vector<char*> argv{const_cast<char*>(opener), argument.data(), nullptr};
+    pid_t child = 0;
+    if (::posix_spawnp(&child, opener, nullptr, nullptr, argv.data(), environ) != 0) {
+        return false;
+    }
+    int status = 0;
+    ::waitpid(child, &status, 0);
+    return true;
+}
+
+/// A person's console: the console at once, the ledger's API once the first
+/// run has made the ledger or the console is unlocked (DeferredApi).
+int run_person_console(const Args& args, const std::filesystem::path& dir,
+                       const std::filesystem::path& state, std::uint16_t port, bool first_run,
+                       console::KeyStore& keys) {
+    if (const auto file = args.get("unlock-file")) {
+        if (!keys.unlock({console::SlotKind::passphrase, {}}, unlock_secret(*file))) {
+            throw UsageError{"--unlock-file does not unlock the console's keys"};
+        }
+    }
+    ledger::SystemClock clock;
+    ledger::SystemEntropy entropy;
+    console::Sessions sessions(state, shared_provider(), clock, entropy);
+    auto web = std::make_shared<console::Console>(
+        console::Services{state, &shared_provider(), &clock, &entropy, &sessions, &keys});
+    node::ApiOptions base;
+    base.directory = dir;
+    base.checkpoint_interval = std::chrono::seconds(60);
+    base.version = CEXCHAIN_VERSION;
+    base.console = [web](const node::http::Request& r, auto respond) {
+        web->handle(r, std::move(respond));
+    };
+    auto deferred = std::make_shared<console::DeferredApi>(web, [&keys, base] {
+        node::ApiOptions options = base;
+        // The log key signs checkpoints, receipts, and evidence once unlocked.
+        if (std::ranges::any_of(keys.keys(), [](const auto& k) { return k.name == "log"; })) {
+            options.log_keys.push_back(
+                std::make_shared<crypto::openssl::KeyPair>(keys.open("log")));
+        }
+        return unwrap(node::LedgerApi::open(options, shared_provider()), "opening the ledger");
+    });
+    web->set_on_ready([weak = std::weak_ptr(deferred)] {
+        if (auto d = weak.lock()) {
+            d->open_now();
+        }
+    });
+    if (!first_run && keys.unlocked()) {
+        deferred->open_now();
+    }
+
+    node::ServerOptions server_options;
+    server_options.host = "127.0.0.1";
+    server_options.port = port;
+    server_options.access_log = args.has("quiet") ? nullptr : &std::cerr;
+    std::optional<node::Server> listening;
+    for (unsigned tried = 0;; ++tried) {
+        listening.emplace(*deferred, server_options);
+        auto status = listening->listen();
+        if (status) {
+            break;
+        }
+        if (args.has("port") || tried + 1 >= 20) {
+            unwrap(std::move(status), "starting the console");
+        }
+        listening.reset();
+        ++server_options.port;
+    }
+    node::Server& server = *listening;
+    const std::uint16_t got = server.port();
+    web->set_origins(console::loopback_origins(got));
+    const std::string url = std::format("http://localhost:{}/console/", got);
+    std::filesystem::create_directories(state);
+    app::write_file(state / "port", as_bytes(std::to_string(got) + "\n"), true);
+    app::write_file(state / "url", as_bytes(url + "\n"), true);
+    app::write_file(state / "pid", as_bytes(std::to_string(::getpid()) + "\n"), true);
+
+    // The first run: a setup link for whoever sets it up, in a private file
+    // and a page that opens it, never on the command line or in a log.
+    std::optional<std::filesystem::path> opener;
+    if (first_run) {
+        auto [code, invitation] =
+            console::make_invitation(shared_provider(), entropy, "", console::Role::owner,
+                                     clock.now(), console::setup_link_lifetime);
+        change_people(state, [&](console::People& people) {
+            std::erase_if(people.invitations,
+                          [](const console::Invitation& i) { return i.user.empty(); });
+            people.invitations.push_back(invitation);
+        });
+        const std::string link = url + "#/enroll/" + code;
+        app::write_file(state / "setup-link", as_bytes(link + "\n"), true);
+        const std::string page =
+            "<!doctype html><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" "
+            "content=\"0; url=" +
+            link + "\"><title>CexChain</title>\n";
+        app::write_file(state / "setup.html", as_bytes(page), true);
+        opener = state / "setup.html";
+    }
+    const bool no_browser = args.has("no-browser") || std::getenv("CEXCHAIN_NO_BROWSER") != nullptr;
+    if (args.json()) {
+        print_json(
+            {{"url", url},
+             {"port", got},
+             {"setup", first_run},
+             {"setup_page", opener ? Json(opener->string()) : Json()},
+             {"keys", keys.initialized() ? (keys.unlocked() ? "unlocked" : "locked") : "none"}});
+    } else if (first_run) {
+        std::println("console: {} (setting up: {})", url,
+                     !no_browser && open_in_browser(opener->string())
+                         ? "your browser opened the setup page"
+                         : "open " + opener->string() + " in your browser, within an hour");
+    } else {
+        std::println("console: {}{}", url,
+                     keys.unlocked() ? "" : " (locked: sign in with your passkey to unlock it)");
+    }
+    if (first_run && args.json() && !no_browser) {
+        open_in_browser(opener->string());
+    }
+    std::fflush(stdout);
+    server.run();
+    std::error_code ignored;
+    std::filesystem::remove(state / "pid", ignored);
+    return exit_ok;
+}
+
+} // namespace
+
 int cmd_console_run(const Args& args) {
     const std::filesystem::path dir = args.ledger();
-    require_ledger_directory(dir);
     const std::filesystem::path state = console::state_directory(dir);
+    // A directory with no ledger yet: the first run makes it.
+    const bool first_run = !console::has_ledger(dir);
+    if (first_run) {
+        std::filesystem::create_directories(dir);
+    }
     if (const auto pid = running_console(state)) {
         throw CommandError{
             std::format("the console runs already (process {}): console open", *pid)};
@@ -415,6 +569,15 @@ int cmd_console_run(const Args& args) {
     if (port == 0 || port > 65535) {
         throw UsageError{"--port is 1 to 65535"};
     }
+    console::KeyStore keys(state);
+    const bool sealed_log =
+        keys.initialized() &&
+        std::ranges::any_of(keys.keys(), [](const auto& k) { return k.name == "log"; });
+    if (first_run || sealed_log) {
+        return run_person_console(args, dir, state, static_cast<std::uint16_t>(port), first_run,
+                                  keys);
+    }
+    // A ledger whose keys are files (as the README's quick start makes it).
     ServeDefaults defaults;
     defaults.listen = std::format("127.0.0.1:{}", port);
     defaults.console = true;
@@ -433,7 +596,6 @@ int cmd_console_run(const Args& args) {
 
 int cmd_console_status(const Args& args) {
     const std::filesystem::path dir = args.ledger();
-    require_ledger_directory(dir);
     const std::filesystem::path state = console::state_directory(dir);
     const auto pid = running_console(state);
     const auto url = state_line(state / "url");
@@ -466,7 +628,6 @@ int cmd_console_status(const Args& args) {
 
 int cmd_console_stop(const Args& args) {
     const std::filesystem::path dir = args.ledger();
-    require_ledger_directory(dir);
     const std::filesystem::path state = console::state_directory(dir);
     const auto pid = running_console(state);
     if (!pid) {
@@ -492,7 +653,6 @@ int cmd_console_stop(const Args& args) {
 
 int cmd_console_open(const Args& args) {
     const std::filesystem::path dir = args.ledger();
-    require_ledger_directory(dir);
     const std::filesystem::path state = console::state_directory(dir);
     const auto url = state_line(state / "url");
     if (!running_console(state) || !url) {
@@ -506,20 +666,10 @@ int cmd_console_open(const Args& args) {
         }
         return exit_ok;
     }
-#if defined(__APPLE__)
-    const char* opener = "open";
-#else
-    const char* opener = "xdg-open";
-#endif
-    std::string target = *url;
-    std::vector<char*> argv{const_cast<char*>(opener), target.data(), nullptr};
-    pid_t child = 0;
-    if (::posix_spawnp(&child, opener, nullptr, nullptr, argv.data(), environ) != 0) {
+    if (!open_in_browser(*url)) {
         std::println("open {} in your browser", *url);
         return exit_ok;
     }
-    int status = 0;
-    ::waitpid(child, &status, 0);
     std::println("opened {}", *url);
     return exit_ok;
 }
@@ -575,6 +725,55 @@ int cmd_console_key_init(const Args& args) {
     if (unlock) {
         std::println("The unlock file opens them too (console run --unlock-file).");
     }
+    return exit_ok;
+}
+
+int cmd_console_setup(const Args& args) {
+    const std::filesystem::path dir = args.ledger();
+    const std::filesystem::path state = console::state_directory(dir);
+    if (console::has_ledger(dir)) {
+        throw CommandError{"this directory holds a ledger already (console run opens it)"};
+    }
+    if (const auto pid = running_console(state)) {
+        throw CommandError{std::format(
+            "the console runs on this directory (process {}): stop it first, or set it up there",
+            *pid)};
+    }
+    const std::string file = args.need("credential");
+    const auto passkey =
+        unwrap(protocol::decode_presence_credential(read_file(file)), "reading " + file);
+    const std::optional<std::string> unlock =
+        args.get("unlock-file") ? std::optional(unlock_secret(*args.get("unlock-file")))
+                                : std::nullopt;
+    std::filesystem::create_directories(state);
+    console::KeyStore keys(state);
+    ledger::SystemEntropy entropy;
+    console::FirstRun run;
+    try {
+        run =
+            console::set_up({dir, args.need("name"), passkey, std::nullopt, unlock}, keys, entropy);
+    } catch (const std::invalid_argument& e) {
+        throw UsageError{e.what()};
+    } catch (const std::exception& e) {
+        throw CommandError{e.what()};
+    }
+    if (args.json()) {
+        print_json({{"ledger", id_json(run.ledger)},
+                    {"owner", id_json(run.owner)},
+                    {"user", args.need("name")},
+                    {"recovery_code", run.recovery_code}});
+        return exit_ok;
+    }
+    std::println("made the ledger {} with its owner {}, who signs in with the passkey in {}",
+                 hex_id(run.ledger), args.need("name"), file);
+    std::println("");
+    std::println("The console's recovery code (shown once: write it down and keep it safe):");
+    std::println("");
+    std::println("    {}", run.recovery_code);
+    std::println("");
+    std::println("It unlocks the console's keys, and registers a new passkey, if every passkey is "
+                 "lost.");
+    std::println("Start the console with: console run{}", unlock ? " --unlock-file FILE" : "");
     return exit_ok;
 }
 
@@ -748,6 +947,80 @@ int cmd_console_user_passkeys(const Args& args) {
     for (const auto& f : files) {
         std::println("wrote {}", f.get<std::string>());
     }
+    return exit_ok;
+}
+
+namespace {
+
+Json settings_json(const console::Settings& settings) {
+    return {{"language", settings.language ? Json(*settings.language) : Json()},
+            {"backup_folder",
+             settings.backup_folder ? Json(settings.backup_folder->string()) : Json()}};
+}
+
+void print_settings(const Args& args, const console::Settings& settings) {
+    if (args.json()) {
+        print_json(settings_json(settings));
+        return;
+    }
+    std::println("language: {}", settings.language.value_or("each browser's own"));
+    std::println("backup folder: {}", settings.backup_folder
+                                          ? settings.backup_folder->string()
+                                          : std::string("none chosen (console settings set "
+                                                        "--backup-folder DIR)"));
+}
+
+} // namespace
+
+int cmd_console_settings_show(const Args& args) {
+    const std::filesystem::path dir = args.ledger();
+    require_ledger_directory(dir);
+    try {
+        print_settings(args, console::load_settings(console::state_directory(dir)));
+    } catch (const std::runtime_error& e) {
+        throw CommandError{e.what()};
+    }
+    return exit_ok;
+}
+
+int cmd_console_settings_set(const Args& args) {
+    const std::filesystem::path dir = args.ledger();
+    require_ledger_directory(dir);
+    const auto language = args.get("language");
+    const auto folder = args.get("backup-folder");
+    if (!language && !folder) {
+        throw UsageError{"give --language, --backup-folder, or both"};
+    }
+    if (language && *language != "browser" && !console::valid_language(*language)) {
+        throw UsageError{"--language is en, zh-Hant-HK, zh-Hans-CN, or browser"};
+    }
+    const std::filesystem::path state = console::state_directory(dir);
+    std::filesystem::create_directories(state);
+    const auto lock =
+        unwrap(ledger::DirectoryLock::acquire(state), "locking the console's settings");
+    console::Settings settings;
+    try {
+        settings = console::load_settings(state);
+    } catch (const std::runtime_error& e) {
+        throw CommandError{e.what()};
+    }
+    if (language) {
+        settings.language =
+            *language == "browser" ? std::nullopt : std::optional<std::string>(*language);
+    }
+    if (folder) {
+        if (*folder == "none") {
+            settings.backup_folder.reset();
+        } else {
+            const std::filesystem::path chosen = std::filesystem::absolute(*folder);
+            if (const auto problem = console::prepare_backup_folder(chosen)) {
+                throw CommandError{*problem};
+            }
+            settings.backup_folder = chosen.lexically_normal();
+        }
+    }
+    console::save_settings(state, settings);
+    print_settings(args, settings);
     return exit_ok;
 }
 

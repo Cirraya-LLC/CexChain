@@ -224,14 +224,14 @@ std::optional<std::string> invitation_hash(const crypto::Provider& provider,
 
 std::pair<std::string, Invitation> make_invitation(const crypto::Provider& provider,
                                                    ledger::Entropy& entropy, std::string user,
-                                                   Role role, protocol::Timestamp now) {
+                                                   Role role, protocol::Timestamp now,
+                                                   protocol::Timestamp lifetime) {
     std::string code = std::string(invitation_prefix) + to_base64url(entropy.bytes<32>());
     const auto hash = invitation_hash(provider, code);
     if (!hash) {
         throw std::runtime_error("hashing an invitation code failed");
     }
-    Invitation invitation{hash->substr(0, 16),      *hash, std::move(user), role, now,
-                          now + invitation_lifetime};
+    Invitation invitation{hash->substr(0, 16), *hash, std::move(user), role, now, now + lifetime};
     return {std::move(code), std::move(invitation)};
 }
 

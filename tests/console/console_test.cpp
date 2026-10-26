@@ -15,11 +15,15 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
+#include <cexchain/app/session.hpp>
 #include <cexchain/app/support.hpp>
 #include <cexchain/console/console.hpp>
 #include <cexchain/console/keystore.hpp>
 #include <cexchain/console/sessions.hpp>
+#include <cexchain/console/settings.hpp>
+#include <cexchain/console/setup.hpp>
 #include <cexchain/console/users.hpp>
+#include <cexchain/core/protocol/state.hpp>
 #include <cexchain/crypto/openssl.hpp>
 #include <cexchain/ledger/environment.hpp>
 
@@ -279,17 +283,34 @@ TEST_CASE("the console's session route", "[console][sessions]") {
 namespace {
 
 /// A console with its services, on localhost:7470.
+/// A console in a ledger directory's console/ folder. By default a ledger is
+/// there (only its marker: the console serves none), so registering is not
+/// the first run; `first_run` leaves the directory empty.
 struct ConsoleWorld {
     TempDirectory dir;
+    std::filesystem::path state = console::state_directory(dir.path);
     cexchain::ledger::ManualClock clock{1'800'000'000'000};
     cexchain::ledger::SeededEntropy entropy{11};
-    console::Sessions sessions{dir.path, provider(), clock, entropy};
-    console::KeyStore keys{dir.path};
-    console::Console web{
-        console::Services{dir.path, &provider(), &clock, &entropy, &sessions, &keys}};
+    console::Sessions sessions{state, provider(), clock, entropy};
+    console::KeyStore keys{state};
+    console::Console web{console::Services{state, &provider(), &clock, &entropy, &sessions, &keys}};
     std::string origin = "http://localhost:7470";
 
-    ConsoleWorld() { web.set_origins(console::loopback_origins(7470)); }
+    explicit ConsoleWorld(bool first_run = false) {
+        web.set_origins(console::loopback_origins(7470));
+        if (!first_run) {
+            std::filesystem::create_directories(dir.path / "statements");
+        }
+    }
+
+    http::Response post_as(const std::string& path, const nlohmann::json& body,
+                           const std::string& token) {
+        auto r = request("POST", path, "localhost:7470", origin);
+        r.headers.emplace_back("authorization", "Bearer " + token);
+        const std::string text = body.dump();
+        r.body.assign(text.begin(), text.end());
+        return web.handle(r);
+    }
 
     http::Response post(const std::string& path, const nlohmann::json& body) {
         auto r = request("POST", path, "localhost:7470", origin);
@@ -299,19 +320,19 @@ struct ConsoleWorld {
     }
 
     std::string invite(std::string user, console::Role role) {
-        auto people = console::load_people(dir.path);
+        auto people = console::load_people(state);
         auto [code, invitation] =
             console::make_invitation(provider(), entropy, std::move(user), role, clock.now());
         people.invitations.push_back(invitation);
-        console::save_people(dir.path, people);
+        console::save_people(state, people);
         return code;
     }
 
     /// A session for a user of the console, made without a passkey.
     std::string session_for(const std::string& name, console::Role role) {
-        auto people = console::load_people(dir.path);
+        auto people = console::load_people(state);
         people.users.push_back({name, role, clock.now(), {}, {}, {}});
-        console::save_people(dir.path, people);
+        console::save_people(state, people);
         return sessions.create(name);
     }
 
@@ -323,7 +344,7 @@ struct ConsoleWorld {
 
     /// Registers `passkey` with an invitation code; returns the answer.
     http::Response enroll(const cexchain::test::SoftPasskey& passkey, const std::string& code,
-                          const std::string& name = {}) {
+                          const std::string& name = {}, const std::string& prf = {}) {
         const auto begun = post("/console/api/enroll/begin", {{"code", code}, {"name", name}});
         if (begun.status != 200) {
             return begun;
@@ -337,7 +358,8 @@ struct ConsoleWorld {
              {"attestation_object", cexchain::to_base64url(passkey.attestation(provider()))},
              {"client_data_json",
               cexchain::to_base64url(passkey.client_data("webauthn.create", challenge))},
-             {"label", "laptop"}});
+             {"label", "laptop"},
+             {"prf", prf}});
     }
 
     /// Signs in with `passkey` (and its PRF output, if any); returns the answer.
@@ -389,7 +411,7 @@ TEST_CASE("the first owner sets the console up with a passkey, then signs in",
     const auto me = nlohmann::json::parse(body(w.web.handle(who)));
     CHECK(me["user"] == "Alice");
     CHECK(me["role"] == "owner");
-    const auto people = console::load_people(w.dir.path);
+    const auto people = console::load_people(w.state);
     REQUIRE(people.users.size() == 1);
     CHECK(people.users[0].passkeys.size() == 1);
     CHECK(people.users[0].passkeys[0].label == "laptop");
@@ -466,15 +488,15 @@ TEST_CASE("invitations name their user and role; a removed user is signed out",
     CHECK(w.enroll(passkey(3), w.invite("", console::Role::owner), " ").status == 400);
     // A second passkey for Bob, from his own invitation.
     REQUIRE(w.enroll(passkey(4), w.invite("Bob", console::Role::member)).status == 200);
-    CHECK(console::load_people(w.dir.path).find("Bob")->passkeys.size() == 2);
+    CHECK(console::load_people(w.state).find("Bob")->passkeys.size() == 2);
 
     const std::string token = session_of(w.sign_in(bob));
     auto who = request("GET", "/console/api/session", "localhost:7470");
     who.headers.emplace_back("authorization", "Bearer " + token);
     CHECK(w.web.handle(who).status == 200);
-    auto people = console::load_people(w.dir.path);
+    auto people = console::load_people(w.state);
     std::erase_if(people.users, [](const console::User& u) { return u.name == "Bob"; });
-    console::save_people(w.dir.path, people);
+    console::save_people(w.state, people);
     CHECK(w.web.handle(who).status == 401);
     CHECK(w.sign_in(bob).status == 401);
 }
@@ -819,4 +841,320 @@ TEST_CASE("a person revokes a record with a passkey tap", "[console][approve]") 
     CHECK(prepared["summary"]["reason"] == "issued by mistake");
     REQUIRE(w.approve(prepared, w.alice_passkey, w.challenge_of(prepared), w.token).status == 200);
     CHECK(w.ledger.ledger().state().record(w.record)->revoked);
+}
+
+namespace {
+
+/// The console's first run, done by registering the setup link's passkey.
+struct FirstRunWorld {
+    ConsoleWorld w{true};
+    cexchain::test::SoftPasskey alice = passkey(1);
+    bool ready = false;
+    nlohmann::json made;
+
+    /// With `prf`, the passkey gives its PRF output when it is made.
+    explicit FirstRunWorld(const std::string& prf = {}) {
+        // The ledger checks statements' times against the system's clock.
+        w.clock.set(cexchain::ledger::SystemClock{}.now());
+        w.web.set_on_ready([this] { ready = true; });
+        const auto begun =
+            w.post("/console/api/enroll/begin",
+                   {{"code", w.invite("", console::Role::owner)}, {"name", "Alice"}});
+        REQUIRE(begun.status == 200);
+        // The first run asks for the PRF output at once, with the console's salt.
+        CHECK(nlohmann::json::parse(body(begun))["public_key"]["extensions"]["prf"]["eval"]["first"]
+                  .is_string());
+        const auto answer = w.enroll(alice, w.invite("", console::Role::owner), "Alice", prf);
+        REQUIRE(answer.status == 200);
+        made = nlohmann::json::parse(body(answer));
+    }
+};
+
+/// The ledger the first run made, served to the console as the node would.
+struct Served {
+    cexchain::app::Session session;
+
+    explicit Served(FirstRunWorld& f) : session(cexchain::app::Location{f.w.dir.path}) {
+        f.w.web.set_ledger(&session.ledger());
+        f.w.web.set_submitter([this](cexchain::Bytes statement, auto respond) {
+            // As POST /v1/statements answers.
+            const auto registered = session.ledger().submit(statement);
+            http::Response r;
+            r.status = registered ? 201 : 422;
+            const std::string text =
+                (registered ? nlohmann::json{{"index", registered->index}}
+                            : nlohmann::json{{"error", {{"message", registered.error().detail}}}})
+                    .dump();
+            r.body.assign(text.begin(), text.end());
+            respond(std::move(r));
+        });
+    }
+};
+
+} // namespace
+
+TEST_CASE("the first run makes the ledger, its keys, and its owner", "[console][setup]") {
+    FirstRunWorld f;
+    CHECK(f.made["first_run"] == true);
+    CHECK(f.made["user"] == "Alice");
+    CHECK(f.made["role"] == "owner");
+    CHECK(f.made["keys"] == "unlocked");
+    CHECK(f.made["key_slot"] == false);
+    CHECK(f.made["ledger"].get<std::string>().size() == 64);
+    const std::string code = f.made["recovery_code"].get<std::string>();
+    CHECK(console::canonical_recovery_code(code));
+    CHECK(f.ready);
+    CHECK(console::has_ledger(f.w.dir.path));
+
+    // The ledger: the owner acts in person, with the passkey, under a
+    // delegation that requires presence.
+    cexchain::app::Session session(cexchain::app::Location{f.w.dir.path});
+    const auto& state = session.state();
+    CHECK(state.organization() == "Alice");
+    CHECK(cexchain::to_hex(state.ledger_id().bytes()) == f.made["ledger"].get<std::string>());
+    const auto people = console::load_people(f.w.state);
+    REQUIRE(people.users.size() == 1);
+    const console::User& owner = people.users[0];
+    CHECK(owner.role == console::Role::owner);
+    CHECK(owner.key == "owner");
+    CHECK(people.invitations.empty());
+    const auto actor_id = *cexchain::protocol::to_id(*cexchain::from_hex(owner.actor));
+    const auto* actor = state.actor(actor_id);
+    REQUIRE(actor != nullptr);
+    CHECK(actor->kind == cexchain::protocol::ActorKind::person);
+    CHECK(actor->display_name == "Alice");
+    REQUIRE(actor->presence.size() == 1);
+    CHECK(actor->presence[0].credential_id == f.alice.credential_id);
+    CHECK(f.w.keys.open("owner").public_key() == actor->key);
+    std::size_t delegations = 0;
+    for (const auto& [id, d] : state.delegations()) {
+        if (d.grantee == actor_id) {
+            ++delegations;
+            CHECK(d.scope.require_presence);
+            CHECK(d.scope.may_delegate);
+            CHECK(d.scope.statement_types == console::owner_scope().statement_types);
+        }
+    }
+    CHECK(delegations == 1);
+    std::vector<std::string> sealed;
+    for (const auto& k : f.w.keys.keys()) {
+        sealed.push_back(k.name);
+    }
+    std::ranges::sort(sealed);
+    CHECK(sealed == std::vector<std::string>{"log", "owner", "root"});
+
+    // The code unlocks the keys; nothing sets the console up twice.
+    f.w.keys.lock();
+    CHECK(f.w.keys.unlock({console::SlotKind::recovery, {}}, code));
+    CHECK(f.w.enroll(passkey(2), f.w.invite("", console::Role::owner), "Mallory").status == 409);
+    CHECK_THROWS(
+        console::set_up({f.w.dir.path, "Again", actor->presence[0], std::nullopt, std::nullopt},
+                        f.w.keys, f.w.entropy));
+}
+
+TEST_CASE("setting up refuses set-up keys, a bad name, and a hardware key", "[console][setup]") {
+    ConsoleWorld w{true};
+    const auto alice = passkey(1);
+    cexchain::protocol::PresenceCredential credential{alice.rp_id, alice.credential_id,
+                                                      alice.public_key, std::nullopt};
+    CHECK_THROWS_AS(
+        console::set_up({w.dir.path, "Bad Name!", credential, std::nullopt, std::nullopt}, w.keys,
+                        w.entropy),
+        std::invalid_argument);
+    auto hardware = credential;
+    hardware.rp_id.clear();
+    hardware.method = cexchain::protocol::PresenceMethod::hardware_key;
+    CHECK_THROWS_AS(console::set_up({w.dir.path, "Alice", hardware, std::nullopt, std::nullopt},
+                                    w.keys, w.entropy),
+                    std::invalid_argument);
+    CHECK_FALSE(console::has_ledger(w.dir.path));
+    // Keys set up by hand (console key init) are not overwritten.
+    static_cast<void>(w.keys.initialize(w.entropy));
+    CHECK_THROWS(console::set_up({w.dir.path, "Alice", credential, std::nullopt, std::nullopt},
+                                 w.keys, w.entropy));
+    CHECK_FALSE(console::has_ledger(w.dir.path));
+
+    // For scripts: a passphrase slot, and the console unlocks with it.
+    ConsoleWorld s{true};
+    const auto run =
+        console::set_up({s.dir.path, "Alice", credential, std::nullopt, "a passphrase for scripts"},
+                        s.keys, s.entropy);
+    s.keys.lock();
+    CHECK(s.keys.unlock({console::SlotKind::passphrase, {}}, "a passphrase for scripts"));
+    CHECK(s.keys.unlock({console::SlotKind::recovery, {}}, run.recovery_code));
+}
+
+TEST_CASE("a lost passkey is replaced with the recovery code", "[console][recover]") {
+    FirstRunWorld f;
+    Served served(f);
+    const std::string code = f.made["recovery_code"].get<std::string>();
+    const std::string lost_session = f.made["session"].get<std::string>();
+    // A restart: locked.
+    f.w.keys.lock();
+
+    CHECK(f.w.post("/console/api/recover/begin", {{"recovery_code", "AAAA-BBBB"}}).status == 403);
+    CHECK_FALSE(f.w.keys.unlocked());
+    // A few wrong codes a minute, then none, not even the right one.
+    for (std::size_t i = 1; i < console::max_recovery_failures; ++i) {
+        CHECK(f.w.post("/console/api/recover/begin", {{"recovery_code", "wrong"}}).status == 403);
+    }
+    CHECK(f.w.post("/console/api/recover/begin", {{"recovery_code", code}}).status == 429);
+    f.w.clock.advance(console::recovery_failure_window);
+    auto begin = [&] {
+        const auto r = f.w.post("/console/api/recover/begin", {{"recovery_code", code}});
+        REQUIRE(r.status == 200);
+        return nlohmann::json::parse(body(r));
+    };
+    auto finish = [&](const nlohmann::json& begun, const cexchain::test::SoftPasskey& with,
+                      const std::string& path) {
+        const auto challenge =
+            *cexchain::from_base64url(begun["public_key"]["challenge"].get<std::string>());
+        return f.w.post(
+            path, {{"ceremony", begun["ceremony"]},
+                   {"attestation_object", cexchain::to_base64url(with.attestation(provider()))},
+                   {"client_data_json",
+                    cexchain::to_base64url(with.client_data("webauthn.create", challenge))}});
+    };
+    // A recovery is finished only by its own route.
+    auto begun = begin();
+    CHECK(begun["user"] == "Alice");
+    CHECK(f.w.keys.unlocked());
+    const auto phone = passkey(7);
+    CHECK(finish(begun, phone, "/console/api/enroll/finish").status == 404);
+
+    begun = begin();
+    const auto recovered = finish(begun, phone, "/console/api/recover/finish");
+    REQUIRE(recovered.status == 200);
+    const auto answer = nlohmann::json::parse(body(recovered));
+    CHECK(answer["user"] == "Alice");
+    CHECK(answer["keys"] == "unlocked");
+
+    // On the ledger, and in the console: the new passkey is the only one.
+    const auto people = console::load_people(f.w.state);
+    REQUIRE(people.users[0].passkeys.size() == 1);
+    CHECK(people.users[0].passkeys[0].credential_id == phone.credential_id);
+    const auto actor_id = *cexchain::protocol::to_id(*cexchain::from_hex(people.users[0].actor));
+    const auto* actor = served.session.ledger().state().actor(actor_id);
+    REQUIRE(actor->presence.size() == 1);
+    CHECK(actor->presence[0].credential_id == phone.credential_id);
+    // The lost passkey signs in no more; its session ended; the new one signs in.
+    CHECK(f.w.sign_in(f.alice).status == 401);
+    CHECK(f.w.get("/console/api/session", lost_session).status == 401);
+    CHECK(f.w.get("/console/api/session", answer["session"].get<std::string>()).status == 200);
+    CHECK(f.w.sign_in(phone).status == 200);
+    // A ceremony is used once.
+    CHECK(finish(begun, passkey(8), "/console/api/recover/finish").status == 404);
+}
+
+TEST_CASE("an invitation's registration does not recover anyone", "[console][recover]") {
+    FirstRunWorld f;
+    Served served(f);
+    const std::string owner = f.made["session"].get<std::string>();
+    const auto invited = f.w.post("/console/api/enroll/begin",
+                                  {{"code", f.w.invite("Alice", console::Role::owner)}});
+    REQUIRE(invited.status == 200);
+    const auto begun = nlohmann::json::parse(body(invited));
+    const auto challenge =
+        *cexchain::from_base64url(begun["public_key"]["challenge"].get<std::string>());
+    const auto other = passkey(9);
+    const auto r =
+        f.w.post("/console/api/recover/finish",
+                 {{"ceremony", begun["ceremony"]},
+                  {"attestation_object", cexchain::to_base64url(other.attestation(provider()))},
+                  {"client_data_json",
+                   cexchain::to_base64url(other.client_data("webauthn.create", challenge))}});
+    CHECK(r.status == 404);
+    CHECK(f.w.get("/console/api/session", owner).status == 200);
+}
+
+TEST_CASE("the console's settings: language and backup folder", "[console][settings]") {
+    ConsoleWorld w;
+    const std::string owner = w.session_for("Olive", console::Role::owner);
+    const std::string viewer = w.session_for("Vera", console::Role::viewer);
+    auto start = [&] {
+        return nlohmann::json::parse(
+            body(w.web.handle(request("GET", "/console/api/start", "localhost:7470"))));
+    };
+    CHECK(start()["first_run"] == false);
+    CHECK(start()["language"].is_null());
+
+    const auto seen = nlohmann::json::parse(body(w.get("/console/api/settings", viewer)));
+    CHECK(seen["may_change"] == false);
+    CHECK(seen["ledger"].is_null());
+    CHECK(seen["languages"].size() == 3);
+    CHECK(w.post_as("/console/api/settings", {{"language", "en"}}, viewer).status == 403);
+    CHECK(w.web.handle(request("GET", "/console/api/settings", "localhost:7470")).status == 401);
+
+    const auto folder = w.dir.path / "backups" / "here";
+    const auto changed =
+        w.post_as("/console/api/settings",
+                  {{"language", "zh-Hant-HK"}, {"backup_folder", folder.string()}}, owner);
+    REQUIRE(changed.status == 200);
+    CHECK(nlohmann::json::parse(body(changed))["may_change"] == true);
+    CHECK(std::filesystem::is_directory(folder));
+    const auto saved = console::load_settings(w.state);
+    CHECK(saved.language == "zh-Hant-HK");
+    CHECK(saved.backup_folder == folder);
+    CHECK(start()["language"] == "zh-Hant-HK");
+
+    CHECK(w.post_as("/console/api/settings", {{"language", "fr"}}, owner).status == 400);
+    CHECK(w.post_as("/console/api/settings", {{"backup_folder", "relative/path"}}, owner).status ==
+          400);
+    CHECK(w.post_as("/console/api/settings", {{"backup_folder", 7}}, owner).status == 400);
+    REQUIRE(w.post_as("/console/api/settings", {{"language", nullptr}, {"backup_folder", nullptr}},
+                      owner)
+                .status == 200);
+    CHECK_FALSE(console::load_settings(w.state).language);
+    CHECK_FALSE(console::load_settings(w.state).backup_folder);
+
+    // A damaged file is refused, never half read.
+    cexchain::app::write_file(w.state / "settings.json", cexchain::as_bytes("[1]"), true);
+    CHECK_THROWS(console::load_settings(w.state));
+}
+
+TEST_CASE("a first-run passkey that gives its PRF output unlocks the console",
+          "[console][setup][keys]") {
+    const std::string prf = cexchain::to_base64url(cexchain::Bytes(32, 0x51));
+    FirstRunWorld f(prf);
+    CHECK(f.made["key_slot"] == true);
+    f.w.keys.lock();
+    const auto signed_in = f.w.sign_in(f.alice, prf);
+    REQUIRE(signed_in.status == 200);
+    CHECK(nlohmann::json::parse(body(signed_in))["keys"] == "unlocked");
+}
+
+TEST_CASE("after the first run, the owner approves with the passkey", "[console][setup]") {
+    FirstRunWorld f;
+    Served served(f);
+    // A record, which the organization registers with its root key.
+    const auto record =
+        served.session.submit(f.w.keys.open("root"),
+                              cexchain::protocol::RecordRegisterBody{
+                                  "example.thing/1", cexchain::Bytes(32, 7), 1, {}, std::nullopt},
+                              std::nullopt);
+    f.w.clock.set(cexchain::ledger::SystemClock{}.now());
+    const std::string token = f.made["session"].get<std::string>();
+    const auto prepared_answer = f.w.post_as("/console/api/prepare",
+                                             {{"action", "record.endorse"},
+                                              {"record", cexchain::to_hex(record.bytes())},
+                                              {"role", "reviewed"}},
+                                             token);
+    REQUIRE(prepared_answer.status == 200);
+    const auto prepared = nlohmann::json::parse(body(prepared_answer));
+    const auto challenge =
+        *cexchain::from_base64url(prepared["public_key"]["challenge"].get<std::string>());
+    const auto proof = f.alice.sign(provider(), challenge);
+    const auto approved =
+        f.w.post_as("/console/api/approve",
+                    {{"prepared", prepared["prepared"]},
+                     {"credential_id", cexchain::to_base64url(proof.credential_id)},
+                     {"authenticator_data", cexchain::to_base64url(proof.authenticator_data)},
+                     {"client_data_json", cexchain::to_base64url(proof.client_data_json)},
+                     {"signature", cexchain::to_base64url(proof.signature)}},
+                    token);
+    // The ledger's answer, as POST /v1/statements gives it.
+    REQUIRE(approved.status == 201);
+    const auto* r = served.session.ledger().state().record(record);
+    REQUIRE(r->endorsements.size() == 1);
+    CHECK(r->endorsements[0].role == "reviewed");
 }

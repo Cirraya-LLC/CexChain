@@ -1021,6 +1021,7 @@ std::vector<CommandSpec> build() {
          with({ledger_option,
                {"port", "PORT", "Port on localhost (default: 7470, or the last one used)"},
                {"unlock-file", "FILE", "Unlock the console's sealed keys at start from this file"},
+               no_browser_option,
                {"log-key", "KEY",
                 "The log key (file or pkcs11: URI): checkpoints, receipts, and evidence", false,
                 true},
@@ -1028,8 +1029,11 @@ std::vector<CommandSpec> build() {
                passphrase_file_option}),
          cmd_console_run,
          "serve --console with a person's defaults: localhost only, port 7470 (or the next\n"
-         "free one, remembered), until stopped (console stop, or Ctrl-C). The first time,\n"
-         "console setup-link makes the link that sets it up."},
+         "free one, remembered), until stopped (console stop, or Ctrl-C). On a directory\n"
+         "with no ledger yet, the first run: the browser opens the setup page (a one-time\n"
+         "link, valid for an hour), where the person gives a name and a passkey, and the\n"
+         "console makes the ledger, its keys (sealed), and its owner. With sealed keys, it\n"
+         "starts locked, and serves the ledger once a passkey's sign-in unlocks it."},
         {{"console", "status"},
          "Say whether the web console runs, where, and for whom",
          "Console",
@@ -1094,6 +1098,42 @@ std::vector<CommandSpec> build() {
          1,
          with({ledger_option}),
          cmd_console_key_remove},
+        {{"console", "setup"},
+         "Make a ledger for the web console, owned by one person, without a browser",
+         "Console",
+         "",
+         0,
+         0,
+         with({ledger_option,
+               {"name", "NAME", "The owner's name, which is also the organization's", true},
+               {"credential", "FILE", "The owner's passkey (from presence enroll)", true},
+               {"unlock-file", "FILE",
+                "Also unlock with the passphrase in this file (servers that start unattended)"}}),
+         cmd_console_setup,
+         "What the console's first run does, for scripts: makes the console's keys (sealed),\n"
+         "the ledger, and its owner, who acts in person with the passkey given, and prints the\n"
+         "recovery code once. The directory must hold no ledger yet."},
+        {{"console", "settings", "show"},
+         "Show the web console's settings",
+         "Console",
+         "",
+         0,
+         0,
+         with({ledger_option}),
+         cmd_console_settings_show},
+        {{"console", "settings", "set"},
+         "Change the web console's settings",
+         "Console",
+         "",
+         0,
+         0,
+         with({ledger_option,
+               {"language", "LANG",
+                "The language a browser starts in: en, zh-Hant-HK, zh-Hans-CN, or browser (its "
+                "own)"},
+               {"backup-folder", "DIR", "The folder backups go to (made if missing), or none"}}),
+         cmd_console_settings_set,
+         "Each browser may still choose its own language on the console's Settings page."},
         {{"console", "setup-link"},
          "Make the link that sets the web console up",
          "Console",
@@ -1103,9 +1143,10 @@ std::vector<CommandSpec> build() {
          with({ledger_option,
                {"url", "URL", "The console's address (default: the running console's)"}}),
          cmd_console_setup_link,
-         "Whoever opens the link registers a passkey and becomes the console's owner. It\n"
-         "works once, for a day, and only while the console has no owner; a new link\n"
-         "replaces the last. Keep it private: it is printed here, never logged."},
+         "Whoever opens the link registers a passkey and becomes the console's owner (on a\n"
+         "directory with no ledger yet, they also set the ledger up). It works once, for an\n"
+         "hour, and only while the console has no owner; a new link replaces the last. Keep\n"
+         "it private: it is printed here, never logged."},
         {{"console", "user", "add"},
          "Invite someone to the web console",
          "Console",

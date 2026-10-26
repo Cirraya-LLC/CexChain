@@ -8,16 +8,19 @@
 
 #include <algorithm>
 #include <cctype>
+#include <exception>
 #include <mutex>
 #include <optional>
 #include <ranges>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include <nlohmann/json.hpp>
 
 #include <cexchain/console/console.hpp>
+#include <cexchain/console/setup.hpp>
 #include <cexchain/console/users.hpp>
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/protocol/presence.hpp>
@@ -156,35 +159,77 @@ http::Response Console::enroll_begin(const http::Request& request) const {
         }
     }
     const Bytes challenge = services_.entropy->bytes<32>() | std::ranges::to<Bytes>();
-    const auto id = begin({true, challenge, *rp_id, origin, *hash, name, now + ceremony_lifetime});
+    const auto id =
+        begin({true, challenge, *rp_id, origin, *hash, name, now + ceremony_lifetime, false});
     if (!id) {
         return error(429, "unavailable", "too many passkey requests are waiting; try again soon");
     }
-    nlohmann::json exclude = nlohmann::json::array();
+    std::vector<Bytes> exclude;
     if (const User* existing = people.find(name)) {
         for (const auto& p : existing->passkeys) {
-            exclude.push_back({{"type", "public-key"}, {"id", to_base64url(p.credential_id)}});
+            exclude.push_back(p.credential_id);
         }
     }
-    const auto handle = services_.entropy->bytes<16>();
+    const bool first_run = invitation->user.empty() && invitation->role == Role::owner &&
+                           !has_ledger(services_.directory.parent_path());
+    const bool keys = services_.keys != nullptr && (services_.keys->initialized() || first_run);
     return json(200,
                 {{"ceremony", *id},
-                 {"public_key",
-                  {{"challenge", to_base64url(challenge)},
-                   {"rp", {{"id", *rp_id}, {"name", "CexChain"}}},
-                   {"user", {{"id", to_base64url(handle)}, {"name", name}, {"displayName", name}}},
-                   {"pubKeyCredParams",
-                    {{{"type", "public-key"}, {"alg", -7}}, {{"type", "public-key"}, {"alg", -8}}}},
-                   {"authenticatorSelection",
-                    {{"residentKey", "required"},
-                     {"requireResidentKey", true},
-                     {"userVerification", "required"}}},
-                   {"attestation", "none"},
-                   // The PRF extension must be asked for when the passkey is
-                   // made, for its sign-ins to unlock sealed keys.
-                   {"extensions", {{"prf", nlohmann::json::object()}}},
-                   {"excludeCredentials", exclude},
-                   {"timeout", ceremony_lifetime}}}});
+                 {"first_run", first_run},
+                 {"public_key", registration_options(challenge, *rp_id, name, exclude, keys)}});
+}
+
+nlohmann::json Console::registration_options(ByteView challenge, std::string_view rp_id,
+                                             std::string_view name,
+                                             const std::vector<Bytes>& exclude, bool prf) const {
+    nlohmann::json excluded = nlohmann::json::array();
+    for (const Bytes& id : exclude) {
+        excluded.push_back({{"type", "public-key"}, {"id", to_base64url(id)}});
+    }
+    const auto handle = services_.entropy->bytes<16>();
+    return {{"challenge", to_base64url(challenge)},
+            {"rp", {{"id", rp_id}, {"name", "CexChain"}}},
+            {"user", {{"id", to_base64url(handle)}, {"name", name}, {"displayName", name}}},
+            {"pubKeyCredParams",
+             {{{"type", "public-key"}, {"alg", -7}}, {{"type", "public-key"}, {"alg", -8}}}},
+            {"authenticatorSelection",
+             {{"residentKey", "required"},
+              {"requireResidentKey", true},
+              {"userVerification", "required"}}},
+            {"attestation", "none"},
+            // The PRF extension must be asked for when the passkey is made,
+            // for its sign-ins to unlock sealed keys; evaluated at once, it
+            // unlocks them from the start (where the passkey can).
+            {"extensions",
+             {{"prf", prf ? nlohmann::json{{"eval", {{"first", prf_salt()}}}}
+                          : nlohmann::json::object()}}},
+            {"excludeCredentials", excluded},
+            {"timeout", ceremony_lifetime}};
+}
+
+std::variant<protocol::PresenceCredential, http::Response>
+Console::registered_passkey(const nlohmann::json& body, const Ceremony& ceremony) const {
+    const auto attestation = bytes_field(body, "attestation_object");
+    const auto client_data = bytes_field(body, "client_data_json");
+    if (!attestation || !client_data) {
+        return bad("the registration needs attestation_object and client_data_json (base64url)");
+    }
+    std::optional<std::string> label;
+    if (const std::string text = text_field(body, "label"); !text.empty()) {
+        if (text.size() > 64) {
+            return bad("a passkey's label is at most 64 bytes");
+        }
+        label = text;
+    }
+    auto credential = protocol::credential_from_registration(
+        *services_.provider, *attestation, *client_data, ceremony.challenge, ceremony.rp_id, label);
+    if (!credential) {
+        return error(400, "verification_failed", credential.error().detail);
+    }
+    if (client_origin(*client_data) != ceremony.origin) {
+        return error(400, "verification_failed", "the passkey was made on another page");
+    }
+    return std::move(*credential);
 }
 
 http::Response Console::enroll_finish(const http::Request& request) const {
@@ -194,30 +239,15 @@ http::Response Console::enroll_finish(const http::Request& request) const {
     }
     const auto ceremony = take(text_field(*body, "ceremony"));
     const std::string origin = lowered(*request.header("origin"));
-    if (!ceremony || !ceremony->enroll || ceremony->origin != origin) {
+    if (!ceremony || !ceremony->enroll || ceremony->recovery || ceremony->origin != origin) {
         return error(404, "not_found", "this registration is unknown or expired; begin again");
     }
-    const auto attestation = bytes_field(*body, "attestation_object");
-    const auto client_data = bytes_field(*body, "client_data_json");
-    if (!attestation || !client_data) {
-        return bad("the registration needs attestation_object and client_data_json (base64url)");
+    auto registered = registered_passkey(*body, *ceremony);
+    if (auto* refused = std::get_if<http::Response>(&registered)) {
+        return std::move(*refused);
     }
-    std::optional<std::string> label;
-    if (const std::string text = text_field(*body, "label"); !text.empty()) {
-        if (text.size() > 64) {
-            return bad("a passkey's label is at most 64 bytes");
-        }
-        label = text;
-    }
-    auto credential =
-        protocol::credential_from_registration(*services_.provider, *attestation, *client_data,
-                                               ceremony->challenge, ceremony->rp_id, label);
-    if (!credential) {
-        return error(400, "verification_failed", credential.error().detail);
-    }
-    if (client_origin(*client_data) != ceremony->origin) {
-        return error(400, "verification_failed", "the passkey was made on another page");
-    }
+    protocol::PresenceCredential* const credential =
+        &std::get<protocol::PresenceCredential>(registered);
     std::filesystem::create_directories(services_.directory);
     const auto lock = ledger::DirectoryLock::acquire(services_.directory, 2000);
     if (!lock) {
@@ -234,6 +264,35 @@ http::Response Console::enroll_finish(const http::Request& request) const {
     if (people.owner_of(credential->credential_id) != nullptr) {
         return error(409, "conflict", "this passkey is registered already");
     }
+    // The first run: there is no ledger yet, so the owner's setup makes it,
+    // with the console's keys, and the owner on it.
+    const std::filesystem::path ledger_directory = services_.directory.parent_path();
+    if (invitation->user.empty() && invitation->role == Role::owner &&
+        !has_ledger(ledger_directory)) {
+        if (services_.keys == nullptr) {
+            return error(503, "unavailable", "this console keeps no keys");
+        }
+        const std::string prf = text_field(*body, "prf");
+        const bool slot = is_prf_output(prf);
+        const SetUp setup{ledger_directory, ceremony->name, std::move(*credential),
+                          slot ? std::optional(prf) : std::nullopt, std::nullopt};
+        FirstRun run;
+        try {
+            run = set_up(setup, *services_.keys, *services_.entropy);
+        } catch (const std::exception& e) {
+            return error(409, "conflict", e.what());
+        }
+        ready_now();
+        const People made = load_people(services_.directory);
+        http::Response answer = signed_in(*services_.sessions, *made.find(ceremony->name));
+        auto fields = nlohmann::json::parse(answer.body.begin(), answer.body.end());
+        fields["keys"] = key_state();
+        fields["key_slot"] = slot;
+        fields["first_run"] = true;
+        fields["recovery_code"] = run.recovery_code;
+        fields["ledger"] = to_hex(run.ledger.bytes());
+        return json(200, fields);
+    }
     const Role role = invitation->role;
     if (User* user = people.find(ceremony->name)) {
         if (invitation->user != ceremony->name) {
@@ -248,9 +307,21 @@ http::Response Console::enroll_finish(const http::Request& request) const {
     }
     people.invitations.erase(invitation);
     save_people(services_.directory, people);
-    http::Response answer = signed_in(*services_.sessions, *people.find(ceremony->name));
+    const User& user = *people.find(ceremony->name);
+    // An owner's or an admin's new passkey that gave its PRF output unlocks
+    // the console from now on.
+    const std::string prf = text_field(*body, "prf");
+    bool slot = false;
+    if (KeyStore* keys = services_.keys; keys != nullptr && keys->unlocked() &&
+                                         (role == Role::owner || role == Role::admin) &&
+                                         is_prf_output(prf)) {
+        keys->add_slot({SlotKind::prf, to_base64url(user.passkeys.back().credential_id)}, prf);
+        slot = true;
+    }
+    http::Response answer = signed_in(*services_.sessions, user);
     auto fields = nlohmann::json::parse(answer.body.begin(), answer.body.end());
     fields["keys"] = key_state();
+    fields["key_slot"] = slot;
     return json(200, fields);
 }
 
@@ -261,8 +332,14 @@ http::Response Console::sign_in_begin(const http::Request& request) const {
         return no_passkeys_here();
     }
     const Bytes challenge = services_.entropy->bytes<32>() | std::ranges::to<Bytes>();
-    const auto id = begin(
-        {false, challenge, *rp_id, origin, {}, {}, services_.clock->now() + ceremony_lifetime});
+    const auto id = begin({false,
+                           challenge,
+                           *rp_id,
+                           origin,
+                           {},
+                           {},
+                           services_.clock->now() + ceremony_lifetime,
+                           false});
     if (!id) {
         return error(429, "unavailable", "too many passkey requests are waiting; try again soon");
     }

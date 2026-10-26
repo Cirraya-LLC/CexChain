@@ -75,6 +75,11 @@ std::string make_recovery_code(ledger::Entropy& entropy) {
     return code;
 }
 
+bool is_prf_output(std::string_view text) {
+    const auto bytes = from_base64url(text);
+    return bytes && bytes->size() == 32;
+}
+
 std::optional<std::string> canonical_recovery_code(std::string_view typed) {
     std::string code;
     for (const char c : typed) {

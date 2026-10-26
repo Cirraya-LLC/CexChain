@@ -47,6 +47,10 @@ struct SealedKeyInfo {
 /// if it has the form of one.
 [[nodiscard]] std::optional<std::string> canonical_recovery_code(std::string_view typed);
 
+/// Whether `text` is a passkey's PRF output as the page sends it: 32 bytes,
+/// base64url.
+[[nodiscard]] bool is_prf_output(std::string_view text);
+
 /// A key name: 1 to 64 lower-case letters, digits, '.', '_', or '-'.
 [[nodiscard]] bool valid_key_name(std::string_view name) noexcept;
 

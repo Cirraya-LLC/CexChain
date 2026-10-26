@@ -7,6 +7,7 @@
 #include <charconv>
 #include <cstddef>
 #include <exception>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <span>
@@ -20,6 +21,8 @@
 #include <nlohmann/json.hpp>
 
 #include <cexchain/console/console.hpp>
+#include <cexchain/console/settings.hpp>
+#include <cexchain/console/setup.hpp>
 #include <cexchain/console/users.hpp>
 
 #include "responses.hpp"
@@ -220,9 +223,12 @@ http::Response Console::handle(const http::Request& request) const {
 }
 
 void Console::handle(const http::Request& request, Respond respond) const {
-    // Approving submits to the ledger, which answers once the statement is
-    // durable: that answer goes out through `respond`, with nothing waiting.
-    if (request.path == "/console/api/approve" && request.method == "POST") {
+    // Approving and recovering submit to the ledger, which answers once the
+    // statement is durable: that answer goes out through `respond`, with
+    // nothing waiting.
+    const bool approving = request.path == "/console/api/approve";
+    const bool recovering = request.path == "/console/api/recover/finish";
+    if ((approving || recovering) && request.method == "POST") {
         try {
             if (auto refused = refuse(request)) {
                 respond(std::move(*refused));
@@ -232,16 +238,33 @@ void Console::handle(const http::Request& request, Respond respond) const {
                 respond(error(503, "unavailable", "this console keeps no users or sessions"));
                 return;
             }
-            auto signed_or = sign_approval(request);
-            if (auto* answer = std::get_if<http::Response>(&signed_or)) {
+            if (approving) {
+                auto signed_or = sign_approval(request);
+                if (auto* answer = std::get_if<http::Response>(&signed_or)) {
+                    respond(std::move(*answer));
+                    return;
+                }
+                submitter()(std::get<Bytes>(std::move(signed_or)),
+                            [respond = std::move(respond)](http::Response registered) {
+                                secure(registered);
+                                respond(std::move(registered));
+                            });
+                return;
+            }
+            auto plan = recovery_plan(request);
+            if (auto* answer = std::get_if<http::Response>(&plan)) {
                 respond(std::move(*answer));
                 return;
             }
-            submit_(std::get<Bytes>(std::move(signed_or)),
-                    [respond = std::move(respond)](http::Response registered) {
-                        secure(registered);
-                        respond(std::move(registered));
-                    });
+            auto recovery = std::make_shared<const Recovery>(std::get<Recovery>(std::move(plan)));
+            submitter()(recovery->statement, [this, recovery, respond = std::move(respond)](
+                                                 const http::Response& registered) {
+                try {
+                    respond(finish_recovery(*recovery, registered));
+                } catch (const std::exception&) {
+                    respond(error(500, "internal", "the console could not answer; see its files"));
+                }
+            });
         } catch (const std::exception&) {
             respond(error(500, "internal", "the console could not answer; see its files"));
         }
@@ -302,6 +325,21 @@ http::Response Console::route(const http::Request& request) const {
     if (request.path == "/console/api/session") {
         return session_route(request);
     }
+    if (request.path == "/console/api/start" && request.method == "GET") {
+        // What the page needs before anyone signs in: whether this is the
+        // first run, and the language a browser starts in.
+        if (!ready()) {
+            return error(503, "unavailable", "this console keeps no users or sessions");
+        }
+        const Settings settings = load_settings(services_.directory);
+        return json(200, {{"first_run", !has_ledger(services_.directory.parent_path())},
+                          {"language", settings.language ? nlohmann::json(*settings.language)
+                                                         : nlohmann::json()}});
+    }
+    if (request.path == "/console/api/settings") {
+        return ready() ? settings_route(request)
+                       : error(503, "unavailable", "this console keeps no users or sessions");
+    }
     if (request.path == "/console/api/home" || request.path == "/console/api/things") {
         if (request.method != "GET") {
             http::Response refused = error(405, "unsupported", "method not allowed");
@@ -318,7 +356,7 @@ http::Response Console::route(const http::Request& request) const {
         return home_route(std::get<Signed>(who));
     }
     using Route = http::Response (Console::*)(const http::Request&) const;
-    static constexpr std::array<std::pair<std::string_view, Route>, 7> posts{{
+    static constexpr std::array<std::pair<std::string_view, Route>, 9> posts{{
         {"/console/api/enroll/begin", &Console::enroll_begin},
         {"/console/api/enroll/finish", &Console::enroll_finish},
         {"/console/api/sign-in/begin", &Console::sign_in_begin},
@@ -326,6 +364,8 @@ http::Response Console::route(const http::Request& request) const {
         {"/console/api/unlock", &Console::unlock_route},
         {"/console/api/prepare", &Console::prepare_route},
         {"/console/api/approve", &Console::approve_route},
+        {"/console/api/recover/begin", &Console::recover_begin},
+        {"/console/api/recover/finish", &Console::recover_finish},
     }};
     for (const auto& [path, route] : posts) {
         if (request.path != path) {

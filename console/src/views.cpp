@@ -34,12 +34,26 @@ nlohmann::json actor_name(const protocol::LedgerState& state, const protocol::Id
 
 } // namespace
 
+namespace {
+
+/// Why there is no ledger to read: locked (the API opens once unlocked), or
+/// not there yet.
+http::Response no_ledger(const KeyStore* keys) {
+    if (keys != nullptr && keys->initialized() && !keys->unlocked()) {
+        return error(423, "locked", "the console is locked: unlock it first");
+    }
+    return error(503, "unavailable", "the console has no ledger yet");
+}
+
+} // namespace
+
 http::Response Console::home_route(const Signed& who) const {
-    if (ledger_ == nullptr) {
-        return error(503, "unavailable", "the console has no ledger yet");
+    const ledger::Ledger* const served = ledger();
+    if (served == nullptr) {
+        return no_ledger(services_.keys);
     }
     nlohmann::json out;
-    ledger_->read_state([&](const protocol::LedgerState& state) {
+    served->read_state([&](const protocol::LedgerState& state) {
         std::size_t open_requests = 0;
         for (const auto& [key, request] : state.requests()) {
             open_requests += request.open() ? 1U : 0U;
@@ -62,13 +76,14 @@ http::Response Console::things_route(const http::Request& request) const {
     if (auto* refused = std::get_if<http::Response>(&who)) {
         return std::move(*refused);
     }
-    if (ledger_ == nullptr) {
-        return error(503, "unavailable", "the console has no ledger yet");
+    const ledger::Ledger* const served = ledger();
+    if (served == nullptr) {
+        return no_ledger(services_.keys);
     }
     nlohmann::json records = nlohmann::json::array();
     nlohmann::json instances = nlohmann::json::array();
     bool more = false;
-    ledger_->read_state([&](const protocol::LedgerState& state) {
+    served->read_state([&](const protocol::LedgerState& state) {
         std::vector<const protocol::RecordState*> rs;
         for (const auto& [key, r] : state.records()) {
             rs.push_back(&r);

@@ -109,6 +109,16 @@ bool Sessions::end(std::string_view token) {
     return true;
 }
 
+std::size_t Sessions::end_all(std::string_view user) {
+    const std::lock_guard lock(mutex_);
+    const std::size_t ended =
+        std::erase_if(sessions_, [&](const auto& entry) { return entry.second.user == user; });
+    if (ended != 0) {
+        publish();
+    }
+    return ended;
+}
+
 std::vector<Session> Sessions::list() {
     const std::lock_guard lock(mutex_);
     sweep();

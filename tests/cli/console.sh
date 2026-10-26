@@ -33,10 +33,11 @@ expect_exit() {
 }
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 # request METHOD PORT PATH HOST [ORIGIN [BODY]]: prints the status, the headers
-# (lower-case names), a blank line, then the body.
+# (lower-case names), a blank line, then the body. $TOKEN, if set, is sent as
+# an API token.
 request() {
     python3 - "$@" << 'PY'
-import http.client, sys
+import http.client, os, sys
 method, port, path, host = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
 origin = sys.argv[5] if len(sys.argv) > 5 else ""
 body = sys.argv[6].encode() if len(sys.argv) > 6 else b""
@@ -45,6 +46,8 @@ connection.putrequest(method, path, skip_host=True)
 connection.putheader("Host", host)
 if origin:
     connection.putheader("Origin", origin)
+if os.environ.get("TOKEN"):
+    connection.putheader("Authorization", "Bearer " + os.environ["TOKEN"])
 if method == "POST":
     connection.putheader("Content-Length", str(len(body)))
     connection.putheader("Content-Type", "application/json")
@@ -233,5 +236,148 @@ grep -q "stopped the console" out.txt || fail "console stop"
 expect_exit 1 console run --port 70000
 expect_exit 1 console run --port "$FREE" --unlock-file wrong.txt
 grep -q "does not unlock the console's keys" out.txt || fail "a wrong unlock file"
+
+# --- console settings ------------------------------------------------------------
+run console settings show > out.txt
+grep -q "language: each browser's own" out.txt || fail "no language at first"
+grep -q "backup folder: none chosen" out.txt || fail "no backup folder at first"
+expect_exit 1 console settings set
+expect_exit 1 console settings set --language fr
+run console settings set --language zh-Hant-HK --backup-folder backups/ledger > out.txt
+grep -q "language: zh-Hant-HK" out.txt || fail "console settings set"
+[ -d backups/ledger ] || fail "the backup folder is made"
+SETTINGS=$(run console settings show --json)
+[ "$(echo "$SETTINGS" | json 'd["backup_folder"]')" = "$WORK/backups/ledger" ] ||
+    fail "the backup folder is a full path"
+[ "$(echo "$SETTINGS" | json 'd["language"]')" = zh-Hant-HK ] || fail "settings --json"
+expect_exit 2 console settings set --backup-folder unlock.txt/inside
+grep -q "cannot be made" out.txt || fail "a folder that cannot be made"
+run console settings set --language browser --backup-folder none > /dev/null
+[ "$(run console settings show --json | json 'd["language"]')" = None ] || fail "language cleared"
+run console settings set --help > out.txt
+grep -q -- "--backup-folder DIR" out.txt || fail "console settings set --help"
+
+# --- console setup: the first run, for scripts -------------------------------------
+# A passkey's credential file, as presence enroll writes one: a CBOR map of its
+# relying party, its credential id, and its public key.
+python3 - << 'PY'
+import os
+def text(value):
+    data = value.encode()
+    return bytes([0x60 + len(data)]) + data
+credential = bytes([0xa3, 0x01]) + text("localhost") + bytes([0x02, 0x50]) + os.urandom(16)
+credential += bytes([0x03, 0x82, 0x32, 0x58, 0x20]) + os.urandom(32)
+open("owner.passkey", "wb").write(credential)
+PY
+SCRIPTED="$WORK/scripted"
+expect_exit 1 console setup --ledger "$SCRIPTED" --credential owner.passkey
+expect_exit 1 console setup --ledger "$SCRIPTED" --name "Bad Name!" --credential owner.passkey
+[ ! -e "$SCRIPTED/statements" ] || fail "a refused setup makes no ledger"
+run console setup --ledger "$SCRIPTED" --name "Scripted Owner" --credential owner.passkey \
+    --unlock-file unlock.txt --json > setup.json
+[ "$(json 'len(d["ledger"]["id"]) if isinstance(d["ledger"], dict) else len(d["ledger"])' < setup.json)" = 64 ] ||
+    fail "console setup --json names the ledger"
+json 'd["recovery_code"]' < setup.json | grep -qE '^[A-Z2-7]{4}(-[A-Z2-7]{4}){5}-[A-Z2-7]{2}$' ||
+    fail "console setup prints the recovery code"
+expect_exit 2 console setup --ledger "$SCRIPTED" --name Again --credential owner.passkey
+grep -q "holds a ledger already" out.txt || fail "a second setup"
+KEYS=$(run console key list --ledger "$SCRIPTED" --json)
+[ "$(echo "$KEYS" | json 'sorted(k["name"] for k in d["keys"])')" = "['log', 'owner', 'root']" ] ||
+    fail "setup seals the root, log, and owner keys"
+[ "$(echo "$KEYS" | json 'sorted(s["kind"] for s in d["slots"])')" = "['passphrase', 'recovery']" ] ||
+    fail "setup's slots"
+USERS=$(run console user list --ledger "$SCRIPTED" --json)
+[ "$(echo "$USERS" | json 'd["users"][0]["role"]')" = owner ] || fail "setup's owner"
+run delegation list --ledger "$SCRIPTED" --json > out.txt
+grep -q '"require_presence": *true' out.txt || fail "the owner's delegation requires presence"
+run console setup --help > out.txt
+grep -q "for scripts" out.txt || fail "console setup --help"
+
+# The scripted ledger, served by its console: unlocked by the file, its API opens.
+start_console() {
+    "$CEXCHAIN" console run --ledger "$1" --port "$FREE" --quiet "${@:2}" > "$1.run.log" 2>&1 &
+    SERVERS+=("$!")
+    for _ in $(seq 1 300); do
+        [ "$(run console status --ledger "$1" --json | json 'd["running"]')" = True ] && return 0
+        sleep 0.1
+    done
+    fail "the console did not start on $1"
+}
+run token create reader --ledger "$SCRIPTED" --scope read --out scripted.token > /dev/null
+start_console "$SCRIPTED" --unlock-file unlock.txt
+[ "$(TOKEN=$(cat scripted.token) status_of GET "$FREE" /v1/status "localhost:$FREE")" = 200 ] ||
+    fail "the unlocked ledger is served"
+run console stop --ledger "$SCRIPTED" > /dev/null
+# Locked: the console answers, and the ledger waits for it.
+start_console "$SCRIPTED"
+[ "$(status_of GET "$FREE" /v1/status "localhost:$FREE")" = 503 ] || fail "locked, the API waits"
+[ "$(status_of GET "$FREE" /healthz "localhost:$FREE")" = 200 ] || fail "locked, it is healthy"
+request GET "$FREE" /console/api/start "localhost:$FREE" | grep -q '"first_run":false' ||
+    fail "the console's start"
+RECOVER=$(request POST "$FREE" /console/api/recover/begin "localhost:$FREE" "http://localhost:$FREE" \
+    '{"recovery_code": "AAAA-BBBB-CCCC-DDDD-EEEE-FFFF-GG"}')
+[ "$(echo "$RECOVER" | sed -n 1p)" = 403 ] || fail "a wrong recovery code"
+CODE=$(json 'd["recovery_code"]' < setup.json)
+RECOVER=$(request POST "$FREE" /console/api/recover/begin "localhost:$FREE" "http://localhost:$FREE" \
+    "{\"recovery_code\": \"$CODE\"}")
+[ "$(echo "$RECOVER" | sed -n 1p)" = 200 ] || fail "the recovery code begins a recovery"
+# The code unlocked the console, so its API opened.
+[ "$(TOKEN=$(cat scripted.token) status_of GET "$FREE" /v1/status "localhost:$FREE")" = 200 ] ||
+    fail "the code unlocks"
+run console stop --ledger "$SCRIPTED" > /dev/null
+
+# --- console run on an empty directory: the first run's setup link --------------------
+EMPTY="$WORK/empty"
+CEXCHAIN_NO_BROWSER=1 "$CEXCHAIN" console run --ledger "$EMPTY" --port "$FREE" --quiet --json \
+    > first.json 2> first.log &
+SERVERS+=("$!")
+for _ in $(seq 1 300); do
+    [ "$(run console status --ledger "$EMPTY" --json | json 'd["running"]')" = True ] && break
+    sleep 0.1
+done
+[ "$(json 'd["setup"]' < first.json)" = True ] || fail "an empty directory's first run"
+grep -q "^http://localhost:$FREE/console/#/enroll/cxi_" "$EMPTY/console/setup-link" ||
+    fail "the setup link's file"
+grep -q 'http-equiv="refresh"' "$(json 'd["setup_page"]' < first.json)" || fail "the setup page"
+request GET "$FREE" /console/api/start "localhost:$FREE" | grep -q '"first_run":true' ||
+    fail "the page knows it is the first run"
+[ "$(status_of GET "$FREE" /v1/status "localhost:$FREE")" = 503 ] || fail "no ledger yet"
+SETUP_CODE=$(sed -n 's|.*#/enroll/\(cxi_[A-Za-z0-9_-]*\).*|\1|p' "$EMPTY/console/setup-link")
+BEGIN=$(request POST "$FREE" /console/api/enroll/begin "localhost:$FREE" "http://localhost:$FREE" \
+    "{\"code\": \"$SETUP_CODE\", \"name\": \"Alice\"}")
+echo "$BEGIN" | grep -q '"first_run":true' || fail "the setup link begins the first run"
+echo "$BEGIN" | grep -q '"prf":{"eval":{"first":"' || fail "the first passkey is asked for its PRF"
+run console status --ledger "$EMPTY" > out.txt
+grep -q "no owner yet" out.txt || fail "no owner before the first run"
+run console stop --ledger "$EMPTY" > /dev/null
+[ ! -e "$EMPTY/statements" ] || fail "no ledger until the passkey is registered"
+
+# --- A ledger made by the README's quick start opens in the console ---------------------
+QUICK="$WORK/quick"
+mkdir "$QUICK"
+(
+    cd "$QUICK"
+    export CEXCHAIN_LEDGER=./ledger
+    run key generate --out root.key > /dev/null
+    run key generate --out log.key > /dev/null
+    run init --name "Alice" --root-key root.key --log-key log.key > /dev/null
+    run key generate --out alice.key > /dev/null
+    run key public alice.key --out alice.pub > /dev/null
+    ALICE=$(run actor add --as root.key --kind person --name "Alice" --key alice.pub | grep -oE '[0-9a-f]{64}' | sed -n 1p)
+    run delegation grant --as root.key --to "$ALICE" --allow record-register,record-endorse \
+        --record-types example.org.photo/1 --days 30 > /dev/null
+    printf 'not really a photo\n' > photo.jpg
+    run record issue --as alice.key --type example.org.photo/1 --field place="Victoria Harbour" \
+        --field taken=2026-10-16 --attach photo.jpg > /dev/null
+    run console key init --unlock-file "$WORK/unlock.txt" > /dev/null
+    run console key import log log.key > /dev/null
+    run console key import alice alice.key > /dev/null
+    run token create reader --scope read --out "$WORK/quick.token" > /dev/null
+)
+start_console "$QUICK/ledger" --unlock-file unlock.txt
+STATUS=$(TOKEN=$(cat quick.token) request GET "$FREE" /v1/status "localhost:$FREE")
+[ "$(echo "$STATUS" | sed -n 1p)" = 200 ] || fail "the quick start's ledger is served"
+echo "$STATUS" | grep -q '"organization":"Alice"' || fail "the quick start's organization"
+run console stop --ledger "$QUICK/ledger" > /dev/null
 
 echo "console: all checks passed"

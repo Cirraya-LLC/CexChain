@@ -6,7 +6,9 @@
 // admin, or (for servers) with an unlock file at start. Locked, the console
 // signs nothing.
 
+#include <exception>
 #include <filesystem>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <variant>
@@ -58,7 +60,9 @@ void Console::use_prf(const User& user, ByteView credential, std::string_view pr
     }
     const Slot slot{SlotKind::prf, to_base64url(credential)};
     if (!keys->unlocked()) {
-        static_cast<void>(keys->unlock(slot, prf));
+        if (keys->unlock(slot, prf)) {
+            ready_now();
+        }
         return;
     }
     // Unlocked already: an owner's or an admin's passkey gets a slot of its
@@ -98,7 +102,24 @@ http::Response Console::unlock_route(const http::Request& request) const {
     if (!opened) {
         return error(403, "forbidden", "that does not unlock the console");
     }
+    ready_now();
     return json(200, {{"keys", key_state()}});
+}
+
+void Console::ready_now() const {
+    std::function<void()> ready;
+    {
+        const std::lock_guard lock(api_mutex_);
+        ready = on_ready_;
+    }
+    if (ready) {
+        // The ledger's API opens: if it cannot, the console still answers,
+        // and its views say there is no ledger.
+        try {
+            ready();
+        } catch (const std::exception&) {
+        }
+    }
 }
 
 } // namespace cexchain::console

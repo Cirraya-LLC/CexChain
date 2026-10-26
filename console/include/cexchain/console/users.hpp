@@ -57,8 +57,10 @@ struct Invitation {
     protocol::Timestamp expires = 0;
 };
 
-/// An invitation holds for a day.
+/// An invitation holds for a day; a setup link, the first owner's, for an
+/// hour.
 inline constexpr protocol::Timestamp invitation_lifetime = 24 * 60 * 60'000;
+inline constexpr protocol::Timestamp setup_link_lifetime = 60 * 60'000;
 
 /// The console's users and invitations, as users.json holds them.
 struct People {
@@ -78,12 +80,12 @@ struct People {
 /// Replaces them atomically, readable by the owner only.
 void save_people(const std::filesystem::path& directory, const People& people);
 
-/// A new invitation, valid from `now` for a day, and its code ("cxi_" and 43
-/// base64url characters), which only the caller ever sees.
-[[nodiscard]] std::pair<std::string, Invitation> make_invitation(const crypto::Provider& provider,
-                                                                 ledger::Entropy& entropy,
-                                                                 std::string user, Role role,
-                                                                 protocol::Timestamp now);
+/// A new invitation, valid from `now` for `lifetime`, and its code ("cxi_"
+/// and 43 base64url characters), which only the caller ever sees.
+[[nodiscard]] std::pair<std::string, Invitation>
+make_invitation(const crypto::Provider& provider, ledger::Entropy& entropy, std::string user,
+                Role role, protocol::Timestamp now,
+                protocol::Timestamp lifetime = invitation_lifetime);
 
 /// The SHA-256 of an invitation code, in hex, if it has the code's form.
 [[nodiscard]] std::optional<std::string> invitation_hash(const crypto::Provider& provider,

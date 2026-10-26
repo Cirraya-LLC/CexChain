@@ -62,6 +62,8 @@ public:
     [[nodiscard]] std::optional<Session> use(std::string_view token);
     /// Ends the session with this token (signing out); false if none.
     bool end(std::string_view token);
+    /// Ends every session of `user`; returns how many.
+    std::size_t end_all(std::string_view user);
     /// The live sessions, oldest first.
     [[nodiscard]] std::vector<Session> list();
 

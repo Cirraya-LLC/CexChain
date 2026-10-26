@@ -98,6 +98,7 @@ nlohmann::json describe(const protocol::Statement& s, const protocol::LedgerStat
 } // namespace
 
 http::Response Console::prepare_route(const http::Request& request) const {
+    const ledger::Ledger* const served = ledger();
     auto who = authenticate(request);
     if (auto* refused = std::get_if<http::Response>(&who)) {
         return std::move(*refused);
@@ -106,7 +107,7 @@ http::Response Console::prepare_route(const http::Request& request) const {
     if (signer.role == Role::viewer) {
         return error(403, "forbidden", "a viewer reads and verifies, and acts on nothing");
     }
-    if (ledger_ == nullptr || !submit_) {
+    if (served == nullptr || !submitter()) {
         return error(503, "unavailable", "the console has no ledger to act on");
     }
     const People people = load_people(services_.directory);
@@ -139,8 +140,8 @@ http::Response Console::prepare_route(const http::Request& request) const {
     Prepared prepared;
     std::string problem;
     nlohmann::json summary;
-    const crypto::HashAlg hash = ledger_->hash();
-    ledger_->read_state([&](const protocol::LedgerState& state) {
+    const crypto::HashAlg hash = served->hash();
+    served->read_state([&](const protocol::LedgerState& state) {
         const protocol::ActorState* a = actor ? state.actor(*actor) : nullptr;
         if (a == nullptr || a->revoked) {
             problem = "this user's actor is not on the ledger, or is revoked";
@@ -227,7 +228,8 @@ http::Response Console::prepare_route(const http::Request& request) const {
 }
 
 std::variant<Bytes, http::Response> Console::sign_approval(const http::Request& request) const {
-    if (ledger_ == nullptr || !submit_) {
+    const ledger::Ledger* const served = ledger();
+    if (served == nullptr || !submitter()) {
         return error(503, "unavailable", "the console has no ledger to act on");
     }
     auto who = authenticate(request);
@@ -276,8 +278,8 @@ std::variant<Bytes, http::Response> Console::sign_approval(const http::Request& 
     // passkeys registered on the ledger, and from this console's page.
     std::string problem;
     std::optional<crypto::PublicKey> current_key;
-    const crypto::HashAlg hash = ledger_->hash();
-    ledger_->read_state([&](const protocol::LedgerState& state) {
+    const crypto::HashAlg hash = served->hash();
+    served->read_state([&](const protocol::LedgerState& state) {
         const protocol::ActorState* a = state.actor(statement.actor_id.value());
         if (a == nullptr || a->revoked) {
             problem = "this user's actor is not on the ledger, or is revoked";
@@ -321,8 +323,8 @@ http::Response Console::approve_route(const http::Request& request) const {
     // handle instead); the promise outlives a wait that gives up.
     auto answered = std::make_shared<std::promise<http::Response>>();
     auto future = answered->get_future();
-    submit_(std::get<Bytes>(std::move(signed_or)),
-            [answered](http::Response r) { answered->set_value(std::move(r)); });
+    submitter()(std::get<Bytes>(std::move(signed_or)),
+                [answered](http::Response r) { answered->set_value(std::move(r)); });
     if (future.wait_for(std::chrono::seconds(30)) != std::future_status::ready) {
         return error(504, "unavailable", "the ledger did not register it in time");
     }

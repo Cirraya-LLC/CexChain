@@ -445,6 +445,18 @@ void text_seeds(const Seeds& seeds) {
                 "Origin: http://localhost:7470\r\nContent-Length: 106\r\n\r\n"
                 "{\"ceremony\":\"00\",\"credential_id\":\"AA\",\"authenticator_data\":\"AA\","
                 "\"client_data_json\":\"e30\",\"signature\":\"AA\"}");
+    seeds.write("console_request_fuzz", "start",
+                "GET /console/api/start HTTP/1.1\r\nHost: localhost:7470\r\n\r\n");
+    seeds.write("console_request_fuzz", "settings",
+                "POST /console/api/settings HTTP/1.1\r\nHost: localhost:7470\r\n"
+                "Origin: http://localhost:7470\r\n"
+                "Authorization: Bearer cxs_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\r\n"
+                "Content-Length: 48\r\n\r\n"
+                "{\"language\":\"en\",\"backup_folder\":\"/tmp/backups\"}");
+    seeds.write("console_request_fuzz", "recover",
+                "POST /console/api/recover/begin HTTP/1.1\r\nHost: localhost:7470\r\n"
+                "Origin: http://localhost:7470\r\nContent-Length: 52\r\n\r\n"
+                "{\"recovery_code\":\"abcd efgh ijkl mnop qrst uvwx yz\"}");
     seeds.write("console_request_fuzz", "rebinding",
                 "GET /console/ HTTP/1.1\r\nHost: attacker.example:7470\r\n"
                 "Origin: https://attacker.example\r\n\r\n");

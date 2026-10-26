@@ -6,7 +6,8 @@
 // Every answer carries the console's CSP; a request is answered with 200
 // only for one of the console's own names, and one that changes something
 // only from the console's own page. The bearer token reader accepts only
-// "cxs_" and 43 base64url characters.
+// "cxs_" and 43 base64url characters, and the recovery code reader only 26
+// base32 letters and digits (with any dashes and spaces), in upper case.
 
 #include <algorithm>
 #include <cctype>
@@ -19,6 +20,7 @@
 #include <string_view>
 
 #include <cexchain/console/console.hpp>
+#include <cexchain/console/keystore.hpp>
 #include <cexchain/console/sessions.hpp>
 #include <cexchain/crypto/openssl.hpp>
 #include <cexchain/ledger/environment.hpp>
@@ -61,6 +63,12 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
 
     if (const auto token = console::bearer_token(input)) {
         require(token->size() == 47 && token->starts_with("cxs_"));
+    }
+    if (const auto code = console::canonical_recovery_code(input)) {
+        require(code->size() == 26 && std::ranges::all_of(*code, [](char c) {
+                    return (c >= 'A' && c <= 'Z') || (c >= '2' && c <= '7');
+                }));
+        require(console::canonical_recovery_code(*code) == code);
     }
 
     std::optional<http::ParseError> error;

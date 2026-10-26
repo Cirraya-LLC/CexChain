@@ -84,6 +84,9 @@ struct Ceremony {
     std::string invitation;
     std::string name;
     protocol::Timestamp expires = 0;
+    /// Registering an owner's new passkey after the recovery code opened the
+    /// console: only the recovery route finishes it.
+    bool recovery = false;
 };
 
 /// A statement prepared for a person's approval: built and held by the
@@ -103,6 +106,11 @@ struct Prepared {
 
 inline constexpr protocol::Timestamp approval_lifetime = 2 * 60'000;
 
+/// Wrong recovery codes: at most this many a minute (each costs a scrypt),
+/// and one checked at a time.
+inline constexpr std::size_t max_recovery_failures = 5;
+inline constexpr protocol::Timestamp recovery_failure_window = 60'000;
+
 /// A ceremony must finish within five minutes; at most this many wait.
 inline constexpr protocol::Timestamp ceremony_lifetime = 5 * 60'000;
 inline constexpr std::size_t max_ceremonies = 256;
@@ -119,13 +127,26 @@ public:
 
     /// The ledger the node serves, which the console's views read (under its
     /// readers' lock). Until it is set, they answer 503.
-    void set_ledger(const ledger::Ledger* ledger) noexcept { ledger_ = ledger; }
+    void set_ledger(const ledger::Ledger* ledger) {
+        const std::lock_guard lock(api_mutex_);
+        ledger_ = ledger;
+    }
 
     /// Registers a signed statement on the node's ledger, answering as
     /// POST /v1/statements would (through the callback). Until it is set,
     /// approvals answer 503.
     using Submit = std::function<void(Bytes statement, std::function<void(http::Response)>)>;
-    void set_submitter(Submit submit) { submit_ = std::move(submit); }
+    void set_submitter(Submit submit) {
+        const std::lock_guard lock(api_mutex_);
+        submit_ = std::move(submit);
+    }
+
+    /// Called once the console is set up or unlocked, when the ledger's API
+    /// can open (DeferredApi::open_now).
+    void set_on_ready(std::function<void()> ready) {
+        const std::lock_guard lock(api_mutex_);
+        on_ready_ = std::move(ready);
+    }
 
     /// Answers a request whose path is /console or under /console/.
     [[nodiscard]] http::Response handle(const http::Request& request) const;
@@ -156,6 +177,8 @@ private:
     [[nodiscard]] http::Response session_route(const http::Request& request) const;
     [[nodiscard]] http::Response home_route(const Signed& who) const;
     [[nodiscard]] http::Response things_route(const http::Request& request) const;
+    [[nodiscard]] http::Response settings_route(const http::Request& request) const;
+    [[nodiscard]] nlohmann::json settings_view(Role role) const;
     [[nodiscard]] http::Response enroll_begin(const http::Request& request) const;
     [[nodiscard]] http::Response enroll_finish(const http::Request& request) const;
     [[nodiscard]] http::Response sign_in_begin(const http::Request& request) const;
@@ -163,6 +186,39 @@ private:
     [[nodiscard]] http::Response unlock_route(const http::Request& request) const;
     [[nodiscard]] http::Response prepare_route(const http::Request& request) const;
     [[nodiscard]] http::Response approve_route(const http::Request& request) const;
+    /// A lost passkey: the recovery code opens the console and begins
+    /// registering a new passkey for the owner, whose passkeys the root key
+    /// then replaces with it on the ledger.
+    [[nodiscard]] http::Response recover_begin(const http::Request& request) const;
+    [[nodiscard]] http::Response recover_finish(const http::Request& request) const;
+    struct Recovery {
+        Bytes statement;
+        std::string user;
+        protocol::PresenceCredential passkey;
+        /// The lost passkeys' credential ids (base64url), whose PRF slots go.
+        std::vector<std::string> old_passkeys;
+        /// The new passkey's PRF output, if it gave one: its slot.
+        std::string prf;
+    };
+    /// Checks a recovery's new passkey and signs the statement that makes it
+    /// the owner's only one: the plan, or the answer that refuses it.
+    [[nodiscard]] std::variant<Recovery, http::Response>
+    recovery_plan(const http::Request& request) const;
+    /// Once the ledger registered it: the console's users and keys follow,
+    /// the owner's other sessions end, and a new one begins.
+    [[nodiscard]] http::Response finish_recovery(const Recovery& recovery,
+                                                 const http::Response& registered) const;
+    /// A passkey registration's options for `name`, excluding `exclude`.
+    /// With `prf`, the passkey is asked for its PRF output at once, so that
+    /// it unlocks the console's keys from its first use.
+    [[nodiscard]] nlohmann::json registration_options(ByteView challenge, std::string_view rp_id,
+                                                      std::string_view name,
+                                                      const std::vector<Bytes>& exclude,
+                                                      bool prf) const;
+    /// Checks a registration's answer to `ceremony`: the new passkey, or the
+    /// answer that refuses it.
+    [[nodiscard]] std::variant<protocol::PresenceCredential, http::Response>
+    registered_passkey(const nlohmann::json& body, const Ceremony& ceremony) const;
     /// The salt every PRF evaluation of this console uses (made once).
     [[nodiscard]] std::string prf_salt() const;
     /// After a passkey signed in: unlock with its PRF output, or, unlocked,
@@ -175,12 +231,29 @@ private:
     [[nodiscard]] std::optional<Ceremony> take(std::string_view id) const;
 
     Services services_;
+    [[nodiscard]] const ledger::Ledger* ledger() const {
+        const std::lock_guard lock(api_mutex_);
+        return ledger_;
+    }
+    [[nodiscard]] Submit submitter() const {
+        const std::lock_guard lock(api_mutex_);
+        return submit_;
+    }
+    /// Tells the node the ledger's API may open (set up, or unlocked).
+    void ready_now() const;
+
+    mutable std::mutex api_mutex_;
     const ledger::Ledger* ledger_ = nullptr;
     Submit submit_;
+    std::function<void()> on_ready_;
     mutable std::mutex mutex_;
     std::vector<Origin> origins_;
     mutable std::map<std::string, Ceremony> ceremonies_;
     mutable std::map<std::string, Prepared> prepared_;
+    /// When recovery codes were refused lately, and whether one is being
+    /// checked.
+    mutable std::vector<protocol::Timestamp> recovery_failures_;
+    mutable bool checking_recovery_ = false;
 };
 
 } // namespace cexchain::console
