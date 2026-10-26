@@ -21,6 +21,7 @@
 #include <cexchain/node/api.hpp>
 #include <cexchain/node/client.hpp>
 #include <cexchain/node/contracts.hpp>
+#include <cexchain/node/record_files.hpp>
 #include <cexchain/node/replica.hpp>
 #include <cexchain/node/server.hpp>
 #include <cexchain/node/tokens.hpp>
@@ -268,8 +269,12 @@ int serve(const Args& args, const ServeDefaults& defaults) {
     auto api = unwrap(node::LedgerApi::open(options, shared_provider()), "opening the ledger");
     if (web) {
         web->set_ledger(&api->ledger());
-        web->set_submitter([api = api.get()](Bytes statement, auto respond) {
-            api->submit_statement(std::move(statement), std::move(respond));
+        web->set_submitter([api = api.get()](Bytes body, bool submission, auto respond) {
+            if (submission) {
+                api->submit_submission(std::move(body), std::move(respond));
+            } else {
+                api->submit_statement(std::move(body), std::move(respond));
+            }
         });
     }
 
@@ -299,6 +304,9 @@ int serve(const Args& args, const ServeDefaults& defaults) {
     raise_descriptor_limit(server_options.max_connections + 64);
     if (const auto n = args.get("max-body")) {
         server_options.limits.max_body = parse_number(*n, "body size");
+    } else if (with_console) {
+        // The console's uploads: a file kept with a record, 16 MiB at most.
+        server_options.limits.max_body = node::max_record_file + 64 * 1024;
     }
     server_options.access_log = args.has("quiet") ? nullptr : &std::cerr;
     const bool tls = server_options.tls_certificate.has_value();

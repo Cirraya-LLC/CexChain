@@ -591,6 +591,37 @@ function table(caption, columns, rows) {
 }
 
 const short = (id) => ({ id: true, text: `${id.slice(0, 12)}...` });
+
+/// A file's size in the reader's units.
+function sizeText(bytes) {
+    const format = (n, unit) => t(unit, { n: new Intl.NumberFormat(state.language,
+                                                                     { maximumFractionDigits: 1 })
+                                                 .format(n) });
+    if (bytes < 1024) {
+        return format(bytes, "size.bytes");
+    }
+    if (bytes < 1024 * 1024) {
+        return format(bytes / 1024, "size.kib");
+    }
+    return format(bytes / (1024 * 1024), "size.mib");
+}
+
+/// Uploads a file for a registration; its upload id.
+async function uploadFile(file) {
+    const headers = { "Content-Type": "application/octet-stream" };
+    const token = stored(sessionStorage, SESSION);
+    if (token) {
+        headers.Authorization = `Bearer ${token}`;
+    }
+    const response = await fetch(`api/uploads?name=${encodeURIComponent(file.name)}`, {
+        method: "POST", headers, body: file, credentials: "omit", cache: "no-store",
+    });
+    const answer = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        throw new ApiError(response.status, answer?.error?.message ?? String(response.status));
+    }
+    return answer.upload;
+}
 const yesNo = (value) => t(value ? "value.yes" : "value.no");
 
 async function thingsScreen() {
@@ -615,9 +646,217 @@ async function thingsScreen() {
         ["column.open_requests", (i) => String(i.open_requests)],
         ["column.id", (i) => short(i.id)],
     ], things.instances);
+    const register = state.who.role === "viewer" ? null
+        : el("p", {}, el("a", { href: "#/new", class: "button", text: t("register.button") }));
     show(el("h1", { text: t("things.title") }), el("p", { class: "hint", text: t("things.hint") }),
-         ...records, ...instances,
+         register, ...records, ...instances,
          things.more ? el("p", { class: "hint", text: t("things.more") }) : null);
+}
+
+// --- Kinds and new documents --------------------------------------------------------
+
+/// A kind's record type, suggested from its name (the user may change it):
+/// the name in lower case, spaces as dashes, version 1.
+function kindType(name) {
+    const slug = name.trim().toLowerCase().replace(/\s+/g, "-");
+    return slug ? `${slug}/1` : "";
+}
+
+async function kindsScreen() {
+    const listed = await api("GET", "kinds");
+    const parts = [el("h1", { text: t("kinds.title") }), el("p", { class: "hint", text: t("kinds.hint") })];
+    if (listed.kinds.length === 0) {
+        parts.push(el("p", { text: t("kinds.none") }));
+    }
+    for (const kind of listed.kinds) {
+        const fields = el("ul", {}, kind.fields.map((f) => el("li", {
+            text: t(f.private ? "kinds.field_private" : "kinds.field_public",
+                    { name: f.label || f.name, type: t(`field.${f.type}`) }) +
+                  (f.required ? t("kinds.required") : ""),
+        })));
+        const section = el("section", { class: "kind", "aria-labelledby": `kind-${kind.type}` },
+                           el("h2", { id: `kind-${kind.type}`, text: kind.name }),
+                           el("p", { class: "id", text: kind.type }),
+                           kind.description ? el("p", { text: kind.description }) : null,
+                           fields, el("p", { text: t(`kinds.files.${kind.files}`) }));
+        if (listed.may_change) {
+            const remove = el("button", { type: "button", text: t("kinds.remove"),
+                                          "aria-label": t("kinds.remove_label", { name: kind.name }) });
+            remove.addEventListener("click", async () => {
+                await api("POST", "kinds", { remove: kind.type });
+                route();
+            });
+            section.append(remove);
+        }
+        parts.push(section);
+    }
+    if (listed.may_change) {
+        parts.push(kindForm());
+    }
+    show(...parts);
+}
+
+/// The form that defines a kind: a name, its fields, and its files.
+function kindForm() {
+    const [nameField, name] = field("kind-name", t("kinds.name"), t("kinds.name_hint"),
+                                    { maxlength: 64 });
+    const [typeField, type] = field("kind-type", t("kinds.type"), t("kinds.type_hint"),
+                                    { maxlength: 128, spellcheck: "false" });
+    let typed = false;
+    type.addEventListener("input", () => { typed = true; });
+    name.addEventListener("input", () => {
+        if (!typed) {
+            type.value = kindType(name.value);
+        }
+    });
+    const rows = el("div", { class: "kind-fields" });
+    let count = 0;
+    const addRow = () => {
+        count += 1;
+        const n = count;
+        const label = el("input", { id: `kind-field-${n}`, maxlength: 64,
+                                    "aria-label": t("kinds.field_name", { n }) });
+        const kindOf = el("select", { "aria-label": t("kinds.field_type", { n }) },
+                          ["text", "number", "date", "yes-no"].map((v) =>
+                              el("option", { value: v, text: t(`field.${v}`) })));
+        const secret = el("input", { type: "checkbox", checked: true });
+        const required = el("input", { type: "checkbox" });
+        const row = el("fieldset", { class: "kind-field" },
+                       el("legend", { text: t("kinds.field", { n }) }),
+                       el("label", { for: `kind-field-${n}`, text: t("kinds.field_label") }), label,
+                       kindOf,
+                       el("label", { class: "check" }, secret, " ", t("kinds.private")),
+                       el("label", { class: "check" }, required, " ", t("kinds.required_box")));
+        row.read = () => ({ name: label.value.trim(), type: kindOf.value, private: secret.checked,
+                            required: required.checked });
+        rows.append(row);
+        label.focus();
+    };
+    const more = el("button", { type: "button", text: t("kinds.add_field") });
+    more.addEventListener("click", addRow);
+    const files = el("select", { id: "kind-files" },
+                     ["optional", "required", "none"].map((v) =>
+                         el("option", { value: v, text: t(`kinds.files.${v}`) })));
+    const keep = el("input", { type: "checkbox", id: "kind-keep", checked: true });
+    const notice = el("div");
+    const save = el("button", { type: "submit", class: "primary", text: t("kinds.save") });
+    const form = el("form", { novalidate: true, "aria-labelledby": "kind-new" },
+                    el("h2", { id: "kind-new", text: t("kinds.new") }), nameField, typeField, rows,
+                    more,
+                    el("div", { class: "field" }, el("label", { for: "kind-files", text: t("kinds.files_label") }), files),
+                    el("label", { class: "check" }, keep, " ", t("kinds.keep")), notice, save);
+    addRow();
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const fields = [...rows.children].map((r) => r.read()).filter((f) => f.name);
+        try {
+            await api("POST", "kinds", {
+                sheet: 1, kind: "document", type: type.value.trim(), name: name.value.trim(),
+                fields: fields.map((f) => ({ name: f.name, label: f.name, type: f.type,
+                                             private: f.private, required: f.required })),
+                files: files.value, keep_files: keep.checked,
+            });
+            route();
+        } catch (error) {
+            notice.replaceChildren(problem(t("error.server", { message: error.message })));
+        }
+    });
+    return form;
+}
+
+/// Registering a document: a kind, its fields, its files, then the tap.
+async function newDocumentScreen() {
+    const listed = await api("GET", "kinds");
+    if (listed.kinds.length === 0) {
+        show(el("h1", { text: t("register.title") }), el("p", { text: t("register.no_kinds") }),
+             el("p", {}, el("a", { href: "#/kinds", text: t("register.define") })));
+        return;
+    }
+    const chooser = el("select", { id: "register-kind" },
+                       listed.kinds.map((k) => el("option", { value: k.type, text: k.name })));
+    const area = el("div");
+    const notice = el("div");
+    const inputs = new Map();
+    let fileInput;
+    const render = () => {
+        const kind = listed.kinds.find((k) => k.type === chooser.value);
+        inputs.clear();
+        const parts = kind.fields.map((f, i) => {
+            const id = `register-field-${i}`;
+            let input;
+            if (f.type === "yes-no") {
+                input = el("select", { id }, el("option", { value: "", text: "" }),
+                           el("option", { value: "yes", text: t("value.yes") }),
+                           el("option", { value: "no", text: t("value.no") }));
+            } else {
+                input = el("input", { id, type: f.type === "date" ? "date" : "text",
+                                      inputmode: f.type === "number" ? "decimal" : null,
+                                      required: f.required, maxlength: 4096 });
+            }
+            inputs.set(f.name, input);
+            return el("div", { class: "field" },
+                      el("label", { for: id, text: (f.label || f.name) +
+                                                   (f.required ? t("register.required_mark") : "") }),
+                      input,
+                      el("span", { class: "hint", text: t(f.private ? "register.private_hint"
+                                                                    : "register.public_hint") }));
+        });
+        if (kind.files !== "none") {
+            fileInput = el("input", { id: "register-files", type: "file", multiple: true,
+                                      required: kind.files === "required" });
+            parts.push(el("div", { class: "field" },
+                          el("label", { for: "register-files", text: t("register.files") }),
+                          fileInput,
+                          el("span", { class: "hint", text: t(kind.keep_files ? "register.files_kept"
+                                                                              : "register.files_not_kept") })));
+        } else {
+            fileInput = null;
+        }
+        area.replaceChildren(...parts);
+    };
+    chooser.addEventListener("change", render);
+    render();
+    const prepare = el("button", { type: "submit", class: "primary", text: t("act.prepare") });
+    const form = el("form", { novalidate: true },
+                    el("div", { class: "field" },
+                       el("label", { for: "register-kind", text: t("register.kind") }), chooser),
+                    area, notice, prepare);
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        prepare.disabled = true;
+        status(t("status.working"));
+        try {
+            const fields = {};
+            for (const [name, input] of inputs) {
+                if (input.value.trim()) {
+                    fields[name] = input.value.trim();
+                }
+            }
+            // Each file uploaded, and kept here too: the page checks its
+            // commitment before the tap.
+            const files = new Map();
+            const uploads = [];
+            for (const file of fileInput?.files ?? []) {
+                if (file.size > 16 * 1024 * 1024) {
+                    throw new ApiError(413, t("register.too_large", { name: file.name }));
+                }
+                const id = await uploadFile(file);
+                uploads.push(id);
+                files.set(id, new Uint8Array(await file.arrayBuffer()));
+            }
+            const prepared = await api("POST", "prepare", {
+                action: "record.register", kind: chooser.value, fields, files: uploads,
+            });
+            await approveScreen(prepared, files);
+        } catch (error) {
+            notice.replaceChildren(problem(error.status === 423 ? t("keys.locked")
+                                                                : t("error.server", { message: error.message })));
+        } finally {
+            prepare.disabled = false;
+            status("");
+        }
+    });
+    show(el("h1", { text: t("register.title") }), form);
 }
 
 // --- Settings ----------------------------------------------------------------------
@@ -738,6 +977,10 @@ async function loadChecker() {
             describe: (payload) => call("_cexchain_describe_payload", payload),
             challenge: (payload, kid, hash) =>
                 call("_cexchain_presence_challenge", payload, kid, hash),
+            fieldRoot: (request) => call("_cexchain_field_root",
+                                         new TextEncoder().encode(JSON.stringify(request))),
+            commitment: (content, salt, hash) =>
+                call("_cexchain_attachment_commitment", content, salt, hash),
         };
     } catch {
         checker = null;
@@ -750,6 +993,36 @@ function agrees(decoded, summary) {
     return decoded.ok && decoded.type === summary.type && decoded.record === summary.record &&
            (decoded.role ?? null) === (summary.role ?? null) &&
            (decoded.reason ?? null) === (summary.reason ?? null);
+}
+
+/// A registration's bytes commit to what the page shows: the fields' root
+/// from the values and salts shown, the public metadata, and each file's
+/// commitment from the file this page uploaded.
+function registrationAgrees(check, decoded, prepared, files) {
+    const summary = prepared.summary;
+    if (!decoded.ok || decoded.type !== "record-register" ||
+        decoded.record_type !== summary.record_type ||
+        decoded.field_count !== summary.fields.length ||
+        JSON.stringify(decoded.metadata ?? {}) !==
+            JSON.stringify(Object.fromEntries(Object.entries(summary.metadata).sort()))) {
+        return false;
+    }
+    const root = check.fieldRoot({ hash: prepared.hash, fields: summary.fields });
+    if (!root.ok || root.root !== decoded.field_root) {
+        return false;
+    }
+    if (decoded.attachments.length !== summary.files.length) {
+        return false;
+    }
+    return summary.files.every((f, i) => {
+        const a = decoded.attachments[i];
+        const content = files.get(f.upload);
+        if (!content || a.name !== f.name || a.size !== f.size || a.media_type !== f.media_type) {
+            return false;
+        }
+        const own = check.commitment(content, new Uint8Array(fromBase64url(f.salt)), prepared.hash);
+        return own.ok && own.commitment === a.commitment;
+    });
 }
 
 // --- Acting, approved with a passkey ---------------------------------------------
@@ -796,8 +1069,9 @@ function actScreen(record) {
 
 /// What the person approves, as the console prepared it and this page
 /// decoded it, then the tap.
-async function approveScreen(prepared) {
+async function approveScreen(prepared, files = new Map()) {
     const summary = prepared.summary;
+    const registering = summary.type === "record-register";
     const check = await loadChecker();
     let challenge = prepared.public_key.challenge;
     let checkedHere = false;
@@ -806,7 +1080,9 @@ async function approveScreen(prepared) {
         const decoded = check.describe(payload);
         const own = check.challenge(payload, new Uint8Array(fromBase64url(prepared.kid)),
                                     prepared.hash);
-        if (!agrees(decoded, summary) || !own.ok || own.challenge !== challenge) {
+        const matches = registering ? registrationAgrees(check, decoded, prepared, files)
+                                    : agrees(decoded, summary);
+        if (!matches || !own.ok || own.challenge !== challenge) {
             show(el("h1", { text: t("approve.title") }), problem(t("approve.mismatch")),
                  backButton(t("nav.things")));
             return;
@@ -825,6 +1101,22 @@ async function approveScreen(prepared) {
     fact("column.id", summary.record);
     fact("act.role", summary.role);
     fact("act.reason", summary.reason);
+    if (registering) {
+        for (const f of summary.fields) {
+            facts.append(el("dt", { text: t("register.private_field", { name: f.name }) }),
+                         el("dd", { text: f.value }));
+        }
+        for (const [name, value] of Object.entries(summary.metadata)) {
+            facts.append(el("dt", { text: t("register.public_field", { name }) }),
+                         el("dd", { text: value }));
+        }
+        for (const f of summary.files) {
+            facts.append(el("dt", { text: t("register.file") }),
+                         el("dd", { text: t(summary.keep_files ? "register.file_kept"
+                                                               : "register.file_not_kept",
+                                            { name: f.name, size: sizeText(f.size) }) }));
+        }
+    }
     const button = el("button", { type: "button", class: "primary", text: t("approve.button") });
     const notice = el("div");
     button.addEventListener("click", async () => {
@@ -852,7 +1144,11 @@ async function approveScreen(prepared) {
             });
             show(el("h1", { text: t("approve.done_title") }),
                  el("p", { role: "status", text: t("approve.done", { index: done.index }) }),
-                 el("p", { class: "id", text: done.statement_id }), backButton(t("nav.things")));
+                 el("p", { class: "id", text: done.statement_id }),
+                 registering ? el("p", {}, el("a", { href: `#/thing/${done.statement_id}`,
+                                                     text: t("register.open") }))
+                             : null,
+                 backButton(t("nav.things")));
         } catch (error) {
             notice.replaceChildren(problem(passkeyProblem(error)));
             button.disabled = false;
@@ -877,8 +1173,11 @@ function chrome() {
     who.textContent = signedIn
         ? t("session.signed_in_as", { user: state.who.user, role: t(`role.${state.who.role}`) })
         : "";
-    const current = location.hash.startsWith("#/things") ? "things"
-        : location.hash.startsWith("#/settings") ? "settings" : "home";
+    const hash = location.hash;
+    const current = hash.startsWith("#/things") || hash.startsWith("#/new") ||
+                    hash.startsWith("#/thing/") ? "things"
+        : hash.startsWith("#/kinds") ? "kinds"
+        : hash.startsWith("#/settings") ? "settings" : "home";
     for (const link of document.querySelectorAll("nav a")) {
         if (link.dataset.route === current) {
             link.setAttribute("aria-current", "page");
@@ -922,6 +1221,8 @@ async function route() {
     }
     try {
         await (hash.startsWith("#/things") ? thingsScreen()
+            : hash.startsWith("#/new") ? newDocumentScreen()
+            : hash.startsWith("#/kinds") ? kindsScreen()
             : hash.startsWith("#/settings") ? settingsScreen() : homeScreen());
     } catch (error) {
         if (error instanceof ApiError && error.status === 401) {

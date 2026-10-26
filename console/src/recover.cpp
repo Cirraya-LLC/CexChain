@@ -277,7 +277,7 @@ http::Response Console::recover_finish(const http::Request& request) const {
     const Recovery recovery = std::get<Recovery>(std::move(plan));
     auto answered = std::make_shared<std::promise<http::Response>>();
     auto future = answered->get_future();
-    submitter()(recovery.statement,
+    submitter()(recovery.statement, false,
                 [answered](http::Response r) { answered->set_value(std::move(r)); });
     if (future.wait_for(std::chrono::seconds(30)) != std::future_status::ready) {
         return error(504, "unavailable", "the ledger did not register it in time");

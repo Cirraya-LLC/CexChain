@@ -15,9 +15,7 @@
 
 namespace cexchain::app {
 
-namespace {
-
-std::string media_type_for(const std::filesystem::path& path) {
+std::string media_type_of(const std::filesystem::path& path) {
     const std::string extension = path.extension().string();
     if (extension == ".pdf") {
         return "application/pdf";
@@ -36,8 +34,6 @@ std::string media_type_for(const std::filesystem::path& path) {
     }
     return "application/octet-stream";
 }
-
-} // namespace
 
 namespace {
 
@@ -324,7 +320,7 @@ protocol::Id issue_record(Session& session, const crypto::Signer& signer,
             unwrap(protocol::attachment_commitment(session.provider(), session.state().hash(),
                                                    attachment.salt, content),
                    "committing to an attachment");
-        body.attachments.push_back({attachment.name, media_type_for(path), content.size(),
+        body.attachments.push_back({attachment.name, media_type_of(path), content.size(),
                                     Bytes(digest.bytes().begin(), digest.bytes().end())});
         vault.attachments.push_back(attachment);
         if (request.keep_files) {

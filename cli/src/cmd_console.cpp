@@ -34,6 +34,7 @@
 #include <cexchain/ledger/environment.hpp>
 #include <cexchain/ledger/storage.hpp>
 #include <cexchain/node/api.hpp>
+#include <cexchain/node/record_files.hpp>
 #include <cexchain/node/server.hpp>
 
 #include "commands.hpp"
@@ -477,6 +478,8 @@ int run_person_console(const Args& args, const std::filesystem::path& dir,
     node::ServerOptions server_options;
     server_options.host = "127.0.0.1";
     server_options.port = port;
+    // The console's uploads: a file kept with a record, 16 MiB at most.
+    server_options.limits.max_body = node::max_record_file + 64 * 1024;
     server_options.access_log = args.has("quiet") ? nullptr : &std::cerr;
     std::optional<node::Server> listening;
     for (unsigned tried = 0;; ++tried) {

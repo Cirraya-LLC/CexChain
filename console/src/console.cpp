@@ -244,8 +244,13 @@ void Console::handle(const http::Request& request, Respond respond) const {
                     respond(std::move(*answer));
                     return;
                 }
-                submitter()(std::get<Bytes>(std::move(signed_or)),
-                            [respond = std::move(respond)](http::Response registered) {
+                Signing signing = std::get<Signing>(std::move(signed_or));
+                submitter()(std::move(signing.body), signing.submission,
+                            [this, uploads = std::move(signing.uploads),
+                             respond = std::move(respond)](http::Response registered) {
+                                if (registered.status >= 200 && registered.status < 300) {
+                                    forget_uploads(uploads);
+                                }
                                 secure(registered);
                                 respond(std::move(registered));
                             });
@@ -257,14 +262,16 @@ void Console::handle(const http::Request& request, Respond respond) const {
                 return;
             }
             auto recovery = std::make_shared<const Recovery>(std::get<Recovery>(std::move(plan)));
-            submitter()(recovery->statement, [this, recovery, respond = std::move(respond)](
-                                                 const http::Response& registered) {
-                try {
-                    respond(finish_recovery(*recovery, registered));
-                } catch (const std::exception&) {
-                    respond(error(500, "internal", "the console could not answer; see its files"));
-                }
-            });
+            submitter()(
+                recovery->statement, false,
+                [this, recovery, respond = std::move(respond)](const http::Response& registered) {
+                    try {
+                        respond(finish_recovery(*recovery, registered));
+                    } catch (const std::exception&) {
+                        respond(
+                            error(500, "internal", "the console could not answer; see its files"));
+                    }
+                });
         } catch (const std::exception&) {
             respond(error(500, "internal", "the console could not answer; see its files"));
         }
@@ -360,7 +367,7 @@ http::Response Console::route(const http::Request& request) const {
         return home_route(std::get<Signed>(who));
     }
     using Route = http::Response (Console::*)(const http::Request&) const;
-    static constexpr std::array<std::pair<std::string_view, Route>, 9> posts{{
+    static constexpr std::array<std::pair<std::string_view, Route>, 10> posts{{
         {"/console/api/enroll/begin", &Console::enroll_begin},
         {"/console/api/enroll/finish", &Console::enroll_finish},
         {"/console/api/sign-in/begin", &Console::sign_in_begin},
@@ -370,6 +377,7 @@ http::Response Console::route(const http::Request& request) const {
         {"/console/api/approve", &Console::approve_route},
         {"/console/api/recover/begin", &Console::recover_begin},
         {"/console/api/recover/finish", &Console::recover_finish},
+        {"/console/api/uploads", &Console::upload_route},
     }};
     for (const auto& [path, route] : posts) {
         if (request.path != path) {

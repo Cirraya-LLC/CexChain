@@ -20,12 +20,16 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cexchain/app/records.hpp>
+#include <cexchain/app/support.hpp>
 #include <cexchain/console/console.hpp>
 #include <cexchain/core/bytes.hpp>
+#include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/common.hpp>
 #include <cexchain/core/protocol/presence.hpp>
 #include <cexchain/core/protocol/state.hpp>
 #include <cexchain/node/contracts.hpp>
+#include <cexchain/node/record_files.hpp>
 
 #include "responses.hpp"
 
@@ -91,6 +95,9 @@ nlohmann::json describe(const protocol::Statement& s, const protocol::LedgerStat
         if (const auto* r = state.record(v->record)) {
             out["record_type"] = r->record_type;
         }
+    } else if (const auto* g = std::get_if<protocol::RecordRegisterBody>(&s.body)) {
+        out["record_type"] = g->record_type;
+        out["field_count"] = g->field_count;
     }
     return out;
 }
@@ -124,7 +131,21 @@ http::Response Console::prepare_route(const http::Request& request) const {
     if (!intent.is_object()) {
         return error(400, "invalid_argument", "the request's body is not a JSON object");
     }
-    auto body = body_of_intent(intent);
+    // A registration is drafted first: its fields' salts, its files'
+    // commitments, and what it keeps private.
+    std::optional<Draft> draft;
+    std::variant<protocol::Body, std::string> body = std::string();
+    if (field_text(intent, "action") == "record.register") {
+        auto drafted = register_draft(intent, signer.user);
+        if (auto* problem = std::get_if<std::string>(&drafted)) {
+            return error(400, "invalid_argument", *problem);
+        }
+        auto& [registration, d] = std::get<0>(drafted);
+        body = protocol::Body{std::move(registration)};
+        draft = std::move(d);
+    } else {
+        body = body_of_intent(intent);
+    }
     if (auto* problem = std::get_if<std::string>(&body)) {
         return error(400, "invalid_argument", *problem);
     }
@@ -156,6 +177,8 @@ http::Response Console::prepare_route(const http::Request& request) const {
         } else if (const auto* v = std::get_if<protocol::RecordRevokeBody>(&s.body)) {
             const auto* r = state.record(v->record);
             record_type = r ? std::optional(r->record_type) : std::nullopt;
+        } else if (const auto* g = std::get_if<protocol::RecordRegisterBody>(&s.body)) {
+            record_type = g->record_type;
         }
         if (!record_type) {
             problem = "no such record on this ledger";
@@ -186,6 +209,35 @@ http::Response Console::prepare_route(const http::Request& request) const {
     if (!problem.empty()) {
         return error(409, "conflict", problem);
     }
+    if (draft) {
+        // What the page shows and checks: the values and salts behind the
+        // field root, and the salts behind the files' commitments.
+        const auto& g = std::get<protocol::RecordRegisterBody>(prepared.statement.body);
+        nlohmann::json fields = nlohmann::json::array();
+        for (const protocol::RecordField& f : draft->vault.fields) {
+            fields.push_back(
+                {{"name", f.name}, {"value", *f.value.as_text()}, {"salt", to_base64url(f.salt)}});
+        }
+        nlohmann::json files = nlohmann::json::array();
+        for (std::size_t i = 0; i < g.attachments.size(); ++i) {
+            files.push_back({{"name", g.attachments[i].name},
+                             {"media_type", g.attachments[i].media_type},
+                             {"size", g.attachments[i].size},
+                             {"salt", to_base64url(draft->vault.attachments[i].salt)},
+                             {"upload", draft->uploads[i]}});
+        }
+        nlohmann::json metadata = nlohmann::json::object();
+        if (g.metadata) {
+            for (const auto& entry : *g.metadata->as_map()) {
+                metadata[*entry.key.as_text()] = *entry.value.as_text();
+            }
+        }
+        summary["fields"] = fields;
+        summary["files"] = files;
+        summary["metadata"] = metadata;
+        summary["keep_files"] = draft->keep_files;
+    }
+    prepared.draft = std::move(draft);
     prepared.user = signer.user;
     prepared.key = user->key;
     prepared.rp_id = parsed_origin->host;
@@ -227,7 +279,8 @@ http::Response Console::prepare_route(const http::Request& request) const {
                         {"timeout", approval_lifetime}}}});
 }
 
-std::variant<Bytes, http::Response> Console::sign_approval(const http::Request& request) const {
+std::variant<Console::Signing, http::Response>
+Console::sign_approval(const http::Request& request) const {
     const ledger::Ledger* const served = ledger();
     if (served == nullptr || !submitter()) {
         return error(503, "unavailable", "the console has no ledger to act on");
@@ -311,7 +364,49 @@ std::variant<Bytes, http::Response> Console::sign_approval(const http::Request& 
         }
         signed_statement = std::move(*made);
     }
-    return std::move(signed_statement->encoded);
+    if (!prepared->draft) {
+        return Signing{std::move(signed_statement->encoded), false, {}};
+    }
+    // A registration: its private data, and its files if the kind keeps
+    // them, sealed to the vault key for the record's id, sent along.
+    const std::filesystem::path pub = services_.directory.parent_path() / "vault" / "vault.pub";
+    const auto vault_key = std::filesystem::exists(pub)
+                               ? app::decode_vault_public_key(app::read_file(pub))
+                               : std::nullopt;
+    if (!vault_key) {
+        return error(409, "conflict", "this ledger has no vault key (cexchain vault rekey)");
+    }
+    const Draft& draft = *prepared->draft;
+    const auto& registration = std::get<protocol::RecordRegisterBody>(statement.body);
+    const protocol::Id& ledger_id = *statement.ledger_id;
+    const protocol::Id& record = signed_statement->id;
+    cbor::Map submission{
+        {cbor::Value::integer(1), cbor::Value::bytes(signed_statement->encoded)},
+        {cbor::Value::integer(2),
+         cbor::Value::bytes(app::seal_vault(ledger_id, record, draft.vault, *vault_key))}};
+    if (draft.keep_files && !draft.uploads.empty()) {
+        std::vector<node::SealedFile> files;
+        for (std::size_t i = 0; i < draft.uploads.size(); ++i) {
+            std::filesystem::path path;
+            {
+                const std::lock_guard lock(mutex_);
+                const auto it = uploads_.find(draft.uploads[i]);
+                if (it == uploads_.end()) {
+                    return error(409, "conflict", "a file is no longer here: upload it again");
+                }
+                path = it->second.path;
+            }
+            files.push_back(
+                {i, app::seal_record_file(ledger_id, record, registration.attachments[i].name,
+                                          app::read_file(path), *vault_key)});
+        }
+        submission.push_back({cbor::Value::integer(4), node::encode_sealed_files(files)});
+    }
+    auto encoded = cbor::encode(cbor::Value::map(std::move(submission)));
+    if (!encoded) {
+        return error(500, "internal", "the submission could not be encoded");
+    }
+    return Signing{std::move(*encoded), true, draft.uploads};
 }
 
 http::Response Console::approve_route(const http::Request& request) const {
@@ -321,14 +416,18 @@ http::Response Console::approve_route(const http::Request& request) const {
     }
     // Waits for the ledger's answer (the node itself uses the asynchronous
     // handle instead); the promise outlives a wait that gives up.
+    Signing signing = std::get<Signing>(std::move(signed_or));
     auto answered = std::make_shared<std::promise<http::Response>>();
     auto future = answered->get_future();
-    submitter()(std::get<Bytes>(std::move(signed_or)),
+    submitter()(std::move(signing.body), signing.submission,
                 [answered](http::Response r) { answered->set_value(std::move(r)); });
     if (future.wait_for(std::chrono::seconds(30)) != std::future_status::ready) {
         return error(504, "unavailable", "the ledger did not register it in time");
     }
     http::Response registered = future.get();
+    if (registered.status >= 200 && registered.status < 300) {
+        forget_uploads(signing.uploads);
+    }
     secure(registered);
     return registered;
 }

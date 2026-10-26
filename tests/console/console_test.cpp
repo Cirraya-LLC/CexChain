@@ -25,9 +25,11 @@
 #include <cexchain/console/settings.hpp>
 #include <cexchain/console/setup.hpp>
 #include <cexchain/console/users.hpp>
+#include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/state.hpp>
 #include <cexchain/crypto/openssl.hpp>
 #include <cexchain/ledger/environment.hpp>
+#include <cexchain/node/record_files.hpp>
 
 #include "support/authenticator.hpp"
 #include "support/ledger_world.hpp"
@@ -697,7 +699,7 @@ struct ApprovalWorld {
         web.set_origins(console::loopback_origins(7470));
         web.set_ledger(&ledger.ledger());
         // As POST /v1/statements answers.
-        web.set_submitter([this](cexchain::Bytes statement, auto respond) {
+        web.set_submitter([this](cexchain::Bytes statement, bool, auto respond) {
             const auto registered = ledger.ledger().submit(statement);
             const nlohmann::json value =
                 registered ? nlohmann::json{{"statement_id",
@@ -878,13 +880,34 @@ struct Served {
 
     explicit Served(FirstRunWorld& f) : session(cexchain::app::Location{f.w.dir.path}) {
         f.w.web.set_ledger(&session.ledger());
-        f.w.web.set_submitter([this](cexchain::Bytes statement, auto respond) {
-            // As POST /v1/statements answers.
+        f.w.web.set_submitter([this, dir = f.w.dir.path](cexchain::Bytes body, bool submission,
+                                                         auto respond) {
+            // As POST /v1/statements answers; a submission's private data
+            // and files kept as the node keeps them.
+            std::optional<cexchain::cbor::Value> parts;
+            cexchain::Bytes statement = body;
+            if (submission) {
+                parts = *cexchain::cbor::decode(body);
+                statement = *parts->find(1)->as_bytes();
+            }
             const auto registered = session.ledger().submit(statement);
+            if (registered && parts) {
+                const auto id = registered->statement_id;
+                cexchain::app::write_file(dir / "vault" / "records" /
+                                              (cexchain::to_hex(id.bytes()) + ".cbor"),
+                                          *parts->find(2)->as_bytes(), true);
+                if (const auto* files = parts->find(4)) {
+                    for (const auto& file : *cexchain::node::decode_sealed_files(*files)) {
+                        REQUIRE(cexchain::node::store_record_file(dir, id, file));
+                    }
+                }
+            }
             http::Response r;
             r.status = registered ? 201 : 422;
             const std::string text =
-                (registered ? nlohmann::json{{"index", registered->index}}
+                (registered ? nlohmann::json{{"statement_id",
+                                              cexchain::to_hex(registered->statement_id.bytes())},
+                                             {"index", registered->index}}
                             : nlohmann::json{{"error", {{"message", registered.error().detail}}}})
                     .dump();
             r.body.assign(text.begin(), text.end());
@@ -1247,4 +1270,129 @@ TEST_CASE("the console's kinds route", "[console][kinds]") {
     REQUIRE(w.post_as("/console/api/kinds", {{"remove", "example.org.photo/1"}}, owner).status ==
             200);
     CHECK(console::load_kinds(w.state).empty());
+}
+
+namespace {
+
+/// Uploads `content` as `name` for the session's user.
+http::Response upload(ConsoleWorld& w, const std::string& token, const std::string& name,
+                      std::string_view content) {
+    auto r = request("POST", "/console/api/uploads?name=" + name, "localhost:7470", w.origin);
+    r.path = "/console/api/uploads";
+    r.query["name"] = name;
+    r.headers.emplace_back("authorization", "Bearer " + token);
+    r.body.assign(content.begin(), content.end());
+    return w.web.handle(r);
+}
+
+/// Approves what `prepared` holds with `passkey`.
+http::Response approve(ConsoleWorld& w, const std::string& token, const nlohmann::json& prepared,
+                       const cexchain::test::SoftPasskey& passkey) {
+    const auto challenge =
+        *cexchain::from_base64url(prepared["public_key"]["challenge"].get<std::string>());
+    const auto proof = passkey.sign(provider(), challenge);
+    return w.post_as("/console/api/approve",
+                     {{"prepared", prepared["prepared"]},
+                      {"credential_id", cexchain::to_base64url(proof.credential_id)},
+                      {"authenticator_data", cexchain::to_base64url(proof.authenticator_data)},
+                      {"client_data_json", cexchain::to_base64url(proof.client_data_json)},
+                      {"signature", cexchain::to_base64url(proof.signature)}},
+                     token);
+}
+
+const nlohmann::json photo_kind{{"sheet", 1},
+                                {"kind", "document"},
+                                {"type", "example.org.photo/1"},
+                                {"name", "Photo"},
+                                {"fields",
+                                 {{{"name", "place"}, {"required", true}},
+                                  {{"name", "taken"}, {"type", "date"}},
+                                  {{"name", "caption"}, {"private", false}}}},
+                                {"files", "required"}};
+
+} // namespace
+
+TEST_CASE("the owner registers a document with fields and a file, kept with it",
+          "[console][documents]") {
+    FirstRunWorld f;
+    Served served(f);
+    const std::string token = f.made["session"].get<std::string>();
+    REQUIRE(f.w.post_as("/console/api/kinds", photo_kind, token).status == 200);
+    const std::string photo = "the photo itself";
+    const auto uploaded = upload(f.w, token, "photo.jpg", photo);
+    REQUIRE(uploaded.status == 200);
+    const auto file = nlohmann::json::parse(body(uploaded));
+    CHECK(file["media_type"] == "image/jpeg");
+    CHECK(file["size"] == photo.size());
+
+    auto prepare = [&](nlohmann::json fields, nlohmann::json files) {
+        return f.w.post_as("/console/api/prepare",
+                           {{"action", "record.register"},
+                            {"kind", "example.org.photo/1"},
+                            {"fields", std::move(fields)},
+                            {"files", std::move(files)}},
+                           token);
+    };
+    const nlohmann::json one{file["upload"]};
+    CHECK(prepare({{"taken", "2026-10-16"}}, one).status == 400); // place is required
+    CHECK(prepare({{"place", "Harbour"}, {"taken", "16/10"}}, one).status == 400); // a date
+    CHECK(prepare({{"place", "Harbour"}, {"colour", "red"}}, one).status == 400);  // no such field
+    CHECK(prepare({{"place", "Harbour"}}, nlohmann::json::array()).status == 400); // a file
+    CHECK(prepare({{"place", "Harbour"}}, {"nope"}).status == 400);
+
+    const auto prepared_answer = prepare(
+        {{"place", "Victoria Harbour"}, {"taken", "2026-10-16"}, {"caption", "sunset"}}, one);
+    REQUIRE(prepared_answer.status == 200);
+    const auto prepared = nlohmann::json::parse(body(prepared_answer));
+    const auto& summary = prepared["summary"];
+    CHECK(summary["type"] == "record-register");
+    CHECK(summary["record_type"] == "example.org.photo/1");
+    CHECK(summary["field_count"] == 2);
+    CHECK(summary["fields"].size() == 2);
+    CHECK(summary["metadata"]["caption"] == "sunset");
+    REQUIRE(summary["files"].size() == 1);
+    CHECK(summary["files"][0]["salt"].get<std::string>().size() == 22);
+
+    const auto approved = approve(f.w, token, prepared, f.alice);
+    REQUIRE(approved.status == 201);
+    const auto id = *cexchain::protocol::to_id(*cexchain::from_hex(
+        nlohmann::json::parse(body(approved))["statement_id"].get<std::string>()));
+    // On the ledger: the commitments; in the vault and the file store: the
+    // private data and the photo, sealed, and both open to the vault key.
+    const auto* record = served.session.ledger().state().record(id);
+    REQUIRE(record != nullptr);
+    CHECK(record->record_type == "example.org.photo/1");
+    CHECK(record->field_count == 2);
+    const auto key = f.w.keys.open_vault_key();
+    const auto vault = cexchain::app::read_vault(served.session, id, key);
+    CHECK(vault.fields.size() == 2);
+    const auto files = cexchain::app::record_files(served.session, id);
+    REQUIRE(files.size() == 1);
+    CHECK(files[0].kept);
+    const auto content = cexchain::app::open_record_file(served.session, id, files[0], vault, key);
+    CHECK(std::string(content.begin(), content.end()) == photo);
+    // The upload is gone; a prepared registration is approved once.
+    CHECK(prepare({{"place", "Again"}}, one).status == 400);
+    CHECK(approve(f.w, token, prepared, f.alice).status == 404);
+}
+
+TEST_CASE("uploads are for people who register, and for themselves only", "[console][documents]") {
+    FirstRunWorld f;
+    Served served(f);
+    const std::string token = f.made["session"].get<std::string>();
+    REQUIRE(f.w.post_as("/console/api/kinds", photo_kind, token).status == 200);
+    const std::string viewer = f.w.session_for("Vera", console::Role::viewer);
+    CHECK(upload(f.w, viewer, "photo.jpg", "x").status == 403);
+    CHECK(upload(f.w, token, "../photo.jpg", "x").status == 400);
+    CHECK(upload(f.w, token, "", "x").status == 400);
+    // Another user's upload is not this one's to attach.
+    const std::string member = f.w.session_for("Mia", console::Role::member);
+    const auto theirs = nlohmann::json::parse(body(upload(f.w, member, "photo.jpg", "theirs")));
+    CHECK(f.w.post_as("/console/api/prepare",
+                      {{"action", "record.register"},
+                       {"kind", "example.org.photo/1"},
+                       {"fields", {{"place", "Harbour"}}},
+                       {"files", {theirs["upload"]}}},
+                      token)
+              .status == 400);
 }

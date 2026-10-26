@@ -15,6 +15,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cexchain/app/records.hpp>
 #include <cexchain/console/keystore.hpp>
 #include <cexchain/console/sessions.hpp>
 #include <cexchain/console/users.hpp>
@@ -91,6 +92,29 @@ struct Ceremony {
 
 /// A statement prepared for a person's approval: built and held by the
 /// console, approved once, within two minutes, by that person's passkey tap.
+/// A file uploaded for a registration: kept in the console's folder, for
+/// its user only, until the registration is approved or it expires.
+struct Upload {
+    std::string user;
+    std::string name;
+    std::string media_type;
+    std::uint64_t size = 0;
+    std::filesystem::path path;
+    protocol::Timestamp expires = 0;
+};
+
+inline constexpr protocol::Timestamp upload_lifetime = 30 * 60'000;
+inline constexpr std::size_t max_uploads = 64;
+
+/// A record's registration being prepared: the private data and the files
+/// the console seals once the statement is signed (they name its id).
+struct Draft {
+    app::Vault vault;
+    /// The uploads it attaches, in the registration's order.
+    std::vector<std::string> uploads;
+    bool keep_files = false;
+};
+
 struct Prepared {
     std::string user;
     protocol::Statement statement;
@@ -102,6 +126,8 @@ struct Prepared {
     std::string rp_id;
     std::string origin;
     protocol::Timestamp expires = 0;
+    /// For a registration.
+    std::optional<Draft> draft;
 };
 
 inline constexpr protocol::Timestamp approval_lifetime = 2 * 60'000;
@@ -133,9 +159,12 @@ public:
     }
 
     /// Registers a signed statement on the node's ledger, answering as
-    /// POST /v1/statements would (through the callback). Until it is set,
-    /// approvals answer 503.
-    using Submit = std::function<void(Bytes statement, std::function<void(http::Response)>)>;
+    /// POST /v1/statements would (through the callback): `body` is the signed
+    /// statement, or, with `submission`, a submission (a record's
+    /// registration with its sealed private data and files). Until it is
+    /// set, approvals answer 503.
+    using Submit =
+        std::function<void(Bytes body, bool submission, std::function<void(http::Response)>)>;
     void set_submitter(Submit submit) {
         const std::lock_guard lock(api_mutex_);
         submit_ = std::move(submit);
@@ -162,8 +191,22 @@ private:
     [[nodiscard]] std::optional<http::Response> refuse(const http::Request& request) const;
     /// Checks an approval and signs its statement: the signed statement, or
     /// the answer that refuses it.
-    [[nodiscard]] std::variant<Bytes, http::Response>
+    /// What an approval sends to the ledger: the signed statement, or a
+    /// submission; and the uploads it used, forgotten once it is registered.
+    struct Signing {
+        Bytes body;
+        bool submission = false;
+        std::vector<std::string> uploads;
+    };
+    [[nodiscard]] std::variant<Signing, http::Response>
     sign_approval(const http::Request& request) const;
+    [[nodiscard]] http::Response upload_route(const http::Request& request) const;
+    /// A registration's statement body and draft from the page's intent, or
+    /// why there is none.
+    [[nodiscard]] std::variant<std::pair<protocol::RecordRegisterBody, Draft>, std::string>
+    register_draft(const nlohmann::json& intent, const std::string& user) const;
+    /// Removes uploads (and their files).
+    void forget_uploads(const std::vector<std::string>& ids) const;
     [[nodiscard]] bool ready() const noexcept;
     /// Who signed this request: the session's user, or the 401 to answer.
     struct Signed {
@@ -251,6 +294,9 @@ private:
     std::vector<Origin> origins_;
     mutable std::map<std::string, Ceremony> ceremonies_;
     mutable std::map<std::string, Prepared> prepared_;
+    mutable std::map<std::string, Upload> uploads_;
+    /// Uploads left by an earlier run are removed at the first upload.
+    mutable bool uploads_swept_ = false;
     /// When recovery codes were refused lately, and whether one is being
     /// checked.
     mutable std::vector<protocol::Timestamp> recovery_failures_;

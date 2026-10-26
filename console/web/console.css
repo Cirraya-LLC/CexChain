@@ -299,3 +299,32 @@ label.check input {
         color: #000;
     }
 }
+
+a.button {
+    display: inline-block;
+    min-height: 44px;
+    padding: 0 1rem;
+    line-height: 44px;
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    background: var(--accent);
+    color: var(--back);
+    text-decoration: none;
+}
+
+.kind {
+    margin: 1rem 0;
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+}
+
+.kind-field {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 1rem;
+    margin: 0.75rem 0;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+}

@@ -21,8 +21,12 @@ bool DeferredApi::open_now() {
     api_ = open_();
     node::LedgerApi* api = api_.get();
     console_->set_ledger(&api->ledger());
-    console_->set_submitter([api](Bytes statement, auto respond) {
-        api->submit_statement(std::move(statement), std::move(respond));
+    console_->set_submitter([api](Bytes body, bool submission, auto respond) {
+        if (submission) {
+            api->submit_submission(std::move(body), std::move(respond));
+        } else {
+            api->submit_statement(std::move(body), std::move(respond));
+        }
     });
     return true;
 }
