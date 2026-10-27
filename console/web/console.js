@@ -364,7 +364,8 @@ function signInScreen(message) {
         }
     });
     show(el("h1", { text: t("sign_in.title") }), el("p", { text: t("sign_in.intro") }), notice,
-         button, el("p", {}, el("a", { href: "#/recover", text: t("recover.link") })));
+         button, el("p", {}, el("a", { href: "#/recover", text: t("recover.link") })),
+         el("p", {}, el("a", { href: "#/verify", text: t("verify.link") })));
 }
 
 function field(id, label, hint, attributes = {}) {
@@ -815,6 +816,141 @@ function shareScreen(thing) {
          el("p", { text: t("share.intro") }), form, after);
 }
 
+// --- Verify ----------------------------------------------------------------------------
+
+/// A localized verification report, from the verifier's JSON.
+function reportView(report) {
+    const parts = [];
+    if (report.error) {
+        parts.push(el("div", { class: "error", role: "alert" },
+                      el("strong", { text: t("verify.failed") }),
+                      el("p", { text: t("verify.reason", { reason: report.error }) })));
+        return parts;
+    }
+    const mismatch = (report.attachments ?? []).some((a) => a.status === "mismatch");
+    const unconfirmed = !report.ledger.id_checked;
+    parts.push(el("div", { class: mismatch ? "error" : "notice", role: "status" },
+                  el("strong", { text: t(mismatch ? "verify.mismatch_title"
+                                                  : unconfirmed ? "verify.unconfirmed_title"
+                                                                : "verify.verified_title") }),
+                  el("p", { text: t(mismatch ? "verify.mismatch"
+                                             : unconfirmed ? "verify.unconfirmed" : "verify.verified") })));
+    const facts = el("dl", { class: "facts" });
+    const fact = (key, value, attributes = {}) => {
+        facts.append(el("dt", { text: t(key) }), el("dd", { text: String(value), ...attributes }));
+    };
+    fact("verify.organization", report.ledger.organization);
+    fact("home.ledger", report.ledger.id, { class: "id" });
+    fact("verify.checkpoint", t("verify.checkpoint_value", { size: report.checkpoint.tree_size ??
+                                                                    report.checkpoint.size,
+                                                             time: report.checkpoint.timestamp ?? "" }));
+    if (report.kind === "record") {
+        fact("column.type", report.record.type);
+        fact("column.state", report.record.revoked ? t("value.revoked") : report.record.state);
+        fact("column.id", report.record.id, { class: "id" });
+    }
+    parts.push(facts);
+    if (report.events) {
+        parts.push(el("h2", { text: t("verify.history") }));
+        parts.push(el("ol", { class: "events" }, report.events.map((e) => {
+            const who = e.actor.kind === "person"
+                ? t(e.presence ? (e.presence.user_verified ? "verify.person_present"
+                                                           : "verify.person_passkey")
+                               : "verify.person_not_present", { name: e.actor.name })
+                : t(`verify.actor.${e.actor.kind}`, { name: e.actor.name });
+            const what = t(`verify.event.${e.type}`, { detail: e.detail ?? "" });
+            return el("li", {}, el("span", { class: "id", text: `#${e.index} ` }),
+                      `${what} ${t("verify.by", { who })} `,
+                      el("span", { class: "hint", text: e.registered_at }));
+        })));
+    }
+    const disclosed = Object.entries(report.disclosed_fields ?? {});
+    if (disclosed.length > 0) {
+        parts.push(el("h2", { text: t("verify.disclosed") }));
+        const fields = el("dl", { class: "facts" });
+        for (const [name, value] of disclosed) {
+            fields.append(el("dt", { text: name }),
+                          el("dd", { text: typeof value === "string" ? value : JSON.stringify(value) }));
+        }
+        parts.push(fields);
+    }
+    if ((report.attachments ?? []).length > 0) {
+        parts.push(el("h2", { text: t("verify.files") }));
+        parts.push(el("ul", {}, report.attachments.map((a) => el("li", {
+            class: a.status === "mismatch" ? "bad" : null,
+            text: t(`verify.file.${a.status}`, { name: a.name, size: sizeText(a.size) }),
+        }))));
+    }
+    parts.push(el("p", { class: "hint", text: t(report.complete ? "verify.complete"
+                                                                : "verify.incomplete") }));
+    return parts;
+}
+
+/// Checking a proof, in this browser: the proof file, the files it may
+/// check, and the ledger it should come from.
+function verifyScreen() {
+    const proofInput = el("input", { id: "verify-proof", type: "file", accept: ".cbor,application/cbor" });
+    const filesInput = el("input", { id: "verify-files", type: "file", multiple: true });
+    const [ledgerField, ledgerInput] = field("verify-ledger", t("verify.ledger"), t("verify.ledger_hint"),
+                                             { spellcheck: "false", maxlength: 64 });
+    const result = el("section", { "aria-live": "polite", "aria-labelledby": "verify-result" });
+    let proof = null;
+    const files = new Map();
+    const check = async () => {
+        if (!proof) {
+            return;
+        }
+        const checker = await loadChecker();
+        if (!checker) {
+            result.replaceChildren(problem(t("verify.unavailable")));
+            return;
+        }
+        const report = checker.verify(proof, files, ledgerInput.value.trim().toLowerCase());
+        result.replaceChildren(el("h2", { id: "verify-result", text: t("verify.result") }),
+                               ...reportView(report));
+    };
+    const take = async (list) => {
+        for (const file of list) {
+            const bytes = new Uint8Array(await file.arrayBuffer());
+            if (file.name.endsWith(".cbor") && !proof) {
+                proof = bytes;
+            } else {
+                files.set(file.name, bytes);
+            }
+        }
+        await check();
+    };
+    proofInput.addEventListener("change", async () => {
+        proof = null;
+        await take(proofInput.files);
+    });
+    filesInput.addEventListener("change", async () => {
+        for (const file of filesInput.files) {
+            files.set(file.name, new Uint8Array(await file.arrayBuffer()));
+        }
+        await check();
+    });
+    ledgerInput.addEventListener("change", check);
+    const drop = el("section", { class: "drop", "aria-label": t("verify.drop") },
+                    el("p", { text: t("verify.drop") }));
+    drop.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        drop.classList.add("over");
+    });
+    drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+    drop.addEventListener("drop", async (event) => {
+        event.preventDefault();
+        drop.classList.remove("over");
+        await take(event.dataTransfer.files);
+    });
+    show(el("h1", { text: t("verify.title") }), el("p", { text: t("verify.intro") }), drop,
+         el("div", { class: "field" }, el("label", { for: "verify-proof", text: t("verify.proof") }),
+            proofInput),
+         el("div", { class: "field" }, el("label", { for: "verify-files", text: t("verify.with_files") }),
+            filesInput),
+         ledgerField, result);
+}
+
 // --- Kinds and new documents --------------------------------------------------------
 
 /// A kind's record type, suggested from its name (the user may change it):
@@ -1139,6 +1275,20 @@ async function loadChecker() {
             describe: (payload) => call("_cexchain_describe_payload", payload),
             challenge: (payload, kid, hash) =>
                 call("_cexchain_presence_challenge", payload, kid, hash),
+            verify: (proof, files, ledger) => {
+                module._cexchain_proof_reset();
+                for (const [name, content] of files) {
+                    const label = new TextEncoder().encode(name);
+                    const n = module._malloc(Math.max(label.length, 1));
+                    const d = module._malloc(Math.max(content.length, 1));
+                    module.HEAPU8.set(label, n);
+                    module.HEAPU8.set(content, d);
+                    module._cexchain_proof_attachment(n, label.length, d, content.length);
+                    module._free(n);
+                    module._free(d);
+                }
+                return call("_cexchain_proof_verify", proof, new TextEncoder().encode(ledger));
+            },
             fieldRoot: (request) => call("_cexchain_field_root",
                                          new TextEncoder().encode(JSON.stringify(request))),
             commitment: (content, salt, hash) =>
@@ -1339,6 +1489,7 @@ function chrome() {
     const current = hash.startsWith("#/things") || hash.startsWith("#/new") ||
                     hash.startsWith("#/thing/") ? "things"
         : hash.startsWith("#/kinds") ? "kinds"
+        : hash.startsWith("#/verify") ? "verify"
         : hash.startsWith("#/settings") ? "settings" : "home";
     for (const link of document.querySelectorAll("nav a")) {
         if (link.dataset.route === current) {
@@ -1373,6 +1524,10 @@ async function route() {
         }
     }
     chrome();
+    if (hash.startsWith("#/verify")) {
+        verifyScreen();
+        return;
+    }
     if (state.who === null) {
         if (hash.startsWith("#/recover")) {
             recoverScreen();

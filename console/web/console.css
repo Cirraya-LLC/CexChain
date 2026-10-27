@@ -328,3 +328,24 @@ a.button {
     border: 1px solid var(--line);
     border-radius: 6px;
 }
+
+.drop {
+    margin: 1rem 0;
+    padding: 1.5rem 1rem;
+    border: 2px dashed var(--line);
+    border-radius: 8px;
+    text-align: center;
+}
+
+.drop.over {
+    border-color: var(--accent);
+}
+
+.events li {
+    margin: 0.25rem 0;
+}
+
+li.bad {
+    color: var(--danger);
+    font-weight: 600;
+}

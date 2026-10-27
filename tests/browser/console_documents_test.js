@@ -19,7 +19,7 @@ const path = require("node:path");
 const { chromium } = require("playwright");
 
 const cexchain = path.resolve(process.argv[2]);
-const verifierPage = process.argv[3] ? path.resolve(process.argv[3]) : null;
+const verifierPage = process.argv[3] ?? process.env.CEXCHAIN_VERIFY_PAGE;
 const work = fs.mkdtempSync(path.join(os.tmpdir(), "cexchain-documents-"));
 const ledger = path.join(work, "ledger");
 const env = { ...process.env, CEXCHAIN_LEDGER: ledger, CEXCHAIN_NO_BROWSER: "1", HOME: work };
@@ -146,7 +146,9 @@ async function waitRunning() {
                                   `photo.jpg=${photo}`, "--json"));
     assert.equal(report.verified, true);
     assert.deepEqual(Object.keys(report.disclosed_fields ?? report.fields ?? {}), ["taken"]);
-    const forged = path.join(work, "forged.jpg");
+    // A forged photo under the photo's own name.
+    const forged = path.join(work, "forged", "photo.jpg");
+    fs.mkdirSync(path.dirname(forged));
     fs.writeFileSync(forged, "a forged photo\n");
     let refused = false;
     try {
@@ -155,6 +157,51 @@ async function waitRunning() {
       refused = JSON.parse(error.stdout).verified === false || error.status !== 0;
     }
     assert.ok(refused, "a forged photo is caught");
+
+    // The console's Verify screen: the same verdicts, in this browser.
+    await page.getByRole("link", { name: "Verify" }).click();
+    await page.getByRole("heading", { name: "Verify a proof" }).waitFor();
+    await page.locator("#verify-proof").setInputFiles(proof);
+    await page.getByText("Verified, but whose ledger?").waitFor();
+    await page.getByLabel("Expected ledger id (optional)").fill(ledgerId);
+    await page.getByLabel("Expected ledger id (optional)").dispatchEvent("change");
+    await page.getByText("Verified", { exact: true }).waitFor();
+    await page.getByText("Registered by Alice, in person (passkey, verified)").waitFor();
+    await page.locator("#verify-files").setInputFiles(photo);
+    await page.getByText(/photo\.jpg, .*: matches/).waitFor();
+    await page.locator("#verify-files").setInputFiles(forged);
+    await page.getByText("A file does not match").waitFor();
+    await page.getByText(/photo\.jpg, .*: does NOT match/).waitFor();
+    // The report in the reader's language.
+    await page.locator("#verify-files").setInputFiles(photo);
+    await page.getByLabel("Language").selectOption("zh-Hant-HK");
+    await page.getByRole("heading", { name: "核實證明" }).waitFor();
+    await page.locator("#verify-proof").setInputFiles(proof);
+    await page.getByLabel("預期的賬本識別碼（可選）").fill(ledgerId);
+    await page.getByLabel("預期的賬本識別碼（可選）").dispatchEvent("change");
+    await page.getByText("已核實", { exact: true }).waitFor();
+    await page.getByLabel("語言").selectOption("en");
+
+    // And the standalone verifier page, opened from disk.
+    if (verifierPage) {
+      const standalone = await browser.newPage();
+      await standalone.goto("file://" + path.resolve(verifierPage));
+      await standalone.waitForFunction(() => window.verifierReady === true);
+      await standalone.setInputFiles("#bundle-file", proof);
+      await standalone.fill("#ledger", ledgerId);
+      await standalone.dispatchEvent("#ledger", "change");
+      await standalone.waitForFunction(
+        () => document.getElementById("verdict-title").textContent === "Verified");
+      await standalone.setInputFiles("#attachment-files", photo);
+      await standalone.waitForFunction(
+        () => /matches/.test(document.getElementById("attachments").textContent));
+      await standalone.setInputFiles("#attachment-files", forged);
+      await standalone.waitForFunction(
+        () => /DOES NOT MATCH/.test(document.getElementById("attachments").textContent));
+      await standalone.close();
+    } else {
+      console.log("the standalone verifier page was not given: skipped");
+    }
 
     assert.deepEqual(violations, [], "no CSP violation or script error");
     console.log("console documents browser test: passed");

@@ -22,6 +22,8 @@
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/crypto.hpp>
 #include <cexchain/core/protocol/common.hpp>
+#include <cexchain/core/protocol/contract_evidence.hpp>
+#include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/presence.hpp>
 #include <cexchain/core/protocol/record.hpp>
 #include <cexchain/core/protocol/statement.hpp>
@@ -194,6 +196,66 @@ EMSCRIPTEN_KEEPALIVE char* cexchain_attachment_commitment(const std::uint8_t* co
         return to_c_string({{"ok", false}, {"error", digest.error().detail}});
     }
     return to_c_string({{"ok", true}, {"commitment", to_hex(digest->bytes())}});
+}
+
+/// Verifying a proof, as `cexchain verify` and the standalone page do: the
+/// files it may check, given one by one since the last reset, then the
+/// proof, a record's evidence or a contract instance's.
+namespace {
+protocol::VerifyOptions proof_options;
+} // namespace
+
+EMSCRIPTEN_KEEPALIVE void cexchain_proof_reset() {
+    proof_options = {};
+}
+
+EMSCRIPTEN_KEEPALIVE void cexchain_proof_attachment(const std::uint8_t* name, std::size_t name_size,
+                                                    const std::uint8_t* data, std::size_t size) {
+    proof_options.attachment_contents[std::string(reinterpret_cast<const char*>(name), name_size)] =
+        Bytes(data, data + size);
+}
+
+/// `ledger` is the expected ledger id in hex, or empty.
+EMSCRIPTEN_KEEPALIVE char* cexchain_proof_verify(const std::uint8_t* bundle, std::size_t size,
+                                                 const std::uint8_t* ledger,
+                                                 std::size_t ledger_size) {
+    try {
+        protocol::VerifyOptions options = proof_options;
+        if (ledger_size > 0) {
+            const auto bytes =
+                from_hex(std::string(reinterpret_cast<const char*>(ledger), ledger_size));
+            const auto id = bytes ? protocol::to_id(*bytes)
+                                  : Result<protocol::Id>(fail(Errc::malformed, "not hex"));
+            if (!id) {
+                return to_c_string(
+                    {{"verified", false}, {"error", "the ledger id is 64 hex digits"}});
+            }
+            options.expected_ledger = *id;
+        }
+        const bool checked = options.expected_ledger.has_value();
+        const ByteView input(bundle, size);
+        if (protocol::decode_contract_evidence(input)) {
+            const auto report = protocol::verify_contract_evidence(provider(), input, options);
+            if (!report) {
+                return to_c_string(
+                    {{"verified", false}, {"kind", "contract"}, {"error", report.error().detail}});
+            }
+            Json out = verifier::contract_report_json(*report, checked);
+            out["kind"] = "contract";
+            return to_c_string(out);
+        }
+        const auto report = protocol::verify_bundle(provider(), input, options);
+        if (!report) {
+            return to_c_string(
+                {{"verified", false}, {"kind", "record"}, {"error", report.error().detail}});
+        }
+        Json out = verifier::report_json(*report, checked);
+        out["kind"] = "record";
+        return to_c_string(out);
+    } catch (const std::exception& e) {
+        return to_c_string(
+            {{"verified", false}, {"error", std::string("internal error: ") + e.what()}});
+    }
 }
 
 EMSCRIPTEN_KEEPALIVE void cexchain_free(char* text) {
