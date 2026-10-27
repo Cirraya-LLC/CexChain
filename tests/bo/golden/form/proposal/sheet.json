@@ -1,0 +1,85 @@
+{
+  "sheet": 1,
+  "kind": "rules",
+  "contract": "Purchase",
+  "packs": [],
+  "parties": [
+    "we"
+  ],
+  "thing": {
+    "word": "thing",
+    "name": "Order",
+    "fields": [
+      {
+        "name": "goods",
+        "type": "text",
+        "default": null
+      }
+    ]
+  },
+  "actions": [
+    {
+      "action": "approve_order",
+      "by": "we",
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": true,
+      "from": [
+        "draft"
+      ],
+      "to_state": "approved",
+      "set": [],
+      "requests": []
+    }
+  ],
+  "rules": [],
+  "answers": [],
+  "tests": [
+    {
+      "name": "\"an agent proposes, a person approves\"",
+      "steps": [
+        {
+          "party": "we",
+          "action": "create",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "goods",
+              "value": "\"paper\""
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "we",
+          "action": "approve_order",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": "AI agent",
+          "with": [],
+          "expect": "pending approval"
+        },
+        {
+          "party": "we",
+          "action": "approve",
+          "outcome": null,
+          "args": [
+            "in person"
+          ],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "approved"
+        }
+      ]
+    }
+  ]
+}

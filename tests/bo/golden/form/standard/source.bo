@@ -1,0 +1,28 @@
+use finance
+contract WarehouseReceipt
+parties we, depositor, bank
+
+asset Receipt
+  quantity kg
+  holder depositor
+
+can transfer
+can pledge to bank
+  requires in person
+can release
+  AI agent can propose
+can redeem
+can freeze
+can unfreeze
+can cancel
+can lodge by holder to counterparty
+  requires not counterparty = holder
+  active -> pledged
+  pledgee = counterparty
+
+test "a receipt pledged, released, and redeemed"
+  we issue with quantity = 600 kg
+  depositor pledge in person to bank1 -> pledged
+  bank1 release by AI agent -> pending approval
+  bank1 approve in person -> active
+  depositor redeem with portion = 600 kg -> redeemed

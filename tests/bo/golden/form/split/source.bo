@@ -1,0 +1,71 @@
+use finance
+contract Split
+parties issuer, supplier
+
+asset Receivable
+  amount HKD
+  due date
+  tier number
+  holder supplier
+
+can split
+can pledge
+can release
+can transfer
+can pay
+can confirm payment
+
+test "two tiers, a pledge, and payment to the bank"
+  issuer issue with amount = HKD 1_000, due = 2027-06-30, tier = 1
+  supplier split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> divided
+  maker1 split with parts = (HKD 100, HKD 500), recipients = (smith1, maker1) -> divided
+  smith1 pledge to bank1 -> pledged
+  maker1 transfer to factor1 -> active
+  supplier pledge to bank1 -> refused
+  issuer pay smith1 at 2027-06-30 -> paid
+  bank1 confirm payment -> settled
+  issuer pay factor1 -> paid
+  factor1 confirm payment -> settled
+  issuer pay maker2 -> paid
+  maker2 confirm payment -> settled
+
+test "each recipient consents, and the holder"
+  issuer issue with amount = HKD 1_000, due = 2027-06-30, tier = 1
+  supplier split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> consent of maker2
+  supplier split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> consent of (maker1, maker2)
+  maker1 split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> consent of supplier
+  supplier split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> divided
+
+test "the parts add up, each at least a cent, one for each recipient"
+  issuer issue with amount = HKD 1_000, due = 2027-06-30, tier = 1
+  supplier split with parts = (HKD 600, HKD 300), recipients = (maker1, maker2) -> refused "bo:requires split 4"
+  supplier split with parts = (HKD 1_000, HKD 0), recipients = (maker1, maker2) -> refused "bo:requires split 3"
+  supplier split with parts = (HKD 600, HKD 400), recipients = maker1 -> refused "bo:requires split 1"
+  supplier split with parts = HKD 1_000, recipients = maker1 -> divided
+
+test "at most 15 recipients besides the holder"
+  issuer issue with amount = HKD 16, due = 2027-06-30, tier = 1
+  supplier split with parts = (HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1), recipients = (r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16) -> refused "bo:requires split 2"
+  supplier split with parts = (HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1), recipients = (r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, supplier) -> divided
+  r15 pledge to bank1 -> pledged
+  supplier transfer to r1 -> active
+
+test "not while pledged"
+  issuer issue with amount = HKD 1_000, due = 2027-06-30, tier = 1
+  supplier pledge to bank1 -> pledged
+  supplier split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> refused "bo:state split"
+  bank1 release -> active
+  supplier split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> divided
+
+test "eight levels down, and no further"
+  issuer issue with amount = HKD 1_000, due = 2027-06-30, tier = 1
+  supplier split with parts = HKD 1_000, recipients = supplier
+  supplier split with parts = HKD 1_000, recipients = supplier
+  supplier split with parts = HKD 1_000, recipients = supplier
+  supplier split with parts = HKD 1_000, recipients = supplier
+  supplier split with parts = HKD 1_000, recipients = supplier
+  supplier split with parts = HKD 1_000, recipients = supplier
+  supplier split with parts = HKD 1_000, recipients = supplier
+  supplier split with parts = HKD 1_000, recipients = supplier
+  supplier split with parts = HKD 1_000, recipients = supplier -> refused "bo:depth split"
+  supplier pledge to bank1 -> pledged

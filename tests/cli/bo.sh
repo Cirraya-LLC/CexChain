@@ -69,7 +69,7 @@ start_server() {
 }
 
 echo "== help and completion"
-for command in "bo check" "bo build" "bo explain" "bo fmt" "bo test" "bo packs list" "bo packs show" "bo packs check" "bo stdlib list" "bo stdlib show" "bo vocab list" "bo vocab show" "bo vocab check"; do
+for command in "bo check" "bo build" "bo explain" "bo fmt" "bo form" "bo test" "bo packs list" "bo packs show" "bo packs check" "bo stdlib list" "bo stdlib show" "bo vocab list" "bo vocab show" "bo vocab check"; do
     # shellcheck disable=SC2086
     run $command --help > out.txt
     contains -F "cexchain $command" out.txt || fail "help for $command"
@@ -78,7 +78,7 @@ done
 run --help > out.txt
 contains -F "bo packs list" out.txt || fail "overview lists bo"
 run completion bash > out.txt
-contains -F '"bo") words="build check explain fmt packs stdlib test vocab"' out.txt || fail "completion: bo"
+contains -F '"bo") words="build check explain fmt form packs stdlib test vocab"' out.txt || fail "completion: bo"
 contains -F '"bo vocab") words="check list show"' out.txt || fail "completion: bo vocab"
 contains -F '"bo stdlib") words="list show"' out.txt || fail "completion: bo stdlib"
 contains -F -- "--write" out.txt || fail "completion: bo fmt"
@@ -1567,5 +1567,39 @@ run bo test "$SOURCE/deploy/cluster/executor/notices.bo" | contains -F "1 test: 
 for script in bootstrap.sh executor/run.sh executor/notify.sh executor/ask.sh; do
     sh -n "$SOURCE/deploy/cluster/$script" || fail "deploy: $script"
 done
+
+echo "== bo form: a rules sheet, its source, and back"
+run bo form --from "$SOURCE/examples/lending/lending.bo" --out lending.json | contains -F "wrote the sheet"
+[ "$(json 'd["kind"]' < lending.json)" = rules ] || fail "the sheet's kind"
+run bo form lending.json --out lending-form.bo | contains -F "wrote lending-form.bo"
+run bo build "$SOURCE/examples/lending/lending.bo" --code-out lending-a.wasm > /dev/null 2>&1
+run bo build lending-form.bo --code-out lending-b.wasm > /dev/null
+cmp lending-a.wasm lending-b.wasm || fail "the sheet writes lending's code"
+run bo form lending.json --language zh-Hant-HK | contains -F "可 lend 由 owner 予 相對方"
+run bo form lending.json --language zh-Hans-CN | contains -F "可 lend 由 owner 给 相对方"
+[ "$(run bo form lending.json --json | json 'd["paths"][0]')" = /contract ] || fail "bo form --json paths"
+# A problem is named by its place in the sheet, in the reader's language.
+cat > pawn.json << 'JSON'
+{"sheet": 1, "kind": "rules", "contract": "Pawn", "parties": ["we", "friend"],
+ "thing": {"name": "Watch", "fields": [{"name": "holder", "type": "we"}]},
+ "actions": [{"action": "pledge", "by": "holder", "to": "friend"}]}
+JSON
+expect_exit 2 bo form pawn.json
+contains -F "pawn.json:/actions/0 (line 7): error:" out.txt || fail "a problem's place in the sheet"
+contains -F "(check.pack-not-used)" out.txt || fail "the pack the word needs"
+expect_exit 2 bo form pawn.json --language zh-Hant-HK
+contains -F "finance" out.txt && contains "詞彙包" out.txt || fail "the problem in Traditional Chinese"
+expect_exit 2 bo form pawn.json --language zh-Hans-CN
+contains "词汇包" out.txt || fail "the problem in Simplified Chinese"
+# Not a sheet, and a source that does not fit the form.
+printf '{"sheet": 2, "kind": "rules", "contract": "C"}' > two.json
+expect_exit 2 bo form two.json
+contains -F "two.json:/sheet:" out.txt || fail "a sheet of another version"
+expect_exit 2 bo form --from "$GOLDENS/test/shipment/source.bo"
+contains -F "does not fit the form" out.txt || fail "a source that does not fit"
+[ "$(run bo form --from "$GOLDENS/test/shipment/source.bo" --json | json 'd["fits"]')" = False ] ||
+    fail "bo form --from --json"
+expect_exit 1 bo form
+expect_exit 1 bo form lending.json --from lending-form.bo
 
 echo "bo: all checks passed"

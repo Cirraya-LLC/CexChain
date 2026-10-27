@@ -1,0 +1,13 @@
+contract Release
+parties we, auditor, manager
+
+thing Report
+  title text
+
+can publish by we
+  requires consent of (auditor, manager)
+  draft -> published
+
+test "both must agree"
+  we create with title = "Q3"
+  we publish -> consent of (auditor, manager)

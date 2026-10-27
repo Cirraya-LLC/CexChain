@@ -1,0 +1,43 @@
+use finance
+contract Financing
+parties issuer, supplier, bank, factor
+
+asset Receivable
+  amount HKD
+  due date
+  holder supplier
+  banker bank
+
+can pledge to bank
+can transfer to bank
+can release
+can enforce
+can sell by holder to factor
+  requires not factor = holder
+  active -> active
+  holder = factor
+can lodge by holder to factor
+  requires not factor = holder
+  active -> pledged
+  pledgee = factor
+
+test "a pledge to the bank needs its consent"
+  issuer issue with amount = HKD 1_000, due = 2027-06-30
+  supplier pledge to bank -> consent of bank
+  supplier pledge to bank -> pledged
+  bank enforce -> active
+
+test "a transfer to the bank needs its consent"
+  issuer issue with amount = HKD 1_000, due = 2027-06-30
+  supplier transfer to bank -> consent of bank
+  supplier transfer to bank -> active
+  bank transfer to bank -> refused "bo:requires transfer 1"
+
+test "the factor, bound by its first sale, consents to each pledge"
+  issuer issue with amount = HKD 1_000, due = 2027-06-30
+  supplier sell to factor -> consent of factor
+  supplier sell to factor -> active
+  factor transfer to bank -> active
+  bank lodge to factor -> consent of factor
+  bank lodge to factor -> pledged
+  factor release -> active

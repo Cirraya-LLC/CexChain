@@ -1,0 +1,136 @@
+{
+  "sheet": 1,
+  "kind": "rules",
+  "contract": "Payment",
+  "packs": [],
+  "parties": [
+    "we",
+    "payer"
+  ],
+  "thing": {
+    "word": "thing",
+    "name": "Bill",
+    "fields": [
+      {
+        "name": "amount",
+        "type": "HKD",
+        "default": null
+      }
+    ]
+  },
+  "actions": [
+    {
+      "action": "settle",
+      "by": "payer",
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": "over 10_000",
+      "agents_propose": false,
+      "from": [
+        "open"
+      ],
+      "to_state": "cleared",
+      "set": [],
+      "requests": []
+    }
+  ],
+  "rules": [],
+  "answers": [],
+  "tests": [
+    {
+      "name": "\"a small bill is paid\"",
+      "steps": [
+        {
+          "party": "we",
+          "action": "create",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "amount",
+              "value": "HKD 500"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "payer",
+          "action": "settle",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "cleared"
+        }
+      ]
+    },
+    {
+      "name": "\"a large bill needs the payer in person\"",
+      "steps": [
+        {
+          "party": "we",
+          "action": "create",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "amount",
+              "value": "HKD 50_000"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "payer",
+          "action": "settle",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "refused \"bo:in-person settle\""
+        }
+      ]
+    },
+    {
+      "name": "\"and in person it is paid\"",
+      "steps": [
+        {
+          "party": "we",
+          "action": "create",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "amount",
+              "value": "HKD 50_000"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "payer",
+          "action": "settle",
+          "outcome": null,
+          "args": [
+            "in person"
+          ],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "cleared"
+        }
+      ]
+    }
+  ]
+}

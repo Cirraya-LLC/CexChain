@@ -23,6 +23,7 @@
 #include <cexchain/bo/checker.hpp>
 #include <cexchain/bo/concepts.hpp>
 #include <cexchain/bo/explain.hpp>
+#include <cexchain/bo/form.hpp>
 #include <cexchain/bo/format.hpp>
 #include <cexchain/bo/lexer.hpp>
 #include <cexchain/bo/messages.hpp>
@@ -999,6 +1000,167 @@ int cmd_bo_fmt(const Args& args) {
         std::print("{}", *formatted.source);
     }
     return status;
+}
+
+// --- bo form.
+
+namespace {
+
+/// A source's problems, each named by its place in the sheet.
+Json form_diagnostics_json(const std::vector<bo::Diagnostic>& diagnostics,
+                           const std::vector<std::string>& paths, const bo::Pack* language) {
+    Json out = diagnostics_json(diagnostics, language);
+    for (std::size_t i = 0; i < diagnostics.size(); ++i) {
+        const std::uint32_t line = diagnostics[i].span.line;
+        out[i]["path"] = line > 0 && line <= paths.size() ? Json(paths[line - 1]) : Json(nullptr);
+    }
+    return out;
+}
+
+void print_form_diagnostics(const std::string& sheet,
+                            const std::vector<bo::Diagnostic>& diagnostics,
+                            const std::vector<std::string>& paths, const bo::Pack* language) {
+    for (const bo::Diagnostic& d : diagnostics) {
+        const std::uint32_t line = d.span.line;
+        const std::string where = line > 0 && line <= paths.size() && !paths[line - 1].empty()
+                                      ? std::format("{}:{} (line {})", sheet, paths[line - 1], line)
+                                      : sheet;
+        std::println(stderr, "{}: {}: {} ({})", where, bo::name_of(d.severity()),
+                     bo::render(d, language), d.code);
+    }
+}
+
+/// A source back into a sheet: what bo form --from does.
+int form_from_source(const Args& args, const bo::PackSet& set, const bo::Pack* language) {
+    const std::string file = *args.get("from");
+    const std::string source = read_text_file(file);
+    const bo::Lexicon lexicon(set);
+    const bo::Lexed lexed = bo::lex(source, lexicon);
+    const bo::Parsed parsed = bo::parse(source, lexed);
+    std::vector<bo::Diagnostic> diagnostics = lexed.diagnostics;
+    diagnostics.insert(diagnostics.end(), parsed.diagnostics.begin(), parsed.diagnostics.end());
+    if (bo::has_errors(diagnostics)) {
+        print_source_diagnostics(stderr, file, diagnostics, language);
+        throw CommandError{file + " does not read as Bo"};
+    }
+    const auto read = bo::form::read_sheet(source, parsed.file);
+    if (const auto* unfit = std::get_if<bo::form::Unfit>(&read)) {
+        if (args.json()) {
+            print_json(
+                {{"file", file},
+                 {"fits", false},
+                 {"reason", unfit->reason},
+                 {"line", unfit->span.line == 0 ? Json(nullptr) : Json(unfit->span.line)},
+                 {"column", unfit->span.line == 0 ? Json(nullptr) : Json(unfit->span.column)}});
+            return exit_failure;
+        }
+        throw CommandError{(unfit->span.line == 0 ? file
+                                                  : std::format("{}:{}:{}", file, unfit->span.line,
+                                                                unfit->span.column)) +
+                           ": does not fit the form: " + unfit->reason};
+    }
+    const std::string text = bo::form::sheet_json(std::get<bo::form::Sheet>(read));
+    if (const auto out = args.get("out")) {
+        write_file(*out, as_bytes(text), false);
+        if (args.json()) {
+            print_json({{"file", file}, {"fits", true}, {"sheet", *out}});
+        } else {
+            std::println("wrote the sheet of {} to {}", file, *out);
+        }
+    } else if (args.json()) {
+        print_json({{"file", file}, {"fits", true}, {"sheet", Json::parse(text)}});
+    } else {
+        std::print("{}", text);
+    }
+    return exit_ok;
+}
+
+} // namespace
+
+int cmd_bo_form(const Args& args) {
+    const bo::PackSet set = pack_set(args);
+    const bo::Pack* messages = set_language(args, set);
+    if (args.get("from")) {
+        if (!args.positional().empty()) {
+            throw UsageError{"give a sheet, or --from SOURCE, not both"};
+        }
+        return form_from_source(args, set, messages);
+    }
+    if (args.positional().empty()) {
+        throw UsageError{"give a rules sheet (JSON), or --from SOURCE to read one back"};
+    }
+    const std::string file = args.positional().front();
+    const auto parsed_sheet = bo::form::parse_sheet(read_text_file(file));
+    if (const auto* bad = std::get_if<bo::form::SheetError>(&parsed_sheet)) {
+        if (args.json()) {
+            print_json(
+                {{"sheet", file}, {"ok", false}, {"path", bad->path}, {"error", bad->message}});
+            return exit_failure;
+        }
+        throw CommandError{file + ":" + bad->path + ": " + bad->message};
+    }
+    const bo::form::Generated generated =
+        bo::form::generate(std::get<bo::form::Sheet>(parsed_sheet));
+    // The source in one language: the generator's English, translated by the
+    // formatter, line for line.
+    const bo::Lexicon lexicon(set);
+    std::string source = generated.source;
+    std::vector<bo::Diagnostic> diagnostics;
+    const bo::Pack* target = nullptr;
+    if (const std::optional<std::string> want = args.get("language")) {
+        target = bo::find_language(set.packs(), *want);
+        if (target == nullptr) {
+            throw UsageError{"no pack for the language " + *want +
+                             " (en, zh-Hant-HK, zh-Hans-CN, or a pack given with --pack)"};
+        }
+    }
+    const bo::Formatted formatted = bo::format_source(source, set, lexicon, target);
+    if (formatted.source) {
+        source = *formatted.source;
+    } else {
+        diagnostics = formatted.diagnostics;
+    }
+    std::optional<bo::Checked> checked;
+    if (!bo::has_errors(diagnostics)) {
+        const bo::Lexed lexed = bo::lex(source, lexicon);
+        const bo::Parsed parsed = bo::parse(source, lexed);
+        diagnostics = lexed.diagnostics;
+        diagnostics.insert(diagnostics.end(), parsed.diagnostics.begin(), parsed.diagnostics.end());
+        if (!bo::has_errors(diagnostics)) {
+            checked = bo::check(source, parsed.file);
+            diagnostics.insert(diagnostics.end(), checked->diagnostics.begin(),
+                               checked->diagnostics.end());
+        }
+    }
+    std::ranges::stable_sort(diagnostics, {}, [](const bo::Diagnostic& d) {
+        return d.span.line == 0 ? std::numeric_limits<std::uint64_t>::max()
+                                : std::uint64_t{d.span.offset};
+    });
+    const bool ok = !bo::has_errors(diagnostics);
+    if (const auto out = args.get("out"); out && ok) {
+        write_file(*out, as_bytes(source), false);
+    }
+    if (args.json()) {
+        print_json(
+            {{"sheet", file},
+             {"ok", ok},
+             {"language", target != nullptr ? Json(target->id) : Json(nullptr)},
+             {"source", source},
+             {"paths", generated.paths},
+             {"diagnostics", form_diagnostics_json(diagnostics, generated.paths, messages)}});
+        return ok ? exit_ok : exit_failure;
+    }
+    print_form_diagnostics(file, diagnostics, generated.paths, messages);
+    if (!ok) {
+        std::println(stderr, "{}: the source it writes does not check", file);
+        return exit_failure;
+    }
+    if (const auto out = args.get("out")) {
+        std::println("wrote {} from {}", *out, file);
+    } else {
+        std::print("{}", source);
+    }
+    return exit_ok;
 }
 
 // --- bo stdlib.

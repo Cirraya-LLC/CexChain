@@ -1,0 +1,17 @@
+contract Counter
+parties we
+
+thing Meter
+  count number = 0
+  limit 3
+  label text
+
+can tick by we with step number
+  requires step > 0
+  count = count + step
+
+test "ticks add up"
+  we create with label = "door"
+  we tick with step = 2 -> count = 2
+  we tick with step = 1 -> count = 3
+  we tick with step = 0 -> refused "bo:requires tick 1"

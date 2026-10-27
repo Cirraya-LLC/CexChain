@@ -1,0 +1,28 @@
+use commerce
+use finance
+contract Loan
+parties we, customer, bank
+
+thing Note
+  amount HKD
+  holder customer
+
+can lend by we to bank
+  requires consent of customer
+  proposed -> lent
+can repay by bank
+  requires holder = customer
+  lent -> repaid
+
+test "lent and repaid"
+  we create with amount = HKD 1_000
+  we lend at 2027-01-06 in person to bank1 -> lent
+  bank1 repay by AI agent -> repaid
+
+test unhappy
+  we create at 2027-01-06 with amount = HKD 1_000
+  we lend to bank1 -> consent of (customer, bank1)
+  bank1 repay -> refused "bo:party bank"
+  customer lend to bank1 -> consent of we
+  we lend to bank1 -> lent
+  we lend to bank1 -> refused

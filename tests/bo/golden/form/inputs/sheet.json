@@ -1,0 +1,146 @@
+{
+  "sheet": 1,
+  "kind": "rules",
+  "contract": "Booking",
+  "packs": [],
+  "parties": [
+    "we",
+    "guest"
+  ],
+  "thing": {
+    "word": "thing",
+    "name": "Room",
+    "fields": [
+      {
+        "name": "nights",
+        "type": "number",
+        "default": "0"
+      },
+      {
+        "name": "guest_name",
+        "type": "text",
+        "default": null
+      }
+    ]
+  },
+  "actions": [
+    {
+      "action": "book",
+      "by": "guest",
+      "to": null,
+      "inputs": [
+        {
+          "name": "count",
+          "type": "number",
+          "default": null
+        },
+        {
+          "name": "arrive",
+          "type": "date",
+          "default": null
+        }
+      ],
+      "requires": [
+        "count > 0",
+        "arrive >= 2027-01-01"
+      ],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [
+        "open"
+      ],
+      "to_state": "booked",
+      "set": [
+        {
+          "name": "nights",
+          "value": "count"
+        }
+      ],
+      "requests": []
+    }
+  ],
+  "rules": [],
+  "answers": [],
+  "tests": [
+    {
+      "name": "\"booked for three nights\"",
+      "steps": [
+        {
+          "party": "we",
+          "action": "create",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "guest_name",
+              "value": "\"Ann\""
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "guest",
+          "action": "book",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "count",
+              "value": "3"
+            },
+            {
+              "name": "arrive",
+              "value": "2027-02-01"
+            }
+          ],
+          "expect": "booked, nights = 3"
+        }
+      ]
+    },
+    {
+      "name": "\"no booking for no nights\"",
+      "steps": [
+        {
+          "party": "we",
+          "action": "create",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "guest_name",
+              "value": "\"Ann\""
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "guest",
+          "action": "book",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "count",
+              "value": "0"
+            },
+            {
+              "name": "arrive",
+              "value": "2027-02-01"
+            }
+          ],
+          "expect": "refused \"bo:requires book 1\""
+        }
+      ]
+    }
+  ]
+}

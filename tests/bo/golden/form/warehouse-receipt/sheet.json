@@ -1,0 +1,384 @@
+{
+  "sheet": 1,
+  "kind": "rules",
+  "contract": "WarehouseReceipt",
+  "packs": [
+    "finance"
+  ],
+  "parties": [
+    "warehouse",
+    "depositor"
+  ],
+  "thing": {
+    "word": "asset",
+    "name": "Receipt",
+    "fields": [
+      {
+        "name": "quantity",
+        "type": "tonne",
+        "default": null
+      },
+      {
+        "name": "holder",
+        "type": "depositor",
+        "default": null
+      }
+    ]
+  },
+  "actions": [
+    {
+      "action": "transfer",
+      "by": null,
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    },
+    {
+      "action": "pledge",
+      "by": null,
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    },
+    {
+      "action": "release",
+      "by": null,
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    },
+    {
+      "action": "enforce",
+      "by": null,
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    },
+    {
+      "action": "redeem",
+      "by": null,
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    },
+    {
+      "action": "freeze",
+      "by": null,
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    },
+    {
+      "action": "unfreeze",
+      "by": null,
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    },
+    {
+      "action": "cancel",
+      "by": null,
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    }
+  ],
+  "rules": [],
+  "answers": [],
+  "tests": [
+    {
+      "name": "\"goods redeemed in parts\"",
+      "steps": [
+        {
+          "party": "warehouse",
+          "action": "issue",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "quantity",
+              "value": "30 tonne"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "depositor",
+          "action": "redeem",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "portion",
+              "value": "0 tonne"
+            }
+          ],
+          "expect": "refused \"bo:requires redeem 3\""
+        },
+        {
+          "party": "depositor",
+          "action": "redeem",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "portion",
+              "value": "40 tonne"
+            }
+          ],
+          "expect": "refused \"bo:requires redeem 4\""
+        },
+        {
+          "party": "depositor",
+          "action": "redeem",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "portion",
+              "value": "10 tonne"
+            }
+          ],
+          "expect": "active"
+        },
+        {
+          "party": "depositor",
+          "action": "pledge",
+          "outcome": null,
+          "args": [],
+          "to": "bank1",
+          "by": null,
+          "with": [],
+          "expect": "pledged"
+        },
+        {
+          "party": "depositor",
+          "action": "redeem",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "portion",
+              "value": "5 tonne"
+            }
+          ],
+          "expect": "pledged"
+        },
+        {
+          "party": "depositor",
+          "action": "transfer",
+          "outcome": null,
+          "args": [],
+          "to": "trader1",
+          "by": null,
+          "with": [],
+          "expect": "refused \"bo:state transfer\""
+        },
+        {
+          "party": "bank1",
+          "action": "release",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "active"
+        },
+        {
+          "party": "depositor",
+          "action": "transfer",
+          "outcome": null,
+          "args": [],
+          "to": "trader1",
+          "by": null,
+          "with": [],
+          "expect": "active"
+        },
+        {
+          "party": "trader1",
+          "action": "redeem",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "portion",
+              "value": "15 tonne"
+            }
+          ],
+          "expect": "redeemed"
+        },
+        {
+          "party": "trader1",
+          "action": "redeem",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "portion",
+              "value": "1 tonne"
+            }
+          ],
+          "expect": "refused"
+        }
+      ]
+    },
+    {
+      "name": "\"frozen while pledged\"",
+      "steps": [
+        {
+          "party": "warehouse",
+          "action": "issue",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "quantity",
+              "value": "30 tonne"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "depositor",
+          "action": "pledge",
+          "outcome": null,
+          "args": [],
+          "to": "bank1",
+          "by": null,
+          "with": [],
+          "expect": "pledged"
+        },
+        {
+          "party": "warehouse",
+          "action": "freeze",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "frozen"
+        },
+        {
+          "party": "depositor",
+          "action": "redeem",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "portion",
+              "value": "1 tonne"
+            }
+          ],
+          "expect": "refused \"bo:state redeem\""
+        },
+        {
+          "party": "warehouse",
+          "action": "unfreeze",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "pledged"
+        },
+        {
+          "party": "depositor",
+          "action": "redeem",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "portion",
+              "value": "30 tonne"
+            }
+          ],
+          "expect": "redeemed"
+        }
+      ]
+    }
+  ]
+}

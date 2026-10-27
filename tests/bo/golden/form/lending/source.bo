@@ -1,0 +1,30 @@
+contract Lending
+parties owner
+
+thing Item
+  name text
+  holder owner
+
+can lend by owner to counterparty
+  active -> lent
+  holder = counterparty
+can bring_back by holder
+  lent -> active
+  holder = owner
+
+test "lent to a friend, brought back, lent to another"
+  owner create with name = "Camera X100"
+  owner lend to friend1 -> lent
+  friend1 bring_back -> active
+  owner lend to friend2 -> lent
+
+test "the borrower agrees to have it"
+  owner create with name = "Camera X100"
+  owner lend to friend1 -> consent of friend1
+
+test "nothing is lent twice, and only the holder brings it back"
+  owner create with name = "Camera X100"
+  owner lend to friend1 -> lent
+  owner lend to friend2 -> refused "bo:state lend"
+  friend2 bring_back -> consent of friend1
+  friend1 bring_back at 2027-01-05 -> active

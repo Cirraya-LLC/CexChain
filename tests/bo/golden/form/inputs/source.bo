@@ -1,0 +1,20 @@
+contract Booking
+parties we, guest
+
+thing Room
+  nights number = 0
+  guest_name text
+
+can book by guest with count number, arrive date
+  requires count > 0
+  requires arrive >= 2027-01-01
+  open -> booked
+  nights = count
+
+test "booked for three nights"
+  we create with guest_name = "Ann"
+  guest book with count = 3, arrive = 2027-02-01 -> booked, nights = 3
+
+test "no booking for no nights"
+  we create with guest_name = "Ann"
+  guest book with count = 0, arrive = 2027-02-01 -> refused "bo:requires book 1"

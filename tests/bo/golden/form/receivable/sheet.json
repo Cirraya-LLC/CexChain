@@ -1,0 +1,545 @@
+{
+  "sheet": 1,
+  "kind": "rules",
+  "contract": "Receivable",
+  "packs": [
+    "finance"
+  ],
+  "parties": [
+    "issuer",
+    "supplier"
+  ],
+  "thing": {
+    "word": "asset",
+    "name": "Receivable",
+    "fields": [
+      {
+        "name": "amount",
+        "type": "HKD",
+        "default": null
+      },
+      {
+        "name": "due",
+        "type": "date",
+        "default": null
+      },
+      {
+        "name": "holder",
+        "type": "supplier",
+        "default": null
+      }
+    ]
+  },
+  "actions": [
+    {
+      "action": "transfer",
+      "by": null,
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    },
+    {
+      "action": "pledge",
+      "by": null,
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    },
+    {
+      "action": "release",
+      "by": null,
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    },
+    {
+      "action": "enforce",
+      "by": null,
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    },
+    {
+      "action": "pay",
+      "by": null,
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    },
+    {
+      "action": "confirm payment",
+      "by": null,
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    },
+    {
+      "action": "dispute",
+      "by": null,
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    },
+    {
+      "action": "freeze",
+      "by": null,
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    },
+    {
+      "action": "unfreeze",
+      "by": null,
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    },
+    {
+      "action": "cancel",
+      "by": null,
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    }
+  ],
+  "rules": [],
+  "answers": [],
+  "tests": [
+    {
+      "name": "\"pledge, release, transfer, pay, dispute, confirm\"",
+      "steps": [
+        {
+          "party": "issuer",
+          "action": "issue",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "amount",
+              "value": "HKD 1_000_000"
+            },
+            {
+              "name": "due",
+              "value": "2027-06-30"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "supplier",
+          "action": "pledge",
+          "outcome": null,
+          "args": [],
+          "to": "bank1",
+          "by": null,
+          "with": [],
+          "expect": "pledged"
+        },
+        {
+          "party": "supplier",
+          "action": "pledge",
+          "outcome": null,
+          "args": [],
+          "to": "bank2",
+          "by": null,
+          "with": [],
+          "expect": "refused \"bo:state pledge\""
+        },
+        {
+          "party": "supplier",
+          "action": "transfer",
+          "outcome": null,
+          "args": [],
+          "to": "factor1",
+          "by": null,
+          "with": [],
+          "expect": "refused \"bo:state transfer\""
+        },
+        {
+          "party": "bank1",
+          "action": "release",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "active"
+        },
+        {
+          "party": "supplier",
+          "action": "transfer",
+          "outcome": null,
+          "args": [],
+          "to": "factor1",
+          "by": null,
+          "with": [],
+          "expect": "active"
+        },
+        {
+          "party": "supplier",
+          "action": "transfer",
+          "outcome": null,
+          "args": [],
+          "to": "factor2",
+          "by": null,
+          "with": [],
+          "expect": "consent of factor1"
+        },
+        {
+          "party": "issuer",
+          "action": "pay",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "paid"
+        },
+        {
+          "party": "factor1",
+          "action": "dispute",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "disputed"
+        },
+        {
+          "party": "issuer",
+          "action": "pay",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "paid"
+        },
+        {
+          "party": "factor1",
+          "action": "confirm payment",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "settled"
+        },
+        {
+          "party": "issuer",
+          "action": "freeze",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "refused"
+        }
+      ]
+    },
+    {
+      "name": "\"paid to the pledgee, under a freeze\"",
+      "steps": [
+        {
+          "party": "issuer",
+          "action": "issue",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "amount",
+              "value": "HKD 1_000_000"
+            },
+            {
+              "name": "due",
+              "value": "2027-06-30"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "supplier",
+          "action": "pledge",
+          "outcome": null,
+          "args": [],
+          "to": "bank1",
+          "by": null,
+          "with": [],
+          "expect": "pledged"
+        },
+        {
+          "party": "issuer",
+          "action": "freeze",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "frozen"
+        },
+        {
+          "party": "bank1",
+          "action": "release",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "refused \"bo:state release\""
+        },
+        {
+          "party": "issuer",
+          "action": "pay",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "refused \"bo:state pay\""
+        },
+        {
+          "party": "issuer",
+          "action": "unfreeze",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "pledged"
+        },
+        {
+          "party": "issuer",
+          "action": "pay",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "paid"
+        },
+        {
+          "party": "supplier",
+          "action": "confirm payment",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "consent of bank1"
+        },
+        {
+          "party": "bank1",
+          "action": "confirm payment",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "settled"
+        }
+      ]
+    },
+    {
+      "name": "\"the bank enforces its pledge\"",
+      "steps": [
+        {
+          "party": "issuer",
+          "action": "issue",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "amount",
+              "value": "HKD 1_000_000"
+            },
+            {
+              "name": "due",
+              "value": "2027-06-30"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "supplier",
+          "action": "pledge",
+          "outcome": null,
+          "args": [],
+          "to": "bank1",
+          "by": null,
+          "with": [],
+          "expect": "pledged"
+        },
+        {
+          "party": "supplier",
+          "action": "cancel",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "refused \"bo:state cancel\""
+        },
+        {
+          "party": "bank1",
+          "action": "enforce",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "active"
+        },
+        {
+          "party": "bank1",
+          "action": "pledge",
+          "outcome": null,
+          "args": [],
+          "to": "bank2",
+          "by": null,
+          "with": [],
+          "expect": "pledged"
+        }
+      ]
+    },
+    {
+      "name": "\"cancelled\"",
+      "steps": [
+        {
+          "party": "issuer",
+          "action": "issue",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "amount",
+              "value": "HKD 1_000_000"
+            },
+            {
+              "name": "due",
+              "value": "2027-06-30"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "issuer",
+          "action": "unfreeze",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "refused \"bo:state unfreeze\""
+        },
+        {
+          "party": "supplier",
+          "action": "cancel",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "cancelled"
+        },
+        {
+          "party": "supplier",
+          "action": "transfer",
+          "outcome": null,
+          "args": [],
+          "to": "factor1",
+          "by": null,
+          "with": [],
+          "expect": "refused"
+        }
+      ]
+    }
+  ]
+}

@@ -223,7 +223,7 @@ The `cexchain` tool controls every part of a ledger:
 | Requests | `request list`, `request show`, `request answer`, `request cancel`, `request wait` |
 | Executors | `executor add`, `executor list`, `executor show`, `executor revoke`, `executor run`, `executor check`, `executor connector add\|list\|show\|remove`, `executor secret set\|list\|remove`, `executor journal list\|show`; `connector webhook`, `connector command` |
 | Keepers | `keeper add`, `keeper list`, `keeper show`, `keeper revoke`, `keeper due`, `keeper run`; `serve --keeper-key` |
-| Bo language | `bo check`, `bo build`, `bo explain`, `bo fmt`, `bo test`, `bo stdlib list`, `bo stdlib show`, `bo vocab list`, `bo vocab show`, `bo vocab check`, `bo packs list`, `bo packs show`, `bo packs check` (in builds with the Bo compiler); `contract deploy --bo` |
+| Bo language | `bo check`, `bo build`, `bo explain`, `bo fmt`, `bo form`, `bo test`, `bo stdlib list`, `bo stdlib show`, `bo vocab list`, `bo vocab show`, `bo vocab check`, `bo packs list`, `bo packs show`, `bo packs check` (in builds with the Bo compiler); `contract deploy --bo` |
 
 - Every command takes `--help`, and `--json` for scripting.
 - `cexchain help --json` describes every command and option in machine-readable form.
@@ -911,6 +911,23 @@ rebuilds to the deployed code, so the text is the text of the code that runs; ot
 why. For an instance, it shows its state and fields in the same words first (`amount: HKD
 250,000.00`, `starts: 1 January 2030`). Messages follow `--language` or `CEXCHAIN_LANGUAGE`
 everywhere the compiler reports, refusals of compiled contracts included.
+
+### A contract from a form
+
+`bo form` writes a source from a *rules sheet*, the JSON a form fills in: the parties, the kind and
+its fields, each action (who starts it, with whom, its inputs, requirements, consents, presence and
+a threshold for it, whether AI agents may only propose it, its state change, the fields it sets,
+its requests), the time rules, the rules for answers, and the tests. Whatever is not a choice of
+the form is a piece of Bo as written (names in any language, types such as `HKD`, values, events
+such as `overdue 30 days`); the generator adds only the keywords around them, then the compiler
+checks the result, each problem named by its place in the sheet. `--from` reads a source back
+into a sheet when every construct fits the form (no choices, loops, refusals, or lines in another
+order), and writing that sheet again gives the same tree.
+
+```sh
+cexchain bo form --from examples/lending/lending.bo --out lending.json
+cexchain bo form lending.json --language zh-Hant-HK      # the same contract, in Chinese
+```
 
 ### One contract, any language
 

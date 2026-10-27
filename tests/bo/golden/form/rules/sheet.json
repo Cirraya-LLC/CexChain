@@ -1,0 +1,126 @@
+{
+  "sheet": 1,
+  "kind": "rules",
+  "contract": "Rental",
+  "packs": [],
+  "parties": [
+    "we",
+    "renter"
+  ],
+  "thing": {
+    "word": "thing",
+    "name": "Unit",
+    "fields": [
+      {
+        "name": "due",
+        "type": "date",
+        "default": null
+      },
+      {
+        "name": "holder",
+        "type": "renter",
+        "default": null
+      }
+    ]
+  },
+  "actions": [
+    {
+      "action": "return_unit",
+      "by": "holder",
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [
+        "active"
+      ],
+      "to_state": "returned",
+      "set": [],
+      "requests": []
+    }
+  ],
+  "rules": [
+    {
+      "when": "overdue 3 days",
+      "do": [
+        "suspend"
+      ],
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    },
+    {
+      "when": "suspended 30 days",
+      "do": [
+        "terminate"
+      ],
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    }
+  ],
+  "answers": [],
+  "tests": [
+    {
+      "name": "\"late, suspended, then ended\"",
+      "steps": [
+        {
+          "party": "we",
+          "action": "create",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "due",
+              "value": "2027-01-10"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "keeper",
+          "action": "suspend",
+          "outcome": null,
+          "args": [
+            "at 2027-01-12"
+          ],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "refused \"bo:when when.suspend\""
+        },
+        {
+          "party": "keeper",
+          "action": "suspend",
+          "outcome": null,
+          "args": [
+            "at 2027-01-13"
+          ],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "suspended"
+        },
+        {
+          "party": "keeper",
+          "action": "terminate",
+          "outcome": null,
+          "args": [
+            "at 2027-02-12"
+          ],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "terminated"
+        }
+      ]
+    }
+  ]
+}

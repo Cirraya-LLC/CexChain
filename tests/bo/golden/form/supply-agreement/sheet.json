@@ -1,0 +1,203 @@
+{
+  "sheet": 1,
+  "kind": "rules",
+  "contract": "SupplyAgreement",
+  "packs": [
+    "commerce",
+    "finance"
+  ],
+  "parties": [
+    "we",
+    "supplier",
+    "bank"
+  ],
+  "thing": {
+    "word": "thing",
+    "name": "Terms",
+    "fields": [
+      {
+        "name": "goods",
+        "type": "text",
+        "default": null
+      },
+      {
+        "name": "pieces",
+        "type": "number",
+        "default": null
+      },
+      {
+        "name": "price",
+        "type": "CNY",
+        "default": null
+      },
+      {
+        "name": "deliver_by",
+        "type": "date",
+        "default": null
+      }
+    ]
+  },
+  "actions": [
+    {
+      "action": "sign",
+      "by": "we",
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [
+        "supplier",
+        "bank"
+      ],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [
+        "proposed"
+      ],
+      "to_state": "signed",
+      "set": [],
+      "requests": []
+    },
+    {
+      "action": "close",
+      "by": "we",
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [
+        "supplier"
+      ],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [
+        "signed"
+      ],
+      "to_state": "closed",
+      "set": [],
+      "requests": []
+    }
+  ],
+  "rules": [],
+  "answers": [],
+  "tests": [
+    {
+      "name": "\"signed by all three, then closed\"",
+      "steps": [
+        {
+          "party": "we",
+          "action": "create",
+          "outcome": null,
+          "args": [
+            "at 2026-10-12"
+          ],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "goods",
+              "value": "\"Bearings 6204-2RS\""
+            },
+            {
+              "name": "pieces",
+              "value": "20_000"
+            },
+            {
+              "name": "price",
+              "value": "CNY 1_250_000"
+            },
+            {
+              "name": "deliver_by",
+              "value": "2026-12-01"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "we",
+          "action": "sign",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "signed"
+        },
+        {
+          "party": "we",
+          "action": "close",
+          "outcome": null,
+          "args": [
+            "at 2026-12-01"
+          ],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "closed"
+        }
+      ]
+    },
+    {
+      "name": "\"nobody signs alone\"",
+      "steps": [
+        {
+          "party": "we",
+          "action": "create",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "goods",
+              "value": "\"Bearings 6204-2RS\""
+            },
+            {
+              "name": "pieces",
+              "value": "20_000"
+            },
+            {
+              "name": "price",
+              "value": "CNY 1_250_000"
+            },
+            {
+              "name": "deliver_by",
+              "value": "2026-12-01"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "we",
+          "action": "sign",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "consent of bank"
+        },
+        {
+          "party": "supplier",
+          "action": "sign",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "consent of we"
+        },
+        {
+          "party": "we",
+          "action": "close",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "refused \"bo:state close\""
+        }
+      ]
+    }
+  ]
+}

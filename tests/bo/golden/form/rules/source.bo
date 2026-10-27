@@ -1,0 +1,18 @@
+contract Rental
+parties we, renter
+
+thing Unit
+  due date
+  holder renter
+
+can return_unit by holder
+  active -> returned
+
+when overdue 3 days suspend
+when suspended 30 days terminate
+
+test "late, suspended, then ended"
+  we create with due = 2027-01-10
+  keeper suspend at 2027-01-12 -> refused "bo:when when.suspend"
+  keeper suspend at 2027-01-13 -> suspended
+  keeper terminate at 2027-02-12 -> terminated

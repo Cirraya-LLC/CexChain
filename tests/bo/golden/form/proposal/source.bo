@@ -1,0 +1,14 @@
+contract Purchase
+parties we
+
+thing Order
+  goods text
+
+can approve_order by we
+  AI agent can propose
+  draft -> approved
+
+test "an agent proposes, a person approves"
+  we create with goods = "paper"
+  we approve_order by AI agent -> pending approval
+  we approve in person -> approved

@@ -1,0 +1,30 @@
+contract Lending
+parties owner
+
+物件 Item
+  name 文字
+  持有人 owner
+
+can lend by owner to 相對方
+  正常 -> lent
+  持有人 = 相對方
+can bring_back by 持有人
+  lent -> 正常
+  持有人 = owner
+
+test "lent to a friend, brought back, lent to another"
+  owner 建立 with name = "Camera X100"
+  owner lend to friend1 -> lent
+  friend1 bring_back -> 正常
+  owner lend to friend2 -> lent
+
+test "the borrower agrees to have it"
+  owner 建立 with name = "Camera X100"
+  owner lend to friend1 -> 經 friend1 同意
+
+test "nothing is lent twice, and only the holder brings it back"
+  owner 建立 with name = "Camera X100"
+  owner lend to friend1 -> lent
+  owner lend to friend2 -> 被拒絕 "bo:state lend"
+  friend2 bring_back -> 經 friend1 同意
+  friend1 bring_back 時間 2027-01-05 -> 正常

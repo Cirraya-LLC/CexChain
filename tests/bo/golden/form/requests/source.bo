@@ -1,0 +1,26 @@
+contract Sync
+parties we, partner
+
+thing Record
+  note text
+
+can share by we
+  active -> shared
+  request sync to partner with note = note within 1 day
+can close by we
+  shared, synced, failed -> closed
+
+when sync done
+  -> synced
+when sync fails
+  -> failed
+
+test "shared and synced"
+  we create with note = "first"
+  we share -> shared
+  executor sync done -> synced
+
+test "a sync that fails"
+  we create with note = "first"
+  we share -> shared
+  executor sync fails -> failed

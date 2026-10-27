@@ -1,0 +1,168 @@
+{
+  "sheet": 1,
+  "kind": "rules",
+  "contract": "Agreement",
+  "packs": [
+    "commerce"
+  ],
+  "parties": [
+    "we",
+    "customer"
+  ],
+  "thing": {
+    "word": "thing",
+    "name": "Terms",
+    "fields": [
+      {
+        "name": "terms",
+        "type": "text",
+        "default": null
+      },
+      {
+        "name": "price",
+        "type": "HKD",
+        "default": null
+      }
+    ]
+  },
+  "actions": [
+    {
+      "action": "sign",
+      "by": "customer",
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [
+        "we"
+      ],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [
+        "proposed"
+      ],
+      "to_state": "signed",
+      "set": [],
+      "requests": []
+    },
+    {
+      "action": "close",
+      "by": "we",
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [
+        "signed"
+      ],
+      "to_state": "closed",
+      "set": [],
+      "requests": []
+    }
+  ],
+  "rules": [],
+  "answers": [],
+  "tests": [
+    {
+      "name": "\"signed and closed\"",
+      "steps": [
+        {
+          "party": "we",
+          "action": "create",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "terms",
+              "value": "\"steel\""
+            },
+            {
+              "name": "price",
+              "value": "HKD 100"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "customer",
+          "action": "sign",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "signed"
+        },
+        {
+          "party": "we",
+          "action": "close",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "closed"
+        }
+      ]
+    },
+    {
+      "name": "\"the customer cannot close\"",
+      "steps": [
+        {
+          "party": "we",
+          "action": "create",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "terms",
+              "value": "\"steel\""
+            },
+            {
+              "name": "price",
+              "value": "HKD 100"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "customer",
+          "action": "close",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "refused \"bo:state close\""
+        },
+        {
+          "party": "customer",
+          "action": "sign",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "signed"
+        },
+        {
+          "party": "customer",
+          "action": "close",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "consent of we"
+        }
+      ]
+    }
+  ]
+}

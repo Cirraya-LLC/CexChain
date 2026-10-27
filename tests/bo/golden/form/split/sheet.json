@@ -1,0 +1,886 @@
+{
+  "sheet": 1,
+  "kind": "rules",
+  "contract": "Split",
+  "packs": [
+    "finance"
+  ],
+  "parties": [
+    "issuer",
+    "supplier"
+  ],
+  "thing": {
+    "word": "asset",
+    "name": "Receivable",
+    "fields": [
+      {
+        "name": "amount",
+        "type": "HKD",
+        "default": null
+      },
+      {
+        "name": "due",
+        "type": "date",
+        "default": null
+      },
+      {
+        "name": "tier",
+        "type": "number",
+        "default": null
+      },
+      {
+        "name": "holder",
+        "type": "supplier",
+        "default": null
+      }
+    ]
+  },
+  "actions": [
+    {
+      "action": "split",
+      "by": null,
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    },
+    {
+      "action": "pledge",
+      "by": null,
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    },
+    {
+      "action": "release",
+      "by": null,
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    },
+    {
+      "action": "transfer",
+      "by": null,
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    },
+    {
+      "action": "pay",
+      "by": null,
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    },
+    {
+      "action": "confirm payment",
+      "by": null,
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    }
+  ],
+  "rules": [],
+  "answers": [],
+  "tests": [
+    {
+      "name": "\"two tiers, a pledge, and payment to the bank\"",
+      "steps": [
+        {
+          "party": "issuer",
+          "action": "issue",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "amount",
+              "value": "HKD 1_000"
+            },
+            {
+              "name": "due",
+              "value": "2027-06-30"
+            },
+            {
+              "name": "tier",
+              "value": "1"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "supplier",
+          "action": "split",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "parts",
+              "value": "(HKD 600, HKD 400)"
+            },
+            {
+              "name": "recipients",
+              "value": "(maker1, maker2)"
+            }
+          ],
+          "expect": "divided"
+        },
+        {
+          "party": "maker1",
+          "action": "split",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "parts",
+              "value": "(HKD 100, HKD 500)"
+            },
+            {
+              "name": "recipients",
+              "value": "(smith1, maker1)"
+            }
+          ],
+          "expect": "divided"
+        },
+        {
+          "party": "smith1",
+          "action": "pledge",
+          "outcome": null,
+          "args": [],
+          "to": "bank1",
+          "by": null,
+          "with": [],
+          "expect": "pledged"
+        },
+        {
+          "party": "maker1",
+          "action": "transfer",
+          "outcome": null,
+          "args": [],
+          "to": "factor1",
+          "by": null,
+          "with": [],
+          "expect": "active"
+        },
+        {
+          "party": "supplier",
+          "action": "pledge",
+          "outcome": null,
+          "args": [],
+          "to": "bank1",
+          "by": null,
+          "with": [],
+          "expect": "refused"
+        },
+        {
+          "party": "issuer",
+          "action": "pay",
+          "outcome": null,
+          "args": [
+            "smith1",
+            "at 2027-06-30"
+          ],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "paid"
+        },
+        {
+          "party": "bank1",
+          "action": "confirm payment",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "settled"
+        },
+        {
+          "party": "issuer",
+          "action": "pay",
+          "outcome": null,
+          "args": [
+            "factor1"
+          ],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "paid"
+        },
+        {
+          "party": "factor1",
+          "action": "confirm payment",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "settled"
+        },
+        {
+          "party": "issuer",
+          "action": "pay",
+          "outcome": null,
+          "args": [
+            "maker2"
+          ],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "paid"
+        },
+        {
+          "party": "maker2",
+          "action": "confirm payment",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "settled"
+        }
+      ]
+    },
+    {
+      "name": "\"each recipient consents, and the holder\"",
+      "steps": [
+        {
+          "party": "issuer",
+          "action": "issue",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "amount",
+              "value": "HKD 1_000"
+            },
+            {
+              "name": "due",
+              "value": "2027-06-30"
+            },
+            {
+              "name": "tier",
+              "value": "1"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "supplier",
+          "action": "split",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "parts",
+              "value": "(HKD 600, HKD 400)"
+            },
+            {
+              "name": "recipients",
+              "value": "(maker1, maker2)"
+            }
+          ],
+          "expect": "consent of maker2"
+        },
+        {
+          "party": "supplier",
+          "action": "split",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "parts",
+              "value": "(HKD 600, HKD 400)"
+            },
+            {
+              "name": "recipients",
+              "value": "(maker1, maker2)"
+            }
+          ],
+          "expect": "consent of (maker1, maker2)"
+        },
+        {
+          "party": "maker1",
+          "action": "split",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "parts",
+              "value": "(HKD 600, HKD 400)"
+            },
+            {
+              "name": "recipients",
+              "value": "(maker1, maker2)"
+            }
+          ],
+          "expect": "consent of supplier"
+        },
+        {
+          "party": "supplier",
+          "action": "split",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "parts",
+              "value": "(HKD 600, HKD 400)"
+            },
+            {
+              "name": "recipients",
+              "value": "(maker1, maker2)"
+            }
+          ],
+          "expect": "divided"
+        }
+      ]
+    },
+    {
+      "name": "\"the parts add up, each at least a cent, one for each recipient\"",
+      "steps": [
+        {
+          "party": "issuer",
+          "action": "issue",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "amount",
+              "value": "HKD 1_000"
+            },
+            {
+              "name": "due",
+              "value": "2027-06-30"
+            },
+            {
+              "name": "tier",
+              "value": "1"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "supplier",
+          "action": "split",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "parts",
+              "value": "(HKD 600, HKD 300)"
+            },
+            {
+              "name": "recipients",
+              "value": "(maker1, maker2)"
+            }
+          ],
+          "expect": "refused \"bo:requires split 4\""
+        },
+        {
+          "party": "supplier",
+          "action": "split",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "parts",
+              "value": "(HKD 1_000, HKD 0)"
+            },
+            {
+              "name": "recipients",
+              "value": "(maker1, maker2)"
+            }
+          ],
+          "expect": "refused \"bo:requires split 3\""
+        },
+        {
+          "party": "supplier",
+          "action": "split",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "parts",
+              "value": "(HKD 600, HKD 400)"
+            },
+            {
+              "name": "recipients",
+              "value": "maker1"
+            }
+          ],
+          "expect": "refused \"bo:requires split 1\""
+        },
+        {
+          "party": "supplier",
+          "action": "split",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "parts",
+              "value": "HKD 1_000"
+            },
+            {
+              "name": "recipients",
+              "value": "maker1"
+            }
+          ],
+          "expect": "divided"
+        }
+      ]
+    },
+    {
+      "name": "\"at most 15 recipients besides the holder\"",
+      "steps": [
+        {
+          "party": "issuer",
+          "action": "issue",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "amount",
+              "value": "HKD 16"
+            },
+            {
+              "name": "due",
+              "value": "2027-06-30"
+            },
+            {
+              "name": "tier",
+              "value": "1"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "supplier",
+          "action": "split",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "parts",
+              "value": "(HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1)"
+            },
+            {
+              "name": "recipients",
+              "value": "(r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16)"
+            }
+          ],
+          "expect": "refused \"bo:requires split 2\""
+        },
+        {
+          "party": "supplier",
+          "action": "split",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "parts",
+              "value": "(HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1)"
+            },
+            {
+              "name": "recipients",
+              "value": "(r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, supplier)"
+            }
+          ],
+          "expect": "divided"
+        },
+        {
+          "party": "r15",
+          "action": "pledge",
+          "outcome": null,
+          "args": [],
+          "to": "bank1",
+          "by": null,
+          "with": [],
+          "expect": "pledged"
+        },
+        {
+          "party": "supplier",
+          "action": "transfer",
+          "outcome": null,
+          "args": [],
+          "to": "r1",
+          "by": null,
+          "with": [],
+          "expect": "active"
+        }
+      ]
+    },
+    {
+      "name": "\"not while pledged\"",
+      "steps": [
+        {
+          "party": "issuer",
+          "action": "issue",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "amount",
+              "value": "HKD 1_000"
+            },
+            {
+              "name": "due",
+              "value": "2027-06-30"
+            },
+            {
+              "name": "tier",
+              "value": "1"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "supplier",
+          "action": "pledge",
+          "outcome": null,
+          "args": [],
+          "to": "bank1",
+          "by": null,
+          "with": [],
+          "expect": "pledged"
+        },
+        {
+          "party": "supplier",
+          "action": "split",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "parts",
+              "value": "(HKD 600, HKD 400)"
+            },
+            {
+              "name": "recipients",
+              "value": "(maker1, maker2)"
+            }
+          ],
+          "expect": "refused \"bo:state split\""
+        },
+        {
+          "party": "bank1",
+          "action": "release",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "active"
+        },
+        {
+          "party": "supplier",
+          "action": "split",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "parts",
+              "value": "(HKD 600, HKD 400)"
+            },
+            {
+              "name": "recipients",
+              "value": "(maker1, maker2)"
+            }
+          ],
+          "expect": "divided"
+        }
+      ]
+    },
+    {
+      "name": "\"eight levels down, and no further\"",
+      "steps": [
+        {
+          "party": "issuer",
+          "action": "issue",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "amount",
+              "value": "HKD 1_000"
+            },
+            {
+              "name": "due",
+              "value": "2027-06-30"
+            },
+            {
+              "name": "tier",
+              "value": "1"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "supplier",
+          "action": "split",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "parts",
+              "value": "HKD 1_000"
+            },
+            {
+              "name": "recipients",
+              "value": "supplier"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "supplier",
+          "action": "split",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "parts",
+              "value": "HKD 1_000"
+            },
+            {
+              "name": "recipients",
+              "value": "supplier"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "supplier",
+          "action": "split",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "parts",
+              "value": "HKD 1_000"
+            },
+            {
+              "name": "recipients",
+              "value": "supplier"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "supplier",
+          "action": "split",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "parts",
+              "value": "HKD 1_000"
+            },
+            {
+              "name": "recipients",
+              "value": "supplier"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "supplier",
+          "action": "split",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "parts",
+              "value": "HKD 1_000"
+            },
+            {
+              "name": "recipients",
+              "value": "supplier"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "supplier",
+          "action": "split",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "parts",
+              "value": "HKD 1_000"
+            },
+            {
+              "name": "recipients",
+              "value": "supplier"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "supplier",
+          "action": "split",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "parts",
+              "value": "HKD 1_000"
+            },
+            {
+              "name": "recipients",
+              "value": "supplier"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "supplier",
+          "action": "split",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "parts",
+              "value": "HKD 1_000"
+            },
+            {
+              "name": "recipients",
+              "value": "supplier"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "supplier",
+          "action": "split",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "parts",
+              "value": "HKD 1_000"
+            },
+            {
+              "name": "recipients",
+              "value": "supplier"
+            }
+          ],
+          "expect": "refused \"bo:depth split\""
+        },
+        {
+          "party": "supplier",
+          "action": "pledge",
+          "outcome": null,
+          "args": [],
+          "to": "bank1",
+          "by": null,
+          "with": [],
+          "expect": "pledged"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,129 @@
+{
+  "sheet": 1,
+  "kind": "rules",
+  "contract": "Counter",
+  "packs": [],
+  "parties": [
+    "we"
+  ],
+  "thing": {
+    "word": "thing",
+    "name": "Meter",
+    "fields": [
+      {
+        "name": "count",
+        "type": "number",
+        "default": "0"
+      },
+      {
+        "name": "limit",
+        "type": "3",
+        "default": null
+      },
+      {
+        "name": "label",
+        "type": "text",
+        "default": null
+      }
+    ]
+  },
+  "actions": [
+    {
+      "action": "tick",
+      "by": "we",
+      "to": null,
+      "inputs": [
+        {
+          "name": "step",
+          "type": "number",
+          "default": null
+        }
+      ],
+      "requires": [
+        "step > 0"
+      ],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [
+        {
+          "name": "count",
+          "value": "count + step"
+        }
+      ],
+      "requests": []
+    }
+  ],
+  "rules": [],
+  "answers": [],
+  "tests": [
+    {
+      "name": "\"ticks add up\"",
+      "steps": [
+        {
+          "party": "we",
+          "action": "create",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "label",
+              "value": "\"door\""
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "we",
+          "action": "tick",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "step",
+              "value": "2"
+            }
+          ],
+          "expect": "count = 2"
+        },
+        {
+          "party": "we",
+          "action": "tick",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "step",
+              "value": "1"
+            }
+          ],
+          "expect": "count = 3"
+        },
+        {
+          "party": "we",
+          "action": "tick",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "step",
+              "value": "0"
+            }
+          ],
+          "expect": "refused \"bo:requires tick 1\""
+        }
+      ]
+    }
+  ]
+}

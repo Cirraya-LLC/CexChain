@@ -229,6 +229,7 @@ int cmd_bo_check(const Args& args);
 int cmd_bo_build(const Args& args);
 int cmd_bo_explain(const Args& args);
 int cmd_bo_fmt(const Args& args);
+int cmd_bo_form(const Args& args);
 int cmd_bo_test(const Args& args);
 int cmd_bo_packs_list(const Args& args);
 int cmd_bo_packs_show(const Args& args);

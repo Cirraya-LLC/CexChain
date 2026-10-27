@@ -1,0 +1,217 @@
+{
+  "sheet": 1,
+  "kind": "rules",
+  "contract": "Lending",
+  "packs": [],
+  "parties": [
+    "owner"
+  ],
+  "thing": {
+    "word": "thing",
+    "name": "Item",
+    "fields": [
+      {
+        "name": "name",
+        "type": "text",
+        "default": null
+      },
+      {
+        "name": "holder",
+        "type": "owner",
+        "default": null
+      }
+    ]
+  },
+  "actions": [
+    {
+      "action": "lend",
+      "by": "owner",
+      "to": "counterparty",
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [
+        "active"
+      ],
+      "to_state": "lent",
+      "set": [
+        {
+          "name": "holder",
+          "value": "counterparty"
+        }
+      ],
+      "requests": []
+    },
+    {
+      "action": "bring_back",
+      "by": "holder",
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [
+        "lent"
+      ],
+      "to_state": "active",
+      "set": [
+        {
+          "name": "holder",
+          "value": "owner"
+        }
+      ],
+      "requests": []
+    }
+  ],
+  "rules": [],
+  "answers": [],
+  "tests": [
+    {
+      "name": "\"lent to a friend, brought back, lent to another\"",
+      "steps": [
+        {
+          "party": "owner",
+          "action": "create",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "name",
+              "value": "\"Camera X100\""
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "owner",
+          "action": "lend",
+          "outcome": null,
+          "args": [],
+          "to": "friend1",
+          "by": null,
+          "with": [],
+          "expect": "lent"
+        },
+        {
+          "party": "friend1",
+          "action": "bring_back",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "active"
+        },
+        {
+          "party": "owner",
+          "action": "lend",
+          "outcome": null,
+          "args": [],
+          "to": "friend2",
+          "by": null,
+          "with": [],
+          "expect": "lent"
+        }
+      ]
+    },
+    {
+      "name": "\"the borrower agrees to have it\"",
+      "steps": [
+        {
+          "party": "owner",
+          "action": "create",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "name",
+              "value": "\"Camera X100\""
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "owner",
+          "action": "lend",
+          "outcome": null,
+          "args": [],
+          "to": "friend1",
+          "by": null,
+          "with": [],
+          "expect": "consent of friend1"
+        }
+      ]
+    },
+    {
+      "name": "\"nothing is lent twice, and only the holder brings it back\"",
+      "steps": [
+        {
+          "party": "owner",
+          "action": "create",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "name",
+              "value": "\"Camera X100\""
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "owner",
+          "action": "lend",
+          "outcome": null,
+          "args": [],
+          "to": "friend1",
+          "by": null,
+          "with": [],
+          "expect": "lent"
+        },
+        {
+          "party": "owner",
+          "action": "lend",
+          "outcome": null,
+          "args": [],
+          "to": "friend2",
+          "by": null,
+          "with": [],
+          "expect": "refused \"bo:state lend\""
+        },
+        {
+          "party": "friend2",
+          "action": "bring_back",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "consent of friend1"
+        },
+        {
+          "party": "friend1",
+          "action": "bring_back",
+          "outcome": null,
+          "args": [
+            "at 2027-01-05"
+          ],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "active"
+        }
+      ]
+    }
+  ]
+}

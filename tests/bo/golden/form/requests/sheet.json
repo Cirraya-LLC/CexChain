@@ -1,0 +1,174 @@
+{
+  "sheet": 1,
+  "kind": "rules",
+  "contract": "Sync",
+  "packs": [],
+  "parties": [
+    "we",
+    "partner"
+  ],
+  "thing": {
+    "word": "thing",
+    "name": "Record",
+    "fields": [
+      {
+        "name": "note",
+        "type": "text",
+        "default": null
+      }
+    ]
+  },
+  "actions": [
+    {
+      "action": "share",
+      "by": "we",
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [
+        "active"
+      ],
+      "to_state": "shared",
+      "set": [],
+      "requests": [
+        {
+          "kind": "sync",
+          "to": "partner",
+          "with": [
+            {
+              "name": "note",
+              "value": "note"
+            }
+          ],
+          "within": "within 1 day"
+        }
+      ]
+    },
+    {
+      "action": "close",
+      "by": "we",
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [
+        "shared",
+        "synced",
+        "failed"
+      ],
+      "to_state": "closed",
+      "set": [],
+      "requests": []
+    }
+  ],
+  "rules": [],
+  "answers": [
+    {
+      "kind": "sync",
+      "outcome": "done",
+      "do": [],
+      "from": [],
+      "to_state": "synced",
+      "set": [],
+      "requests": []
+    },
+    {
+      "kind": "sync",
+      "outcome": "fails",
+      "do": [],
+      "from": [],
+      "to_state": "failed",
+      "set": [],
+      "requests": []
+    }
+  ],
+  "tests": [
+    {
+      "name": "\"shared and synced\"",
+      "steps": [
+        {
+          "party": "we",
+          "action": "create",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "note",
+              "value": "\"first\""
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "we",
+          "action": "share",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "shared"
+        },
+        {
+          "party": "executor",
+          "action": "sync",
+          "outcome": "done",
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "synced"
+        }
+      ]
+    },
+    {
+      "name": "\"a sync that fails\"",
+      "steps": [
+        {
+          "party": "we",
+          "action": "create",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "note",
+              "value": "\"first\""
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "we",
+          "action": "share",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "shared"
+        },
+        {
+          "party": "executor",
+          "action": "sync",
+          "outcome": "fails",
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "failed"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+use finance
+contract WarehouseReceipt
+parties warehouse, depositor
+
+asset Receipt
+  quantity tonne
+  holder depositor
+
+can transfer
+can pledge
+can release
+can enforce
+can redeem
+can freeze
+can unfreeze
+can cancel
+
+test "goods redeemed in parts"
+  warehouse issue with quantity = 30 tonne
+  depositor redeem with portion = 0 tonne -> refused "bo:requires redeem 3"
+  depositor redeem with portion = 40 tonne -> refused "bo:requires redeem 4"
+  depositor redeem with portion = 10 tonne -> active
+  depositor pledge to bank1 -> pledged
+  depositor redeem with portion = 5 tonne -> pledged
+  depositor transfer to trader1 -> refused "bo:state transfer"
+  bank1 release -> active
+  depositor transfer to trader1 -> active
+  trader1 redeem with portion = 15 tonne -> redeemed
+  trader1 redeem with portion = 1 tonne -> refused
+
+test "frozen while pledged"
+  warehouse issue with quantity = 30 tonne
+  depositor pledge to bank1 -> pledged
+  warehouse freeze -> frozen
+  depositor redeem with portion = 1 tonne -> refused "bo:state redeem"
+  warehouse unfreeze -> pledged
+  depositor redeem with portion = 30 tonne -> redeemed

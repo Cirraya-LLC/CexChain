@@ -1,0 +1,21 @@
+contract Payment
+parties we, payer
+
+thing Bill
+  amount HKD
+
+can settle by payer
+  over 10_000 requires in person
+  open -> cleared
+
+test "a small bill is paid"
+  we create with amount = HKD 500
+  payer settle -> cleared
+
+test "a large bill needs the payer in person"
+  we create with amount = HKD 50_000
+  payer settle -> refused "bo:in-person settle"
+
+test "and in person it is paid"
+  we create with amount = HKD 50_000
+  payer settle in person -> cleared

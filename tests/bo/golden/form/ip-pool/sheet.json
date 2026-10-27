@@ -1,0 +1,261 @@
+{
+  "sheet": 1,
+  "kind": "rules",
+  "contract": "IP地址池",
+  "packs": [
+    "commerce",
+    "services"
+  ],
+  "parties": [
+    "本公司",
+    "客户"
+  ],
+  "thing": {
+    "word": "资源",
+    "name": "IP地址",
+    "fields": [
+      {
+        "name": "地址",
+        "type": "文本",
+        "default": null
+      },
+      {
+        "name": "冷却期",
+        "type": "30天",
+        "default": null
+      }
+    ]
+  },
+  "actions": [
+    {
+      "action": "分配",
+      "by": null,
+      "to": "客户",
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    },
+    {
+      "action": "收回",
+      "by": "本公司",
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    }
+  ],
+  "rules": [],
+  "answers": [],
+  "tests": [
+    {
+      "name": "\"一个地址一次只分配给一个客户\"",
+      "steps": [
+        {
+          "party": "本公司",
+          "action": "创建",
+          "outcome": null,
+          "args": [
+            "时间 2027-10-01"
+          ],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "地址",
+              "value": "\"203.0.113.7\""
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "本公司",
+          "action": "分配",
+          "outcome": null,
+          "args": [],
+          "to": "客户A",
+          "by": null,
+          "with": [],
+          "expect": "已分配"
+        },
+        {
+          "party": "本公司",
+          "action": "分配",
+          "outcome": null,
+          "args": [],
+          "to": "客户B",
+          "by": null,
+          "with": [],
+          "expect": "被拒绝 \"bo:state allocate\""
+        },
+        {
+          "party": "本公司",
+          "action": "收回",
+          "outcome": null,
+          "args": [
+            "时间 2027-10-09"
+          ],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "冷却中"
+        }
+      ]
+    },
+    {
+      "name": "\"收回后冷却 30 天，期内不得再分配\"",
+      "steps": [
+        {
+          "party": "本公司",
+          "action": "创建",
+          "outcome": null,
+          "args": [
+            "时间 2027-10-01"
+          ],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "地址",
+              "value": "\"203.0.113.7\""
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "本公司",
+          "action": "分配",
+          "outcome": null,
+          "args": [],
+          "to": "客户A",
+          "by": null,
+          "with": [],
+          "expect": "已分配"
+        },
+        {
+          "party": "本公司",
+          "action": "收回",
+          "outcome": null,
+          "args": [
+            "时间 2027-10-09"
+          ],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "冷却中"
+        },
+        {
+          "party": "本公司",
+          "action": "分配",
+          "outcome": null,
+          "args": [
+            "时间 2027-11-07"
+          ],
+          "to": "客户B",
+          "by": null,
+          "with": [],
+          "expect": "被拒绝 \"bo:requires allocate 1\""
+        },
+        {
+          "party": "本公司",
+          "action": "分配",
+          "outcome": null,
+          "args": [
+            "时间 2027-11-08"
+          ],
+          "to": "客户B",
+          "by": null,
+          "with": [],
+          "expect": "已分配"
+        },
+        {
+          "party": "本公司",
+          "action": "收回",
+          "outcome": null,
+          "args": [
+            "时间 2027-12-01"
+          ],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "冷却中"
+        },
+        {
+          "party": "本公司",
+          "action": "分配",
+          "outcome": null,
+          "args": [
+            "时间 2028-01-01"
+          ],
+          "to": "客户A",
+          "by": null,
+          "with": [],
+          "expect": "已分配"
+        }
+      ]
+    },
+    {
+      "name": "\"分配须经客户同意，收回由本公司发起\"",
+      "steps": [
+        {
+          "party": "本公司",
+          "action": "创建",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "地址",
+              "value": "\"203.0.113.7\""
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "本公司",
+          "action": "分配",
+          "outcome": null,
+          "args": [],
+          "to": "客户A",
+          "by": null,
+          "with": [],
+          "expect": "经 客户A 同意"
+        },
+        {
+          "party": "本公司",
+          "action": "分配",
+          "outcome": null,
+          "args": [],
+          "to": "客户A",
+          "by": null,
+          "with": [],
+          "expect": "已分配"
+        },
+        {
+          "party": "客户A",
+          "action": "收回",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "经 本公司 同意"
+        }
+      ]
+    }
+  ]
+}

@@ -146,6 +146,7 @@ A source may begin with `bo 1`, the edition it is written in; a source without i
 | `bo explain FILE [--language L]` | the contract text (section 14) |
 | `bo fmt FILE [--language L] [--check\|--write]` | the source in canonical layout, in one language on request (section 15) |
 | `bo test FILE` | runs the source's `test` blocks (section 13) |
+| `bo form SHEET [--language L]`, `bo form --from FILE` | writes a source from a rules sheet (JSON: the parties, the kind and its fields, the actions with their requirements, consents, presence, state change, fields set, and requests, the time rules, the rules for answers, the tests; every other part a piece of Bo as written), each problem named by its place in the sheet; or reads a source back into a sheet when every construct fits the form |
 | `bo packs list\|show\|check` | the official language packs and others given with `--pack` (section 3) |
 | `bo vocab list\|show PACK\|FILE` | the core and the vocabulary packs, yours given with `--vocab`: their words, field facts, actions, and digests (3.9) |
 | `bo vocab check FILE...` | checks vocabulary packs of your own, alone and with the official packs (3.9) |

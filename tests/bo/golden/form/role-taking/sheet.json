@@ -1,0 +1,346 @@
+{
+  "sheet": 1,
+  "kind": "rules",
+  "contract": "Financing",
+  "packs": [
+    "finance"
+  ],
+  "parties": [
+    "issuer",
+    "supplier",
+    "bank",
+    "factor"
+  ],
+  "thing": {
+    "word": "asset",
+    "name": "Receivable",
+    "fields": [
+      {
+        "name": "amount",
+        "type": "HKD",
+        "default": null
+      },
+      {
+        "name": "due",
+        "type": "date",
+        "default": null
+      },
+      {
+        "name": "holder",
+        "type": "supplier",
+        "default": null
+      },
+      {
+        "name": "banker",
+        "type": "bank",
+        "default": null
+      }
+    ]
+  },
+  "actions": [
+    {
+      "action": "pledge",
+      "by": null,
+      "to": "bank",
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    },
+    {
+      "action": "transfer",
+      "by": null,
+      "to": "bank",
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    },
+    {
+      "action": "release",
+      "by": null,
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    },
+    {
+      "action": "enforce",
+      "by": null,
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    },
+    {
+      "action": "sell",
+      "by": "holder",
+      "to": "factor",
+      "inputs": [],
+      "requires": [
+        "not factor = holder"
+      ],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [
+        "active"
+      ],
+      "to_state": "active",
+      "set": [
+        {
+          "name": "holder",
+          "value": "factor"
+        }
+      ],
+      "requests": []
+    },
+    {
+      "action": "lodge",
+      "by": "holder",
+      "to": "factor",
+      "inputs": [],
+      "requires": [
+        "not factor = holder"
+      ],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [
+        "active"
+      ],
+      "to_state": "pledged",
+      "set": [
+        {
+          "name": "pledgee",
+          "value": "factor"
+        }
+      ],
+      "requests": []
+    }
+  ],
+  "rules": [],
+  "answers": [],
+  "tests": [
+    {
+      "name": "\"a pledge to the bank needs its consent\"",
+      "steps": [
+        {
+          "party": "issuer",
+          "action": "issue",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "amount",
+              "value": "HKD 1_000"
+            },
+            {
+              "name": "due",
+              "value": "2027-06-30"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "supplier",
+          "action": "pledge",
+          "outcome": null,
+          "args": [],
+          "to": "bank",
+          "by": null,
+          "with": [],
+          "expect": "consent of bank"
+        },
+        {
+          "party": "supplier",
+          "action": "pledge",
+          "outcome": null,
+          "args": [],
+          "to": "bank",
+          "by": null,
+          "with": [],
+          "expect": "pledged"
+        },
+        {
+          "party": "bank",
+          "action": "enforce",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "active"
+        }
+      ]
+    },
+    {
+      "name": "\"a transfer to the bank needs its consent\"",
+      "steps": [
+        {
+          "party": "issuer",
+          "action": "issue",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "amount",
+              "value": "HKD 1_000"
+            },
+            {
+              "name": "due",
+              "value": "2027-06-30"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "supplier",
+          "action": "transfer",
+          "outcome": null,
+          "args": [],
+          "to": "bank",
+          "by": null,
+          "with": [],
+          "expect": "consent of bank"
+        },
+        {
+          "party": "supplier",
+          "action": "transfer",
+          "outcome": null,
+          "args": [],
+          "to": "bank",
+          "by": null,
+          "with": [],
+          "expect": "active"
+        },
+        {
+          "party": "bank",
+          "action": "transfer",
+          "outcome": null,
+          "args": [],
+          "to": "bank",
+          "by": null,
+          "with": [],
+          "expect": "refused \"bo:requires transfer 1\""
+        }
+      ]
+    },
+    {
+      "name": "\"the factor, bound by its first sale, consents to each pledge\"",
+      "steps": [
+        {
+          "party": "issuer",
+          "action": "issue",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "amount",
+              "value": "HKD 1_000"
+            },
+            {
+              "name": "due",
+              "value": "2027-06-30"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "supplier",
+          "action": "sell",
+          "outcome": null,
+          "args": [],
+          "to": "factor",
+          "by": null,
+          "with": [],
+          "expect": "consent of factor"
+        },
+        {
+          "party": "supplier",
+          "action": "sell",
+          "outcome": null,
+          "args": [],
+          "to": "factor",
+          "by": null,
+          "with": [],
+          "expect": "active"
+        },
+        {
+          "party": "factor",
+          "action": "transfer",
+          "outcome": null,
+          "args": [],
+          "to": "bank",
+          "by": null,
+          "with": [],
+          "expect": "active"
+        },
+        {
+          "party": "bank",
+          "action": "lodge",
+          "outcome": null,
+          "args": [],
+          "to": "factor",
+          "by": null,
+          "with": [],
+          "expect": "consent of factor"
+        },
+        {
+          "party": "bank",
+          "action": "lodge",
+          "outcome": null,
+          "args": [],
+          "to": "factor",
+          "by": null,
+          "with": [],
+          "expect": "pledged"
+        },
+        {
+          "party": "factor",
+          "action": "release",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "active"
+        }
+      ]
+    }
+  ]
+}

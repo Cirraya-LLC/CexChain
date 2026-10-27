@@ -393,6 +393,27 @@ void record_file_seeds(const Seeds& seeds) {
              "encode"));
 }
 
+void form_seeds(const Seeds& seeds) {
+    // The first byte picks a sheet (even) or a source (odd).
+    seeds.write("bo_form_fuzz", "sheet",
+                std::string("\x00") +
+                    R"({"sheet": 1, "kind": "rules", "contract": "Lending", "parties": ["owner"],
+ "thing": {"name": "Item", "fields": [{"name": "name", "type": "text"},
+                                      {"name": "holder", "type": "owner"}]},
+ "actions": [{"action": "lend", "by": "owner", "to": "counterparty", "from": ["active"],
+              "to_state": "lent", "set": [{"name": "holder", "value": "counterparty"}]},
+             {"action": "bring_back", "by": "holder", "from": ["lent"], "to_state": "active",
+              "set": [{"name": "holder", "value": "owner"}]}],
+ "tests": [{"name": "\"lent\"", "steps": [
+   {"party": "owner", "action": "create", "with": [{"name": "name", "value": "\"X\""}]},
+   {"party": "owner", "action": "lend", "to": "friend", "expect": "lent"}]}]})");
+    seeds.write("bo_form_fuzz", "source",
+                std::string("\x01") + "contract Sync\nparties we, partner\n\nthing Record\n"
+                                      "  note text\n\ncan share by we\n  active -> shared\n"
+                                      "  request sync to partner with note = note within 1 day\n"
+                                      "\nwhen sync done\n  -> synced\n");
+}
+
 void cluster_seeds(const Seeds& seeds) {
     using cbor::Value;
     auto write = [&](const std::string& name, std::uint8_t kind, const Value& value) {
@@ -1087,6 +1108,7 @@ int main(int argc, char** argv) {
         cluster_seeds(seeds);
         pending_call_seeds(seeds);
         record_file_seeds(seeds);
+        form_seeds(seeds);
         text_seeds(seeds);
         vm_seeds(seeds);
         contract_seeds(seeds);

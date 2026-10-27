@@ -1,0 +1,217 @@
+{
+  "sheet": 1,
+  "kind": "rules",
+  "contract": "Lending",
+  "packs": [],
+  "parties": [
+    "owner"
+  ],
+  "thing": {
+    "word": "物件",
+    "name": "Item",
+    "fields": [
+      {
+        "name": "name",
+        "type": "文字",
+        "default": null
+      },
+      {
+        "name": "持有人",
+        "type": "owner",
+        "default": null
+      }
+    ]
+  },
+  "actions": [
+    {
+      "action": "lend",
+      "by": "owner",
+      "to": "相對方",
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [
+        "正常"
+      ],
+      "to_state": "lent",
+      "set": [
+        {
+          "name": "持有人",
+          "value": "相對方"
+        }
+      ],
+      "requests": []
+    },
+    {
+      "action": "bring_back",
+      "by": "持有人",
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [
+        "lent"
+      ],
+      "to_state": "正常",
+      "set": [
+        {
+          "name": "持有人",
+          "value": "owner"
+        }
+      ],
+      "requests": []
+    }
+  ],
+  "rules": [],
+  "answers": [],
+  "tests": [
+    {
+      "name": "\"lent to a friend, brought back, lent to another\"",
+      "steps": [
+        {
+          "party": "owner",
+          "action": "建立",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "name",
+              "value": "\"Camera X100\""
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "owner",
+          "action": "lend",
+          "outcome": null,
+          "args": [],
+          "to": "friend1",
+          "by": null,
+          "with": [],
+          "expect": "lent"
+        },
+        {
+          "party": "friend1",
+          "action": "bring_back",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "正常"
+        },
+        {
+          "party": "owner",
+          "action": "lend",
+          "outcome": null,
+          "args": [],
+          "to": "friend2",
+          "by": null,
+          "with": [],
+          "expect": "lent"
+        }
+      ]
+    },
+    {
+      "name": "\"the borrower agrees to have it\"",
+      "steps": [
+        {
+          "party": "owner",
+          "action": "建立",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "name",
+              "value": "\"Camera X100\""
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "owner",
+          "action": "lend",
+          "outcome": null,
+          "args": [],
+          "to": "friend1",
+          "by": null,
+          "with": [],
+          "expect": "經 friend1 同意"
+        }
+      ]
+    },
+    {
+      "name": "\"nothing is lent twice, and only the holder brings it back\"",
+      "steps": [
+        {
+          "party": "owner",
+          "action": "建立",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "name",
+              "value": "\"Camera X100\""
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "owner",
+          "action": "lend",
+          "outcome": null,
+          "args": [],
+          "to": "friend1",
+          "by": null,
+          "with": [],
+          "expect": "lent"
+        },
+        {
+          "party": "owner",
+          "action": "lend",
+          "outcome": null,
+          "args": [],
+          "to": "friend2",
+          "by": null,
+          "with": [],
+          "expect": "被拒絕 \"bo:state lend\""
+        },
+        {
+          "party": "friend2",
+          "action": "bring_back",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "經 friend1 同意"
+        },
+        {
+          "party": "friend1",
+          "action": "bring_back",
+          "outcome": null,
+          "args": [
+            "時間 2027-01-05"
+          ],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "正常"
+        }
+      ]
+    }
+  ]
+}

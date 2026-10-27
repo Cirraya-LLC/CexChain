@@ -1,0 +1,57 @@
+use finance
+contract Receivable
+parties issuer, supplier
+
+asset Receivable
+  amount HKD
+  due date
+  holder supplier
+
+can transfer
+can pledge
+can release
+can enforce
+can pay
+can confirm payment
+can dispute
+can freeze
+can unfreeze
+can cancel
+
+test "pledge, release, transfer, pay, dispute, confirm"
+  issuer issue with amount = HKD 1_000_000, due = 2027-06-30
+  supplier pledge to bank1 -> pledged
+  supplier pledge to bank2 -> refused "bo:state pledge"
+  supplier transfer to factor1 -> refused "bo:state transfer"
+  bank1 release -> active
+  supplier transfer to factor1 -> active
+  supplier transfer to factor2 -> consent of factor1
+  issuer pay -> paid
+  factor1 dispute -> disputed
+  issuer pay -> paid
+  factor1 confirm payment -> settled
+  issuer freeze -> refused
+
+test "paid to the pledgee, under a freeze"
+  issuer issue with amount = HKD 1_000_000, due = 2027-06-30
+  supplier pledge to bank1 -> pledged
+  issuer freeze -> frozen
+  bank1 release -> refused "bo:state release"
+  issuer pay -> refused "bo:state pay"
+  issuer unfreeze -> pledged
+  issuer pay -> paid
+  supplier confirm payment -> consent of bank1
+  bank1 confirm payment -> settled
+
+test "the bank enforces its pledge"
+  issuer issue with amount = HKD 1_000_000, due = 2027-06-30
+  supplier pledge to bank1 -> pledged
+  supplier cancel -> refused "bo:state cancel"
+  bank1 enforce -> active
+  bank1 pledge to bank2 -> pledged
+
+test "cancelled"
+  issuer issue with amount = HKD 1_000_000, due = 2027-06-30
+  issuer unfreeze -> refused "bo:state unfreeze"
+  supplier cancel -> cancelled
+  supplier transfer to factor1 -> refused

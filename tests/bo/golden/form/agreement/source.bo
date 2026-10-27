@@ -1,0 +1,24 @@
+use commerce
+contract Agreement
+parties we, customer
+
+thing Terms
+  terms text
+  price HKD
+
+can sign by customer
+  requires consent of we
+  proposed -> signed
+can close by we
+  signed -> closed
+
+test "signed and closed"
+  we create with terms = "steel", price = HKD 100
+  customer sign -> signed
+  we close -> closed
+
+test "the customer cannot close"
+  we create with terms = "steel", price = HKD 100
+  customer close -> refused "bo:state close"
+  customer sign -> signed
+  customer close -> consent of we

@@ -1,0 +1,413 @@
+{
+  "sheet": 1,
+  "kind": "rules",
+  "contract": "Hosting",
+  "packs": [
+    "commerce",
+    "finance"
+  ],
+  "parties": [
+    "we",
+    "customer"
+  ],
+  "thing": {
+    "word": "thing",
+    "name": "Plan",
+    "fields": [
+      {
+        "name": "due",
+        "type": "date",
+        "default": null
+      }
+    ]
+  },
+  "actions": [
+    {
+      "action": "settle",
+      "by": "customer",
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [
+        "active",
+        "suspended"
+      ],
+      "to_state": "settled",
+      "set": [],
+      "requests": []
+    },
+    {
+      "action": "extend",
+      "by": "we",
+      "to": null,
+      "inputs": [
+        {
+          "name": "until",
+          "type": "date",
+          "default": null
+        }
+      ],
+      "requires": [
+        "until > due"
+      ],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [],
+      "to_state": null,
+      "set": [
+        {
+          "name": "due",
+          "value": "until"
+        }
+      ],
+      "requests": []
+    },
+    {
+      "action": "reopen",
+      "by": "we",
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [
+        "suspended"
+      ],
+      "to_state": "active",
+      "set": [],
+      "requests": []
+    }
+  ],
+  "rules": [
+    {
+      "when": "overdue 3 days",
+      "do": [
+        "suspend"
+      ],
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    },
+    {
+      "when": "suspended 30 days",
+      "do": [
+        "terminate"
+      ],
+      "from": [],
+      "to_state": null,
+      "set": [],
+      "requests": []
+    }
+  ],
+  "answers": [],
+  "tests": [
+    {
+      "name": "\"3 days overdue, the instance is suspended\"",
+      "steps": [
+        {
+          "party": "we",
+          "action": "create",
+          "outcome": null,
+          "args": [
+            "at 2027-06-01"
+          ],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "due",
+              "value": "2027-06-30"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "keeper",
+          "action": "suspend",
+          "outcome": null,
+          "args": [
+            "at 2027-07-02"
+          ],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "refused \"bo:when when.suspend\""
+        },
+        {
+          "party": "keeper",
+          "action": "suspend",
+          "outcome": null,
+          "args": [
+            "at 2027-07-03"
+          ],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "suspended"
+        },
+        {
+          "party": "keeper",
+          "action": "suspend",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "refused \"bo:fired when.suspend\""
+        }
+      ]
+    },
+    {
+      "name": "\"a keeper that comes late still suspends, and the event says how late\"",
+      "steps": [
+        {
+          "party": "we",
+          "action": "create",
+          "outcome": null,
+          "args": [
+            "at 2027-06-01"
+          ],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "due",
+              "value": "2027-06-30"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "keeper",
+          "action": "suspend",
+          "outcome": null,
+          "args": [
+            "at 2027-07-10"
+          ],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "suspended"
+        }
+      ]
+    },
+    {
+      "name": "\"once for each time: reopened, it stays open until the due date moves\"",
+      "steps": [
+        {
+          "party": "we",
+          "action": "create",
+          "outcome": null,
+          "args": [
+            "at 2027-06-01"
+          ],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "due",
+              "value": "2027-06-30"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "keeper",
+          "action": "suspend",
+          "outcome": null,
+          "args": [
+            "at 2027-07-03"
+          ],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "suspended"
+        },
+        {
+          "party": "we",
+          "action": "reopen",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "active"
+        },
+        {
+          "party": "keeper",
+          "action": "suspend",
+          "outcome": null,
+          "args": [
+            "at 2027-07-04"
+          ],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "refused \"bo:fired when.suspend\""
+        },
+        {
+          "party": "we",
+          "action": "extend",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "until",
+              "value": "2027-07-31"
+            }
+          ],
+          "expect": "active"
+        },
+        {
+          "party": "keeper",
+          "action": "suspend",
+          "outcome": null,
+          "args": [
+            "at 2027-08-02"
+          ],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "refused \"bo:when when.suspend\""
+        },
+        {
+          "party": "keeper",
+          "action": "suspend",
+          "outcome": null,
+          "args": [
+            "at 2027-08-03"
+          ],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "suspended"
+        }
+      ]
+    },
+    {
+      "name": "\"30 days suspended, it ends\"",
+      "steps": [
+        {
+          "party": "we",
+          "action": "create",
+          "outcome": null,
+          "args": [
+            "at 2027-06-01"
+          ],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "due",
+              "value": "2027-06-30"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "keeper",
+          "action": "suspend",
+          "outcome": null,
+          "args": [
+            "at 2027-07-03"
+          ],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "suspended"
+        },
+        {
+          "party": "keeper",
+          "action": "terminate",
+          "outcome": null,
+          "args": [
+            "at 2027-08-01"
+          ],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "refused \"bo:when when.terminate\""
+        },
+        {
+          "party": "keeper",
+          "action": "terminate",
+          "outcome": null,
+          "args": [
+            "at 2027-08-02"
+          ],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "terminated"
+        },
+        {
+          "party": "customer",
+          "action": "settle",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "refused \"bo:state settle\""
+        }
+      ]
+    },
+    {
+      "name": "\"paid in time: nothing to suspend\"",
+      "steps": [
+        {
+          "party": "we",
+          "action": "create",
+          "outcome": null,
+          "args": [
+            "at 2027-06-01"
+          ],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "due",
+              "value": "2027-06-30"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "customer",
+          "action": "settle",
+          "outcome": null,
+          "args": [
+            "at 2027-06-29"
+          ],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "settled"
+        },
+        {
+          "party": "keeper",
+          "action": "suspend",
+          "outcome": null,
+          "args": [
+            "at 2027-07-03"
+          ],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "refused \"bo:state suspend\""
+        }
+      ]
+    }
+  ]
+}

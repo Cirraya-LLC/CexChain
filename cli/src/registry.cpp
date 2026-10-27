@@ -2571,6 +2571,37 @@ std::vector<CommandSpec> build() {
          "  cexchain bo fmt contract.bo --language zh-Hant-HK\n"
          "  cexchain bo fmt contract.bo --language en --write\n"
          "  cexchain bo fmt contract.bo --check --json\n\n" CEXCHAIN_BO_PACKS_HELP},
+        {{"bo", "form"},
+         "Write a Bo source from a rules sheet, or read a source back into one",
+         "Bo language",
+         "[SHEET]",
+         0,
+         1,
+         with({vocab_option,
+               pack_option,
+               {"language", "LANG",
+                "Write the source in en, zh-Hant-HK, zh-Hans-CN, or a given pack's language "
+                "(messages too)"},
+               {"out", "FILE", "Write the source (or, with --from, the sheet) here"},
+               {"from", "SOURCE", "Read a Bo source back into a rules sheet"}}),
+         cmd_bo_form,
+         "A rules sheet (JSON, \"sheet\": 1, \"kind\": \"rules\") describes a contract with\n"
+         "what a form can hold: its parties; its kind and fields; its actions (by, to, inputs,\n"
+         "requirements, consents, in person, a threshold for presence, whether AI agents may\n"
+         "only propose, the state change, the fields set, the requests); its time rules; its\n"
+         "rules for answers; and its tests. Everything that is not a choice of the form is a\n"
+         "piece of Bo as written: names in any language, types (HKD, date), values, conditions,\n"
+         "events. bo form writes the source, every keyword around those pieces and nothing else\n"
+         "(Bo never guesses), in canonical layout and, with --language, in that language, then\n"
+         "checks it: each problem is named by its place in the sheet (SHEET:/actions/0/set/1).\n"
+         "Exit status 2 if the sheet is not one, or its source does not check.\n\n"
+         "--from SOURCE reads a source back into a sheet, its pieces as written, when every\n"
+         "construct fits the form (no choices, loops, refusals, or lines in another order); a\n"
+         "source that does not fit says why, and stays text. Writing that sheet again gives the\n"
+         "same tree.\n\n"
+         "  cexchain bo form lending.json\n"
+         "  cexchain bo form lending.json --language zh-Hant-HK --out lending.bo\n"
+         "  cexchain bo form --from lending.bo --out lending.json\n\n" CEXCHAIN_BO_PACKS_HELP},
         {{"bo", "test"},
          "Run the test blocks of a Bo source: each scenario, step by step, as a ledger would",
          "Bo language",

@@ -95,7 +95,7 @@ endif()
 # The Bo compiler: its front end with any compiler, the rest where it
 # builds (GCC 16). Labelled "bo": the GCC ASan+UBSan configuration builds and
 # runs these alone.
-add_executable(cexchain_bo_tests bo/check_test.cpp bo/explain_test.cpp bo/format_test.cpp
+add_executable(cexchain_bo_tests bo/check_test.cpp bo/explain_test.cpp bo/form_test.cpp bo/format_test.cpp
     bo/lexer_test.cpp
     bo/packs_test.cpp bo/parser_test.cpp bo/source_test.cpp bo/stdlib_test.cpp bo/vocab_test.cpp)
 target_link_libraries(cexchain_bo_tests PRIVATE
@@ -110,7 +110,7 @@ cexchain_target_defaults(cexchain_bo_tests)
 if(TARGET cexchain_bo)
     target_sources(cexchain_bo_tests PRIVATE bo/build_test.cpp bo/codegen_test.cpp
         bo/finance_terms_test.cpp bo/names_test.cpp bo/runtime_harness.cpp bo/runtime_test.cpp
-        bo/scenario_test.cpp)
+        bo/scenario_test.cpp bo/form_build_test.cpp)
     target_link_libraries(cexchain_bo_tests PRIVATE cexchain::bo nlohmann_json::nlohmann_json)
     target_compile_definitions(cexchain_bo_tests PRIVATE
         CEXCHAIN_TESTVECTORS_DIR="${PROJECT_SOURCE_DIR}/testvectors")

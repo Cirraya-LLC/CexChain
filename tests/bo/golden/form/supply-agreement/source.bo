@@ -1,0 +1,29 @@
+use commerce
+use finance
+contract SupplyAgreement
+parties we, supplier, bank
+
+thing Terms
+  goods text
+  pieces number
+  price CNY
+  deliver_by date
+
+can sign by we
+  requires consent of supplier
+  requires consent of bank
+  proposed -> signed
+can close by we
+  requires consent of supplier
+  signed -> closed
+
+test "signed by all three, then closed"
+  we create at 2026-10-12 with goods = "Bearings 6204-2RS", pieces = 20_000, price = CNY 1_250_000, deliver_by = 2026-12-01
+  we sign -> signed
+  we close at 2026-12-01 -> closed
+
+test "nobody signs alone"
+  we create with goods = "Bearings 6204-2RS", pieces = 20_000, price = CNY 1_250_000, deliver_by = 2026-12-01
+  we sign -> consent of bank
+  supplier sign -> consent of we
+  we close -> refused "bo:state close"

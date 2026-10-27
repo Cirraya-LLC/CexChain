@@ -1,0 +1,77 @@
+{
+  "sheet": 1,
+  "kind": "rules",
+  "contract": "Release",
+  "packs": [],
+  "parties": [
+    "we",
+    "auditor",
+    "manager"
+  ],
+  "thing": {
+    "word": "thing",
+    "name": "Report",
+    "fields": [
+      {
+        "name": "title",
+        "type": "text",
+        "default": null
+      }
+    ]
+  },
+  "actions": [
+    {
+      "action": "publish",
+      "by": "we",
+      "to": null,
+      "inputs": [],
+      "requires": [],
+      "consent_of": [
+        "(auditor, manager)"
+      ],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [
+        "draft"
+      ],
+      "to_state": "published",
+      "set": [],
+      "requests": []
+    }
+  ],
+  "rules": [],
+  "answers": [],
+  "tests": [
+    {
+      "name": "\"both must agree\"",
+      "steps": [
+        {
+          "party": "we",
+          "action": "create",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "title",
+              "value": "\"Q3\""
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "we",
+          "action": "publish",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "consent of (auditor, manager)"
+        }
+      ]
+    }
+  ]
+}

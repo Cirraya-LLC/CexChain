@@ -1,0 +1,49 @@
+use commerce
+use finance
+contract Hosting
+parties we, customer
+
+thing Plan
+  due date
+
+can settle by customer
+  active, suspended -> settled
+can extend by we with until date
+  requires until > due
+  due = until
+can reopen by we
+  suspended -> active
+
+when overdue 3 days suspend
+when suspended 30 days terminate
+
+test "3 days overdue, the instance is suspended"
+  we create at 2027-06-01 with due = 2027-06-30
+  keeper suspend at 2027-07-02 -> refused "bo:when when.suspend"
+  keeper suspend at 2027-07-03 -> suspended
+  keeper suspend -> refused "bo:fired when.suspend"
+
+test "a keeper that comes late still suspends, and the event says how late"
+  we create at 2027-06-01 with due = 2027-06-30
+  keeper suspend at 2027-07-10 -> suspended
+
+test "once for each time: reopened, it stays open until the due date moves"
+  we create at 2027-06-01 with due = 2027-06-30
+  keeper suspend at 2027-07-03 -> suspended
+  we reopen -> active
+  keeper suspend at 2027-07-04 -> refused "bo:fired when.suspend"
+  we extend with until = 2027-07-31 -> active
+  keeper suspend at 2027-08-02 -> refused "bo:when when.suspend"
+  keeper suspend at 2027-08-03 -> suspended
+
+test "30 days suspended, it ends"
+  we create at 2027-06-01 with due = 2027-06-30
+  keeper suspend at 2027-07-03 -> suspended
+  keeper terminate at 2027-08-01 -> refused "bo:when when.terminate"
+  keeper terminate at 2027-08-02 -> terminated
+  customer settle -> refused "bo:state settle"
+
+test "paid in time: nothing to suspend"
+  we create at 2027-06-01 with due = 2027-06-30
+  customer settle at 2027-06-29 -> settled
+  keeper suspend at 2027-07-03 -> refused "bo:state suspend"

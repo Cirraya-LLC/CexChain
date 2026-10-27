@@ -1,0 +1,189 @@
+{
+  "sheet": 1,
+  "kind": "rules",
+  "contract": "Loan",
+  "packs": [
+    "commerce",
+    "finance"
+  ],
+  "parties": [
+    "we",
+    "customer",
+    "bank"
+  ],
+  "thing": {
+    "word": "thing",
+    "name": "Note",
+    "fields": [
+      {
+        "name": "amount",
+        "type": "HKD",
+        "default": null
+      },
+      {
+        "name": "holder",
+        "type": "customer",
+        "default": null
+      }
+    ]
+  },
+  "actions": [
+    {
+      "action": "lend",
+      "by": "we",
+      "to": "bank",
+      "inputs": [],
+      "requires": [],
+      "consent_of": [
+        "customer"
+      ],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [
+        "proposed"
+      ],
+      "to_state": "lent",
+      "set": [],
+      "requests": []
+    },
+    {
+      "action": "repay",
+      "by": "bank",
+      "to": null,
+      "inputs": [],
+      "requires": [
+        "holder = customer"
+      ],
+      "consent_of": [],
+      "in_person": false,
+      "in_person_over": null,
+      "agents_propose": false,
+      "from": [
+        "lent"
+      ],
+      "to_state": "repaid",
+      "set": [],
+      "requests": []
+    }
+  ],
+  "rules": [],
+  "answers": [],
+  "tests": [
+    {
+      "name": "\"lent and repaid\"",
+      "steps": [
+        {
+          "party": "we",
+          "action": "create",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "amount",
+              "value": "HKD 1_000"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "we",
+          "action": "lend",
+          "outcome": null,
+          "args": [
+            "at 2027-01-06",
+            "in person"
+          ],
+          "to": "bank1",
+          "by": null,
+          "with": [],
+          "expect": "lent"
+        },
+        {
+          "party": "bank1",
+          "action": "repay",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": "AI agent",
+          "with": [],
+          "expect": "repaid"
+        }
+      ]
+    },
+    {
+      "name": "unhappy",
+      "steps": [
+        {
+          "party": "we",
+          "action": "create",
+          "outcome": null,
+          "args": [
+            "at 2027-01-06"
+          ],
+          "to": null,
+          "by": null,
+          "with": [
+            {
+              "name": "amount",
+              "value": "HKD 1_000"
+            }
+          ],
+          "expect": null
+        },
+        {
+          "party": "we",
+          "action": "lend",
+          "outcome": null,
+          "args": [],
+          "to": "bank1",
+          "by": null,
+          "with": [],
+          "expect": "consent of (customer, bank1)"
+        },
+        {
+          "party": "bank1",
+          "action": "repay",
+          "outcome": null,
+          "args": [],
+          "to": null,
+          "by": null,
+          "with": [],
+          "expect": "refused \"bo:party bank\""
+        },
+        {
+          "party": "customer",
+          "action": "lend",
+          "outcome": null,
+          "args": [],
+          "to": "bank1",
+          "by": null,
+          "with": [],
+          "expect": "consent of we"
+        },
+        {
+          "party": "we",
+          "action": "lend",
+          "outcome": null,
+          "args": [],
+          "to": "bank1",
+          "by": null,
+          "with": [],
+          "expect": "lent"
+        },
+        {
+          "party": "we",
+          "action": "lend",
+          "outcome": null,
+          "args": [],
+          "to": "bank1",
+          "by": null,
+          "with": [],
+          "expect": "refused"
+        }
+      ]
+    }
+  ]
+}
