@@ -402,8 +402,8 @@ stderr, automatic checkpoints (`--checkpoint-interval`), and graceful shutdown o
 `http://localhost:7470/console/` (or the next free port, remembered); `console status`,
 `console open`, and `console stop` manage it. A company serves it beside its API with
 `cexchain serve --console --public-url https://ledger.example.com`. So far it sets a ledger
-up for one person, signs people in, shows Home, Things, and Settings, and approves endorsements
-and revocations with a passkey.
+up for one person, signs people in, registers documents with their fields and files, shows a
+thing's page, shares and verifies proof, and approves each statement with a passkey.
 
 ```sh
 cexchain console run --ledger ./ledger   # an empty directory: the browser opens the setup page
@@ -428,6 +428,19 @@ cexchain console settings show
 - **A ledger of your own** (the quick start's, with its keys in files) opens in the console once
   its log key is sealed: `console key init`, `console key import log log.key`, then
   `console setup-link` for the owner's passkey, and `console user link` to act as a person.
+- **Documents.** Kinds are the console's forms for registering records (`console kind add FILE`,
+  or the Kinds screen): a record type, its fields (text, number, date, yes or no; private ones
+  committed by salted hash, public ones in the metadata), and its files, optional, required, or
+  none, kept with the record or not. "Register a document" uploads the files, and the page then
+  checks, in WebAssembly, that the registration commits to exactly the values and files it shows
+  before the passkey approves it; the record's private data and files are sealed to the ledger's
+  vault key, whose private key the console holds sealed (`console key import vault FILE` for a
+  ledger made from files).
+- **A thing's page** shows what the ledger holds about it, and its private fields and files to
+  those allowed: owners and admins, and members for the documents they registered or may
+  register. **Share proof** makes the evidence file with the fields you disclose and the files'
+  openings, as `cexchain export` would; **Verify** checks a proof and its files in the browser,
+  with a report in the reader's language, as `cexchain verify` and the standalone page do.
 - **Settings** show the ledger and its folder, the language new browsers start in, and the
   backup folder (`console settings show|set` from the command line). Scheduled backups to that
   folder are not written yet; until they are, use `cexchain backup create`.

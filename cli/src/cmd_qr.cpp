@@ -84,7 +84,20 @@ std::string to_terminal(const qrcodegen::QrCode& qr, bool color) {
 
 int cmd_qr(const Args& args) {
     Session session(args);
-    const protocol::Id record = session.record_id(args.positional().front());
+    // A record, or a contract instance (whose evidence the page checks too).
+    const std::string& named = args.positional().front();
+    bool instance = false;
+    protocol::Id record{};
+    try {
+        record = session.record_id(named);
+    } catch (const ActionError&) {
+        try {
+            record = session.instance_id(named);
+            instance = true;
+        } catch (const ActionError&) {
+            throw ActionError{"no record or instance with id " + named};
+        }
+    }
     const std::string verifier = args.need("verifier-url");
     const std::string bundle = args.need("bundle-url");
     if (!is_web_url(verifier) || verifier.find('#') != std::string::npos) {
@@ -104,7 +117,7 @@ int cmd_qr(const Args& args) {
     if (args.json()) {
         print_json({{"url", url},
                     {"ledger_id", hex_id(session.state().ledger_id())},
-                    {"record_id", hex_id(record)},
+                    {instance ? "instance_id" : "record_id", hex_id(record)},
                     {"modules", qr.getSize()},
                     {"file", out ? Json(*out) : Json(nullptr)}});
         return exit_ok;

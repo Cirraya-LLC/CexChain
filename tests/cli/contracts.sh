@@ -343,6 +343,9 @@ expect_exit 2 contract call "$I" close --args "$CLOSE" --consent close-s.cbor --
     --ledger "$D"
 contains 'final' out.txt
 d contract evidence "$I" --log-key d-log.key --out e3.cbor | contains 'wrote the evidence'
+# A QR code for an instance's evidence, as for a record's.
+d qr "$I" --bundle-url https://example.com/e3.cbor --verifier-url https://verify.example.com/ --json |
+    json 'd["instance_id"]' | contains -x "$I"
 run contract verify e3.cbor --ledger-id "$D_ID" > verify3.txt
 contains 'FINAL: it takes no more calls' verify3.txt
 contains 'ref. Delivered in full' verify3.txt
