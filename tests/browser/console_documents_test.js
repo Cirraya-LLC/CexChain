@@ -119,6 +119,43 @@ async function waitRunning() {
     const files = JSON.parse(run("record", "file", "list", record, "--json")).files;
     assert.deepEqual(files.map((f) => [f.name, f.kept]), [["photo.jpg", true]]);
 
+    // The thing's page: what the ledger holds, and to the owner its private
+    // fields and the kept photo.
+    await page.getByRole("link", { name: "Open it" }).click();
+    await page.getByRole("heading", { name: "Photo", level: 1 }).waitFor();
+    await page.getByText("Victoria Harbour").waitFor();
+    await page.getByText("2026-10-16").waitFor();
+    const fetched = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download photo.jpg" }).click();
+    const kept = path.join(work, "kept.jpg");
+    await (await fetched).saveAs(kept);
+    assert.deepEqual(fs.readFileSync(kept), fs.readFileSync(photo), "the kept photo");
+
+    // Share proof: the day it was taken disclosed, the file checkable.
+    await page.getByRole("button", { name: "Share proof" }).click();
+    await page.getByRole("heading", { name: "Share proof" }).waitFor();
+    await page.getByRole("checkbox", { name: "taken" }).check();
+    await page.getByRole("checkbox", { name: /Let it check the files/ }).check();
+    const proving = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Make the proof" }).click();
+    const proof = path.join(work, "proof.cbor");
+    await (await proving).saveAs(proof);
+    await page.getByText(/^Saved proof-[0-9a-f]{12}\.cbor\.$/).waitFor();
+    const ledgerId = JSON.parse(run("status", "--json")).ledger_id;
+    const report = JSON.parse(run("verify", proof, "--ledger-id", ledgerId, "--attachment",
+                                  `photo.jpg=${photo}`, "--json"));
+    assert.equal(report.verified, true);
+    assert.deepEqual(Object.keys(report.disclosed_fields ?? report.fields ?? {}), ["taken"]);
+    const forged = path.join(work, "forged.jpg");
+    fs.writeFileSync(forged, "a forged photo\n");
+    let refused = false;
+    try {
+      run("verify", proof, "--ledger-id", ledgerId, "--attachment", `photo.jpg=${forged}`, "--json");
+    } catch (error) {
+      refused = JSON.parse(error.stdout).verified === false || error.status !== 0;
+    }
+    assert.ok(refused, "a forged photo is caught");
+
     assert.deepEqual(violations, [], "no CSP violation or script error");
     console.log("console documents browser test: passed");
   } catch (error) {

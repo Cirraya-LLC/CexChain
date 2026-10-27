@@ -109,12 +109,17 @@ Bytes vault_aad(const protocol::Id& ledger, const protocol::Id& record) {
 /// Private data is only good if it matches what the record committed to on
 /// the ledger: anyone who can write the vault directory could otherwise
 /// change what is shown and disclosed.
+bool matches_record(const crypto::Provider& provider, crypto::HashAlg hash,
+                    const protocol::RecordState& state, const Vault& vault) {
+    const auto commitment = protocol::commit_fields(provider, hash, vault.fields);
+    return commitment && commitment->leaves.size() == state.field_count &&
+           std::ranges::equal(commitment->root.bytes(), state.field_root);
+}
+
 Vault checked(const Session& session, const protocol::Id& record, Vault vault) {
     const protocol::RecordState* state = session.state().record(record);
-    const auto commitment =
-        protocol::commit_fields(session.provider(), session.state().hash(), vault.fields);
-    if (state == nullptr || !commitment || commitment->leaves.size() != state->field_count ||
-        !std::ranges::equal(commitment->root.bytes(), state->field_root)) {
+    if (state == nullptr ||
+        !matches_record(session.provider(), session.state().hash(), *state, vault)) {
         throw ActionError{
             "the private data for record " + short_id(record) +
             " does not match the record's commitment on the ledger; it may have been altered"};
@@ -220,6 +225,27 @@ Bytes seal_vault(const protocol::Id& ledger, const protocol::Id& record, const V
         "encoding the vault");
 }
 
+Vault open_vault_file(ByteView file, const protocol::Id& ledger, const protocol::Id& record,
+                      const crypto::openssl::HpkeKey* key) {
+    const auto value = unwrap(cbor::decode(file), "reading the vault");
+    if (!is_sealed(value)) {
+        return decode_vault_content(value);
+    }
+    if (key == nullptr) {
+        throw ActionError{"reading private record data needs the vault key"};
+    }
+    const auto box = node::parse_sealed_box(file);
+    const auto& expected = crypto::openssl::hpke_suite;
+    if (!box ||
+        box->suite != std::array<std::uint64_t, 3>{expected.kem, expected.kdf, expected.aead}) {
+        throw ActionError{"unsupported or corrupted vault file for " + short_id(record)};
+    }
+    const auto plain = unwrap(key->open({box->encapsulated_key, box->ciphertext},
+                                        as_bytes(vault_info), vault_aad(ledger, record)),
+                              "opening the vault for " + short_id(record));
+    return decode_vault_content(unwrap(cbor::decode(plain.view()), "reading the vault"));
+}
+
 Vault load_vault(const Session& session, const protocol::Id& record,
                  const crypto::openssl::HpkeKey* key) {
     const std::filesystem::path path = session.vault_path(record);
@@ -227,33 +253,8 @@ Vault load_vault(const Session& session, const protocol::Id& record,
         throw ActionError{
             "this ledger holds no private data for the record (it was issued elsewhere)"};
     }
-    const auto value = unwrap(cbor::decode(read_file(path)), "reading the vault");
-    if (!is_sealed(value)) {
-        return checked(session, record, decode_vault_content(value));
-    }
-    if (key == nullptr) {
-        throw ActionError{"reading private record data needs the vault key"};
-    }
-    const cbor::Value* version = value.find(1);
-    const cbor::Value* suite = value.find(2);
-    const cbor::Value* enc = value.find(3);
-    const cbor::Value* ciphertext = value.find(4);
-    const auto& expected = crypto::openssl::hpke_suite;
-    const bool suite_ok = suite != nullptr && suite->as_array() != nullptr &&
-                          suite->as_array()->size() == 3 &&
-                          (*suite->as_array())[0].as_uint64() == expected.kem &&
-                          (*suite->as_array())[1].as_uint64() == expected.kdf &&
-                          (*suite->as_array())[2].as_uint64() == expected.aead;
-    if (version->as_uint64() != vault_format_version || !suite_ok || enc->as_bytes() == nullptr ||
-        ciphertext == nullptr || ciphertext->as_bytes() == nullptr) {
-        throw ActionError{"unsupported or corrupted vault file " + path.string()};
-    }
-    const auto plain =
-        unwrap(key->open({*enc->as_bytes(), *ciphertext->as_bytes()}, as_bytes(vault_info),
-                         vault_aad(session.state().ledger_id(), record)),
-               "opening the vault for " + short_id(record));
     return checked(session, record,
-                   decode_vault_content(unwrap(cbor::decode(plain.view()), "reading the vault")));
+                   open_vault_file(read_file(path), session.state().ledger_id(), record, key));
 }
 
 Vault read_vault(const Session& session, const protocol::Id& record,
@@ -372,25 +373,37 @@ std::string files_route(const protocol::Id& record) {
 }
 
 /// The salt the record's private data keeps for its attachment `name`.
-const VaultAttachment& salt_of(const Vault& vault, std::string_view name) {
+const VaultAttachment* salt_of(const Vault& vault, std::string_view name) {
     const auto found = std::ranges::find(vault.attachments, name, &VaultAttachment::name);
-    if (found == vault.attachments.end()) {
-        throw ActionError{"the record's private data has no salt for the file " +
-                          std::string(name)};
-    }
-    return *found;
-}
-
-/// Whether `content` is the attachment the record committed to.
-bool matches(const Session& session, const protocol::Attachment& attachment,
-             const VaultAttachment& salt, ByteView content) {
-    const auto digest = protocol::attachment_commitment(session.provider(), session.state().hash(),
-                                                        salt.salt, content);
-    return digest && content.size() == attachment.size &&
-           std::ranges::equal(digest->bytes(), attachment.commitment);
+    return found == vault.attachments.end() ? nullptr : &*found;
 }
 
 } // namespace
+
+bool matches_attachment(const crypto::Provider& provider, crypto::HashAlg hash,
+                        const protocol::Attachment& attachment, const Vault& vault,
+                        ByteView content) {
+    const VaultAttachment* salt = salt_of(vault, attachment.name);
+    if (salt == nullptr || content.size() != attachment.size) {
+        return false;
+    }
+    const auto digest = protocol::attachment_commitment(provider, hash, salt->salt, content);
+    return digest && std::ranges::equal(digest->bytes(), attachment.commitment);
+}
+
+Bytes open_sealed_file(ByteView sealed, const protocol::Id& ledger, const protocol::Id& record,
+                       std::string_view name, const crypto::openssl::HpkeKey& key) {
+    const auto box = node::parse_sealed_box(sealed);
+    const auto& suite = crypto::openssl::hpke_suite;
+    if (!box || box->suite != std::array<std::uint64_t, 3>{suite.kem, suite.kdf, suite.aead}) {
+        throw ActionError{"the kept copy of " + std::string(name) + " is damaged"};
+    }
+    const auto plain =
+        unwrap(key.open({box->encapsulated_key, box->ciphertext}, as_bytes(record_file_info),
+                        record_file_aad(ledger, record, name)),
+               "opening the kept copy of " + std::string(name));
+    return Bytes(plain.view().begin(), plain.view().end());
+}
 
 Bytes seal_record_file(const protocol::Id& ledger, const protocol::Id& record,
                        std::string_view name, ByteView content, ByteView public_key) {
@@ -474,17 +487,10 @@ Bytes open_record_file(const Session& session, const protocol::Id& record, const
         }
         sealed = read_file(path);
     }
-    const auto box = node::parse_sealed_box(sealed);
-    const auto& suite = crypto::openssl::hpke_suite;
-    if (!box || box->suite != std::array<std::uint64_t, 3>{suite.kem, suite.kdf, suite.aead}) {
-        throw ActionError{"the kept copy of " + file.attachment.name + " is damaged"};
-    }
-    const auto plain =
-        unwrap(key.open({box->encapsulated_key, box->ciphertext}, as_bytes(record_file_info),
-                        record_file_aad(session.state().ledger_id(), record, file.attachment.name)),
-               "opening the kept copy of " + file.attachment.name);
-    Bytes content(plain.view().begin(), plain.view().end());
-    if (!matches(session, file.attachment, salt_of(vault, file.attachment.name), content)) {
+    Bytes content =
+        open_sealed_file(sealed, session.state().ledger_id(), record, file.attachment.name, key);
+    if (!matches_attachment(session.provider(), session.state().hash(), file.attachment, vault,
+                            content)) {
         throw ActionError{"the kept copy of " + file.attachment.name +
                           " is not the file the record committed to"};
     }
@@ -496,7 +502,8 @@ bool keep_record_file(Session& session, const protocol::Id& record, const Record
     if (content.size() > node::max_record_file) {
         throw UsageError{"the file is larger than a kept file may be (16 MiB)"};
     }
-    if (!matches(session, file.attachment, salt_of(vault, file.attachment.name), content)) {
+    if (!matches_attachment(session.provider(), session.state().hash(), file.attachment, vault,
+                            content)) {
         throw ActionError{"that is not the file the record committed to as " +
                           file.attachment.name};
     }

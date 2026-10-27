@@ -130,6 +130,10 @@ public:
     /// The same with a submission (application/cexchain-submission+cbor):
     /// a record's registration with its sealed private data and files.
     void submit_submission(Bytes submission, Respond respond);
+    /// A record's evidence bundle (without its private data), signed with
+    /// the log key: after a new checkpoint, if the latest does not cover the
+    /// record's last statement. Answers through `done`, from the writer.
+    void record_evidence(const protocol::Id& record, std::function<void(Result<Bytes>)> done);
     void tick() override;
     /// Answers the long polls of GET /v1/requests.
     void stopping() override;

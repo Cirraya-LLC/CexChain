@@ -29,6 +29,7 @@
 #include <cexchain/core/protocol/state.hpp>
 #include <cexchain/crypto/openssl.hpp>
 #include <cexchain/ledger/environment.hpp>
+#include <cexchain/ledger/verify.hpp>
 #include <cexchain/node/record_files.hpp>
 
 #include "support/authenticator.hpp"
@@ -880,6 +881,15 @@ struct Served {
 
     explicit Served(FirstRunWorld& f) : session(cexchain::app::Location{f.w.dir.path}) {
         f.w.web.set_ledger(&session.ledger());
+        // As LedgerApi::record_evidence: a checkpoint by the sealed log key
+        // first, then the bundle.
+        f.w.web.set_evidence([this, &f](const cexchain::protocol::Id& record, auto done) {
+            const auto log = f.w.keys.open("log");
+            REQUIRE(session.ledger().checkpoint(log));
+            auto bundle = session.ledger().export_evidence(log, record);
+            done(bundle ? cexchain::protocol::encode_bundle(*bundle)
+                        : cexchain::Result<cexchain::Bytes>(std::unexpected(bundle.error())));
+        });
         f.w.web.set_submitter([this, dir = f.w.dir.path](cexchain::Bytes body, bool submission,
                                                          auto respond) {
             // As POST /v1/statements answers; a submission's private data
@@ -1395,4 +1405,119 @@ TEST_CASE("uploads are for people who register, and for themselves only", "[cons
                        {"files", {theirs["upload"]}}},
                       token)
               .status == 400);
+}
+
+namespace {
+
+/// Answers a request through the console's asynchronous handle.
+http::Response handle_async(ConsoleWorld& w, const http::Request& r) {
+    std::optional<http::Response> answer;
+    w.web.handle(r, [&](http::Response response) { answer = std::move(response); });
+    REQUIRE(answer);
+    return std::move(*answer);
+}
+
+http::Response proof(ConsoleWorld& w, const std::string& token, const nlohmann::json& body) {
+    auto r = request("POST", "/console/api/proof", "localhost:7470", w.origin);
+    r.headers.emplace_back("authorization", "Bearer " + token);
+    const std::string text = body.dump();
+    r.body.assign(text.begin(), text.end());
+    return handle_async(w, r);
+}
+
+/// The photo story's record, registered by the owner from the console.
+cexchain::protocol::Id register_photo(FirstRunWorld& f, const std::string& token,
+                                      const std::string& photo) {
+    REQUIRE(f.w.post_as("/console/api/kinds", photo_kind, token).status == 200);
+    const auto file = nlohmann::json::parse(body(upload(f.w, token, "photo.jpg", photo)));
+    const auto prepared = f.w.post_as(
+        "/console/api/prepare",
+        {{"action", "record.register"},
+         {"kind", "example.org.photo/1"},
+         {"fields",
+          {{"place", "Victoria Harbour"}, {"taken", "2026-10-16"}, {"caption", "sunset"}}},
+         {"files", {file["upload"]}}},
+        token);
+    REQUIRE(prepared.status == 200);
+    const auto approved = approve(f.w, token, nlohmann::json::parse(body(prepared)), f.alice);
+    REQUIRE(approved.status == 201);
+    return *cexchain::protocol::to_id(*cexchain::from_hex(
+        nlohmann::json::parse(body(approved))["statement_id"].get<std::string>()));
+}
+
+} // namespace
+
+TEST_CASE("a thing's page shows private data to those allowed", "[console][things]") {
+    FirstRunWorld f;
+    Served served(f);
+    const std::string owner = f.made["session"].get<std::string>();
+    const std::string photo = "the photo itself";
+    const auto id = register_photo(f, owner, photo);
+    const std::string path = "/console/api/records/" + cexchain::to_hex(id.bytes());
+
+    const auto page = nlohmann::json::parse(body(f.w.get(path, owner)));
+    CHECK(page["type"] == "example.org.photo/1");
+    CHECK(page["kind"] == "Photo");
+    CHECK(page["metadata"]["caption"] == "sunset");
+    CHECK(page["registrant"]["name"] == "Alice");
+    REQUIRE(page["files"].size() == 1);
+    CHECK(page["files"][0]["kept"] == true);
+    CHECK(page["private"]["allowed"] == true);
+    REQUIRE(page["private"]["fields"].size() == 2);
+    const auto file = f.w.get(path + "/files/0", owner);
+    REQUIRE(file.status == 200);
+    CHECK(std::string(file.body.begin(), file.body.end()) == photo);
+    CHECK(header(file, "Content-Disposition") == "attachment; filename*=UTF-8''photo.jpg");
+
+    // A viewer sees what the ledger holds, never the private data.
+    const std::string viewer = f.w.session_for("Vera", console::Role::viewer);
+    const auto seen = nlohmann::json::parse(body(f.w.get(path, viewer)));
+    CHECK(seen["private"]["allowed"] == false);
+    CHECK(seen["private"]["fields"].is_null());
+    CHECK(f.w.get(path + "/files/0", viewer).status == 403);
+    // A member whose delegations do not cover the type is not allowed either.
+    const std::string member = f.w.session_for("Mia", console::Role::member);
+    CHECK(nlohmann::json::parse(body(f.w.get(path, member)))["private"]["allowed"] == false);
+    // Locked: the owner is told so.
+    f.w.keys.lock();
+    CHECK(nlohmann::json::parse(body(f.w.get(path, owner)))["private"]["locked"] == true);
+    CHECK(f.w.get(path + "/files/0", owner).status == 423);
+    CHECK(f.w.get(path + "/files/9", owner).status == 404);
+    CHECK(f.w.get("/console/api/records/" + std::string(64, '0'), owner).status == 404);
+}
+
+TEST_CASE("a proof discloses the fields and files chosen, and verifies", "[console][things]") {
+    FirstRunWorld f;
+    Served served(f);
+    const std::string owner = f.made["session"].get<std::string>();
+    const std::string photo = "the photo itself";
+    const auto id = register_photo(f, owner, photo);
+    const auto record = cexchain::to_hex(id.bytes());
+
+    const auto made =
+        proof(f.w, owner, {{"record", record}, {"disclose", {"taken"}}, {"files", true}});
+    REQUIRE(made.status == 200);
+    CHECK(header(made, "Content-Disposition").starts_with("attachment;"));
+    cexchain::protocol::VerifyOptions options;
+    options.expected_ledger = served.session.state().ledger_id();
+    options.attachment_contents["photo.jpg"] = cexchain::Bytes(photo.begin(), photo.end());
+    const auto report = cexchain::ledger::verify_bundle(provider(), made.body, options);
+    REQUIRE(report);
+    REQUIRE(report->disclosed_fields.size() == 1);
+    CHECK(report->disclosed_fields[0].name == "taken");
+    REQUIRE(report->attachments.size() == 1);
+    CHECK(report->attachments[0].status == cexchain::protocol::AttachmentStatus::verified);
+    // A forged photo is caught.
+    options.attachment_contents["photo.jpg"] =
+        cexchain::as_bytes("a forged photo") | std::ranges::to<cexchain::Bytes>();
+    const auto forged = cexchain::ledger::verify_bundle(provider(), made.body, options);
+    REQUIRE(forged);
+    CHECK(forged->attachments[0].status == cexchain::protocol::AttachmentStatus::mismatch);
+
+    // A viewer may prove what the ledger holds, and disclose nothing.
+    const std::string viewer = f.w.session_for("Vera", console::Role::viewer);
+    CHECK(proof(f.w, viewer, {{"record", record}}).status == 200);
+    CHECK(proof(f.w, viewer, {{"record", record}, {"disclose", {"taken"}}}).status == 403);
+    CHECK(proof(f.w, owner, {{"record", record}, {"disclose", {"colour"}}}).status == 400);
+    CHECK(proof(f.w, owner, {{"record", std::string(64, '0')}}).status == 404);
 }

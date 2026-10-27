@@ -170,6 +170,15 @@ public:
         submit_ = std::move(submit);
     }
 
+    /// A record's evidence bundle from the node, without private data
+    /// (node::LedgerApi::record_evidence). Until it is set, proofs answer 503.
+    using Evidence =
+        std::function<void(const protocol::Id& record, std::function<void(Result<Bytes>)>)>;
+    void set_evidence(Evidence evidence) {
+        const std::lock_guard lock(api_mutex_);
+        evidence_ = std::move(evidence);
+    }
+
     /// Called once the console is set up or unlocked, when the ledger's API
     /// can open (DeferredApi::open_now).
     void set_on_ready(std::function<void()> ready) {
@@ -222,6 +231,23 @@ private:
     [[nodiscard]] http::Response things_route(const http::Request& request) const;
     [[nodiscard]] http::Response settings_route(const http::Request& request) const;
     [[nodiscard]] http::Response kinds_route(const http::Request& request) const;
+    /// GET /console/api/records/ID, and .../ID/files/INDEX (a kept file).
+    [[nodiscard]] http::Response record_route(const http::Request& request) const;
+    /// POST /console/api/proof: a record's evidence with the fields and
+    /// files the person chose to disclose, as a file.
+    void proof_route(const http::Request& request, Respond respond) const;
+    /// Whether this user may read a record's private data: owners and
+    /// admins every record's, members those they registered and those of
+    /// types their delegations let them register, viewers none.
+    [[nodiscard]] bool may_read_private(const Signed& who, const protocol::LedgerState& state,
+                                        const protocol::RecordState& record) const;
+    /// A record's registration, as its log entry holds it.
+    [[nodiscard]] std::optional<protocol::RecordRegisterBody>
+    registration(const protocol::LedgerState& state, const protocol::Id& record) const;
+    /// The record's private data, opened with the console's vault key and
+    /// checked against the ledger; nothing if it cannot be.
+    [[nodiscard]] std::optional<app::Vault> private_data(const protocol::LedgerState& state,
+                                                         const protocol::Id& record) const;
     [[nodiscard]] nlohmann::json settings_view(Role role) const;
     [[nodiscard]] http::Response enroll_begin(const http::Request& request) const;
     [[nodiscard]] http::Response enroll_finish(const http::Request& request) const;
@@ -283,12 +309,17 @@ private:
         const std::lock_guard lock(api_mutex_);
         return submit_;
     }
+    [[nodiscard]] Evidence evidence() const {
+        const std::lock_guard lock(api_mutex_);
+        return evidence_;
+    }
     /// Tells the node the ledger's API may open (set up, or unlocked).
     void ready_now() const;
 
     mutable std::mutex api_mutex_;
     const ledger::Ledger* ledger_ = nullptr;
     Submit submit_;
+    Evidence evidence_;
     std::function<void()> on_ready_;
     mutable std::mutex mutex_;
     std::vector<Origin> origins_;

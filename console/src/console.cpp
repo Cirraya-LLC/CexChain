@@ -226,6 +226,22 @@ void Console::handle(const http::Request& request, Respond respond) const {
     // Approving and recovering submit to the ledger, which answers once the
     // statement is durable: that answer goes out through `respond`, with
     // nothing waiting.
+    if (request.path == "/console/api/proof" && request.method == "POST") {
+        try {
+            if (auto refused = refuse(request)) {
+                respond(std::move(*refused));
+                return;
+            }
+            if (!ready()) {
+                respond(error(503, "unavailable", "this console keeps no users or sessions"));
+                return;
+            }
+            proof_route(request, std::move(respond));
+        } catch (const std::exception&) {
+            respond(error(500, "internal", "the console could not answer; see its files"));
+        }
+        return;
+    }
     const bool approving = request.path == "/console/api/approve";
     const bool recovering = request.path == "/console/api/recover/finish";
     if ((approving || recovering) && request.method == "POST") {
@@ -342,6 +358,10 @@ http::Response Console::route(const http::Request& request) const {
         return json(200, {{"first_run", !has_ledger(services_.directory.parent_path())},
                           {"language", settings.language ? nlohmann::json(*settings.language)
                                                          : nlohmann::json()}});
+    }
+    if (request.path.starts_with("/console/api/records/")) {
+        return ready() ? record_route(request)
+                       : error(503, "unavailable", "this console keeps no users or sessions");
     }
     if (request.path == "/console/api/kinds") {
         return ready() ? kinds_route(request)

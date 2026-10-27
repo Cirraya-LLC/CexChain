@@ -93,6 +93,15 @@ using VaultKeySource = std::function<crypto::openssl::HpkeKey()>;
 [[nodiscard]] bool is_sealed_vault(ByteView file);
 [[nodiscard]] Bytes seal_vault(const protocol::Id& ledger, const protocol::Id& record,
                                const Vault& vault, ByteView public_key);
+/// A vault file's content, opened with `key` (needed unless it predates
+/// sealing). Not checked against the record: callers check the field root
+/// against the ledger.
+[[nodiscard]] Vault open_vault_file(ByteView file, const protocol::Id& ledger,
+                                    const protocol::Id& record,
+                                    const crypto::openssl::HpkeKey* key);
+/// Whether `vault` holds the private data behind `state`'s commitment.
+[[nodiscard]] bool matches_record(const crypto::Provider& provider, crypto::HashAlg hash,
+                                  const protocol::RecordState& state, const Vault& vault);
 /// Reads a record's private data; `key` is needed unless the file predates
 /// sealing.
 [[nodiscard]] Vault load_vault(const Session& session, const protocol::Id& record,
@@ -124,6 +133,17 @@ struct RecordFile {
     protocol::Attachment attachment;
     bool kept = false;
 };
+
+/// A kept file's content, opened with the vault key (not checked: see
+/// matches_attachment).
+[[nodiscard]] Bytes open_sealed_file(ByteView sealed, const protocol::Id& ledger,
+                                     const protocol::Id& record, std::string_view name,
+                                     const crypto::openssl::HpkeKey& key);
+/// Whether `content` is the attachment the record committed to, with the
+/// salt in its private data.
+[[nodiscard]] bool matches_attachment(const crypto::Provider& provider, crypto::HashAlg hash,
+                                      const protocol::Attachment& attachment, const Vault& vault,
+                                      ByteView content);
 
 /// A record's registration, as the ledger holds it.
 [[nodiscard]] protocol::RecordRegisterBody registration_of(const Session& session,

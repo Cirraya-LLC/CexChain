@@ -627,7 +627,7 @@ const yesNo = (value) => t(value ? "value.yes" : "value.no");
 async function thingsScreen() {
     const things = await api("GET", "things");
     const records = table(t("things.records"), [
-        ["column.type", (r) => r.type],
+        ["column.type", (r) => el("a", { href: `#/thing/${r.id}`, text: r.type })],
         ["column.state", (r) => (r.revoked ? t("value.revoked") : r.state)],
         ["column.registrant", (r) => r.registrant.name ?? short(r.registrant.id).text],
         ["column.endorsements", (r) => String(r.endorsements)],
@@ -651,6 +651,168 @@ async function thingsScreen() {
     show(el("h1", { text: t("things.title") }), el("p", { class: "hint", text: t("things.hint") }),
          register, ...records, ...instances,
          things.more ? el("p", { class: "hint", text: t("things.more") }) : null);
+}
+
+// --- A thing's page, and its proof --------------------------------------------------
+
+/// Fetches a file from the console and saves it (the session's token goes
+/// in a header, so no plain link can fetch it).
+async function saveDownload(path, options, fallback) {
+    const headers = { ...(options.headers ?? {}) };
+    const token = stored(sessionStorage, SESSION);
+    if (token) {
+        headers.Authorization = `Bearer ${token}`;
+    }
+    const response = await fetch(`api/${path}`, { ...options, headers, credentials: "omit",
+                                                 cache: "no-store" });
+    if (!response.ok) {
+        const answer = await response.json().catch(() => ({}));
+        throw new ApiError(response.status, answer?.error?.message ?? String(response.status));
+    }
+    const disposition = response.headers.get("Content-Disposition") ?? "";
+    const named = disposition.match(/filename\*=UTF-8''(.+)$/);
+    const name = named ? decodeURIComponent(named[1]) : fallback;
+    const url = URL.createObjectURL(await response.blob());
+    const link = el("a", { href: url, download: name });
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return name;
+}
+
+async function thingScreen(id) {
+    const thing = await api("GET", `records/${id}`);
+    const facts = el("dl", { class: "facts" });
+    const fact = (key, value, attributes = {}) => {
+        facts.append(el("dt", { text: t(key) }), el("dd", { text: String(value), ...attributes }));
+    };
+    fact("column.type", thing.type);
+    fact("column.state", thing.revoked ? t("value.revoked") : thing.state);
+    fact("column.registrant", thing.registrant.name ?? short(thing.registrant.id).text);
+    fact("thing.entry", thing.index);
+    fact("column.id", thing.id, { class: "id" });
+    for (const [name, value] of Object.entries(thing.metadata)) {
+        fact("thing.public", `${name}: ${value}`);
+    }
+    const parts = [keysNotice(), el("h1", { text: thing.kind ?? thing.type }), facts,
+                   el("h2", { text: t("thing.private_title") })];
+    if (!thing.private.allowed) {
+        parts.push(el("p", { class: "hint", text: t("thing.private_hidden") }));
+    } else if (thing.private.locked) {
+        parts.push(el("p", { class: "hint", text: t("thing.private_locked") }));
+    } else if (thing.private.fields === null) {
+        parts.push(el("p", { class: "hint", text: t("thing.private_elsewhere") }));
+    } else {
+        const fields = el("dl", { class: "facts" });
+        for (const f of thing.private.fields) {
+            fields.append(el("dt", { text: f.name }), el("dd", { text: f.value }));
+        }
+        parts.push(fields);
+    }
+    parts.push(el("h2", { text: t("thing.files_title") }));
+    if (thing.files.length === 0) {
+        parts.push(el("p", { text: t("thing.no_files") }));
+    }
+    const notice = el("div");
+    for (const f of thing.files) {
+        const line = el("p", { text: `${f.name}, ${sizeText(f.size)} ` });
+        if (f.kept && thing.private.allowed && !thing.private.locked) {
+            const save = el("button", { type: "button", text: t("thing.download"),
+                                        "aria-label": t("thing.download_label", { name: f.name }) });
+            save.addEventListener("click", async () => {
+                try {
+                    await saveDownload(`records/${thing.id}/files/${f.index}`, {}, f.name);
+                } catch (error) {
+                    notice.replaceChildren(problem(t("error.server", { message: error.message })));
+                }
+            });
+            line.append(save);
+        } else if (!f.kept) {
+            line.append(t("thing.not_kept"));
+        }
+        parts.push(line);
+    }
+    parts.push(notice, el("h2", { text: t("thing.endorsements_title") }));
+    if (thing.endorsements.length === 0) {
+        parts.push(el("p", { text: t("things.none") }));
+    } else {
+        parts.push(el("ul", {}, thing.endorsements.map((e) => el("li", {
+            text: t("thing.endorsed", { name: e.actor.name ?? short(e.actor.id).text, role: e.role }),
+        }))));
+    }
+    const actions = el("p", { class: "actions" });
+    const share = el("button", { type: "button", class: "primary", text: t("share.button") });
+    share.addEventListener("click", () => shareScreen(thing));
+    actions.append(share);
+    if (state.who.role !== "viewer" && !thing.revoked) {
+        const act = el("button", { type: "button", text: t("act.button"),
+                                   "aria-label": t("act.label", { type: thing.type }) });
+        act.addEventListener("click", () => actScreen({ id: thing.id, type: thing.type }));
+        actions.append(" ", act);
+    }
+    parts.push(actions);
+    show(...parts);
+}
+
+/// Sharing proof: the fields to disclose and whether to open the files;
+/// the proof as a file, and the files to send along.
+function shareScreen(thing) {
+    const boxes = [];
+    const fields = el("fieldset", {}, el("legend", { text: t("share.disclose") }));
+    const readable = thing.private.allowed && Array.isArray(thing.private.fields);
+    if (readable) {
+        for (const f of thing.private.fields) {
+            const box = el("input", { type: "checkbox", value: f.name });
+            boxes.push(box);
+            fields.append(el("label", { class: "check" }, box, " ", f.name));
+        }
+    } else {
+        fields.append(el("p", { class: "hint", text: t("share.nothing_private") }));
+    }
+    const filesBox = el("input", { type: "checkbox", checked: thing.files.length > 0 && readable });
+    const files = thing.files.length > 0 && readable
+        ? el("label", { class: "check" }, filesBox, " ", t("share.files")) : null;
+    const notice = el("div");
+    const after = el("div");
+    const make = el("button", { type: "submit", class: "primary", text: t("share.make") });
+    const form = el("form", { novalidate: true }, fields, files, notice, make, " ",
+                    (() => {
+                        const back = el("button", { type: "button", text: t("approve.cancel") });
+                        back.addEventListener("click", () => thingScreen(thing.id));
+                        return back;
+                    })());
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        make.disabled = true;
+        status(t("status.working"));
+        try {
+            const disclose = boxes.filter((b) => b.checked).map((b) => b.value);
+            const withFiles = !!files && filesBox.checked;
+            const saved = await saveDownload("proof", {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ record: thing.id, disclose, files: withFiles }),
+            }, "proof.cbor");
+            const sendAlong = withFiles ? thing.files.filter((f) => f.kept).map((f) => {
+                const save = el("button", { type: "button",
+                                            text: t("thing.download_label", { name: f.name }) });
+                save.addEventListener("click", () =>
+                    saveDownload(`records/${thing.id}/files/${f.index}`, {}, f.name));
+                return el("p", {}, save);
+            }) : [];
+            after.replaceChildren(el("p", { role: "status", text: t("share.made", { name: saved }) }),
+                                  el("p", { text: t(withFiles ? "share.send_files" : "share.send") }),
+                                  ...sendAlong);
+        } catch (error) {
+            notice.replaceChildren(problem(error.status === 423 ? t("keys.locked")
+                                                                : t("error.server", { message: error.message })));
+        } finally {
+            make.disabled = false;
+            status("");
+        }
+    });
+    show(el("h1", { text: t("share.title") }), el("p", { class: "id", text: `${thing.type} ${thing.id}` }),
+         el("p", { text: t("share.intro") }), form, after);
 }
 
 // --- Kinds and new documents --------------------------------------------------------
@@ -1220,7 +1382,9 @@ async function route() {
         return;
     }
     try {
-        await (hash.startsWith("#/things") ? thingsScreen()
+        const thing = hash.match(/^#\/thing\/([0-9a-f]{64})$/);
+        await (thing ? thingScreen(thing[1])
+            : hash.startsWith("#/things") ? thingsScreen()
             : hash.startsWith("#/new") ? newDocumentScreen()
             : hash.startsWith("#/kinds") ? kindsScreen()
             : hash.startsWith("#/settings") ? settingsScreen() : homeScreen());
