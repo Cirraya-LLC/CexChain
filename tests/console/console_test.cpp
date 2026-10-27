@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <unistd.h>
@@ -87,6 +89,15 @@ struct TempDirectory {
 };
 
 constexpr cexchain::protocol::Timestamp minute = 60'000;
+
+/// The compiler the console runs: this build's cexchain, where it has one.
+std::string compiler() {
+#if defined(CEXCHAIN_CLI_PROGRAM)
+    return CEXCHAIN_CLI_PROGRAM;
+#else
+    return {};
+#endif
+}
 
 } // namespace
 
@@ -298,7 +309,8 @@ struct ConsoleWorld {
     cexchain::ledger::SeededEntropy entropy{11};
     console::Sessions sessions{state, provider(), clock, entropy};
     console::KeyStore keys{state};
-    console::Console web{console::Services{state, &provider(), &clock, &entropy, &sessions, &keys}};
+    console::Console web{
+        console::Services{state, &provider(), &clock, &entropy, &sessions, &keys, compiler()}};
     std::string origin = "http://localhost:7470";
 
     explicit ConsoleWorld(bool first_run = false) {
@@ -1521,3 +1533,115 @@ TEST_CASE("a proof discloses the fields and files chosen, and verifies", "[conso
     CHECK(proof(f.w, owner, {{"record", record}, {"disclose", {"colour"}}}).status == 400);
     CHECK(proof(f.w, owner, {{"record", std::string(64, '0')}}).status == 404);
 }
+
+#if defined(CEXCHAIN_CLI_PROGRAM)
+
+namespace {
+
+std::string lending_source() {
+    std::ifstream in(std::filesystem::path(CEXCHAIN_TESTVECTORS_DIR).parent_path() / "examples" /
+                         "lending" / "lending.bo",
+                     std::ios::binary);
+    std::stringstream out;
+    out << in.rdbuf();
+    return out.str();
+}
+
+nlohmann::json answer_of(const http::Response& r) {
+    return nlohmann::json::parse(body(r));
+}
+
+} // namespace
+
+TEST_CASE("the rules routes run the compiler in a child process", "[console][rules]") {
+    FirstRunWorld f;
+    Served served(f);
+    const std::string owner = f.made["session"].get<std::string>();
+    const std::string source = lending_source();
+
+    const auto read = f.w.post_as("/console/api/rules/from", {{"source", source}}, owner);
+    REQUIRE(read.status == 200);
+    const auto sheet = answer_of(read);
+    REQUIRE(sheet["fits"] == true);
+    const auto written = f.w.post_as("/console/api/rules/form", {{"sheet", sheet["sheet"]}}, owner);
+    REQUIRE(written.status == 200);
+    CHECK(answer_of(written)["ok"] == true);
+    CHECK(answer_of(written)["source"].get<std::string>().starts_with("contract Lending\n"));
+    const auto chinese = f.w.post_as(
+        "/console/api/rules/form", {{"sheet", sheet["sheet"]}, {"language", "zh-Hant-HK"}}, owner);
+    CHECK(answer_of(chinese)["source"].get<std::string>().starts_with("合約 Lending\n"));
+    // The text view's keywords in another language.
+    const auto simplified = answer_of(f.w.post_as(
+        "/console/api/rules/fmt", {{"source", source}, {"language", "zh-Hans-CN"}}, owner));
+    CHECK(simplified["ok"] == true);
+    CHECK(simplified["source"].get<std::string>().find("合约 Lending\n") != std::string::npos);
+
+    CHECK(answer_of(f.w.post_as("/console/api/rules/check", {{"source", source}}, owner))["ok"] ==
+          true);
+    const auto text = answer_of(f.w.post_as(
+        "/console/api/rules/explain", {{"source", source}, {"language", "zh-Hans-CN"}}, owner));
+    CHECK(text["text"].get<std::string>().find("Lending") != std::string::npos);
+    const auto tested =
+        answer_of(f.w.post_as("/console/api/rules/test", {{"source", source}}, owner));
+    CHECK(tested["passed"] == 3);
+    CHECK(tested["failed"] == 0);
+    const auto packs = f.w.get("/console/api/rules/packs", owner);
+    REQUIRE(packs.status == 200);
+    CHECK(answer_of(packs)["packs"].size() >= 4);
+
+    // Limits and roles.
+    CHECK(f.w.post_as("/console/api/rules/check", {{"source", std::string(300'000, 'x')}}, owner)
+              .status == 413);
+    CHECK(f.w.post_as("/console/api/rules/check", {{"source", source}, {"language", "fr"}}, owner)
+              .status == 400);
+    const std::string member = f.w.session_for("Mia", console::Role::member);
+    CHECK(f.w.post_as("/console/api/rules/check", {{"source", source}}, member).status == 403);
+    CHECK(f.w.get("/console/api/rules", member).status == 200);
+}
+
+TEST_CASE("rules are deployed and retired with a passkey tap", "[console][rules]") {
+    FirstRunWorld f;
+    Served served(f);
+    const std::string owner = f.made["session"].get<std::string>();
+    // Rules that do not build are not prepared.
+    const auto broken = f.w.post_as(
+        "/console/api/prepare", {{"action", "contract.deploy"}, {"source", "parties we\n"}}, owner);
+    CHECK(broken.status == 422);
+
+    f.w.clock.set(cexchain::ledger::SystemClock{}.now());
+    const auto prepared_answer =
+        f.w.post_as("/console/api/prepare",
+                    {{"action", "contract.deploy"}, {"source", lending_source()}}, owner);
+    REQUIRE(prepared_answer.status == 200);
+    const auto prepared = answer_of(prepared_answer);
+    CHECK(prepared["summary"]["type"] == "contract-deploy");
+    CHECK(prepared["summary"]["name"] == "Lending");
+    CHECK(prepared["summary"]["code_sha256"].get<std::string>().size() == 64);
+    REQUIRE(approve(f.w, owner, prepared, f.alice).status == 201);
+
+    const auto listed = answer_of(f.w.get("/console/api/rules", owner));
+    REQUIRE(listed["contracts"].size() == 1);
+    const auto contract = listed["contracts"][0];
+    CHECK(contract["name"] == "Lending");
+    CHECK(contract["retired"] == false);
+
+    const auto retire = f.w.post_as(
+        "/console/api/prepare",
+        {{"action", "contract.retire"}, {"contract", contract["id"]}, {"reason", "replaced"}},
+        owner);
+    REQUIRE(retire.status == 200);
+    CHECK(answer_of(retire)["summary"]["name"] == "Lending");
+    REQUIRE(approve(f.w, owner, answer_of(retire), f.alice).status == 201);
+    CHECK(answer_of(f.w.get("/console/api/rules", owner))["contracts"][0]["retired"] == true);
+    // Retired once.
+    CHECK(f.w.post_as("/console/api/prepare",
+                      {{"action", "contract.retire"}, {"contract", contract["id"]}}, owner)
+              .status == 409);
+    // Only owners and admins deploy.
+    const std::string member = f.w.session_for("Mia", console::Role::member);
+    CHECK(f.w.post_as("/console/api/prepare",
+                      {{"action", "contract.deploy"}, {"source", lending_source()}}, member)
+              .status == 403);
+}
+
+#endif

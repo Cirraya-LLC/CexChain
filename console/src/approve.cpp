@@ -78,6 +78,15 @@ std::variant<protocol::Body, std::string> body_of_intent(const nlohmann::json& i
         return protocol::Body{protocol::RecordRevokeBody{
             *record, reason.empty() ? std::nullopt : std::optional(reason)}};
     }
+    if (action == "contract.retire") {
+        const auto contract = id_of(field_text(intent, "contract"));
+        if (!contract) {
+            return std::string("name the contract by its full id (hex)");
+        }
+        const std::string reason = field_text(intent, "reason");
+        return protocol::Body{protocol::ContractRetireBody{
+            *contract, reason.empty() ? std::nullopt : std::optional(reason)}};
+    }
     return std::string("the console cannot prepare this action");
 }
 
@@ -98,6 +107,21 @@ nlohmann::json describe(const protocol::Statement& s, const protocol::LedgerStat
     } else if (const auto* g = std::get_if<protocol::RecordRegisterBody>(&s.body)) {
         out["record_type"] = g->record_type;
         out["field_count"] = g->field_count;
+    } else if (const auto* d = std::get_if<protocol::ContractDeployBody>(&s.body)) {
+        out["name"] = d->name ? nlohmann::json(*d->name) : nlohmann::json();
+        out["language"] = d->language;
+        out["code_size"] = d->code.size();
+        nlohmann::json functions = nlohmann::json::array();
+        for (const auto& [name, kind] : d->interface) {
+            functions.push_back(name);
+        }
+        out["functions"] = functions;
+    } else if (const auto* r = std::get_if<protocol::ContractRetireBody>(&s.body)) {
+        out["contract"] = to_hex(r->contract.bytes());
+        out["reason"] = r->reason ? nlohmann::json(*r->reason) : nlohmann::json();
+        if (const auto* c = state.contract(r->contract); c != nullptr && c->name) {
+            out["name"] = *c->name;
+        }
     }
     return out;
 }
@@ -114,6 +138,16 @@ http::Response Console::prepare_route(const http::Request& request) const {
     if (signer.role == Role::viewer) {
         return error(403, "forbidden", "a viewer reads and verifies, and acts on nothing");
     }
+    const auto intent =
+        nlohmann::json::parse(request.body.begin(), request.body.end(), nullptr, false);
+    if (!intent.is_object()) {
+        return error(400, "invalid_argument", "the request's body is not a JSON object");
+    }
+    const std::string action = field_text(intent, "action");
+    if (action.starts_with("contract.") && signer.role != Role::owner &&
+        signer.role != Role::admin) {
+        return error(403, "forbidden", "only an owner or an admin deploys or retires rules");
+    }
     if (served == nullptr || !submitter()) {
         return error(503, "unavailable", "the console has no ledger to act on");
     }
@@ -126,16 +160,18 @@ http::Response Console::prepare_route(const http::Request& request) const {
     if (services_.keys == nullptr || !services_.keys->unlocked()) {
         return error(423, "locked", "the console is locked: unlock it first");
     }
-    const auto intent =
-        nlohmann::json::parse(request.body.begin(), request.body.end(), nullptr, false);
-    if (!intent.is_object()) {
-        return error(400, "invalid_argument", "the request's body is not a JSON object");
-    }
     // A registration is drafted first: its fields' salts, its files'
     // commitments, and what it keeps private.
     std::optional<Draft> draft;
     std::variant<protocol::Body, std::string> body = std::string();
-    if (field_text(intent, "action") == "record.register") {
+    if (action == "contract.deploy") {
+        // Built by the compiler in a child process, as the editor checked it.
+        auto built = deploy_body(signer, field_text(intent, "source"));
+        if (auto* refused = std::get_if<http::Response>(&built)) {
+            return std::move(*refused);
+        }
+        body = protocol::Body{std::get<protocol::ContractDeployBody>(std::move(built))};
+    } else if (action == "record.register") {
         auto drafted = register_draft(intent, signer.user);
         if (auto* problem = std::get_if<std::string>(&drafted)) {
             return error(400, "invalid_argument", *problem);
@@ -171,6 +207,7 @@ http::Response Console::prepare_route(const http::Request& request) const {
         protocol::Statement& s = prepared.statement;
         s.body = std::get<protocol::Body>(std::move(body));
         std::optional<std::string> record_type;
+        std::optional<protocol::Id> contract;
         if (const auto* e = std::get_if<protocol::RecordEndorseBody>(&s.body)) {
             const auto* r = state.record(e->record);
             record_type = r ? std::optional(r->record_type) : std::nullopt;
@@ -179,8 +216,17 @@ http::Response Console::prepare_route(const http::Request& request) const {
             record_type = r ? std::optional(r->record_type) : std::nullopt;
         } else if (const auto* g = std::get_if<protocol::RecordRegisterBody>(&s.body)) {
             record_type = g->record_type;
+        } else if (const auto* r = std::get_if<protocol::ContractRetireBody>(&s.body)) {
+            const auto* c = state.contract(r->contract);
+            if (c == nullptr || c->retired) {
+                problem = "no such contract on this ledger, or it is retired";
+                return;
+            }
+            contract = r->contract;
         }
-        if (!record_type) {
+        const bool on_records = std::holds_alternative<protocol::RecordEndorseBody>(s.body) ||
+                                std::holds_alternative<protocol::RecordRevokeBody>(s.body);
+        if (on_records && !record_type) {
             problem = "no such record on this ledger";
             return;
         }
@@ -189,7 +235,7 @@ http::Response Console::prepare_route(const http::Request& request) const {
         s.issued_at = services_.clock->now();
         s.nonce = services_.entropy->bytes<16>();
         s.delegation_id = node::choose_delegation(state, *actor, protocol::type_of(s.body),
-                                                  record_type, s.issued_at);
+                                                  record_type, s.issued_at, contract);
         if (!s.delegation_id) {
             problem = "no valid delegation lets " + a->display_name + " do this";
             return;
@@ -205,6 +251,12 @@ http::Response Console::prepare_route(const http::Request& request) const {
         prepared.kid = *kid;
         prepared.challenge = *challenge;
         summary = describe(s, state);
+        if (const auto* d = std::get_if<protocol::ContractDeployBody>(&s.body)) {
+            // The code's digest, which the page computes from the bytes too.
+            const auto digest = services_.provider->digest(crypto::HashAlg::sha256, d->code);
+            summary["code_sha256"] =
+                digest ? nlohmann::json(to_hex(digest->bytes())) : nlohmann::json();
+        }
     });
     if (!problem.empty()) {
         return error(409, "conflict", problem);

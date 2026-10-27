@@ -3,11 +3,15 @@
 
 #pragma once
 
+#include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <map>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -72,7 +76,18 @@ struct Services {
     Sessions* sessions = nullptr;
     /// The console's sealed keys; without it, nothing is ever unlocked.
     KeyStore* keys = nullptr;
+    /// The `cexchain` program, which the rules routes run as `cexchain bo
+    /// ...` in a child process; empty for a console that runs no compiler.
+    std::string compiler{};
 };
+
+/// The compiler in a child process: at most this long, this much memory,
+/// and this much output; sources and sheets at most this large.
+inline constexpr std::chrono::seconds compiler_time{30};
+inline constexpr std::uint64_t compiler_memory_mib = 1024;
+inline constexpr std::size_t compiler_output = 8 * 1024 * 1024;
+inline constexpr std::size_t max_rules_input = 256 * 1024;
+inline constexpr std::size_t max_compiler_runs = 2;
 
 /// A passkey ceremony begun and not yet finished: registering one with an
 /// invitation, or signing in. Its challenge is used once.
@@ -231,6 +246,28 @@ private:
     [[nodiscard]] http::Response things_route(const http::Request& request) const;
     [[nodiscard]] http::Response settings_route(const http::Request& request) const;
     [[nodiscard]] http::Response kinds_route(const http::Request& request) const;
+    /// /console/api/rules/...: the compiler on a sheet or a source.
+    [[nodiscard]] http::Response rules_route(const http::Request& request) const;
+    /// What the compiler answered, and the files it wrote that were asked
+    /// for.
+    struct CompilerRun {
+        nlohmann::json answer;
+        std::map<std::string, Bytes> files;
+    };
+    /// Runs `compiler bo ARGS... --json --max-memory N` for this session's
+    /// user, with `files` written to a private directory first (an argument
+    /// naming one of them, or one of `outputs`, becomes its path): the
+    /// compiler's JSON and the `outputs` it wrote, or the answer that says
+    /// why there is none.
+    [[nodiscard]] std::variant<CompilerRun, http::Response>
+    run_compiler(const Signed& who, std::vector<std::string> args,
+                 const std::vector<std::pair<std::string, std::string>>& files,
+                 const std::vector<std::string>& outputs = {}) const;
+    /// GET /console/api/rules: the contracts deployed on the ledger.
+    [[nodiscard]] http::Response contracts_route(const Signed& who) const;
+    /// A contract's deploy, built from a source by the compiler, or why not.
+    [[nodiscard]] std::variant<protocol::ContractDeployBody, http::Response>
+    deploy_body(const Signed& who, const std::string& source) const;
     /// GET /console/api/records/ID, and .../ID/files/INDEX (a kept file).
     [[nodiscard]] http::Response record_route(const http::Request& request) const;
     /// POST /console/api/proof: a record's evidence with the fields and
@@ -326,6 +363,8 @@ private:
     mutable std::map<std::string, Ceremony> ceremonies_;
     mutable std::map<std::string, Prepared> prepared_;
     mutable std::map<std::string, Upload> uploads_;
+    /// The sessions the compiler runs for now (one run each).
+    mutable std::set<std::string> compiling_;
     /// Uploads left by an earlier run are removed at the first upload.
     mutable bool uploads_swept_ = false;
     /// When recovery codes were refused lately, and whether one is being

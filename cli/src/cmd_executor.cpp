@@ -23,10 +23,6 @@
 #include <set>
 #include <string>
 
-#if defined(__APPLE__)
-#include <mach-o/dyld.h>
-#endif
-
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/protocol/record.hpp>
 #include <cexchain/crypto/openssl.hpp>
@@ -52,28 +48,6 @@ std::atomic<bool> stop_requested{false};
 
 extern "C" void executor_stop_signal(int /*signal*/) {
     stop_requested.store(true);
-}
-
-/// This program's own path, to run the first-party connectors.
-std::string self_path() {
-#if defined(__APPLE__)
-    std::uint32_t size = 0;
-    _NSGetExecutablePath(nullptr, &size);
-    std::string path(size, '\0');
-    if (_NSGetExecutablePath(path.data(), &size) == 0) {
-        path.resize(std::strlen(path.c_str()));
-        std::error_code ec;
-        const auto canonical = std::filesystem::canonical(path, ec);
-        return ec ? path : canonical.string();
-    }
-#else
-    std::error_code ec;
-    const auto path = std::filesystem::read_symlink("/proc/self/exe", ec);
-    if (!ec) {
-        return path.string();
-    }
-#endif
-    throw CommandError{"cannot find this program's own path, to run its connectors"};
 }
 
 std::filesystem::path state_of(const Args& args) {

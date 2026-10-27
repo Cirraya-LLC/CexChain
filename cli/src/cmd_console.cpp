@@ -448,8 +448,8 @@ int run_person_console(const Args& args, const std::filesystem::path& dir,
     ledger::SystemClock clock;
     ledger::SystemEntropy entropy;
     console::Sessions sessions(state, shared_provider(), clock, entropy);
-    auto web = std::make_shared<console::Console>(
-        console::Services{state, &shared_provider(), &clock, &entropy, &sessions, &keys});
+    auto web = std::make_shared<console::Console>(console::Services{
+        state, &shared_provider(), &clock, &entropy, &sessions, &keys, console_compiler()});
     node::ApiOptions base;
     base.directory = dir;
     base.checkpoint_interval = std::chrono::seconds(60);

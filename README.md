@@ -18,7 +18,7 @@ purchase orders, invoices, or certificates. Those are things you define, and the
 > to be made again with a later one. The code has not been audited yet; see
 > [Security](#security) for how to report a vulnerability and the known open items.
 >
-> The specification: [the protocol in prose](spec/README.md), [`spec/cexchain.cddl`](spec/cexchain.cddl); the contract language: [`spec/bo.md`](spec/bo.md). Planned, not built yet: connectors for billing and accounting systems (Zoho first), a local web console, installers, and a public witness service; see [Known limits](#known-limits).
+> The specification: [the protocol in prose](spec/README.md), [`spec/cexchain.cddl`](spec/cexchain.cddl); the contract language: [`spec/bo.md`](spec/bo.md). Planned, not built yet: connectors for billing and accounting systems (Zoho first), the web console's screens for other parties and for teams (it is [in progress](#the-web-console-in-progress)), installers, and a public witness service; see [Known limits](#known-limits).
 
 ## Why
 
@@ -65,7 +65,7 @@ purchase orders, invoices, or certificates. Those are things you define, and the
 
 - **One person, on one computer.** A ledger is a directory; keys are encrypted files, with a
   passkey or a USB key for proof of presence; evidence is a file you hand over. Today you use
-  it from the command line; a local web console and installers are planned.
+  it from the command line, or from a local web console (in progress); installers are planned.
 - **An organization.** Staff, AI agents, and devices act with rights the organization's root
   key delegates, which can only narrow. `cexchain serve` runs a ledger over HTTP with API
   tokens; replicas, backups, and Raft clusters keep it available; a Docker image runs it.
@@ -403,7 +403,8 @@ stderr, automatic checkpoints (`--checkpoint-interval`), and graceful shutdown o
 `console open`, and `console stop` manage it. A company serves it beside its API with
 `cexchain serve --console --public-url https://ledger.example.com`. So far it sets a ledger
 up for one person, signs people in, registers documents with their fields and files, shows a
-thing's page, shares and verifies proof, and approves each statement with a passkey.
+thing's page, shares and verifies proof, writes, tests, and deploys rules, and approves each
+statement with a passkey.
 
 ```sh
 cexchain console run --ledger ./ledger   # an empty directory: the browser opens the setup page
@@ -441,6 +442,20 @@ cexchain console settings show
   register. **Share proof** makes the evidence file with the fields you disclose and the files'
   openings, as `cexchain export` would; **Verify** checks a proof and its files in the browser,
   with a report in the reader's language, as `cexchain verify` and the standalone page do.
+- **Rules.** The Rules screen lists the contracts on the ledger and retires them; "Write
+  rules" is an editor with two views of the same rules: a form (parties, the thing and its
+  fields, actions with their conditions, consents, presence, what AI agents may do, the state
+  change, fields set, and requests; time rules, rules for answers, and tests; vocabulary packs as
+  boxes to tick) and the Bo text, with its keywords in any of the three languages. The form
+  writes Bo as `cexchain bo form` does, and a source opens in the form when it fits (`bo form
+  --from`); otherwise it stays text, and the page says where. Each problem the compiler finds
+  shows on the form field it belongs to. "Read as a contract" shows the contract's text in
+  English, Traditional Chinese, and Simplified Chinese side by side; "Run the tests" runs the
+  rules' tests. Deploying and retiring are approved with a passkey, and the page checks the
+  code's size and SHA-256 digest in the bytes it signs. The compiler runs as `cexchain bo` in a
+  child process, never in the node: one run at a time per session, at most 30 seconds, 1 GiB of
+  memory, and 8 MiB of output, on at most 256 KiB of rules; only owners and admins write rules.
+  Open the examples' `.bo` files (or a sheet saved with "Download") to start from them.
 - **Settings** show the ledger and its folder, the language new browsers start in, and the
   backup folder (`console settings show|set` from the command line). Scheduled backups to that
   folder are not written yet; until they are, use `cexchain backup create`.
@@ -464,8 +479,8 @@ cexchain console settings show
   recovery code unlocks it.
 - **Approving: one tap per statement.** `console user link NAME --actor ID --key KEY` lets a user
   act as a person of the ledger; `console user passkeys NAME --out DIR` writes their passkeys
-  for `actor set-presence`. The console then prepares what the person asks for (so far,
-  endorsing or revoking a record), shows exactly what will be signed, and signs only after the
+  for `actor set-presence`. The console then prepares what the person asks for (registering,
+  endorsing, or revoking a record; deploying or retiring rules), shows exactly what will be signed, and signs only after the
   person's passkey approves it; with a delegation that requires presence, the ledger itself
   refuses it otherwise, and the evidence shows the person was present.
 - **Every request** first passes the console's checks: a Content-Security-Policy with nothing

@@ -261,7 +261,7 @@ int serve(const Args& args, const ServeDefaults& defaults) {
         }
         web = std::make_shared<console::Console>(
             console::Services{console::state_directory(dir), &shared_provider(), &console_clock,
-                              &console_entropy, sessions.get(), keys.get()});
+                              &console_entropy, sessions.get(), keys.get(), console_compiler()});
         options.console = [web](const node::http::Request& r, auto respond) {
             web->handle(r, std::move(respond));
         };

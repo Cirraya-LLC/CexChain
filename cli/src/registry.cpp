@@ -112,6 +112,9 @@ const OptionSpec vocab_option{
     "Read source with this vocabulary pack of your own too (a .vocab file, or a directory's)",
     false, true};
 const OptionSpec hash_option{"hash", "HASH", "Digests with sha256 (default) or sm3"};
+const OptionSpec memory_option{"max-memory", "MIB",
+                               "Run with at most this much memory, in MiB (the console runs the "
+                               "compiler so)"};
 const OptionSpec language_option{
     "language", "LANG",
     "Messages in en, zh-Hant-HK, zh-Hans-CN, or a given pack's language (default: "
@@ -2390,6 +2393,7 @@ std::vector<CommandSpec> build() {
          1,
          1,
          with({vocab_option,
+               memory_option,
                pack_option,
                language_option,
                {"stage", "STAGE",
@@ -2450,6 +2454,7 @@ std::vector<CommandSpec> build() {
          1,
          with(
              {vocab_option,
+              memory_option,
               pack_option,
               language_option,
               {"hash", "HASH",
@@ -2500,6 +2505,7 @@ std::vector<CommandSpec> build() {
          1,
          1,
          with({vocab_option,
+               memory_option,
                pack_option,
                {"language", "LANG",
                 "The text (and messages) in en, zh-Hant-HK, zh-Hans-CN, or a given pack's "
@@ -2534,6 +2540,7 @@ std::vector<CommandSpec> build() {
          1,
          1,
          with({vocab_option,
+               memory_option,
                pack_option,
                {"language", "LANG",
                 "Write every keyword and word in en, zh-Hant-HK, zh-Hans-CN, or a given pack's "
@@ -2578,6 +2585,7 @@ std::vector<CommandSpec> build() {
          0,
          1,
          with({vocab_option,
+               memory_option,
                pack_option,
                {"language", "LANG",
                 "Write the source in en, zh-Hant-HK, zh-Hans-CN, or a given pack's language "
@@ -2609,6 +2617,7 @@ std::vector<CommandSpec> build() {
          1,
          1,
          with({vocab_option,
+               memory_option,
                pack_option,
                {"language", "LANG",
                 "The report (and messages) in en, zh-Hant-HK, zh-Hans-CN, or a given pack's "
@@ -2793,7 +2802,7 @@ std::vector<CommandSpec> build() {
          "",
          0,
          0,
-         with({vocab_option, hash_option, language_option}),
+         with({vocab_option, memory_option, hash_option, language_option}),
          cmd_bo_vocab_list,
          "Bo's words are in its core, which every source reads (kinds of things, actions such\n"
          "as transfer and cancel, conditions, time, units, currencies, types, common fields,\n"

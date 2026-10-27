@@ -16,6 +16,7 @@
 #include <print>
 #include <string>
 #include <string_view>
+#include <sys/resource.h>
 #include <variant>
 #include <vector>
 
@@ -139,8 +140,38 @@ VocabFile read_vocab_file(const std::string& file) {
 /// The official packs plus those given with --pack (and `more`) and the
 /// vocabulary packs given with --vocab (and `more_vocab`), checked together;
 /// any problem ends the command.
+#if defined(__has_feature)
+#if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer)
+#define CEXCHAIN_SANITIZED 1
+#endif
+#endif
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
+#define CEXCHAIN_SANITIZED 1
+#endif
+
+/// --max-memory MIB: this process's address space, limited, as the console
+/// runs the compiler on what people send it. Not under the sanitizers, whose
+/// shadow memory such a limit would refuse at once.
+void limit_memory(const Args& args) {
+    const auto mib = args.get("max-memory");
+    if (!mib) {
+        return;
+    }
+    const std::uint64_t n = parse_number(*mib, "--max-memory");
+    if (n < 64 || n > (std::uint64_t{1} << 20)) {
+        throw UsageError{"--max-memory is 64 to 1048576 (MiB)"};
+    }
+#if !defined(CEXCHAIN_SANITIZED)
+    const rlimit limit{static_cast<rlim_t>(n << 20), static_cast<rlim_t>(n << 20)};
+    if (::setrlimit(RLIMIT_AS, &limit) != 0) {
+        throw CommandError{"cannot limit this process's memory"};
+    }
+#endif
+}
+
 bo::PackSet pack_set(const Args& args, const std::vector<std::string>& more = {},
                      const std::vector<std::string>& more_vocab = {}) {
+    limit_memory(args);
     std::vector<std::string> files = args.all("pack");
     files.insert(files.end(), more.begin(), more.end());
     std::vector<PackFile> read;
@@ -1040,6 +1071,13 @@ int form_from_source(const Args& args, const bo::PackSet& set, const bo::Pack* l
     std::vector<bo::Diagnostic> diagnostics = lexed.diagnostics;
     diagnostics.insert(diagnostics.end(), parsed.diagnostics.begin(), parsed.diagnostics.end());
     if (bo::has_errors(diagnostics)) {
+        if (args.json()) {
+            print_json({{"file", file},
+                        {"fits", false},
+                        {"reason", "the source does not read as Bo"},
+                        {"diagnostics", diagnostics_json(diagnostics, language)}});
+            return exit_failure;
+        }
         print_source_diagnostics(stderr, file, diagnostics, language);
         throw CommandError{file + " does not read as Bo"};
     }

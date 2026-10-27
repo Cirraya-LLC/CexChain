@@ -43,6 +43,13 @@ namespace cexchain::cli {
 /// key).
 [[nodiscard]] std::optional<PresenceRequest> presence_request(const Args& args);
 
+/// This program's own path: to run its connectors, and the Bo compiler for
+/// the console, as child processes.
+[[nodiscard]] std::string self_path();
+/// What the console runs its compiler as: this program, in a build with the
+/// Bo compiler; else nothing (its rules routes say so).
+[[nodiscard]] std::string console_compiler();
+
 /// Loads a private key file, asking for its passphrase if it is encrypted.
 [[nodiscard]] crypto::openssl::KeyPair load_key(const std::filesystem::path& path,
                                                 const Args& args);

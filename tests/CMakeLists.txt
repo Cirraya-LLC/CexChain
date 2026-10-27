@@ -67,6 +67,13 @@ target_include_directories(cexchain_tests PRIVATE
 target_link_libraries(cexchain_tests PRIVATE cexchain_nuraft)
 target_compile_definitions(cexchain_tests PRIVATE
     CEXCHAIN_TESTVECTORS_DIR="${PROJECT_SOURCE_DIR}/testvectors")
+# The console's rules routes run the compiler as `cexchain bo ...`: the
+# tests run this build's, where it has the compiler.
+if(TARGET cexchain_bo AND TARGET cexchain)
+    add_dependencies(cexchain_tests cexchain)
+    target_compile_definitions(cexchain_tests PRIVATE
+        CEXCHAIN_CLI_PROGRAM="$<TARGET_FILE:cexchain>")
+endif()
 target_compile_features(cexchain_tests PRIVATE cxx_std_26)
 cexchain_target_defaults(cexchain_tests)
 

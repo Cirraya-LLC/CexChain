@@ -4,10 +4,19 @@
 #include "support.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <fcntl.h>
+#include <filesystem>
+#include <string>
+#include <system_error>
 #include <termios.h>
 #include <unistd.h>
+
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
 
 #include <nlohmann/json.hpp>
 
@@ -319,6 +328,35 @@ Bytes Session::contract_evidence(const Args& args, const protocol::Id& instance)
 
 Bytes Session::receipt(const Args& args, std::uint64_t index) {
     return receipt(log_key(args), index);
+}
+
+std::string console_compiler() {
+#if defined(CEXCHAIN_HAVE_BO)
+    return self_path();
+#else
+    return {};
+#endif
+}
+
+std::string self_path() {
+#if defined(__APPLE__)
+    std::uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size);
+    std::string path(size, '\0');
+    if (_NSGetExecutablePath(path.data(), &size) == 0) {
+        path.resize(std::strlen(path.c_str()));
+        std::error_code ec;
+        const auto canonical = std::filesystem::canonical(path, ec);
+        return ec ? path : canonical.string();
+    }
+#else
+    std::error_code ec;
+    const auto path = std::filesystem::read_symlink("/proc/self/exe", ec);
+    if (!ec) {
+        return path.string();
+    }
+#endif
+    throw CommandError{"cannot find this program's own path, to run its child processes"};
 }
 
 } // namespace cexchain::cli

@@ -99,6 +99,20 @@ Json describe(const protocol::Statement& s) {
             }
         }
         out["metadata"] = metadata;
+    } else if (const auto* d = std::get_if<protocol::ContractDeployBody>(&s.body)) {
+        out["name"] = d->name ? Json(*d->name) : Json();
+        out["language"] = d->language;
+        out["code_size"] = d->code.size();
+        const auto digest = provider().digest(crypto::HashAlg::sha256, d->code);
+        out["code_sha256"] = digest ? Json(to_hex(digest->bytes())) : Json();
+        Json functions = Json::array();
+        for (const auto& [name, kind] : d->interface) {
+            functions.push_back(name);
+        }
+        out["functions"] = functions;
+    } else if (const auto* r = std::get_if<protocol::ContractRetireBody>(&s.body)) {
+        out["contract"] = to_hex(r->contract.bytes());
+        out["reason"] = r->reason ? Json(*r->reason) : Json();
     }
     return out;
 }

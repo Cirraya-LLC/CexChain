@@ -359,6 +359,10 @@ http::Response Console::route(const http::Request& request) const {
                           {"language", settings.language ? nlohmann::json(*settings.language)
                                                          : nlohmann::json()}});
     }
+    if (request.path == "/console/api/rules" || request.path.starts_with("/console/api/rules/")) {
+        return ready() ? rules_route(request)
+                       : error(503, "unavailable", "this console keeps no users or sessions");
+    }
     if (request.path.starts_with("/console/api/records/")) {
         return ready() ? record_route(request)
                        : error(503, "unavailable", "this console keeps no users or sessions");
