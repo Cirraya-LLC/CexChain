@@ -363,6 +363,10 @@ http::Response Console::route(const http::Request& request) const {
         return ready() ? rules_route(request)
                        : error(503, "unavailable", "this console keeps no users or sessions");
     }
+    if (request.path.starts_with("/console/api/instances/")) {
+        return ready() ? instance_route(request)
+                       : error(503, "unavailable", "this console keeps no users or sessions");
+    }
     if (request.path.starts_with("/console/api/records/")) {
         return ready() ? record_route(request)
                        : error(503, "unavailable", "this console keeps no users or sessions");

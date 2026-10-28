@@ -134,6 +134,11 @@ public:
     /// the log key: after a new checkpoint, if the latest does not cover the
     /// record's last statement. Answers through `done`, from the writer.
     void record_evidence(const protocol::Id& record, std::function<void(Result<Bytes>)> done);
+    /// An instance's contract evidence (as GET /v1/contracts/instances/{id}
+    /// gives it, without private data), after a new checkpoint if the latest
+    /// does not cover the instance's head. Answers through `done`, from the
+    /// writer.
+    void instance_evidence(const protocol::Id& instance, std::function<void(Result<Bytes>)> done);
     void tick() override;
     /// Answers the long polls of GET /v1/requests.
     void stopping() override;

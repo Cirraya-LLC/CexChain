@@ -223,7 +223,7 @@ The `cexchain` tool controls every part of a ledger:
 | Requests | `request list`, `request show`, `request answer`, `request cancel`, `request wait` |
 | Executors | `executor add`, `executor list`, `executor show`, `executor revoke`, `executor run`, `executor check`, `executor connector add\|list\|show\|remove`, `executor secret set\|list\|remove`, `executor journal list\|show`; `connector webhook`, `connector command` |
 | Keepers | `keeper add`, `keeper list`, `keeper show`, `keeper revoke`, `keeper due`, `keeper run`; `serve --keeper-key` |
-| Bo language | `bo check`, `bo build`, `bo explain`, `bo fmt`, `bo form`, `bo test`, `bo stdlib list`, `bo stdlib show`, `bo vocab list`, `bo vocab show`, `bo vocab check`, `bo packs list`, `bo packs show`, `bo packs check` (in builds with the Bo compiler); `contract deploy --bo` |
+| Bo language | `bo check`, `bo build`, `bo explain`, `bo fmt`, `bo form`, `bo calls`, `bo args`, `bo test`, `bo stdlib list`, `bo stdlib show`, `bo vocab list`, `bo vocab show`, `bo vocab check`, `bo packs list`, `bo packs show`, `bo packs check` (in builds with the Bo compiler); `contract deploy --bo` |
 
 - Every command takes `--help`, and `--json` for scripting.
 - `cexchain help --json` describes every command and option in machine-readable form.
@@ -403,8 +403,8 @@ stderr, automatic checkpoints (`--checkpoint-interval`), and graceful shutdown o
 `console open`, and `console stop` manage it. A company serves it beside its API with
 `cexchain serve --console --public-url https://ledger.example.com`. So far it sets a ledger
 up for one person, signs people in, registers documents with their fields and files, shows a
-thing's page, shares and verifies proof, writes, tests, and deploys rules, and approves each
-statement with a passkey.
+thing's page, shares and verifies proof, writes, tests, and deploys rules, creates things under
+them and acts on them, and approves each statement with a passkey.
 
 ```sh
 cexchain console run --ledger ./ledger   # an empty directory: the browser opens the setup page
@@ -455,7 +455,20 @@ cexchain console settings show
   code's size and SHA-256 digest in the bytes it signs. The compiler runs as `cexchain bo` in a
   child process, never in the node: one run at a time per session, at most 30 seconds, 1 GiB of
   memory, and 8 MiB of output, on at most 256 KiB of rules; only owners and admins write rules.
-  Open the examples' `.bo` files (or a sheet saved with "Download") to start from them.
+  Open the examples' `.bo` files (or a sheet saved with "Download") to start from them; the
+  editor keeps its draft in the browser tab, so a reload does not lose it.
+- **Things with rules.** "Create a thing" under deployed rules opens a form drawn from the
+  contract (`bo calls`): each field and party it takes, typed, in the reader's language. A thing's
+  page shows its state and fields as the contract text writes them, its parties, and its history,
+  each call with who made it and whether in person; the actions the rules offer, each a form; the
+  time rules that are due ("Run it now"); and the requests waiting for an answer, which a person
+  may answer by hand (done, failed, or expired, with a reason). Every call is built from what the
+  person filled in (`bo args`, in the child process) and run on the ledger's state before any
+  tap: a value that does not fit is shown on its field, a call the rules refuse says why in the
+  reader's words, and one that needs another ledger's consent says whose (consents between
+  consoles come next). Otherwise the page checks, in WebAssembly, that the bytes it approves are
+  the call it shows. "Share proof" gives the thing's contract evidence, which `cexchain contract
+  verify` and the Verify screen check.
 - **Settings** show the ledger and its folder, the language new browsers start in, and the
   backup folder (`console settings show|set` from the command line). Scheduled backups to that
   folder are not written yet; until they are, use `cexchain backup create`.
@@ -480,7 +493,8 @@ cexchain console settings show
 - **Approving: one tap per statement.** `console user link NAME --actor ID --key KEY` lets a user
   act as a person of the ledger; `console user passkeys NAME --out DIR` writes their passkeys
   for `actor set-presence`. The console then prepares what the person asks for (registering,
-  endorsing, or revoking a record; deploying or retiring rules), shows exactly what will be signed, and signs only after the
+  endorsing, or revoking a record; deploying or retiring rules; creating a thing under rules,
+  acting on it, or answering its request), shows exactly what will be signed, and signs only after the
   person's passkey approves it; with a delegation that requires presence, the ledger itself
   refuses it otherwise, and the evidence shows the person was present.
 - **Every request** first passes the console's checks: a Content-Security-Policy with nothing
@@ -942,6 +956,21 @@ order), and writing that sheet again gives the same tree.
 ```sh
 cexchain bo form --from examples/lending/lending.bo --out lending.json
 cexchain bo form lending.json --language zh-Hant-HK      # the same contract, in Chinese
+```
+
+`bo calls` lists what each call of a contract takes, for a form: the creation (the fields given at
+creation, required or with their defaults, and the roles bound at creation), each action (its
+inputs, the role it binds, whether AI agents only propose it, its clauses of the contract text),
+and the time rules, each value labelled and typed in the reader's language. `bo args` builds a
+call's arguments from values a person writes: a text as typed, yes or no, a party's ledger id, a
+list, and numbers, money, quantities, dates, and durations as Bo writes them, in any language
+(`HKD 1_250.50`, `500萬港元`, `2027年1月6日`, `3日`), each checked against its declared type (a
+plain number in a money field is in its currency). Each problem names its value and a code. Both
+read a source or a built contract (`.boc`), and the console draws its forms from them.
+
+```sh
+cexchain bo calls lending.bo --language zh-Hant-HK
+cexchain bo args lending.bo create --set "name=Camera X100" --set owner=$LEDGER_ID   # for contract create --args
 ```
 
 ### One contract, any language

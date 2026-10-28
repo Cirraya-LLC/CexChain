@@ -48,6 +48,7 @@ unset(CMAKE_CXX_STANDARD)
 set(official_packs en zh-Hant-HK zh-Hans-CN)
 
 add_library(cexchain_bo_front
+    src/front/calls.cpp
     src/front/checker.cpp
     src/front/concepts.cpp
     src/front/explain.cpp
@@ -70,7 +71,8 @@ add_library(cexchain::bo_front ALIAS cexchain_bo_front)
 target_include_directories(cexchain_bo_front PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 target_link_libraries(cexchain_bo_front PUBLIC cexchain::core)
-# The rules sheets' JSON (form.cpp), read and written inside the library only.
+# The rules sheets' JSON (form.cpp) and a form's values (calls.cpp), read and
+# written inside the library only.
 target_link_libraries(cexchain_bo_front PRIVATE nlohmann_json::nlohmann_json)
 target_compile_features(cexchain_bo_front PUBLIC cxx_std_26)
 # GCC 16 turns contracts on with -std=c++26 already; say so, for whoever reads

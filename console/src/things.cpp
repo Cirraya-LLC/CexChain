@@ -311,6 +311,39 @@ void Console::proof_route(const http::Request& request, Respond respond) const {
     }
     const auto body =
         nlohmann::json::parse(request.body.begin(), request.body.end(), nullptr, false);
+    // A thing with rules: its contract evidence, every call on it, which
+    // discloses nothing private (its state is its parties' to read).
+    if (body.is_object() && body.contains("instance")) {
+        const auto instance = id_of(body.value("instance", ""));
+        const Evidence of_instance = instance_evidence();
+        if (!instance) {
+            respond(error(400, "invalid_argument", "name the thing by its full id (hex)"));
+            return;
+        }
+        if (!of_instance) {
+            respond(error(503, "unavailable", "the console has no ledger to prove anything from"));
+            return;
+        }
+        bool known = false;
+        served->read_state([&](const protocol::LedgerState& state) {
+            known = state.instance(*instance) != nullptr;
+        });
+        if (!known) {
+            respond(error(404, "not_found", "no such thing under rules on this ledger"));
+            return;
+        }
+        of_instance(
+            *instance, [instance = *instance, respond = std::move(respond)](Result<Bytes> encoded) {
+                if (!encoded) {
+                    respond(error(503, "unavailable", encoded.error().detail));
+                    return;
+                }
+                respond(download(std::move(*encoded),
+                                 "proof-" + to_hex(instance.bytes()).substr(0, 12) + ".cbor",
+                                 "application/cbor"));
+            });
+        return;
+    }
     const auto id = body.is_object() ? id_of(body.value("record", "")) : std::nullopt;
     if (!id) {
         respond(error(400, "invalid_argument", "name the record by its full id (hex)"));

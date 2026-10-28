@@ -122,6 +122,28 @@ nlohmann::json describe(const protocol::Statement& s, const protocol::LedgerStat
         if (const auto* c = state.contract(r->contract); c != nullptr && c->name) {
             out["name"] = *c->name;
         }
+    } else if (const auto* c = std::get_if<protocol::ContractCallBody>(&s.body)) {
+        out["function"] = c->function;
+        out["contract"] =
+            c->contract ? nlohmann::json(to_hex(c->contract->bytes())) : nlohmann::json();
+        out["instance"] =
+            c->instance ? nlohmann::json(to_hex(c->instance->bytes())) : nlohmann::json();
+        out["head"] = c->head ? nlohmann::json(*c->head) : nlohmann::json();
+        out["arguments"] = cbor::diagnostic(c->arguments);
+        if (c->answer) {
+            out["request"] = to_hex(c->answer->request.bytes());
+            out["status"] = static_cast<int>(c->answer->status);
+        }
+        std::optional<protocol::Id> contract = c->contract;
+        if (c->instance) {
+            if (const auto* i = state.instance(*c->instance)) {
+                contract = protocol::Id(i->contract);
+            }
+        }
+        if (const auto* deployed = contract ? state.contract(*contract) : nullptr;
+            deployed != nullptr && deployed->name) {
+            out["name"] = *deployed->name;
+        }
     }
     return out;
 }
@@ -144,10 +166,12 @@ http::Response Console::prepare_route(const http::Request& request) const {
         return error(400, "invalid_argument", "the request's body is not a JSON object");
     }
     const std::string action = field_text(intent, "action");
-    if (action.starts_with("contract.") && signer.role != Role::owner &&
-        signer.role != Role::admin) {
+    if ((action == "contract.deploy" || action == "contract.retire") &&
+        signer.role != Role::owner && signer.role != Role::admin) {
         return error(403, "forbidden", "only an owner or an admin deploys or retires rules");
     }
+    const bool calling =
+        action == "contract.create" || action == "contract.call" || action == "request.answer";
     if (served == nullptr || !submitter()) {
         return error(503, "unavailable", "the console has no ledger to act on");
     }
@@ -171,6 +195,14 @@ http::Response Console::prepare_route(const http::Request& request) const {
             return std::move(*refused);
         }
         body = protocol::Body{std::get<protocol::ContractDeployBody>(std::move(built))};
+    } else if (calling) {
+        // Its arguments built by the compiler in a child process, from what
+        // the person filled in; the contract runs below, before the tap.
+        auto built = call_body(signer, intent, action);
+        if (auto* refused = std::get_if<http::Response>(&built)) {
+            return std::move(*refused);
+        }
+        body = protocol::Body{std::get<protocol::ContractCallBody>(std::move(built))};
     } else if (action == "record.register") {
         auto drafted = register_draft(intent, signer.user);
         if (auto* problem = std::get_if<std::string>(&drafted)) {
@@ -197,6 +229,9 @@ http::Response Console::prepare_route(const http::Request& request) const {
     Prepared prepared;
     std::string problem;
     nlohmann::json summary;
+    // A call the contract would not take now: what its dry run decided.
+    nlohmann::json declined;
+    const std::string language = field_text(intent, "language");
     const crypto::HashAlg hash = served->hash();
     served->read_state([&](const protocol::LedgerState& state) {
         const protocol::ActorState* a = actor ? state.actor(*actor) : nullptr;
@@ -223,6 +258,17 @@ http::Response Console::prepare_route(const http::Request& request) const {
                 return;
             }
             contract = r->contract;
+        } else if (const auto* call = std::get_if<protocol::ContractCallBody>(&s.body)) {
+            if (call->instance) {
+                const protocol::InstanceState* i = state.instance(*call->instance);
+                if (i == nullptr || !call->head || i->head != *call->head) {
+                    problem = "the thing changed meanwhile: look at it again, then try again";
+                    return;
+                }
+                contract = protocol::Id(i->contract);
+            } else {
+                contract = call->contract;
+            }
         }
         const bool on_records = std::holds_alternative<protocol::RecordEndorseBody>(s.body) ||
                                 std::holds_alternative<protocol::RecordRevokeBody>(s.body);
@@ -251,6 +297,16 @@ http::Response Console::prepare_route(const http::Request& request) const {
         prepared.kid = *kid;
         prepared.challenge = *challenge;
         summary = describe(s, state);
+        if (calling) {
+            // Run as the ledger will run it, with the person's presence: the
+            // page shows what it decides, and a call it would not take is
+            // not prepared.
+            summary["dry_run"] = dry_run(state, s, *a, language);
+            if (summary["dry_run"].value("verdict", "") != "accept") {
+                declined = summary["dry_run"];
+                return;
+            }
+        }
         if (const auto* d = std::get_if<protocol::ContractDeployBody>(&s.body)) {
             // The code's digest, which the page computes from the bytes too.
             const auto digest = services_.provider->digest(crypto::HashAlg::sha256, d->code);
@@ -260,6 +316,14 @@ http::Response Console::prepare_route(const http::Request& request) const {
     });
     if (!problem.empty()) {
         return error(409, "conflict", problem);
+    }
+    if (!declined.is_null()) {
+        const bool waits = declined.value("verdict", "") == "needs";
+        return json(waits ? 409 : 422,
+                    {{"error",
+                      {{"code", waits ? "consent_needed" : "refused"},
+                       {"message", declined.value("reason", std::string("the call is refused"))}}},
+                     {"dry_run", declined}});
     }
     if (draft) {
         // What the page shows and checks: the values and salts behind the

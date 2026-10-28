@@ -36,6 +36,8 @@ if(TARGET cexchain_bo_front)
     cexchain_add_fuzzer(bo_check_fuzz cexchain::bo_front)
     # The form that writes Bo: rules sheets, and sources read back into them.
     cexchain_add_fuzzer(bo_form_fuzz cexchain::bo_front)
+    # A form's values for a contract's calls: JSON, and values Bo's lexer reads.
+    cexchain_add_fuzzer(bo_calls_fuzz cexchain::bo_front)
     # A deploy's bo-source bundle, the packs it names, and .boc files.
     cexchain_add_fuzzer(bo_source_fuzz cexchain::bo_front cexchain::crypto_openssl)
     # Vocabulary pack files of users', and the CBOR a bundle embeds.

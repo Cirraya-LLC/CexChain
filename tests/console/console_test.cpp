@@ -32,6 +32,7 @@
 #include <cexchain/crypto/openssl.hpp>
 #include <cexchain/ledger/environment.hpp>
 #include <cexchain/ledger/verify.hpp>
+#include <cexchain/node/contracts.hpp>
 #include <cexchain/node/record_files.hpp>
 
 #include "support/authenticator.hpp"
@@ -47,6 +48,21 @@ http::Request request(std::string method, std::string path, std::string host,
     http::Request r;
     r.method = std::move(method);
     r.target = path;
+    // As the server parses a target: its path, and its query (here without
+    // percent-encoding).
+    if (const std::size_t question = path.find('?'); question != std::string::npos) {
+        std::string_view query = std::string_view(path).substr(question + 1);
+        while (!query.empty()) {
+            const std::string_view pair = query.substr(0, query.find('&'));
+            const std::size_t equals = pair.find('=');
+            r.query.emplace(std::string(pair.substr(0, equals)),
+                            equals == std::string_view::npos
+                                ? std::string()
+                                : std::string(pair.substr(equals + 1)));
+            query.remove_prefix(std::min(query.size(), pair.size() + 1));
+        }
+        path.resize(question);
+    }
     r.path = std::move(path);
     r.headers.emplace_back("host", std::move(host));
     if (!origin.empty()) {
@@ -902,6 +918,15 @@ struct Served {
             done(bundle ? cexchain::protocol::encode_bundle(*bundle)
                         : cexchain::Result<cexchain::Bytes>(std::unexpected(bundle.error())));
         });
+        // As LedgerApi::instance_evidence.
+        f.w.web.set_instance_evidence(
+            [this, &f, dir = f.w.dir.path](const cexchain::protocol::Id& instance, auto done) {
+                const auto log = f.w.keys.open("log");
+                REQUIRE(session.ledger().checkpoint(log));
+                auto bundle = session.ledger().export_evidence(log, instance);
+                REQUIRE(bundle);
+                done(cexchain::node::contract_evidence(provider(), dir, *bundle));
+            });
         f.w.web.set_submitter([this, dir = f.w.dir.path](cexchain::Bytes body, bool submission,
                                                          auto respond) {
             // As POST /v1/statements answers; a submission's private data
@@ -1642,6 +1667,178 @@ TEST_CASE("rules are deployed and retired with a passkey tap", "[console][rules]
     CHECK(f.w.post_as("/console/api/prepare",
                       {{"action", "contract.deploy"}, {"source", lending_source()}}, member)
               .status == 403);
+}
+
+namespace {
+
+std::string golden_source(const std::string& name) {
+    std::ifstream in(std::filesystem::path(CEXCHAIN_TESTVECTORS_DIR).parent_path() / "tests" /
+                         "bo" / "golden" / "form" / name / "source.bo",
+                     std::ios::binary);
+    std::stringstream out;
+    out << in.rdbuf();
+    return out.str();
+}
+
+/// Deploys rules with a tap; their contract's id.
+std::string deploy(FirstRunWorld& f, const std::string& token, const std::string& source) {
+    const auto prepared = f.w.post_as("/console/api/prepare",
+                                      {{"action", "contract.deploy"}, {"source", source}}, token);
+    REQUIRE(prepared.status == 200);
+    const auto done = approve(f.w, token, answer_of(prepared), f.alice);
+    REQUIRE(done.status == 201);
+    return answer_of(done)["statement_id"].get<std::string>();
+}
+
+/// Prepares an intent and approves it with a tap: the statement's id.
+std::string act(FirstRunWorld& f, const std::string& token, nlohmann::json intent) {
+    const auto prepared = f.w.post_as("/console/api/prepare", intent, token);
+    INFO(body(prepared));
+    REQUIRE(prepared.status == 200);
+    CHECK(answer_of(prepared)["summary"]["dry_run"]["verdict"] == "accept");
+    const auto done = approve(f.w, token, answer_of(prepared), f.alice);
+    INFO(body(done));
+    REQUIRE(done.status == 201);
+    return answer_of(done)["statement_id"].get<std::string>();
+}
+
+} // namespace
+
+TEST_CASE("a thing with rules: created, acted on, and answered by hand, each with a tap",
+          "[console][instances]") {
+    FirstRunWorld f;
+    Served served(f);
+    const std::string owner = f.made["session"].get<std::string>();
+    f.w.clock.set(cexchain::ledger::SystemClock{}.now());
+    const std::string contract = deploy(f, owner, golden_source("requests"));
+    const std::string ours = cexchain::to_hex(served.session.state().ledger_id().bytes());
+    const std::string partner(64, '2');
+
+    // The contract's page: what its calls take.
+    const auto page = f.w.get("/console/api/rules/" + contract + "?language=zh-Hant-HK", owner);
+    REQUIRE(page.status == 200);
+    const auto calls = answer_of(page)["calls"];
+    REQUIRE(calls.size() >= 3);
+    CHECK(calls[0]["function"] == "create");
+    std::vector<std::string> names;
+    for (const auto& in : calls[0]["inputs"]) {
+        names.push_back(in["name"].get<std::string>());
+    }
+    CHECK(names == std::vector<std::string>{"note", "we", "partner"});
+
+    // Values that do not go into the call, each named.
+    const auto bad = f.w.post_as("/console/api/prepare",
+                                 {{"action", "contract.create"},
+                                  {"contract", contract},
+                                  {"function", "create"},
+                                  {"values", {{"we", "xyz"}, {"partner", partner}}}},
+                                 owner);
+    CHECK(bad.status == 422);
+    CHECK(answer_of(bad)["problems"].size() == 2);
+
+    const std::string thing =
+        act(f, owner,
+            {{"action", "contract.create"},
+             {"contract", contract},
+             {"function", "create"},
+             {"values", {{"note", "first"}, {"we", ours}, {"partner", partner}}}});
+    auto view = answer_of(f.w.get("/console/api/instances/" + thing, owner));
+    CHECK(view["instance"]["status"] == "active");
+    REQUIRE(view["history"].size() == 1);
+    CHECK(view["history"][0]["function"] == "create");
+    CHECK(view["history"][0]["in_person"] == true);
+    CHECK(view["history"][0]["by"] == "Alice");
+    CHECK(view["state"]["fields"].dump().find("first") != std::string::npos);
+    CHECK(view["may_act"] == true);
+
+    // An action that makes a request, then its answer by hand.
+    act(f, owner, {{"action", "contract.call"}, {"instance", thing}, {"function", "share"}});
+    view = answer_of(f.w.get("/console/api/instances/" + thing, owner));
+    CHECK(view["instance"]["status"] == "shared");
+    REQUIRE(view["requests"].size() == 1);
+    CHECK(view["requests"][0]["kind"] == "sync");
+    const std::string request = view["requests"][0]["id"].get<std::string>();
+    act(f, owner, {{"action", "request.answer"}, {"request", request}, {"status", "done"}});
+    view = answer_of(f.w.get("/console/api/instances/" + thing, owner));
+    CHECK(view["instance"]["status"] == "synced");
+    CHECK(view["requests"].empty());
+    CHECK(view["history"].size() == 3);
+    // Answered once; and the contract refuses an action from the wrong
+    // state, in the reader's words, before any tap.
+    CHECK(f.w.post_as("/console/api/prepare",
+                      {{"action", "request.answer"}, {"request", request}, {"status", "done"}},
+                      owner)
+              .status == 409);
+    const auto refused = f.w.post_as(
+        "/console/api/prepare",
+        {{"action", "contract.call"}, {"instance", thing}, {"function", "share"}}, owner);
+    CHECK(refused.status == 422);
+    CHECK(answer_of(refused)["dry_run"]["verdict"] == "refuse");
+    CHECK(answer_of(refused)["dry_run"]["code"].get<std::string>().starts_with("bo:"));
+
+    // Its proof: every call, verified as anyone would.
+    const auto made = proof(f.w, owner, {{"instance", thing}});
+    REQUIRE(made.status == 200);
+    cexchain::protocol::VerifyOptions options;
+    options.expected_ledger = served.session.state().ledger_id();
+    const auto report = cexchain::ledger::verify_contract_evidence(provider(), made.body, options);
+    REQUIRE(report);
+
+    // A viewer reads it, and acts on nothing.
+    const std::string viewer = f.w.session_for("Vera", console::Role::viewer);
+    CHECK(answer_of(f.w.get("/console/api/instances/" + thing, viewer))["may_act"] == false);
+    CHECK(f.w.post_as("/console/api/prepare",
+                      {{"action", "contract.call"}, {"instance", thing}, {"function", "close"}},
+                      viewer)
+              .status == 403);
+    CHECK(f.w.get("/console/api/instances/" + std::string(64, '0'), owner).status == 404);
+}
+
+TEST_CASE("a call that needs another ledger's consent is not prepared", "[console][instances]") {
+    FirstRunWorld f;
+    Served served(f);
+    const std::string owner = f.made["session"].get<std::string>();
+    f.w.clock.set(cexchain::ledger::SystemClock{}.now());
+    const std::string contract = deploy(f, owner, lending_source());
+    const std::string ours = cexchain::to_hex(served.session.state().ledger_id().bytes());
+    const std::string camera = act(f, owner,
+                                   {{"action", "contract.create"},
+                                    {"contract", contract},
+                                    {"function", "create"},
+                                    {"values", {{"name", "Camera X100"}, {"owner", ours}}}});
+    const std::string friend_ledger(64, '7');
+    const auto lend = f.w.post_as("/console/api/prepare",
+                                  {{"action", "contract.call"},
+                                   {"instance", camera},
+                                   {"function", "lend"},
+                                   {"values", {{"counterparty", friend_ledger}}}},
+                                  owner);
+    CHECK(lend.status == 409);
+    const auto declined = answer_of(lend);
+    CHECK(declined["error"]["code"] == "consent_needed");
+    CHECK(declined["dry_run"]["needs"] == nlohmann::json::array({friend_ledger}));
+}
+
+TEST_CASE("a time rule that is due is shown, and called with a tap", "[console][instances]") {
+    FirstRunWorld f;
+    Served served(f);
+    const std::string owner = f.made["session"].get<std::string>();
+    f.w.clock.set(cexchain::ledger::SystemClock{}.now());
+    const std::string contract = deploy(f, owner, golden_source("time"));
+    const std::string ours = cexchain::to_hex(served.session.state().ledger_id().bytes());
+    // Due long ago: three days overdue now, so the rule suspends it.
+    const std::string plan =
+        act(f, owner,
+            {{"action", "contract.create"},
+             {"contract", contract},
+             {"function", "create"},
+             {"values", {{"due", "2026-01-01"}, {"we", ours}, {"customer", ours}}}});
+    auto view = answer_of(f.w.get("/console/api/instances/" + plan, owner));
+    REQUIRE(view["due"].size() == 1);
+    CHECK(view["due"][0]["function"] == "when.suspend");
+    act(f, owner, {{"action", "contract.call"}, {"instance", plan}, {"function", "when.suspend"}});
+    view = answer_of(f.w.get("/console/api/instances/" + plan, owner));
+    CHECK(view["instance"]["status"] == "suspended");
 }
 
 #endif

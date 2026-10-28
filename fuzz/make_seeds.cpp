@@ -414,6 +414,18 @@ void form_seeds(const Seeds& seeds) {
                                       "\nwhen sync done\n  -> synced\n");
 }
 
+void calls_seeds(const Seeds& seeds) {
+    // The first byte picks the values' JSON (even) or one value (odd).
+    seeds.write("bo_calls_fuzz", "values",
+                std::string("\x00") +
+                    R"({"cost": "HKD 1_250.50", "starts": "2027年1月6日", "weight": "3 噸",
+ "urgent": true, "tags": ["fragile"], "note": "by hand", "count": "500萬",
+ "we": "1111111111111111111111111111111111111111111111111111111111111111",
+ "buyer": "2222222222222222222222222222222222222222222222222222222222222222"})");
+    seeds.write("bo_calls_fuzz", "money", std::string("\x01") + "500萬港元");
+    seeds.write("bo_calls_fuzz", "duration", std::string("\x01") + "3 個月");
+}
+
 void cluster_seeds(const Seeds& seeds) {
     using cbor::Value;
     auto write = [&](const std::string& name, std::uint8_t kind, const Value& value) {
@@ -1109,6 +1121,7 @@ int main(int argc, char** argv) {
         pending_call_seeds(seeds);
         record_file_seeds(seeds);
         form_seeds(seeds);
+        calls_seeds(seeds);
         text_seeds(seeds);
         vm_seeds(seeds);
         contract_seeds(seeds);

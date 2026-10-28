@@ -20,6 +20,7 @@
 #include <vector>
 
 #include <cexchain/core/bytes.hpp>
+#include <cexchain/core/cbor.hpp>
 #include <cexchain/core/crypto.hpp>
 #include <cexchain/core/protocol/common.hpp>
 #include <cexchain/core/protocol/contract_evidence.hpp>
@@ -113,6 +114,19 @@ Json describe(const protocol::Statement& s) {
     } else if (const auto* r = std::get_if<protocol::ContractRetireBody>(&s.body)) {
         out["contract"] = to_hex(r->contract.bytes());
         out["reason"] = r->reason ? Json(*r->reason) : Json();
+    } else if (const auto* c = std::get_if<protocol::ContractCallBody>(&s.body)) {
+        // A creation names its contract, an action its instance and head; an
+        // answer its request and status. The arguments as the page shows them.
+        out["function"] = c->function;
+        out["contract"] = c->contract ? Json(to_hex(c->contract->bytes())) : Json();
+        out["instance"] = c->instance ? Json(to_hex(c->instance->bytes())) : Json();
+        out["head"] = c->head ? Json(*c->head) : Json();
+        out["arguments"] = cbor::diagnostic(c->arguments);
+        out["consents"] = c->consents.size();
+        if (c->answer) {
+            out["request"] = to_hex(c->answer->request.bytes());
+            out["status"] = static_cast<int>(c->answer->status);
+        }
     }
     return out;
 }

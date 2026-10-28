@@ -126,9 +126,11 @@ function problem(message) {
 // --- The console's API ---------------------------------------------------------
 
 class ApiError extends Error {
-    constructor(status, message) {
+    /// `answer`: the console's whole answer (its problems, a dry run).
+    constructor(status, message, answer = {}) {
         super(message);
         this.status = status;
+        this.answer = answer;
     }
 }
 
@@ -150,7 +152,7 @@ async function api(method, path, body) {
     });
     const answer = await response.json().catch(() => ({}));
     if (!response.ok) {
-        throw new ApiError(response.status, answer?.error?.message ?? String(response.status));
+        throw new ApiError(response.status, answer?.error?.message ?? String(response.status), answer);
     }
     return answer;
 }
@@ -641,7 +643,8 @@ async function thingsScreen() {
         }]]),
     ], things.records);
     const instances = table(t("things.instances"), [
-        ["column.contract", (i) => i.contract_name ?? short(i.contract).text],
+        ["column.contract", (i) => el("a", { href: `#/instance/${i.id}`,
+                                             text: i.contract_name ?? short(i.contract).text })],
         ["column.status", (i) => i.status ?? t("value.none")],
         ["column.final", (i) => yesNo(i.final)],
         ["column.open_requests", (i) => String(i.open_requests)],
@@ -819,14 +822,18 @@ function shareScreen(thing) {
 // --- Verify ----------------------------------------------------------------------------
 
 /// A localized verification report, from the verifier's JSON.
-function reportView(report) {
+function reportView(given) {
     const parts = [];
-    if (report.error) {
+    if (given.error) {
         parts.push(el("div", { class: "error", role: "alert" },
                       el("strong", { text: t("verify.failed") }),
-                      el("p", { text: t("verify.reason", { reason: report.error }) })));
+                      el("p", { text: t("verify.reason", { reason: given.error }) })));
         return parts;
     }
+    // A thing with rules: its instance's evidence report, with the contract's
+    // facts beside it.
+    const contract = given.kind === "contract" ? given : null;
+    const report = contract ? { ...contract.report, kind: "contract" } : given;
     const mismatch = (report.attachments ?? []).some((a) => a.status === "mismatch");
     const unconfirmed = !report.ledger.id_checked;
     parts.push(el("div", { class: mismatch ? "error" : "notice", role: "status" },
@@ -844,6 +851,13 @@ function reportView(report) {
     fact("verify.checkpoint", t("verify.checkpoint_value", { size: report.checkpoint.tree_size ??
                                                                     report.checkpoint.size,
                                                              time: report.checkpoint.timestamp ?? "" }));
+    if (contract) {
+        const i = contract.instance;
+        fact("column.contract", i.contract.name ?? i.contract.id);
+        fact("column.state", i.status ?? t("value.none"));
+        fact("column.final", yesNo(i.final));
+        fact("column.id", i.id, { class: "id" });
+    }
     if (report.kind === "record") {
         fact("column.type", report.record.type);
         fact("column.state", report.record.revoked ? t("value.revoked") : report.record.state);
@@ -1287,6 +1301,31 @@ const SHEET = group("sheet", [
 ]);
 
 const RULES_INPUT = 256 * 1024;
+const RULES_DRAFT = "cexchain.rules";
+
+/// The editor's draft, kept in this tab (sessionStorage) so that a reload
+/// does not lose it.
+function saveDraft(draft) {
+    store(sessionStorage, RULES_DRAFT, JSON.stringify({
+        sheet: sheetToSend(draft.sheet), source: draft.source, view: draft.view,
+        language: draft.language, name: draft.name ?? null,
+    }));
+}
+
+function loadDraft() {
+    try {
+        const saved = JSON.parse(stored(sessionStorage, RULES_DRAFT) ?? "null");
+        if (saved === null || typeof saved !== "object" || typeof saved.source !== "string") {
+            return null;
+        }
+        return { sheet: openedSheet(saved.sheet ?? {}), source: saved.source,
+                 view: saved.view === "text" ? "text" : "form", problems: [], packs: undefined,
+                 language: LANGUAGES.includes(saved.language) ? saved.language : state.language,
+                 name: typeof saved.name === "string" ? saved.name : undefined };
+    } catch {
+        return null;
+    }
+}
 const mayWriteRules = () => state.who.role === "owner" || state.who.role === "admin";
 
 function blank(desc) {
@@ -1625,15 +1664,21 @@ async function rulesScreen() {
         ["thing.entry", (c) => String(c.index)],
         ["column.state", (c) => t(c.retired ? "value.retired" : "value.active")],
         ["column.id", (c) => short(c.id)],
-        ...(writes ? [["column.actions", (c) => {
+        ...(state.who.role !== "viewer" ? [["column.actions", (c) => {
             if (c.retired) {
                 return t("value.none");
             }
             const name = c.name ?? short(c.id).text;
+            const create = el("a", { href: `#/create/${c.id}`, class: "button",
+                                     text: t("thing.create"),
+                                     "aria-label": t("thing.create_label", { name }) });
+            if (!writes) {
+                return create;
+            }
             const button = el("button", { type: "button", text: t("rules.retire"),
                                           "aria-label": t("rules.retire_label", { name }) });
             button.addEventListener("click", () => retireScreen(c));
-            return button;
+            return el("div", { class: "toolbar" }, create, button);
         }]] : []),
     ], listed.contracts);
     show(keysNotice(), el("h1", { text: t("rules.title") }),
@@ -1685,8 +1730,9 @@ async function rulesEditor() {
         show(el("h1", { text: t("rules.editor_title") }), el("p", { text: t("rules.read_only") }));
         return;
     }
-    const draft = state.rules ??= { sheet: newSheet(), source: "", view: "form", problems: [],
-                                    packs: undefined, language: state.language };
+    const draft = state.rules ??= loadDraft() ?? { sheet: newSheet(), source: "", view: "form",
+                                                   problems: [], packs: undefined,
+                                                   language: state.language };
     if (draft.packs === undefined) {
         try {
             draft.packs = (await api("GET", "rules/packs")).packs.filter((p) => p.id !== "core");
@@ -1743,6 +1789,7 @@ async function rulesEditor() {
     };
 
     const drawView = () => {
+        saveDraft(draft);
         formButton.setAttribute("aria-pressed", String(draft.view === "form"));
         textButton.setAttribute("aria-pressed", String(draft.view === "text"));
         if (draft.view === "form") {
@@ -1977,6 +2024,14 @@ async function rulesEditor() {
 
     drawView();
     problems.replaceChildren(problemsPanel(draft.problems, goTo) ?? "");
+    // Every change kept in this tab: typing, ticking, adding, removing.
+    for (const type of ["input", "change"]) {
+        view.addEventListener(type, () => saveDraft(draft));
+    }
+    view.addEventListener("click", () => setTimeout(() => saveDraft(draft)));
+    for (const b of buttons) {
+        b.addEventListener("click", () => setTimeout(() => saveDraft(draft)));
+    }
     show(keysNotice(), el("h1", { text: t("rules.editor_title") }),
          el("p", { class: "hint", text: t("rules.editor_intro") }),
          el("div", { class: "toolbar", role: "group", "aria-label": t("rules.view") },
@@ -1987,6 +2042,304 @@ async function rulesEditor() {
          view, problems,
          el("div", { class: "toolbar" }, ...actions, download),
          results);
+}
+
+// --- Things with rules --------------------------------------------------------
+
+/// A value a call takes, as an input of the form: drawn by its type (the
+/// compiler's encoded type, with its words in the reader's language), read
+/// back as the compiler takes it (a text as typed, yes or no, a ledger id, a
+/// list one item a line, anything else written as Bo writes it).
+function valueInput(input, id, ledger) {
+    const type = input.type;
+    const hintId = `${id}-hint`;
+    const label = el("label", { for: id, text: input.optional ? t("thing.optional", { name: input.label })
+                                                             : input.label });
+    const hint = el("span", { id: hintId, class: "hint",
+                              text: input.initial ? t("thing.type_default", { type: input.type_text,
+                                                                               initial: input.initial })
+                                                  : input.type_text });
+    let control;
+    let read;
+    if (type === "yes_no") {
+        control = el("select", { id, "aria-describedby": hintId },
+                     input.optional ? el("option", { value: "", text: "" }) : null,
+                     el("option", { value: "yes", text: t("value.yes") }),
+                     el("option", { value: "no", text: t("value.no") }));
+        read = () => (control.value === "" ? undefined : control.value === "yes");
+    } else if (type === "party") {
+        const other = el("input", { id: `${id}-other`, spellcheck: "false", autocomplete: "off",
+                                    maxlength: 64, "aria-label": t("thing.ledger_id", { name: input.label }),
+                                    placeholder: t("thing.ledger_id_hint") });
+        control = el("select", { id, "aria-describedby": hintId },
+                     input.optional ? el("option", { value: "", text: "" }) : null,
+                     el("option", { value: ledger.id, text: t("thing.this_ledger", { name: ledger.name }) }),
+                     el("option", { value: "other", text: t("thing.other_ledger") }));
+        other.hidden = true;
+        control.addEventListener("change", () => {
+            other.hidden = control.value !== "other";
+        });
+        read = () => (control.value === "" ? undefined
+            : control.value === "other" ? other.value.trim().toLowerCase() : control.value);
+        return { element: el("div", { class: "field", "data-name": input.name }, label, control, other, hint),
+                 read, name: input.name };
+    } else if (type.startsWith("list ")) {
+        control = el("textarea", { id, rows: 3, spellcheck: "false", "aria-describedby": hintId });
+        read = () => {
+            const items = control.value.split("\n").map((l) => l.trim()).filter((l) => l !== "");
+            return input.optional && items.length === 0 ? undefined : items;
+        };
+        hint.textContent = t("thing.list_hint", { type: input.type_text });
+    } else {
+        control = el("input", { id, type: type === "date" ? "date" : "text", spellcheck: "false",
+                                autocomplete: "off", maxlength: 1000, "aria-describedby": hintId,
+                                placeholder: type === "text" ? null : t(`thing.example.${type.split(" ")[0]}`) });
+        read = () => (control.value.trim() === "" && input.optional ? undefined
+            : type === "text" ? control.value : control.value.trim());
+    }
+    return { element: el("div", { class: "field", "data-name": input.name }, label, control, hint),
+             read, name: input.name };
+}
+
+/// The values of a call's inputs, by name (those left out are not sent).
+function valuesOf(inputs) {
+    const values = {};
+    for (const i of inputs) {
+        const v = i.read();
+        if (v !== undefined) {
+            values[i.name] = v;
+        }
+    }
+    return values;
+}
+
+/// Why a call is not prepared, on the inputs it names and in a notice: the
+/// values that do not go in, the consents it waits for, or the contract's
+/// refusal.
+function callProblem(error, form, notice) {
+    for (const p of form.querySelectorAll(".problem")) {
+        p.remove();
+    }
+    const answer = error.answer ?? {};
+    if (Array.isArray(answer.problems) && answer.problems.length > 0) {
+        for (const p of answer.problems) {
+            const name = String(p.name ?? "").split("/")[0];
+            const target = form.querySelector(`[data-name="${CSS.escape(name)}"]`);
+            const message = t(`thing.problem.${p.code}`, { type: p.type_text ?? "" });
+            if (target) {
+                target.append(el("p", { class: "problem", text: t("rules.error", { message }) }));
+            }
+        }
+        notice.replaceChildren(problem(t("thing.values_problem")));
+        return;
+    }
+    const run = answer.dry_run;
+    if (run?.verdict === "needs") {
+        notice.replaceChildren(problem(t("thing.needs_consent", {
+            ledgers: run.needs.map((l) => `${l.slice(0, 12)}...`).join(", "),
+        })));
+        return;
+    }
+    if (run?.verdict === "refuse") {
+        notice.replaceChildren(problem(t("thing.refused", { reason: run.reason })));
+        return;
+    }
+    notice.replaceChildren(problem(error.status === 423 ? t("keys.locked")
+                                                        : t("error.server", { message: error.message })));
+}
+
+/// A form for one call: its inputs, then Prepare, which runs it on the
+/// ledger's state and, if the contract takes it, opens the approval.
+function callForm(call, intent, ledger, idPrefix) {
+    const inputs = call.inputs.map((input, n) => valueInput(input, `${idPrefix}-${n}`, ledger));
+    const notice = el("div");
+    const prepare = el("button", { type: "submit", class: "primary", text: t("act.prepare") });
+    const form = el("form", { novalidate: true, class: "call" }, inputs.map((i) => i.element), notice,
+                    prepare);
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        prepare.disabled = true;
+        status(t("status.working"));
+        try {
+            const prepared = await api("POST", "prepare", {
+                ...intent, values: valuesOf(inputs), language: state.language,
+            });
+            await approveScreen(prepared);
+        } catch (error) {
+            callProblem(error, form, notice);
+        } finally {
+            prepare.disabled = false;
+            status("");
+        }
+    });
+    return form;
+}
+
+async function ledgerFacts() {
+    const home = await api("GET", "home");
+    return { id: home.ledger.id, name: home.ledger.organization };
+}
+
+/// Putting a new thing under deployed rules.
+async function createScreen(contractId) {
+    const [page, ledger] = await Promise.all([
+        api("GET", `rules/${contractId}?language=${encodeURIComponent(state.language)}`),
+        ledgerFacts(),
+    ]);
+    const name = page.contract.name ?? short(page.contract.id).text;
+    const creation = (page.calls ?? []).find((c) => c.kind === "create");
+    if (!creation) {
+        show(el("h1", { text: t("thing.create_title", { name }) }), el("p", { text: t("thing.no_calls") }));
+        return;
+    }
+    show(el("h1", { text: t("thing.create_title", { name }) }),
+         el("p", { class: "hint", text: t("thing.create_intro") }),
+         creation.clauses.length ? el("details", {}, el("summary", { text: t("thing.what_it_does") }),
+                                      el("ul", {}, creation.clauses.map((c) => el("li", { text: c }))))
+                                 : null,
+         callForm(creation, { action: "contract.create", contract: page.contract.id,
+                              function: creation.function }, ledger, "create"),
+         backButton(t("approve.cancel")));
+}
+
+const timeText = (ms) => new Intl.DateTimeFormat(state.language, { dateStyle: "medium", timeStyle: "short" })
+    .format(new Date(ms));
+
+/// A thing with rules: what it is now, what may be done with it, what is
+/// due, the requests waiting for an answer, and its history.
+async function instanceScreen(id) {
+    const [view, ledger] = await Promise.all([
+        api("GET", `instances/${id}?language=${encodeURIComponent(state.language)}`),
+        ledgerFacts(),
+    ]);
+    const thing = view.instance;
+    const facts = el("dl", { class: "facts" });
+    const fact = (key, value, attributes = {}) => {
+        facts.append(el("dt", { text: t(key) }), el("dd", { text: String(value), ...attributes }));
+    };
+    fact("column.contract", thing.contract_name ?? short(thing.contract).text);
+    fact("column.state", view.state?.state || thing.status || t("value.none"));
+    fact("column.final", yesNo(thing.final));
+    fact("thing.entry", thing.created_by);
+    fact("column.id", thing.id, { class: "id" });
+    for (const p of thing.parties) {
+        facts.append(el("dt", { text: t("thing.party", { role: p.role }) }),
+                     el("dd", { class: p.ours ? null : "id",
+                                text: p.ours ? t("thing.this_ledger", { name: p.label }) : p.ledger }));
+    }
+    const parts = [keysNotice(), el("h1", { text: thing.contract_name ?? t("thing.title") }), facts];
+    if (view.state?.fields?.length) {
+        parts.push(el("h2", { text: t("thing.fields_title") }),
+                   el("dl", { class: "facts" }, view.state.fields.map((f) => [
+                       el("dt", { text: f.field }), el("dd", { text: f.value })]).flat()));
+    }
+    const acting = view.may_act && !thing.final;
+    const calls = view.calls ?? [];
+    // The actions, each a form; a call the contract refuses says why.
+    const actions = calls.filter((c) => c.kind === "action");
+    if (acting && actions.length) {
+        parts.push(el("h2", { text: t("thing.actions_title") }),
+                   el("p", { class: "hint", text: t("thing.actions_hint") }));
+        actions.forEach((call, n) => {
+            const bound = new Set(thing.parties.map((p) => p.role));
+            // A role already bound need not be named again (unless the
+            // action binds it on every call).
+            const shown = { ...call, inputs: call.inputs.filter((i) => !(i.place === "role" && bound.has(i.name) && !i.each_call)) };
+            parts.push(el("section", { class: "kind", "aria-labelledby": `action-${n}` },
+                          el("h3", { id: `action-${n}`, text: call.label }),
+                          call.clauses.length ? el("details", {},
+                                                   el("summary", { text: t("thing.what_it_does") }),
+                                                   el("ul", {}, call.clauses.map((c) => el("li", { text: c }))))
+                                              : null,
+                          callForm(shown, { action: "contract.call", instance: thing.id,
+                                            function: call.function }, ledger, `action-${n}`)));
+        });
+    } else if (!view.calls) {
+        parts.push(el("p", { class: "hint", text: t("thing.no_calls") }));
+    }
+    // Time rules whose time has come: the keeper would call them; the
+    // person may call one now.
+    if (view.due.length) {
+        parts.push(el("h2", { text: t("thing.due_title") }));
+        for (const rule of view.due) {
+            const notice = el("div");
+            const run = el("button", { type: "button", text: t("thing.run_now"),
+                                       "aria-label": t("thing.run_now_label", { rule: rule.function }) });
+            run.disabled = !acting;
+            run.addEventListener("click", async () => {
+                try {
+                    await approveScreen(await api("POST", "prepare", {
+                        action: "contract.call", instance: thing.id, function: rule.function,
+                        values: {}, language: state.language,
+                    }));
+                } catch (error) {
+                    callProblem(error, el("form"), notice);
+                }
+            });
+            parts.push(el("div", { class: "kind" },
+                          el("p", { text: t("thing.due_rule", { rule: rule.function }) }), notice, run));
+        }
+    }
+    // Requests waiting for an answer, answered by hand.
+    if (view.requests.length) {
+        parts.push(el("h2", { text: t("thing.requests_title") }),
+                   el("p", { class: "hint", text: t("thing.requests_hint") }));
+        view.requests.forEach((r, n) => {
+            const notice = el("div");
+            const [reasonField, reason] = field(`answer-reason-${n}`, t("thing.answer_reason"),
+                                                t("thing.answer_reason_hint"), { maxlength: 64 });
+            const answer = (status) => async () => {
+                try {
+                    await approveScreen(await api("POST", "prepare", {
+                        action: "request.answer", request: r.id, status,
+                        reason: status === "done" ? "" : reason.value.trim(), language: state.language,
+                    }));
+                } catch (error) {
+                    callProblem(error, el("form"), notice);
+                }
+            };
+            const buttons = ["done", "failed", ...(r.overdue ? ["expired"] : [])].map((s) => {
+                const b = el("button", { type: "button", text: t(`thing.answer.${s}`),
+                                         "aria-label": t(`thing.answer_label.${s}`, { kind: r.kind }) });
+                b.disabled = !acting;
+                b.addEventListener("click", answer(s));
+                return b;
+            });
+            parts.push(el("section", { class: "kind" },
+                          el("h3", { text: t("thing.request", { kind: r.kind }) }),
+                          el("p", { text: t(r.overdue ? "thing.request_overdue" : "thing.request_due",
+                                            { time: timeText(r.deadline) }) }),
+                          el("p", { class: "id", text: r.params }),
+                          reasonField, notice, el("div", { class: "toolbar" }, buttons)));
+        });
+    }
+    parts.push(el("h2", { text: t("thing.history_title") }),
+               el("ol", { class: "events" }, view.history.map((h) => el("li", {
+                   text: t(h.in_person ? "thing.history_person" : "thing.history_machine", {
+                       function: h.function ?? "?", who: h.by ?? "?", time: timeText(h.time),
+                       index: h.index,
+                   }),
+               }))));
+    const share = el("button", { type: "button", text: t("share.button") });
+    const shared = el("div", { role: "status" });
+    share.addEventListener("click", async () => {
+        share.disabled = true;
+        try {
+            const name = await saveDownload("proof", {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ instance: thing.id }),
+            }, `proof-${thing.id.slice(0, 12)}.cbor`);
+            shared.replaceChildren(el("p", { text: t("share.made", { name }) }),
+                                   el("p", { class: "hint", text: t("share.send") }));
+        } catch (error) {
+            shared.replaceChildren(problem(t("error.server", { message: error.message })));
+        } finally {
+            share.disabled = false;
+        }
+    });
+    parts.push(el("h2", { text: t("share.title") }), el("p", { text: t("thing.share_intro") }), share,
+               shared);
+    show(...parts);
 }
 
 // --- The checks in this browser --------------------------------------------------
@@ -2057,6 +2410,15 @@ function agrees(decoded, summary) {
            (decoded.contract ?? null) === (summary.contract ?? null) &&
            (decoded.role ?? null) === (summary.role ?? null) &&
            (decoded.reason ?? null) === (summary.reason ?? null);
+}
+
+/// A call's bytes are the call the page shows: its function, what it acts
+/// on, at which head, with which arguments (as the compiler built them), an
+/// answer's request and status, and no consents.
+function callAgrees(decoded, summary) {
+    const same = (key) => (decoded[key] ?? null) === (summary[key] ?? null);
+    return decoded.ok && decoded.type === "contract-call" && decoded.consents === 0 &&
+           ["function", "contract", "instance", "head", "arguments", "request", "status"].every(same);
 }
 
 /// A deploy's bytes carry the code the console built: its size and digest
@@ -2161,6 +2523,7 @@ async function approveScreen(prepared, files = new Map()) {
     const registering = summary.type === "record-register";
     const deploying = summary.type === "contract-deploy";
     const rules = deploying || summary.type === "contract-retire";
+    const calling = summary.type === "contract-call";
     const check = await loadChecker();
     let challenge = prepared.public_key.challenge;
     let checkedHere = false;
@@ -2170,7 +2533,8 @@ async function approveScreen(prepared, files = new Map()) {
         const own = check.challenge(payload, new Uint8Array(fromBase64url(prepared.kid)),
                                     prepared.hash);
         const matches = registering ? registrationAgrees(check, decoded, prepared, files)
-            : deploying ? deployAgrees(decoded, summary) : agrees(decoded, summary);
+            : deploying ? deployAgrees(decoded, summary)
+            : calling ? callAgrees(decoded, summary) : agrees(decoded, summary);
         if (!matches || !own.ok || own.challenge !== challenge) {
             show(el("h1", { text: t("approve.title") }), problem(t("approve.mismatch")),
                  backButton(t("nav.things")));
@@ -2189,6 +2553,22 @@ async function approveScreen(prepared, files = new Map()) {
     fact("column.type", summary.record_type);
     fact("approve.name", summary.name);
     fact("column.id", summary.record ?? summary.contract);
+    if (calling) {
+        const run = summary.dry_run ?? {};
+        fact("approve.function", summary.function);
+        fact("approve.arguments", summary.arguments);
+        if (summary.request) {
+            fact("approve.answer", t(`thing.answer.${["", "done", "failed", "expired"][summary.status]}`));
+        }
+        fact("approve.after", run.status ?? t("value.none"));
+        if (run.events?.length) {
+            fact("approve.events", run.events.join(", "));
+        }
+        fact("column.final", yesNo(run.final));
+        if (run.requests) {
+            fact("approve.requests", run.requests);
+        }
+    }
     if (deploying) {
         fact("approve.language", summary.language);
         fact("approve.code_size", sizeText(summary.code_size));
@@ -2244,7 +2624,10 @@ async function approveScreen(prepared, files = new Map()) {
                  registering ? el("p", {}, el("a", { href: `#/thing/${done.statement_id}`,
                                                      text: t("register.open") }))
                              : null,
-                 rules ? goButton(t("rules.done"), "#/rules") : backButton(t("nav.things")));
+                 rules ? goButton(t("rules.done"), "#/rules")
+                 : calling ? goButton(t("thing.open"),
+                                      `#/instance/${summary.instance ?? done.statement_id}`)
+                 : backButton(t("nav.things")));
         } catch (error) {
             notice.replaceChildren(problem(passkeyProblem(error)));
             button.disabled = false;
@@ -2271,7 +2654,8 @@ function chrome() {
         : "";
     const hash = location.hash;
     const current = hash.startsWith("#/things") || hash.startsWith("#/new") ||
-                    hash.startsWith("#/thing/") ? "things"
+                    hash.startsWith("#/thing/") || hash.startsWith("#/instance/") ? "things"
+        : hash.startsWith("#/create/") ? "rules"
         : hash.startsWith("#/kinds") ? "kinds"
         : hash.startsWith("#/rules") ? "rules"
         : hash.startsWith("#/verify") ? "verify"
@@ -2323,7 +2707,11 @@ async function route() {
     }
     try {
         const thing = hash.match(/^#\/thing\/([0-9a-f]{64})$/);
+        const instance = hash.match(/^#\/instance\/([0-9a-f]{64})$/);
+        const create = hash.match(/^#\/create\/([0-9a-f]{64})$/);
         await (thing ? thingScreen(thing[1])
+            : instance ? instanceScreen(instance[1])
+            : create ? createScreen(create[1])
             : hash.startsWith("#/things") ? thingsScreen()
             : hash.startsWith("#/new") ? newDocumentScreen()
             : hash.startsWith("#/kinds") ? kindsScreen()
@@ -2351,6 +2739,7 @@ async function signOut() {
     store(sessionStorage, SESSION, null);
     state.who = null;
     state.rules = undefined;
+    store(sessionStorage, RULES_DRAFT, null);
     home();
 }
 

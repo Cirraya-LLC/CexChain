@@ -2753,6 +2753,50 @@ struct LedgerApi::State {
         });
     }
 
+    void instance_evidence(const protocol::Id& instance, std::function<void(Result<Bytes>)> done) {
+        if (options.log_keys.empty()) {
+            done(fail(Errc::unsupported, "this server has no log key"));
+            return;
+        }
+        if (failed || options.read_only || replica) {
+            done(fail(Errc::unavailable, "this server makes no checkpoints"));
+            return;
+        }
+        queue_locked([this, instance, done = std::move(done)](const http::Response* refusal) {
+            if (refusal != nullptr) {
+                done(fail(Errc::unavailable, "the ledger is busy; try again"));
+                return;
+            }
+            std::optional<std::uint64_t> head;
+            std::vector<protocol::Id> ancestors;
+            ledger->read_state([&](const protocol::LedgerState& s) {
+                if (const protocol::InstanceState* i = s.instance(instance)) {
+                    head = i->head;
+                    ancestors = ancestor_ids(s, instance);
+                }
+            });
+            if (!head) {
+                done(fail(Errc::not_found, "no such instance"));
+                return;
+            }
+            const auto latest = ledger->latest_checkpoint();
+            if (!latest || latest->checkpoint.tree_size <= *head) {
+                auto made =
+                    cluster ? cluster->checkpoint(log_keys()) : ledger->checkpoint(log_keys());
+                if (!made) {
+                    done(std::unexpected(made.error()));
+                    return;
+                }
+            }
+            auto bundle = ledger->export_evidence(log_keys(), instance);
+            if (!bundle) {
+                done(std::unexpected(bundle.error()));
+                return;
+            }
+            done(contract_evidence(*provider, options.directory, *bundle, ancestors));
+        });
+    }
+
     void make_checkpoint(std::string principal, Done& done) {
         if (options.log_keys.empty()) {
             finish(done, principal,
@@ -3717,6 +3761,11 @@ void LedgerApi::submit_statement(Bytes statement, Respond respond) {
 void LedgerApi::record_evidence(const protocol::Id& record,
                                 std::function<void(Result<Bytes>)> done) {
     state_->record_evidence(record, std::move(done));
+}
+
+void LedgerApi::instance_evidence(const protocol::Id& instance,
+                                  std::function<void(Result<Bytes>)> done) {
+    state_->instance_evidence(instance, std::move(done));
 }
 
 void LedgerApi::submit_submission(Bytes submission, Respond respond) {

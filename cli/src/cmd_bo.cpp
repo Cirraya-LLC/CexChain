@@ -21,6 +21,7 @@
 #include <vector>
 
 #include <cexchain/bo/build.hpp>
+#include <cexchain/bo/calls.hpp>
 #include <cexchain/bo/checker.hpp>
 #include <cexchain/bo/concepts.hpp>
 #include <cexchain/bo/explain.hpp>
@@ -1198,6 +1199,225 @@ int cmd_bo_form(const Args& args) {
     } else {
         std::print("{}", source);
     }
+    return exit_ok;
+}
+
+// --- bo calls and bo args.
+
+namespace {
+
+/// A contract read for its calls: a source with the packs given, or a
+/// built contract (.boc) with the packs its bundle names.
+struct ReadContract {
+    std::string source;
+    std::optional<bo::PackSet> set;
+    std::vector<bo::Diagnostic> diagnostics;
+    std::optional<bo::Checked> checked;
+};
+
+ReadContract read_contract(const Args& args, const std::string& file) {
+    ReadContract out;
+    if (file.ends_with(".boc")) {
+        if (args.has("pack") || args.has("vocab")) {
+            throw UsageError{std::string("a .boc file carries its packs: drop --") +
+                             (args.has("pack") ? "pack" : "vocab")};
+        }
+        const bo::BuiltContract built =
+            unwrap(bo::decode_built(read_file(file)), file + " is not a built contract (.boc)");
+        const auto bundle = unwrap(bo::decode_source_bundle(built.source),
+                                   file + ": its source bundle does not read");
+        bo::OpenedSource opened = bo::open_source_bundle(bundle, provider(), built.hash);
+        if (!opened.packs) {
+            throw CommandError{file + ": the packs its source was read with are not here (" +
+                               opened.detail + ")"};
+        }
+        out.source = bundle.source;
+        out.set = std::move(*opened.packs);
+    } else {
+        out.set = pack_set(args);
+        out.source = read_text_file(file);
+    }
+    const bo::Lexicon lexicon(*out.set);
+    const bo::Lexed lexed = bo::lex(out.source, lexicon);
+    const bo::Parsed parsed = bo::parse(out.source, lexed);
+    out.diagnostics = lexed.diagnostics;
+    out.diagnostics.insert(out.diagnostics.end(), parsed.diagnostics.begin(),
+                           parsed.diagnostics.end());
+    if (!bo::has_errors(out.diagnostics)) {
+        out.checked = bo::check(out.source, parsed.file);
+        out.diagnostics.insert(out.diagnostics.end(), out.checked->diagnostics.begin(),
+                               out.checked->diagnostics.end());
+    }
+    if (bo::has_errors(out.diagnostics)) {
+        out.checked.reset();
+    }
+    return out;
+}
+
+/// Refuses a contract that does not check: its calls are those of a
+/// contract that builds.
+int refuse_unchecked(const Args& args, const std::string& file, const ReadContract& read,
+                     const bo::Pack* language) {
+    if (args.json()) {
+        print_json({{"file", file},
+                    {"ok", false},
+                    {"diagnostics", diagnostics_json(read.diagnostics, language)}});
+        return exit_failure;
+    }
+    print_source_diagnostics(stderr, file, read.diagnostics, language);
+    throw CommandError{file + " does not check (see above)"};
+}
+
+Json input_json(const bo::calls::Input& in) {
+    return {{"name", in.name},
+            {"label", in.label},
+            {"type", in.type},
+            {"type_text", in.type_text},
+            {"place", bo::calls::place_names[static_cast<std::size_t>(in.place)]},
+            {"optional", in.optional},
+            {"each_call", in.each_call},
+            {"initial", in.initial.empty() ? Json(nullptr) : Json(in.initial)}};
+}
+
+} // namespace
+
+int cmd_bo_calls(const Args& args) {
+    const std::string file = args.positional().front();
+    const ReadContract read = read_contract(args, file);
+    const bo::Pack* language = set_language(args, *read.set);
+    if (!read.checked) {
+        return refuse_unchecked(args, file, read, language);
+    }
+    const bo::model::Model& model = read.checked->model;
+    const bo::calls::Description description = bo::calls::describe(model, read.source, language);
+    // An instance's state, read by the contract's types: ledgers named by
+    // --label LEDGER=NAME, else in hex.
+    std::optional<bo::ExplainedState> state;
+    if (const auto hex = args.get("state")) {
+        const Bytes bytes = unwrap(from_hex(*hex), "--state is the state's CBOR in hex");
+        const cbor::Value value = unwrap(cbor::decode(bytes), "--state is not CBOR");
+        std::vector<std::pair<std::string, std::string>> labels;
+        for (const std::string& item : args.all("label")) {
+            const std::size_t equals = item.find('=');
+            if (equals == std::string::npos) {
+                throw UsageError{"--label is LEDGER=NAME, the ledger id in hex"};
+            }
+            labels.emplace_back(item.substr(0, equals), item.substr(equals + 1));
+        }
+        state = bo::explain_state(model, value, language, [&](ByteView ledger) {
+            const std::string id = to_hex(ledger);
+            for (const auto& [ledger_id, name] : labels) {
+                if (ledger_id == id) {
+                    return name;
+                }
+            }
+            return id;
+        });
+    }
+    if (args.json()) {
+        Json calls = Json::array();
+        for (const bo::calls::Call& c : description.calls) {
+            Json inputs = Json::array();
+            for (const bo::calls::Input& in : c.inputs) {
+                inputs.push_back(input_json(in));
+            }
+            calls.push_back({{"kind", bo::calls::kind_names[static_cast<std::size_t>(c.kind)]},
+                             {"function", c.function},
+                             {"label", c.label},
+                             {"agents_propose", c.agents_propose},
+                             {"inputs", std::move(inputs)},
+                             {"clauses", c.clauses}});
+        }
+        Json out = {{"file", file},
+                    {"ok", true},
+                    {"contract", description.contract},
+                    {"language", language != nullptr ? Json(language->id) : Json("en")},
+                    {"calls", std::move(calls)}};
+        if (state) {
+            Json fields = Json::array();
+            for (const bo::ExplainedValue& v : state->fields) {
+                fields.push_back({{"field", v.field}, {"value", v.value}});
+            }
+            out["state"] = {{"state", state->state}, {"fields", std::move(fields)}};
+        }
+        print_json(out);
+        return exit_ok;
+    }
+    std::println("{}", description.contract);
+    for (const bo::calls::Call& c : description.calls) {
+        std::println("  {} ({}){}", c.function,
+                     bo::calls::kind_names[static_cast<std::size_t>(c.kind)],
+                     c.agents_propose ? ", AI agents only propose it" : "");
+        for (const bo::calls::Input& in : c.inputs) {
+            std::println("    {}: {}{}{}", in.name, in.type_text, in.optional ? ", optional" : "",
+                         in.initial.empty() ? "" : ", default " + in.initial);
+        }
+    }
+    if (state) {
+        std::println("state: {}", state->state);
+        for (const bo::ExplainedValue& v : state->fields) {
+            std::println("  {}: {}", v.field, v.value);
+        }
+    }
+    return exit_ok;
+}
+
+int cmd_bo_args(const Args& args) {
+    const std::string file = args.positional().at(0);
+    const std::string function = args.positional().at(1);
+    const ReadContract read = read_contract(args, file);
+    const bo::Pack* language = set_language(args, *read.set);
+    if (!read.checked) {
+        return refuse_unchecked(args, file, read, language);
+    }
+    bo::calls::Values values;
+    if (const auto json = args.get("values")) {
+        auto parsed = bo::calls::parse_values(*json);
+        if (const auto* bad = std::get_if<std::string>(&parsed)) {
+            throw UsageError{"--values: " + *bad};
+        }
+        values = std::get<bo::calls::Values>(std::move(parsed));
+    }
+    for (const std::string& item : args.all("set")) {
+        const std::size_t equals = item.find('=');
+        if (equals == std::string::npos || equals == 0) {
+            throw UsageError{"--set is NAME=VALUE"};
+        }
+        values.emplace_back(item.substr(0, equals), bo::calls::Value{item.substr(equals + 1)});
+    }
+    const bo::Lexicon lexicon(*read.set);
+    const bo::calls::Arguments built =
+        bo::calls::arguments(read.checked->model, lexicon, function, values);
+    if (args.json()) {
+        Json problems = Json::array();
+        for (const bo::calls::Problem& p : built.problems) {
+            problems.push_back(
+                {{"name", p.name},
+                 {"code", p.code},
+                 {"type", p.type.empty() ? Json(nullptr) : Json(p.type)},
+                 {"type_text",
+                  p.type.empty() ? Json(nullptr) : Json(bo::describe_type(p.type, language))},
+                 {"message", p.detail}});
+        }
+        Json out = {{"file", file},
+                    {"ok", built.value.has_value()},
+                    {"function", function},
+                    {"problems", std::move(problems)}};
+        if (built.value) {
+            out["arguments"] = cbor::diagnostic(*built.value);
+            out["cbor"] = to_hex(unwrap(cbor::encode(*built.value), "the arguments"));
+        }
+        print_json(out);
+        return built.value ? exit_ok : exit_failure;
+    }
+    for (const bo::calls::Problem& p : built.problems) {
+        std::println(stderr, "{}{}: {} ({})", file, p.name.empty() ? "" : ": " + p.name, p.detail,
+                     p.code);
+    }
+    if (!built.value) {
+        return exit_failure;
+    }
+    std::println("{}", cbor::diagnostic(*built.value));
     return exit_ok;
 }
 

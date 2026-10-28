@@ -203,10 +203,27 @@ http::Response Console::rules_route(const http::Request& request) const {
         return request.method == "GET" ? contracts_route(signer)
                                        : error(405, "unsupported", "method not allowed");
     }
+    const std::string_view what = std::string_view(request.path).substr(rules_prefix.size());
+    // A contract's page: what its calls take, for everyone who may create
+    // or act (and read, for viewers).
+    if (what.size() == 64 && what.find_first_not_of("0123456789abcdef") == std::string_view::npos) {
+        if (request.method != "GET") {
+            return error(405, "unsupported", "method not allowed");
+        }
+        std::optional<protocol::Id> id;
+        if (const auto bytes = from_hex(what)) {
+            if (auto made = protocol::to_id(*bytes)) {
+                id = *made;
+            }
+        }
+        if (!id) {
+            return error(400, "invalid_argument", "a contract id is 64 hex digits");
+        }
+        return contract_route(signer, *id, request);
+    }
     if (signer.role != Role::owner && signer.role != Role::admin) {
         return error(403, "forbidden", "only an owner or an admin writes rules");
     }
-    const std::string_view what = std::string_view(request.path).substr(rules_prefix.size());
     if (what == "packs") {
         if (request.method != "GET") {
             return error(405, "unsupported", "method not allowed");

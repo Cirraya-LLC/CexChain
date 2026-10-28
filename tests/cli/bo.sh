@@ -69,7 +69,7 @@ start_server() {
 }
 
 echo "== help and completion"
-for command in "bo check" "bo build" "bo explain" "bo fmt" "bo form" "bo test" "bo packs list" "bo packs show" "bo packs check" "bo stdlib list" "bo stdlib show" "bo vocab list" "bo vocab show" "bo vocab check"; do
+for command in "bo check" "bo build" "bo explain" "bo fmt" "bo form" "bo calls" "bo args" "bo test" "bo packs list" "bo packs show" "bo packs check" "bo stdlib list" "bo stdlib show" "bo vocab list" "bo vocab show" "bo vocab check"; do
     # shellcheck disable=SC2086
     run $command --help > out.txt
     contains -F "cexchain $command" out.txt || fail "help for $command"
@@ -78,7 +78,7 @@ done
 run --help > out.txt
 contains -F "bo packs list" out.txt || fail "overview lists bo"
 run completion bash > out.txt
-contains -F '"bo") words="build check explain fmt form packs stdlib test vocab"' out.txt || fail "completion: bo"
+contains -F '"bo") words="args build calls check explain fmt form packs stdlib test vocab"' out.txt || fail "completion: bo"
 contains -F '"bo vocab") words="check list show"' out.txt || fail "completion: bo vocab"
 contains -F '"bo stdlib") words="list show"' out.txt || fail "completion: bo stdlib"
 contains -F -- "--write" out.txt || fail "completion: bo fmt"
@@ -1601,5 +1601,71 @@ contains -F "does not fit the form" out.txt || fail "a source that does not fit"
     fail "bo form --from --json"
 expect_exit 1 bo form
 expect_exit 1 bo form lending.json --from lending-form.bo
+
+echo "== bo calls and bo args: what each call takes, and its arguments from a form's values"
+cat > order.bo << 'BO'
+contract Order
+parties we, buyer, carrier
+
+thing Deal
+  cost HKD
+  fee HKD = HKD 10
+  starts date
+  weight kg
+  urgent yes or no
+  tags list text at most 2
+  note text
+
+can ship by we to carrier with lead day
+  requires lead > 0
+  open -> shipped
+BO
+run bo calls order.bo --json > calls.json
+[ "$(json '[c["function"] for c in d["calls"]]' < calls.json)" = "['create', 'ship']" ] ||
+    fail "bo calls: the functions"
+[ "$(json '[(i["name"], i["place"], i["optional"]) for i in d["calls"][0]["inputs"]]' < calls.json)" = \
+  "[('cost', 'field', False), ('fee', 'field', True), ('starts', 'field', False), ('weight', 'field', False), ('urgent', 'field', False), ('tags', 'field', False), ('note', 'field', False), ('we', 'role', False), ('buyer', 'role', False)]" ] ||
+    fail "bo calls: the creation's values"
+[ "$(json 'd["calls"][0]["inputs"][1]["initial"]' < calls.json)" = "HKD 10" ] || fail "bo calls: a default"
+[ "$(json '[(i["name"], i["place"]) for i in d["calls"][1]["inputs"]]' < calls.json)" = "[('lead', 'input'), ('carrier', 'role')]" ] ||
+    fail "bo calls: an action's values"
+json 'd["calls"][1]["clauses"]' < calls.json | contains -F "Started by us, whose agreement it needs." || fail "bo calls: an action's clauses"
+run bo calls order.bo | contains -F "fee: money in HKD, optional, default HKD 10"
+run bo calls order.bo --language zh-Hant-HK --json | json 'd["calls"][0]["inputs"][0]["type_text"]' |
+    contains "港元" || fail "bo calls: types in Traditional Chinese"
+run bo build order.bo --out order.boc > /dev/null
+run bo calls order.boc --json | json '[c["function"] for c in d["calls"]]' | contains -F "['create', 'ship']" ||
+    fail "bo calls: a built contract"
+WE=$(printf '1%.0s' $(seq 64)); BUYER=$(printf '2%.0s' $(seq 64)); CARRIER=$(printf '3%.0s' $(seq 64))
+values='{"cost": "HKD 1_250.50", "starts": "2027年1月6日", "weight": "3 噸", "urgent": true,
+  "tags": ["fragile", "upright"], "note": "by hand", "we": "'$WE'", "buyer": "'$BUYER'"}'
+run bo args order.bo create --values "$values" --json > args.json
+[ "$(json 'd["ok"]' < args.json)" = True ] || fail "bo args: the creation"
+json 'd["arguments"]' < args.json | contains -F '"cost": 125050' || fail "bo args: money in cents"
+json 'd["arguments"]' < args.json | contains -F '"weight": 3000000' || fail "bo args: tonnes in grams"
+json 'd["arguments"]' < args.json | contains -F '"starts": 1799164800000' || fail "bo args: a date at +08:00"
+json 'd["arguments"]' < args.json | contains -F '"tags": ["fragile", "upright"]' || fail "bo args: a list"
+json 'd["arguments"]' < args.json | contains -F '"urgent": true' || fail "bo args: yes or no"
+# A plain number in a money field is in its currency; the default may be left out.
+run bo args order.bo create --values "${values/HKD 1_250.50/100}" | contains -F '"cost": 10000'
+run bo args order.bo ship --set "lead=3日" --set "carrier=$CARRIER" | contains -F '"lead": 259200000'
+# Each problem names its value and a code.
+problem() { # FUNCTION VALUES NAME CODE
+    expect_exit 2 bo args order.bo "$1" --values "$2" --json
+    [ "$(json '[(p["name"], p["code"]) for p in d["problems"]]' < out.txt)" = "[('$3', '$4')]" ] ||
+        fail "bo args: $3 $4"
+}
+problem create "${values/HKD 1_250.50/USD 5}" cost type
+problem create "${values/HKD 1_250.50/HKD 0.001}" cost exact
+problem create "${values/2027年1月6日/tomorrow}" starts literal
+problem create "${values/\"upright\"\]/\"upright\", \"spare\"]}" tags bound
+problem create "${values/$BUYER/xyz}" buyer ledger
+problem create "${values/\"note\": \"by hand\", /}" note missing
+problem create "${values/\"urgent\": true/\"urgent\": true, \"colour\": \"red\"}" colour unknown
+problem ship '{"lead": "1 month"}' lead type
+expect_exit 2 bo args order.bo when.nothing
+contains -F "(function)" out.txt || fail "bo args: no such function"
+expect_exit 1 bo args order.bo create --values '[1]'
+expect_exit 1 bo args order.bo
 
 echo "bo: all checks passed"

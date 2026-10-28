@@ -193,6 +193,13 @@ public:
         const std::lock_guard lock(api_mutex_);
         evidence_ = std::move(evidence);
     }
+    /// An instance's contract evidence from the node
+    /// (node::LedgerApi::instance_evidence). Until it is set, proofs of
+    /// things with rules answer 503.
+    void set_instance_evidence(Evidence evidence) {
+        const std::lock_guard lock(api_mutex_);
+        instance_evidence_ = std::move(evidence);
+    }
 
     /// Called once the console is set up or unlocked, when the ledger's API
     /// can open (DeferredApi::open_now).
@@ -248,6 +255,23 @@ private:
     [[nodiscard]] http::Response kinds_route(const http::Request& request) const;
     /// /console/api/rules/...: the compiler on a sheet or a source.
     [[nodiscard]] http::Response rules_route(const http::Request& request) const;
+    /// Things with rules (instances.cpp): a deployed contract as a .boc
+    /// (Bo only), what its calls take (`bo calls` in the child), a
+    /// contract's page, a thing's page, a call built from an intent, and a
+    /// call run on the state before the tap.
+    [[nodiscard]] std::optional<Bytes> deployed_boc(const protocol::Id& contract) const;
+    [[nodiscard]] std::variant<nlohmann::json, http::Response>
+    contract_calls(const Signed& who, const protocol::Id& contract, const std::string& language,
+                   const std::vector<std::string>& more = {}) const;
+    [[nodiscard]] http::Response contract_route(const Signed& who, const protocol::Id& contract,
+                                                const http::Request& request) const;
+    [[nodiscard]] http::Response instance_route(const http::Request& request) const;
+    [[nodiscard]] std::variant<protocol::ContractCallBody, http::Response>
+    call_body(const Signed& who, const nlohmann::json& intent, const std::string& action) const;
+    [[nodiscard]] nlohmann::json dry_run(const protocol::LedgerState& state,
+                                         const protocol::Statement& statement,
+                                         const protocol::ActorState& actor,
+                                         const std::string& language) const;
     /// What the compiler answered, and the files it wrote that were asked
     /// for.
     struct CompilerRun {
@@ -350,6 +374,10 @@ private:
         const std::lock_guard lock(api_mutex_);
         return evidence_;
     }
+    [[nodiscard]] Evidence instance_evidence() const {
+        const std::lock_guard lock(api_mutex_);
+        return instance_evidence_;
+    }
     /// Tells the node the ledger's API may open (set up, or unlocked).
     void ready_now() const;
 
@@ -357,6 +385,7 @@ private:
     const ledger::Ledger* ledger_ = nullptr;
     Submit submit_;
     Evidence evidence_;
+    Evidence instance_evidence_;
     std::function<void()> on_ready_;
     mutable std::mutex mutex_;
     std::vector<Origin> origins_;

@@ -102,7 +102,7 @@ endif()
 # The Bo compiler: its front end with any compiler, the rest where it
 # builds (GCC 16). Labelled "bo": the GCC ASan+UBSan configuration builds and
 # runs these alone.
-add_executable(cexchain_bo_tests bo/check_test.cpp bo/explain_test.cpp bo/form_test.cpp bo/format_test.cpp
+add_executable(cexchain_bo_tests bo/calls_test.cpp bo/check_test.cpp bo/explain_test.cpp bo/form_test.cpp bo/format_test.cpp
     bo/lexer_test.cpp
     bo/packs_test.cpp bo/parser_test.cpp bo/source_test.cpp bo/stdlib_test.cpp bo/vocab_test.cpp)
 target_link_libraries(cexchain_bo_tests PRIVATE

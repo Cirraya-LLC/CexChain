@@ -2610,6 +2610,60 @@ std::vector<CommandSpec> build() {
          "  cexchain bo form lending.json\n"
          "  cexchain bo form lending.json --language zh-Hant-HK --out lending.bo\n"
          "  cexchain bo form --from lending.bo --out lending.json\n\n" CEXCHAIN_BO_PACKS_HELP},
+        {{"bo", "calls"},
+         "List what each call of a contract takes, for a form",
+         "Bo language",
+         "FILE",
+         1,
+         1,
+         with({vocab_option,
+               memory_option,
+               pack_option,
+               {"language", "LANG",
+                "Labels, types, and clauses in en, zh-Hant-HK, zh-Hans-CN, or a given pack's "
+                "language (default: $CEXCHAIN_LANGUAGE, else en)"},
+               {"state", "HEX", "Also an instance's state (its CBOR, in hex), in words"},
+               {"label", "LEDGER=NAME", "With --state: name this ledger (its id in hex)", false,
+                true}}),
+         cmd_bo_calls,
+         "FILE is a Bo source, or a built contract (.boc, as bo build --out writes it and a\n"
+         "deploy records it), read with the packs its bundle names. Lists the contract's calls\n"
+         "in the order of its interface: the creation (the fields given at creation, each\n"
+         "required or with its default, and the roles bound at creation), each action (its\n"
+         "inputs, the role it binds to the ledger a call names, whether AI agents only propose\n"
+         "it, and its clauses of the contract text), approve, the time rules, and the reply to\n"
+         "requests. Each value has its name in the call's arguments, its label and type in the\n"
+         "reader's language, and where it goes (a field, a role, or an input). --state shows an\n"
+         "instance's state as the contract text writes it.\n\n"
+         "  cexchain bo calls lending.bo\n"
+         "  cexchain bo calls lending.boc --language zh-Hant-HK --json\n\n" CEXCHAIN_BO_PACKS_HELP},
+        {{"bo", "args"},
+         "Build a call's arguments from values written as a person would",
+         "Bo language",
+         "FILE FUNCTION",
+         2,
+         2,
+         with({vocab_option,
+               memory_option,
+               pack_option,
+               {"language", "LANG", "Messages in en, zh-Hant-HK, zh-Hans-CN"},
+               {"values", "JSON", "The values: {\"NAME\": VALUE, ...}"},
+               {"set", "NAME=VALUE", "One value, as text (repeatable)", false, true}}),
+         cmd_bo_args,
+         "Builds the arguments of a call of FUNCTION (the creation, or an action) on the\n"
+         "contract in FILE (a source or a .boc), as spec/bo.md section 12.4 defines them, from\n"
+         "values by name, as bo calls lists them. A text is taken as typed; yes or no is true or\n"
+         "false; a party is its ledger id (64 hexadecimal digits); a list is a JSON array; a\n"
+         "number, money, a quantity, a rate, a date, or a duration is written as Bo writes it, in\n"
+         "any language (HKD 100.50, 500萬, 2027年1月6日, 30日), and checked against the declared\n"
+         "type. A plain number is in the field's currency for money, in the declared unit for a\n"
+         "quantity that names one, and in percent for a rate. Prints the arguments in CBOR\n"
+         "diagnostic notation, for contract create --args and contract call --args; each\n"
+         "problem names its value and a code (missing, unknown, type, literal, exact, ledger,\n"
+         "bound, size, twice, function). Exit status 2 if there is one.\n\n"
+         "  cexchain bo args lending.bo create --set \"name=Camera X100\" --set owner=3f2a...\n"
+         "  cexchain bo args lending.bo lend --values '{\"counterparty\": \"8d01...\"}' "
+         "--json\n\n" CEXCHAIN_BO_PACKS_HELP},
         {{"bo", "test"},
          "Run the test blocks of a Bo source: each scenario, step by step, as a ledger would",
          "Bo language",
