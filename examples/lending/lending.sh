@@ -10,8 +10,9 @@
 #     tests it, and deploys it on her ledger;
 #   - she registers her camera as an instance of it, and keeps its serial
 #     number and a photo in a record whose values stay private;
-#   - she lends it to Bob, which needs Bob's agreement: he checks the camera's
-#     history offline, then consents on his own ledger, as a file she records
+#   - she lends it to Bob, which needs Bob's agreement: she sends him a
+#     proposal file with the camera's history, he checks it offline and
+#     consents on his own ledger, and sends back a consent file she records
 #     the call with;
 #   - Bob brings it back; anyone verifies the whole history offline, every
 #     call run again, every consent checked, the contract's code rebuilt from
@@ -112,20 +113,25 @@ run contract call "$CAMERA" lend --args "$LEND" --dry-run --as alice-root.key --
     > dry.txt
 check dry.txt 'consent'
 indent < dry.txt
-# Alice sends Bob the camera's evidence. Bob checks it offline before he
-# agrees: the contract's code rebuilt from its source, every call run again.
-run contract evidence "$CAMERA" --log-key alice-log.key --out camera.cbor --ledger "$ALICE" > /dev/null
-run contract verify camera.cbor --ledger-id "$ALICE_ID" > verify1.txt
-check verify1.txt 'rebuilds'
-say "Bob verifies the camera's evidence offline: its contract rebuilds from its source."
-# His consent is a record on his own ledger naming the exact call: the
+# Alice asks for Bob's consent with a proposal file: the call's exact terms,
+# and the camera's evidence, so that Bob checks it offline before he agrees
+# (the contract's code rebuilt from its source, every call run again).
+run contract proposal "$CAMERA" lend --args "$LEND" --note "The camera, for your trip" \
+    --as alice-root.key --log-key alice-log.key --out lend.cexchain --ledger "$ALICE" > /dev/null
+say "Alice sends Bob lend.cexchain: the call's terms and the camera's evidence."
+run contract file show lend.cexchain > shown.txt
+check shown.txt 'proposal lend.cexchain, verified'
+check shown.txt 'The camera, for your trip'
+say "Bob reads it: the evidence verifies for Alice's ledger, and the call is the one named."
+# His consent is a record on his own ledger naming that one call: the
 # instance, its head, the function, and a digest of the arguments. It counts
-# once, for this call only.
-run contract consent --home "$ALICE_ID" --evidence camera.cbor --instance "$CAMERA" --function lend \
-    --args "$LEND" --as bob-root.key --log-key bob-log.key --out lend-consent.cbor \
-    --ledger "$BOB" > /dev/null
-say "Bob consents on his ledger and sends Alice the file lend-consent.cbor."
-run contract call "$CAMERA" lend --args "$LEND" --consent lend-consent.cbor --as alice-root.key \
+# once, for this call only. He sends back the consent file.
+run contract consent --proposal lend.cexchain --as bob-root.key --log-key bob-log.key \
+    --out lend-consent.cexchain --ledger "$BOB" > /dev/null
+run contract file show lend-consent.cexchain > consent.txt
+check consent.txt 'consent lend-consent.cexchain, verified'
+say "Bob consents on his ledger and sends Alice lend-consent.cexchain."
+run contract call "$CAMERA" lend --consent lend-consent.cexchain --as alice-root.key \
     --ledger "$ALICE" > lend.txt
 check lend.txt 'status: lent'
 indent < lend.txt
@@ -140,12 +146,14 @@ check twice.txt 'bo:state lend'
 say "While it is lent, the contract refuses another loan (bo:state lend)."
 
 step "6. Bob brings it back"
-run contract evidence "$CAMERA" --log-key alice-log.key --out lent.cbor --ledger "$ALICE" > /dev/null
-run contract consent --home "$ALICE_ID" --evidence lent.cbor --instance "$CAMERA" \
-    --function bring_back --args "{}" --as bob-root.key --log-key bob-log.key \
-    --out back-consent.cbor --ledger "$BOB" > /dev/null
-run contract call "$CAMERA" bring_back --args "{}" --consent back-consent.cbor \
-    --as alice-root.key --ledger "$ALICE" > back.txt
+# Only the holder starts it: Alice records it with Bob's consent, asked the
+# same way.
+run contract proposal "$CAMERA" bring_back --args "{}" --as alice-root.key \
+    --log-key alice-log.key --out back.cexchain --ledger "$ALICE" > /dev/null
+run contract consent --proposal back.cexchain --as bob-root.key --log-key bob-log.key \
+    --out back-consent.cexchain --ledger "$BOB" > /dev/null
+run contract call "$CAMERA" bring_back --consent back-consent.cexchain --as alice-root.key \
+    --ledger "$ALICE" > back.txt
 check back.txt 'status: active'
 indent < back.txt
 

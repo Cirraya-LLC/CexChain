@@ -15,6 +15,7 @@ add_library(cexchain_core
     src/merkle.cpp
     src/protocol/access.cpp
     src/protocol/contract_evidence.cpp
+    src/protocol/exchange.cpp
     src/protocol/contracts.cpp
     src/protocol/common.cpp
     src/protocol/envelope.cpp

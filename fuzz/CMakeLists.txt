@@ -81,6 +81,8 @@ if(TARGET cexchain_node)
     cexchain_add_fuzzer(pending_call_fuzz cexchain::node)
     # Kept files: sealed files and a submission's list of them.
     cexchain_add_fuzzer(record_files_fuzz cexchain::node)
+    # Proposal and consent files (.cexchain) between ledgers.
+    cexchain_add_fuzzer(exchange_file_fuzz cexchain::core)
     # The web console's Host, Origin, and session checks (C++26, like the console).
     if(TARGET cexchain_console)
         cexchain_add_fuzzer(console_request_fuzz cexchain::console cexchain::crypto_openssl)

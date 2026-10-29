@@ -131,7 +131,8 @@ std::vector<Bytes> cite_consents(const Session& session, protocol::ContractCallB
                                  std::span<const std::string> paths) {
     std::vector<std::pair<protocol::ContractConsentRef, Bytes>> consents;
     for (const std::string& path : paths) {
-        Bytes bundle = read_file(path);
+        // A consent file (.cexchain) carries the bundle; a bundle alone works too.
+        Bytes bundle = read_consent_input(read_file(path)).bundle;
         const protocol::Id ledger = unwrap(protocol::bundle_ledger_id(bundle), "reading " + path);
         protocol::VerifyOptions options;
         options.expected_ledger = ledger;
@@ -437,6 +438,69 @@ Json consent_json(const protocol::Id& record, const protocol::ContractConsent& c
             {"arguments_digest", id_json(consent.arguments)},
             {"head", consent.head},
             {"until", iso_time(consent.until)}};
+}
+
+// ---------------------------------------------------------------------------
+// Proposal and consent files (.cexchain)
+// ---------------------------------------------------------------------------
+
+ProposalTerms check_proposal(const crypto::Provider& provider, const protocol::ExchangeFile& file) {
+    if (file.kind != protocol::ExchangeKind::proposal) {
+        throw ActionError{"this file is a consent, not a proposal"};
+    }
+    protocol::VerifyOptions options;
+    options.expected_ledger = file.home;
+    auto report =
+        ledger::verify_contract_evidence(provider, file.evidence, options, on_all_cores());
+    if (!report) {
+        throw ActionError{"the proposal's evidence does not verify for its home ledger: " +
+                          std::string(report.error().detail)};
+    }
+    if (report->instance.record != file.instance || !report->instance.instance) {
+        throw ActionError{"the proposal's evidence is of another instance"};
+    }
+    if (report->instance.instance->head != file.head) {
+        throw ActionError{
+            std::format("the proposal names head #{}, but its evidence shows the instance at #{}",
+                        file.head, report->instance.instance->head)};
+    }
+    if (report->instance.hash != file.hash) {
+        throw ActionError{"the proposal names another hash than its home's"};
+    }
+    ProposalTerms out;
+    out.consent.ledger = file.home;
+    out.consent.instance = file.instance;
+    out.consent.function = file.function;
+    out.consent.head = file.head;
+    out.consent.arguments = unwrap(
+        protocol::contract_arguments_digest(provider, file.hash, file.arguments), "the digest");
+    out.arguments = file.arguments;
+    out.report = std::move(*report);
+    return out;
+}
+
+ConsentInput read_consent_input(Bytes bytes) {
+    ConsentInput out;
+    if (auto file = protocol::decode_exchange_file(bytes)) {
+        if (file->kind != protocol::ExchangeKind::consent) {
+            throw ActionError{"this file is a proposal: consent to it (contract consent "
+                              "--proposal), then give the consent file"};
+        }
+        out.bundle = file->evidence;
+        out.file = std::move(*file);
+        return out;
+    }
+    out.bundle = std::move(bytes);
+    return out;
+}
+
+protocol::ExchangeFile consent_file(const protocol::ExchangeFile& proposal, Bytes bundle) {
+    protocol::ExchangeFile out = proposal;
+    out.kind = protocol::ExchangeKind::consent;
+    out.evidence = std::move(bundle);
+    out.needs.clear();
+    out.note.reset();
+    return out;
 }
 
 } // namespace cexchain::app

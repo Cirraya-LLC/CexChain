@@ -40,6 +40,7 @@
 #include <cexchain/core/protocol/contract_evidence.hpp>
 #include <cexchain/core/protocol/contracts.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
+#include <cexchain/core/protocol/exchange.hpp>
 #include <cexchain/core/protocol/presence.hpp>
 #include <cexchain/core/protocol/record.hpp>
 #include <cexchain/core/protocol/statement.hpp>
@@ -412,6 +413,26 @@ void form_seeds(const Seeds& seeds) {
                                       "  note text\n\ncan share by we\n  active -> shared\n"
                                       "  request sync to partner with note = note within 1 day\n"
                                       "\nwhen sync done\n  -> synced\n");
+}
+
+void exchange_seeds(const Seeds& seeds) {
+    protocol::ExchangeFile file;
+    file.home = protocol::Id::from_bytes(Bytes(32, 0x11)).value();
+    file.instance = protocol::Id::from_bytes(Bytes(32, 0x22)).value();
+    file.head = 7;
+    file.function = "lend";
+    file.arguments = cbor::Value::map(
+        {{cbor::Value::text("counterparty"), cbor::Value::bytes(Bytes(32, 0x33))}});
+    file.evidence = Bytes{1, 2, 3};
+    file.needs.push_back(protocol::Id::from_bytes(Bytes(32, 0x33)).value());
+    file.note = "Lend it to me, please";
+    seeds.write("exchange_file_fuzz", "proposal",
+                must(protocol::encode_exchange_file(file), "proposal"));
+    file.kind = protocol::ExchangeKind::consent;
+    file.needs.clear();
+    file.note.reset();
+    seeds.write("exchange_file_fuzz", "consent",
+                must(protocol::encode_exchange_file(file), "consent"));
 }
 
 void calls_seeds(const Seeds& seeds) {
@@ -1122,6 +1143,7 @@ int main(int argc, char** argv) {
         record_file_seeds(seeds);
         form_seeds(seeds);
         calls_seeds(seeds);
+        exchange_seeds(seeds);
         text_seeds(seeds);
         vm_seeds(seeds);
         contract_seeds(seeds);

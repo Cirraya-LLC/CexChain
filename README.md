@@ -219,7 +219,7 @@ The `cexchain` tool controls every part of a ledger:
 | Replicas | `replica init`, `replica sync`, `replica status`, `replica promote` |
 | Backups | `backup create`, `backup verify`, `backup restore` |
 | Other organizations | `peer add`, `peer list`, `peer show`, `peer remove`, `access request`, `access send`, `access inbox`, `access grant`, `access fetch`, `access accept`, `access receipt`, `access list` |
-| Contracts | `contract deploy`, `contract show`, `contract list`, `contract retire`, `contract create`, `contract call`, `contract instance`, `contract instances`, `contract evidence`, `contract propose`, `contract pending`, `contract consent`, `contract withdraw`, `contract send`, `contract fetch`, `contract verify`, `contract explain` |
+| Contracts | `contract deploy`, `contract show`, `contract list`, `contract retire`, `contract create`, `contract call`, `contract instance`, `contract instances`, `contract evidence`, `contract proposal`, `contract file show`, `contract propose`, `contract pending`, `contract consent`, `contract withdraw`, `contract send`, `contract fetch`, `contract verify`, `contract explain` |
 | Requests | `request list`, `request show`, `request answer`, `request cancel`, `request wait` |
 | Executors | `executor add`, `executor list`, `executor show`, `executor revoke`, `executor run`, `executor check`, `executor connector add\|list\|show\|remove`, `executor secret set\|list\|remove`, `executor journal list\|show`; `connector webhook`, `connector command` |
 | Keepers | `keeper add`, `keeper list`, `keeper show`, `keeper revoke`, `keeper due`, `keeper run`; `serve --keeper-key` |
@@ -622,9 +622,14 @@ cexchain contract verify instance.cbor --ledger-id <home-ledger-id>
 Arguments are written in CBOR diagnostic notation: JSON without floating point, plus byte strings
 (`h'00ff'`), keys of any type, and tags (`--args-cbor FILE` takes them encoded). `contract call
 --dry-run` shows what the contract would do. A consent names exact terms, among them the instance's
-*head* and a digest of the arguments, so it applies to one call, once. Without a registrar, the
-home's people record calls with consents as files (`contract call <instance> sign --consent
-a.cbor --consent b.cbor`). `contract verify` shows each call, its outcome, and who consented: a
+*head* and a digest of the arguments, so it applies to one call, once. Without a registrar, or
+between ledgers that do not reach each other's APIs, consents travel as files (`.cexchain`, by any
+channel): the home writes a *proposal* with the call's terms and the instance's evidence
+(`contract proposal <instance> sign --args ... --out sign.cexchain`); each party checks it offline
+(`contract file show sign.cexchain`) and consents on its own ledger, which writes the *consent*
+file to send back (`contract consent --proposal sign.cexchain --out ok.cexchain`); and the home
+records the call with the consent files, its arguments taken from them (`contract call
+<instance> sign --consent ok.cexchain`). `contract verify` shows each call, its outcome, and who consented: a
 person who proved presence, a key alone, or an AI agent and its model. The browser verifier shows
 the same report. Delegations can be limited to contracts (`delegation grant --contracts`), and
 `contract retire` stops new instances while existing ones carry on. `contract deploy WASM

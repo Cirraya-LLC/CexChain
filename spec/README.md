@@ -695,6 +695,12 @@ A verifier MAY, when asked to, fail evidence that has overdue open requests. For
 
 **Evidence for a child** leaves out its ancestors' later calls, and the siblings' calls. So it need not prove the ancestors' leaves, which list those later calls, and the home's bundles carry no proof for them. Their histories up to each creating call are still complete. Every call names the head it follows, so a call left out breaks the chain, and the creating calls are those the instance's id derives from. The involved objects (section 11, step 7) include those of the ancestors' calls, so their signers and delegations are proven complete like the instance's own.
 
+**Proposal and consent files** (`exchange-file`, extension `.cexchain`) carry consents between ledgers that do not reach each other's APIs: people send them by any channel. They add nothing the ledgers rely on, since every claim in them is checked against the evidence they carry, and the home records the call as it would with any consent:
+- a **proposal** is the home's request for consents to one call: the home ledger, the instance, its head, the function, the arguments, the home's hash, the instance's contract evidence (as of a checkpoint covering the head), and the ledgers whose consents the call waits for. A party verifies the evidence for the home ledger, requires the instance and head in the file to be the evidence's, and reads the call against the contract's text before it consents;
+- a **consent** answers a proposal: the same terms, and the consent's evidence bundle from the party's ledger. The home checks the bundle as it checks any consent (above) before it cites it.
+
+A file is at most 16 MiB, its note (if any) at most 1,000 bytes of text for people, and its list of ledgers at most 16. A reader refuses a file of another format version, of another kind, or with any other key.
+
 **Not yet.** Evidence from other ledgers as input, and migration to a new version, are planned for later revisions.
 
 ## 16. The HTTP API

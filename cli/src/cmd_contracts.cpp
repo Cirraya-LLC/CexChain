@@ -27,6 +27,7 @@
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/contract_evidence.hpp>
 #include <cexchain/core/protocol/contracts.hpp>
+#include <cexchain/core/protocol/exchange.hpp>
 #include <cexchain/core/vm.hpp>
 #include <cexchain/node/contracts.hpp>
 #include <cexchain/node/peers.hpp>
@@ -561,6 +562,24 @@ int cmd_contract_call(const Args& args) {
     protocol::ContractCallBody body =
         instance_call(session, args.positional()[0], args.positional()[1]);
     body.arguments = contract_arguments_of(args);
+    // Consent files carry the call's arguments: without --args, they are
+    // taken from them (all must name the same).
+    if (!args.has("args") && !args.has("args-cbor")) {
+        std::optional<cbor::Value> given;
+        for (const std::string& path : args.all("consent")) {
+            const ConsentInput input = read_consent_input(read_file(path));
+            if (!input.file) {
+                continue;
+            }
+            if (given && *given != input.file->arguments) {
+                throw UsageError{"the consent files name different arguments"};
+            }
+            given = input.file->arguments;
+        }
+        if (given) {
+            body.arguments = *given;
+        }
+    }
     body.reference = args.get("reference");
     const std::vector<Bytes> bundles = cite_consents(session, body, args.all("consent"));
     return record_call(args, session, std::move(body), bundles);
@@ -636,6 +655,137 @@ int cmd_contract_evidence(const Args& args) {
     } else {
         std::println("wrote the evidence of instance {} ({}) to {}", short_id(instance),
                      i.status.value_or("no status"), args.need("out"));
+    }
+    return exit_ok;
+}
+
+// ---------------------------------------------------------------------------
+// Proposal and consent files (.cexchain)
+// ---------------------------------------------------------------------------
+
+int cmd_contract_proposal(const Args& args) {
+    Session session(args);
+    protocol::ContractCallBody body =
+        instance_call(session, args.positional()[0], args.positional()[1]);
+    body.arguments = contract_arguments_of(args);
+    const protocol::Id instance = *body.instance;
+    // The call run first, as for a dry run: whose consents does it wait for?
+    CallOptions options;
+    options.delegation = args.get("delegation");
+    options.dry_run = true;
+    const auto signer = load_signer(args.need("as"), args);
+    const CallAttempt attempt = attempt_call(session, *signer, body, {}, options);
+    const auto* needs = attempt.run.output && !attempt.refused
+                            ? std::get_if<protocol::ContractNeeds>(&*attempt.run.output)
+                            : nullptr;
+    if (needs == nullptr) {
+        if (attempt.run.accepted() != nullptr && !attempt.refused) {
+            throw ActionError{"the call needs no other party's consent: make it (contract call)"};
+        }
+        throw ActionError{"the call would not be recorded: " + refusal(session, attempt)};
+    }
+    protocol::ExchangeFile file;
+    file.kind = protocol::ExchangeKind::proposal;
+    file.home = session.state().ledger_id();
+    file.instance = instance;
+    file.head = *body.head;
+    file.function = body.function;
+    file.arguments = body.arguments;
+    file.hash = session.state().hash();
+    file.needs.assign(needs->ledgers.begin(), needs->ledgers.end());
+    file.note = args.get("note");
+    file.evidence = session.contract_evidence(args, instance);
+    const Bytes encoded = unwrap(protocol::encode_exchange_file(file), "the proposal file");
+    write_file(args.need("out"), encoded, false);
+    Json ledgers = Json::array();
+    for (const protocol::Id& l : file.needs) {
+        ledgers.push_back(id_json(l));
+    }
+    if (args.json()) {
+        print_json({{"instance", id_json(instance)},
+                    {"head", file.head},
+                    {"function", file.function},
+                    {"arguments", cbor::diagnostic(file.arguments)},
+                    {"needs", ledgers},
+                    {"out", args.need("out")},
+                    {"size", encoded.size()}});
+        return exit_ok;
+    }
+    std::println("wrote a proposal of {} on {} to {}: it waits for the consent of {}",
+                 file.function, short_id(instance), args.need("out"),
+                 ledgers_text(session, ledgers));
+    return exit_ok;
+}
+
+int cmd_contract_file_show(const Args& args) {
+    const std::string path = args.positional().front();
+    const auto file = unwrap(protocol::decode_exchange_file(read_file(path)),
+                             path + " is not a proposal or consent file");
+    const crypto::openssl::Provider provider;
+    Json out{{"file", path},
+             {"kind", std::string(protocol::name(file.kind))},
+             {"home", id_json(file.home)},
+             {"instance", id_json(file.instance)},
+             {"head", file.head},
+             {"function", file.function},
+             {"arguments", cbor::diagnostic(file.arguments)},
+             {"hash", crypto::name(file.hash)},
+             {"note", optional_text(file.note)}};
+    if (file.kind == protocol::ExchangeKind::proposal) {
+        const ProposalTerms terms = check_proposal(provider, file);
+        const protocol::EvidenceReport& home = terms.report.instance;
+        Json needs = Json::array();
+        for (const protocol::Id& l : file.needs) {
+            needs.push_back(id_json(l));
+        }
+        out["verified"] = true;
+        out["organization"] = home.organization;
+        out["contract"] = optional_text(home.instance->contract_name);
+        out["status"] = optional_text(home.instance->status);
+        out["needs"] = std::move(needs);
+    } else {
+        const protocol::Id ledger =
+            unwrap(protocol::bundle_ledger_id(file.evidence), path + ": its consent's bundle");
+        protocol::VerifyOptions options;
+        options.expected_ledger = ledger;
+        const auto report = unwrap(ledger::verify_bundle(provider, file.evidence, options),
+                                   path + ": its consent does not verify");
+        if (report.record_type != protocol::contract_consent_type || !report.metadata) {
+            throw ActionError{path + " carries no contract consent"};
+        }
+        const auto consent = unwrap(protocol::decode_contract_consent(*report.metadata),
+                                    path + ": the consent's terms");
+        const auto digest = unwrap(
+            protocol::contract_arguments_digest(provider, file.hash, file.arguments), "the digest");
+        if (consent.ledger != file.home || consent.instance != file.instance ||
+            consent.function != file.function || consent.head != file.head ||
+            consent.arguments != digest) {
+            throw ActionError{path + ": the consent's terms are not the file's"};
+        }
+        out["verified"] = true;
+        out["from"] = id_json(ledger);
+        out["organization"] = report.organization;
+        out["consent"] = id_json(report.record);
+        out["until"] = iso_time(consent.until);
+    }
+    if (args.json()) {
+        print_json(out);
+        return exit_ok;
+    }
+    std::println("{} {}, verified", out["kind"].get<std::string>(), path);
+    std::println("call:      {} on {} at head #{}", file.function, short_id(file.instance),
+                 file.head);
+    std::println("arguments: {}", cbor::diagnostic(file.arguments));
+    if (file.kind == protocol::ExchangeKind::proposal) {
+        std::println("home:      {} ({})", out["organization"].get<std::string>(),
+                     short_id(file.home));
+        std::println("waits for: {}", out["needs"].dump());
+    } else {
+        std::println("from:      {} ({}), until {}", out["organization"].get<std::string>(),
+                     out["from"].get<std::string>().substr(0, 12), out["until"].get<std::string>());
+    }
+    if (file.note) {
+        std::println("note:      {}", *file.note);
     }
     return exit_ok;
 }
@@ -775,7 +925,22 @@ int cmd_contract_consent(const Args& args) {
         hash = parse_hash(*name);
     }
     HeldTerms terms;
-    if (const auto call = args.get("call")) {
+    std::optional<protocol::ExchangeFile> proposal;
+    if (const auto file = args.get("proposal")) {
+        // The terms of a proposal file, checked against its evidence.
+        for (const std::string_view option : {"call", "instance", "function", "args", "args-cbor",
+                                              "head", "evidence", "home", "hash"}) {
+            if (args.has(option)) {
+                throw UsageError{
+                    std::format("--proposal takes the terms from the file: drop --{}", option)};
+            }
+        }
+        proposal = unwrap(protocol::decode_exchange_file(read_file(*file)),
+                          *file + " is not a proposal file");
+        ProposalTerms checked = check_proposal(session.provider(), *proposal);
+        terms.consent = checked.consent;
+        terms.arguments = std::move(checked.arguments);
+    } else if (const auto call = args.get("call")) {
         // The terms of a call the home's registrar holds.
         if (!home_peer) {
             throw UsageError{"--call needs --peer (the instance's home)"};
@@ -838,7 +1003,14 @@ int cmd_contract_consent(const Args& args) {
     const GivenConsent given =
         give_consent(session, *load_signer(args.need("as"), args), terms.consent, options, args);
     if (const auto out = args.get("out")) {
-        write_file(*out, given.bundle, false);
+        // Answering a proposal file: a consent file, with the terms; else the
+        // consent's evidence bundle alone.
+        write_file(
+            *out,
+            proposal ? unwrap(protocol::encode_exchange_file(consent_file(*proposal, given.bundle)),
+                              "the consent file")
+                     : given.bundle,
+            false);
     }
     Json result = consent_json(given.record, consent, terms.arguments);
     std::optional<Json> answer;

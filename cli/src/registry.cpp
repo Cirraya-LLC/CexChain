@@ -1665,13 +1665,14 @@ std::vector<CommandSpec> build() {
          "INSTANCE FUNCTION",
          2,
          2,
-         signing({args_option,
-                  args_cbor_option,
-                  {"reference", "TEXT", "A reference of your own, such as a file number"},
-                  {"consent", "FILE", "A party's consent (its evidence, from contract consent)",
-                   false, true},
-                  dry_run_option,
-                  at_option}),
+         signing(
+             {args_option,
+              args_cbor_option,
+              {"reference", "TEXT", "A reference of your own, such as a file number"},
+              {"consent", "FILE",
+               "A party's consent: its consent file, or its evidence (repeatable)", false, true},
+              dry_run_option,
+              at_option}),
          cmd_contract_call,
          "The contract runs here first, as the ledger will run it: the call is recorded only if\n"
          "the contract accepts it. If it needs other parties' consents, pass each party's consent\n"
@@ -1727,6 +1728,42 @@ std::vector<CommandSpec> build() {
          "Checkpoints first if the latest checkpoint does not cover the instance's last call.\n"
          "Give it to the parties or anyone relying on the instance: contract verify checks it\n"
          "offline, running the contract again on every call."},
+        {{"contract", "proposal"},
+         "Write a proposal file: ask other ledgers, by any channel, to consent to a call",
+         "Contracts",
+         "INSTANCE FUNCTION",
+         2,
+         2,
+         signing({args_option,
+                  args_cbor_option,
+                  signing_log_key_option,
+                  passphrase_file_option,
+                  {"note", "TEXT", "A note for the people who read it (1 to 1000 bytes)"},
+                  {"out", "FILE", "Where to write it (FILE.cexchain)", true}}),
+         cmd_contract_proposal,
+         "For ledgers that do not reach each other's APIs. The call runs first, as for a dry\n"
+         "run: it must wait for other parties' consents (a call the contract accepts as it is,\n"
+         "or refuses, is said so instead). The file carries the call's terms (the instance, its\n"
+         "head, the function, the arguments, this ledger's hash), the ledgers whose consents it\n"
+         "waits for, and the instance's evidence as of a new checkpoint, so that each party\n"
+         "verifies the instance and reads the contract before consenting: contract consent\n"
+         "--proposal FILE writes the consent file back, and contract call --consent FILE\n"
+         "records the call (its arguments taken from the file).\n\n"
+         "  cexchain contract proposal 3f2a9c1e lend --args '{\"counterparty\": h'\''8d01...'\''}' "
+         "\\\n"
+         "      --as owner.key --log-key log.key --out lend.cexchain\n\n" CEXCHAIN_ARGUMENTS_HELP},
+        {{"contract", "file", "show"},
+         "Show a proposal or consent file, verified",
+         "Contracts",
+         "FILE",
+         1,
+         1,
+         with({}),
+         cmd_contract_file_show,
+         "A proposal's evidence is verified for the home it names, and its instance and head\n"
+         "must be the evidence's; a consent's bundle is verified for the ledger it comes from,\n"
+         "and its record's terms must be the file's. Shows the call, the home or the consenting\n"
+         "ledger, the ledgers a proposal waits for, and its note."},
         {{"contract", "propose"},
          "Propose a call to an instance's home, whose registrar collects the consents",
          "Contracts",
@@ -1769,6 +1806,7 @@ std::vector<CommandSpec> build() {
          0,
          0,
          signing({{"peer", "NAME", "The instance's home, a peer (or give --home)"},
+                  {"proposal", "FILE", "A proposal file: take the terms from it, verified"},
                   {"home", "ID", "The home's ledger id (with --server)"},
                   {"call", "ID", "A call the home's registrar holds: take the terms from it"},
                   {"instance", "ID", "The instance (full hex id), without --call"},
@@ -1781,16 +1819,18 @@ std::vector<CommandSpec> build() {
                   {"days", "N", "The consent lapses after N days (default: 7)"},
                   {"reference", "TEXT", "A reference of yours, such as an approval number"},
                   signing_log_key_option,
-                  {"out", "FILE", "Write the consent's evidence here"},
+                  {"out", "FILE",
+                   "Write the consent's evidence here (with --proposal, as a consent file)"},
                   {"send", "", "Send it to the home's registrar (needs --peer)"}}),
          cmd_contract_consent,
          "Records a cexchain.contract-consent/1 record naming exact terms: the home, the\n"
          "instance, the function, a digest of the arguments (under the home's hash), and the\n"
          "instance's head. It applies to that one call only, once, until it lapses. With --call\n"
          "the terms come from the call the home's registrar holds (contract pending shows it;\n"
-         "the terms are printed). Otherwise name them, as for contract call. Prove presence\n"
-         "(--presence) if the contract wants a person to have approved in "
-         "person.\n\n" CEXCHAIN_ARGUMENTS_HELP},
+         "the terms are printed); with --proposal they come from a proposal file, whose\n"
+         "evidence is verified first, and --out writes the consent file to send back. Otherwise\n"
+         "name them, as for contract call. Prove presence (--presence) if the contract wants a\n"
+         "person to have approved in person.\n\n" CEXCHAIN_ARGUMENTS_HELP},
         {{"contract", "withdraw"},
          "Withdraw a contract consent not used yet",
          "Contracts",

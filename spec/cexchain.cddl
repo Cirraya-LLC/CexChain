@@ -827,3 +827,25 @@ contract-evidence = {
   1 => bstr,                   ; the instance's evidence bundle
   ? 2 => [1*4096 bstr],        ; consent evidence bundles
 }
+
+; A proposal or a consent between ledgers that do not reach each other's
+; APIs (.cexchain, section 15), at most 16 MiB. Nothing in it is relied on
+; unchecked: the terms are checked against the evidence it carries.
+;   proposal: key 9 is the instance's contract-evidence (as of a checkpoint
+;             covering the head), key 10 the ledgers whose consents the call
+;             waits for;
+;   consent:  key 9 is the consent record's evidence bundle, from the
+;             consenting ledger; no key 10.
+exchange-file = {
+  1 => 1,                      ; format version
+  2 => "proposal" / "consent",
+  3 => bstr .size 32,          ; the instance's home ledger
+  4 => bstr .size 32,          ; the instance
+  5 => uint,                   ; its head
+  6 => tstr,                   ; the function called (1-64 bytes)
+  7 => any,                    ; the call's arguments
+  8 => int,                    ; the home's hash: COSE id (-16 SHA-256, -65538 SM3)
+  9 => bstr,                   ; evidence, as above
+  ? 10 => [1*16 bstr .size 32],
+  ? 11 => tstr,                ; a note for people, 1-1000 bytes
+}

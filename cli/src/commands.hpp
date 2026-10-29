@@ -183,6 +183,8 @@ int cmd_contract_call(const Args& args);
 int cmd_contract_instance(const Args& args);
 int cmd_contract_instances(const Args& args);
 int cmd_contract_evidence(const Args& args);
+int cmd_contract_proposal(const Args& args);
+int cmd_contract_file_show(const Args& args);
 int cmd_contract_propose(const Args& args);
 int cmd_contract_pending(const Args& args);
 int cmd_contract_consent(const Args& args);

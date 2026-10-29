@@ -17,6 +17,7 @@
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/contract_evidence.hpp>
 #include <cexchain/core/protocol/contracts.hpp>
+#include <cexchain/core/protocol/exchange.hpp>
 #include <cexchain/node/peers.hpp>
 
 /// Contract operations: calls run here before they are recorded, proposals
@@ -48,7 +49,8 @@ creation_call(const Session& session, std::string_view contract, const std::stri
 [[nodiscard]] protocol::ContractCallBody
 instance_call(const Session& session, std::string_view instance, const std::string& function);
 
-/// Cites the consents whose evidence the files hold, as the call will cite
+/// Cites the consents whose evidence the files hold (consent files, or the
+/// bundles alone), as the call will cite
 /// them: by ledger, record, hash under this ledger's hash, and the signer of
 /// the registration, in ledger order, one per party. Checked as a verifier
 /// will check them, for a clear answer before signing. Returns the bundles in
@@ -160,5 +162,35 @@ struct GivenConsent {
 [[nodiscard]] Json consent_json(const protocol::Id& record,
                                 const protocol::ContractConsent& consent,
                                 const cbor::Value& arguments);
+
+// ---------------------------------------------------------------------------
+// Proposal and consent files (.cexchain)
+// ---------------------------------------------------------------------------
+
+/// A proposal file checked: its evidence verified, completely, for the home
+/// it names; its instance, head, and hash the evidence's. The terms of the
+/// consent it asks for (the caller sets `until` and `reference`), the call's
+/// arguments, and the instance's report. Throws an ActionError saying what
+/// does not hold.
+struct ProposalTerms {
+    protocol::ContractConsent consent;
+    cbor::Value arguments;
+    protocol::ContractReport report;
+};
+[[nodiscard]] ProposalTerms check_proposal(const crypto::Provider& provider,
+                                           const protocol::ExchangeFile& file);
+
+/// A consent given on the command line: a consent file (.cexchain), whose
+/// bundle and terms it carries, or a consent's evidence bundle as
+/// `contract consent --out` wrote it before files.
+struct ConsentInput {
+    Bytes bundle;
+    std::optional<protocol::ExchangeFile> file;
+};
+[[nodiscard]] ConsentInput read_consent_input(Bytes bytes);
+
+/// The consent file answering a proposal: its terms, and the consent's bundle.
+[[nodiscard]] protocol::ExchangeFile consent_file(const protocol::ExchangeFile& proposal,
+                                                  Bytes bundle);
 
 } // namespace cexchain::app

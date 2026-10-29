@@ -25,9 +25,11 @@ What it shows:
 - **Rules you write.** `lend` and `bring_back` are the contract's own actions: the owner
   lends to whoever each call names, who must agree (the counterparty consents); only the
   holder brings it back. The contract refuses a second loan while the camera is lent.
-- **Consent on your own ledger.** Bob checks the camera's evidence offline, then consents
-  on his own ledger. His consent is a file naming that one call, which Alice's ledger records
-  the call with. No server is needed; the files can travel by any channel.
+- **Consent on your own ledger.** Alice sends Bob a proposal file (`contract proposal`):
+  the call's exact terms and the camera's evidence. Bob checks it offline (`contract file
+  show`), then consents on his own ledger (`contract consent --proposal`), which writes a
+  consent file naming that one call; Alice's ledger records the call with it (`contract call
+  --consent`). No server is needed; the files can travel by any channel.
 - **Private details.** The serial number and a photo go into a record of a type Alice names
   herself (`example.alice.belonging/1`): their values stay sealed on her ledger, and only
   commitments are recorded.

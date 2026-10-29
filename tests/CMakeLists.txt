@@ -16,6 +16,7 @@ add_executable(cexchain_tests
     core/protocol_v07_test.cpp
     core/protocol_v08_test.cpp
     core/protocol_v09_test.cpp
+    core/exchange_test.cpp
     core/vm_test.cpp
     crypto/openssl_test.cpp
     ledger/access_test.cpp
@@ -185,6 +186,11 @@ add_test(NAME access_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/access.sh $<TARGET_FILE:cexchain>)
 add_test(NAME contracts_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/contracts.sh $<TARGET_FILE:cexchain>)
+# Proposal and consent files between ledgers (lending.bo: needs the compiler).
+if(TARGET cexchain_bo)
+    add_test(NAME exchange_end_to_end
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/exchange.sh $<TARGET_FILE:cexchain>)
+endif()
 add_test(NAME requests_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/requests.sh $<TARGET_FILE:cexchain>)
 add_test(NAME keeper_end_to_end
