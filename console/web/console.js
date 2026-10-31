@@ -572,7 +572,8 @@ async function homeScreen() {
          el("dl", { class: "facts" },
             el("dt", { text: t("home.organization") }), el("dd", { text: home.ledger.organization }),
             el("dt", { text: t("home.ledger") }), el("dd", { class: "id", text: home.ledger.id })),
-         el("h2", { text: t("home.counts") }), counts);
+         el("h2", { text: t("home.counts") }), counts,
+         el("p", {}, el("a", { href: "#/exchange", text: t("exchange.link") })));
 }
 
 function table(caption, columns, rows) {
@@ -2116,7 +2117,7 @@ function valuesOf(inputs) {
 /// Why a call is not prepared, on the inputs it names and in a notice: the
 /// values that do not go in, the consents it waits for, or the contract's
 /// refusal.
-function callProblem(error, form, notice) {
+function callProblem(error, form, notice, ask = null) {
     for (const p of form.querySelectorAll(".problem")) {
         p.remove();
     }
@@ -2137,7 +2138,7 @@ function callProblem(error, form, notice) {
     if (run?.verdict === "needs") {
         notice.replaceChildren(problem(t("thing.needs_consent", {
             ledgers: run.needs.map((l) => `${l.slice(0, 12)}...`).join(", "),
-        })));
+        })), ask ? askByFile(ask) : null);
         return;
     }
     if (run?.verdict === "refuse") {
@@ -2166,13 +2167,163 @@ function callForm(call, intent, ledger, idPrefix) {
             });
             await approveScreen(prepared);
         } catch (error) {
-            callProblem(error, form, notice);
+            callProblem(error, form, notice,
+                        intent.action === "contract.call" ? () => ({ ...intent, values: valuesOf(inputs) })
+                                                          : null);
         } finally {
             prepare.disabled = false;
             status("");
         }
     });
     return form;
+}
+
+/// Asking for the consents a call waits for, by file: a note, then the
+/// proposal file to send by any channel.
+function askByFile(intentOf) {
+    const id = `ask-note-${Math.random().toString(36).slice(2, 8)}`;
+    const [noteField, note] = field(id, t("exchange.note"), t("exchange.note_hint"), { maxlength: 1000 });
+    const made = el("div", { role: "status" });
+    const button = el("button", { type: "button", class: "primary", text: t("exchange.ask") });
+    button.addEventListener("click", async () => {
+        button.disabled = true;
+        status(t("status.working"));
+        try {
+            const name = await saveDownload("exchange/proposal", {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ ...intentOf(), note: note.value.trim(), language: state.language }),
+            }, "proposal.cexchain");
+            made.replaceChildren(el("p", { class: "notice", text: t("exchange.proposal_made", { name }) }));
+        } catch (error) {
+            made.replaceChildren(problem(t("error.server", { message: error.message })));
+        } finally {
+            button.disabled = false;
+            status("");
+        }
+    });
+    return el("section", { class: "kind", "aria-label": t("exchange.ask") },
+              el("p", { text: t("exchange.ask_intro") }), noteField, button, made);
+}
+
+/// Proposals and consents that came as files: read here, verified, then
+/// consented to or recorded with a tap.
+function exchangeScreen() {
+    const input = el("input", { id: "exchange-file", type: "file", accept: ".cexchain,application/cbor" });
+    const result = el("section", { "aria-live": "polite" });
+    input.addEventListener("change", async () => {
+        const file = input.files[0];
+        if (!file) {
+            return;
+        }
+        status(t("status.working"));
+        try {
+            const upload = await uploadFile(file);
+            const read = await api("POST", "exchange/read", { upload, language: state.language });
+            result.replaceChildren(...(read.kind === "proposal" ? proposalView(read, upload)
+                                                                 : consentView(read, upload)));
+        } catch (error) {
+            result.replaceChildren(problem(t("exchange.unreadable", { message: error.message })));
+        } finally {
+            status("");
+        }
+    });
+    show(el("h1", { text: t("exchange.title") }), el("p", { class: "hint", text: t("exchange.intro") }),
+         el("div", { class: "field" }, el("label", { for: "exchange-file", text: t("exchange.file") }),
+            input),
+         result);
+}
+
+const ledgerText = (id, name) => (name ? `${name} (${id.slice(0, 12)}...)` : `${id.slice(0, 12)}...`);
+
+function proposalView(read, upload) {
+    const facts = el("dl", { class: "facts" });
+    const fact = (key, value, attributes = {}) => {
+        facts.append(el("dt", { text: t(key) }), el("dd", { text: String(value), ...attributes }));
+    };
+    fact("exchange.from", ledgerText(read.home, read.home_name || read.home_organization));
+    fact("column.contract", read.contract ?? t("value.none"));
+    fact("column.state", read.state?.state || read.status || t("value.none"));
+    fact("column.id", read.instance, { class: "id" });
+    fact("approve.function", read.call?.label ?? read.function);
+    fact("approve.arguments", read.arguments, { class: "id" });
+    if (read.note) {
+        fact("exchange.note", read.note);
+    }
+    const parts = [el("h2", { text: t("exchange.proposal_title", { name: read.home_organization }) }),
+                   el("p", { class: "notice", role: "status", text: t("exchange.verified") }), facts];
+    if (read.state?.fields?.length) {
+        parts.push(el("h3", { text: t("thing.fields_title") }),
+                   el("dl", { class: "facts" }, read.state.fields.map((f) => [
+                       el("dt", { text: f.field }), el("dd", { text: f.value })]).flat()));
+    }
+    if (read.call?.clauses?.length) {
+        parts.push(el("h3", { text: t("thing.what_it_does") }),
+                   el("ul", {}, read.call.clauses.map((c) => el("li", { text: c }))));
+    }
+    if (!read.asks_us) {
+        parts.push(el("p", { class: "hint", text: t("exchange.not_asked") }));
+        return parts;
+    }
+    const notice = el("div");
+    const consent = el("button", { type: "button", class: "primary", text: t("exchange.consent") });
+    consent.disabled = state.who.role === "viewer";
+    consent.addEventListener("click", async () => {
+        try {
+            const prepared = await api("POST", "prepare", { action: "contract.consent", upload });
+            await approveScreen(prepared, new Map(), async (done) => {
+                const name = await saveDownload("exchange/consent", {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ record: done.statement_id, upload }),
+                }, "consent.cexchain");
+                return el("p", { class: "notice", text: t("exchange.consent_made", { name }) });
+            });
+        } catch (error) {
+            notice.replaceChildren(problem(error.status === 423 ? t("keys.locked")
+                                                                : t("error.server", { message: error.message })));
+        }
+    });
+    parts.push(el("p", { text: t("exchange.consent_intro") }), notice, consent);
+    return parts;
+}
+
+function consentView(read, upload) {
+    const facts = el("dl", { class: "facts" });
+    const fact = (key, value, attributes = {}) => {
+        facts.append(el("dt", { text: t(key) }), el("dd", { text: String(value), ...attributes }));
+    };
+    fact("exchange.from", ledgerText(read.from, read.from_name || read.from_organization));
+    fact("approve.function", read.function);
+    fact("approve.arguments", read.arguments, { class: "id" });
+    fact("column.id", read.instance, { class: "id" });
+    fact("exchange.until", timeText(read.until));
+    fact("exchange.in_person", yesNo(read.in_person));
+    const parts = [el("h2", { text: t("exchange.consent_title", { name: read.from_organization }) }),
+                   el("p", { class: "notice", role: "status", text: t("exchange.consent_verified") }),
+                   facts];
+    if (!read.for_us) {
+        parts.push(problem(t("exchange.not_ours")));
+        return parts;
+    }
+    if (!read.current || read.lapsed) {
+        parts.push(problem(t(read.lapsed ? "exchange.lapsed" : "exchange.moved_on")));
+        return parts;
+    }
+    const notice = el("div");
+    const record = el("button", { type: "button", class: "primary", text: t("exchange.record") });
+    record.disabled = state.who.role === "viewer";
+    record.addEventListener("click", async () => {
+        try {
+            await approveScreen(await api("POST", "prepare", {
+                action: "contract.call", consents: [upload], language: state.language,
+            }));
+        } catch (error) {
+            notice.replaceChildren(problem(error.answer?.dry_run?.reason
+                ? t("thing.refused", { reason: error.answer.dry_run.reason })
+                : t("error.server", { message: error.message })));
+        }
+    });
+    parts.push(el("p", { text: t("exchange.record_intro") }), notice, record);
+    return parts;
 }
 
 async function ledgerFacts() {
@@ -2417,7 +2568,8 @@ function agrees(decoded, summary) {
 /// answer's request and status, and no consents.
 function callAgrees(decoded, summary) {
     const same = (key) => (decoded[key] ?? null) === (summary[key] ?? null);
-    return decoded.ok && decoded.type === "contract-call" && decoded.consents === 0 &&
+    return decoded.ok && decoded.type === "contract-call" &&
+           decoded.consents === (summary.consents ?? 0) &&
            ["function", "contract", "instance", "head", "arguments", "request", "status"].every(same);
 }
 
@@ -2445,6 +2597,12 @@ function registrationAgrees(check, decoded, prepared, files) {
     }
     const root = check.fieldRoot({ hash: prepared.hash, fields: summary.fields });
     if (!root.ok || root.root !== decoded.field_root) {
+        return false;
+    }
+    // A consent's terms are the proposal's the page showed.
+    if (Boolean(decoded.consent) !== Boolean(summary.consent) ||
+        (summary.consent && !["ledger", "instance", "function", "arguments", "head", "until"]
+            .every((k) => decoded.consent[k] === summary.consent[k]))) {
         return false;
     }
     if (decoded.attachments.length !== summary.files.length) {
@@ -2518,7 +2676,7 @@ function actScreen(record) {
 
 /// What the person approves, as the console prepared it and this page
 /// decoded it, then the tap.
-async function approveScreen(prepared, files = new Map()) {
+async function approveScreen(prepared, files = new Map(), after = null) {
     const summary = prepared.summary;
     const registering = summary.type === "record-register";
     const deploying = summary.type === "contract-deploy";
@@ -2549,7 +2707,13 @@ async function approveScreen(prepared, files = new Map()) {
             facts.append(el("dt", { text: t(key) }), el("dd", { text: String(value) }));
         }
     };
-    fact("approve.action", t(`approve.type.${summary.type}`));
+    const consenting = summary.record_type === "cexchain.contract-consent/1";
+    fact("approve.action", t(consenting ? "approve.type.consent" : `approve.type.${summary.type}`));
+    if (consenting && summary.consent) {
+        fact("approve.function", summary.consent.function);
+        fact("column.id", summary.consent.instance);
+        fact("exchange.until", timeText(summary.consent.until));
+    }
     fact("column.type", summary.record_type);
     fact("approve.name", summary.name);
     fact("column.id", summary.record ?? summary.contract);
@@ -2567,6 +2731,9 @@ async function approveScreen(prepared, files = new Map()) {
         fact("column.final", yesNo(run.final));
         if (run.requests) {
             fact("approve.requests", run.requests);
+        }
+        if (summary.consents) {
+            fact("approve.consents", summary.consents);
         }
     }
     if (deploying) {
@@ -2618,10 +2785,12 @@ async function approveScreen(prepared, files = new Map()) {
                 client_data_json: toBase64url(credential.response.clientDataJSON),
                 signature: toBase64url(credential.response.signature),
             });
+            const followed = after ? await after(done).catch((e) => problem(
+                t("error.server", { message: e.message }))) : null;
             show(el("h1", { text: t("approve.done_title") }),
                  el("p", { role: "status", text: t("approve.done", { index: done.index }) }),
-                 el("p", { class: "id", text: done.statement_id }),
-                 registering ? el("p", {}, el("a", { href: `#/thing/${done.statement_id}`,
+                 el("p", { class: "id", text: done.statement_id }), followed,
+                 registering && !consenting ? el("p", {}, el("a", { href: `#/thing/${done.statement_id}`,
                                                      text: t("register.open") }))
                              : null,
                  rules ? goButton(t("rules.done"), "#/rules")
@@ -2656,6 +2825,7 @@ function chrome() {
     const current = hash.startsWith("#/things") || hash.startsWith("#/new") ||
                     hash.startsWith("#/thing/") || hash.startsWith("#/instance/") ? "things"
         : hash.startsWith("#/create/") ? "rules"
+        : hash.startsWith("#/exchange") ? "home"
         : hash.startsWith("#/kinds") ? "kinds"
         : hash.startsWith("#/rules") ? "rules"
         : hash.startsWith("#/verify") ? "verify"
@@ -2712,6 +2882,7 @@ async function route() {
         await (thing ? thingScreen(thing[1])
             : instance ? instanceScreen(instance[1])
             : create ? createScreen(create[1])
+            : hash.startsWith("#/exchange") ? exchangeScreen()
             : hash.startsWith("#/things") ? thingsScreen()
             : hash.startsWith("#/new") ? newDocumentScreen()
             : hash.startsWith("#/kinds") ? kindsScreen()

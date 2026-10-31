@@ -25,6 +25,7 @@
 #include <cexchain/console/users.hpp>
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/error.hpp>
+#include <cexchain/core/protocol/exchange.hpp>
 #include <cexchain/core/protocol/statement.hpp>
 #include <cexchain/ledger/ledger.hpp>
 #include <cexchain/node/http.hpp>
@@ -143,6 +144,9 @@ struct Prepared {
     protocol::Timestamp expires = 0;
     /// For a registration.
     std::optional<Draft> draft;
+    /// For a call citing consents: their bundles, in the call's order, sent
+    /// with it (submission key 3).
+    std::vector<Bytes> bundles;
 };
 
 inline constexpr protocol::Timestamp approval_lifetime = 2 * 60'000;
@@ -272,6 +276,26 @@ private:
                                          const protocol::Statement& statement,
                                          const protocol::ActorState& actor,
                                          const std::string& language) const;
+    /// Proposal and consent files (exchange.cpp): a ledger's name for people
+    /// (this ledger's organization, or a peer's name), a file from the
+    /// person's upload, reading one, writing a proposal and a consent file,
+    /// a consent's registration drafted from a proposal, and a call citing
+    /// consent files.
+    [[nodiscard]] std::string ledger_name(const protocol::LedgerState& state,
+                                          const protocol::Id& ledger) const;
+    [[nodiscard]] std::variant<protocol::ExchangeFile, http::Response>
+    uploaded_file(const Signed& who, const std::string& upload) const;
+    [[nodiscard]] http::Response exchange_read_route(const http::Request& request) const;
+    void exchange_proposal_route(const http::Request& request, Respond respond) const;
+    void exchange_consent_route(const http::Request& request, Respond respond) const;
+    [[nodiscard]] std::variant<std::pair<protocol::RecordRegisterBody, Draft>, http::Response>
+    consent_draft(const Signed& who, const nlohmann::json& intent) const;
+    struct Cited {
+        protocol::ContractCallBody body;
+        std::vector<Bytes> bundles;
+    };
+    [[nodiscard]] std::variant<Cited, http::Response>
+    cited_call(const Signed& who, const nlohmann::json& intent) const;
     /// What the compiler answered, and the files it wrote that were asked
     /// for.
     struct CompilerRun {

@@ -28,6 +28,7 @@
 #include <cexchain/console/setup.hpp>
 #include <cexchain/console/users.hpp>
 #include <cexchain/core/cbor.hpp>
+#include <cexchain/core/protocol/exchange.hpp>
 #include <cexchain/core/protocol/state.hpp>
 #include <cexchain/crypto/openssl.hpp>
 #include <cexchain/ledger/environment.hpp>
@@ -938,7 +939,9 @@ struct Served {
                 statement = *parts->find(1)->as_bytes();
             }
             const auto registered = session.ledger().submit(statement);
-            if (registered && parts) {
+            // A registration's private data (key 2); a call's consent
+            // bundles (key 3) the node keeps, which this stand-in drops.
+            if (registered && parts && parts->find(2) != nullptr) {
                 const auto id = registered->statement_id;
                 cexchain::app::write_file(dir / "vault" / "records" /
                                               (cexchain::to_hex(id.bytes()) + ".cbor"),
@@ -1839,6 +1842,137 @@ TEST_CASE("a time rule that is due is shown, and called with a tap", "[console][
     act(f, owner, {{"action", "contract.call"}, {"instance", plan}, {"function", "when.suspend"}});
     view = answer_of(f.w.get("/console/api/instances/" + plan, owner));
     CHECK(view["instance"]["status"] == "suspended");
+}
+
+namespace {
+
+http::Response post_async(ConsoleWorld& w, const std::string& path, const std::string& token,
+                          const nlohmann::json& body) {
+    auto r = request("POST", path, "localhost:7470", w.origin);
+    r.headers.emplace_back("authorization", "Bearer " + token);
+    const std::string text = body.dump();
+    r.body.assign(text.begin(), text.end());
+    return handle_async(w, r);
+}
+
+/// Uploads a file to a console: its upload id.
+std::string uploaded(ConsoleWorld& w, const std::string& token, const std::string& name,
+                     const cexchain::Bytes& content) {
+    const auto answer =
+        upload(w, token, name,
+               std::string_view(reinterpret_cast<const char*>(content.data()), content.size()));
+    REQUIRE(answer.status == 200);
+    return answer_of(answer)["upload"].get<std::string>();
+}
+
+} // namespace
+
+TEST_CASE("consents by file between two consoles: proposed, consented, and recorded",
+          "[console][exchange]") {
+    FirstRunWorld fa;
+    Served alice(fa);
+    FirstRunWorld fb;
+    Served bob(fb);
+    const std::string a = fa.made["session"].get<std::string>();
+    const std::string b = fb.made["session"].get<std::string>();
+    const std::string bob_ledger = cexchain::to_hex(bob.session.state().ledger_id().bytes());
+    const std::string alice_ledger = cexchain::to_hex(alice.session.state().ledger_id().bytes());
+
+    // Alice's camera, and a loan to Bob that waits for his consent.
+    const std::string contract = deploy(fa, a, lending_source());
+    const std::string camera =
+        act(fa, a,
+            {{"action", "contract.create"},
+             {"contract", contract},
+             {"function", "create"},
+             {"values", {{"name", "Camera X100"}, {"owner", alice_ledger}}}});
+    const nlohmann::json lend{{"instance", camera},
+                              {"function", "lend"},
+                              {"values", {{"counterparty", bob_ledger}}},
+                              {"note", "For your trip"}};
+    const auto proposed = post_async(fa.w, "/console/api/exchange/proposal", a, lend);
+    REQUIRE(proposed.status == 200);
+    CHECK(header(proposed, "Content-Disposition").find(".cexchain") != std::string::npos);
+    const auto proposal = cexchain::protocol::decode_exchange_file(proposed.body);
+    REQUIRE(proposal);
+    CHECK(proposal->kind == cexchain::protocol::ExchangeKind::proposal);
+    REQUIRE(proposal->needs.size() == 1);
+    CHECK(cexchain::to_hex(proposal->needs[0].bytes()) == bob_ledger);
+    // A call that waits for no one is no proposal.
+    const std::string lens = act(fa, a,
+                                 {{"action", "contract.create"},
+                                  {"contract", contract},
+                                  {"function", "create"},
+                                  {"values", {{"name", "Lens"}, {"owner", alice_ledger}}}});
+    CHECK(post_async(fa.w, "/console/api/exchange/proposal", a,
+                     {{"instance", lens}, {"function", "bring_back"}})
+              .status == 422);
+
+    // Bob reads it: verified, asked of his ledger, the call in the contract's words.
+    const std::string on_bob = uploaded(fb.w, b, "lend.cexchain", proposed.body);
+    const auto read =
+        answer_of(fb.w.post_as("/console/api/exchange/read", {{"upload", on_bob}}, b));
+    CHECK(read["kind"] == "proposal");
+    CHECK(read["verified"] == true);
+    CHECK(read["asks_us"] == true);
+    CHECK(read["contract"] == "Lending");
+    CHECK(read["note"] == "For your trip");
+    CHECK(read["call"]["function"] == "lend");
+    CHECK_FALSE(read["call"]["clauses"].empty());
+    CHECK(read["state"]["fields"].dump().find("Camera X100") != std::string::npos);
+
+    // He consents with a tap, and writes the consent file.
+    const auto prepared = fb.w.post_as("/console/api/prepare",
+                                       {{"action", "contract.consent"}, {"upload", on_bob}}, b);
+    INFO(body(prepared));
+    REQUIRE(prepared.status == 200);
+    CHECK(answer_of(prepared)["summary"]["consent"]["function"] == "lend");
+    const auto consented = approve(fb.w, b, answer_of(prepared), fb.alice);
+    REQUIRE(consented.status == 201);
+    const std::string record = answer_of(consented)["statement_id"].get<std::string>();
+    const auto answered = post_async(fb.w, "/console/api/exchange/consent", b,
+                                     {{"record", record}, {"upload", on_bob}});
+    REQUIRE(answered.status == 200);
+
+    // Alice reads the consent, and records the loan with it.
+    const std::string on_alice = uploaded(fa.w, a, "lend-consent.cexchain", answered.body);
+    const auto consent =
+        answer_of(fa.w.post_as("/console/api/exchange/read", {{"upload", on_alice}}, a));
+    CHECK(consent["kind"] == "consent");
+    CHECK(consent["verified"] == true);
+    CHECK(consent["from"] == bob_ledger);
+    CHECK(consent["for_us"] == true);
+    CHECK(consent["current"] == true);
+    CHECK(consent["in_person"] == true);
+    act(fa, a,
+        {{"action", "contract.call"},
+         {"instance", camera},
+         {"function", "lend"},
+         {"consents", {on_alice}}});
+    const auto view = answer_of(fa.w.get("/console/api/instances/" + camera, a));
+    CHECK(view["instance"]["status"] == "lent");
+    REQUIRE(view["history"].size() == 2);
+    CHECK(view["history"][1]["consents"] == 1);
+
+    // Used once: the thing has moved on. And a proposal not asking a ledger
+    // is not consented to there.
+    CHECK(fa.w.post_as("/console/api/prepare",
+                       {{"action", "contract.call"}, {"consents", {on_alice}}}, a)
+              .status == 409);
+    const std::string own = uploaded(fa.w, a, "lend.cexchain", proposed.body);
+    CHECK(fa.w.post_as("/console/api/prepare", {{"action", "contract.consent"}, {"upload", own}}, a)
+              .status == 409);
+    // A consent file is not consented to, nor a proposal cited.
+    CHECK(fb.w.post_as("/console/api/prepare",
+                       {{"action", "contract.consent"},
+                        {"upload", uploaded(fb.w, b, "c.cexchain", answered.body)}},
+                       b)
+              .status == 422);
+    CHECK(
+        fa.w.post_as("/console/api/prepare", {{"action", "contract.call"}, {"consents", {own}}}, a)
+            .status == 409);
+    const std::string junk = uploaded(fa.w, a, "junk.cexchain", cexchain::Bytes{1, 2, 3});
+    CHECK(fa.w.post_as("/console/api/exchange/read", {{"upload", junk}}, a).status == 422);
 }
 
 #endif

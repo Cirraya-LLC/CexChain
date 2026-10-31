@@ -24,6 +24,7 @@
 #include <cexchain/core/crypto.hpp>
 #include <cexchain/core/protocol/common.hpp>
 #include <cexchain/core/protocol/contract_evidence.hpp>
+#include <cexchain/core/protocol/contracts.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/presence.hpp>
 #include <cexchain/core/protocol/record.hpp>
@@ -81,6 +82,18 @@ Json describe(const protocol::Statement& s) {
                                    {"commitment", to_hex(a.commitment)}});
         }
         out["attachments"] = attachments;
+        // A contract consent's terms, which the page compares with the
+        // proposal it shows.
+        if (g->record_type == protocol::contract_consent_type && g->metadata) {
+            if (const auto consent = protocol::decode_contract_consent(*g->metadata)) {
+                out["consent"] = {{"ledger", to_hex(consent->ledger.bytes())},
+                                  {"instance", to_hex(consent->instance.bytes())},
+                                  {"function", consent->function},
+                                  {"arguments", to_hex(consent->arguments.bytes())},
+                                  {"head", consent->head},
+                                  {"until", consent->until}};
+            }
+        }
         // Public metadata as the console writes it: text names and values.
         Json metadata = Json::object();
         if (g->metadata) {

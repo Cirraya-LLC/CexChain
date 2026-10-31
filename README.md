@@ -465,10 +465,17 @@ cexchain console settings show
   may answer by hand (done, failed, or expired, with a reason). Every call is built from what the
   person filled in (`bo args`, in the child process) and run on the ledger's state before any
   tap: a value that does not fit is shown on its field, a call the rules refuse says why in the
-  reader's words, and one that needs another ledger's consent says whose (consents between
-  consoles come next). Otherwise the page checks, in WebAssembly, that the bytes it approves are
+  reader's words, and one that needs another ledger's consent says whose, and offers to ask
+  for it by file. Otherwise the page checks, in WebAssembly, that the bytes it approves are
   the call it shows. "Share proof" gives the thing's contract evidence, which `cexchain contract
   verify` and the Verify screen check.
+- **Consents by file.** "Ask for consent by file" writes a proposal (`.cexchain`, as `contract
+  proposal` does) with a note; the other party opens it from Home ("Open a proposal or consent
+  file"), where it is verified against the thing's history and shown with the call's clauses and
+  the thing's fields, consents with a tap on its own ledger, and gets the consent file to send
+  back; opening that on the first console records the call, citing the consent, with a tap. The
+  page checks the consent's terms and the cited consents in the bytes it approves, and a consent
+  to a step the thing has left is refused.
 - **Settings** show the ledger and its folder, the language new browsers start in, and the
   backup folder (`console settings show|set` from the command line). Scheduled backups to that
   folder are not written yet; until they are, use `cexchain backup create`.

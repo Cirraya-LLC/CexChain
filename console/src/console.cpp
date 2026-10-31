@@ -226,6 +226,28 @@ void Console::handle(const http::Request& request, Respond respond) const {
     // Approving and recovering submit to the ledger, which answers once the
     // statement is durable: that answer goes out through `respond`, with
     // nothing waiting.
+    if ((request.path == "/console/api/exchange/proposal" ||
+         request.path == "/console/api/exchange/consent") &&
+        request.method == "POST") {
+        try {
+            if (auto refused = refuse(request)) {
+                respond(std::move(*refused));
+                return;
+            }
+            if (!ready()) {
+                respond(error(503, "unavailable", "this console keeps no users or sessions"));
+                return;
+            }
+            if (request.path.ends_with("proposal")) {
+                exchange_proposal_route(request, std::move(respond));
+            } else {
+                exchange_consent_route(request, std::move(respond));
+            }
+        } catch (const std::exception&) {
+            respond(error(500, "internal", "the console could not answer; see its files"));
+        }
+        return;
+    }
     if (request.path == "/console/api/proof" && request.method == "POST") {
         try {
             if (auto refused = refuse(request)) {
@@ -395,7 +417,8 @@ http::Response Console::route(const http::Request& request) const {
         return home_route(std::get<Signed>(who));
     }
     using Route = http::Response (Console::*)(const http::Request&) const;
-    static constexpr std::array<std::pair<std::string_view, Route>, 10> posts{{
+    static constexpr std::array<std::pair<std::string_view, Route>, 11> posts{{
+        {"/console/api/exchange/read", &Console::exchange_read_route},
         {"/console/api/enroll/begin", &Console::enroll_begin},
         {"/console/api/enroll/finish", &Console::enroll_finish},
         {"/console/api/sign-in/begin", &Console::sign_in_begin},

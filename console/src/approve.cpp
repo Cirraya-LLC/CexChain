@@ -187,6 +187,7 @@ http::Response Console::prepare_route(const http::Request& request) const {
     // A registration is drafted first: its fields' salts, its files'
     // commitments, and what it keeps private.
     std::optional<Draft> draft;
+    std::vector<Bytes> bundles;
     std::variant<protocol::Body, std::string> body = std::string();
     if (action == "contract.deploy") {
         // Built by the compiler in a child process, as the editor checked it.
@@ -195,6 +196,15 @@ http::Response Console::prepare_route(const http::Request& request) const {
             return std::move(*refused);
         }
         body = protocol::Body{std::get<protocol::ContractDeployBody>(std::move(built))};
+    } else if (action == "contract.call" && intent.contains("consents")) {
+        // A call the consent files answer: its terms and their bundles.
+        auto cited = cited_call(signer, intent);
+        if (auto* refused = std::get_if<http::Response>(&cited)) {
+            return std::move(*refused);
+        }
+        Cited c = std::get<Cited>(std::move(cited));
+        body = protocol::Body{std::move(c.body)};
+        bundles = std::move(c.bundles);
     } else if (calling) {
         // Its arguments built by the compiler in a child process, from what
         // the person filled in; the contract runs below, before the tap.
@@ -203,6 +213,15 @@ http::Response Console::prepare_route(const http::Request& request) const {
             return std::move(*refused);
         }
         body = protocol::Body{std::get<protocol::ContractCallBody>(std::move(built))};
+    } else if (action == "contract.consent") {
+        // A consent on this ledger to a proposal's call, drafted from the file.
+        auto drafted = consent_draft(signer, intent);
+        if (auto* refused = std::get_if<http::Response>(&drafted)) {
+            return std::move(*refused);
+        }
+        auto& [registration, d] = std::get<0>(drafted);
+        body = protocol::Body{std::move(registration)};
+        draft = std::move(d);
     } else if (action == "record.register") {
         auto drafted = register_draft(intent, signer.user);
         if (auto* problem = std::get_if<std::string>(&drafted)) {
@@ -343,7 +362,17 @@ http::Response Console::prepare_route(const http::Request& request) const {
                              {"upload", draft->uploads[i]}});
         }
         nlohmann::json metadata = nlohmann::json::object();
-        if (g.metadata) {
+        if (g.record_type == protocol::contract_consent_type && g.metadata) {
+            // A consent's terms, which the page checks in the bytes too.
+            if (const auto c = protocol::decode_contract_consent(*g.metadata)) {
+                summary["consent"] = {{"ledger", to_hex(c->ledger.bytes())},
+                                      {"instance", to_hex(c->instance.bytes())},
+                                      {"function", c->function},
+                                      {"arguments", to_hex(c->arguments.bytes())},
+                                      {"head", c->head},
+                                      {"until", c->until}};
+            }
+        } else if (g.metadata) {
             for (const auto& entry : *g.metadata->as_map()) {
                 metadata[*entry.key.as_text()] = *entry.value.as_text();
             }
@@ -354,6 +383,8 @@ http::Response Console::prepare_route(const http::Request& request) const {
         summary["keep_files"] = draft->keep_files;
     }
     prepared.draft = std::move(draft);
+    prepared.bundles = std::move(bundles);
+    summary["consents"] = prepared.bundles.size();
     prepared.user = signer.user;
     prepared.key = user->key;
     prepared.rp_id = parsed_origin->host;
@@ -479,6 +510,20 @@ Console::sign_approval(const http::Request& request) const {
             return error(500, "internal", "signing failed");
         }
         signed_statement = std::move(*made);
+    }
+    if (!prepared->bundles.empty()) {
+        // A call citing consents goes with their bundles.
+        cbor::Array bundles;
+        for (const Bytes& b : prepared->bundles) {
+            bundles.push_back(cbor::Value::bytes(b));
+        }
+        auto encoded = cbor::encode(cbor::Value::map(
+            {{cbor::Value::integer(1), cbor::Value::bytes(signed_statement->encoded)},
+             {cbor::Value::integer(3), cbor::Value::array(std::move(bundles))}}));
+        if (!encoded) {
+            return error(500, "internal", "the submission could not be encoded");
+        }
+        return Signing{std::move(*encoded), true, {}};
     }
     if (!prepared->draft) {
         return Signing{std::move(signed_statement->encoded), false, {}};
