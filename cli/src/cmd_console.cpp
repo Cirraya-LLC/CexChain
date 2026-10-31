@@ -457,8 +457,12 @@ int run_person_console(const Args& args, const std::filesystem::path& dir,
     base.console = [web](const node::http::Request& r, auto respond) {
         web->handle(r, std::move(respond));
     };
-    auto deferred = std::make_shared<console::DeferredApi>(web, [&keys, base] {
+    auto deferred = std::make_shared<console::DeferredApi>(web, [&keys, base, web] {
         node::ApiOptions options = base;
+        // The console's witness of its parties' ledgers.
+        options.witness = [web](ByteView request) {
+            return web->witness_cosign(request);
+        };
         // The log key signs checkpoints, receipts, and evidence once unlocked.
         if (std::ranges::any_of(keys.keys(), [](const auto& k) { return k.name == "log"; })) {
             options.log_keys.push_back(

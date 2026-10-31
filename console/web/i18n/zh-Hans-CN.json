@@ -543,7 +543,7 @@
   "exchange.held": "{function}（{arguments}）：等待 {missing}，至 {until}",
   "nav.parties": "合作方",
   "parties.title": "合作方",
-  "parties.intro": "与此控制台合作的其他账本：双方各发一个代码即可连接。连接后，对方账本上等待你同意的调用会显示在首页，你的同意会在线发回。",
+  "parties.intro": "与此控制台合作的其他账本：双方各发一个代码即可连接。连接后，对方账本上等待你同意的调用会显示在首页，你的同意会在线发回；双方可互相索取文件；各自为对方的账本见证，只为延续之前已联署历史的检查点联署。",
   "parties.our_fingerprint": "此账本的指纹（请口头核对）：{fingerprint}",
   "parties.connected": "已连接",
   "parties.fingerprint": "指纹",
@@ -643,5 +643,11 @@
   "access.withdraw_reason": "已撤回",
   "approve.type.access_request": "索取文件",
   "approve.type.access_grant": "分享文件",
-  "approve.type.access_receipt": "确认收到交付"
+  "approve.type.access_receipt": "确认收到交付",
+  "parties.witnesses_us": "为我方见证",
+  "parties.we_witness": "我方为其见证",
+  "parties.cosigned_size": "已联署 {size} 个项目",
+  "parties.not_yet": "尚未",
+  "parties.refused": "本控制台拒绝为 {name} 的账本联署：{message}。账本若未延续之前已联署的历史，可能已被改写，或向不同的合作方显示不同的内容：请向对方查询。",
+  "parties.not_cosigned": "{name} 未为本账本最新的检查点联署：{message}"
 }

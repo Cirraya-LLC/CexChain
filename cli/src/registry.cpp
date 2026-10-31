@@ -1436,10 +1436,13 @@ std::vector<CommandSpec> build() {
          1,
          1,
          with({ledger_option,
-               {"url", "URL", "This ledger's API, as the peer reaches it (for online exchange)"}}),
+               {"url", "URL", "This ledger's API, as the peer reaches it (for online exchange)"},
+               {"witness-key", "PUBKEY",
+                "The public key of the witness this ledger's server runs for its peers"}}),
          cmd_peer_invite,
          "Issues an API token named NAME with the peer scope, and prints a code (cxp_...) that\n"
-         "carries this ledger's id, its organization's name, the URL, and the token: send it to\n"
+         "carries this ledger's id, its organization's name, the URL, the token, and the\n"
+         "witness key if given (serve --witness-dir --witness-key): send it to\n"
          "that party only, by a channel you trust. Compare the fingerprint it shows with them\n"
          "by voice. They accept it (peer accept), and invite you back; accept their code under\n"
          "the same NAME, so that their calls with your token reach their own exchanges only.\n"

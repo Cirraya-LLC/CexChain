@@ -31,6 +31,15 @@ inline constexpr std::string_view owner_key_name = "owner";
 /// in) and keeper (firing time rules, expiring requests) while unlocked.
 inline constexpr std::string_view machine_key_name = "machine";
 inline constexpr std::string_view machine_name = "console";
+/// The console's witness of its parties' ledgers: it cosigns their
+/// checkpoints when they extend what it cosigned before. Not on the ledger;
+/// its public key goes in the console's invitation codes.
+inline constexpr std::string_view witness_key_name = "witness";
+
+/// The witness key's public key, made and sealed first if the console has
+/// none (a console set up before it had one). Needs only the node key's
+/// public key.
+[[nodiscard]] crypto::PublicKey witness_public_key(KeyStore& keys);
 
 struct SetUp {
     /// The ledger directory, which holds no ledger yet.

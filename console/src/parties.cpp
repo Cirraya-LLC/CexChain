@@ -26,6 +26,7 @@
 #include <cexchain/app/peers.hpp>
 #include <cexchain/app/support.hpp>
 #include <cexchain/console/console.hpp>
+#include <cexchain/console/setup.hpp>
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/exchange.hpp>
@@ -87,11 +88,13 @@ http::Response Console::parties_route(const http::Request& request) const {
         if (const auto loaded = node::load_peers(dir)) {
             for (const node::Peer& p : *loaded) {
                 named.push_back(p.name);
-                peers.push_back({{"name", p.name},
-                                 {"ledger", hex_of(p.ledger_id)},
-                                 {"fingerprint", app::ledger_fingerprint(p.ledger_id)},
-                                 {"url", p.url ? nlohmann::json(*p.url) : nlohmann::json()},
-                                 {"online", p.url.has_value() && p.token_file.has_value()}});
+                nlohmann::json item{{"name", p.name},
+                                    {"ledger", hex_of(p.ledger_id)},
+                                    {"fingerprint", app::ledger_fingerprint(p.ledger_id)},
+                                    {"url", p.url ? nlohmann::json(*p.url) : nlohmann::json()},
+                                    {"online", p.url.has_value() && p.token_file.has_value()}};
+                item.update(witnessing_view(p));
+                peers.push_back(std::move(item));
             }
         }
         // Invitations sent whose answer has not come: peer tokens without a peer.
@@ -132,6 +135,10 @@ http::Response Console::parties_route(const http::Request& request) const {
     const std::string url = api_url();
     if (!url.empty()) {
         ours.url = url;
+    }
+    // The console's witness of its parties' ledgers, for them to ask.
+    if (services_.keys != nullptr && services_.keys->initialized()) {
+        ours.witness = witness_public_key(*services_.keys);
     }
     const auto invite = [&](const std::string& name) {
         app::PeerInvitation code = ours;
@@ -240,8 +247,9 @@ void Console::poll_peers() const {
         const std::lock_guard lock(mutex_);
         inbox_ = std::move(fresh);
     }
-    // And the deliveries granted to this ledger's requests.
+    // And the deliveries granted to this ledger's requests, and witnessing.
     poll_deliveries();
+    poll_witnessing();
 }
 
 http::Response Console::inbox_route(const http::Request& request) const {

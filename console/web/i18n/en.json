@@ -543,7 +543,7 @@
   "exchange.held": "{function} with {arguments}: waiting for {missing}, until {until}",
   "nav.parties": "Parties",
   "parties.title": "Parties",
-  "parties.intro": "Other ledgers this console works with: each connected with one code each way. Once connected, calls that wait for your consent on their ledgers show on Home, and your consent goes back online.",
+  "parties.intro": "Other ledgers this console works with: each connected with one code each way. Once connected, calls that wait for your consent on their ledgers show on Home, and your consent goes back online; you ask each other for documents; and each witnesses the other's ledger, cosigning only checkpoints that extend what it cosigned before.",
   "parties.our_fingerprint": "This ledger's fingerprint, to compare by voice: {fingerprint}",
   "parties.connected": "Connected",
   "parties.fingerprint": "Fingerprint",
@@ -643,5 +643,11 @@
   "access.withdraw_reason": "Withdrawn",
   "approve.type.access_request": "Ask for a document",
   "approve.type.access_grant": "Share a document",
-  "approve.type.access_receipt": "Acknowledge a delivery"
+  "approve.type.access_receipt": "Acknowledge a delivery",
+  "parties.witnesses_us": "Witnesses us",
+  "parties.we_witness": "We witness them",
+  "parties.cosigned_size": "{size} entries cosigned",
+  "parties.not_yet": "not yet",
+  "parties.refused": "This console refused to cosign {name}'s ledger: {message}. A ledger that does not extend what was cosigned before may have been rewritten, or shown differently to different parties: ask them.",
+  "parties.not_cosigned": "{name} has not cosigned this ledger's latest checkpoint: {message}"
 }

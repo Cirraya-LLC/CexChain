@@ -24,6 +24,7 @@
 #include <cexchain/app/records.hpp>
 #include <cexchain/app/session.hpp>
 #include <cexchain/app/support.hpp>
+#include <cexchain/app/witness.hpp>
 #include <cexchain/console/console.hpp>
 #include <cexchain/console/keystore.hpp>
 #include <cexchain/console/kinds.hpp>
@@ -34,6 +35,7 @@
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/exchange.hpp>
 #include <cexchain/core/protocol/state.hpp>
+#include <cexchain/core/protocol/witness.hpp>
 #include <cexchain/crypto/openssl.hpp>
 #include <cexchain/ledger/environment.hpp>
 #include <cexchain/ledger/verify.hpp>
@@ -1033,7 +1035,7 @@ TEST_CASE("the first run makes the ledger, its keys, and its owner", "[console][
         sealed.push_back(k.name);
     }
     std::ranges::sort(sealed);
-    CHECK(sealed == std::vector<std::string>{"log", "machine", "owner", "root"});
+    CHECK(sealed == std::vector<std::string>{"log", "machine", "owner", "root", "witness"});
     // The console's machine: a device with a delegation for contract calls
     // only, which the node runs as the registrar and keeper.
     std::optional<cexchain::protocol::Id> machine_id;
@@ -2048,6 +2050,8 @@ TEST_CASE("two consoles become parties with one code each way", "[console][parti
     REQUIRE(read);
     CHECK(read->ledger == alice.session.state().ledger_id());
     CHECK(read->url == std::optional<std::string>("http://localhost:7470"));
+    // With the console's witness, for Bob to ask to cosign his checkpoints.
+    CHECK(read->witness == std::optional(console::witness_public_key(fa.w.keys)));
     // One invitation per name.
     CHECK(fa.w.post_as("/console/api/parties", {{"invite", "bob"}}, a).status == 409);
 
@@ -2270,6 +2274,106 @@ TEST_CASE("documents between two consoles: asked, granted, delivered, and accept
     REQUIRE(fa.w.post_as("/console/api/access/dismiss", {{"request", again}}, a).status == 200);
     CHECK(answer_of(fa.w.get("/console/api/access", a))["asked_of_us"].size() == 1);
     CHECK(fa.w.post_as("/console/api/access/dismiss", {{"request", again}}, a).status == 404);
+}
+
+TEST_CASE("a console witnesses its parties' ledgers, and refuses a fork", "[console][witness]") {
+    FirstRunWorld fa;
+    Served alice(fa);
+    FirstRunWorld fb;
+    Served bob(fb);
+    const std::string a = fa.made["session"].get<std::string>();
+    const std::string b = fb.made["session"].get<std::string>();
+    const std::string code =
+        answer_of(fa.w.post_as("/console/api/parties", {{"invite", "bob"}}, a))["code"];
+    const auto accepted =
+        answer_of(fb.w.post_as("/console/api/parties", {{"accept", code}, {"name", "alice"}}, b));
+    REQUIRE(
+        fa.w.post_as("/console/api/parties", {{"accept", accepted["reply"]}, {"name", "bob"}}, a)
+            .status == 200);
+
+    // Alice follows Bob's ledger from its genesis, as her poll does from his
+    // API: pinned to his ledger id.
+    cexchain::Bytes genesis;
+    REQUIRE(bob.session.ledger().visit_entry(
+        0, [&](cexchain::ByteView e) { genesis.assign(e.begin(), e.end()); }));
+    const auto bob_id = bob.session.state().ledger_id();
+    CHECK_THROWS(
+        cexchain::app::state_from_genesis(genesis, "bob", alice.session.state().ledger_id()));
+    cexchain::app::add_witnessed(fa.w.state / "witness",
+                                 cexchain::app::state_from_genesis(genesis, "bob", bob_id));
+
+    const auto root = fb.w.keys.open("root");
+    const auto log = fb.w.keys.open("log");
+    auto cosign = [&](const cexchain::ledger::Ledger& ledger, std::uint64_t old) {
+        const auto request = ledger.cosign_request(old);
+        REQUIRE(request);
+        return fa.w.web.witness_cosign(*cexchain::protocol::encode_cosign_request(*request));
+    };
+    auto device = [](const std::string& name) {
+        return cexchain::protocol::ActorRegisterBody{
+            cexchain::protocol::ActorKind::device, name,
+            cexchain::crypto::openssl::KeyPair::generate(cexchain::crypto::SigAlg::ed25519)
+                ->public_key(),
+            std::nullopt, std::nullopt};
+    };
+    REQUIRE(bob.session.ledger().checkpoint(log));
+    // A copy of Bob's ledger from here, to go another way.
+    TempDirectory fork;
+    for (const auto& e : std::filesystem::recursive_directory_iterator(fb.w.dir.path)) {
+        const auto to = fork.path / "ledger" / std::filesystem::relative(e.path(), fb.w.dir.path);
+        if (e.is_directory()) {
+            std::filesystem::create_directories(to);
+        } else if (e.is_regular_file()) {
+            std::filesystem::create_directories(to.parent_path());
+            std::filesystem::copy_file(e.path(), to);
+        }
+    }
+
+    // Bob's checkpoint, cosigned; the cosignature verifies with Alice's
+    // witness key, which her code gave him.
+    const auto first = cosign(bob.session.ledger(), 0);
+    REQUIRE(first);
+    const auto witness = console::witness_public_key(fa.w.keys);
+    REQUIRE(bob.session.ledger().add_cosignature(*first, witness));
+    // His ledger goes on, and is cosigned again from where she left it.
+    static_cast<void>(bob.session.submit(root, device("printer"), std::nullopt));
+    REQUIRE(bob.session.ledger().checkpoint(log));
+    const std::uint64_t cosigned = bob.session.ledger().latest_checkpoint()->checkpoint.tree_size;
+    const auto second =
+        cosign(bob.session.ledger(), (*bob.session.ledger().last_cosigned(witness))->tree_size);
+    REQUIRE(second);
+    REQUIRE(bob.session.ledger().add_cosignature(*second, witness));
+    CHECK((*bob.session.ledger().last_cosigned(witness))->tree_size == cosigned);
+    auto view = answer_of(fa.w.get("/console/api/parties", a))["peers"][0];
+    CHECK(view["we_witness"]["size"] == cosigned);
+    CHECK_FALSE(view["we_witness"].contains("refused"));
+    // Bob's code gave Alice his witness key: he has cosigned nothing of hers yet.
+    CHECK(view["witnesses_us"]["size"] == 0);
+
+    // The copy goes another way: the same size, another history. Refused,
+    // and the Parties screen says so.
+    {
+        cexchain::app::Session forked(cexchain::app::Location{fork.path / "ledger"});
+        static_cast<void>(forked.submit(root, device("scanner"), std::nullopt));
+        REQUIRE(forked.ledger().checkpoint(log));
+        REQUIRE(forked.ledger().latest_checkpoint()->checkpoint.tree_size == cosigned);
+        const auto refused = cosign(forked.ledger(), cosigned);
+        REQUIRE_FALSE(refused);
+        CHECK(refused.error().code == cexchain::Errc::verification_failed);
+    }
+    view = answer_of(fa.w.get("/console/api/parties", a))["peers"][0];
+    CHECK(view["we_witness"]["size"] == cosigned);
+    CHECK(view["we_witness"]["refused"].is_string());
+    // Bob's own next checkpoint is still cosigned, and clears it.
+    static_cast<void>(bob.session.submit(root, device("plotter"), std::nullopt));
+    REQUIRE(bob.session.ledger().checkpoint(log));
+    REQUIRE(cosign(bob.session.ledger(), cosigned));
+    CHECK_FALSE(answer_of(fa.w.get("/console/api/parties", a))["peers"][0]["we_witness"].contains(
+        "refused"));
+
+    // Locked, the witness cosigns nothing.
+    fa.w.keys.lock();
+    CHECK_FALSE(cosign(bob.session.ledger(), cosigned));
 }
 
 #endif

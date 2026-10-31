@@ -2,6 +2,7 @@
 // Copyright 2026 Cirraya
 
 #include <filesystem>
+#include <mutex>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -42,6 +43,23 @@ protocol::Scope machine_scope() {
     scope.may_delegate = false;
     scope.require_presence = false;
     return scope;
+}
+
+crypto::PublicKey witness_public_key(KeyStore& keys) {
+    // Made once: a second key would replace the one a code already carries.
+    static std::mutex making;
+    const std::lock_guard lock(making);
+    for (const SealedKeyInfo& k : keys.keys()) {
+        if (k.name == witness_key_name) {
+            return k.public_key;
+        }
+    }
+    auto made = crypto::openssl::KeyPair::generate(crypto::SigAlg::ed25519);
+    if (!made) {
+        throw std::runtime_error("making the witness key failed");
+    }
+    keys.seal(witness_key_name, *made);
+    return made->public_key();
 }
 
 namespace {
@@ -106,7 +124,8 @@ FirstRun make_first_run(const SetUp& request, KeyStore& keys, ledger::Entropy& e
     auto owner = crypto::openssl::KeyPair::generate(crypto::SigAlg::ed25519);
     auto vault = crypto::openssl::HpkeKey::generate();
     auto machine = crypto::openssl::KeyPair::generate(crypto::SigAlg::ed25519);
-    if (!root || !log || !owner || !vault || !machine) {
+    auto witness = crypto::openssl::KeyPair::generate(crypto::SigAlg::ed25519);
+    if (!root || !log || !owner || !vault || !machine || !witness) {
         throw std::runtime_error("making the ledger's keys failed");
     }
     FirstRun out;
@@ -121,6 +140,7 @@ FirstRun make_first_run(const SetUp& request, KeyStore& keys, ledger::Entropy& e
     keys.seal(log_key_name, *log);
     keys.seal(owner_key_name, *owner);
     keys.seal(machine_key_name, *machine);
+    keys.seal(witness_key_name, *witness);
     keys.seal_vault_key(*vault);
 
     std::filesystem::create_directories(request.ledger);

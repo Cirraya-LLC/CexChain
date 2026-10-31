@@ -490,7 +490,12 @@ cexchain console settings show
   consent; Home lists them ("Waiting for your consent"). Reading one fetches the thing's evidence
   from its home (a home shows it to the ledgers a call it holds asks), verifies it, and shows it
   as a proposal; the consent, given with a tap, goes to the home's registrar, which records the
-  call.
+  call. Each console is also a witness of its parties' ledgers: its code carries its witness key,
+  it follows each party's ledger from its genesis entry (`GET /v1/genesis`, pinned to the
+  ledger id), and cosigns only checkpoints that extend what it cosigned before; and it asks each
+  party to cosign its own latest checkpoint, keeping the cosignatures with its ledger, so its
+  proofs carry them. The Parties table shows how far each side has cosigned the other, and a
+  refusal (a ledger rewritten, or shown differently to different parties) as an alert.
 - **Documents between parties.** "Ask for a document" on the Parties screen asks a party for one
   of its records by id (as `access request --send`): the reason, the fields wanted (or all), and
   whether its files too, approved with a tap; the request's key is kept sealed to the vault key.
@@ -628,8 +633,11 @@ accountable. The same exchange works with files instead of the API (`--out`, the
 
 Two parties can also witness each other's ledgers. `cexchain serve --witness-dir DIR
 --witness-key KEY` cosigns a peer's checkpoints online, and the peer runs
-`cexchain checkpoint cosign-request --peer NAME --send`. No third party is needed for neither side
-to be able to rewrite its history unseen.
+`cexchain checkpoint cosign-request --peer NAME --send`. `peer invite --witness-key PUB` puts the
+witness's key in the code, and the witness follows the peer's ledger from its genesis entry
+(`witness add-log --genesis FILE`; a peer reads it at `GET /v1/genesis`), so it follows the peer's
+key rotations too. No third party is needed for neither side to be able to rewrite its history
+unseen. The web console does all of this by itself for its parties.
 
 ## Contracts
 

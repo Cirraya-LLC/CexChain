@@ -59,14 +59,17 @@ void remove_peer(const std::filesystem::path& dir, const std::string& name);
 /// An invitation to become a peer (`peer invite`, the console's Parties):
 /// the inviting ledger's id, its organization's name as it gives it, the URL
 /// of its API if others reach one, and the token it issued for the invited
-/// party, to call that API as its peer. Whoever holds the code holds the
-/// token: send it to that party only. Written as `cxp_` and the base64url of
-/// its CBOR, `{1: 1, 2: ledger, 3: organization, ? 4: url, ? 5: token}`.
+/// party, to call that API as its peer; and the public key of the witness
+/// the inviting organization runs for its parties, if it runs one. Whoever
+/// holds the code holds the token: send it to that party only. Written as
+/// `cxp_` and the base64url of its CBOR, `{1: 1, 2: ledger, 3: organization,
+/// ? 4: url, ? 5: token, ? 6: witness key [alg, key]}`.
 struct PeerInvitation {
     protocol::Id ledger;
     std::string organization;
     std::optional<std::string> url;
     std::optional<std::string> token;
+    std::optional<crypto::PublicKey> witness;
 
     friend bool operator==(const PeerInvitation&, const PeerInvitation&) = default;
 };

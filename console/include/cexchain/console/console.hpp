@@ -35,6 +35,7 @@
 #include <cexchain/crypto/openssl.hpp>
 #include <cexchain/ledger/ledger.hpp>
 #include <cexchain/node/http.hpp>
+#include <cexchain/node/peers.hpp>
 
 /// The web console's server side: the page's files, compiled into the
 /// binary; the headers every answer carries; and the checks every request
@@ -225,6 +226,21 @@ public:
         held_ = std::move(held);
     }
 
+    /// Keeps a witness's cosignature of one of this ledger's checkpoints
+    /// (node::LedgerApi::add_cosignature: `body` is [cosignature, witness
+    /// key]). Until it is set, parties' cosignatures are not kept.
+    using Cosignatures = std::function<void(Bytes body, std::function<void(http::Response)>)>;
+    void set_cosignatures(Cosignatures keep) {
+        const std::lock_guard lock(api_mutex_);
+        cosignatures_ = std::move(keep);
+    }
+    /// Cosigns a party's checkpoint as its witness, for POST
+    /// /v1/witness/cosign: with the console's witness key, opened for it
+    /// (refused while locked), against what the witness at `<console>/witness`
+    /// cosigned before (app::witness_cosign). A refusal is remembered for the
+    /// Parties screen.
+    [[nodiscard]] Result<Bytes> witness_cosign(ByteView request) const;
+
     /// Asks every party reached online, every `every` and whenever asked
     /// (poll_now), for the calls its registrar holds that concern this
     /// ledger, while the ledger is served; the Home inbox shows them.
@@ -348,6 +364,12 @@ private:
     [[nodiscard]] std::variant<std::pair<protocol::RecordRegisterBody, Draft>, http::Response>
     access_draft(const Signed& who, const nlohmann::json& intent) const;
     void poll_deliveries() const;
+    /// Witnessing (witnessing.cpp): each poll follows the parties' ledgers
+    /// (their genesis fetched) and asks those with a witness key to cosign
+    /// this ledger's latest checkpoint; what each answered, for the Parties
+    /// screen.
+    void poll_witnessing() const;
+    [[nodiscard]] nlohmann::json witnessing_view(const node::Peer& peer) const;
     /// What a party's registrar last answered: its calls (JSON text), or why
     /// it could not be asked.
     struct PeerInbox {
@@ -483,6 +505,10 @@ private:
         const std::lock_guard lock(api_mutex_);
         return held_;
     }
+    [[nodiscard]] Cosignatures cosignatures() const {
+        const std::lock_guard lock(api_mutex_);
+        return cosignatures_;
+    }
     /// Tells the node the ledger's API may open (set up, or unlocked).
     void ready_now() const;
 
@@ -493,6 +519,7 @@ private:
     Evidence instance_evidence_;
     Propose propose_;
     Held held_;
+    Cosignatures cosignatures_;
     std::function<void()> on_ready_;
     mutable std::mutex mutex_;
     std::vector<Origin> origins_;
@@ -511,6 +538,11 @@ private:
     /// This ledger's requests whose grant the party withdrew or let expire
     /// (its API answered 410), by id.
     mutable std::set<std::string> ended_;
+    /// Why this console's witness last refused a ledger's checkpoint (by
+    /// ledger id), and why a party last did not cosign this ledger's (by
+    /// name); cleared by the next cosignature.
+    mutable std::map<std::string, std::string> refused_;
+    mutable std::map<std::string, std::string> not_cosigned_;
     mutable std::mutex poll_mutex_;
     mutable std::condition_variable_any poll_wake_;
     mutable bool poll_asked_ = false;

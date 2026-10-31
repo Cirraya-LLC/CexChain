@@ -54,7 +54,11 @@ BOB_ID=$(run status --ledger bob --json | json 'd["ledger_id"]')
 # The server's address, chosen ahead (serve holds the ledger's lock while it runs).
 ALICE_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
 ALICE_URL="http://127.0.0.1:$ALICE_PORT"
-run peer invite bob --url "$ALICE_URL" --ledger alice --json > invite.json
+# Alice's server will witness her peers' ledgers: her code carries its key.
+run key generate --out alice-witness.key > /dev/null
+run key public alice-witness.key --out alice-witness.pub > /dev/null
+run peer invite bob --url "$ALICE_URL" --witness-key alice-witness.pub --ledger alice --json > invite.json
+[ "$(json 'd["witness"]' < invite.json)" = True ] || fail "the code carries the witness key"
 CODE=$(json 'd["code"]' < invite.json)
 case "$CODE" in cxp_*) ;; *) fail "an invitation code starts with cxp_" ;; esac
 [ "$(json 'd["fingerprint"]' < invite.json)" = "$(echo "$ALICE_ID" | sed -E 's/^(.{4})(.{4})(.{4})(.{4})(.{4}).*/\1 \2 \3 \4 \5/')" ] ||
@@ -68,6 +72,10 @@ run peer accept "$CODE" --name alice --ledger bob --json > accepted.json
 [ "$(json '(d["ledger_id"], d["organization"], d["url"])' < accepted.json)" = "('$ALICE_ID', 'Alice', '$ALICE_URL')" ] ||
     fail "the peer the code names"
 TOKEN_FILE=$(json 'd["token_file"]' < accepted.json)
+[ "$(json 'd["witness_key"]["key"]' < accepted.json)" = "$(run key show alice-witness.key --json | json 'd["public_key"]["key"]')" ] ||
+    fail "accepting keeps the witness key"
+[ "$(run peer show alice --ledger bob --json | json 'd["witness_key"] is not None')" = True ] ||
+    fail "the peer has the witness key"
 [ "$(stat -c %a "$TOKEN_FILE" 2> /dev/null || stat -f %Lp "$TOKEN_FILE")" = 600 ] ||
     fail "the token is kept owner-only"
 # And back: Bob invites Alice, who accepts under the name she invited him with.
@@ -87,6 +95,22 @@ done
 # The registrar's held calls that concern Bob: none yet, but asked as her peer.
 run contract pending --peer alice --ledger bob | contains -F "no pending calls" ||
     fail "Bob's token reaches Alice's API"
+# Alice's genesis entry, which Bob follows her keys from as her witness.
+python3 - "$ALICE_URL/v1/genesis" "$(cat "$TOKEN_FILE")" << 'PY' || fail "a peer reads the genesis entry"
+import sys, urllib.request
+request = urllib.request.Request(sys.argv[1], headers={"Authorization": "Bearer " + sys.argv[2]})
+with urllib.request.urlopen(request, timeout=10) as answer:
+    assert answer.status == 200 and answer.headers["Content-Type"] == "application/cbor"
+    assert len(answer.read()) > 64
+PY
+python3 - "$ALICE_URL/v1/genesis" << 'PY' || fail "the genesis entry needs a token"
+import sys, urllib.request, urllib.error
+try:
+    urllib.request.urlopen(sys.argv[1], timeout=10)
+    sys.exit("read without a token")
+except urllib.error.HTTPError as error:
+    assert error.code == 401, error.code
+PY
 # Another token does not.
 cp "$TOKEN_FILE" token.kept
 echo "cxt_not_the_token" > "$TOKEN_FILE"

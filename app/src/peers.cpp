@@ -153,6 +153,9 @@ std::string encode_invitation(const PeerInvitation& i) {
     if (i.token) {
         map.push_back({cbor::Value::integer(5), cbor::Value::text(*i.token)});
     }
+    if (i.witness) {
+        map.push_back({cbor::Value::integer(6), protocol::encode_public_key(*i.witness)});
+    }
     const Bytes encoded = unwrap(cbor::encode(cbor::Value::map(std::move(map))), "the invitation");
     return std::string(invitation_prefix) + to_base64url(encoded);
 }
@@ -208,6 +211,12 @@ std::optional<PeerInvitation> decode_invitation(std::string_view code) {
         } else if (*key == 5 && text != nullptr && !text->empty() && text->size() <= 256 &&
                    printable(*text)) {
             out.token = *text;
+        } else if (*key == 6) {
+            auto witness = protocol::decode_public_key(e.value);
+            if (!witness) {
+                return std::nullopt;
+            }
+            out.witness = std::move(*witness);
         } else {
             return std::nullopt;
         }
@@ -259,6 +268,7 @@ node::Peer accept_invitation(const std::filesystem::path& dir,
     peer.name = name;
     peer.ledger_id = invitation.ledger;
     peer.url = invitation.url;
+    peer.witness_key = invitation.witness;
     peer.added = ledger::SystemClock{}.now();
     if (own) {
         // The node's console knows its ledger: the peers file only.

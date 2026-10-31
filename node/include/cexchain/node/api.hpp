@@ -44,6 +44,7 @@
 ///         POST /v1/contracts/calls and
 ///         GET /v1/contracts/instances/{instance} (the instance's current parties),
 ///         GET /v1/contracts/calls[/{call}] (calls that concern the peer),
+///         GET /v1/genesis (also read: the genesis entry, to follow the ledger's keys),
 ///         POST /v1/contracts/consents (a consent's evidence)
 namespace cexchain::node {
 
@@ -138,6 +139,10 @@ public:
     /// The calls the registrar holds, as GET /v1/contracts/calls answers the
     /// home's own staff.
     [[nodiscard]] http::Response registrar_calls() const;
+    /// Keeps a witness's cosignature of one of this ledger's checkpoints, as
+    /// POST /v1/cosignatures does for an admin: `body` is [cosignature,
+    /// witness public key]. Answers through `respond`, from the writer.
+    void add_cosignature(Bytes body, Respond respond);
     /// A record's evidence bundle (without its private data), signed with
     /// the log key: after a new checkpoint, if the latest does not cover the
     /// record's last statement. Answers through `done`, from the writer.

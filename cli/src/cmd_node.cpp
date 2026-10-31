@@ -15,6 +15,7 @@
 #include <sys/resource.h>
 #include <thread>
 
+#include <cexchain/app/witness.hpp>
 #include <cexchain/console/console.hpp>
 #include <cexchain/console/keystore.hpp>
 #include <cexchain/ledger/backup.hpp>
@@ -28,7 +29,6 @@
 
 #include "commands.hpp"
 #include "output.hpp"
-#include "witness.hpp"
 
 namespace cexchain::cli {
 
@@ -192,7 +192,7 @@ int serve(const Args& args, const ServeDefaults& defaults) {
             load_signer(args.need("witness-key"), args);
         options.witness = [dir = std::filesystem::path(*witness_dir),
                            witness_key](ByteView request) {
-            return witness_cosign(dir, *witness_key, request);
+            return app::witness_cosign(dir, *witness_key, request, ledger::SystemClock{}.now());
         };
     }
     if (const auto registrar = args.get("registrar-key")) {

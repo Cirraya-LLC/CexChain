@@ -136,7 +136,7 @@ const slotKinds = () =>
     console.log(`first run to Home: ${clicks} clicks`);
     assert.deepEqual(slotKinds(), ["passkey", "recovery"]);
     const keys = JSON.parse(run("console", "key", "list", "--json")).keys.map((k) => k.name).sort();
-    assert.deepEqual(keys, ["log", "machine", "owner", "root"]);
+    assert.deepEqual(keys, ["log", "machine", "owner", "root", "witness"]);
     const settings = JSON.parse(run("console", "settings", "show", "--json"));
     assert.equal(settings.backup_folder, suggested);
     assert.ok(fs.statSync(suggested).isDirectory());

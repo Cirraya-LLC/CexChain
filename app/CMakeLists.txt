@@ -16,7 +16,8 @@ add_library(cexchain_app
     src/requests.cpp
     src/session.cpp
     src/support.cpp
-    src/views.cpp)
+    src/views.cpp
+    src/witness.cpp)
 add_library(cexchain::app ALIAS cexchain_app)
 target_include_directories(cexchain_app PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 target_link_libraries(cexchain_app

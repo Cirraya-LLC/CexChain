@@ -32,6 +32,9 @@ bool DeferredApi::open_now() {
             api->propose_call(std::move(proposal), std::move(respond));
         },
         [api] { return api->registrar_calls(); });
+    console_->set_cosignatures([api](Bytes body, auto respond) {
+        api->add_cosignature(std::move(body), std::move(respond));
+    });
     console_->set_submitter([api](Bytes body, bool submission, auto respond) {
         if (submission) {
             api->submit_submission(std::move(body), std::move(respond));

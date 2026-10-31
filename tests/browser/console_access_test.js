@@ -8,7 +8,8 @@
 // shares the place and the photo, not the day, with a tap, and the delivery
 // waits for Bob. Bob's console fetches it; he opens it, verified, saves the
 // photo, and accepts it with a tap, the receipt sent back; Alice sees it
-// acknowledged.
+// acknowledged. And each console witnesses the other's ledger: it follows
+// it from its genesis and cosigns its checkpoints.
 // Usage: node console_access_test.js CEXCHAIN
 "use strict";
 const assert = require("node:assert/strict");
@@ -72,7 +73,7 @@ async function person(browser, name) {
   await page.getByRole("button", { name: "Not now" }).click();
   await page.getByRole("heading", { name: "Home" }).waitFor();
   const id = JSON.parse(run("status", "--json")).ledger_id;
-  return { name, page, run, process: process_, violations, id };
+  return { name, page, run, process: process_, violations, id, ledger };
 }
 
 /// Approves what the page shows, checked in the browser, with the passkey.
@@ -82,6 +83,14 @@ async function tap(page, what) {
   if (what) await page.getByText(what, { exact: true }).first().waitFor();
   await page.getByRole("button", { name: "Approve with your passkey" }).click();
   await page.getByRole("heading", { name: "Done" }).waitFor();
+}
+
+/// Has the console ask its parties now, as Home does when it opens.
+async function poll(page) {
+  const answered = page.waitForResponse((r) => r.url().includes("api/inbox?refresh=1"),
+                                        { timeout: 60000 });
+  await page.evaluate(() => { location.hash = location.hash === "#/" ? "#/home" : "#/"; });
+  await answered;
 }
 
 /// Reloads until `locator` shows (a poll or a peer's answer may come later).
@@ -202,6 +211,25 @@ async function until(page, locator, tries = 20) {
     assert.equal(grants.length, 1);
     assert.equal(grants[0].acknowledged, true);
     assert.deepEqual(grants[0].fields, ["place"]);
+
+    // Each witnesses the other: Alice follows Bob's ledger and asks him to
+    // cosign hers, Bob does the same, and each cosigns the other's checkpoint.
+    await poll(a);
+    await poll(b);
+    await poll(a);
+    for (const p of [alice, bob]) {
+      current = p;
+      await p.page.goto(p.page.url().replace(/#.*$/, "#/parties"));
+      await p.page.reload();
+      await p.page.getByRole("heading", { name: "Parties", level: 1 }).waitFor();
+      assert.equal(await p.page.getByRole("cell", { name: /entries cosigned$/ }).count(), 2,
+                   `${p.name}: witnessed and witnessing`);
+      const followed = JSON.parse(p.run("witness", "status", "--dir",
+                                        path.join(p.ledger, "console", "witness"), "--json"));
+      assert.equal(followed.length, 1);
+      assert.ok(followed[0].size > 0, `${p.name} cosigned the other's checkpoint`);
+      assert.equal(followed[0].follows_rotations, true);
+    }
 
     for (const p of people) {
       assert.deepEqual(p.violations, [], `${p.name}: no CSP violation or script error`);

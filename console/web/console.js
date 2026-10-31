@@ -2272,12 +2272,26 @@ async function partiesScreen() {
     const [listed, access] = await Promise.all([api("GET", "parties"), api("GET", "access")]);
     const parts = [flash(), el("h1", { text: t("parties.title") }), el("p", { class: "hint", text: t("parties.intro") }),
                    el("p", { text: t("parties.our_fingerprint", { fingerprint: listed.fingerprint }) })];
+    // Witnessing: the size each side last cosigned of the other's ledger.
+    const cosigned = (w) => (!w ? t("value.none")
+        : w.size ? t("parties.cosigned_size", { size: w.size }) : t("parties.not_yet"));
     parts.push(...table(t("parties.connected"), [
         ["column.name", (p) => p.name],
         ["parties.fingerprint", (p) => p.fingerprint],
         ["parties.online", (p) => yesNo(p.online)],
+        ["parties.witnesses_us", (p) => cosigned(p.witnesses_us)],
+        ["parties.we_witness", (p) => cosigned(p.we_witness)],
         ["column.id", (p) => short(p.ledger)],
     ], listed.peers));
+    for (const p of listed.peers) {
+        if (p.we_witness?.refused) {
+            parts.push(problem(t("parties.refused", { name: p.name, message: p.we_witness.refused })));
+        }
+        if (p.witnesses_us?.problem) {
+            parts.push(el("p", { class: "hint", text: t("parties.not_cosigned", {
+                name: p.name, message: p.witnesses_us.problem }) }));
+        }
+    }
     if (listed.waiting.length) {
         parts.push(el("p", { class: "hint", text: t("parties.waiting_answer", { names: listed.waiting.join(", ") }) }));
     }

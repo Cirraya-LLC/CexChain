@@ -163,6 +163,9 @@ int cmd_peer_invite(const Args& args) {
     if (invitation.url) {
         unwrap(node::Url::parse(*invitation.url), "reading --url");
     }
+    if (const auto witness = args.get("witness-key")) {
+        invitation.witness = load_public_key(*witness);
+    }
     ledger::SystemEntropy entropy;
     ledger::SystemClock clock;
     invitation.token = issue_peer_token(dir, name, shared_provider(), entropy, clock);
@@ -172,6 +175,7 @@ int cmd_peer_invite(const Args& args) {
                     {"ledger_id", id_json(invitation.ledger)},
                     {"fingerprint", ledger_fingerprint(invitation.ledger)},
                     {"url", invitation.url ? Json(*invitation.url) : Json(nullptr)},
+                    {"witness", invitation.witness.has_value()},
                     {"code", code}});
         return exit_ok;
     }

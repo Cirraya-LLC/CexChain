@@ -543,7 +543,7 @@
   "exchange.held": "{function}（{arguments}）：等待 {missing}，至 {until}",
   "nav.parties": "合作方",
   "parties.title": "合作方",
-  "parties.intro": "與此控制台合作的其他賬本：雙方各發一個代碼即可連接。連接後，對方賬本上等待你同意的調用會顯示在首頁，你的同意會在線發回。",
+  "parties.intro": "與此控制台合作的其他賬本：雙方各發一個代碼即可連接。連接後，對方賬本上等待你同意的調用會顯示在首頁，你的同意會在線發回；雙方可互相索取文件；各自為對方的賬本見證，只為延續之前已聯署歷史的檢查點聯署。",
   "parties.our_fingerprint": "此賬本的指紋（請口頭核對）：{fingerprint}",
   "parties.connected": "已連接",
   "parties.fingerprint": "指紋",
@@ -643,5 +643,11 @@
   "access.withdraw_reason": "已撤回",
   "approve.type.access_request": "索取文件",
   "approve.type.access_grant": "分享文件",
-  "approve.type.access_receipt": "確認收到交付"
+  "approve.type.access_receipt": "確認收到交付",
+  "parties.witnesses_us": "為我方見證",
+  "parties.we_witness": "我方為其見證",
+  "parties.cosigned_size": "已聯署 {size} 個項目",
+  "parties.not_yet": "尚未",
+  "parties.refused": "本控制台拒絕為 {name} 的賬本聯署：{message}。賬本若未延續之前已聯署的歷史，可能已被改寫，或向不同的合作方顯示不同的內容：請向對方查詢。",
+  "parties.not_cosigned": "{name} 未為本賬本最新的檢查點聯署：{message}"
 }

@@ -226,6 +226,8 @@ enum class Endpoint {
     make_checkpoint,
     consistency,
     entries,
+    /// GET /v1/genesis: the genesis log entry (read or peer).
+    genesis,
     checkpoints,
     cosignatures,
     add_cosignature,
@@ -1222,6 +1224,18 @@ struct LedgerApi::State {
             }
         }
         return cbor_response(cbor::Value::array(std::move(out)));
+    }
+
+    /// The genesis entry, which the ledger's id authenticates: a peer that
+    /// witnesses this ledger follows its root and log keys from it.
+    http::Response genesis() const {
+        Bytes out;
+        if (auto read = ledger->visit_entry(
+                0, [&](ByteView entry) { out.assign(entry.begin(), entry.end()); });
+            !read) {
+            return error_response(read.error());
+        }
+        return binary("application/cbor", std::move(out));
     }
 
     http::Response checkpoints(const http::Request& r) const {
@@ -3336,6 +3350,11 @@ struct LedgerApi::State {
             }
             found = post ? Routed{Endpoint::call_propose, Access::submit_or_peer}
                          : Routed{Endpoint::call_list, Access::read_or_peer};
+        } else if (path == "/v1/genesis") {
+            if (!get) {
+                return method_not_allowed("GET");
+            }
+            found = Routed{Endpoint::genesis, Access::read_or_peer};
         } else if (path == "/v1/contracts/consents") {
             if (!post) {
                 return method_not_allowed("POST");
@@ -3462,6 +3481,8 @@ struct LedgerApi::State {
             return consistency(r);
         case Endpoint::entries:
             return entries(r);
+        case Endpoint::genesis:
+            return genesis();
         case Endpoint::checkpoints:
             return checkpoints(r);
         case Endpoint::cosignatures:
@@ -3533,6 +3554,15 @@ struct LedgerApi::State {
 
     /// A call proposed by the node's own console to its registrar: as POST
     /// /v1/contracts/calls from the home's own staff.
+    /// A witness's cosignature from the node's own console.
+    void cosignature_as_node(http::Request r, Done done) {
+        if (auto denied = refuse_peer_write()) {
+            finish(done, "console", std::move(*denied));
+            return;
+        }
+        add_cosignature(r, "console", done);
+    }
+
     void propose_as_node(http::Request r, Done done) {
         if (failed) {
             finish(done, "console",
@@ -3795,6 +3825,15 @@ void LedgerApi::propose_call(Bytes proposal, Respond respond) {
 
 http::Response LedgerApi::registrar_calls() const {
     return state_->held_as_node();
+}
+
+void LedgerApi::add_cosignature(Bytes body, Respond respond) {
+    http::Request r;
+    r.method = "POST";
+    r.target = r.path = "/v1/cosignatures";
+    r.headers.emplace_back("content-type", "application/cbor");
+    r.body = std::move(body);
+    state_->cosignature_as_node(std::move(r), std::move(respond));
 }
 
 void LedgerApi::record_evidence(const protocol::Id& record,
