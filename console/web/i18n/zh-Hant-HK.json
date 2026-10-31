@@ -129,7 +129,7 @@
   "settings.default_language": "新瀏覽器的語言",
   "settings.browser_language": "跟隨各瀏覽器",
   "settings.backups": "備份",
-  "settings.backup_note": "暫時未會按時寫入備份。在此之前，請以此指令手動備份：cexchain backup create",
+  "settings.backup_note": "控制台解鎖期間，每天會在該處寫入一份備份，經密封後只有你的復原碼可以打開，並保留最新七份及最近四週每週一份。請將復原碼與該資料夾分開保管。",
   "settings.save": "儲存",
   "settings.saved": "已儲存。",
   "settings.read_only": "只有擁有人或管理員可以更改這些設定。",
@@ -809,5 +809,12 @@
   "activity.automation.setup": "交出機器的密鑰",
   "approve.signer": "簽署者",
   "approve.by_organization": "機構，以其根密鑰簽署：機器可做的事無須人員親身確認，因此不能由任何人員的授權授予。此控制台會核對你的通行密鑰，其活動記錄會保存批准者。",
-  "approve.type.machine-register": "登記一部機器"
+  "approve.type.machine-register": "登記一部機器",
+  "settings.back_up_now": "立即備份",
+  "settings.backup_problem": "備份失敗：{problem}",
+  "home.backup_last": "上次備份：{time}（{file}）",
+  "home.backup_none": "暫無備份：首份會在一日內完成。",
+  "home.backup_no_folder": "未設定備份資料夾：請在設定中選擇，控制台便會每天備份。",
+  "home.backup_overdue": "已有兩天沒有備份。{problem}",
+  "activity.backups.write": "寫入備份"
 }

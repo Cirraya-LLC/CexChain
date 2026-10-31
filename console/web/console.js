@@ -570,14 +570,25 @@ async function homeScreen() {
         counts.append(el("dt", { text: t(`count.${key}`) }),
                       el("dd", { text: String(home.counts[key]) }));
     }
+    const backup = home.backup ?? {};
     show(flash(), keysNotice(), slotNotice(), el("h1", { text: t("home.title") }),
+         backup.overdue || backup.problem ? problem(t("home.backup_overdue", { problem: backup.problem ?? "" })) : null,
          el("dl", { class: "facts" },
             el("dt", { text: t("home.organization") }), el("dd", { text: home.ledger.organization }),
             el("dt", { text: t("home.ledger") }), el("dd", { class: "id", text: home.ledger.id })),
-         el("h2", { text: t("home.counts") }), counts,
+         el("h2", { text: t("home.counts") }), counts, backupStatus(backup),
          el("p", {}, el("a", { href: "#/exchange", text: t("exchange.link") })), inbox, documents);
     inboxInto(inbox);
     accessInto(documents);
+}
+
+/// The last backup, in a line.
+function backupStatus(b) {
+    if (!b.folder) {
+        return el("p", { class: "hint", text: t("home.backup_no_folder") });
+    }
+    return el("p", { class: "hint", text: b.at ? t("home.backup_last", { time: timeText(b.at), file: b.file })
+                                               : t("home.backup_none") });
 }
 
 /// The calls the parties hold for this ledger's consent, asked for when
@@ -1256,7 +1267,25 @@ async function settingsScreen() {
                                         { value: settings.backup_folder ?? "",
                                           placeholder: settings.suggested_backup_folder,
                                           disabled: !changeable });
-    parts.push(folderField, el("p", { class: "hint", text: t("settings.backup_note") }));
+    parts.push(folderField, el("p", { class: "hint", text: t("settings.backup_note") }),
+               backupStatus(settings.backup ?? {}));
+    if (settings.may_change) {
+        const now = el("button", { type: "button", text: t("settings.back_up_now") });
+        const said = el("div", { role: "status" });
+        now.addEventListener("click", async () => {
+            now.disabled = true;
+            status(t("status.working"));
+            try {
+                said.replaceChildren(backupStatus(await api("POST", "backup", {})));
+            } catch (error) {
+                said.replaceChildren(problem(t("settings.backup_problem", { problem: error.message })));
+            } finally {
+                now.disabled = false;
+                status("");
+            }
+        });
+        parts.push(now, said);
+    }
     if (changeable) {
         const save = el("button", { type: "button", class: "primary", text: t("settings.save") });
         save.addEventListener("click", async () => {

@@ -9,6 +9,7 @@
 # prints: secrets and approvals come in through callbacks.
 add_library(cexchain_app
     src/access.cpp
+    src/backups.cpp
     src/contract_views.cpp
     src/contracts.cpp
     src/peers.cpp

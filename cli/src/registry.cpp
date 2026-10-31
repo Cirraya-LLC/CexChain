@@ -1320,6 +1320,43 @@ std::vector<CommandSpec> build() {
          "NAME as a person with a new key sealed in the console, sets the passkeys NAME\n"
          "registered as that person's presence, grants a delegation of what they may do (in\n"
          "person, always; delegating only with people), and links NAME to the person."},
+        {{"console", "backup", "now"},
+         "Write a sealed backup of the ledger and its console (the console stopped)",
+         "Console",
+         "",
+         0,
+         0,
+         with({ledger_option,
+               {"unlock-file", "FILE",
+                "The console's passphrase or recovery code (default: asked on the terminal)"},
+               {"folder", "DIR", "Write it here (default: the console's backup folder)"}}),
+         cmd_console_backup_now,
+         "As the running console does once a day: the ledger's backup, signed by its log key,\n"
+         "with the console's folder (sealed keys, users, kinds, settings, the witness's state,\n"
+         "party tokens), checked by restoring it in memory, then sealed so that only the\n"
+         "recovery code opens it. The folder keeps the newest 7 and one a week for 4 weeks."},
+        {{"console", "backup", "list"},
+         "List the sealed backups in a folder",
+         "Console",
+         "",
+         0,
+         0,
+         with({ledger_option,
+               {"folder", "DIR", "The folder (default: the console's backup folder)"}}),
+         cmd_console_backup_list},
+        {{"console", "restore"},
+         "Restore a sealed backup into a new ledger directory",
+         "Console",
+         "FILE",
+         1,
+         1,
+         with({ledger_option,
+               {"recovery-code-file", "FILE",
+                "The recovery code, on its first line (default: asked on the terminal)"}}),
+         cmd_console_restore,
+         "Opens the backup with the recovery code, restores the ledger (every entry and\n"
+         "checkpoint re-validated) and its console, and audits it. Then console run serves\n"
+         "it, locked until the recovery code or the owner's passkey unlocks it."},
         {{"console", "activity"},
          "Show the web console's activity log",
          "Console",
@@ -1430,6 +1467,9 @@ std::vector<CommandSpec> build() {
               {"out", "FILE", "Write the backup here", true},
               {"log-key", "KEY", "Sign the backup with the ledger's log key (file or pkcs11: URI)"},
               {"no-vault", "", "Leave out the vault (sealed record data and vault keys)"},
+              {"console", "",
+               "Also the web console's folder, peers, and access boxes (party tokens in the clear: "
+               "prefer console backup now, which seals them)"},
               passphrase_file_option}),
          cmd_backup_create,
          "The backup holds the log, checkpoints, witness cosignatures, API token hashes, and\n"

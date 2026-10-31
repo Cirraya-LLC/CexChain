@@ -413,6 +413,10 @@ http::Response Console::route(const http::Request& request) const {
         return ready() ? automation_route(request)
                        : error(503, "unavailable", "this console keeps no users or sessions");
     }
+    if (request.path == "/console/api/backup") {
+        return ready() ? backup_route(request)
+                       : error(503, "unavailable", "this console keeps no users or sessions");
+    }
     if (request.path == "/console/api/qr") {
         return ready() ? qr_route(request)
                        : error(503, "unavailable", "this console keeps no users or sessions");

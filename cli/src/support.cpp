@@ -30,8 +30,6 @@
 
 namespace cexchain::cli {
 
-namespace {
-
 std::string prompt_hidden(const std::string& prompt) {
     const int tty = ::open("/dev/tty", O_RDWR | O_CLOEXEC);
     if (tty < 0) {
@@ -58,6 +56,8 @@ std::string prompt_hidden(const std::string& prompt) {
     ::close(tty);
     return line;
 }
+
+namespace {
 
 /// A passkey ceremony in the one-time local page (see webauthn.hpp).
 PasskeyCeremony browser_passkey(bool open_browser) {

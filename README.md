@@ -510,8 +510,16 @@ cexchain console settings show
   sends it back, and the granter sees the delivery acknowledged. A grant is withdrawn with a tap
   (its record revoked), after which its delivery is no longer handed out.
 - **Settings** show the ledger and its folder, the language new browsers start in, and the
-  backup folder (`console settings show|set` from the command line). Scheduled backups to that
-  folder are not written yet; until they are, use `cexchain backup create`.
+  backup folder (`console settings show|set` from the command line).
+- **Backups.** Once a day while the console is unlocked (and on "Back up now"), it writes a
+  backup into the backup folder: the ledger's backup, signed by its log key, with the console's
+  folder (its sealed keys, users, kinds, settings, the witness's state, party tokens), checked by
+  restoring it in memory, then sealed so that the folder (an external disk, a synced folder)
+  learns only the ledger's id and the time: only the recovery code opens it. The folder keeps the
+  newest seven and one a week for four weeks; Home shows the last backup, and warns after two
+  days without one. `cexchain console restore FILE --ledger DIR` restores the ledger and its
+  console on any computer with the recovery code; `console backup now|list` do the rest from the
+  command line.
 
 - **People.** Each user has a role (owner, admin, member, or viewer) and one or more passkeys.
   Roles gate the console, never the ledger: what someone may do on the ledger stays in their

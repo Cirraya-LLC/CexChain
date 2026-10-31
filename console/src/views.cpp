@@ -68,6 +68,7 @@ http::Response Console::home_route(const Signed& who) const {
                  {"instances", state.instances().size()},
                  {"open_requests", open_requests}}}};
     });
+    out["backup"] = backup_view();
     return json(200, out);
 }
 

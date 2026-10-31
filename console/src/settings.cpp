@@ -118,6 +118,7 @@ nlohmann::json Console::settings_view(Role role) const {
                                   ? nlohmann::json(settings.backup_folder->string())
                                   : nlohmann::json()},
             {"suggested_backup_folder", suggested_backup_folder().string()},
+            {"backup", backup_view()},
             {"keys", key_state()},
             {"may_change", role == Role::owner || role == Role::admin}};
 }

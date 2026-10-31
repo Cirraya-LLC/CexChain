@@ -15,6 +15,7 @@
 #include <sys/resource.h>
 #include <thread>
 
+#include <cexchain/app/backups.hpp>
 #include <cexchain/app/witness.hpp>
 #include <cexchain/console/console.hpp>
 #include <cexchain/console/keystore.hpp>
@@ -83,42 +84,7 @@ std::string scopes_text(node::Scopes scopes) {
 }
 
 /// Files a backup may carry, relative to the ledger directory.
-bool backup_path_allowed(std::string_view path) {
-    if (path == node::tokens_file || path == "vault/vault.pub" || path == "vault/vault.key") {
-        return true;
-    }
-    constexpr std::string_view pending = "contracts/pending/";
-    if (path.starts_with(pending)) {
-        return node::parse_pending_call_name(path.substr(pending.size())).has_value();
-    }
-    auto hex_id = [](std::string_view name) {
-        return name.size() == 64 && std::ranges::all_of(name, [](char c) {
-                   return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
-               });
-    };
-    // A kept file: vault/files/<record id>/<attachment index>.cbor.
-    constexpr std::string_view files = "vault/files/";
-    if (path.starts_with(files) && path.ends_with(".cbor")) {
-        const std::string_view rest = path.substr(files.size(), path.size() - files.size() - 5);
-        const std::size_t slash = rest.find('/');
-        const std::string_view index =
-            slash == std::string_view::npos ? std::string_view() : rest.substr(slash + 1);
-        return slash != std::string_view::npos && hex_id(rest.substr(0, slash)) && !index.empty() &&
-               index.size() <= 6 &&
-               std::ranges::all_of(index, [](char c) { return c >= '0' && c <= '9'; }) &&
-               (index.size() == 1 || index.front() != '0');
-    }
-    // Any other file is refused: so is a backup made before spec v0.9 that
-    // holds the consents of the native asset actions it removed.
-    for (const std::string_view prefix : {"vault/records/", "contracts/consents/"}) {
-        if (!path.starts_with(prefix) || !path.ends_with(".cbor")) {
-            continue;
-        }
-        const std::string_view name = path.substr(prefix.size(), path.size() - prefix.size() - 5);
-        return hex_id(name);
-    }
-    return false;
-}
+using app::backup_path_allowed;
 
 std::atomic<bool> stop_requested{false};
 
@@ -789,63 +755,8 @@ int report_restore_failure(const Args& args, const Error& e, std::string_view wh
 int cmd_backup_create(const Args& args) {
     Session session(args);
     const std::filesystem::path dir = session.directory();
-    std::vector<ledger::BackupFile> files;
-    auto add = [&](const std::string& relative) {
-        if (std::filesystem::is_regular_file(dir / relative)) {
-            files.push_back({relative, read_file(dir / relative)});
-        }
-    };
-    add(std::string(node::tokens_file));
-    // The consents contract calls cite: their evidence needs them.
-    // And the calls a registrar holds.
-    auto add_directory = [&](const std::filesystem::path& directory, const std::string& prefix) {
-        if (!std::filesystem::is_directory(directory)) {
-            return;
-        }
-        std::vector<std::string> names;
-        for (const auto& e : std::filesystem::directory_iterator(directory)) {
-            const std::string relative = prefix + e.path().filename().string();
-            if (e.is_regular_file() && backup_path_allowed(relative)) {
-                names.push_back(relative);
-            }
-        }
-        std::ranges::sort(names);
-        for (const auto& n : names) {
-            add(n);
-        }
-    };
-    add_directory(node::contract_consents_directory(dir), "contracts/consents/");
-    add_directory(node::pending_calls_directory(dir), "contracts/pending/");
-    if (!args.has("no-vault")) {
-        add("vault/vault.pub");
-        add("vault/vault.key");
-        // The kept files, record by record.
-        if (std::filesystem::is_directory(dir / "vault" / "files")) {
-            std::vector<std::string> records;
-            for (const auto& e : std::filesystem::directory_iterator(dir / "vault" / "files")) {
-                if (e.is_directory()) {
-                    records.push_back(e.path().filename().string());
-                }
-            }
-            std::ranges::sort(records);
-            for (const std::string& r : records) {
-                add_directory(dir / "vault" / "files" / r, "vault/files/" + r + "/");
-            }
-        }
-        if (std::filesystem::is_directory(dir / "vault" / "records")) {
-            std::vector<std::string> names;
-            for (const auto& e : std::filesystem::directory_iterator(dir / "vault" / "records")) {
-                const std::string relative = "vault/records/" + e.path().filename().string();
-                if (e.is_regular_file() && backup_path_allowed(relative)) {
-                    names.push_back(relative);
-                }
-            }
-            std::ranges::sort(names);
-            for (const auto& n : names) {
-                add(n);
-            }
-        }
-    }
+    const std::vector<ledger::BackupFile> files =
+        app::backup_files(dir, !args.has("no-vault"), args.has("console"));
     const std::filesystem::path out = args.need("out");
     const std::filesystem::path temporary = out.string() + ".tmp";
     ledger::SystemClock clock;
@@ -936,44 +847,9 @@ int cmd_backup_restore(const Args& args) {
     if (!in) {
         throw CommandError{"cannot read " + args.positional().front()};
     }
-    const bool existed = std::filesystem::exists(dir);
-    std::filesystem::create_directories(dir);
-    std::filesystem::permissions(dir, std::filesystem::perms::owner_all,
-                                 std::filesystem::perm_options::replace);
-    ledger::SystemClock clock;
-    std::optional<ledger::BackupSummary> restored;
-    {
-        std::optional<ledger::DirectoryLock> lock;
-        lock.emplace(unwrap(ledger::DirectoryLock::acquire(dir), "locking the ledger"));
-        auto fs = unwrap(ledger::PosixFileSystem::open_directory(dir), "opening the directory");
-        const auto summary = ledger::restore_backup(
-            in, fs, clock, shared_provider(), [&](const ledger::BackupFile& f) -> Status {
-                if (!backup_path_allowed(f.path)) {
-                    return fail(Errc::rejected, "the backup holds a file outside the ledger's");
-                }
-                const std::filesystem::path target = dir / f.path;
-                std::filesystem::create_directories(target.parent_path());
-                if (f.path.starts_with("vault")) {
-                    std::filesystem::permissions(dir / "vault", std::filesystem::perms::owner_all,
-                                                 std::filesystem::perm_options::replace);
-                }
-                write_file(target, f.content, f.path != "vault/vault.pub");
-                return {};
-            });
-        if (!summary) {
-            // Leave nothing half-restored behind (a partial ledger would
-            // open fine).
-            lock.reset();
-            if (!existed) {
-                std::filesystem::remove_all(dir);
-            } else {
-                for (const auto& e : std::filesystem::directory_iterator(dir)) {
-                    std::filesystem::remove_all(e.path());
-                }
-            }
-            return report_restore_failure(args, summary.error(), "restoring the backup");
-        }
-        restored = *summary;
+    const auto restored = app::restore_into(in, dir);
+    if (!restored) {
+        return report_restore_failure(args, restored.error(), "restoring the backup");
     }
     // Open it as any command would (a full replay), and audit it.
     Session session(dir);

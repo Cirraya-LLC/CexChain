@@ -500,6 +500,27 @@ void cluster_seeds(const Seeds& seeds) {
 }
 
 void text_seeds(const Seeds& seeds) {
+    // Paths a restore may write, and some it may not.
+    const std::string id(64, 'a');
+    seeds.write("sealed_backup_fuzz", "users", "console/users.json");
+    seeds.write("sealed_backup_fuzz", "inbox", "access/inbox/" + id + ".cbor");
+    seeds.write("sealed_backup_fuzz", "slot", "console/slots/passkey-AbC_9-x.p8");
+    seeds.write("sealed_backup_fuzz", "kept", "vault/files/" + id + "/12.cbor");
+    seeds.write("sealed_backup_fuzz", "escape", "console/keys/../../etc.sealed");
+    // A sealed backup's shape, its fields empty.
+    seeds.write(
+        "sealed_backup_fuzz", "sealed",
+        cexchain::cbor::encode(
+            cexchain::cbor::Value::map(
+                {{cexchain::cbor::Value::integer(1),
+                  cexchain::cbor::Value::text("cexchain-sealed-backup")},
+                 {cexchain::cbor::Value::integer(2), cexchain::cbor::Value::integer(1)},
+                 {cexchain::cbor::Value::integer(3), cexchain::cbor::Value::bytes(Bytes(32, 7))},
+                 {cexchain::cbor::Value::integer(4), cexchain::cbor::Value::unsigned_integer(1)},
+                 {cexchain::cbor::Value::integer(5), cexchain::cbor::Value::bytes(Bytes(8, 1))},
+                 {cexchain::cbor::Value::integer(6), cexchain::cbor::Value::bytes(Bytes(32, 2))},
+                 {cexchain::cbor::Value::integer(7), cexchain::cbor::Value::bytes(Bytes(48, 3))}}))
+            .value());
     seeds.write("console_request_fuzz", "page",
                 "GET /console/ HTTP/1.1\r\nHost: localhost:7470\r\n\r\n");
     seeds.write("console_request_fuzz", "session",

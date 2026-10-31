@@ -24,6 +24,7 @@
 #include <nlohmann/json.hpp>
 
 #include <cexchain/app/records.hpp>
+#include <cexchain/console/backups.hpp>
 #include <cexchain/console/keystore.hpp>
 #include <cexchain/console/sessions.hpp>
 #include <cexchain/console/users.hpp>
@@ -416,6 +417,13 @@ private:
     /// GET /console/api/qr?text=LINK: a QR code (SVG) for a link to this
     /// console's own pages (qr.cpp).
     [[nodiscard]] http::Response qr_route(const http::Request& request) const;
+    /// Backups (backups.cpp): one now (POST /console/api/backup), one a day
+    /// from the poller while unlocked and a folder is set, and the last
+    /// one's result for Home and Settings.
+    BackupStatus back_up_now(const std::string& by) const;
+    void maybe_back_up() const;
+    [[nodiscard]] nlohmann::json backup_view() const;
+    [[nodiscard]] http::Response backup_route(const http::Request& request) const;
     /// Automation (automation.cpp): machines, requests, and what is due
     /// (GET /console/api/automation); a machine's key handed out once with
     /// its token and setup (POST .../setup); one step of adding a machine.
@@ -613,6 +621,8 @@ private:
     mutable std::map<std::string, std::string> refused_;
     mutable std::map<std::string, std::string> not_cosigned_;
     mutable std::map<std::string, Handed> handed_;
+    /// One backup at a time.
+    mutable std::mutex backup_mutex_;
     mutable std::mutex poll_mutex_;
     mutable std::condition_variable_any poll_wake_;
     mutable bool poll_asked_ = false;

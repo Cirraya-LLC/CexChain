@@ -8,6 +8,7 @@
 #include <cctype>
 #include <chrono>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <future>
 #include <memory>
@@ -25,6 +26,7 @@
 #include <cexchain/app/session.hpp>
 #include <cexchain/app/support.hpp>
 #include <cexchain/app/witness.hpp>
+#include <cexchain/console/backups.hpp>
 #include <cexchain/console/console.hpp>
 #include <cexchain/console/keystore.hpp>
 #include <cexchain/console/kinds.hpp>
@@ -2649,6 +2651,91 @@ TEST_CASE("automation: an executor and an AI agent added with two taps, keys han
     CHECK(drawn.content_type == "image/svg+xml");
     CHECK(body(drawn).starts_with("<svg"));
     CHECK(qr("https://elsewhere.example/").status == 400);
+}
+
+TEST_CASE("backups: sealed for the recovery code, written once a day, restored with the console",
+          "[console][backups]") {
+    FirstRunWorld f;
+    Served served(f);
+    const std::string owner = f.made["session"].get<std::string>();
+    const std::string code = f.made["recovery_code"].get<std::string>();
+    TempDirectory folder;
+    // Without a folder, nothing to back up to.
+    CHECK(f.w.post_as("/console/api/backup", nlohmann::json::object(), owner).status == 409);
+    REQUIRE(f.w.post_as("/console/api/settings", {{"backup_folder", folder.path.string()}}, owner)
+                .status == 200);
+    const auto made = f.w.post_as("/console/api/backup", nlohmann::json::object(), owner);
+    INFO(body(made));
+    REQUIRE(made.status == 200);
+    const auto view = answer_of(made);
+    CHECK(view["overdue"] == false);
+    std::vector<std::filesystem::path> files;
+    for (const auto& e : std::filesystem::directory_iterator(folder.path)) {
+        files.push_back(e.path());
+    }
+    REQUIRE(files.size() == 1);
+    CHECK(files[0].extension() == ".cexbackup");
+    const auto sealed = cexchain::app::read_file(files[0]);
+    CHECK(console::sealed_backup_info(sealed).ledger == served.session.state().ledger_id());
+    // Home shows it; a member may not back up.
+    CHECK(answer_of(f.w.get("/console/api/home", owner))["backup"]["file"] ==
+          files[0].filename().string());
+    const std::string member = f.w.session_for("Mel", console::Role::member);
+    CHECK(f.w.post_as("/console/api/backup", nlohmann::json::object(), member).status == 403);
+
+    // Only the recovery code opens it.
+    CHECK_THROWS(console::open_sealed_backup(sealed, "AAAA-AAAA-AAAA-AAAA-AAAA-AAAA-AA"));
+    CHECK_THROWS(console::open_sealed_backup(sealed, "not a code"));
+    auto damaged = sealed;
+    damaged[damaged.size() - 3] ^= 1;
+    CHECK_THROWS(console::open_sealed_backup(damaged, code));
+    CHECK_FALSE(console::open_sealed_backup(sealed, code).empty());
+
+    // Restored elsewhere: the ledger, audited, with its console's users and keys.
+    TempDirectory elsewhere;
+    const auto restored = console::restore_sealed_backup(sealed, code, elsewhere.path / "ledger");
+    REQUIRE(restored);
+    CHECK(restored->is_signed);
+    {
+        cexchain::app::Session session(cexchain::app::Location{elsewhere.path / "ledger"});
+        CHECK(session.ledger().audit());
+        CHECK(session.state().ledger_id() == served.session.state().ledger_id());
+    }
+    const auto people = console::load_people(elsewhere.path / "ledger" / "console");
+    REQUIRE(people.users.size() == 1);
+    CHECK(people.users[0].name == "Alice");
+    console::KeyStore keys(elsewhere.path / "ledger" / "console");
+    CHECK(keys.unlock({console::SlotKind::recovery, {}}, code));
+    CHECK(keys.open("owner").public_key() == f.w.keys.open("owner").public_key());
+    // Not over a ledger.
+    CHECK_FALSE(console::restore_sealed_backup(sealed, code, elsewhere.path / "ledger"));
+
+    // Pruning: the newest 7, then the newest of each of 4 weeks before.
+    TempDirectory many;
+    const auto id = served.session.state().ledger_id();
+    const std::string prefix = "cexchain-" + cexchain::to_hex(id.bytes()).substr(0, 12) + "-";
+    std::vector<std::string> names;
+    for (int day = 0; day < 40; ++day) {
+        // 2026-09-01 plus `day` days.
+        const auto date =
+            std::chrono::sys_days{std::chrono::year{2026} / 9 / 1} + std::chrono::days{day};
+        const std::chrono::year_month_day ymd{date};
+        names.push_back(prefix + std::format("{:04}{:02}{:02}-010000.cexbackup",
+                                             static_cast<int>(ymd.year()),
+                                             static_cast<unsigned>(ymd.month()),
+                                             static_cast<unsigned>(ymd.day())));
+        put(many.path / names.back(), {1, 2, 3});
+    }
+    put(many.path / "someone-elses.cexbackup", {1});
+    const auto removed = console::prune_backups(many.path, id);
+    std::size_t left = 0;
+    for (const auto& e : std::filesystem::directory_iterator(many.path)) {
+        left += e.path().filename().string().starts_with(prefix) ? 1U : 0U;
+    }
+    CHECK(left == 11);
+    CHECK(removed.size() == 29);
+    CHECK(std::filesystem::exists(many.path / names.back()));
+    CHECK(std::filesystem::exists(many.path / "someone-elses.cexbackup"));
 }
 
 #endif

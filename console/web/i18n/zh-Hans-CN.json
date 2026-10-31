@@ -129,7 +129,7 @@
   "settings.default_language": "新浏览器的语言",
   "settings.browser_language": "跟随各浏览器",
   "settings.backups": "备份",
-  "settings.backup_note": "暂时还不会定时写入备份。在此之前，请用这个命令手动备份：cexchain backup create",
+  "settings.backup_note": "控制台解锁期间，每天会在该处写入一份备份，经密封后只有你的恢复码可以打开，并保留最新七份及最近四周每周一份。请将恢复码与该文件夹分开保管。",
   "settings.save": "保存",
   "settings.saved": "已保存。",
   "settings.read_only": "只有所有者或管理员可以更改这些设置。",
@@ -809,5 +809,12 @@
   "activity.automation.setup": "交出机器的密钥",
   "approve.signer": "签署者",
   "approve.by_organization": "机构，以其根密钥签署：机器可做的事无须人员亲自确认，因此不能由任何人员的授权授予。此控制台会核对你的通行密钥，其活动记录会保存批准者。",
-  "approve.type.machine-register": "登记一部机器"
+  "approve.type.machine-register": "登记一部机器",
+  "settings.back_up_now": "立即备份",
+  "settings.backup_problem": "备份失败：{problem}",
+  "home.backup_last": "上次备份：{time}（{file}）",
+  "home.backup_none": "暂无备份：首份会在一天内完成。",
+  "home.backup_no_folder": "未设置备份文件夹：请在设置中选择，控制台便会每天备份。",
+  "home.backup_overdue": "已有两天没有备份。{problem}",
+  "activity.backups.write": "写入备份"
 }

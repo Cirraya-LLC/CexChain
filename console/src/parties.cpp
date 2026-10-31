@@ -210,6 +210,7 @@ void Console::start_polling(std::chrono::seconds every) {
     poller_ = std::jthread([this, every](const std::stop_token& stop) {
         while (!stop.stop_requested()) {
             poll_peers();
+            maybe_back_up();
             std::unique_lock lock(poll_mutex_);
             poll_wake_.wait_for(lock, stop, every, [this] { return poll_asked_; });
             poll_asked_ = false;

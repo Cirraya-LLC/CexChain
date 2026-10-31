@@ -129,7 +129,7 @@
   "settings.default_language": "Language for new browsers",
   "settings.browser_language": "Each browser's own",
   "settings.backups": "Backups",
-  "settings.backup_note": "Scheduled backups are not written yet. Until they are, back up by hand with: cexchain backup create",
+  "settings.backup_note": "Every day while the console is unlocked, it writes a backup there, sealed so that only your recovery code opens it, and keeps the newest seven and one a week for four weeks. Keep the code apart from the folder.",
   "settings.save": "Save",
   "settings.saved": "Saved.",
   "settings.read_only": "Only an owner or an admin changes these.",
@@ -809,5 +809,12 @@
   "activity.automation.setup": "handed out a machine's key",
   "approve.signer": "Signed by",
   "approve.by_organization": "the organization, with its root key: what a machine may do needs no person's presence, so no person's delegation can grant it. This console checks your passkey, and its activity log keeps who approved it.",
-  "approve.type.machine-register": "Register a machine"
+  "approve.type.machine-register": "Register a machine",
+  "settings.back_up_now": "Back up now",
+  "settings.backup_problem": "The backup failed: {problem}",
+  "home.backup_last": "Last backup: {time} ({file})",
+  "home.backup_none": "No backup yet: the first comes within the day.",
+  "home.backup_no_folder": "No backup folder: choose one in Settings, and the console backs up every day.",
+  "home.backup_overdue": "No backup in two days. {problem}",
+  "activity.backups.write": "wrote a backup"
 }

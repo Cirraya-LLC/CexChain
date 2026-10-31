@@ -392,6 +392,42 @@ RECOVER=$(request POST "$FREE" /console/api/recover/begin "localhost:$FREE" "htt
 [ "$(TOKEN=$(cat scripted.token) status_of GET "$FREE" /v1/status "localhost:$FREE")" = 200 ] ||
     fail "the code unlocks"
 run console stop --ledger "$SCRIPTED" > /dev/null
+sleep 0.5
+
+# --- Sealed backups: the console stopped, then restored elsewhere with the code ----------
+expect_exit 1 console backup now --ledger "$SCRIPTED" --unlock-file unlock.txt
+grep -q "no backup folder" out.txt || fail "a backup needs a folder"
+run console backup now --ledger "$SCRIPTED" --unlock-file unlock.txt --folder backups --json > backup.json
+SEALED=$(json 'd["file"]' < backup.json)
+case "$SEALED" in */cexchain-*.cexbackup) ;; *) fail "a sealed backup's name" ;; esac
+[ "$(run console backup list --ledger "$SCRIPTED" --folder backups --json | json 'len(d)')" = 1 ] ||
+    fail "console backup list"
+run console activity --ledger "$SCRIPTED" --json | json 'd[0]["action"]' | grep -qx "backups.write" ||
+    fail "the activity log records the backup"
+printf 'AAAA-BBBB-CCCC-DDDD-EEEE-FFFF-GG\n' > wrong-code.txt
+expect_exit 2 console restore "$SEALED" --ledger "$WORK/restored" --recovery-code-file wrong-code.txt
+grep -q "does not open" out.txt || fail "a wrong recovery code"
+[ ! -e "$WORK/restored/statements" ] || fail "nothing restored with a wrong code"
+json 'd["recovery_code"]' < setup.json > code.txt
+run console restore "$SEALED" --ledger "$WORK/restored" --recovery-code-file code.txt --json > restored.json
+[ "$(json 'd["ledger_id"]' < restored.json)" = "$(run status --ledger "$SCRIPTED" --json | json 'd["ledger_id"]')" ] ||
+    fail "the same ledger restored"
+[ "$(run console user list --ledger "$WORK/restored" --json | json 'd["users"][0]["name"]')" = "Scripted Owner" ] ||
+    fail "the console's users restored"
+run audit --ledger "$WORK/restored" | grep -q "audit passed" || fail "the restored ledger audits"
+expect_exit 2 console restore "$SEALED" --ledger "$WORK/restored" --recovery-code-file code.txt
+grep -q "already exists" out.txt || fail "not over a ledger"
+# Served from the restored folder: locked, and the code unlocks it.
+start_console "$WORK/restored"
+[ "$(TOKEN=$(cat scripted.token) status_of GET "$FREE" /v1/status "localhost:$FREE")" = 503 ] ||
+    fail "the restored console starts locked"
+run console stop --ledger "$WORK/restored" > /dev/null
+sleep 0.5
+start_console "$WORK/restored" --unlock-file unlock.txt
+[ "$(TOKEN=$(cat scripted.token) status_of GET "$FREE" /v1/status "localhost:$FREE")" = 200 ] ||
+    fail "the restored console unlocks with its passphrase, its tokens kept"
+run console stop --ledger "$WORK/restored" > /dev/null
+sleep 0.5
 
 # --- console run on an empty directory: the first run's setup link --------------------
 EMPTY="$WORK/empty"

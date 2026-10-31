@@ -89,6 +89,9 @@ if(TARGET cexchain_node)
     if(TARGET cexchain_console)
         cexchain_add_fuzzer(console_request_fuzz cexchain::console cexchain::crypto_openssl)
         target_compile_features(console_request_fuzz PRIVATE cxx_std_26)
+        # Sealed backups read from a folder, and the paths a restore writes.
+        cexchain_add_fuzzer(sealed_backup_fuzz cexchain::console cexchain::app)
+        target_compile_features(sealed_backup_fuzz PRIVATE cxx_std_26)
     endif()
     # The cluster's internals (node/src/cluster_parts.hpp).
     cexchain_add_fuzzer(cluster_entry_fuzz cexchain::node cexchain::crypto_openssl cexchain_nuraft)

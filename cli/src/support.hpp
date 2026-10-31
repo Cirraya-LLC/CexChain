@@ -105,4 +105,8 @@ public:
     [[nodiscard]] Bytes receipt(const Args& args, std::uint64_t index);
 };
 
+/// Reads a line from the terminal without echoing it (a passphrase, a
+/// recovery code); throws if there is no terminal.
+[[nodiscard]] std::string prompt_hidden(const std::string& prompt);
+
 } // namespace cexchain::cli

@@ -172,6 +172,16 @@ const slotKinds = () =>
     await page.getByRole("button", { name: "Save" }).click();
     await page.getByText("Saved.").waitFor();
     assert.equal(JSON.parse(run("console", "settings", "show", "--json")).language, null);
+    // A backup now, sealed in the folder; the recovery code restores it elsewhere.
+    await page.getByRole("button", { name: "Back up now" }).click();
+    await page.getByText(/^Last backup: .*\.cexbackup\)$/).first().waitFor();
+    const sealed = fs.readdirSync(suggested).filter((f) => f.endsWith(".cexbackup"));
+    assert.equal(sealed.length >= 1, true, "a sealed backup in the folder");
+    fs.writeFileSync(path.join(work, "code.txt"), `${code}\n`);
+    const restored = JSON.parse(run("console", "restore", path.join(suggested, sealed[0]), "--ledger",
+                                    path.join(work, "restored"), "--recovery-code-file",
+                                    path.join(work, "code.txt"), "--json"));
+    assert.equal(restored.ledger_id, JSON.parse(run("status", "--json")).ledger_id);
     // Locked from Settings, then unlocked with the recovery code.
     await page.getByRole("button", { name: "Lock now" }).click();
     await page.getByText("This console is locked").waitFor();

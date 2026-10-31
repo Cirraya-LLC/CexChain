@@ -25,6 +25,7 @@
 #include <cexchain/app/peers.hpp>
 #include <cexchain/app/support.hpp>
 #include <cexchain/console/activity.hpp>
+#include <cexchain/console/backups.hpp>
 #include <cexchain/console/deferred.hpp>
 #include <cexchain/console/keystore.hpp>
 #include <cexchain/console/kinds.hpp>
@@ -1092,6 +1093,154 @@ int cmd_console_user_approve(const Args& args) {
     std::println(
         "{} now acts as actor {} with the key {}, in person (passkey), under delegation {}", name,
         hex_id(actor), key_name, short_id(delegation));
+    return exit_ok;
+}
+
+int cmd_console_backup_now(const Args& args) {
+    const std::filesystem::path dir = args.ledger();
+    require_ledger_directory(dir);
+    const std::filesystem::path state = console::state_directory(dir);
+    if (const auto pid = running_console(state)) {
+        throw CommandError{std::format(
+            "the console runs (process {}): back up from its Settings (Back up now)", *pid)};
+    }
+    console::KeyStore keys(state);
+    if (!keys.initialized()) {
+        throw CommandError{"the console's keys are not set up: nothing to seal backups to"};
+    }
+    const std::string secret = args.get("unlock-file")
+                                   ? unlock_secret(*args.get("unlock-file"))
+                                   : prompt_hidden("The console's passphrase or recovery code: ");
+    if (!keys.unlock({console::SlotKind::passphrase, {}}, secret) &&
+        !keys.unlock({console::SlotKind::recovery, {}}, secret)) {
+        throw UsageError{"that does not unlock the console's keys"};
+    }
+    std::optional<std::filesystem::path> folder;
+    if (const auto given = args.get("folder")) {
+        folder = *given;
+    } else {
+        folder = console::load_settings(state).backup_folder;
+    }
+    if (!folder) {
+        throw UsageError{"no backup folder: give --folder, or set one (console settings set)"};
+    }
+    Session session(args);
+    ledger::SystemClock clock;
+    std::filesystem::path written;
+    try {
+        written = console::write_sealed_backup(session.ledger(), shared_provider(), dir,
+                                               keys.open("log"), *folder, clock.now());
+    } catch (const std::runtime_error& e) {
+        throw CommandError{e.what()};
+    }
+    console::BackupStatus status = console::load_backup_status(state);
+    status.at = clock.now();
+    status.file = written.string();
+    status.size = std::filesystem::file_size(written);
+    status.failed_at = 0;
+    status.problem.clear();
+    console::save_backup_status(state, status);
+    console::record_activity(
+        state, {clock.now(), "cli", "backups.write", {{"file", written.filename().string()}}});
+    if (args.json()) {
+        print_json({{"file", written.string()}, {"size", status.size}});
+    } else {
+        std::println("backed up to {} ({} bytes), sealed: the recovery code opens it",
+                     written.string(), status.size);
+    }
+    return exit_ok;
+}
+
+int cmd_console_backup_list(const Args& args) {
+    std::optional<std::filesystem::path> folder;
+    if (const auto given = args.get("folder")) {
+        folder = *given;
+    } else {
+        folder = console::load_settings(console::state_directory(args.ledger())).backup_folder;
+    }
+    if (!folder) {
+        throw UsageError{"no backup folder: give --folder"};
+    }
+    std::vector<std::filesystem::path> files;
+    std::error_code ec;
+    for (auto it = std::filesystem::directory_iterator(*folder, ec);
+         !ec && it != std::filesystem::directory_iterator(); it.increment(ec)) {
+        if (it->is_regular_file() &&
+            it->path().filename().string().ends_with(console::sealed_backup_extension)) {
+            files.push_back(it->path());
+        }
+    }
+    std::ranges::sort(files, std::greater{});
+    Json list = Json::array();
+    for (const auto& f : files) {
+        Json item = {{"file", f.string()}, {"size", std::filesystem::file_size(f)}};
+        try {
+            const auto info = console::sealed_backup_info(read_file(f));
+            item["ledger_id"] = hex_id(info.ledger);
+            item["created"] = format_time(info.created);
+        } catch (const std::runtime_error& e) {
+            item["error"] = e.what();
+        }
+        list.push_back(std::move(item));
+    }
+    if (args.json()) {
+        print_json(list);
+        return exit_ok;
+    }
+    if (list.empty()) {
+        std::println("no sealed backups in {}", folder->string());
+    }
+    for (const auto& item : list) {
+        std::println("{}  {}  {}", item.value("created", "?"),
+                     item.value("ledger_id", std::string("?")).substr(0, 12),
+                     item["file"].get<std::string>());
+    }
+    return exit_ok;
+}
+
+int cmd_console_restore(const Args& args) {
+    const std::filesystem::path dir = args.ledger();
+    const std::filesystem::path file = args.positional().front();
+    if (std::filesystem::exists(dir / "statements")) {
+        throw CommandError{"a ledger already exists at " + dir.string() +
+                           "; restore into a new directory"};
+    }
+    std::string code;
+    if (const auto from = args.get("recovery-code-file")) {
+        const Bytes bytes = read_file(*from);
+        code = std::string(bytes.begin(), bytes.end());
+        code = code.substr(0, code.find('\n'));
+    } else {
+        code = prompt_hidden("The console's recovery code: ");
+    }
+    Result<ledger::BackupSummary> restored = fail(Errc::unavailable, "not restored");
+    try {
+        restored = console::restore_sealed_backup(read_file(file), code, dir);
+    } catch (const std::runtime_error& e) {
+        throw CommandError{e.what()};
+    }
+    if (!restored) {
+        throw CommandError{"restoring: " + std::string(restored.error().detail)};
+    }
+    Session session(dir);
+    const auto audit = session.ledger().audit();
+    if (!audit) {
+        throw CommandError{"the restored ledger does not audit: " +
+                           std::string(audit.error().detail)};
+    }
+    if (args.json()) {
+        print_json({{"ledger_id", hex_id(session.ledger().id())},
+                    {"directory", dir.string()},
+                    {"entries", audit->entries},
+                    {"checkpoints", audit->checkpoints},
+                    {"files", restored->files}});
+        return exit_ok;
+    }
+    std::println("restored ledger {} with its console to {}: {} entries, audit passed",
+                 hex_id(session.ledger().id()), dir.string(), audit->entries);
+    std::println("start it with: cexchain console run --ledger {} (it starts locked: the recovery "
+                 "code or the owner's passkey unlocks it)",
+                 dir.string());
     return exit_ok;
 }
 
