@@ -36,6 +36,14 @@ protocol::Scope owner_scope() {
     return scope;
 }
 
+protocol::Scope machine_scope() {
+    protocol::Scope scope;
+    scope.statement_types = {protocol::StatementType::contract_call};
+    scope.may_delegate = false;
+    scope.require_presence = false;
+    return scope;
+}
+
 namespace {
 
 std::set<std::filesystem::path> entries(const std::filesystem::path& directory) {
@@ -97,7 +105,8 @@ FirstRun make_first_run(const SetUp& request, KeyStore& keys, ledger::Entropy& e
     auto log = crypto::openssl::KeyPair::generate(crypto::SigAlg::ed25519);
     auto owner = crypto::openssl::KeyPair::generate(crypto::SigAlg::ed25519);
     auto vault = crypto::openssl::HpkeKey::generate();
-    if (!root || !log || !owner || !vault) {
+    auto machine = crypto::openssl::KeyPair::generate(crypto::SigAlg::ed25519);
+    if (!root || !log || !owner || !vault || !machine) {
         throw std::runtime_error("making the ledger's keys failed");
     }
     FirstRun out;
@@ -111,6 +120,7 @@ FirstRun make_first_run(const SetUp& request, KeyStore& keys, ledger::Entropy& e
     keys.seal(root_key_name, *root);
     keys.seal(log_key_name, *log);
     keys.seal(owner_key_name, *owner);
+    keys.seal(machine_key_name, *machine);
     keys.seal_vault_key(*vault);
 
     std::filesystem::create_directories(request.ledger);
@@ -122,7 +132,7 @@ FirstRun make_first_run(const SetUp& request, KeyStore& keys, ledger::Entropy& e
     app::write_file(request.ledger / "vault" / "vault.pub",
                     app::encode_vault_public_key(vault->public_key()), false);
     {
-        // The root key's three statements, then it leaves memory with `root`.
+        // The root key's statements, then it leaves memory with `root`.
         app::Session session(app::Location{request.ledger});
         out.ledger = session.state().ledger_id();
         out.owner = session.submit(*root,
@@ -134,6 +144,14 @@ FirstRun make_first_run(const SetUp& request, KeyStore& keys, ledger::Entropy& e
             *root, protocol::ActorSetPresenceBody{out.owner, {request.passkey}}, std::nullopt));
         static_cast<void>(session.submit(
             *root, protocol::DelegationGrantBody{out.owner, owner_scope()}, std::nullopt));
+        // The console's machine: the registrar and keeper the node runs.
+        out.machine = session.submit(
+            *root,
+            protocol::ActorRegisterBody{protocol::ActorKind::device, std::string(machine_name),
+                                        machine->public_key(), std::nullopt, std::nullopt},
+            std::nullopt);
+        static_cast<void>(session.submit(
+            *root, protocol::DelegationGrantBody{out.machine, machine_scope()}, std::nullopt));
     }
 
     const std::filesystem::path state = state_directory(request.ledger);

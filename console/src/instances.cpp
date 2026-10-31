@@ -375,6 +375,8 @@ http::Response Console::instance_route(const http::Request& request) const {
                       {"history", std::move(calls_made)},
                       {"requests", std::move(requests)},
                       {"due", std::move(due)},
+                      {"held", held_on(*id)},
+                      {"registrar", static_cast<bool>(proposer())},
                       {"calls", std::move(calls)},
                       {"state", std::move(words)},
                       {"may_act", signer.role != Role::viewer}});

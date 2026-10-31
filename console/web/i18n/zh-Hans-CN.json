@@ -535,5 +535,10 @@
   "exchange.record_intro": "调用会先连同此同意试运行，与账本的执行方式相同。",
   "exchange.link": "打开提案或同意文件",
   "approve.type.consent": "同意一个调用",
-  "approve.consents": "引用的同意"
+  "approve.consents": "引用的同意",
+  "exchange.propose": "在线提出",
+  "exchange.proposed": "此账本的登记处会保留这个调用至 {until}，在线收到同意后立即记录。",
+  "exchange.no_registrar": "此控制台没有登记处：请改以文件征求。",
+  "exchange.held_title": "在线等待同意",
+  "exchange.held": "{function}（{arguments}）：等待 {missing}，至 {until}"
 }

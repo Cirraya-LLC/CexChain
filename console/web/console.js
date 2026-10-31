@@ -2201,8 +2201,28 @@ function askByFile(intentOf) {
             status("");
         }
     });
+    // Online: this ledger's registrar holds the call, and records it once
+    // the consents come in from the other ledgers.
+    const online = el("button", { type: "button", text: t("exchange.propose") });
+    online.addEventListener("click", async () => {
+        online.disabled = true;
+        status(t("status.working"));
+        try {
+            const held = await api("POST", "exchange/propose", { ...intentOf(), language: state.language });
+            made.replaceChildren(el("p", { class: "notice", text: t("exchange.proposed", {
+                until: timeText(held.until), call: String(held.call ?? "").slice(0, 12),
+            }) }));
+        } catch (error) {
+            made.replaceChildren(problem(error.status === 501 || error.status === 503
+                ? t("exchange.no_registrar") : t("error.server", { message: error.message })));
+        } finally {
+            online.disabled = false;
+            status("");
+        }
+    });
     return el("section", { class: "kind", "aria-label": t("exchange.ask") },
-              el("p", { text: t("exchange.ask_intro") }), noteField, button, made);
+              el("p", { text: t("exchange.ask_intro") }), noteField,
+              el("div", { class: "toolbar" }, button, online), made);
 }
 
 /// Proposals and consents that came as files: read here, verified, then
@@ -2430,6 +2450,18 @@ async function instanceScreen(id) {
             parts.push(el("div", { class: "kind" },
                           el("p", { text: t("thing.due_rule", { rule: rule.function }) }), notice, run));
         }
+    }
+    // Calls this ledger's registrar holds online, waiting for consents.
+    if (view.held?.length) {
+        parts.push(el("h2", { text: t("exchange.held_title") }),
+                   el("ul", {}, view.held.map((h) => el("li", {
+                       text: t("exchange.held", {
+                           function: h.function, arguments: h.arguments,
+                           missing: h.missing.map((l) => `${l.slice(0, 12)}...`).join(", ") ||
+                                    t("value.none"),
+                           until: timeText(h.until),
+                       }),
+                   }))));
     }
     // Requests waiting for an answer, answered by hand.
     if (view.requests.length) {

@@ -275,6 +275,11 @@ int serve(const Args& args, const ServeDefaults& defaults) {
         web->set_instance_evidence([api = api.get()](const protocol::Id& instance, auto done) {
             api->instance_evidence(instance, std::move(done));
         });
+        web->set_registrar(
+            [api = api.get()](Bytes proposal, auto respond) {
+                api->propose_call(std::move(proposal), std::move(respond));
+            },
+            [api = api.get()] { return api->registrar_calls(); });
         web->set_submitter([api = api.get()](Bytes body, bool submission, auto respond) {
             if (submission) {
                 api->submit_submission(std::move(body), std::move(respond));

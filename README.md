@@ -418,7 +418,11 @@ cexchain console settings show
   name (a nickname works; it also names the ledger) and creates a passkey; the console makes the
   ledger, its root and log keys, and the person's own key, all sealed, and registers the person
   as the owner: acting in person with that passkey, under a delegation of every statement type
-  but the ledger's key rotations, which requires presence. Then the recovery sheet (the
+  but the ledger's key rotations, which requires presence. It also registers the console's
+  *machine* (a device, its key sealed too) with a delegation for contract calls only: while the
+  console is unlocked, the node runs it as the ledger's registrar, which holds calls proposed
+  online until their consents come in, and as its keeper, which fires the time rules that come
+  due. Then the recovery sheet (the
   recovery code, shown once, to print or save) and a backup folder, and Home. For scripts,
   `console setup --name NAME --credential FILE` does the same with a passkey from
   `presence enroll`.
@@ -461,7 +465,8 @@ cexchain console settings show
   contract (`bo calls`): each field and party it takes, typed, in the reader's language. A thing's
   page shows its state and fields as the contract text writes them, its parties, and its history,
   each call with who made it and whether in person; the actions the rules offer, each a form; the
-  time rules that are due ("Run it now"); and the requests waiting for an answer, which a person
+  time rules that are due (the keeper fires them; "Run it now" does at once); and the requests
+  waiting for an answer, which a person
   may answer by hand (done, failed, or expired, with a reason). Every call is built from what the
   person filled in (`bo args`, in the child process) and run on the ledger's state before any
   tap: a value that does not fit is shown on its field, a call the rules refuse says why in the
@@ -475,7 +480,9 @@ cexchain console settings show
   the thing's fields, consents with a tap on its own ledger, and gets the consent file to send
   back; opening that on the first console records the call, citing the consent, with a tap. The
   page checks the consent's terms and the cited consents in the bytes it approves, and a consent
-  to a step the thing has left is refused.
+  to a step the thing has left is refused. "Propose online" gives the call to the console's own
+  registrar instead, which records it once the parties' consents come in through its API
+  (`contract consent --send`); the thing's page lists the calls it holds.
 - **Settings** show the ledger and its folder, the language new browsers start in, and the
   backup folder (`console settings show|set` from the command line). Scheduled backups to that
   folder are not written yet; until they are, use `cexchain backup create`.

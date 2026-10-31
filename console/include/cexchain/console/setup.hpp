@@ -25,6 +25,12 @@ namespace cexchain::console {
 inline constexpr std::string_view root_key_name = "root";
 inline constexpr std::string_view log_key_name = "log";
 inline constexpr std::string_view owner_key_name = "owner";
+/// The console's machine: a device of the ledger, registered at the first
+/// run with a delegation for contract calls only, that the node runs as the
+/// ledger's registrar (recording calls once the consents they wait for are
+/// in) and keeper (firing time rules, expiring requests) while unlocked.
+inline constexpr std::string_view machine_key_name = "machine";
+inline constexpr std::string_view machine_name = "console";
 
 struct SetUp {
     /// The ledger directory, which holds no ledger yet.
@@ -45,10 +51,15 @@ struct FirstRun {
     std::string recovery_code;
     protocol::Id ledger;
     protocol::Id owner;
+    /// The console's machine actor (registrar and keeper).
+    protocol::Id machine;
 };
 
 /// The statement types of the owner's delegation.
 [[nodiscard]] protocol::Scope owner_scope();
+/// The machine's delegation: contract calls only, on every contract, without
+/// presence; it delegates nothing.
+[[nodiscard]] protocol::Scope machine_scope();
 
 /// Makes the console's keys, the ledger, and its owner, and records the
 /// owner as the console's user (owner role, linked to the actor). Leaves

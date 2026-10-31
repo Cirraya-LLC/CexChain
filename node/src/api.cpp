@@ -3523,6 +3523,24 @@ struct LedgerApi::State {
         }
     }
 
+    /// A call proposed by the node's own console to its registrar: as POST
+    /// /v1/contracts/calls from the home's own staff.
+    void propose_as_node(http::Request r, Done done) {
+        if (failed) {
+            finish(done, "console",
+                   error_response(503, "unavailable",
+                                  "the ledger's files do not validate; run cexchain audit"));
+            return;
+        }
+        call_proposal(r, "console", static_cast<Scopes>(Scope::submit), done);
+    }
+
+    /// The calls the registrar holds, as the home's own staff sees them.
+    http::Response held_as_node() const {
+        return pending_list("console", static_cast<Scopes>(static_cast<Scopes>(Scope::read) |
+                                                           static_cast<Scopes>(Scope::submit)));
+    }
+
     /// A statement from the node's own console: as POST /v1/statements with
     /// the submit scope, where the API takes writes at all.
     void submit_as_node(http::Request r, Done done) {
@@ -3756,6 +3774,19 @@ void LedgerApi::submit_statement(Bytes statement, Respond respond) {
     r.headers.emplace_back("content-type", "application/cose");
     r.body = std::move(statement);
     state_->submit_as_node(std::move(r), std::move(respond));
+}
+
+void LedgerApi::propose_call(Bytes proposal, Respond respond) {
+    http::Request r;
+    r.method = "POST";
+    r.target = r.path = "/v1/contracts/calls";
+    r.headers.emplace_back("content-type", "application/cbor");
+    r.body = std::move(proposal);
+    state_->propose_as_node(std::move(r), std::move(respond));
+}
+
+http::Response LedgerApi::registrar_calls() const {
+    return state_->held_as_node();
 }
 
 void LedgerApi::record_evidence(const protocol::Id& record,

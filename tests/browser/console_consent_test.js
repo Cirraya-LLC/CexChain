@@ -7,7 +7,9 @@
 // call waits for his consent, so she writes a proposal file. Bob opens it,
 // reads the call (verified against the camera's history), consents with a
 // tap, and gets a consent file; Alice opens that, and records the loan with
-// a tap. The camera is then lent, its history showing the consent.
+// a tap. The camera is then lent, its history showing the consent. Then the
+// return is proposed online: Alice's own registrar holds it, waiting for
+// Bob.
 // Usage: node console_consent_test.js CEXCHAIN [SOURCE_DIR]
 "use strict";
 const assert = require("node:assert/strict");
@@ -170,6 +172,20 @@ async function tap(page, what) {
     await a.getByRole("link", { name: "Open a proposal or consent file" }).click();
     await a.getByLabel("Proposal or consent file").setInputFiles(consent);
     await a.getByText("The thing has moved on since this consent: ask again.").waitFor();
+
+    // Asked online instead: the console's own registrar holds the call
+    // (bring_back waits for Bob, the holder), and its page says so.
+    await a.goto(a.url().replace(/#.*$/, `#/instance/${camera}`));
+    const back = a.getByRole("region", { name: "bring_back" });
+    await back.getByRole("button", { name: "Prepare" }).click();
+    await back.getByText(/This needs the consent of another ledger/).waitFor();
+    await back.getByRole("button", { name: "Propose online" }).click();
+    await back.getByText(/^This ledger's registrar holds the call until/).waitFor();
+    await a.reload();
+    await a.getByRole("heading", { name: "Waiting online for consent" }).waitFor();
+    await a.getByText(new RegExp(`^bring_back with .*: waiting for ${bob.id.slice(0, 12)}`)).waitFor();
+    const pending = JSON.parse(alice.run("contract", "pending", "--json"));
+    assert.equal((pending.calls ?? pending).length, 1, "the registrar holds the call");
 
     for (const p of people) {
       assert.deepEqual(p.violations, [], `${p.name}: no CSP violation or script error`);

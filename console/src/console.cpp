@@ -227,7 +227,8 @@ void Console::handle(const http::Request& request, Respond respond) const {
     // statement is durable: that answer goes out through `respond`, with
     // nothing waiting.
     if ((request.path == "/console/api/exchange/proposal" ||
-         request.path == "/console/api/exchange/consent") &&
+         request.path == "/console/api/exchange/consent" ||
+         request.path == "/console/api/exchange/propose") &&
         request.method == "POST") {
         try {
             if (auto refused = refuse(request)) {
@@ -240,6 +241,8 @@ void Console::handle(const http::Request& request, Respond respond) const {
             }
             if (request.path.ends_with("proposal")) {
                 exchange_proposal_route(request, std::move(respond));
+            } else if (request.path.ends_with("propose")) {
+                exchange_propose_route(request, std::move(respond));
             } else {
                 exchange_consent_route(request, std::move(respond));
             }

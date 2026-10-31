@@ -27,6 +27,11 @@ bool DeferredApi::open_now() {
     console_->set_instance_evidence([api](const protocol::Id& instance, auto done) {
         api->instance_evidence(instance, std::move(done));
     });
+    console_->set_registrar(
+        [api](Bytes proposal, auto respond) {
+            api->propose_call(std::move(proposal), std::move(respond));
+        },
+        [api] { return api->registrar_calls(); });
     console_->set_submitter([api](Bytes body, bool submission, auto respond) {
         if (submission) {
             api->submit_submission(std::move(body), std::move(respond));

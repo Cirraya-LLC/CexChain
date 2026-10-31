@@ -464,6 +464,15 @@ int run_person_console(const Args& args, const std::filesystem::path& dir,
             options.log_keys.push_back(
                 std::make_shared<crypto::openssl::KeyPair>(keys.open("log")));
         }
+        // The console's machine, set up at the first run: the ledger's
+        // registrar and keeper while the console is unlocked.
+        if (std::ranges::any_of(
+                keys.keys(), [](const auto& k) { return k.name == console::machine_key_name; })) {
+            auto machine =
+                std::make_shared<crypto::openssl::KeyPair>(keys.open(console::machine_key_name));
+            options.registrar = machine;
+            options.keeper = machine;
+        }
         return unwrap(node::LedgerApi::open(options, shared_provider()), "opening the ledger");
     });
     web->set_on_ready([weak = std::weak_ptr(deferred)] {

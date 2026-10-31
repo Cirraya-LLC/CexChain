@@ -130,6 +130,14 @@ public:
     /// The same with a submission (application/cexchain-submission+cbor):
     /// a record's registration with its sealed private data and files.
     void submit_submission(Bytes submission, Respond respond);
+    /// Proposes a contract call to this ledger's registrar as POST
+    /// /v1/contracts/calls does from the home's own staff, for the node's own
+    /// console: `proposal` is a call-proposal (contracts.hpp). Answers
+    /// through `respond`; 501 without a registrar.
+    void propose_call(Bytes proposal, Respond respond);
+    /// The calls the registrar holds, as GET /v1/contracts/calls answers the
+    /// home's own staff.
+    [[nodiscard]] http::Response registrar_calls() const;
     /// A record's evidence bundle (without its private data), signed with
     /// the log key: after a new checkpoint, if the latest does not cover the
     /// record's last statement. Answers through `done`, from the writer.

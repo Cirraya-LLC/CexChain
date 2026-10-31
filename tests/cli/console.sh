@@ -308,8 +308,8 @@ json 'd["recovery_code"]' < setup.json | grep -qE '^[A-Z2-7]{4}(-[A-Z2-7]{4}){5}
 expect_exit 2 console setup --ledger "$SCRIPTED" --name Again --credential owner.passkey
 grep -q "holds a ledger already" out.txt || fail "a second setup"
 KEYS=$(run console key list --ledger "$SCRIPTED" --json)
-[ "$(echo "$KEYS" | json 'sorted(k["name"] for k in d["keys"])')" = "['log', 'owner', 'root']" ] ||
-    fail "setup seals the root, log, and owner keys"
+[ "$(echo "$KEYS" | json 'sorted(k["name"] for k in d["keys"])')" = "['log', 'machine', 'owner', 'root']" ] ||
+    fail "setup seals the root, log, owner, and machine keys"
 [ "$(echo "$KEYS" | json 'sorted(s["kind"] for s in d["slots"])')" = "['passphrase', 'recovery']" ] ||
     fail "setup's slots"
 [ "$(echo "$KEYS" | json 'd["vault_key"]')" = True ] || fail "setup seals a vault key"

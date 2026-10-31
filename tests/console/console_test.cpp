@@ -34,6 +34,7 @@
 #include <cexchain/ledger/environment.hpp>
 #include <cexchain/ledger/verify.hpp>
 #include <cexchain/node/contracts.hpp>
+#include <cexchain/node/keeper.hpp>
 #include <cexchain/node/record_files.hpp>
 
 #include "support/authenticator.hpp"
@@ -1016,7 +1017,28 @@ TEST_CASE("the first run makes the ledger, its keys, and its owner", "[console][
         sealed.push_back(k.name);
     }
     std::ranges::sort(sealed);
-    CHECK(sealed == std::vector<std::string>{"log", "owner", "root"});
+    CHECK(sealed == std::vector<std::string>{"log", "machine", "owner", "root"});
+    // The console's machine: a device with a delegation for contract calls
+    // only, which the node runs as the registrar and keeper.
+    std::optional<cexchain::protocol::Id> machine_id;
+    for (const auto& [key, a] : state.actors()) {
+        if (a.display_name == "console") {
+            machine_id = cexchain::protocol::Id(a.id);
+            CHECK(a.kind == cexchain::protocol::ActorKind::device);
+            CHECK(a.key == f.w.keys.open("machine").public_key());
+        }
+    }
+    REQUIRE(machine_id);
+    std::size_t machine_delegations = 0;
+    for (const auto& [id, d] : state.delegations()) {
+        if (d.grantee == *machine_id) {
+            ++machine_delegations;
+            CHECK_FALSE(d.scope.require_presence);
+            CHECK_FALSE(d.scope.may_delegate);
+            CHECK(d.scope.statement_types == console::machine_scope().statement_types);
+        }
+    }
+    CHECK(machine_delegations == 1);
     // The vault: its public key on disk, its private key sealed in the console.
     const auto vault_public = cexchain::app::decode_vault_public_key(
         cexchain::app::read_file(f.w.dir.path / "vault" / "vault.pub"));
@@ -1839,6 +1861,25 @@ TEST_CASE("a time rule that is due is shown, and called with a tap", "[console][
     auto view = answer_of(f.w.get("/console/api/instances/" + plan, owner));
     REQUIRE(view["due"].size() == 1);
     CHECK(view["due"][0]["function"] == "when.suspend");
+    // The console's machine, which the node runs as the keeper, may make
+    // that call: its delegation covers it.
+    served.session.ledger().read_state([&](const cexchain::protocol::LedgerState& state) {
+        std::optional<cexchain::protocol::Id> machine;
+        for (const auto& [key, a] : state.actors()) {
+            if (a.display_name == "console") {
+                machine = cexchain::protocol::Id(a.id);
+            }
+        }
+        REQUIRE(machine);
+        cexchain::node::DueOptions options;
+        options.now = cexchain::ledger::SystemClock{}.now();
+        options.keeper = machine;
+        options.expiries = false;
+        const auto work = cexchain::node::find_due(provider(), state, options);
+        REQUIRE(work);
+        REQUIRE(work->rules.size() == 1);
+        CHECK(work->rules[0].function == "when.suspend");
+    });
     act(f, owner, {{"action", "contract.call"}, {"instance", plan}, {"function", "when.suspend"}});
     view = answer_of(f.w.get("/console/api/instances/" + plan, owner));
     CHECK(view["instance"]["status"] == "suspended");

@@ -549,4 +549,86 @@ Console::cited_call(const Signed& who, const nlohmann::json& intent) const {
     return out;
 }
 
+void Console::exchange_propose_route(const http::Request& request, Respond respond) const {
+    auto who = authenticate(request);
+    if (auto* refused = std::get_if<http::Response>(&who)) {
+        respond(std::move(*refused));
+        return;
+    }
+    const Signed signer = std::get<Signed>(who);
+    if (signer.role == Role::viewer) {
+        respond(error(403, "forbidden", "a viewer reads and verifies, and acts on nothing"));
+        return;
+    }
+    const ledger::Ledger* served = ledger();
+    const Propose propose = proposer();
+    if (served == nullptr || !propose) {
+        respond(error(503, "unavailable", "this console runs no registrar"));
+        return;
+    }
+    const auto intent =
+        nlohmann::json::parse(request.body.begin(), request.body.end(), nullptr, false);
+    if (!intent.is_object()) {
+        respond(error(400, "invalid_argument", "the request's body is not a JSON object"));
+        return;
+    }
+    const std::uint64_t days = intent.value("days", std::uint64_t{7});
+    if (days < 1 || days > 30) {
+        respond(error(400, "invalid_argument", "a proposal waits 1 to 30 days"));
+        return;
+    }
+    auto built = call_body(signer, intent, "contract.call");
+    if (auto* refused = std::get_if<http::Response>(&built)) {
+        respond(std::move(*refused));
+        return;
+    }
+    const protocol::ContractCallBody call = std::get<protocol::ContractCallBody>(std::move(built));
+    node::PendingCall proposal;
+    proposal.instance = *call.instance;
+    proposal.head = *call.head;
+    proposal.function = call.function;
+    proposal.arguments = call.arguments;
+    proposal.until = services_.clock->now() + days * 86'400'000;
+    const auto encoded = node::encode_call_proposal(proposal);
+    if (!encoded) {
+        respond(error(400, "invalid_argument", encoded.error().detail));
+        return;
+    }
+    // The registrar runs the call without consents: it holds it only if the
+    // contract waits for some (otherwise it says why), and answers whose.
+    propose(*encoded, [respond = std::move(respond)](http::Response held) {
+        secure(held);
+        respond(std::move(held));
+    });
+}
+
+nlohmann::json Console::held_on(const protocol::Id& instance) const {
+    nlohmann::json out = nlohmann::json::array();
+    const Held list = held();
+    if (!list) {
+        return out;
+    }
+    const http::Response answer = list();
+    if (answer.status != 200) {
+        return out;
+    }
+    const auto held = nlohmann::json::parse(answer.body.begin(), answer.body.end(), nullptr, false);
+    for (const auto& call : held.value("calls", nlohmann::json::array())) {
+        if (call.value("instance", "") != hex_of(instance)) {
+            continue;
+        }
+        const auto bytes = from_hex(call.value("arguments", ""));
+        const auto arguments =
+            bytes ? cbor::decode(*bytes) : Result<cbor::Value>(std::unexpected(bytes.error()));
+        out.push_back({{"call", call.value("call", "")},
+                       {"function", call.value("function", "")},
+                       {"head", call.value("head", std::uint64_t{0})},
+                       {"arguments", arguments ? cbor::diagnostic(*arguments) : std::string()},
+                       {"missing", call.value("missing", nlohmann::json::array())},
+                       {"consented", call.value("consented", nlohmann::json::array())},
+                       {"until", call.value("until", std::uint64_t{0})}});
+    }
+    return out;
+}
+
 } // namespace cexchain::console

@@ -197,6 +197,18 @@ public:
         const std::lock_guard lock(api_mutex_);
         evidence_ = std::move(evidence);
     }
+    /// The ledger's registrar, run by the node with the console's machine
+    /// key (node::LedgerApi::propose_call and held_calls): proposes a call
+    /// (a call-proposal's CBOR) as the home's own staff, and lists the calls
+    /// it holds. Until they are set, proposing online answers 503.
+    using Propose = std::function<void(Bytes proposal, std::function<void(http::Response)>)>;
+    using Held = std::function<http::Response()>;
+    void set_registrar(Propose propose, Held held) {
+        const std::lock_guard lock(api_mutex_);
+        propose_ = std::move(propose);
+        held_ = std::move(held);
+    }
+
     /// An instance's contract evidence from the node
     /// (node::LedgerApi::instance_evidence). Until it is set, proofs of
     /// things with rules answer 503.
@@ -288,6 +300,11 @@ private:
     [[nodiscard]] http::Response exchange_read_route(const http::Request& request) const;
     void exchange_proposal_route(const http::Request& request, Respond respond) const;
     void exchange_consent_route(const http::Request& request, Respond respond) const;
+    /// Proposes a call to this ledger's registrar, which holds it until the
+    /// consents it waits for come online, then records it.
+    void exchange_propose_route(const http::Request& request, Respond respond) const;
+    /// The calls the registrar holds on an instance, for its page.
+    [[nodiscard]] nlohmann::json held_on(const protocol::Id& instance) const;
     [[nodiscard]] std::variant<std::pair<protocol::RecordRegisterBody, Draft>, http::Response>
     consent_draft(const Signed& who, const nlohmann::json& intent) const;
     struct Cited {
@@ -402,6 +419,14 @@ private:
         const std::lock_guard lock(api_mutex_);
         return instance_evidence_;
     }
+    [[nodiscard]] Propose proposer() const {
+        const std::lock_guard lock(api_mutex_);
+        return propose_;
+    }
+    [[nodiscard]] Held held() const {
+        const std::lock_guard lock(api_mutex_);
+        return held_;
+    }
     /// Tells the node the ledger's API may open (set up, or unlocked).
     void ready_now() const;
 
@@ -410,6 +435,8 @@ private:
     Submit submit_;
     Evidence evidence_;
     Evidence instance_evidence_;
+    Propose propose_;
+    Held held_;
     std::function<void()> on_ready_;
     mutable std::mutex mutex_;
     std::vector<Origin> origins_;

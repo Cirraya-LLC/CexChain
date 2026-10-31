@@ -535,5 +535,10 @@
   "exchange.record_intro": "調用會先連同此同意試行，與賬本的執行方式相同。",
   "exchange.link": "開啟提案或同意檔案",
   "approve.type.consent": "同意一個調用",
-  "approve.consents": "引用的同意"
+  "approve.consents": "引用的同意",
+  "exchange.propose": "在線提出",
+  "exchange.proposed": "此賬本的登記處會保留這個調用至 {until}，在線收到同意後即時記錄。",
+  "exchange.no_registrar": "此控制台沒有登記處：請改以檔案徵求。",
+  "exchange.held_title": "在線等待同意",
+  "exchange.held": "{function}（{arguments}）：等待 {missing}，至 {until}"
 }

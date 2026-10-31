@@ -535,5 +535,10 @@
   "exchange.record_intro": "The call runs with the consent first, as the ledger will run it.",
   "exchange.link": "Open a proposal or consent file",
   "approve.type.consent": "Consent to a call",
-  "approve.consents": "Consents cited"
+  "approve.consents": "Consents cited",
+  "exchange.propose": "Propose online",
+  "exchange.proposed": "This ledger's registrar holds the call until {until}, and records it as soon as the consents come in online.",
+  "exchange.no_registrar": "This console runs no registrar: ask by file instead.",
+  "exchange.held_title": "Waiting online for consent",
+  "exchange.held": "{function} with {arguments}: waiting for {missing}, until {until}"
 }
