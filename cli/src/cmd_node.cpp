@@ -25,6 +25,7 @@
 #include <cexchain/app/backups.hpp>
 #include <cexchain/app/public_witness.hpp>
 #include <cexchain/app/public_witnesses.hpp>
+#include <cexchain/app/relay_client.hpp>
 #include <cexchain/app/relay_server.hpp>
 #include <cexchain/app/updates.hpp>
 #include <cexchain/app/witness.hpp>
@@ -41,6 +42,7 @@
 
 #include "commands.hpp"
 #include "output.hpp"
+#include "records.hpp"
 
 namespace cexchain::cli {
 
@@ -454,6 +456,38 @@ int serve(const Args& args, const ServeDefaults& defaults) {
     std::fflush(stdout);
     if (defaults.on_listening) {
         defaults.on_listening(server.port());
+    }
+    // Reached through a relay (relay use): the requests that wait there for
+    // this ledger, answered with its own API.
+    std::jthread relaying;
+    if (const auto relay_key = args.get("relay-key")) {
+        const auto own = app::load_own_relay(dir);
+        if (!own) {
+            throw UsageError{"--relay-key: this ledger is not reached through a relay (relay use)"};
+        }
+        if (options.log_keys.empty()) {
+            throw UsageError{
+                "--relay-key needs --log-key, which signs what goes through the relay"};
+        }
+        auto key =
+            std::make_shared<const crypto::openssl::HpkeKey>(load_hpke_key(*relay_key, args));
+        if (!std::ranges::equal(key->public_key(), own->key)) {
+            throw UsageError{"--relay-key is not the key this ledger's relay seals to (relay use)"};
+        }
+        std::shared_ptr<const crypto::Signer> log_key = options.log_keys.back();
+        auto agent = std::make_shared<app::RelayAgent>(
+            *own, key, api->ledger().id(), [log_key] { return log_key; },
+            [api = api.get()](node::http::Request r,
+                              std::function<void(node::http::Response)> done) {
+                api->handle(std::move(r), "relay", std::move(done));
+            });
+        relaying = std::jthread([agent, quiet = args.has("quiet")](const std::stop_token& stop) {
+            agent->run(stop, [quiet](const std::string& problem) {
+                if (!quiet) {
+                    std::println(stderr, "relay: {}", problem.empty() ? "reached" : problem);
+                }
+            });
+        });
     }
     // The public witnesses this ledger registered with (witness register),
     // asked after each new checkpoint; the list is read each time.

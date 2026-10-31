@@ -809,6 +809,13 @@ int cmd_contract_propose(const Args& args) {
                              "parties, or --server URL as the home's staff"};
         }
     }
+    // A home reached through its relay: as this ledger, with --log-key.
+    std::optional<Session> own;
+    std::optional<RelayReach> reach;
+    if (home && args.has("log-key")) {
+        own.emplace(args);
+        reach.emplace(args, *own);
+    }
     node::PendingCall proposal;
     proposal.instance = home ? full_id(args.positional()[0], "INSTANCE")
                              : session->instance_id(args.positional()[0]);
@@ -911,6 +918,7 @@ int cmd_contract_pending(const Args& args) {
 
 int cmd_contract_consent(const Args& args) {
     Session session(args);
+    const RelayReach reach(args, session);
     std::optional<node::Peer> home_peer;
     if (const auto peer = args.get("peer")) {
         if (session.remote()) {
@@ -1046,6 +1054,12 @@ int cmd_contract_withdraw(const Args& args) {
 }
 
 int cmd_contract_send(const Args& args) {
+    std::optional<Session> own;
+    std::optional<RelayReach> reach;
+    if (args.has("log-key")) {
+        own.emplace(args);
+        reach.emplace(args, *own);
+    }
     const node::Peer home = peer_named(args.ledger(), args.need("peer"));
     const Json answer =
         peer_call(home, "POST", "/v1/contracts/consents", read_file(args.positional().front()));
@@ -1059,6 +1073,12 @@ int cmd_contract_send(const Args& args) {
 }
 
 int cmd_contract_fetch(const Args& args) {
+    std::optional<Session> own;
+    std::optional<RelayReach> reach;
+    if (args.has("log-key")) {
+        own.emplace(args);
+        reach.emplace(args, *own);
+    }
     const node::Peer home = peer_named(args.ledger(), args.need("peer"));
     const protocol::Id instance = full_id(args.need("instance"), "--instance");
     const auto [evidence, report] = fetch_instance(home, instance);

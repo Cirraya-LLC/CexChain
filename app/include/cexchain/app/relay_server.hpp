@@ -26,9 +26,12 @@
 /// own. Routes, with no token:
 ///   POST   /v1/relay/messages                 a message (relay.hpp), signed
 ///                                             by its sender's log key
-///   GET    /v1/relay/messages?to=ID[&wait=S]  the mailbox, oldest first, as
-///                                             a CBOR array of messages; a
-///                                             long poll with wait (<= 25 s)
+///   GET    /v1/relay/messages?to=ID[&wait=S][&requests=1|&answers=ID]
+///                                             the mailbox, oldest first, as
+///                                             a CBOR array of messages: all,
+///                                             the requests only, or the
+///                                             answers to one request; a long
+///                                             poll with wait (<= 25 s)
 ///   DELETE /v1/relay/messages/ID?to=LEDGER    taken
 /// The last two need "Authorization: CexChain-Relay ..." by the mailbox's
 /// ledger (relay.hpp). Messages are kept 14 days at most.
@@ -64,8 +67,17 @@ public:
     [[nodiscard]] std::pair<std::size_t, std::uint64_t> mailbox(const protocol::Id& ledger) const;
 
 private:
+    /// Which messages a fetch wants: all, requests only, or the answers to
+    /// one request (its id in hex).
+    struct Wanted {
+        bool requests_only = false;
+        std::string answers;
+
+        [[nodiscard]] bool operator()(const std::filesystem::path& file) const;
+    };
     struct Waiting {
         protocol::Id ledger;
+        Wanted wanted;
         protocol::Timestamp until = 0;
         Respond respond;
     };
@@ -73,7 +85,8 @@ private:
     [[nodiscard]] node::http::Response post(ByteView body, protocol::Timestamp now);
     /// The mailbox's messages as an answer, at most max_relay_message of them
     /// together (always at least one).
-    [[nodiscard]] node::http::Response listing(const protocol::Id& ledger) const;
+    [[nodiscard]] node::http::Response listing(const protocol::Id& ledger,
+                                               const Wanted& wanted) const;
     /// The fetcher's ledger, once its signature and time are checked; or the
     /// refusal.
     [[nodiscard]] std::variant<protocol::Id, node::http::Response>

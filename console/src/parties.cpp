@@ -92,7 +92,7 @@ http::Response Console::parties_route(const http::Request& request) const {
                                     {"ledger", hex_of(p.ledger_id)},
                                     {"fingerprint", app::ledger_fingerprint(p.ledger_id)},
                                     {"url", p.url ? nlohmann::json(*p.url) : nlohmann::json()},
-                                    {"online", p.url.has_value() && p.token_file.has_value()}};
+                                    {"online", node::reachable(p)}};
                 item.update(witnessing_view(p));
                 peers.push_back(std::move(item));
             }
@@ -237,7 +237,7 @@ void Console::poll_peers() const {
     }
     std::map<std::string, PeerInbox> fresh;
     for (const node::Peer& peer : *peers) {
-        if (!peer.url || !peer.token_file) {
+        if (!node::reachable(peer)) {
             continue;
         }
         PeerInbox box;
@@ -411,7 +411,7 @@ void Console::exchange_send_route(const http::Request& request, Respond respond)
     std::optional<node::Peer> home;
     if (const auto peers = node::load_peers(services_.directory.parent_path())) {
         for (const node::Peer& p : *peers) {
-            if (p.ledger_id == proposal.home && p.url && p.token_file) {
+            if (p.ledger_id == proposal.home && node::reachable(p)) {
                 home = p;
             }
         }

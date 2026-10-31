@@ -10,6 +10,7 @@
 #include <string>
 #include <string_view>
 
+#include <cexchain/app/relay_client.hpp>
 #include <cexchain/app/session.hpp>
 #include <cexchain/app/support.hpp>
 
@@ -103,6 +104,19 @@ public:
     [[nodiscard]] protocol::EvidenceBundle evidence(const Args& args, const protocol::Id& record);
     [[nodiscard]] Bytes contract_evidence(const Args& args, const protocol::Id& instance);
     [[nodiscard]] Bytes receipt(const Args& args, std::uint64_t index);
+};
+
+/// With --log-key, the parties a command reaches through their relays are
+/// reached as this ledger while this lives: what goes through a relay is
+/// signed with the log key, and a relay's witness that does not know the
+/// ledger yet registers it (its cosignature kept).
+class RelayReach {
+public:
+    RelayReach(const Args& args, Session& session);
+
+private:
+    std::optional<app::RelaySender> sender_;
+    std::optional<app::RelaySenderScope> scope_;
 };
 
 /// Reads a line from the terminal without echoing it (a passphrase, a

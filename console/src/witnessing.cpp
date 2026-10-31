@@ -23,6 +23,7 @@
 #include <cexchain/app/errors.hpp>
 #include <cexchain/app/peers.hpp>
 #include <cexchain/app/public_witnesses.hpp>
+#include <cexchain/app/relay_client.hpp>
 #include <cexchain/app/support.hpp>
 #include <cexchain/app/witness.hpp>
 #include <cexchain/console/console.hpp>
@@ -114,14 +115,13 @@ void Console::poll_witnessing() const {
     const std::filesystem::path dir = witness_dir(services_.directory);
     const Cosignatures keep = cosignatures();
     for (const node::Peer& peer : *peers) {
-        if (!peer.url || !peer.token_file) {
+        if (!node::reachable(peer)) {
             continue;
         }
         // Follow its ledger from its genesis, which its ledger id pins.
         if (!std::filesystem::exists(app::witness_state_path(dir, peer.ledger_id))) {
             static_cast<void>(attempt([&] {
-                const auto response = app::unwrap(
-                    app::peer_client(peer).request("GET", "/v1/genesis"), "reaching " + peer.name);
+                const auto response = app::peer_request(peer, "GET", "/v1/genesis");
                 if (response.status != 200) {
                     throw app::ActionError{answer_message(response)};
                 }
@@ -148,9 +148,7 @@ void Console::poll_witnessing() const {
                                 served->cosign_request(old), "making the cosign request")),
                             "encoding the cosign request");
             const auto response =
-                app::unwrap(app::peer_client(peer).request("POST", "/v1/witness/cosign", request,
-                                                           "application/cbor"),
-                            "reaching " + peer.name);
+                app::peer_request(peer, "POST", "/v1/witness/cosign", request, "application/cbor");
             if (response.status != 200) {
                 throw app::ActionError{answer_message(response)};
             }

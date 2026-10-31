@@ -26,6 +26,7 @@
 #include <cexchain/app/errors.hpp>
 #include <cexchain/app/peers.hpp>
 #include <cexchain/app/records.hpp>
+#include <cexchain/app/relay_client.hpp>
 #include <cexchain/app/support.hpp>
 #include <cexchain/console/console.hpp>
 #include <cexchain/console/kinds.hpp>
@@ -193,7 +194,7 @@ std::optional<node::Peer> online_peer(const std::filesystem::path& dir,
                                       const protocol::Id& ledger) {
     if (const auto peers = node::load_peers(dir)) {
         for (const node::Peer& p : *peers) {
-            if (p.ledger_id == ledger && p.url && p.token_file) {
+            if (p.ledger_id == ledger && node::reachable(p)) {
                 return p;
             }
         }
@@ -352,7 +353,7 @@ Console::access_draft(const Signed& who, const nlohmann::json& intent) const {
         if (!peer) {
             return error(404, "not_found", "no party of that name");
         }
-        if (!peer->url || !peer->token_file) {
+        if (!node::reachable(*peer)) {
             return error(409, "conflict", "that party is not reached online");
         }
         const auto record = id_of(intent.value("record", ""));
@@ -561,9 +562,8 @@ void Console::poll_deliveries() const {
             continue;
         }
         static_cast<void>(attempt([&] {
-            const auto response = app::unwrap(
-                app::peer_client(*peer).request("GET", "/v1/access/deliveries/" + hex_of(r.id)),
-                "reaching " + peer->name);
+            const auto response =
+                app::peer_request(*peer, "GET", "/v1/access/deliveries/" + hex_of(r.id));
             if (response.status == 200) {
                 const std::filesystem::path file = fetched_path(services_.directory, r.id);
                 std::filesystem::create_directories(file.parent_path());

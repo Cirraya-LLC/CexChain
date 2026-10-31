@@ -71,11 +71,21 @@ std::optional<crypto::PublicKey> log_key_of(const std::filesystem::path& witness
     }
 }
 
-/// <sent at, 16 digits>-<id hex>.msg: names sort by arrival.
-std::string message_name(protocol::Timestamp at, const RelayId& id) {
+/// <sent at, 16 digits>-<id hex>[-<id of the request it answers>].msg:
+/// names sort by arrival, and say which messages are answers.
+std::string message_name(protocol::Timestamp at, const RelayEnvelope& e) {
     std::string digits = std::to_string(at);
     digits.insert(0, digits.size() < 16 ? 16 - digits.size() : 0, '0');
-    return digits + "-" + to_hex(ByteView(id)) + ".msg";
+    return digits + "-" + to_hex(ByteView(e.id)) +
+           (e.answers ? "-" + to_hex(ByteView(*e.answers)) : std::string()) + ".msg";
+}
+
+/// The id a message's file name gives, and the request it answers, if any.
+std::pair<std::string, std::string> ids_of(const std::filesystem::path& file) {
+    const std::string stem = file.stem().string();
+    const std::string id = stem.size() >= 49 ? stem.substr(17, 32) : std::string();
+    const std::string answers = stem.size() == 82 ? stem.substr(50, 32) : std::string();
+    return {id, answers};
 }
 
 std::optional<protocol::Timestamp> sent_at(const std::filesystem::path& file) {
@@ -102,6 +112,11 @@ std::vector<std::filesystem::path> messages_in(const std::filesystem::path& box)
 }
 
 } // namespace
+
+bool Relay::Wanted::operator()(const std::filesystem::path& file) const {
+    const auto [id, answered] = ids_of(file);
+    return answers.empty() ? !requests_only || answered.empty() : answered == answers;
+}
 
 Relay::Relay(std::filesystem::path dir, std::filesystem::path witness_dir, RelayLimits limits)
     : dir_(std::move(dir)), witness_dir_(std::move(witness_dir)), limits_(limits) {
@@ -162,12 +177,25 @@ bool Relay::handle(const node::http::Request& request, protocol::Timestamp now, 
             }
             wait = std::min<protocol::Timestamp>(seconds * 1000, limits_.max_wait);
         }
+        Wanted wanted;
+        if (const auto it = request.query.find("requests"); it != request.query.end()) {
+            wanted.requests_only = it->second == "1";
+        }
+        if (const auto it = request.query.find("answers"); it != request.query.end()) {
+            const auto id = from_hex(it->second);
+            if (!id || id->size() != RelayId{}.size()) {
+                respond(refusal(400, "invalid_argument", "answers=<32 hex digits>"));
+                return true;
+            }
+            wanted.answers = to_hex(*id);
+        }
         const std::lock_guard lock(mutex_);
         prune(ledger, now);
-        if (wait == 0 || mailbox(ledger).first > 0) {
-            respond(listing(ledger));
+        const auto files = messages_in(box(ledger));
+        if (wait == 0 || std::ranges::any_of(files, wanted)) {
+            respond(listing(ledger, wanted));
         } else {
-            waiting_.push_back({ledger, now + wait, std::move(respond)});
+            waiting_.push_back({ledger, std::move(wanted), now + wait, std::move(respond)});
         }
         return true;
     }
@@ -186,7 +214,7 @@ bool Relay::handle(const node::http::Request& request, protocol::Timestamp now, 
         bool removed = false;
         std::error_code ec;
         for (const auto& file : messages_in(box(std::get<protocol::Id>(who)))) {
-            if (file.filename().string().find("-" + to_hex(*id) + ".msg") != std::string::npos) {
+            if (ids_of(file).first == to_hex(*id)) {
                 removed = std::filesystem::remove(file, ec) || removed;
             }
         }
@@ -222,8 +250,7 @@ Response Relay::post(ByteView body, protocol::Timestamp now) {
     const std::filesystem::path to = box(e.to);
     std::error_code ec;
     for (const auto& file : messages_in(to)) {
-        if (file.filename().string().find("-" + to_hex(ByteView(e.id)) + ".msg") !=
-            std::string::npos) {
+        if (ids_of(file).first == to_hex(ByteView(e.id))) {
             // Sent again: kept once.
             return answer(200, {{"id", to_hex(ByteView(e.id))}});
         }
@@ -244,32 +271,29 @@ Response Relay::post(ByteView body, protocol::Timestamp now) {
         return too_many("this ledger sent as much as it may today", (today + 1) * day_ms - now);
     }
     std::filesystem::create_directories(to);
-    write_file(to / message_name(now, e.id), body, false);
+    write_file(to / message_name(now, e), body, false);
     ++sent.first;
     sent.second += body.size();
     // Whoever waits for this mailbox gets it now.
-    std::vector<Respond> wake;
+    const std::filesystem::path stored = to / message_name(now, e);
     for (auto it = waiting_.begin(); it != waiting_.end();) {
-        if (it->ledger == e.to) {
-            wake.push_back(std::move(it->respond));
+        if (it->ledger == e.to && it->wanted(stored)) {
+            it->respond(listing(e.to, it->wanted));
             it = waiting_.erase(it);
         } else {
             ++it;
         }
     }
-    if (!wake.empty()) {
-        const Response listed = listing(e.to);
-        for (Respond& r : wake) {
-            r(listed);
-        }
-    }
     return answer(201, {{"id", to_hex(ByteView(e.id))}});
 }
 
-Response Relay::listing(const protocol::Id& ledger) const {
+Response Relay::listing(const protocol::Id& ledger, const Wanted& wanted) const {
     cbor::Array items;
     std::size_t total = 0;
     for (const auto& file : messages_in(box(ledger))) {
+        if (!wanted(file)) {
+            continue;
+        }
         Bytes bytes;
         try {
             bytes = read_file(file);
@@ -321,12 +345,12 @@ std::variant<protocol::Id, Response> Relay::fetcher(const node::http::Request& r
 }
 
 void Relay::tick(protocol::Timestamp now) {
-    std::vector<std::pair<Respond, protocol::Id>> due;
+    std::vector<Waiting> due;
     {
         const std::lock_guard lock(mutex_);
         for (auto it = waiting_.begin(); it != waiting_.end();) {
             if (it->until <= now) {
-                due.emplace_back(std::move(it->respond), it->ledger);
+                due.push_back(std::move(*it));
                 it = waiting_.erase(it);
             } else {
                 ++it;
@@ -347,23 +371,21 @@ void Relay::tick(protocol::Timestamp now) {
             }
         }
     }
-    for (auto& [respond, ledger] : due) {
+    for (Waiting& w : due) {
         const std::lock_guard lock(mutex_);
-        respond(listing(ledger));
+        w.respond(listing(w.ledger, w.wanted));
     }
 }
 
 void Relay::stopping() {
-    std::vector<std::pair<Respond, protocol::Id>> all;
+    std::vector<Waiting> all;
     {
         const std::lock_guard lock(mutex_);
-        for (Waiting& w : waiting_) {
-            all.emplace_back(std::move(w.respond), w.ledger);
-        }
+        all = std::move(waiting_);
         waiting_.clear();
     }
-    for (auto& [respond, ledger] : all) {
-        respond(listing(ledger));
+    for (Waiting& w : all) {
+        w.respond(listing(w.ledger, w.wanted));
     }
 }
 

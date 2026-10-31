@@ -72,6 +72,26 @@ Result<std::vector<Peer>> load_peers(const std::filesystem::path& ledger_directo
             }
             peer.witness_key = std::move(*public_key);
         }
+        if (p.contains("relay")) {
+            const auto& r = p["relay"];
+            const auto key = r.is_object() && r.contains("key") && r["key"].is_string()
+                                 ? from_hex(r["key"].get<std::string>())
+                                 : Result<Bytes>(std::unexpected(Error{Errc::malformed, ""}));
+            const auto witness = r.is_object() && r.contains("witness") && r["witness"].is_string()
+                                     ? from_hex(r["witness"].get<std::string>())
+                                     : Result<Bytes>(std::unexpected(Error{Errc::malformed, ""}));
+            const auto witness_value = witness
+                                           ? cbor::decode(*witness)
+                                           : Result<cbor::Value>(std::unexpected(witness.error()));
+            auto witness_key =
+                witness_value ? protocol::decode_public_key(*witness_value)
+                              : Result<crypto::PublicKey>(std::unexpected(witness_value.error()));
+            if (!r.contains("url") || !r["url"].is_string() || !key || key->size() != 32 ||
+                !witness_key) {
+                return fail(Errc::malformed, "the peers file holds a malformed relay");
+            }
+            peer.relay = RelayRoute{r["url"].get<std::string>(), *key, std::move(*witness_key)};
+        }
         peer.added = p.value("added", protocol::Timestamp{0});
         peers.push_back(std::move(peer));
     }
@@ -97,6 +117,15 @@ Status save_peers(const std::filesystem::path& ledger_directory, const std::vect
                 return std::unexpected(encoded.error());
             }
             j["witness_key"] = to_hex(*encoded);
+        }
+        if (p.relay) {
+            auto witness = cbor::encode(protocol::encode_public_key(p.relay->witness));
+            if (!witness) {
+                return std::unexpected(witness.error());
+            }
+            j["relay"] = {{"url", p.relay->url},
+                          {"key", to_hex(p.relay->key)},
+                          {"witness", to_hex(*witness)}};
         }
         list.push_back(std::move(j));
     }

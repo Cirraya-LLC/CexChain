@@ -21,6 +21,19 @@
 /// kept in <ledger>/peers.json; what was granted to whom is on the ledger.
 namespace cexchain::node {
 
+/// How a ledger that no one reaches directly (a laptop) is reached: the
+/// relay that keeps its mailbox, the key requests to it are sealed to (32
+/// bytes, X25519), and the key of that relay's public witness, which the
+/// sender registers with too (a relay serves the ledgers its witness
+/// follows).
+struct RelayRoute {
+    std::string url;
+    Bytes key;
+    crypto::PublicKey witness;
+
+    friend bool operator==(const RelayRoute&, const RelayRoute&) = default;
+};
+
 struct Peer {
     /// 1-64 letters, digits, '.', '_', '-'.
     std::string name;
@@ -32,8 +45,16 @@ struct Peer {
     std::optional<std::string> ca_file;
     /// The peer's witness key, if it witnesses this ledger.
     std::optional<crypto::PublicKey> witness_key;
+    /// Without a URL, how it is reached.
+    std::optional<RelayRoute> relay;
     protocol::Timestamp added = 0;
 };
+
+/// Whether a peer is reached online: by its API's URL or through its
+/// relay, with the token it issued us.
+[[nodiscard]] inline bool reachable(const Peer& peer) {
+    return (peer.url || peer.relay) && peer.token_file;
+}
 
 inline constexpr std::string_view peers_file = "peers.json";
 

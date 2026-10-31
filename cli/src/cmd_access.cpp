@@ -14,6 +14,7 @@
 
 #include <cexchain/app/access.hpp>
 #include <cexchain/app/peers.hpp>
+#include <cexchain/app/relay_client.hpp>
 #include <cexchain/core/protocol/access.hpp>
 #include <cexchain/core/protocol/witness.hpp>
 #include <cexchain/node/client.hpp>
@@ -36,8 +37,7 @@ using app::peer_for_bundle;
 /// POSTs to the peer's API and returns the JSON answer.
 Json post_to(const node::Peer& peer, const std::string& path, ByteView body,
              std::string_view type) {
-    const auto response =
-        unwrap(peer_client(peer).request("POST", path, body, type), "reaching peer " + peer.name);
+    const auto response = app::peer_request(peer, "POST", path, body, type);
     const Json answer = Json::parse(response.body.begin(), response.body.end(), nullptr, false);
     if (response.status / 100 != 2) {
         std::string message = "status " + std::to_string(response.status);
@@ -163,6 +163,8 @@ int cmd_peer_invite(const Args& args) {
     if (invitation.url) {
         unwrap(node::Url::parse(*invitation.url), "reading --url");
     }
+    // A ledger reached through a relay says so (relay use).
+    invitation.relay = app::load_own_relay(dir);
     if (const auto witness = args.get("witness-key")) {
         invitation.witness = load_public_key(*witness);
     }
@@ -176,6 +178,7 @@ int cmd_peer_invite(const Args& args) {
                     {"fingerprint", ledger_fingerprint(invitation.ledger)},
                     {"url", invitation.url ? Json(*invitation.url) : Json(nullptr)},
                     {"witness", invitation.witness.has_value()},
+                    {"relay", invitation.relay ? Json(invitation.relay->url) : Json(nullptr)},
                     {"code", code}});
         return exit_ok;
     }
@@ -300,6 +303,7 @@ int cmd_peer_remove(const Args& args) {
 
 int cmd_access_request(const Args& args) {
     Session session(args);
+    const RelayReach reach(args, session);
     session.require_primary();
     const node::Peer peer = peer_named(session.directory(), args.need("peer"));
     const auto log_key = load_signer(args.need("log-key"), args);
@@ -362,11 +366,11 @@ int cmd_access_request(const Args& args) {
 
 int cmd_access_fetch(const Args& args) {
     Session session(args);
+    const RelayReach reach(args, session);
     const node::Peer peer = peer_named(session.directory(), args.need("peer"));
     const protocol::Id request = session.record_id(args.need("request"));
     const auto response =
-        unwrap(peer_client(peer).request("GET", "/v1/access/deliveries/" + hex_id(request)),
-               "reaching peer " + peer.name);
+        app::peer_request(peer, "GET", "/v1/access/deliveries/" + hex_id(request));
     if (response.status == 404) {
         throw CommandError{"peer " + peer.name + " has not granted request " + short_id(request) +
                            " (yet)"};
@@ -392,6 +396,7 @@ int cmd_access_fetch(const Args& args) {
 
 int cmd_access_accept(const Args& args) {
     Session session(args);
+    const RelayReach reach(args, session);
     session.require_primary();
     const Bytes delivery_bytes = read_file(args.positional().front());
     std::optional<app::OpenedDelivery> opened;
@@ -697,6 +702,7 @@ int cmd_access_grant(const Args& args) {
 
 int cmd_access_receipt(const Args& args) {
     Session session(args);
+    const RelayReach reach(args, session);
     const Bytes bundle = read_file(args.positional().front());
     const node::Peer peer = peer_for_bundle(session.directory(), bundle);
     protocol::VerifyOptions pinned;
@@ -824,6 +830,7 @@ int cmd_access_list(const Args& args) {
 
 int cmd_access_send_request(const Args& args) {
     Session session(args);
+    const RelayReach reach(args, session);
     const node::Peer peer = peer_named(session.directory(), args.need("peer"));
     const protocol::Id request = session.record_id(args.positional().front());
     const Bytes bundle =

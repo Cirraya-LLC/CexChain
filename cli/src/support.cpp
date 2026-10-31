@@ -359,4 +359,17 @@ std::string self_path() {
     throw CommandError{"cannot find this program's own path, to run its child processes"};
 }
 
+RelayReach::RelayReach(const Args& args, Session& session) {
+    const auto key = args.get("log-key");
+    if (!key) {
+        return;
+    }
+    sender_ = app::RelaySender{&session.ledger(),
+                               std::shared_ptr<const crypto::Signer>(load_signer(*key, args)),
+                               [&session](ByteView cosignature, const crypto::PublicKey& witness) {
+                                   session.add_cosignature(cosignature, witness);
+                               }};
+    scope_.emplace(&*sender_);
+}
+
 } // namespace cexchain::cli

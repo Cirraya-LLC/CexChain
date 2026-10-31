@@ -63,13 +63,16 @@ void remove_peer(const std::filesystem::path& dir, const std::string& name);
 /// the inviting organization runs for its parties, if it runs one. Whoever
 /// holds the code holds the token: send it to that party only. Written as
 /// `cxp_` and the base64url of its CBOR, `{1: 1, 2: ledger, 3: organization,
-/// ? 4: url, ? 5: token, ? 6: witness key [alg, key]}`.
+/// ? 4: url, ? 5: token, ? 6: witness key [alg, key], ? 7: relay {1: url,
+/// 2: relay key, 3: the relay's witness key}}`; a ledger that no one
+/// reaches directly gives its relay instead of a URL.
 struct PeerInvitation {
     protocol::Id ledger;
     std::string organization;
     std::optional<std::string> url;
     std::optional<std::string> token;
     std::optional<crypto::PublicKey> witness;
+    std::optional<node::RelayRoute> relay;
 
     friend bool operator==(const PeerInvitation&, const PeerInvitation&) = default;
 };

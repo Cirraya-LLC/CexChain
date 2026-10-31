@@ -98,6 +98,10 @@ int cmd_presence_enroll(const Args& args);
 // Vault
 int cmd_vault_status(const Args& args);
 int cmd_vault_keygen(const Args& args);
+int cmd_relay_key_init(const Args& args);
+int cmd_relay_use(const Args& args);
+int cmd_relay_show(const Args& args);
+int cmd_relay_stop(const Args& args);
 int cmd_vault_rekey(const Args& args);
 
 // Witnesses

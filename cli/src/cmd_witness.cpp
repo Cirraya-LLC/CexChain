@@ -19,6 +19,7 @@
 
 #include <cexchain/app/peers.hpp>
 #include <cexchain/app/public_witnesses.hpp>
+#include <cexchain/app/relay_client.hpp>
 #include <cexchain/app/witness.hpp>
 #include <cexchain/core/protocol/witness.hpp>
 
@@ -60,6 +61,7 @@ Json state_json(const WitnessState& s) {
 
 int cmd_checkpoint_cosign_request(const Args& args) {
     Session session(args);
+    const RelayReach reach(args, session);
     const auto& latest = session.ledger().latest_checkpoint();
     if (!latest) {
         throw CommandError{"the ledger has no checkpoint yet (cexchain checkpoint create)"};
@@ -114,9 +116,8 @@ int cmd_checkpoint_cosign_request(const Args& args) {
     }
     // Online: the peer cosigns as our witness, and we keep the cosignature.
     session.require_primary();
-    const auto response = unwrap(
-        peer_client(*peer).request("POST", "/v1/witness/cosign", encoded, "application/cbor"),
-        "reaching peer " + peer->name);
+    const auto response =
+        app::peer_request(*peer, "POST", "/v1/witness/cosign", encoded, "application/cbor");
     if (response.status != 200) {
         const Json answer = Json::parse(response.body.begin(), response.body.end(), nullptr, false);
         const std::string message = answer.is_object() && answer.contains("error")

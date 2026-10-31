@@ -8,6 +8,7 @@
 #include <cexchain/app/contracts.hpp>
 #include <cexchain/app/peers.hpp>
 #include <cexchain/app/records.hpp>
+#include <cexchain/app/relay_client.hpp>
 #include <cexchain/bo/messages.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/vm.hpp>
@@ -322,9 +323,7 @@ Json pending_at(const node::Peer& home, const std::optional<std::string>& call) 
 
 std::pair<Bytes, protocol::ContractReport> fetch_instance(const node::Peer& home,
                                                           const protocol::Id& instance) {
-    const auto response =
-        unwrap(peer_client(home).request("GET", "/v1/contracts/instances/" + hex_id(instance)),
-               "reaching peer " + home.name);
+    const auto response = peer_request(home, "GET", "/v1/contracts/instances/" + hex_id(instance));
     if (response.status == 404) {
         throw ActionError{"peer " + home.name +
                           " shows this instance only to its parties: ask for its evidence, or "
@@ -346,12 +345,11 @@ std::pair<Bytes, protocol::ContractReport> fetch_instance(const node::Peer& home
 }
 
 crypto::HashAlg home_hash(const node::Peer& home, const protocol::Id& instance) {
-    if (!home.url) {
+    if (!home.url && !home.relay) {
         throw UsageError{"give --hash: the home's hash (sha256 or sm3), which the consent hashes "
                          "the arguments with"};
     }
-    const auto response =
-        unwrap(peer_client(home).request("GET", "/v1/checkpoint"), "reaching peer " + home.name);
+    const auto response = peer_request(home, "GET", "/v1/checkpoint");
     if (response.status == 404) {
         // No checkpoint yet: the instance's evidence names the hash.
         return fetch_instance(home, instance).second.instance.hash;

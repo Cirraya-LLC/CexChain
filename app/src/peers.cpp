@@ -5,6 +5,7 @@
 #include <cctype>
 
 #include <cexchain/app/peers.hpp>
+#include <cexchain/app/relay_client.hpp>
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/ledger/environment.hpp>
@@ -47,8 +48,7 @@ node::Client peer_client(const node::Peer& peer) {
 
 Json peer_call(const node::Peer& peer, std::string_view method, const std::string& path,
                ByteView body) {
-    const auto response = unwrap(peer_client(peer).request(method, path, body, "application/cbor"),
-                                 "reaching peer " + peer.name);
+    const auto response = peer_request(peer, method, path, body, "application/cbor");
     const Json answer = Json::parse(response.body.begin(), response.body.end(), nullptr, false);
     if (response.status / 100 != 2) {
         std::string message = "status " + std::to_string(response.status);
@@ -103,6 +103,8 @@ Json peer_json(const node::Peer& p) {
             {"token_file", p.token_file ? Json(*p.token_file) : Json(nullptr)},
             {"ca_file", p.ca_file ? Json(*p.ca_file) : Json(nullptr)},
             {"witness_key", p.witness_key ? public_key_json(*p.witness_key) : Json(nullptr)},
+            {"relay",
+             p.relay ? Json{{"url", p.relay->url}, {"key", to_hex(p.relay->key)}} : Json(nullptr)},
             {"added", format_time(p.added)}};
 }
 
@@ -155,6 +157,14 @@ std::string encode_invitation(const PeerInvitation& i) {
     }
     if (i.witness) {
         map.push_back({cbor::Value::integer(6), protocol::encode_public_key(*i.witness)});
+    }
+    if (i.relay) {
+        map.push_back(
+            {cbor::Value::integer(7),
+             cbor::Value::map(
+                 {{cbor::Value::integer(1), cbor::Value::text(i.relay->url)},
+                  {cbor::Value::integer(2), cbor::Value::bytes(i.relay->key)},
+                  {cbor::Value::integer(3), protocol::encode_public_key(i.relay->witness)}})});
     }
     const Bytes encoded = unwrap(cbor::encode(cbor::Value::map(std::move(map))), "the invitation");
     return std::string(invitation_prefix) + to_base64url(encoded);
@@ -217,6 +227,26 @@ std::optional<PeerInvitation> decode_invitation(std::string_view code) {
                 return std::nullopt;
             }
             out.witness = std::move(*witness);
+        } else if (*key == 7) {
+            const cbor::Map* relay = e.value.as_map();
+            const cbor::Value* url = e.value.find(1);
+            const cbor::Value* relay_key = e.value.find(2);
+            const cbor::Value* witness = e.value.find(3);
+            if (relay == nullptr || relay->size() != 3 || url == nullptr ||
+                url->as_text() == nullptr || url->as_text()->empty() ||
+                url->as_text()->size() > 2048 || !printable(*url->as_text()) ||
+                (!url->as_text()->starts_with("https://") &&
+                 !url->as_text()->starts_with("http://")) ||
+                relay_key == nullptr || relay_key->as_bytes() == nullptr ||
+                relay_key->as_bytes()->size() != 32 || witness == nullptr) {
+                return std::nullopt;
+            }
+            auto witness_key = protocol::decode_public_key(*witness);
+            if (!witness_key) {
+                return std::nullopt;
+            }
+            out.relay =
+                node::RelayRoute{*url->as_text(), *relay_key->as_bytes(), std::move(*witness_key)};
         } else {
             return std::nullopt;
         }
@@ -269,6 +299,7 @@ node::Peer accept_invitation(const std::filesystem::path& dir,
     peer.ledger_id = invitation.ledger;
     peer.url = invitation.url;
     peer.witness_key = invitation.witness;
+    peer.relay = invitation.relay;
     peer.added = ledger::SystemClock{}.now();
     if (own) {
         // The node's console knows its ledger: the peers file only.
