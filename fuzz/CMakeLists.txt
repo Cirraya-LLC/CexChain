@@ -96,6 +96,9 @@ if(TARGET cexchain_node)
         # Sealed backups read from a folder, and the paths a restore writes.
         cexchain_add_fuzzer(sealed_backup_fuzz cexchain::console cexchain::app)
         target_compile_features(sealed_backup_fuzz PRIVATE cxx_std_26)
+        # Kind sheets from a person's page or a shared file.
+        cexchain_add_fuzzer(kind_sheet_fuzz cexchain::console)
+        target_compile_features(kind_sheet_fuzz PRIVATE cxx_std_26)
     endif()
     # The cluster's internals (node/src/cluster_parts.hpp).
     cexchain_add_fuzzer(cluster_entry_fuzz cexchain::node cexchain::crypto_openssl cexchain_nuraft)

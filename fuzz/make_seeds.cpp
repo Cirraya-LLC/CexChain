@@ -531,6 +531,15 @@ void cluster_seeds(const Seeds& seeds) {
 }
 
 void text_seeds(const Seeds& seeds) {
+    // A kind sheet, as the Kinds screen writes one.
+    seeds.write(
+        "kind_sheet_fuzz", "photo",
+        R"({"sheet": 1, "kind": "document", "type": "example.org.photo/1",)"
+        R"( "name": "Photo", "description": "A photo and where it was taken",)"
+        R"( "fields": [{"name": "place", "label": "Place", "type": "text", "required": true},)"
+        R"( {"name": "taken", "type": "date", "private": false},)"
+        R"( {"name": "price", "type": "number"}, {"name": "framed", "type": "yes-no"}],)"
+        R"( "files": "required", "keep_files": true})");
     // Paths a restore may write, and some it may not.
     const std::string id(64, 'a');
     seeds.write("sealed_backup_fuzz", "users", "console/users.json");
