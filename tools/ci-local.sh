@@ -19,13 +19,15 @@
 #   tsan        Clang 23 with ThreadSanitizer: build, ctest
 # The source is the committed tree (HEAD), or with --worktree the working
 # tree's tracked and untracked files (not the ignored ones). The browser
-# verifier's job (Emscripten, Chromium) is not run here.
+# verifier's job (Emscripten, Chromium) is not run here. CI_LOCAL_IMAGE
+# names another image built from CI's with the tools installed already
+# (when the package mirrors are slow); they are not installed again.
 set -Eeuo pipefail
 trap 'echo "ci-local: failed at line $LINENO" >&2' ERR
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 engine=${CI_LOCAL_ENGINE:-podman}
-image=docker.io/library/gcc:16-trixie
+image=${CI_LOCAL_IMAGE:-docker.io/library/gcc:16-trixie}
 cpus=6
 memory=7g
 tree=head
@@ -74,7 +76,10 @@ cat > "$work/run.sh" <<'EOF'
 set -u
 cp -a /mnt/src /src
 cd /src
-if ! .github/scripts/install-linux-tools.sh > /logs/install.log 2>&1; then
+# A prebuilt image (CI_LOCAL_IMAGE) has the tools: installing again would
+# fetch whatever the mirrors have newer.
+if [ -z "${CI_LOCAL_PREBUILT:-}" ] &&
+    ! .github/scripts/install-linux-tools.sh > /logs/install.log 2>&1; then
     echo "install: FAILED (see install.log)"
     exit 1
 fi
@@ -128,7 +133,9 @@ chmod +x "$work/run.sh"
 
 echo "ci-local: ${jobs[*]} on $( [ "$tree" = head ] && git -C "$root" rev-parse --short HEAD || echo "the working tree"), in $image ($engine, $cpus CPUs, $memory)"
 status=0
+prebuilt=()
+[ -n "${CI_LOCAL_IMAGE:-}" ] && prebuilt=(-e CI_LOCAL_PREBUILT=1)
 "$engine" run --rm --cpus "$cpus" --memory "$memory" -v "$work:/mnt:ro" -v "$logs:/logs" \
-    "$image" /mnt/run.sh "${jobs[@]}" || status=$?
+    ${prebuilt[@]+"${prebuilt[@]}"} "$image" /mnt/run.sh "${jobs[@]}" || status=$?
 echo "ci-local: logs in $logs"
 exit $status
