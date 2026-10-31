@@ -9,7 +9,8 @@
 #
 #   tools/package/macos.sh [OUT_DIR]
 #
-# OpenSSL is linked in statically: Homebrew's path is not on other Macs.
+# OpenSSL is linked in statically: Homebrew's path is not on other Macs. GCC's
+# C++ library is too, and it needs the system's iconv (std::format).
 # CEXCHAIN_DEVELOPER_ID, if set (a "Developer ID Installer: ..." identity in
 # the keychain), signs the package, and CEXCHAIN_DEVELOPER_APP_ID the app;
 # otherwise they are unsigned (the app ad hoc), and macOS asks the person to
@@ -28,7 +29,7 @@ OPENSSL="$(brew --prefix openssl@3)"
 cmake -S "$ROOT" -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-16 \
     -DCEXCHAIN_BUILD_TESTS=OFF -DCEXCHAIN_BO=ON \
     -DOPENSSL_ROOT_DIR="$OPENSSL" -DOPENSSL_USE_STATIC_LIBS=TRUE \
-    -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc" \
+    -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc -liconv" \
     ${WASM_DIR:+-DCEXCHAIN_CONSOLE_WASM_DIR="$WASM_DIR"} \
     ${CEXCHAIN_RELEASE_KEY:+-DCEXCHAIN_RELEASE_KEY="$CEXCHAIN_RELEASE_KEY"} \
     ${CEXCHAIN_UPDATE_URL:+-DCEXCHAIN_UPDATE_URL="$CEXCHAIN_UPDATE_URL"} > /dev/null
