@@ -218,7 +218,7 @@ The `cexchain` tool controls every part of a ledger:
 | Clusters | `cluster init`, `cluster join`, `cluster add`, `cluster status`, `cluster remove`, `cluster step-down` |
 | Replicas | `replica init`, `replica sync`, `replica status`, `replica promote` |
 | Backups | `backup create`, `backup verify`, `backup restore` |
-| Other organizations | `peer invite`, `peer accept`, `peer add`, `peer list`, `peer show`, `peer remove`, `access request`, `access send`, `access inbox`, `access grant`, `access fetch`, `access accept`, `access receipt`, `access list` |
+| Other organizations | `peer invite`, `peer accept`, `peer add`, `peer list`, `peer show`, `peer remove`, `access request`, `access send`, `access inbox`, `access dismiss`, `access grant`, `access fetch`, `access accept`, `access receipt`, `access list` |
 | Contracts | `contract deploy`, `contract show`, `contract list`, `contract retire`, `contract create`, `contract call`, `contract instance`, `contract instances`, `contract evidence`, `contract proposal`, `contract file show`, `contract propose`, `contract pending`, `contract consent`, `contract withdraw`, `contract send`, `contract fetch`, `contract verify`, `contract explain` |
 | Requests | `request list`, `request show`, `request answer`, `request cancel`, `request wait` |
 | Executors | `executor add`, `executor list`, `executor show`, `executor revoke`, `executor run`, `executor check`, `executor connector add\|list\|show\|remove`, `executor secret set\|list\|remove`, `executor journal list\|show`; `connector webhook`, `connector command` |
@@ -491,6 +491,19 @@ cexchain console settings show
   from its home (a home shows it to the ledgers a call it holds asks), verifies it, and shows it
   as a proposal; the consent, given with a tap, goes to the home's registrar, which records the
   call.
+- **Documents between parties.** "Ask for a document" on the Parties screen asks a party for one
+  of its records by id (as `access request --send`): the reason, the fields wanted (or all), and
+  whether its files too, approved with a tap; the request's key is kept sealed to the vault key.
+  The party's Home lists what is asked of it ("Asked of you"); its page shows who asks and why,
+  and the fields and kept files to share, those not asked left out. "Grant with your passkey"
+  records the grant and makes the delivery (as `access grant`), which waits in its outbox for the
+  asker; "Dismiss" removes a request without granting it (`access dismiss`). The asker's node
+  fetches deliveries for its open requests when it asks its parties; Home lists them ("Delivered
+  to you"), and opening one checks it as `access accept` does (the grant against the request,
+  the record's evidence at the grant's checkpoint, exactly the fields and files granted) before
+  showing the fields and offering the files. "Accept with your passkey" records the receipt and
+  sends it back, and the granter sees the delivery acknowledged. A grant is withdrawn with a tap
+  (its record revoked), after which its delivery is no longer handed out.
 - **Settings** show the ledger and its folder, the language new browsers start in, and the
   backup folder (`console settings show|set` from the command line). Scheduled backups to that
   folder are not written yet; until they are, use `cexchain backup create`.
@@ -592,9 +605,11 @@ cexchain peer accept cxp_... --name reviewer                            # on the
 cexchain access request --peer holder --record <id> --purpose "annual review" \
     --fields result --attachments report.pdf --as reviewer.key --log-key log.key --send
 
-# The holder sees who asked and under whose authority, and grants (a grant record on its ledger).
+# The holder sees who asked and under whose authority, and grants (a grant record on its ledger);
+# a file kept with the record serves without --attach. Or dismisses it: nothing is recorded.
 cexchain access inbox
 cexchain access grant <request> --as approver.key --log-key log.key --attach report.pdf=report.pdf
+cexchain access dismiss <request>
 
 # The reviewer fetches and checks everything against the holder's ledger, then acknowledges
 # (a receipt record on its ledger, sent back).

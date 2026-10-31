@@ -6,8 +6,11 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <future>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -36,6 +39,7 @@
 #include <cexchain/ledger/verify.hpp>
 #include <cexchain/node/contracts.hpp>
 #include <cexchain/node/keeper.hpp>
+#include <cexchain/node/peers.hpp>
 #include <cexchain/node/record_files.hpp>
 
 #include "support/authenticator.hpp"
@@ -913,10 +917,21 @@ struct Served {
     explicit Served(FirstRunWorld& f) : session(cexchain::app::Location{f.w.dir.path}) {
         f.w.web.set_ledger(&session.ledger());
         // As LedgerApi::record_evidence: a checkpoint by the sealed log key
-        // first, then the bundle.
+        // first, unless the latest covers the record, then the bundle.
         f.w.web.set_evidence([this, &f](const cexchain::protocol::Id& record, auto done) {
             const auto log = f.w.keys.open("log");
-            REQUIRE(session.ledger().checkpoint(log));
+            std::uint64_t last = 0;
+            session.ledger().read_state([&](const cexchain::protocol::LedgerState& state) {
+                if (const auto* r = state.record(record)) {
+                    for (const std::uint64_t index : r->history) {
+                        last = std::max(last, index);
+                    }
+                }
+            });
+            const auto latest = session.ledger().latest_checkpoint();
+            if (!latest || latest->checkpoint.tree_size <= last) {
+                REQUIRE(session.ledger().checkpoint(log));
+            }
             auto bundle = session.ledger().export_evidence(log, record);
             done(bundle ? cexchain::protocol::encode_bundle(*bundle)
                         : cexchain::Result<cexchain::Bytes>(std::unexpected(bundle.error())));
@@ -2070,6 +2085,191 @@ TEST_CASE("two consoles become parties with one code each way", "[console][parti
     // Removed: the peer and its token.
     CHECK(fa.w.post_as("/console/api/parties", {{"remove", "bob"}}, a).status == 200);
     CHECK(answer_of(fa.w.get("/console/api/parties", a))["peers"].empty());
+}
+
+namespace {
+
+/// Answers a request through the asynchronous handle, waiting for an answer
+/// that comes from another thread.
+http::Response post_waiting(ConsoleWorld& w, const std::string& path, const std::string& token,
+                            const nlohmann::json& body) {
+    auto r = request("POST", path, "localhost:7470", w.origin);
+    r.headers.emplace_back("authorization", "Bearer " + token);
+    const std::string text = body.dump();
+    r.body.assign(text.begin(), text.end());
+    auto answered = std::make_shared<std::promise<http::Response>>();
+    auto future = answered->get_future();
+    w.web.handle(r,
+                 [answered](http::Response response) { answered->set_value(std::move(response)); });
+    REQUIRE(future.wait_for(std::chrono::seconds(60)) == std::future_status::ready);
+    return future.get();
+}
+
+/// A record's evidence from a served ledger, as its node exports it.
+cexchain::Bytes evidence_of(FirstRunWorld& f, Served& s, const std::string& record) {
+    const auto log = f.w.keys.open("log");
+    REQUIRE(s.session.ledger().checkpoint(log));
+    const auto bundle = s.session.ledger().export_evidence(
+        log, *cexchain::protocol::to_id(*cexchain::from_hex(record)));
+    REQUIRE(bundle);
+    return *cexchain::protocol::encode_bundle(*bundle);
+}
+
+/// Writes a file as a node or a poll would, its folder made first.
+void put(const std::filesystem::path& path, const cexchain::Bytes& content) {
+    std::filesystem::create_directories(path.parent_path());
+    cexchain::app::write_file(path, content, true);
+}
+
+/// What a step's approval registered: its statement id.
+std::string approved_id(ConsoleWorld& w, const std::string& token, const http::Response& prepared,
+                        const cexchain::test::SoftPasskey& passkey) {
+    REQUIRE(prepared.status == 200);
+    const auto approved = approve(w, token, answer_of(prepared), passkey);
+    REQUIRE(approved.status == 201);
+    return answer_of(approved)["statement_id"].get<std::string>();
+}
+
+} // namespace
+
+TEST_CASE("documents between two consoles: asked, granted, delivered, and accepted",
+          "[console][access]") {
+    FirstRunWorld fa;
+    Served alice(fa);
+    FirstRunWorld fb;
+    Served bob(fb);
+    const std::string a = fa.made["session"].get<std::string>();
+    const std::string b = fb.made["session"].get<std::string>();
+    const std::filesystem::path alice_dir = fa.w.dir.path;
+    const std::filesystem::path bob_dir = fb.w.dir.path;
+    // Parties, one code each way.
+    const std::string code =
+        answer_of(fa.w.post_as("/console/api/parties", {{"invite", "bob"}}, a))["code"];
+    const auto accepted =
+        answer_of(fb.w.post_as("/console/api/parties", {{"accept", code}, {"name", "alice"}}, b));
+    REQUIRE(
+        fa.w.post_as("/console/api/parties", {{"accept", accepted["reply"]}, {"name", "bob"}}, a)
+            .status == 200);
+    const std::string photo = "the photo itself";
+    const std::string record = cexchain::to_hex(register_photo(fa, a, photo).bytes());
+
+    // Bob asks for it with a tap: a request on his ledger, its key kept
+    // sealed to his vault key.
+    auto ask = [&](nlohmann::json more) {
+        nlohmann::json intent{{"action", "access.request"},
+                              {"peer", "alice"},
+                              {"record", record},
+                              {"purpose", "insurance claim"}};
+        intent.update(more);
+        return fb.w.post_as("/console/api/prepare", intent, b);
+    };
+    CHECK(ask({{"peer", "carol"}}).status == 404);
+    CHECK(ask({{"record", "1234"}}).status == 400);
+    CHECK(ask({{"purpose", ""}}).status == 400);
+    CHECK(ask({{"days", 0}}).status == 400);
+    CHECK(ask({{"fields", "place"}}).status == 400);
+    const auto asked = ask({{"fields", {"place"}}, {"days", 10}});
+    REQUIRE(asked.status == 200);
+    const auto terms = answer_of(asked)["summary"]["access"];
+    CHECK(terms["kind"] == "request");
+    CHECK(terms["record"] == record);
+    CHECK(terms["fields"] == nlohmann::json{"place"});
+    CHECK(terms["attachments"].is_null());
+    const std::string request = approved_id(fb.w, b, asked, fb.alice);
+    CHECK(std::filesystem::exists(bob_dir / "vault" / "access" / (request + ".cbor")));
+    auto bobs = answer_of(fb.w.get("/console/api/access", b));
+    REQUIRE(bobs["asked_by_us"].size() == 1);
+    CHECK(bobs["asked_by_us"][0]["status"] == "waiting");
+    CHECK(bobs["asked_by_us"][0]["peer"] == "alice");
+
+    // It reaches Alice's inbox, as her node's POST /v1/access/requests keeps it.
+    put(alice_dir / "access" / "inbox" / (request + ".cbor"), evidence_of(fb, bob, request));
+    auto alices = answer_of(fa.w.get("/console/api/access", a));
+    REQUIRE(alices["asked_of_us"].size() == 1);
+    CHECK(alices["asked_of_us"][0]["request"] == request);
+    CHECK(alices["asked_of_us"][0]["peer"] == "bob");
+    CHECK(alices["asked_of_us"][0]["purpose"] == "insurance claim");
+    CHECK(alices["asked_of_us"][0]["granted"] == false);
+    const auto view = answer_of(fa.w.get("/console/api/access/requests/" + request, a));
+    CHECK(view["may_grant"] == true);
+    CHECK(
+        view["fields"] ==
+        nlohmann::json::parse(R"([{"name":"place","asked":true},{"name":"taken","asked":false}])"));
+    REQUIRE(view["files"].size() == 1);
+    CHECK(view["files"][0]["kept"] == true);
+    CHECK(view["files"][0]["asked"] == true);
+
+    // Alice grants the place and the photo with a tap, and delivers.
+    auto grant = [&](nlohmann::json fields, nlohmann::json files) {
+        return fa.w.post_as("/console/api/prepare",
+                            {{"action", "access.grant"},
+                             {"request", request},
+                             {"fields", std::move(fields)},
+                             {"files", std::move(files)},
+                             {"days", 5}},
+                            a);
+    };
+    CHECK(grant({"taken"}, nlohmann::json::array()).status == 400); // not asked
+    CHECK(grant({"colour"}, nlohmann::json::array()).status == 400);
+    CHECK(grant({"place"}, {"other.jpg"}).status == 400);
+    const auto granting = grant({"place"}, {"photo.jpg"});
+    REQUIRE(granting.status == 200);
+    CHECK(answer_of(granting)["summary"]["access"]["fields"] == nlohmann::json{"place"});
+    const std::string granted = approved_id(fa.w, a, granting, fa.alice);
+    CHECK(answer_of(fa.w.get("/console/api/access", a))["granted"][0]["status"] == "not_delivered");
+    const auto delivered =
+        post_waiting(fa.w, "/console/api/access/deliver", a, {{"grant", granted}});
+    REQUIRE(delivered.status == 200);
+    const auto outbox = alice_dir / "access" / "outbox" / (request + ".cbor");
+    REQUIRE(std::filesystem::exists(outbox));
+    alices = answer_of(fa.w.get("/console/api/access", a));
+    CHECK(alices["granted"][0]["status"] == "delivered");
+    CHECK(alices["asked_of_us"][0]["granted"] == true);
+
+    // Bob's console fetches it (as its poll would), and reads it verified.
+    put(fb.w.state / "access" / (request + ".cbor"), cexchain::app::read_file(outbox));
+    CHECK(answer_of(fb.w.get("/console/api/access", b))["asked_by_us"][0]["status"] == "delivered");
+    const auto opened = answer_of(fb.w.get("/console/api/access/deliveries/" + request, b));
+    CHECK(opened["organization"] == "Alice");
+    CHECK(opened["record"] == record);
+    CHECK(opened["fields"] ==
+          nlohmann::json::parse(R"([{"name":"place","value":"Victoria Harbour"}])"));
+    REQUIRE(opened["files"].size() == 1);
+    CHECK(opened["accepted"] == false);
+    const auto file = fb.w.get("/console/api/access/deliveries/" + request + "/files/0", b);
+    REQUIRE(file.status == 200);
+    CHECK(body(file) == photo);
+    CHECK(fb.w.get("/console/api/access/deliveries/" + request + "/files/1", b).status == 404);
+
+    // Bob accepts with a tap: a receipt on his ledger.
+    const std::string receipt =
+        approved_id(fb.w, b,
+                    fb.w.post_as("/console/api/prepare",
+                                 {{"action", "access.receipt"}, {"request", request}}, b),
+                    fb.alice);
+    bobs = answer_of(fb.w.get("/console/api/access", b));
+    CHECK(bobs["asked_by_us"][0]["status"] == "accepted");
+    CHECK(bobs["asked_by_us"][0]["receipt"] == receipt);
+    CHECK(answer_of(fb.w.get("/console/api/access/deliveries/" + request, b))["accepted"] == true);
+    // The receipt reaches Alice, as her node's POST /v1/access/receipts keeps it.
+    REQUIRE(cexchain::node::store_receipt(alice_dir,
+                                          *cexchain::protocol::to_id(*cexchain::from_hex(granted)),
+                                          evidence_of(fb, bob, receipt)));
+    CHECK(answer_of(fa.w.get("/console/api/access", a))["granted"][0]["status"] == "acknowledged");
+
+    // Sending needs the party online: Bob's alice has a URL nobody listens on.
+    CHECK(post_waiting(fb.w, "/console/api/access/send", b, {{"record", request}}).status == 502);
+    CHECK(post_waiting(fb.w, "/console/api/access/send", b, {{"record", record}}).status == 404);
+
+    // Another request, dismissed: gone from the inbox, nothing recorded.
+    const std::string again = approved_id(fb.w, b, ask({{"purpose", "curiosity"}}), fb.alice);
+    put(alice_dir / "access" / "inbox" / (again + ".cbor"), evidence_of(fb, bob, again));
+    const std::string viewer = fa.w.session_for("Vera", console::Role::viewer);
+    CHECK(fa.w.post_as("/console/api/access/dismiss", {{"request", again}}, viewer).status == 403);
+    CHECK(fa.w.get("/console/api/access/requests/" + again, viewer).status == 200);
+    REQUIRE(fa.w.post_as("/console/api/access/dismiss", {{"request", again}}, a).status == 200);
+    CHECK(answer_of(fa.w.get("/console/api/access", a))["asked_of_us"].size() == 1);
+    CHECK(fa.w.post_as("/console/api/access/dismiss", {{"request", again}}, a).status == 404);
 }
 
 #endif

@@ -113,6 +113,14 @@ for name in "$@"; do
     fi
     tests=$(sed -n 's/^.*tests passed, \([0-9]* tests failed out of [0-9]*\)$/\1/p' "/logs/$name.log" | tail -1)
     echo "$name: $result, $(( $(date +%s) - start )) s${tests:+; $tests}"
+    # Each job's build goes once it is done: all six at once fill a small disk.
+    case "$name" in
+        gcc) rm -rf build/gcc-debug ;;
+        release) rm -rf build/gcc-release ;;
+        clang-asan) rm -rf build/clang-asan ;;
+        bo-asan) rm -rf build/gcc-asan ;;
+        tsan) rm -rf build/clang-tsan ;;
+    esac
 done
 exit $status
 EOF

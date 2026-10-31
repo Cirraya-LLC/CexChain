@@ -236,8 +236,12 @@ void Console::poll_peers() const {
         }
         fresh.emplace(peer.name, std::move(box));
     }
-    const std::lock_guard lock(mutex_);
-    inbox_ = std::move(fresh);
+    {
+        const std::lock_guard lock(mutex_);
+        inbox_ = std::move(fresh);
+    }
+    // And the deliveries granted to this ledger's requests.
+    poll_deliveries();
 }
 
 http::Response Console::inbox_route(const http::Request& request) const {

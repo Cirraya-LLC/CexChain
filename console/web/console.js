@@ -565,6 +565,7 @@ async function homeScreen() {
     }
     const counts = el("dl", { class: "facts" });
     const inbox = el("section", { "aria-live": "polite" });
+    const documents = el("section", { "aria-live": "polite" });
     for (const key of ["actors", "records", "contracts", "instances", "open_requests"]) {
         counts.append(el("dt", { text: t(`count.${key}`) }),
                       el("dd", { text: String(home.counts[key]) }));
@@ -574,8 +575,9 @@ async function homeScreen() {
             el("dt", { text: t("home.organization") }), el("dd", { text: home.ledger.organization }),
             el("dt", { text: t("home.ledger") }), el("dd", { class: "id", text: home.ledger.id })),
          el("h2", { text: t("home.counts") }), counts,
-         el("p", {}, el("a", { href: "#/exchange", text: t("exchange.link") })), inbox);
+         el("p", {}, el("a", { href: "#/exchange", text: t("exchange.link") })), inbox, documents);
     inboxInto(inbox);
+    accessInto(documents);
 }
 
 /// The calls the parties hold for this ledger's consent, asked for when
@@ -2267,8 +2269,8 @@ function askByFile(intentOf) {
 /// The parties this console works with: inviting one, accepting an
 /// invitation (which invites back), and the parties connected.
 async function partiesScreen() {
-    const listed = await api("GET", "parties");
-    const parts = [el("h1", { text: t("parties.title") }), el("p", { class: "hint", text: t("parties.intro") }),
+    const [listed, access] = await Promise.all([api("GET", "parties"), api("GET", "access")]);
+    const parts = [flash(), el("h1", { text: t("parties.title") }), el("p", { class: "hint", text: t("parties.intro") }),
                    el("p", { text: t("parties.our_fingerprint", { fingerprint: listed.fingerprint }) })];
     parts.push(...table(t("parties.connected"), [
         ["column.name", (p) => p.name],
@@ -2279,6 +2281,7 @@ async function partiesScreen() {
     if (listed.waiting.length) {
         parts.push(el("p", { class: "hint", text: t("parties.waiting_answer", { names: listed.waiting.join(", ") }) }));
     }
+    parts.push(...documentsView(access, listed.peers.filter((p) => p.online)));
     if (!listed.may_change) {
         show(...parts);
         return;
@@ -2321,6 +2324,296 @@ async function partiesScreen() {
     });
     parts.push(el("h2", { text: t("parties.invite_title") }), inviteForm,
                el("h2", { text: t("parties.accept_title") }), acceptForm);
+    show(...parts);
+}
+
+// --- Documents between parties --------------------------------------------------
+
+/// What the parties asked of this ledger and what came for its requests:
+/// the part of Home that waits on someone here.
+async function accessInto(area) {
+    let listed;
+    try {
+        listed = await api("GET", "access");
+    } catch {
+        return;
+    }
+    const asked = listed.asked_of_us.filter((r) => !r.problem && !r.granted);
+    const came = listed.asked_by_us.filter((r) => r.status === "delivered");
+    const parts = [];
+    if (asked.length) {
+        parts.push(el("h2", { text: t("access.asked_of_you") }),
+                   el("ul", {}, asked.map((r) => el("li", {}, t("access.asks", {
+                       peer: r.peer, purpose: r.purpose,
+                   }), " ", el("a", { href: `#/access/request/${r.request}`, text: t("access.look"),
+                                      "aria-label": t("access.look_label", { peer: r.peer }) })))));
+    }
+    if (came.length) {
+        parts.push(el("h2", { text: t("access.delivered") }),
+                   el("ul", {}, came.map((r) => el("li", {}, t("access.came", {
+                       peer: r.peer, purpose: r.purpose,
+                   }), " ", el("a", { href: `#/access/delivery/${r.request}`, text: t("access.open"),
+                                      "aria-label": t("access.open_label", { peer: r.peer }) })))));
+    }
+    area.replaceChildren(...parts);
+}
+
+const accessStatus = (s) => t(`access.status.${s}`);
+
+/// The Parties screen's documents: asking a party for one, and what was
+/// asked and shared either way.
+function documentsView(access, online) {
+    const parts = [];
+    const action = (text, label, run) => {
+        const button = el("button", { type: "button", text, "aria-label": label });
+        button.disabled = !access.may_act;
+        button.addEventListener("click", async () => {
+            button.disabled = true;
+            status(t("status.working"));
+            try {
+                await run();
+            } catch (error) {
+                button.after(problem(t("error.server", { message: error.message })));
+                button.disabled = false;
+            } finally {
+                status("");
+            }
+        });
+        return button;
+    };
+    parts.push(...table(t("access.asked_of_them"), [
+        ["access.party", (r) => r.peer || short(r.ledger).text],
+        ["access.purpose", (r) => r.purpose],
+        ["access.document", (r) => short(r.record)],
+        ["column.status", (r) => accessStatus(r.status)],
+        ["column.actions", (r) => (r.status === "delivered" || r.status === "accepted"
+            ? el("a", { href: `#/access/delivery/${r.request}`, text: t("access.open"),
+                        "aria-label": t("access.open_label", { peer: r.peer }) })
+            : r.status === "waiting" && r.online
+                ? action(t("access.send_again"), t("access.send_again_label", { peer: r.peer }), async () => {
+                    await api("POST", "access/send", { record: r.request });
+                    state.flash = t("access.sent", { peer: r.peer });
+                    route();
+                })
+                : "")],
+    ], access.asked_by_us));
+    parts.push(...table(t("access.asked_of_you"), [
+        ["access.party", (r) => r.peer ?? ""],
+        ["access.purpose", (r) => r.problem ?? r.purpose],
+        ["access.document", (r) => (r.record ? short(r.record) : "")],
+        ["column.status", (r) => (r.problem ? t("access.status.unreadable")
+            : accessStatus(r.granted ? "granted" : "waiting"))],
+        ["column.actions", (r) => (r.problem ? "" : el("a", {
+            href: `#/access/request/${r.request}`, text: t("access.look"),
+            "aria-label": t("access.look_label", { peer: r.peer }) }))],
+    ], access.asked_of_us));
+    parts.push(...table(t("access.shared"), [
+        ["access.party", (g) => g.peer],
+        ["access.document", (g) => short(g.record)],
+        ["access.fields", (g) => (g.fields.length ? g.fields.join(", ") : t("value.none"))],
+        ["access.files", (g) => (g.files.length ? g.files.join(", ") : t("value.none"))],
+        ["column.status", (g) => accessStatus(g.status)],
+        ["column.actions", (g) => (g.status === "withdrawn" || g.status === "expired" ? "" : el("span", {},
+            g.status === "not_delivered" ? action(t("access.deliver"), t("access.deliver_label", { peer: g.peer }), async () => {
+                await api("POST", "access/deliver", { grant: g.grant });
+                state.flash = t("access.delivered_ok", { peer: g.peer });
+                route();
+            }) : null, " ",
+            action(t("access.withdraw"), t("access.withdraw_label", { peer: g.peer }), async () => {
+                const prepared = await api("POST", "prepare", { action: "record.revoke", record: g.grant,
+                                                                 reason: t("access.withdraw_reason") });
+                await approveScreen(prepared);
+            })))],
+    ], access.granted));
+    if (!access.may_act || online.length === 0) {
+        return parts;
+    }
+    // Asking: a party reached online, the document's id, and why.
+    const party = el("select", { id: "access-party" }, online.map((p) => el("option", { value: p.name, text: p.name })));
+    const [recordField, record] = field("access-record", t("access.document"), t("access.document_hint"),
+                                        { spellcheck: "false", class: "id", maxlength: 64 });
+    const [purposeField, purpose] = field("access-purpose", t("access.purpose"), t("access.purpose_hint"), { maxlength: 500 });
+    const [fieldsField, fields] = field("access-fields", t("access.fields"), t("access.fields_hint"));
+    const files = el("input", { id: "access-files", type: "checkbox", checked: true });
+    const [daysField, days] = field("access-days", t("access.days"), t("access.days_hint"),
+                                    { type: "number", min: 1, max: 366, value: 30 });
+    const notice = el("div", { role: "status" });
+    const ask = el("button", { type: "submit", class: "primary", text: t("access.ask") });
+    const form = el("form", { novalidate: true },
+                    el("div", { class: "field" }, el("label", { for: "access-party", text: t("access.party") }), party),
+                    recordField, purposeField, fieldsField,
+                    el("div", { class: "field" }, el("label", {}, files, " ", t("access.files_too"))),
+                    daysField, notice, ask);
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const names = fields.value.split(",").map((n) => n.trim()).filter((n) => n);
+        try {
+            const prepared = await api("POST", "prepare", {
+                action: "access.request", peer: party.value, record: record.value.trim().toLowerCase(),
+                purpose: purpose.value.trim(), fields: names.length ? names : null,
+                files: files.checked ? null : [], days: Number(days.value) || 30,
+            });
+            const peer = party.value;
+            await approveScreen(prepared, new Map(), async (done) => {
+                await api("POST", "access/send", { record: done.statement_id });
+                return el("p", { class: "notice", text: t("access.sent", { peer }) });
+            });
+        } catch (error) {
+            notice.replaceChildren(problem(t("error.server", { message: error.message })));
+        }
+    });
+    parts.push(el("h2", { text: t("access.ask_title") }), el("p", { class: "hint", text: t("access.ask_intro") }), form);
+    return parts;
+}
+
+/// A request a party sent: what it asks, and what to share, granted with a tap.
+async function accessRequestScreen(id) {
+    const r = await api("GET", `access/requests/${id}`);
+    const parts = [el("h1", { text: t("access.request_title", { peer: r.peer ?? "" }) })];
+    if (r.problem) {
+        show(...parts, problem(t("access.unreadable", { message: r.problem })), goButton(t("nav.parties"), "#/parties"));
+        return;
+    }
+    const facts = el("dl", { class: "facts" });
+    const fact = (key, value, attributes = {}) => {
+        facts.append(el("dt", { text: t(key) }), el("dd", { text: String(value), ...attributes }));
+    };
+    const names = (list) => (list === null ? t("access.all") : list.length ? list.join(", ") : t("value.none"));
+    fact("access.from", r.from);
+    fact("access.purpose", r.purpose);
+    fact("exchange.until", timeText(r.until));
+    fact("access.document", r.record, { class: "id" });
+    if (r.kind || r.record_type) {
+        fact("column.type", r.kind ?? r.record_type);
+    }
+    fact("access.asked_fields", names(r.asked_fields));
+    fact("access.asked_files", names(r.asked_files));
+    parts.push(facts);
+    if (!r.missing) {
+        parts.push(el("p", {}, el("a", { href: `#/thing/${r.record}`, text: t("access.see_document") })));
+    }
+    const notice = el("div", { role: "status" });
+    const dismiss = el("button", { type: "button", text: t("access.dismiss") });
+    dismiss.disabled = state.who.role === "viewer";
+    dismiss.addEventListener("click", async () => {
+        try {
+            await api("POST", "access/dismiss", { request: r.request });
+            state.flash = t("access.dismissed");
+            location.hash = "#/parties";
+        } catch (error) {
+            notice.replaceChildren(problem(t("error.server", { message: error.message })));
+        }
+    });
+    if (r.granted) {
+        parts.push(el("p", { class: "notice", text: t("access.granted_already") }));
+    }
+    if (r.missing || !r.may_grant) {
+        parts.push(el("p", { class: "hint", text: t(r.missing ? "access.missing"
+            : r.locked ? "home.locked" : "access.cannot_grant") }), notice, dismiss);
+        show(...parts);
+        return;
+    }
+    // What to share: what was asked, of what this ledger has (files only
+    // where a copy is kept).
+    const choice = (name, asked, available, why) => {
+        const box = el("input", { type: "checkbox", value: name, checked: asked && available });
+        box.disabled = !asked || !available;
+        return [box, el("label", {}, box, " ", name, why ? el("span", { class: "hint", text: ` (${why})` }) : null)];
+    };
+    const fieldBoxes = r.fields.map((f) => choice(f.name, f.asked, true, f.asked ? "" : t("access.not_asked")));
+    const fileBoxes = r.files.map((f) => choice(f.name, f.asked, f.kept,
+        !f.asked ? t("access.not_asked") : !f.kept ? t("access.not_kept") : sizeText(f.size)));
+    const group = (legend, boxes) => el("fieldset", {}, el("legend", { text: legend }),
+        boxes.length ? boxes.map(([, label]) => el("div", {}, label)) : el("p", { text: t("value.none") }));
+    const [daysField, days] = field("grant-days", t("access.days"), t("access.grant_days_hint"),
+                                    { type: "number", min: 1, max: 366, value: 30 });
+    const grant = el("button", { type: "submit", class: "primary", text: t("access.grant") });
+    const form = el("form", { novalidate: true }, group(t("access.share_fields"), fieldBoxes),
+                    group(t("access.share_files"), fileBoxes), daysField, notice, grant, " ", dismiss);
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const chosen = (boxes) => boxes.filter(([box]) => box.checked).map(([box]) => box.value);
+        try {
+            const prepared = await api("POST", "prepare", {
+                action: "access.grant", request: r.request, fields: chosen(fieldBoxes),
+                files: chosen(fileBoxes), days: Number(days.value) || 30,
+            });
+            await approveScreen(prepared, new Map(), async (done) => {
+                await api("POST", "access/deliver", { grant: done.statement_id });
+                return el("p", { class: "notice", text: t("access.delivered_ok", { peer: r.peer }) });
+            });
+        } catch (error) {
+            notice.replaceChildren(problem(t("error.server", { message: error.message })));
+        }
+    });
+    parts.push(el("h2", { text: t("access.share_title") }), form);
+    show(...parts);
+}
+
+/// What a party shared for one of this ledger's requests: opened and
+/// verified here, and accepted with a tap (the receipt goes back).
+async function accessDeliveryScreen(request) {
+    let d;
+    try {
+        d = await api("GET", `access/deliveries/${request}`);
+    } catch (error) {
+        if (error instanceof ApiError && error.status === 422) {
+            show(el("h1", { text: t("access.delivery_title", { peer: "" }) }),
+                 problem(t("access.not_verified", { message: error.message })),
+                 goButton(t("nav.parties"), "#/parties"));
+            return;
+        }
+        throw error;
+    }
+    const facts = el("dl", { class: "facts" });
+    const fact = (key, value, attributes = {}) => {
+        facts.append(el("dt", { text: t(key) }), el("dd", { text: String(value), ...attributes }));
+    };
+    fact("access.organization", d.organization);
+    fact("column.type", d.record_type);
+    fact("column.state", d.state);
+    fact("access.document", d.record, { class: "id" });
+    fact("exchange.until", timeText(d.until));
+    const parts = [el("h1", { text: t("access.delivery_title", { peer: d.peer }) }),
+                   el("p", { class: "notice", role: "status", text: t("access.verified", {
+                       by: d.granted_by, organization: d.organization }) }), facts];
+    parts.push(el("h2", { text: t("thing.fields_title") }),
+               d.fields.length ? el("dl", { class: "facts" }, d.fields.map((f) => [
+                   el("dt", { text: f.name }), el("dd", { text: f.value })]).flat())
+                               : el("p", { text: t("value.none") }));
+    const notice = el("div", { role: "status" });
+    parts.push(el("h2", { text: t("access.files") }),
+               d.files.length ? el("ul", {}, d.files.map((f) => {
+                   const save = el("button", { type: "button", text: t("access.save"),
+                                               "aria-label": t("access.save_label", { name: f.name }) });
+                   save.addEventListener("click", async () => {
+                       try {
+                           await saveDownload(`access/deliveries/${request}/files/${f.index}`, { method: "GET" }, f.name);
+                       } catch (error) {
+                           notice.replaceChildren(problem(t("error.server", { message: error.message })));
+                       }
+                   });
+                   return el("li", {}, `${f.name} (${sizeText(f.size)}) `, save);
+               })) : el("p", { text: t("value.none") }));
+    if (d.accepted) {
+        parts.push(el("p", { class: "notice", text: t("access.accepted_already", { receipt: d.receipt.slice(0, 12) }) }), notice);
+        show(...parts);
+        return;
+    }
+    const accept = el("button", { type: "button", class: "primary", text: t("access.accept") });
+    accept.disabled = state.who.role === "viewer";
+    accept.addEventListener("click", async () => {
+        try {
+            const prepared = await api("POST", "prepare", { action: "access.receipt", request });
+            await approveScreen(prepared, new Map(), async (done) => {
+                await api("POST", "access/send", { record: done.statement_id });
+                return el("p", { class: "notice", text: t("access.accepted", { peer: d.peer }) });
+            });
+        } catch (error) {
+            notice.replaceChildren(problem(t("error.server", { message: error.message })));
+        }
+    });
+    parts.push(el("p", { class: "hint", text: t("access.accept_hint") }), notice, accept);
     show(...parts);
 }
 
@@ -2753,6 +3046,10 @@ function registrationAgrees(check, decoded, prepared, files) {
             .every((k) => decoded.consent[k] === summary.consent[k]))) {
         return false;
     }
+    // An access record's terms are the ones the page showed.
+    if (!sameTerms(decoded.access, summary.access)) {
+        return false;
+    }
     if (decoded.attachments.length !== summary.files.length) {
         return false;
     }
@@ -2765,6 +3062,15 @@ function registrationAgrees(check, decoded, prepared, files) {
         const own = check.commitment(content, new Uint8Array(fromBase64url(f.salt)), prepared.hash);
         return own.ok && own.commitment === a.commitment;
     });
+}
+
+/// Two sets of terms, key by key (both absent counts as the same).
+function sameTerms(a, b) {
+    if (!a || !b) {
+        return !a && !b;
+    }
+    const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+    return [...keys].every((k) => JSON.stringify(a[k] ?? null) === JSON.stringify(b[k] ?? null));
 }
 
 // --- Acting, approved with a passkey ---------------------------------------------
@@ -2856,7 +3162,22 @@ async function approveScreen(prepared, files = new Map(), after = null) {
         }
     };
     const consenting = summary.record_type === "cexchain.contract-consent/1";
-    fact("approve.action", t(consenting ? "approve.type.consent" : `approve.type.${summary.type}`));
+    const access = summary.access;
+    fact("approve.action", t(consenting ? "approve.type.consent"
+        : access ? `approve.type.access_${access.kind}` : `approve.type.${summary.type}`));
+    if (access) {
+        const names = (list) => (list === null ? t("access.all")
+            : list.length ? list.join(", ") : t("value.none"));
+        fact("access.document", access.record);
+        fact("access.purpose", access.purpose);
+        if (access.kind !== "receipt") {
+            fact("access.fields", names(access.fields));
+            fact("access.files", names(access.attachments));
+            fact("exchange.until", timeText(access.until));
+        } else {
+            fact("access.grant_id", access.grant);
+        }
+    }
     if (consenting && summary.consent) {
         fact("approve.function", summary.consent.function);
         fact("column.id", summary.consent.instance);
@@ -2938,10 +3259,11 @@ async function approveScreen(prepared, files = new Map(), after = null) {
             show(el("h1", { text: t("approve.done_title") }),
                  el("p", { role: "status", text: t("approve.done", { index: done.index }) }),
                  el("p", { class: "id", text: done.statement_id }), followed,
-                 registering && !consenting ? el("p", {}, el("a", { href: `#/thing/${done.statement_id}`,
+                 registering && !consenting && !access ? el("p", {}, el("a", { href: `#/thing/${done.statement_id}`,
                                                      text: t("register.open") }))
                              : null,
                  rules ? goButton(t("rules.done"), "#/rules")
+                 : access ? goButton(t("nav.parties"), "#/parties")
                  : calling ? goButton(t("thing.open"),
                                       `#/instance/${summary.instance ?? done.statement_id}`)
                  : backButton(t("nav.things")));
@@ -2974,7 +3296,7 @@ function chrome() {
                     hash.startsWith("#/thing/") || hash.startsWith("#/instance/") ? "things"
         : hash.startsWith("#/create/") ? "rules"
         : hash.startsWith("#/exchange") ? "home"
-        : hash.startsWith("#/parties") ? "parties"
+        : hash.startsWith("#/parties") || hash.startsWith("#/access/") ? "parties"
         : hash.startsWith("#/kinds") ? "kinds"
         : hash.startsWith("#/rules") ? "rules"
         : hash.startsWith("#/verify") ? "verify"
@@ -3028,7 +3350,11 @@ async function route() {
         const thing = hash.match(/^#\/thing\/([0-9a-f]{64})$/);
         const instance = hash.match(/^#\/instance\/([0-9a-f]{64})$/);
         const create = hash.match(/^#\/create\/([0-9a-f]{64})$/);
+        const asked = hash.match(/^#\/access\/request\/([0-9a-f]{64})$/);
+        const delivered = hash.match(/^#\/access\/delivery\/([0-9a-f]{64})$/);
         await (thing ? thingScreen(thing[1])
+            : asked ? accessRequestScreen(asked[1])
+            : delivered ? accessDeliveryScreen(delivered[1])
             : instance ? instanceScreen(instance[1])
             : create ? createScreen(create[1])
             : hash.startsWith("#/exchange") ? exchangeScreen()

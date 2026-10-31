@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <functional>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <set>
@@ -27,9 +28,11 @@
 #include <cexchain/console/sessions.hpp>
 #include <cexchain/console/users.hpp>
 #include <cexchain/core/bytes.hpp>
+#include <cexchain/core/cbor.hpp>
 #include <cexchain/core/error.hpp>
 #include <cexchain/core/protocol/exchange.hpp>
 #include <cexchain/core/protocol/statement.hpp>
+#include <cexchain/crypto/openssl.hpp>
 #include <cexchain/ledger/ledger.hpp>
 #include <cexchain/node/http.hpp>
 
@@ -132,7 +135,17 @@ struct Draft {
     /// The uploads it attaches, in the registration's order.
     std::vector<std::string> uploads;
     bool keep_files = false;
+    /// For an access request: the key made for it, kept sealed to the vault
+    /// key under the request's id once it is signed.
+    std::shared_ptr<const crypto::openssl::HpkeKey> request_key;
+    /// For an access receipt: the delivery it acknowledges, kept under its
+    /// grant's id once it is signed.
+    std::optional<std::pair<protocol::Id, Bytes>> delivery;
 };
+
+/// The terms an access request's, grant's, or receipt's metadata holds, as
+/// the page shows them and its checks compare them; null for other types.
+[[nodiscard]] nlohmann::json access_terms(std::string_view type, const cbor::Value& metadata);
 
 struct Prepared {
     std::string user;
@@ -324,6 +337,17 @@ private:
     [[nodiscard]] std::variant<nlohmann::json, http::Response>
     read_exchange(const Signed& signer, const protocol::ExchangeFile& file,
                   const std::string& language) const;
+    /// Documents between parties (access.cpp): the lists, a request
+    /// received, a delivery opened, dismissing a request; a request or a
+    /// receipt sent to its party, a grant's delivery made; an access
+    /// record's registration drafted; and deliveries fetched for this
+    /// ledger's open requests (each poll).
+    [[nodiscard]] http::Response access_route(const http::Request& request) const;
+    void access_send_route(const http::Request& request, Respond respond) const;
+    void access_deliver_route(const http::Request& request, Respond respond) const;
+    [[nodiscard]] std::variant<std::pair<protocol::RecordRegisterBody, Draft>, http::Response>
+    access_draft(const Signed& who, const nlohmann::json& intent) const;
+    void poll_deliveries() const;
     /// What a party's registrar last answered: its calls (JSON text), or why
     /// it could not be asked.
     struct PeerInbox {
@@ -484,6 +508,9 @@ private:
     mutable std::vector<protocol::Timestamp> recovery_failures_;
     mutable bool checking_recovery_ = false;
     mutable std::map<std::string, PeerInbox> inbox_;
+    /// This ledger's requests whose grant the party withdrew or let expire
+    /// (its API answered 410), by id.
+    mutable std::set<std::string> ended_;
     mutable std::mutex poll_mutex_;
     mutable std::condition_variable_any poll_wake_;
     mutable bool poll_asked_ = false;

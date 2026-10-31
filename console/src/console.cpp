@@ -229,7 +229,9 @@ void Console::handle(const http::Request& request, Respond respond) const {
     if ((request.path == "/console/api/exchange/proposal" ||
          request.path == "/console/api/exchange/consent" ||
          request.path == "/console/api/exchange/propose" ||
-         request.path == "/console/api/exchange/send") &&
+         request.path == "/console/api/exchange/send" ||
+         request.path == "/console/api/access/send" ||
+         request.path == "/console/api/access/deliver") &&
         request.method == "POST") {
         try {
             if (auto refused = refuse(request)) {
@@ -240,7 +242,11 @@ void Console::handle(const http::Request& request, Respond respond) const {
                 respond(error(503, "unavailable", "this console keeps no users or sessions"));
                 return;
             }
-            if (request.path.ends_with("proposal")) {
+            if (request.path == "/console/api/access/send") {
+                access_send_route(request, std::move(respond));
+            } else if (request.path == "/console/api/access/deliver") {
+                access_deliver_route(request, std::move(respond));
+            } else if (request.path.ends_with("proposal")) {
                 exchange_proposal_route(request, std::move(respond));
             } else if (request.path.ends_with("propose")) {
                 exchange_propose_route(request, std::move(respond));
@@ -396,6 +402,10 @@ http::Response Console::route(const http::Request& request) const {
             return error(503, "unavailable", "this console keeps no users or sessions");
         }
         return request.path.ends_with("parties") ? parties_route(request) : inbox_route(request);
+    }
+    if (request.path == "/console/api/access" || request.path.starts_with("/console/api/access/")) {
+        return ready() ? access_route(request)
+                       : error(503, "unavailable", "this console keeps no users or sessions");
     }
     if (request.path.starts_with("/console/api/instances/")) {
         return ready() ? instance_route(request)

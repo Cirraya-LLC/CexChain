@@ -3,12 +3,14 @@
 
 #pragma once
 
+#include <cctype>
 #include <string>
 #include <string_view>
 
 #include <nlohmann/json.hpp>
 
 #include <cexchain/console/console.hpp>
+#include <cexchain/core/bytes.hpp>
 
 // The console's answers, each with its security headers.
 namespace cexchain::console {
@@ -48,5 +50,32 @@ inline http::Response text(int status, std::string_view message) {
     secure(response);
     return response;
 }
+
+/// A file as a download, never shown in the console's origin.
+inline http::Response download(Bytes content, std::string_view name, std::string_view media_type) {
+    http::Response r;
+    r.status = 200;
+    r.content_type = std::string(media_type);
+    r.body = std::move(content);
+    // RFC 5987: the name as UTF-8, percent-encoded.
+    std::string encoded;
+    for (const char ch : name) {
+        const auto c = static_cast<unsigned char>(ch);
+        if (std::isalnum(c) != 0 || c == '.' || c == '-' || c == '_') {
+            encoded += static_cast<char>(c);
+        } else {
+            constexpr std::string_view digits = "0123456789ABCDEF";
+            encoded += '%';
+            encoded += digits[c >> 4U];
+            encoded += digits[c & 15U];
+        }
+    }
+    r.headers.emplace_back("Content-Disposition", "attachment; filename*=UTF-8''" + encoded);
+    secure(r);
+    // A file from a record is never a page of the console's.
+    r.headers.emplace_back("Content-Security-Policy", "sandbox; default-src 'none'");
+    return r;
+}
+
 
 } // namespace cexchain::console

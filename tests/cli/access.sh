@@ -175,6 +175,27 @@ f record revoke "$GRANT2" --as f-root.key --reason "review over" > /dev/null
 expect_exit 2 access fetch --peer factory --request "$ONLINE" --out d3.cbor --ledger "$B"
 contains 'withdrew its grant' out.txt
 
+# A kept copy of the report serves a grant without --attach.
+f record file add "$RECORD" report.txt > /dev/null
+b access request --peer factory --record "$RECORD" --purpose "audit" --fields result \
+    --as b-root.key --log-key b-log.key --send > /dev/null
+AUDIT="$(b access list --json | json '[i["id"] for i in d if i["kind"]=="request" and i["purpose"]=="audit"][0]')"
+f access grant "${AUDIT:0:12}" --as f-root.key --log-key f-log.key --json |
+    json 'd["attachments"]' | contains -x "\['report.txt'\]"
+b access fetch --peer factory --request "$AUDIT" --out d4.cbor > /dev/null
+b access accept d4.cbor --as b-root.key --log-key b-log.key --save-dir kept --send > /dev/null
+cmp report.txt kept/report.txt || fail "the kept report differs"
+
+# A request not to be granted is dismissed: gone from the inbox, nothing recorded.
+b access request --peer factory --record "$RECORD" --purpose "curiosity" \
+    --as b-root.key --log-key b-log.key --send > /dev/null
+CURIOUS="$(b access list --json | json '[i["id"] for i in d if i["kind"]=="request" and i["purpose"]=="curiosity"][0]')"
+f access inbox | contains 'curiosity'
+f access dismiss "${CURIOUS:0:12}" | contains 'dismissed request'
+if f access inbox | grep -q 'curiosity'; then fail "a dismissed request stays in the inbox"; fi
+expect_exit 2 access dismiss "${CURIOUS:0:12}" --ledger "$F"
+contains 'no request' out.txt
+
 # Mutual witnessing: the bank cosigns the factory's checkpoints online.
 f checkpoint create --log-key f-log.key > /dev/null
 f checkpoint cosign-request --peer bank --send | contains 'bank cosigned'

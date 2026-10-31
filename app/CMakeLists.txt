@@ -8,6 +8,7 @@
 # objects. Nothing here parses a command line, prompts on a terminal, or
 # prints: secrets and approvals come in through callbacks.
 add_library(cexchain_app
+    src/access.cpp
     src/contract_views.cpp
     src/contracts.cpp
     src/peers.cpp

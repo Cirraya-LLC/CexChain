@@ -20,6 +20,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cexchain/app/access.hpp>
 #include <cexchain/app/records.hpp>
 #include <cexchain/app/support.hpp>
 #include <cexchain/console/console.hpp>
@@ -29,6 +30,7 @@
 #include <cexchain/core/protocol/presence.hpp>
 #include <cexchain/core/protocol/state.hpp>
 #include <cexchain/node/contracts.hpp>
+#include <cexchain/node/peers.hpp>
 #include <cexchain/node/record_files.hpp>
 
 #include "responses.hpp"
@@ -222,6 +224,16 @@ http::Response Console::prepare_route(const http::Request& request) const {
         auto& [registration, d] = std::get<0>(drafted);
         body = protocol::Body{std::move(registration)};
         draft = std::move(d);
+    } else if (action.starts_with("access.")) {
+        // A request to a party, a grant of a request received, or a receipt
+        // for a delivery: a record of this ledger's, its note private.
+        auto drafted = access_draft(signer, intent);
+        if (auto* refused = std::get_if<http::Response>(&drafted)) {
+            return std::move(*refused);
+        }
+        auto& [registration, d] = std::get<0>(drafted);
+        body = protocol::Body{std::move(registration)};
+        draft = std::move(d);
     } else if (action == "record.register") {
         auto drafted = register_draft(intent, signer.user);
         if (auto* problem = std::get_if<std::string>(&drafted)) {
@@ -372,6 +384,11 @@ http::Response Console::prepare_route(const http::Request& request) const {
                                       {"head", c->head},
                                       {"until", c->until}};
             }
+        } else if (const auto terms =
+                       g.metadata ? access_terms(g.record_type, *g.metadata) : nlohmann::json();
+                   !terms.is_null()) {
+            // An access record's terms, which the page checks in the bytes too.
+            summary["access"] = terms;
         } else if (g.metadata) {
             for (const auto& entry : *g.metadata->as_map()) {
                 metadata[*entry.key.as_text()] = *entry.value.as_text();
@@ -541,6 +558,21 @@ Console::sign_approval(const http::Request& request) const {
     const auto& registration = std::get<protocol::RecordRegisterBody>(statement.body);
     const protocol::Id& ledger_id = *statement.ledger_id;
     const protocol::Id& record = signed_statement->id;
+    // A request's key, sealed to the vault key under the request's id; a
+    // receipt's delivery, kept under its grant's (as the command line keeps
+    // them).
+    const std::filesystem::path ledger_dir = services_.directory.parent_path();
+    if (draft.request_key) {
+        const auto path = app::request_key_path(ledger_dir, record);
+        std::filesystem::create_directories(path.parent_path());
+        app::write_file(path, app::seal_request_key(*vault_key, record, *draft.request_key), true);
+    }
+    if (draft.delivery) {
+        const auto path =
+            node::access_path(ledger_dir, node::AccessBox::deliveries, draft.delivery->first);
+        std::filesystem::create_directories(path.parent_path());
+        app::write_file(path, draft.delivery->second, true);
+    }
     cbor::Map submission{
         {cbor::Value::integer(1), cbor::Value::bytes(signed_statement->encoded)},
         {cbor::Value::integer(2),

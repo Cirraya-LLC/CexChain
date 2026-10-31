@@ -22,6 +22,7 @@
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/crypto.hpp>
+#include <cexchain/core/protocol/access.hpp>
 #include <cexchain/core/protocol/common.hpp>
 #include <cexchain/core/protocol/contract_evidence.hpp>
 #include <cexchain/core/protocol/contracts.hpp>
@@ -53,6 +54,46 @@ char* to_c_string(const Json& value) {
 
 Json hex_or_null(const std::optional<protocol::Id>& id) {
     return id ? Json(to_hex(id->bytes())) : Json();
+}
+
+Json names_or_null(const std::optional<std::vector<std::string>>& names) {
+    return names ? Json(*names) : Json();
+}
+
+/// An access request's, grant's, or receipt's terms, from the bytes (the
+/// console's own description is compared with these).
+Json access_terms(std::string_view type, const cbor::Value& metadata) {
+    if (type == protocol::access_request_type) {
+        if (const auto r = protocol::decode_access_request(metadata)) {
+            return {{"kind", "request"},
+                    {"ledger", to_hex(r->ledger.bytes())},
+                    {"record", to_hex(r->record.bytes())},
+                    {"purpose", r->purpose},
+                    {"until", r->until},
+                    {"fields", names_or_null(r->fields)},
+                    {"attachments", names_or_null(r->attachments)},
+                    {"recipient", to_hex(r->recipient)}};
+        }
+    } else if (type == protocol::access_grant_type) {
+        if (const auto g = protocol::decode_access_grant(metadata)) {
+            return {{"kind", "grant"},
+                    {"ledger", to_hex(g->ledger.bytes())},
+                    {"request", to_hex(g->request.bytes())},
+                    {"record", to_hex(g->record.bytes())},
+                    {"fields", g->fields},
+                    {"attachments", g->attachments},
+                    {"until", g->until},
+                    {"recipient", to_hex(g->recipient)}};
+        }
+    } else if (type == protocol::access_receipt_type) {
+        if (const auto r = protocol::decode_access_receipt(metadata)) {
+            return {{"kind", "receipt"},
+                    {"ledger", to_hex(r->ledger.bytes())},
+                    {"grant", to_hex(r->grant.bytes())},
+                    {"delivery", to_hex(r->delivery)}};
+        }
+    }
+    return Json();
 }
 
 /// What a statement says, for the person about to approve it: its type and
@@ -92,6 +133,11 @@ Json describe(const protocol::Statement& s) {
                                   {"arguments", to_hex(consent->arguments.bytes())},
                                   {"head", consent->head},
                                   {"until", consent->until}};
+            }
+        }
+        if (g->metadata) {
+            if (Json terms = access_terms(g->record_type, *g->metadata); !terms.is_null()) {
+                out["access"] = std::move(terms);
             }
         }
         // Public metadata as the console writes it: text names and values.
