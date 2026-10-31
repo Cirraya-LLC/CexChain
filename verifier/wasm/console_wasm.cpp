@@ -205,6 +205,8 @@ Json describe(const protocol::Statement& s) {
         out["kind"] = static_cast<int>(a->kind);
         out["display_name"] = a->display_name;
         out["key"] = to_hex(a->key.bytes);
+        out["responsible"] = a->responsible ? Json(to_hex(a->responsible->bytes())) : Json();
+        out["model"] = a->agent && a->agent->model ? Json(*a->agent->model) : Json();
     } else if (const auto* p = std::get_if<protocol::ActorSetPresenceBody>(&s.body)) {
         // The passkeys that prove an actor's presence (the actor is the
         // statement's subject; "actor" is its signer).

@@ -40,6 +40,7 @@
 #include <cexchain/ledger/environment.hpp>
 #include <cexchain/ledger/verify.hpp>
 #include <cexchain/node/contracts.hpp>
+#include <cexchain/node/executor.hpp>
 #include <cexchain/node/keeper.hpp>
 #include <cexchain/node/peers.hpp>
 #include <cexchain/node/record_files.hpp>
@@ -2520,6 +2521,134 @@ TEST_CASE("people: invited, approved with three taps, and acting in person withi
     const std::string viewer = f.w.session_for("Vera", console::Role::viewer);
     CHECK(f.w.get("/console/api/activity", viewer).status == 403);
     CHECK(f.w.get("/console/api/people", viewer).status == 200);
+}
+
+TEST_CASE("automation: an executor and an AI agent added with two taps, keys handed out once",
+          "[console][automation]") {
+    FirstRunWorld f;
+    Served served(f);
+    const std::string owner = f.made["session"].get<std::string>();
+    const std::string contract = deploy(f, owner, lending_source());
+    auto step = [&](nlohmann::json intent) {
+        const auto prepared = f.w.post_as("/console/api/prepare", intent, owner);
+        INFO(body(prepared));
+        REQUIRE(prepared.status == 200);
+        const auto approved = approve(f.w, owner, answer_of(prepared), f.alice);
+        INFO(body(approved));
+        REQUIRE(approved.status == 201);
+        return answer_of(approved)["statement_id"].get<std::string>();
+    };
+    // Refused: a bad name, an agent answering to no one, a member adding one.
+    CHECK(f.w.post_as("/console/api/prepare", {{"action", "machine.register"}, {"name", "a b"}},
+                      owner)
+              .status == 400);
+    CHECK(f.w.post_as("/console/api/prepare",
+                      {{"action", "machine.register"},
+                       {"name", "helper"},
+                       {"agent", true},
+                       {"model", "test-model"}},
+                      owner)
+              .status == 400);
+    const std::string member = f.w.session_for("Mel", console::Role::member);
+    CHECK(
+        f.w.post_as("/console/api/prepare", {{"action", "machine.register"}, {"name", "x"}}, member)
+            .status == 403);
+
+    // An executor: its device, then calls on the rules answering notify requests only.
+    const std::string notifier = step({{"action", "machine.register"}, {"name", "notifier"}});
+    CHECK(f.w.post_as("/console/api/prepare",
+                      {{"action", "machine.delegate"},
+                       {"actor", notifier},
+                       {"contract", contract},
+                       {"kinds", nlohmann::json::array()}},
+                      owner)
+              .status == 400);
+    const std::string granted = step({{"action", "machine.delegate"},
+                                      {"actor", notifier},
+                                      {"contract", contract},
+                                      {"kinds", {"notify"}},
+                                      {"functions", {"result"}}});
+    const auto* delegation =
+        served.session.state().delegation(*cexchain::protocol::to_id(*cexchain::from_hex(granted)));
+    REQUIRE(delegation != nullptr);
+    CHECK_FALSE(delegation->scope.require_presence);
+    CHECK(delegation->scope.request_kinds == std::optional(std::vector<std::string>{"notify"}));
+    CHECK(delegation->scope.statement_types ==
+          std::vector{cexchain::protocol::StatementType::contract_call});
+
+    // Its key, once: encrypted with the passphrase, the actor's key; its token
+    // an executor's; its config the actor's and the delegation's.
+    auto setup = [&](const std::string& actor, const std::string& d, const std::string& pass) {
+        return f.w.post_as("/console/api/automation/setup",
+                           {{"actor", actor}, {"delegation", d}, {"passphrase", pass}}, owner);
+    };
+    CHECK(setup(notifier, granted, "short").status == 400);
+    const auto handed = setup(notifier, granted, "a long passphrase");
+    INFO(body(handed));
+    REQUIRE(handed.status == 200);
+    const auto out = answer_of(handed);
+    TempDirectory keep;
+    put(keep.path / "notifier.key", *cexchain::from_base64url(out["key"].get<std::string>()));
+    const auto key = [&] {
+        try {
+            return cexchain::app::load_key(keep.path / "notifier.key",
+                                           [] { return std::string("a long passphrase"); });
+        } catch (const cexchain::app::ActionError& e) {
+            FAIL(e.message);
+            throw;
+        }
+    }();
+    CHECK(key.public_key() == served.session.state()
+                                  .actor(*cexchain::protocol::to_id(*cexchain::from_hex(notifier)))
+                                  ->key);
+    CHECK(out["token"].get<std::string>().starts_with("cxt_"));
+    const auto config = cexchain::node::executor::parse_config(out["config"].get<std::string>());
+    REQUIRE(config);
+    CHECK(cexchain::to_hex(config->actor.bytes()) == notifier);
+    CHECK(cexchain::to_hex(config->delegation.bytes()) == granted);
+    CHECK(setup(notifier, granted, "a long passphrase").status == 404); // once
+    const auto tokens = answer_of(f.w.get("/console/api/tokens", owner))["tokens"];
+    CHECK(std::ranges::any_of(tokens, [](const auto& t) {
+        return t["name"] == "notifier" && t["scopes"] == nlohmann::json{"executor"};
+    }));
+
+    // An AI agent, answering to Alice, that may register documents.
+    const std::string helper = step({{"action", "machine.register"},
+                                     {"name", "helper"},
+                                     {"agent", true},
+                                     {"model", "test-model"},
+                                     {"responsible", "Alice"}});
+    const std::string allowed =
+        step({{"action", "machine.delegate"}, {"actor", helper}, {"may", {{"register", true}}}});
+    const auto agent = answer_of(setup(helper, allowed, "another passphrase"));
+    CHECK(agent["mcp"]["mcpServers"]["cexchain"]["args"][0] == "mcp");
+    CHECK_FALSE(agent.contains("config"));
+
+    const auto view = answer_of(f.w.get("/console/api/automation", owner));
+    std::vector<std::string> names;
+    for (const auto& m : view["machines"]) {
+        names.push_back(m["name"].get<std::string>() + ":" + m["kind"].get<std::string>());
+        if (m["name"] == "helper") {
+            CHECK(m["responsible"] == "Alice");
+            CHECK(m["model"] == "test-model");
+        }
+    }
+    std::ranges::sort(names);
+    CHECK(names == std::vector<std::string>{"console:device", "helper:agent", "notifier:device"});
+    CHECK(answer_of(f.w.get("/console/api/automation", member))["machines"].empty());
+
+    // A QR code only for links to this console.
+    auto qr = [&](const std::string& text) {
+        auto r = request("GET", "/console/api/qr", "localhost:7470");
+        r.query["text"] = text;
+        r.headers.emplace_back("authorization", "Bearer " + owner);
+        return f.w.web.handle(r);
+    };
+    const auto drawn = qr("http://localhost:7470/console/#/act/" + contract + "/lend");
+    REQUIRE(drawn.status == 200);
+    CHECK(drawn.content_type == "image/svg+xml");
+    CHECK(body(drawn).starts_with("<svg"));
+    CHECK(qr("https://elsewhere.example/").status == 400);
 }
 
 #endif

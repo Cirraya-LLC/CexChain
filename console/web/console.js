@@ -1363,6 +1363,193 @@ async function activityView() {
     ], listed.activity.slice(0, 50));
 }
 
+// --- Automation ------------------------------------------------------------------------
+
+/// A file to save, from bytes the page holds.
+function saveBytes(bytes, name) {
+    const url = URL.createObjectURL(new Blob([bytes]));
+    const link = el("a", { href: url, download: name });
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/// What a machine's delegation lets it do, in plain words.
+function machineWords(d, listed) {
+    if (d.request_kinds) {
+        const rules = (d.contracts ?? []).map((c) => c.name ?? `${c.id.slice(0, 12)}...`).join(", ");
+        return t(d.revoked ? "automation.answers_withdrawn" : "automation.answers_under",
+                 { kinds: d.request_kinds.join(", "), rules });
+    }
+    const words = mayWords({ ...d.may, in_person: false, revoked: d.revoked }, listed);
+    return words;
+}
+
+async function automationScreen() {
+    const listed = await api("GET", "automation");
+    const notice = el("div", { role: "status" });
+    const parts = [flash(), el("h1", { text: t("automation.title") }),
+                   el("p", { class: "hint", text: t("automation.intro") })];
+    parts.push(...table(t("automation.requests"), [
+        ["automation.kind", (r) => r.kind],
+        ["automation.thing", (r) => el("a", { href: `#/instance/${r.instance}`, text: `${r.instance.slice(0, 12)}...` })],
+        ["automation.deadline", (r) => timeText(r.deadline) + (r.overdue ? ` (${t("automation.overdue")})` : "")],
+    ], listed.requests));
+    parts.push(el("h2", { text: t("automation.keeper") }),
+               el("p", { class: "hint", text: t(listed.locked ? "automation.keeper_locked" : "automation.keeper_runs") }),
+               listed.due.length
+                   ? el("ul", {}, listed.due.map((d) => el("li", {}, t(d.kind === "rule" ? "automation.due_rule" : "automation.due_expiry",
+                                                                        { function: d.function ?? "", request: (d.request ?? "").slice(0, 12) }),
+                                                               " ", el("a", { href: `#/instance/${d.instance}`, text: t("automation.open_thing") }))))
+                   : el("p", { text: t("automation.nothing_due") }));
+    if (!listed.may_change) {
+        show(...parts);
+        return;
+    }
+    parts.push(...table(t("automation.machines"), [
+        ["column.name", (m) => m.name],
+        ["automation.kind", (m) => t(m.kind === "agent" ? "automation.agent" : "automation.device")],
+        ["automation.responsible", (m) => m.responsible ?? ""],
+        ["people.may", (m) => (m.delegations.length ? m.delegations.map((d) => machineWords(d, listed)).join(" | ")
+                                                    : t("value.none"))],
+        ["column.actions", (m) => el("span", {}, m.delegations.filter((d) => !d.revoked).map((d) => {
+            const withdraw = el("button", { type: "button", text: t("people.withdraw"),
+                                            "aria-label": t("people.withdraw_label", { name: m.name }) });
+            withdraw.addEventListener("click", async () => {
+                try {
+                    const prepared = await api("POST", "prepare", { action: "delegation.revoke", delegation: d.id,
+                                                                     reason: t("people.withdraw_reason") });
+                    await approveScreen(prepared, new Map(), async () => el("p", { class: "notice",
+                        text: t("people.withdrawn", { name: m.name }) }));
+                } catch (error) {
+                    notice.replaceChildren(problem(t("error.server", { message: error.message })));
+                }
+            });
+            return withdraw;
+        }))],
+    ], listed.machines));
+    parts.push(notice, executorForm(listed), agentForm(listed));
+    show(...parts);
+}
+
+/// Adds a machine in two taps (its actor, then its delegation), then hands
+/// out its key once.
+async function addMachine(register, delegate, name, agent, notice) {
+    try {
+        const prepared = await api("POST", "prepare", register);
+        prepared.progress = { index: 1, of: 2 };
+        await approveScreen(prepared, new Map(), async (done) => {
+            const second = await api("POST", "prepare", { ...delegate, actor: done.statement_id, name });
+            second.progress = { index: 2, of: 2 };
+            await approveScreen(second, new Map(), async (granted) => {
+                machineSetupScreen(done.statement_id, granted.statement_id, name, agent);
+                return TAKEN;
+            });
+            return TAKEN;
+        });
+    } catch (error) {
+        notice.replaceChildren(problem(t("error.server", { message: error.message })));
+    }
+}
+
+function executorForm(listed) {
+    const [nameField, name] = field("executor-name", t("column.name"), t("automation.name_hint"), { maxlength: 64 });
+    const contract = el("select", { id: "executor-contract" },
+                        listed.contracts.map((c) => el("option", { value: c.id, text: c.name ?? `${c.id.slice(0, 12)}...` })));
+    const [kindsField, kinds] = field("executor-kinds", t("automation.answers"), t("automation.kinds_hint"));
+    const [functionsField, functions] = field("executor-functions", t("automation.functions"), t("automation.functions_hint"));
+    const notice = el("div", { role: "status" });
+    const add = el("button", { type: "submit", class: "primary", text: t("automation.add_executor") });
+    const form = el("form", { novalidate: true }, nameField,
+                    el("div", { class: "field" }, el("label", { for: "executor-contract", text: t("column.contract") }), contract),
+                    kindsField, functionsField, notice, add);
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const list = (input) => input.value.split(",").map((x) => x.trim()).filter((x) => x);
+        const chosen = listed.contracts.find((c) => c.id === contract.value);
+        const fns = list(functions).length ? list(functions)
+            : chosen?.functions.includes("result") ? ["result"] : [];
+        await addMachine({ action: "machine.register", name: name.value.trim() },
+                         { action: "machine.delegate", contract: contract.value, kinds: list(kinds), functions: fns },
+                         name.value.trim(), false, notice);
+    });
+    return el("section", {}, el("h2", { text: t("automation.add_executor") }),
+              el("p", { class: "hint", text: t("automation.executor_intro") }),
+              listed.contracts.length ? form : el("p", { text: t("automation.no_rules") }));
+}
+
+function agentForm(listed) {
+    const [nameField, name] = field("agent-name", t("column.name"), t("automation.name_hint"), { maxlength: 64 });
+    const [modelField, model] = field("agent-model", t("automation.model"), t("automation.model_hint"), { maxlength: 128 });
+    const [versionField, version] = field("agent-version", t("automation.model_version"), "", { maxlength: 128 });
+    const responsible = el("select", { id: "agent-responsible" },
+                           listed.people.map((p) => el("option", { value: p.name, text: p.name })));
+    const box = (key) => {
+        const input = el("input", { type: "checkbox", id: `agent-may-${key}`, checked: key === "register" || key === "act" });
+        return [key, input, el("div", {}, el("label", { for: `agent-may-${key}` }, input, " ", t(`people.may.${key}`)))];
+    };
+    const words = ["register", "endorse", "revoke", "act"].map(box);
+    const notice = el("div", { role: "status" });
+    const add = el("button", { type: "submit", class: "primary", text: t("automation.add_agent") });
+    const form = el("form", { novalidate: true }, nameField, modelField, versionField,
+                    el("div", { class: "field" }, el("label", { for: "agent-responsible", text: t("automation.responsible") }), responsible),
+                    el("fieldset", {}, el("legend", { text: t("people.what_they_may") }), words.map(([, , v]) => v)),
+                    notice, add);
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const may = Object.fromEntries(words.map(([k, input]) => [k, input.checked]));
+        await addMachine({ action: "machine.register", name: name.value.trim(), agent: true, model: model.value.trim(),
+                           model_version: version.value.trim(), responsible: responsible.value },
+                         { action: "machine.delegate", may }, name.value.trim(), true, notice);
+    });
+    return el("section", {}, el("h2", { text: t("automation.add_agent") }),
+              el("p", { class: "hint", text: t("automation.agent_intro") }),
+              listed.people.length ? form : el("p", { text: t("automation.no_people") }));
+}
+
+/// The machine's key, once, encrypted with a passphrase typed here; its API
+/// token; and how to run it.
+function machineSetupScreen(actor, delegation, name, agent) {
+    const [passField, pass] = field("machine-passphrase", t("automation.passphrase"), t("automation.passphrase_hint"),
+                                    { type: "password", minlength: 8, autocomplete: "new-password" });
+    const result = el("div", { role: "status" });
+    const get = el("button", { type: "submit", class: "primary", text: t("automation.get_key") });
+    const form = el("form", { novalidate: true }, passField, get);
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        try {
+            const setup = await api("POST", "automation/setup", { actor, delegation, passphrase: pass.value });
+            form.remove();
+            const save = el("button", { type: "button", class: "primary", text: t("automation.save_key", { file: setup.key_file }) });
+            save.addEventListener("click", () => saveBytes(new Uint8Array(fromBase64url(setup.key)), setup.key_file));
+            const shown = (label, value, rows = 3) => {
+                const area = el("textarea", { readonly: true, rows, class: "id", "aria-label": label });
+                area.value = value;
+                return [el("p", { text: label }), area];
+            };
+            const parts = [el("p", { class: "notice", text: t("automation.once") }), save,
+                           ...shown(t("automation.token_for", { name: setup.token_name }), setup.token, 2)];
+            if (setup.config) {
+                const saveConfig = el("button", { type: "button", text: t("automation.save_config", { file: `${name}.json` }) });
+                saveConfig.addEventListener("click", () => saveBytes(new TextEncoder().encode(setup.config), `${name}.json`));
+                parts.push(...shown(t("automation.config"), setup.config, 6), saveConfig,
+                           ...shown(t("automation.command"), setup.command, 3),
+                           el("p", { class: "hint", text: t("automation.connectors_hint") }));
+            } else {
+                parts.push(...shown(t("automation.mcp"), JSON.stringify(setup.mcp, null, 2), 10),
+                           el("p", { class: "hint", text: t("automation.mcp_hint") }));
+            }
+            result.replaceChildren(...parts, goButton(t("nav.automation"), "#/automation"));
+        } catch (error) {
+            result.replaceChildren(problem(t("error.server", { message: error.message })));
+        }
+    });
+    show(el("h1", { text: t("automation.setup_title", { name }) }),
+         el("p", { class: "hint", text: t(agent ? "automation.setup_agent" : "automation.setup_executor") }),
+         form, result);
+}
+
 // --- People --------------------------------------------------------------------------
 
 /// What someone may do on the ledger, in plain words.
@@ -3064,6 +3251,61 @@ const timeText = (ms) => new Intl.DateTimeFormat(state.language, { dateStyle: "m
 
 /// A thing with rules: what it is now, what may be done with it, what is
 /// due, the requests waiting for an answer, and its history.
+/// A link that opens one action of a thing for whoever signs in (it carries
+/// no secret: the action is checked and approved as any other), with its
+/// QR code for a phone to scan.
+function actionLink(instance, call) {
+    const area = el("div");
+    const open = el("button", { type: "button", text: t("thing.action_link"),
+                                "aria-label": t("thing.action_link_label", { action: call.label }) });
+    open.addEventListener("click", async () => {
+        const link = `${location.origin}${location.pathname}#/act/${instance}/${encodeURIComponent(call.function)}`;
+        const box = el("input", { type: "text", readonly: true, class: "id",
+                                  "aria-label": t("thing.action_link_for", { action: call.label }) });
+        box.value = link;
+        const parts = [box, el("p", { class: "hint", text: t("thing.action_link_hint") })];
+        try {
+            const blob = await fetchBlob(`qr?text=${encodeURIComponent(link)}`);
+            parts.push(el("img", { class: "qr", src: URL.createObjectURL(blob),
+                                   alt: t("thing.action_qr", { action: call.label }) }));
+        } catch (error) {
+            parts.push(problem(t("error.server", { message: error.message })));
+        }
+        area.replaceChildren(...parts);
+        open.hidden = true;
+    });
+    return el("div", {}, open, area);
+}
+
+/// Fetches a file of the console's with the session's token, as a blob.
+async function fetchBlob(path) {
+    const headers = {};
+    const token = stored(sessionStorage, SESSION);
+    if (token) {
+        headers.Authorization = `Bearer ${token}`;
+    }
+    const response = await fetch(`api/${path}`, { headers, credentials: "omit", cache: "no-store" });
+    if (!response.ok) {
+        const answer = await response.json().catch(() => ({}));
+        throw new ApiError(response.status, answer?.error?.message ?? String(response.status));
+    }
+    return response.blob();
+}
+
+/// An action link: the thing's page, at that action's form.
+async function actionLinkScreen(instance, action) {
+    await instanceScreen(instance);
+    const section = [...document.querySelectorAll("section[data-function]")]
+        .find((s) => s.dataset.function === action);
+    if (!section) {
+        document.getElementById("main").prepend(problem(t("thing.action_unavailable", { action })));
+        return;
+    }
+    section.classList.add("focused");
+    section.scrollIntoView({ block: "start" });
+    section.querySelector("input, select, button")?.focus();
+}
+
 async function instanceScreen(id) {
     const [view, ledger] = await Promise.all([
         api("GET", `instances/${id}?language=${encodeURIComponent(state.language)}`),
@@ -3102,14 +3344,15 @@ async function instanceScreen(id) {
             // A role already bound need not be named again (unless the
             // action binds it on every call).
             const shown = { ...call, inputs: call.inputs.filter((i) => !(i.place === "role" && bound.has(i.name) && !i.each_call)) };
-            parts.push(el("section", { class: "kind", "aria-labelledby": `action-${n}` },
+            parts.push(el("section", { class: "kind", "aria-labelledby": `action-${n}`, "data-function": call.function },
                           el("h3", { id: `action-${n}`, text: call.label }),
                           call.clauses.length ? el("details", {},
                                                    el("summary", { text: t("thing.what_it_does") }),
                                                    el("ul", {}, call.clauses.map((c) => el("li", { text: c }))))
                                               : null,
                           callForm(shown, { action: "contract.call", instance: thing.id,
-                                            function: call.function }, ledger, `action-${n}`)));
+                                            function: call.function }, ledger, `action-${n}`),
+                          actionLink(thing.id, call)));
         });
     } else if (!view.calls) {
         parts.push(el("p", { class: "hint", text: t("thing.no_calls") }));
@@ -3343,7 +3586,7 @@ function registrationAgrees(check, decoded, prepared, files) {
 
 /// The fields of each people statement that its bytes must hold as shown.
 const PEOPLE_KEYS = {
-    "actor-register": ["kind", "display_name", "key"],
+    "actor-register": ["kind", "display_name", "key", "responsible", "model"],
     "actor-set-presence": ["subject", "credentials"],
     "delegation-grant": ["grantee", "scope"],
     "delegation-revoke": ["delegation", "reason"],
@@ -3467,8 +3710,10 @@ async function approveScreen(prepared, files = new Map(), after = null) {
     };
     const consenting = summary.record_type === "cexchain.contract-consent/1";
     const access = summary.access;
+    const machine = summary.type === "actor-register" && summary.kind !== 1;
     fact("approve.action", t(consenting ? "approve.type.consent"
-        : access ? `approve.type.access_${access.kind}` : `approve.type.${summary.type}`));
+        : access ? `approve.type.access_${access.kind}`
+        : machine ? "approve.type.machine-register" : `approve.type.${summary.type}`));
     if (access) {
         const names = (list) => (list === null ? t("access.all")
             : list.length ? list.join(", ") : t("value.none"));
@@ -3515,17 +3760,31 @@ async function approveScreen(prepared, files = new Map(), after = null) {
         fact("approve.functions", summary.functions.join(", "));
         fact("approve.code_sha256", summary.code_sha256);
     }
+    if (summary.by_organization) {
+        fact("approve.signer", t("approve.by_organization"));
+    }
     fact("act.role", summary.role);
     fact("act.reason", summary.reason);
     if (summary.type === "actor-register") {
-        fact("people.person", summary.display_name);
-        fact("people.new_key", `${summary.key.slice(0, 16)}...`);
+        fact(summary.kind === 1 ? "people.person" : summary.kind === 2 ? "automation.agent"
+                                                                       : "automation.device",
+             summary.display_name);
+        fact("automation.responsible", summary.responsible_name ?? summary.responsible);
+        fact("automation.model", summary.model);
+        fact(summary.kind === 1 ? "people.new_key" : "automation.new_key", `${summary.key.slice(0, 16)}...`);
     } else if (summary.type === "actor-set-presence") {
         fact("people.person", summary.subject_name ?? summary.subject);
         fact("people.passkeys", summary.credentials.map((c) => c.label ?? c.rp_id).join(", "));
     } else if (summary.type === "delegation-grant") {
         fact("people.person", summary.grantee_name ?? summary.grantee);
-        fact("people.may", mayWords(summary.may, { kinds: [], contracts: [] }));
+        if (summary.scope.request_kinds) {
+            fact("automation.answers", summary.scope.request_kinds.join(", "));
+            fact("column.contract", (summary.scope.contracts ?? []).join(", "));
+            fact("automation.functions", summary.scope.functions?.join(", ") ?? t("access.all"));
+        } else {
+            fact("people.may", mayWords(summary.may, { kinds: [], contracts: [] }));
+        }
+        fact("automation.in_person", yesNo(summary.scope.require_presence));
     } else if (summary.type === "delegation-revoke") {
         fact("people.delegation", summary.delegation);
     }
@@ -3615,11 +3874,13 @@ function chrome() {
         : "";
     const hash = location.hash;
     const current = hash.startsWith("#/things") || hash.startsWith("#/new") ||
-                    hash.startsWith("#/thing/") || hash.startsWith("#/instance/") ? "things"
+                    hash.startsWith("#/thing/") || hash.startsWith("#/instance/") ||
+                    hash.startsWith("#/act/") ? "things"
         : hash.startsWith("#/create/") ? "rules"
         : hash.startsWith("#/exchange") ? "home"
         : hash.startsWith("#/parties") || hash.startsWith("#/access/") ? "parties"
         : hash.startsWith("#/people") ? "people"
+        : hash.startsWith("#/automation") ? "automation"
         : hash.startsWith("#/kinds") ? "kinds"
         : hash.startsWith("#/rules") ? "rules"
         : hash.startsWith("#/verify") ? "verify"
@@ -3673,9 +3934,11 @@ async function route() {
         const thing = hash.match(/^#\/thing\/([0-9a-f]{64})$/);
         const instance = hash.match(/^#\/instance\/([0-9a-f]{64})$/);
         const create = hash.match(/^#\/create\/([0-9a-f]{64})$/);
+        const act = hash.match(/^#\/act\/([0-9a-f]{64})\/([^/]+)$/);
         const asked = hash.match(/^#\/access\/request\/([0-9a-f]{64})$/);
         const delivered = hash.match(/^#\/access\/delivery\/([0-9a-f]{64})$/);
         await (thing ? thingScreen(thing[1])
+            : act ? actionLinkScreen(act[1], decodeURIComponent(act[2]))
             : asked ? accessRequestScreen(asked[1])
             : delivered ? accessDeliveryScreen(delivered[1])
             : instance ? instanceScreen(instance[1])
@@ -3683,6 +3946,7 @@ async function route() {
             : hash.startsWith("#/exchange") ? exchangeScreen()
             : hash.startsWith("#/parties") ? partiesScreen()
             : hash.startsWith("#/people") ? peopleScreen()
+            : hash.startsWith("#/automation") ? automationScreen()
             : hash.startsWith("#/things") ? thingsScreen()
             : hash.startsWith("#/new") ? newDocumentScreen()
             : hash.startsWith("#/kinds") ? kindsScreen()

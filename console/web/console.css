@@ -67,6 +67,7 @@ body {
 
 nav ul {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.25rem;
     margin: 0;
     padding: 0;
@@ -473,4 +474,18 @@ details pre {
 
 main:has(.explained-all) {
     max-width: 80rem;
+}
+
+/* An action link's QR code, and the action it opened. */
+img.qr {
+  display: block;
+  width: min(14rem, 100%);
+  height: auto;
+  margin: 0.5rem 0;
+  image-rendering: pixelated;
+}
+
+section.focused {
+  outline: 3px solid var(--accent, #1a5fb4);
+  outline-offset: 4px;
 }

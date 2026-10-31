@@ -20,6 +20,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cexchain/app/errors.hpp>
 #include <cexchain/console/console.hpp>
 #include <cexchain/console/settings.hpp>
 #include <cexchain/console/setup.hpp>
@@ -215,6 +216,10 @@ void Console::set_origins(std::vector<Origin> origins) {
 http::Response Console::handle(const http::Request& request) const {
     try {
         return route(request);
+    } catch (const app::ActionError& e) {
+        return error(500, "internal", e.message);
+    } catch (const app::UsageError& e) {
+        return error(400, "invalid_argument", e.message);
     } catch (const std::exception&) {
         // A damaged file of the console's, or a failed write: the request
         // fails, the server goes on.
@@ -402,6 +407,15 @@ http::Response Console::route(const http::Request& request) const {
             return error(503, "unavailable", "this console keeps no users or sessions");
         }
         return request.path.ends_with("parties") ? parties_route(request) : inbox_route(request);
+    }
+    if (request.path == "/console/api/automation" ||
+        request.path.starts_with("/console/api/automation/")) {
+        return ready() ? automation_route(request)
+                       : error(503, "unavailable", "this console keeps no users or sessions");
+    }
+    if (request.path == "/console/api/qr") {
+        return ready() ? qr_route(request)
+                       : error(503, "unavailable", "this console keeps no users or sessions");
     }
     if (request.path == "/console/api/people" || request.path == "/console/api/tokens" ||
         request.path == "/console/api/activity") {

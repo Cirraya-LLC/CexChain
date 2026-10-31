@@ -25,6 +25,7 @@
 #include <cexchain/app/support.hpp>
 #include <cexchain/console/console.hpp>
 #include <cexchain/console/people.hpp>
+#include <cexchain/console/setup.hpp>
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/common.hpp>
@@ -129,6 +130,15 @@ nlohmann::json describe(const protocol::Statement& s, const protocol::LedgerStat
         out["kind"] = static_cast<int>(reg->kind);
         out["display_name"] = reg->display_name;
         out["key"] = to_hex(reg->key.bytes);
+        out["responsible"] =
+            reg->responsible ? nlohmann::json(to_hex(reg->responsible->bytes())) : nlohmann::json();
+        if (reg->responsible) {
+            if (const auto* person = state.actor(*reg->responsible)) {
+                out["responsible_name"] = person->display_name;
+            }
+        }
+        out["model"] =
+            reg->agent && reg->agent->model ? nlohmann::json(*reg->agent->model) : nlohmann::json();
     } else if (const auto* p = std::get_if<protocol::ActorSetPresenceBody>(&s.body)) {
         out["subject"] = to_hex(p->actor.bytes());
         if (const auto* subject = state.actor(p->actor)) {
@@ -200,9 +210,10 @@ http::Response Console::prepare_route(const http::Request& request) const {
         signer.role != Role::owner && signer.role != Role::admin) {
         return error(403, "forbidden", "only an owner or an admin deploys or retires rules");
     }
-    if ((action.starts_with("person.") || action == "delegation.revoke") &&
+    if ((action.starts_with("person.") || action.starts_with("machine.") ||
+         action == "delegation.revoke") &&
         signer.role != Role::owner && signer.role != Role::admin) {
-        return error(403, "forbidden", "only an owner or an admin approves people");
+        return error(403, "forbidden", "only an owner or an admin approves people and machines");
     }
     const bool calling =
         action == "contract.create" || action == "contract.call" || action == "request.answer";
@@ -225,6 +236,13 @@ http::Response Console::prepare_route(const http::Request& request) const {
     std::shared_ptr<const crypto::openssl::KeyPair> person_key;
     std::string person;
     std::string activity;
+    struct {
+        bool hand_out = false;
+        bool agent = false;
+        std::optional<std::string> model;
+        std::optional<std::string> model_version;
+        bool as_organization = false;
+    } machine;
     std::variant<protocol::Body, std::string> body = std::string();
     if (action == "contract.deploy") {
         // Built by the compiler in a child process, as the editor checked it.
@@ -259,9 +277,12 @@ http::Response Console::prepare_route(const http::Request& request) const {
         auto& [registration, d] = std::get<0>(drafted);
         body = protocol::Body{std::move(registration)};
         draft = std::move(d);
-    } else if (action.starts_with("person.") || action == "delegation.revoke") {
-        // A step of approving a person, or revoking what someone may do.
-        auto step = person_step(signer, intent);
+    } else if (action.starts_with("person.") || action.starts_with("machine.") ||
+               action == "delegation.revoke") {
+        // A step of approving a person or adding a machine, or revoking
+        // what someone may do.
+        auto step = action.starts_with("machine.") ? machine_step(signer, intent)
+                                                   : person_step(signer, intent);
         if (auto* refused = std::get_if<http::Response>(&step)) {
             return std::move(*refused);
         }
@@ -270,6 +291,8 @@ http::Response Console::prepare_route(const http::Request& request) const {
         person_key = std::move(p.new_key);
         person = std::move(p.person);
         activity = std::move(p.activity);
+        machine = {p.hand_out, p.agent, std::move(p.model), std::move(p.model_version),
+                   p.as_organization};
     } else if (action.starts_with("access.")) {
         // A request to a party, a grant of a request received, or a receipt
         // for a delivery: a record of this ledger's, its note private.
@@ -354,21 +377,36 @@ http::Response Console::prepare_route(const http::Request& request) const {
             return;
         }
         s.ledger_id = state.ledger_id();
-        s.actor_id = *actor;
         s.issued_at = services_.clock->now();
         s.nonce = services_.entropy->bytes<16>();
-        s.delegation_id = node::choose_delegation(state, *actor, protocol::type_of(s.body),
-                                                  record_type, s.issued_at, contract);
-        if (!s.delegation_id) {
-            problem = "no valid delegation lets " + a->display_name + " do this";
-            return;
+        if (machine.as_organization) {
+            // The organization's own statement, signed with its root key:
+            // what it grants a machine needs no presence, which a person's
+            // delegation could not grant. The owner's passkey approves it
+            // here; the ledger records the organization.
+            for (const auto& [key, candidate] : state.actors()) {
+                if (candidate.is_organization() && !candidate.revoked) {
+                    s.actor_id = protocol::Id(candidate.id);
+                }
+            }
+            s.delegation_id.reset();
+        } else {
+            s.actor_id = *actor;
+            s.delegation_id = node::choose_delegation(state, *actor, protocol::type_of(s.body),
+                                                      record_type, s.issued_at, contract);
+            if (!s.delegation_id) {
+                problem = "no valid delegation lets " + a->display_name + " do this";
+                return;
+            }
         }
-        const auto kid = protocol::key_id(*services_.provider, hash, a->key);
+        const auto kid = protocol::key_id(*services_.provider, hash,
+                                          machine.as_organization ? state.root_key() : a->key);
         const auto challenge =
             kid ? protocol::presence_challenge(*services_.provider, hash, s, *kid)
                 : Result<Bytes>(std::unexpected(kid.error()));
         if (!kid || !challenge) {
-            problem = "the statement could not be prepared";
+            problem = "the statement could not be prepared: " +
+                      std::string(!kid ? kid.error().detail : challenge.error().detail);
             return;
         }
         prepared.kid = *kid;
@@ -450,9 +488,17 @@ http::Response Console::prepare_route(const http::Request& request) const {
     prepared.new_key = std::move(person_key);
     prepared.person = std::move(person);
     prepared.activity = std::move(activity);
+    prepared.hand_out = machine.hand_out;
+    prepared.agent = machine.agent;
+    prepared.model = std::move(machine.model);
+    prepared.model_version = std::move(machine.model_version);
     summary["consents"] = prepared.bundles.size();
     prepared.user = signer.user;
-    prepared.key = user->key;
+    prepared.key = machine.as_organization ? std::string(root_key_name) : user->key;
+    prepared.as_organization = machine.as_organization;
+    if (machine.as_organization) {
+        summary["by_organization"] = true;
+    }
     prepared.rp_id = parsed_origin->host;
     prepared.origin = parsed_origin->text();
     prepared.expires = services_.clock->now() + approval_lifetime;
@@ -539,27 +585,40 @@ Console::sign_approval(const http::Request& request) const {
         *into = std::move(*bytes);
     }
     protocol::Statement statement = std::move(prepared->statement);
-    statement.presence = std::move(proof);
+    // The organization's statements carry no presence: the console checks
+    // the approving owner's passkey itself.
+    const bool by_organization = prepared->as_organization;
+    if (!by_organization) {
+        statement.presence = proof;
+    }
     // The proof checked as the ledger checks it, against the person's
     // passkeys registered on the ledger, and from this console's page.
     std::string problem;
     std::optional<crypto::PublicKey> current_key;
     const crypto::HashAlg hash = served->hash();
+    const People people = load_people(services_.directory);
+    const User* approver = people.find(prepared->user);
+    const auto approver_actor = approver != nullptr ? id_of(approver->actor) : std::nullopt;
     served->read_state([&](const protocol::LedgerState& state) {
-        const protocol::ActorState* a = state.actor(statement.actor_id.value());
+        const protocol::ActorState* a =
+            by_organization ? (approver_actor ? state.actor(*approver_actor) : nullptr)
+                            : state.actor(statement.actor_id.value());
         if (a == nullptr || a->revoked) {
             problem = "this user's actor is not on the ledger, or is revoked";
             return;
         }
-        const auto check = protocol::verify_presence(*services_.provider, hash, statement,
-                                                     prepared->kid, a->presence);
+        const auto check = by_organization
+                               ? protocol::verify_assertion(*services_.provider,
+                                                            prepared->challenge, proof, a->presence)
+                               : protocol::verify_presence(*services_.provider, hash, statement,
+                                                           prepared->kid, a->presence);
         if (!check) {
             problem =
                 std::string("the passkey did not approve it: ") + std::string(check.error().detail);
         } else if (!check->user_verified || canonical(check->origin) != prepared->origin) {
             problem = "the passkey did not approve it on this console, with the person verified";
         }
-        current_key = a->key;
+        current_key = by_organization ? state.root_key() : a->key;
     });
     if (!problem.empty()) {
         return error(403, "forbidden", problem);
@@ -581,7 +640,18 @@ Console::sign_approval(const http::Request& request) const {
         // A step of approving a person: their key sealed now; once the ledger
         // has registered their actor, the console user acts as it.
         std::string key_name;
-        if (prepared->new_key) {
+        if (prepared->new_key && prepared->hand_out) {
+            // A machine's key: handed out once, never kept.
+            const std::lock_guard lock(mutex_);
+            handed_[to_hex(signed_statement->id.bytes())] =
+                Handed{prepared->new_key,
+                       prepared->user,
+                       prepared->person,
+                       prepared->agent,
+                       prepared->model,
+                       prepared->model_version,
+                       services_.clock->now() + 10 * 60'000};
+        } else if (prepared->new_key) {
             key_name = "person-" + to_hex(signed_statement->id.bytes()).substr(0, 16);
             services_.keys->seal(key_name, *prepared->new_key);
         }
@@ -594,8 +664,8 @@ Console::sign_approval(const http::Request& request) const {
              key_name](const protocol::Id& registered) {
                 if (!key_name.empty()) {
                     try {
-                        change_people([&](People& people) {
-                            if (User* u = people.find(person); u != nullptr && u->actor.empty()) {
+                        change_people([&](People& users) {
+                            if (User* u = users.find(person); u != nullptr && u->actor.empty()) {
                                 u->actor = to_hex(registered.bytes());
                                 u->key = key_name;
                             }

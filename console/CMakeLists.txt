@@ -7,11 +7,12 @@
 # the node does not depend on this library.
 add_library(cexchain_console src/console.cpp src/passkeys.cpp src/sessions.cpp src/users.cpp src/views.cpp src/keystore.cpp src/unlock.cpp src/approve.cpp src/setup.cpp src/deferred.cpp src/recover.cpp src/settings.cpp src/kinds.cpp src/documents.cpp
     src/access.cpp src/exchange.cpp src/instances.cpp src/parties.cpp src/things.cpp src/rules.cpp src/witnessing.cpp
-    src/people.cpp src/activity.cpp)
+    src/people.cpp src/activity.cpp src/qr.cpp src/automation.cpp)
 add_library(cexchain::console ALIAS cexchain_console)
 target_include_directories(cexchain_console PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 target_link_libraries(cexchain_console
-    PUBLIC cexchain::app cexchain::node nlohmann_json::nlohmann_json)
+    PUBLIC cexchain::app cexchain::node nlohmann_json::nlohmann_json
+    PRIVATE cexchain_qrcodegen)
 target_compile_features(cexchain_console PUBLIC cxx_std_26)
 cexchain_target_defaults(cexchain_console)
 

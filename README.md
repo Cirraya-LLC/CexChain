@@ -18,7 +18,7 @@ purchase orders, invoices, or certificates. Those are things you define, and the
 > to be made again with a later one. The code has not been audited yet; see
 > [Security](#security) for how to report a vulnerability and the known open items.
 >
-> The specification: [the protocol in prose](spec/README.md), [`spec/cexchain.cddl`](spec/cexchain.cddl); the contract language: [`spec/bo.md`](spec/bo.md). Planned, not built yet: connectors for billing and accounting systems (Zoho first), the web console's automation screens and its phone layout (it is [in progress](#the-web-console-in-progress)), installers, and a public witness service; see [Known limits](#known-limits).
+> The specification: [the protocol in prose](spec/README.md), [`spec/cexchain.cddl`](spec/cexchain.cddl); the contract language: [`spec/bo.md`](spec/bo.md). Planned, not built yet: connectors for billing and accounting systems (Zoho first), the web console's installers (it is [in progress](#the-web-console-in-progress)), installers, and a public witness service; see [Known limits](#known-limits).
 
 ## Why
 
@@ -535,6 +535,21 @@ cexchain console settings show
   https://ledger.example.com`, behind a TLS proxy or with `--tls-cert FILE --tls-key FILE`, answers
   for that name only; its setup link, invitations, and party codes carry it, and its passkeys
   are for that host name. Passkeys made for one host name do not work on another.
+- **Automation** lists the requests waiting for an answer, what the console's machine (its
+  keeper) fires or expires next, and the ledger's machines with what each may do. "Add an
+  executor" registers a device and grants it calls on one set of rules, answering requests of the
+  kinds named and nothing else; "Add an AI agent" registers an agent answering to a person, with
+  what it may do in the People screen's words. Each takes two taps: the machine's registration,
+  the approving person's in person, then its delegation, which only the organization can grant
+  (a person's in-person delegation cannot grant presence-free work), signed with the root key the
+  console holds, by an owner, after the owner's passkey, and recorded in the activity log. Then
+  its key is handed out once, encrypted with a passphrase typed on the page (the console keeps no
+  machine's key), with an API token and the `executor run` config and command, or the MCP client
+  setup for an agent (`cexchain mcp --server URL --token-file FILE --as KEY`).
+- **Action links.** Each action on a thing's page offers a link to it (`/console/#/act/THING/ACTION`)
+  and its QR code, to print or show: whoever opens it signs in and sees that action's form,
+  checked and approved as any other, so the link holds no secret. The page fits a phone's screen
+  (one column, targets of 44 px), and passkeys on the phone itself approve.
 - **Signing in** takes a passkey assertion over a fresh challenge from the console, used once
   within five minutes, with the person verified (a PIN or a biometric). A session is a bearer
   token that the node keeps only as a hash, in memory; it ends after 30 idle minutes, after 12

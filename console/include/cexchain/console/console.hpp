@@ -170,6 +170,15 @@ struct Prepared {
     std::shared_ptr<const crypto::openssl::KeyPair> new_key;
     std::string person;
     std::string activity;
+    /// For a machine: its key is handed out once after registering, never
+    /// kept (with what its setup needs).
+    bool hand_out = false;
+    bool agent = false;
+    std::optional<std::string> model;
+    std::optional<std::string> model_version;
+    /// Signed by the organization's root key, after the owner's passkey
+    /// (checked by the console; the statement carries no presence).
+    bool as_organization = false;
 };
 
 inline constexpr protocol::Timestamp approval_lifetime = 2 * 60'000;
@@ -383,10 +392,19 @@ private:
     /// log's view (GET /console/api/activity).
     [[nodiscard]] http::Response people_route(const http::Request& request) const;
     struct PersonStep {
+        PersonStep(protocol::Body b, std::shared_ptr<const crypto::openssl::KeyPair> k,
+                   std::string p, std::string a)
+            : body(std::move(b)), new_key(std::move(k)), person(std::move(p)),
+              activity(std::move(a)) {}
         protocol::Body body;
         std::shared_ptr<const crypto::openssl::KeyPair> new_key;
         std::string person;
         std::string activity;
+        bool hand_out = false;
+        bool agent = false;
+        std::optional<std::string> model;
+        std::optional<std::string> model_version;
+        bool as_organization = false;
     };
     [[nodiscard]] std::variant<PersonStep, http::Response>
     person_step(const Signed& who, const nlohmann::json& intent) const;
@@ -395,6 +413,26 @@ private:
                       nlohmann::json detail = nlohmann::json::object()) const;
     [[nodiscard]] http::Response tokens_route(const http::Request& request) const;
     [[nodiscard]] http::Response activity_route(const http::Request& request) const;
+    /// GET /console/api/qr?text=LINK: a QR code (SVG) for a link to this
+    /// console's own pages (qr.cpp).
+    [[nodiscard]] http::Response qr_route(const http::Request& request) const;
+    /// Automation (automation.cpp): machines, requests, and what is due
+    /// (GET /console/api/automation); a machine's key handed out once with
+    /// its token and setup (POST .../setup); one step of adding a machine.
+    [[nodiscard]] http::Response automation_route(const http::Request& request) const;
+    [[nodiscard]] std::variant<PersonStep, http::Response>
+    machine_step(const Signed& who, const nlohmann::json& intent) const;
+    /// A machine's key after its registration, for one download within ten
+    /// minutes, by the user who approved it.
+    struct Handed {
+        std::shared_ptr<const crypto::openssl::KeyPair> key;
+        std::string user;
+        std::string name;
+        bool agent = false;
+        std::optional<std::string> model;
+        std::optional<std::string> model_version;
+        protocol::Timestamp expires = 0;
+    };
     /// Witnessing (witnessing.cpp): each poll follows the parties' ledgers
     /// (their genesis fetched) and asks those with a witness key to cosign
     /// this ledger's latest checkpoint; what each answered, for the Parties
@@ -574,6 +612,7 @@ private:
     /// name); cleared by the next cosignature.
     mutable std::map<std::string, std::string> refused_;
     mutable std::map<std::string, std::string> not_cosigned_;
+    mutable std::map<std::string, Handed> handed_;
     mutable std::mutex poll_mutex_;
     mutable std::condition_variable_any poll_wake_;
     mutable bool poll_asked_ = false;
