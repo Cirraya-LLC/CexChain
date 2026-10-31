@@ -161,6 +161,8 @@ int cmd_backup_restore(const Args& args);
 
 // Other organizations
 int cmd_peer_add(const Args& args);
+int cmd_peer_invite(const Args& args);
+int cmd_peer_accept(const Args& args);
 int cmd_peer_list(const Args& args);
 int cmd_peer_show(const Args& args);
 int cmd_peer_remove(const Args& args);

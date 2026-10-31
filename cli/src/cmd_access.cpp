@@ -200,6 +200,65 @@ crypto::openssl::HpkeKey recipient_key(const Session& session, const protocol::I
 // peer
 // ---------------------------------------------------------------------------
 
+int cmd_peer_invite(const Args& args) {
+    const std::filesystem::path dir = args.ledger();
+    const std::string name = args.positional().front();
+    PeerInvitation invitation;
+    {
+        // The ledger's lock is free again before the token is written.
+        Session session(args);
+        invitation.ledger = session.state().ledger_id();
+        invitation.organization = session.state().organization();
+    }
+    invitation.url = args.get("url");
+    if (invitation.url) {
+        unwrap(node::Url::parse(*invitation.url), "reading --url");
+    }
+    ledger::SystemEntropy entropy;
+    ledger::SystemClock clock;
+    invitation.token = issue_peer_token(dir, name, shared_provider(), entropy, clock);
+    const std::string code = encode_invitation(invitation);
+    if (args.json()) {
+        print_json({{"name", name},
+                    {"ledger_id", id_json(invitation.ledger)},
+                    {"fingerprint", ledger_fingerprint(invitation.ledger)},
+                    {"url", invitation.url ? Json(*invitation.url) : Json(nullptr)},
+                    {"code", code}});
+        return exit_ok;
+    }
+    std::println("{}", code);
+    std::println(stderr,
+                 "Send this code to {} only: it holds the token they call this ledger's API with.\n"
+                 "Compare this ledger's fingerprint with them by voice: {}\n"
+                 "Once they send their own code back: cexchain peer accept CODE --name {}",
+                 name, ledger_fingerprint(invitation.ledger), name);
+    return exit_ok;
+}
+
+int cmd_peer_accept(const Args& args) {
+    const std::filesystem::path dir = args.ledger();
+    const auto invitation = decode_invitation(args.positional().front());
+    if (!invitation) {
+        throw UsageError{"that is not an invitation code (cxp_...)"};
+    }
+    const std::string name = args.need("name");
+    const std::filesystem::path token_dir = args.get("token-dir")
+                                                ? std::filesystem::absolute(*args.get("token-dir"))
+                                                : std::filesystem::absolute(dir) / "peer-tokens";
+    const node::Peer peer = accept_invitation(dir, token_dir, name, *invitation);
+    if (args.json()) {
+        Json j = peer_json(peer);
+        j["organization"] = invitation->organization;
+        j["fingerprint"] = ledger_fingerprint(invitation->ledger);
+        print_json(j);
+        return exit_ok;
+    }
+    std::println("added peer {}: {} (ledger {}){}", name, invitation->organization,
+                 ledger_fingerprint(invitation->ledger),
+                 peer.url ? ", at " + *peer.url : std::string(", without an API"));
+    return exit_ok;
+}
+
 int cmd_peer_add(const Args& args) {
     const std::filesystem::path dir = args.ledger();
     const std::string name = args.positional().front();

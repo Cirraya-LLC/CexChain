@@ -1429,6 +1429,35 @@ std::vector<CommandSpec> build() {
          "audited at the end. The directory must not hold a ledger already."},
 
         // ------------------------------------------------------------------
+        {{"peer", "invite"},
+         "Invite another organization to become a peer: a code for them",
+         "Other organizations",
+         "NAME",
+         1,
+         1,
+         with({ledger_option,
+               {"url", "URL", "This ledger's API, as the peer reaches it (for online exchange)"}}),
+         cmd_peer_invite,
+         "Issues an API token named NAME with the peer scope, and prints a code (cxp_...) that\n"
+         "carries this ledger's id, its organization's name, the URL, and the token: send it to\n"
+         "that party only, by a channel you trust. Compare the fingerprint it shows with them\n"
+         "by voice. They accept it (peer accept), and invite you back; accept their code under\n"
+         "the same NAME, so that their calls with your token reach their own exchanges only.\n"
+         "Revoke the token (token revoke NAME) to end it."},
+        {{"peer", "accept"},
+         "Accept another organization's invitation: add it as a peer",
+         "Other organizations",
+         "CODE",
+         1,
+         1,
+         with({ledger_option,
+               {"name", "NAME", "What to call the peer here", true},
+               {"token-dir", "DIR",
+                "Keep its token here (default: peer-tokens in the ledger directory)"}}),
+         cmd_peer_accept,
+         "Adds the peer the code names, pinned by its ledger id, with its API's URL and the token\n"
+         "it issued you (kept owner-only). Compare the fingerprint with the inviter by voice: a\n"
+         "code changed on the way names another ledger."},
         {{"peer", "add"},
          "Add another organization's ledger as a peer",
          "Other organizations",

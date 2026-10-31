@@ -4,12 +4,14 @@
 #pragma once
 
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include <cexchain/app/session.hpp>
 #include <cexchain/app/views.hpp>
+#include <cexchain/ledger/environment.hpp>
 #include <cexchain/node/client.hpp>
 #include <cexchain/node/peers.hpp>
 
@@ -49,5 +51,56 @@ Json peer_call(const node::Peer& peer, std::string_view method, const std::strin
 void add_peer(const std::filesystem::path& dir, const node::Peer& peer);
 /// Removes the peer named `name` (what was granted stays on the ledger).
 void remove_peer(const std::filesystem::path& dir, const std::string& name);
+
+// ---------------------------------------------------------------------------
+// Invitations: two ledgers become each other's peers
+// ---------------------------------------------------------------------------
+
+/// An invitation to become a peer (`peer invite`, the console's Parties):
+/// the inviting ledger's id, its organization's name as it gives it, the URL
+/// of its API if others reach one, and the token it issued for the invited
+/// party, to call that API as its peer. Whoever holds the code holds the
+/// token: send it to that party only. Written as `cxp_` and the base64url of
+/// its CBOR, `{1: 1, 2: ledger, 3: organization, ? 4: url, ? 5: token}`.
+struct PeerInvitation {
+    protocol::Id ledger;
+    std::string organization;
+    std::optional<std::string> url;
+    std::optional<std::string> token;
+
+    friend bool operator==(const PeerInvitation&, const PeerInvitation&) = default;
+};
+
+inline constexpr std::size_t max_invitation_code = 4096;
+
+[[nodiscard]] std::string encode_invitation(const PeerInvitation& invitation);
+/// The invitation a code holds, or nullopt if it is not one (a code of
+/// another version, a field out of its limits, any other key).
+[[nodiscard]] std::optional<PeerInvitation> decode_invitation(std::string_view code);
+
+/// A ledger id for people to compare by voice: its first 20 hex digits, in
+/// groups of four ("1a2b 3c4d 5e6f 7a8b 9c0d").
+[[nodiscard]] std::string ledger_fingerprint(const protocol::Id& ledger);
+
+/// Issues an API token for the peer `name` (scope peer) on the ledger at
+/// `dir`; the token, which is shown once. Throws if a token has that name.
+/// The command line takes the ledger's lock; the node's own console, whose
+/// node holds it, passes `locked` false and writes the file itself (the node
+/// reloads its tokens).
+[[nodiscard]] std::string issue_peer_token(const std::filesystem::path& dir,
+                                           const std::string& name,
+                                           const crypto::Provider& provider,
+                                           ledger::Entropy& entropy, ledger::Clock& clock,
+                                           bool locked = true);
+
+/// Accepts an invitation as the peer `name` of the ledger at `dir`: its
+/// token kept in `token_dir/NAME.token` (owner-only), the peer added with
+/// its ledger and URL. Throws if the code is not one, or the name is taken.
+/// `own` is this ledger's id when the caller knows it (the node's console);
+/// otherwise the ledger is opened to learn it.
+node::Peer accept_invitation(const std::filesystem::path& dir,
+                             const std::filesystem::path& token_dir, const std::string& name,
+                             const PeerInvitation& invitation,
+                             const std::optional<protocol::Id>& own = std::nullopt);
 
 } // namespace cexchain::app

@@ -564,6 +564,7 @@ async function homeScreen() {
         throw error;
     }
     const counts = el("dl", { class: "facts" });
+    const inbox = el("section", { "aria-live": "polite" });
     for (const key of ["actors", "records", "contracts", "instances", "open_requests"]) {
         counts.append(el("dt", { text: t(`count.${key}`) }),
                       el("dd", { text: String(home.counts[key]) }));
@@ -573,7 +574,45 @@ async function homeScreen() {
             el("dt", { text: t("home.organization") }), el("dd", { text: home.ledger.organization }),
             el("dt", { text: t("home.ledger") }), el("dd", { class: "id", text: home.ledger.id })),
          el("h2", { text: t("home.counts") }), counts,
-         el("p", {}, el("a", { href: "#/exchange", text: t("exchange.link") })));
+         el("p", {}, el("a", { href: "#/exchange", text: t("exchange.link") })), inbox);
+    inboxInto(inbox);
+}
+
+/// The calls the parties hold for this ledger's consent, asked for when
+/// Home opens (and every minute by the node).
+async function inboxInto(area) {
+    let listed;
+    try {
+        listed = await api("GET", "inbox?refresh=1");
+    } catch {
+        return;
+    }
+    const waiting = listed.inbox.filter((c) => c.asks_us);
+    if (waiting.length === 0) {
+        return;
+    }
+    area.replaceChildren(el("h2", { text: t("parties.inbox_title") }),
+                         el("ul", {}, waiting.map((c) => {
+                             const open = el("button", { type: "button", text: t("parties.open"),
+                                                         "aria-label": t("parties.open_label", { function: c.function, peer: c.peer }) });
+                             open.addEventListener("click", async () => {
+                                 status(t("status.working"));
+                                 try {
+                                     const read = await api("POST", "inbox/open", {
+                                         peer: c.peer, call: c.call, language: state.language,
+                                     });
+                                     show(el("h1", { text: t("exchange.title") }),
+                                          el("section", {}, ...proposalView(read, read.upload)));
+                                 } catch (error) {
+                                     area.append(problem(t("error.server", { message: error.message })));
+                                 } finally {
+                                     status("");
+                                 }
+                             });
+                             return el("li", {}, t("parties.waiting", {
+                                 function: c.function, peer: c.peer, arguments: c.arguments,
+                             }), " ", open);
+                         })));
 }
 
 function table(caption, columns, rows) {
@@ -2225,6 +2264,74 @@ function askByFile(intentOf) {
               el("div", { class: "toolbar" }, button, online), made);
 }
 
+/// The parties this console works with: inviting one, accepting an
+/// invitation (which invites back), and the parties connected.
+async function partiesScreen() {
+    const listed = await api("GET", "parties");
+    const parts = [el("h1", { text: t("parties.title") }), el("p", { class: "hint", text: t("parties.intro") }),
+                   el("p", { text: t("parties.our_fingerprint", { fingerprint: listed.fingerprint }) })];
+    parts.push(...table(t("parties.connected"), [
+        ["column.name", (p) => p.name],
+        ["parties.fingerprint", (p) => p.fingerprint],
+        ["parties.online", (p) => yesNo(p.online)],
+        ["column.id", (p) => short(p.ledger)],
+    ], listed.peers));
+    if (listed.waiting.length) {
+        parts.push(el("p", { class: "hint", text: t("parties.waiting_answer", { names: listed.waiting.join(", ") }) }));
+    }
+    if (!listed.may_change) {
+        show(...parts);
+        return;
+    }
+    // Invite: a name, then the code to send them.
+    const [nameField, name] = field("party-name", t("parties.name"), t("parties.name_hint"), { maxlength: 64 });
+    const invited = el("div", { role: "status" });
+    const invite = el("button", { type: "submit", class: "primary", text: t("parties.invite") });
+    const inviteForm = el("form", { novalidate: true }, nameField, invite, invited);
+    inviteForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        try {
+            const made = await api("POST", "parties", { invite: name.value.trim() });
+            invited.replaceChildren(codeView(made.code, t("parties.code_for", { name: made.name }),
+                                             made.fingerprint));
+        } catch (error) {
+            invited.replaceChildren(problem(t("error.server", { message: error.message })));
+        }
+    });
+    // Accept: their code and what to call them; an answer code to send back.
+    const code = el("textarea", { id: "party-code", rows: 3, spellcheck: "false", "aria-describedby": "party-code-hint" });
+    const [acceptNameField, acceptName] = field("party-accept-name", t("parties.name"), t("parties.accept_name_hint"), { maxlength: 64 });
+    const accepted = el("div", { role: "status" });
+    const accept = el("button", { type: "submit", class: "primary", text: t("parties.accept") });
+    const acceptForm = el("form", { novalidate: true },
+                          el("div", { class: "field" }, el("label", { for: "party-code", text: t("parties.code") }), code,
+                             el("span", { id: "party-code-hint", class: "hint", text: t("parties.code_hint") })),
+                          acceptNameField, accept, accepted);
+    acceptForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        try {
+            const done = await api("POST", "parties", { accept: code.value.trim(), name: acceptName.value.trim() });
+            accepted.replaceChildren(el("p", { class: "notice", text: t("parties.accepted", {
+                name: done.name, organization: done.organization, fingerprint: done.fingerprint,
+            }) }), done.reply ? codeView(done.reply, t("parties.reply_for", { name: done.name }), listed.fingerprint)
+                              : null);
+        } catch (error) {
+            accepted.replaceChildren(problem(t("error.server", { message: error.message })));
+        }
+    });
+    parts.push(el("h2", { text: t("parties.invite_title") }), inviteForm,
+               el("h2", { text: t("parties.accept_title") }), acceptForm);
+    show(...parts);
+}
+
+/// A code to send to one party: shown once, to copy.
+function codeView(code, label, fingerprint) {
+    const box = el("textarea", { readonly: true, rows: 3, class: "id", "aria-label": label });
+    box.value = code;
+    return el("div", { class: "kind" }, el("p", { text: label }), box,
+              el("p", { class: "hint", text: t("parties.code_secret", { fingerprint }) }));
+}
+
 /// Proposals and consents that came as files: read here, verified, then
 /// consented to or recorded with a tap.
 function exchangeScreen() {
@@ -2291,6 +2398,15 @@ function proposalView(read, upload) {
         try {
             const prepared = await api("POST", "prepare", { action: "contract.consent", upload });
             await approveScreen(prepared, new Map(), async (done) => {
+                // Online, the consent goes to the home's registrar; from a
+                // file, a consent file is saved to send back.
+                if (read.online) {
+                    const sent = await api("POST", "exchange/send", { record: done.statement_id, upload });
+                    const recorded = sent.home?.status !== "waiting";
+                    return el("p", { class: "notice", text: t(recorded ? "parties.sent_recorded"
+                                                                       : "parties.sent_waiting",
+                                                              { name: read.home_organization }) });
+                }
                 const name = await saveDownload("exchange/consent", {
                     method: "POST", headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ record: done.statement_id, upload }),
@@ -2858,6 +2974,7 @@ function chrome() {
                     hash.startsWith("#/thing/") || hash.startsWith("#/instance/") ? "things"
         : hash.startsWith("#/create/") ? "rules"
         : hash.startsWith("#/exchange") ? "home"
+        : hash.startsWith("#/parties") ? "parties"
         : hash.startsWith("#/kinds") ? "kinds"
         : hash.startsWith("#/rules") ? "rules"
         : hash.startsWith("#/verify") ? "verify"
@@ -2915,6 +3032,7 @@ async function route() {
             : instance ? instanceScreen(instance[1])
             : create ? createScreen(create[1])
             : hash.startsWith("#/exchange") ? exchangeScreen()
+            : hash.startsWith("#/parties") ? partiesScreen()
             : hash.startsWith("#/things") ? thingsScreen()
             : hash.startsWith("#/new") ? newDocumentScreen()
             : hash.startsWith("#/kinds") ? kindsScreen()

@@ -83,6 +83,8 @@ if(TARGET cexchain_node)
     cexchain_add_fuzzer(record_files_fuzz cexchain::node)
     # Proposal and consent files (.cexchain) between ledgers.
     cexchain_add_fuzzer(exchange_file_fuzz cexchain::core)
+    # Invitation codes between organizations (cxp_...).
+    cexchain_add_fuzzer(invitation_fuzz cexchain::app)
     # The web console's Host, Origin, and session checks (C++26, like the console).
     if(TARGET cexchain_console)
         cexchain_add_fuzzer(console_request_fuzz cexchain::console cexchain::crypto_openssl)

@@ -100,6 +100,23 @@ http::Response Console::upload_route(const http::Request& request) const {
                       {"media_type", app::media_type_of(name->second)}});
 }
 
+std::string Console::store_upload(const std::string& user, const std::string& name,
+                                  const Bytes& content) const {
+    const std::filesystem::path directory = uploads_directory(services_.directory);
+    std::string id;
+    std::filesystem::path path;
+    {
+        const std::lock_guard lock(mutex_);
+        id = to_hex(services_.entropy->bytes<12>());
+        path = directory / id;
+        uploads_.emplace(id, Upload{user, name, "application/cbor", content.size(), path,
+                                    services_.clock->now() + upload_lifetime});
+    }
+    std::filesystem::create_directories(directory);
+    app::write_file(path, content, true);
+    return id;
+}
+
 void Console::forget_uploads(const std::vector<std::string>& ids) const {
     const std::lock_guard lock(mutex_);
     std::error_code ec;

@@ -228,7 +228,8 @@ void Console::handle(const http::Request& request, Respond respond) const {
     // nothing waiting.
     if ((request.path == "/console/api/exchange/proposal" ||
          request.path == "/console/api/exchange/consent" ||
-         request.path == "/console/api/exchange/propose") &&
+         request.path == "/console/api/exchange/propose" ||
+         request.path == "/console/api/exchange/send") &&
         request.method == "POST") {
         try {
             if (auto refused = refuse(request)) {
@@ -243,6 +244,8 @@ void Console::handle(const http::Request& request, Respond respond) const {
                 exchange_proposal_route(request, std::move(respond));
             } else if (request.path.ends_with("propose")) {
                 exchange_propose_route(request, std::move(respond));
+            } else if (request.path.ends_with("send")) {
+                exchange_send_route(request, std::move(respond));
             } else {
                 exchange_consent_route(request, std::move(respond));
             }
@@ -388,6 +391,12 @@ http::Response Console::route(const http::Request& request) const {
         return ready() ? rules_route(request)
                        : error(503, "unavailable", "this console keeps no users or sessions");
     }
+    if (request.path == "/console/api/parties" || request.path == "/console/api/inbox") {
+        if (!ready()) {
+            return error(503, "unavailable", "this console keeps no users or sessions");
+        }
+        return request.path.ends_with("parties") ? parties_route(request) : inbox_route(request);
+    }
     if (request.path.starts_with("/console/api/instances/")) {
         return ready() ? instance_route(request)
                        : error(503, "unavailable", "this console keeps no users or sessions");
@@ -420,8 +429,9 @@ http::Response Console::route(const http::Request& request) const {
         return home_route(std::get<Signed>(who));
     }
     using Route = http::Response (Console::*)(const http::Request&) const;
-    static constexpr std::array<std::pair<std::string_view, Route>, 11> posts{{
+    static constexpr std::array<std::pair<std::string_view, Route>, 12> posts{{
         {"/console/api/exchange/read", &Console::exchange_read_route},
+        {"/console/api/inbox/open", &Console::inbox_open_route},
         {"/console/api/enroll/begin", &Console::enroll_begin},
         {"/console/api/enroll/finish", &Console::enroll_finish},
         {"/console/api/sign-in/begin", &Console::sign_in_begin},

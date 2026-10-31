@@ -1393,6 +1393,14 @@ struct LedgerApi::State {
             allowed = peer && std::ranges::any_of(instance->parties, [&](const auto& p) {
                           return p.second == peer->ledger_id;
                       });
+            // A ledger a held call on the instance asks to consent, so that
+            // it can verify what it is asked to agree to.
+            if (peer && !allowed && calls) {
+                for (const HeldCall& h : held_calls(options.directory)) {
+                    allowed = allowed || (h.call.instance == *id &&
+                                          std::ranges::contains(h.call.missing, peer->ledger_id));
+                }
+            }
         }
         if (!allowed) {
             return error_response(404, "not_found", "no such instance");

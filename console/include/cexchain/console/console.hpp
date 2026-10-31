@@ -4,6 +4,7 @@
 #pragma once
 
 #include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -12,8 +13,10 @@
 #include <mutex>
 #include <optional>
 #include <set>
+#include <stop_token>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <variant>
 #include <vector>
 
@@ -209,6 +212,13 @@ public:
         held_ = std::move(held);
     }
 
+    /// Asks every party reached online, every `every` and whenever asked
+    /// (poll_now), for the calls its registrar holds that concern this
+    /// ledger, while the ledger is served; the Home inbox shows them.
+    void start_polling(std::chrono::seconds every = std::chrono::seconds(60));
+    void poll_now() const;
+    void poll_peers() const;
+
     /// An instance's contract evidence from the node
     /// (node::LedgerApi::instance_evidence). Until it is set, proofs of
     /// things with rules answer 503.
@@ -300,6 +310,28 @@ private:
     [[nodiscard]] http::Response exchange_read_route(const http::Request& request) const;
     void exchange_proposal_route(const http::Request& request, Respond respond) const;
     void exchange_consent_route(const http::Request& request, Respond respond) const;
+    /// Parties (parties.cpp): invitations out and in, the parties; the
+    /// calls they hold for this ledger's consent, one opened as a
+    /// proposal, and a consent sent to its home; and this console's own API
+    /// URL, an upload made here, a proposal or consent read for the page.
+    [[nodiscard]] http::Response parties_route(const http::Request& request) const;
+    [[nodiscard]] http::Response inbox_route(const http::Request& request) const;
+    [[nodiscard]] http::Response inbox_open_route(const http::Request& request) const;
+    void exchange_send_route(const http::Request& request, Respond respond) const;
+    [[nodiscard]] std::string api_url() const;
+    [[nodiscard]] std::string store_upload(const std::string& user, const std::string& name,
+                                           const Bytes& content) const;
+    [[nodiscard]] std::variant<nlohmann::json, http::Response>
+    read_exchange(const Signed& signer, const protocol::ExchangeFile& file,
+                  const std::string& language) const;
+    /// What a party's registrar last answered: its calls (JSON text), or why
+    /// it could not be asked.
+    struct PeerInbox {
+        protocol::Id ledger;
+        std::string calls = "[]";
+        std::string problem;
+        protocol::Timestamp at = 0;
+    };
     /// Proposes a call to this ledger's registrar, which holds it until the
     /// consents it waits for come online, then records it.
     void exchange_propose_route(const http::Request& request, Respond respond) const;
@@ -451,6 +483,12 @@ private:
     /// checked.
     mutable std::vector<protocol::Timestamp> recovery_failures_;
     mutable bool checking_recovery_ = false;
+    mutable std::map<std::string, PeerInbox> inbox_;
+    mutable std::mutex poll_mutex_;
+    mutable std::condition_variable_any poll_wake_;
+    mutable bool poll_asked_ = false;
+    /// Last, so that it stops before everything it reads goes.
+    std::jthread poller_;
 };
 
 } // namespace cexchain::console

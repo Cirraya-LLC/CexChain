@@ -184,6 +184,8 @@ add_test(NAME console_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/console.sh $<TARGET_FILE:cexchain>)
 add_test(NAME access_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/access.sh $<TARGET_FILE:cexchain>)
+add_test(NAME parties_end_to_end
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/parties.sh $<TARGET_FILE:cexchain>)
 add_test(NAME contracts_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/contracts.sh $<TARGET_FILE:cexchain>)
 # Proposal and consent files between ledgers (lending.bo: needs the compiler).

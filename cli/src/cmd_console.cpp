@@ -483,6 +483,8 @@ int run_person_console(const Args& args, const std::filesystem::path& dir,
     if (!first_run && keys.unlocked()) {
         deferred->open_now();
     }
+    // The parties' registrars, asked for calls waiting on this ledger.
+    web->start_polling();
 
     node::ServerOptions server_options;
     server_options.host = "127.0.0.1";

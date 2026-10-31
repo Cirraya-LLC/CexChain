@@ -218,7 +218,7 @@ The `cexchain` tool controls every part of a ledger:
 | Clusters | `cluster init`, `cluster join`, `cluster add`, `cluster status`, `cluster remove`, `cluster step-down` |
 | Replicas | `replica init`, `replica sync`, `replica status`, `replica promote` |
 | Backups | `backup create`, `backup verify`, `backup restore` |
-| Other organizations | `peer add`, `peer list`, `peer show`, `peer remove`, `access request`, `access send`, `access inbox`, `access grant`, `access fetch`, `access accept`, `access receipt`, `access list` |
+| Other organizations | `peer invite`, `peer accept`, `peer add`, `peer list`, `peer show`, `peer remove`, `access request`, `access send`, `access inbox`, `access grant`, `access fetch`, `access accept`, `access receipt`, `access list` |
 | Contracts | `contract deploy`, `contract show`, `contract list`, `contract retire`, `contract create`, `contract call`, `contract instance`, `contract instances`, `contract evidence`, `contract proposal`, `contract file show`, `contract propose`, `contract pending`, `contract consent`, `contract withdraw`, `contract send`, `contract fetch`, `contract verify`, `contract explain` |
 | Requests | `request list`, `request show`, `request answer`, `request cancel`, `request wait` |
 | Executors | `executor add`, `executor list`, `executor show`, `executor revoke`, `executor run`, `executor check`, `executor connector add\|list\|show\|remove`, `executor secret set\|list\|remove`, `executor journal list\|show`; `connector webhook`, `connector command` |
@@ -481,8 +481,16 @@ cexchain console settings show
   back; opening that on the first console records the call, citing the consent, with a tap. The
   page checks the consent's terms and the cited consents in the bytes it approves, and a consent
   to a step the thing has left is refused. "Propose online" gives the call to the console's own
-  registrar instead, which records it once the parties' consents come in through its API
-  (`contract consent --send`); the thing's page lists the calls it holds.
+  registrar instead, which records it once the parties' consents come in through its API; the
+  thing's page lists the calls it holds.
+- **Parties.** The Parties screen connects two consoles with one code each way: "Make an
+  invitation code" (as `peer invite`, with the console's own URL), and on the other console
+  "Accept", which adds the party and shows a code to send back. Each node then asks its parties'
+  registrars, every minute while unlocked and whenever Home opens, for calls waiting on its
+  consent; Home lists them ("Waiting for your consent"). Reading one fetches the thing's evidence
+  from its home (a home shows it to the ledgers a call it holds asks), verifies it, and shows it
+  as a proposal; the consent, given with a tap, goes to the home's registrar, which records the
+  call.
 - **Settings** show the ledger and its folder, the language new browsers start in, and the
   backup folder (`console settings show|set` from the command line). Scheduled backups to that
   folder are not written yet; until they are, use `cexchain backup create`.
@@ -570,9 +578,15 @@ Two parties, each with its own ledger, can share records without a platform betw
 reviewer asks another organization for one of its records:
 
 ```sh
-# Each side pins the other's ledger by its id, learned through a channel they trust.
-cexchain peer add holder --ledger-id <holder-ledger-id> --url https://ledger.holder.example --token-file holder.token
-cexchain peer add reviewer --ledger-id <reviewer-ledger-id> --url https://ledger.reviewer.example ...
+# Each side pins the other's ledger by its id. An invitation code carries it, with the
+# inviter's name, the URL of its API, and a token issued for the invited party: one code each
+# way, sent to that party only, and the fingerprint (the id's first 20 hex digits) compared by
+# voice. Accepting adds the peer, its token kept owner-only.
+cexchain peer invite reviewer --url https://ledger.holder.example      # on the holder: a cxp_ code
+cexchain peer accept cxp_... --name holder                              # on the reviewer
+cexchain peer invite holder --url https://ledger.reviewer.example      # and back
+cexchain peer accept cxp_... --name reviewer                            # on the holder
+# Or by hand: cexchain peer add holder --ledger-id <id> --url <url> --token-file holder.token
 
 # The reviewer asks (a request record on its own ledger, with a key made for this request).
 cexchain access request --peer holder --record <id> --purpose "annual review" \

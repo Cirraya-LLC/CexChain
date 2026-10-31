@@ -125,10 +125,6 @@ http::Response Console::exchange_read_route(const http::Request& request) const 
         return std::move(*refused);
     }
     const Signed& signer = std::get<Signed>(who);
-    const ledger::Ledger* served = ledger();
-    if (served == nullptr) {
-        return error(503, "unavailable", "the console has no ledger yet");
-    }
     const auto body =
         nlohmann::json::parse(request.body.begin(), request.body.end(), nullptr, false);
     if (!body.is_object()) {
@@ -138,8 +134,21 @@ http::Response Console::exchange_read_route(const http::Request& request) const 
     if (auto* refused = std::get_if<http::Response>(&read)) {
         return std::move(*refused);
     }
-    const protocol::ExchangeFile& file = std::get<protocol::ExchangeFile>(read);
-    const std::string language = language_of(body.value("language", ""));
+    auto shown = read_exchange(signer, std::get<protocol::ExchangeFile>(read),
+                               language_of(body.value("language", "")));
+    if (auto* refused = std::get_if<http::Response>(&shown)) {
+        return std::move(*refused);
+    }
+    return json(200, std::get<nlohmann::json>(shown));
+}
+
+std::variant<nlohmann::json, http::Response>
+Console::read_exchange(const Signed& signer, const protocol::ExchangeFile& file,
+                       const std::string& language) const {
+    const ledger::Ledger* served = ledger();
+    if (served == nullptr) {
+        return error(503, "unavailable", "the console has no ledger yet");
+    }
     nlohmann::json out{{"kind", std::string(protocol::name(file.kind))},
                        {"home", hex_of(file.home)},
                        {"instance", hex_of(file.instance)},
@@ -202,7 +211,7 @@ http::Response Console::exchange_read_route(const http::Request& request) const 
                 }
             }
         }
-        return json(200, out);
+        return out;
     }
     // A consent: verified for its own ledger, its terms the file's, for a
     // call on one of this ledger's things at its head now.
@@ -240,7 +249,7 @@ http::Response Console::exchange_read_route(const http::Request& request) const 
         out["current"] = i != nullptr && i->head == file.head;
         out["lapsed"] = consent->until < services_.clock->now();
     });
-    return json(200, out);
+    return out;
 }
 
 void Console::exchange_proposal_route(const http::Request& request, Respond respond) const {

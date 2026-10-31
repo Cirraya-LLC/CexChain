@@ -17,6 +17,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
+#include <cexchain/app/peers.hpp>
 #include <cexchain/app/records.hpp>
 #include <cexchain/app/session.hpp>
 #include <cexchain/app/support.hpp>
@@ -2014,6 +2015,61 @@ TEST_CASE("consents by file between two consoles: proposed, consented, and recor
             .status == 409);
     const std::string junk = uploaded(fa.w, a, "junk.cexchain", cexchain::Bytes{1, 2, 3});
     CHECK(fa.w.post_as("/console/api/exchange/read", {{"upload", junk}}, a).status == 422);
+}
+
+TEST_CASE("two consoles become parties with one code each way", "[console][parties]") {
+    FirstRunWorld fa;
+    Served alice(fa);
+    FirstRunWorld fb;
+    Served bob(fb);
+    const std::string a = fa.made["session"].get<std::string>();
+    const std::string b = fb.made["session"].get<std::string>();
+
+    const auto invited = fa.w.post_as("/console/api/parties", {{"invite", "bob"}}, a);
+    REQUIRE(invited.status == 200);
+    const std::string code = answer_of(invited)["code"].get<std::string>();
+    CHECK(code.starts_with("cxp_"));
+    const auto read = cexchain::app::decode_invitation(code);
+    REQUIRE(read);
+    CHECK(read->ledger == alice.session.state().ledger_id());
+    CHECK(read->url == std::optional<std::string>("http://localhost:7470"));
+    // One invitation per name.
+    CHECK(fa.w.post_as("/console/api/parties", {{"invite", "bob"}}, a).status == 409);
+
+    const auto accepted =
+        fb.w.post_as("/console/api/parties", {{"accept", code}, {"name", "alice"}}, b);
+    REQUIRE(accepted.status == 200);
+    CHECK(answer_of(accepted)["organization"] == "Alice");
+    const std::string reply = answer_of(accepted)["reply"].get<std::string>();
+    // Alice accepts it under the name she invited him with: no code back.
+    const auto back = fa.w.post_as("/console/api/parties", {{"accept", reply}, {"name", "bob"}}, a);
+    REQUIRE(back.status == 200);
+    CHECK(answer_of(back)["reply"].is_null());
+
+    const auto listed = answer_of(fa.w.get("/console/api/parties", a));
+    REQUIRE(listed["peers"].size() == 1);
+    CHECK(listed["peers"][0]["name"] == "bob");
+    CHECK(listed["peers"][0]["online"] == true);
+    CHECK(listed["peers"][0]["ledger"] ==
+          cexchain::to_hex(bob.session.state().ledger_id().bytes()));
+    CHECK(listed["waiting"].empty());
+    // Bob's console is not listening here: the inbox says so, by party.
+    const auto inbox = answer_of(fb.w.get("/console/api/inbox?refresh=1", b));
+    CHECK(inbox["inbox"].empty());
+    REQUIRE(inbox["problems"].size() == 1);
+    CHECK(inbox["problems"][0]["peer"] == "alice");
+
+    // Refused: not a code, a name taken, a viewer.
+    CHECK(fb.w.post_as("/console/api/parties", {{"accept", "cxp_nonsense"}, {"name", "x"}}, b)
+              .status == 400);
+    CHECK(fb.w.post_as("/console/api/parties", {{"accept", code}, {"name", "alice"}}, b).status ==
+          409);
+    const std::string viewer = fb.w.session_for("Vera", console::Role::viewer);
+    CHECK(fb.w.post_as("/console/api/parties", {{"invite", "carol"}}, viewer).status == 403);
+    CHECK(fb.w.get("/console/api/parties", viewer).status == 200);
+    // Removed: the peer and its token.
+    CHECK(fa.w.post_as("/console/api/parties", {{"remove", "bob"}}, a).status == 200);
+    CHECK(answer_of(fa.w.get("/console/api/parties", a))["peers"].empty());
 }
 
 #endif
