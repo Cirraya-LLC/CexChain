@@ -553,7 +553,6 @@ int run_person_console(const Args& args, const std::filesystem::path& dir,
     std::filesystem::create_directories(state);
     app::write_file(state / "port", as_bytes(std::to_string(got) + "\n"), true);
     app::write_file(state / "url", as_bytes(url + "\n"), true);
-    app::write_file(state / "pid", as_bytes(std::to_string(::getpid()) + "\n"), true);
 
     // The first run: a setup link for whoever sets it up, in a private file
     // and a page that opens it, never on the command line or in a log.
@@ -576,6 +575,8 @@ int run_person_console(const Args& args, const std::filesystem::path& dir,
         app::write_file(state / "setup.html", as_bytes(page), true);
         opener = state / "setup.html";
     }
+    // Running, as `console status` says, once everything above is written.
+    app::write_file(state / "pid", as_bytes(std::to_string(::getpid()) + "\n"), true);
     const bool no_browser = args.has("no-browser") || std::getenv("CEXCHAIN_NO_BROWSER") != nullptr;
     if (args.json()) {
         print_json(
