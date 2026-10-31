@@ -25,6 +25,7 @@
 #include <cexchain/app/records.hpp>
 #include <cexchain/app/session.hpp>
 #include <cexchain/app/support.hpp>
+#include <cexchain/app/updates.hpp>
 #include <cexchain/app/witness.hpp>
 #include <cexchain/console/backups.hpp>
 #include <cexchain/console/console.hpp>
@@ -1235,6 +1236,85 @@ TEST_CASE("the console's settings: language and backup folder", "[console][setti
     // A damaged file is refused, never half read.
     cexchain::app::write_file(w.state / "settings.json", cexchain::as_bytes("[1]"), true);
     CHECK_THROWS(console::load_settings(w.state));
+}
+
+TEST_CASE("the console's Settings show what the last update check found",
+          "[console][settings][updates]") {
+    ConsoleWorld w;
+    static_cast<void>(w.session_for("Olive", console::Role::owner));
+    // A fresh session each time: the test's clock moves days ahead.
+    auto update = [&] {
+        const auto answer = w.get("/console/api/settings", w.sessions.create("Olive"));
+        REQUIRE(answer.status == 200);
+        return nlohmann::json::parse(body(answer))["update"];
+    };
+    // A build with no release key checks nothing.
+    w.web.maybe_check_for_update();
+    CHECK(update().is_null());
+
+    auto key = cexchain::crypto::openssl::KeyPair::generate(cexchain::crypto::SigAlg::ed25519);
+    REQUIRE(key);
+    const auto manifest = w.dir.path / "release-manifest.json";
+    auto manifest_text = [](const std::string& version) {
+        return nlohmann::json{{"product", "cexchain"},
+                              {"version", version},
+                              {"released", "2099-01-01"},
+                              {"notes", "https://example.org/notes"},
+                              {"files", nlohmann::json::array()}}
+            .dump();
+    };
+    auto publish = [&](const std::string& version) {
+        const std::string text = manifest_text(version);
+        cexchain::Bytes message(cexchain::app::release_manifest_context.begin(),
+                                cexchain::app::release_manifest_context.end());
+        message.push_back(0);
+        message.insert(message.end(), text.begin(), text.end());
+        const auto signature = key->sign(message);
+        REQUIRE(signature);
+        cexchain::app::write_file(manifest, cexchain::as_bytes(text), false);
+        cexchain::app::write_file(manifest.string() + ".sig", *signature, false);
+    };
+    publish("99.0.0");
+    w.web.set_update_source(manifest.string(), key->public_key(), "0.0.1");
+    CHECK(update()["checked_at"].is_null());
+    CHECK(update()["current"] == "0.0.1");
+
+    w.web.maybe_check_for_update();
+    auto seen = update();
+    CHECK(seen["latest"] == "99.0.0");
+    CHECK(seen["newer"] == true);
+    CHECK(seen["notes"] == "https://example.org/notes");
+    CHECK(seen["checked_at"] == w.clock.now());
+
+    // Once a day: a manifest changed after signing is seen the next day, and
+    // refused.
+    cexchain::app::write_file(manifest, cexchain::as_bytes(manifest_text("99.0.1")), false);
+    w.clock.advance(60'000);
+    w.web.maybe_check_for_update();
+    CHECK(update()["latest"] == "99.0.0");
+    w.clock.advance(24 * 60 * 60'000);
+    w.web.maybe_check_for_update();
+    seen = update();
+    CHECK(seen["error"].get<std::string>().starts_with("not verified"));
+    CHECK_FALSE(seen.contains("latest"));
+
+    // After a failure, again an hour later.
+    publish("0.0.1");
+    w.clock.advance(30 * 60'000);
+    w.web.maybe_check_for_update();
+    CHECK(update().contains("error"));
+    w.clock.advance(31 * 60'000);
+    w.web.maybe_check_for_update();
+    seen = update();
+    CHECK_FALSE(seen.contains("error"));
+    CHECK(seen["newer"] == false);
+    CHECK(seen["latest"] == "0.0.1");
+
+    // A manifest that is gone: the problem is shown, nothing else.
+    std::filesystem::remove(manifest);
+    w.clock.advance(24 * 60 * 60'000);
+    w.web.maybe_check_for_update();
+    CHECK(update()["error"].get<std::string>().starts_with("no such file"));
 }
 
 TEST_CASE("a first-run passkey that gives its PRF output unlocks the console",

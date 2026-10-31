@@ -3,13 +3,21 @@
 
 #include <algorithm>
 #include <charconv>
+#include <filesystem>
+#include <system_error>
 
 #include <nlohmann/json.hpp>
 
+#include <cexchain/app/errors.hpp>
+#include <cexchain/app/support.hpp>
 #include <cexchain/app/updates.hpp>
+#include <cexchain/node/client.hpp>
 
 #ifndef CEXCHAIN_RELEASE_KEY
 #define CEXCHAIN_RELEASE_KEY ""
+#endif
+#ifndef CEXCHAIN_UPDATE_URL
+#define CEXCHAIN_UPDATE_URL ""
 #endif
 
 namespace cexchain::app {
@@ -71,6 +79,76 @@ std::optional<crypto::PublicKey> built_in_release_key() {
         return std::nullopt;
     }
     return crypto::PublicKey{crypto::SigAlg::ed25519, *bytes};
+}
+
+std::string built_in_update_url() {
+    return CEXCHAIN_UPDATE_URL;
+}
+
+Bytes fetch_release_file(const std::string& source, std::size_t max) {
+    if (!source.starts_with("https://") && !source.starts_with("http://")) {
+        std::error_code ec;
+        if (!std::filesystem::is_regular_file(source, ec)) {
+            throw ActionError{"no such file: " + source};
+        }
+        if (std::filesystem::file_size(source, ec) > max) {
+            throw ActionError{"too large: " + source};
+        }
+        return read_file(source);
+    }
+    node::ClientOptions options;
+    options.max_body = max;
+    options.follow_redirects = false;
+    std::string url = source;
+    for (int redirects = 0;; ++redirects) {
+        // The origin, then the path with any query (a download's is signed).
+        const std::size_t path = url.find('/', url.find("://") + 3);
+        const std::string origin = url.substr(0, path);
+        const std::string target = path == std::string::npos ? "/" : url.substr(path);
+        auto base = node::Url::parse(origin);
+        if (!base) {
+            throw ActionError{"not a URL: " + url};
+        }
+        node::Client client(std::move(*base), options);
+        auto response = client.request("GET", target);
+        if (!response) {
+            throw ActionError{"fetching " + url + ": " + std::string(response.error().detail)};
+        }
+        const auto location = response->header("location");
+        const int status = response->status;
+        if ((status == 301 || status == 302 || status == 303 || status == 307 || status == 308) &&
+            location && redirects < 5) {
+            if (!location->starts_with("https://") &&
+                !(location->starts_with("http://") && url.starts_with("http://"))) {
+                throw ActionError{"fetching " + source + ": redirected to " +
+                                  std::string(*location)};
+            }
+            url = std::string(*location);
+            continue;
+        }
+        if (status != 200) {
+            throw ActionError{"fetching " + url + ": status " + std::to_string(status)};
+        }
+        return std::move(response->body);
+    }
+}
+
+UpdateCheck check_for_update(const crypto::Provider& provider, const std::string& source,
+                             const crypto::PublicKey& key, std::string_view current) {
+    const Bytes manifest = fetch_release_file(source, 1024 * 1024);
+    const Bytes signature = fetch_release_file(source + ".sig", 1024);
+    auto read = read_release_manifest(provider, manifest, signature, key);
+    if (!read) {
+        if (read.error().code == Errc::verification_failed) {
+            throw NotVerified{std::string(read.error().detail)};
+        }
+        throw ActionError{std::string(read.error().detail)};
+    }
+    const auto compared = compare_versions(read->version, current);
+    if (!compared) {
+        throw ActionError{"the manifest's version is not one: " + read->version};
+    }
+    return UpdateCheck{std::move(*read), source, *compared};
 }
 
 Result<ReleaseManifest> read_release_manifest(const crypto::Provider& provider, ByteView manifest,

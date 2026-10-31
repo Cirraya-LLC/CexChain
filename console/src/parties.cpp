@@ -211,6 +211,7 @@ void Console::start_polling(std::chrono::seconds every) {
         while (!stop.stop_requested()) {
             poll_peers();
             maybe_back_up();
+            maybe_check_for_update();
             std::unique_lock lock(poll_mutex_);
             poll_wake_.wait_for(lock, stop, every, [this] { return poll_asked_; });
             poll_asked_ = false;

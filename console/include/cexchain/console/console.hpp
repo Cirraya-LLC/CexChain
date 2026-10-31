@@ -279,6 +279,16 @@ public:
         on_ready_ = std::move(ready);
     }
 
+    /// Update checks, notify only (settings.cpp): the release manifest's
+    /// URL or path and the key it must be signed with, and this build's
+    /// version. Without them (a build with no release key), nothing is
+    /// checked. The poller checks once a day; Settings show the result.
+    void set_update_source(std::string manifest, crypto::PublicKey key, std::string current) {
+        const std::lock_guard lock(update_mutex_);
+        update_source_ = UpdateSource{std::move(manifest), std::move(key), std::move(current)};
+    }
+    void maybe_check_for_update() const;
+
     /// Answers a request whose path is /console or under /console/.
     [[nodiscard]] http::Response handle(const http::Request& request) const;
     /// The same through `respond`: an approval's answer comes when the ledger
@@ -622,6 +632,18 @@ private:
     mutable std::map<std::string, std::string> refused_;
     mutable std::map<std::string, std::string> not_cosigned_;
     mutable std::map<std::string, Handed> handed_;
+    struct UpdateSource {
+        std::string manifest;
+        crypto::PublicKey key;
+        std::string current;
+    };
+    [[nodiscard]] nlohmann::json update_view() const;
+    mutable std::mutex update_mutex_;
+    std::optional<UpdateSource> update_source_;
+    /// The last check's result for Settings, and when it was tried.
+    mutable nlohmann::json update_state_;
+    mutable protocol::Timestamp update_tried_ = 0;
+    mutable bool update_failed_ = false;
     /// One backup at a time.
     mutable std::mutex backup_mutex_;
     mutable std::mutex poll_mutex_;

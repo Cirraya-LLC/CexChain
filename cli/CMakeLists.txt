@@ -39,8 +39,7 @@ target_link_libraries(cexchain PRIVATE cexchain::app cexchain::console cexchain:
 # contract show and contract verify can say what they can of it without the
 # compiler.
 target_link_libraries(cexchain PRIVATE cexchain::bo_front)
-target_compile_definitions(cexchain PRIVATE CEXCHAIN_VERSION="${PROJECT_VERSION}"
-                                           CEXCHAIN_UPDATE_URL="${CEXCHAIN_UPDATE_URL}")
+target_compile_definitions(cexchain PRIVATE CEXCHAIN_VERSION="${PROJECT_VERSION}")
 target_compile_features(cexchain PRIVATE cxx_std_26)
 cexchain_target_defaults(cexchain)
 

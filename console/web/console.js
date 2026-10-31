@@ -1226,6 +1226,30 @@ async function newDocumentScreen() {
 
 // --- Settings ----------------------------------------------------------------------
 
+/// What the console's last update check found: notify only.
+function updateStatus(update) {
+    const box = el("div", { id: "update-status" });
+    if (!update) {
+        box.append(el("p", { class: "hint", text: t("settings.update_none") }));
+    } else if (update.error) {
+        box.append(el("p", { class: "problem warning", text: t("settings.update_failed", {
+            time: timeText(update.checked_at), problem: update.error }) }));
+    } else if (!update.checked_at) {
+        box.append(el("p", { class: "hint", text: t("settings.update_waiting", update) }));
+    } else if (update.newer) {
+        box.append(el("p", { class: "notice", text: t("settings.update_available", update) }));
+        if (/^https:\/\//.test(update.notes ?? "")) {
+            box.append(el("p", {}, el("a", { href: update.notes, rel: "noopener noreferrer",
+                                             target: "_blank", text: t("settings.update_notes") })));
+        }
+        box.append(el("p", { class: "hint", text: t("settings.update_how") }));
+    } else {
+        box.append(el("p", { text: t("settings.update_current", {
+            current: update.current, time: timeText(update.checked_at) }) }));
+    }
+    return box;
+}
+
 async function settingsScreen() {
     const settings = await api("GET", "settings");
     const parts = [el("h1", { text: t("settings.title") })];
@@ -1290,6 +1314,7 @@ async function settingsScreen() {
         const save = el("button", { type: "button", class: "primary", text: t("settings.save") });
         save.addEventListener("click", async () => {
             save.disabled = true;
+            notice.replaceChildren();
             try {
                 const typed = folder.value.trim();
                 const saved = await api("POST", "settings", {
@@ -1308,6 +1333,8 @@ async function settingsScreen() {
     } else {
         parts.push(el("p", { class: "hint", text: t("settings.read_only") }));
     }
+
+    parts.push(el("h2", { text: t("settings.updates") }), updateStatus(settings.update));
 
     parts.push(el("h2", { text: t("settings.keys") }),
                el("p", { id: "keys-state", text: t(`settings.keys_state.${settings.keys}`) }));

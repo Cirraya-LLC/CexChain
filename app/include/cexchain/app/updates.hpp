@@ -48,6 +48,36 @@ struct ReleaseManifest {
 /// The release key built into this binary, if any.
 [[nodiscard]] std::optional<crypto::PublicKey> built_in_release_key();
 
+/// The release manifest's URL built into this binary (CMake
+/// -DCEXCHAIN_UPDATE_URL=https://...), or "".
+[[nodiscard]] std::string built_in_update_url();
+
+/// A release's file, named by an http(s) URL or a path, at most `max`
+/// bytes. A web server's redirects are followed (a release's "latest" link
+/// is one), at most five, never from https to http, each URL's query kept.
+/// Throws ActionError if it cannot be read.
+[[nodiscard]] Bytes fetch_release_file(const std::string& source, std::size_t max);
+
+/// A manifest or package that is not what the release key signed.
+struct NotVerified {
+    std::string message;
+};
+
+struct UpdateCheck {
+    ReleaseManifest manifest;
+    /// Where the manifest was read (relative file URLs are beside it).
+    std::string source;
+    /// compare_versions(manifest.version, current).
+    int compared = 0;
+};
+
+/// Fetches the manifest at `source` and its signature (`source` + ".sig"),
+/// checks it with `key`, and compares its version with `current`. Throws
+/// NotVerified if the signature does not verify, ActionError otherwise.
+[[nodiscard]] UpdateCheck check_for_update(const crypto::Provider& provider,
+                                           const std::string& source, const crypto::PublicKey& key,
+                                           std::string_view current);
+
 /// Checks the signature, then reads the manifest; Errc::verification_failed
 /// if the signature does not verify, Errc::malformed if it is not one.
 [[nodiscard]] Result<ReleaseManifest> read_release_manifest(const crypto::Provider& provider,

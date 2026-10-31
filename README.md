@@ -127,8 +127,9 @@ with their sizes and SHA-256 digests, and is signed with Cirraya's release key (
 public half is built into release builds (`-DCEXCHAIN_RELEASE_KEY=`, with
 `-DCEXCHAIN_UPDATE_URL=`). `cexchain update check` says whether a newer version exists;
 `update install` downloads this computer's package, checks it against the signed manifest, and
-says how to install it (on macOS it opens the Installer). A build without a release key checks
-nothing unless given one (`--release-key`, `--manifest`). `tools/package/manifest.py` writes a
+says how to install it (on macOS it opens the Installer). The console checks once a day and says
+what it found in Settings. A build without a release key checks nothing unless given one
+(`--release-key`, `--manifest`). `tools/package/manifest.py` writes a
 release's manifest, and `update sign` signs it.
 
 ## Quick start

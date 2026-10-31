@@ -25,84 +25,24 @@ namespace cexchain::cli {
 
 namespace {
 
-#ifndef CEXCHAIN_UPDATE_URL
-#define CEXCHAIN_UPDATE_URL ""
-#endif
-
 bool is_web(std::string_view source) {
     return source.starts_with("https://") || source.starts_with("http://");
 }
 
-/// A file named by a URL or a path, at most `max` bytes. A web server's
-/// redirects are followed (a release's "latest" link is one), at most five,
-/// never from https to http.
-Bytes fetch(const std::string& source, std::size_t max) {
-    if (!is_web(source)) {
-        if (!std::filesystem::is_regular_file(source)) {
-            throw CommandError{"no such file: " + source};
-        }
-        return read_file(source);
-    }
-    node::ClientOptions options;
-    options.max_body = max;
-    options.follow_redirects = false;
-    std::string url = source;
-    for (int redirects = 0;; ++redirects) {
-        // The origin, then the path with any query (a download's is signed).
-        const std::size_t path = url.find('/', url.find("://") + 3);
-        const std::string origin = url.substr(0, path);
-        const std::string target = path == std::string::npos ? "/" : url.substr(path);
-        node::Client client(unwrap(node::Url::parse(origin), "reading the URL"), options);
-        const auto response = unwrap(client.request("GET", target), "fetching " + url);
-        const auto location = response.header("location");
-        if ((response.status == 301 || response.status == 302 || response.status == 303 ||
-             response.status == 307 || response.status == 308) &&
-            location && redirects < 5) {
-            if (!location->starts_with("https://") &&
-                !(location->starts_with("http://") && url.starts_with("http://"))) {
-                throw CommandError{"fetching " + source + ": redirected to " +
-                                   std::string(*location)};
-            }
-            url = std::string(*location);
-            continue;
-        }
-        if (response.status != 200) {
-            throw CommandError{"fetching " + url + ": status " + std::to_string(response.status)};
-        }
-        return response.body;
-    }
-}
-
-struct Checked {
-    app::ReleaseManifest manifest;
-    std::string source;
-    int compared = 0;
-};
-
 /// The manifest, its signature checked, compared with this version; or
 /// nothing if this build checks no updates.
-std::optional<Checked> checked_manifest(const Args& args) {
+std::optional<app::UpdateCheck> checked_manifest(const Args& args) {
     std::optional<crypto::PublicKey> key;
     if (const auto file = args.get("release-key")) {
         key = load_public_key(*file);
     } else {
         key = app::built_in_release_key();
     }
-    const std::string source = args.get("manifest").value_or(CEXCHAIN_UPDATE_URL);
+    const std::string source = args.get("manifest").value_or(app::built_in_update_url());
     if (!key || source.empty()) {
         return std::nullopt;
     }
-    const Bytes manifest = fetch(source, 1024 * 1024);
-    const Bytes signature = fetch(source + ".sig", 1024);
-    auto read = app::read_release_manifest(shared_provider(), manifest, signature, *key);
-    if (!read) {
-        throw CommandError{std::string(read.error().detail)};
-    }
-    const auto compared = app::compare_versions(read->version, CEXCHAIN_VERSION);
-    if (!compared) {
-        throw CommandError{"the manifest's version is not one: " + read->version};
-    }
-    return Checked{std::move(*read), source, *compared};
+    return app::check_for_update(shared_provider(), source, *key, CEXCHAIN_VERSION);
 }
 
 /// The kinds of package this computer installs, the first it prefers first.
@@ -122,11 +62,11 @@ std::vector<std::string> package_kinds() {
 #endif
 }
 
-int refused(const Args& args, const CommandError& e) {
+int refused(const Args& args, const std::string& message) {
     if (args.json()) {
-        print_json({{"ok", false}, {"error", e.message}});
+        print_json({{"ok", false}, {"error", message}});
     } else {
-        std::println("NOT VERIFIED: {}", e.message);
+        std::println("NOT VERIFIED: {}", message);
     }
     return exit_not_verified;
 }
@@ -134,14 +74,11 @@ int refused(const Args& args, const CommandError& e) {
 } // namespace
 
 int cmd_update_check(const Args& args) {
-    std::optional<Checked> checked;
+    std::optional<app::UpdateCheck> checked;
     try {
         checked = checked_manifest(args);
-    } catch (const CommandError& e) {
-        if (e.message.find("not signed") != std::string::npos) {
-            return refused(args, e);
-        }
-        throw;
+    } catch (const app::NotVerified& e) {
+        return refused(args, e.message);
     }
     if (!checked) {
         if (args.json()) {
@@ -186,14 +123,11 @@ int cmd_update_check(const Args& args) {
 }
 
 int cmd_update_install(const Args& args) {
-    std::optional<Checked> checked;
+    std::optional<app::UpdateCheck> checked;
     try {
         checked = checked_manifest(args);
-    } catch (const CommandError& e) {
-        if (e.message.find("not signed") != std::string::npos) {
-            return refused(args, e);
-        }
-        throw;
+    } catch (const app::NotVerified& e) {
+        return refused(args, e.message);
     }
     if (!checked) {
         throw CommandError{"this build checks no updates (no release key or manifest built in)"};
@@ -216,11 +150,11 @@ int cmd_update_install(const Args& args) {
     if (!is_web(url) && !std::filesystem::path(url).is_absolute()) {
         url = (std::filesystem::path(checked->source).parent_path() / url).string();
     }
-    const Bytes package = fetch(url, static_cast<std::size_t>(file->size) + 1);
+    const Bytes package = app::fetch_release_file(url, static_cast<std::size_t>(file->size) + 1);
     const auto digest =
         unwrap(shared_provider().digest(crypto::HashAlg::sha256, package), "hashing");
     if (package.size() != file->size || to_hex(digest.bytes()) != file->sha256) {
-        return refused(args, CommandError{"the package is not the one the manifest names"});
+        return refused(args, "the package is not the one the manifest names");
     }
     const std::filesystem::path dir = args.get("dir").value_or(".");
     std::filesystem::create_directories(dir);

@@ -25,6 +25,7 @@
 
 #include <cexchain/app/peers.hpp>
 #include <cexchain/app/support.hpp>
+#include <cexchain/app/updates.hpp>
 #include <cexchain/console/activity.hpp>
 #include <cexchain/console/backups.hpp>
 #include <cexchain/console/deferred.hpp>
@@ -471,6 +472,10 @@ int run_person_console(const Args& args, const std::filesystem::path& dir,
     console::Sessions sessions(state, shared_provider(), clock, entropy);
     auto web = std::make_shared<console::Console>(console::Services{
         state, &shared_provider(), &clock, &entropy, &sessions, &keys, console_compiler()});
+    // Release builds check for updates, and Settings say what they found.
+    if (const auto key = app::built_in_release_key(); key && !app::built_in_update_url().empty()) {
+        web->set_update_source(app::built_in_update_url(), *key, CEXCHAIN_VERSION);
+    }
     node::ApiOptions base;
     base.directory = dir;
     base.checkpoint_interval = std::chrono::seconds(60);
