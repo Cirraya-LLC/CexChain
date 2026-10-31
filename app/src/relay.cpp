@@ -73,6 +73,7 @@ Result<Bytes> sign_relay_message(const crypto::Signer& log_key, const RelayEnvel
     if (e.answers) {
         map.push_back({key(5), Value::bytes(ByteView(*e.answers))});
     }
+    map.push_back({key(6), Value::unsigned_integer(e.until)});
     auto payload = cbor::encode(Value::map(std::move(map)));
     if (!payload) {
         return std::unexpected(payload.error());
@@ -101,7 +102,9 @@ Result<RelayMessage> parse_relay_message(ByteView message) {
     const auto* parts = sealed == nullptr ? nullptr : sealed->as_array();
     const auto id = relay_id_from(value->find(3));
     const Value* answers = value->find(5);
-    if (!exact_keys(*value, answers == nullptr ? 4 : 5) || parts == nullptr || parts->size() != 2 ||
+    const Value* until = value->find(6);
+    if (!exact_keys(*value, answers == nullptr ? 5 : 6) || until == nullptr ||
+        !until->as_uint64() || parts == nullptr || parts->size() != 2 ||
         (*parts)[0].as_bytes() == nullptr || (*parts)[1].as_bytes() == nullptr || !id ||
         (answers != nullptr && !relay_id_from(answers))) {
         return fail(Errc::malformed, "not a relay message");
@@ -116,6 +119,7 @@ Result<RelayMessage> parse_relay_message(ByteView message) {
     out.envelope.from = *from;
     out.envelope.id = *id;
     out.envelope.sealed = {*(*parts)[0].as_bytes(), *(*parts)[1].as_bytes()};
+    out.envelope.until = *until->as_uint64();
     if (answers != nullptr) {
         out.envelope.answers = relay_id_from(answers);
     }

@@ -27,7 +27,8 @@
 /// A message on the relay is a COSE_Sign1 by the sender's log key (external
 /// data "CexChain relay message v1") over
 ///   {1: to (ledger id), 2: from (ledger id), 3: id (16 bytes),
-///    4: [encapsulated key, ciphertext], ? 5: id of the request it answers}
+///    4: [encapsulated key, ciphertext], ? 5: id of the request it answers,
+///    6: until (ms since the epoch)}
 /// A request is sealed (HPKE, info "CexChain relay request v1") to the
 /// party's relay key:
 ///   {1: method, 2: path, 3: content type, 4: body, 5: bearer token,
@@ -55,7 +56,14 @@ struct RelayEnvelope {
     RelayId id{};
     crypto::openssl::HpkeSealed sealed;
     std::optional<RelayId> answers;
+    /// When the message is no use any more (ms since the epoch): the relay
+    /// drops it then, and a request found later is never answered (a party
+    /// offline for a day does not answer a day's polls when it comes back).
+    protocol::Timestamp until = 0;
 };
+
+/// How long a request waits for its answer, at most.
+inline constexpr protocol::Timestamp max_relay_wait = 10 * 60'000;
 
 struct RelayRequest {
     std::string method;

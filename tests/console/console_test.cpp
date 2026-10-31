@@ -2552,9 +2552,12 @@ TEST_CASE("a relay carries sealed requests and answers between witnessed ledgers
         "cxt_peer-token",
         cexchain::Bytes(answer_key->public_key().begin(), answer_key->public_key().end())};
     cexchain::app::RelayEnvelope envelope{
-        b, a, id,
+        b,
+        a,
+        id,
         *cexchain::app::seal_relay_request(bob_relay_key->public_key(), b, a, id, request),
-        std::nullopt};
+        std::nullopt,
+        t + 60'000};
     // Signed by another ledger's key, it is refused.
     CHECK(call("POST", "/v1/relay/messages", *cexchain::app::sign_relay_message(bob_log, envelope),
                std::nullopt, t)
@@ -2599,7 +2602,8 @@ TEST_CASE("a relay carries sealed requests and answers between witnessed ledgers
     const RelayId answer_id{9, 9};
     const cexchain::app::RelayAnswer reply{200, "application/cbor", {0xa0}};
     const cexchain::app::RelayEnvelope back{
-        a, b, answer_id, *cexchain::app::seal_relay_answer(*opened, b, a, id, reply), id};
+        a,  b,         answer_id, *cexchain::app::seal_relay_answer(*opened, b, a, id, reply),
+        id, t + 60'000};
     REQUIRE(call("POST", "/v1/relay/messages", *cexchain::app::sign_relay_message(bob_log, back),
                  std::nullopt, t + 1'000)
                 ->status == 201);
@@ -2639,6 +2643,26 @@ TEST_CASE("a relay carries sealed requests and answers between witnessed ledgers
         REQUIRE(late);
         CHECK(messages(*late).empty());
     }
+
+    // A message past its time is refused, and one that waits past it goes.
+    envelope.id = RelayId{7};
+    envelope.until = t - 1;
+    CHECK(call("POST", "/v1/relay/messages",
+               *cexchain::app::sign_relay_message(alice_log, envelope), std::nullopt, t)
+              ->status == 422);
+    envelope.until = t + 30'000;
+    REQUIRE(call("POST", "/v1/relay/messages",
+                 *cexchain::app::sign_relay_message(alice_log, envelope), std::nullopt, t)
+                ->status == 201);
+    CHECK(relay.mailbox(b).first == 2);
+    CHECK(messages(*call("GET", mailbox_b, {}, auth(bob_log, b, t + 31'000), t + 31'000)).size() ==
+          1);
+    REQUIRE(call("DELETE",
+                 "/v1/relay/messages/" + cexchain::to_hex(cexchain::ByteView(RelayId{7})) +
+                     "?to=" + cexchain::to_hex(b.bytes()),
+                 {}, auth(bob_log, b, t + 31'000), t + 31'000)
+                ->status == 404); // gone with its time
+    envelope.until = t + 60'000;
 
     // Quotas: three messages in a mailbox.
     for (std::uint8_t n = 10; n < 13; ++n) {

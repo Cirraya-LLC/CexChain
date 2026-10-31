@@ -217,22 +217,22 @@ void ledger_seeds(const Seeds& seeds) {
         "protocol_parse_fuzz", "cosign-request-rotated",
         must(protocol::encode_cosign_request(must(ledger.cosign_request(witnessed), "request")),
              "encode"));
-    // A relay message: {1: to, 2: from, 3: id, 4: [enc, ciphertext]},
+    // A relay message: {1: to, 2: from, 3: id, 4: [enc, ciphertext], 6: until},
     // signed by the sender's log key over the relay's context.
     {
         cose::SignOptions options;
         constexpr std::string_view context = "CexChain relay message v1";
         options.external_aad =
             ByteView(reinterpret_cast<const std::uint8_t*>(context.data()), context.size());
-        const Bytes payload =
-            must(cbor::encode(cbor::Value::map(
-                     {{cbor::Value::integer(1), cbor::Value::bytes(ledger.id().bytes())},
-                      {cbor::Value::integer(2), cbor::Value::bytes(ledger.id().bytes())},
-                      {cbor::Value::integer(3), cbor::Value::bytes(Bytes(16, 7))},
-                      {cbor::Value::integer(4),
-                       cbor::Value::array({cbor::Value::bytes(Bytes(32, 1)),
-                                           cbor::Value::bytes(Bytes(48, 2))})}})),
-                 "encode");
+        const Bytes payload = must(
+            cbor::encode(cbor::Value::map(
+                {{cbor::Value::integer(1), cbor::Value::bytes(ledger.id().bytes())},
+                 {cbor::Value::integer(2), cbor::Value::bytes(ledger.id().bytes())},
+                 {cbor::Value::integer(3), cbor::Value::bytes(Bytes(16, 7))},
+                 {cbor::Value::integer(4), cbor::Value::array({cbor::Value::bytes(Bytes(32, 1)),
+                                                               cbor::Value::bytes(Bytes(48, 2))})},
+                 {cbor::Value::integer(6), cbor::Value::unsigned_integer(1'800'000'060'000)}})),
+            "encode");
         seeds.write("relay_message_fuzz", "message",
                     must(cose::sign(log2, payload, options), "sign"));
     }

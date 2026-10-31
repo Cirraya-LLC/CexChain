@@ -135,10 +135,21 @@ node::http::ClientResponse relayed(const node::Peer& peer, std::string_view meth
         Bytes(body.begin(), body.end()),
         token_of(peer),
         Bytes(answer_key.public_key().begin(), answer_key.public_key().end())};
+    // No use once the asker has stopped waiting.
+    const protocol::Timestamp until =
+        ledger::SystemClock{}.now() +
+        std::min<protocol::Timestamp>(
+            static_cast<protocol::Timestamp>(
+                std::chrono::duration_cast<std::chrono::milliseconds>(wait).count()) +
+                5'000,
+            max_relay_wait);
     const RelayEnvelope envelope{
-        peer.ledger_id, from, id,
+        peer.ledger_id,
+        from,
+        id,
         unwrap(seal_relay_request(route.key, peer.ledger_id, from, id, request), "sealing"),
-        std::nullopt};
+        std::nullopt,
+        until};
     post(route.url, route.witness, unwrap(sign_relay_message(*log_key, envelope), "signing"),
          &sender);
 
@@ -283,7 +294,10 @@ std::size_t RelayAgent::once(std::chrono::seconds wait) {
                                   .request("DELETE", "/v1/relay/messages/" + id +
                                                          "?to=" + to_hex(ledger_.bytes())));
         };
-        if (m.envelope.to != ledger_ || answered_.contains(id)) {
+        // Not for this ledger, answered already, or asked by someone who
+        // stopped waiting: taken without an answer.
+        if (m.envelope.to != ledger_ || answered_.contains(id) ||
+            m.envelope.until <= ledger::SystemClock{}.now()) {
             take();
             continue;
         }
@@ -323,11 +337,14 @@ std::size_t RelayAgent::once(std::chrono::seconds wait) {
                 answer.status = 504;
             }
         }
-        const RelayEnvelope back{m.envelope.from, ledger_, fresh_id(),
+        const RelayEnvelope back{m.envelope.from,
+                                 ledger_,
+                                 fresh_id(),
                                  unwrap(seal_relay_answer(*request, m.envelope.to, m.envelope.from,
                                                           m.envelope.id, answer),
                                         "sealing the answer"),
-                                 m.envelope.id};
+                                 m.envelope.id,
+                                 m.envelope.until};
         post(own_.url, own_.witness, unwrap(sign_relay_message(*key, back), "signing"), nullptr);
         answered_.insert(id);
         if (answered_.size() > 10'000) {

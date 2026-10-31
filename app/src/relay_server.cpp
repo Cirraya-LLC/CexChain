@@ -71,32 +71,47 @@ std::optional<crypto::PublicKey> log_key_of(const std::filesystem::path& witness
     }
 }
 
-/// <sent at, 16 digits>-<id hex>[-<id of the request it answers>].msg:
-/// names sort by arrival, and say which messages are answers.
-std::string message_name(protocol::Timestamp at, const RelayEnvelope& e) {
+std::string digits16(protocol::Timestamp at) {
     std::string digits = std::to_string(at);
     digits.insert(0, digits.size() < 16 ? 16 - digits.size() : 0, '0');
-    return digits + "-" + to_hex(ByteView(e.id)) +
+    return digits;
+}
+
+/// <sent at>-<until>-<id hex>[-<id of the request it answers>].msg, the times
+/// in 16 digits: names sort by arrival, and say when a message expires and
+/// which messages are answers.
+std::string message_name(protocol::Timestamp at, const RelayEnvelope& e) {
+    return digits16(at) + "-" + digits16(e.until) + "-" + to_hex(ByteView(e.id)) +
            (e.answers ? "-" + to_hex(ByteView(*e.answers)) : std::string()) + ".msg";
 }
 
 /// The id a message's file name gives, and the request it answers, if any.
 std::pair<std::string, std::string> ids_of(const std::filesystem::path& file) {
     const std::string stem = file.stem().string();
-    const std::string id = stem.size() >= 49 ? stem.substr(17, 32) : std::string();
-    const std::string answers = stem.size() == 82 ? stem.substr(50, 32) : std::string();
+    const std::string id = stem.size() >= 66 ? stem.substr(34, 32) : std::string();
+    const std::string answers = stem.size() == 99 ? stem.substr(67, 32) : std::string();
     return {id, answers};
+}
+
+std::optional<protocol::Timestamp> time_at(const std::string& name, std::size_t offset) {
+    if (name.size() < offset + 16) {
+        return std::nullopt;
+    }
+    protocol::Timestamp at = 0;
+    const auto [end, ec] = std::from_chars(name.data() + offset, name.data() + offset + 16, at);
+    if (ec != std::errc{} || end != name.data() + offset + 16) {
+        return std::nullopt;
+    }
+    return at;
 }
 
 std::optional<protocol::Timestamp> sent_at(const std::filesystem::path& file) {
     const std::string name = file.filename().string();
-    protocol::Timestamp at = 0;
-    const auto [end, ec] =
-        std::from_chars(name.data(), name.data() + std::min<std::size_t>(16, name.size()), at);
-    if (ec != std::errc{} || end != name.data() + 16 || !name.ends_with(".msg")) {
-        return std::nullopt;
-    }
-    return at;
+    return name.ends_with(".msg") ? time_at(name, 0) : std::nullopt;
+}
+
+std::optional<protocol::Timestamp> until_of(const std::filesystem::path& file) {
+    return time_at(file.filename().string(), 17);
 }
 
 std::vector<std::filesystem::path> messages_in(const std::filesystem::path& box) {
@@ -141,7 +156,9 @@ std::pair<std::size_t, std::uint64_t> Relay::mailbox(const protocol::Id& ledger)
 void Relay::prune(const protocol::Id& ledger, protocol::Timestamp now) const {
     std::error_code ec;
     for (const auto& file : messages_in(box(ledger))) {
-        if (const auto at = sent_at(file); at && *at + limits_.keep < now) {
+        const auto at = sent_at(file);
+        const auto until = until_of(file);
+        if (!at || !until || *at + limits_.keep < now || *until < now) {
             std::filesystem::remove(file, ec);
         }
     }
@@ -236,6 +253,12 @@ Response Relay::post(ByteView body, protocol::Timestamp now) {
                    : refusal(400, "malformed", message.error().detail);
     }
     const RelayEnvelope& e = message->envelope;
+    if (e.until <= now) {
+        return refusal(422, "rejected", "the message expired before it came");
+    }
+    if (e.until > now + limits_.keep) {
+        return refusal(400, "invalid_argument", "a message is kept 14 days at most");
+    }
     const auto sender = log_key_of(witness_dir_, e.from);
     if (!sender) {
         return refusal(403, "forbidden",
