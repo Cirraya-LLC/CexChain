@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cirraya
+
+# The Windows port, step by step: so far the core, its OpenSSL backend, the
+# verifier, and their tests (CEXCHAIN_CORE_ONLY), with MSYS2's UCRT64 GCC.
+# Runs by hand, and on pushes to the windows branch where the port goes on.
+name: Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [windows]
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    name: Windows (MSYS2 UCRT64 GCC; the core)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-openssl
+            mingw-w64-ucrt-x86_64-python
+      - name: Tools
+        run: |
+          g++ --version | head -1
+          cmake --version | head -1
+          openssl version
+      - name: The core and its tests
+        run: |
+          cmake -S . -B build/windows -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+              -DCMAKE_CXX_COMPILER=g++ -DCEXCHAIN_CORE_ONLY=ON -DCEXCHAIN_WARNINGS_AS_ERRORS=ON
+          cmake --build build/windows
+          ctest --test-dir build/windows --output-on-failure

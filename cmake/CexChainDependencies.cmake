@@ -24,7 +24,7 @@ FetchContent_MakeAvailable(nlohmann_json)
 
 # Asio (standalone, header-only, Boost Software License): networking for the
 # ledger node's HTTP API and replicas.
-if(NOT EMSCRIPTEN)
+if(NOT EMSCRIPTEN AND NOT CEXCHAIN_CORE_ONLY)
     FetchContent_Declare(asio
         URL https://github.com/chriskohlhoff/asio/archive/refs/tags/asio-1-38-2.tar.gz
         URL_HASH SHA256=9f2648fa483e58a6bf848d970ee0ea650ca19ed7769dfa520ed4f7b8d27af1db
@@ -45,7 +45,7 @@ endif()
 # Built here from its sources, with the project's compiler, standard
 # library, and Asio, as a library apart: its own code is not held to the
 # project's warnings, and its headers are included as system headers.
-if(NOT EMSCRIPTEN)
+if(NOT EMSCRIPTEN AND NOT CEXCHAIN_CORE_ONLY)
     FetchContent_Declare(nuraft
         URL https://github.com/eBay/NuRaft/archive/refs/tags/v3.0.0.tar.gz
         URL_HASH SHA256=073c3b321efec9ce6b2bc487c283e493a1b2dd41082c5e9ac0b8f00f9b73832d
@@ -74,7 +74,7 @@ if(NOT EMSCRIPTEN)
 endif()
 
 # Nayuki's QR Code generator (MIT): QR codes that open the browser verifier.
-if(NOT EMSCRIPTEN)
+if(NOT EMSCRIPTEN AND NOT CEXCHAIN_CORE_ONLY)
     FetchContent_Declare(qrcodegen
         URL https://github.com/nayuki/QR-Code-generator/archive/refs/tags/v1.8.0.tar.gz
         URL_HASH SHA256=2ec0a4d33d6f521c942eeaf473d42d5fe139abcfa57d2beffe10c5cf7d34ae60

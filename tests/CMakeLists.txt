@@ -1,6 +1,26 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
 
+# The core alone (CEXCHAIN_CORE_ONLY, Windows so far): its tests and the
+# OpenSSL backend's.
+if(CEXCHAIN_CORE_ONLY)
+    file(GLOB core_tests CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/core/*_test.cpp)
+    add_executable(cexchain_core_tests ${core_tests} crypto/openssl_test.cpp)
+    target_link_libraries(cexchain_core_tests PRIVATE
+        cexchain::core cexchain::crypto_openssl cexchain::verifier
+        Catch2::Catch2WithMain nlohmann_json::nlohmann_json OpenSSL::Crypto)
+    target_include_directories(cexchain_core_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/core/src)
+    target_compile_definitions(cexchain_core_tests PRIVATE
+        CEXCHAIN_TESTVECTORS_DIR="${PROJECT_SOURCE_DIR}/testvectors")
+    target_compile_features(cexchain_core_tests PRIVATE cxx_std_26)
+    cexchain_target_defaults(cexchain_core_tests)
+    list(APPEND CMAKE_MODULE_PATH "${catch2_SOURCE_DIR}/extras")
+    include(Catch)
+    catch_discover_tests(cexchain_core_tests)
+    return()
+endif()
+
 add_executable(cexchain_tests
     core/cbor_test.cpp
     core/contract_bytes_test.cpp

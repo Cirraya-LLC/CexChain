@@ -21,6 +21,9 @@ else()
 endif()
 option(CEXCHAIN_BUILD_TESTS "Build unit tests" ${default_tests})
 option(CEXCHAIN_BUILD_FUZZERS "Build libFuzzer targets (Clang only)" OFF)
+option(CEXCHAIN_CORE_ONLY
+    "Build only the core, its OpenSSL backend, the verifier, and their tests (Windows, so far)"
+    OFF)
 option(CEXCHAIN_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 set(CEXCHAIN_SANITIZERS "" CACHE STRING "Sanitizers to enable, e.g. \"address;undefined\"")
 # Update checks: the Ed25519 public key that signs release manifests (64 hex
@@ -47,7 +50,7 @@ add_subdirectory(verifier)
 if(EMSCRIPTEN)
     # The browser verifier needs no ledger node and no command line.
     add_subdirectory(verifier/wasm)
-else()
+elseif(NOT CEXCHAIN_CORE_ONLY)
     add_subdirectory(crypto/pkcs11)
     add_subdirectory(ledger)
     add_subdirectory(node)
