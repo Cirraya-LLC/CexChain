@@ -98,9 +98,10 @@ void post(const std::string& url, const crypto::PublicKey& relay_witness, const 
     auto response =
         unwrap(relay_client(url).request("POST", "/v1/relay/messages", message, "application/cose"),
                "reaching the relay " + url);
-    if (response.status == 403 && sender != nullptr && sender->ledger != nullptr) {
+    const ledger::Ledger* ledger = sender != nullptr && sender->ledger ? sender->ledger() : nullptr;
+    if (response.status == 403 && ledger != nullptr) {
         // Not witnessed there yet: registered (which proves the log key), then again.
-        const Bytes cosignature = register_with_witness(*sender->ledger, url, relay_witness);
+        const Bytes cosignature = register_with_witness(*ledger, url, relay_witness);
         if (sender->keep) {
             sender->keep(cosignature, relay_witness);
         }
@@ -118,10 +119,13 @@ node::http::ClientResponse relayed(const node::Peer& peer, std::string_view meth
                                    std::string_view content_type, const RelaySender& sender,
                                    std::chrono::seconds wait) {
     const node::RelayRoute& route = *peer.relay;
-    if (sender.ledger == nullptr || !sender.log_key) {
-        throw ActionError{"peer " + peer.name + " is reached through a relay: give the log key"};
+    const ledger::Ledger* ledger = sender.ledger ? sender.ledger() : nullptr;
+    const auto log_key = sender.log_key ? sender.log_key() : nullptr;
+    if (ledger == nullptr || !log_key) {
+        throw ActionError{"peer " + peer.name +
+                          " is reached through a relay: this ledger's log key is not at hand"};
     }
-    const protocol::Id from = sender.ledger->id();
+    const protocol::Id from = ledger->id();
     const RelayId id = fresh_id();
     auto answer_key = unwrap(crypto::openssl::HpkeKey::generate(), "making an answer key");
     const RelayRequest request{
@@ -135,7 +139,7 @@ node::http::ClientResponse relayed(const node::Peer& peer, std::string_view meth
         peer.ledger_id, from, id,
         unwrap(seal_relay_request(route.key, peer.ledger_id, from, id, request), "sealing"),
         std::nullopt};
-    post(route.url, route.witness, unwrap(sign_relay_message(*sender.log_key, envelope), "signing"),
+    post(route.url, route.witness, unwrap(sign_relay_message(*log_key, envelope), "signing"),
          &sender);
 
     // The answer comes into this ledger's mailbox at the same relay.
@@ -145,8 +149,8 @@ node::http::ClientResponse relayed(const node::Peer& peer, std::string_view meth
         const auto left = std::chrono::duration_cast<std::chrono::seconds>(
             deadline - std::chrono::steady_clock::now());
         const auto poll = std::clamp<std::int64_t>(left.count(), 1, 25);
-        const std::string authorization = unwrap(
-            relay_authorization(*sender.log_key, from, ledger::SystemClock{}.now()), "signing");
+        const std::string authorization =
+            unwrap(relay_authorization(*log_key, from, ledger::SystemClock{}.now()), "signing");
         const auto response = unwrap(
             relay_client(route.url, authorization)
                 .request("GET", mailbox_path(from, wanted + "&wait=" + std::to_string(poll))),

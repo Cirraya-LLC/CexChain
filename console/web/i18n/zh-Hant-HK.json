@@ -842,5 +842,17 @@
   "witnesses.add": "請它見證這個賬本",
   "witnesses.added": "{name} 已聯署這個賬本至 {size} 個項目，之後每個新檢查點都會請它聯署。",
   "activity.witnesses.add": "請公共見證人見證這個賬本",
-  "activity.witnesses.remove": "停止請求一位公共見證人"
+  "activity.witnesses.remove": "停止請求一位公共見證人",
+  "relay.title": "經中繼站聯繫",
+  "relay.intro": "手提電腦上的控制台，由參與方經中繼站聯繫：即它所請求的公共見證人的伺服器。對方的請求會密封後留在中繼站，直至這個控制台取回並回覆。中繼站只知道誰在何時寫給誰，從不知道內容。",
+  "relay.through": "參與方經 {url} 聯繫這個控制台。",
+  "relay.direct": "參與方直接以這個控制台自己的地址聯繫它。",
+  "relay.use": "經 {name} 聯繫",
+  "relay.used": "參與方現在經 {name} 聯繫這個控制台。請給他們新的邀請碼。",
+  "relay.none_possible": "請先新增公共見證人：其伺服器可以作為這個控制台的中繼站。",
+  "relay.stop": "停止使用中繼站",
+  "relay.stopped": "參與方再次直接聯繫這個控制台。新的邀請碼不再包含中繼站。",
+  "relay.problem": "無法連接中繼站：{message}",
+  "activity.relay.use": "選擇了讓參與方聯繫這個控制台的中繼站",
+  "activity.relay.stop": "停止使用中繼站"
 }

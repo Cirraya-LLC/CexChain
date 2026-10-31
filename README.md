@@ -238,6 +238,7 @@ The `cexchain` tool controls every part of a ledger:
 | Clusters | `cluster init`, `cluster join`, `cluster add`, `cluster status`, `cluster remove`, `cluster step-down` |
 | Replicas | `replica init`, `replica sync`, `replica status`, `replica promote` |
 | Backups | `backup create`, `backup verify`, `backup restore` |
+| Relays | `relay key init`, `relay use`, `relay show`, `relay stop`; `serve --relay-dir`, `serve --relay-key` |
 | Updates | `update check`, `update install`, `update sign` |
 | Other organizations | `peer invite`, `peer accept`, `peer add`, `peer list`, `peer show`, `peer remove`, `access request`, `access send`, `access inbox`, `access dismiss`, `access grant`, `access fetch`, `access accept`, `access receipt`, `access list` |
 | Contracts | `contract deploy`, `contract show`, `contract list`, `contract retire`, `contract create`, `contract call`, `contract instance`, `contract instances`, `contract evidence`, `contract proposal`, `contract file show`, `contract propose`, `contract pending`, `contract consent`, `contract withdraw`, `contract send`, `contract fetch`, `contract verify`, `contract explain` |
@@ -365,6 +366,24 @@ cexchain witness unregister example    # stop asking; what it cosigned stays val
 In the web console, Parties lists the public witnesses a ledger asks and adds one by its address
 and key. A build can offer known witnesses (`-DCEXCHAIN_PUBLIC_WITNESSES=name|url|keyhex,...`);
 none is used unless someone chooses it.
+
+**Relays.** A ledger that no party reaches directly, such as a console on a laptop, is reached
+through a relay: the server of a public witness that also keeps mailboxes (`serve --relay-dir`).
+Its parties' requests wait there sealed to its relay key; its node fetches each, answers it with
+its own API as if it had come directly (the peer token decides, as always), and sends the sealed
+answer back. The relay learns who writes to whom, when, and how much; never what.
+
+```sh
+cexchain relay key init --out relay.key
+cexchain relay use https://witness.example.org --relay-key relay.key --witness-key witness.pub
+cexchain serve --log-key log.key --relay-key relay.key   # answers what waits at the relay
+cexchain peer invite bank                                # the code carries the relay
+cexchain access fetch --peer factory --request ID --out d.cbor --log-key log.key
+```
+
+Commands that reach a party take `--log-key` to reach it through its relay (what goes there is
+signed). In the console, Parties offers "Be reached through" each public witness whose server runs
+a relay; new invitation codes then carry it instead of a local address.
 
 ## Browser verifier
 

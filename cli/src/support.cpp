@@ -364,11 +364,12 @@ RelayReach::RelayReach(const Args& args, Session& session) {
     if (!key) {
         return;
     }
-    sender_ = app::RelaySender{&session.ledger(),
-                               std::shared_ptr<const crypto::Signer>(load_signer(*key, args)),
-                               [&session](ByteView cosignature, const crypto::PublicKey& witness) {
-                                   session.add_cosignature(cosignature, witness);
-                               }};
+    std::shared_ptr<const crypto::Signer> signer(load_signer(*key, args));
+    sender_ =
+        app::RelaySender{[&session] { return &session.ledger(); }, [signer] { return signer; },
+                         [&session](ByteView cosignature, const crypto::PublicKey& witness) {
+                             session.add_cosignature(cosignature, witness);
+                         }};
     scope_.emplace(&*sender_);
 }
 

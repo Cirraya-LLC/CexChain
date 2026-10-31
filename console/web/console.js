@@ -2775,8 +2775,8 @@ function askByFile(intentOf) {
 /// The parties this console works with: inviting one, accepting an
 /// invitation (which invites back), and the parties connected.
 async function partiesScreen() {
-    const [listed, access, witnesses] = await Promise.all([api("GET", "parties"), api("GET", "access"),
-                                                           api("GET", "witnesses")]);
+    const [listed, access, witnesses, relay] = await Promise.all([
+        api("GET", "parties"), api("GET", "access"), api("GET", "witnesses"), api("GET", "relay")]);
     const parts = [flash(), el("h1", { text: t("parties.title") }), el("p", { class: "hint", text: t("parties.intro") }),
                    el("p", { text: t("parties.our_fingerprint", { fingerprint: listed.fingerprint }) })];
     // Witnessing: the size each side last cosigned of the other's ledger.
@@ -2803,7 +2803,7 @@ async function partiesScreen() {
         parts.push(el("p", { class: "hint", text: t("parties.waiting_answer", { names: listed.waiting.join(", ") }) }));
     }
     parts.push(...documentsView(access, listed.peers.filter((p) => p.online)));
-    parts.push(...witnessesView(witnesses));
+    parts.push(...witnessesView(witnesses), ...relayView(relay));
     if (!listed.may_change) {
         show(...parts);
         return;
@@ -2926,6 +2926,54 @@ function witnessesView(listed) {
         ask({ url: url.value.trim(), key: key.value.trim() }, add);
     });
     parts.push(el("h3", { text: t("witnesses.add_title") }), form);
+    return parts;
+}
+
+/// How parties reach this console: directly, or through a relay (the
+/// server of a public witness it asks), for a console on a laptop.
+function relayView(relay) {
+    const parts = [el("h2", { text: t("relay.title") }), el("p", { class: "hint", text: t("relay.intro") })];
+    const said = el("div", { role: "status" });
+    if (relay.relay) {
+        parts.push(el("p", { text: t("relay.through", { url: relay.relay.url }) }));
+    } else {
+        parts.push(el("p", { text: t("relay.direct") }));
+    }
+    if (relay.problem) {
+        parts.push(el("p", { class: "problem warning", text: t("relay.problem", { message: relay.problem }) }));
+    }
+    if (!relay.may_change) {
+        return parts;
+    }
+    const post = async (body, button, done) => {
+        button.disabled = true;
+        status(t("status.working"));
+        try {
+            const answer = await api("POST", "relay", body);
+            state.flash = done(answer);
+            route();
+        } catch (error) {
+            said.replaceChildren(problem(t("error.server", { message: error.message })));
+            button.disabled = false;
+        } finally {
+            status("");
+        }
+    };
+    for (const c of relay.candidates) {
+        const use = el("button", { type: "button", text: t("relay.use", { name: c.name }) });
+        use.addEventListener("click", () => post({ use: c.url }, use,
+                                                 () => t("relay.used", { name: c.name })));
+        parts.push(el("p", {}, use));
+    }
+    if (relay.candidates.length === 0 && !relay.relay) {
+        parts.push(el("p", { class: "hint", text: t("relay.none_possible") }));
+    }
+    if (relay.relay) {
+        const stop = el("button", { type: "button", text: t("relay.stop") });
+        stop.addEventListener("click", () => post({ stop: true }, stop, () => t("relay.stopped")));
+        parts.push(el("p", {}, stop));
+    }
+    parts.push(said);
     return parts;
 }
 

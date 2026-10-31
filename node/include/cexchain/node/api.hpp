@@ -154,6 +154,10 @@ public:
     /// console: `proposal` is a call-proposal (contracts.hpp). Answers
     /// through `respond`; 501 without a registrar.
     void propose_call(Bytes proposal, Respond respond);
+    /// A checkpoint now, as POST /v1/checkpoint does for an admin, for the
+    /// node's own console: answers the signed checkpoint (application/cose)
+    /// through `respond`, from the writer; 501 without a log key.
+    void checkpoint_now(Respond respond);
     /// The calls the registrar holds, as GET /v1/contracts/calls answers the
     /// home's own staff.
     [[nodiscard]] http::Response registrar_calls() const;

@@ -35,6 +35,10 @@ bool DeferredApi::open_now() {
     console_->set_cosignatures([api](Bytes body, auto respond) {
         api->add_cosignature(std::move(body), std::move(respond));
     });
+    console_->set_checkpointer([api](auto respond) { api->checkpoint_now(std::move(respond)); });
+    console_->set_node_api([api](node::http::Request request, auto respond) {
+        api->handle(std::move(request), "relay", std::move(respond));
+    });
     console_->set_submitter([api](Bytes body, bool submission, auto respond) {
         if (submission) {
             api->submit_submission(std::move(body), std::move(respond));

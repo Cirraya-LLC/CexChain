@@ -348,6 +348,11 @@ int serve(const Args& args, const ServeDefaults& defaults) {
                 api->propose_call(std::move(proposal), std::move(respond));
             },
             [api = api.get()] { return api->registrar_calls(); });
+        web->set_checkpointer(
+            [api = api.get()](auto respond) { api->checkpoint_now(std::move(respond)); });
+        web->set_node_api([api = api.get()](node::http::Request request, auto respond) {
+            api->handle(std::move(request), "relay", std::move(respond));
+        });
         web->set_submitter([api = api.get()](Bytes body, bool submission, auto respond) {
             if (submission) {
                 api->submit_submission(std::move(body), std::move(respond));

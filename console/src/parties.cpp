@@ -24,6 +24,7 @@
 #include <cexchain/app/contracts.hpp>
 #include <cexchain/app/errors.hpp>
 #include <cexchain/app/peers.hpp>
+#include <cexchain/app/relay_client.hpp>
 #include <cexchain/app/support.hpp>
 #include <cexchain/console/console.hpp>
 #include <cexchain/console/setup.hpp>
@@ -133,9 +134,19 @@ http::Response Console::parties_route(const http::Request& request) const {
         ours.organization = state.organization();
     });
     const std::string url = api_url();
-    if (!url.empty()) {
+    std::optional<node::RelayRoute> relay;
+    try {
+        relay = app::load_own_relay(dir);
+    } catch (const app::ActionError&) {
+    }
+    // Reached through a relay, a console on this computer gives no address:
+    // no party reaches its localhost.
+    const bool local = url.starts_with("http://localhost:") || url.starts_with("http://127.") ||
+                       url.starts_with("http://[::1]");
+    if (!url.empty() && !(relay && local)) {
         ours.url = url;
     }
+    ours.relay = relay;
     // The console's witness of its parties' ledgers, for them to ask.
     if (services_.keys != nullptr && services_.keys->initialized()) {
         ours.witness = witness_public_key(*services_.keys);
@@ -208,6 +219,7 @@ http::Response Console::parties_route(const http::Request& request) const {
 
 void Console::start_polling(std::chrono::seconds every) {
     poller_ = std::jthread([this, every](const std::stop_token& stop) {
+        const app::RelaySenderScope scope(&relay_sender_);
         while (!stop.stop_requested()) {
             poll_peers();
             maybe_back_up();
@@ -217,6 +229,7 @@ void Console::start_polling(std::chrono::seconds every) {
             poll_asked_ = false;
         }
     });
+    relayer_ = std::jthread([this](const std::stop_token& stop) { relay_loop(stop); });
 }
 
 void Console::poll_now() const {
@@ -420,14 +433,16 @@ void Console::exchange_send_route(const http::Request& request, Respond respond)
         respond(error(409, "conflict", "the home is not a party reached online: send the file"));
         return;
     }
-    source(*record, [home = *home, respond = std::move(respond)](Result<Bytes> bundle) mutable {
+    source(*record, [home = *home, respond = std::move(respond),
+                     sender = &relay_sender_](Result<Bytes> bundle) mutable {
         if (!bundle) {
             respond(error(503, "unavailable", bundle.error().detail));
             return;
         }
         // To the home's registrar, off the ledger's writer.
         std::thread([home = std::move(home), bundle = std::move(*bundle),
-                     respond = std::move(respond)]() mutable {
+                     respond = std::move(respond), sender]() mutable {
+            const app::RelaySenderScope scope(sender);
             nlohmann::json answer;
             const auto problem = attempt([&] {
                 answer = nlohmann::json::parse(

@@ -29,10 +29,11 @@ namespace cexchain::app {
 /// id; its genesis entry and checkpoints, to register with a relay's
 /// witness when the relay does not know it yet), its log key, which signs
 /// what it sends, and where a cosignature that registration gives is kept
-/// (may be empty).
+/// (may be empty). Each is asked for when needed (a console may be locked,
+/// or not set up yet: then nothing).
 struct RelaySender {
-    const ledger::Ledger* ledger = nullptr;
-    std::shared_ptr<const crypto::Signer> log_key;
+    std::function<const ledger::Ledger*()> ledger;
+    std::function<std::shared_ptr<const crypto::Signer>()> log_key;
     std::function<void(ByteView cosignature, const crypto::PublicKey& witness)> keep;
 };
 

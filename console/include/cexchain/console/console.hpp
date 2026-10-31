@@ -24,6 +24,7 @@
 #include <nlohmann/json.hpp>
 
 #include <cexchain/app/records.hpp>
+#include <cexchain/app/relay_client.hpp>
 #include <cexchain/console/backups.hpp>
 #include <cexchain/console/keystore.hpp>
 #include <cexchain/console/sessions.hpp>
@@ -197,7 +198,7 @@ class Console {
 public:
     /// Without services, every route that needs them answers 503.
     Console() = default;
-    explicit Console(Services services) : services_(std::move(services)) {}
+    explicit Console(Services services);
 
     /// The origins it answers for. Until they are set (once the server knows
     /// its port), every request is refused.
@@ -220,6 +221,23 @@ public:
     void set_submitter(Submit submit) {
         const std::lock_guard lock(api_mutex_);
         submit_ = std::move(submit);
+    }
+
+    /// The node's own API, for requests that come through this ledger's
+    /// relay: answered as if they had come directly (the peer token
+    /// decides). Until it is set, nothing waiting at the relay is answered.
+    using NodeApi = std::function<void(http::Request, std::function<void(http::Response)>)>;
+    void set_node_api(NodeApi api) {
+        const std::lock_guard lock(api_mutex_);
+        node_api_ = std::move(api);
+    }
+
+    /// A checkpoint from the node now (node::LedgerApi::checkpoint_now): for
+    /// a ledger that has none yet, before a witness is asked.
+    using Checkpointer = std::function<void(std::function<void(http::Response)>)>;
+    void set_checkpointer(Checkpointer checkpoint) {
+        const std::lock_guard lock(api_mutex_);
+        checkpointer_ = std::move(checkpoint);
     }
 
     /// A record's evidence bundle from the node, without private data
@@ -464,6 +482,11 @@ private:
     /// through the node's writer (HTTP status; 504 if it did not answer).
     [[nodiscard]] http::Response witnesses_route(const http::Request& request) const;
     [[nodiscard]] int keep_cosignature(Bytes body) const;
+    /// Being reached through a relay (relaying.cpp): which relay (one of the
+    /// public witnesses this ledger registered with, whose server runs one),
+    /// stopping; and the thread that answers what waits there.
+    [[nodiscard]] http::Response relay_route(const http::Request& request) const;
+    void relay_loop(const std::stop_token& stop) const;
     /// What a party's registrar last answered: its calls (JSON text), or why
     /// it could not be asked.
     struct PeerInbox {
@@ -609,6 +632,8 @@ private:
     mutable std::mutex api_mutex_;
     const ledger::Ledger* ledger_ = nullptr;
     Submit submit_;
+    NodeApi node_api_;
+    Checkpointer checkpointer_;
     Evidence evidence_;
     Evidence instance_evidence_;
     Propose propose_;
@@ -639,6 +664,11 @@ private:
     mutable std::map<std::string, std::string> not_cosigned_;
     /// Why a public witness last did not cosign this ledger's (by name).
     mutable std::map<std::string, std::string> public_not_cosigned_;
+    /// Why the relay last could not be reached or answered ("" when fine).
+    mutable std::string relay_problem_;
+    /// This ledger as it reaches parties through their relays: the served
+    /// ledger, the log key while unlocked, cosignatures kept by the node.
+    app::RelaySender relay_sender_;
     mutable std::map<std::string, Handed> handed_;
     struct UpdateSource {
         std::string manifest;
@@ -657,8 +687,9 @@ private:
     mutable std::mutex poll_mutex_;
     mutable std::condition_variable_any poll_wake_;
     mutable bool poll_asked_ = false;
-    /// Last, so that it stops before everything it reads goes.
+    /// Last, so that they stop before everything they read goes.
     std::jthread poller_;
+    std::jthread relayer_;
 };
 
 } // namespace cexchain::console

@@ -278,6 +278,24 @@ http::Response Console::witnesses_route(const http::Request& request) const {
     }
     const std::string url = body.value("url", "");
     const std::string key_hex = body.value("key", "");
+    if (!served->latest_checkpoint()) {
+        // A ledger just set up has no checkpoint for the witness to cosign.
+        Checkpointer checkpoint;
+        {
+            const std::lock_guard lock(api_mutex_);
+            checkpoint = checkpointer_;
+        }
+        if (!checkpoint) {
+            return error(503, "unavailable", "the ledger has no checkpoint yet; try again soon");
+        }
+        auto made = std::make_shared<std::promise<int>>();
+        auto status = made->get_future();
+        checkpoint([made](http::Response r) { made->set_value(r.status); });
+        if (status.wait_for(std::chrono::seconds(30)) != std::future_status::ready ||
+            status.get() / 100 != 2) {
+            return error(503, "unavailable", "the ledger could not make a checkpoint; try again");
+        }
+    }
     std::optional<app::Registered> registered;
     std::optional<int> refused_status;
     std::optional<std::string> problem = attempt([&] {

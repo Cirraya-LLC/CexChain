@@ -32,6 +32,7 @@ if [ -d "$HERE/node_modules/playwright" ]; then
     (cd "$HERE" && node console_things_test.js "$CEXCHAIN" "$ROOT")
     (cd "$HERE" && node console_consent_test.js "$CEXCHAIN" "$ROOT")
     (cd "$HERE" && node console_parties_test.js "$CEXCHAIN" "$ROOT")
+    (cd "$HERE" && node console_parties_test.js "$CEXCHAIN" "$ROOT" --relay)
     (cd "$HERE" && node console_access_test.js "$CEXCHAIN")
     (cd "$HERE" && node console_people_test.js "$CEXCHAIN")
     (cd "$HERE" && node console_automation_test.js "$CEXCHAIN")

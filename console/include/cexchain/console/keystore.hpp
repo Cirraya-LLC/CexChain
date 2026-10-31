@@ -86,14 +86,20 @@ public:
     /// Opens a sealed key. Needs the store unlocked.
     [[nodiscard]] crypto::openssl::KeyPair open(std::string_view name) const;
 
-    /// The ledger's vault key (an X25519 HPKE key, which opens records'
-    /// private data and kept files), sealed the same way as `vault.sealed`.
-    void seal_vault_key(const crypto::openssl::HpkeKey& key) const;
+    /// An X25519 HPKE key, sealed as `<name>.sealed`: the ledger's vault key
+    /// ("vault", which opens records' private data and kept files) and its
+    /// relay key ("relay", which opens what parties send through a relay).
+    void seal_hpke_key(std::string_view name, const crypto::openssl::HpkeKey& key) const;
     /// Its public key, if the console holds it.
-    [[nodiscard]] std::optional<Bytes> vault_public_key() const;
+    [[nodiscard]] std::optional<Bytes> hpke_public_key(std::string_view name) const;
     /// Opens it. Needs the store unlocked.
-    [[nodiscard]] crypto::openssl::HpkeKey open_vault_key() const;
-    bool remove_vault_key() const;
+    [[nodiscard]] crypto::openssl::HpkeKey open_hpke_key(std::string_view name) const;
+    bool remove_hpke_key(std::string_view name) const;
+
+    void seal_vault_key(const crypto::openssl::HpkeKey& key) const { seal_hpke_key("vault", key); }
+    [[nodiscard]] std::optional<Bytes> vault_public_key() const { return hpke_public_key("vault"); }
+    [[nodiscard]] crypto::openssl::HpkeKey open_vault_key() const { return open_hpke_key("vault"); }
+    bool remove_vault_key() const { return remove_hpke_key("vault"); }
 
 private:
     [[nodiscard]] std::filesystem::path slot_file(const Slot& slot) const;

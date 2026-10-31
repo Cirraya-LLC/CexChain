@@ -842,5 +842,17 @@
   "witnesses.add": "请它见证这个账本",
   "witnesses.added": "{name} 已联署这个账本至 {size} 个项目，之后每个新检查点都会请它联署。",
   "activity.witnesses.add": "请公共见证人见证这个账本",
-  "activity.witnesses.remove": "停止请求一位公共见证人"
+  "activity.witnesses.remove": "停止请求一位公共见证人",
+  "relay.title": "经中继站联系",
+  "relay.intro": "笔记本电脑上的控制台，由参与方经中继站联系：即它所请求的公共见证人的服务器。对方的请求会密封后留在中继站，直到这个控制台取回并回复。中继站只知道谁在何时写给谁，从不知道内容。",
+  "relay.through": "参与方经 {url} 联系这个控制台。",
+  "relay.direct": "参与方直接以这个控制台自己的地址联系它。",
+  "relay.use": "经 {name} 联系",
+  "relay.used": "参与方现在经 {name} 联系这个控制台。请给他们新的邀请码。",
+  "relay.none_possible": "请先添加公共见证人：其服务器可以作为这个控制台的中继站。",
+  "relay.stop": "停止使用中继站",
+  "relay.stopped": "参与方再次直接联系这个控制台。新的邀请码不再包含中继站。",
+  "relay.problem": "无法连接中继站：{message}",
+  "activity.relay.use": "选择了让参与方联系这个控制台的中继站",
+  "activity.relay.stop": "停止使用中继站"
 }

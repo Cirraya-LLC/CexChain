@@ -943,7 +943,8 @@ void Console::access_send_route(const http::Request& request, Respond respond) c
     }
     const bool requesting = path == "/v1/access/requests";
     source(*record, [peer = *peer, path, requesting, dir, record = *record,
-                     respond = std::move(respond)](Result<Bytes> bundle) mutable {
+                     respond = std::move(respond),
+                     sender = &relay_sender_](Result<Bytes> bundle) mutable {
         if (!bundle) {
             respond(error(503, "unavailable", bundle.error().detail));
             return;
@@ -951,7 +952,8 @@ void Console::access_send_route(const http::Request& request, Respond respond) c
         // To the party, off the ledger's writer.
         std::thread([peer = std::move(peer), path = std::move(path), requesting,
                      dir = std::move(dir), record, bundle = std::move(*bundle),
-                     respond = std::move(respond)]() mutable {
+                     respond = std::move(respond), sender]() mutable {
+            const app::RelaySenderScope scope(sender);
             const auto problem = attempt([&] {
                 if (requesting) {
                     // Kept as the command line keeps it, to send again.

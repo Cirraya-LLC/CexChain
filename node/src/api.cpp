@@ -3856,6 +3856,10 @@ void LedgerApi::record_evidence(const protocol::Id& record,
     state_->record_evidence(record, std::move(done));
 }
 
+void LedgerApi::checkpoint_now(Respond respond) {
+    state_->make_checkpoint("console", respond);
+}
+
 void LedgerApi::instance_evidence(const protocol::Id& instance,
                                   std::function<void(Result<Bytes>)> done) {
     state_->instance_evidence(instance, std::move(done));

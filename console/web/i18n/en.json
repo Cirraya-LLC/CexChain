@@ -842,5 +842,17 @@
   "witnesses.add": "Ask it to witness this ledger",
   "witnesses.added": "{name} cosigned this ledger at {size} entries, and will be asked after each new checkpoint.",
   "activity.witnesses.add": "asked a public witness to witness this ledger",
-  "activity.witnesses.remove": "stopped asking a public witness"
+  "activity.witnesses.remove": "stopped asking a public witness",
+  "relay.title": "Reached through a relay",
+  "relay.intro": "A console on a laptop is reached by its parties through a relay: the server of a public witness it asks. Their requests wait there, sealed for this console, until it fetches and answers them. The relay learns who writes to whom and when, never what.",
+  "relay.through": "Parties reach this console through {url}.",
+  "relay.direct": "Parties reach this console directly, at its own address.",
+  "relay.use": "Be reached through {name}",
+  "relay.used": "Parties now reach this console through {name}. Give them a new invitation code.",
+  "relay.none_possible": "Add a public witness first: its server can be this console's relay.",
+  "relay.stop": "Stop using the relay",
+  "relay.stopped": "Parties reach this console directly again. New invitation codes carry no relay.",
+  "relay.problem": "The relay could not be reached: {message}",
+  "activity.relay.use": "chose a relay for parties to reach this console",
+  "activity.relay.stop": "stopped using the relay"
 }

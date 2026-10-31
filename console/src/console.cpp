@@ -21,6 +21,7 @@
 #include <nlohmann/json.hpp>
 
 #include <cexchain/app/errors.hpp>
+#include <cexchain/app/relay_client.hpp>
 #include <cexchain/console/console.hpp>
 #include <cexchain/console/settings.hpp>
 #include <cexchain/console/setup.hpp>
@@ -214,6 +215,8 @@ void Console::set_origins(std::vector<Origin> origins) {
 }
 
 http::Response Console::handle(const http::Request& request) const {
+    // Parties behind relays are reached as this ledger.
+    const app::RelaySenderScope scope(&relay_sender_);
     try {
         return route(request);
     } catch (const app::ActionError& e) {
@@ -228,6 +231,7 @@ http::Response Console::handle(const http::Request& request) const {
 }
 
 void Console::handle(const http::Request& request, Respond respond) const {
+    const app::RelaySenderScope scope(&relay_sender_);
     // Approving and recovering submit to the ledger, which answers once the
     // statement is durable: that answer goes out through `respond`, with
     // nothing waiting.
@@ -400,6 +404,10 @@ http::Response Console::route(const http::Request& request) const {
     }
     if (request.path == "/console/api/rules" || request.path.starts_with("/console/api/rules/")) {
         return ready() ? rules_route(request)
+                       : error(503, "unavailable", "this console keeps no users or sessions");
+    }
+    if (request.path == "/console/api/relay") {
+        return ready() ? relay_route(request)
                        : error(503, "unavailable", "this console keeps no users or sessions");
     }
     if (request.path == "/console/api/witnesses") {

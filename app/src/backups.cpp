@@ -53,7 +53,7 @@ bool id_in(std::string_view path, std::string_view prefix) {
 
 bool backup_path_allowed(std::string_view path) {
     if (path == node::tokens_file || path == "vault/vault.pub" || path == "vault/vault.key" ||
-        path == node::peers_file) {
+        path == node::peers_file || path == "witnesses.json" || path == "relay.json") {
         return true;
     }
     constexpr std::string_view pending = "contracts/pending/";
@@ -83,8 +83,8 @@ bool backup_path_allowed(std::string_view path) {
     // The console's own folder.
     for (const std::string_view name :
          {"console/users.json", "console/kinds.json", "console/settings.json", "console/node.pub",
-          "console/vault.sealed", "console/prf-salt", "console/activity.jsonl",
-          "console/activity.1.jsonl"}) {
+          "console/vault.sealed", "console/relay.sealed", "console/prf-salt",
+          "console/activity.jsonl", "console/activity.1.jsonl"}) {
         if (path == name) {
             return true;
         }
@@ -142,13 +142,16 @@ std::vector<ledger::BackupFile> backup_files(const std::filesystem::path& dir, b
     }
     if (console) {
         add(std::string(node::peers_file));
+        // The public witnesses it asks, and the relay it is reached through.
+        add("witnesses.json");
+        add("relay.json");
         add_directory("vault/access/");
         for (const char* box : {"inbox", "outbox", "receipts", "requests", "deliveries"}) {
             add_directory(std::string("access/") + box + "/");
         }
         for (const char* name :
-             {"users.json", "kinds.json", "settings.json", "node.pub", "vault.sealed", "prf-salt",
-              "activity.1.jsonl", "activity.jsonl"}) {
+             {"users.json", "kinds.json", "settings.json", "node.pub", "vault.sealed",
+              "relay.sealed", "prf-salt", "activity.1.jsonl", "activity.jsonl"}) {
             add(std::string("console/") + name);
         }
         for (const char* folder : {"keys/", "slots/", "peer-tokens/", "witness/", "access/"}) {
