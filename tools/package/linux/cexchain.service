@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cirraya
+#
+# A ledger server and its console, for a company (not enabled by default):
+#   set the ledger and its options in /etc/cexchain/serve.env, then
+#   systemctl enable --now cexchain
+# A person's console runs as their own user instead: cexchain console service install.
+[Unit]
+Description=CexChain ledger server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=cexchain
+Group=cexchain
+StateDirectory=cexchain
+StateDirectoryMode=0700
+EnvironmentFile=/etc/cexchain/serve.env
+ExecStart=/usr/bin/cexchain serve $CEXCHAIN_SERVE_ARGS
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -3119,31 +3119,39 @@ function codeView(code, label, fingerprint) {
 }
 
 /// Proposals and consents that came as files: read here, verified, then
-/// consented to or recorded with a tap.
-function exchangeScreen() {
+/// consented to or recorded with a tap. `opened` names one opened on this
+/// computer (console open FILE, as a double-click runs it), read at once.
+function exchangeScreen(opened) {
     const input = el("input", { id: "exchange-file", type: "file", accept: ".cexchain,application/cbor" });
     const result = el("section", { "aria-live": "polite" });
-    input.addEventListener("change", async () => {
-        const file = input.files[0];
-        if (!file) {
-            return;
-        }
+    const read = async (from) => {
         status(t("status.working"));
         try {
-            const upload = await uploadFile(file);
-            const read = await api("POST", "exchange/read", { upload, language: state.language });
-            result.replaceChildren(...(read.kind === "proposal" ? proposalView(read, upload)
-                                                                 : consentView(read, upload)));
+            const body = { ...(await from()), language: state.language };
+            const shown = await api("POST", "exchange/read", body);
+            result.replaceChildren(...(shown.kind === "proposal" ? proposalView(shown, shown.upload)
+                                                                  : consentView(shown, shown.upload)));
         } catch (error) {
             result.replaceChildren(problem(t("exchange.unreadable", { message: error.message })));
         } finally {
             status("");
+        }
+    };
+    input.addEventListener("change", async () => {
+        const file = input.files[0];
+        if (file) {
+            await read(async () => ({ upload: await uploadFile(file) }));
         }
     });
     show(el("h1", { text: t("exchange.title") }), el("p", { class: "hint", text: t("exchange.intro") }),
          el("div", { class: "field" }, el("label", { for: "exchange-file", text: t("exchange.file") }),
             input),
          result);
+    if (opened) {
+        // Taken once: a reload shows the plain screen.
+        history.replaceState(null, "", `${location.pathname}#/exchange`);
+        read(async () => ({ opened }));
+    }
 }
 
 const ledgerText = (id, name) => (name ? `${name} (${id.slice(0, 12)}...)` : `${id.slice(0, 12)}...`);
@@ -3966,12 +3974,14 @@ async function route() {
         const act = hash.match(/^#\/act\/([0-9a-f]{64})\/([^/]+)$/);
         const asked = hash.match(/^#\/access\/request\/([0-9a-f]{64})$/);
         const delivered = hash.match(/^#\/access\/delivery\/([0-9a-f]{64})$/);
+        const opened = hash.match(/^#\/exchange\/opened\/([0-9a-f]{24})$/);
         await (thing ? thingScreen(thing[1])
             : act ? actionLinkScreen(act[1], decodeURIComponent(act[2]))
             : asked ? accessRequestScreen(asked[1])
             : delivered ? accessDeliveryScreen(delivered[1])
             : instance ? instanceScreen(instance[1])
             : create ? createScreen(create[1])
+            : opened ? exchangeScreen(opened[1])
             : hash.startsWith("#/exchange") ? exchangeScreen()
             : hash.startsWith("#/parties") ? partiesScreen()
             : hash.startsWith("#/people") ? peopleScreen()

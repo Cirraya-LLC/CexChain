@@ -65,6 +65,10 @@ std::filesystem::path state_directory(const std::filesystem::path& ledger) {
     return ledger / "console";
 }
 
+std::filesystem::path opened_directory(const std::filesystem::path& state) {
+    return state / "opened";
+}
+
 Sessions::Sessions(std::filesystem::path directory, const crypto::Provider& provider,
                    ledger::Clock& clock, ledger::Entropy& entropy)
     : directory_(std::move(directory)), provider_(&provider), clock_(&clock), entropy_(&entropy) {}

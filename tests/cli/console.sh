@@ -454,6 +454,14 @@ run console service uninstall --unit-dir units --no-start > /dev/null
 [ ! -f "$SERVICE_FILE" ] || fail "uninstalled"
 [ "$(run console service status --unit-dir units --json | json 'd["installed"]')" = False ] ||
     fail "status after uninstalling"
+# console open FILE takes only a proposal or consent file, checked before anything starts.
+echo "not one" > not-exchange.cexchain
+if run console open --ledger "$SCRIPTED" --print not-exchange.cexchain > out.txt 2>&1; then
+    fail "console open of a file that is not a proposal"
+fi
+grep -q "not a proposal or consent file" out.txt || fail "console open says why"
+[ "$(run console status --ledger "$SCRIPTED" --json | json 'd["running"]')" = False ] ||
+    fail "a refused file starts nothing"
 # console open starts a stopped console, in the background, then gives its address.
 URL=$(run console open --ledger "$SCRIPTED" --print)
 case "$URL" in http://localhost:*/console/) ;; *) fail "console open --print: $URL" ;; esac

@@ -47,6 +47,11 @@ struct Session {
 /// The directory of the console's own files in a ledger directory.
 [[nodiscard]] std::filesystem::path state_directory(const std::filesystem::path& ledger);
 
+/// Where `console open FILE` leaves a proposal or consent file opened on
+/// this computer, as <24 hex digits>, for the page to read once someone
+/// signs in (POST exchange/read {"opened": id}); taken once.
+[[nodiscard]] std::filesystem::path opened_directory(const std::filesystem::path& state);
+
 class Sessions {
 public:
     /// `directory` holds the published list and the revocations; the

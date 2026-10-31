@@ -11,8 +11,11 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
+#include <filesystem>
 #include <optional>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -130,7 +133,17 @@ http::Response Console::exchange_read_route(const http::Request& request) const 
     if (!body.is_object()) {
         return error(400, "invalid_argument", "the request's body is not a JSON object");
     }
-    auto read = uploaded_file(signer, body.value("upload", ""));
+    std::string upload = body.value("upload", "");
+    if (body.contains("opened")) {
+        // A file opened on this computer (console open FILE): taken once,
+        // as an upload of whoever signed in to read it.
+        auto taken = take_opened(signer, body.value("opened", ""));
+        if (auto* refused = std::get_if<http::Response>(&taken)) {
+            return std::move(*refused);
+        }
+        upload = std::get<std::string>(taken);
+    }
+    auto read = uploaded_file(signer, upload);
     if (auto* refused = std::get_if<http::Response>(&read)) {
         return std::move(*refused);
     }
@@ -139,7 +152,35 @@ http::Response Console::exchange_read_route(const http::Request& request) const 
     if (auto* refused = std::get_if<http::Response>(&shown)) {
         return std::move(*refused);
     }
-    return json(200, std::get<nlohmann::json>(shown));
+    auto out = std::get<nlohmann::json>(std::move(shown));
+    out["upload"] = upload;
+    return json(200, out);
+}
+
+std::variant<std::string, http::Response> Console::take_opened(const Signed& who,
+                                                               const std::string& id) const {
+    if (id.size() != 24 || !std::ranges::all_of(id, [](char c) {
+            return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+        })) {
+        return error(400, "invalid_argument", "not a file opened here");
+    }
+    const std::filesystem::path directory = opened_directory(services_.directory);
+    std::error_code ec;
+    // Files opened but never read are dropped after a day.
+    const auto stale = std::filesystem::file_time_type::clock::now() - std::chrono::hours(24);
+    for (const auto& entry : std::filesystem::directory_iterator(directory, ec)) {
+        if (entry.last_write_time(ec) < stale) {
+            std::filesystem::remove(entry.path(), ec);
+        }
+    }
+    const std::filesystem::path path = directory / id;
+    if (!std::filesystem::is_regular_file(path, ec) ||
+        std::filesystem::file_size(path, ec) > protocol::max_exchange_file) {
+        return error(404, "not_found", "that file is no longer here: open it again");
+    }
+    const Bytes content = app::read_file(path);
+    std::filesystem::remove(path, ec);
+    return store_upload(who.user, "opened.cexchain", content);
 }
 
 std::variant<nlohmann::json, http::Response>

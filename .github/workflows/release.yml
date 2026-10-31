@@ -1,0 +1,124 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cirraya
+
+# The packages: on Linux a tarball, a .deb, and an .rpm; on macOS a .pkg with
+# CexChain.app and the tool, and a tarball. Built on a version tag (then kept
+# in a draft release with an update manifest, for a person to sign and
+# publish) or by hand (then kept as the run's artifacts). macOS runners cost
+# ten times as many minutes as Linux, so this runs only then. Repository
+# variables CEXCHAIN_RELEASE_KEY and CEXCHAIN_UPDATE_URL, if set, are built
+# in for update checks.
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  wasm:
+    name: WebAssembly (the verifier page and the console's checks)
+    runs-on: ubuntu-latest
+    container: gcc:16-trixie
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - name: The tag is the project's version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          project="$(sed -n 's/^ *VERSION \([0-9][0-9.]*\)$/\1/p' CMakeLists.txt | head -1)"
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "${tag%%-*}" != "$project" ]; then
+              echo "the tag $GITHUB_REF_NAME is not the project's version $project (CMakeLists.txt)"
+              exit 1
+          fi
+      - name: Build
+        run: |
+          .github/scripts/install-linux-tools.sh
+          .github/scripts/install-emscripten.sh
+          (. /opt/emsdk/emsdk_env.sh && tools/wasm/build.sh build/wasm)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wasm
+          path: build/wasm
+
+  linux:
+    name: Linux packages
+    needs: wasm
+    runs-on: ubuntu-latest
+    container: gcc:16-trixie
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          name: wasm
+          path: build/wasm
+      - name: Package
+        env:
+          CEXCHAIN_RELEASE_KEY: ${{ vars.CEXCHAIN_RELEASE_KEY }}
+          CEXCHAIN_UPDATE_URL: ${{ vars.CEXCHAIN_UPDATE_URL }}
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends cmake ninja-build libssl-dev libp11-kit-dev rpm
+          WASM_DIR="$PWD/build/wasm" tools/package/linux.sh build/packages
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: build/packages
+
+  macos:
+    name: macOS package
+    needs: wasm
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          name: wasm
+          path: build/wasm
+      - name: Package
+        env:
+          CEXCHAIN_RELEASE_KEY: ${{ vars.CEXCHAIN_RELEASE_KEY }}
+          CEXCHAIN_UPDATE_URL: ${{ vars.CEXCHAIN_UPDATE_URL }}
+        run: |
+          brew install gcc ninja openssl@3
+          WASM_DIR="$PWD/build/wasm" tools/package/macos.sh build/packages
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-packages
+          path: build/packages
+
+  draft:
+    name: Draft release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          path: packages
+          pattern: "*-packages"
+          merge-multiple: true
+      # The update manifest goes in unsigned: its signature is made offline
+      # with the release key (cexchain update sign), then added to the draft.
+      - name: A draft release with the packages, for a person to publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          (cd packages && sha256sum * > SHA256SUMS)
+          tools/package/manifest.py "${GITHUB_REF_NAME#v}" packages \
+              --notes "https://github.com/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME" \
+              > release-manifest.json
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft \
+              --title "$GITHUB_REF_NAME" --generate-notes packages/* release-manifest.json

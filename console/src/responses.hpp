@@ -77,5 +77,4 @@ inline http::Response download(Bytes content, std::string_view name, std::string
     return r;
 }
 
-
 } // namespace cexchain::console

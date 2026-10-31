@@ -17,6 +17,7 @@ add_library(cexchain_app
     src/requests.cpp
     src/session.cpp
     src/support.cpp
+    src/updates.cpp
     src/views.cpp
     src/witness.cpp)
 add_library(cexchain::app ALIAS cexchain_app)
@@ -25,6 +26,7 @@ target_link_libraries(cexchain_app
     PUBLIC cexchain::ledger cexchain::node cexchain::verifier cexchain::bo_front
            nlohmann_json::nlohmann_json)
 # The tool named in an agent's provenance.
-target_compile_definitions(cexchain_app PRIVATE CEXCHAIN_VERSION="${PROJECT_VERSION}")
+target_compile_definitions(cexchain_app PRIVATE CEXCHAIN_VERSION="${PROJECT_VERSION}"
+                                               CEXCHAIN_RELEASE_KEY="${CEXCHAIN_RELEASE_KEY}")
 target_compile_features(cexchain_app PUBLIC cxx_std_26)
 cexchain_target_defaults(cexchain_app)

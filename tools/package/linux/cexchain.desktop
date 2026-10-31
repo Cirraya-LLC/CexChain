@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=CexChain
+GenericName=Verifiable records
+Comment=Your ledger's console: records, rules, and parties, approved with your passkey
+Exec=cexchain console open %f
+Terminal=false
+Categories=Office;
+MimeType=application/x-cexchain;

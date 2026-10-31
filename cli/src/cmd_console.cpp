@@ -35,6 +35,7 @@
 #include <cexchain/console/settings.hpp>
 #include <cexchain/console/setup.hpp>
 #include <cexchain/console/users.hpp>
+#include <cexchain/core/protocol/exchange.hpp>
 #include <cexchain/core/protocol/statement.hpp>
 #include <cexchain/ledger/environment.hpp>
 #include <cexchain/ledger/storage.hpp>
@@ -760,6 +761,23 @@ void start_console_process(const std::filesystem::path& dir, const std::filesyst
 int cmd_console_open(const Args& args) {
     const std::filesystem::path dir = args.console_ledger();
     const std::filesystem::path state = console::state_directory(dir);
+    // A proposal or consent file, as a double-click opens one: checked here,
+    // then left in the console's folder for the page to read.
+    std::optional<Bytes> file;
+    if (!args.positional().empty()) {
+        const std::string& name = args.positional().front();
+        if (!std::filesystem::is_regular_file(name)) {
+            throw CommandError{"no such file: " + name};
+        }
+        if (std::filesystem::file_size(name) > protocol::max_exchange_file) {
+            throw CommandError{"not a proposal or consent file (too large): " + name};
+        }
+        file = app::read_file(name);
+        if (const auto read = protocol::decode_exchange_file(*file); !read) {
+            throw CommandError{"not a proposal or consent file: " + name + ": " +
+                               std::string(read.error().detail)};
+        }
+    }
     if (!running_console(state)) {
         // Started in the background, as a launcher does, then opened.
         start_console_process(dir, state);
@@ -767,14 +785,27 @@ int cmd_console_open(const Args& args) {
     // A first run opens its setup page; otherwise the console.
     if (!console::has_ledger(dir) && std::filesystem::exists(state / "setup.html") &&
         !args.json() && !args.has("print")) {
+        if (file) {
+            std::println("set the console up first, then open the file again");
+        }
         if (!open_in_browser((state / "setup.html").string())) {
             std::println("open {} in your browser", (state / "setup.html").string());
         }
         return exit_ok;
     }
-    const auto url = state_line(state / "url");
+    auto url = state_line(state / "url");
     if (!running_console(state) || !url) {
         throw CommandError{"the console did not start: see " + (state / "console.log").string()};
+    }
+    if (file) {
+        ledger::SystemEntropy entropy;
+        const std::string id = to_hex(entropy.bytes<12>());
+        const std::filesystem::path opened = console::opened_directory(state);
+        std::filesystem::create_directories(opened);
+        std::filesystem::permissions(opened, std::filesystem::perms::owner_all,
+                                     std::filesystem::perm_options::replace);
+        app::write_file(opened / id, *file, true);
+        *url += "#/exchange/opened/" + id;
     }
     if (args.json() || args.has("print")) {
         if (args.json()) {

@@ -112,6 +112,25 @@ purchase orders, invoices, or certificates. Those are things you define, and the
 | `cexchain mcp` | MCP server through which an AI agent acts under its own key and delegation |
 | `examples` | Complete stories built on the generic core, each a Bo contract with its tests and a narrated script ([below](#examples)) |
 
+## Installing
+
+Packages are built by `tools/package/linux.sh` (a tarball, a `.deb`, and an `.rpm`, in the
+`gcc:16-trixie` image) and `tools/package/macos.sh` (`CexChain.app` with the tool, in a `.pkg`),
+and by the Release workflow on a version tag. They install the `cexchain` tool with its shell
+completion, the web console's launcher (`.cexchain` files open in it), and, on Linux, a ledger
+server unit for companies (`cexchain.service`, not enabled; its options in
+`/etc/cexchain/serve.env`). Removing a package keeps every ledger, console, and backup. To build
+from source instead, see [Building](#building).
+
+**Updates are checked, never installed by themselves.** A release's manifest lists its packages
+with their sizes and SHA-256 digests, and is signed with Cirraya's release key (Ed25519), whose
+public half is built into release builds (`-DCEXCHAIN_RELEASE_KEY=`, with
+`-DCEXCHAIN_UPDATE_URL=`). `cexchain update check` says whether a newer version exists;
+`update install` downloads this computer's package, checks it against the signed manifest, and
+says how to install it (on macOS it opens the Installer). A build without a release key checks
+nothing unless given one (`--release-key`, `--manifest`). `tools/package/manifest.py` writes a
+release's manifest, and `update sign` signs it.
+
 ## Quick start
 
 A ledger of your own, and a photo registered on it as a record of a type you name:
@@ -218,6 +237,7 @@ The `cexchain` tool controls every part of a ledger:
 | Clusters | `cluster init`, `cluster join`, `cluster add`, `cluster status`, `cluster remove`, `cluster step-down` |
 | Replicas | `replica init`, `replica sync`, `replica status`, `replica promote` |
 | Backups | `backup create`, `backup verify`, `backup restore` |
+| Updates | `update check`, `update install`, `update sign` |
 | Other organizations | `peer invite`, `peer accept`, `peer add`, `peer list`, `peer show`, `peer remove`, `access request`, `access send`, `access inbox`, `access dismiss`, `access grant`, `access fetch`, `access accept`, `access receipt`, `access list` |
 | Contracts | `contract deploy`, `contract show`, `contract list`, `contract retire`, `contract create`, `contract call`, `contract instance`, `contract instances`, `contract evidence`, `contract proposal`, `contract file show`, `contract propose`, `contract pending`, `contract consent`, `contract withdraw`, `contract send`, `contract fetch`, `contract verify`, `contract explain` |
 | Requests | `request list`, `request show`, `request answer`, `request cancel`, `request wait` |
@@ -512,7 +532,9 @@ cexchain console settings show
 - **Settings** show the ledger and its folder, the language new browsers start in, and the
   backup folder (`console settings show|set` from the command line).
 - **In the background.** `cexchain console open` starts the console if it is not running (in
-  the background, its log in the console's folder) and opens it in the browser.
+  the background, its log in the console's folder) and opens it in the browser;
+  `console open FILE` opens a proposal or consent file there (the packages make this what a
+  double-click on a `.cexchain` file does).
   `cexchain console service install` runs it from each login: a LaunchAgent on macOS, a systemd
   user unit elsewhere, restarted if it fails; `console service status|uninstall`. Without
   `--ledger`, the console's commands use this computer's place for a person's ledger

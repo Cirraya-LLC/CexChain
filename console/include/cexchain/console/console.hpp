@@ -351,14 +351,15 @@ private:
                                          const std::string& language) const;
     /// Proposal and consent files (exchange.cpp): a ledger's name for people
     /// (this ledger's organization, or a peer's name), a file from the
-    /// person's upload, reading one, writing a proposal and a consent file,
-    /// a consent's registration drafted from a proposal, and a call citing
-    /// consent files.
+    /// person's upload or opened on this computer, reading one, writing a proposal and a consent
+    /// file, a consent's registration drafted from a proposal, and a call citing consent files.
     [[nodiscard]] std::string ledger_name(const protocol::LedgerState& state,
                                           const protocol::Id& ledger) const;
     [[nodiscard]] std::variant<protocol::ExchangeFile, http::Response>
     uploaded_file(const Signed& who, const std::string& upload) const;
     [[nodiscard]] http::Response exchange_read_route(const http::Request& request) const;
+    [[nodiscard]] std::variant<std::string, http::Response>
+    take_opened(const Signed& who, const std::string& id) const;
     void exchange_proposal_route(const http::Request& request, Respond respond) const;
     void exchange_consent_route(const http::Request& request, Respond respond) const;
     /// Parties (parties.cpp): invitations out and in, the parties; the

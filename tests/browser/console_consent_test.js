@@ -6,8 +6,8 @@
 // Alice creates a camera under the lending rules and lends it to Bob: the
 // call waits for his consent, so she writes a proposal file. Bob opens it,
 // reads the call (verified against the camera's history), consents with a
-// tap, and gets a consent file; Alice opens that, and records the loan with
-// a tap. The camera is then lent, its history showing the consent. Then the
+// tap, and gets a consent file; Alice opens that as a double-click does,
+// and records the loan with a tap. The camera is then lent, its history showing the consent. Then the
 // return is proposed online: Alice's own registrar holds it, waiting for
 // Bob.
 // Usage: node console_consent_test.js CEXCHAIN [SOURCE_DIR]
@@ -151,12 +151,16 @@ async function tap(page, what) {
     assert.ok(list.some((r) => (r.record_type ?? r.type) === "cexchain.contract-consent/1"),
               "Bob's consent is a record on his ledger");
 
-    // Alice opens the consent, and records the loan with it.
+    // Alice opens the consent as a double-click does (console open FILE),
+    // and records the loan with it.
     current = alice;
-    await a.getByRole("link", { name: "Home" }).click();
-    await a.getByRole("link", { name: "Open a proposal or consent file" }).click();
-    await a.getByLabel("Proposal or consent file").setInputFiles(consent);
+    const opened = alice.run("console", "open", "--print", consent).trim();
+    assert.match(opened, /#\/exchange\/opened\/[0-9a-f]{24}$/);
+    await a.goto(opened);
     await a.getByRole("heading", { name: "A consent from Bob" }).waitFor();
+    assert.ok(a.url().endsWith("#/exchange"), "the opened file's address is taken out");
+    assert.equal(fs.readdirSync(path.join(work, "alice", "ledger", "console", "opened")).length, 0,
+                 "the opened file is taken once");
     await a.getByText(/^Verified on the consenting ledger/).waitFor();
     await a.getByRole("button", { name: "Record the call with your passkey" }).click();
     await tap(a, "Act under rules");

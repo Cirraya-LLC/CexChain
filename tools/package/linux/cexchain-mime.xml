@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Proposal and consent files between ledgers (.cexchain). -->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-cexchain">
+    <comment>CexChain proposal or consent</comment>
+    <glob pattern="*.cexchain"/>
+  </mime-type>
+</mime-info>
