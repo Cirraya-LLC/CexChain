@@ -50,4 +50,30 @@ std::filesystem::path Args::ledger() const {
     throw UsageError{"no ledger given: pass --ledger DIR or set CEXCHAIN_LEDGER"};
 }
 
+std::filesystem::path Args::console_ledger() const {
+    if (auto value = get("ledger"); value && !value->empty()) {
+        return *value;
+    }
+    if (const char* env = std::getenv("CEXCHAIN_LEDGER"); env != nullptr && *env != '\0') {
+        return env;
+    }
+    return default_ledger_directory();
+}
+
+std::filesystem::path default_ledger_directory() {
+    const char* home = std::getenv("HOME");
+    if (home == nullptr || *home == '\0') {
+        throw UsageError{"no ledger given and no home folder: pass --ledger DIR"};
+    }
+#if defined(__APPLE__)
+    return std::filesystem::path(home) / "Library" / "Application Support" / "CexChain" / "ledger";
+#else
+    if (const char* data = std::getenv("XDG_DATA_HOME");
+        data != nullptr && std::filesystem::path(data).is_absolute()) {
+        return std::filesystem::path(data) / "cexchain" / "ledger";
+    }
+    return std::filesystem::path(home) / ".local" / "share" / "cexchain" / "ledger";
+#endif
+}
+
 } // namespace cexchain::cli

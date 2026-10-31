@@ -44,11 +44,19 @@ public:
     [[nodiscard]] bool json() const { return has("json"); }
     /// --ledger, or $CEXCHAIN_LEDGER.
     [[nodiscard]] std::filesystem::path ledger() const;
+    /// The same, or else this computer's place for a person's ledger (the
+    /// console's commands: one console per person, wherever it was set up).
+    [[nodiscard]] std::filesystem::path console_ledger() const;
 
 private:
     const CommandSpec* spec_;
     std::vector<std::string> positional_;
     std::multimap<std::string, std::string, std::less<>> options_;
 };
+
+/// Where a person's ledger lives on this computer: on macOS
+/// ~/Library/Application Support/CexChain/ledger, elsewhere
+/// $XDG_DATA_HOME/cexchain/ledger (~/.local/share by default).
+[[nodiscard]] std::filesystem::path default_ledger_directory();
 
 } // namespace cexchain::cli

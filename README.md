@@ -511,6 +511,13 @@ cexchain console settings show
   (its record revoked), after which its delivery is no longer handed out.
 - **Settings** show the ledger and its folder, the language new browsers start in, and the
   backup folder (`console settings show|set` from the command line).
+- **In the background.** `cexchain console open` starts the console if it is not running (in
+  the background, its log in the console's folder) and opens it in the browser.
+  `cexchain console service install` runs it from each login: a LaunchAgent on macOS, a systemd
+  user unit elsewhere, restarted if it fails; `console service status|uninstall`. Without
+  `--ledger`, the console's commands use this computer's place for a person's ledger
+  (`~/Library/Application Support/CexChain/ledger` on macOS, `$XDG_DATA_HOME/cexchain/ledger`
+  elsewhere); `console status` shows it.
 - **Backups.** Once a day while the console is unlocked (and on "Back up now"), it writes a
   backup into the backup folder: the ledger's backup, signed by its log key, with the console's
   folder (its sealed keys, users, kinds, settings, the witness's state, party tokens), checked by

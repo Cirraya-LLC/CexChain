@@ -8,6 +8,7 @@
 #include <csignal>
 #include <cstdlib>
 #include <exception>
+#include <fcntl.h>
 #include <filesystem>
 #include <format>
 #include <iostream>
@@ -117,7 +118,7 @@ void print_invitation(const Args& args, const std::string& link,
 } // namespace
 
 int cmd_console_setup_link(const Args& args) {
-    const std::filesystem::path dir = args.ledger();
+    const std::filesystem::path dir = args.console_ledger();
     require_ledger_directory(dir);
     const std::filesystem::path state = console::state_directory(dir);
     ledger::SystemClock clock;
@@ -140,7 +141,7 @@ int cmd_console_setup_link(const Args& args) {
 }
 
 int cmd_console_session_list(const Args& args) {
-    const std::filesystem::path dir = args.ledger();
+    const std::filesystem::path dir = args.console_ledger();
     require_ledger_directory(dir);
     std::vector<console::PublishedSession> sessions;
     try {
@@ -169,7 +170,7 @@ int cmd_console_session_list(const Args& args) {
 }
 
 int cmd_console_session_revoke(const Args& args) {
-    const std::filesystem::path dir = args.ledger();
+    const std::filesystem::path dir = args.console_ledger();
     require_ledger_directory(dir);
     const std::string id = args.positional().front();
     const std::filesystem::path state = console::state_directory(dir);
@@ -241,7 +242,7 @@ std::size_t owners(const console::People& people) {
 } // namespace
 
 int cmd_console_user_add(const Args& args) {
-    const std::filesystem::path dir = args.ledger();
+    const std::filesystem::path dir = args.console_ledger();
     require_ledger_directory(dir);
     const std::string name = args.positional().front();
     if (!console::valid_user_name(name)) {
@@ -268,7 +269,7 @@ int cmd_console_user_add(const Args& args) {
 }
 
 int cmd_console_user_list(const Args& args) {
-    const std::filesystem::path dir = args.ledger();
+    const std::filesystem::path dir = args.console_ledger();
     require_ledger_directory(dir);
     const console::People people = read_people(console::state_directory(dir));
     ledger::SystemClock clock;
@@ -307,7 +308,7 @@ int cmd_console_user_list(const Args& args) {
 }
 
 int cmd_console_user_show(const Args& args) {
-    const std::filesystem::path dir = args.ledger();
+    const std::filesystem::path dir = args.console_ledger();
     require_ledger_directory(dir);
     const console::People people = read_people(console::state_directory(dir));
     const std::string name = args.positional().front();
@@ -329,7 +330,7 @@ int cmd_console_user_show(const Args& args) {
 }
 
 int cmd_console_user_role(const Args& args) {
-    const std::filesystem::path dir = args.ledger();
+    const std::filesystem::path dir = args.console_ledger();
     require_ledger_directory(dir);
     const std::string name = args.positional()[0];
     const auto role = console::parse_role(args.positional()[1]);
@@ -356,7 +357,7 @@ int cmd_console_user_role(const Args& args) {
 }
 
 int cmd_console_user_revoke(const Args& args) {
-    const std::filesystem::path dir = args.ledger();
+    const std::filesystem::path dir = args.console_ledger();
     require_ledger_directory(dir);
     const std::string name = args.positional().front();
     std::size_t invitations = 0;
@@ -598,7 +599,7 @@ int run_person_console(const Args& args, const std::filesystem::path& dir,
 } // namespace
 
 int cmd_console_run(const Args& args) {
-    const std::filesystem::path dir = args.ledger();
+    const std::filesystem::path dir = args.console_ledger();
     const std::filesystem::path state = console::state_directory(dir);
     // A directory with no ledger yet: the first run makes it.
     const bool first_run = !console::has_ledger(dir);
@@ -644,7 +645,7 @@ int cmd_console_run(const Args& args) {
 }
 
 int cmd_console_status(const Args& args) {
-    const std::filesystem::path dir = args.ledger();
+    const std::filesystem::path dir = args.console_ledger();
     const std::filesystem::path state = console::state_directory(dir);
     const auto pid = running_console(state);
     const auto url = state_line(state / "url");
@@ -657,6 +658,7 @@ int cmd_console_status(const Args& args) {
     }
     if (args.json()) {
         print_json({{"running", pid.has_value()},
+                    {"directory", dir.string()},
                     {"pid", pid ? Json(*pid) : Json()},
                     {"url", pid && url ? Json(*url) : Json()},
                     {"users", people.users.size()},
@@ -676,7 +678,7 @@ int cmd_console_status(const Args& args) {
 }
 
 int cmd_console_stop(const Args& args) {
-    const std::filesystem::path dir = args.ledger();
+    const std::filesystem::path dir = args.console_ledger();
     const std::filesystem::path state = console::state_directory(dir);
     const auto pid = running_console(state);
     if (!pid) {
@@ -700,12 +702,79 @@ int cmd_console_stop(const Args& args) {
     return exit_ok;
 }
 
+namespace {
+
+/// Starts `console run` for `dir` in the background, its own session, its
+/// output in the console's log, and waits until it answers (15 s at most).
+void start_console_process(const std::filesystem::path& dir, const std::filesystem::path& state) {
+    std::filesystem::create_directories(state);
+    const std::string program = self_path();
+    const std::string log = (state / "console.log").string();
+    std::vector<std::string> words{program, "console", "run", "--ledger", dir.string(), "--quiet"};
+    std::vector<char*> argv;
+    for (std::string& w : words) {
+        argv.push_back(w.data());
+    }
+    argv.push_back(nullptr);
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_addopen(&actions, 1, log.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0600);
+    posix_spawn_file_actions_adddup2(&actions, 1, 2);
+    posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0);
+    posix_spawnattr_t attributes;
+    posix_spawnattr_init(&attributes);
+    posix_spawnattr_setflags(&attributes, POSIX_SPAWN_SETSID);
+    // The person's browser opens from here, not from the background process.
+    std::vector<std::string> environment_text{"CEXCHAIN_NO_BROWSER=1"};
+    std::vector<char*> envp;
+    for (char** e = environ; *e != nullptr; ++e) {
+        if (!std::string_view(*e).starts_with("CEXCHAIN_NO_BROWSER=")) {
+            envp.push_back(*e);
+        }
+    }
+    envp.push_back(environment_text.front().data());
+    envp.push_back(nullptr);
+    pid_t child = 0;
+    const int spawned =
+        ::posix_spawn(&child, program.c_str(), &actions, &attributes, argv.data(), envp.data());
+    posix_spawn_file_actions_destroy(&actions);
+    posix_spawnattr_destroy(&attributes);
+    if (spawned != 0) {
+        throw CommandError{"cannot start the console: " + program};
+    }
+    for (int i = 0; i < 150; ++i) {
+        if (running_console(state) &&
+            (state_line(state / "url") || std::filesystem::exists(state / "setup.html"))) {
+            return;
+        }
+        int status = 0;
+        if (::waitpid(child, &status, WNOHANG) == child) {
+            throw CommandError{"the console stopped at once: see " + log};
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+}
+
+} // namespace
+
 int cmd_console_open(const Args& args) {
-    const std::filesystem::path dir = args.ledger();
+    const std::filesystem::path dir = args.console_ledger();
     const std::filesystem::path state = console::state_directory(dir);
+    if (!running_console(state)) {
+        // Started in the background, as a launcher does, then opened.
+        start_console_process(dir, state);
+    }
+    // A first run opens its setup page; otherwise the console.
+    if (!console::has_ledger(dir) && std::filesystem::exists(state / "setup.html") &&
+        !args.json() && !args.has("print")) {
+        if (!open_in_browser((state / "setup.html").string())) {
+            std::println("open {} in your browser", (state / "setup.html").string());
+        }
+        return exit_ok;
+    }
     const auto url = state_line(state / "url");
     if (!running_console(state) || !url) {
-        throw CommandError{"the console is not running (console run)"};
+        throw CommandError{"the console did not start: see " + (state / "console.log").string()};
     }
     if (args.json() || args.has("print")) {
         if (args.json()) {
@@ -744,7 +813,7 @@ Json slot_json(const console::Slot& slot) {
 } // namespace
 
 int cmd_console_key_init(const Args& args) {
-    const std::filesystem::path dir = args.ledger();
+    const std::filesystem::path dir = args.console_ledger();
     require_ledger_directory(dir);
     console::KeyStore store(console::state_directory(dir));
     if (store.initialized()) {
@@ -778,7 +847,7 @@ int cmd_console_key_init(const Args& args) {
 }
 
 int cmd_console_setup(const Args& args) {
-    const std::filesystem::path dir = args.ledger();
+    const std::filesystem::path dir = args.console_ledger();
     const std::filesystem::path state = console::state_directory(dir);
     if (console::has_ledger(dir)) {
         throw CommandError{"this directory holds a ledger already (console run opens it)"};
@@ -827,7 +896,7 @@ int cmd_console_setup(const Args& args) {
 }
 
 int cmd_console_key_import(const Args& args) {
-    const std::filesystem::path dir = args.ledger();
+    const std::filesystem::path dir = args.console_ledger();
     require_ledger_directory(dir);
     const std::string name = args.positional()[0];
     if (!console::valid_key_name(name)) {
@@ -867,7 +936,7 @@ int cmd_console_key_import(const Args& args) {
 }
 
 int cmd_console_key_list(const Args& args) {
-    const std::filesystem::path dir = args.ledger();
+    const std::filesystem::path dir = args.console_ledger();
     require_ledger_directory(dir);
     console::KeyStore store(console::state_directory(dir));
     std::vector<console::SealedKeyInfo> keys;
@@ -912,7 +981,7 @@ int cmd_console_key_list(const Args& args) {
 }
 
 int cmd_console_key_remove(const Args& args) {
-    const std::filesystem::path dir = args.ledger();
+    const std::filesystem::path dir = args.console_ledger();
     require_ledger_directory(dir);
     const std::string name = args.positional().front();
     console::KeyStore store(console::state_directory(dir));
@@ -928,7 +997,7 @@ int cmd_console_key_remove(const Args& args) {
 }
 
 int cmd_console_user_link(const Args& args) {
-    const std::filesystem::path dir = args.ledger();
+    const std::filesystem::path dir = args.console_ledger();
     require_ledger_directory(dir);
     const std::filesystem::path state = console::state_directory(dir);
     const std::string name = args.positional().front();
@@ -943,7 +1012,7 @@ int cmd_console_user_link(const Args& args) {
     if (!key) {
         throw CommandError{"the console holds no key named " + key_name + " (console key list)"};
     }
-    Session session(args);
+    Session session(dir);
     const protocol::Id actor = session.actor_id(args.need("actor"));
     const protocol::ActorState* a = session.state().actor(actor);
     if (a == nullptr || a->revoked) {
@@ -992,7 +1061,7 @@ int cmd_console_user_link(const Args& args) {
 }
 
 int cmd_console_user_approve(const Args& args) {
-    const std::filesystem::path dir = args.ledger();
+    const std::filesystem::path dir = args.console_ledger();
     require_ledger_directory(dir);
     const std::filesystem::path state = console::state_directory(dir);
     const std::string name = args.positional().front();
@@ -1062,7 +1131,7 @@ int cmd_console_user_approve(const Args& args) {
     }
     auto key = unwrap(crypto::openssl::KeyPair::generate(crypto::SigAlg::ed25519), "a key");
     // Their actor, their passkeys as its presence, and what they may do.
-    Session session(args);
+    Session session(dir);
     session.require_primary();
     const protocol::Id actor = session.submit(
         args, protocol::ActorRegisterBody{protocol::ActorKind::person, user->name, key.public_key(),
@@ -1097,7 +1166,7 @@ int cmd_console_user_approve(const Args& args) {
 }
 
 int cmd_console_backup_now(const Args& args) {
-    const std::filesystem::path dir = args.ledger();
+    const std::filesystem::path dir = args.console_ledger();
     require_ledger_directory(dir);
     const std::filesystem::path state = console::state_directory(dir);
     if (const auto pid = running_console(state)) {
@@ -1124,7 +1193,7 @@ int cmd_console_backup_now(const Args& args) {
     if (!folder) {
         throw UsageError{"no backup folder: give --folder, or set one (console settings set)"};
     }
-    Session session(args);
+    Session session(dir);
     ledger::SystemClock clock;
     std::filesystem::path written;
     try {
@@ -1156,7 +1225,8 @@ int cmd_console_backup_list(const Args& args) {
     if (const auto given = args.get("folder")) {
         folder = *given;
     } else {
-        folder = console::load_settings(console::state_directory(args.ledger())).backup_folder;
+        folder =
+            console::load_settings(console::state_directory(args.console_ledger())).backup_folder;
     }
     if (!folder) {
         throw UsageError{"no backup folder: give --folder"};
@@ -1199,7 +1269,7 @@ int cmd_console_backup_list(const Args& args) {
 }
 
 int cmd_console_restore(const Args& args) {
-    const std::filesystem::path dir = args.ledger();
+    const std::filesystem::path dir = args.console_ledger();
     const std::filesystem::path file = args.positional().front();
     if (std::filesystem::exists(dir / "statements")) {
         throw CommandError{"a ledger already exists at " + dir.string() +
@@ -1244,8 +1314,267 @@ int cmd_console_restore(const Args& args) {
     return exit_ok;
 }
 
+namespace {
+
+// The console as a per-user background service: a LaunchAgent on macOS, a
+// systemd user unit elsewhere. It starts at login and restarts if it fails;
+// `console stop` stops it until the next login. Locked at start, it signs
+// nothing until a passkey's sign-in (or --unlock-file) unlocks it.
+
+constexpr std::string_view service_label = "com.cirraya.cexchain.console";
+constexpr std::string_view service_unit = "cexchain-console.service";
+
+struct ServicePlace {
+    std::filesystem::path directory;
+    std::filesystem::path file;
+    bool launchd = false;
+};
+
+ServicePlace service_place(const Args& args) {
+    ServicePlace out;
+#if defined(__APPLE__)
+    out.launchd = true;
+#endif
+    if (const auto dir = args.get("unit-dir")) {
+        out.directory = *dir;
+    } else {
+        const char* home = std::getenv("HOME");
+        if (home == nullptr || *home == '\0') {
+            throw UsageError{"no home folder: pass --unit-dir"};
+        }
+        if (out.launchd) {
+            out.directory = std::filesystem::path(home) / "Library" / "LaunchAgents";
+        } else if (const char* config = std::getenv("XDG_CONFIG_HOME");
+                   config != nullptr && std::filesystem::path(config).is_absolute()) {
+            out.directory = std::filesystem::path(config) / "systemd" / "user";
+        } else {
+            out.directory = std::filesystem::path(home) / ".config" / "systemd" / "user";
+        }
+    }
+    out.file = out.directory /
+               (out.launchd ? std::string(service_label) + ".plist" : std::string(service_unit));
+    return out;
+}
+
+std::string xml_text(std::string_view text) {
+    std::string out;
+    for (const char c : text) {
+        switch (c) {
+        case '&':
+            out += "&amp;";
+            break;
+        case '<':
+            out += "&lt;";
+            break;
+        case '>':
+            out += "&gt;";
+            break;
+        default:
+            out += c;
+        }
+    }
+    return out;
+}
+
+/// A systemd word: quoted, with its quotes and backslashes escaped.
+std::string unit_word(std::string_view text) {
+    std::string out = "\"";
+    for (const char c : text) {
+        if (c == '"' || c == '\\') {
+            out += '\\';
+        }
+        out += c == '%' ? std::string("%%") : std::string(1, c);
+    }
+    return out + "\"";
+}
+
+std::string service_text(const ServicePlace& place, const std::vector<std::string>& command,
+                         const std::filesystem::path& log) {
+    if (place.launchd) {
+        std::string arguments;
+        for (const std::string& word : command) {
+            arguments += "    <string>" + xml_text(word) + "</string>\n";
+        }
+        return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+               "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" "
+               "\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
+               "<plist version=\"1.0\">\n<dict>\n"
+               "  <key>Label</key>\n  <string>" +
+               std::string(service_label) +
+               "</string>\n"
+               "  <key>ProgramArguments</key>\n  <array>\n" +
+               arguments +
+               "  </array>\n"
+               "  <key>EnvironmentVariables</key>\n  <dict>\n"
+               "    <key>CEXCHAIN_NO_BROWSER</key>\n    <string>1</string>\n  </dict>\n"
+               "  <key>RunAtLoad</key>\n  <true/>\n"
+               "  <key>KeepAlive</key>\n  <dict>\n"
+               "    <key>SuccessfulExit</key>\n    <false/>\n  </dict>\n"
+               "  <key>StandardOutPath</key>\n  <string>" +
+               xml_text(log.string()) +
+               "</string>\n"
+               "  <key>StandardErrorPath</key>\n  <string>" +
+               xml_text(log.string()) + "</string>\n</dict>\n</plist>\n";
+    }
+    std::string exec;
+    for (const std::string& word : command) {
+        exec += (exec.empty() ? "" : " ") + unit_word(word);
+    }
+    return "[Unit]\n"
+           "Description=CexChain console\n"
+           "After=network-online.target\n\n"
+           "[Service]\n"
+           "ExecStart=" +
+           exec +
+           "\n"
+           "Environment=CEXCHAIN_NO_BROWSER=1\n"
+           "Restart=on-failure\n"
+           "RestartSec=5\n\n"
+           "[Install]\n"
+           "WantedBy=default.target\n";
+}
+
+/// Runs a platform tool (launchctl, systemctl); its exit status.
+int run_tool(std::vector<std::string> words) {
+    std::vector<char*> argv;
+    for (std::string& w : words) {
+        argv.push_back(w.data());
+    }
+    argv.push_back(nullptr);
+    pid_t child = 0;
+    if (::posix_spawnp(&child, argv.front(), nullptr, nullptr, argv.data(), environ) != 0) {
+        return -1;
+    }
+    int status = 0;
+    ::waitpid(child, &status, 0);
+    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+}
+
+std::string gui_domain() {
+    return "gui/" + std::to_string(::getuid());
+}
+
+} // namespace
+
+int cmd_console_service_install(const Args& args) {
+    const std::filesystem::path dir = std::filesystem::absolute(args.console_ledger());
+    const ServicePlace place = service_place(args);
+    std::vector<std::string> command{self_path(), "console",    "run",
+                                     "--ledger",  dir.string(), "--quiet"};
+    if (const auto port = args.get("port")) {
+        command.insert(command.end(), {"--port", *port});
+    }
+    if (const auto file = args.get("unlock-file")) {
+        command.insert(command.end(), {"--unlock-file", std::filesystem::absolute(*file).string()});
+    }
+    const std::filesystem::path log = console::state_directory(dir) / "console.log";
+    const std::string text = service_text(place, command, log);
+    if (args.has("print")) {
+        std::print("{}", text);
+        return exit_ok;
+    }
+    std::filesystem::create_directories(place.directory);
+    std::filesystem::create_directories(console::state_directory(dir));
+    write_file(place.file, as_bytes(text), false);
+    bool started = false;
+    if (!args.has("no-start")) {
+        if (place.launchd) {
+            static_cast<void>(run_tool(
+                {"launchctl", "bootout", gui_domain() + "/" + std::string(service_label)}));
+            started = run_tool({"launchctl", "bootstrap", gui_domain(), place.file.string()}) == 0;
+        } else {
+            started = run_tool({"systemctl", "--user", "daemon-reload"}) == 0 &&
+                      run_tool({"systemctl", "--user", "enable", "--now",
+                                std::string(service_unit)}) == 0;
+        }
+    }
+    if (args.json()) {
+        print_json({{"file", place.file.string()}, {"ledger", dir.string()}, {"started", started}});
+        return exit_ok;
+    }
+    std::println("installed {} for {}", place.file.string(), dir.string());
+    std::println("{}", started ? "it runs now, and at each login (console open opens it)"
+                               : "it runs at the next login (or start it now: console run)");
+    return exit_ok;
+}
+
+int cmd_console_service_uninstall(const Args& args) {
+    const ServicePlace place = service_place(args);
+    if (!args.has("no-start")) {
+        if (place.launchd) {
+            static_cast<void>(run_tool(
+                {"launchctl", "bootout", gui_domain() + "/" + std::string(service_label)}));
+        } else {
+            static_cast<void>(
+                run_tool({"systemctl", "--user", "disable", "--now", std::string(service_unit)}));
+        }
+    }
+    const bool removed = std::filesystem::remove(place.file);
+    if (!args.has("no-start") && !place.launchd) {
+        static_cast<void>(run_tool({"systemctl", "--user", "daemon-reload"}));
+    }
+    if (args.json()) {
+        print_json({{"file", place.file.string()}, {"removed", removed}});
+    } else {
+        if (removed) {
+            std::println("uninstalled {}: the console no longer starts at login (its ledger and "
+                         "backups stay)",
+                         place.file.string());
+        } else {
+            std::println("no service at {}", place.file.string());
+        }
+    }
+    return exit_ok;
+}
+
+int cmd_console_service_status(const Args& args) {
+    const ServicePlace place = service_place(args);
+    const bool installed = std::filesystem::exists(place.file);
+    std::string ledger;
+    if (installed) {
+        const Bytes bytes = read_file(place.file);
+        const std::string text(bytes.begin(), bytes.end());
+        // The word after --ledger, as either format writes it.
+        for (const auto& [before, after] :
+             {std::pair<std::string_view, std::string_view>{"<string>--ledger</string>",
+                                                            "</string>"},
+              std::pair<std::string_view, std::string_view>{"\"--ledger\" \"", "\""}}) {
+            std::size_t at = text.find(before);
+            if (at == std::string::npos) {
+                continue;
+            }
+            at += before.size();
+            if (before.starts_with("<")) {
+                at = text.find("<string>", at);
+                at = at == std::string::npos ? at : at + 8;
+            }
+            const std::size_t end = at == std::string::npos ? at : text.find(after, at);
+            if (end != std::string::npos) {
+                ledger = text.substr(at, end - at);
+            }
+        }
+    }
+    const std::optional<std::filesystem::path> dir =
+        ledger.empty() ? std::nullopt : std::optional<std::filesystem::path>(ledger);
+    const bool running = dir && running_console(console::state_directory(*dir)).has_value();
+    if (args.json()) {
+        print_json({{"installed", installed},
+                    {"file", place.file.string()},
+                    {"ledger", dir ? Json(dir->string()) : Json()},
+                    {"running", running}});
+        return exit_ok;
+    }
+    if (!installed) {
+        std::println("no console service installed (console service install)");
+        return exit_ok;
+    }
+    std::println("installed: {} for {}; {}", place.file.string(), ledger,
+                 running ? "running" : "not running now");
+    return exit_ok;
+}
+
 int cmd_console_activity(const Args& args) {
-    const std::filesystem::path dir = args.ledger();
+    const std::filesystem::path dir = args.console_ledger();
     require_ledger_directory(dir);
     const std::size_t limit =
         static_cast<std::size_t>(parse_number(args.get("limit").value_or("50"), "--limit"));
@@ -1270,7 +1599,7 @@ int cmd_console_activity(const Args& args) {
 }
 
 int cmd_console_user_passkeys(const Args& args) {
-    const std::filesystem::path dir = args.ledger();
+    const std::filesystem::path dir = args.console_ledger();
     require_ledger_directory(dir);
     const console::People people = read_people(console::state_directory(dir));
     const std::string name = args.positional().front();
@@ -1324,7 +1653,7 @@ void print_settings(const Args& args, const console::Settings& settings) {
 } // namespace
 
 int cmd_console_settings_show(const Args& args) {
-    const std::filesystem::path dir = args.ledger();
+    const std::filesystem::path dir = args.console_ledger();
     require_ledger_directory(dir);
     try {
         print_settings(args, console::load_settings(console::state_directory(dir)));
@@ -1335,7 +1664,7 @@ int cmd_console_settings_show(const Args& args) {
 }
 
 int cmd_console_settings_set(const Args& args) {
-    const std::filesystem::path dir = args.ledger();
+    const std::filesystem::path dir = args.console_ledger();
     require_ledger_directory(dir);
     const auto language = args.get("language");
     const auto folder = args.get("backup-folder");
@@ -1410,7 +1739,7 @@ void print_kind(const console::Kind& kind) {
 } // namespace
 
 int cmd_console_kind_add(const Args& args) {
-    const std::filesystem::path dir = args.ledger();
+    const std::filesystem::path dir = args.console_ledger();
     require_ledger_directory(dir);
     const std::string file = args.positional().front();
     const Bytes bytes = read_file(file);
@@ -1449,7 +1778,7 @@ int cmd_console_kind_add(const Args& args) {
 }
 
 int cmd_console_kind_list(const Args& args) {
-    const std::filesystem::path dir = args.ledger();
+    const std::filesystem::path dir = args.console_ledger();
     require_ledger_directory(dir);
     const auto kinds = read_kinds(console::state_directory(dir));
     if (args.json()) {
@@ -1470,7 +1799,7 @@ int cmd_console_kind_list(const Args& args) {
 }
 
 int cmd_console_kind_show(const Args& args) {
-    const std::filesystem::path dir = args.ledger();
+    const std::filesystem::path dir = args.console_ledger();
     require_ledger_directory(dir);
     const auto kinds = read_kinds(console::state_directory(dir));
     const auto found = std::ranges::find(kinds, args.positional().front(), &console::Kind::type);
@@ -1486,7 +1815,7 @@ int cmd_console_kind_show(const Args& args) {
 }
 
 int cmd_console_kind_remove(const Args& args) {
-    const std::filesystem::path dir = args.ledger();
+    const std::filesystem::path dir = args.console_ledger();
     require_ledger_directory(dir);
     const std::filesystem::path state = console::state_directory(dir);
     const std::string type = args.positional().front();

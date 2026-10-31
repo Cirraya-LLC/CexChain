@@ -429,6 +429,39 @@ start_console "$WORK/restored" --unlock-file unlock.txt
 run console stop --ledger "$WORK/restored" > /dev/null
 sleep 0.5
 
+# --- This computer's place for a person's ledger, and the console in the background ------
+if [ "$(uname)" = Darwin ]; then
+    PLACE="$WORK/home/Library/Application Support/CexChain/ledger"
+else
+    PLACE="$WORK/home/.local/share/cexchain/ledger"
+fi
+[ "$(env -u CEXCHAIN_LEDGER -u XDG_DATA_HOME HOME="$WORK/home" "$CEXCHAIN" console status --json |
+    json 'd["directory"]')" = "$PLACE" ] || fail "console commands default to this computer's place"
+if env -u CEXCHAIN_LEDGER HOME="$WORK/home" "$CEXCHAIN" status > out.txt 2>&1; then
+    fail "other commands still need --ledger"
+fi
+grep -q -- "--ledger" out.txt || fail "other commands say they need --ledger"
+run console service install --ledger "$SCRIPTED" --unit-dir units --no-start --port "$FREE" \
+    --json > service.json
+SERVICE_FILE=$(json 'd["file"]' < service.json)
+[ -f "$SERVICE_FILE" ] || fail "the service file is written"
+grep -qF "$SCRIPTED" "$SERVICE_FILE" || fail "the service runs this ledger's console"
+grep -q "CEXCHAIN_NO_BROWSER" "$SERVICE_FILE" || fail "the service opens no browser"
+[ "$(run console service status --unit-dir units --json | json '(d["installed"], d["ledger"])')" = \
+    "(True, '$SCRIPTED')" ] || fail "console service status"
+run console service install --ledger "$SCRIPTED" --print | grep -q "console" || fail "--print"
+run console service uninstall --unit-dir units --no-start > /dev/null
+[ ! -f "$SERVICE_FILE" ] || fail "uninstalled"
+[ "$(run console service status --unit-dir units --json | json 'd["installed"]')" = False ] ||
+    fail "status after uninstalling"
+# console open starts a stopped console, in the background, then gives its address.
+URL=$(run console open --ledger "$SCRIPTED" --print)
+case "$URL" in http://localhost:*/console/) ;; *) fail "console open --print: $URL" ;; esac
+[ "$(run console status --ledger "$SCRIPTED" --json | json 'd["running"]')" = True ] ||
+    fail "console open started it"
+run console stop --ledger "$SCRIPTED" > /dev/null
+sleep 0.5
+
 # --- console run on an empty directory: the first run's setup link --------------------
 EMPTY="$WORK/empty"
 CEXCHAIN_NO_BROWSER=1 "$CEXCHAIN" console run --ledger "$EMPTY" --port "$FREE" --quiet --json \
