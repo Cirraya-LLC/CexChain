@@ -462,10 +462,12 @@ stderr, automatic checkpoints (`--checkpoint-interval`), and graceful shutdown o
 `cexchain console run` serves a web console for the ledger on this computer, at
 `http://localhost:7470/console/` (or the next free port, remembered); `console status`,
 `console open`, and `console stop` manage it. A company serves it beside its API with
-`cexchain serve --console --public-url https://ledger.example.com`. So far it sets a ledger
-up for one person, signs people in, registers documents with their fields and files, shows a
+`cexchain serve --console --public-url https://ledger.example.com`. It sets a ledger up for
+one person or a team, signs people in, registers documents with their fields and files, shows a
 thing's page, shares and verifies proof, writes, tests, and deploys rules, creates things under
-them and acts on them, and approves each statement with a passkey.
+them and acts on them, connects with other organizations (consents, documents, witnessing each
+other, public witnesses, relays), runs machines and AI agents, backs itself up, and approves each
+statement with a passkey. Not yet: Windows.
 
 ```sh
 cexchain console run --ledger ./ledger   # an empty directory: the browser opens the setup page
