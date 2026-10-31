@@ -80,6 +80,11 @@ namespace cexchain::cli {
 /// list --server among their options. The mirror lives in the cache (--cache,
 /// default $XDG_CACHE_HOME/cexchain or ~/.cache/cexchain); the ledger a URL
 /// serves is pinned on first use (--ledger-id, required for http://).
+/// For a process that holds keys (serve, console run): no core dumps, and on
+/// Linux not dumpable, so that other processes of the user cannot read its
+/// memory either (except under the sanitizers, whose leak checker needs it).
+void keep_keys_out_of_dumps();
+
 class Session : public app::Session {
 public:
     explicit Session(const std::filesystem::path& directory) : app::Session(directory) {}

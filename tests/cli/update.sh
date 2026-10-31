@@ -31,12 +31,12 @@ json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 
 for command in "update check" "update install" "update sign"; do
     # shellcheck disable=SC2086
-    run $command --help | grep -qF "cexchain $command" || fail "help for $command"
+    run $command --help | grep -F "cexchain $command" > /dev/null || fail "help for $command"
 done
-run completion bash | grep -q "install" || fail "completion"
+run completion bash | grep "install" > /dev/null || fail "completion"
 
 # Without a release key and a manifest, nothing is checked.
-run update check | grep -q "checks no updates" || fail "a build without a release key"
+run update check | grep "checks no updates" > /dev/null || fail "a build without a release key"
 [ "$(run update check --json | json 'd["checked"]')" = False ] || fail "--json"
 
 case "$(uname -s)-$(uname -m)" in
@@ -71,7 +71,7 @@ grep -q "cexchain 99.0.0 is available" out.txt || fail "a newer version"
 
 manifest same.json 0.0.1
 run update sign same.json --as release.key > /dev/null
-run update check --manifest same.json --release-key release.pub | grep -q "is up to date" ||
+run update check --manifest same.json --release-key release.pub | grep "is up to date" > /dev/null ||
     fail "not newer"
 
 # Changed after signing, or signed by another key: refused.
@@ -90,7 +90,7 @@ grep -q "not a release manifest" out.txt || fail "only manifests are signed"
 # Install: downloaded, checked, and said how to install; nothing installed.
 run update install --manifest newer.json --release-key release.pub --dir downloads --json > installed.json
 cmp downloads/cexchain-99.0.0.tar.gz cexchain-99.0.0.tar.gz || fail "the package downloaded"
-json 'd["install"]' < installed.json | grep -q "cexchain-99.0.0.tar.gz" || fail "how to install it"
+json 'd["install"]' < installed.json | grep "cexchain-99.0.0.tar.gz" > /dev/null || fail "how to install it"
 
 # Over the web, through a redirect to a download signed in its query, as a
 # release's "latest" link does.
@@ -122,7 +122,7 @@ SERVER=$!
 trap 'kill "$SERVER" 2> /dev/null; rm -rf "$WORK"' EXIT
 for _ in $(seq 1 100); do [ -s port.txt ] && break; sleep 0.1; done
 LATEST="http://127.0.0.1:$(cat port.txt)/latest/newer.json"
-run update check --manifest "$LATEST" --release-key release.pub | grep -q "99.0.0 is available" ||
+run update check --manifest "$LATEST" --release-key release.pub | grep "99.0.0 is available" > /dev/null ||
     fail "a manifest over the web"
 run update install --manifest "$LATEST" --release-key release.pub --dir web > /dev/null
 cmp web/cexchain-99.0.0.tar.gz cexchain-99.0.0.tar.gz || fail "a package over the web"

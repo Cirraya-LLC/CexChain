@@ -356,6 +356,24 @@ http::Response Console::sign_in_begin(const http::Request& request) const {
 }
 
 http::Response Console::sign_in_finish(const http::Request& request) const {
+    // A few failed sign-ins a minute: each costs a signature check.
+    constexpr std::size_t max_failures = 20;
+    constexpr protocol::Timestamp window = 60'000;
+    const protocol::Timestamp now = services_.clock->now();
+    {
+        const std::lock_guard lock(mutex_);
+        std::erase_if(sign_in_failures_, [&](protocol::Timestamp t) { return t + window <= now; });
+        if (sign_in_failures_.size() >= max_failures) {
+            auto busy =
+                error(429, "unavailable", "too many failed sign-ins: try again in a minute");
+            busy.headers.emplace_back("Retry-After", "60");
+            return busy;
+        }
+    }
+    const auto failed = [&] {
+        const std::lock_guard lock(mutex_);
+        sign_in_failures_.push_back(now);
+    };
     const auto body = body_of(request);
     if (!body) {
         return bad("the request's body is not a JSON object");
@@ -388,6 +406,7 @@ http::Response Console::sign_in_finish(const http::Request& request) const {
     const User* user = people.owner_of(*id);
     if (!check || !check->user_verified || lowered(check->origin) != ceremony->origin ||
         user == nullptr) {
+        failed();
         http::Response refused = error(401, "unauthorized", "the passkey did not sign in");
         refused.headers.emplace_back("WWW-Authenticate", "Bearer");
         return refused;

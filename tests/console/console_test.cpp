@@ -475,6 +475,22 @@ TEST_CASE("the first owner sets the console up with a passkey, then signs in",
     CHECK(nlohmann::json::parse(body(signed_in))["user"] == "Alice");
 }
 
+TEST_CASE("failed sign-ins are limited to a few a minute", "[console][passkeys]") {
+    ConsoleWorld w;
+    auto alice = passkey(1);
+    REQUIRE(w.enroll(alice, w.invite("", console::Role::owner), "Alice").status == 200);
+    for (int i = 0; i < 20; ++i) {
+        REQUIRE(w.sign_in(passkey(9)).status == 401);
+    }
+    // Even the right passkey waits, a minute.
+    const auto busy = w.sign_in(alice);
+    CHECK(busy.status == 429);
+    CHECK(std::ranges::find(busy.headers, std::pair<std::string, std::string>{
+                                              "Retry-After", "60"}) != busy.headers.end());
+    w.clock.advance(61'000);
+    CHECK(w.sign_in(alice).status == 200);
+}
+
 TEST_CASE("signing in refuses what a passkey did not sign for this console",
           "[console][passkeys]") {
     ConsoleWorld w;

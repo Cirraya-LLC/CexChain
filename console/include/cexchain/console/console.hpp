@@ -48,11 +48,13 @@ namespace cexchain::console {
 namespace http = node::http;
 
 /// The Content-Security-Policy of every console answer: the page's own
-/// scripts, styles, and WebAssembly, nothing inline, nothing from elsewhere.
+/// scripts, styles, and WebAssembly, nothing inline, nothing from elsewhere,
+/// and no string ever turned into HTML or script (Trusted Types, with no
+/// policy: the page builds its DOM from text only).
 inline constexpr std::string_view content_security_policy =
     "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; "
     "img-src 'self' blob: data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; "
-    "form-action 'none'";
+    "form-action 'none'; require-trusted-types-for 'script'; trusted-types 'none'";
 
 /// An origin the console answers for: "http://localhost:7470",
 /// "https://ledger.example.com". Lower case, no path, no default port.
@@ -652,6 +654,8 @@ private:
     /// When recovery codes were refused lately, and whether one is being
     /// checked.
     mutable std::vector<protocol::Timestamp> recovery_failures_;
+    /// When sign-ins failed lately: each costs a signature check.
+    mutable std::vector<protocol::Timestamp> sign_in_failures_;
     mutable bool checking_recovery_ = false;
     mutable std::map<std::string, PeerInbox> inbox_;
     /// This ledger's requests whose grant the party withdrew or let expire

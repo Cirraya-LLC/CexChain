@@ -367,6 +367,14 @@ int serve(const Args& args, const ServeDefaults& defaults) {
         parse_listen(args.get("listen").value_or(defaults.listen.value_or("127.0.0.1:8080")));
     server_options.host = host;
     server_options.port = port;
+    // The console beyond this computer only over TLS: served here, or by an
+    // https proxy in front (--public-url https://...).
+    const bool loopback = host == "127.0.0.1" || host == "::1" || host.starts_with("127.");
+    if (with_console && !loopback && !args.has("tls-cert") &&
+        (!public_origin || public_origin->scheme != "https")) {
+        throw UsageError{"the console listens beyond this computer only with TLS: --tls-cert and "
+                         "--tls-key, or an https --public-url for the proxy in front"};
+    }
     if (const auto cert = args.get("tls-cert")) {
         server_options.tls_certificate = *cert;
     }
@@ -386,6 +394,7 @@ int serve(const Args& args, const ServeDefaults& defaults) {
         server_options.max_connections_per_peer = parse_number(*n, "connections per address");
     }
     raise_descriptor_limit(server_options.max_connections + 64);
+    keep_keys_out_of_dumps();
     if (const auto n = args.get("max-body")) {
         server_options.limits.max_body = parse_number(*n, "body size");
     } else if (with_console) {

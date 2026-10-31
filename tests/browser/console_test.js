@@ -213,6 +213,21 @@ async function waitRunning() {
     await page.getByRole("heading", { name: "首页" }).waitFor();
 
     assert.deepEqual(violations, [], "no CSP violation or script error");
+
+    // Trusted Types are enforced: no string becomes HTML on the console's
+    // pages (tried on a page of its own, whose refusal is expected).
+    const probe = await context.newPage();
+    await probe.goto(base);
+    const sink = await probe.evaluate(() => {
+      try {
+        document.createElement("div").innerHTML = "<b>bold</b>";
+        return "allowed";
+      } catch (e) {
+        return e.name;
+      }
+    });
+    assert.equal(sink, "TypeError", "innerHTML with a string is refused");
+    await probe.close();
     console.log("console browser test: passed");
   } finally {
     if (browser) await browser.close();

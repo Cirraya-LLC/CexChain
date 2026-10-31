@@ -10,12 +10,16 @@
 #include <fcntl.h>
 #include <filesystem>
 #include <string>
+#include <sys/resource.h>
 #include <system_error>
 #include <termios.h>
 #include <unistd.h>
 
 #if defined(__APPLE__)
 #include <mach-o/dyld.h>
+#endif
+#if defined(__linux__)
+#include <sys/prctl.h>
 #endif
 
 #include <nlohmann/json.hpp>
@@ -371,6 +375,23 @@ RelayReach::RelayReach(const Args& args, Session& session) {
                              session.add_cosignature(cosignature, witness);
                          }};
     scope_.emplace(&*sender_);
+}
+
+#if defined(__has_feature)
+#if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer)
+#define CEXCHAIN_SANITIZED_PROCESS 1
+#endif
+#endif
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
+#define CEXCHAIN_SANITIZED_PROCESS 1
+#endif
+
+void keep_keys_out_of_dumps() {
+    const rlimit none{0, 0};
+    static_cast<void>(::setrlimit(RLIMIT_CORE, &none));
+#if defined(__linux__) && !defined(CEXCHAIN_SANITIZED_PROCESS)
+    static_cast<void>(::prctl(PR_SET_DUMPABLE, 0, 0, 0, 0));
+#endif
 }
 
 } // namespace cexchain::cli

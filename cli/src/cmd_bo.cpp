@@ -151,8 +151,10 @@ VocabFile read_vocab_file(const std::string& file) {
 #endif
 
 /// --max-memory MIB: this process's address space, limited, as the console
-/// runs the compiler on what people send it. Not under the sanitizers, whose
-/// shadow memory such a limit would refuse at once.
+/// runs the compiler on what people send it; and its CPU time, to a minute
+/// (the console stops it after 30 s of wall time; this holds if that
+/// fails). Not under the sanitizers, whose shadow memory such a limit would
+/// refuse at once.
 void limit_memory(const Args& args) {
     const auto mib = args.get("max-memory");
     if (!mib) {
@@ -168,6 +170,10 @@ void limit_memory(const Args& args) {
         throw CommandError{"cannot limit this process's memory"};
     }
 #endif
+    const rlimit cpu{60, 60};
+    if (::setrlimit(RLIMIT_CPU, &cpu) != 0) {
+        throw CommandError{"cannot limit this process's CPU time"};
+    }
 }
 
 bo::PackSet pack_set(const Args& args, const std::vector<std::string>& more = {},

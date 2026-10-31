@@ -84,6 +84,10 @@ expect_exit 1 serve --public-url https://ledger.example.com
 grep -q -- "--public-url goes with --console" out.txt || fail "--public-url alone"
 expect_exit 1 serve --console --public-url ftp://ledger.example.com
 grep -q "https:// or http://" out.txt || fail "a URL's scheme"
+# Beyond this computer, only over TLS (here, or an https proxy in front).
+expect_exit 1 serve --console --listen 0.0.0.0:0
+grep -q -- "only with TLS" out.txt || fail "the console beyond loopback needs TLS"
+expect_exit 1 serve --console --listen 0.0.0.0:0 --public-url http://ledger.example.com
 run serve --help > out.txt
 grep -q -- "--console" out.txt || fail "serve --help names --console"
 grep -q -- "--public-url URL" out.txt || fail "serve --help names --public-url"
