@@ -246,7 +246,7 @@ This is weaker evidence than a passkey's touch, and depends on how the token is 
 
 A hardware key's proof counts as user-verified: the token signs only once its PIN is entered.
 
-**What presence defends against.** Presence defeats a stolen key file: the thief also needs the person's authenticator, in their hands. It does not defeat malware on the person's own machine, which can show a misleading page and ask for a touch. The reference implementation's passkeys use the relying party id `localhost`, from a one-time local page; sites on the internet cannot use them at all. A relying party id on the organization's own domain would need a hosted page that signs any challenge a link hands it, so it adds a phishing surface without stopping local malware.
+**What presence defends against.** Presence defeats a stolen key file: the thief also needs the person's authenticator, in their hands. It does not defeat malware on the person's own machine, which can show a misleading page and ask for a touch. The reference implementation's passkeys use the relying party id of the page that made them: `localhost`, for the command line's one-time local page and a web console on one computer, or a company console's own host name, over HTTPS. Such a console is not a signing oracle: it computes each challenge from a statement that its signed-in user asked it to prepare, holds it for two minutes, and takes one approval of it; it never signs a challenge that a link or another site hands it. A compromised console serves its own page, so, as with local malware, presence does not defend against the server itself.
 
 Verifiers report how presence was proven. A statement without proof of presence is attributed to a machine, whoever signed it.
 

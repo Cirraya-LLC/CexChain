@@ -2376,4 +2376,150 @@ TEST_CASE("a console witnesses its parties' ledgers, and refuses a fork", "[cons
     CHECK_FALSE(cosign(bob.session.ledger(), cosigned));
 }
 
+TEST_CASE("people: invited, approved with three taps, and acting in person within what they may",
+          "[console][people]") {
+    FirstRunWorld f;
+    Served served(f);
+    const std::string owner = f.made["session"].get<std::string>();
+    const auto photo = register_photo(f, owner, "the photo itself");
+    static_cast<void>(photo);
+
+    // Invited: a link for Bob, who registers a passkey on his own device.
+    const auto invited =
+        f.w.post_as("/console/api/people", {{"invite", "Bob"}, {"role", "member"}}, owner);
+    REQUIRE(invited.status == 200);
+    const std::string link = answer_of(invited)["link"].get<std::string>();
+    REQUIRE(link.starts_with("http://localhost:7470/console/#/enroll/cxi_"));
+    const auto bob_key = passkey(2);
+    const auto enrolled = f.w.enroll(bob_key, link.substr(link.find("cxi_")), "Bob");
+    REQUIRE(enrolled.status == 200);
+    const std::string bob = answer_of(enrolled)["session"].get<std::string>();
+    auto person = [&](const std::string& name) {
+        for (const auto& u : answer_of(f.w.get("/console/api/people", owner))["users"]) {
+            if (u["name"] == name) {
+                return u;
+            }
+        }
+        FAIL("no such user");
+        return nlohmann::json();
+    };
+    CHECK(person("Bob")["step"] == "actor");
+    // Bob cannot approve himself, nor manage people.
+    CHECK(f.w.post_as("/console/api/prepare", {{"action", "person.register"}, {"user", "Bob"}}, bob)
+              .status == 403);
+    CHECK(f.w.post_as("/console/api/people", {{"invite", "Carol"}}, bob).status == 403);
+    CHECK(f.w.get("/console/api/tokens", bob).status == 403);
+
+    // The owner approves him: his actor, his passkey, what he may do.
+    auto step = [&](nlohmann::json intent) {
+        const auto prepared = f.w.post_as("/console/api/prepare", intent, owner);
+        INFO(body(prepared));
+        REQUIRE(prepared.status == 200);
+        const auto approved = approve(f.w, owner, answer_of(prepared), f.alice);
+        INFO(body(approved));
+        REQUIRE(approved.status == 201);
+        return answer_of(prepared)["summary"];
+    };
+    const auto registered = step({{"action", "person.register"}, {"user", "Bob"}});
+    CHECK(registered["type"] == "actor-register");
+    CHECK(registered["display_name"] == "Bob");
+    CHECK(person("Bob")["step"] == "presence");
+    CHECK(
+        f.w.post_as("/console/api/prepare", {{"action", "person.register"}, {"user", "Bob"}}, owner)
+            .status == 409);
+    const auto presence = step({{"action", "person.presence"}, {"user", "Bob"}});
+    REQUIRE(presence["credentials"].size() == 1);
+    CHECK(person("Bob")["step"] == "delegation");
+    CHECK(f.w.post_as("/console/api/prepare",
+                      {{"action", "person.delegate"}, {"user", "Bob"}, {"may", {{"people", true}}}},
+                      owner)
+              .status == 409); // a member does not manage people
+    CHECK(
+        f.w.post_as(
+               "/console/api/prepare",
+               {{"action", "person.delegate"}, {"user", "Bob"}, {"may", nlohmann::json::object()}},
+               owner)
+            .status == 400); // nothing at all
+    const auto granted = step({{"action", "person.delegate"},
+                               {"user", "Bob"},
+                               {"may", {{"register", true}, {"kinds", {"example.org.photo/1"}}}}});
+    CHECK(granted["scope"]["require_presence"] == true);
+    CHECK(granted["scope"]["may_delegate"] == false);
+    const auto bob_view = person("Bob");
+    CHECK(bob_view["step"] == "active");
+    REQUIRE(bob_view["delegations"].size() == 1);
+    CHECK(bob_view["delegations"][0]["register"] == true);
+    CHECK(bob_view["delegations"][0]["kinds"] == nlohmann::json{"example.org.photo/1"});
+    CHECK(bob_view["delegations"][0]["in_person"] == true);
+
+    // Bob registers a photo with his own tap; the ledger checks his presence.
+    auto bob_registers = [&] {
+        const auto file = nlohmann::json::parse(body(upload(f.w, bob, "mine.jpg", "Bob's photo")));
+        return f.w.post_as("/console/api/prepare",
+                           {{"action", "record.register"},
+                            {"kind", "example.org.photo/1"},
+                            {"fields", {{"place", "Kowloon"}}},
+                            {"files", {file["upload"]}}},
+                           bob);
+    };
+    const auto prepared = bob_registers();
+    INFO(body(prepared));
+    REQUIRE(prepared.status == 200);
+    const auto approved = approve(f.w, bob, answer_of(prepared), bob_key);
+    INFO(body(approved));
+    CHECK(approved.status == 201);
+    // Endorsing is not his to do.
+    CHECK(f.w.post_as("/console/api/prepare",
+                      {{"action", "record.endorse"},
+                       {"record", cexchain::to_hex(photo.bytes())},
+                       {"role", "checked"}},
+                      bob)
+              .status == 409);
+
+    // Withdrawn on the ledger: he may no longer register.
+    const std::string delegation = bob_view["delegations"][0]["id"].get<std::string>();
+    step({{"action", "delegation.revoke"}, {"delegation", delegation}});
+    CHECK(person("Bob")["step"] == "delegation");
+    CHECK(bob_registers().status == 409);
+
+    // Roles: the only owner stays one; Bob becomes an admin, then is removed.
+    CHECK(f.w.post_as("/console/api/people", {{"role", "Alice"}, {"to", "member"}}, owner).status ==
+          409);
+    CHECK(f.w.post_as("/console/api/people", {{"role", "Bob"}, {"to", "admin"}}, owner).status ==
+          200);
+    CHECK(f.w.get("/console/api/tokens", bob).status == 200);
+    CHECK(f.w.post_as("/console/api/people", {{"role", "Bob"}, {"to", "owner"}}, bob).status ==
+          403);
+    REQUIRE(f.w.post_as("/console/api/people", {{"remove", "Bob"}}, owner).status == 200);
+    CHECK(f.w.get("/console/api/people", bob).status == 401);
+
+    // Tokens for programs, shown once.
+    const auto made =
+        f.w.post_as("/console/api/tokens", {{"create", "robot"}, {"scopes", {"read"}}}, owner);
+    REQUIRE(made.status == 200);
+    CHECK(answer_of(made)["token"].get<std::string>().starts_with("cxt_"));
+    CHECK(f.w.post_as("/console/api/tokens", {{"create", "robot"}, {"scopes", {"read"}}}, owner)
+              .status == 409);
+    const auto tokens = answer_of(f.w.get("/console/api/tokens", owner))["tokens"];
+    CHECK(std::ranges::any_of(tokens, [](const auto& t) {
+        return t["name"] == "robot" && t["scopes"] == nlohmann::json{"read"};
+    }));
+    CHECK(f.w.post_as("/console/api/tokens", {{"revoke", "robot"}}, owner).status == 200);
+
+    // The activity log: who did what, newest first.
+    const auto activity = answer_of(f.w.get("/console/api/activity", owner))["activity"];
+    std::vector<std::string> actions;
+    for (const auto& a : activity) {
+        actions.push_back(a["action"].get<std::string>());
+        CHECK(a["user"] == "Alice");
+    }
+    CHECK(actions == std::vector<std::string>{"tokens.revoke", "tokens.create", "people.remove",
+                                              "people.role", "people.revoke", "people.delegate",
+                                              "people.presence", "people.register", "people.invite",
+                                              "kinds.save"});
+    const std::string viewer = f.w.session_for("Vera", console::Role::viewer);
+    CHECK(f.w.get("/console/api/activity", viewer).status == 403);
+    CHECK(f.w.get("/console/api/people", viewer).status == 200);
+}
+
 #endif

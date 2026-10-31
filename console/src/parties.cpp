@@ -151,6 +151,7 @@ http::Response Console::parties_route(const http::Request& request) const {
         if (const auto problem = attempt([&] { code = invite(name->get<std::string>()); })) {
             return error(409, "conflict", *problem);
         }
+        log_activity(signer.user, "parties.invite", {{"name", name->get<std::string>()}});
         return json(200, {{"name", name->get<std::string>()},
                           {"code", code},
                           {"fingerprint", app::ledger_fingerprint(ours.ledger)}});
@@ -177,6 +178,8 @@ http::Response Console::parties_route(const http::Request& request) const {
         if (problem) {
             return error(409, "conflict", *problem);
         }
+        log_activity(signer.user, "parties.accept",
+                     {{"name", name}, {"organization", invitation->organization}});
         return json(200, {{"name", name},
                           {"organization", invitation->organization},
                           {"ledger", hex_of(invitation->ledger)},
@@ -195,6 +198,7 @@ http::Response Console::parties_route(const http::Request& request) const {
         if (problem) {
             return error(409, "conflict", *problem);
         }
+        log_activity(signer.user, "parties.remove", {{"name", party}});
         return json(200, {{"removed", party}});
     }
     return error(400, "invalid_argument", "invite, accept, or remove a party");

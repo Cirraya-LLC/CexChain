@@ -18,7 +18,7 @@ purchase orders, invoices, or certificates. Those are things you define, and the
 > to be made again with a later one. The code has not been audited yet; see
 > [Security](#security) for how to report a vulnerability and the known open items.
 >
-> The specification: [the protocol in prose](spec/README.md), [`spec/cexchain.cddl`](spec/cexchain.cddl); the contract language: [`spec/bo.md`](spec/bo.md). Planned, not built yet: connectors for billing and accounting systems (Zoho first), the web console's screens for other parties and for teams (it is [in progress](#the-web-console-in-progress)), installers, and a public witness service; see [Known limits](#known-limits).
+> The specification: [the protocol in prose](spec/README.md), [`spec/cexchain.cddl`](spec/cexchain.cddl); the contract language: [`spec/bo.md`](spec/bo.md). Planned, not built yet: connectors for billing and accounting systems (Zoho first), the web console's automation screens and its phone layout (it is [in progress](#the-web-console-in-progress)), installers, and a public witness service; see [Known limits](#known-limits).
 
 ## Why
 
@@ -518,7 +518,23 @@ cexchain console settings show
   delegations. An invitation is a one-time code, valid for a day, kept only as a hash; it
   registers a passkey for the console's own name (never an address), made on the console's own
   page. The first owner's comes from `console setup-link`, which works only while the console
-  has no owner.
+  has no owner. The **People** screen (owners and admins change it) makes an invitation link,
+  shows each person's role, passkeys, and what they may do on the ledger in plain words, and
+  approves someone who registered a passkey in up to three taps: their person on the ledger,
+  with a key the console keeps for them; their passkeys as that person's presence; and a
+  delegation of what they may do, chosen as words (register documents, of some kinds or all;
+  endorse; revoke; act under rules, some or all; deploy rules; manage people, for admins), always
+  in person, optionally until a date (`console user approve NAME --as KEY` does the same from the
+  command line). The page checks each step's bytes before its tap. Withdrawing what someone may
+  do revokes their delegation with a tap; removing them ends their sessions. Settings show the
+  **API tokens** for programs (made once and shown once, revoked, as `token create|list|revoke`)
+  and the console's **activity log** (`console activity`): who invited, approved, changed a
+  role, made a token, saved a kind, connected a party, changed a setting, or locked the console,
+  and when.
+- **A company's console** runs on its own host name: `console run --public-url
+  https://ledger.example.com`, behind a TLS proxy or with `--tls-cert FILE --tls-key FILE`, answers
+  for that name only; its setup link, invitations, and party codes carry it, and its passkeys
+  are for that host name. Passkeys made for one host name do not work on another.
 - **Signing in** takes a passkey assertion over a fresh challenge from the console, used once
   within five minutes, with the person verified (a PIN or a biometric). A session is a bearer
   token that the node keeps only as a hash, in memory; it ends after 30 idle minutes, after 12

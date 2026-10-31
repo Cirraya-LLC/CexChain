@@ -211,6 +211,44 @@ grep -q "holds no key named root" out.txt || fail "linking with no such key"
 expect_exit 2 console user passkeys Nobody --out passkeys
 grep -q "no console user named Nobody" out.txt || fail "passkeys of no such user"
 
+# A member who registered a passkey (written here as the console writes one),
+# approved from the command line as the People screen does in three taps.
+run key generate --out mia-passkey.key > /dev/null
+MIA_KEY=$(run key show mia-passkey.key --json | json 'd["public_key"]["key"]')
+python3 - "$WORK/ledger/console/users.json" "$MIA_KEY" << 'PY'
+import base64, json, os, sys
+b64 = lambda b: base64.urlsafe_b64encode(b).decode().rstrip("=")
+path = sys.argv[1]
+people = json.load(open(path)) if os.path.exists(path) else {"users": [], "invitations": []}
+people["users"].append({"name": "Mia", "role": "member", "created": 1, "passkeys": [
+    {"rp_id": "localhost", "credential_id": b64(os.urandom(16)), "algorithm": -19,
+     "public_key": b64(bytes.fromhex(sys.argv[2])), "label": "phone"}]})
+people["users"].append({"name": "Vic", "role": "viewer", "created": 1, "passkeys": []})
+json.dump(people, open(path, "w"))
+PY
+expect_exit 2 console user approve Vic --as root.key
+grep -q "act as no one" out.txt || fail "a viewer is not approved"
+expect_exit 1 console user approve Mia --as root.key --may fly
+expect_exit 1 console user approve Mia --as root.key --may people
+run console user approve Mia --as root.key --may register,act --kinds example.org.photo/1 \
+    --until 2099-01-01 --json > approved.json
+MIA=$(json 'd["actor"]' < approved.json)
+[ "$(json '(d["may"]["register"], d["may"]["act"], d["may"]["kinds"])' < approved.json)" = "(True, True, ['example.org.photo/1'])" ] ||
+    fail "what Mia may do"
+[ "$(run console user show Mia --json | json 'd["actor"]')" = "$MIA" ] || fail "Mia acts as her person"
+run console key list --json | json '[k["name"] for k in d["keys"]]' | grep -q "person-${MIA:0:16}" ||
+    fail "her key sealed in the console"
+run actor show "$MIA" --json > mia.json
+[ "$(json 'd["kind"]' < mia.json)" = person ] || fail "Mia is a person"
+[ "$(json 'len(d["presence_credentials"])' < mia.json)" = 1 ] || fail "her passkey registered"
+run delegation list --json | json "[x['scope']['require_presence'] for x in d if x['grantee']['id'] == '$MIA']" |
+    grep -q "\[True\]" || fail "she acts in person"
+expect_exit 2 console user approve Mia --as root.key
+grep -q "acts as someone on the ledger already" out.txt || fail "approved once"
+run console activity --json | json '(d[0]["action"], d[0]["user"])' | grep -qF "('people.approve', 'cli')" ||
+    fail "the activity log records the approval"
+run console activity | grep -q "people.approve" || fail "console activity"
+
 # --- console run, status, open, stop ------------------------------------------------
 kill "${SERVERS[-1]}"
 run console status > out.txt

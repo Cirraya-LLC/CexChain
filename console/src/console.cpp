@@ -295,12 +295,12 @@ void Console::handle(const http::Request& request, Respond respond) const {
                     return;
                 }
                 Signing signing = std::get<Signing>(std::move(signed_or));
-                submitter()(std::move(signing.body), signing.submission,
-                            [this, uploads = std::move(signing.uploads),
+                auto body = std::move(signing.body);
+                const bool submission = signing.submission;
+                submitter()(std::move(body), submission,
+                            [this, signing = std::move(signing),
                              respond = std::move(respond)](http::Response registered) {
-                                if (registered.status >= 200 && registered.status < 300) {
-                                    forget_uploads(uploads);
-                                }
+                                registered_now(signing, registered);
                                 secure(registered);
                                 respond(std::move(registered));
                             });
@@ -402,6 +402,15 @@ http::Response Console::route(const http::Request& request) const {
             return error(503, "unavailable", "this console keeps no users or sessions");
         }
         return request.path.ends_with("parties") ? parties_route(request) : inbox_route(request);
+    }
+    if (request.path == "/console/api/people" || request.path == "/console/api/tokens" ||
+        request.path == "/console/api/activity") {
+        if (!ready()) {
+            return error(503, "unavailable", "this console keeps no users or sessions");
+        }
+        return request.path.ends_with("people")   ? people_route(request)
+               : request.path.ends_with("tokens") ? tokens_route(request)
+                                                  : activity_route(request);
     }
     if (request.path == "/console/api/access" || request.path.starts_with("/console/api/access/")) {
         return ready() ? access_route(request)

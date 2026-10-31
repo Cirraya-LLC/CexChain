@@ -321,6 +321,7 @@ http::Response Console::kinds_route(const http::Request& request) const {
             return error(404, "not_found", "no kind of that type");
         }
         save_kinds(services_.directory, kinds);
+        log_activity(std::get<Signed>(who).user, "kinds.remove", {{"type", *it}});
         return json(200, {{"removed", *it}});
     }
     Kind kind;
@@ -340,6 +341,8 @@ http::Response Console::kinds_route(const http::Request& request) const {
     } catch (const std::invalid_argument& e) {
         return error(409, "conflict", e.what());
     }
+    log_activity(std::get<Signed>(who).user, "kinds.save",
+                 {{"type", kind.type}, {"name", kind.name}});
     return json(200, kind_json(kind));
 }
 

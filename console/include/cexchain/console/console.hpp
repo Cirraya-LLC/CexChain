@@ -164,6 +164,12 @@ struct Prepared {
     /// For a call citing consents: their bundles, in the call's order, sent
     /// with it (submission key 3).
     std::vector<Bytes> bundles;
+    /// For registering a person: the key made for them, sealed once signed;
+    /// the console user it is for, linked once registered; and what the
+    /// activity log records.
+    std::shared_ptr<const crypto::openssl::KeyPair> new_key;
+    std::string person;
+    std::string activity;
 };
 
 inline constexpr protocol::Timestamp approval_lifetime = 2 * 60'000;
@@ -283,9 +289,15 @@ private:
         Bytes body;
         bool submission = false;
         std::vector<std::string> uploads;
+        /// Done once the ledger has registered it (a person linked, the
+        /// activity log).
+        std::function<void(const protocol::Id& statement)> after{};
     };
     [[nodiscard]] std::variant<Signing, http::Response>
     sign_approval(const http::Request& request) const;
+    /// Once the ledger answered an approval: on success, its uploads are
+    /// forgotten and what follows it is done.
+    void registered_now(const Signing& signing, const http::Response& registered) const;
     [[nodiscard]] http::Response upload_route(const http::Request& request) const;
     /// A registration's statement body and draft from the page's intent, or
     /// why there is none.
@@ -364,6 +376,25 @@ private:
     [[nodiscard]] std::variant<std::pair<protocol::RecordRegisterBody, Draft>, http::Response>
     access_draft(const Signed& who, const nlohmann::json& intent) const;
     void poll_deliveries() const;
+    /// People (people.cpp): the People screen's list and changes; one step
+    /// of approving a person (their actor, their passkeys, what they may do)
+    /// or revoking a delegation; the console's users changed under its
+    /// lock; the activity log; tokens (GET/POST /console/api/tokens) and the
+    /// log's view (GET /console/api/activity).
+    [[nodiscard]] http::Response people_route(const http::Request& request) const;
+    struct PersonStep {
+        protocol::Body body;
+        std::shared_ptr<const crypto::openssl::KeyPair> new_key;
+        std::string person;
+        std::string activity;
+    };
+    [[nodiscard]] std::variant<PersonStep, http::Response>
+    person_step(const Signed& who, const nlohmann::json& intent) const;
+    void change_people(const std::function<void(People&)>& change) const;
+    void log_activity(const std::string& user, std::string action,
+                      nlohmann::json detail = nlohmann::json::object()) const;
+    [[nodiscard]] http::Response tokens_route(const http::Request& request) const;
+    [[nodiscard]] http::Response activity_route(const http::Request& request) const;
     /// Witnessing (witnessing.cpp): each poll follows the parties' ledgers
     /// (their genesis fetched) and asks those with a witness key to cosign
     /// this ledger's latest checkpoint; what each answered, for the Parties

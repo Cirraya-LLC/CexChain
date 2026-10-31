@@ -150,6 +150,8 @@ int cmd_console_user_role(const Args& args);
 int cmd_console_user_revoke(const Args& args);
 int cmd_console_user_link(const Args& args);
 int cmd_console_user_passkeys(const Args& args);
+int cmd_console_user_approve(const Args& args);
+int cmd_console_activity(const Args& args);
 int cmd_console_session_revoke(const Args& args);
 int cmd_replica_init(const Args& args);
 int cmd_replica_sync(const Args& args);

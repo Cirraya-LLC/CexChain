@@ -1070,6 +1070,11 @@ std::vector<CommandSpec> build() {
          0,
          with({ledger_option,
                {"port", "PORT", "Port on localhost (default: 7470, or the last one used)"},
+               {"public-url", "URL",
+                "The console's public address (its passkeys are for this host name), instead of "
+                "localhost: behind a TLS proxy, or with --tls-cert"},
+               {"tls-cert", "FILE", "Serve TLS with this certificate chain (PEM)"},
+               {"tls-key", "FILE", "The certificate's private key (PEM)"},
                {"unlock-file", "FILE", "Unlock the console's sealed keys at start from this file"},
                no_browser_option,
                {"log-key", "KEY",
@@ -1299,6 +1304,33 @@ std::vector<CommandSpec> build() {
          "From then on the console signs NAME's approvals as ACTOR, with KEY, each after a\n"
          "passkey tap. For the ledger to see that tap, the passkeys must be registered for\n"
          "ACTOR: console user passkeys writes them out for actor set-presence."},
+        {{"console", "user", "approve"},
+         "Give a web console user an actor, their passkeys, and a delegation",
+         "Console",
+         "NAME",
+         1,
+         1,
+         signing({{"may", "WORDS",
+                   "What they may do: register,endorse,revoke,act,rules,people (default: by role)"},
+                  {"kinds", "TYPES", "Only documents of these record types (default: any)"},
+                  {"contracts", "IDS", "Only under these contracts (default: any)"},
+                  {"until", "DATE", "Until then (YYYY-MM-DD or an ISO time)"}}),
+         cmd_console_user_approve,
+         "As the console's People screen does in three taps, signed here with --as: registers\n"
+         "NAME as a person with a new key sealed in the console, sets the passkeys NAME\n"
+         "registered as that person's presence, grants a delegation of what they may do (in\n"
+         "person, always; delegating only with people), and links NAME to the person."},
+        {{"console", "activity"},
+         "Show the web console's activity log",
+         "Console",
+         "",
+         0,
+         0,
+         with({ledger_option,
+               {"limit", "N", "At most this many entries, newest first (default: 50)"}}),
+         cmd_console_activity,
+         "Changes people made in the console or with console commands: invitations, roles,\n"
+         "approvals of people, tokens, kinds, parties, settings, locking and unlocking."},
         {{"console", "user", "passkeys"},
          "Write a web console user's passkeys as credential files",
          "Console",

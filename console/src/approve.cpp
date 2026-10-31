@@ -24,6 +24,7 @@
 #include <cexchain/app/records.hpp>
 #include <cexchain/app/support.hpp>
 #include <cexchain/console/console.hpp>
+#include <cexchain/console/people.hpp>
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/common.hpp>
@@ -124,6 +125,33 @@ nlohmann::json describe(const protocol::Statement& s, const protocol::LedgerStat
         if (const auto* c = state.contract(r->contract); c != nullptr && c->name) {
             out["name"] = *c->name;
         }
+    } else if (const auto* reg = std::get_if<protocol::ActorRegisterBody>(&s.body)) {
+        out["kind"] = static_cast<int>(reg->kind);
+        out["display_name"] = reg->display_name;
+        out["key"] = to_hex(reg->key.bytes);
+    } else if (const auto* p = std::get_if<protocol::ActorSetPresenceBody>(&s.body)) {
+        out["subject"] = to_hex(p->actor.bytes());
+        if (const auto* subject = state.actor(p->actor)) {
+            out["subject_name"] = subject->display_name;
+        }
+        nlohmann::json credentials = nlohmann::json::array();
+        for (const protocol::PresenceCredential& c : p->credentials) {
+            credentials.push_back(
+                {{"rp_id", c.rp_id},
+                 {"credential_id", to_base64url(c.credential_id)},
+                 {"label", c.label ? nlohmann::json(*c.label) : nlohmann::json()}});
+        }
+        out["credentials"] = credentials;
+    } else if (const auto* grant = std::get_if<protocol::DelegationGrantBody>(&s.body)) {
+        out["grantee"] = to_hex(grant->grantee.bytes());
+        if (const auto* grantee = state.actor(grant->grantee)) {
+            out["grantee_name"] = grantee->display_name;
+        }
+        out["scope"] = scope_json(grant->scope);
+        out["may"] = permissions_json(permissions_of(grant->scope));
+    } else if (const auto* withdrawn = std::get_if<protocol::DelegationRevokeBody>(&s.body)) {
+        out["delegation"] = to_hex(withdrawn->delegation.bytes());
+        out["reason"] = withdrawn->reason ? nlohmann::json(*withdrawn->reason) : nlohmann::json();
     } else if (const auto* c = std::get_if<protocol::ContractCallBody>(&s.body)) {
         out["function"] = c->function;
         out["contract"] =
@@ -172,6 +200,10 @@ http::Response Console::prepare_route(const http::Request& request) const {
         signer.role != Role::owner && signer.role != Role::admin) {
         return error(403, "forbidden", "only an owner or an admin deploys or retires rules");
     }
+    if ((action.starts_with("person.") || action == "delegation.revoke") &&
+        signer.role != Role::owner && signer.role != Role::admin) {
+        return error(403, "forbidden", "only an owner or an admin approves people");
+    }
     const bool calling =
         action == "contract.create" || action == "contract.call" || action == "request.answer";
     if (served == nullptr || !submitter()) {
@@ -190,6 +222,9 @@ http::Response Console::prepare_route(const http::Request& request) const {
     // commitments, and what it keeps private.
     std::optional<Draft> draft;
     std::vector<Bytes> bundles;
+    std::shared_ptr<const crypto::openssl::KeyPair> person_key;
+    std::string person;
+    std::string activity;
     std::variant<protocol::Body, std::string> body = std::string();
     if (action == "contract.deploy") {
         // Built by the compiler in a child process, as the editor checked it.
@@ -224,6 +259,17 @@ http::Response Console::prepare_route(const http::Request& request) const {
         auto& [registration, d] = std::get<0>(drafted);
         body = protocol::Body{std::move(registration)};
         draft = std::move(d);
+    } else if (action.starts_with("person.") || action == "delegation.revoke") {
+        // A step of approving a person, or revoking what someone may do.
+        auto step = person_step(signer, intent);
+        if (auto* refused = std::get_if<http::Response>(&step)) {
+            return std::move(*refused);
+        }
+        PersonStep& p = std::get<PersonStep>(step);
+        body = std::move(p.body);
+        person_key = std::move(p.new_key);
+        person = std::move(p.person);
+        activity = std::move(p.activity);
     } else if (action.starts_with("access.")) {
         // A request to a party, a grant of a request received, or a receipt
         // for a delivery: a record of this ledger's, its note private.
@@ -401,6 +447,9 @@ http::Response Console::prepare_route(const http::Request& request) const {
     }
     prepared.draft = std::move(draft);
     prepared.bundles = std::move(bundles);
+    prepared.new_key = std::move(person_key);
+    prepared.person = std::move(person);
+    prepared.activity = std::move(activity);
     summary["consents"] = prepared.bundles.size();
     prepared.user = signer.user;
     prepared.key = user->key;
@@ -528,6 +577,37 @@ Console::sign_approval(const http::Request& request) const {
         }
         signed_statement = std::move(*made);
     }
+    if (!prepared->activity.empty()) {
+        // A step of approving a person: their key sealed now; once the ledger
+        // has registered their actor, the console user acts as it.
+        std::string key_name;
+        if (prepared->new_key) {
+            key_name = "person-" + to_hex(signed_statement->id.bytes()).substr(0, 16);
+            services_.keys->seal(key_name, *prepared->new_key);
+        }
+        const std::string by = prepared->user;
+        return Signing{
+            std::move(signed_statement->encoded),
+            false,
+            {},
+            [this, by, person = prepared->person, activity = prepared->activity,
+             key_name](const protocol::Id& registered) {
+                if (!key_name.empty()) {
+                    try {
+                        change_people([&](People& people) {
+                            if (User* u = people.find(person); u != nullptr && u->actor.empty()) {
+                                u->actor = to_hex(registered.bytes());
+                                u->key = key_name;
+                            }
+                        });
+                    } catch (const std::exception&) {
+                        // Linked by hand then: console user link.
+                    }
+                }
+                log_activity(by, activity,
+                             {{"user", person}, {"statement", to_hex(registered.bytes())}});
+            }};
+    }
     if (!prepared->bundles.empty()) {
         // A call citing consents goes with their bundles.
         cbor::Array bundles;
@@ -618,11 +698,23 @@ http::Response Console::approve_route(const http::Request& request) const {
         return error(504, "unavailable", "the ledger did not register it in time");
     }
     http::Response registered = future.get();
-    if (registered.status >= 200 && registered.status < 300) {
-        forget_uploads(signing.uploads);
-    }
+    registered_now(signing, registered);
     secure(registered);
     return registered;
+}
+
+void Console::registered_now(const Signing& signing, const http::Response& registered) const {
+    if (registered.status < 200 || registered.status >= 300) {
+        return;
+    }
+    forget_uploads(signing.uploads);
+    if (signing.after) {
+        const auto answer =
+            nlohmann::json::parse(registered.body.begin(), registered.body.end(), nullptr, false);
+        if (const auto id = id_of(answer.is_object() ? answer.value("statement_id", "") : "")) {
+            signing.after(*id);
+        }
+    }
 }
 
 } // namespace cexchain::console

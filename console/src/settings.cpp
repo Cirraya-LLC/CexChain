@@ -174,6 +174,11 @@ http::Response Console::settings_route(const http::Request& request) const {
         }
     }
     save_settings(services_.directory, settings);
+    log_activity(
+        std::get<Signed>(who).user, "settings.change",
+        {{"language", settings.language ? nlohmann::json(*settings.language) : nlohmann::json()},
+         {"backup_folder", settings.backup_folder ? nlohmann::json(settings.backup_folder->string())
+                                                  : nlohmann::json()}});
     return json(200, settings_view(role));
 }
 

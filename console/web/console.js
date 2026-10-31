@@ -1291,7 +1291,270 @@ async function settingsScreen() {
         });
         parts.push(lock);
     }
+    if (changeable) {
+        parts.push(...await tokensView(), ...await activityView());
+    }
     show(keysNotice(), ...parts);
+}
+
+/// API tokens for programs (as `token create|list|revoke`).
+async function tokensView() {
+    const listed = await api("GET", "tokens");
+    const shown = el("div", { role: "status" });
+    const parts = [el("h2", { text: t("tokens.title") }), el("p", { class: "hint", text: t("tokens.intro") })];
+    parts.push(...table(t("tokens.list"), [
+        ["column.name", (k) => k.name],
+        ["tokens.scopes", (k) => k.scopes.map((x) => t(`tokens.scope.${x}`)).join(", ")],
+        ["tokens.created", (k) => timeText(k.created)],
+        ["column.actions", (k) => {
+            const revoke = el("button", { type: "button", text: t("tokens.revoke"),
+                                          "aria-label": t("tokens.revoke_label", { name: k.name }) });
+            revoke.addEventListener("click", async () => {
+                try {
+                    await api("POST", "tokens", { revoke: k.name });
+                    route();
+                } catch (error) {
+                    shown.replaceChildren(problem(t("error.server", { message: error.message })));
+                }
+            });
+            return revoke;
+        }],
+    ], listed.tokens));
+    const [nameField, name] = field("token-name", t("column.name"), t("tokens.name_hint"), { maxlength: 64 });
+    const boxes = ["read", "submit", "executor", "admin"].map((x) => {
+        const box = el("input", { type: "checkbox", value: x, checked: x === "read" });
+        return [box, el("label", {}, box, " ", t(`tokens.scope.${x}`))];
+    });
+    const create = el("button", { type: "submit", text: t("tokens.create") });
+    const form = el("form", { novalidate: true }, nameField,
+                    el("fieldset", {}, el("legend", { text: t("tokens.scopes") }),
+                       boxes.map(([, label]) => el("div", {}, label))), create, shown);
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        try {
+            const made = await api("POST", "tokens", {
+                create: name.value.trim(),
+                scopes: boxes.filter(([b]) => b.checked).map(([b]) => b.value),
+            });
+            const box = el("textarea", { readonly: true, rows: 2, class: "id",
+                                         "aria-label": t("tokens.made", { name: made.name }) });
+            box.value = made.token;
+            shown.replaceChildren(el("p", { text: t("tokens.made", { name: made.name }) }), box,
+                                  el("p", { class: "hint", text: t("tokens.once") }));
+        } catch (error) {
+            shown.replaceChildren(problem(t("error.server", { message: error.message })));
+        }
+    });
+    parts.push(form);
+    return parts;
+}
+
+/// What people changed in the console, newest first.
+async function activityView() {
+    const listed = await api("GET", "activity");
+    const detail = (a) => Object.entries(a.detail ?? {})
+        .filter(([k]) => k !== "statement")
+        .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : v ?? ""}`).join("; ");
+    return table(t("activity.title"), [
+        ["activity.at", (a) => timeText(a.at)],
+        ["activity.who", (a) => a.user],
+        ["activity.what", (a) => t(`activity.${a.action}`)],
+        ["activity.detail", (a) => detail(a)],
+    ], listed.activity.slice(0, 50));
+}
+
+// --- People --------------------------------------------------------------------------
+
+/// What someone may do on the ledger, in plain words.
+function mayWords(d, listed) {
+    const kindName = (type) => listed.kinds.find((k) => k.type === type)?.name ?? type;
+    const ruleName = (id) => listed.contracts.find((c) => c.id === id)?.name ?? `${id.slice(0, 12)}...`;
+    const parts = [];
+    if (d.register) {
+        parts.push(d.kinds ? t("people.may.register_kinds", { kinds: d.kinds.map(kindName).join(", ") })
+                           : t("people.may.register"));
+    }
+    if (d.endorse) parts.push(t("people.may.endorse"));
+    if (d.revoke) parts.push(t("people.may.revoke"));
+    if (d.act) {
+        parts.push(d.contracts ? t("people.may.act_rules", { rules: d.contracts.map(ruleName).join(", ") })
+                               : t("people.may.act"));
+    }
+    if (d.rules) parts.push(t("people.may.rules"));
+    if (d.people) parts.push(t("people.may.people"));
+    parts.push(...(d.other ?? []));
+    let text = parts.join("; ");
+    if (d.in_person) text += `; ${t("people.may.in_person")}`;
+    if (d.until) text += `; ${t("people.may.until", { time: timeText(d.until) })}`;
+    return d.revoked ? t("people.may.withdrawn", { what: text }) : text;
+}
+
+async function peopleScreen() {
+    const listed = await api("GET", "people");
+    const notice = el("div", { role: "status" });
+    const parts = [flash(), el("h1", { text: t("people.title") }), el("p", { class: "hint", text: t("people.intro") })];
+    const roles = ["owner", "admin", "member", "viewer"];
+    parts.push(...table(t("people.users"), [
+        ["column.name", (u) => u.name],
+        ["people.role", (u) => t(`role.${u.role}`)],
+        ["people.passkeys", (u) => String(u.passkeys.length)],
+        ["column.state", (u) => t(`people.step.${u.step}`)],
+        ["people.may", (u) => (u.delegations.length ? u.delegations.map((d) => mayWords(d, listed)).join(" | ")
+                                                    : t("value.none"))],
+        ["column.actions", (u) => {
+            if (!listed.may_change) {
+                return "";
+            }
+            const actions = el("span");
+            if (u.step !== "active") {
+                const approve = el("button", { type: "button", class: "primary", text: t("people.approve"),
+                                               "aria-label": t("people.approve_label", { name: u.name }) });
+                approve.addEventListener("click", () => approvePersonScreen(u, listed));
+                actions.append(approve, " ");
+            }
+            const role = el("select", { "aria-label": t("people.role_of", { name: u.name }) },
+                            roles.map((r) => el("option", { value: r, text: t(`role.${r}`) })));
+            role.value = u.role;
+            role.addEventListener("change", async () => {
+                try {
+                    await api("POST", "people", { role: u.name, to: role.value });
+                    state.flash = t("people.role_changed", { name: u.name, role: t(`role.${role.value}`) });
+                    route();
+                } catch (error) {
+                    role.value = u.role;
+                    notice.replaceChildren(problem(t("error.server", { message: error.message })));
+                }
+            });
+            actions.append(role);
+            for (const d of u.delegations.filter((x) => !x.revoked)) {
+                const withdraw = el("button", { type: "button", text: t("people.withdraw"),
+                                                "aria-label": t("people.withdraw_label", { name: u.name }) });
+                withdraw.addEventListener("click", async () => {
+                    try {
+                        const prepared = await api("POST", "prepare", { action: "delegation.revoke", delegation: d.id,
+                                                                         reason: t("people.withdraw_reason") });
+                        await approveScreen(prepared, new Map(), async () => el("p", { class: "notice",
+                            text: t("people.withdrawn", { name: u.name }) }));
+                    } catch (error) {
+                        notice.replaceChildren(problem(t("error.server", { message: error.message })));
+                    }
+                });
+                actions.append(" ", withdraw);
+            }
+            if (!u.me) {
+                const remove = el("button", { type: "button", text: t("people.remove"),
+                                              "aria-label": t("people.remove_label", { name: u.name }) });
+                remove.addEventListener("click", async () => {
+                    try {
+                        await api("POST", "people", { remove: u.name });
+                        state.flash = t("people.removed", { name: u.name });
+                        route();
+                    } catch (error) {
+                        notice.replaceChildren(problem(t("error.server", { message: error.message })));
+                    }
+                });
+                actions.append(" ", remove);
+            }
+            return actions;
+        }],
+    ], listed.users));
+    if (listed.invitations.length) {
+        parts.push(el("p", { class: "hint", text: t("people.invited", {
+            names: listed.invitations.map((i) => `${i.user} (${t(`role.${i.role}`)})`).join(", ") }) }));
+    }
+    parts.push(notice);
+    if (listed.may_change) {
+        const [nameField, name] = field("invite-name", t("column.name"), t("people.name_hint"), { maxlength: 64 });
+        const role = el("select", { id: "invite-role" },
+                        roles.map((r) => el("option", { value: r, text: t(`role.${r}`) })));
+        role.value = "member";
+        const made = el("div", { role: "status" });
+        const invite = el("button", { type: "submit", class: "primary", text: t("people.invite") });
+        const form = el("form", { novalidate: true }, nameField,
+                        el("div", { class: "field" }, el("label", { for: "invite-role", text: t("people.role") }), role),
+                        invite, made);
+        form.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            try {
+                const answer = await api("POST", "people", { invite: name.value.trim(), role: role.value });
+                const box = el("textarea", { readonly: true, rows: 2, class: "id",
+                                             "aria-label": t("people.link_for", { name: answer.user }) });
+                box.value = answer.link;
+                made.replaceChildren(el("p", { text: t("people.link_for", { name: answer.user }) }), box,
+                                     el("p", { class: "hint", text: t("people.link_hint", {
+                                         time: timeText(answer.expires) }) }));
+            } catch (error) {
+                made.replaceChildren(problem(t("error.server", { message: error.message })));
+            }
+        });
+        parts.push(el("h2", { text: t("people.invite_title") }), form);
+    }
+    show(...parts);
+}
+
+/// What an enrolled person may do, chosen in plain words, then approved in
+/// up to three taps: their actor, their passkeys, the delegation.
+function approvePersonScreen(u, listed) {
+    const defaults = listed.defaults[u.role === "owner" ? "admin" : u.role] ?? listed.defaults.member;
+    const box = (key, label) => {
+        const input = el("input", { type: "checkbox", id: `may-${key}`, checked: Boolean(defaults[key]) });
+        return [input, el("div", {}, el("label", { for: `may-${key}` }, input, " ", label))];
+    };
+    const words = ["register", "endorse", "revoke", "act", "rules", "people"]
+        .filter((k) => k !== "people" || u.role === "admin" || u.role === "owner")
+        .map((k) => [k, ...box(k, t(`people.may.${k === "register" ? "register" : k}`))]);
+    const choose = (items, allLabel, id) => {
+        const all = el("input", { type: "checkbox", id: `${id}-all`, checked: true });
+        const each = items.map((item) => {
+            const input = el("input", { type: "checkbox", value: item.value, checked: true, disabled: true });
+            return [input, el("div", {}, el("label", {}, input, " ", item.label))];
+        });
+        all.addEventListener("change", () => each.forEach(([input]) => { input.disabled = all.checked; }));
+        return { all, each, view: el("fieldset", {}, el("legend", { text: allLabel }),
+                                     el("div", {}, el("label", { for: `${id}-all` }, all, " ", t("people.all"))),
+                                     each.map(([, v]) => v)) };
+    };
+    const kinds = choose(listed.kinds.map((k) => ({ value: k.type, label: k.name })), t("people.which_kinds"), "kinds");
+    const rules = choose(listed.contracts.map((c) => ({ value: c.id, label: c.name ?? `${c.id.slice(0, 12)}...` })),
+                         t("people.which_rules"), "rules");
+    const [untilField, until] = field("may-until", t("people.until"), t("people.until_hint"), { type: "date" });
+    const notice = el("div", { role: "status" });
+    const go = el("button", { type: "submit", class: "primary", text: t("people.approve_steps", {
+        n: { actor: 3, presence: 2, delegation: 1 }[u.step] ?? 1 }) });
+    const form = el("form", { novalidate: true },
+                    el("fieldset", {}, el("legend", { text: t("people.what_they_may") }), words.map(([, , v]) => v)),
+                    kinds.view, rules.view, untilField, notice, go, " ", backButton(t("approve.cancel")));
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const picked = (c) => (c.all.checked ? null : c.each.filter(([i]) => i.checked).map(([i]) => i.value));
+        const may = Object.fromEntries(words.map(([k, input]) => [k, input.checked]));
+        may.kinds = picked(kinds);
+        may.contracts = picked(rules);
+        may.until = until.value ? Date.parse(`${until.value}T23:59:59Z`) : null;
+        const steps = [
+            ...(u.step === "actor" ? [{ action: "person.register", user: u.name }] : []),
+            ...(u.step === "actor" || u.step === "presence" ? [{ action: "person.presence", user: u.name }] : []),
+            { action: "person.delegate", user: u.name, may },
+        ];
+        const run = async (index) => {
+            const prepared = await api("POST", "prepare", steps[index]);
+            prepared.progress = { index: index + 1, of: steps.length };
+            await approveScreen(prepared, new Map(), async () => {
+                if (index + 1 < steps.length) {
+                    await run(index + 1);
+                    return TAKEN;
+                }
+                return el("p", { class: "notice", text: t("people.approved", { name: u.name }) });
+            });
+        };
+        try {
+            await run(0);
+        } catch (error) {
+            notice.replaceChildren(problem(t("error.server", { message: error.message })));
+        }
+    });
+    show(el("h1", { text: t("people.approve_title", { name: u.name }) }),
+         el("p", { class: "hint", text: t("people.approve_intro") }), form);
 }
 
 // --- Rules --------------------------------------------------------------------------
@@ -3078,13 +3341,35 @@ function registrationAgrees(check, decoded, prepared, files) {
     });
 }
 
+/// The fields of each people statement that its bytes must hold as shown.
+const PEOPLE_KEYS = {
+    "actor-register": ["kind", "display_name", "key"],
+    "actor-set-presence": ["subject", "credentials"],
+    "delegation-grant": ["grantee", "scope"],
+    "delegation-revoke": ["delegation", "reason"],
+};
+
+/// A value as text with its objects' keys in order, whichever order its
+/// writer kept them in (the WASM keeps the order it wrote, the console sorts).
+function canonical(value) {
+    const sorted = (v) => (Array.isArray(v) ? v.map(sorted)
+        : v !== null && typeof v === "object"
+            ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sorted(v[k])])) : v);
+    return JSON.stringify(sorted(value ?? null));
+}
+
+function peopleAgrees(decoded, summary) {
+    return decoded.ok && decoded.type === summary.type &&
+           PEOPLE_KEYS[summary.type].every((k) => canonical(decoded[k]) === canonical(summary[k]));
+}
+
 /// Two sets of terms, key by key (both absent counts as the same).
 function sameTerms(a, b) {
     if (!a || !b) {
         return !a && !b;
     }
     const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
-    return [...keys].every((k) => JSON.stringify(a[k] ?? null) === JSON.stringify(b[k] ?? null));
+    return [...keys].every((k) => canonical(a[k]) === canonical(b[k]));
 }
 
 // --- Acting, approved with a passkey ---------------------------------------------
@@ -3144,6 +3429,10 @@ function actScreen(record) {
 
 /// What the person approves, as the console prepared it and this page
 /// decoded it, then the tap.
+/// What an approval's `after` answers when it has gone on to another
+/// screen (the next of several taps): the Done screen is not shown.
+const TAKEN = Symbol("taken");
+
 async function approveScreen(prepared, files = new Map(), after = null) {
     const summary = prepared.summary;
     const registering = summary.type === "record-register";
@@ -3160,7 +3449,8 @@ async function approveScreen(prepared, files = new Map(), after = null) {
                                     prepared.hash);
         const matches = registering ? registrationAgrees(check, decoded, prepared, files)
             : deploying ? deployAgrees(decoded, summary)
-            : calling ? callAgrees(decoded, summary) : agrees(decoded, summary);
+            : calling ? callAgrees(decoded, summary)
+            : PEOPLE_KEYS[summary.type] ? peopleAgrees(decoded, summary) : agrees(decoded, summary);
         if (!matches || !own.ok || own.challenge !== challenge) {
             show(el("h1", { text: t("approve.title") }), problem(t("approve.mismatch")),
                  backButton(t("nav.things")));
@@ -3227,6 +3517,18 @@ async function approveScreen(prepared, files = new Map(), after = null) {
     }
     fact("act.role", summary.role);
     fact("act.reason", summary.reason);
+    if (summary.type === "actor-register") {
+        fact("people.person", summary.display_name);
+        fact("people.new_key", `${summary.key.slice(0, 16)}...`);
+    } else if (summary.type === "actor-set-presence") {
+        fact("people.person", summary.subject_name ?? summary.subject);
+        fact("people.passkeys", summary.credentials.map((c) => c.label ?? c.rp_id).join(", "));
+    } else if (summary.type === "delegation-grant") {
+        fact("people.person", summary.grantee_name ?? summary.grantee);
+        fact("people.may", mayWords(summary.may, { kinds: [], contracts: [] }));
+    } else if (summary.type === "delegation-revoke") {
+        fact("people.delegation", summary.delegation);
+    }
     if (registering) {
         for (const f of summary.fields) {
             facts.append(el("dt", { text: t("register.private_field", { name: f.name }) }),
@@ -3270,6 +3572,9 @@ async function approveScreen(prepared, files = new Map(), after = null) {
             });
             const followed = after ? await after(done).catch((e) => problem(
                 t("error.server", { message: e.message }))) : null;
+            if (followed === TAKEN) {
+                return;
+            }
             show(el("h1", { text: t("approve.done_title") }),
                  el("p", { role: "status", text: t("approve.done", { index: done.index }) }),
                  el("p", { class: "id", text: done.statement_id }), followed,
@@ -3278,6 +3583,7 @@ async function approveScreen(prepared, files = new Map(), after = null) {
                              : null,
                  rules ? goButton(t("rules.done"), "#/rules")
                  : access ? goButton(t("nav.parties"), "#/parties")
+                 : PEOPLE_KEYS[summary.type] ? goButton(t("nav.people"), "#/people")
                  : calling ? goButton(t("thing.open"),
                                       `#/instance/${summary.instance ?? done.statement_id}`)
                  : backButton(t("nav.things")));
@@ -3288,7 +3594,9 @@ async function approveScreen(prepared, files = new Map(), after = null) {
             status("");
         }
     });
-    show(el("h1", { text: t("approve.title") }), el("p", { text: t("approve.intro") }), facts,
+    show(el("h1", { text: t("approve.title") }),
+         prepared.progress ? el("p", { class: "notice", text: t("approve.progress", prepared.progress) }) : null,
+         el("p", { text: t("approve.intro") }), facts,
          el("p", { class: "hint", text: t(checkedHere ? "approve.checked_here"
                                                       : "approve.checked_by_console") }),
          notice, button, " ", backButton(t("approve.cancel")));
@@ -3311,6 +3619,7 @@ function chrome() {
         : hash.startsWith("#/create/") ? "rules"
         : hash.startsWith("#/exchange") ? "home"
         : hash.startsWith("#/parties") || hash.startsWith("#/access/") ? "parties"
+        : hash.startsWith("#/people") ? "people"
         : hash.startsWith("#/kinds") ? "kinds"
         : hash.startsWith("#/rules") ? "rules"
         : hash.startsWith("#/verify") ? "verify"
@@ -3373,6 +3682,7 @@ async function route() {
             : create ? createScreen(create[1])
             : hash.startsWith("#/exchange") ? exchangeScreen()
             : hash.startsWith("#/parties") ? partiesScreen()
+            : hash.startsWith("#/people") ? peopleScreen()
             : hash.startsWith("#/things") ? thingsScreen()
             : hash.startsWith("#/new") ? newDocumentScreen()
             : hash.startsWith("#/kinds") ? kindsScreen()

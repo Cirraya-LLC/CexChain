@@ -94,6 +94,7 @@ http::Response Console::unlock_route(const http::Request& request) const {
     }
     if (body.value("lock", false)) {
         keys->lock();
+        log_activity(std::get<Signed>(who).user, "keys.lock");
         return json(200, {{"keys", key_state()}});
     }
     const std::string secret = body.value("secret", "");
@@ -102,6 +103,7 @@ http::Response Console::unlock_route(const http::Request& request) const {
     if (!opened) {
         return error(403, "forbidden", "that does not unlock the console");
     }
+    log_activity(std::get<Signed>(who).user, "keys.unlock");
     ready_now();
     return json(200, {{"keys", key_state()}});
 }

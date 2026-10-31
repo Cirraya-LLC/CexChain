@@ -22,10 +22,13 @@
 #include <thread>
 #include <unistd.h>
 
+#include <cexchain/app/peers.hpp>
 #include <cexchain/app/support.hpp>
+#include <cexchain/console/activity.hpp>
 #include <cexchain/console/deferred.hpp>
 #include <cexchain/console/keystore.hpp>
 #include <cexchain/console/kinds.hpp>
+#include <cexchain/console/people.hpp>
 #include <cexchain/console/sessions.hpp>
 #include <cexchain/console/settings.hpp>
 #include <cexchain/console/setup.hpp>
@@ -445,6 +448,21 @@ int run_person_console(const Args& args, const std::filesystem::path& dir,
             throw UsageError{"--unlock-file does not unlock the console's keys"};
         }
     }
+    std::optional<console::Origin> public_origin;
+    if (const auto public_url = args.get("public-url")) {
+        auto parsed = console::parse_origin(*public_url);
+        if (!parsed) {
+            throw UsageError{std::format("--public-url: {}", parsed.error().detail)};
+        }
+        public_origin = std::move(*parsed);
+    }
+    // Serving TLS itself (otherwise a proxy does, or it is on localhost).
+    if (args.has("tls-cert") != args.has("tls-key")) {
+        throw UsageError{"--tls-cert and --tls-key go together"};
+    }
+    if (args.has("tls-cert") && (!public_origin || public_origin->scheme != "https")) {
+        throw UsageError{"--tls-cert serves an https --public-url"};
+    }
     ledger::SystemClock clock;
     ledger::SystemEntropy entropy;
     console::Sessions sessions(state, shared_provider(), clock, entropy);
@@ -493,6 +511,10 @@ int run_person_console(const Args& args, const std::filesystem::path& dir,
     node::ServerOptions server_options;
     server_options.host = "127.0.0.1";
     server_options.port = port;
+    if (const auto cert = args.get("tls-cert")) {
+        server_options.tls_certificate = *cert;
+        server_options.tls_private_key = *args.get("tls-key");
+    }
     // The console's uploads: a file kept with a record, 16 MiB at most.
     server_options.limits.max_body = node::max_record_file + 64 * 1024;
     server_options.access_log = args.has("quiet") ? nullptr : &std::cerr;
@@ -511,8 +533,14 @@ int run_person_console(const Args& args, const std::filesystem::path& dir,
     }
     node::Server& server = *listening;
     const std::uint16_t got = server.port();
-    web->set_origins(console::loopback_origins(got));
-    const std::string url = std::format("http://localhost:{}/console/", got);
+    // Its own names on this computer, or, behind a proxy, its public URL only.
+    if (public_origin) {
+        web->set_origins({*public_origin});
+    } else {
+        web->set_origins(console::loopback_origins(got));
+    }
+    const std::string url = public_origin ? public_origin->text() + "/console/"
+                                          : std::format("http://localhost:{}/console/", got);
     std::filesystem::create_directories(state);
     app::write_file(state / "port", as_bytes(std::to_string(got) + "\n"), true);
     app::write_file(state / "url", as_bytes(url + "\n"), true);
@@ -958,6 +986,136 @@ int cmd_console_user_link(const Args& args) {
                      "presence, register them: console user passkeys \"{}\" --out DIR, then "
                      "actor set-presence {} --add --credential FILE",
                      registered, name, name, hex_id(actor));
+    }
+    return exit_ok;
+}
+
+int cmd_console_user_approve(const Args& args) {
+    const std::filesystem::path dir = args.ledger();
+    require_ledger_directory(dir);
+    const std::filesystem::path state = console::state_directory(dir);
+    const std::string name = args.positional().front();
+    const console::People people = read_people(state);
+    const console::User* user = people.find(name);
+    if (user == nullptr) {
+        throw CommandError{"no console user named " + name};
+    }
+    if (user->role == console::Role::viewer) {
+        throw CommandError{"a viewer reads and verifies: they act as no one"};
+    }
+    if (!user->actor.empty()) {
+        throw CommandError{name + " acts as someone on the ledger already (console user show)"};
+    }
+    if (user->passkeys.empty() || user->passkeys.size() > 16) {
+        throw CommandError{name + " has no passkey to register yet (or more than 16)"};
+    }
+    // What they may do: their role's default, or the words given.
+    console::Permissions may = console::default_permissions(console::name_of(user->role));
+    if (const auto words = args.get("may")) {
+        may = {};
+        for (const std::string& w : split(*words, ',')) {
+            if (w == "register") {
+                may.register_documents = true;
+            } else if (w == "endorse") {
+                may.endorse = true;
+            } else if (w == "revoke") {
+                may.revoke = true;
+            } else if (w == "act") {
+                may.act = true;
+            } else if (w == "rules") {
+                may.rules = true;
+            } else if (w == "people") {
+                may.people = true;
+            } else if (!w.empty()) {
+                throw UsageError{"--may takes register, endorse, revoke, act, rules, people"};
+            }
+        }
+    }
+    if (const auto kinds = args.get("kinds")) {
+        may.kinds = split(*kinds, ',');
+        std::erase(*may.kinds, std::string());
+    }
+    if (const auto contracts = args.get("contracts")) {
+        may.contracts = std::vector<protocol::Id>{};
+        for (const std::string& c : split(*contracts, ',')) {
+            if (!c.empty()) {
+                may.contracts->push_back(app::full_id(c, "a contract"));
+            }
+        }
+    }
+    if (const auto until = args.get("until")) {
+        may.until = parse_time(*until);
+    }
+    if (may.people && user->role != console::Role::owner && user->role != console::Role::admin) {
+        throw UsageError{"only owners and admins manage people (--may people)"};
+    }
+    protocol::Scope scope;
+    try {
+        scope = console::scope_of(may);
+    } catch (const std::invalid_argument& e) {
+        throw UsageError{e.what()};
+    }
+    console::KeyStore keys(state);
+    if (!keys.initialized()) {
+        throw CommandError{"the console's keys are not set up (console key init)"};
+    }
+    auto key = unwrap(crypto::openssl::KeyPair::generate(crypto::SigAlg::ed25519), "a key");
+    // Their actor, their passkeys as its presence, and what they may do.
+    Session session(args);
+    session.require_primary();
+    const protocol::Id actor = session.submit(
+        args, protocol::ActorRegisterBody{protocol::ActorKind::person, user->name, key.public_key(),
+                                          std::nullopt, std::nullopt});
+    const std::string key_name = "person-" + hex_id(actor).substr(0, 16);
+    keys.seal(key_name, key);
+    static_cast<void>(session.submit(args, protocol::ActorSetPresenceBody{actor, user->passkeys}));
+    const protocol::Id delegation =
+        session.submit(args, protocol::DelegationGrantBody{actor, scope});
+    change_people(state, [&](console::People& p) {
+        if (console::User* u = p.find(name); u != nullptr) {
+            u->actor = hex_id(actor);
+            u->key = key_name;
+        }
+    });
+    console::record_activity(state, {ledger::SystemClock{}.now(),
+                                     "cli",
+                                     "people.approve",
+                                     {{"user", name}, {"actor", hex_id(actor)}}});
+    if (args.json()) {
+        print_json({{"user", name},
+                    {"actor", id_json(actor)},
+                    {"delegation", id_json(delegation)},
+                    {"key", key_name},
+                    {"may", console::permissions_json(may)}});
+        return exit_ok;
+    }
+    std::println(
+        "{} now acts as actor {} with the key {}, in person (passkey), under delegation {}", name,
+        hex_id(actor), key_name, short_id(delegation));
+    return exit_ok;
+}
+
+int cmd_console_activity(const Args& args) {
+    const std::filesystem::path dir = args.ledger();
+    require_ledger_directory(dir);
+    const std::size_t limit =
+        static_cast<std::size_t>(parse_number(args.get("limit").value_or("50"), "--limit"));
+    const auto entries = console::read_activity(console::state_directory(dir), limit);
+    if (args.json()) {
+        Json out = Json::array();
+        for (const auto& a : entries) {
+            Json item = console::activity_json(a);
+            item["at"] = format_time(a.at);
+            out.push_back(std::move(item));
+        }
+        print_json(out);
+        return exit_ok;
+    }
+    if (entries.empty()) {
+        std::println("no activity recorded in the console yet");
+    }
+    for (const auto& a : entries) {
+        std::println("{}  {:<16} {:<18} {}", format_time(a.at), a.user, a.action, a.detail.dump());
     }
     return exit_ok;
 }

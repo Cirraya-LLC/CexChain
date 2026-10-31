@@ -96,6 +96,33 @@ Json access_terms(std::string_view type, const cbor::Value& metadata) {
     return Json();
 }
 
+/// A delegation's scope, as the console's summary writes it.
+Json scope_json(const protocol::Scope& scope) {
+    Json types = Json::array();
+    for (const protocol::StatementType t : scope.statement_types) {
+        types.push_back(std::string(protocol::name(t)));
+    }
+    Json contracts;
+    if (scope.contracts) {
+        contracts = Json::array();
+        for (const protocol::Id& c : *scope.contracts) {
+            contracts.push_back(to_hex(c.bytes()));
+        }
+    }
+    auto optional_list = [](const std::optional<std::vector<std::string>>& list) {
+        return list ? Json(*list) : Json();
+    };
+    return {{"types", types},
+            {"record_types", optional_list(scope.record_types)},
+            {"contracts", contracts},
+            {"functions", optional_list(scope.functions)},
+            {"request_kinds", optional_list(scope.request_kinds)},
+            {"not_before", scope.not_before ? Json(*scope.not_before) : Json()},
+            {"not_after", scope.not_after ? Json(*scope.not_after) : Json()},
+            {"may_delegate", scope.may_delegate},
+            {"require_presence", scope.require_presence}};
+}
+
 /// What a statement says, for the person about to approve it: its type and
 /// signer, and the fields of the actions the console prepares.
 Json describe(const protocol::Statement& s) {
@@ -173,6 +200,28 @@ Json describe(const protocol::Statement& s) {
     } else if (const auto* r = std::get_if<protocol::ContractRetireBody>(&s.body)) {
         out["contract"] = to_hex(r->contract.bytes());
         out["reason"] = r->reason ? Json(*r->reason) : Json();
+    } else if (const auto* a = std::get_if<protocol::ActorRegisterBody>(&s.body)) {
+        // A person, agent, or device the ledger learns, with its key.
+        out["kind"] = static_cast<int>(a->kind);
+        out["display_name"] = a->display_name;
+        out["key"] = to_hex(a->key.bytes);
+    } else if (const auto* p = std::get_if<protocol::ActorSetPresenceBody>(&s.body)) {
+        // The passkeys that prove an actor's presence (the actor is the
+        // statement's subject; "actor" is its signer).
+        out["subject"] = to_hex(p->actor.bytes());
+        Json credentials = Json::array();
+        for (const protocol::PresenceCredential& c : p->credentials) {
+            credentials.push_back({{"rp_id", c.rp_id},
+                                   {"credential_id", to_base64url(c.credential_id)},
+                                   {"label", c.label ? Json(*c.label) : Json()}});
+        }
+        out["credentials"] = credentials;
+    } else if (const auto* g = std::get_if<protocol::DelegationGrantBody>(&s.body)) {
+        out["grantee"] = to_hex(g->grantee.bytes());
+        out["scope"] = scope_json(g->scope);
+    } else if (const auto* v = std::get_if<protocol::DelegationRevokeBody>(&s.body)) {
+        out["delegation"] = to_hex(v->delegation.bytes());
+        out["reason"] = v->reason ? Json(*v->reason) : Json();
     } else if (const auto* c = std::get_if<protocol::ContractCallBody>(&s.body)) {
         // A creation names its contract, an action its instance and head; an
         // answer its request and status. The arguments as the page shows them.
