@@ -3598,7 +3598,13 @@ struct LedgerApi::State {
         submit(r, "console", static_cast<Scopes>(Scope::submit), done);
     }
 
-    void serve(http::Request r, Done done) {
+    void serve(http::Request r, Done done, std::string_view address = {}) {
+        if (options.public_witness && r.path.starts_with("/v1/witness")) {
+            if (auto answer = options.public_witness(r, address)) {
+                finish(done, "witness", std::move(*answer));
+                return;
+            }
+        }
         if (r.path == "/healthz") {
             if (r.method != "GET") {
                 auto response = error_response(405, "unsupported", "method not allowed");
@@ -3801,8 +3807,8 @@ LedgerApi::LedgerApi(std::unique_ptr<State> state) : state_(std::move(state)) {}
 
 LedgerApi::~LedgerApi() = default;
 
-void LedgerApi::handle(http::Request request, std::string, Respond respond) {
-    state_->serve(std::move(request), std::move(respond));
+void LedgerApi::handle(http::Request request, std::string peer, Respond respond) {
+    state_->serve(std::move(request), std::move(respond), peer);
 }
 
 void LedgerApi::submit_statement(Bytes statement, Respond respond) {

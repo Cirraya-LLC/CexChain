@@ -22,6 +22,7 @@
 #include <nlohmann/json.hpp>
 
 #include <cexchain/app/peers.hpp>
+#include <cexchain/app/public_witness.hpp>
 #include <cexchain/app/records.hpp>
 #include <cexchain/app/session.hpp>
 #include <cexchain/app/support.hpp>
@@ -2357,6 +2358,89 @@ TEST_CASE("documents between two consoles: asked, granted, delivered, and accept
     REQUIRE(fa.w.post_as("/console/api/access/dismiss", {{"request", again}}, a).status == 200);
     CHECK(answer_of(fa.w.get("/console/api/access", a))["asked_of_us"].size() == 1);
     CHECK(fa.w.post_as("/console/api/access/dismiss", {{"request", again}}, a).status == 404);
+}
+
+TEST_CASE("a public witness follows a ledger only once it cosigns, within quotas",
+          "[witness][public]") {
+    FirstRunWorld fa;
+    Served alice(fa);
+    FirstRunWorld fb;
+    Served bob(fb);
+    REQUIRE(alice.session.ledger().checkpoint(fa.w.keys.open("log")));
+    REQUIRE(bob.session.ledger().checkpoint(fb.w.keys.open("log")));
+    TempDirectory dir;
+    auto key = cexchain::crypto::openssl::KeyPair::generate(cexchain::crypto::SigAlg::ed25519);
+    REQUIRE(key);
+    cexchain::app::PublicWitnessLimits limits;
+    limits.max_ledgers = 1;
+    cexchain::app::PublicWitness witness(
+        dir.path / "state", std::make_shared<cexchain::crypto::openssl::KeyPair>(std::move(*key)),
+        "unit", limits);
+    const cexchain::protocol::Timestamp t = 1'800'000'000'000;
+    auto post = [&](const std::string& path, const cexchain::Bytes& body,
+                    cexchain::protocol::Timestamp now) {
+        http::Request r;
+        r.method = "POST";
+        r.target = r.path = path;
+        r.body = body;
+        const auto answer = witness.handle(r, "192.0.2.1", now);
+        REQUIRE(answer);
+        return *answer;
+    };
+    auto registration = [](const cexchain::ledger::Ledger& ledger, cexchain::Bytes request) {
+        return *cexchain::app::encode_witness_registration({*ledger.entry(0), std::move(request)});
+    };
+    const auto bob_request =
+        *cexchain::protocol::encode_cosign_request(*bob.session.ledger().cosign_request(0));
+
+    // Not a registration, or one whose checkpoint the log key did not sign:
+    // refused, and nothing followed.
+    CHECK(post("/v1/witness/register", {1, 2, 3}, t).status == 400);
+    auto forged = bob_request;
+    forged[forged.size() - 1] ^= 0x01;
+    CHECK(post("/v1/witness/register", registration(bob.session.ledger(), forged), t).status /
+              100 ==
+          4);
+    // Alice's genesis with Bob's request: not that ledger's.
+    CHECK(
+        post("/v1/witness/register", registration(alice.session.ledger(), bob_request), t).status ==
+        400);
+    CHECK(witness.ledgers() == 0);
+    CHECK(post("/v1/witness/cosign", bob_request, t).status == 404);
+
+    // Registered: cosigned, and followed.
+    const auto registered =
+        post("/v1/witness/register", registration(bob.session.ledger(), bob_request), t);
+    REQUIRE(registered.status == 201);
+    CHECK(registered.content_type == "application/cose");
+    CHECK(cexchain::protocol::parse_cosignature(registered.body));
+    CHECK(witness.ledgers() == 1);
+    // Asked again at once: wait.
+    const auto soon = post("/v1/witness/cosign", bob_request, t + 1'000);
+    CHECK(soon.status == 429);
+    CHECK(std::ranges::find(soon.headers, std::pair<std::string, std::string>{
+                                              "Retry-After", "59"}) != soon.headers.end());
+    // After the interval: the same checkpoint cosigned again (a lost answer).
+    CHECK(post("/v1/witness/cosign", bob_request, t + 61'000).status == 200);
+    // Registering again is a cosign request like any other.
+    CHECK(post("/v1/witness/register", registration(bob.session.ledger(), bob_request), t + 122'000)
+              .status == 200);
+    // As many ledgers as it takes: Alice's is refused.
+    const auto alice_request =
+        *cexchain::protocol::encode_cosign_request(*alice.session.ledger().cosign_request(0));
+    CHECK(post("/v1/witness/register", registration(alice.session.ledger(), alice_request), t)
+              .status == 503);
+
+    http::Request info;
+    info.method = "GET";
+    info.target = info.path = "/v1/witness";
+    const auto described = nlohmann::json::parse(body(*witness.handle(info, "192.0.2.1", t)));
+    CHECK(described["name"] == "unit");
+    CHECK(described["ledgers"] == 1);
+    info.path = "/v1/status";
+    CHECK_FALSE(witness.handle(info, "192.0.2.1", t));
+    info.path = "/v1/witness/register";
+    CHECK(witness.handle(info, "192.0.2.1", t)->status == 405);
 }
 
 TEST_CASE("a console witnesses its parties' ledgers, and refuses a fork", "[console][witness]") {

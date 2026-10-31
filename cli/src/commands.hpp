@@ -105,6 +105,9 @@ int cmd_witness_add_log(const Args& args);
 int cmd_witness_cosign(const Args& args);
 int cmd_witness_status(const Args& args);
 int cmd_witness_remove_log(const Args& args);
+int cmd_witness_register(const Args& args);
+int cmd_witness_registered(const Args& args);
+int cmd_witness_unregister(const Args& args);
 
 // AI agents
 int cmd_mcp(const Args& args);

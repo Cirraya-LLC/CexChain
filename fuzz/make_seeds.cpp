@@ -216,6 +216,17 @@ void ledger_seeds(const Seeds& seeds) {
         "protocol_parse_fuzz", "cosign-request-rotated",
         must(protocol::encode_cosign_request(must(ledger.cosign_request(witnessed), "request")),
              "encode"));
+    // A public witness's registration: the genesis entry and a cosign
+    // request from size 0, through the rotations ({1: entry, 2: request}).
+    seeds.write(
+        "witness_registration_fuzz", "registration",
+        must(cbor::encode(cbor::Value::map(
+                 {{cbor::Value::integer(1), cbor::Value::bytes(must(ledger.entry(0), "genesis"))},
+                  {cbor::Value::integer(2),
+                   cbor::Value::bytes(must(
+                       protocol::encode_cosign_request(must(ledger.cosign_request(0), "request")),
+                       "encode"))}})),
+             "encode"));
 
     // Backups, signed and not.
     for (const bool sign : {true, false}) {

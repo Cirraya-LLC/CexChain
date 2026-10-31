@@ -27,6 +27,8 @@ set(CEXCHAIN_SANITIZERS "" CACHE STRING "Sanitizers to enable, e.g. \"address;un
 # digits) and the manifest's URL. Without them, a build checks no updates.
 set(CEXCHAIN_RELEASE_KEY "" CACHE STRING "The release key's public key, in hex")
 set(CEXCHAIN_UPDATE_URL "" CACHE STRING "The release manifest's URL")
+set(CEXCHAIN_PUBLIC_WITNESSES "" CACHE STRING
+    "Public witnesses offered to people: name|https://...|keyhex,... (none by default)")
 # The Bo compiler needs C++26 static reflection and contracts (GCC 16). AUTO
 # builds it when the compiler has both; ON requires it; OFF leaves it out.
 # Its front end (packs, lexer, parser) is built either way.

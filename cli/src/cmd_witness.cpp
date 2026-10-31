@@ -2,8 +2,9 @@
 // Copyright 2026 Cirraya
 
 // Both sides of witnessing: the ledger operator asks for and stores
-// cosignatures (checkpoint cosign-request / add-cosignature), and a witness
-// keeps per-ledger state and cosigns only consistent history (witness ...).
+// cosignatures (checkpoint cosign-request / add-cosignature; witness register
+// with a public witness), and a witness keeps per-ledger state and cosigns
+// only consistent history (witness ...).
 //
 // A witness directory holds one state file per ledger, <ledger id>.cbor:
 //   {1: ledger id, 2: log key [alg, key], 3: name, 4: size,
@@ -12,9 +13,12 @@
 // Without a root key (a log added by its log key alone) the witness cannot
 // follow key rotations.
 
+#include <algorithm>
+#include <format>
 #include <print>
 
 #include <cexchain/app/peers.hpp>
+#include <cexchain/app/public_witnesses.hpp>
 #include <cexchain/app/witness.hpp>
 #include <cexchain/core/protocol/witness.hpp>
 
@@ -289,6 +293,130 @@ int cmd_witness_remove_log(const Args& args) {
         print_json({{"removed", id_json(found->log.ledger_id)}});
     } else {
         std::println("stopped witnessing \"{}\" ({})", found->name, hex_id(found->log.ledger_id));
+    }
+    return exit_ok;
+}
+
+// ---------------------------------------------------------------------------
+// Public witnesses this ledger uses
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/// A witness key given as a public key file, or as its hex.
+crypto::PublicKey witness_key_argument(const std::string& value) {
+    if (std::filesystem::is_regular_file(value)) {
+        return load_public_key(value);
+    }
+    return app::witness_key_from_hex(value);
+}
+
+Json used_witness_json(const ledger::Ledger& ledger, const app::UsedWitness& w) {
+    Json last;
+    if (const auto cosigned = ledger.last_cosigned(w.key); cosigned && *cosigned) {
+        last = {{"tree_size", (*cosigned)->tree_size}, {"timestamp", (*cosigned)->timestamp}};
+    }
+    return {{"name", w.name},
+            {"url", w.url},
+            {"key", app::witness_key_hex(w.key)},
+            {"added", w.added},
+            {"last_cosigned", last}};
+}
+
+} // namespace
+
+int cmd_witness_register(const Args& args) {
+    Session session(args);
+    session.require_primary();
+    const std::string url = args.positional().front();
+    const crypto::PublicKey key = witness_key_argument(args.need("witness-key"));
+    app::Registered registered;
+    try {
+        registered = app::register_witness(
+            session.ledger(), session.directory(), url, key, args.get("name"),
+            [&](ByteView cosignature) { session.add_cosignature(cosignature, key); },
+            ledger::SystemClock{}.now());
+    } catch (const app::WitnessRefused& e) {
+        if (args.json()) {
+            print_json({{"registered", false}, {"error", e.message}, {"status", e.status}});
+        } else {
+            std::println("REFUSED by {}: {}", url, e.message);
+        }
+        return e.status == 422 ? exit_not_verified : exit_failure;
+    }
+    if (args.json()) {
+        print_json({{"registered", true},
+                    {"name", registered.witness.name},
+                    {"url", url},
+                    {"tree_size", registered.tree_size}});
+    } else {
+        std::println("registered with {} ({}): it cosigned the checkpoint at size {}, and will be "
+                     "asked to cosign each new one",
+                     registered.witness.name, url, registered.tree_size);
+    }
+    return exit_ok;
+}
+
+int cmd_witness_registered(const Args& args) {
+    Session session(args);
+    const auto witnesses = app::load_used_witnesses(session.directory());
+    if (!args.positional().empty()) {
+        const std::string& name = args.positional().front();
+        const auto it = std::ranges::find(witnesses, name, &app::UsedWitness::name);
+        if (it == witnesses.end()) {
+            throw CommandError{"no registered witness named " + name + " (witness registered)"};
+        }
+        const Json j = used_witness_json(session.ledger(), *it);
+        if (args.json()) {
+            print_json(j);
+            return exit_ok;
+        }
+        std::println("{}\n  url: {}\n  key: {}\n  registered: {}", it->name, it->url,
+                     j["key"].get<std::string>(), format_time(it->added));
+        if (j["last_cosigned"].is_null()) {
+            std::println("  last cosigned: never");
+        } else {
+            std::println("  last cosigned: size {}, the checkpoint of {}",
+                         j["last_cosigned"]["tree_size"].get<std::uint64_t>(),
+                         format_time(j["last_cosigned"]["timestamp"].get<protocol::Timestamp>()));
+        }
+        return exit_ok;
+    }
+    Json list = Json::array();
+    for (const app::UsedWitness& w : witnesses) {
+        list.push_back(used_witness_json(session.ledger(), w));
+    }
+    if (args.json()) {
+        print_json({{"witnesses", list}});
+        return exit_ok;
+    }
+    if (witnesses.empty()) {
+        std::println("no public witness: cexchain witness register URL --witness-key KEY");
+        return exit_ok;
+    }
+    for (const Json& w : list) {
+        std::println("{}  {}  {}", w["name"].get<std::string>(), w["url"].get<std::string>(),
+                     w["last_cosigned"].is_null()
+                         ? std::string("never cosigned")
+                         : std::format("cosigned size {}",
+                                       w["last_cosigned"]["tree_size"].get<std::uint64_t>()));
+    }
+    return exit_ok;
+}
+
+int cmd_witness_unregister(const Args& args) {
+    Session session(args);
+    const std::filesystem::path& dir = session.directory();
+    const std::string& name = args.positional().front();
+    auto witnesses = app::load_used_witnesses(dir);
+    if (std::erase_if(witnesses, [&](const app::UsedWitness& w) { return w.name == name; }) == 0) {
+        throw CommandError{"no registered witness named " + name + " (witness registered)"};
+    }
+    app::save_used_witnesses(dir, witnesses);
+    if (args.json()) {
+        print_json({{"unregistered", name}});
+    } else {
+        std::println("no longer asking {} to cosign; what it cosigned stays valid", name);
     }
     return exit_ok;
 }

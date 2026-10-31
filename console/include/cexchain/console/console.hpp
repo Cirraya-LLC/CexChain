@@ -458,6 +458,12 @@ private:
     /// screen.
     void poll_witnessing() const;
     [[nodiscard]] nlohmann::json witnessing_view(const node::Peer& peer) const;
+    /// Public witnesses (witnessing.cpp): the ones this ledger registered
+    /// with and the ones this build knows; registering with one, and
+    /// stopping. Each poll asks them as serve does. A cosignature is kept
+    /// through the node's writer (HTTP status; 504 if it did not answer).
+    [[nodiscard]] http::Response witnesses_route(const http::Request& request) const;
+    [[nodiscard]] int keep_cosignature(Bytes body) const;
     /// What a party's registrar last answered: its calls (JSON text), or why
     /// it could not be asked.
     struct PeerInbox {
@@ -631,6 +637,8 @@ private:
     /// name); cleared by the next cosignature.
     mutable std::map<std::string, std::string> refused_;
     mutable std::map<std::string, std::string> not_cosigned_;
+    /// Why a public witness last did not cosign this ledger's (by name).
+    mutable std::map<std::string, std::string> public_not_cosigned_;
     mutable std::map<std::string, Handed> handed_;
     struct UpdateSource {
         std::string manifest;

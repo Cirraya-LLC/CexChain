@@ -402,6 +402,10 @@ http::Response Console::route(const http::Request& request) const {
         return ready() ? rules_route(request)
                        : error(503, "unavailable", "this console keeps no users or sessions");
     }
+    if (request.path == "/console/api/witnesses") {
+        return ready() ? witnesses_route(request)
+                       : error(503, "unavailable", "this console keeps no users or sessions");
+    }
     if (request.path == "/console/api/parties" || request.path == "/console/api/inbox") {
         if (!ready()) {
             return error(503, "unavailable", "this console keeps no users or sessions");

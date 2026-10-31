@@ -10,6 +10,7 @@
 // histories, cannot get both cosigned: the witness refuses, and the Parties
 // screen says so.
 
+#include <algorithm>
 #include <chrono>
 #include <future>
 #include <memory>
@@ -21,6 +22,7 @@
 
 #include <cexchain/app/errors.hpp>
 #include <cexchain/app/peers.hpp>
+#include <cexchain/app/public_witnesses.hpp>
 #include <cexchain/app/support.hpp>
 #include <cexchain/app/witness.hpp>
 #include <cexchain/console/console.hpp>
@@ -153,20 +155,11 @@ void Console::poll_witnessing() const {
                 throw app::ActionError{answer_message(response)};
             }
             // Kept with the ledger, through the node's writer.
-            const Bytes body = app::unwrap(
-                cbor::encode(cbor::Value::array({cbor::Value::bytes(response.body),
-                                                 protocol::encode_public_key(*peer.witness_key)})),
-                "the cosignature");
-            auto stored = std::make_shared<std::promise<http::Response>>();
-            auto answer = stored->get_future();
-            keep(body, [stored](http::Response r) { stored->set_value(std::move(r)); });
-            if (answer.wait_for(std::chrono::seconds(30)) != std::future_status::ready) {
-                throw app::ActionError{"the ledger did not keep the cosignature in time"};
-            }
-            const http::Response kept = answer.get();
-            if (kept.status / 100 != 2) {
+            const int kept =
+                keep_cosignature(app::cosignature_body(response.body, *peer.witness_key));
+            if (kept / 100 != 2) {
                 throw app::ActionError{"the cosignature was not kept (status " +
-                                       std::to_string(kept.status) + ")"};
+                                       std::to_string(kept) + ")"};
             }
         });
         const std::lock_guard lock(mutex_);
@@ -176,6 +169,148 @@ void Console::poll_witnessing() const {
             not_cosigned_.erase(peer.name);
         }
     }
+    // The public witnesses it registered with, as serve asks them.
+    if (keep) {
+        const auto asked =
+            app::ask_used_witnesses(*served, services_.directory.parent_path(), [this](Bytes body) {
+                return keep_cosignature(std::move(body));
+            });
+        const std::lock_guard lock(mutex_);
+        public_not_cosigned_.clear();
+        for (const app::WitnessAsked& a : asked) {
+            if (!a.problem.empty()) {
+                public_not_cosigned_[a.name] = a.problem;
+            }
+        }
+    }
+}
+
+int Console::keep_cosignature(Bytes body) const {
+    const Cosignatures keep = cosignatures();
+    if (!keep) {
+        return 503;
+    }
+    auto stored = std::make_shared<std::promise<int>>();
+    auto answer = stored->get_future();
+    keep(std::move(body), [stored](http::Response r) { stored->set_value(r.status); });
+    return answer.wait_for(std::chrono::seconds(30)) == std::future_status::ready ? answer.get()
+                                                                                  : 504;
+}
+
+http::Response Console::witnesses_route(const http::Request& request) const {
+    auto who = authenticate(request);
+    if (auto* refused = std::get_if<http::Response>(&who)) {
+        return std::move(*refused);
+    }
+    const Signed& signer = std::get<Signed>(who);
+    const ledger::Ledger* served = ledger();
+    if (served == nullptr) {
+        return error(503, "unavailable", "the console has no ledger yet");
+    }
+    const std::filesystem::path dir = services_.directory.parent_path();
+    const bool may_change = signer.role == Role::owner || signer.role == Role::admin;
+    auto fingerprint = [&](const crypto::PublicKey& key) {
+        const Bytes encoded =
+            app::unwrap(cbor::encode(protocol::encode_public_key(key)), "the witness key");
+        return app::ledger_fingerprint(
+            app::unwrap(services_.provider->digest(crypto::HashAlg::sha256, encoded), "hashing"));
+    };
+    if (request.method == "GET") {
+        std::vector<app::UsedWitness> used;
+        if (const auto problem = attempt([&] { used = app::load_used_witnesses(dir); })) {
+            return error(500, "internal", *problem);
+        }
+        nlohmann::json list = nlohmann::json::array();
+        for (const app::UsedWitness& w : used) {
+            nlohmann::json last;
+            if (const auto cosigned = served->last_cosigned(w.key); cosigned && *cosigned) {
+                last = {{"size", (*cosigned)->tree_size}, {"at", (*cosigned)->timestamp}};
+            }
+            nlohmann::json item{{"name", w.name},
+                                {"url", w.url},
+                                {"key", app::witness_key_hex(w.key)},
+                                {"fingerprint", fingerprint(w.key)},
+                                {"added", w.added},
+                                {"cosigned", last}};
+            const std::lock_guard lock(mutex_);
+            if (const auto it = public_not_cosigned_.find(w.name);
+                it != public_not_cosigned_.end()) {
+                item["problem"] = it->second;
+            }
+            list.push_back(std::move(item));
+        }
+        nlohmann::json known = nlohmann::json::array();
+        for (const app::UsedWitness& w : app::built_in_public_witnesses()) {
+            if (std::ranges::none_of(used,
+                                     [&](const app::UsedWitness& u) { return u.key == w.key; })) {
+                known.push_back({{"name", w.name},
+                                 {"url", w.url},
+                                 {"key", app::witness_key_hex(w.key)},
+                                 {"fingerprint", fingerprint(w.key)}});
+            }
+        }
+        return json(200, {{"witnesses", list}, {"known", known}, {"may_change", may_change}});
+    }
+    if (request.method != "POST") {
+        return error(405, "unsupported", "GET or POST");
+    }
+    if (!may_change) {
+        return error(403, "forbidden", "only an owner or an admin chooses the witnesses");
+    }
+    const auto body =
+        nlohmann::json::parse(request.body.begin(), request.body.end(), nullptr, false);
+    if (!body.is_object()) {
+        return error(400, "invalid_argument", "the request's body is not a JSON object");
+    }
+    if (body.contains("remove")) {
+        const std::string name = body.value("remove", "");
+        std::optional<std::string> problem = attempt([&] {
+            auto used = app::load_used_witnesses(dir);
+            if (std::erase_if(used, [&](const app::UsedWitness& w) { return w.name == name; }) ==
+                0) {
+                throw app::ActionError{"no witness named " + name};
+            }
+            app::save_used_witnesses(dir, used);
+        });
+        if (problem) {
+            return error(404, "not_found", *problem);
+        }
+        log_activity(signer.user, "witnesses.remove", {{"name", name}});
+        return json(200, {{"removed", name}});
+    }
+    const std::string url = body.value("url", "");
+    const std::string key_hex = body.value("key", "");
+    std::optional<app::Registered> registered;
+    std::optional<int> refused_status;
+    std::optional<std::string> problem = attempt([&] {
+        const crypto::PublicKey key = app::witness_key_from_hex(key_hex);
+        try {
+            registered = app::register_witness(
+                *served, dir, url, key, std::nullopt,
+                [this, &key](ByteView cosignature) {
+                    const int kept = keep_cosignature(app::cosignature_body(cosignature, key));
+                    if (kept / 100 != 2) {
+                        throw app::ActionError{"the cosignature was not kept (status " +
+                                               std::to_string(kept) + ")"};
+                    }
+                },
+                services_.clock->now());
+        } catch (const app::WitnessRefused& e) {
+            refused_status = e.status;
+            throw app::ActionError{e.message};
+        }
+    });
+    if (problem) {
+        return error(refused_status == 422 ? 422
+                     : refused_status      ? 409
+                                           : 400,
+                     refused_status ? "rejected" : "invalid_argument", *problem);
+    }
+    log_activity(signer.user, "witnesses.add", {{"name", registered->witness.name}});
+    return json(200, {{"name", registered->witness.name},
+                      {"url", url},
+                      {"fingerprint", fingerprint(registered->witness.key)},
+                      {"size", registered->tree_size}});
 }
 
 nlohmann::json Console::witnessing_view(const node::Peer& peer) const {

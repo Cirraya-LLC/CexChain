@@ -13,6 +13,8 @@ add_library(cexchain_app
     src/contract_views.cpp
     src/contracts.cpp
     src/peers.cpp
+    src/public_witness.cpp
+    src/public_witnesses.cpp
     src/records.cpp
     src/requests.cpp
     src/session.cpp
@@ -26,9 +28,11 @@ target_link_libraries(cexchain_app
     PUBLIC cexchain::ledger cexchain::node cexchain::verifier cexchain::bo_front
            nlohmann_json::nlohmann_json)
 # The tool named in an agent's provenance; the release key and manifest
-# URL that update checks trust (none by default).
+# URL that update checks trust, and the public witnesses offered (none by
+# default).
 target_compile_definitions(cexchain_app PRIVATE CEXCHAIN_VERSION="${PROJECT_VERSION}"
                                                CEXCHAIN_RELEASE_KEY="${CEXCHAIN_RELEASE_KEY}"
-                                               CEXCHAIN_UPDATE_URL="${CEXCHAIN_UPDATE_URL}")
+                                               CEXCHAIN_UPDATE_URL="${CEXCHAIN_UPDATE_URL}"
+                                               CEXCHAIN_PUBLIC_WITNESSES="${CEXCHAIN_PUBLIC_WITNESSES}")
 target_compile_features(cexchain_app PUBLIC cxx_std_26)
 cexchain_target_defaults(cexchain_app)

@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <string>
 #include <string_view>
@@ -76,6 +77,11 @@ struct ApiOptions {
     /// Cosigns a cosign request as this organization's witness of a peer's
     /// ledger; without it, POST /v1/witness/cosign answers 501.
     std::function<Result<Bytes>(ByteView)> witness;
+    /// A public witness (serve --witness-public): answers GET /v1/witness,
+    /// POST /v1/witness/register, and POST /v1/witness/cosign from anyone,
+    /// given the caller's address; nothing passes the request on.
+    std::function<std::optional<http::Response>(const http::Request&, std::string_view address)>
+        public_witness;
     /// The web console: answers every request whose path is /console or
     /// under /console/, before the API's routes and without their tokens
     /// (the console checks its own sessions), answered through the callback,

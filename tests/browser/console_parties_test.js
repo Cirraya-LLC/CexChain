@@ -7,7 +7,8 @@
 // her registrar holds it. Bob's Home shows it waiting for his consent; he
 // reads it (verified against the camera's evidence, fetched from Alice's
 // node), consents with a tap, and the consent goes to Alice's registrar,
-// which records the loan.
+// which records the loan. Then Alice asks a public witness to witness her
+// ledger, by its address and key, and stops.
 // Usage: node console_parties_test.js CEXCHAIN [SOURCE_DIR]
 "use strict";
 const assert = require("node:assert/strict");
@@ -89,6 +90,7 @@ async function tap(page, what) {
   const browser = await chromium.launch();
   const people = [];
   let current;
+  let witness;
   try {
     const alice = await person(browser, "Alice");
     people.push(alice);
@@ -161,6 +163,38 @@ async function tap(page, what) {
     const instances = JSON.parse(alice.run("contract", "instances", "--json"));
     assert.equal((Array.isArray(instances) ? instances : instances.instances)[0].status, "lent");
 
+    // A public witness: Alice asks one, by its address and key, then stops.
+    const witnessDir = path.join(work, "witness");
+    fs.mkdirSync(witnessDir, { recursive: true });
+    const witnessEnv = { ...process.env, CEXCHAIN_PASSPHRASE: "witness test" };
+    const w = (...args) => execFileSync(cexchain, args, { cwd: witnessDir, env: witnessEnv,
+                                                          encoding: "utf8" });
+    for (const k of ["root", "log", "witness"]) w("key", "generate", "--out", `${k}.key`);
+    w("init", "--ledger", "ledger", "--org", "Witness", "--root-key", "root.key",
+      "--log-key", "log.key");
+    const witnessPort = await freePort();
+    witness = spawn(cexchain, ["serve", "--ledger", "ledger", "--listen", `127.0.0.1:${witnessPort}`,
+                               "--witness-dir", "state", "--witness-key", "witness.key",
+                               "--witness-public", "--witness-name", "test-witness", "--quiet"],
+                    { cwd: witnessDir, env: witnessEnv });
+    const witnessUrl = `http://127.0.0.1:${witnessPort}`;
+    let info;
+    for (let i = 0; i < 300 && !info; i++) {
+      info = await fetch(`${witnessUrl}/v1/witness`).then((r) => r.json()).catch(() => null);
+      if (!info) await new Promise((r) => setTimeout(r, 100));
+    }
+    await a.getByRole("link", { name: "Parties" }).click();
+    await a.getByRole("heading", { name: "Public witnesses" }).waitFor();
+    await a.getByText("No public witness yet.").waitFor();
+    await a.getByLabel("Its address").fill(witnessUrl);
+    await a.getByLabel("Its key").fill(info.key);
+    await a.getByRole("button", { name: "Ask it to witness this ledger" }).click();
+    await a.getByText(/^test-witness cosigned this ledger at \d+ entries/).waitFor();
+    assert.equal(JSON.parse(alice.run("witness", "registered", "--json")).witnesses.length, 1);
+    await a.getByRole("button", { name: "Stop asking test-witness" }).click();
+    await a.getByText("test-witness is no longer asked. What it cosigned stays valid.").waitFor();
+    assert.equal(JSON.parse(alice.run("witness", "registered", "--json")).witnesses.length, 0);
+
     for (const p of people) {
       assert.deepEqual(p.violations, [], `${p.name}: no CSP violation or script error`);
     }
@@ -173,6 +207,7 @@ async function tap(page, what) {
     throw error;
   } finally {
     await browser.close();
+    witness?.kill();
     for (const p of people) {
       try {
         p.run("console", "stop");

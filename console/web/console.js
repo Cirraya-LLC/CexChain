@@ -2775,7 +2775,8 @@ function askByFile(intentOf) {
 /// The parties this console works with: inviting one, accepting an
 /// invitation (which invites back), and the parties connected.
 async function partiesScreen() {
-    const [listed, access] = await Promise.all([api("GET", "parties"), api("GET", "access")]);
+    const [listed, access, witnesses] = await Promise.all([api("GET", "parties"), api("GET", "access"),
+                                                           api("GET", "witnesses")]);
     const parts = [flash(), el("h1", { text: t("parties.title") }), el("p", { class: "hint", text: t("parties.intro") }),
                    el("p", { text: t("parties.our_fingerprint", { fingerprint: listed.fingerprint }) })];
     // Witnessing: the size each side last cosigned of the other's ledger.
@@ -2802,6 +2803,7 @@ async function partiesScreen() {
         parts.push(el("p", { class: "hint", text: t("parties.waiting_answer", { names: listed.waiting.join(", ") }) }));
     }
     parts.push(...documentsView(access, listed.peers.filter((p) => p.online)));
+    parts.push(...witnessesView(witnesses));
     if (!listed.may_change) {
         show(...parts);
         return;
@@ -2845,6 +2847,86 @@ async function partiesScreen() {
     parts.push(el("h2", { text: t("parties.invite_title") }), inviteForm,
                el("h2", { text: t("parties.accept_title") }), acceptForm);
     show(...parts);
+}
+
+/// The public witnesses this ledger asks to cosign its checkpoints: who,
+/// what they cosigned, and, for an owner or admin, asking another (one
+/// this build knows, or any by its URL and key) and stopping one.
+function witnessesView(listed) {
+    const parts = [el("h2", { text: t("witnesses.title") }),
+                   el("p", { class: "hint", text: t("witnesses.intro") })];
+    const said = el("div", { role: "status" });
+    const ask = async (body, button) => {
+        button.disabled = true;
+        status(t("status.working"));
+        try {
+            const added = await api("POST", "witnesses", body);
+            state.flash = t("witnesses.added", added);
+            route();
+        } catch (error) {
+            said.replaceChildren(problem(t("error.server", { message: error.message })));
+        } finally {
+            button.disabled = false;
+            status("");
+        }
+    };
+    if (listed.witnesses.length === 0) {
+        parts.push(el("p", { text: t("witnesses.none") }));
+    } else {
+        parts.push(...table(t("witnesses.used"), [
+            ["column.name", (w) => w.name],
+            ["parties.fingerprint", (w) => w.fingerprint],
+            ["parties.witnesses_us", (w) => (w.cosigned ? t("parties.cosigned_size", { size: w.cosigned.size })
+                                                         : t("parties.not_yet"))],
+            ["witnesses.stop", (w) => {
+                if (!listed.may_change) {
+                    return t("value.none");
+                }
+                const stop = el("button", { type: "button", text: t("witnesses.stop"),
+                                            "aria-label": t("witnesses.stop_label", { name: w.name }) });
+                stop.addEventListener("click", async () => {
+                    stop.disabled = true;
+                    try {
+                        await api("POST", "witnesses", { remove: w.name });
+                        state.flash = t("witnesses.stopped", { name: w.name });
+                        route();
+                    } catch (error) {
+                        said.replaceChildren(problem(t("error.server", { message: error.message })));
+                        stop.disabled = false;
+                    }
+                });
+                return stop;
+            }],
+        ], listed.witnesses));
+        for (const w of listed.witnesses) {
+            if (w.problem) {
+                parts.push(el("p", { class: "hint", text: t("parties.not_cosigned", {
+                    name: w.name, message: w.problem }) }));
+            }
+        }
+    }
+    if (!listed.may_change) {
+        return parts;
+    }
+    // Known ones are offered, never chosen for the person.
+    for (const w of listed.known) {
+        const use = el("button", { type: "button", text: t("witnesses.use", { name: w.name }) });
+        use.addEventListener("click", () => ask({ url: w.url, key: w.key }, use));
+        parts.push(el("p", {}, use, " ", el("span", { class: "hint", text: t("witnesses.known_key", {
+            fingerprint: w.fingerprint }) })));
+    }
+    const [urlField, url] = field("witness-url", t("witnesses.url"), t("witnesses.url_hint"),
+                                  { type: "url", placeholder: "https://" });
+    const [keyField, key] = field("witness-key", t("witnesses.key"), t("witnesses.key_hint"),
+                                  { spellcheck: "false" });
+    const add = el("button", { type: "submit", text: t("witnesses.add") });
+    const form = el("form", { novalidate: true }, urlField, keyField, add, said);
+    form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        ask({ url: url.value.trim(), key: key.value.trim() }, add);
+    });
+    parts.push(el("h3", { text: t("witnesses.add_title") }), form);
+    return parts;
 }
 
 // --- Documents between parties --------------------------------------------------

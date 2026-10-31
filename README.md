@@ -230,7 +230,7 @@ The `cexchain` tool controls every part of a ledger:
 | Delegations | `delegation grant`, `delegation list`, `delegation show`, `delegation revoke` |
 | Records | `record issue`, `record list`, `record show`, `record history`, `record fields`, `record file list\|get\|add\|remove`, `record endorse`, `record transition`, `record revoke`, `record types` |
 | Proofs | `checkpoint create`, `checkpoint list`, `checkpoint show`, `checkpoint cosign-request`, `checkpoint add-cosignature`, `proof inclusion`, `proof consistency`, `proof state`, `receipt` |
-| Witnesses | `witness add-log`, `witness cosign`, `witness status`, `witness remove-log` |
+| Witnesses | `witness add-log`, `witness cosign`, `witness status`, `witness remove-log`; `witness register`, `witness registered`, `witness unregister` (public witnesses) |
 | Evidence | `export`, `verify`, `inspect`, `qr` |
 | Vault | `vault status`, `vault keygen`, `vault rekey` |
 | AI agents | `mcp` |
@@ -344,6 +344,27 @@ cexchain checkpoint add-cosignature cosignature.cbor --witness witness.pub
 # Anyone: require witnesses they trust.
 cexchain verify evidence.cbor --witness witness.pub --min-witnesses 1
 ```
+
+**Public witnesses.** A witness can also serve anyone who asks, with no token
+(`serve --witness-public`, with quotas on ledgers, registrations per address and day, and
+cosignatures per ledger). A ledger registers once, which proves it holds its log key; from then
+on `serve` and the web console ask it to cosign every new checkpoint, and exports carry its
+cosignatures. The witness learns the ledger id, its first keys, and each checkpoint's size, root,
+and time; never statements, records, fields, parties, or files.
+
+```sh
+# The witness's operator: serve it, with TLS of its own (quotas see callers' addresses).
+cexchain serve --listen 0.0.0.0:443 --tls-cert cert.pem --tls-key key.pem \
+    --witness-dir witness --witness-key witness.key --witness-public --witness-name example
+# A ledger: register with it, pinning the key its operator publishes.
+cexchain witness register https://witness.example.org --witness-key witness.pub
+cexchain witness registered            # what each witness cosigned
+cexchain witness unregister example    # stop asking; what it cosigned stays valid
+```
+
+In the web console, Parties lists the public witnesses a ledger asks and adds one by its address
+and key. A build can offer known witnesses (`-DCEXCHAIN_PUBLIC_WITNESSES=name|url|keyhex,...`);
+none is used unless someone chooses it.
 
 ## Browser verifier
 

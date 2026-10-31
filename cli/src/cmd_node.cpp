@@ -4,18 +4,27 @@
 // Running a ledger as a service: the HTTP API (serve), API tokens, replicas
 // that copy a primary and check everything they copy, and backups.
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
+#include <format>
 #include <fstream>
+#include <future>
 #include <iostream>
+#include <map>
+#include <mutex>
 #include <print>
+#include <stop_token>
 #include <sys/resource.h>
 #include <thread>
 
 #include <cexchain/app/backups.hpp>
+#include <cexchain/app/public_witness.hpp>
+#include <cexchain/app/public_witnesses.hpp>
 #include <cexchain/app/updates.hpp>
 #include <cexchain/app/witness.hpp>
 #include <cexchain/console/console.hpp>
@@ -114,6 +123,46 @@ void raise_descriptor_limit(std::uint64_t wanted) {
 
 } // namespace
 
+namespace {
+
+/// Asks the ledger's public witnesses every `every` until `stop`, keeping
+/// their cosignatures through the API's writer; says what changed, unless
+/// quiet.
+void ask_witnesses_until(const std::stop_token& stop, node::LedgerApi& api,
+                         const std::filesystem::path& dir, std::chrono::seconds every, bool quiet) {
+    std::map<std::string, std::string> problems;
+    std::mutex mutex;
+    std::condition_variable_any wake;
+    while (!stop.stop_requested()) {
+        const auto asked = app::ask_used_witnesses(api.ledger(), dir, [&api](Bytes body) {
+            auto kept = std::make_shared<std::promise<int>>();
+            auto status = kept->get_future();
+            api.add_cosignature(std::move(body),
+                                [kept](node::http::Response r) { kept->set_value(r.status); });
+            return status.wait_for(std::chrono::seconds(30)) == std::future_status::ready
+                       ? status.get()
+                       : 504;
+        });
+        for (const app::WitnessAsked& a : asked) {
+            if (!quiet && a.cosigned) {
+                std::println(stderr, "witness {} cosigned the checkpoint at size {}", a.name,
+                             *a.cosigned);
+            }
+            if (std::string& was = problems[a.name]; was != a.problem) {
+                if (!quiet && !a.problem.empty()) {
+                    std::println(stderr, "witness {}: {}", a.name.empty() ? "list" : a.name,
+                                 a.problem);
+                }
+                was = a.problem;
+            }
+        }
+        std::unique_lock lock(mutex);
+        wake.wait_for(lock, stop, every, [] { return false; });
+    }
+}
+
+} // namespace
+
 int serve(const Args& args, const ServeDefaults& defaults) {
     const bool with_console = defaults.console || args.has("console");
     // A server stamps every write with its clock, so one run ahead
@@ -150,8 +199,18 @@ int serve(const Args& args, const ServeDefaults& defaults) {
     if (args.has("witness-dir") != args.has("witness-key")) {
         throw UsageError{"--witness-dir and --witness-key go together"};
     }
+    const bool witness_public = args.has("witness-public");
+    if (witness_public && !args.has("witness-dir")) {
+        throw UsageError{"--witness-public needs --witness-dir and --witness-key"};
+    }
+    for (const char* option : {"witness-name", "witness-max-ledgers",
+                               "witness-registrations-per-day", "witness-cosign-interval"}) {
+        if (args.has(option) && !witness_public) {
+            throw UsageError{std::format("--{} goes with --witness-public", option)};
+        }
+    }
     if (const auto witness_dir = args.get("witness-dir")) {
-        if (!std::filesystem::is_directory(*witness_dir)) {
+        if (!witness_public && !std::filesystem::is_directory(*witness_dir)) {
             throw CommandError{"no witness directory at " + *witness_dir +
                                " (cexchain witness add-log)"};
         }
@@ -161,6 +220,25 @@ int serve(const Args& args, const ServeDefaults& defaults) {
                            witness_key](ByteView request) {
             return app::witness_cosign(dir, *witness_key, request, ledger::SystemClock{}.now());
         };
+        if (witness_public) {
+            // Any ledger registers and asks, with no token, within quotas.
+            app::PublicWitnessLimits limits;
+            if (const auto n = args.get("witness-max-ledgers")) {
+                limits.max_ledgers = parse_number(*n, "--witness-max-ledgers");
+            }
+            if (const auto n = args.get("witness-registrations-per-day")) {
+                limits.registrations_per_day = parse_number(*n, "--witness-registrations-per-day");
+            }
+            if (const auto n = args.get("witness-cosign-interval")) {
+                limits.cosign_interval = parse_number(*n, "--witness-cosign-interval") * 1000;
+            }
+            auto witness = std::make_shared<app::PublicWitness>(
+                *witness_dir, witness_key, args.get("witness-name").value_or(""), limits);
+            options.public_witness = [witness](const node::http::Request& r,
+                                               std::string_view address) {
+                return witness->handle(r, address, ledger::SystemClock{}.now());
+            };
+        }
     }
     if (const auto registrar = args.get("registrar-key")) {
         if (options.log_keys.empty()) {
@@ -360,6 +438,18 @@ int serve(const Args& args, const ServeDefaults& defaults) {
     std::fflush(stdout);
     if (defaults.on_listening) {
         defaults.on_listening(server.port());
+    }
+    // The public witnesses this ledger registered with (witness register),
+    // asked after each new checkpoint; the list is read each time.
+    std::jthread asking;
+    if (!api->is_replica() && !options.read_only && !options.log_keys.empty()) {
+        // As often as checkpoints come, at most every 15 seconds.
+        const auto every =
+            std::chrono::seconds(interval == 0 ? 15 : std::clamp<std::uint64_t>(interval, 1, 15));
+        asking = std::jthread(
+            [api = api.get(), dir, every, quiet = args.has("quiet")](const std::stop_token& stop) {
+                ask_witnesses_until(stop, *api, dir, every, quiet);
+            });
     }
     server.run();
     return exit_ok;

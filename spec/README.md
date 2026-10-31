@@ -311,6 +311,8 @@ Two organizations can witness each other's ledgers. Neither can then rewrite or 
 
 Once a witness has followed a log key rotation, it accepts only the new key. A leaked old log key can therefore not get a fork cosigned by it.
 
+A **public witness** (informative) follows any ledger that asks. A ledger registers by sending its genesis entry with a cosign request; the witness learns the ledger id, hash, root key, and first log key from the genesis entry (the ledger id must be the checkpoint's), and follows the ledger only if it cosigns that request under the rules above. A registration therefore proves that the caller holds the log key in effect. The witness keeps only the state described above, and never the ledger's statements. Section 16 gives the routes and section 17 what a public witness learns.
+
 ## 11. Evidence bundles and verification
 
 An evidence bundle (`evidence-bundle`) holds:
@@ -718,6 +720,7 @@ This section is informative. The reference implementation serves a ledger over H
 | admin | `POST /v1/checkpoint`, `POST /v1/cosignatures`, `DELETE /v1/vault/files/{record}/{index}` |
 | peer | `POST /v1/access/requests`, `GET /v1/access/deliveries/{request}`, `POST /v1/access/receipts`, `POST /v1/witness/cosign`, `POST /v1/contracts/calls` and `GET /v1/contracts/instances/{instance}` (the instance's current parties), `GET /v1/contracts/calls`, `/v1/contracts/calls/{call}` (the calls that concern the peer), `POST /v1/contracts/consents`, `GET /v1/genesis` (the genesis entry, which the ledger id authenticates: a peer that witnesses the ledger follows its root and log keys from it) |
 | executor | `GET /v1/requests`, `GET /v1/contracts/instances/{instance}`, and `POST /v1/statements` for answers only (v0.8) |
+| none, on a public witness | `GET /v1/witness`, `POST /v1/witness/register`, `POST /v1/witness/cosign` (below) |
 | read, admin | clusters: `GET /v1/cluster`; `POST /v1/cluster/members`, `/v1/cluster/members/remove`, `/v1/cluster/step-down` |
 
 **Clusters.** Several members can keep one ledger with Raft. Each group of statements is replicated as `{time, statements, sealed private data}` and applied by every member at that time, so their logs are identical. Checkpoints are signed by the leader and replicated as signed. The consent bundles a statement cites, and the calls a registrar holds, are replicated too, so a new leader carries on with them. A follower answers writes with 307 and the leader's API. Members authenticate their Raft messages with a shared secret. None of this changes the protocol: a cluster's log is one ledger's log.
@@ -757,6 +760,15 @@ Only the calls the keeper's delegations cover are its to make. Each call moves i
 
 `GET /v1/contracts/due` (read tokens; never public, since it runs contracts) answers what a keeper would do, as JSON: `at`, `grace_ms`, `keeper`, `rules` (instance, contract, head, status, function, and the rule's `time` and `late_ms` when the contract reports them in an event `["when", {"time", "late", ...}]`, as Bo's do), `expiries` (request, instance, contract, head, kind, reply, deadline, `overdue_ms`), `refused` (due work the contract or the ledger would not take, with the reason), `instances`, `runs`, `fuel`, and `next`. Without `keeper`, each item lists the `keepers` whose active delegations cover it. The query selects `at` (milliseconds since the epoch; default now), `grace` (seconds; default the server's), `keeper`, `contract`, `instance` (full ids), `start` (the `next` of an earlier answer), and `limit` (contract runs, 1 to 100,000; default 10,000). Like the requests route, it is a hint: the ledger decides each call when it registers it.
 
+**Public witnesses.** A server can be a public witness (`serve --witness-public`) beside serving its own ledger. Three routes then take no token:
+- `GET /v1/witness` describes it as JSON: `name`, `key` (the hex of its COSE public key), `algorithm`, `ledgers` (how many it follows), and `limits`. This is a hint: a ledger pins the key its operator publishes, never the one a witness says it has.
+- `POST /v1/witness/register` takes CBOR `{1: genesis entry, 2: cosign request}` and answers the cosignature (201 for a new ledger, 200 for one it follows already, which is then a cosign request like any other). A refused registration leaves nothing behind.
+- `POST /v1/witness/cosign` takes a cosign request for a ledger it follows (404 for another: register first).
+
+Its quotas bound what anyone can make it store and do: a number of ledgers in all (100,000 by default; then 503), new ledgers per caller address per UTC day (10; every attempt counts; then 429), and one cosignature per ledger per interval (60 seconds; then 429). A 429 carries `Retry-After`. Quotas see the connection's address, so a public witness serves TLS itself rather than behind a proxy.
+
+A ledger keeps the public witnesses it registered with (in the reference implementation, `witnesses.json` beside the ledger, written by `witness register`), and its server asks each one to cosign every new checkpoint and keeps the cosignatures, which evidence then carries. Stopping keeps what was cosigned valid.
+
 A server holds the log key to sign checkpoints, receipts, and evidence. Across a rotation it may hold the old and new key, and signs with the one in effect.
 
 **Replicas.** A replica copies a ledger through the read routes. It takes the entries a checkpoint covers only once they lead to its root and the checkpoint is signed by the log key in effect at its size, following any key rotation among them (checkpoints never go back in size or time). It re-validates every entry under the rules, rebuilds the tree, and never copies entries that no checkpoint covers. It MUST stop at the first entry that fails, and MUST refuse a primary whose log is shorter than its own (a rollback).
@@ -778,6 +790,7 @@ A server holds the log key to sign checkpoints, receipts, and evidence. Across a
   - The log key and the organization root key can be rotated (v0.4), for instance to ML-DSA. A leaked old log key can still sign a different history that never rotated. Only witnesses that followed the rotation reject it, so verifiers SHOULD require cosignatures from trusted witnesses.
   - A leaked root key can rotate both keys. Recovering from that needs action outside the ledger, such as a new ledger. Keep the root key in an HSM; threshold root keys are future work.
   - Algorithms are pluggable, and post-quantum signatures (ML-DSA) are supported now.
+- **Public witnesses.** A public witness learns the ledger id, the genesis entry (its organization's name and first keys), each checkpoint's size, root, and time, and the caller's address: how many entries a ledger has and when it grows, never its statements, records, fields, parties, or files. Checkpoints on a fixed schedule hide timing, not counts. Its state is bounded by its quotas (about 200 bytes per ledger). A witness that refuses a ledger, or disappears, cannot change what it cosigned; verifiers SHOULD trust more than one, run by different operators.
 - **Privacy.**
   - Public metadata, record types, actor names, and timestamps are visible to whoever holds a bundle.
   - Field values and attachments are hidden behind salted commitments until disclosed.

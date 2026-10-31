@@ -852,6 +852,45 @@ std::vector<CommandSpec> build() {
          1,
          with({{"dir", "DIR", "The witness's state directory", true}}),
          cmd_witness_remove_log},
+        {{"witness", "register"},
+         "Register this ledger with a public witness, which then cosigns its checkpoints",
+         "Witness",
+         "URL",
+         1,
+         1,
+         with({ledger_option,
+               {"witness-key", "PUBKEY",
+                "The witness's public key, as its operator publishes it: a public key file, or "
+                "its hex (GET URL/v1/witness shows it; check it elsewhere)",
+                true},
+               {"name", "NAME", "What to call it here (default: its name, or its host)"}}),
+         cmd_witness_register,
+         "Sends the genesis entry and a cosign request of the latest checkpoint to\n"
+         "URL/v1/witness/register; the witness follows the ledger only if it cosigns, which\n"
+         "proves this ledger holds its log key. The cosignature is kept, and the witness is\n"
+         "listed in witnesses.json: serve (and the console) then ask it to cosign every new\n"
+         "checkpoint, and exports carry its cosignatures (verify --witness --min-witnesses).\n"
+         "The witness learns the ledger id, the genesis entry's keys, each checkpoint's size,\n"
+         "root, and time, and this computer's address: never statements, records, fields,\n"
+         "parties, or files. Refuses a witness whose key is not the one given."},
+        {{"witness", "registered"},
+         "List the public witnesses this ledger registered with, or show one",
+         "Witness",
+         "[NAME]",
+         0,
+         1,
+         with({ledger_option}),
+         cmd_witness_registered},
+        {{"witness", "unregister"},
+         "Stop asking a public witness to cosign this ledger's checkpoints",
+         "Witness",
+         "NAME",
+         1,
+         1,
+         with({ledger_option}),
+         cmd_witness_unregister,
+         "What it cosigned stays valid, and the witness keeps following the ledger (its state\n"
+         "is about 200 bytes); registering again carries on from there."},
 
         // ------------------------------------------------------------------
         {{"serve"},
@@ -886,6 +925,15 @@ std::vector<CommandSpec> build() {
                {"quiet", "", "No access log on stderr"},
                {"witness-dir", "DIR", "Also witness peers' ledgers: this witness state directory"},
                {"witness-key", "KEY", "The witness key (file or pkcs11: URI), with --witness-dir"},
+               {"witness-public", "",
+                "A public witness: any ledger registers and asks for cosignatures with no token, "
+                "within quotas (serve TLS yourself, so quotas see callers' addresses)"},
+               {"witness-name", "NAME", "Who runs this public witness, as GET /v1/witness says"},
+               {"witness-max-ledgers", "N", "Ledgers a public witness follows (default: 100000)"},
+               {"witness-registrations-per-day", "N",
+                "New ledgers from one address in a day (default: 10)"},
+               {"witness-cosign-interval", "SECONDS",
+                "Between two cosignatures of one ledger (default: 60)"},
                {"registrar-key", "KEY",
                 "Take proposed contract calls with the consents their contracts ask for; record "
                 "each once all are in, signing as this actor (file or pkcs11: URI)"},
@@ -928,6 +976,10 @@ std::vector<CommandSpec> build() {
          "           (the instance's parties)\n"
          "  executor: GET /v1/requests, GET /v1/contracts/instances/INSTANCE, and\n"
          "           POST /v1/statements for answers to requests only\n"
+         "  with --witness-public, open: GET /v1/witness, POST /v1/witness/register\n"
+         "           ({1: genesis entry, 2: cosign request}), POST /v1/witness/cosign\n"
+         "The server asks each public witness the ledger registered with (witness register)\n"
+         "to cosign every new checkpoint, and keeps the cosignatures.\n"
          "GET /v1/requests?state=&kind=&contract=&instance=&after=&limit=&wait= lists requests\n"
          "made by contract calls, for executors: open ones by default, oldest change first, with\n"
          "a cursor for the next after=; with wait=S (up to 25 seconds) it waits until one\n"
