@@ -3,6 +3,8 @@
 
 #include <algorithm>
 #include <future>
+#include <map>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <utility>
@@ -17,6 +19,7 @@
 #include <cexchain/app/relay_client.hpp>
 #include <cexchain/app/support.hpp>
 #include <cexchain/core/cbor.hpp>
+#include <cexchain/core/protocol/id_map.hpp>
 #include <cexchain/ledger/environment.hpp>
 #include <cexchain/node/client.hpp>
 
@@ -25,6 +28,12 @@ namespace cexchain::app {
 namespace {
 
 thread_local const RelaySender* scoped_sender = nullptr;
+
+/// Parties that did not answer through their relays lately, and until when
+/// they are not asked again (a poller would otherwise wait 30 s on each).
+std::mutex quiet_mutex;
+std::map<protocol::IdKey, std::chrono::steady_clock::time_point> quiet_until;
+constexpr std::chrono::seconds quiet_for{60};
 
 RelayId fresh_id() {
     RelayId id{};
@@ -119,6 +128,18 @@ node::http::ClientResponse relayed(const node::Peer& peer, std::string_view meth
                                    std::string_view content_type, const RelaySender& sender,
                                    std::chrono::seconds wait) {
     const node::RelayRoute& route = *peer.relay;
+    {
+        const std::lock_guard lock(quiet_mutex);
+        if (const auto it = quiet_until.find(protocol::key_of(peer.ledger_id));
+            it != quiet_until.end()) {
+            if (std::chrono::steady_clock::now() < it->second) {
+                throw ActionError{"peer " + peer.name +
+                                  " did not answer through its relay a moment ago (is it "
+                                  "online?); asked again within a minute"};
+            }
+            quiet_until.erase(it);
+        }
+    }
     const ledger::Ledger* ledger = sender.ledger ? sender.ledger() : nullptr;
     const auto log_key = sender.log_key ? sender.log_key() : nullptr;
     if (ledger == nullptr || !log_key) {
@@ -185,6 +206,11 @@ node::http::ClientResponse relayed(const node::Peer& peer, std::string_view meth
             out.body = std::move(answer->body);
             return out;
         }
+    }
+    {
+        const std::lock_guard lock(quiet_mutex);
+        quiet_until[protocol::key_of(peer.ledger_id)] =
+            std::chrono::steady_clock::now() + quiet_for;
     }
     throw ActionError{"peer " + peer.name + " did not answer through its relay (is it online?)"};
 }
