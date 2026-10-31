@@ -24,6 +24,8 @@
 #include <cexchain/app/peers.hpp>
 #include <cexchain/app/public_witness.hpp>
 #include <cexchain/app/records.hpp>
+#include <cexchain/app/relay.hpp>
+#include <cexchain/app/relay_server.hpp>
 #include <cexchain/app/session.hpp>
 #include <cexchain/app/support.hpp>
 #include <cexchain/app/updates.hpp>
@@ -2441,6 +2443,199 @@ TEST_CASE("a public witness follows a ledger only once it cosigns, within quotas
     CHECK_FALSE(witness.handle(info, "192.0.2.1", t));
     info.path = "/v1/witness/register";
     CHECK(witness.handle(info, "192.0.2.1", t)->status == 405);
+}
+
+TEST_CASE("a relay carries sealed requests and answers between witnessed ledgers", "[relay]") {
+    using cexchain::app::RelayId;
+    FirstRunWorld fa;
+    Served alice(fa);
+    FirstRunWorld fb;
+    Served bob(fb);
+    const auto alice_log = fa.w.keys.open("log");
+    const auto bob_log = fb.w.keys.open("log");
+    REQUIRE(alice.session.ledger().checkpoint(alice_log));
+    REQUIRE(bob.session.ledger().checkpoint(bob_log));
+    const auto a = alice.session.state().ledger_id();
+    const auto b = bob.session.state().ledger_id();
+    TempDirectory dir;
+    const cexchain::protocol::Timestamp t = 1'800'000'000'000;
+    // Both registered with the server's public witness, which the relay
+    // reads their log keys from.
+    auto witness_key =
+        cexchain::crypto::openssl::KeyPair::generate(cexchain::crypto::SigAlg::ed25519);
+    REQUIRE(witness_key);
+    cexchain::app::PublicWitness witness(
+        dir.path / "state",
+        std::make_shared<cexchain::crypto::openssl::KeyPair>(std::move(*witness_key)), "w", {});
+    for (const cexchain::ledger::Ledger* ledger :
+         {&alice.session.ledger(), &bob.session.ledger()}) {
+        http::Request r;
+        r.method = "POST";
+        r.target = r.path = "/v1/witness/register";
+        r.body = *cexchain::app::encode_witness_registration(
+            {*ledger->entry(0),
+             *cexchain::protocol::encode_cosign_request(*ledger->cosign_request(0))});
+        REQUIRE(witness.handle(r, "192.0.2.1", t)->status == 201);
+    }
+    cexchain::app::RelayLimits limits;
+    limits.mailbox_messages = 3;
+    cexchain::app::Relay relay(dir.path / "relay", dir.path / "state", limits);
+    std::optional<http::Response> got;
+    auto call = [&](const std::string& method, const std::string& path, cexchain::Bytes body,
+                    std::optional<std::string> authorization, cexchain::protocol::Timestamp now) {
+        http::Request r;
+        r.method = method;
+        r.target = path;
+        r.path = path.substr(0, path.find('?'));
+        if (const auto q = path.find('?'); q != std::string::npos) {
+            std::string query = path.substr(q + 1);
+            while (!query.empty()) {
+                const std::string pair = query.substr(0, query.find('&'));
+                query =
+                    query.find('&') == std::string::npos ? "" : query.substr(query.find('&') + 1);
+                r.query[pair.substr(0, pair.find('='))] = pair.substr(pair.find('=') + 1);
+            }
+        }
+        if (authorization) {
+            r.headers.emplace_back("authorization", *authorization);
+        }
+        r.body = std::move(body);
+        got.reset();
+        CHECK(relay.handle(r, now, [&](http::Response response) { got = std::move(response); }));
+        return got;
+    };
+    auto auth = [&](const cexchain::crypto::Signer& log, const cexchain::protocol::Id& ledger,
+                    cexchain::protocol::Timestamp now) {
+        return *cexchain::app::relay_authorization(log, ledger, now);
+    };
+    auto messages = [](const http::Response& r) {
+        std::vector<cexchain::app::RelayMessage> out;
+        const auto list = cexchain::cbor::decode(r.body);
+        REQUIRE(list);
+        for (const auto& item : *list->as_array()) {
+            auto m = cexchain::app::parse_relay_message(*item.as_bytes());
+            REQUIRE(m);
+            out.push_back(std::move(*m));
+        }
+        return out;
+    };
+    const std::string mailbox_a = "/v1/relay/messages?to=" + cexchain::to_hex(a.bytes());
+    const std::string mailbox_b = "/v1/relay/messages?to=" + cexchain::to_hex(b.bytes());
+
+    // Alice asks Bob's API for his genesis entry, sealed to his relay key.
+    auto bob_relay_key = cexchain::crypto::openssl::HpkeKey::generate();
+    auto answer_key = cexchain::crypto::openssl::HpkeKey::generate();
+    REQUIRE(bob_relay_key);
+    REQUIRE(answer_key);
+    const RelayId id{1, 2, 3};
+    const cexchain::app::RelayRequest request{
+        "GET",
+        "/v1/genesis",
+        "",
+        {},
+        "cxt_peer-token",
+        cexchain::Bytes(answer_key->public_key().begin(), answer_key->public_key().end())};
+    cexchain::app::RelayEnvelope envelope{
+        b, a, id,
+        *cexchain::app::seal_relay_request(bob_relay_key->public_key(), b, a, id, request),
+        std::nullopt};
+    // Signed by another ledger's key, it is refused.
+    CHECK(call("POST", "/v1/relay/messages", *cexchain::app::sign_relay_message(bob_log, envelope),
+               std::nullopt, t)
+              ->status == 422);
+    REQUIRE(call("POST", "/v1/relay/messages",
+                 *cexchain::app::sign_relay_message(alice_log, envelope), std::nullopt, t)
+                ->status == 201);
+    // Sent again: kept once.
+    CHECK(call("POST", "/v1/relay/messages",
+               *cexchain::app::sign_relay_message(alice_log, envelope), std::nullopt, t)
+              ->status == 200);
+    CHECK(relay.mailbox(b).first == 1);
+
+    // Only Bob reads his mailbox, with a fresh signed fetch.
+    CHECK(call("GET", mailbox_b, {}, std::nullopt, t)->status == 401);
+    CHECK(call("GET", mailbox_b, {}, auth(alice_log, b, t), t)->status == 401);
+    CHECK(call("GET", mailbox_b, {}, auth(bob_log, b, t - 6 * 60'000), t)->status == 401);
+    const auto fetched = call("GET", mailbox_b, {}, auth(bob_log, b, t), t);
+    REQUIRE(fetched->status == 200);
+    const auto inbox = messages(*fetched);
+    REQUIRE(inbox.size() == 1);
+    CHECK_FALSE(cexchain::app::open_relay_request(*answer_key, inbox[0].envelope));
+    const auto opened = cexchain::app::open_relay_request(*bob_relay_key, inbox[0].envelope);
+    REQUIRE(opened);
+    CHECK(opened->path == "/v1/genesis");
+    CHECK(opened->token == "cxt_peer-token");
+
+    // Alice waits for the answer: a long poll that the answer ends.
+    REQUIRE_FALSE(call("GET", mailbox_a + "&wait=20", {}, auth(alice_log, a, t), t));
+    std::optional<http::Response> woken;
+    {
+        http::Request r;
+        r.method = "GET";
+        r.target = mailbox_a + "&wait=20";
+        r.path = "/v1/relay/messages";
+        r.query["to"] = cexchain::to_hex(a.bytes());
+        r.query["wait"] = "20";
+        r.headers.emplace_back("authorization", auth(alice_log, a, t));
+        CHECK(relay.handle(r, t, [&](http::Response response) { woken = std::move(response); }));
+        CHECK_FALSE(woken);
+    }
+    const RelayId answer_id{9, 9};
+    const cexchain::app::RelayAnswer reply{200, "application/cbor", {0xa0}};
+    const cexchain::app::RelayEnvelope back{
+        a, b, answer_id, *cexchain::app::seal_relay_answer(*opened, b, a, id, reply), id};
+    REQUIRE(call("POST", "/v1/relay/messages", *cexchain::app::sign_relay_message(bob_log, back),
+                 std::nullopt, t + 1'000)
+                ->status == 201);
+    REQUIRE(woken);
+    const auto answers = messages(*woken);
+    REQUIRE(answers.size() == 1);
+    CHECK(answers[0].envelope.answers == id);
+    const auto read =
+        cexchain::app::open_relay_answer(*answer_key, b, a, id, answers[0].envelope.sealed);
+    REQUIRE(read);
+    CHECK(read->status == 200);
+    CHECK(read->body == cexchain::Bytes{0xa0});
+    // Bound to its request: under another id it does not open.
+    CHECK_FALSE(
+        cexchain::app::open_relay_answer(*answer_key, b, a, answer_id, answers[0].envelope.sealed));
+
+    // Taken: gone from the mailbox.
+    const std::string taken = "/v1/relay/messages/" +
+                              cexchain::to_hex(cexchain::ByteView(answer_id)) +
+                              "?to=" + cexchain::to_hex(a.bytes());
+    CHECK(call("DELETE", taken, {}, auth(bob_log, a, t), t)->status == 401);
+    CHECK(call("DELETE", taken, {}, auth(alice_log, a, t), t)->status == 200);
+    CHECK(relay.mailbox(a).first == 0);
+    // A long poll with nothing coming ends empty.
+    {
+        http::Request r;
+        r.method = "GET";
+        r.path = "/v1/relay/messages";
+        r.query["to"] = cexchain::to_hex(a.bytes());
+        r.query["wait"] = "5";
+        r.headers.emplace_back("authorization", auth(alice_log, a, t));
+        std::optional<http::Response> late;
+        CHECK(relay.handle(r, t, [&](http::Response response) { late = std::move(response); }));
+        relay.tick(t + 4'000);
+        CHECK_FALSE(late);
+        relay.tick(t + 6'000);
+        REQUIRE(late);
+        CHECK(messages(*late).empty());
+    }
+
+    // Quotas: three messages in a mailbox.
+    for (std::uint8_t n = 10; n < 13; ++n) {
+        envelope.id = RelayId{n};
+        CHECK(call("POST", "/v1/relay/messages",
+                   *cexchain::app::sign_relay_message(alice_log, envelope), std::nullopt, t)
+                  ->status == (n < 12 ? 201 : 429));
+    }
+    // Kept 14 days at most.
+    relay.tick(t + 15 * 24 * 60 * 60'000LL);
+    CHECK(relay.mailbox(b).first == 0);
+    // Not a message.
+    CHECK(call("POST", "/v1/relay/messages", {1, 2, 3}, std::nullopt, t)->status == 400);
 }
 
 TEST_CASE("a console witnesses its parties' ledgers, and refuses a fork", "[console][witness]") {

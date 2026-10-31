@@ -3605,6 +3605,15 @@ struct LedgerApi::State {
                 return;
             }
         }
+        for (const ApiOptions::Extension& extension : options.extensions) {
+            if (extension.handle &&
+                extension.handle(r, address, [this, done](http::Response response) mutable {
+                    const std::string principal = response.principal;
+                    finish(done, principal, std::move(response));
+                })) {
+                return;
+            }
+        }
         if (r.path == "/healthz") {
             if (r.method != "GET") {
                 auto response = error_response(405, "unsupported", "method not allowed");
@@ -3871,10 +3880,20 @@ void LedgerApi::tick() {
     state_->auto_checkpoint();
     state_->keep();
     state_->poll_requests();
+    for (const ApiOptions::Extension& extension : state_->options.extensions) {
+        if (extension.tick) {
+            extension.tick();
+        }
+    }
 }
 
 void LedgerApi::stopping() {
     state_->stop_polls();
+    for (const ApiOptions::Extension& extension : state_->options.extensions) {
+        if (extension.stopping) {
+            extension.stopping();
+        }
+    }
 }
 
 void LedgerApi::stop() {

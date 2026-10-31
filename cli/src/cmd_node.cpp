@@ -25,6 +25,7 @@
 #include <cexchain/app/backups.hpp>
 #include <cexchain/app/public_witness.hpp>
 #include <cexchain/app/public_witnesses.hpp>
+#include <cexchain/app/relay_server.hpp>
 #include <cexchain/app/updates.hpp>
 #include <cexchain/app/witness.hpp>
 #include <cexchain/console/console.hpp>
@@ -239,6 +240,21 @@ int serve(const Args& args, const ServeDefaults& defaults) {
                 return witness->handle(r, address, ledger::SystemClock{}.now());
             };
         }
+    }
+    if (const auto relay_dir = args.get("relay-dir")) {
+        if (!witness_public) {
+            throw UsageError{"--relay-dir needs --witness-public: a relay serves the ledgers its "
+                             "witness follows"};
+        }
+        auto relay =
+            std::make_shared<app::Relay>(*relay_dir, *args.get("witness-dir"), app::RelayLimits{});
+        options.extensions.push_back({[relay](const node::http::Request& r, std::string_view,
+                                              node::Application::Respond respond) {
+                                          return relay->handle(r, ledger::SystemClock{}.now(),
+                                                               std::move(respond));
+                                      },
+                                      [relay] { relay->tick(ledger::SystemClock{}.now()); },
+                                      [relay] { relay->stopping(); }});
     }
     if (const auto registrar = args.get("registrar-key")) {
         if (options.log_keys.empty()) {

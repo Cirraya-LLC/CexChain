@@ -87,6 +87,8 @@ if(TARGET cexchain_node)
     cexchain_add_fuzzer(invitation_fuzz cexchain::app)
     # A public witness's registrations and cosign requests, from anyone.
     cexchain_add_fuzzer(witness_registration_fuzz cexchain::app cexchain::crypto_openssl)
+    # Relay messages and signed fetches, from anyone; what a mailbox holds.
+    cexchain_add_fuzzer(relay_message_fuzz cexchain::app cexchain::crypto_openssl)
     # The web console's Host, Origin, and session checks (C++26, like the console).
     if(TARGET cexchain_console)
         cexchain_add_fuzzer(console_request_fuzz cexchain::console cexchain::crypto_openssl)

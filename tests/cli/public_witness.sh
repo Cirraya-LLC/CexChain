@@ -93,10 +93,19 @@ run init --ledger witness-ledger --org "Witness Org" --root-key w-root.key \
 expect_exit 1 serve --ledger witness-ledger --witness-public
 contains -- '--witness-dir' out.txt || fail "--witness-public needs a witness"
 expect_exit 1 serve --ledger witness-ledger --witness-name x
+expect_exit 1 serve --ledger witness-ledger --relay-dir relay
+contains -- '--witness-public' out.txt || fail "a relay serves a public witness's ledgers"
 start_server witness.json --ledger witness-ledger --witness-dir wdir --witness-key witness.key \
     --witness-public --witness-name test-witness --witness-registrations-per-day 2 \
-    --witness-cosign-interval 1
+    --witness-cosign-interval 1 --relay-dir relay
 W="$(url_of witness.json)"
+# The relay beside it reads only signed fetches.
+[ "$(python3 -c "
+import urllib.request, urllib.error
+try:
+    urllib.request.urlopen('$W/v1/relay/messages?to=' + '00' * 32, timeout=10)
+except urllib.error.HTTPError as e:
+    print(e.code)")" = 401 ] || fail "the relay asks who fetches"
 
 # --- Alice: a ledger with a record and a checkpoint --------------------------------
 run init --ledger alice --org Alice --root-key a-root.key --log-key a-log.key > /dev/null

@@ -934,6 +934,9 @@ std::vector<CommandSpec> build() {
                 "New ledgers from one address in a day (default: 10)"},
                {"witness-cosign-interval", "SECONDS",
                 "Between two cosignatures of one ledger (default: 60)"},
+               {"relay-dir", "DIR",
+                "Also a relay, keeping mailboxes here: ledgers this public witness follows send "
+                "each other sealed messages through it (with --witness-public)"},
                {"registrar-key", "KEY",
                 "Take proposed contract calls with the consents their contracts ask for; record "
                 "each once all are in, signing as this actor (file or pkcs11: URI)"},
@@ -978,6 +981,9 @@ std::vector<CommandSpec> build() {
          "           POST /v1/statements for answers to requests only\n"
          "  with --witness-public, open: GET /v1/witness, POST /v1/witness/register\n"
          "           ({1: genesis entry, 2: cosign request}), POST /v1/witness/cosign\n"
+         "  with --relay-dir, open: POST /v1/relay/messages (signed by the sender's log key),\n"
+         "           GET /v1/relay/messages?to=LEDGER[&wait=S], DELETE\n"
+         "           /v1/relay/messages/ID?to=LEDGER (both signed by the mailbox's ledger)\n"
          "The server asks each public witness the ledger registered with (witness register)\n"
          "to cosign every new checkpoint, and keeps the cosignatures.\n"
          "GET /v1/requests?state=&kind=&contract=&instance=&after=&limit=&wait= lists requests\n"

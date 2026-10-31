@@ -82,6 +82,18 @@ struct ApiOptions {
     /// given the caller's address; nothing passes the request on.
     std::function<std::optional<http::Response>(const http::Request&, std::string_view address)>
         public_witness;
+    /// More routes beside the ledger's (a relay). `handle` takes a request
+    /// it serves, answers it through `respond` now or later (a long poll),
+    /// and returns true; false passes it on. `tick` is called about once a
+    /// second, `stopping` once when the server stops (answer what waits).
+    struct Extension {
+        std::function<bool(const http::Request&, std::string_view address,
+                           Application::Respond respond)>
+            handle;
+        std::function<void()> tick;
+        std::function<void()> stopping;
+    };
+    std::vector<Extension> extensions;
     /// The web console: answers every request whose path is /console or
     /// under /console/, before the API's routes and without their tokens
     /// (the console checks its own sessions), answered through the callback,
