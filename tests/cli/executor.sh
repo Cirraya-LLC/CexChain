@@ -179,7 +179,7 @@ server.serve_forever()
 EOF
 python3 receiver.py "$WORK" 2> receiver.log &
 PIDS+=("$!")
-wait_for 100 test -s hook.port || fail "the receiver did not start"
+wait_for 300 test -s hook.port || { cat receiver.log; fail "the receiver did not start"; }
 HOOK="http://127.0.0.1:$(cat hook.port)/hook"
 
 # The command connector's program: records each request and acts as

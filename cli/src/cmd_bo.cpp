@@ -164,7 +164,9 @@ void limit_memory(const Args& args) {
     if (n < 64 || n > (std::uint64_t{1} << 20)) {
         throw UsageError{"--max-memory is 64 to 1048576 (MiB)"};
     }
-#if !defined(CEXCHAIN_SANITIZED)
+    // macOS cannot limit an address space (setrlimit RLIMIT_AS fails there):
+    // the CPU limit below and the console's wall clock still hold.
+#if !defined(CEXCHAIN_SANITIZED) && !defined(__APPLE__)
     const rlimit limit{static_cast<rlim_t>(n << 20), static_cast<rlim_t>(n << 20)};
     if (::setrlimit(RLIMIT_AS, &limit) != 0) {
         throw CommandError{"cannot limit this process's memory"};
