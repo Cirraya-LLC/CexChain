@@ -13,6 +13,7 @@ set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
 CEXCHAIN="$1"
+SOURCE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WORK="$(mktemp -d)"
 PIDS=()
 cleanup() {
@@ -39,95 +40,18 @@ wait_for() { for _ in $(seq 1 300); do [ -s "$1" ] && return 0; sleep 0.1; done;
 
 # --- The identity provider ------------------------------------------------------------
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out idp.pem 2> /dev/null
-cat > idp.py << 'PY'
-import base64, hashlib, http.server, json, os, subprocess, sys, time, urllib.parse
-port_file, key = sys.argv[1], sys.argv[2]
-modulus = subprocess.run(["openssl", "rsa", "-in", key, "-noout", "-modulus"],
-                         capture_output=True, text=True, check=True).stdout.strip().split("=")[1]
-b64 = lambda b: base64.urlsafe_b64encode(b).rstrip(b"=").decode()
-n, e = b64(bytes.fromhex(modulus)), b64((65537).to_bytes(3, "big"))
-codes = {}
-class Provider(http.server.BaseHTTPRequestHandler):
-    def answer(self, status, body=b"", headers=()):
-        self.send_response(status)
-        for k, v in headers:
-            self.send_header(k, v)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-    def log_message(self, *args):
-        pass
-    def do_GET(self):
-        url = urllib.parse.urlparse(self.path)
-        q = dict(urllib.parse.parse_qsl(url.query))
-        issuer = f"http://127.0.0.1:{self.server.server_port}"
-        if url.path == "/.well-known/openid-configuration":
-            self.answer(200, json.dumps({"issuer": issuer, "authorization_endpoint": issuer + "/authorize",
-                                         "token_endpoint": issuer + "/token", "jwks_uri": issuer + "/jwks"}).encode())
-        elif url.path == "/jwks":
-            self.answer(200, json.dumps({"keys": [{"kty": "RSA", "kid": "k1", "use": "sig", "alg": "RS256",
-                                                   "n": n, "e": e}]}).encode())
-        elif url.path == "/authorize":
-            assert q["response_type"] == "code" and q["code_challenge_method"] == "S256" and "openid" in q["scope"]
-            code = b64(os.urandom(12))
-            codes[code] = q
-            self.answer(302, headers=[("Location", q["redirect_uri"] + "?" +
-                                       urllib.parse.urlencode({"code": code, "state": q["state"]}))])
-        elif url.path == "/cas/login" and "service" not in q:
-            self.answer(200, b"{}")
-        elif url.path == "/cas/login":
-            service = q["service"]
-            self.answer(302, headers=[("Location", service + ("&" if "?" in service else "?") + "ticket=ST-1-test")])
-        elif url.path == "/cas/p3/serviceValidate":
-            ok = q.get("ticket") == "ST-1-test" and q.get("format") == "JSON"
-            body = {"serviceResponse": {"authenticationSuccess": {"user": "chan", "attributes": {
-                "displayName": ["Chan Wing"], "mail": ["chan@school.example"]}}}} if ok else \
-                {"serviceResponse": {"authenticationFailure": {"code": "INVALID_TICKET"}}}
-            self.answer(200, json.dumps(body).encode())
-        else:
-            self.answer(404)
-    def do_POST(self):
-        form = dict(urllib.parse.parse_qsl(self.rfile.read(int(self.headers.get("Content-Length", "0"))).decode()))
-        issuer = f"http://127.0.0.1:{self.server.server_port}"
-        want = "Basic " + base64.b64encode(b"console:the-client-secret").decode()
-        q = codes.pop(form.get("code", ""), None)
-        if (self.path != "/token" or self.headers.get("Authorization") != want or q is None
-                or b64(hashlib.sha256(form.get("code_verifier", "").encode()).digest()) != q["code_challenge"]
-                or form.get("redirect_uri") != q["redirect_uri"]):
-            self.answer(400, b'{"error": "invalid_grant"}')
-            return
-        now = int(time.time())
-        header = b64(json.dumps({"alg": "RS256", "kid": "k1", "typ": "JWT"}).encode())
-        claims = b64(json.dumps({"iss": issuer, "sub": "student-42", "aud": "console", "iat": now,
-                                 "exp": now + 300, "nonce": q["nonce"], "name": "Li Ming",
-                                 "email": "li@school.example", "email_verified": True}).encode())
-        signature = subprocess.run(["openssl", "dgst", "-sha256", "-sign", key],
-                                   input=(header + "." + claims).encode(), capture_output=True, check=True).stdout
-        self.answer(200, json.dumps({"access_token": "x", "token_type": "Bearer",
-                                     "id_token": header + "." + claims + "." + b64(signature)}).encode())
-server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Provider)
-open(port_file + ".tmp", "w").write(str(server.server_port))
-os.rename(port_file + ".tmp", port_file)
-server.serve_forever()
-PY
+cp "$SOURCE/tests/cli/idp.py" idp.py
 python3 idp.py idp.port idp.pem 2> idp.log &
 PIDS+=("$!")
 wait_for idp.port
 IDP="http://127.0.0.1:$(cat idp.port)"
 
-# --- The console, set up for scripts, unlocked ------------------------------------------
-python3 - << 'PY'
-import os
-def text(value):
-    data = value.encode()
-    return bytes([0x60 + len(data)]) + data
-credential = bytes([0xa3, 0x01]) + text("localhost") + bytes([0x02, 0x50]) + os.urandom(16)
-credential += bytes([0x03, 0x82, 0x32, 0x58, 0x20]) + os.urandom(32)
-open("owner.passkey", "wb").write(credential)
-PY
+# --- A ledger, and its console's keys -------------------------------------------------
+for k in root log; do run key generate --out "$k.key" > /dev/null; done
+run init --name "Example School" --root-key root.key --log-key log.key > /dev/null
 printf 'the unlock passphrase of these tests\n' > unlock.txt
-run console setup --name "School Owner" --credential owner.passkey --unlock-file unlock.txt > /dev/null
+run console key init --unlock-file unlock.txt > /dev/null
+run console key import root root.key > /dev/null
 printf 'the-client-secret\n' > secret.txt
 
 # --- Providers ------------------------------------------------------------------------
@@ -153,6 +77,41 @@ run console sso show school --json | json 'd["secret_sealed"], d["allow_domains"
 ! grep -rq the-client-secret school/console/identity.json || fail "the secret is not kept in the clear"
 run console sso test school | contains 'discovery ok; 1 signing key'
 run console sso test campus --json | json 'd["login"]' | contains -x "$IDP/cas/login"
+
+# --- A self-service form (with the Bo compiler) ---------------------------------------
+BO="$(run version --json | json 'd["bo"] is not None')"
+if [ "$BO" = True ]; then
+    C="$(run contract deploy --bo "$SOURCE/examples/day-student/day-student.bo" --as root.key --json \
+        2> /dev/null | json 'd["contract"]["id"]')"
+    cat > kind.json << 'JSON'
+{"sheet": 1, "kind": "document", "type": "example.school.day-student-form/1", "name": "Day student form",
+ "fields": [{"name": "student", "label": "Student", "type": "text", "private": false, "required": true},
+            {"name": "address", "label": "Address", "type": "text", "private": true, "required": true}],
+ "files": "none", "keep_files": false}
+JSON
+    run console kind add kind.json > /dev/null
+    cat > form.json << JSON
+{"form": 1, "name": "day-student", "title": "Day student application", "contract": "$C",
+ "create": "create", "steps": ["withdraw"], "kind": "example.school.day-student-form/1",
+ "record_field": "details", "providers": ["school"]}
+JSON
+    expect_exit 2 console intake grant --unlock-file unlock.txt
+    contains 'publish a form first' out.txt
+    run console form add form.json | contains 'console intake grant'
+    expect_exit 2 console form add form.json
+    sed "s/\"create\": \"create\"/\"create\": \"withdraw\"/" form.json > wrong.json
+    expect_exit 2 console form add wrong.json --replace
+    contains 'does not create things' out.txt
+    run console form list | contains 'day-student'
+    run console form link day-student --url http://localhost:7470 | contains -x 'http://localhost:7470/console/#/apply/day-student'
+    expect_exit 1 console intake grant
+    GRANT="$(run console intake grant --unlock-file unlock.txt --json)"
+    [ "$(echo "$GRANT" | json 'd["new_key"], d["revoked"]')" = "True 0" ] || fail "the first intake grant"
+    [ "$(run console intake grant --unlock-file unlock.txt --json | json 'd["revoked"]')" = 1 ] ||
+        fail "a new grant revokes the old"
+    INTAKE="$(run console intake show --json | json 'd["actor"]')"
+    run delegation list --actor "$INTAKE" --json | json 'len(d)' | contains -x 1
+fi
 
 # --- The console runs ---------------------------------------------------------------------
 FREE="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
@@ -279,6 +238,58 @@ assert post("/console/api/sso/begin", {}) == 400
 assert post("/console/api/sso/begin", {"provider": "school"}, origin=False) == 403
 assert post("/console/api/sso/finish", {"code": "made-up"}) == 401
 PY
+
+# --- An applicant uses the form ----------------------------------------------------------
+if [ "$BO" = True ]; then
+    FORM="$(get /console/api/apply/day-student | sed -n '2,$p')"
+    [ "$(echo "$FORM" | json '[p["name"] for p in d["providers"]], [f["name"] for f in d["fields"]]')" = \
+        "['school'] ['student', 'address']" ] || fail "the form: $FORM"
+    [ "$(echo "$FORM" | json '[i["name"] for i in d["inputs"]]')" = "['guardian_agrees', 'note']" ] ||
+        fail "the creating call's own inputs: $(echo "$FORM" | json "d[\"inputs\"]")"
+    LI="$(finish "$(signin school | json 'd["fragment"]' | sed 's|.*/||')" | json 'd["body"]["token"]')"
+    post() {
+        python3 - "$FREE" "$1" "$2" "$3" << 'PY'
+import http.client, json, sys
+port, path, token, body = int(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4]
+c = http.client.HTTPConnection("127.0.0.1", port, timeout=60)
+c.request("POST", path, body=body, headers={"Host": f"localhost:{port}", "Origin": f"http://localhost:{port}",
+          "Content-Type": "application/json", "Authorization": "Bearer " + token})
+r = c.getresponse()
+print(r.status)
+print(r.read().decode())
+PY
+    }
+    SUBMITTED="$(post /console/api/apply/day-student "$LI" \
+        '{"fields": {"student": "Li Ming", "address": "12 Hill Road"}, "values": {"guardian_agrees": true}}')"
+    [ "$(echo "$SUBMITTED" | sed -n 1p)" = 201 ] || fail "submitted: $SUBMITTED"
+    THING="$(echo "$SUBMITTED" | sed -n 2p | json 'd["thing"]')"
+    DOCUMENT="$(echo "$SUBMITTED" | sed -n 2p | json 'd["document"]')"
+    MINE="$(get /console/api/mine "$LI" | sed -n 2p)"
+    [ "$(echo "$MINE" | json '[(i["id"], i["state"], i["steps"]) for i in d["items"]]')" = \
+        "[('$THING', 'submitted', ['withdraw'])]" ] || fail "my items: $MINE"
+    # Not a step of theirs; a step of theirs.
+    [ "$(post "/console/api/mine/$THING" "$LI" '{"function": "counsellor_approves"}' | sed -n 1p)" = 403 ] ||
+        fail "a staff step"
+    [ "$(post "/console/api/mine/$THING" "$LI" '{"function": "withdraw"}' | sed -n 1p | cut -c1)" = 2 ] ||
+        fail "withdraw"
+    [ "$(get /console/api/mine "$LI" | sed -n 2p | json 'd["items"][0]["state"], len(d["items"][0]["history"])')" = \
+        "withdrawn 2" ] || fail "withdrawn"
+    # Another applicant sees none of it, and cannot act on it.
+    CHAN="$(finish "$(signin campus | json 'd["fragment"]' | sed 's|.*/||')" | json 'd["body"]["token"]')"
+    [ "$(get /console/api/mine "$CHAN" | sed -n 2p | json 'len(d["items"])')" = 0 ] || fail "another's items"
+    [ "$(post "/console/api/mine/$THING" "$CHAN" '{"function": "withdraw"}' | sed -n 1p)" = 404 ] ||
+        fail "another's thing"
+    [ "$(post /console/api/apply/day-student "$CHAN" '{"fields": {}}' | sed -n 1p)" = 403 ] ||
+        fail "this form takes the school's accounts only"
+    # On the ledger: a device acted, the applicant only a pseudonym, the address sealed.
+    run contract instance "$THING" --json | json 'd["status"]' | contains -x withdrawn
+    run search instances --reference "$PSEUDONYM" --json | json '[i["id"] for i in d["instances"]]' |
+        contains -xF "['$THING']"
+    run record show "$DOCUMENT" --json | json 'd["metadata"]["applicant"], d["metadata"]["student"]' |
+        contains -xF "$PSEUDONYM Li Ming"
+    ! grep -rq "Hill Road" school/statements* || fail "the address is sealed"
+    run record history "$DOCUMENT" | contains 'Intake \[device\]'
+fi
 
 # Removing a provider removes its secret.
 run console sso remove strict > /dev/null

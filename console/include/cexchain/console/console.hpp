@@ -54,6 +54,9 @@ struct Applicant;
 /// sessions (sso.cpp).
 struct SsoState;
 [[nodiscard]] std::shared_ptr<SsoState> make_sso_state();
+/// Self-service forms' limits (forms.cpp).
+struct FormsState;
+[[nodiscard]] std::shared_ptr<FormsState> make_forms_state();
 
 namespace http = node::http;
 
@@ -386,6 +389,13 @@ private:
     [[nodiscard]] std::optional<Applicant> applicant_of(const http::Request& request) const;
     /// The console's own origin the request's Host names, if it is one.
     [[nodiscard]] std::optional<Origin> origin_of(const http::Request& request) const;
+    /// Self-service forms (forms.cpp): GET /console/api/apply/FORM and
+    /// /console/api/mine; POST /console/api/apply/FORM and
+    /// /console/api/mine/THING, answered once the ledger registered them.
+    [[nodiscard]] http::Response apply_get_route(const http::Request& request) const;
+    void apply_post_route(const http::Request& request, Respond respond) const;
+    [[nodiscard]] http::Response mine_route(const http::Request& request) const;
+    void mine_post_route(const http::Request& request, Respond respond) const;
     [[nodiscard]] http::Response settings_route(const http::Request& request) const;
     [[nodiscard]] http::Response kinds_route(const http::Request& request) const;
     /// /console/api/rules/...: the compiler on a sheet or a source.
@@ -403,6 +413,16 @@ private:
     [[nodiscard]] http::Response instance_route(const http::Request& request) const;
     [[nodiscard]] std::variant<protocol::ContractCallBody, http::Response>
     call_body(const Signed& who, const nlohmann::json& intent, const std::string& action) const;
+    /// A contract's calls as `bo calls` describes them, in English, run once
+    /// per contract (its code never changes) for self-service forms.
+    [[nodiscard]] std::variant<nlohmann::json, http::Response>
+    cached_calls(const Signed& who, const protocol::Id& contract) const;
+    /// An applicant as the compiler's and drafts' routes see them.
+    [[nodiscard]] Signed as_applicant(const Applicant& a) const;
+    /// `body` signed by the intake actor, with its delegation: what an
+    /// applicant's submission sends; 423 if the console is locked, 409 if it
+    /// has no intake actor or the delegation does not cover it.
+    [[nodiscard]] std::variant<Bytes, http::Response> intake_signed(protocol::Body body) const;
     [[nodiscard]] nlohmann::json dry_run(const protocol::LedgerState& state,
                                          const protocol::Statement& statement,
                                          const protocol::ActorState& actor,
@@ -667,6 +687,7 @@ private:
     const ledger::Ledger* ledger_ = nullptr;
     search::Index* search_ = nullptr;
     std::shared_ptr<SsoState> sso_ = make_sso_state();
+    std::shared_ptr<FormsState> forms_ = make_forms_state();
     Submit submit_;
     NodeApi node_api_;
     Checkpointer checkpointer_;

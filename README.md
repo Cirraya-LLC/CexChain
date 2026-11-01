@@ -635,6 +635,18 @@ cexchain console settings show
   client secret is sealed in the console. An applicant appears to the ledger only as a
   pseudonym (`a-` and 24 hex digits, an HMAC of the provider and account under the console's
   own key); `console sso list|show|remove|test` manage the providers.
+- **Self-service forms.** `console form add FILE` publishes a form for applicants: deployed rules
+  and their creating call, the later steps an applicant may take on their own thing (`withdraw`,
+  `resubmit`), and optionally a document kind filled in with it. `console intake grant
+  --unlock-file FILE` gives the console's *intake* actor, a device of the organization, one
+  delegation covering exactly the published forms. An applicant opens `/console/#/apply/NAME`
+  (`console form link NAME`, or a QR code of it), signs in with the organization's account, fills
+  in the form, and follows **My items**: where each thing stands, what happened, and the steps
+  they may take. The intake actor signs for them, so the ledger shows that a machine acted, under
+  that delegation, and names the applicant only by the pseudonym in the creating call's reference
+  (and the document's `applicant` metadata); the document's private fields are sealed as any
+  record's. Each applicant sees only their own things, and may submit at most `per_hour` times an
+  hour. Grant the intake actor before `console run`, or restart the console after.
 - **People.** Each user has a role (owner, admin, member, or viewer) and one or more passkeys.
   Roles gate the console, never the ledger: what someone may do on the ledger stays in their
   delegations. An invitation is a one-time code, valid for a day, kept only as a hash; it

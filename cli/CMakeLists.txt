@@ -21,6 +21,7 @@ add_executable(cexchain
     src/cmd_records.cpp
     src/cmd_search.cpp
     src/cmd_sso.cpp
+    src/cmd_forms.cpp
     src/cmd_requests.cpp
     src/cmd_vault.cpp
     src/cmd_relay.cpp

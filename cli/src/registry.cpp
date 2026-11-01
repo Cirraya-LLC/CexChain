@@ -1436,6 +1436,80 @@ std::vector<CommandSpec> build() {
          "What the console's first run does, for scripts: makes the console's keys (sealed),\n"
          "the ledger, and its owner, who acts in person with the passkey given, and prints the\n"
          "recovery code once. The directory must hold no ledger yet."},
+        {{"console", "form", "add"},
+         "Publish a self-service form for applicants",
+         "Console",
+         "FILE",
+         1,
+         1,
+         with({ledger_option, {"replace", "", "Replace the form of the same name"}}),
+         cmd_console_form_add,
+         "FILE is a form sheet (JSON): {\"form\": 1, \"name\", \"title\", \"contract\" (a\n"
+         "deployed contract's id), \"create\" (its creating call), \"steps\" (calls an applicant\n"
+         "may make later on their own thing), \"kind\" and \"record_field\" (a document kind\n"
+         "filled in first, whose record's id the creating call gets in that field),\n"
+         "\"providers\" (who may sign in; any by default), \"per_hour\" (20)}. Applicants\n"
+         "sign in with the organization's accounts (console sso add) at\n"
+         "/console/#/apply/NAME, submit, and follow their own things; the intake actor signs\n"
+         "for them (console intake grant), so the ledger shows a machine acted and names\n"
+         "each applicant only by a pseudonym."},
+        {{"console", "form", "list"},
+         "List the self-service forms",
+         "Console",
+         "",
+         0,
+         0,
+         with({ledger_option}),
+         cmd_console_form_list},
+        {{"console", "form", "show"},
+         "Show a self-service form",
+         "Console",
+         "NAME",
+         1,
+         1,
+         with({ledger_option}),
+         cmd_console_form_show},
+        {{"console", "form", "remove"},
+         "Withdraw a self-service form (its things stay)",
+         "Console",
+         "NAME",
+         1,
+         1,
+         with({ledger_option}),
+         cmd_console_form_remove},
+        {{"console", "form", "link"},
+         "Print a self-service form's link, for a page, a mail, or a QR code (cexchain qr)",
+         "Console",
+         "NAME",
+         1,
+         1,
+         with({ledger_option,
+               {"url", "URL", "The console's public address (default: http://localhost:7470)"}}),
+         cmd_console_form_link},
+        {{"console", "intake", "grant"},
+         "Give the intake actor a delegation for every published form",
+         "Console",
+         "",
+         0,
+         0,
+         with({ledger_option,
+               {"unlock-file", "FILE", "Opens the console's keys, the organization's among them",
+                true}}),
+         cmd_console_intake_grant,
+         "The intake actor is a device of the organization whose key the console keeps\n"
+         "sealed; it signs what applicants submit. This registers it the first time, then\n"
+         "grants it one delegation covering the published forms (their contracts, creating\n"
+         "calls and steps, and their documents' kinds), signed by the organization, without\n"
+         "presence, for a year, and revokes the one before. Run it again after adding or\n"
+         "removing a form."},
+        {{"console", "intake", "show"},
+         "Show the intake actor and its delegations",
+         "Console",
+         "",
+         0,
+         0,
+         with({ledger_option}),
+         cmd_console_intake_show},
         {{"console", "sso", "add"},
          "Trust an identity provider for applicants' sign-in (OpenID Connect or CAS)",
          "Console",

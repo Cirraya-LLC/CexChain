@@ -269,6 +269,28 @@ void Console::handle(const http::Request& request, Respond respond) const {
         }
         return;
     }
+    // An applicant's submission and steps: answered once registered.
+    if (request.method == "POST" && (request.path.starts_with("/console/api/apply/") ||
+                                     request.path.starts_with("/console/api/mine/"))) {
+        try {
+            if (auto refused = refuse(request)) {
+                respond(std::move(*refused));
+                return;
+            }
+            if (!ready() || services_.keys == nullptr) {
+                respond(error(503, "unavailable", "this console keeps no users or sessions"));
+                return;
+            }
+            if (request.path.starts_with("/console/api/apply/")) {
+                apply_post_route(request, std::move(respond));
+            } else {
+                mine_post_route(request, std::move(respond));
+            }
+        } catch (const std::exception&) {
+            respond(error(500, "internal", "the console could not answer; see its files"));
+        }
+        return;
+    }
     if (request.path == "/console/api/proof" && request.method == "POST") {
         try {
             if (auto refused = refuse(request)) {
@@ -401,6 +423,13 @@ std::optional<Origin> Console::origin_of(const http::Request& request) const {
 http::Response Console::route(const http::Request& request) const {
     if (auto refused = refuse(request)) {
         return std::move(*refused);
+    }
+    if ((request.path.starts_with("/console/api/apply/") || request.path == "/console/api/mine") &&
+        request.method == "GET") {
+        if (!ready() || services_.keys == nullptr) {
+            return error(503, "unavailable", "this console keeps no users or sessions");
+        }
+        return request.path == "/console/api/mine" ? mine_route(request) : apply_get_route(request);
     }
     if (request.path == "/console/sso/callback" || request.path == "/console/api/sso" ||
         request.path == "/console/api/sso/begin" || request.path == "/console/api/sso/finish" ||

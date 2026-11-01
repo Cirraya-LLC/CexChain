@@ -4282,6 +4282,176 @@ function chrome() {
     }
 }
 
+// --- Applicants: self-service forms -------------------------------------------------
+
+const APPLICANT = "cexchain.applicant";
+
+/// The console's API as an applicant (signed in with their organization's
+/// account), with their own token.
+async function applicantApi(method, path, body) {
+    const headers = {};
+    const token = stored(sessionStorage, APPLICANT);
+    if (token) {
+        headers.Authorization = `Bearer ${token}`;
+    }
+    if (body !== undefined) {
+        headers["Content-Type"] = "application/json";
+    }
+    const response = await fetch(`api/${path}`, {
+        method, headers, body: body === undefined ? undefined : JSON.stringify(body),
+        credentials: "omit", cache: "no-store",
+    });
+    const answer = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        throw new ApiError(response.status, answer?.error?.message ?? String(response.status), answer);
+    }
+    return answer;
+}
+
+/// Back from the provider with a one-time code: the applicant's session,
+/// then the form they came for.
+async function signedInScreen(code) {
+    history.replaceState(null, "", `${location.pathname}#/signed-in`);
+    try {
+        const done = await applicantApi("POST", "sso/finish", { code });
+        store(sessionStorage, APPLICANT, done.token);
+        location.hash = done.applicant.form ? `#/apply/${done.applicant.form}` : "#/mine";
+    } catch (error) {
+        show(el("h1", { text: t("apply.signed_in_title") }), problem(t("apply.sign_in_failed.expired")));
+    }
+}
+
+function signInFailedScreen(reason) {
+    const key = `apply.sign_in_failed.${reason}`;
+    show(el("h1", { text: t("apply.signed_in_title") }),
+         problem(t(key) === key ? t("apply.sign_in_failed.refused") : t(key)));
+}
+
+async function applyScreen(name) {
+    let form;
+    try {
+        form = await applicantApi("GET", `apply/${name}?language=${encodeURIComponent(state.language)}`);
+    } catch (error) {
+        if (error.status === 401) {
+            store(sessionStorage, APPLICANT, null);
+            form = await applicantApi("GET", `apply/${name}?language=${encodeURIComponent(state.language)}`);
+        } else {
+            show(problem(t("error.server", { message: error.message })));
+            return;
+        }
+    }
+    const parts = [el("h1", { text: form.title })];
+    if (!form.applicant) {
+        parts.push(el("p", { text: t("apply.sign_in_first") }));
+        for (const p of form.providers) {
+            const button = el("button", { type: "button", class: "primary",
+                                          text: t("apply.sign_in_with", { label: p.label }) });
+            button.addEventListener("click", async () => {
+                button.disabled = true;
+                try {
+                    const begun = await applicantApi("POST", "sso/begin", { provider: p.name, form: name });
+                    location.href = begun.url;
+                } catch (error) {
+                    button.disabled = false;
+                    show(...parts, problem(t("error.server", { message: error.message })));
+                }
+            });
+            parts.push(el("p", {}, button));
+        }
+        show(...parts);
+        return;
+    }
+    parts.push(el("p", { class: "hint", text: t("apply.signed_in_as", {
+        name: form.applicant.name ?? form.applicant.email ?? form.applicant.pseudonym }) }));
+    const documentInputs = new Map();
+    const fields = form.fields.map((f, n) => {
+        const id = `apply-field-${n}`;
+        const input = f.type === "yes-no"
+            ? el("select", { id }, el("option", { value: "", text: "" }),
+                 el("option", { value: "yes", text: t("value.yes") }),
+                 el("option", { value: "no", text: t("value.no") }))
+            : el("input", { id, type: f.type === "date" ? "date" : "text", required: f.required, maxlength: 4096 });
+        documentInputs.set(f.name, input);
+        return el("div", { class: "field" },
+                  el("label", { for: id, text: f.label + (f.required ? t("register.required_mark") : "") }), input,
+                  el("span", { class: "hint", text: t(f.private ? "register.private_hint" : "register.public_hint") }));
+    });
+    const inputs = form.inputs.map((input, n) => valueInput(input, `apply-input-${n}`, null));
+    const notice = el("div");
+    const submit = el("button", { type: "submit", class: "primary", text: t("apply.submit") });
+    const sheet = el("form", { novalidate: true }, ...fields, ...inputs.map((i) => i.element), notice, submit);
+    sheet.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        submit.disabled = true;
+        status(t("status.working"));
+        try {
+            const values = {};
+            for (const [k, v] of documentInputs) {
+                if (v.value.trim()) {
+                    values[k] = v.value.trim();
+                }
+            }
+            await applicantApi("POST", `apply/${name}`, { fields: values, values: valuesOf(inputs) });
+            location.hash = "#/mine";
+        } catch (error) {
+            notice.replaceChildren(problem(t("error.server", { message: error.message })));
+        } finally {
+            submit.disabled = false;
+            status("");
+        }
+    });
+    parts.push(sheet, el("p", {}, el("a", { href: "#/mine", text: t("apply.mine_link") })));
+    show(...parts);
+}
+
+/// The applicant's own things: where each stands, what happened, and the
+/// steps they may take.
+async function mineScreen() {
+    let mine;
+    try {
+        mine = await applicantApi("GET", "mine");
+    } catch (error) {
+        show(el("h1", { text: t("apply.mine_title") }),
+             problem(error.status === 401 ? t("apply.sign_in_first") : t("error.server", { message: error.message })));
+        return;
+    }
+    const parts = [el("h1", { text: t("apply.mine_title") })];
+    if (mine.items.length === 0) {
+        parts.push(el("p", { text: t("apply.mine_none") }));
+    }
+    for (const item of mine.items) {
+        const section = el("section", { class: "item" },
+            el("h2", { text: item.title }),
+            el("p", { text: t("apply.state", { state: item.state ?? t("value.none") }) +
+                            (item.final ? t("apply.final") : "") }),
+            el("ol", { class: "events" }, item.history.map((h) =>
+                el("li", { text: `${h.function} · ${timeText(h.at)}` }))));
+        for (const step of item.steps) {
+            const button = el("button", { type: "button", text: t("apply.step", { step }) });
+            button.addEventListener("click", async () => {
+                button.disabled = true;
+                try {
+                    await applicantApi("POST", `mine/${item.id}`, { function: step, values: {} });
+                    mineScreen();
+                } catch (error) {
+                    button.disabled = false;
+                    section.append(problem(t("error.server", { message: error.message })));
+                }
+            });
+            section.append(button, " ");
+        }
+        parts.push(section);
+    }
+    const out = el("button", { type: "button", text: t("apply.sign_out") });
+    out.addEventListener("click", async () => {
+        await applicantApi("DELETE", "applicant").catch(() => null);
+        store(sessionStorage, APPLICANT, null);
+        show(el("p", { text: t("apply.signed_out") }));
+    });
+    parts.push(el("p", {}, out));
+    show(...parts);
+}
+
 async function route() {
     const hash = location.hash;
     // An invitation's code is read once and taken out of the address bar and
@@ -4295,6 +4465,16 @@ async function route() {
         state.who = null;
         chrome();
         enrollScreen(state.pendingCode);
+        return;
+    }
+    // Applicants: their own screens, with or without a staff session.
+    const signedIn = hash.match(/^#\/signed-in\/([A-Za-z0-9_-]{8,64})$/);
+    const failedSignIn = hash.match(/^#\/sign-in-failed\/([a-z-]{1,32})$/);
+    const applying = hash.match(/^#\/apply\/([a-z0-9-]{1,32})$/);
+    if (signedIn || failedSignIn || applying || hash === "#/mine") {
+        await (signedIn ? signedInScreen(signedIn[1])
+            : failedSignIn ? signInFailedScreen(failedSignIn[1])
+            : applying ? applyScreen(applying[1]) : mineScreen());
         return;
     }
     if (state.who === null && stored(sessionStorage, SESSION)) {
