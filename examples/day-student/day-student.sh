@@ -9,11 +9,13 @@
 # by the third office for having the old one. Here the form's steps are the
 # school's rules on its own ledger, and a filled-in form is a record whose
 # values stay sealed in the school's vault:
-#   - the school deploys the form (day-student.bo); each office's staff may
-#     take only their own step, by a delegation;
+#   - the school deploys the form (day-student.bo), and publishes the blank
+#     form itself as a record; each office's staff may take only their own
+#     step, by a delegation;
 #   - Li Ming applies; the counsellor approves;
 #   - the school changes the form (day-student-v2.bo asks for an emergency
-#     contact): it deploys the new rules and retires the old ones. A new
+#     contact): it deploys the new rules and retires the old ones, and
+#     publishes the new blank form as superseding the old one. A new
 #     application can no longer start on the old form; Li Ming's, already
 #     started, goes on to the end on the form it began with;
 #   - Chan Wing applies on the new form; the office sends it back to be
@@ -22,7 +24,9 @@
 #     a new-form application without an emergency contact;
 #   - anyone verifies an application's whole history offline: which form,
 #     who approved, when, the rules rebuilt from their source; and security
-#     sees only the student's name and class from the form, nothing else.
+#     sees only the student's name and class from the form, nothing else;
+#   - a printed copy of the old blank form, checked by anyone, says a newer
+#     version replaced it, and which.
 # It needs a cexchain built with the Bo compiler (GCC 16; the release build
 # and the Docker image have it). The web console shows the same: Rules lists
 # both forms (the old one retired), Things each application with its steps.
@@ -95,6 +99,18 @@ run bo test day-student.bo | tail -n 1 | indent
 V1="$(run contract deploy --bo day-student.bo --as school-root.key --ledger "$SCHOOL" --json \
     2> /dev/null | field '["contract"]["id"]')"
 say "Form, version 1: rules ${V1:0:16}..."
+# The blank form as handed out, published as a record: its text committed,
+# its version and rules public.
+publish() {
+    local version="$1" rules="$2"; shift 2
+    printf 'Day student application, version %s\n' "$version" > "blank-v$version.txt"
+    run record issue --type example.school.blank-form/1 --field "text=day student form $version" \
+        --meta "title=Day student application" --meta "version=$version" --meta "rules=$rules" \
+        --attach "blank-v$version.txt" "$@" --as school-root.key --ledger "$SCHOOL" --json |
+        field '["record"]["id"]'
+}
+BLANK1="$(publish 1 "$V1")"
+say "The blank form, version 1: record ${BLANK1:0:12}..."
 
 step "3. Who may take which step: one delegation each"
 # The desk enters applications (for the student, or the student does on the
@@ -153,6 +169,11 @@ V2="$(run contract deploy --bo day-student-v2.bo --as school-root.key --ledger "
 run contract retire "$V1" --reason "replaced by the form of 8 November" --as school-root.key \
     --ledger "$SCHOOL" | indent
 say "Form, version 2 (asks for an emergency contact): rules ${V2:0:16}..."
+BLANK2="$(publish 2 "$V2" --supersedes "$BLANK1")"
+run record versions "$BLANK1" --ledger "$SCHOOL" > versions.txt
+check versions.txt '[latest]'
+indent < versions.txt
+say "The blank form, version 2: record ${BLANK2:0:12}..., superseding version 1."
 # No one starts on the old form any more.
 refused old.txt 'retired' contract create "$V1" create \
     --args "{\"fields\": {\"details\": \"record 0\", \"guardian_agrees\": true}, \"parties\": {\"school\": h'$SCHOOL_ID'}}" \
@@ -237,6 +258,13 @@ if grep -F 'Hill Road' pass.txt > /dev/null; then
 fi
 indent < pass.txt
 say "The address, the guardian, and the reason stay sealed."
+
+step "11. A printed copy of the old blank form, checked by anyone"
+run export "$BLANK1" --log-key school-log.key --out old-form.cbor --ledger "$SCHOOL" > /dev/null
+run verify old-form.cbor --ledger-id "$SCHOOL_ID" > old-form.txt
+check old-form.txt "Superseded   by a newer version, id ${BLANK2:0:12}"
+grep -F -e 'Record' -e 'Superseded' -e 'superseded by' old-form.txt | indent
+say "The old form is genuine, and says a newer version replaced it: take that one."
 if [ "$KEEP" = 1 ]; then
     say ""
     say "The ledger is in $SCHOOL: cexchain console run --ledger $SCHOOL"

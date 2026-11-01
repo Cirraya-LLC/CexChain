@@ -168,7 +168,8 @@ struct Service {
                                                          commitment->root.bytes().end()),
                                                    1,
                                                    {},
-                                                   std::move(*metadata)}));
+                                                   std::move(*metadata),
+                                                   std::nullopt}));
         REQUIRE(customer.ledger().checkpoint(customer.log_key()));
         auto bundle = customer.ledger().export_evidence(customer.log_key(), record);
         REQUIRE(bundle);

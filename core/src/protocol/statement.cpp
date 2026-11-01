@@ -587,6 +587,9 @@ Result<cbor::Value> encode_body(const Body& body) {
                 if (b.metadata) {
                     map.push_back(entry(5, *b.metadata));
                 }
+                if (b.supersedes) {
+                    map.push_back(entry(6, id_value(*b.supersedes)));
+                }
                 return cbor::Value::map(std::move(map));
             },
             [](const RecordEndorseBody& b) -> Result<cbor::Value> {
@@ -919,6 +922,7 @@ Result<Body> decode_body(StatementType type, const cbor::Value& value) {
         if (const cbor::Value* metadata = reader.get(5)) {
             b.metadata = *metadata;
         }
+        CEXCHAIN_TRY(b.supersedes, reader.opt_id(6));
         body = std::move(b);
         break;
     }

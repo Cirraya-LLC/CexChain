@@ -47,11 +47,17 @@ int cmd_record_issue(const Args& args) {
     request.delegation = args.get("delegation");
     request.provenance = session.provenance(args);
     request.presence = presence_request(args);
+    if (const auto old = args.get("supersedes")) {
+        request.supersedes = session.record_id(*old);
+    }
     const protocol::Id id = issue_record(session, *load_signer(args.need("as"), args), request);
     const protocol::RecordState& record = *session.state().record(id);
     return report_submitted(
         args, session, id, {{"record", record_json(session, record)}},
-        std::format("issued {} {}\nstate: {}", record.record_type, hex_id(id), record.state));
+        std::format("issued {} {}\nstate: {}{}", record.record_type, hex_id(id), record.state,
+                    request.supersedes
+                        ? "\nsupersedes: " + hex_id(*request.supersedes) + " (now an old version)"
+                        : ""));
 }
 
 int cmd_record_list(const Args& args) {
@@ -61,7 +67,7 @@ int cmd_record_list(const Args& args) {
     Json out = Json::array();
     for (const auto& [key, record] : session.state().records()) {
         if ((record.revoked && !args.has("all")) || (type && record.record_type != *type) ||
-            (state && record.state != *state)) {
+            (state && record.state != *state) || (record.superseded_by && args.has("current"))) {
             continue;
         }
         if (args.json()) {
@@ -71,7 +77,9 @@ int cmd_record_list(const Args& args) {
         const protocol::LogEntry entry = session.log_entry(record.registered_at_index);
         std::println("{}  {:<24} {:<12} {}  by {}{}", short_id(record.id), record.record_type,
                      record.state, format_time(entry.registered_at),
-                     session.actor_name(record.registrant), record.revoked ? "  [revoked]" : "");
+                     session.actor_name(record.registrant),
+                     std::string(record.superseded_by ? "  [superseded]" : "") +
+                         (record.revoked ? "  [revoked]" : ""));
     }
     if (args.json()) {
         print_json(out);
@@ -94,6 +102,20 @@ int cmd_record_show(const Args& args) {
                  format_time(session.log_entry(record.registered_at_index).registered_at));
     std::println("fields:     {} committed (values are private; see cexchain record fields)",
                  record.field_count);
+    if (record.superseded_by) {
+        std::println("superseded: by {} at {}; the latest version is {}",
+                     hex_id(*record.superseded_by),
+                     format_time(session.log_entry(record.superseded_at_index).registered_at),
+                     r["latest"].get<std::string>());
+    }
+    if (record.supersedes) {
+        std::println("supersedes: {}", hex_id(*record.supersedes));
+    }
+    if (r["versions"].get<std::size_t>() > 1) {
+        std::println("version:    {} of {} (cexchain record versions {})",
+                     r["version"].get<std::size_t>(), r["versions"].get<std::size_t>(),
+                     short_id(record.id));
+    }
     if (r["metadata"].is_object()) {
         for (const auto& [name, value] : r["metadata"].items()) {
             std::println("metadata:   {} = {}", name,
@@ -163,6 +185,31 @@ int cmd_record_history(const Args& args) {
             }
             std::println("       authorized by {}", join(names, " <- "));
         }
+    }
+    if (args.json()) {
+        print_json(out);
+    }
+    return exit_ok;
+}
+
+int cmd_record_versions(const Args& args) {
+    Session session(args);
+    const protocol::RecordState& record = find_record(session, args);
+    Json out = Json::array();
+    std::size_t n = 0;
+    for (const protocol::Id& id : protocol::record_versions(session.state(), record.id)) {
+        const protocol::RecordState& version = *session.state().record(id);
+        ++n;
+        if (args.json()) {
+            out.push_back(record_json(session, version));
+            continue;
+        }
+        std::println("{:>3}  {}  {:<24} {}  by {}{}{}{}", n, short_id(id), version.record_type,
+                     format_time(session.log_entry(version.registered_at_index).registered_at),
+                     session.actor_name(version.registrant),
+                     version.superseded_by ? "" : "  [latest]",
+                     version.revoked ? "  [revoked]" : "",
+                     id == protocol::Id(record.id) ? "  <- this one" : "");
     }
     if (args.json()) {
         print_json(out);

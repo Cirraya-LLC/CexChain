@@ -120,7 +120,9 @@ server.serve_forever()
 PY
 SERVER=$!
 trap 'kill "$SERVER" 2> /dev/null; rm -rf "$WORK"' EXIT
-for _ in $(seq 1 100); do [ -s port.txt ] && break; sleep 0.1; done
+# A slow runner (macOS under ASan) can take seconds to start Python.
+for _ in $(seq 1 300); do [ -s port.txt ] && break; sleep 0.1; done
+[ -s port.txt ] || fail "the file server did not start in 30 seconds"
 LATEST="http://127.0.0.1:$(cat port.txt)/latest/newer.json"
 run update check --manifest "$LATEST" --release-key release.pub | grep "99.0.0 is available" > /dev/null ||
     fail "a manifest over the web"

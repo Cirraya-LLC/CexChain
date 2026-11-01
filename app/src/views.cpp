@@ -220,6 +220,19 @@ Json record_json(const Session& session, const protocol::RecordState& record) {
         {"endorsements", std::move(endorsements)},
         {"next_states", next_states(record)},
         {"history", record.history.to_vector()}};
+    // Versions: the record it supersedes, the one that superseded it and
+    // when, and the latest of the chain.
+    const std::vector<protocol::Id> versions =
+        protocol::record_versions(session.state(), record.id);
+    out["supersedes"] = record.supersedes ? id_json(*record.supersedes) : Json(nullptr);
+    out["superseded_by"] = record.superseded_by ? id_json(*record.superseded_by) : Json(nullptr);
+    out["superseded_at"] =
+        record.superseded_by
+            ? Json(iso_time(session.log_entry(record.superseded_at_index).registered_at))
+            : Json(nullptr);
+    out["version"] = std::ranges::find(versions, protocol::Id(record.id)) - versions.begin() + 1;
+    out["versions"] = versions.size();
+    out["latest"] = id_json(versions.back());
     const protocol::SignedStatement registration = session.statement(record.registered_at_index);
     const auto& body = std::get<protocol::RecordRegisterBody>(registration.statement.body);
     out["metadata"] = body.metadata ? cbor_json(*body.metadata) : Json(nullptr);
@@ -286,7 +299,8 @@ Json body_json(const protocol::Body& body) {
                         {"field_root", to_hex(b.field_root)},
                         {"field_count", b.field_count},
                         {"attachments", std::move(attachments)},
-                        {"metadata", b.metadata ? cbor_json(*b.metadata) : Json(nullptr)}};
+                        {"metadata", b.metadata ? cbor_json(*b.metadata) : Json(nullptr)},
+                        {"supersedes", b.supersedes ? id_json(*b.supersedes) : Json(nullptr)}};
             },
             [](const protocol::RecordEndorseBody& b) -> Json {
                 return {{"record", id_json(b.record)}, {"role", b.role}};
@@ -436,7 +450,10 @@ std::string body_summary(const Session& session, const protocol::Body& body,
                 return "rotate the log key to a new " + std::string(crypto::name(b.key.algorithm)) +
                        " key";
             },
-            [&](const protocol::RecordRegisterBody& b) { return "issue " + b.record_type + id; },
+            [&](const protocol::RecordRegisterBody& b) {
+                return "issue " + b.record_type + id +
+                       (b.supersedes ? ", a new version of " + short_id(*b.supersedes) : "");
+            },
             [&](const protocol::RecordEndorseBody& b) {
                 return "endorse " + short_id(b.record) + " as " + b.role;
             },

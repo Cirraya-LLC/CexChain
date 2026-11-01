@@ -217,6 +217,9 @@ struct RecordEvent {
     /// For an answer (v0.8): the request it answered (closed by it), with
     /// the answer's status and how late it was.
     std::optional<RequestReport> answered;
+    /// For the registration of a new version that superseded the record
+    /// (v0.10): that record's id (`detail` is its type).
+    std::optional<Id> new_version;
 
     friend bool operator==(const RecordEvent&, const RecordEvent&) = default;
 };
@@ -321,6 +324,12 @@ struct EvidenceReport {
     std::string state;
     bool revoked = false;
     std::optional<cbor::Value> metadata;
+    /// Versions (v0.10): the record this one supersedes (its own bundle
+    /// shows the link), and the newer version that superseded it, which a
+    /// complete report proves was not left out (its event is among
+    /// `events`).
+    std::optional<Id> supersedes;
+    std::optional<Id> superseded_by;
     /// If the bundle is about a contract instance.
     std::optional<InstanceReport> instance;
     /// The record's events, or the instance's calls (for a child, its

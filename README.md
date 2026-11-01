@@ -171,6 +171,13 @@ The ledger holds only an attachment's salted commitment, so the photo itself sta
 most): `record file get <record-id> photo.jpg --out photo.jpg` opens it, checked against the
 record, and backups include it.
 
+**New versions.** When a document changes (a form, a policy, a price list), issue the new one with
+`--supersedes <old-record-id>`. The old record stays as it was, but shows as superseded in
+`record show` and `record list` (`--current` leaves it out), `record versions` lists the chain
+oldest first, and the old record's evidence tells whoever verifies it that a newer version replaced
+it, when, and by whom, so nobody keeps working from an outdated copy. A record is superseded once,
+and a delegation must cover the old record's type as well as the new one's.
+
 The report also proves that it shows everything. Before each checkpoint, the ledger appends to its
 own log a signed commitment (a sparse Merkle root) to the complete history of every actor,
 delegation, and record. A bundle proves the history of the record and of everyone involved against
@@ -228,7 +235,7 @@ The `cexchain` tool controls every part of a ledger:
 | Ledger | `init`, `status`, `audit`, `log list`, `log show`, `log export`, `ledger keys`, `ledger genesis`, `ledger rotate-log-key`, `ledger rotate-root-key` |
 | Actors | `actor add`, `actor list`, `actor show`, `actor revoke`, `actor rotate-key`, `actor set-presence`, `presence enroll` |
 | Delegations | `delegation grant`, `delegation list`, `delegation show`, `delegation revoke` |
-| Records | `record issue`, `record list`, `record show`, `record history`, `record fields`, `record file list\|get\|add\|remove`, `record endorse`, `record transition`, `record revoke`, `record types` |
+| Records | `record issue`, `record list`, `record show`, `record history`, `record versions`, `record fields`, `record file list\|get\|add\|remove`, `record endorse`, `record transition`, `record revoke`, `record types` |
 | Proofs | `checkpoint create`, `checkpoint list`, `checkpoint show`, `checkpoint cosign-request`, `checkpoint add-cosignature`, `proof inclusion`, `proof consistency`, `proof state`, `receipt` |
 | Witnesses | `witness add-log`, `witness cosign`, `witness status`, `witness remove-log`; `witness register`, `witness registered`, `witness unregister` (public witnesses) |
 | Evidence | `export`, `verify`, `inspect`, `qr` |
@@ -509,6 +516,9 @@ cexchain console settings show
   register. **Share proof** makes the evidence file with the fields you disclose and the files'
   openings, as `cexchain export` would; **Verify** checks a proof and its files in the browser,
   with a report in the reader's language, as `cexchain verify` and the standalone page do.
+  **New version** registers a document's replacement with one tap: the old one's page then says
+  a newer version replaced it and links the latest, its versions are listed, Things hides old
+  versions until asked, and its proof, wherever it is checked, says it was superseded.
 - **Rules.** The Rules screen lists the contracts on the ledger and retires them; "Write
   rules" is an editor with two views of the same rules: a form (parties, the thing and its
   fields, actions with their conditions, consents, presence, what AI agents may do, the state

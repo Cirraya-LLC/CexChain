@@ -135,7 +135,8 @@ public:
     protocol::Nonce nonce() { return entropy_.bytes<16>(); }
 
     protocol::RecordRegisterBody record_body(const std::string& type) {
-        return protocol::RecordRegisterBody{type, Bytes(32, 0x42), 3, {}, std::nullopt};
+        return protocol::RecordRegisterBody{type, Bytes(32, 0x42), 3,
+                                            {},   std::nullopt,    std::nullopt};
     }
 
 private:

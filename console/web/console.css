@@ -489,3 +489,8 @@ section.focused {
   outline: 3px solid var(--accent, #1a5fb4);
   outline-offset: 4px;
 }
+
+/* A document a newer version replaced. */
+.notice.replaced {
+    border-left: 4px solid var(--danger);
+}

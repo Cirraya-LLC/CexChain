@@ -106,6 +106,17 @@ printf '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{%s,"name":"cexch
     "$META" "$LEDGER_ID" | run mcp --ledger ledger --as agent.key > responses.txt 2> /dev/null
 contains '"verified":true' responses.txt || fail "verify through MCP"
 
+# A new version, through MCP: the old record then names it, and the latest.
+{
+    printf '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{%s,"name":"cexchain_issue_record","arguments":{"record_type":"example.document/1","fields":{"result":"pass, rechecked"},"supersedes":"%s"}}}\n' "$META" "${RECORD:0:12}"
+    printf '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{%s,"name":"cexchain_get_record","arguments":{"record":"%s"}}}\n' "$META" "$RECORD"
+    printf '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{%s,"name":"cexchain_issue_record","arguments":{"record_type":"example.document/1","fields":{"result":"again"},"supersedes":"%s"}}}\n' "$META" "$RECORD"
+} | run mcp --ledger ledger --as agent.key > responses.txt 2> /dev/null
+NEWER="$(result 1 "['record_id']")"
+[ "$(result 2 "['superseded_by']")" = "$NEWER" ] || fail "get_record superseded_by"
+[ "$(result 2 "['latest_version']")" = "$NEWER" ] || fail "get_record latest_version"
+line 3 | contains 'superseded already' || fail "a record is superseded once"
+
 # Contracts: the agent reads them and verifies an instance's evidence.
 # The vectors' oracle contract writes the output its byte-string argument holds.
 python3 -c "import json, sys; open('oracle.wasm', 'wb').write(bytes.fromhex(json.load(open(sys.argv[1]))['contract']))" \

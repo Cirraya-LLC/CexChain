@@ -523,7 +523,8 @@ private:
             });
 
         add("cexchain_get_record",
-            "A record's type, state, endorsements, and next possible states.",
+            "A record's type, state, endorsements, next possible states, and versions: the "
+            "record it supersedes, the newer one that superseded it, and the latest.",
             {{"record",
               {{"type", "string"}, {"description", "Record id or unique prefix (8+ hex)."}}}},
             json::array({"record"}), read_only, [this](const Tool&, const json& arguments) {
@@ -543,13 +544,19 @@ private:
                         }
                     }
                 }
-                return json{{"record_id", hex_id(id)},
-                            {"record_type", r.record_type},
-                            {"state", r.state},
-                            {"revoked", r.revoked},
-                            {"registered_by", session.state().actor(r.registrant)->display_name},
-                            {"endorsements", endorsements},
-                            {"next_states", next}};
+                const auto versions = protocol::record_versions(session.state(), id);
+                return json{
+                    {"record_id", hex_id(id)},
+                    {"record_type", r.record_type},
+                    {"state", r.state},
+                    {"revoked", r.revoked},
+                    {"registered_by", session.state().actor(r.registrant)->display_name},
+                    {"endorsements", endorsements},
+                    {"next_states", next},
+                    {"supersedes", r.supersedes ? json(hex_id(*r.supersedes)) : json(nullptr)},
+                    {"superseded_by",
+                     r.superseded_by ? json(hex_id(*r.superseded_by)) : json(nullptr)},
+                    {"latest_version", hex_id(versions.back())}};
             });
 
         add("cexchain_issue_record",
@@ -571,6 +578,11 @@ private:
                {"description", "Public metadata, recorded in the clear."}}},
              {"attachments",
               {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "File paths."}}},
+             {"supersedes",
+              {{"type", "string"},
+               {"description",
+                "Optional: the record (id or unique prefix) this one replaces, as its new "
+                "version."}}},
              {"inputs", inputs_property}},
             json::array({"record_type", "fields"}), writes,
             [this](const Tool& tool, const json& arguments) {
@@ -588,6 +600,9 @@ private:
                     }
                 }
                 request.provenance = provenance(tool, arguments, session);
+                if (arguments.contains("supersedes")) {
+                    request.supersedes = session.record_id(text_arg(arguments, "supersedes"));
+                }
                 const protocol::Id id = issue_record(session, *key_, request);
                 return json{{"record_id", hex_id(id)},
                             {"state", session.state().record(id)->state}};

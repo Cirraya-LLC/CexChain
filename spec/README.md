@@ -1,6 +1,6 @@
 # The CexChain protocol
 
-Revision v0.9 (draft). Wire protocol version 1.
+Revision v0.10 (draft). Wire protocol version 1.
 
 This document explains the protocol in prose. The normative definitions are:
 
@@ -12,6 +12,8 @@ Where this text and the CDDL disagree, the CDDL wins. The C++ code in this repos
 The key words MUST, MUST NOT, SHOULD, and MAY are used as in RFC 2119.
 
 Bo, the language contracts are written in, has its own reference: [`bo.md`](bo.md).
+
+**Changes in v0.10.** A record can supersede another: a registration may name the record it replaces (key 6 of `record-register-body`), so that its versions form a chain and a verifier holding an old version learns that a newer one replaced it, when, and by whom (sections 5, 6, 9, and 11). Nothing else changes; the wire protocol stays version 1, and a log without the key replays as before.
 
 **Changes in v0.9.** The protocol knows only generic primitives: actors and delegations, records, contracts and their instances, consents, access, witnesses, and evidence. Revision v0.9 removes:
 - statement type 20 (asset-action, v0.5), which is reserved and never reused: a decoder refuses it like any unknown type;
@@ -139,7 +141,7 @@ Statement types:
 | 6 | delegation-revoke | delegation, reason |
 | 7 | actor-set-presence | person, presence credentials (at most 16) |
 | 8 | ledger-rotate-log-key | the new log key (v0.4) |
-| 16 | record-register | record type, field root, field count, attachments, public metadata |
+| 16 | record-register | record type, field root, field count, attachments, public metadata, the record it supersedes (v0.10) |
 | 17 | record-endorse | record, role |
 | 18 | record-transition | record, from state, to state |
 | 19 | record-revoke | record, reason |
@@ -189,7 +191,8 @@ A ledger accepts a statement only if every rule below holds at its registration 
   - Only people have presence credentials, and only people prove presence. A presence credential's key must not be the person's signing key, any actor's key, or a log key: it is a second key.
 - **The log key.** Only the organization rotates it (ledger-rotate-log-key), without a delegation. The new key must not be weak, must not be an actor's key, and must never have been a log key of this ledger.
 - **Delegations.** Only the grantor or the organization may revoke a delegation. Revoking an actor or a delegation ends everything that depends on it, because authority is checked through the whole chain at every statement.
-- **Records.** A registration's type must not begin with `cexchain.` unless it is one of the protocol's mechanism types (v0.9; section 6). Records follow their type's lifecycle (section 6). Transitions must start from the record's current state and be allowed by its type, so a record of the generic lifecycle takes none. Endorsement roles must be allowed by the type: any role under the generic lifecycle, none for a mechanism type. An actor endorses a record at most once per role. A revoked record accepts no further statements.
+- **Records.** A registration's type must not begin with `cexchain.` unless it is one of the protocol's mechanism types (v0.9; section 6). Records follow their type's lifecycle (section 6). Transitions must start from the record's current state and be allowed by its type, so a record of the generic lifecycle takes none. Endorsement roles must be allowed by the type: any role under the generic lifecycle, none for a mechanism type. An actor endorses a record at most once per role. A revoked record accepts no further statements, except a registration that supersedes it.
+- **Versions** (v0.10). A registration that supersedes a record (section 6) is refused unless that record is a record of this ledger, neither of the two types is a mechanism type, the record was not superseded before, and the signer's scope covers that record's type as well as its own (the organization needs no scope). The record may be revoked.
 - **Contracts.** Deploys, calls, and retires follow the rules of section 15. A call is registered only if its contract, run on the call, accepts it. An answer (v0.8) answers an open request of its instance, at most once.
 
 ## 6. Records and private data
@@ -205,7 +208,9 @@ A ledger accepts a statement only if every rule below holds at its registration 
 - any actor whose delegation covers the type may endorse the record in any role, once per role;
 - the record may be revoked.
 
-What a type's fields mean, which roles matter, and when a document stops counting are its owner's business. Anything with rules of its own, such as states that change or parties who must agree, is a contract instance (section 15), which may name records in its state.
+What a type's fields mean, which roles matter, and when a document stops counting are its owner's business.
+
+**Versions** (v0.10). A registration may name the record it supersedes (key 6): a new version of a form, a policy, or a price list. A record is superseded at most once, and a registration supersedes at most one record, so a record's versions form one chain, oldest first; the types may differ (`example.org.form/1`, then `example.org.form/2`). A superseded record keeps its state, and may still be endorsed and revoked: it is what was in force until then. A revoked record may still be superseded, so that a version withdrawn by mistake can be replaced. Mechanism types neither supersede nor are superseded. The registration is a statement about both records (section 9), so a complete bundle of an old version shows whether a newer one replaced it (section 11). Anything with rules of its own, such as states that change or parties who must agree, is a contract instance (section 15), which may name records in its state.
 
 **Mechanism types.** Four types belong to the protocol's own mechanisms, each with its lifecycle. None takes endorsements:
 
@@ -281,7 +286,7 @@ state-leaf = [kind (actor 1, delegation 2, record 3, contract 4, instance 5), id
 A leaf's history lists every log index that created or changed the object:
 - actors: registration, key rotations, presence changes, revocation;
 - delegations: grant and revocation;
-- records: every statement about them;
+- records: every statement about them, including the registration of the record that supersedes them (v0.10);
 - contracts: deploy and retire;
 - instances: creation and every call. An instance created by another's call (section 15) starts with that call, which its parent's history lists too. Requests and answers (v0.8) have no leaves of their own: the calls that make and answer them are in their instance's history.
 
@@ -318,7 +323,7 @@ A **public witness** (informative) follows any ledger that asks. A ledger regist
 An evidence bundle (`evidence-bundle`) holds:
 
 - the record id, or an instance's id (section 15);
-- log entries with their receipts, in ascending order, starting with genesis: the record's statements and every statement they depend on (signers' registrations and key rotations, delegation chains, referenced actors), and every rotation of the organization's keys below the checkpoint's size. For an instance created by a call, also its ancestors' calls up to the one that created each next generation (section 15);
+- log entries with their receipts, in ascending order, starting with genesis: the record's statements (with the registration that supersedes it, if any; not the record it supersedes) and every statement they depend on (signers' registrations and key rotations, delegation chains, referenced actors), and every rotation of the organization's keys below the checkpoint's size. For an instance created by a call, also its ancestors' calls up to the one that created each next generation (section 15);
 - the signed checkpoint all receipts lead to, and witness cosignatures of it;
 - optional field disclosures and attachment openings (salts; the contents travel alongside);
 - state proofs for every involved object.
@@ -327,7 +332,7 @@ A verifier MUST:
 
 1. Take the ledger's identity, hash, and first keys from the genesis entry. If it expects a particular ledger, check the ledger id.
 2. Check every receipt's inclusion proof against the checkpoint (same size and root), with indices strictly ascending from 0.
-3. Replay the included statements under the ledger rules (section 5), at their registration times. This follows the organization's key rotations.
+3. Replay the included statements under the ledger rules (section 5), at their registration times. This follows the organization's key rotations. A registration that supersedes a record the bundle does not hold (v0.10) is checked under every rule except those about that record: that record's own bundle shows the link.
 4. Verify the checkpoint and every receipt's signature with the log key in effect at the checkpoint's size, and each state commitment with the one in effect at its index. A bundle that leaves out a log key rotation fails here, since keys never repeat.
 5. Check disclosed fields against the record's field root and count, and any attachment contents provided against their commitments.
 6. Count cosignatures only by witnesses it trusts, each witness once.
@@ -341,6 +346,7 @@ A verifier MUST:
 A report states:
 - who did what, when, and under whose authority;
 - for each event, whether a person proved presence and how, and any AI provenance;
+- for a record, the record it supersedes, and the registration that superseded it, if any (by whom and when);
 - the disclosed fields and attachment checks;
 - the witnesses;
 - whether it is complete.
@@ -850,6 +856,7 @@ A server holds the log key to sign checkpoints, receipts, and evidence. Across a
 | `protocol-v0.7.json` | instances created by a call (section 15): a splitting contract and the v0.6 test contract; children and their ids, calls on a child and a grandchild, splits down to the depth limit, children the rules refuse (too many, too deep, malformed, on a retired contract, on a final parent), the state tree, and signed evidence bundles: an instance, a tier-3 part with its ancestors and real consent bundles from other ledgers, and a child whose parent carried on |
 | `protocol-v0.8.json` | requests and answers (section 15): a requesting contract; requests and their ids; answers done, failed, and expired, by a device, an AI agent, a keeper, and a person by hand, on time and late, some making new requests; answers the rules refuse (a second answer, expired too early, an unknown request or another instance's, a function that is not the reply, consents cited, outside scope keys 8 and 9, rejected by the contract, malformed); the limits (17 requests in a call, a 65th open request, 4,096 bytes of params, deadlines, replies) and malformed requests; scope keys 8 and 9 and their narrowing; a final instance that takes answers and refuses the rest; requests on a creation that also creates a child; the state, the log, and signed evidence showing answered, open, and overdue requests, with an outside response committed by salted digest |
 | `protocol-v0.9.json` | the generic core (v0.9): a record of a user's type endorsed in several roles, refused a transition and a repeated endorsement, and revoked; the four mechanism types through their lifecycles, refusing endorsements and transitions they do not define; statements of type 20 and a scope naming it, which do not parse; registrations of the six removed types, of an invented `cexchain.` type, and of a version the protocol does not define, refused; the state and the log under a checkpoint |
+| `protocol-v0.10.json` | versions (v0.10): a chain of three versions across two record types, a revoked version superseded, a version endorsed and revoked after it was superseded, and a version registered by the organization over a delegated one; refused: a record superseded twice, an unknown record, a mechanism type on either side, a scope that does not cover the old type; the state, whose leaves list the superseding registration in both histories, and the log under a checkpoint |
 | `vm-v1.json` | contract execution (section 14): modules in and out of the profile, invocations with their outputs, traps, and fuel, and random integer programs, all from an independent reference interpreter (`tools/testvectors/wasm_ref.py`) |
 | `bo-v1.json` | the Bo language ([`bo.md`](bo.md), section 18): contracts' sources in each language, their interfaces and bo-source bundles, the code `cexchain-bo` builds and its bounds (informative), calls with their outcomes (normative; answers to requests among them, with input key 9, and accepts with key 7), and sources that must not build with their errors' codes |
 

@@ -79,6 +79,10 @@ std::string event_line(const protocol::RecordEvent& event) {
     actor += "]";
     switch (event.type) {
     case protocol::StatementType::record_register:
+        if (event.new_version) {
+            return "superseded by a new version (" + event.detail + ", id " +
+                   short_id(*event.new_version) + ") registered by " + actor;
+        }
         return "registered by " + actor;
     case protocol::StatementType::record_endorse:
         return "endorsed as " + event.detail + " by " + actor;
@@ -225,7 +229,8 @@ Json report_json(const protocol::EvidenceReport& r, bool ledger_checked) {
                          {"rp_id", e.presence->rp_id},
                          {"label", e.presence->label ? Json(*e.presence->label) : Json(nullptr)}}
                   : Json(nullptr)},
-             {"detail", e.detail}});
+             {"detail", e.detail},
+             {"new_version", e.new_version ? Json(hex_id(*e.new_version)) : Json(nullptr)}});
     }
     Json fields = Json::object();
     for (const protocol::RecordField& f : r.disclosed_fields) {
@@ -258,7 +263,9 @@ Json report_json(const protocol::EvidenceReport& r, bool ledger_checked) {
           {"type", r.record_type},
           {"state", r.state},
           {"revoked", r.revoked},
-          {"metadata", r.metadata ? cbor_json(*r.metadata) : Json(nullptr)}}},
+          {"metadata", r.metadata ? cbor_json(*r.metadata) : Json(nullptr)},
+          {"supersedes", r.supersedes ? Json(hex_id(*r.supersedes)) : Json(nullptr)},
+          {"superseded_by", r.superseded_by ? Json(hex_id(*r.superseded_by)) : Json(nullptr)}}},
         {"events", std::move(events)},
         {"disclosed_fields", std::move(fields)},
         {"attachments", std::move(attachments)},
@@ -299,6 +306,14 @@ std::string report_text(const protocol::EvidenceReport& r, bool ledger_checked) 
                                        r.untrusted_cosignatures)));
     line(std::format("  Record       {} (id {})", r.record_type, short_id(r.record)));
     line(std::format("  State        {}{}", r.state, r.revoked ? " - REVOKED" : ""));
+    if (r.superseded_by) {
+        line(std::format("  Superseded   by a newer version, id {} (verify it to see whether it "
+                         "is the latest)",
+                         short_id(*r.superseded_by)));
+    }
+    if (r.supersedes) {
+        line(std::format("  Supersedes   the earlier version, id {}", short_id(*r.supersedes)));
+    }
     if (r.metadata) {
         for (const cbor::MapEntry& m : *r.metadata->as_map()) {
             line(std::format("  Metadata     {} = {}", display_value(m.key),

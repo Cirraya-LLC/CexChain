@@ -854,5 +854,22 @@
   "relay.stopped": "Parties reach this console directly again. New invitation codes carry no relay.",
   "relay.problem": "The relay could not be reached: {message}",
   "activity.relay.use": "chose a relay for parties to reach this console",
-  "activity.relay.stop": "stopped using the relay"
+  "activity.relay.stop": "stopped using the relay",
+  "value.superseded": "superseded",
+  "things.show_old": "Show older versions ({count})",
+  "things.hide_old": "Hide older versions",
+  "thing.superseded": "A newer version replaced this document (entry {index}). Use the latest version.",
+  "thing.open_latest": "Open the latest version",
+  "thing.versions_title": "Versions",
+  "thing.version_line": "Version {n}: {type}, entry {index}",
+  "thing.version_this": " (this one)",
+  "thing.version_revoked": " (revoked)",
+  "thing.new_version": "New version",
+  "register.new_version_title": "A new version",
+  "register.replaces": "Replaces",
+  "register.replaces_hint": "This is a new version of {name} ({id}). Once you approve it, anyone who checks the old one is told a newer version replaced it.",
+  "verify.superseded": "Superseded",
+  "verify.superseded_value": "by a newer version, {id}",
+  "verify.replaces": "Replaces",
+  "verify.event.superseded": "Superseded by a new version ({detail})"
 }

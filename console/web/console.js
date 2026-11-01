@@ -680,11 +680,14 @@ async function uploadFile(file) {
 }
 const yesNo = (value) => t(value ? "value.yes" : "value.no");
 
-async function thingsScreen() {
+async function thingsScreen(showOld = false) {
     const things = await api("GET", "things");
+    const old = things.records.filter((r) => r.superseded).length;
+    const listed = showOld ? things.records : things.records.filter((r) => !r.superseded);
     const records = table(t("things.records"), [
         ["column.type", (r) => el("a", { href: `#/thing/${r.id}`, text: r.type })],
-        ["column.state", (r) => (r.revoked ? t("value.revoked") : r.state)],
+        ["column.state", (r) => (r.revoked ? t("value.revoked")
+                                 : r.superseded ? t("value.superseded") : r.state)],
         ["column.registrant", (r) => r.registrant.name ?? short(r.registrant.id).text],
         ["column.endorsements", (r) => String(r.endorsements)],
         ["column.id", (r) => short(r.id)],
@@ -694,7 +697,13 @@ async function thingsScreen() {
             button.addEventListener("click", () => actScreen(r));
             return button;
         }]]),
-    ], things.records);
+    ], listed);
+    let older = null;
+    if (old > 0) {
+        older = el("button", { type: "button", text: showOld ? t("things.hide_old")
+                                                             : t("things.show_old", { count: old }) });
+        older.addEventListener("click", () => thingsScreen(!showOld));
+    }
     const instances = table(t("things.instances"), [
         ["column.contract", (i) => el("a", { href: `#/instance/${i.id}`,
                                              text: i.contract_name ?? short(i.contract).text })],
@@ -706,7 +715,7 @@ async function thingsScreen() {
     const register = state.who.role === "viewer" ? null
         : el("p", {}, el("a", { href: "#/new", class: "button", text: t("register.button") }));
     show(el("h1", { text: t("things.title") }), el("p", { class: "hint", text: t("things.hint") }),
-         register, ...records, ...instances,
+         register, ...records, older, ...instances,
          things.more ? el("p", { class: "hint", text: t("things.more") }) : null);
 }
 
@@ -752,8 +761,27 @@ async function thingScreen(id) {
     for (const [name, value] of Object.entries(thing.metadata)) {
         fact("thing.public", `${name}: ${value}`);
     }
-    const parts = [keysNotice(), el("h1", { text: thing.kind ?? thing.type }), facts,
-                   el("h2", { text: t("thing.private_title") })];
+    const parts = [keysNotice(), el("h1", { text: thing.kind ?? thing.type })];
+    const latest = thing.versions[thing.versions.length - 1];
+    if (thing.superseded_by) {
+        parts.push(el("div", { class: "notice replaced", role: "status" },
+                      el("p", { text: t("thing.superseded", { index: thing.superseded_index }) }),
+                      el("p", {}, el("a", { href: `#/thing/${latest.id}`, text: t("thing.open_latest") }))));
+    }
+    if (thing.supersedes) {
+        fact("register.replaces", thing.supersedes, { class: "id" });
+    }
+    parts.push(facts);
+    if (thing.versions.length > 1) {
+        parts.push(el("h2", { text: t("thing.versions_title") }),
+                   el("ol", { class: "versions" }, thing.versions.map((v, n) => {
+                       const line = t("thing.version_line", { n: n + 1, type: v.type, index: v.index }) +
+                           (v.revoked ? t("thing.version_revoked") : "");
+                       return el("li", {}, v.current ? el("strong", { text: line + t("thing.version_this") })
+                                                     : el("a", { href: `#/thing/${v.id}`, text: line }));
+                   })));
+    }
+    parts.push(el("h2", { text: t("thing.private_title") }));
     if (!thing.private.allowed) {
         parts.push(el("p", { class: "hint", text: t("thing.private_hidden") }));
     } else if (thing.private.locked) {
@@ -807,6 +835,10 @@ async function thingScreen(id) {
                                    "aria-label": t("act.label", { type: thing.type }) });
         act.addEventListener("click", () => actScreen({ id: thing.id, type: thing.type }));
         actions.append(" ", act);
+    }
+    if (state.who.role !== "viewer" && !thing.superseded_by) {
+        actions.append(" ", el("a", { href: `#/new/${thing.id}`, class: "button",
+                                      text: t("thing.new_version") }));
     }
     parts.push(actions);
     show(...parts);
@@ -915,6 +947,12 @@ function reportView(given) {
         fact("column.type", report.record.type);
         fact("column.state", report.record.revoked ? t("value.revoked") : report.record.state);
         fact("column.id", report.record.id, { class: "id" });
+        if (report.record.superseded_by) {
+            fact("verify.superseded", t("verify.superseded_value", { id: report.record.superseded_by }));
+        }
+        if (report.record.supersedes) {
+            fact("verify.replaces", report.record.supersedes, { class: "id" });
+        }
     }
     parts.push(facts);
     if (report.events) {
@@ -925,7 +963,8 @@ function reportView(given) {
                                                            : "verify.person_passkey")
                                : "verify.person_not_present", { name: e.actor.name })
                 : t(`verify.actor.${e.actor.kind}`, { name: e.actor.name });
-            const what = t(`verify.event.${e.type}`, { detail: e.detail ?? "" });
+            const what = e.new_version ? t("verify.event.superseded", { detail: e.detail ?? "" })
+                : t(`verify.event.${e.type}`, { detail: e.detail ?? "" });
             return el("li", {}, el("span", { class: "id", text: `#${e.index} ` }),
                       `${what} ${t("verify.by", { who })} `,
                       el("span", { class: "hint", text: e.registered_at }));
@@ -1130,8 +1169,9 @@ function kindForm() {
 }
 
 /// Registering a document: a kind, its fields, its files, then the tap.
-async function newDocumentScreen() {
+async function newDocumentScreen(supersedes = null) {
     const listed = await api("GET", "kinds");
+    const old = supersedes ? await api("GET", `records/${supersedes}`) : null;
     if (listed.kinds.length === 0) {
         show(el("h1", { text: t("register.title") }), el("p", { text: t("register.no_kinds") }),
              el("p", {}, el("a", { href: "#/kinds", text: t("register.define") })));
@@ -1139,6 +1179,9 @@ async function newDocumentScreen() {
     }
     const chooser = el("select", { id: "register-kind" },
                        listed.kinds.map((k) => el("option", { value: k.type, text: k.name })));
+    if (old && listed.kinds.some((k) => k.type === old.type)) {
+        chooser.value = old.type;
+    }
     const area = el("div");
     const notice = el("div");
     const inputs = new Map();
@@ -1183,6 +1226,8 @@ async function newDocumentScreen() {
     render();
     const prepare = el("button", { type: "submit", class: "primary", text: t("act.prepare") });
     const form = el("form", { novalidate: true },
+                    old ? el("p", { class: "notice", text: t("register.replaces_hint", {
+                        name: old.kind ?? old.type, id: old.id }) }) : null,
                     el("div", { class: "field" },
                        el("label", { for: "register-kind", text: t("register.kind") }), chooser),
                     area, notice, prepare);
@@ -1211,6 +1256,7 @@ async function newDocumentScreen() {
             }
             const prepared = await api("POST", "prepare", {
                 action: "record.register", kind: chooser.value, fields, files: uploads,
+                supersedes: old ? old.id : null,
             });
             await approveScreen(prepared, files);
         } catch (error) {
@@ -1221,7 +1267,7 @@ async function newDocumentScreen() {
             status("");
         }
     });
-    show(el("h1", { text: t("register.title") }), form);
+    show(el("h1", { text: t(old ? "register.new_version_title" : "register.title") }), form);
 }
 
 // --- Settings ----------------------------------------------------------------------
@@ -3746,6 +3792,7 @@ function registrationAgrees(check, decoded, prepared, files) {
     if (!decoded.ok || decoded.type !== "record-register" ||
         decoded.record_type !== summary.record_type ||
         decoded.field_count !== summary.fields.length ||
+        (decoded.supersedes ?? null) !== (summary.supersedes ?? null) ||
         JSON.stringify(decoded.metadata ?? {}) !==
             JSON.stringify(Object.fromEntries(Object.entries(summary.metadata).sort()))) {
         return false;
@@ -3927,6 +3974,7 @@ async function approveScreen(prepared, files = new Map(), after = null) {
         fact("exchange.until", timeText(summary.consent.until));
     }
     fact("column.type", summary.record_type);
+    fact("register.replaces", summary.supersedes);
     fact("approve.name", summary.name);
     fact("column.id", summary.record ?? summary.contract);
     if (calling) {
@@ -4126,6 +4174,7 @@ async function route() {
     }
     try {
         const thing = hash.match(/^#\/thing\/([0-9a-f]{64})$/);
+        const newVersion = hash.match(/^#\/new\/([0-9a-f]{64})$/);
         const instance = hash.match(/^#\/instance\/([0-9a-f]{64})$/);
         const create = hash.match(/^#\/create\/([0-9a-f]{64})$/);
         const act = hash.match(/^#\/act\/([0-9a-f]{64})\/([^/]+)$/);
@@ -4144,6 +4193,7 @@ async function route() {
             : hash.startsWith("#/people") ? peopleScreen()
             : hash.startsWith("#/automation") ? automationScreen()
             : hash.startsWith("#/things") ? thingsScreen()
+            : newVersion ? newDocumentScreen(newVersion[1])
             : hash.startsWith("#/new") ? newDocumentScreen()
             : hash.startsWith("#/kinds") ? kindsScreen()
             : hash.startsWith("#/rules/new") ? rulesEditor()

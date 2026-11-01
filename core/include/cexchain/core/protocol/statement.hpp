@@ -197,6 +197,8 @@ struct RecordRegisterBody {
     std::vector<Attachment> attachments;
     /// Public metadata: a non-empty map with text keys, or nullopt.
     std::optional<cbor::Value> metadata;
+    /// The record this one supersedes, as its new version (v0.10).
+    std::optional<Id> supersedes;
 
     friend bool operator==(const RecordRegisterBody&, const RecordRegisterBody&) = default;
 };

@@ -544,6 +544,17 @@ Status LedgerState::check_authority(const Statement& statement, const ActorState
         !std::ranges::contains(*delegation->scope.record_types, *record_type)) {
         return fail(Errc::rejected, "the delegation does not cover this record type");
     }
+    // A new version needs the old one's type too (v0.10), so a delegation for
+    // one kind of document cannot retire documents of another.
+    if (const auto* registration = std::get_if<RecordRegisterBody>(&statement.body);
+        registration != nullptr && registration->supersedes && delegation->scope.record_types) {
+        if (const RecordState* old = record(*registration->supersedes);
+            old != nullptr &&
+            !std::ranges::contains(*delegation->scope.record_types, old->record_type)) {
+            return fail(Errc::rejected,
+                        "the delegation does not cover the type of the record it supersedes");
+        }
+    }
     if (const auto contract = contract_of(statement);
         contract && delegation->scope.contracts &&
         !std::ranges::contains(*delegation->scope.contracts, *contract)) {
@@ -777,6 +788,29 @@ Status LedgerState::check_rules(const crypto::Provider& provider, const Statemen
                     return fail(Errc::rejected,
                                 "the record type is reserved: types beginning with \"cexchain.\" "
                                 "are the protocol's own");
+                }
+                if (!b.supersedes) {
+                    return {};
+                }
+                // Versions (v0.10): one chain of the generic lifecycle. A
+                // revoked record may still be superseded.
+                if (find_record_type(b.record_type) != nullptr) {
+                    return fail(Errc::rejected,
+                                "a record of a mechanism type does not supersede records");
+                }
+                const RecordState* old = record(*b.supersedes);
+                if (old == nullptr) {
+                    if (bundle_) {
+                        return {};
+                    }
+                    return fail(Errc::not_found, "the record it supersedes does not exist");
+                }
+                if (find_record_type(old->record_type) != nullptr) {
+                    return fail(Errc::rejected,
+                                "a record of a mechanism type cannot be superseded");
+                }
+                if (old->superseded_by) {
+                    return fail(Errc::rejected, "the record was superseded already");
                 }
                 return {};
             },
@@ -1039,6 +1073,17 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
                 record.field_count = b.field_count;
                 record.registered_at_index = index;
                 record.history.push_back(index);
+                if (b.supersedes) {
+                    // A statement about both records (v0.10). Absent only in
+                    // a bundle's replay.
+                    record.supersedes = CompactId(*b.supersedes);
+                    if (RecordState* old = records_.find(key_of(*b.supersedes))) {
+                        old->superseded_by = CompactId(id);
+                        old->superseded_at_index = index;
+                        old->history.push_back(index);
+                        changes_.push_back(key_of(*b.supersedes));
+                    }
+                }
                 records_.insert_or_assign(key_of(id), std::move(record));
                 changes_.push_back(key_of(id));
                 return {};
@@ -1194,6 +1239,36 @@ std::vector<Id> LedgerState::take_changes() {
         }
     }
     changes_.clear();
+    return out;
+}
+
+std::vector<Id> record_versions(const LedgerState& state, const Id& record) {
+    const RecordState* at = state.record(record);
+    if (at == nullptr) {
+        return {};
+    }
+    // Each link names an earlier registration, so the chain has no cycle;
+    // the bound only guards a state that is not the rules'.
+    const std::size_t bound = state.records().size();
+    std::vector<Id> before;
+    for (const RecordState* r = at; r->supersedes && before.size() < bound;) {
+        const RecordState* older = state.record(*r->supersedes);
+        if (older == nullptr) {
+            break;
+        }
+        before.emplace_back(older->id);
+        r = older;
+    }
+    std::vector<Id> out(before.rbegin(), before.rend());
+    out.emplace_back(at->id);
+    for (const RecordState* r = at; r->superseded_by && out.size() < bound;) {
+        const RecordState* newer = state.record(*r->superseded_by);
+        if (newer == nullptr) {
+            break;
+        }
+        out.emplace_back(newer->id);
+        r = newer;
+    }
     return out;
 }
 

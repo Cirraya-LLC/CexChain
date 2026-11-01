@@ -34,6 +34,8 @@ struct IssueRequest {
     std::optional<protocol::Provenance> provenance;
     /// Prove presence first, if set.
     std::optional<PresenceRequest> presence;
+    /// The record the new one supersedes, as its new version.
+    std::optional<protocol::Id> supersedes;
 };
 
 /// The media type an attachment named `path` is given (by its extension).

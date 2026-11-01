@@ -86,7 +86,13 @@ struct RecordState {
     std::vector<Endorsement> endorsements;
     bool revoked = false;
     std::uint64_t registered_at_index = 0;
-    /// Log indices of every statement about this record, in order.
+    /// Versions (v0.10): the record this one supersedes, and the record that
+    /// superseded it, with that registration's log index.
+    std::optional<CompactId> supersedes;
+    std::optional<CompactId> superseded_by;
+    std::uint64_t superseded_at_index = 0;
+    /// Log indices of every statement about this record, in order: the
+    /// registration of the record that superseded it among them.
     IndexList history;
 };
 
@@ -274,6 +280,12 @@ public:
     /// and its copies): none by default. It must outlive them.
     void load_modules_with(ModuleCache* modules) noexcept { modules_ = modules; }
 
+    /// This state replays an evidence bundle, which holds only some of the
+    /// log: a registration that supersedes a record the bundle does not hold
+    /// is then checked under every rule but those about that record (v0.10;
+    /// its own bundle shows the link). A ledger's state never is one.
+    void replay_bundle() noexcept { bundle_ = true; }
+
 private:
     LedgerState() = default;
 
@@ -329,6 +341,7 @@ private:
     /// Changes with every apply: the states a Validation is good for.
     StateStamp stamp_;
     ModuleCache* modules_ = nullptr;
+    bool bundle_ = false;
 };
 
 /// An ancestor of a child instance, and the log index of its call that
@@ -343,6 +356,13 @@ struct InstanceAncestor {
 /// by the rules never does.
 [[nodiscard]] std::vector<InstanceAncestor> instance_ancestors(const LedgerState& state,
                                                                const InstanceState& instance);
+
+/// A record's versions (v0.10), oldest first: the records before it, back to
+/// the first, then the record, then those that superseded it, up to the
+/// latest. Only the record if it has no other version; empty if `state` has
+/// no such record. Stops at a version `state` lacks, which only a bundle's
+/// replay does.
+[[nodiscard]] std::vector<Id> record_versions(const LedgerState& state, const Id& record);
 
 /// The log indices of the calls an instance's evidence shows, ascending:
 /// each ancestor's calls up to the one that created the next generation,

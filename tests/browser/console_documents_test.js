@@ -203,6 +203,60 @@ async function waitRunning() {
       console.log("the standalone verifier page was not given: skipped");
     }
 
+    // A new version of the photo, from its page: one tap, and the old one
+    // says a newer version replaced it.
+    await page.evaluate((id) => { location.hash = `#/thing/${id}`; }, record);
+    await page.getByRole("heading", { name: "Photo", level: 1 }).waitFor();
+    await page.getByRole("link", { name: "New version" }).click();
+    await page.getByRole("heading", { name: "A new version" }).waitFor();
+    await page.getByText(`This is a new version of Photo (${record})`).waitFor();
+    await page.getByLabel("place (required)").fill("Kowloon Bay");
+    await page.getByLabel("Files").setInputFiles(photo);
+    await page.getByRole("button", { name: "Prepare" }).click();
+    await page.getByRole("heading", { name: "Approve with your passkey" }).waitFor();
+    await page.getByText("Checked in this browser").waitFor();
+    await page.getByText(record, { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Approve with your passkey" }).click();
+    await page.getByRole("heading", { name: "Done" }).waitFor();
+    const second = (await page.locator("main p.id").textContent()).trim();
+    assert.notEqual(second, record);
+    assert.equal(JSON.parse(run("record", "show", record, "--json")).superseded_by, second);
+    await page.evaluate((id) => { location.hash = `#/thing/${id}`; }, record);
+    await page.getByText(/A newer version replaced this document/).waitFor();
+    await page.getByRole("heading", { name: "Versions" }).waitFor();
+    assert.equal(await page.getByRole("link", { name: "New version" }).count(), 0);
+    await page.getByRole("link", { name: "Open the latest version" }).click();
+    await page.getByText("Kowloon Bay").waitFor();
+    await page.getByText(/\(this one\)/).waitFor();
+    // The list leaves the old version out until asked.
+    await page.getByRole("link", { name: "Things" }).click();
+    await page.getByRole("button", { name: "Show older versions (1)" }).click();
+    await page.getByRole("cell", { name: "superseded" }).waitFor();
+    // Its proof now says so, here and on the standalone page.
+    await page.evaluate((id) => { location.hash = `#/thing/${id}`; }, record);
+    await page.getByRole("button", { name: "Share proof" }).click();
+    const reproving = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Make the proof" }).click();
+    const oldProof = path.join(work, "old-proof.cbor");
+    await (await reproving).saveAs(oldProof);
+    const oldReport = JSON.parse(run("verify", oldProof, "--ledger-id", ledgerId, "--json"));
+    assert.equal(oldReport.record.superseded_by, second);
+    await page.getByRole("link", { name: "Verify" }).click();
+    await page.locator("#verify-proof").setInputFiles(oldProof);
+    await page.getByText(`by a newer version, ${second}`).waitFor();
+    await page.getByText(/Superseded by a new version \(example\.org\.photo\/1\)/).waitFor();
+    if (verifierPage) {
+      const standalone = await browser.newPage();
+      await standalone.goto("file://" + path.resolve(verifierPage));
+      await standalone.waitForFunction(() => window.verifierReady === true);
+      await standalone.setInputFiles("#bundle-file", oldProof);
+      await standalone.fill("#ledger", ledgerId);
+      await standalone.dispatchEvent("#ledger", "change");
+      await standalone.waitForFunction(() =>
+        document.getElementById("verdict-title").textContent === "Replaced by a newer version");
+      await standalone.close();
+    }
+
     assert.deepEqual(violations, [], "no CSP violation or script error");
     console.log("console documents browser test: passed");
   } catch (error) {

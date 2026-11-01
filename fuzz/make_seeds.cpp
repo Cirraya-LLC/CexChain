@@ -129,6 +129,7 @@ void ledger_seeds(const Seeds& seeds) {
         commitment.leaves.size(),
         {{"report.pdf", "application/pdf", report.size(),
           Bytes(attachment.bytes().begin(), attachment.bytes().end())}},
+        std::nullopt,
         std::nullopt});
 
     const protocol::AccessRequest request{ledger.id(),
@@ -149,7 +150,8 @@ void ledger_seeds(const Seeds& seeds) {
             Bytes(access_fields.root.bytes().begin(), access_fields.root.bytes().end()),
             1,
             {},
-            std::move(metadata)});
+            std::move(metadata),
+            std::nullopt});
     };
     const auto request_id = access_record(protocol::access_request_type, request_metadata);
     const protocol::AccessGrant grant{ledger.id(),    request_id,    document,         {"result"},
@@ -208,6 +210,7 @@ void ledger_seeds(const Seeds& seeds) {
         Bytes(commitment.root.bytes().begin(), commitment.root.bytes().end()),
         commitment.leaves.size(),
         {},
+        std::nullopt,
         std::nullopt});
     must(ledger.checkpoint(log2), "checkpoint");
     seeds.write(
@@ -310,7 +313,8 @@ struct Org {
                           Bytes(fields.root.bytes().begin(), fields.root.bytes().end()),
                           1,
                           {},
-                          std::move(metadata)})
+                          std::move(metadata),
+                          std::nullopt})
             .id;
     }
 
@@ -939,27 +943,31 @@ void request_seeds(const Seeds& seeds) {
     }
 }
 
-/// The generic core (v0.9): every statement of protocol-v0.9.json, as a
-/// payload and signed, the refused ones too: type-20 bodies and a scope
-/// naming type 20 (which must not parse), and registrations under the
-/// reserved prefix (which parse; the ledger refuses them).
+/// The generic core (v0.9) and versions (v0.10): every statement of
+/// protocol-v0.9.json and protocol-v0.10.json, as a payload and signed, the
+/// refused ones too: type-20 bodies, a scope naming type 20, and a short id
+/// in key 6 (which must not parse), registrations under the reserved prefix
+/// and versions the rules refuse (which parse; the ledger refuses them).
 void generic_seeds(const Seeds& seeds) {
-    std::ifstream in(CEXCHAIN_TESTVECTORS_DIR "/protocol-v0.9.json");
-    if (!in) {
-        throw std::runtime_error("cannot read protocol-v0.9.json");
-    }
-    const auto doc = nlohmann::json::parse(in);
     std::size_t s = 0;
-    for (const auto& ledger : doc.at("ledgers")) {
-        for (const char* list : {"statements", "refused"}) {
-            for (const auto& st : ledger.at(list)) {
-                const auto payload = must(from_hex(st.at("payload").get<std::string>()), "payload");
-                const auto encoded =
-                    must(from_hex(st.at("encoded").get<std::string>()), "statement");
-                seeds.write("protocol_parse_fuzz", std::format("generic-payload-{:03}", s),
-                            ByteView(payload));
-                seeds.write("protocol_parse_fuzz", std::format("generic-statement-{:03}", s++),
-                            ByteView(encoded));
+    for (const char* file : {"/protocol-v0.9.json", "/protocol-v0.10.json"}) {
+        std::ifstream in(std::string(CEXCHAIN_TESTVECTORS_DIR) + file);
+        if (!in) {
+            throw std::runtime_error(std::string("cannot read ") + (file + 1));
+        }
+        const auto doc = nlohmann::json::parse(in);
+        for (const auto& ledger : doc.at("ledgers")) {
+            for (const char* list : {"statements", "refused"}) {
+                for (const auto& st : ledger.at(list)) {
+                    const auto payload =
+                        must(from_hex(st.at("payload").get<std::string>()), "payload");
+                    const auto encoded =
+                        must(from_hex(st.at("encoded").get<std::string>()), "statement");
+                    seeds.write("protocol_parse_fuzz", std::format("generic-payload-{:03}", s),
+                                ByteView(payload));
+                    seeds.write("protocol_parse_fuzz", std::format("generic-statement-{:03}", s++),
+                                ByteView(encoded));
+                }
             }
         }
     }

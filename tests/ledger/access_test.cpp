@@ -42,6 +42,7 @@ Certificate issue_certificate(World& w) {
         commitment->leaves.size(),
         {{"report.pdf", "application/pdf", report_content.size(),
           Bytes(attachment->bytes().begin(), attachment->bytes().end())}},
+        std::nullopt,
         std::nullopt};
     const auto id = w.ok(w.org(), w.statement(w.org_id(), std::nullopt, body));
     return {id, std::move(*commitment)};
@@ -56,7 +57,8 @@ protocol::Id issue_access(World& w, std::string_view type, cbor::Value metadata)
         Bytes(commitment->root.bytes().begin(), commitment->root.bytes().end()),
         1,
         {},
-        std::move(metadata)};
+        std::move(metadata),
+        std::nullopt};
     return w.ok(w.org(), w.statement(w.org_id(), std::nullopt, body));
 }
 

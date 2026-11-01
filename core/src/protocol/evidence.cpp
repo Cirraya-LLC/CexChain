@@ -443,6 +443,7 @@ Result<EvidenceReport> detail::verify_bundle_as_given(const crypto::Provider& pr
     if (!state) {
         return verification_failure("the genesis statement does not verify");
     }
+    state->replay_bundle();
     state->load_modules_with(options.modules);
     if (options.expected_ledger && *options.expected_ledger != state->ledger_id()) {
         return verification_failure("the bundle comes from a different ledger");
@@ -593,6 +594,12 @@ Result<EvidenceReport> detail::verify_bundle_as_given(const crypto::Provider& pr
         report.record_type = record->record_type;
         report.state = record->state;
         report.revoked = record->revoked;
+        if (record->supersedes) {
+            report.supersedes = Id(*record->supersedes);
+        }
+        if (record->superseded_by) {
+            report.superseded_by = Id(*record->superseded_by);
+        }
     } else {
         const ContractState* contract = state->contract(instance->contract);
         // The deploy is in the bundle: the contract was loaded from it while
@@ -669,9 +676,18 @@ Result<EvidenceReport> detail::verify_bundle_as_given(const crypto::Provider& pr
     for (const std::uint64_t index : history) {
         const auto it = included_at(index);
         const Statement& statement = it->statement.statement;
+        // The record's own registration; another in its history registered
+        // the version that superseded it (v0.10).
+        std::optional<Id> new_version;
+        std::string detail = event_detail(statement);
         if (const auto* body = std::get_if<RecordRegisterBody>(&statement.body)) {
-            registration = body;
-            report.metadata = body->metadata;
+            if (it->statement.id == bundle.record) {
+                registration = body;
+                report.metadata = body->metadata;
+            } else {
+                new_version = it->statement.id;
+                detail = body->record_type;
+            }
         }
         // The instances a call created (v0.7), and the requests it made
         // (v0.8), by the ids derived from it.
@@ -710,7 +726,7 @@ Result<EvidenceReport> detail::verify_bundle_as_given(const crypto::Provider& pr
             .authority = authority_chain(*state, statement.delegation_id),
             .provenance = statement.provenance,
             .presence = presence.contains(index) ? std::optional(presence.at(index)) : std::nullopt,
-            .detail = event_detail(statement),
+            .detail = std::move(detail),
             .contract_call = std::holds_alternative<ContractCallBody>(statement.body)
                                  ? std::optional(std::get<ContractCallBody>(statement.body))
                                  : std::nullopt,
@@ -718,6 +734,7 @@ Result<EvidenceReport> detail::verify_bundle_as_given(const crypto::Provider& pr
             .children = std::move(children),
             .requests = std::move(requests),
             .answered = std::move(answered),
+            .new_version = new_version,
         });
     }
 

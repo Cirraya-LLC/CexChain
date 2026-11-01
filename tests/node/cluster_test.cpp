@@ -241,7 +241,8 @@ struct Trio {
                                                       Bytes(32, 0x42),
                                                       1,
                                                       {},
-                                                      std::move(*metadata)}));
+                                                      std::move(*metadata),
+                                                      std::nullopt}));
         REQUIRE(party.ledger().checkpoint(party.log_key()));
         const Bytes bundle =
             *protocol::encode_bundle(*party.ledger().export_evidence(party.log_key(), consent));

@@ -67,6 +67,7 @@ int cmd_record_issue(const Args& args);
 int cmd_record_list(const Args& args);
 int cmd_record_show(const Args& args);
 int cmd_record_history(const Args& args);
+int cmd_record_versions(const Args& args);
 int cmd_record_fields(const Args& args);
 int cmd_record_file_list(const Args& args);
 int cmd_record_file_get(const Args& args);

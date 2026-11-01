@@ -53,7 +53,8 @@ struct Scenario {
             fields.leaves.size(),
             {protocol::Attachment{"report.pdf", "application/pdf", attachment.size(),
                                   Bytes(commitment->bytes().begin(), commitment->bytes().end())}},
-            cbor::Value::map({{cbor::Value::text("product"), cbor::Value::text("Flange DN50")}})};
+            cbor::Value::map({{cbor::Value::text("product"), cbor::Value::text("Flange DN50")}}),
+            std::nullopt};
         auto s = w.statement(c.agent_id, c.agent_delegation, body);
         s.provenance = provenance();
         record = w.ok(c.agent, s);
@@ -285,4 +286,65 @@ TEST_CASE("export needs a checkpoint covering the record", "[evidence]") {
     CHECK(w.ledger().export_evidence(w.log_key(), record));
     CHECK(w.ledger().export_evidence(w.org(), record).error().code == Errc::invalid_argument);
     CHECK(w.ledger().export_evidence(w.log_key(), c.alice_id).error().code == Errc::not_found);
+}
+
+TEST_CASE("a new version's registration is in the old version's evidence", "[evidence]") {
+    World w;
+    Cast c = build_cast(w);
+    // The agent may register documents only; alice documents and notes.
+    const protocol::Id v1 = w.ok(c.agent, agent_record(w, c, document_type));
+    const protocol::Id note =
+        w.ok(c.alice, w.statement(c.alice_id, c.alice_delegation, w.record_body(note_type)));
+    auto newer = agent_record(w, c, document_type);
+    std::get<protocol::RecordRegisterBody>(newer.body).supersedes = v1;
+    const protocol::Id v2 = w.ok(c.agent, newer);
+    REQUIRE(w.ledger().checkpoint(w.log_key()));
+
+    // The agent's scope does not cover notes, so it cannot retire one.
+    auto over_note = agent_record(w, c, document_type);
+    std::get<protocol::RecordRegisterBody>(over_note.body).supersedes = note;
+    const auto refused = w.submit(c.agent, over_note);
+    REQUIRE_FALSE(refused);
+    CHECK(std::string(refused.error().detail).find("type of the record it supersedes") !=
+          std::string::npos);
+
+    // The old version's bundle holds the new one's registration, and its
+    // report says so, complete.
+    auto old_bundle = w.ledger().export_evidence(w.log_key(), v1);
+    REQUIRE(old_bundle);
+    const auto old_report = protocol::verify_bundle(provider(), encode(*old_bundle), {});
+    INFO((old_report ? std::string() : std::string(old_report.error().detail)));
+    REQUIRE(old_report);
+    CHECK(old_report->complete);
+    CHECK_FALSE(old_report->supersedes);
+    REQUIRE(old_report->superseded_by);
+    CHECK(*old_report->superseded_by == v2);
+    REQUIRE(old_report->events.size() == 2);
+    CHECK_FALSE(old_report->events[0].new_version);
+    REQUIRE(old_report->events[1].new_version);
+    CHECK(*old_report->events[1].new_version == v2);
+    CHECK(old_report->events[1].detail == document_type);
+
+    // Leaving it out is caught: the old version's history is not complete.
+    auto omitted = *old_bundle;
+    std::erase_if(omitted.entries, [&](const protocol::EvidenceEntry& e) {
+        return protocol::decode_log_entry(e.entry)->statement_id == v2;
+    });
+    REQUIRE(omitted.entries.size() + 1 == old_bundle->entries.size());
+    CHECK(verify_error(omitted, {}) == Errc::verification_failed);
+
+    // The new version's bundle does not hold the old version, and verifies.
+    auto new_bundle = w.ledger().export_evidence(w.log_key(), v2);
+    REQUIRE(new_bundle);
+    CHECK(std::ranges::none_of(new_bundle->entries, [&](const protocol::EvidenceEntry& e) {
+        return protocol::decode_log_entry(e.entry)->statement_id == v1;
+    }));
+    const auto new_report = protocol::verify_bundle(provider(), encode(*new_bundle), {});
+    INFO((new_report ? std::string() : std::string(new_report.error().detail)));
+    REQUIRE(new_report);
+    CHECK(new_report->complete);
+    REQUIRE(new_report->supersedes);
+    CHECK(*new_report->supersedes == v1);
+    CHECK_FALSE(new_report->superseded_by);
+    CHECK(new_report->events.size() == 1);
 }

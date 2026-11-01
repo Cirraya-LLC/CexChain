@@ -854,5 +854,22 @@
   "relay.stopped": "参与方再次直接联系这个控制台。新的邀请码不再包含中继站。",
   "relay.problem": "无法连接中继站：{message}",
   "activity.relay.use": "选择了让参与方联系这个控制台的中继站",
-  "activity.relay.stop": "停止使用中继站"
+  "activity.relay.stop": "停止使用中继站",
+  "value.superseded": "已被取代",
+  "things.show_old": "显示旧版本（{count}）",
+  "things.hide_old": "隐藏旧版本",
+  "thing.superseded": "此文件已被新版本取代（条目 {index}）。请使用最新版本。",
+  "thing.open_latest": "打开最新版本",
+  "thing.versions_title": "版本",
+  "thing.version_line": "第 {n} 版：{type}，条目 {index}",
+  "thing.version_this": "（本版）",
+  "thing.version_revoked": "（已撤销）",
+  "thing.new_version": "发布新版本",
+  "register.new_version_title": "发布新版本",
+  "register.replaces": "取代",
+  "register.replaces_hint": "这是 {name}（{id}）的新版本。批准后，任何人查验旧版本时都会被告知它已被新版本取代。",
+  "verify.superseded": "已被取代",
+  "verify.superseded_value": "已被新版本 {id} 取代",
+  "verify.replaces": "取代",
+  "verify.event.superseded": "被新版本取代（{detail}）"
 }

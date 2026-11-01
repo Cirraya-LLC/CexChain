@@ -230,8 +230,8 @@ int http_bench(const Options& options) {
         s.actor_id = ledger_id;
         s.issued_at = clock.now();
         s.nonce = entropy.bytes<16>();
-        s.body =
-            protocol::RecordRegisterBody{"example.document/1", Bytes(32, 7), 3, {}, std::nullopt};
+        s.body = protocol::RecordRegisterBody{"example.document/1", Bytes(32, 7), 3, {},
+                                              std::nullopt,         std::nullopt};
         return must(protocol::sign_statement(org, provider, crypto::HashAlg::sha256, s), "sign")
             .encoded;
     };

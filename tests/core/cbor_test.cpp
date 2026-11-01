@@ -567,8 +567,8 @@ TEST_CASE("validate decides as decode does, with the same errors", "[core][cbor]
             samples.push_back(hex_field(r["output"]));
         }
     }
-    for (const char* file :
-         {"protocol-v0.6.json", "protocol-v0.7.json", "protocol-v0.8.json", "protocol-v0.9.json"}) {
+    for (const char* file : {"protocol-v0.6.json", "protocol-v0.7.json", "protocol-v0.8.json",
+                             "protocol-v0.9.json", "protocol-v0.10.json"}) {
         for (const auto& ledger : load_vectors(file)["ledgers"]) {
             for (const auto& st : ledger["statements"]) {
                 samples.push_back(hex_field(st["encoded"]));

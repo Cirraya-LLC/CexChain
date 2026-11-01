@@ -142,6 +142,7 @@ Json describe(const protocol::Statement& s) {
         out["record_type"] = g->record_type;
         out["field_count"] = g->field_count;
         out["field_root"] = to_hex(g->field_root);
+        out["supersedes"] = g->supersedes ? Json(to_hex(g->supersedes->bytes())) : Json();
         Json attachments = Json::array();
         for (const protocol::Attachment& a : g->attachments) {
             attachments.push_back({{"name", a.name},

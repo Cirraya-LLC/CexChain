@@ -111,6 +111,8 @@ nlohmann::json describe(const protocol::Statement& s, const protocol::LedgerStat
     } else if (const auto* g = std::get_if<protocol::RecordRegisterBody>(&s.body)) {
         out["record_type"] = g->record_type;
         out["field_count"] = g->field_count;
+        out["supersedes"] =
+            g->supersedes ? nlohmann::json(to_hex(g->supersedes->bytes())) : nlohmann::json();
     } else if (const auto* d = std::get_if<protocol::ContractDeployBody>(&s.body)) {
         out["name"] = d->name ? nlohmann::json(*d->name) : nlohmann::json();
         out["language"] = d->language;

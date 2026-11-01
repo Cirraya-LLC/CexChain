@@ -12,6 +12,11 @@ office works on the same application, not on its own copy:
 - **No old form can be started.** When the school changes the form, it
   deploys the new rules (`day-student-v2.bo`) and retires the old ones
   (`day-student.bo`). A new application on the old form is refused.
+- **An old copy says it is old.** The blank form is published too, as a
+  record; each new version is issued as superseding the one before
+  (`record issue --supersedes`). Anyone who checks a printed copy of an old
+  form, offline, is told that a newer version replaced it, and which, so an
+  office never has to guess.
 - **What was started is finished.** An application already under way goes
   on to the end on the form it began with; no office can send it back for
   being on the old one. The ledger shows which form each application is on.

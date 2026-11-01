@@ -97,6 +97,7 @@ http::Response Console::things_route(const http::Request& request) const {
                                {"type", r->record_type},
                                {"state", r->state},
                                {"revoked", r->revoked},
+                               {"superseded", r->superseded_by.has_value()},
                                {"registrant", actor_name(state, r->registrant)},
                                {"endorsements", r->endorsements.size()},
                                {"index", r->registered_at_index}});

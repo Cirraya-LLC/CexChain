@@ -477,7 +477,8 @@ int registrar_bench(const Options& options) {
                 Bytes(commitment.root.bytes().begin(), commitment.root.bytes().end()),
                 1,
                 {},
-                std::move(metadata)});
+                std::move(metadata),
+                std::nullopt});
             records.push_back(s.id);
             statements.push_back(std::move(s.encoded));
         }

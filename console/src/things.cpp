@@ -251,6 +251,19 @@ http::Response Console::record_route(const http::Request& request) const {
                 kind_name = k.name;
             }
         }
+        // Its versions, oldest first: the latest is the one to use.
+        nlohmann::json versions = nlohmann::json::array();
+        for (const protocol::Id& v : protocol::record_versions(state, r->id)) {
+            const protocol::RecordState* version = state.record(v);
+            versions.push_back({{"id", to_hex(v.bytes())},
+                                {"type", version->record_type},
+                                {"index", version->registered_at_index},
+                                {"revoked", version->revoked},
+                                {"current", v == protocol::Id(r->id)}});
+        }
+        auto hex_or_null = [](const std::optional<protocol::CompactId>& v) {
+            return v ? nlohmann::json(to_hex(v->bytes())) : nlohmann::json();
+        };
         answer = json(
             200, {{"id", to_hex(id->bytes())},
                   {"type", r->record_type},
@@ -264,6 +277,11 @@ http::Response Console::record_route(const http::Request& request) const {
                   {"files", files},
                   {"endorsements", endorsements},
                   {"history", r->history.size()},
+                  {"supersedes", hex_or_null(r->supersedes)},
+                  {"superseded_by", hex_or_null(r->superseded_by)},
+                  {"superseded_index",
+                   r->superseded_by ? nlohmann::json(r->superseded_at_index) : nlohmann::json()},
+                  {"versions", versions},
                   {"private",
                    {{"allowed", allowed}, {"locked", allowed && locked}, {"fields", fields}}}});
     });

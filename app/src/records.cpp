@@ -308,6 +308,7 @@ protocol::Id issue_record(Session& session, const crypto::Signer& signer,
     body.record_type = request.record_type;
     body.field_root = Bytes(commitment.root.bytes().begin(), commitment.root.bytes().end());
     body.field_count = commitment.leaves.size();
+    body.supersedes = request.supersedes;
     std::vector<Bytes> kept;
     for (const std::filesystem::path& path : request.attachments) {
         const Bytes content = read_file(path);

@@ -628,6 +628,12 @@ SOFTWARE.</pre>
     fact("Record", report.record.type);
     fact("Record ID", report.record.id, true);
     fact("State", report.record.revoked ? report.record.state + " (REVOKED)" : report.record.state);
+    const replacement = (report.events || []).find((e) => e.new_version);
+    if (report.record.superseded_by) {
+      fact("Superseded", "by a newer version" + (replacement ? ", " + when(replacement.registered_at) : ""));
+      fact("Newer version", report.record.superseded_by, true);
+    }
+    if (report.record.supersedes) fact("Replaces", report.record.supersedes, true);
     fact("Checkpoint", "log size " + report.checkpoint.tree_size + ", signed " + when(report.checkpoint.timestamp));
     fact("Witnesses", report.witnesses.trusted + " trusted, " + report.witnesses.untrusted + " other");
     fact("History", report.complete ? "complete (proven against the state commitment)" : "may be incomplete (older checkpoint)");
@@ -732,6 +738,10 @@ SOFTWARE.</pre>
       setVerdict("bad", "Not verified", "An attachment does not match what the issuer committed to. It may have been altered.");
     } else if (report.record.revoked) {
       setVerdict("bad", "Revoked", "The evidence is genuine, but the issuer has revoked this record.");
+    } else if (report.record.superseded_by) {
+      setVerdict("warn", "Replaced by a newer version",
+        "The evidence is genuine, but the issuer has registered a newer version that supersedes this one. " +
+        "Ask for the newer version (its ID is below), and verify it to see whether it is the latest.");
     } else if (!report.ledger.id_checked) {
       setVerdict("warn", "Genuine, but the issuer is not confirmed",
         "The evidence is intact and correctly signed by the ledger of \"" + report.ledger.organization +

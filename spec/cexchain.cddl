@@ -298,7 +298,12 @@ record-register-body = {
   3 => uint,                   ; number of fields
   ? 4 => [+ attachment],
   ? 5 => { + tstr => any },    ; public metadata, disclosed in the clear
+  ? 6 => id,                   ; the record this one supersedes (v0.10)
 }
+; Versions (v0.10): with key 6 the registration supersedes a record of the
+; same ledger, which must not be superseded already; neither type may be a
+; mechanism type, and the signer's scope must cover both types. A revoked
+; record may be superseded. The registration is in both records' histories.
 ; Fields are committed individually so they can be disclosed selectively:
 ;   leaf = deterministic-CBOR(record-field), leaves sorted by field name,
 ;   root = RFC 9162 Merkle tree hash over the leaves (the ledger's hash).

@@ -122,7 +122,8 @@ struct Deal {
                                                             commitment->root.bytes().end()),
                                                       1,
                                                       {},
-                                                      std::move(*metadata)}));
+                                                      std::move(*metadata),
+                                                      std::nullopt}));
         REQUIRE(party.ledger().checkpoint(party.log_key()));
         auto bundle = party.ledger().export_evidence(party.log_key(), record);
         REQUIRE(bundle);

@@ -183,6 +183,33 @@ Console::register_draft(const nlohmann::json& intent, const std::string& user) c
     if (!metadata.empty()) {
         body.metadata = cbor::Value::map(std::move(metadata));
     }
+    // A new version of a document: the ledger checks the rest (its kind
+    // need not be this one's, and the delegation must cover both).
+    if (const auto old = intent.find("supersedes"); old != intent.end() && !old->is_null()) {
+        const std::string hex = old->is_string() ? old->get<std::string>() : std::string();
+        std::optional<protocol::Id> id;
+        if (const auto bytes = from_hex(hex)) {
+            if (const auto parsed = protocol::to_id(*bytes)) {
+                id = *parsed;
+            }
+        }
+        if (!id) {
+            return std::string("name the document it replaces by its full id (hex)");
+        }
+        std::optional<std::string> problem;
+        ledger()->read_state([&](const protocol::LedgerState& state) {
+            const protocol::RecordState* r = state.record(*id);
+            if (r == nullptr) {
+                problem = "no such document on this ledger";
+            } else if (r->superseded_by) {
+                problem = "that document was replaced already: make a new version of the latest";
+            }
+        });
+        if (problem) {
+            return *problem;
+        }
+        body.supersedes = *id;
+    }
     Draft draft;
     draft.vault.fields = commitment->fields;
     draft.keep_files = kind->keep_files;

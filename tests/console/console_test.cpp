@@ -570,10 +570,11 @@ TEST_CASE("the console's home and things views read the node's ledger", "[consol
     cexchain::test::World ledger;
     const cexchain::Bytes root(32, 7);
     for (int i = 0; i < 3; ++i) {
-        ledger.ok(ledger.org(),
-                  ledger.statement(ledger.org_id(), std::nullopt,
-                                   cexchain::protocol::RecordRegisterBody{
-                                       "example.thing/1", root, 1, {}, std::nullopt}));
+        ledger.ok(
+            ledger.org(),
+            ledger.statement(ledger.org_id(), std::nullopt,
+                             cexchain::protocol::RecordRegisterBody{
+                                 "example.thing/1", root, 1, {}, std::nullopt, std::nullopt}));
     }
     ConsoleWorld w;
     const std::string token = w.session_for("Vera", console::Role::viewer);
@@ -594,6 +595,41 @@ TEST_CASE("the console's home and things views read the node's ledger", "[consol
 
     CHECK(w.get("/console/api/things", "cxs_" + std::string(43, 'Z')).status == 401);
     CHECK(w.web.handle(request("GET", "/console/api/home", "localhost:7470")).status == 401);
+}
+
+TEST_CASE("a document's page and the list show its versions", "[console][views]") {
+    cexchain::test::World ledger;
+    const cexchain::Bytes root(32, 7);
+    auto version = [&](std::optional<cexchain::protocol::Id> old) {
+        return ledger.ok(ledger.org(),
+                         ledger.statement(ledger.org_id(), std::nullopt,
+                                          cexchain::protocol::RecordRegisterBody{
+                                              "example.form/1", root, 1, {}, std::nullopt, old}));
+    };
+    const auto v1 = version(std::nullopt);
+    const auto v2 = version(v1);
+    ConsoleWorld w;
+    const std::string token = w.session_for("Vera", console::Role::viewer);
+    w.web.set_ledger(&ledger.ledger());
+
+    const auto things = nlohmann::json::parse(body(w.get("/console/api/things", token)));
+    REQUIRE(things["records"].size() == 2);
+    CHECK(things["records"][0]["superseded"] == false); // newest first: v2
+    CHECK(things["records"][1]["superseded"] == true);
+
+    const std::string hex1 = cexchain::to_hex(v1.bytes());
+    const std::string hex2 = cexchain::to_hex(v2.bytes());
+    const auto old = nlohmann::json::parse(body(w.get("/console/api/records/" + hex1, token)));
+    CHECK(old["superseded_by"] == hex2);
+    CHECK(old["supersedes"].is_null());
+    CHECK(old["superseded_index"] == 2);
+    REQUIRE(old["versions"].size() == 2);
+    CHECK(old["versions"][0]["current"] == true);
+    CHECK(old["versions"][1]["id"] == hex2);
+    const auto latest = nlohmann::json::parse(body(w.get("/console/api/records/" + hex2, token)));
+    CHECK(latest["supersedes"] == hex1);
+    CHECK(latest["superseded_by"].is_null());
+    CHECK(latest["versions"][1]["current"] == true);
 }
 
 TEST_CASE("recovery codes", "[console][keys]") {
@@ -1351,11 +1387,11 @@ TEST_CASE("after the first run, the owner approves with the passkey", "[console]
     FirstRunWorld f;
     Served served(f);
     // A record, which the organization registers with its root key.
-    const auto record =
-        served.session.submit(f.w.keys.open("root"),
-                              cexchain::protocol::RecordRegisterBody{
-                                  "example.thing/1", cexchain::Bytes(32, 7), 1, {}, std::nullopt},
-                              std::nullopt);
+    const auto record = served.session.submit(
+        f.w.keys.open("root"),
+        cexchain::protocol::RecordRegisterBody{
+            "example.thing/1", cexchain::Bytes(32, 7), 1, {}, std::nullopt, std::nullopt},
+        std::nullopt);
     f.w.clock.set(cexchain::ledger::SystemClock{}.now());
     const std::string token = f.made["session"].get<std::string>();
     const auto prepared_answer = f.w.post_as("/console/api/prepare",

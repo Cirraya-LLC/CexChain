@@ -3257,6 +3257,245 @@ def generate_protocol_v09() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Protocol v0.10: versions (spec sections 5, 6, 9, and 11): a registration
+# that supersedes a record, in both records' histories
+# ---------------------------------------------------------------------------
+
+FORM_1 = "example.org.form/1"
+FORM_2 = "example.org.form/2"
+
+
+def generate_protocol_v10() -> None:
+    names = ("org_root", "log", "clerk", "typist")
+    seeds = {name: hashlib.sha256(f"CexChain test key: {name}".encode()).hexdigest() for name in names}
+    keys = {name: ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(seed)) for name, seed in seeds.items()}
+    t0 = 1_793_491_200_000  # 2026-11-01T00:00:00Z
+    minute, day = 60_000, 86_400_000
+    peer = hashlib.sha256(b"Peer ledger").digest()
+
+    ledgers = []
+    for hash_id in (-16, -65538):
+        lg = Ledger(hash_id)
+        statements, refused = [], []
+        actors, delegations, records, scopes = {}, {}, {}, {}
+        clock = [t0 + 1000]
+
+        def payload(signer_actor, body_type, body, delegation=None):
+            n = len(statements) + len(refused) + 1
+            out = {0: 1, 1: body_type, 5: clock[0] - 500, 6: n.to_bytes(16, "big"), 7: body}
+            if signer_actor is not None:  # absent only in genesis
+                out[2] = ledger_id
+                out[3] = signer_actor
+            if delegation is not None:
+                out[4] = delegation
+            return out
+
+        def well_formed(p):
+            """The CDDL of v0.10, as far as these vectors reach: key 6 of a
+            registration is an id (32 bytes)."""
+            return p[1] != 16 or 6 not in p[7] or (isinstance(p[7][6], bytes) and len(p[7][6]) == 32)
+
+        def rules(p):
+            """Every rule of section 5 that refuses these record statements:
+            the version rules of v0.10, and the generic lifecycle's."""
+            body, fails = p[7], []
+            if p[1] == 16:
+                kind = body[1]
+                if kind.startswith(RESERVED_PREFIX) and kind not in MECHANISM_TYPES:
+                    fails.append("reserved type")
+                if 6 in body:
+                    if kind in MECHANISM_TYPES:
+                        fails.append("mechanism")
+                    old = records.get(body[6])
+                    if old is None:
+                        fails.append("no such record")
+                    else:
+                        if old["type"] in MECHANISM_TYPES:
+                            fails.append("mechanism")
+                        if old["superseded_by"] is not None:
+                            fails.append("superseded")
+                        scope = scopes.get(p.get(4))
+                        if scope is not None and 2 in scope and old["type"] not in scope[2]:
+                            fails.append("scope")
+                return fails
+            if p[1] not in (17, 19):
+                return fails
+            record = records.get(body[1])
+            if record is None:
+                return ["no such record"]
+            if record["revoked"]:
+                fails.append("revoked")
+            if p[1] == 17 and any(a == p[3] and role == body[2] for a, role, _ in record["endorsements"]):
+                fails.append("repeated")
+            return fails
+
+        def add(name, signer, p):
+            """Registers the statement now, under the rules; the clock then
+            moves a minute on."""
+            assert well_formed(p) and rules(p) == [], (name, rules(p))
+            encoded, statement_id = lg.statement(keys[signer], p)
+            index = len(statements)
+            statements.append({"name": name, "signer": signer, "encoded": encoded.hex(), "payload": dcbor(p).hex(),
+                               "statement_id": statement_id.hex(), "registered_at": clock[0]})
+            clock[0] += minute
+            body = p[7]
+            if p[1] in (1, 2):
+                actors[statement_id] = [index]
+            elif p[1] == 5:
+                delegations[statement_id] = [index]
+                scopes[statement_id] = body[2]
+            elif p[1] == 16:
+                initial = MECHANISM_TYPES[body[1]][0] if body[1] in MECHANISM_TYPES else "registered"
+                records[statement_id] = {"type": body[1], "state": initial, "revoked": False, "endorsements": [],
+                                         "history": [index], "registrant": p[3], "supersedes": body.get(6),
+                                         "superseded_by": None}
+                if 6 in body:
+                    # A statement about both records.
+                    old = records[body[6]]
+                    old["superseded_by"] = statement_id
+                    old["history"].append(index)
+            elif p[1] in (17, 19):
+                record = records[body[1]]
+                record["history"].append(index)
+                if p[1] == 17:
+                    record["endorsements"].append((p[3], body[2], index))
+                else:
+                    record["revoked"] = True
+            return statement_id
+
+        def refuse(name, signer, p, why):
+            """`malformed` when the statement breaks the CDDL, so it does not
+            even parse; otherwise the rules refuse it after the statements so
+            far, at `at`, for the one rule `why` names."""
+            malformed = why == "malformed"
+            if malformed:
+                assert not well_formed(p), name
+            else:
+                assert well_formed(p) and rules(p) == [why], (name, rules(p))
+            encoded, _ = lg.statement(keys[signer], p)
+            refused.append({"name": name, "signer": signer, "encoded": encoded.hex(), "payload": dcbor(p).hex(),
+                            "after": len(statements), "at": clock[0], "malformed": malformed, "why": why})
+
+        def fields(*values):
+            leaves = [dcbor([name, bytes([0xC0 + i]) * 16, value])
+                      for i, (name, value) in enumerate(sorted(values, key=lambda f: f[0].encode()))]
+            return lg.merkle().mth(leaves), len(leaves)
+
+        def form(version, kind, signer_actor, delegation, supersedes=None):
+            root, count = fields(("text", f"the form, version {version}"), ("issued", f"2026-11-0{version}"))
+            body = {1: kind, 2: root, 3: count, 5: {"title": "Day student application", "version": version}}
+            if supersedes is not None:
+                body[6] = supersedes
+            return payload(signer_actor, 16, body, delegation)
+
+        ledger_id = None
+        ledger_id = add("genesis", "org_root", payload(None, 1, {
+            1: hash_id, 2: "Example School", 3: ed_public(keys["org_root"]), 4: ed_public(keys["log"])}))
+        org = ledger_id
+        clerk = add("register the clerk", "org_root", payload(org, 2, {1: 1, 2: "Clerk", 3: ed_public(keys["clerk"])}))
+        typist = add("register the typist", "org_root", payload(org, 2, {
+            1: 1, 2: "Typist", 3: ed_public(keys["typist"])}))
+        clerks = add("delegate both forms to the clerk", "org_root", payload(org, 5, {
+            1: clerk, 2: {1: [16, 17, 19], 2: [FORM_1, FORM_2]}}))
+        typists = add("delegate only the second form to the typist", "org_root", payload(org, 5, {
+            1: typist, 2: {1: [16], 2: [FORM_2]}}))
+
+        # A chain of versions, across two types.
+        v1 = add("register version 1", "clerk", form(1, FORM_1, clerk, clerks))
+        v2 = add("version 2 supersedes version 1", "clerk", form(2, FORM_1, clerk, clerks, v1))
+        refuse("supersede version 1 again", "clerk", form(9, FORM_2, clerk, clerks, v1), "superseded")
+        refuse("the typist supersedes version 2, of a type outside its scope", "typist",
+               form(3, FORM_2, typist, typists, v2), "scope")
+        v3 = add("version 3, of the second type, supersedes version 2", "clerk", form(3, FORM_2, clerk, clerks, v2))
+        # A superseded record keeps its lifecycle: endorsed and revoked later.
+        add("endorse version 1 after it was superseded", "clerk", payload(clerk, 17, {1: v1, 2: "archivist"}, clerks))
+        add("revoke version 3", "org_root", payload(org, 19, {1: v3, 2: "printed with the wrong date"}))
+        # A revoked record can still be superseded, here by the organization.
+        v4 = add("the organization's version 4 supersedes the revoked version 3", "org_root",
+                 form(4, FORM_2, org, None, v3))
+        add("revoke version 1 after it was superseded", "org_root", payload(org, 19, {1: v1, 2: "archived"}))
+        refuse("supersede version 1, revoked and superseded, again", "org_root", form(8, FORM_2, org, None, v1),
+               "superseded")
+        refuse("supersede a record that does not exist", "clerk",
+               form(5, FORM_2, clerk, clerks, lg.h(b"no such record")), "no such record")
+        refuse("supersede with an id of 16 bytes", "clerk", form(5, FORM_2, clerk, clerks, bytes(16)), "malformed")
+
+        # The mechanism types take no part.
+        root, count = fields(("note", "approve the booking"),)
+        consent_body = {1: CONTRACT_CONSENT, 2: root, 3: count, 5: {
+            "ledger": peer, "instance": lg.h(b"instance"), "function": "approve", "head": 4,
+            "arguments": lg.h(dcbor(None)), "until": t0 + 7 * day}}
+        consent = add("register a contract consent", "org_root", payload(org, 16, consent_body))
+        refuse("a form supersedes the consent", "org_root", form(5, FORM_2, org, None, consent), "mechanism")
+        refuse("a consent supersedes version 4", "org_root", payload(org, 16, {**consent_body, 6: v4}),
+               "mechanism")
+        v5 = add("version 5 supersedes version 4", "clerk", form(5, FORM_2, clerk, clerks, v4))
+
+        entries = [encode_log_entry(bytes.fromhex(st["statement_id"]), st["registered_at"], bytes.fromhex(st["encoded"]))
+                   for st in statements]
+        leaves = [[1, a, h] for a, h in actors.items()] + [[2, d, h] for d, h in delegations.items()] + \
+                 [[3, r, v["history"]] for r, v in records.items()]
+        sorted_leaves = sorted(leaves, key=lambda leaf: leaf[1])
+        commitment_index = len(entries)
+        commitment_time = clock[0]
+        commitment_id = append_state_commitment(lg, keys["log"], ledger_id, entries, sorted_leaves, commitment_time)
+        checkpoint_time = commitment_time + 1000
+        checkpoint, _ = sign_log_checkpoint(lg, keys["log"], ledger_id, entries, checkpoint_time)
+
+        ledgers.append({
+            "hash": hash_id,
+            "ledger_id": ledger_id.hex(),
+            "statements": statements,
+            "refused": refused,
+            "versions": [v.hex() for v in (v1, v2, v3, v4, v5)],
+            "records": [{"id": r.hex(), "type": v["type"], "state": v["state"], "revoked": v["revoked"],
+                         "registrant": v["registrant"].hex(), "history": v["history"],
+                         "supersedes": v["supersedes"].hex() if v["supersedes"] else None,
+                         "superseded_by": v["superseded_by"].hex() if v["superseded_by"] else None,
+                         "endorsements": [{"actor": a.hex(), "role": role, "index": i}
+                                          for a, role, i in v["endorsements"]]}
+                        for r, v in records.items()],
+            "log_entries": [e.hex() for e in entries],
+            "state_leaves": [{"kind": leaf[0], "id": leaf[1].hex(), "history": leaf[2]} for leaf in sorted_leaves],
+            "state_root": smt_root(lg, sorted_leaves).hex(),
+            "state_commitment": {"index": commitment_index, "id": commitment_id.hex()},
+            "checkpoint": checkpoint.hex(),
+            "checkpoint_time": checkpoint_time,
+        })
+
+    document = {
+        "description": "CexChain protocol objects of specification revision v0.10 (versions), built by an "
+                       "independent Python encoder from spec/cexchain.cddl. A school's ledger registers a clerk, "
+                       "delegated record statements on both of its form types (example.org.form/1 and /2), and a "
+                       "typist, delegated registrations of the second type only. Five versions of a form form "
+                       "one chain (`versions`, oldest first): each registration names the record it supersedes "
+                       "(key 6), across the two types; version 1 is endorsed and revoked after it was "
+                       "superseded; version 3 is revoked, and the organization's version 4 supersedes it all "
+                       "the same. The superseding registration is in both records' histories, so the state "
+                       "leaves list it twice. `refused` statements either break the CDDL (`malformed`: an id of "
+                       "16 bytes in key 6) or are validated against the state after the first `after` "
+                       "statements, at `at`, and break exactly one rule, which `why` names: \"superseded\" (the "
+                       "record has a newer version already), \"scope\" (the signer's delegation does not cover "
+                       "the superseded record's type), \"no such record\", \"mechanism\" (a mechanism type, "
+                       "here a contract consent, on either side). `records` gives each record's type, state, "
+                       "revocation, registrant, history, endorsements, and the records it supersedes and that "
+                       "superseded it. `log_entries` holds the whole log, ending with the state commitment over "
+                       "`state_leaves`; `checkpoint` (signed at `checkpoint_time`) covers it. Signatures are "
+                       "Ed25519 (deterministic); keys are throwaway: seed = SHA-256(\"CexChain test key: "
+                       "<name>\").",
+        "t0": t0,
+        "seeds": seeds,
+        "ledgers": ledgers,
+    }
+    (OUT / "protocol-v0.10.json").write_text(json.dumps(document, indent=1) + "\n")
+    first = ledgers[0]
+    reasons = sorted({r["why"] for r in first["refused"]})
+    print(f"wrote protocol vectors for {len(ledgers)} ledgers to testvectors/protocol-v0.10.json: "
+          f"{len(first['statements'])} statements, {len(first['refused'])} refused ({', '.join(reasons)}), "
+          f"{len(first['records'])} records")
+
+
+# ---------------------------------------------------------------------------
 # Contract execution (spec section 14): the deterministic WebAssembly profile,
 # from the independent reference interpreter in wasm_ref.py
 # ---------------------------------------------------------------------------
@@ -3714,6 +3953,7 @@ def main() -> None:
     generate_protocol_v07()
     generate_protocol_v08()
     generate_protocol_v09()
+    generate_protocol_v10()
     generate_vm_v1()
 
 

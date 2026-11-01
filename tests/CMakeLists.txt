@@ -36,6 +36,7 @@ add_executable(cexchain_tests
     core/protocol_v07_test.cpp
     core/protocol_v08_test.cpp
     core/protocol_v09_test.cpp
+    core/protocol_v010_test.cpp
     core/exchange_test.cpp
     core/vm_test.cpp
     crypto/openssl_test.cpp
@@ -227,6 +228,8 @@ add_test(NAME executor_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/executor.sh $<TARGET_FILE:cexchain>)
 add_test(NAME files_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/files.sh $<TARGET_FILE:cexchain>)
+add_test(NAME versions_end_to_end
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/versions.sh $<TARGET_FILE:cexchain>)
 add_test(NAME client_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/client.sh $<TARGET_FILE:cexchain>)
 add_test(NAME cluster_end_to_end
