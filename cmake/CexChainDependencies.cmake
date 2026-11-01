@@ -85,6 +85,43 @@ if(NOT EMSCRIPTEN AND NOT CEXCHAIN_CORE_ONLY)
     target_compile_features(cexchain_qrcodegen PUBLIC cxx_std_11)
 endif()
 
+# SQLite (public domain): the search index, derived from the log and
+# rebuilt from it at will (never the ledger's truth). The amalgamation, built
+# here as a C library with FTS5 (text search, its trigram tokenizer for
+# Chinese), and none of the project's warnings.
+if(NOT EMSCRIPTEN AND NOT CEXCHAIN_CORE_ONLY)
+    # The C compiler of the C++ compiler's family (clang++-23 with clang-23,
+    # g++-16 with gcc-16), so that sanitizers and libFuzzer flags fit both.
+    if(NOT CMAKE_C_COMPILER AND NOT DEFINED ENV{CC})
+        get_filename_component(_cexchain_cxx "${CMAKE_CXX_COMPILER}" NAME)
+        get_filename_component(_cexchain_dir "${CMAKE_CXX_COMPILER}" DIRECTORY)
+        string(REGEX REPLACE "clang\\+\\+" "clang" _cexchain_c "${_cexchain_cxx}")
+        string(REGEX REPLACE "g\\+\\+" "gcc" _cexchain_c "${_cexchain_c}")
+        string(REGEX REPLACE "^c\\+\\+" "cc" _cexchain_c "${_cexchain_c}")
+        if(_cexchain_dir AND EXISTS "${_cexchain_dir}/${_cexchain_c}")
+            set(CMAKE_C_COMPILER "${_cexchain_dir}/${_cexchain_c}")
+        endif()
+    endif()
+    enable_language(C)
+    FetchContent_Declare(sqlite
+        URL https://www.sqlite.org/2026/sqlite-amalgamation-3540100.zip
+        URL_HASH SHA3_256=92281c86e2957f9b9305890f9ac04204caa7b677cc868dc326d942689df28e30
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    FetchContent_MakeAvailable(sqlite)
+    add_library(cexchain_sqlite STATIC "${sqlite_SOURCE_DIR}/sqlite3.c")
+    target_include_directories(cexchain_sqlite SYSTEM PUBLIC "${sqlite_SOURCE_DIR}")
+    target_compile_definitions(cexchain_sqlite PRIVATE
+        SQLITE_ENABLE_FTS5 SQLITE_THREADSAFE=1 SQLITE_DQS=0 SQLITE_OMIT_LOAD_EXTENSION
+        SQLITE_DEFAULT_WAL_SYNCHRONOUS=1 SQLITE_LIKE_DOESNT_MATCH_BLOBS
+        SQLITE_OMIT_DEPRECATED SQLITE_OMIT_SHARED_CACHE SQLITE_USE_ALLOCA)
+    target_compile_options(cexchain_sqlite PRIVATE -w)
+    find_package(Threads REQUIRED)
+    target_link_libraries(cexchain_sqlite PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
+    if(UNIX AND NOT APPLE)
+        target_link_libraries(cexchain_sqlite PUBLIC m)
+    endif()
+endif()
+
 if(CEXCHAIN_BUILD_TESTS)
     FetchContent_Declare(Catch2
         URL https://github.com/catchorg/Catch2/archive/refs/tags/v3.16.0.tar.gz

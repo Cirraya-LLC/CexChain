@@ -494,3 +494,16 @@ section.focused {
 .notice.replaced {
     border-left: 4px solid var(--danger);
 }
+
+/* A search's fields, side by side where they fit. */
+form.search {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    align-items: flex-end;
+    margin: 1rem 0;
+}
+
+form.search .field {
+    margin: 0;
+}

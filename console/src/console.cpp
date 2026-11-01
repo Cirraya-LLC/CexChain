@@ -462,6 +462,18 @@ http::Response Console::route(const http::Request& request) const {
         return ready() ? settings_route(request)
                        : error(503, "unavailable", "this console keeps no users or sessions");
     }
+    if (request.path == "/console/api/search/records" ||
+        request.path == "/console/api/search/instances" ||
+        request.path == "/console/api/reports/records" ||
+        request.path == "/console/api/reports/instances") {
+        if (request.method != "GET") {
+            http::Response refused = error(405, "unsupported", "method not allowed");
+            refused.headers.emplace_back("Allow", "GET");
+            return refused;
+        }
+        return ready() ? search_route(request)
+                       : error(503, "unavailable", "this console keeps no users or sessions");
+    }
     if (request.path == "/console/api/home" || request.path == "/console/api/things") {
         if (request.method != "GET") {
             http::Response refused = error(405, "unsupported", "method not allowed");

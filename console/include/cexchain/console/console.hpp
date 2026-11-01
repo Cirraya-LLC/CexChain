@@ -43,6 +43,10 @@
 /// binary; the headers every answer carries; and the checks every request
 /// passes before anything else (its Host and its Origin). The node serves it
 /// beside its API, through `node::ApiOptions::console`.
+namespace cexchain::search {
+class Index;
+}
+
 namespace cexchain::console {
 
 namespace http = node::http;
@@ -212,6 +216,12 @@ public:
         const std::lock_guard lock(api_mutex_);
         ledger_ = ledger;
     }
+    /// The node's search index (node::LedgerApi::search_index), for
+    /// searches and reports: none answers them 503.
+    void set_search(search::Index* index) {
+        const std::lock_guard lock(api_mutex_);
+        search_ = index;
+    }
 
     /// Registers a signed statement on the node's ledger, answering as
     /// POST /v1/statements would (through the callback): `body` is the signed
@@ -358,6 +368,10 @@ private:
     [[nodiscard]] http::Response session_route(const http::Request& request) const;
     [[nodiscard]] http::Response home_route(const Signed& who) const;
     [[nodiscard]] http::Response things_route(const http::Request& request) const;
+    /// GET /console/api/search/records|instances and
+    /// /console/api/reports/records|instances: the node API's query
+    /// parameters; reports also as CSV (format=csv).
+    [[nodiscard]] http::Response search_route(const http::Request& request) const;
     [[nodiscard]] http::Response settings_route(const http::Request& request) const;
     [[nodiscard]] http::Response kinds_route(const http::Request& request) const;
     /// /console/api/rules/...: the compiler on a sheet or a source.
@@ -604,6 +618,10 @@ private:
         const std::lock_guard lock(api_mutex_);
         return ledger_;
     }
+    [[nodiscard]] search::Index* search_index() const {
+        const std::lock_guard lock(api_mutex_);
+        return search_;
+    }
     [[nodiscard]] Submit submitter() const {
         const std::lock_guard lock(api_mutex_);
         return submit_;
@@ -633,6 +651,7 @@ private:
 
     mutable std::mutex api_mutex_;
     const ledger::Ledger* ledger_ = nullptr;
+    search::Index* search_ = nullptr;
     Submit submit_;
     NodeApi node_api_;
     Checkpointer checkpointer_;

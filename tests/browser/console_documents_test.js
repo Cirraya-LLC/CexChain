@@ -228,10 +228,29 @@ async function waitRunning() {
     await page.getByRole("link", { name: "Open the latest version" }).click();
     await page.getByText("Kowloon Bay").waitFor();
     await page.getByText(/\(this one\)/).waitFor();
-    // The list leaves the old version out until asked.
+    // The list leaves the old version out until asked; it searches by kind
+    // through the node's index.
     await page.getByRole("link", { name: "Things" }).click();
-    await page.getByRole("button", { name: "Show older versions (1)" }).click();
+    const rowsOfFirstTable = (n) => page.waitForFunction((count) =>
+      document.querySelector("main table")?.querySelectorAll("tbody tr").length === count, n);
+    await page.locator("#search-kind").selectOption("example.org.photo/1");
+    await page.getByRole("button", { name: "Search", exact: true }).first().click();
+    await rowsOfFirstTable(1);
+    assert.equal(await page.getByRole("cell", { name: "superseded" }).count(), 0);
+    await page.locator("#search-old").check();
+    await page.getByRole("button", { name: "Search", exact: true }).first().click();
+    await rowsOfFirstTable(2);
     await page.getByRole("cell", { name: "superseded" }).waitFor();
+    // Reports: counted by kind and state, and as a CSV file.
+    await page.getByRole("link", { name: "Reports" }).click();
+    await page.getByRole("heading", { name: "Reports", level: 1 }).waitFor();
+    await page.getByRole("table", { name: "Documents by kind and state" })
+      .getByRole("cell", { name: "example.org.photo/1" }).waitFor();
+    const reporting = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download as CSV" }).first().click();
+    const reportFile = path.join(work, "report.csv");
+    await (await reporting).saveAs(reportFile);
+    assert.equal(fs.readFileSync(reportFile, "utf8"), "type,state,count\r\nexample.org.photo/1,registered,2\r\n");
     // Its proof now says so, here and on the standalone page.
     await page.evaluate((id) => { location.hash = `#/thing/${id}`; }, record);
     await page.getByRole("button", { name: "Share proof" }).click();

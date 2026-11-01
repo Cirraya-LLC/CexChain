@@ -25,7 +25,7 @@ add_library(cexchain_node
 add_library(cexchain::node ALIAS cexchain_node)
 target_include_directories(cexchain_node PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 target_link_libraries(cexchain_node
-    PUBLIC cexchain::ledger
+    PUBLIC cexchain::ledger cexchain::search
     PRIVATE cexchain_asio cexchain_nuraft OpenSSL::SSL nlohmann_json::nlohmann_json)
 # The ledger's record checksum, for the Raft log.
 target_include_directories(cexchain_node PRIVATE "${PROJECT_SOURCE_DIR}/ledger/src")

@@ -23,6 +23,9 @@ cexchain_add_fuzzer(webauthn_registration_fuzz cexchain::crypto_openssl)
 cexchain_add_fuzzer(vm_fuzz cexchain::crypto_openssl)
 cexchain_add_fuzzer(contract_parse_fuzz cexchain::crypto_openssl cexchain::verifier
     cexchain::ledger)
+# Searches and reports from untrusted query parameters, run against an index.
+cexchain_add_fuzzer(search_query_fuzz cexchain::crypto_openssl cexchain::ledger cexchain::search)
+target_compile_features(search_query_fuzz PRIVATE cxx_std_26)
 # The check without building against the decoder, and contract outputs and
 # inputs from bytes against the trees (tests/support).
 cexchain_add_fuzzer(cbor_validate_fuzz)

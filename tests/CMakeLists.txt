@@ -66,7 +66,8 @@ add_executable(cexchain_tests
     node/executor_test.cpp
     node/http_test.cpp
     node/keeper_api_test.cpp
-    console/console_test.cpp)
+    console/console_test.cpp
+    search/index_test.cpp)
 
 target_link_libraries(cexchain_tests PRIVATE
     cexchain::console
@@ -74,6 +75,7 @@ target_link_libraries(cexchain_tests PRIVATE
     cexchain::crypto_openssl
     cexchain::ledger
     cexchain::node
+    cexchain::search
     cexchain::verifier
     Catch2::Catch2WithMain
     nlohmann_json::nlohmann_json
@@ -230,6 +232,8 @@ add_test(NAME files_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/files.sh $<TARGET_FILE:cexchain>)
 add_test(NAME versions_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/versions.sh $<TARGET_FILE:cexchain>)
+add_test(NAME search_end_to_end
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/search.sh $<TARGET_FILE:cexchain>)
 add_test(NAME client_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/client.sh $<TARGET_FILE:cexchain>)
 add_test(NAME cluster_end_to_end
@@ -306,6 +310,7 @@ endif()
 # most need the compiler.
 set(bench_smoke
     "ledger\;--entries\;300\;--checkpoint-every\;100"
+    "search\;--records\;2000\;--repeat\;2"
     "http\;--mode\;submit\;--requests\;100\;--connections\;4\;--server-threads\;1\;--client-threads\;1"
     "executor\;--requests\;3"
     "executor\;--requests\;3\;--connector\;webhook\;--concurrency\;2")

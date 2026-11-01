@@ -29,6 +29,8 @@
 #include <cexchain/core/protocol/record_types.hpp>
 #include <cexchain/node/contracts.hpp>
 #include <cexchain/node/peers.hpp>
+#include <cexchain/search/index.hpp>
+#include <cexchain/search/query.hpp>
 
 #include "commands.hpp"
 #include "contracts.hpp"
@@ -520,6 +522,130 @@ private:
                                      {"roles", roles}});
                 }
                 return json{{"record_types", types}};
+            });
+
+        // Searches and reports: the HTTP API's query parameters, as an object
+        // of strings (search/query.hpp spells them).
+        const json query_schema{
+            {"type", "object"},
+            {"additionalProperties", {{"type", "string"}}},
+            {"description",
+             "Query parameters, all strings. Records: type, state, registrant (actor id, 64 hex), "
+             "since, until (YYYY-MM-DD or milliseconds), current (\"1\": leave out superseded "
+             "versions), revoked (no, yes, any), meta.KEY (a public metadata value), "
+             "meta.KEY.min, meta.KEY.max (numbers), q (text in public metadata). Things under "
+             "contracts: contract (id), contract_name, status, final (1 or 0), party (ledger id), "
+             "since, until, changed_since, reference, field.NAME, field.NAME.min, field.NAME.max. "
+             "Pages: limit (1 to 1000), cursor (the answer's next), order (new or old). Reports: "
+             "by (comma-separated: type, state, registrant, contract, day, week, month), "
+             "utc_offset (+08:00), sum (a number field, things only)."}};
+        auto search_params = [](const json& arguments) {
+            search::Params params;
+            if (arguments.contains("query")) {
+                if (!arguments["query"].is_object()) {
+                    throw ToolError{"query is an object of strings"};
+                }
+                for (const auto& [name, value] : arguments["query"].items()) {
+                    if (!value.is_string()) {
+                        throw ToolError{"query values are strings: " + name};
+                    }
+                    params.emplace_back(name, value.get<std::string>());
+                }
+            }
+            return params;
+        };
+        auto open_index = [](Session& session) {
+            auto index =
+                search::Index::open(session.ledger(), search::Index::file_for(session.directory()));
+            if (!index) {
+                throw ToolError{std::string(index.error().detail)};
+            }
+            if (auto updated = (*index)->update(); !updated) {
+                throw ToolError{std::string(updated.error().detail)};
+            }
+            return std::move(*index);
+        };
+        auto refused = [](const std::string& problem) {
+            return ToolError{problem};
+        };
+
+        add("cexchain_search_records",
+            "Find records by what the ledger holds in the clear: type, state, who registered "
+            "them, when, whether a newer version superseded them, and their public metadata "
+            "(never private field values). Newest first, a page at a time. The search index is "
+            "a hint: verify a record's evidence before relying on it.",
+            {{"query", query_schema}}, json::array(), read_only,
+            [this, search_params, open_index, refused](const Tool&, const json& arguments) {
+                const auto q = search::parse_record_search(search_params(arguments));
+                if (const auto* problem = std::get_if<std::string>(&q)) {
+                    throw refused(*problem);
+                }
+                Session session(args_);
+                const auto& s = std::get<search::RecordSearch>(q);
+                auto page = open_index(session)->records(s.filter, s.page);
+                if (!page) {
+                    throw ToolError{std::string(page.error().detail)};
+                }
+                return search::to_json(*page);
+            });
+
+        add("cexchain_search_instances",
+            "Find things under contracts (contract instances) by contract or its name, state, a "
+            "party's ledger, when they were created or last called, the creating call's "
+            "reference, and the fields of their state, exactly or as a number range.",
+            {{"query", query_schema}}, json::array(), read_only,
+            [this, search_params, open_index, refused](const Tool&, const json& arguments) {
+                const auto q = search::parse_instance_search(search_params(arguments));
+                if (const auto* problem = std::get_if<std::string>(&q)) {
+                    throw refused(*problem);
+                }
+                Session session(args_);
+                const auto& s = std::get<search::InstanceSearch>(q);
+                auto page = open_index(session)->instances(s.filter, s.page);
+                if (!page) {
+                    throw ToolError{std::string(page.error().detail)};
+                }
+                return search::to_json(*page);
+            });
+
+        add("cexchain_report",
+            "Count records or things under contracts, grouped (by type, state, registrant, "
+            "contract, day, week, or month), with the same filters as the searches; for things, "
+            "also the total, least, and greatest of a number field (sum).",
+            {{"of",
+              {{"type", "string"},
+               {"enum", json::array({"records", "instances"})},
+               {"description", "What to count."}}},
+             {"query", query_schema}},
+            json::array({"of"}), read_only,
+            [this, search_params, open_index, refused](const Tool&, const json& arguments) {
+                const std::string of = text_arg(arguments, "of");
+                if (of != "records" && of != "instances") {
+                    throw ToolError{"of is records or instances"};
+                }
+                Session session(args_);
+                const search::Params params = search_params(arguments);
+                Result<search::Report> report =
+                    std::unexpected(Error{Errc::unavailable, "no report"});
+                if (of == "records") {
+                    const auto q = search::parse_record_report(params);
+                    if (const auto* problem = std::get_if<std::string>(&q)) {
+                        throw refused(*problem);
+                    }
+                    const auto& s = std::get<search::RecordReport>(q);
+                    report = open_index(session)->report(s.filter, s.report);
+                } else {
+                    const auto q = search::parse_instance_report(params);
+                    if (const auto* problem = std::get_if<std::string>(&q)) {
+                        throw refused(*problem);
+                    }
+                    const auto& s = std::get<search::InstanceReport>(q);
+                    report = open_index(session)->report(s.filter, s.report);
+                }
+                if (!report) {
+                    throw ToolError{std::string(report.error().detail)};
+                }
+                return search::to_json(*report);
             });
 
         add("cexchain_get_record",

@@ -138,6 +138,55 @@ std::vector<OptionSpec> with(std::vector<OptionSpec> options) {
     return options;
 }
 
+/// The filters of searches and reports (search/query.hpp spells them).
+std::vector<OptionSpec> record_filters(std::vector<OptionSpec> extra) {
+    std::vector<OptionSpec> options{
+        ledger_option,
+        {"type", "TYPE", "Only records of this type"},
+        {"state", "STATE", "Only records in this state"},
+        {"registrant", "ACTOR", "Only records this actor registered"},
+        {"since", "TIME", "Registered at or after TIME (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ, UTC)"},
+        {"until", "TIME", "Registered before TIME"},
+        {"current", "", "Leave out records a newer version superseded"},
+        {"revoked", "yes|any", "Only revoked records, or revoked ones too (left out by default)"},
+        {"meta", "KEY=VALUE", "A public metadata value, exactly", false, true},
+        {"meta-min", "KEY=N", "A public metadata number of at least N", false, true},
+        {"meta-max", "KEY=N", "A public metadata number of at most N", false, true},
+        {"text", "TEXT", "Text in the public metadata's values (any part of a word)"}};
+    options.insert(options.end(), extra.begin(), extra.end());
+    return options;
+}
+
+std::vector<OptionSpec> instance_filters(std::vector<OptionSpec> extra) {
+    std::vector<OptionSpec> options{
+        ledger_option,
+        {"contract", "CONTRACT", "Only instances of this contract"},
+        {"contract-name", "NAME", "Only instances of contracts deployed with this name"},
+        {"status", "STATE", "Only instances in this state"},
+        {"final", "yes|no", "Only final instances, or only those still open"},
+        {"party", "LEDGER", "Only instances with this ledger (its id) among their parties"},
+        {"since", "TIME", "Created at or after TIME (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ, UTC)"},
+        {"until", "TIME", "Created before TIME"},
+        {"changed-since", "TIME", "Called at or after TIME"},
+        {"reference", "REF", "Created by a call with this reference"},
+        {"field", "NAME=VALUE",
+         "A field of the instance's state, exactly (yes/no as true or false)", false, true},
+        {"field-min", "NAME=N", "A number field of at least N", false, true},
+        {"field-max", "NAME=N", "A number field of at most N", false, true}};
+    options.insert(options.end(), extra.begin(), extra.end());
+    return options;
+}
+
+const std::vector<OptionSpec> page_options{
+    {"limit", "N", "At most N (1 to 1000; default 100)"},
+    {"cursor", "CURSOR", "Go on from where an earlier page ended"},
+    {"oldest", "", "Oldest first (newest first by default)"}};
+
+std::vector<OptionSpec> paged(std::vector<OptionSpec> options) {
+    options.insert(options.end(), page_options.begin(), page_options.end());
+    return options;
+}
+
 std::vector<OptionSpec> signing(std::vector<OptionSpec> extra) {
     std::vector<OptionSpec> options{
         ledger_option,        as_option,        delegation_option,      model_option,
@@ -544,6 +593,97 @@ std::vector<CommandSpec> build() {
          1,
          with({ledger_option}),
          cmd_record_versions},
+        // ------------------------------------------------------------------
+        {{"search", "records"},
+         "Find records by type, state, who registered them, when, and public metadata",
+         "Search",
+         "",
+         0,
+         0,
+         paged(record_filters({})),
+         cmd_search_records,
+         "Searches the search index kept beside the ledger (search.sqlite in its\n"
+         "directory, or in a server's mirror), which this command first brings up to date\n"
+         "with the log. It holds what the ledger holds in the clear: types, states,\n"
+         "registrants, times, versions, and public metadata. Private field values are never\n"
+         "indexed; they stay sealed in the vault. Text matches any part of a metadata value\n"
+         "(three characters or more use the full-text index). A page ends with the cursor\n"
+         "of the next one. The index is a hint, not evidence: export and verify a record to\n"
+         "rely on it.\n\n"
+         "  cexchain search records --type example.school.application/1 --since 2026-11-01\n"
+         "  cexchain search records --meta class=S5B --current --json\n"
+         "  cexchain search records --text 走讀 --limit 20"},
+        {{"search", "instances"},
+         "Find things under contracts by contract, state, party, time, and their fields",
+         "Search",
+         "",
+         0,
+         0,
+         paged(instance_filters({})),
+         cmd_search_instances,
+         "Searches the search index (see search records) for contract instances: by\n"
+         "contract or its name, state, a party's ledger, when they were created or last\n"
+         "called, the reference of the call that created them, and the fields of their state\n"
+         "(a Bo contract's thing), exactly or as a number range.\n\n"
+         "  cexchain search instances --contract-name DayStudent --status counsellor_approved\n"
+         "  cexchain search instances --field class=S5B --field-min fee=500 --json"},
+        {{"report", "records"},
+         "Count records, grouped by type, state, registrant, day, week, or month",
+         "Search",
+         "",
+         0,
+         0,
+         record_filters({{"by", "GROUPS",
+                          "What to group by, comma-separated: type, state, "
+                          "registrant, day, week, month (at most four)"},
+                         {"utc-offset", "+HH:MM", "Days, weeks, and months in this UTC offset"},
+                         {"csv", "", "Write CSV instead of a table"}}),
+         cmd_report_records,
+         "Counts the records the filters select (as search records takes them), in groups.\n"
+         "Without --by, one count. Time groups are ordered by time; others by count, largest\n"
+         "first. Weeks start on Monday, named by that day.\n\n"
+         "  cexchain report records --by type,state\n"
+         "  cexchain report records --type example.school.application/1 --by day --utc-offset "
+         "+08:00\n"
+         "  cexchain report records --by month --csv > months.csv"},
+        {{"report", "instances"},
+         "Count things under contracts, grouped by contract, state, day, week, or month",
+         "Search",
+         "",
+         0,
+         0,
+         instance_filters(
+             {{"by", "GROUPS",
+               "What to group by, comma-separated: contract, state, day, week, "
+               "month (at most four)"},
+              {"sum", "FIELD", "Also the total, least, and greatest of this number field"},
+              {"utc-offset", "+HH:MM", "Days, weeks, and months in this UTC offset"},
+              {"csv", "", "Write CSV instead of a table"}}),
+         cmd_report_instances,
+         "Counts the instances the filters select (as search instances takes them), in\n"
+         "groups, and with --sum adds the total, least, and greatest of a number field of\n"
+         "their state where it has one.\n\n"
+         "  cexchain report instances --by contract,state\n"
+         "  cexchain report instances --contract-name Membership --by month --sum fee --csv"},
+        {{"index", "status"},
+         "Show the search index: how far it reached in the log, and what it holds",
+         "Search",
+         "",
+         0,
+         0,
+         with({ledger_option, {"update", "", "Bring it up to date first"}}),
+         cmd_index_status,
+         "The search index is derived from the log and kept beside it (search.sqlite).\n"
+         "Searches and reports bring it up to date first; a server keeps its own up to date\n"
+         "as it writes. Removing the file loses nothing: it is rebuilt."},
+        {{"index", "rebuild"},
+         "Rebuild the search index from the log",
+         "Search",
+         "",
+         0,
+         0,
+         with({ledger_option}),
+         cmd_index_rebuild},
         {{"record", "fields"},
          "Show a record's private field values (from the vault)",
          "Records",

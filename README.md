@@ -236,6 +236,7 @@ The `cexchain` tool controls every part of a ledger:
 | Actors | `actor add`, `actor list`, `actor show`, `actor revoke`, `actor rotate-key`, `actor set-presence`, `presence enroll` |
 | Delegations | `delegation grant`, `delegation list`, `delegation show`, `delegation revoke` |
 | Records | `record issue`, `record list`, `record show`, `record history`, `record versions`, `record fields`, `record file list\|get\|add\|remove`, `record endorse`, `record transition`, `record revoke`, `record types` |
+| Search | `search records`, `search instances`, `report records`, `report instances`, `index status`, `index rebuild` |
 | Proofs | `checkpoint create`, `checkpoint list`, `checkpoint show`, `checkpoint cosign-request`, `checkpoint add-cosignature`, `proof inclusion`, `proof consistency`, `proof state`, `receipt` |
 | Witnesses | `witness add-log`, `witness cosign`, `witness status`, `witness remove-log`; `witness register`, `witness registered`, `witness unregister` (public witnesses) |
 | Evidence | `export`, `verify`, `inspect`, `qr` |
@@ -259,6 +260,28 @@ The `cexchain` tool controls every part of a ledger:
 - `source <(cexchain completion bash)` (or `zsh`) enables tab completion.
 - IDs can be shortened to any unique prefix of 8 or more hex digits.
 - Exit codes: 0 for success, 1 for a usage error, 2 for a failure, and 3 when evidence or a ledger fails verification.
+
+### Search and reports
+
+A search index kept beside the ledger (`search.sqlite`, SQLite, rebuilt from the log whenever it is
+missing) finds records and things under contracts at scale, and counts them:
+
+```sh
+cexchain search records --type example.school.application/1 --since 2026-11-01 --current
+cexchain search records --meta class=S5B --text 走讀 --limit 20
+cexchain search instances --contract-name DayStudent --status counsellor_approved --field-min fee=500
+cexchain report records --by type,state
+cexchain report instances --by month --sum total --utc-offset +08:00 --csv > totals.csv
+```
+
+It holds only what the ledger holds in the clear: types, states, registrants, times, versions,
+public metadata, and instances' contracts, states, parties, and fields. Private field values are
+never indexed. Searches page with `--limit` and `--cursor`; text matches any part of a metadata
+value, Chinese included. A server answers the same as `GET /v1/records`, `/v1/instances`,
+`/v1/records/{id}/versions`, and `/v1/reports/records|instances` (read tokens), MCP as
+`cexchain_search_records`, `cexchain_search_instances`, and `cexchain_report`, and the web console
+on Things and Reports. Answers are hints, with the log size they reflect; evidence is what to rely
+on.
 
 Private field values never sit on disk in the clear. They are sealed with HPKE (RFC 9180: X25519,
 HKDF-SHA256, AES-256-GCM) to the ledger's vault key, and each sealed file is bound to its ledger and

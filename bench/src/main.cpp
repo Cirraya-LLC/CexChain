@@ -109,6 +109,7 @@ int main(int argc, char** argv) {
         "                               [--state DIR] [--cexchain PATH] [--in-process] [--json]\n"
         "       cexchain-bench registrar [--instances N] [--calls K] [--json]\n"
         "       cexchain-bench bo [--repeat R] [--examples DIR] [--json]\n"
+        "       cexchain-bench search [--records N] [--repeat R] [--json]\n"
         "Contracts are Bo builds (examples/lending, a bill, examples/multi-tier-split,\n"
         "examples/idc-hosting): every scenario but ledger, http, and executor needs\n"
         "the Bo compiler (a GCC 16 build).\n";
@@ -121,6 +122,9 @@ int main(int argc, char** argv) {
         const Options options(argc, argv, 2);
         if (scenario == "ledger") {
             return ledger_bench(options);
+        }
+        if (scenario == "search") {
+            return search_bench(options);
         }
         if (scenario == "http") {
             return http_bench(options);

@@ -93,5 +93,6 @@ int keeper_bench(const Options& options);
 int executor_bench(const Options& options);
 int registrar_bench(const Options& options);
 int bo_bench(const Options& options);
+int search_bench(const Options& options);
 
 } // namespace cexchain::bench

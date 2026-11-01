@@ -53,6 +53,8 @@ if(EMSCRIPTEN)
 elseif(NOT CEXCHAIN_CORE_ONLY)
     add_subdirectory(crypto/pkcs11)
     add_subdirectory(ledger)
+    # The search index: what the ledger holds in the clear, in SQLite.
+    add_subdirectory(search)
     add_subdirectory(node)
     # The Bo compiler: not in the browser (verifying a contract replays its
     # code; rebuilding it from source is the command line's job).

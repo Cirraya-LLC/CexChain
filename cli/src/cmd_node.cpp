@@ -337,6 +337,7 @@ int serve(const Args& args, const ServeDefaults& defaults) {
     auto api = unwrap(node::LedgerApi::open(options, shared_provider()), "opening the ledger");
     if (web) {
         web->set_ledger(&api->ledger());
+        web->set_search(api->search_index());
         web->set_evidence([api = api.get()](const protocol::Id& record, auto done) {
             api->record_evidence(record, std::move(done));
         });

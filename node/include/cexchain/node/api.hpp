@@ -47,6 +47,10 @@
 ///         GET /v1/contracts/calls[/{call}] (calls that concern the peer),
 ///         GET /v1/genesis (also read: the genesis entry, to follow the ledger's keys),
 ///         POST /v1/contracts/consents (a consent's evidence)
+namespace cexchain::search {
+class Index;
+}
+
 namespace cexchain::node {
 
 /// The content type of a statement sent with what is kept with it: a
@@ -182,6 +186,9 @@ public:
 
     [[nodiscard]] bool is_replica() const noexcept;
     [[nodiscard]] const ledger::Ledger& ledger() const noexcept;
+    /// The search index the server keeps beside the ledger, if it could
+    /// open one: for the node's own console. Safe from any thread.
+    [[nodiscard]] search::Index* search_index() const noexcept;
 
     struct State;
 

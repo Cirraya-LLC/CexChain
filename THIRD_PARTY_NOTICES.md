@@ -27,6 +27,7 @@ Where each component ends up:
 | JSON for Modern C++ (nlohmann/json) | 3.12.0 | MIT | <https://github.com/nlohmann/json> | `cexchain`, browser verifier (header-only, compiled in) |
 | Asio (standalone) | 1.38.2 | BSL-1.0 | <https://github.com/chriskohlhoff/asio> | `cexchain` (header-only, compiled in) |
 | NuRaft | 3.0.0 | Apache-2.0 | <https://github.com/eBay/NuRaft> | `cexchain` (linked statically) |
+| SQLite (amalgamation) | 3.54.1 | Public domain (notice below) | <https://www.sqlite.org/2026/sqlite-amalgamation-3540100.zip> | `cexchain` (linked statically): the search index |
 | QR Code generator library (C++) | 1.8.0 | MIT | <https://github.com/nayuki/QR-Code-generator> | `cexchain` (linked statically) |
 | p11-kit's PKCS #11 header (`pkcs11.h`) | from the system's p11-kit, at build time | Permissive (notice below) | <https://github.com/p11-glue/p11-kit> | `cexchain`, when built with PKCS #11 support (the Docker image is); the header's types and constants only |
 | GCC runtime (libstdc++, libgcc) | GCC 16 | GPL-3.0-or-later WITH GCC-exception-3.1 | <https://gcc.gnu.org/> | `cexchain` in the Docker image (linked statically); other builds link the system's C++ runtime dynamically |
@@ -185,3 +186,14 @@ distributor's choice (<https://www.gnu.org/licenses/gcc-exception-3.1.html>).
 Hedley (in JSON for Modern C++) and dlmalloc (in the browser verifier's Emscripten runtime)
 are dedicated to the public domain under CC0-1.0
 (<https://creativecommons.org/publicdomain/zero/1.0/>).
+
+### SQLite (public domain)
+
+The author disclaims copyright to SQLite's source code. In place of a legal notice, here is a
+blessing:
+
+> May you do good and not evil.
+> May you find forgiveness for yourself and forgive others.
+> May you share freely, never taking more than you give.
+
+(<https://www.sqlite.org/copyright.html>)

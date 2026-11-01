@@ -680,16 +680,57 @@ async function uploadFile(file) {
 }
 const yesNo = (value) => t(value ? "value.yes" : "value.no");
 
-async function thingsScreen(showOld = false) {
-    const things = await api("GET", "things");
-    const old = things.records.filter((r) => r.superseded).length;
-    const listed = showOld ? things.records : things.records.filter((r) => !r.superseded);
-    const records = table(t("things.records"), [
+/// The query string of a search or report: only the values given.
+function queryOf(values) {
+    const query = new URLSearchParams();
+    for (const [name, value] of Object.entries(values)) {
+        if (value !== undefined && value !== null && value !== "") {
+            query.set(name, value);
+        }
+    }
+    const text = query.toString();
+    return text ? `?${text}` : "";
+}
+
+/// The browser's offset from UTC, as reports take it (+08:00).
+function utcOffset() {
+    const minutes = -new Date().getTimezoneOffset();
+    const abs = Math.abs(minutes);
+    return `${minutes < 0 ? "-" : "+"}${String(Math.floor(abs / 60)).padStart(2, "0")}:${String(abs % 60).padStart(2, "0")}`;
+}
+
+const isoText = (iso) => (iso ? timeText(new Date(iso).getTime()) : "");
+
+/// Things: records and things under rules, found through the node's search
+/// index (by kind, state, text, and time, a page at a time), or the newest
+/// of each where the node keeps no index.
+async function thingsScreen() {
+    const listed = await api("GET", "kinds").catch(() => ({ kinds: [] }));
+    const rules = await api("GET", "rules").catch(() => ({ contracts: [] }));
+    const recordsArea = el("div");
+    const instancesArea = el("div");
+    const kind = el("select", { id: "search-kind" }, el("option", { value: "", text: t("search.any_kind") }),
+                    listed.kinds.map((k) => el("option", { value: k.type, text: k.name })));
+    const text = el("input", { id: "search-text", type: "search", maxlength: 200 });
+    const since = el("input", { id: "search-since", type: "date" });
+    const until = el("input", { id: "search-until", type: "date" });
+    const old = el("input", { id: "search-old", type: "checkbox" });
+    const contract = el("select", { id: "search-rules" }, el("option", { value: "", text: t("search.any_rules") }),
+                        rules.contracts.filter((c) => c.name)
+                            .map((c) => el("option", { value: c.name, text: c.name })));
+    const status = el("input", { id: "search-status", type: "text", maxlength: 200 });
+    const nextDay = (date) => (date ? new Date(new Date(`${date}T00:00:00`).getTime() + 86400000).toISOString().slice(0, 10) : "");
+    const dayStart = (date) => (date ? String(new Date(`${date}T00:00:00`).getTime()) : "");
+    const recordQuery = () => ({
+        type: kind.value, q: text.value.trim(), current: old.checked ? "" : "1",
+        since: dayStart(since.value), until: until.value ? dayStart(nextDay(until.value)) : "",
+    });
+    const recordColumns = [
         ["column.type", (r) => el("a", { href: `#/thing/${r.id}`, text: r.type })],
         ["column.state", (r) => (r.revoked ? t("value.revoked")
-                                 : r.superseded ? t("value.superseded") : r.state)],
-        ["column.registrant", (r) => r.registrant.name ?? short(r.registrant.id).text],
-        ["column.endorsements", (r) => String(r.endorsements)],
+                                 : r.superseded_by ? t("value.superseded") : r.state)],
+        ["search.public", (r) => Object.entries(r.metadata).map(([k, v]) => `${k}: ${v}`).join(", ")],
+        ["search.registered", (r) => isoText(r.registered_at)],
         ["column.id", (r) => short(r.id)],
         ...(state.who.role === "viewer" ? [] : [["column.actions", (r) => {
             const button = el("button", { type: "button", text: t("act.button"),
@@ -697,26 +738,130 @@ async function thingsScreen(showOld = false) {
             button.addEventListener("click", () => actScreen(r));
             return button;
         }]]),
-    ], listed);
-    let older = null;
-    if (old > 0) {
-        older = el("button", { type: "button", text: showOld ? t("things.hide_old")
-                                                             : t("things.show_old", { count: old }) });
-        older.addEventListener("click", () => thingsScreen(!showOld));
-    }
-    const instances = table(t("things.instances"), [
+    ];
+    const instanceColumns = [
         ["column.contract", (i) => el("a", { href: `#/instance/${i.id}`,
                                              text: i.contract_name ?? short(i.contract).text })],
         ["column.status", (i) => i.status ?? t("value.none")],
+        ["search.fields", (i) => Object.entries(i.fields).map(([k, v]) => `${k}: ${v}`).join(", ")],
         ["column.final", (i) => yesNo(i.final)],
         ["column.open_requests", (i) => String(i.open_requests)],
         ["column.id", (i) => short(i.id)],
-    ], things.instances);
+    ];
+    // A page, and "More" for the next; each search starts again.
+    const paged = async (area, caption, path, query, columns, key) => {
+        const rows = [];
+        const more = async (cursor) => {
+            const page = await api("GET", `${path}${queryOf({ ...query, limit: "50", cursor })}`);
+            rows.push(...page[key]);
+            const next = page.next
+                ? el("button", { type: "button", text: t("search.more") }) : null;
+            next?.addEventListener("click", () => more(page.next).catch(failed(area)));
+            area.replaceChildren(...table(caption, columns, rows), next ?? "");
+        };
+        await more(undefined);
+    };
+    const failed = (area) => (error) => area.replaceChildren(problem(t("error.server", { message: error.message })));
+    const searchRecords = () => paged(recordsArea, t("things.records"), "search/records", recordQuery(),
+                                      recordColumns, "records");
+    const searchInstances = () => paged(instancesArea, t("things.instances"), "search/instances",
+                                        { contract_name: contract.value, status: status.value.trim() },
+                                        instanceColumns, "instances");
+    const recordForm = el("form", { class: "search", role: "search" },
+        el("div", { class: "field" }, el("label", { for: "search-text", text: t("search.text") }), text),
+        el("div", { class: "field" }, el("label", { for: "search-kind", text: t("register.kind") }), kind),
+        el("div", { class: "field" }, el("label", { for: "search-since", text: t("search.since") }), since),
+        el("div", { class: "field" }, el("label", { for: "search-until", text: t("search.until") }), until),
+        el("label", { class: "check" }, old, " ", t("search.old_versions")),
+        el("button", { type: "submit", class: "primary", text: t("search.button") }));
+    recordForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        searchRecords().catch(failed(recordsArea));
+    });
+    const instanceForm = el("form", { class: "search", role: "search" },
+        el("div", { class: "field" }, el("label", { for: "search-rules", text: t("search.rules") }), contract),
+        el("div", { class: "field" }, el("label", { for: "search-status", text: t("column.status") }), status),
+        el("button", { type: "submit", text: t("search.button") }));
+    instanceForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        searchInstances().catch(failed(instancesArea));
+    });
     const register = state.who.role === "viewer" ? null
         : el("p", {}, el("a", { href: "#/new", class: "button", text: t("register.button") }));
-    show(el("h1", { text: t("things.title") }), el("p", { class: "hint", text: t("things.hint") }),
-         register, ...records, older, ...instances,
-         things.more ? el("p", { class: "hint", text: t("things.more") }) : null);
+    try {
+        await searchRecords();
+        await searchInstances();
+        show(el("h1", { text: t("things.title") }), el("p", { class: "hint", text: t("things.hint") }),
+             register, recordForm, recordsArea, instanceForm, instancesArea,
+             el("p", { class: "hint", text: t("search.hint") }));
+    } catch (error) {
+        if (!(error instanceof ApiError) || error.status !== 503) {
+            throw error;
+        }
+        // No index on this node: the newest of each, as before.
+        const things = await api("GET", "things");
+        show(el("h1", { text: t("things.title") }), el("p", { class: "hint", text: t("things.hint") }),
+             register, ...table(t("things.records"), recordColumns.filter(([k]) => k !== "search.public" && k !== "search.registered"), things.records),
+             ...table(t("things.instances"), instanceColumns.filter(([k]) => k !== "search.fields"), things.instances),
+             things.more ? el("p", { class: "hint", text: t("things.more") }) : null);
+    }
+}
+
+/// Reports: counts by kind and state, by day, and things by rules and
+/// state with a number field's totals; each also as a CSV file.
+async function reportsScreen() {
+    const offset = utcOffset();
+    const area = el("div");
+    const rules = await api("GET", "rules").catch(() => ({ contracts: [] }));
+    const names = new Map(rules.contracts.map((c) => [c.id, c.name ?? short(c.id).text]));
+    const keyText = (b, value) => (b === "contract" ? names.get(value) ?? short(value).text : value);
+    const group = (labels, path, query) => {
+        const box = el("section");
+        const load = async () => {
+            const report = await api("GET", `${path}${queryOf({ ...query(), utc_offset: offset })}`);
+            const summed = report.groups.some((g) => g.sum !== undefined);
+            const columns = [
+                ...report.by.map((b) => [`report.by.${b}`, (g) => keyText(b, g.key[b] ?? "")]),
+                ["report.count", (g) => String(g.count)],
+                ...(summed ? [["report.sum", (g) => String(g.sum ?? "")],
+                              ["report.min", (g) => String(g.min ?? "")],
+                              ["report.max", (g) => String(g.max ?? "")]] : []),
+            ];
+            const csv = el("button", { type: "button", text: t("report.csv") });
+            csv.addEventListener("click", () =>
+                saveDownload(`${path}${queryOf({ ...query(), utc_offset: offset, format: "csv" })}`, {},
+                             "report.csv").catch((error) =>
+                    box.append(problem(t("error.server", { message: error.message })))));
+            box.replaceChildren(...table(labels, columns, report.groups), csv,
+                                report.truncated ? el("p", { class: "hint", text: t("report.truncated") }) : "");
+        };
+        return { box, load };
+    };
+    const byKind = group(t("report.records_by_kind"), "reports/records", () => ({ by: "type,state" }));
+    const byDay = group(t("report.records_by_day"), "reports/records", () => ({ by: "day" }));
+    const sum = el("input", { id: "report-sum", type: "text", maxlength: 100 });
+    const byRules = group(t("report.things_by_rules"), "reports/instances",
+                          () => ({ by: "contract,state", sum: sum.value.trim() }));
+    const sumForm = el("form", { class: "search" },
+        el("div", { class: "field" }, el("label", { for: "report-sum", text: t("report.sum_field") }), sum,
+           el("span", { class: "hint", text: t("report.sum_hint") })),
+        el("button", { type: "submit", text: t("report.update") }));
+    sumForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        byRules.load().catch((error) => byRules.box.replaceChildren(problem(t("error.server", { message: error.message }))));
+    });
+    try {
+        await Promise.all([byKind.load(), byDay.load(), byRules.load()]);
+    } catch (error) {
+        if (error instanceof ApiError && error.status === 503) {
+            show(el("h1", { text: t("report.title") }), el("p", { text: t("report.unavailable") }));
+            return;
+        }
+        throw error;
+    }
+    area.replaceChildren(byKind.box, byDay.box, sumForm, byRules.box);
+    show(el("h1", { text: t("report.title") }),
+         el("p", { class: "hint", text: t("report.hint", { offset }) }), area);
 }
 
 // --- A thing's page, and its proof --------------------------------------------------
@@ -4123,6 +4268,7 @@ function chrome() {
         : hash.startsWith("#/parties") || hash.startsWith("#/access/") ? "parties"
         : hash.startsWith("#/people") ? "people"
         : hash.startsWith("#/automation") ? "automation"
+        : hash.startsWith("#/reports") ? "reports"
         : hash.startsWith("#/kinds") ? "kinds"
         : hash.startsWith("#/rules") ? "rules"
         : hash.startsWith("#/verify") ? "verify"
@@ -4193,6 +4339,7 @@ async function route() {
             : hash.startsWith("#/people") ? peopleScreen()
             : hash.startsWith("#/automation") ? automationScreen()
             : hash.startsWith("#/things") ? thingsScreen()
+            : hash.startsWith("#/reports") ? reportsScreen()
             : newVersion ? newDocumentScreen(newVersion[1])
             : hash.startsWith("#/new") ? newDocumentScreen()
             : hash.startsWith("#/kinds") ? kindsScreen()

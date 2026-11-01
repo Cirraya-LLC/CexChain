@@ -32,6 +32,8 @@
 #include <cexchain/node/peers.hpp>
 #include <cexchain/node/record_files.hpp>
 #include <cexchain/node/tokens.hpp>
+#include <cexchain/search/index.hpp>
+#include <cexchain/search/query.hpp>
 
 #include "files.hpp"
 #include "request_query.hpp"
@@ -262,6 +264,15 @@ enum class Endpoint {
     call_show,
     contract_consent,
     requests,
+    /// The search index's (read): GET /v1/records, /v1/records/ID,
+    /// /v1/records/ID/versions, /v1/instances, /v1/reports/records,
+    /// /v1/reports/instances.
+    record_list,
+    record_show,
+    record_versions,
+    instance_list,
+    report_records,
+    report_instances,
 };
 
 /// Where a request goes. `rest` is where the path's last segment (an id or
@@ -367,6 +378,14 @@ struct LedgerApi::State {
     std::optional<ledger::PosixFileSystem> fs;
     std::optional<ledger::Ledger> ledger;
     bool replica = false;
+    /// The search index beside the ledger (search.sqlite), kept up by its
+    /// own thread; queries catch it up first. None if it could not be
+    /// opened: its routes then answer 503, and nothing else changes.
+    std::unique_ptr<search::Index> search_index;
+    std::thread indexer;
+    std::mutex indexer_mutex;
+    std::condition_variable indexer_wake;
+    bool indexer_stopping = false;
 
     /// Set once the ledger's files hold something that does not validate:
     /// every route but /healthz then answers 503.
@@ -512,6 +531,9 @@ struct LedgerApi::State {
     ~State() { stop(); }
 
     void start() {
+        if (search_index) {
+            indexer = std::thread([this] { run_indexer(); });
+        }
         writer = std::thread([this] { run_writer(); });
         if (options.keeper && !replica && !options.read_only) {
             keeper_thread = std::thread([this] { run_keeper(); });
@@ -531,7 +553,36 @@ struct LedgerApi::State {
         });
     }
 
+    /// Follows the log: what the writer committed goes into the index
+    /// within a second; a long catch-up (a new index of a large ledger)
+    /// goes on a second at a time, so that queries get their turn.
+    void run_indexer() {
+        for (;;) {
+            {
+                std::unique_lock lock(indexer_mutex);
+                indexer_wake.wait_for(lock, std::chrono::milliseconds(500),
+                                      [&] { return indexer_stopping; });
+                if (indexer_stopping) {
+                    return;
+                }
+            }
+            if (search_index->as_of() < ledger->size()) {
+                if (auto updated = search_index->update(std::chrono::seconds(1)); !updated) {
+                    event("search_index_failed", updated.error().detail);
+                }
+            }
+        }
+    }
+
     void stop() {
+        {
+            const std::lock_guard lock(indexer_mutex);
+            indexer_stopping = true;
+        }
+        indexer_wake.notify_all();
+        if (indexer.joinable()) {
+            indexer.join();
+        }
         // The keeper first: its slice may wait for the writer.
         {
             const std::lock_guard lock(keeper_mutex);
@@ -1116,6 +1167,97 @@ struct LedgerApi::State {
     }
 
     // ---- routes --------------------------------------------------------
+
+    /// The search index's routes: hints from what the ledger holds in the
+    /// clear, never evidence; each answer names the log size it reflects.
+    http::Response search_route(const http::Request& r, Endpoint endpoint,
+                                std::string_view rest) const {
+        if (!search_index) {
+            return error_response(503, "unavailable", "this server has no search index");
+        }
+        // Read your own writes: catch up first, for at most two seconds.
+        if (search_index->as_of() < ledger->size()) {
+            static_cast<void>(search_index->update(std::chrono::seconds(2)));
+        }
+        const search::Params params(r.query.begin(), r.query.end());
+        auto bad = [](const std::string& problem) {
+            return json_response(400,
+                                 {{"error", {{"code", "invalid_argument"}, {"message", problem}}}});
+        };
+        auto answer = [](const auto& result) {
+            return result ? json_response(200, search::to_json(*result))
+                          : error_response(result.error());
+        };
+        switch (endpoint) {
+        case Endpoint::record_list: {
+            const auto q = search::parse_record_search(params);
+            if (const auto* problem = std::get_if<std::string>(&q)) {
+                return bad(*problem);
+            }
+            const auto& s = std::get<search::RecordSearch>(q);
+            return answer(search_index->records(s.filter, s.page));
+        }
+        case Endpoint::instance_list: {
+            const auto q = search::parse_instance_search(params);
+            if (const auto* problem = std::get_if<std::string>(&q)) {
+                return bad(*problem);
+            }
+            const auto& s = std::get<search::InstanceSearch>(q);
+            return answer(search_index->instances(s.filter, s.page));
+        }
+        case Endpoint::report_records: {
+            const auto q = search::parse_record_report(params);
+            if (const auto* problem = std::get_if<std::string>(&q)) {
+                return bad(*problem);
+            }
+            const auto& s = std::get<search::RecordReport>(q);
+            return answer(search_index->report(s.filter, s.report));
+        }
+        case Endpoint::report_instances: {
+            const auto q = search::parse_instance_report(params);
+            if (const auto* problem = std::get_if<std::string>(&q)) {
+                return bad(*problem);
+            }
+            const auto& s = std::get<search::InstanceReport>(q);
+            return answer(search_index->report(s.filter, s.report));
+        }
+        default:
+            break;
+        }
+        // One record, or its versions: the chain from the state, each
+        // version's row from the index.
+        const auto id = id_from(rest.substr(0, std::min<std::size_t>(rest.size(), 64)));
+        if (!id || !params.empty()) {
+            return error_response(400, "invalid_argument", "a record id is 64 hex digits");
+        }
+        std::vector<protocol::Id> versions;
+        ledger->read_state(
+            [&](const protocol::LedgerState& s) { versions = protocol::record_versions(s, *id); });
+        if (versions.empty()) {
+            return error_response(404, "not_found", "no such record");
+        }
+        json rows = json::array();
+        for (const protocol::Id& v :
+             endpoint == Endpoint::record_show ? std::vector<protocol::Id>{*id} : versions) {
+            const auto row = search_index->record(v);
+            if (!row) {
+                return error_response(row.error());
+            }
+            if (!*row) {
+                return error_response(503, "unavailable",
+                                      "the search index has not reached this record yet");
+            }
+            rows.push_back(search::to_json(**row));
+        }
+        if (endpoint == Endpoint::record_show) {
+            return json_response(200, {{"record", rows[0]},
+                                       {"latest", hex(versions.back())},
+                                       {"versions", versions.size()},
+                                       {"as_of", search_index->as_of()}});
+        }
+        return json_response(200,
+                             {{"versions", std::move(rows)}, {"as_of", search_index->as_of()}});
+    }
 
     http::Response status() const {
         const auto latest = ledger->latest_checkpoint();
@@ -3334,6 +3476,28 @@ struct LedgerApi::State {
                 return method_not_allowed("GET");
             }
             found = Routed{Endpoint::requests, Access::read_or_executor};
+        } else if (path == "/v1/records" || path == "/v1/instances" ||
+                   path == "/v1/reports/records" || path == "/v1/reports/instances") {
+            if (!get) {
+                return method_not_allowed("GET");
+            }
+            found = Routed{path == "/v1/records"           ? Endpoint::record_list
+                           : path == "/v1/instances"       ? Endpoint::instance_list
+                           : path == "/v1/reports/records" ? Endpoint::report_records
+                                                           : Endpoint::report_instances,
+                           Access::read};
+        } else if (path.starts_with("/v1/records/") && path.ends_with("/versions") &&
+                   path.size() == std::string_view("/v1/records/").size() + 64 + 9) {
+            if (!get) {
+                return method_not_allowed("GET");
+            }
+            found = Routed{Endpoint::record_versions, Access::read,
+                           std::string_view("/v1/records/").size()};
+        } else if (match("/v1/records/")) {
+            if (!get) {
+                return method_not_allowed("GET");
+            }
+            found = Routed{Endpoint::record_show, Access::read, rest};
         } else if (path == "/v1/contracts") {
             if (!get) {
                 return method_not_allowed("GET");
@@ -3529,6 +3693,13 @@ struct LedgerApi::State {
             return pending_list(principal, scopes);
         case Endpoint::call_show:
             return pending_show(rest, principal, scopes);
+        case Endpoint::record_list:
+        case Endpoint::record_show:
+        case Endpoint::record_versions:
+        case Endpoint::instance_list:
+        case Endpoint::report_records:
+        case Endpoint::report_instances:
+            return search_route(r, routed.endpoint, rest);
         case Endpoint::requests:
         case Endpoint::call_propose:
         case Endpoint::contract_consent:
@@ -3771,6 +3942,11 @@ Result<std::unique_ptr<LedgerApi>> LedgerApi::open(ApiOptions options,
         }
         state->ledger.emplace(std::move(*opened));
     }
+    // Derived data: a server without it serves everything but searches.
+    if (auto index =
+            search::Index::open(*state->ledger, search::Index::file_for(options.directory))) {
+        state->search_index = std::move(*index);
+    }
     if (!options.log_keys.empty()) {
         // The newest log key must be among them; others may be past keys, or
         // a next key held ahead of a rotation.
@@ -3911,6 +4087,10 @@ bool LedgerApi::is_replica() const noexcept {
 
 const ledger::Ledger& LedgerApi::ledger() const noexcept {
     return *state_->ledger;
+}
+
+search::Index* LedgerApi::search_index() const noexcept {
+    return state_->search_index.get();
 }
 
 } // namespace cexchain::node
