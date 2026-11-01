@@ -251,6 +251,9 @@ if(TARGET cexchain_bo)
     # contracts are written in Bo. A camera lent between two people.
     add_test(NAME demo_lending
         COMMAND bash ${PROJECT_SOURCE_DIR}/examples/lending/lending.sh $<TARGET_FILE:cexchain>)
+    # A day student's application signed by four offices while the form changes.
+    add_test(NAME demo_day_student
+        COMMAND bash ${PROJECT_SOURCE_DIR}/examples/day-student/day-student.sh $<TARGET_FILE:cexchain>)
     # A supply agreement signed by three organizations.
     add_test(NAME demo_supply_agreement
         COMMAND bash ${PROJECT_SOURCE_DIR}/examples/supply-agreement/supply-agreement.sh $<TARGET_FILE:cexchain>)

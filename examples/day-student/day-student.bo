@@ -1,0 +1,80 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cirraya
+#
+# A student's application to live off campus and come in by day: version 1
+# of the form. These rules are the form's steps, in order, and what each
+# needs; the filled-in form itself (name, address, guardian, reason) is a
+# record of the school's whose values stay sealed in its vault, and the
+# application names it. When the school changes the form, it deploys new
+# rules (day-student-v2.bo) and retires these: no one can start on the old
+# form any more, and an application already started is finished on the form
+# it began with. No office ever sends a student back for having the wrong
+# form.
+#
+# Which person may take which step is the school's to say, with
+# delegations on its ledger (the counsellor may approve as counsellor, and
+# nothing else); the rules say only the order.
+contract DayStudent
+parties school
+
+# The filled-in form (a record's id), whether the guardian signed it, and
+# what an office asked to fix.
+thing Application
+  details text
+  guardian_agrees yes or no
+  note text = ""
+
+# In order: the counsellor, the student affairs office, the dormitory
+# (the student moves out), and security (the pass for coming in by day).
+can counsellor_approves by school
+  requires guardian_agrees = yes
+  submitted, resubmitted -> counsellor_approved
+
+can office_approves by school
+  counsellor_approved -> office_approved
+
+can dormitory_checks_out by school
+  office_approved -> checked_out
+
+can security_registers by school
+  checked_out -> approved
+
+# Any step can send it back, saying what to fix; the student corrects the
+# form (a new record) and it starts again from the counsellor, on the same
+# rules.
+can send_back by school with what text
+  submitted, resubmitted, counsellor_approved, office_approved, checked_out -> returned
+  note = what
+
+can correct by school with new_details text, guardian_signed yes or no
+  requires returned
+  details = new_details
+  guardian_agrees = guardian_signed
+
+can resubmit by school
+  returned -> resubmitted
+  note = ""
+
+can withdraw by school
+  submitted, resubmitted, returned, counsellor_approved, office_approved, checked_out -> withdrawn
+
+test "every office in turn"
+  school create with details = "record 1", guardian_agrees = yes
+  school counsellor_approves -> counsellor_approved
+  school office_approves -> office_approved
+  school dormitory_checks_out -> checked_out
+  school security_registers -> approved
+
+test "not without the guardian, no step out of turn"
+  school create with details = "record 1", guardian_agrees = no
+  school counsellor_approves -> refused
+  school security_registers -> refused "bo:state security_registers"
+
+test "sent back, corrected, and through again"
+  school create with details = "record 1", guardian_agrees = yes
+  school counsellor_approves -> counsellor_approved
+  school send_back with what = "the address needs the building and the district" -> returned
+  school correct with new_details = "record 2", guardian_signed = yes -> returned
+  school resubmit -> resubmitted
+  school counsellor_approves -> counsellor_approved
+  school office_approves -> office_approved

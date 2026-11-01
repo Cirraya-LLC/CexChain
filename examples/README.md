@@ -15,6 +15,7 @@ Each example is a directory with:
 
 | Example | What it shows | Ledgers |
 |---|---|---|
+| [day-student](day-student/) | A student's application signed by four offices in turn while the form keeps changing: each form version is a deploy, the old one retired, so no one starts on an old form and what was started is finished on its own; each office takes only its own step (a delegation); the filled-in form is a private record, and security sees only the name and class | 1 school |
 | [lending](lending/) | A camera lent between two people: rules of a dozen lines, the borrower's consent on his own ledger, a private record for the details, and the history verified offline. No server, no platform | 2 people |
 | [supply-agreement](supply-agreement/) | An agreement proposed by one organization and signed once two others consent: a person at one, an AI agent (through MCP) at the other; a registrar collects the consents online; one ledger uses the Chinese SM2 and SM3 algorithms | 3 organizations |
 | [receivable-financing](receivable-financing/) | Supply-chain finance: a receivable pledged to a bank, a second pledge refused, released, sold to a factoring company, and paid; a regulator witnesses the home ledger, and the bank lends only once the pledge is witnessed | 5 organizations |
