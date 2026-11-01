@@ -13,4 +13,9 @@ target_link_libraries(cexchain_crypto_openssl
     PUBLIC cexchain::core
     PRIVATE OpenSSL::Crypto)
 target_compile_features(cexchain_crypto_openssl PUBLIC cxx_std_23)
+# JOSE signatures, for identity providers' ID tokens: the console's, never
+# the browser verifier's.
+if(NOT EMSCRIPTEN)
+    target_sources(cexchain_crypto_openssl PRIVATE src/jose.cpp)
+endif()
 cexchain_target_defaults(cexchain_crypto_openssl)

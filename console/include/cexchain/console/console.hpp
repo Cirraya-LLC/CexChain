@@ -49,6 +49,12 @@ class Index;
 
 namespace cexchain::console {
 
+struct Applicant;
+/// Signing in through identity providers: flows, codes, and applicants'
+/// sessions (sso.cpp).
+struct SsoState;
+[[nodiscard]] std::shared_ptr<SsoState> make_sso_state();
+
 namespace http = node::http;
 
 /// The Content-Security-Policy of every console answer: the page's own
@@ -372,6 +378,14 @@ private:
     /// /console/api/reports/records|instances: the node API's query
     /// parameters; reports also as CSV (format=csv).
     [[nodiscard]] http::Response search_route(const http::Request& request) const;
+    /// Signing in with an organization's account (sso.cpp): GET
+    /// /console/api/sso, POST /console/api/sso/begin and /finish, GET
+    /// /console/sso/callback, GET and DELETE /console/api/applicant.
+    [[nodiscard]] http::Response sso_route(const http::Request& request) const;
+    /// The applicant a request's token (cxa_...) is, if still signed in.
+    [[nodiscard]] std::optional<Applicant> applicant_of(const http::Request& request) const;
+    /// The console's own origin the request's Host names, if it is one.
+    [[nodiscard]] std::optional<Origin> origin_of(const http::Request& request) const;
     [[nodiscard]] http::Response settings_route(const http::Request& request) const;
     [[nodiscard]] http::Response kinds_route(const http::Request& request) const;
     /// /console/api/rules/...: the compiler on a sheet or a source.
@@ -652,6 +666,7 @@ private:
     mutable std::mutex api_mutex_;
     const ledger::Ledger* ledger_ = nullptr;
     search::Index* search_ = nullptr;
+    std::shared_ptr<SsoState> sso_ = make_sso_state();
     Submit submit_;
     NodeApi node_api_;
     Checkpointer checkpointer_;

@@ -1436,6 +1436,70 @@ std::vector<CommandSpec> build() {
          "What the console's first run does, for scripts: makes the console's keys (sealed),\n"
          "the ledger, and its owner, who acts in person with the passkey given, and prints the\n"
          "recovery code once. The directory must hold no ledger yet."},
+        {{"console", "sso", "add"},
+         "Trust an identity provider for applicants' sign-in (OpenID Connect or CAS)",
+         "Console",
+         "NAME",
+         1,
+         1,
+         with(
+             {ledger_option,
+              {"oidc", "ISSUER", "An OpenID Connect provider, by its issuer URL"},
+              {"cas", "URL", "A CAS 3.0 server, by its base URL"},
+              {"client-id", "ID", "The console's client id at the OpenID Connect provider"},
+              {"client-secret-file", "FILE",
+               "A file holding the client secret (sealed in the console, never kept in the "
+               "clear)"},
+              {"scope", "SCOPE", "A scope to ask for (default: openid profile email)", false, true},
+              {"label", "TEXT", "What the sign-in button says (default: NAME)"},
+              {"allow-domain", "DOMAIN",
+               "Only accounts with a verified email at this domain (any by default)", false, true},
+              {"ca-file", "FILE", "Trust this PEM file of CA certificates for the provider"},
+              {"replace", "", "Replace the provider of the same name"}}),
+         cmd_console_sso_add,
+         "Applicants (students, members, the people an organization serves) sign in to its\n"
+         "self-service forms with the organization's own accounts: an OpenID Connect provider\n"
+         "(authorization code with PKCE; ID tokens checked against the provider's published\n"
+         "keys, RS256, PS256, ES256, or EdDSA) or a CAS 3.0 server. They are never enrolled;\n"
+         "the ledger knows each only by a pseudonym. Register the console's redirect URI with\n"
+         "an OpenID Connect provider: the console's public address followed by\n"
+         "/console/sso/callback. Staff keep signing in with their passkeys.\n\n"
+         "  cexchain console sso add school --oidc https://login.school.example \\\n"
+         "      --client-id console --client-secret-file secret.txt --allow-domain school.example\n"
+         "  cexchain console sso add campus --cas https://cas.school.example/cas --label \"Campus "
+         "account\""},
+        {{"console", "sso", "list"},
+         "List the identity providers the console trusts",
+         "Console",
+         "",
+         0,
+         0,
+         with({ledger_option}),
+         cmd_console_sso_list},
+        {{"console", "sso", "show"},
+         "Show an identity provider",
+         "Console",
+         "NAME",
+         1,
+         1,
+         with({ledger_option}),
+         cmd_console_sso_show},
+        {{"console", "sso", "remove"},
+         "Stop trusting an identity provider (its client secret is removed)",
+         "Console",
+         "NAME",
+         1,
+         1,
+         with({ledger_option}),
+         cmd_console_sso_remove},
+        {{"console", "sso", "test"},
+         "Reach an identity provider: its discovery document and keys, or its CAS login page",
+         "Console",
+         "NAME",
+         1,
+         1,
+         with({ledger_option}),
+         cmd_console_sso_test},
         {{"console", "kind", "add"},
          "Add a document kind to the web console",
          "Console",

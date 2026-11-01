@@ -626,6 +626,15 @@ cexchain console settings show
   console on any computer with the recovery code; `console backup now|list` do the rest from the
   command line.
 
+- **Signing in with the organization's accounts.** `console sso add NAME --oidc ISSUER
+  --client-id ID --client-secret-file FILE` (or `--cas URL`) trusts an OpenID Connect provider or
+  a CAS 3.0 server, such as a school's unified authentication, for *applicants*: the people an
+  organization serves, who are never enrolled. ID tokens are checked against the provider's
+  published keys (RS256, PS256, ES256, EdDSA, through OpenSSL), with PKCE, a nonce, and a
+  one-time code back to the page; `--allow-domain` limits who may sign in by verified email. The
+  client secret is sealed in the console. An applicant appears to the ledger only as a
+  pseudonym (`a-` and 24 hex digits, an HMAC of the provider and account under the console's
+  own key); `console sso list|show|remove|test` manage the providers.
 - **People.** Each user has a role (owner, admin, member, or viewer) and one or more passkeys.
   Roles gate the console, never the ledger: what someone may do on the ledger stays in their
   delegations. An invitation is a one-time code, valid for a day, kept only as a hash; it

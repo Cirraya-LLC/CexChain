@@ -67,6 +67,7 @@ add_executable(cexchain_tests
     node/http_test.cpp
     node/keeper_api_test.cpp
     console/console_test.cpp
+    console/identity_test.cpp
     search/index_test.cpp)
 
 target_link_libraries(cexchain_tests PRIVATE
@@ -234,6 +235,8 @@ add_test(NAME versions_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/versions.sh $<TARGET_FILE:cexchain>)
 add_test(NAME search_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/search.sh $<TARGET_FILE:cexchain>)
+add_test(NAME sso_end_to_end
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/sso.sh $<TARGET_FILE:cexchain>)
 add_test(NAME client_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/client.sh $<TARGET_FILE:cexchain>)
 add_test(NAME cluster_end_to_end

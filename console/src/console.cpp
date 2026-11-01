@@ -379,9 +379,49 @@ std::optional<http::Response> Console::refuse(const http::Request& request) cons
     return std::nullopt;
 }
 
+std::optional<Origin> Console::origin_of(const http::Request& request) const {
+    std::vector<Origin> origins;
+    {
+        const std::lock_guard lock(mutex_);
+        origins = origins_;
+    }
+    const auto host = request.header("host");
+    const auto authority = host ? split_authority(lower(*host)) : std::nullopt;
+    if (!authority) {
+        return std::nullopt;
+    }
+    const auto found = std::ranges::find_if(origins, [&](const Origin& o) {
+        return authority->first == o.host &&
+               (authority->second == o.port ||
+                (o.port == 0 && authority->second == default_port(o.scheme)));
+    });
+    return found == origins.end() ? std::nullopt : std::optional<Origin>(*found);
+}
+
 http::Response Console::route(const http::Request& request) const {
     if (auto refused = refuse(request)) {
         return std::move(*refused);
+    }
+    if (request.path == "/console/sso/callback" || request.path == "/console/api/sso" ||
+        request.path == "/console/api/sso/begin" || request.path == "/console/api/sso/finish" ||
+        request.path == "/console/api/applicant") {
+        const bool posts =
+            request.path == "/console/api/sso/begin" || request.path == "/console/api/sso/finish";
+        const bool fits = posts ? request.method == "POST"
+                          : request.path == "/console/api/applicant"
+                              ? request.method == "GET" || request.method == "DELETE"
+                              : request.method == "GET";
+        if (!fits) {
+            http::Response refused = error(405, "unsupported", "method not allowed");
+            refused.headers.emplace_back("Allow", posts ? "POST"
+                                                  : request.path == "/console/api/applicant"
+                                                      ? "GET, DELETE"
+                                                      : "GET");
+            return refused;
+        }
+        return ready() && services_.keys != nullptr
+                   ? sso_route(request)
+                   : error(503, "unavailable", "this console keeps no users or sessions");
     }
     if (request.path == "/console") {
         http::Response moved = text(308, "the console is at /console/");
