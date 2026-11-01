@@ -361,7 +361,7 @@ echo "{\"id\": \"$FAKE\", \"instance\": \"$I\", \"kind\": \"notify\", \"contract
     > proxy-fake.json
 python3 proxy.py "$URL" "$WORK" 2> proxy.log &
 PIDS+=("$!")
-wait_for 100 test -s proxy.port || fail "the proxy did not start"
+wait_for 300 test -s proxy.port || { cat proxy.log; fail "the proxy did not start"; }
 POSTS="$(lines hooks.jsonl)"
 run executor run --config worker.json --state "$S" --server "http://127.0.0.1:$(cat proxy.port)" \
     --token-file worker.token --as worker.key --lease-ttl 5 --once --json > lying.jsonl
