@@ -4,8 +4,10 @@
 // The search index: it follows the log, finds records and instances by what
 // the ledger holds in the clear, pages through them, and counts them.
 
+#include <atomic>
 #include <filesystem>
 #include <string>
+#include <thread>
 #include <unistd.h>
 #include <vector>
 
@@ -13,6 +15,7 @@
 
 #include <cexchain/core/protocol/contracts.hpp>
 #include <cexchain/search/index.hpp>
+#include <cexchain/search/query.hpp>
 
 #include "support/ledger_world.hpp"
 #include "support/vectors.hpp"
@@ -309,6 +312,17 @@ TEST_CASE("the index finds instances by their contract, state, parties, and fiel
     CHECK(total->rows[0].sum == 1000);
     CHECK_FALSE((*index)->report(search::InstanceFilter{}, {.by = {search::Group::type}}));
     CHECK_FALSE((*index)->report(search::RecordFilter{}, {.sum = "fee"}));
+
+    // Built in bulk, the same answers.
+    TempFile bulk_file;
+    auto bulk = search::Index::open(home.ledger(), bulk_file.path, 1);
+    REQUIRE(bulk);
+    REQUIRE((*bulk)->update());
+    CHECK(search::to_json(*(*bulk)->instances({}, page)) == search::to_json(*all));
+    CHECK(search::to_json(*(*bulk)->report(search::InstanceFilter{},
+                                           {.by = {search::Group::state}, .sum = "fee"})) ==
+          search::to_json(*by_state));
+    CHECK((*bulk)->instances({.fields = {F{"fee", {}, 400, {}}}}, page)->rows.size() == 2);
 }
 
 TEST_CASE("an index of another ledger, or of none, is rebuilt from the log", "[search]") {
@@ -343,4 +357,159 @@ TEST_CASE("an index of another ledger, or of none, is rebuilt from the log", "[s
     CHECK((*other)->records({}, {})->rows.empty());
     REQUIRE((*other)->update());
     CHECK((*other)->records({}, {})->rows.empty());
+}
+
+TEST_CASE("an index built in bulk answers as one built entry by entry", "[search]") {
+    World w;
+    const auto org = w.org_id();
+    std::vector<protocol::Id> ids;
+    auto add = [&](int from, int to) {
+        for (int i = from; i < to; ++i) {
+            std::optional<protocol::Id> older;
+            if (i % 10 == 9) {
+                older = ids[static_cast<std::size_t>(i - 3)]; // same type: i % 3 alike
+            }
+            ids.push_back(w.ok(
+                w.org(),
+                w.statement(
+                    org, std::nullopt,
+                    form(i % 3 == 0 ? "example.note/1" : "example.memo/1",
+                         metadata(
+                             {{"class", cbor::Value::text("S" + std::to_string(i % 4))},
+                              {"n", cbor::Value::unsigned_integer(static_cast<std::uint64_t>(i))},
+                              {"name", cbor::Value::text("學生 " + std::to_string(i))}}),
+                         older))));
+            if (i % 7 == 6) {
+                w.clock().advance(day);
+            }
+        }
+    };
+    add(0, 60);
+    w.ok(w.org(), w.statement(org, std::nullopt, protocol::RecordEndorseBody{ids[1], "checked"}));
+    w.ok(w.org(), w.statement(org, std::nullopt, protocol::RecordRevokeBody{ids[2], "withdrawn"}));
+
+    TempFile by_entry_file;
+    TempFile bulk_file;
+    // Far behind by any count: built in bulk, its secondary indexes made at
+    // the end; the other entry by entry, in small batches.
+    auto by_entry = search::Index::open(w.ledger(), by_entry_file.path, 1'000'000);
+    auto bulk = search::Index::open(w.ledger(), bulk_file.path, 10);
+    REQUIRE(by_entry);
+    REQUIRE(bulk);
+    REQUIRE((*by_entry)->update(std::chrono::hours(1), 7));
+    REQUIRE((*bulk)->update());
+
+    auto same = [&] {
+        const search::PageRequest all{.limit = 1000};
+        using M = search::RecordFilter::Metadata;
+        const std::vector<search::RecordFilter> filters{
+            {},
+            {.revoked = search::RecordFilter::Revoked::any},
+            {.type = "example.note/1", .current = true},
+            {.metadata = {M{"class", "S2", {}, {}}}},
+            {.metadata = {M{"n", {}, 10, 30}}},
+            {.text = "學生 4"},
+            {.since = w.clock().now() - 3 * day}};
+        for (const auto& f : filters) {
+            auto a = (*by_entry)->records(f, all);
+            auto b = (*bulk)->records(f, all);
+            REQUIRE(a);
+            REQUIRE(b);
+            CHECK_FALSE(a->rows.empty());
+            CHECK(search::to_json(*a) == search::to_json(*b));
+        }
+        for (const auto& by : {std::vector{search::Group::type, search::Group::state},
+                               std::vector{search::Group::day}}) {
+            auto a = (*by_entry)->report(search::RecordFilter{}, {.by = by});
+            auto b = (*bulk)->report(search::RecordFilter{}, {.by = by});
+            REQUIRE(a);
+            REQUIRE(b);
+            CHECK(search::to_json(*a) == search::to_json(*b));
+        }
+        auto row = (*bulk)->record(ids[5]);
+        REQUIRE(row);
+        REQUIRE(row->has_value());
+        CHECK((*row)->metadata.size() == 3);
+    };
+    same();
+    CHECK((*bulk)->status()->indexed == w.ledger().size());
+
+    // A little more, under the threshold: followed entry by entry, as usual.
+    add(60, 65);
+    REQUIRE((*by_entry)->update());
+    REQUIRE((*bulk)->update());
+    same();
+    // A lot more: in bulk again.
+    add(65, 90);
+    REQUIRE((*by_entry)->update());
+    REQUIRE((*bulk)->update());
+    same();
+    // Opened again (as after a stop), it carries on.
+    bulk->reset();
+    auto again = search::Index::open(w.ledger(), bulk_file.path, 10);
+    REQUIRE(again);
+    CHECK((*again)->as_of() == w.ledger().size());
+    CHECK(search::to_json(*(*again)->records({}, {.limit = 1000})) ==
+          search::to_json(*(*by_entry)->records({}, {.limit = 1000})));
+}
+
+TEST_CASE("searches run beside the index's updates, each on one update's view", "[search]") {
+    World w;
+    const auto org = w.org_id();
+    TempFile file;
+    auto opened = search::Index::open(w.ledger(), file.path);
+    REQUIRE(opened);
+    search::Index& index = **opened;
+    auto add = [&](int count) {
+        for (int i = 0; i < count; ++i) {
+            w.ok(w.org(), w.statement(org, std::nullopt,
+                                      form("example.note/1",
+                                           metadata({{"class", cbor::Value::text("S1")}}))));
+        }
+    };
+    add(5);
+    REQUIRE(index.update());
+
+    std::atomic<bool> done = false;
+    std::atomic<int> problems = 0;
+    std::vector<std::jthread> readers;
+    for (int t = 0; t < 4; ++t) {
+        readers.emplace_back([&] {
+            std::uint64_t last = 0;
+            while (!done) {
+                auto page = index.records({.metadata = {{"class", "S1", {}, {}}}}, {.limit = 1000});
+                auto report = index.report(search::RecordFilter{}, {.by = {search::Group::type}});
+                if (!page || !report || page->as_of < last) {
+                    ++problems;
+                    return;
+                }
+                last = page->as_of;
+                // What a page shows is what its update left: every record
+                // registered below its as_of, none above.
+                for (const auto& r : page->rows) {
+                    if (r.registered_index >= page->as_of) {
+                        ++problems;
+                    }
+                }
+                std::uint64_t counted = 0;
+                for (const auto& row : report->rows) {
+                    counted += row.count;
+                }
+                if (counted > report->as_of) {
+                    ++problems;
+                }
+            }
+        });
+    }
+    for (int round = 0; round < 10; ++round) {
+        add(3);
+        REQUIRE(index.update());
+    }
+    done = true;
+    readers.clear();
+    CHECK(problems == 0);
+    const auto all = index.records({}, {.limit = 1000});
+    REQUIRE(all);
+    CHECK(all->rows.size() == 35);
+    CHECK(all->as_of == w.ledger().size());
 }

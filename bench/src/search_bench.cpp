@@ -7,7 +7,9 @@
 
 #include <filesystem>
 #include <format>
+#include <thread>
 #include <unistd.h>
+#include <vector>
 
 #include <cexchain/core/protocol/log.hpp>
 #include <cexchain/crypto/openssl.hpp>
@@ -137,6 +139,30 @@ int search_bench(const Options& options) {
         time("report by day", [&] {
             must(index->report(search::RecordFilter{}, {.by = {search::Group::day}}), "report");
         });
+        // Many searching at once, each thread its own reader: searches a
+        // second on one thread and on eight, after a round to warm them.
+        auto searches = [&](std::uint64_t threads, std::uint64_t each) {
+            const auto started = Clock::now();
+            std::vector<std::jthread> workers;
+            for (std::uint64_t w = 0; w < threads; ++w) {
+                workers.emplace_back([&, w] {
+                    using M = search::RecordFilter::Metadata;
+                    for (std::uint64_t r = 0; r < each; ++r) {
+                        must(index->records(
+                                 {.metadata = {M{
+                                      "class", std::format("S{}", (w + r) % 20), {}, {}}}},
+                                 page),
+                             "search");
+                    }
+                });
+            }
+            workers.clear();
+            return static_cast<double>(threads * each) * 1000 / elapsed_ms(started);
+        };
+        const std::uint64_t each = std::max<std::uint64_t>(repeat * 4, 40);
+        searches(8, 2);
+        results.add("searches, 1 at a time", searches(1, each), "searches/s");
+        results.add("searches, 8 at once", searches(8, each), "searches/s");
     }
     remove();
     results.print(options.flag("json"));

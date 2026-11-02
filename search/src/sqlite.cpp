@@ -104,12 +104,13 @@ Bytes Statement::blob(int column) const {
     return data == nullptr ? Bytes() : Bytes(data, data + size);
 }
 
-Result<Database> Database::open(const std::filesystem::path& file) {
+Result<Database> Database::open(const std::filesystem::path& file, bool read_only) {
     sqlite3* db = nullptr;
-    const int rc = sqlite3_open_v2(file.string().c_str(), &db,
-                                   SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE |
-                                       SQLITE_OPEN_FULLMUTEX | SQLITE_OPEN_EXRESCODE,
-                                   nullptr);
+    const int rc = sqlite3_open_v2(
+        file.string().c_str(), &db,
+        (read_only ? SQLITE_OPEN_READONLY : SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE) |
+            SQLITE_OPEN_FULLMUTEX | SQLITE_OPEN_EXRESCODE,
+        nullptr);
     if (rc != SQLITE_OK) {
         Error e = failure(db, "the search index could not be opened");
         sqlite3_close(db);

@@ -70,7 +70,10 @@ private:
 
 class Database {
 public:
-    [[nodiscard]] static Result<Database> open(const std::filesystem::path& file);
+    /// `read_only`: a reader's connection, which never writes (WAL lets
+    /// readers run beside the writer).
+    [[nodiscard]] static Result<Database> open(const std::filesystem::path& file,
+                                               bool read_only = false);
     Database() = default;
     Database(Database&& other) noexcept;
     Database& operator=(Database&& other) noexcept;
@@ -82,6 +85,8 @@ public:
     [[nodiscard]] Status exec(std::string_view sql);
     [[nodiscard]] Result<Statement> prepare(std::string_view sql);
     [[nodiscard]] std::string error() const;
+    /// False once moved from.
+    [[nodiscard]] bool valid() const noexcept { return db_ != nullptr; }
 
 private:
     explicit Database(sqlite3* db) noexcept : db_(db) {}

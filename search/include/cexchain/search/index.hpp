@@ -192,13 +192,19 @@ struct IndexStatus {
 };
 
 /// The index of one ledger, in `file`. Safe to use from several threads:
-/// one at a time inside.
+/// searches and reports run side by side, each on a reader of its own that
+/// sees the index as one update left it; updates run one at a time.
 class Index {
 public:
+    /// Behind by more than this many log entries (a first build, or a long
+    /// way to catch up), `update` loads the rows first and makes the
+    /// secondary indexes once at the end.
+    static constexpr std::uint64_t bulk_from = 50'000;
+
     /// Opens (or makes) the index of `ledger` at `file`; one of another
     /// ledger, or of another layout, is emptied, to be rebuilt by `update`.
-    [[nodiscard]] static Result<std::unique_ptr<Index>> open(const ledger::Ledger& ledger,
-                                                             std::filesystem::path file);
+    [[nodiscard]] static Result<std::unique_ptr<Index>>
+    open(const ledger::Ledger& ledger, std::filesystem::path file, std::uint64_t bulk = bulk_from);
     /// The index file beside a ledger's directory: `<ledger>/search.sqlite`.
     [[nodiscard]] static std::filesystem::path file_for(const std::filesystem::path& ledger);
 

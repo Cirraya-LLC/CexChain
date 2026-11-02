@@ -3,12 +3,14 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <charconv>
 #include <limits>
 #include <map>
 #include <set>
 #include <string>
 #include <system_error>
+#include <thread>
 #include <utility>
 #include <variant>
 
@@ -27,13 +29,13 @@ namespace cexchain::search {
 namespace {
 
 // The layout's version: an index of another is emptied and rebuilt.
-constexpr std::int64_t layout = 2;
+constexpr std::int64_t layout = 3;
 
 constexpr std::string_view tables = R"sql(
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value BLOB) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS records(
     pos INTEGER PRIMARY KEY,
-    id BLOB NOT NULL UNIQUE,
+    id BLOB NOT NULL,
     type TEXT NOT NULL,
     state TEXT NOT NULL,
     revoked INTEGER NOT NULL,
@@ -44,11 +46,6 @@ CREATE TABLE IF NOT EXISTS records(
     endorsements INTEGER NOT NULL,
     last_index INTEGER NOT NULL,
     last_at INTEGER NOT NULL);
-CREATE INDEX IF NOT EXISTS records_type ON records(type, pos);
-CREATE INDEX IF NOT EXISTS records_report ON records(type, state, revoked);
-CREATE INDEX IF NOT EXISTS records_state ON records(state, pos);
-CREATE INDEX IF NOT EXISTS records_registrant ON records(registrant, pos);
-CREATE INDEX IF NOT EXISTS records_time ON records(registered_at, revoked, type, state);
 CREATE TABLE IF NOT EXISTS record_meta(
     pos INTEGER NOT NULL,
     n INTEGER NOT NULL,
@@ -56,18 +53,15 @@ CREATE TABLE IF NOT EXISTS record_meta(
     value TEXT NOT NULL,
     num INTEGER,
     PRIMARY KEY(pos, n)) WITHOUT ROWID;
-CREATE INDEX IF NOT EXISTS record_meta_value ON record_meta(key, value);
-CREATE INDEX IF NOT EXISTS record_meta_num ON record_meta(key, num) WHERE num IS NOT NULL;
 CREATE VIRTUAL TABLE IF NOT EXISTS record_text USING fts5(text, tokenize='trigram', content='');
 CREATE TABLE IF NOT EXISTS contracts(
     id BLOB PRIMARY KEY,
     name TEXT,
     retired INTEGER NOT NULL,
     deployed_index INTEGER NOT NULL) WITHOUT ROWID;
-CREATE INDEX IF NOT EXISTS contracts_name ON contracts(name);
 CREATE TABLE IF NOT EXISTS instances(
     pos INTEGER PRIMARY KEY,
-    id BLOB NOT NULL UNIQUE,
+    id BLOB NOT NULL,
     contract BLOB NOT NULL,
     status TEXT,
     final INTEGER NOT NULL,
@@ -79,26 +73,64 @@ CREATE TABLE IF NOT EXISTS instances(
     open_requests INTEGER NOT NULL,
     parent BLOB,
     reference TEXT);
-CREATE INDEX IF NOT EXISTS instances_contract ON instances(contract, pos);
-CREATE INDEX IF NOT EXISTS instances_report ON instances(contract, status);
-CREATE INDEX IF NOT EXISTS instances_status ON instances(status, pos);
-CREATE INDEX IF NOT EXISTS instances_created ON instances(created_at, contract, status);
-CREATE INDEX IF NOT EXISTS instances_changed ON instances(last_at);
-CREATE INDEX IF NOT EXISTS instances_reference ON instances(reference) WHERE reference IS NOT NULL;
 CREATE TABLE IF NOT EXISTS instance_parties(
     pos INTEGER NOT NULL,
     role TEXT NOT NULL,
     ledger BLOB NOT NULL,
     PRIMARY KEY(pos, role)) WITHOUT ROWID;
-CREATE INDEX IF NOT EXISTS instance_parties_ledger ON instance_parties(ledger, pos);
 CREATE TABLE IF NOT EXISTS instance_fields(
     pos INTEGER NOT NULL,
     name TEXT NOT NULL,
     value TEXT NOT NULL,
     num INTEGER,
     PRIMARY KEY(pos, name)) WITHOUT ROWID;
+)sql";
+
+/// The secondary indexes: what searches and reports read.
+constexpr std::string_view indexes = R"sql(
+CREATE INDEX IF NOT EXISTS records_id ON records(id);
+CREATE INDEX IF NOT EXISTS instances_id ON instances(id);
+CREATE INDEX IF NOT EXISTS records_type ON records(type, pos);
+CREATE INDEX IF NOT EXISTS records_report ON records(type, state, revoked);
+CREATE INDEX IF NOT EXISTS records_state ON records(state, pos);
+CREATE INDEX IF NOT EXISTS records_registrant ON records(registrant, pos);
+CREATE INDEX IF NOT EXISTS records_time ON records(registered_at, revoked, type, state);
+CREATE INDEX IF NOT EXISTS record_meta_value ON record_meta(key, value);
+CREATE INDEX IF NOT EXISTS record_meta_num ON record_meta(key, num) WHERE num IS NOT NULL;
+CREATE INDEX IF NOT EXISTS contracts_name ON contracts(name);
+CREATE INDEX IF NOT EXISTS instances_contract ON instances(contract, pos);
+CREATE INDEX IF NOT EXISTS instances_report ON instances(contract, status);
+CREATE INDEX IF NOT EXISTS instances_status ON instances(status, pos);
+CREATE INDEX IF NOT EXISTS instances_created ON instances(created_at, contract, status);
+CREATE INDEX IF NOT EXISTS instances_changed ON instances(last_at);
+CREATE INDEX IF NOT EXISTS instances_reference ON instances(reference) WHERE reference IS NOT NULL;
+CREATE INDEX IF NOT EXISTS instance_parties_ledger ON instance_parties(ledger, pos);
 CREATE INDEX IF NOT EXISTS instance_fields_value ON instance_fields(name, value);
 CREATE INDEX IF NOT EXISTS instance_fields_num ON instance_fields(name, num) WHERE num IS NOT NULL;
+)sql";
+
+/// The secondary indexes, dropped for a first build (made again at its
+/// end: sorting once costs far less than inserting at random).
+constexpr std::string_view drop_indexes = R"sql(
+DROP INDEX IF EXISTS records_id;
+DROP INDEX IF EXISTS instances_id;
+DROP INDEX IF EXISTS records_type;
+DROP INDEX IF EXISTS records_report;
+DROP INDEX IF EXISTS records_state;
+DROP INDEX IF EXISTS records_registrant;
+DROP INDEX IF EXISTS records_time;
+DROP INDEX IF EXISTS record_meta_value;
+DROP INDEX IF EXISTS record_meta_num;
+DROP INDEX IF EXISTS contracts_name;
+DROP INDEX IF EXISTS instances_contract;
+DROP INDEX IF EXISTS instances_report;
+DROP INDEX IF EXISTS instances_status;
+DROP INDEX IF EXISTS instances_created;
+DROP INDEX IF EXISTS instances_changed;
+DROP INDEX IF EXISTS instances_reference;
+DROP INDEX IF EXISTS instance_parties_ledger;
+DROP INDEX IF EXISTS instance_fields_value;
+DROP INDEX IF EXISTS instance_fields_num;
 )sql";
 
 constexpr std::string_view drop = R"sql(
@@ -461,12 +493,77 @@ std::string_view name(Group group) noexcept {
 struct Index::Impl {
     const ledger::Ledger& ledger;
     std::filesystem::path file;
+    /// The writer's connection, under `mutex`.
     sql::Database db;
     mutable std::mutex mutex;
-    std::uint64_t indexed = 0;
+    std::atomic<std::uint64_t> indexed = 0;
+    /// A first build is under way: the secondary indexes are dropped until
+    /// it reaches the log's end.
+    bool bulk = false;
+    std::uint64_t bulk_from = Index::bulk_from;
+
+    /// Readers' connections, idle: searches and reports run on them, side
+    /// by side and beside the writer (WAL).
+    mutable std::mutex pool_mutex;
+    mutable std::vector<sql::Database> idle;
 
     Impl(const ledger::Ledger& l, std::filesystem::path f, sql::Database d)
         : ledger(l), file(std::move(f)), db(std::move(d)) {}
+
+    /// A reader's connection for one query, back in the pool afterwards, in
+    /// a read transaction: the rows and `as_of` are of one moment.
+    class Lease {
+    public:
+        Lease(const Impl& impl, sql::Database db) : impl_(impl), db_(std::move(db)) {}
+        Lease(Lease&& other) noexcept
+            : impl_(other.impl_), db_(std::move(other.db_)),
+              open_(std::exchange(other.open_, false)) {}
+        Lease& operator=(Lease&&) = delete;
+        Lease(const Lease&) = delete;
+        Lease& operator=(const Lease&) = delete;
+        ~Lease() {
+            if (!db_.valid()) {
+                return;
+            }
+            // A connection left in a transaction is not reused.
+            if (open_ && !db_.exec("COMMIT") && !db_.exec("ROLLBACK")) {
+                return;
+            }
+            const std::lock_guard lock(impl_.pool_mutex);
+            if (impl_.idle.size() < 16) {
+                impl_.idle.push_back(std::move(db_));
+            }
+        }
+        [[nodiscard]] sql::Database& db() { return db_; }
+        /// Begins the read transaction and answers the log size it sees.
+        Result<std::uint64_t> begin() {
+            SEARCH_CHECK(db_.exec("BEGIN"));
+            open_ = true;
+            SEARCH_TRY(sql::Statement s,
+                       db_.prepare("SELECT value FROM meta WHERE key = 'indexed'"));
+            SEARCH_TRY(const bool row, s.step());
+            return row ? static_cast<std::uint64_t>(s.integer(0)) : 0;
+        }
+
+    private:
+        const Impl& impl_;
+        sql::Database db_;
+        bool open_ = false;
+    };
+
+    Result<Lease> lease() const {
+        {
+            const std::lock_guard lock(pool_mutex);
+            if (!idle.empty()) {
+                sql::Database reused = std::move(idle.back());
+                idle.pop_back();
+                return Lease(*this, std::move(reused));
+            }
+        }
+        SEARCH_TRY(sql::Database fresh, sql::Database::open(file, true));
+        SEARCH_CHECK(fresh.exec("PRAGMA cache_size = -16384; PRAGMA temp_store = MEMORY;"));
+        return Lease(*this, std::move(fresh));
+    }
 
     Status set_meta(std::string_view key, std::int64_t value) {
         SEARCH_TRY(sql::Statement s,
@@ -488,6 +585,8 @@ struct Index::Impl {
     Status reset() {
         SEARCH_CHECK(db.exec(drop));
         SEARCH_CHECK(db.exec(tables));
+        SEARCH_CHECK(db.exec(indexes));
+        bulk = false;
         SEARCH_CHECK(set_meta("layout", layout));
         SEARCH_CHECK(set_meta("ledger", ledger.id().bytes()));
         SEARCH_CHECK(set_meta("indexed", std::int64_t{0}));
@@ -527,42 +626,87 @@ Result<std::uint64_t> Index::Impl::step(std::uint64_t end) {
     };
     std::vector<Creation> calls;
 
-    for (std::uint64_t index = indexed; index < end; ++index) {
-        SEARCH_TRY(const Bytes bytes, ledger.entry(index));
-        SEARCH_TRY(protocol::LogEntry entry, protocol::decode_log_entry(bytes));
-        times.emplace(index, entry.registered_at);
-        if (entry.is_state_commitment()) {
-            continue;
+    // Reading and parsing the entries, on several threads for a large
+    // batch: each part in order, merged in order.
+    struct Part {
+        std::vector<std::pair<std::uint64_t, Timestamp>> times;
+        std::vector<protocol::IdKey> records;
+        std::vector<protocol::IdKey> instances;
+        std::vector<protocol::IdKey> contracts;
+        std::vector<std::pair<protocol::IdKey, std::optional<cbor::Value>>> registered;
+        std::vector<Creation> calls;
+        Status status;
+    };
+    auto parse = [&](std::uint64_t from, std::uint64_t to, Part& part) -> Status {
+        for (std::uint64_t index = from; index < to; ++index) {
+            SEARCH_TRY(const Bytes bytes, ledger.entry(index));
+            SEARCH_TRY(protocol::LogEntry entry, protocol::decode_log_entry(bytes));
+            part.times.emplace_back(index, entry.registered_at);
+            if (entry.is_state_commitment()) {
+                continue;
+            }
+            SEARCH_TRY(const protocol::SignedStatement s,
+                       protocol::parse_statement(provider, entry.statement, hash));
+            std::visit(
+                [&](const auto& body) {
+                    using Body = std::decay_t<decltype(body)>;
+                    if constexpr (std::is_same_v<Body, protocol::RecordRegisterBody>) {
+                        part.records.push_back(protocol::key_of(s.id));
+                        part.registered.emplace_back(protocol::key_of(s.id), body.metadata);
+                        if (body.supersedes) {
+                            part.records.push_back(protocol::key_of(*body.supersedes));
+                        }
+                    } else if constexpr (std::is_same_v<Body, protocol::RecordEndorseBody> ||
+                                         std::is_same_v<Body, protocol::RecordTransitionBody> ||
+                                         std::is_same_v<Body, protocol::RecordRevokeBody>) {
+                        part.records.push_back(protocol::key_of(body.record));
+                    } else if constexpr (std::is_same_v<Body, protocol::ContractDeployBody>) {
+                        part.contracts.push_back(protocol::key_of(s.id));
+                    } else if constexpr (std::is_same_v<Body, protocol::ContractRetireBody>) {
+                        part.contracts.push_back(protocol::key_of(body.contract));
+                    } else if constexpr (std::is_same_v<Body, protocol::ContractCallBody>) {
+                        if (body.instance) {
+                            part.instances.push_back(protocol::key_of(*body.instance));
+                        }
+                        part.calls.push_back({s.id, body.reference, !body.instance});
+                    }
+                },
+                s.statement.body);
         }
-        SEARCH_TRY(const protocol::SignedStatement s,
-                   protocol::parse_statement(provider, entry.statement, hash));
-        std::visit(
-            [&](const auto& body) {
-                using Body = std::decay_t<decltype(body)>;
-                if constexpr (std::is_same_v<Body, protocol::RecordRegisterBody>) {
-                    records.insert(protocol::key_of(s.id));
-                    registered.emplace(protocol::key_of(s.id), body.metadata);
-                    if (body.supersedes) {
-                        records.insert(protocol::key_of(*body.supersedes));
-                    }
-                } else if constexpr (std::is_same_v<Body, protocol::RecordEndorseBody> ||
-                                     std::is_same_v<Body, protocol::RecordTransitionBody> ||
-                                     std::is_same_v<Body, protocol::RecordRevokeBody>) {
-                    records.insert(protocol::key_of(body.record));
-                } else if constexpr (std::is_same_v<Body, protocol::ContractDeployBody>) {
-                    contracts.insert(protocol::key_of(s.id));
-                } else if constexpr (std::is_same_v<Body, protocol::ContractRetireBody>) {
-                    contracts.insert(protocol::key_of(body.contract));
-                } else if constexpr (std::is_same_v<Body, protocol::ContractCallBody>) {
-                    if (body.instance) {
-                        instances.insert(protocol::key_of(*body.instance));
-                    }
-                    calls.push_back({s.id, body.reference, !body.instance});
-                }
-            },
-            s.statement.body);
+        return {};
+    };
+    const std::uint64_t entries = end - indexed;
+    const std::uint64_t threads =
+        entries < 4096 ? 1 : std::clamp<std::uint64_t>(std::thread::hardware_concurrency(), 1, 8);
+    std::vector<Part> parts(static_cast<std::size_t>(threads));
+    {
+        const std::uint64_t chunk = (entries + threads - 1) / threads;
+        std::vector<std::jthread> workers;
+        for (std::uint64_t t = 1; t < threads; ++t) {
+            const std::uint64_t from = std::min(end, indexed + t * chunk);
+            const std::uint64_t to = std::min(end, from + chunk);
+            workers.emplace_back([&, t, from, to] {
+                parts[static_cast<std::size_t>(t)].status =
+                    parse(from, to, parts[static_cast<std::size_t>(t)]);
+            });
+        }
+        parts[0].status = parse(indexed, std::min(end, indexed + chunk), parts[0]);
     }
-
+    for (Part& part : parts) {
+        SEARCH_CHECK(part.status);
+        for (const auto& [index, at] : part.times) {
+            times.emplace(index, at);
+        }
+        records.insert(part.records.begin(), part.records.end());
+        instances.insert(part.instances.begin(), part.instances.end());
+        contracts.insert(part.contracts.begin(), part.contracts.end());
+        for (auto& [key, metadata] : part.registered) {
+            registered.emplace(key, std::move(metadata));
+        }
+        for (Creation& c : part.calls) {
+            calls.push_back(std::move(c));
+        }
+    }
     // What the state holds now for each object touched, copied out so that
     // the writer is held up for no longer than that.
     std::vector<RecordWrite> record_rows;
@@ -680,6 +824,10 @@ Result<std::uint64_t> Index::Impl::step(std::uint64_t end) {
     if (!problem) {
         return std::unexpected(problem.error());
     }
+    // In log order: appends to every table, and the text index takes rows
+    // in rising order only (out of order, it writes a segment each time).
+    std::ranges::sort(record_rows, {}, &RecordWrite::pos);
+    std::ranges::sort(instance_rows, {}, &InstanceWrite::pos);
 
     SEARCH_CHECK(db.exec("BEGIN IMMEDIATE"));
     auto write = [&]() -> Status {
@@ -810,15 +958,18 @@ std::filesystem::path Index::file_for(const std::filesystem::path& ledger) {
     return ledger / "search.sqlite";
 }
 
-Result<std::unique_ptr<Index>> Index::open(const ledger::Ledger& ledger,
-                                           std::filesystem::path file) {
+Result<std::unique_ptr<Index>> Index::open(const ledger::Ledger& ledger, std::filesystem::path file,
+                                           std::uint64_t bulk) {
     SEARCH_TRY(sql::Database db, sql::Database::open(file));
     // A cache big enough that ids' random inserts mostly hit memory.
     SEARCH_CHECK(db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; "
                          "PRAGMA cache_size = -65536; "
                          "PRAGMA temp_store = MEMORY;"));
     auto impl = std::make_unique<Impl>(ledger, std::move(file), std::move(db));
+    impl->bulk_from = bulk;
     SEARCH_CHECK(impl->db.exec(tables));
+    // A first build cut short leaves its indexes dropped: made again here.
+    SEARCH_CHECK(impl->db.exec(indexes));
     // The layout and ledger it is for; anything else starts again.
     std::optional<std::int64_t> found_layout;
     std::optional<Bytes> found_ledger;
@@ -855,14 +1006,29 @@ Result<std::uint64_t> Index::update(std::chrono::milliseconds budget, std::size_
     const std::lock_guard lock(impl_->mutex);
     const auto deadline = std::chrono::steady_clock::now() + budget;
     batch = std::max<std::size_t>(batch, 1);
+    // Far behind (a first build, or a long way to catch up): rows first,
+    // the secondary indexes made once at the end, in large batches.
+    if (!impl_->bulk && impl_->ledger.size() > impl_->indexed + impl_->bulk_from) {
+        SEARCH_CHECK(impl_->db.exec(drop_indexes));
+        impl_->bulk = true;
+    }
     for (;;) {
         const std::uint64_t size = impl_->ledger.size();
         if (impl_->indexed >= size) {
-            return impl_->indexed;
+            if (impl_->bulk) {
+                SEARCH_CHECK(impl_->db.exec(indexes));
+                impl_->bulk = false;
+            }
+            return impl_->indexed.load();
         }
-        const std::uint64_t end = std::min<std::uint64_t>(size, impl_->indexed + batch);
+        const std::uint64_t step_batch =
+            impl_->bulk ? std::max<std::uint64_t>(batch, 65'536) : batch;
+        const std::uint64_t end = std::min<std::uint64_t>(size, impl_->indexed + step_batch);
         SEARCH_TRY(const std::uint64_t reached, impl_->step(end));
-        if (reached >= size || std::chrono::steady_clock::now() >= deadline) {
+        if (reached >= size) {
+            continue; // to make the indexes, if this was a first build
+        }
+        if (std::chrono::steady_clock::now() >= deadline) {
             return reached;
         }
     }
@@ -910,17 +1076,18 @@ Result<RecordRow> read_record(sql::Statement& s, sql::Statement& meta) {
 } // namespace
 
 std::uint64_t Index::as_of() const {
-    const std::lock_guard lock(impl_->mutex);
-    return impl_->indexed;
+    return impl_->indexed.load();
 }
 
 Result<std::optional<RecordRow>> Index::record(const Id& id) const {
-    const std::lock_guard lock(impl_->mutex);
+    SEARCH_TRY(auto lease, impl_->lease());
+    SEARCH_TRY(const std::uint64_t seen, lease.begin());
+    static_cast<void>(seen);
     SEARCH_TRY(sql::Statement s,
-               impl_->db.prepare(std::string(record_columns) + " WHERE r.id = ?"));
+               lease.db().prepare(std::string(record_columns) + " WHERE r.id = ?"));
     s.bind(1, id.bytes());
     SEARCH_TRY(sql::Statement meta,
-               impl_->db.prepare("SELECT key, value FROM record_meta WHERE pos = ? ORDER BY n"));
+               lease.db().prepare("SELECT key, value FROM record_meta WHERE pos = ? ORDER BY n"));
     SEARCH_TRY(const bool row, s.step());
     if (!row) {
         return std::optional<RecordRow>{};
@@ -932,7 +1099,8 @@ Result<std::optional<RecordRow>> Index::record(const Id& id) const {
 Result<Page<RecordRow>> Index::records(const RecordFilter& filter, const PageRequest& page) const {
     SEARCH_CHECK(check_limit(page));
     SEARCH_TRY(const auto cursor, cursor_of(page));
-    const std::lock_guard lock(impl_->mutex);
+    SEARCH_TRY(auto lease, impl_->lease());
+    SEARCH_TRY(const std::uint64_t seen, lease.begin());
     Query q;
     record_conditions(filter, q);
     if (cursor) {
@@ -941,13 +1109,13 @@ Result<Page<RecordRow>> Index::records(const RecordFilter& filter, const PageReq
     }
     const std::string sql = std::string(record_columns) + q.where + " ORDER BY r.pos " +
                             (page.oldest_first ? "ASC" : "DESC") + " LIMIT ?";
-    SEARCH_TRY(sql::Statement s, impl_->db.prepare(sql));
+    SEARCH_TRY(sql::Statement s, lease.db().prepare(sql));
     q.apply(s);
     s.bind(static_cast<int>(q.values.size()) + 1, signed_of(page.limit + 1));
     SEARCH_TRY(sql::Statement meta,
-               impl_->db.prepare("SELECT key, value FROM record_meta WHERE pos = ? ORDER BY n"));
+               lease.db().prepare("SELECT key, value FROM record_meta WHERE pos = ? ORDER BY n"));
     Page<RecordRow> out;
-    out.as_of = impl_->indexed;
+    out.as_of = seen;
     for (;;) {
         SEARCH_TRY(const bool row, s.step());
         if (!row) {
@@ -967,7 +1135,8 @@ Result<Page<InstanceRow>> Index::instances(const InstanceFilter& filter,
                                            const PageRequest& page) const {
     SEARCH_CHECK(check_limit(page));
     SEARCH_TRY(const auto cursor, cursor_of(page));
-    const std::lock_guard lock(impl_->mutex);
+    SEARCH_TRY(auto lease, impl_->lease());
+    SEARCH_TRY(const std::uint64_t seen, lease.begin());
     Query q;
     instance_conditions(filter, q);
     if (cursor) {
@@ -979,17 +1148,17 @@ Result<Page<InstanceRow>> Index::instances(const InstanceFilter& filter,
         "i.created_at, i.last_index, i.last_at, i.calls, i.open_requests, i.parent, i.reference "
         "FROM instances i LEFT JOIN contracts c ON c.id = i.contract" +
         q.where + " ORDER BY i.pos " + (page.oldest_first ? "ASC" : "DESC") + " LIMIT ?";
-    SEARCH_TRY(sql::Statement s, impl_->db.prepare(sql));
+    SEARCH_TRY(sql::Statement s, lease.db().prepare(sql));
     q.apply(s);
     s.bind(static_cast<int>(q.values.size()) + 1, signed_of(page.limit + 1));
     SEARCH_TRY(sql::Statement parties,
-               impl_->db.prepare("SELECT role, ledger FROM instance_parties WHERE pos = ? "
-                                 "ORDER BY role"));
+               lease.db().prepare("SELECT role, ledger FROM instance_parties WHERE pos = ? "
+                                  "ORDER BY role"));
     SEARCH_TRY(sql::Statement fields,
-               impl_->db.prepare("SELECT name, value FROM instance_fields WHERE pos = ? "
-                                 "ORDER BY name"));
+               lease.db().prepare("SELECT name, value FROM instance_fields WHERE pos = ? "
+                                  "ORDER BY name"));
     Page<InstanceRow> out;
-    out.as_of = impl_->indexed;
+    out.as_of = seen;
     std::int64_t last = 0;
     for (;;) {
         SEARCH_TRY(const bool row, s.step());
@@ -1152,8 +1321,9 @@ Result<Report> Index::report(const RecordFilter& filter, const ReportRequest& re
     }
     Query q;
     record_conditions(filter, q);
-    const std::lock_guard lock(impl_->mutex);
-    return run_report(impl_->db, impl_->indexed, request, "FROM records r", keys, q, values, false);
+    SEARCH_TRY(auto lease, impl_->lease());
+    SEARCH_TRY(const std::uint64_t seen, lease.begin());
+    return run_report(lease.db(), seen, request, "FROM records r", keys, q, values, false);
 }
 
 Result<Report> Index::report(const InstanceFilter& filter, const ReportRequest& request) const {
@@ -1185,23 +1355,24 @@ Result<Report> Index::report(const InstanceFilter& filter, const ReportRequest& 
     const std::string from =
         request.sum ? "FROM instances i LEFT JOIN instance_fields s ON s.pos = i.pos AND s.name = ?"
                     : "FROM instances i";
-    const std::lock_guard lock(impl_->mutex);
-    return run_report(impl_->db, impl_->indexed, request, from, keys, q, values,
-                      request.sum.has_value());
+    SEARCH_TRY(auto lease, impl_->lease());
+    SEARCH_TRY(const std::uint64_t seen, lease.begin());
+    return run_report(lease.db(), seen, request, from, keys, q, values, request.sum.has_value());
 }
 
 Result<IndexStatus> Index::status() const {
-    const std::lock_guard lock(impl_->mutex);
+    SEARCH_TRY(auto lease, impl_->lease());
+    SEARCH_TRY(const std::uint64_t seen, lease.begin());
     IndexStatus out;
     out.file = impl_->file;
-    out.indexed = impl_->indexed;
+    out.indexed = seen;
     out.log_size = impl_->ledger.size();
     for (const auto& [table, count] :
          {std::pair<std::string_view, std::uint64_t*>{"records", &out.records},
           {"instances", &out.instances},
           {"contracts", &out.contracts}}) {
         SEARCH_TRY(sql::Statement s,
-                   impl_->db.prepare("SELECT COUNT(*) FROM " + std::string(table)));
+                   lease.db().prepare("SELECT COUNT(*) FROM " + std::string(table)));
         SEARCH_TRY(const bool row, s.step());
         *count = row ? static_cast<std::uint64_t>(s.integer(0)) : 0;
     }
