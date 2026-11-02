@@ -12,3 +12,12 @@
 # Accesses made from libcrypto are ignored; races in CexChain's own code are
 # still reported.
 called_from_lib:libcrypto
+
+# SQLite in WAL mode shares the WAL index (the -shm file, mapped) between the
+# writer and its readers without a lock by design: a reader copies the index
+# header twice and checks both copies and their checksum, with memory barriers
+# between, and retries on a mismatch. ThreadSanitizer sees those copies as
+# races with the writer's update of the header and hash tables. Only frames in
+# SQLite's WAL code are matched, so a race in our own use of a connection or of
+# the reader pool is still reported.
+race:sqlite3Wal
