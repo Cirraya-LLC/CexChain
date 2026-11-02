@@ -634,7 +634,9 @@ cexchain console settings show
   one-time code back to the page; `--allow-domain` limits who may sign in by verified email. The
   client secret is sealed in the console. An applicant appears to the ledger only as a
   pseudonym (`a-` and 24 hex digits, an HMAC of the provider and account under the console's
-  own key); `console sso list|show|remove|test` manage the providers.
+  own key); `console sso list|show|remove|test` manage the providers. Staff may sign in through
+  them too once an owner links their account (`console user account NAME --provider P --subject
+  S`); approving still takes their passkey.
 - **Self-service forms.** `console form add FILE` publishes a form for applicants: deployed rules
   and their creating call, the later steps an applicant may take on their own thing (`withdraw`,
   `resubmit`), and optionally a document kind filled in with it. `console intake grant

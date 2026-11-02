@@ -25,6 +25,8 @@
 #include <cexchain/console/console.hpp>
 #include <cexchain/console/identity.hpp>
 #include <cexchain/console/keystore.hpp>
+#include <cexchain/console/sessions.hpp>
+#include <cexchain/console/users.hpp>
 #include <cexchain/node/client.hpp>
 
 #include "responses.hpp"
@@ -52,6 +54,8 @@ struct Cached {
 
 struct Flow {
     std::string provider;
+    /// Staff signing in (a console session), not an applicant.
+    bool staff = false;
     std::string form;
     std::string nonce;
     std::string verifier;
@@ -61,6 +65,9 @@ struct Flow {
 
 struct Code {
     Applicant applicant;
+    /// For staff: their user and the session's token.
+    std::string staff_user;
+    std::string staff_token;
     protocol::Timestamp expires = 0;
 };
 
@@ -316,6 +323,7 @@ http::Response Console::sso_route(const http::Request& request) const {
         }
         const std::string state = to_base64url(services_.entropy->bytes<16>());
         Flow flow{p->name,
+                  body.contains("staff") && body["staff"].is_boolean() && body["staff"].get<bool>(),
                   form,
                   to_base64url(services_.entropy->bytes<16>()),
                   to_base64url(services_.entropy->bytes<32>()),
@@ -492,6 +500,31 @@ http::Response Console::sso_route(const http::Request& request) const {
         if (!allowed(*p, identity)) {
             return back("sign-in-failed/not-allowed");
         }
+        // Staff: a console session for the user whose account this is.
+        if (flow.staff) {
+            std::string user;
+            try {
+                for (const User& u : load_people(services_.directory).users) {
+                    if (std::ranges::contains(u.accounts, std::pair{p->name, identity.subject})) {
+                        user = u.name;
+                    }
+                }
+            } catch (const std::exception&) {
+                return back("sign-in-failed/busy");
+            }
+            if (user.empty() || services_.sessions == nullptr) {
+                return back("sign-in-failed/no-staff-account");
+            }
+            const std::string token = services_.sessions->create(user);
+            const std::string code = to_base64url(services_.entropy->bytes<16>());
+            const std::lock_guard lock(sso_->mutex);
+            std::erase_if(sso_->codes, [&](const auto& c) { return c.second.expires <= now; });
+            if (sso_->codes.size() >= max_flows) {
+                return back("sign-in-failed/busy");
+            }
+            sso_->codes.emplace(code, Code{{}, user, token, now + code_lifetime});
+            return back("signed-in/" + code);
+        }
         // The applicant's pseudonym: under the console's own key, made once.
         Bytes key;
         try {
@@ -512,7 +545,7 @@ http::Response Console::sso_route(const http::Request& request) const {
             if (sso_->codes.size() >= max_flows) {
                 return back("sign-in-failed/busy");
             }
-            sso_->codes.emplace(code, Code{std::move(applicant), now + code_lifetime});
+            sso_->codes.emplace(code, Code{std::move(applicant), {}, {}, now + code_lifetime});
         }
         return back("signed-in/" + code);
     }
@@ -528,6 +561,12 @@ http::Response Console::sso_route(const http::Request& request) const {
         const auto it = sso_->codes.find(body["code"].get<std::string>());
         if (it == sso_->codes.end() || it->second.expires <= now) {
             return error(401, "unauthorized", "the sign-in has expired: sign in again");
+        }
+        if (!it->second.staff_token.empty()) {
+            const nlohmann::json staff{{"session", it->second.staff_token},
+                                       {"user", it->second.staff_user}};
+            sso_->codes.erase(it);
+            return json(200, staff);
         }
         Applicant applicant = std::move(it->second.applicant);
         sso_->codes.erase(it);

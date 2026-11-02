@@ -154,9 +154,23 @@ People load_people(const std::filesystem::path& directory) {
                   u.value("created", protocol::Timestamp{0}),
                   {},
                   u.value("actor", ""),
-                  u.value("key", "")};
+                  u.value("key", ""),
+                  {}};
         for (const auto& p : u["passkeys"]) {
             user.passkeys.push_back(passkey_of(p));
+        }
+        if (const auto accounts = u.find("accounts"); accounts != u.end()) {
+            if (!accounts->is_array()) {
+                damaged();
+            }
+            for (const auto& a : *accounts) {
+                if (!a.is_object() || !a.contains("provider") || !a["provider"].is_string() ||
+                    !a.contains("subject") || !a["subject"].is_string()) {
+                    damaged();
+                }
+                user.accounts.emplace_back(a["provider"].get<std::string>(),
+                                           a["subject"].get<std::string>());
+            }
         }
         if (!valid_user_name(user.name)) {
             damaged();
@@ -189,6 +203,13 @@ void save_people(const std::filesystem::path& directory, const People& people) {
         if (!u.actor.empty()) {
             user["actor"] = u.actor;
             user["key"] = u.key;
+        }
+        if (!u.accounts.empty()) {
+            nlohmann::json accounts = nlohmann::json::array();
+            for (const auto& [provider, subject] : u.accounts) {
+                accounts.push_back({{"provider", provider}, {"subject", subject}});
+            }
+            user["accounts"] = std::move(accounts);
         }
         users.push_back(std::move(user));
     }

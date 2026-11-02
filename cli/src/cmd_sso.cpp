@@ -10,6 +10,7 @@
 #include <cexchain/console/console.hpp>
 #include <cexchain/console/identity.hpp>
 #include <cexchain/console/keystore.hpp>
+#include <cexchain/console/users.hpp>
 #include <cexchain/ledger/storage.hpp>
 
 #include "commands.hpp"
@@ -239,6 +240,63 @@ int cmd_console_sso_test(const Args& args) {
         std::println("{}: discovery ok; {} signing key(s); applicants sign in at {}", p.name,
                      out["keys"].get<std::size_t>(),
                      out["authorization_endpoint"].get<std::string>());
+    }
+    return exit_ok;
+}
+
+int cmd_console_user_account(const Args& args) {
+    const std::filesystem::path dir = args.console_ledger();
+    require_ledger_directory(dir);
+    const std::filesystem::path state = console::state_directory(dir);
+    const std::string name = args.positional().front();
+    const std::string provider = args.need("provider");
+    const bool removing = args.has("remove");
+    const auto subject = args.get("subject");
+    if (removing == subject.has_value()) {
+        throw UsageError{"give --subject SUBJECT to add the account, or --remove"};
+    }
+    if (!removing) {
+        static_cast<void>(find_provider(state, provider));
+        if (subject->empty() || subject->size() > 255) {
+            throw UsageError{"an account's subject is 1 to 255 bytes"};
+        }
+    }
+    const auto lock = unwrap(ledger::DirectoryLock::acquire(state), "locking the console's users");
+    console::People people = console::load_people(state);
+    const auto user = std::ranges::find(people.users, name, &console::User::name);
+    if (user == people.users.end()) {
+        throw CommandError{"no console user named " + name};
+    }
+    if (removing) {
+        if (std::erase_if(user->accounts, [&](const auto& a) { return a.first == provider; }) ==
+            0) {
+            throw CommandError{name + " has no account at " + provider};
+        }
+    } else {
+        for (const auto& other : people.users) {
+            if (other.name != name &&
+                std::ranges::contains(other.accounts, std::pair{provider, *subject})) {
+                throw CommandError{"that account is " + other.name + "'s already"};
+            }
+        }
+        std::erase_if(user->accounts, [&](const auto& a) { return a.first == provider; });
+        user->accounts.emplace_back(provider, *subject);
+    }
+    console::save_people(state, people);
+    if (args.json()) {
+        Json accounts = Json::array();
+        for (const auto& [p, sub] : user->accounts) {
+            accounts.push_back({{"provider", p}, {"subject", sub}});
+        }
+        print_json({{"user", name}, {"accounts", accounts}});
+        return exit_ok;
+    }
+    if (removing) {
+        std::println("{} no longer signs in with an account at {}", name, provider);
+    } else {
+        std::println(
+            "{} may sign in with the account {} at {}; approving still takes their passkey", name,
+            *subject, provider);
     }
     return exit_ok;
 }

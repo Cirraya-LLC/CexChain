@@ -927,5 +927,6 @@
   "apply.sign_in_failed.locked": "控制台暫時鎖定：請稍後再試。",
   "apply.sign_in_failed.unreachable": "暫時無法連接機構登入：請稍後再試。",
   "apply.sign_in_failed.provider": "這種登入方式已不再提供。",
-  "apply.sign_in_failed.busy": "登入人數過多：請一分鐘後再試。"
+  "apply.sign_in_failed.busy": "登入人數過多：請一分鐘後再試。",
+  "apply.sign_in_failed.no-staff-account": "沒有控制台用戶使用這個帳戶登入：請用通行密鑰登入，或請擁有人連結此帳戶。"
 }

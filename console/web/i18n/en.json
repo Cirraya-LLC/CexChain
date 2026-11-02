@@ -927,5 +927,6 @@
   "apply.sign_in_failed.locked": "The console is locked for now: try again later.",
   "apply.sign_in_failed.unreachable": "Your organization's sign-in cannot be reached: try again later.",
   "apply.sign_in_failed.provider": "This sign-in is no longer offered.",
-  "apply.sign_in_failed.busy": "Too many people are signing in: try again in a minute."
+  "apply.sign_in_failed.busy": "Too many people are signing in: try again in a minute.",
+  "apply.sign_in_failed.no-staff-account": "No console user signs in with this account: sign in with your passkey, or ask an owner to link it."
 }

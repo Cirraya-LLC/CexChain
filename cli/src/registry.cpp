@@ -1542,6 +1542,22 @@ std::vector<CommandSpec> build() {
          "      --client-id console --client-secret-file secret.txt --allow-domain school.example\n"
          "  cexchain console sso add campus --cas https://cas.school.example/cas --label \"Campus "
          "account\""},
+        {{"console", "user", "account"},
+         "Let a console user sign in with an account at an identity provider too",
+         "Console",
+         "NAME",
+         1,
+         1,
+         with({ledger_option,
+               {"provider", "PROVIDER", "The identity provider (console sso list)", true},
+               {"subject", "SUBJECT", "The account's subject there (its sub, or its CAS user)"},
+               {"remove", "", "Remove the user's account at that provider"}}),
+         cmd_console_user_account,
+         "A staff user who has an account at the organization's identity provider may sign in\n"
+         "with it as well as with a passkey; approving still takes their passkey, so the\n"
+         "ledger still knows a person was present. One account per provider and user; an\n"
+         "account belongs to one user.\n\n"
+         "  cexchain console user account Wong --provider school --subject staff-0042"},
         {{"console", "sso", "list"},
          "List the identity providers the console trusts",
          "Console",

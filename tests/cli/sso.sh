@@ -125,6 +125,7 @@ cat > flow.py << 'PY'
 # The browser's part: begin, follow the provider, back to the console, finish.
 import http.client, json, sys, urllib.parse
 port, provider = int(sys.argv[1]), sys.argv[2]
+staff = len(sys.argv) > 3 and sys.argv[3] == "staff"
 host, origin = f"localhost:{port}", f"http://localhost:{port}"
 def call(method, path, body=None, token=None, to=("127.0.0.1", port), headers_host=None):
     c = http.client.HTTPConnection(*to, timeout=20)
@@ -137,7 +138,8 @@ def call(method, path, body=None, token=None, to=("127.0.0.1", port), headers_ho
     c.request(method, path, body=None if body is None else json.dumps(body), headers=headers)
     r = c.getresponse()
     return r.status, dict((k.lower(), v) for k, v in r.getheaders()), r.read().decode()
-status, _, body = call("POST", "/console/api/sso/begin", {"provider": provider, "form": "day-student"})
+status, _, body = call("POST", "/console/api/sso/begin",
+                      {"provider": provider, "staff": True} if staff else {"provider": provider, "form": "day-student"})
 assert status == 200, body
 url = urllib.parse.urlparse(json.loads(body)["url"])
 status, headers, _ = call("GET", url.path + "?" + url.query, to=(url.hostname, url.port),
@@ -150,7 +152,7 @@ assert status == 303, status
 fragment = headers["location"]
 print(json.dumps({"fragment": fragment, "callback": back.path + "?" + back.query}))
 PY
-signin() { python3 flow.py "$FREE" "$1"; }
+signin() { python3 flow.py "$FREE" "$1" "${2:-}"; }
 finish() {
     python3 - "$FREE" "$1" << 'PY'
 import http.client, json, sys
@@ -290,6 +292,45 @@ PY
     ! grep -rq "Hill Road" school/statements* || fail "the address is sealed"
     run record history "$DOCUMENT" | contains 'Intake \[device\]'
 fi
+
+# --- Staff sign in with a linked account, too ------------------------------------------
+python3 - << 'PY'
+import os
+def text(value):
+    data = value.encode()
+    return bytes([0x60 + len(data)]) + data
+credential = bytes([0xa3, 0x01]) + text("localhost") + bytes([0x02, 0x50]) + os.urandom(16)
+credential += bytes([0x03, 0x82, 0x32, 0x58, 0x20]) + os.urandom(32)
+open("owner.passkey", "wb").write(credential)
+PY
+STAFF="$WORK/office"
+run console setup --ledger "$STAFF" --name "Office Owner" --credential owner.passkey \
+    --unlock-file unlock.txt > /dev/null
+run console sso add school --ledger "$STAFF" --oidc "$IDP" --client-id console \
+    --client-secret-file secret.txt > /dev/null
+run console sso add campus --ledger "$STAFF" --cas "$IDP/cas" > /dev/null
+expect_exit 2 console user account Nobody --ledger "$STAFF" --provider school --subject x
+expect_exit 1 console user account "Office Owner" --ledger "$STAFF" --provider school
+run console user account "Office Owner" --ledger "$STAFF" --provider school --subject student-42 |
+    contains 'approving still takes their passkey'
+"$CEXCHAIN" console stop > /dev/null 2>&1 || true
+OFFICE="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
+"$CEXCHAIN" console run --ledger "$STAFF" --port "$OFFICE" --unlock-file unlock.txt --quiet > office.log 2>&1 &
+PIDS+=("$!")
+for _ in $(seq 1 300); do
+    python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:$OFFICE/console/')" 2> /dev/null && break
+    sleep 0.1
+done
+FREE="$OFFICE"
+SIGNED="$(finish "$(signin school staff | json 'd["fragment"]' | sed 's|.*/||')")"
+SESSION="$(echo "$SIGNED" | json 'd["body"]["session"]')"
+echo "$SESSION" | contains -E '^cxs_'
+[ "$(get /console/api/session "$SESSION" | sed -n 2p | json 'd["user"]')" = "Office Owner" ] ||
+    fail "a staff session"
+# An account no one linked: no session.
+signin campus staff | json 'd["fragment"]' | contains 'sign-in-failed/no-staff-account'
+run console user account "Office Owner" --ledger "$STAFF" --provider school --remove > /dev/null
+signin school staff | json 'd["fragment"]' | contains 'sign-in-failed/no-staff-account'
 
 # Removing a provider removes its secret.
 run console sso remove strict > /dev/null

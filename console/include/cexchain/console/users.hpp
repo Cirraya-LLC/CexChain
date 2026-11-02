@@ -39,6 +39,10 @@ struct User {
     /// key the console holds for it (console user link); empty until linked.
     std::string actor;
     std::string key;
+    /// Accounts at the console's identity providers this person may sign in
+    /// with too (console user account add): the provider's name, and the
+    /// account's subject there. Approving still takes their passkey.
+    std::vector<std::pair<std::string, std::string>> accounts{};
 };
 
 [[nodiscard]] bool valid_user_name(std::string_view name) noexcept;

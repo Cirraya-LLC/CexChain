@@ -365,9 +365,26 @@ function signInScreen(message) {
             status("");
         }
     });
+    // Or the organization's account, for staff who linked one.
+    const accounts = el("div");
     show(el("h1", { text: t("sign_in.title") }), el("p", { text: t("sign_in.intro") }), notice,
-         button, el("p", {}, el("a", { href: "#/recover", text: t("recover.link") })),
+         button, accounts, el("p", {}, el("a", { href: "#/recover", text: t("recover.link") })),
          el("p", {}, el("a", { href: "#/verify", text: t("verify.link") })));
+    api("GET", "sso").then((listed) => {
+        accounts.replaceChildren(...listed.providers.map((p) => {
+            const other = el("button", { type: "button", text: t("apply.sign_in_with", { label: p.label }) });
+            other.addEventListener("click", async () => {
+                other.disabled = true;
+                try {
+                    location.href = (await api("POST", "sso/begin", { provider: p.name, staff: true })).url;
+                } catch (error) {
+                    other.disabled = false;
+                    notice.replaceChildren(problem(t("error.server", { message: error.message })));
+                }
+            });
+            return el("p", {}, other);
+        }));
+    }).catch(() => null);
 }
 
 function field(id, label, hint, attributes = {}) {
@@ -4314,6 +4331,13 @@ async function signedInScreen(code) {
     history.replaceState(null, "", `${location.pathname}#/signed-in`);
     try {
         const done = await applicantApi("POST", "sso/finish", { code });
+        if (done.session) {
+            // Staff, signed in with their linked account.
+            store(sessionStorage, SESSION, done.session);
+            state.who = null;
+            location.hash = "#/";
+            return;
+        }
         store(sessionStorage, APPLICANT, done.token);
         location.hash = done.applicant.form ? `#/apply/${done.applicant.form}` : "#/mine";
     } catch (error) {

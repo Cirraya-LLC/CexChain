@@ -79,6 +79,7 @@ int cmd_console_sso_list(const Args& args);
 int cmd_console_sso_show(const Args& args);
 int cmd_console_sso_remove(const Args& args);
 int cmd_console_sso_test(const Args& args);
+int cmd_console_user_account(const Args& args);
 int cmd_console_form_add(const Args& args);
 int cmd_console_form_list(const Args& args);
 int cmd_console_form_show(const Args& args);
