@@ -9,8 +9,8 @@ on:
   workflow_dispatch:
     inputs:
       seconds:
-        description: Seconds to run each fuzz target
-        default: "300"
+        description: Seconds to run each fuzz target (empty, two hours shared among them all)
+        default: ""
 
 permissions:
   contents: read
@@ -20,9 +20,9 @@ jobs:
     name: libFuzzer
     runs-on: ubuntu-latest
     container: gcc:16-trixie
-    # Every target runs SECONDS_PER_TARGET in turn (22 targets: 110 minutes at
-    # the default), after builds of about 25 minutes.
-    timeout-minutes: 165
+    # The targets share two hours by default (each its part, in turn), after
+    # builds of about 25 minutes; the Bo build fuzzer runs 5 minutes more.
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v7
 
@@ -35,8 +35,10 @@ jobs:
           cmake --build --preset clang-fuzz
 
       - name: Run fuzz targets
+        shell: bash
         env:
-          SECONDS_PER_TARGET: ${{ inputs.seconds || '300' }}
+          SECONDS_PER_TARGET: ${{ inputs.seconds }}
+          TOTAL_SECONDS: "7200"
           # Long runs otherwise grow RSS through allocator retention alone (live
           # heap stays small), which libFuzzer misreports as out-of-memory.
           # A single allocation over 256 MB still fails the run.
@@ -44,10 +46,13 @@ jobs:
         run: |
           # Valid objects to start from: random bytes rarely pass a signature.
           build/clang-fuzz/fuzz/make_seeds corpus
-          for target in build/clang-fuzz/fuzz/*_fuzz; do
+          targets=(build/clang-fuzz/fuzz/*_fuzz)
+          seconds="${SECONDS_PER_TARGET:-$((TOTAL_SECONDS / ${#targets[@]}))}"
+          echo "${#targets[@]} targets, $seconds seconds each"
+          for target in "${targets[@]}"; do
             echo "::group::$(basename "$target")"
             mkdir -p "corpus/$(basename "$target")"
-            "$target" "corpus/$(basename "$target")" -max_total_time="$SECONDS_PER_TARGET" \
+            "$target" "corpus/$(basename "$target")" -max_total_time="$seconds" \
               -rss_limit_mb=4096 -malloc_limit_mb=256
             echo "::endgroup::"
           done
