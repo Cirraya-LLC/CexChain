@@ -21,6 +21,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
+#include <cexchain/app/backups.hpp>
 #include <cexchain/app/peers.hpp>
 #include <cexchain/app/public_witness.hpp>
 #include <cexchain/app/records.hpp>
@@ -3086,6 +3087,26 @@ TEST_CASE("automation: an executor and an AI agent added with two taps, keys han
     CHECK(drawn.content_type == "image/svg+xml");
     CHECK(body(drawn).starts_with("<svg"));
     CHECK(qr("https://elsewhere.example/").status == 400);
+}
+
+TEST_CASE("backups: a restore writes only the files a backup holds, by their names",
+          "[console][backups]") {
+    for (const char* path :
+         {"vault/vault.pub", "witnesses.json", "console/users.json", "console/slots/recovery.p8",
+          "console/slots/passkey-AbC_4-x.p8", "console/keys/intake.sealed"}) {
+        INFO(path);
+        CHECK(cexchain::app::backup_path_allowed(path));
+    }
+    // A name with ".." in it, even inside one name (found by fuzzing), a
+    // hidden one, another folder, or not a name a console writes.
+    for (const char* path :
+         {"", "/etc/passwd", "console/slots/passkey-AbC_4-..p-x.p8", "console/slots/../x.p8",
+          "console/keys/../../x.sealed", "console/slots/.hidden.p8", "console/slots/..p8",
+          "vault\\vault.pub", "console/users.json/", "console/slots/a b.p8", "console/other.json",
+          "vault/files/00/1.cbor"}) {
+        INFO(path);
+        CHECK_FALSE(cexchain::app::backup_path_allowed(path));
+    }
 }
 
 TEST_CASE("backups: sealed for the recovery code, written once a day, restored with the console",

@@ -25,10 +25,11 @@ bool hex_id(std::string_view name) {
 }
 
 /// A file name of letters, digits, '.', '_', and '-', not starting with a
-/// dot: no path, nothing hidden.
+/// dot and with no ".." anywhere: no path, nothing hidden, nothing a reader
+/// of the list must look at twice.
 bool plain_name(std::string_view name) {
     return !name.empty() && name.size() <= 200 && name.front() != '.' &&
-           std::ranges::all_of(name, [](char c) {
+           name.find("..") == std::string_view::npos && std::ranges::all_of(name, [](char c) {
                return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
                       c == '.' || c == '_' || c == '-';
            });
