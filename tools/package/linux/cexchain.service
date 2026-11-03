@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
 #
-# A ledger server and its console, for a company (not enabled by default):
-#   set the ledger and its options in /etc/cexchain/serve.env, then
+# A ledger server, for a company (not enabled by default): set the ledger and
+# its options in /etc/cexchain/serve.env, then
 #   systemctl enable --now cexchain
-# A person's console runs as their own user instead: cexchain-console service install.
+# A company's console runs instead (cexchain-console.service, in the
+# cexchain-console package).
 [Unit]
 Description=CexChain ledger server
 After=network-online.target
