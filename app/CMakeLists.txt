@@ -22,7 +22,6 @@ add_library(cexchain_app
     src/requests.cpp
     src/session.cpp
     src/support.cpp
-    src/updates.cpp
     src/views.cpp
     src/witness.cpp)
 add_library(cexchain::app ALIAS cexchain_app)
@@ -30,12 +29,9 @@ target_include_directories(cexchain_app PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT
 target_link_libraries(cexchain_app
     PUBLIC cexchain::ledger cexchain::node cexchain::verifier cexchain::bo_front
            nlohmann_json::nlohmann_json)
-# The tool named in an agent's provenance; the release key and manifest
-# URL that update checks trust, and the public witnesses offered (none by
-# default).
+# The tool named in an agent's provenance, and the public witnesses offered
+# (none by default).
 target_compile_definitions(cexchain_app PRIVATE CEXCHAIN_VERSION="${PROJECT_VERSION}"
-                                               CEXCHAIN_RELEASE_KEY="${CEXCHAIN_RELEASE_KEY}"
-                                               CEXCHAIN_UPDATE_URL="${CEXCHAIN_UPDATE_URL}"
                                                CEXCHAIN_PUBLIC_WITNESSES="${CEXCHAIN_PUBLIC_WITNESSES}")
 target_compile_features(cexchain_app PUBLIC cxx_std_26)
 cexchain_target_defaults(cexchain_app)

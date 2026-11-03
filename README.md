@@ -115,22 +115,13 @@ purchase orders, invoices, or certificates. Those are things you define, and the
 ## Installing
 
 Packages are built by `tools/package/linux.sh` (a tarball, a `.deb`, and an `.rpm`, in the
-`gcc:16-trixie` image) and `tools/package/macos.sh` (`CexChain.app` with the tool, in a `.pkg`),
-and by the Release workflow on a version tag. They install the `cexchain` tool with its shell
-completion, the web console's launcher (`.cexchain` files open in it), and, on Linux, a ledger
+`gcc:16-trixie` image) and `tools/package/macos.sh` (the tool in `/usr/local/bin`, in a `.pkg`),
+and by the Release workflow on a version tag, with their SHA-256 sums. They install the
+`cexchain` tool with its shell completion and, on Linux, the web console's launcher and a ledger
 server unit for companies (`cexchain.service`, not enabled; its options in
-`/etc/cexchain/serve.env`). Removing a package keeps every ledger, console, and backup. To build
-from source instead, see [Building](#building).
-
-**Updates are checked, never installed by themselves.** A release's manifest lists its packages
-with their sizes and SHA-256 digests, and is signed with Cirraya's release key (Ed25519), whose
-public half is built into release builds (`-DCEXCHAIN_RELEASE_KEY=`, with
-`-DCEXCHAIN_UPDATE_URL=`). `cexchain update check` says whether a newer version exists;
-`update install` downloads this computer's package, checks it against the signed manifest, and
-says how to install it (on macOS it opens the Installer). The console checks once a day and says
-what it found in Settings. A build without a release key checks nothing unless given one
-(`--release-key`, `--manifest`). `tools/package/manifest.py` writes a
-release's manifest, and `update sign` signs it.
+`/etc/cexchain/serve.env`). Removing a package keeps every ledger, console, and backup. Updates
+come the same way: a newer package, through the platform's package manager or the releases page.
+To build from source instead, see [Building](#building).
 
 ## Quick start
 
@@ -247,7 +238,6 @@ The `cexchain` tool controls every part of a ledger:
 | Replicas | `replica init`, `replica sync`, `replica status`, `replica promote` |
 | Backups | `backup create`, `backup verify`, `backup restore` |
 | Relays | `relay key init`, `relay use`, `relay show`, `relay stop`; `serve --relay-dir`, `serve --relay-key` |
-| Updates | `update check`, `update install`, `update sign` |
 | Other organizations | `peer invite`, `peer accept`, `peer add`, `peer list`, `peer show`, `peer remove`, `access request`, `access send`, `access inbox`, `access dismiss`, `access grant`, `access fetch`, `access accept`, `access receipt`, `access list` |
 | Contracts | `contract deploy`, `contract show`, `contract list`, `contract retire`, `contract create`, `contract call`, `contract instance`, `contract instances`, `contract evidence`, `contract proposal`, `contract file show`, `contract propose`, `contract pending`, `contract consent`, `contract withdraw`, `contract send`, `contract fetch`, `contract verify`, `contract explain` |
 | Requests | `request list`, `request show`, `request answer`, `request cancel`, `request wait` |
@@ -626,29 +616,6 @@ cexchain console settings show
   console on any computer with the recovery code; `console backup now|list` do the rest from the
   command line.
 
-- **Signing in with the organization's accounts.** `console sso add NAME --oidc ISSUER
-  --client-id ID --client-secret-file FILE` (or `--cas URL`) trusts an OpenID Connect provider or
-  a CAS 3.0 server, such as a school's unified authentication, for *applicants*: the people an
-  organization serves, who are never enrolled. ID tokens are checked against the provider's
-  published keys (RS256, PS256, ES256, EdDSA, through OpenSSL), with PKCE, a nonce, and a
-  one-time code back to the page; `--allow-domain` limits who may sign in by verified email. The
-  client secret is sealed in the console. An applicant appears to the ledger only as a
-  pseudonym (`a-` and 24 hex digits, an HMAC of the provider and account under the console's
-  own key); `console sso list|show|remove|test` manage the providers. Staff may sign in through
-  them too once an owner links their account (`console user account NAME --provider P --subject
-  S`); approving still takes their passkey.
-- **Self-service forms.** `console form add FILE` publishes a form for applicants: deployed rules
-  and their creating call, the later steps an applicant may take on their own thing (`withdraw`,
-  `resubmit`), and optionally a document kind filled in with it. `console intake grant
-  --unlock-file FILE` gives the console's *intake* actor, a device of the organization, one
-  delegation covering exactly the published forms. An applicant opens `/console/#/apply/NAME`
-  (`console form link NAME`, or a QR code of it), signs in with the organization's account, fills
-  in the form, and follows **My items**: where each thing stands, what happened, and the steps
-  they may take. The intake actor signs for them, so the ledger shows that a machine acted, under
-  that delegation, and names the applicant only by the pseudonym in the creating call's reference
-  (and the document's `applicant` metadata); the document's private fields are sealed as any
-  record's. Each applicant sees only their own things, and may submit at most `per_hour` times an
-  hour. Grant the intake actor before `console run`, or restart the console after.
 - **People.** Each user has a role (owner, admin, member, or viewer) and one or more passkeys.
   Roles gate the console, never the ledger: what someone may do on the ledger stays in their
   delegations. An invitation is a one-time code, valid for a day, kept only as a hash; it

@@ -169,26 +169,4 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-/// A public key as a JSON Web Key gives it (RFC 7517, 7518, 8037): RSA by its
-/// modulus and exponent, P-256 by its point, Ed25519 by its 32 bytes (in
-/// `x`); every number big-endian, as base64url decodes it.
-struct JoseKey {
-    enum class Type : std::uint8_t { rsa, p256, ed25519 };
-    Type type = Type::rsa;
-    Bytes n;
-    Bytes e;
-    Bytes x;
-    Bytes y;
-};
-
-/// Whether `signature` is a JWS signature (RFC 7515) of `signing_input` by
-/// `key` under `alg`: RS256, PS256 (MGF1 and salt of SHA-256), ES256 (r and
-/// s, 32 bytes each), or EdDSA (Ed25519), computed by OpenSSL. False for any
-/// other algorithm, a key of another type, an RSA key under 2048 bits, or a
-/// signature that does not verify. Not part of the protocol: identity
-/// providers sign the ID tokens the console takes so. Not in the browser
-/// verifier.
-[[nodiscard]] bool verify_jose(std::string_view alg, const JoseKey& key, ByteView signing_input,
-                               ByteView signature);
-
 } // namespace cexchain::crypto::openssl

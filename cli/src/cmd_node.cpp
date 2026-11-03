@@ -27,7 +27,6 @@
 #include <cexchain/app/public_witnesses.hpp>
 #include <cexchain/app/relay_client.hpp>
 #include <cexchain/app/relay_server.hpp>
-#include <cexchain/app/updates.hpp>
 #include <cexchain/app/witness.hpp>
 #include <cexchain/console/console.hpp>
 #include <cexchain/console/keystore.hpp>
@@ -325,11 +324,6 @@ int serve(const Args& args, const ServeDefaults& defaults) {
         web = std::make_shared<console::Console>(
             console::Services{console::state_directory(dir), &shared_provider(), &console_clock,
                               &console_entropy, sessions.get(), keys.get(), console_compiler()});
-        // Release builds check for updates, and Settings say what they found.
-        if (const auto key = app::built_in_release_key();
-            key && !app::built_in_update_url().empty()) {
-            web->set_update_source(app::built_in_update_url(), *key, CEXCHAIN_VERSION);
-        }
         options.console = [web](const node::http::Request& r, auto respond) {
             web->handle(r, std::move(respond));
         };

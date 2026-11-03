@@ -12,8 +12,6 @@
 # distributions'); OpenSSL 3.5 comes from the system. WASM_DIR, if set,
 # names the built WebAssembly (tools/wasm/build.sh): the console then checks
 # in the browser, and the standalone verifier page is installed.
-# CEXCHAIN_RELEASE_KEY and CEXCHAIN_UPDATE_URL, if set, are built in for
-# update checks.
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
@@ -31,9 +29,7 @@ esac
 cmake -S "$ROOT" -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++ \
     -DCEXCHAIN_BUILD_TESTS=OFF -DCEXCHAIN_BO=ON \
     -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc" \
-    ${WASM_DIR:+-DCEXCHAIN_CONSOLE_WASM_DIR="$WASM_DIR"} \
-    ${CEXCHAIN_RELEASE_KEY:+-DCEXCHAIN_RELEASE_KEY="$CEXCHAIN_RELEASE_KEY"} \
-    ${CEXCHAIN_UPDATE_URL:+-DCEXCHAIN_UPDATE_URL="$CEXCHAIN_UPDATE_URL"} > /dev/null
+    ${WASM_DIR:+-DCEXCHAIN_CONSOLE_WASM_DIR="$WASM_DIR"} > /dev/null
 cmake --build "$BUILD" --target cexchain
 strip "$BUILD/cli/cexchain"
 "$BUILD/cli/cexchain" version
@@ -47,8 +43,6 @@ install -d "$STAGE/usr/share/bash-completion/completions" "$STAGE/usr/share/zsh/
 "$BUILD/cli/cexchain" completion zsh > "$STAGE/usr/share/zsh/vendor-completions/_cexchain"
 install -Dm644 "$ROOT/tools/package/linux/cexchain.desktop" \
     "$STAGE/usr/share/applications/cexchain.desktop"
-install -Dm644 "$ROOT/tools/package/linux/cexchain-mime.xml" \
-    "$STAGE/usr/share/mime/packages/cexchain.xml"
 install -Dm644 "$ROOT/tools/package/linux/cexchain.service" \
     "$STAGE/usr/lib/systemd/system/cexchain.service"
 install -Dm644 "$ROOT/tools/package/linux/cexchain.sysusers" \
@@ -97,7 +91,6 @@ elif ! id cexchain > /dev/null 2>&1 && command -v useradd > /dev/null; then
     useradd --system --home-dir /var/lib/cexchain --shell /usr/sbin/nologin \
         --comment "CexChain ledger server" cexchain || true
 fi
-command -v update-mime-database > /dev/null && update-mime-database /usr/share/mime || true
 command -v update-desktop-database > /dev/null && update-desktop-database -q || true
 command -v systemctl > /dev/null && [ -d /run/systemd/system ] && systemctl daemon-reload || true
 exit 0
@@ -106,7 +99,6 @@ cat > "$DEB/DEBIAN/postrm" << 'POSTRM'
 #!/bin/sh
 set -e
 # Ledgers, consoles, and backups stay: only the program goes.
-command -v update-mime-database > /dev/null && update-mime-database /usr/share/mime || true
 command -v systemctl > /dev/null && [ -d /run/systemd/system ] && systemctl daemon-reload || true
 exit 0
 POSTRM
@@ -144,19 +136,14 @@ if command -v systemd-sysusers > /dev/null; then
 elif ! id cexchain > /dev/null 2>&1 && command -v useradd > /dev/null; then
     useradd --system --home-dir /var/lib/cexchain --shell /usr/sbin/nologin cexchain || true
 fi
-command -v update-mime-database > /dev/null && update-mime-database /usr/share/mime || true
 exit 0
 
-%postun
-command -v update-mime-database > /dev/null && update-mime-database /usr/share/mime || true
-exit 0
 
 %files
 /usr/bin/cexchain
 /usr/share/bash-completion/completions/cexchain
 /usr/share/zsh/vendor-completions/_cexchain
 /usr/share/applications/cexchain.desktop
-/usr/share/mime/packages/cexchain.xml
 /usr/lib/systemd/system/cexchain.service
 /usr/lib/sysusers.d/cexchain.conf
 %config(noreplace) /etc/cexchain/serve.env

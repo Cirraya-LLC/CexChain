@@ -49,15 +49,6 @@ class Index;
 
 namespace cexchain::console {
 
-struct Applicant;
-/// Signing in through identity providers: flows, codes, and applicants'
-/// sessions (sso.cpp).
-struct SsoState;
-[[nodiscard]] std::shared_ptr<SsoState> make_sso_state();
-/// Self-service forms' limits (forms.cpp).
-struct FormsState;
-[[nodiscard]] std::shared_ptr<FormsState> make_forms_state();
-
 namespace http = node::http;
 
 /// The Content-Security-Policy of every console answer: the page's own
@@ -318,16 +309,6 @@ public:
         on_ready_ = std::move(ready);
     }
 
-    /// Update checks, notify only (settings.cpp): the release manifest's
-    /// URL or path and the key it must be signed with, and this build's
-    /// version. Without them (a build with no release key), nothing is
-    /// checked. The poller checks once a day; Settings show the result.
-    void set_update_source(std::string manifest, crypto::PublicKey key, std::string current) {
-        const std::lock_guard lock(update_mutex_);
-        update_source_ = UpdateSource{std::move(manifest), std::move(key), std::move(current)};
-    }
-    void maybe_check_for_update() const;
-
     /// Answers a request whose path is /console or under /console/.
     [[nodiscard]] http::Response handle(const http::Request& request) const;
     /// The same through `respond`: an approval's answer comes when the ledger
@@ -381,21 +362,6 @@ private:
     /// /console/api/reports/records|instances: the node API's query
     /// parameters; reports also as CSV (format=csv).
     [[nodiscard]] http::Response search_route(const http::Request& request) const;
-    /// Signing in with an organization's account (sso.cpp): GET
-    /// /console/api/sso, POST /console/api/sso/begin and /finish, GET
-    /// /console/sso/callback, GET and DELETE /console/api/applicant.
-    [[nodiscard]] http::Response sso_route(const http::Request& request) const;
-    /// The applicant a request's token (cxa_...) is, if still signed in.
-    [[nodiscard]] std::optional<Applicant> applicant_of(const http::Request& request) const;
-    /// The console's own origin the request's Host names, if it is one.
-    [[nodiscard]] std::optional<Origin> origin_of(const http::Request& request) const;
-    /// Self-service forms (forms.cpp): GET /console/api/apply/FORM and
-    /// /console/api/mine; POST /console/api/apply/FORM and
-    /// /console/api/mine/THING, answered once the ledger registered them.
-    [[nodiscard]] http::Response apply_get_route(const http::Request& request) const;
-    void apply_post_route(const http::Request& request, Respond respond) const;
-    [[nodiscard]] http::Response mine_route(const http::Request& request) const;
-    void mine_post_route(const http::Request& request, Respond respond) const;
     [[nodiscard]] http::Response settings_route(const http::Request& request) const;
     [[nodiscard]] http::Response kinds_route(const http::Request& request) const;
     /// /console/api/rules/...: the compiler on a sheet or a source.
@@ -413,16 +379,6 @@ private:
     [[nodiscard]] http::Response instance_route(const http::Request& request) const;
     [[nodiscard]] std::variant<protocol::ContractCallBody, http::Response>
     call_body(const Signed& who, const nlohmann::json& intent, const std::string& action) const;
-    /// A contract's calls as `bo calls` describes them, in English, run once
-    /// per contract (its code never changes) for self-service forms.
-    [[nodiscard]] std::variant<nlohmann::json, http::Response>
-    cached_calls(const Signed& who, const protocol::Id& contract) const;
-    /// An applicant as the compiler's and drafts' routes see them.
-    [[nodiscard]] Signed as_applicant(const Applicant& a) const;
-    /// `body` signed by the intake actor, with its delegation: what an
-    /// applicant's submission sends; 423 if the console is locked, 409 if it
-    /// has no intake actor or the delegation does not cover it.
-    [[nodiscard]] std::variant<Bytes, http::Response> intake_signed(protocol::Body body) const;
     [[nodiscard]] nlohmann::json dry_run(const protocol::LedgerState& state,
                                          const protocol::Statement& statement,
                                          const protocol::ActorState& actor,
@@ -686,8 +642,6 @@ private:
     mutable std::mutex api_mutex_;
     const ledger::Ledger* ledger_ = nullptr;
     search::Index* search_ = nullptr;
-    std::shared_ptr<SsoState> sso_ = make_sso_state();
-    std::shared_ptr<FormsState> forms_ = make_forms_state();
     Submit submit_;
     NodeApi node_api_;
     Checkpointer checkpointer_;
@@ -729,18 +683,6 @@ private:
     /// ledger, the log key while unlocked, cosignatures kept by the node.
     app::RelaySender relay_sender_;
     mutable std::map<std::string, Handed> handed_;
-    struct UpdateSource {
-        std::string manifest;
-        crypto::PublicKey key;
-        std::string current;
-    };
-    [[nodiscard]] nlohmann::json update_view() const;
-    mutable std::mutex update_mutex_;
-    std::optional<UpdateSource> update_source_;
-    /// The last check's result for Settings, and when it was tried.
-    mutable nlohmann::json update_state_;
-    mutable protocol::Timestamp update_tried_ = 0;
-    mutable bool update_failed_ = false;
     /// One backup at a time.
     mutable std::mutex backup_mutex_;
     mutable std::mutex poll_mutex_;

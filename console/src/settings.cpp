@@ -4,7 +4,6 @@
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
-#include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -13,9 +12,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/app/errors.hpp>
 #include <cexchain/app/support.hpp>
-#include <cexchain/app/updates.hpp>
 #include <cexchain/console/console.hpp>
 #include <cexchain/console/settings.hpp>
 #include <cexchain/ledger/storage.hpp>
@@ -123,55 +120,7 @@ nlohmann::json Console::settings_view(Role role) const {
             {"suggested_backup_folder", suggested_backup_folder().string()},
             {"backup", backup_view()},
             {"keys", key_state()},
-            {"update", update_view()},
             {"may_change", role == Role::owner || role == Role::admin}};
-}
-
-void Console::maybe_check_for_update() const {
-    std::optional<UpdateSource> source;
-    const protocol::Timestamp now = services_.clock->now();
-    {
-        const std::lock_guard lock(update_mutex_);
-        // Once a day; after a failure, again an hour later.
-        const protocol::Timestamp wait = update_failed_ ? 60 * 60'000 : 24 * 60 * 60'000;
-        if (!update_source_ || (update_tried_ != 0 && now - update_tried_ < wait)) {
-            return;
-        }
-        source = update_source_;
-        update_tried_ = now;
-    }
-    nlohmann::json state{{"checked_at", now}};
-    bool failed = false;
-    try {
-        const app::UpdateCheck checked = app::check_for_update(
-            *services_.provider, source->manifest, source->key, source->current);
-        state["latest"] = checked.manifest.version;
-        state["newer"] = checked.compared > 0;
-        state["released"] = checked.manifest.released;
-        state["notes"] = checked.manifest.notes;
-    } catch (const app::NotVerified& e) {
-        state["error"] = "not verified: " + e.message;
-        failed = true;
-    } catch (const app::ActionError& e) {
-        state["error"] = e.message;
-        failed = true;
-    } catch (const std::exception& e) {
-        state["error"] = e.what();
-        failed = true;
-    }
-    const std::lock_guard lock(update_mutex_);
-    update_state_ = std::move(state);
-    update_failed_ = failed;
-}
-
-nlohmann::json Console::update_view() const {
-    const std::lock_guard lock(update_mutex_);
-    if (!update_source_) {
-        return nullptr;
-    }
-    nlohmann::json out = update_state_.is_object() ? update_state_ : nlohmann::json::object();
-    out["current"] = update_source_->current;
-    return out;
 }
 
 http::Response Console::settings_route(const http::Request& request) const {

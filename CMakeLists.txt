@@ -26,10 +26,6 @@ option(CEXCHAIN_CORE_ONLY
     OFF)
 option(CEXCHAIN_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 set(CEXCHAIN_SANITIZERS "" CACHE STRING "Sanitizers to enable, e.g. \"address;undefined\"")
-# Update checks: the Ed25519 public key that signs release manifests (64 hex
-# digits) and the manifest's URL. Without them, a build checks no updates.
-set(CEXCHAIN_RELEASE_KEY "" CACHE STRING "The release key's public key, in hex")
-set(CEXCHAIN_UPDATE_URL "" CACHE STRING "The release manifest's URL")
 set(CEXCHAIN_PUBLIC_WITNESSES "" CACHE STRING
     "Public witnesses offered to people: name|https://...|keyhex,... (none by default)")
 # The Bo compiler needs C++26 static reflection and contracts (GCC 16). AUTO

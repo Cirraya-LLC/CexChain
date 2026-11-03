@@ -101,15 +101,6 @@ public:
     [[nodiscard]] crypto::openssl::HpkeKey open_vault_key() const { return open_hpke_key("vault"); }
     bool remove_vault_key() const { return remove_hpke_key("vault"); }
 
-    /// A secret of the console's own (an identity provider's client secret,
-    /// the key of applicants' pseudonyms), sealed as `<name>.secret` to the
-    /// node key: sealing needs only its public key, opening the store
-    /// unlocked. At most 4 KiB.
-    void seal_secret(std::string_view name, ByteView secret) const;
-    [[nodiscard]] bool has_secret(std::string_view name) const;
-    [[nodiscard]] Bytes open_secret(std::string_view name) const;
-    bool remove_secret(std::string_view name) const;
-
 private:
     [[nodiscard]] std::filesystem::path slot_file(const Slot& slot) const;
 

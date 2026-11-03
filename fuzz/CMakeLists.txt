@@ -102,9 +102,6 @@ if(TARGET cexchain_node)
         # Kind sheets from a person's page or a shared file.
         cexchain_add_fuzzer(kind_sheet_fuzz cexchain::console)
         target_compile_features(kind_sheet_fuzz PRIVATE cxx_std_26)
-        # What identity providers send: ID tokens, key sets, CAS answers.
-        cexchain_add_fuzzer(identity_fuzz cexchain::console cexchain::crypto_openssl)
-        target_compile_features(identity_fuzz PRIVATE cxx_std_26)
     endif()
     # The cluster's internals (node/src/cluster_parts.hpp).
     cexchain_add_fuzzer(cluster_entry_fuzz cexchain::node cexchain::crypto_openssl cexchain_nuraft)

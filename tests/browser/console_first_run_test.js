@@ -159,9 +159,6 @@ const slotKinds = () =>
     await page.getByRole("heading", { name: "Settings" }).waitFor();
     await page.getByText(/^[0-9a-f]{64}$/).waitFor();
     assert.equal(await page.getByLabel("Backup folder").inputValue(), suggested);
-    // A build with no release key checks no updates, and says so.
-    await page.getByRole("heading", { name: "Updates" }).waitFor();
-    await page.getByText("This build of CexChain checks no updates.").waitFor();
     await page.getByLabel("Language for new browsers").selectOption("zh-Hans-CN");
     await page.getByRole("button", { name: "Save" }).click();
     await page.getByText("Saved.").waitFor();

@@ -181,8 +181,7 @@ FirstRun make_first_run(const SetUp& request, KeyStore& keys, ledger::Entropy& e
                             ledger::SystemClock{}.now(),
                             {request.passkey},
                             to_hex(out.owner.bytes()),
-                            std::string(owner_key_name),
-                            {}});
+                            std::string(owner_key_name)});
     std::erase_if(people.invitations, [](const Invitation& i) { return i.user.empty(); });
     save_people(state, people);
     return out;
