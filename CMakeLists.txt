@@ -53,14 +53,18 @@ elseif(NOT CEXCHAIN_CORE_ONLY)
     add_subdirectory(search)
     add_subdirectory(node)
     # The Bo compiler: not in the browser (verifying a contract replays its
-    # code; rebuilding it from source is the command line's job).
+    # code; rebuilding it from source is the bo program's job).
     add_subdirectory(bo)
-    # The command line's actions, shared with the web console.
+    # The chain's client library, shared by its command line and the console.
     add_subdirectory(app)
-    # The web console's server side, which the command line serves.
+    # The web console's server side (cexchain-console).
     add_subdirectory(console)
+    # The programs: cexchain, bo, cexchain-console, cexchain-index.
     add_subdirectory(cli)
     add_subdirectory(bench)
+    # The dependency direction (cmake/CexChainLayers.cmake).
+    include(CexChainLayers)
+    cexchain_check_layers()
 endif()
 
 if(CEXCHAIN_BUILD_TESTS)
