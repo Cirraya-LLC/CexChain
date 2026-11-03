@@ -21,7 +21,6 @@ bool DeferredApi::open_now() {
     api_ = open_();
     node::LedgerApi* api = api_.get();
     console_->set_ledger(&api->ledger());
-    console_->set_search(api->search_index());
     console_->set_evidence([api](const protocol::Id& record, auto done) {
         api->record_evidence(record, std::move(done));
     });

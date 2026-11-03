@@ -38,6 +38,7 @@
 #include <cexchain/node/replica.hpp>
 #include <cexchain/node/server.hpp>
 #include <cexchain/node/tokens.hpp>
+#include <cexchain/search/served.hpp>
 
 #include "commands.hpp"
 #include "output.hpp"
@@ -249,13 +250,14 @@ int serve(const Args& args, const ServeDefaults& defaults) {
         }
         auto relay =
             std::make_shared<app::Relay>(*relay_dir, *args.get("witness-dir"), app::RelayLimits{});
-        options.extensions.push_back({[relay](const node::http::Request& r, std::string_view,
-                                              node::Application::Respond respond) {
-                                          return relay->handle(r, ledger::SystemClock{}.now(),
-                                                               std::move(respond));
-                                      },
-                                      [relay] { relay->tick(ledger::SystemClock{}.now()); },
-                                      [relay] { relay->stopping(); }});
+        options.extensions.push_back({.handle =
+                                          [relay](const node::http::Request& r, std::string_view,
+                                                  node::Application::Respond respond) {
+                                              return relay->handle(r, ledger::SystemClock{}.now(),
+                                                                   std::move(respond));
+                                          },
+                                      .tick = [relay] { relay->tick(ledger::SystemClock{}.now()); },
+                                      .stopping = [relay] { relay->stopping(); }});
     }
     if (const auto registrar = args.get("registrar-key")) {
         if (options.log_keys.empty()) {
@@ -328,10 +330,13 @@ int serve(const Args& args, const ServeDefaults& defaults) {
             web->handle(r, std::move(respond));
         };
     }
+    // The search index beside the ledger, kept up and served by an extension.
+    auto served = std::make_shared<search::Served>();
+    options.extensions.push_back(served->extension(dir));
     auto api = unwrap(node::LedgerApi::open(options, shared_provider()), "opening the ledger");
     if (web) {
         web->set_ledger(&api->ledger());
-        web->set_search(api->search_index());
+        web->set_search(served->index());
         web->set_evidence([api = api.get()](const protocol::Id& record, auto done) {
             api->record_evidence(record, std::move(done));
         });

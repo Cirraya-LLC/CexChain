@@ -42,6 +42,7 @@
 #include <cexchain/node/api.hpp>
 #include <cexchain/node/record_files.hpp>
 #include <cexchain/node/server.hpp>
+#include <cexchain/search/served.hpp>
 
 #include "commands.hpp"
 #include "output.hpp"
@@ -478,8 +479,11 @@ int run_person_console(const Args& args, const std::filesystem::path& dir,
     base.console = [web](const node::http::Request& r, auto respond) {
         web->handle(r, std::move(respond));
     };
-    auto deferred = std::make_shared<console::DeferredApi>(web, [&keys, base, web] {
+    // The search index beside the ledger, kept up and served by an extension.
+    auto served = std::make_shared<search::Served>();
+    auto deferred = std::make_shared<console::DeferredApi>(web, [&keys, base, web, served] {
         node::ApiOptions options = base;
+        options.extensions.push_back(served->extension(base.directory));
         // The console's witness of its parties' ledgers.
         options.witness = [web](ByteView request) {
             return web->witness_cosign(request);
@@ -498,7 +502,9 @@ int run_person_console(const Args& args, const std::filesystem::path& dir,
             options.registrar = machine;
             options.keeper = machine;
         }
-        return unwrap(node::LedgerApi::open(options, shared_provider()), "opening the ledger");
+        auto api = unwrap(node::LedgerApi::open(options, shared_provider()), "opening the ledger");
+        web->set_search(served->index());
+        return api;
     });
     web->set_on_ready([weak = std::weak_ptr(deferred)] {
         if (auto d = weak.lock()) {

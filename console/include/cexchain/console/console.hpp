@@ -216,8 +216,8 @@ public:
         const std::lock_guard lock(api_mutex_);
         ledger_ = ledger;
     }
-    /// The node's search index (node::LedgerApi::search_index), for
-    /// searches and reports: none answers them 503.
+    /// The search index served beside the node's ledger (search::Served),
+    /// for searches and reports: none answers them 503.
     void set_search(search::Index* index) {
         const std::lock_guard lock(api_mutex_);
         search_ = index;

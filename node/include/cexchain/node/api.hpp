@@ -47,10 +47,6 @@
 ///         GET /v1/contracts/calls[/{call}] (calls that concern the peer),
 ///         GET /v1/genesis (also read: the genesis entry, to follow the ledger's keys),
 ///         POST /v1/contracts/consents (a consent's evidence)
-namespace cexchain::search {
-class Index;
-}
-
 namespace cexchain::node {
 
 /// The content type of a statement sent with what is kept with it: a
@@ -86,16 +82,25 @@ struct ApiOptions {
     /// given the caller's address; nothing passes the request on.
     std::function<std::optional<http::Response>(const http::Request&, std::string_view address)>
         public_witness;
-    /// More routes beside the ledger's (a relay). `handle` takes a request
-    /// it serves, answers it through `respond` now or later (a long poll),
-    /// and returns true; false passes it on. `tick` is called about once a
-    /// second, `stopping` once when the server stops (answer what waits).
+    /// More routes beside the ledger's (a relay, the search index).
+    /// `handle` takes a request before the API's tokens, answers it through
+    /// `respond` now or later (a long poll), and returns true; false passes
+    /// it on. `read` answers a GET of one of `read_paths` (or below one),
+    /// which none of the ledger's routes answer, after the API's checks for a
+    /// read (a token with the read scope, or public reads), as the API's
+    /// reads run (once it has caught up with what another process wrote);
+    /// nullopt passes it on. `opened` is called
+    /// once, with the ledger, before the server serves; `tick` about once a
+    /// second; `stopping` once when the server stops (answer what waits).
     struct Extension {
         std::function<bool(const http::Request&, std::string_view address,
                            Application::Respond respond)>
-            handle;
-        std::function<void()> tick;
-        std::function<void()> stopping;
+            handle{};
+        std::function<std::optional<http::Response>(const http::Request&)> read{};
+        std::vector<std::string> read_paths{};
+        std::function<void(const ledger::Ledger&)> opened{};
+        std::function<void()> tick{};
+        std::function<void()> stopping{};
     };
     std::vector<Extension> extensions;
     /// The web console: answers every request whose path is /console or
@@ -186,9 +191,6 @@ public:
 
     [[nodiscard]] bool is_replica() const noexcept;
     [[nodiscard]] const ledger::Ledger& ledger() const noexcept;
-    /// The search index the server keeps beside the ledger, if it could
-    /// open one: for the node's own console. Safe from any thread.
-    [[nodiscard]] search::Index* search_index() const noexcept;
 
     struct State;
 
