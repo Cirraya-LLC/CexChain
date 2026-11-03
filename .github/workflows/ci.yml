@@ -19,11 +19,34 @@ permissions:
   contents: read
 
 jobs:
+  # Which parts the change touches (.github/scripts/changed-parts.sh): a
+  # change to the chain runs everything; one to the language skips
+  # ThreadSanitizer; one to an application alone runs only the applications'
+  # tests, and not the Bo compiler's sanitizers.
+  changes:
+    name: Changed parts
+    runs-on: ubuntu-latest
+    outputs:
+      chain: ${{ steps.parts.outputs.chain }}
+      bo: ${{ steps.parts.outputs.bo }}
+      apps: ${{ steps.parts.outputs.apps }}
+      tests: ${{ steps.parts.outputs.tests }}
+      tsan_tests: ${{ steps.parts.outputs.tsan_tests }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: parts
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: bash .github/scripts/changed-parts.sh "$BASE" | tee -a "$GITHUB_OUTPUT"
+
   # The test suites run one test at a time (the end-to-end tests start
   # servers), so each compiler gets its own job, and the limits leave room
   # for the hosted runners' four cores.
   linux:
     name: Linux (GCC 16)
+    needs: changes
     runs-on: ubuntu-latest
     # Debian trixie: OpenSSL 3.5, CMake 3.31.
     container: gcc:16-trixie
@@ -35,10 +58,12 @@ jobs:
         run: .github/scripts/install-linux-tools.sh
 
       - name: GCC 16
+        env:
+          TESTS: ${{ needs.changes.outputs.tests }}
         run: |
           cmake --preset gcc-debug -DCMAKE_CXX_COMPILER=g++
           cmake --build --preset gcc-debug
-          ctest --preset gcc-debug
+          ctest --preset gcc-debug $TESTS
 
       - name: GCC 16 release (as the Docker image builds it, with the Bo compiler)
         run: |
@@ -50,6 +75,7 @@ jobs:
 
   address-sanitizer:
     name: Linux (Clang 23 with sanitizers)
+    needs: changes
     runs-on: ubuntu-latest
     container: gcc:16-trixie
     timeout-minutes: 120
@@ -62,10 +88,12 @@ jobs:
       # Clang has no C++26 reflection or contracts yet: it builds everything
       # but the Bo compiler proper, its front end included.
       - name: Clang 23 with AddressSanitizer and UndefinedBehaviorSanitizer
+        env:
+          TESTS: ${{ needs.changes.outputs.tests }}
         run: |
           cmake --preset clang-asan -DCMAKE_CXX_COMPILER=clang++-23
           cmake --build --preset clang-asan
-          ctest --preset clang-asan
+          ctest --preset clang-asan $TESTS
 
       - name: Formatting
         run: |
@@ -76,6 +104,8 @@ jobs:
     # The Bo compiler is C++26 with reflection and contracts, which only GCC
     # builds: its sanitizer run is GCC's. It builds the Bo tests alone.
     name: Linux (GCC 16 with sanitizers, the Bo compiler)
+    needs: changes
+    if: needs.changes.outputs.chain == 'true' || needs.changes.outputs.bo == 'true'
     runs-on: ubuntu-latest
     container: gcc:16-trixie
     timeout-minutes: 60
@@ -93,6 +123,8 @@ jobs:
 
   thread-sanitizer:
     name: Linux (Clang 23 with ThreadSanitizer)
+    needs: changes
+    if: needs.changes.outputs.chain == 'true' || needs.changes.outputs.apps == 'true'
     runs-on: ubuntu-latest
     container: gcc:16-trixie
     timeout-minutes: 150
@@ -103,13 +135,16 @@ jobs:
         run: .github/scripts/install-linux-tools.sh
 
       - name: Clang 23 with ThreadSanitizer
+        env:
+          TESTS: ${{ needs.changes.outputs.tsan_tests }}
         run: |
           cmake --preset clang-tsan -DCMAKE_CXX_COMPILER=clang++-23
           cmake --build --preset clang-tsan
-          ctest --preset clang-tsan
+          ctest --preset clang-tsan $TESTS
 
+  # The verifier's page and the console, in a browser: on every change.
   browser-verifier:
-    name: Browser verifier (WebAssembly)
+    name: In the browser (the verifier and the console)
     runs-on: ubuntu-latest
     container: gcc:16-trixie
     timeout-minutes: 50
@@ -125,13 +160,13 @@ jobs:
           .github/scripts/install-linux-tools.sh
           .github/scripts/install-emscripten.sh
 
-      # The WebAssembly first: the native tool embeds the console's checks.
-      - name: Build the WebAssembly verifier and the console's checks, then the native tool
+      # The WebAssembly first: the console's program embeds its checks.
+      - name: Build the WebAssembly verifier and the console's checks, then the programs
         run: |
           (. /opt/emsdk/emsdk_env.sh && tools/wasm/build.sh build/wasm)
           cmake --preset gcc-debug -DCMAKE_CXX_COMPILER=g++ -DCEXCHAIN_BUILD_TESTS=OFF \
               -DCEXCHAIN_CONSOLE_WASM_DIR="$PWD/build/wasm"
-          cmake --build --preset gcc-debug --target cexchain
+          cmake --build --preset gcc-debug --target cexchain bo cexchain-console cexchain-index
 
       - name: Test in Node.js and Chromium
         run: |
