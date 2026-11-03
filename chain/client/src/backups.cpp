@@ -6,15 +6,15 @@
 #include <optional>
 #include <string>
 
-#include <cexchain/app/backups.hpp>
-#include <cexchain/app/support.hpp>
+#include <cexchain/client/backups.hpp>
+#include <cexchain/client/support.hpp>
 #include <cexchain/ledger/environment.hpp>
 #include <cexchain/ledger/storage.hpp>
 #include <cexchain/node/contracts.hpp>
 #include <cexchain/node/peers.hpp>
 #include <cexchain/node/tokens.hpp>
 
-namespace cexchain::app {
+namespace cexchain::client {
 
 namespace {
 
@@ -217,4 +217,4 @@ Result<ledger::BackupSummary> restore_into(std::istream& in, const std::filesyst
     return summary;
 }
 
-} // namespace cexchain::app
+} // namespace cexchain::client

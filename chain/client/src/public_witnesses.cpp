@@ -5,10 +5,10 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/app/errors.hpp>
-#include <cexchain/app/public_witness.hpp>
-#include <cexchain/app/public_witnesses.hpp>
-#include <cexchain/app/support.hpp>
+#include <cexchain/client/errors.hpp>
+#include <cexchain/client/public_witness.hpp>
+#include <cexchain/client/public_witnesses.hpp>
+#include <cexchain/client/support.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/keys.hpp>
 #include <cexchain/core/protocol/witness.hpp>
@@ -18,7 +18,7 @@
 #define CEXCHAIN_PUBLIC_WITNESSES ""
 #endif
 
-namespace cexchain::app {
+namespace cexchain::client {
 
 namespace {
 
@@ -275,4 +275,4 @@ std::vector<WitnessAsked> ask_used_witnesses(const ledger::Ledger& ledger,
     return out;
 }
 
-} // namespace cexchain::app
+} // namespace cexchain::client

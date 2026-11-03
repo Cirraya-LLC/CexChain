@@ -15,7 +15,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/app/support.hpp>
+#include <cexchain/client/support.hpp>
 #include <cexchain/console/console.hpp>
 #include <cexchain/core/bytes.hpp>
 
@@ -42,13 +42,13 @@ std::string Console::prf_salt() const {
     const std::filesystem::path file = services_.directory / "prf-salt";
     const std::lock_guard lock(mutex_);
     if (std::filesystem::exists(file)) {
-        const Bytes bytes = app::read_file(file);
+        const Bytes bytes = client::read_file(file);
         std::string text(bytes.begin(), bytes.end());
         return text.substr(0, text.find('\n'));
     }
     std::string salt = to_base64url(services_.entropy->bytes<32>());
     std::filesystem::create_directories(services_.directory);
-    app::write_file(file, as_bytes(salt + "\n"), true);
+    client::write_file(file, as_bytes(salt + "\n"), true);
     return salt;
 }
 

@@ -20,8 +20,8 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/app/errors.hpp>
-#include <cexchain/app/relay_client.hpp>
+#include <cexchain/client/errors.hpp>
+#include <cexchain/client/relay_client.hpp>
 #include <cexchain/console/console.hpp>
 #include <cexchain/console/settings.hpp>
 #include <cexchain/console/setup.hpp>
@@ -216,12 +216,12 @@ void Console::set_origins(std::vector<Origin> origins) {
 
 http::Response Console::handle(const http::Request& request) const {
     // Parties behind relays are reached as this ledger.
-    const app::RelaySenderScope scope(&relay_sender_);
+    const client::RelaySenderScope scope(&relay_sender_);
     try {
         return route(request);
-    } catch (const app::ActionError& e) {
+    } catch (const client::ActionError& e) {
         return error(500, "internal", e.message);
-    } catch (const app::UsageError& e) {
+    } catch (const client::UsageError& e) {
         return error(400, "invalid_argument", e.message);
     } catch (const std::exception&) {
         // A damaged file of the console's, or a failed write: the request
@@ -231,7 +231,7 @@ http::Response Console::handle(const http::Request& request) const {
 }
 
 void Console::handle(const http::Request& request, Respond respond) const {
-    const app::RelaySenderScope scope(&relay_sender_);
+    const client::RelaySenderScope scope(&relay_sender_);
     // Approving and recovering submit to the ledger, which answers once the
     // statement is durable: that answer goes out through `respond`, with
     // nothing waiting.

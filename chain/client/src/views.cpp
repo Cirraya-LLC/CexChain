@@ -4,10 +4,10 @@
 #include <algorithm>
 #include <variant>
 
-#include <cexchain/app/views.hpp>
+#include <cexchain/client/views.hpp>
 #include <cexchain/core/protocol/record_types.hpp>
 
-namespace cexchain::app {
+namespace cexchain::client {
 
 namespace {
 
@@ -513,4 +513,4 @@ Json actor_detail_json(const Session& session, const protocol::ActorState& actor
     return out;
 }
 
-} // namespace cexchain::app
+} // namespace cexchain::client

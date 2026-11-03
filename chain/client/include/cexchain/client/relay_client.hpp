@@ -23,7 +23,7 @@
 
 /// Reaching parties through relays (relay.hpp), and being reached through
 /// one, as the command line, serve, and the console share it.
-namespace cexchain::app {
+namespace cexchain::client {
 
 /// This ledger as it reaches parties through their relays: the ledger (its
 /// id; its genesis entry and checkpoints, to register with a relay's
@@ -106,4 +106,4 @@ private:
     std::set<std::string> answered_;
 };
 
-} // namespace cexchain::app
+} // namespace cexchain::client

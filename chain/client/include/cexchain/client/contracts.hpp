@@ -12,8 +12,8 @@
 #include <utility>
 #include <vector>
 
-#include <cexchain/app/session.hpp>
-#include <cexchain/app/views.hpp>
+#include <cexchain/client/session.hpp>
+#include <cexchain/client/views.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/contract_evidence.hpp>
 #include <cexchain/core/protocol/contracts.hpp>
@@ -22,7 +22,7 @@
 
 /// Contract operations: calls run here before they are recorded, proposals
 /// to a home's registrar, and consents to the calls it holds.
-namespace cexchain::app {
+namespace cexchain::client {
 
 inline constexpr protocol::Timestamp day_ms = 86'400'000;
 
@@ -197,4 +197,4 @@ struct ConsentInput {
 [[nodiscard]] protocol::ExchangeFile consent_file(const protocol::ExchangeFile& proposal,
                                                   Bytes bundle);
 
-} // namespace cexchain::app
+} // namespace cexchain::client

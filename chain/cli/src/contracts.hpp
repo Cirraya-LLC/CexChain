@@ -5,7 +5,7 @@
 
 #include <string>
 
-#include <cexchain/app/contracts.hpp>
+#include <cexchain/client/contracts.hpp>
 
 #include "output.hpp"
 #include "support.hpp"
@@ -18,8 +18,8 @@ namespace cexchain::cli {
 /// file of CBOR, or null.
 [[nodiscard]] cbor::Value contract_arguments_of(const Args& args);
 
-/// app::give_consent, with the log key from --log-key (or the server's).
-[[nodiscard]] GivenConsent give_consent(app::Session& session, const crypto::Signer& signer,
+/// client::give_consent, with the log key from --log-key (or the server's).
+[[nodiscard]] GivenConsent give_consent(client::Session& session, const crypto::Signer& signer,
                                         protocol::ContractConsent& consent,
                                         const ConsentOptions& options, const Args& ledger_args);
 

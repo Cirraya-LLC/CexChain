@@ -23,12 +23,12 @@
 #include <sys/resource.h>
 #include <thread>
 
-#include <cexchain/app/backups.hpp>
-#include <cexchain/app/public_witness.hpp>
-#include <cexchain/app/public_witnesses.hpp>
-#include <cexchain/app/relay_client.hpp>
-#include <cexchain/app/relay_server.hpp>
-#include <cexchain/app/witness.hpp>
+#include <cexchain/client/backups.hpp>
+#include <cexchain/client/public_witness.hpp>
+#include <cexchain/client/public_witnesses.hpp>
+#include <cexchain/client/relay_client.hpp>
+#include <cexchain/client/relay_server.hpp>
+#include <cexchain/client/witness.hpp>
 #include <cexchain/ledger/backup.hpp>
 #include <cexchain/node/api.hpp>
 #include <cexchain/node/client.hpp>
@@ -102,7 +102,7 @@ void ask_witnesses_until(const std::stop_token& stop, node::LedgerApi& api,
     std::mutex mutex;
     std::condition_variable_any wake;
     while (!stop.stop_requested()) {
-        const auto asked = app::ask_used_witnesses(api.ledger(), dir, [&api](Bytes body) {
+        const auto asked = client::ask_used_witnesses(api.ledger(), dir, [&api](Bytes body) {
             auto kept = std::make_shared<std::promise<int>>();
             auto status = kept->get_future();
             api.add_cosignature(std::move(body),
@@ -111,7 +111,7 @@ void ask_witnesses_until(const std::stop_token& stop, node::LedgerApi& api,
                        ? status.get()
                        : 504;
         });
-        for (const app::WitnessAsked& a : asked) {
+        for (const client::WitnessAsked& a : asked) {
             if (!quiet && a.cosigned) {
                 std::println(stderr, "witness {} cosigned the checkpoint at size {}", a.name,
                              *a.cosigned);
@@ -185,11 +185,11 @@ int serve(const Args& args, const ServeDefaults& defaults) {
             load_signer(args.need("witness-key"), args);
         options.witness = [dir = std::filesystem::path(*witness_dir),
                            witness_key](ByteView request) {
-            return app::witness_cosign(dir, *witness_key, request, ledger::SystemClock{}.now());
+            return client::witness_cosign(dir, *witness_key, request, ledger::SystemClock{}.now());
         };
         if (witness_public) {
             // Any ledger registers and asks, with no token, within quotas.
-            app::PublicWitnessLimits limits;
+            client::PublicWitnessLimits limits;
             if (const auto n = args.get("witness-max-ledgers")) {
                 limits.max_ledgers = parse_number(*n, "--witness-max-ledgers");
             }
@@ -199,7 +199,7 @@ int serve(const Args& args, const ServeDefaults& defaults) {
             if (const auto n = args.get("witness-cosign-interval")) {
                 limits.cosign_interval = parse_number(*n, "--witness-cosign-interval") * 1000;
             }
-            auto witness = std::make_shared<app::PublicWitness>(
+            auto witness = std::make_shared<client::PublicWitness>(
                 *witness_dir, witness_key, args.get("witness-name").value_or(""), limits);
             options.public_witness = [witness](const node::http::Request& r,
                                                std::string_view address) {
@@ -212,8 +212,8 @@ int serve(const Args& args, const ServeDefaults& defaults) {
             throw UsageError{"--relay-dir needs --witness-public: a relay serves the ledgers its "
                              "witness follows"};
         }
-        auto relay =
-            std::make_shared<app::Relay>(*relay_dir, *args.get("witness-dir"), app::RelayLimits{});
+        auto relay = std::make_shared<client::Relay>(*relay_dir, *args.get("witness-dir"),
+                                                     client::RelayLimits{});
         options.extensions.push_back({.handle =
                                           [relay](const node::http::Request& r, std::string_view,
                                                   node::Application::Respond respond) {
@@ -364,7 +364,7 @@ int serve(const Args& args, const ServeDefaults& defaults) {
     // this ledger, answered with its own API.
     std::jthread relaying;
     if (const auto relay_key = args.get("relay-key")) {
-        const auto own = app::load_own_relay(dir);
+        const auto own = client::load_own_relay(dir);
         if (!own) {
             throw UsageError{"--relay-key: this ledger is not reached through a relay (relay use)"};
         }
@@ -378,7 +378,7 @@ int serve(const Args& args, const ServeDefaults& defaults) {
             throw UsageError{"--relay-key is not the key this ledger's relay seals to (relay use)"};
         }
         std::shared_ptr<const crypto::Signer> log_key = options.log_keys.back();
-        auto agent = std::make_shared<app::RelayAgent>(
+        auto agent = std::make_shared<client::RelayAgent>(
             *own, key, api->ledger().id(), [log_key] { return log_key; },
             [api = api.get()](node::http::Request r,
                               std::function<void(node::http::Response)> done) {

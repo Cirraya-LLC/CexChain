@@ -3,7 +3,7 @@
 # Copyright 2026 Cirraya
 """Derives the curve constants that CexChain hard-codes, from first principles.
 
-Run this to re-check the constants in core/src/crypto.cpp:
+Run this to re-check the constants in chain/core/src/crypto.cpp:
   - the y-coordinates of Ed25519's small-order (torsion) points, used to reject weak keys;
   - the Ed25519 group order L, used to reject non-canonical signature scalars;
   - half the P-256 group order, used to enforce low-S ECDSA signatures.

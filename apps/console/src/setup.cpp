@@ -9,9 +9,9 @@
 #include <system_error>
 #include <utility>
 
-#include <cexchain/app/records.hpp>
-#include <cexchain/app/session.hpp>
-#include <cexchain/app/support.hpp>
+#include <cexchain/client/records.hpp>
+#include <cexchain/client/session.hpp>
+#include <cexchain/client/support.hpp>
 #include <cexchain/console/sessions.hpp>
 #include <cexchain/console/setup.hpp>
 #include <cexchain/console/users.hpp>
@@ -144,16 +144,16 @@ FirstRun make_first_run(const SetUp& request, KeyStore& keys, ledger::Entropy& e
     keys.seal_vault_key(*vault);
 
     std::filesystem::create_directories(request.ledger);
-    app::create_ledger(request.ledger, *root, log->public_key(), crypto::HashAlg::sha256,
-                       request.name);
+    client::create_ledger(request.ledger, *root, log->public_key(), crypto::HashAlg::sha256,
+                          request.name);
     // The vault: its public key for whoever registers records, its private
     // key sealed in the console only.
     std::filesystem::create_directories(request.ledger / "vault" / "records");
-    app::write_file(request.ledger / "vault" / "vault.pub",
-                    app::encode_vault_public_key(vault->public_key()), false);
+    client::write_file(request.ledger / "vault" / "vault.pub",
+                       client::encode_vault_public_key(vault->public_key()), false);
     {
         // The root key's statements, then it leaves memory with `root`.
-        app::Session session(app::Location{request.ledger});
+        client::Session session(client::Location{request.ledger});
         out.ledger = session.state().ledger_id();
         out.owner = session.submit(*root,
                                    protocol::ActorRegisterBody{protocol::ActorKind::person,

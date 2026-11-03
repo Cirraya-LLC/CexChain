@@ -38,7 +38,7 @@
 ///   {1: status, 2: content type, 3: body}
 /// Both bind the recipient's ledger id, the sender's, and the request's id
 /// (associated data: to || from || id, the request's to and from).
-namespace cexchain::app {
+namespace cexchain::client {
 
 using RelayId = std::array<std::uint8_t, 16>;
 
@@ -133,4 +133,4 @@ struct RelayFetcher {
                                           const RelayFetcher& fetcher,
                                           const crypto::PublicKey& log_key);
 
-} // namespace cexchain::app
+} // namespace cexchain::client

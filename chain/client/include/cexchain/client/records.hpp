@@ -9,13 +9,13 @@
 #include <utility>
 #include <vector>
 
-#include <cexchain/app/session.hpp>
-#include <cexchain/app/views.hpp>
+#include <cexchain/client/session.hpp>
+#include <cexchain/client/views.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/record.hpp>
 
 /// Record operations: issuing records, and their private data in the vault.
-namespace cexchain::app {
+namespace cexchain::client {
 
 using verifier::display_value;
 
@@ -176,4 +176,4 @@ bool remove_record_file(Session& session, const protocol::Id& record, const Reco
 /// command that registers it in parentheses); empty for any other type.
 [[nodiscard]] std::string_view record_type_purpose(std::string_view type);
 
-} // namespace cexchain::app
+} // namespace cexchain::client

@@ -10,9 +10,9 @@
 #include <string>
 #include <string_view>
 
-#include <cexchain/app/relay_client.hpp>
-#include <cexchain/app/session.hpp>
-#include <cexchain/app/support.hpp>
+#include <cexchain/client/relay_client.hpp>
+#include <cexchain/client/session.hpp>
+#include <cexchain/client/support.hpp>
 
 #include "args.hpp"
 
@@ -23,7 +23,7 @@ namespace cexchain::cli {
 
 /// The chain's command lines are built on the actions of the app library,
 /// which they share with the console: their names are the command lines' too.
-using namespace app;
+using namespace client;
 
 /// A key passphrase, for the key file named `purpose`: read from the
 /// `file_option` file if given, else from the `env` variable, else asked for
@@ -48,12 +48,9 @@ using namespace app;
 /// key).
 [[nodiscard]] std::optional<PresenceRequest> presence_request(const Args& args);
 
-/// This program's own path: to run its connectors, and the Bo compiler for
-/// the console, as child processes.
+/// This program's own path: to run its connectors, or a program beside it,
+/// as child processes.
 [[nodiscard]] std::string self_path();
-/// What the console runs its compiler as: this program, in a build with the
-/// Bo compiler; else nothing (its rules routes say so).
-[[nodiscard]] std::string console_compiler();
 
 /// Loads a private key file, asking for its passphrase if it is encrypted.
 [[nodiscard]] crypto::openssl::KeyPair load_key(const std::filesystem::path& path,
@@ -95,16 +92,16 @@ void keep_keys_out_of_dumps();
 /// command.
 void apply_clock_offset();
 
-class Session : public app::Session {
+class Session : public client::Session {
 public:
-    explicit Session(const std::filesystem::path& directory) : app::Session(directory) {}
+    explicit Session(const std::filesystem::path& directory) : client::Session(directory) {}
     explicit Session(const Args& args);
 
-    using app::Session::checkpoint;
-    using app::Session::contract_evidence;
-    using app::Session::evidence;
-    using app::Session::receipt;
-    using app::Session::submit;
+    using client::Session::checkpoint;
+    using client::Session::contract_evidence;
+    using client::Session::evidence;
+    using client::Session::receipt;
+    using client::Session::submit;
 
     /// Signs and submits as the holder of --as, with --delegation, --model,
     /// --model-version, --inputs, --presence, and --no-browser taken from
@@ -130,8 +127,8 @@ public:
     RelayReach(const Args& args, Session& session);
 
 private:
-    std::optional<app::RelaySender> sender_;
-    std::optional<app::RelaySenderScope> scope_;
+    std::optional<client::RelaySender> sender_;
+    std::optional<client::RelaySenderScope> scope_;
 };
 
 /// Reads a line from the terminal without echoing it (a passphrase, a

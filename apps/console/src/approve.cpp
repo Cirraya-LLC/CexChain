@@ -20,9 +20,9 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/app/access.hpp>
-#include <cexchain/app/records.hpp>
-#include <cexchain/app/support.hpp>
+#include <cexchain/client/access.hpp>
+#include <cexchain/client/records.hpp>
+#include <cexchain/client/support.hpp>
 #include <cexchain/console/console.hpp>
 #include <cexchain/console/people.hpp>
 #include <cexchain/console/setup.hpp>
@@ -701,7 +701,7 @@ Console::sign_approval(const http::Request& request) const {
     // them, sealed to the vault key for the record's id, sent along.
     const std::filesystem::path pub = services_.directory.parent_path() / "vault" / "vault.pub";
     const auto vault_key = std::filesystem::exists(pub)
-                               ? app::decode_vault_public_key(app::read_file(pub))
+                               ? client::decode_vault_public_key(client::read_file(pub))
                                : std::nullopt;
     if (!vault_key) {
         return error(409, "conflict", "this ledger has no vault key (cexchain vault rekey)");
@@ -715,20 +715,21 @@ Console::sign_approval(const http::Request& request) const {
     // them).
     const std::filesystem::path ledger_dir = services_.directory.parent_path();
     if (draft.request_key) {
-        const auto path = app::request_key_path(ledger_dir, record);
+        const auto path = client::request_key_path(ledger_dir, record);
         std::filesystem::create_directories(path.parent_path());
-        app::write_file(path, app::seal_request_key(*vault_key, record, *draft.request_key), true);
+        client::write_file(path, client::seal_request_key(*vault_key, record, *draft.request_key),
+                           true);
     }
     if (draft.delivery) {
         const auto path =
             node::access_path(ledger_dir, node::AccessBox::deliveries, draft.delivery->first);
         std::filesystem::create_directories(path.parent_path());
-        app::write_file(path, draft.delivery->second, true);
+        client::write_file(path, draft.delivery->second, true);
     }
     cbor::Map submission{
         {cbor::Value::integer(1), cbor::Value::bytes(signed_statement->encoded)},
         {cbor::Value::integer(2),
-         cbor::Value::bytes(app::seal_vault(ledger_id, record, draft.vault, *vault_key))}};
+         cbor::Value::bytes(client::seal_vault(ledger_id, record, draft.vault, *vault_key))}};
     if (draft.keep_files && !draft.uploads.empty()) {
         std::vector<node::SealedFile> files;
         for (std::size_t i = 0; i < draft.uploads.size(); ++i) {
@@ -742,8 +743,8 @@ Console::sign_approval(const http::Request& request) const {
                 path = it->second.path;
             }
             files.push_back(
-                {i, app::seal_record_file(ledger_id, record, registration.attachments[i].name,
-                                          app::read_file(path), *vault_key)});
+                {i, client::seal_record_file(ledger_id, record, registration.attachments[i].name,
+                                             client::read_file(path), *vault_key)});
         }
         submission.push_back({cbor::Value::integer(4), node::encode_sealed_files(files)});
     }

@@ -10,7 +10,7 @@ if(CEXCHAIN_CORE_ONLY)
         cexchain::core cexchain::crypto_openssl cexchain::verifier
         Catch2::Catch2WithMain nlohmann_json::nlohmann_json OpenSSL::Crypto)
     target_include_directories(cexchain_core_tests PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/core/src)
+        ${CMAKE_CURRENT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/chain/core/src)
     target_compile_definitions(cexchain_core_tests PRIVATE
         CEXCHAIN_TESTVECTORS_DIR="${PROJECT_SOURCE_DIR}/testvectors")
     target_compile_features(cexchain_core_tests PRIVATE cxx_std_26)
@@ -65,11 +65,41 @@ add_executable(cexchain_tests
     node/connectors_test.cpp
     node/executor_test.cpp
     node/http_test.cpp
-    node/keeper_api_test.cpp
-    console/console_test.cpp
-    search/index_test.cpp)
+    node/keeper_api_test.cpp)
 
 target_link_libraries(cexchain_tests PRIVATE
+    cexchain::core
+    cexchain::crypto_openssl
+    cexchain::ledger
+    cexchain::node
+    cexchain::verifier
+    Catch2::Catch2WithMain
+    nlohmann_json::nlohmann_json
+    OpenSSL::Crypto)
+# Tests may reach into internal headers (e.g. ledger/src/crc32c.hpp,
+# core/src/vm/internal.hpp).
+target_include_directories(cexchain_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/chain/core/src
+    ${PROJECT_SOURCE_DIR}/chain/ledger/src
+    ${PROJECT_SOURCE_DIR}/chain/node/src)
+# The cluster's internals (node/src/cluster_parts.hpp) use NuRaft's headers.
+target_link_libraries(cexchain_tests PRIVATE cexchain_nuraft)
+target_compile_definitions(cexchain_tests PRIVATE
+    CEXCHAIN_TESTVECTORS_DIR="${PROJECT_SOURCE_DIR}/testvectors")
+target_compile_features(cexchain_tests PRIVATE cxx_std_26)
+cexchain_target_defaults(cexchain_tests)
+
+list(APPEND CMAKE_MODULE_PATH "${catch2_SOURCE_DIR}/extras")
+include(Catch)
+catch_discover_tests(cexchain_tests)
+
+# The applications' tests (the console and the search index), apart from the
+# chain's, which link no application (cmake/CexChainLayers.cmake). Labelled
+# "apps", as are the applications' end-to-end tests: a change to an
+# application alone runs these.
+add_executable(cexchain_apps_tests console/console_test.cpp search/index_test.cpp)
+target_link_libraries(cexchain_apps_tests PRIVATE
     cexchain::console
     cexchain::core
     cexchain::crypto_openssl
@@ -80,29 +110,18 @@ target_link_libraries(cexchain_tests PRIVATE
     Catch2::Catch2WithMain
     nlohmann_json::nlohmann_json
     OpenSSL::Crypto)
-# Tests may reach into internal headers (e.g. ledger/src/crc32c.hpp,
-# core/src/vm/internal.hpp).
-target_include_directories(cexchain_tests PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${PROJECT_SOURCE_DIR}/core/src
-    ${PROJECT_SOURCE_DIR}/ledger/src
-    ${PROJECT_SOURCE_DIR}/node/src)
-# The cluster's internals (node/src/cluster_parts.hpp) use NuRaft's headers.
-target_link_libraries(cexchain_tests PRIVATE cexchain_nuraft)
-target_compile_definitions(cexchain_tests PRIVATE
+target_include_directories(cexchain_apps_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_definitions(cexchain_apps_tests PRIVATE
     CEXCHAIN_TESTVECTORS_DIR="${PROJECT_SOURCE_DIR}/testvectors")
 # The console's rules routes run the compiler as `bo ...`: the tests run
 # this build's, where it has the compiler.
 if(TARGET bo)
-    add_dependencies(cexchain_tests bo)
-    target_compile_definitions(cexchain_tests PRIVATE BO_PROGRAM="$<TARGET_FILE:bo>")
+    add_dependencies(cexchain_apps_tests bo)
+    target_compile_definitions(cexchain_apps_tests PRIVATE BO_PROGRAM="$<TARGET_FILE:bo>")
 endif()
-target_compile_features(cexchain_tests PRIVATE cxx_std_26)
-cexchain_target_defaults(cexchain_tests)
-
-list(APPEND CMAKE_MODULE_PATH "${catch2_SOURCE_DIR}/extras")
-include(Catch)
-catch_discover_tests(cexchain_tests)
+target_compile_features(cexchain_apps_tests PRIVATE cxx_std_26)
+cexchain_target_defaults(cexchain_apps_tests)
+catch_discover_tests(cexchain_apps_tests PROPERTIES LABELS apps)
 
 # The interpreter's fuel at every instruction: a hidden case
 # writes runs of vm-v1.json and bo-v1.json with less fuel than they use, and
@@ -146,7 +165,7 @@ if(TARGET cexchain_bo)
         CEXCHAIN_TESTVECTORS_DIR="${PROJECT_SOURCE_DIR}/testvectors")
     # The interpreter's internals (core/src/vm/internal.hpp): its measure of
     # each function's operand stack, against the emitter's.
-    target_include_directories(cexchain_bo_tests PRIVATE ${PROJECT_SOURCE_DIR}/core/src)
+    target_include_directories(cexchain_bo_tests PRIVATE ${PROJECT_SOURCE_DIR}/chain/core/src)
 endif()
 catch_discover_tests(cexchain_bo_tests PROPERTIES LABELS bo)
 
@@ -247,6 +266,8 @@ add_test(NAME generic_words
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/generic_words.sh $<TARGET_FILE:cexchain>)
 add_test(NAME rotation_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/rotation.sh $<TARGET_FILE:cexchain>)
+# The applications' end-to-end tests (generic_words reads every program).
+set_tests_properties(console_end_to_end search_end_to_end generic_words PROPERTIES LABELS apps)
 # The Bo commands exist where the compiler does.
 if(TARGET cexchain_bo)
     add_test(NAME bo_end_to_end

@@ -12,7 +12,7 @@ add_library(cexchain_console src/console.cpp src/passkeys.cpp src/sessions.cpp s
 add_library(cexchain::console ALIAS cexchain_console)
 target_include_directories(cexchain_console PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 target_link_libraries(cexchain_console
-    PUBLIC cexchain::app cexchain::bo_front cexchain::node cexchain::search
+    PUBLIC cexchain::client cexchain::bo_front cexchain::node cexchain::search
            nlohmann_json::nlohmann_json
     PRIVATE cexchain_qrcodegen)
 target_compile_features(cexchain_console PUBLIC cxx_std_26)

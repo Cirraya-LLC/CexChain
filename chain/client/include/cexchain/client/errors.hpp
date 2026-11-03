@@ -8,9 +8,9 @@
 /// The actions the command line and the console share throw the core's
 /// failures for people, with a message; the command line prints it, the
 /// console shows it.
-namespace cexchain::app {
+namespace cexchain::client {
 
 using cexchain::ActionError;
 using cexchain::UsageError;
 
-} // namespace cexchain::app
+} // namespace cexchain::client

@@ -12,7 +12,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/app/support.hpp>
+#include <cexchain/client/support.hpp>
 #include <cexchain/console/console.hpp>
 #include <cexchain/console/settings.hpp>
 #include <cexchain/ledger/storage.hpp>
@@ -41,7 +41,7 @@ Settings load_settings(const std::filesystem::path& directory) {
     if (!std::filesystem::exists(file)) {
         return settings;
     }
-    const Bytes bytes = app::read_file(file);
+    const Bytes bytes = client::read_file(file);
     const auto j = nlohmann::json::parse(bytes.begin(), bytes.end(), nullptr, false);
     if (!j.is_object()) {
         damaged();
@@ -67,7 +67,7 @@ void save_settings(const std::filesystem::path& directory, const Settings& setti
         {"backup_folder", settings.backup_folder ? nlohmann::json(settings.backup_folder->string())
                                                  : nlohmann::json()}};
     std::filesystem::create_directories(directory);
-    app::write_file(directory / settings_file, as_bytes(j.dump(2) + "\n"), true);
+    client::write_file(directory / settings_file, as_bytes(j.dump(2) + "\n"), true);
 }
 
 std::optional<std::string> prepare_backup_folder(const std::filesystem::path& folder) {
@@ -82,7 +82,7 @@ std::optional<std::string> prepare_backup_folder(const std::filesystem::path& fo
     // Writable: a file made and removed.
     const std::filesystem::path probe = folder / ".cexchain-write-test";
     try {
-        app::write_file(probe, as_bytes("ok\n"), true);
+        client::write_file(probe, as_bytes("ok\n"), true);
     } catch (const std::exception&) {
         return std::string("this console may not write to that folder");
     }

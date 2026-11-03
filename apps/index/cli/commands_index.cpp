@@ -4,7 +4,7 @@
 // cexchain-index's commands: the table the registry dispatches, documents, and
 // completes from.
 
-#include "commands.hpp"
+#include "index_commands.hpp"
 #include "registry_options.hpp"
 
 namespace cexchain::cli {
@@ -124,18 +124,18 @@ std::vector<CommandSpec> index_commands() {
          "runs beside a node. Tokens are the ledger's (cexchain token create)."},
         {{"status"},
          "Show the search index: how far it reached in the log, and what it holds",
-         "Search",
+         "Index",
          "",
          0,
          0,
          with({ledger_option, {"update", "", "Bring it up to date first"}}),
          cmd_index_status,
          "The search index is derived from the log and kept beside it (search.sqlite).\n"
-         "Searches and reports bring it up to date first; a server keeps its own up to date\n"
-         "as it writes. Removing the file loses nothing: it is rebuilt."},
+         "Searches and reports bring it up to date first, and serve follows the log as it\n"
+         "grows. Removing the file loses nothing: it is rebuilt."},
         {{"rebuild"},
          "Rebuild the search index from the log",
-         "Search",
+         "Index",
          "",
          0,
          0,

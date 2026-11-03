@@ -2,20 +2,22 @@
 # Copyright 2026 Cirraya
 
 # The dependency direction, checked when the build is configured: the chain
-# (its libraries and the cexchain program) never links the Bo language, an
-# application, or SQLite; the language links only the chain's verification
-# layer (the core, the crypto backend, the verifier), never a ledger, a node,
-# or the client library. A link against the direction fails the configure.
+# (its libraries, the cexchain program, and its tests) never links the Bo
+# language, an application, or SQLite; the language (with its tests) links
+# only the chain's verification layer (the core, the crypto backend, the
+# verifier), never a ledger, a node, or the client library. A link against the
+# direction fails the configure. So a change to the language or an application
+# leaves the chain's tests as they were.
 
 set(_cexchain_chain_targets
     cexchain_core cexchain_crypto_openssl cexchain_crypto_pkcs11 cexchain_verifier cexchain_ledger
-    cexchain_node cexchain_app cexchain_cli_base cexchain_cli_chain cexchain)
+    cexchain_node cexchain_client cexchain_cli_base cexchain_cli_chain cexchain cexchain_tests)
 set(_cexchain_not_for_the_chain
     cexchain_bo cexchain::bo cexchain_bo_front cexchain::bo_front cexchain_console
     cexchain::console cexchain_search cexchain::search cexchain_sqlite)
-set(_cexchain_language_targets cexchain_bo_front cexchain_bo bo)
+set(_cexchain_language_targets cexchain_bo_front cexchain_bo bo cexchain_bo_tests bo_build_fuzz)
 set(_cexchain_not_for_the_language
-    cexchain_ledger cexchain::ledger cexchain_node cexchain::node cexchain_app cexchain::app
+    cexchain_ledger cexchain::ledger cexchain_node cexchain::node cexchain_client cexchain::client
     cexchain_console cexchain::console cexchain_search cexchain::search cexchain_sqlite
     cexchain_cli_chain)
 

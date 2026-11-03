@@ -20,8 +20,8 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/app/records.hpp>
-#include <cexchain/app/support.hpp>
+#include <cexchain/client/records.hpp>
+#include <cexchain/client/support.hpp>
 #include <cexchain/console/console.hpp>
 #include <cexchain/console/kinds.hpp>
 #include <cexchain/core/bytes.hpp>
@@ -89,15 +89,15 @@ http::Response Console::upload_route(const http::Request& request) const {
         }
         id = to_hex(services_.entropy->bytes<12>());
         path = directory / id;
-        uploads_.emplace(id, Upload{signer.user, name->second, app::media_type_of(name->second),
+        uploads_.emplace(id, Upload{signer.user, name->second, client::media_type_of(name->second),
                                     request.body.size(), path, now + upload_lifetime});
     }
     std::filesystem::create_directories(directory);
-    app::write_file(path, request.body, true);
+    client::write_file(path, request.body, true);
     return json(200, {{"upload", id},
                       {"name", name->second},
                       {"size", request.body.size()},
-                      {"media_type", app::media_type_of(name->second)}});
+                      {"media_type", client::media_type_of(name->second)}});
 }
 
 std::string Console::store_upload(const std::string& user, const std::string& name,
@@ -113,7 +113,7 @@ std::string Console::store_upload(const std::string& user, const std::string& na
                                     services_.clock->now() + upload_lifetime});
     }
     std::filesystem::create_directories(directory);
-    app::write_file(path, content, true);
+    client::write_file(path, content, true);
     return id;
 }
 
@@ -247,8 +247,8 @@ Console::register_draft(const nlohmann::json& intent, const std::string& user) c
         if (!names.insert(u.name).second) {
             return "two files are named " + u.name;
         }
-        const Bytes content = app::read_file(u.path);
-        const app::VaultAttachment salt{u.name, services_.entropy->bytes<16>()};
+        const Bytes content = client::read_file(u.path);
+        const client::VaultAttachment salt{u.name, services_.entropy->bytes<16>()};
         const auto digest =
             protocol::attachment_commitment(*services_.provider, hash, salt.salt, content);
         if (!digest || content.size() != u.size) {

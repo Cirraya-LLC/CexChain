@@ -14,8 +14,8 @@
 #include <string>
 #include <unistd.h>
 
-#include <cexchain/app/relay.hpp>
-#include <cexchain/app/relay_server.hpp>
+#include <cexchain/client/relay.hpp>
+#include <cexchain/client/relay_server.hpp>
 #include <cexchain/crypto/openssl.hpp>
 
 namespace {
@@ -23,13 +23,13 @@ namespace {
 struct World {
     std::filesystem::path dir = std::filesystem::temp_directory_path() /
                                 ("cexchain-relay-fuzz-" + std::to_string(::getpid()));
-    std::unique_ptr<cexchain::app::Relay> relay;
+    std::unique_ptr<cexchain::client::Relay> relay;
     cexchain::crypto::openssl::HpkeKey key = *cexchain::crypto::openssl::HpkeKey::generate();
 
     World() {
         std::filesystem::remove_all(dir);
-        relay = std::make_unique<cexchain::app::Relay>(dir / "relay", dir / "witness",
-                                                       cexchain::app::RelayLimits{});
+        relay = std::make_unique<cexchain::client::Relay>(dir / "relay", dir / "witness",
+                                                          cexchain::client::RelayLimits{});
     }
 };
 
@@ -38,15 +38,15 @@ struct World {
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
     static World world;
     const cexchain::ByteView bytes(data, size);
-    if (const auto message = cexchain::app::parse_relay_message(bytes)) {
-        static_cast<void>(cexchain::app::open_relay_request(world.key, message->envelope));
-        static_cast<void>(cexchain::app::open_relay_answer(
+    if (const auto message = cexchain::client::parse_relay_message(bytes)) {
+        static_cast<void>(cexchain::client::open_relay_request(world.key, message->envelope));
+        static_cast<void>(cexchain::client::open_relay_answer(
             world.key, message->envelope.to, message->envelope.from, message->envelope.id,
             message->envelope.sealed));
     }
     const std::string text(reinterpret_cast<const char*>(data), size);
-    static_cast<void>(cexchain::app::parse_relay_authorization(text));
-    static_cast<void>(cexchain::app::parse_relay_authorization("CexChain-Relay " + text));
+    static_cast<void>(cexchain::client::parse_relay_authorization(text));
+    static_cast<void>(cexchain::client::parse_relay_authorization("CexChain-Relay " + text));
 
     cexchain::node::http::Request request;
     request.method = "POST";

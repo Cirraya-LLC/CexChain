@@ -11,7 +11,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/app/session.hpp>
+#include <cexchain/client/session.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/contracts.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
@@ -23,7 +23,7 @@
 /// line's --json, the console's pages). JSON uses lowercase hex for
 /// identifiers and bytes, and RFC 3339 UTC for times; keys keep a stable
 /// order.
-namespace cexchain::app {
+namespace cexchain::client {
 
 using verifier::cbor_json;
 using verifier::checkpoint_json;
@@ -104,4 +104,4 @@ authority_chain(const Session& session, const std::optional<protocol::Id>& deleg
 /// States reachable from the record's current state.
 [[nodiscard]] std::vector<std::string> next_states(const protocol::RecordState& record);
 
-} // namespace cexchain::app
+} // namespace cexchain::client

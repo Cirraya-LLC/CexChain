@@ -14,7 +14,7 @@
 /// What a backup holds beside a ledger's log, and where a restore may write
 /// it, as `backup create|restore` and the console's sealed backups share
 /// them.
-namespace cexchain::app {
+namespace cexchain::client {
 
 /// Whether a restore may write `path` (relative, '/' separators) into a
 /// ledger directory: an allow-list of the files a backup holds, each name
@@ -37,4 +37,4 @@ namespace cexchain::app {
 [[nodiscard]] Result<ledger::BackupSummary> restore_into(std::istream& in,
                                                          const std::filesystem::path& dir);
 
-} // namespace cexchain::app
+} // namespace cexchain::client

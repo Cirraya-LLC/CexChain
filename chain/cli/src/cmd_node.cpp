@@ -22,12 +22,12 @@
 #include <sys/resource.h>
 #include <thread>
 
-#include <cexchain/app/backups.hpp>
-#include <cexchain/app/public_witness.hpp>
-#include <cexchain/app/public_witnesses.hpp>
-#include <cexchain/app/relay_client.hpp>
-#include <cexchain/app/relay_server.hpp>
-#include <cexchain/app/witness.hpp>
+#include <cexchain/client/backups.hpp>
+#include <cexchain/client/public_witness.hpp>
+#include <cexchain/client/public_witnesses.hpp>
+#include <cexchain/client/relay_client.hpp>
+#include <cexchain/client/relay_server.hpp>
+#include <cexchain/client/witness.hpp>
 #include <cexchain/ledger/backup.hpp>
 #include <cexchain/node/api.hpp>
 #include <cexchain/node/client.hpp>
@@ -63,7 +63,7 @@ std::string scopes_text(node::Scopes scopes) {
 }
 
 /// Files a backup may carry, relative to the ledger directory.
-using app::backup_path_allowed;
+using client::backup_path_allowed;
 
 std::atomic<bool> stop_requested{false};
 
@@ -470,7 +470,7 @@ int cmd_backup_create(const Args& args) {
     Session session(args);
     const std::filesystem::path dir = session.directory();
     const std::vector<ledger::BackupFile> files =
-        app::backup_files(dir, !args.has("no-vault"), args.has("console"));
+        client::backup_files(dir, !args.has("no-vault"), args.has("console"));
     const std::filesystem::path out = args.need("out");
     const std::filesystem::path temporary = out.string() + ".tmp";
     ledger::SystemClock clock;
@@ -561,7 +561,7 @@ int cmd_backup_restore(const Args& args) {
     if (!in) {
         throw CommandError{"cannot read " + args.positional().front()};
     }
-    const auto restored = app::restore_into(in, dir);
+    const auto restored = client::restore_into(in, dir);
     if (!restored) {
         return report_restore_failure(args, restored.error(), "restoring the backup");
     }

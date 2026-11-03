@@ -8,9 +8,9 @@
 #include <string_view>
 #include <vector>
 
-#include <cexchain/app/contracts.hpp>
-#include <cexchain/app/session.hpp>
-#include <cexchain/app/views.hpp>
+#include <cexchain/client/contracts.hpp>
+#include <cexchain/client/session.hpp>
+#include <cexchain/client/views.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/contracts.hpp>
 #include <cexchain/core/protocol/state.hpp>
@@ -19,7 +19,7 @@
 /// executors for work outside the ledger; an executor, or a person by hand,
 /// answers with a call on the instance that names the request and its
 /// status.
-namespace cexchain::app {
+namespace cexchain::client {
 
 /// Which requests to show: by status (open, answered, failed or expired, or
 /// open past their deadline), kind, contract, instance, who answered, and
@@ -80,4 +80,4 @@ answer_call(const Session& session, const protocol::RequestState& request,
                                          protocol::ContractCallBody answer,
                                          const CallOptions& options);
 
-} // namespace cexchain::app
+} // namespace cexchain::client

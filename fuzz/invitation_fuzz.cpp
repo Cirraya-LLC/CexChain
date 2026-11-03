@@ -11,7 +11,7 @@
 #include <cstdlib>
 #include <string_view>
 
-#include <cexchain/app/peers.hpp>
+#include <cexchain/client/peers.hpp>
 
 namespace {
 
@@ -26,7 +26,7 @@ void require(bool condition) {
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
     using namespace cexchain;
     const std::string_view input(reinterpret_cast<const char*>(data), size);
-    const auto invitation = app::decode_invitation(input);
+    const auto invitation = client::decode_invitation(input);
     if (!invitation) {
         return 0;
     }
@@ -34,7 +34,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     require(!invitation->url || (!invitation->url->empty() && invitation->url->size() <= 2048));
     require(!invitation->token ||
             (!invitation->token->empty() && invitation->token->size() <= 256));
-    const auto again = app::decode_invitation(app::encode_invitation(*invitation));
+    const auto again = client::decode_invitation(client::encode_invitation(*invitation));
     require(again.has_value() && *again == *invitation);
     return 0;
 }

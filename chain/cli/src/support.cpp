@@ -118,7 +118,7 @@ std::string passphrase(const Args& args, const std::string& purpose, bool confir
 }
 
 crypto::openssl::KeyPair load_key(const std::filesystem::path& path, const Args& args) {
-    return app::load_key(path, [&] { return passphrase(args, path.string()); });
+    return client::load_key(path, [&] { return passphrase(args, path.string()); });
 }
 
 #ifdef CEXCHAIN_HAVE_PKCS11
@@ -243,7 +243,7 @@ std::optional<std::string> api_token(const Args& args) {
 
 node::Client client_for(const std::string& url, const Args& args,
                         const std::optional<std::string>& ca_file) {
-    return app::client_for(url, api_token(args), ca_file);
+    return client::client_for(url, api_token(args), ca_file);
 }
 
 namespace {
@@ -289,7 +289,7 @@ LogKey log_key(const Args& args) {
 
 namespace {
 
-app::Location location_of(const Args& args) {
+client::Location location_of(const Args& args) {
     if (const auto url = server_url(args)) {
         return ServerLocation{*url, args.get("ca-file"), api_token(args), args.get("ledger-id"),
                               args.get("cache")};
@@ -299,7 +299,7 @@ app::Location location_of(const Args& args) {
 
 } // namespace
 
-Session::Session(const Args& args) : app::Session(location_of(args)) {}
+Session::Session(const Args& args) : client::Session(location_of(args)) {}
 
 std::optional<protocol::Provenance> Session::provenance(const Args& args) const {
     if (!args.has("model") && !args.has("model-version") && !args.has("inputs")) {
@@ -334,14 +334,6 @@ Bytes Session::receipt(const Args& args, std::uint64_t index) {
     return receipt(log_key(args), index);
 }
 
-std::string console_compiler() {
-    // The Bo compiler is its own program, beside this one (packages install
-    // them together); a console without it runs no compiler.
-    const std::filesystem::path bo = std::filesystem::path(self_path()).parent_path() / "bo";
-    std::error_code ec;
-    return std::filesystem::is_regular_file(bo, ec) ? bo.string() : std::string();
-}
-
 std::string self_path() {
 #if defined(__APPLE__)
     std::uint32_t size = 0;
@@ -370,10 +362,10 @@ RelayReach::RelayReach(const Args& args, Session& session) {
     }
     std::shared_ptr<const crypto::Signer> signer(load_signer(*key, args));
     sender_ =
-        app::RelaySender{[&session] { return &session.ledger(); }, [signer] { return signer; },
-                         [&session](ByteView cosignature, const crypto::PublicKey& witness) {
-                             session.add_cosignature(cosignature, witness);
-                         }};
+        client::RelaySender{[&session] { return &session.ledger(); }, [signer] { return signer; },
+                            [&session](ByteView cosignature, const crypto::PublicKey& witness) {
+                                session.add_cosignature(cosignature, witness);
+                            }};
     scope_.emplace(&*sender_);
 }
 

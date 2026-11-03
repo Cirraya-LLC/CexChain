@@ -14,7 +14,7 @@
 #include <string>
 #include <string_view>
 
-#include <cexchain/app/backups.hpp>
+#include <cexchain/client/backups.hpp>
 #include <cexchain/console/backups.hpp>
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
@@ -27,7 +27,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
         // Refused: not a sealed backup, or not that code's.
     }
     const std::string_view path(reinterpret_cast<const char*>(data), size);
-    if (cexchain::app::backup_path_allowed(path)) {
+    if (cexchain::client::backup_path_allowed(path)) {
         if (path.empty() || path.front() == '/' || path.find("..") != std::string_view::npos ||
             path.find('\\') != std::string_view::npos ||
             path.find('\0') != std::string_view::npos) {

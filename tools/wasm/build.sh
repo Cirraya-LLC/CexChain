@@ -25,7 +25,9 @@ emcmake cmake -S "$ROOT" -B "$BUILD/cmake" -G Ninja \
     -DCMAKE_CXX_FLAGS="-fwasm-exceptions" \
     -DCMAKE_EXE_LINKER_FLAGS="-fwasm-exceptions" > /dev/null
 cmake --build "$BUILD/cmake"
-cp "$BUILD/cmake/verifier/wasm/cexchain-verify.html" "$BUILD/cmake/verifier/wasm/cexchain-verifier.js" "$BUILD/"
+cp "$BUILD/cmake/chain/verifier/wasm/cexchain-verify.html" \
+    "$BUILD/cmake/chain/verifier/wasm/cexchain-verifier.js" "$BUILD/"
 # The console's checks, for a native build: -DCEXCHAIN_CONSOLE_WASM_DIR="$BUILD".
-cp "$BUILD/cmake/verifier/wasm/cexchain-console.mjs" "$BUILD/cmake/verifier/wasm/cexchain-console.wasm" "$BUILD/"
+cp "$BUILD/cmake/apps/console/wasm/cexchain-console.mjs" \
+    "$BUILD/cmake/apps/console/wasm/cexchain-console.wasm" "$BUILD/"
 ls -l "$BUILD/cexchain-verify.html"

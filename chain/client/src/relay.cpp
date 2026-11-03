@@ -5,11 +5,11 @@
 #include <string>
 #include <utility>
 
-#include <cexchain/app/relay.hpp>
+#include <cexchain/client/relay.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/common.hpp>
 
-namespace cexchain::app {
+namespace cexchain::client {
 
 namespace {
 
@@ -261,4 +261,4 @@ Status verify_relay_fetcher(const crypto::Provider& provider, const RelayFetcher
     return cose::verify(provider, fetcher.signed_message, log_key, text_bytes(relay_fetch_context));
 }
 
-} // namespace cexchain::app
+} // namespace cexchain::client

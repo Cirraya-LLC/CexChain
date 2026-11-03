@@ -22,10 +22,10 @@ cbor::Value contract_arguments_of(const Args& args) {
     return value;
 }
 
-GivenConsent give_consent(app::Session& session, const crypto::Signer& signer,
+GivenConsent give_consent(client::Session& session, const crypto::Signer& signer,
                           protocol::ContractConsent& consent, const ConsentOptions& options,
                           const Args& ledger_args) {
-    return app::give_consent(session, signer, consent, options, log_key(ledger_args));
+    return client::give_consent(session, signer, consent, options, log_key(ledger_args));
 }
 
 } // namespace cexchain::cli

@@ -14,7 +14,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/app/support.hpp>
+#include <cexchain/client/support.hpp>
 #include <cexchain/console/sessions.hpp>
 #include <cexchain/core/bytes.hpp>
 
@@ -170,7 +170,7 @@ void Sessions::publish() {
     const std::string text = nlohmann::json{{"sessions", list}}.dump(2) + "\n";
     try {
         std::filesystem::create_directories(directory_);
-        app::write_file(directory_ / published_file, as_bytes(text), true);
+        client::write_file(directory_ / published_file, as_bytes(text), true);
     } catch (const std::exception&) {
         // Kept in memory regardless; the next change publishes again.
     }
@@ -182,7 +182,7 @@ std::vector<PublishedSession> published_sessions(const std::filesystem::path& di
     if (!std::filesystem::exists(file)) {
         return sessions;
     }
-    const Bytes bytes = app::read_file(file);
+    const Bytes bytes = client::read_file(file);
     const auto document = nlohmann::json::parse(bytes.begin(), bytes.end(), nullptr, false);
     if (!document.is_object() || !document.contains("sessions") ||
         !document["sessions"].is_array()) {

@@ -13,7 +13,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/app/views.hpp>
+#include <cexchain/client/views.hpp>
 #include <cexchain/console/console.hpp>
 #include <cexchain/core/protocol/state.hpp>
 
@@ -28,7 +28,7 @@ constexpr std::size_t list_limit = 500;
 
 nlohmann::json actor_name(const protocol::LedgerState& state, const protocol::Id& id) {
     const protocol::ActorState* actor = state.actor(id);
-    return {{"id", app::id_json(id)},
+    return {{"id", client::id_json(id)},
             {"name", actor != nullptr ? nlohmann::json(actor->display_name) : nlohmann::json()}};
 }
 
@@ -58,15 +58,16 @@ http::Response Console::home_route(const Signed& who) const {
         for (const auto& [key, request] : state.requests()) {
             open_requests += request.open() ? 1U : 0U;
         }
-        out = {{"ledger",
-                {{"id", app::id_json(state.ledger_id())}, {"organization", state.organization()}}},
-               {"you", {{"user", who.user}, {"role", name_of(who.role)}}},
-               {"counts",
-                {{"actors", state.actors().size()},
-                 {"records", state.records().size()},
-                 {"contracts", state.contracts().size()},
-                 {"instances", state.instances().size()},
-                 {"open_requests", open_requests}}}};
+        out = {
+            {"ledger",
+             {{"id", client::id_json(state.ledger_id())}, {"organization", state.organization()}}},
+            {"you", {{"user", who.user}, {"role", name_of(who.role)}}},
+            {"counts",
+             {{"actors", state.actors().size()},
+              {"records", state.records().size()},
+              {"contracts", state.contracts().size()},
+              {"instances", state.instances().size()},
+              {"open_requests", open_requests}}}};
     });
     out["backup"] = backup_view();
     return json(200, out);
@@ -93,7 +94,7 @@ http::Response Console::things_route(const http::Request& request) const {
         more = rs.size() > list_limit;
         rs.resize(std::min(rs.size(), list_limit));
         for (const protocol::RecordState* r : rs) {
-            records.push_back({{"id", app::id_json(r->id)},
+            records.push_back({{"id", client::id_json(r->id)},
                                {"type", r->record_type},
                                {"state", r->state},
                                {"revoked", r->revoked},
@@ -112,8 +113,8 @@ http::Response Console::things_route(const http::Request& request) const {
         for (const protocol::InstanceState* i : is) {
             const protocol::ContractState* contract = state.contract(i->contract);
             instances.push_back(
-                {{"id", app::id_json(i->id)},
-                 {"contract", app::id_json(i->contract)},
+                {{"id", client::id_json(i->id)},
+                 {"contract", client::id_json(i->contract)},
                  {"contract_name", contract != nullptr && contract->name
                                        ? nlohmann::json(*contract->name)
                                        : nlohmann::json()},

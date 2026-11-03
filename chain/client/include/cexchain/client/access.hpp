@@ -9,8 +9,8 @@
 #include <string_view>
 #include <vector>
 
-#include <cexchain/app/records.hpp>
-#include <cexchain/app/support.hpp>
+#include <cexchain/client/records.hpp>
+#include <cexchain/client/support.hpp>
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/protocol/access.hpp>
 #include <cexchain/crypto/openssl.hpp>
@@ -22,7 +22,7 @@
 /// peer sent, checked; a grant's delivery, sealed and checked as its
 /// recipient will check it; and a delivery opened and checked against the
 /// request it answers.
-namespace cexchain::app {
+namespace cexchain::client {
 
 /// The HPKE `info` for a request's key, sealed to the vault key for the
 /// request's id.
@@ -119,4 +119,4 @@ struct NotAccepted {
 /// An attachment's name is a file name, safe to save under: no path.
 [[nodiscard]] bool plain_file_name(std::string_view name);
 
-} // namespace cexchain::app
+} // namespace cexchain::client

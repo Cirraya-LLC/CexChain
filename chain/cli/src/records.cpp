@@ -8,10 +8,10 @@
 namespace cexchain::cli {
 
 crypto::openssl::HpkeKey load_hpke_key(const std::filesystem::path& path, const Args& args) {
-    return app::load_hpke_key(path, [&] { return passphrase(args, path.string()); });
+    return client::load_hpke_key(path, [&] { return passphrase(args, path.string()); });
 }
 
-crypto::openssl::HpkeKey load_vault_key(const app::Session& session, const Args& args) {
+crypto::openssl::HpkeKey load_vault_key(const client::Session& session, const Args& args) {
     const std::filesystem::path path = args.has("vault-key")
                                            ? std::filesystem::path(*args.get("vault-key"))
                                            : default_vault_key_path(session);
@@ -26,8 +26,8 @@ crypto::openssl::HpkeKey load_vault_key(const app::Session& session, const Args&
     return key;
 }
 
-Vault read_vault(const app::Session& session, const protocol::Id& record, const Args& args) {
-    return app::read_vault(session, record, [&] { return load_vault_key(session, args); });
+Vault read_vault(const client::Session& session, const protocol::Id& record, const Args& args) {
+    return client::read_vault(session, record, [&] { return load_vault_key(session, args); });
 }
 
 } // namespace cexchain::cli

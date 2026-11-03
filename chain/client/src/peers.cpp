@@ -4,15 +4,15 @@
 #include <algorithm>
 #include <cctype>
 
-#include <cexchain/app/peers.hpp>
-#include <cexchain/app/relay_client.hpp>
+#include <cexchain/client/peers.hpp>
+#include <cexchain/client/relay_client.hpp>
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/ledger/environment.hpp>
 #include <cexchain/ledger/storage.hpp>
 #include <cexchain/node/tokens.hpp>
 
-namespace cexchain::app {
+namespace cexchain::client {
 
 std::vector<node::Peer> peers_of(const std::filesystem::path& dir) {
     return unwrap(node::load_peers(dir), "reading the peers");
@@ -328,4 +328,4 @@ node::Peer accept_invitation(const std::filesystem::path& dir,
     return peer;
 }
 
-} // namespace cexchain::app
+} // namespace cexchain::client

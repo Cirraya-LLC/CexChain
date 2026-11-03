@@ -23,8 +23,8 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/app/records.hpp>
-#include <cexchain/app/relay_client.hpp>
+#include <cexchain/client/records.hpp>
+#include <cexchain/client/relay_client.hpp>
 #include <cexchain/console/backups.hpp>
 #include <cexchain/console/keystore.hpp>
 #include <cexchain/console/sessions.hpp>
@@ -140,7 +140,7 @@ inline constexpr std::size_t max_uploads = 64;
 /// A record's registration being prepared: the private data and the files
 /// the console seals once the statement is signed (they name its id).
 struct Draft {
-    app::Vault vault;
+    client::Vault vault;
     /// The uploads it attaches, in the registration's order.
     std::vector<std::string> uploads;
     bool keep_files = false;
@@ -283,7 +283,7 @@ public:
     /// Cosigns a party's checkpoint as its witness, for POST
     /// /v1/witness/cosign: with the console's witness key, opened for it
     /// (refused while locked), against what the witness at `<console>/witness`
-    /// cosigned before (app::witness_cosign). A refusal is remembered for the
+    /// cosigned before (client::witness_cosign). A refusal is remembered for the
     /// Parties screen.
     [[nodiscard]] Result<Bytes> witness_cosign(ByteView request) const;
 
@@ -549,8 +549,8 @@ private:
     registration(const protocol::LedgerState& state, const protocol::Id& record) const;
     /// The record's private data, opened with the console's vault key and
     /// checked against the ledger; nothing if it cannot be.
-    [[nodiscard]] std::optional<app::Vault> private_data(const protocol::LedgerState& state,
-                                                         const protocol::Id& record) const;
+    [[nodiscard]] std::optional<client::Vault> private_data(const protocol::LedgerState& state,
+                                                            const protocol::Id& record) const;
     [[nodiscard]] nlohmann::json settings_view(Role role) const;
     [[nodiscard]] http::Response enroll_begin(const http::Request& request) const;
     [[nodiscard]] http::Response enroll_finish(const http::Request& request) const;
@@ -681,7 +681,7 @@ private:
     mutable std::string relay_problem_;
     /// This ledger as it reaches parties through their relays: the served
     /// ledger, the log key while unlocked, cosignatures kept by the node.
-    app::RelaySender relay_sender_;
+    client::RelaySender relay_sender_;
     mutable std::map<std::string, Handed> handed_;
     /// One backup at a time.
     mutable std::mutex backup_mutex_;

@@ -10,7 +10,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/app/support.hpp>
+#include <cexchain/client/support.hpp>
 #include <cexchain/console/console.hpp>
 #include <cexchain/console/kinds.hpp>
 #include <cexchain/core/protocol/record_types.hpp>
@@ -252,7 +252,7 @@ std::vector<Kind> load_kinds(const std::filesystem::path& directory) {
     if (!std::filesystem::exists(file)) {
         return kinds;
     }
-    const Bytes bytes = app::read_file(file);
+    const Bytes bytes = client::read_file(file);
     const auto j = nlohmann::json::parse(bytes.begin(), bytes.end(), nullptr, false);
     if (!j.is_object() || !j.contains("kinds") || !j["kinds"].is_array()) {
         damaged();
@@ -276,8 +276,8 @@ void save_kinds(const std::filesystem::path& directory, const std::vector<Kind>&
         list.push_back(kind_json(k));
     }
     std::filesystem::create_directories(directory);
-    app::write_file(directory / kinds_file,
-                    as_bytes(nlohmann::json{{"kinds", list}}.dump(2) + "\n"), true);
+    client::write_file(directory / kinds_file,
+                       as_bytes(nlohmann::json{{"kinds", list}}.dump(2) + "\n"), true);
 }
 
 http::Response Console::kinds_route(const http::Request& request) const {

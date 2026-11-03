@@ -16,7 +16,7 @@
 #include <cexchain/search/query.hpp>
 #include <cexchain/search/served.hpp>
 
-#include "commands.hpp"
+#include "index_commands.hpp"
 #include "output.hpp"
 #include "serve.hpp"
 

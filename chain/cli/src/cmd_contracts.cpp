@@ -21,7 +21,7 @@
 #include <variant>
 #include <vector>
 
-#include <cexchain/app/peers.hpp>
+#include <cexchain/client/peers.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/contract_evidence.hpp>
 #include <cexchain/core/protocol/contracts.hpp>

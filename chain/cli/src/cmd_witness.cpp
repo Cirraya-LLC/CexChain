@@ -17,10 +17,10 @@
 #include <format>
 #include <print>
 
-#include <cexchain/app/peers.hpp>
-#include <cexchain/app/public_witnesses.hpp>
-#include <cexchain/app/relay_client.hpp>
-#include <cexchain/app/witness.hpp>
+#include <cexchain/client/peers.hpp>
+#include <cexchain/client/public_witnesses.hpp>
+#include <cexchain/client/relay_client.hpp>
+#include <cexchain/client/witness.hpp>
 #include <cexchain/core/protocol/witness.hpp>
 
 #include "commands.hpp"
@@ -30,14 +30,14 @@ namespace cexchain::cli {
 
 namespace {
 
-using app::WitnessState;
+using client::WitnessState;
 
 std::filesystem::path state_path(const std::filesystem::path& dir, const protocol::Id& ledger) {
-    return app::witness_state_path(dir, ledger);
+    return client::witness_state_path(dir, ledger);
 }
 
 WitnessState decode_state(const std::filesystem::path& path) {
-    return app::decode_witness_state(path);
+    return client::decode_witness_state(path);
 }
 
 Json state_json(const WitnessState& s) {
@@ -117,7 +117,7 @@ int cmd_checkpoint_cosign_request(const Args& args) {
     // Online: the peer cosigns as our witness, and we keep the cosignature.
     session.require_primary();
     const auto response =
-        app::peer_request(*peer, "POST", "/v1/witness/cosign", encoded, "application/cbor");
+        client::peer_request(*peer, "POST", "/v1/witness/cosign", encoded, "application/cbor");
     if (response.status != 200) {
         const Json answer = Json::parse(response.body.begin(), response.body.end(), nullptr, false);
         const std::string message = answer.is_object() && answer.contains("error")
@@ -181,7 +181,7 @@ int cmd_witness_add_log(const Args& args) {
     if (const auto genesis = args.get("genesis")) {
         // The genesis entry fixes the ledger id, hash, root key, and first
         // log key: from it the witness follows every rotation.
-        state = app::state_from_genesis(read_file(*genesis), name, pinned);
+        state = client::state_from_genesis(read_file(*genesis), name, pinned);
     } else {
         state.log.ledger_id = *pinned;
         state.log.log_key = load_public_key(args.need("log-key"));
@@ -190,7 +190,7 @@ int cmd_witness_add_log(const Args& args) {
     if (state.name.empty()) {
         state.name = hex_id(state.log.ledger_id).substr(0, 12);
     }
-    app::add_witnessed(dir, state);
+    client::add_witnessed(dir, state);
     if (args.json()) {
         print_json(state_json(state));
     } else {
@@ -217,7 +217,7 @@ int cmd_witness_cosign(const Args& args) {
     const std::uint64_t before = decode_state(path).log.size;
     const auto key = load_signer(args.need("key"), args);
     const auto cosignature =
-        app::witness_cosign(dir, *key, request_bytes, ledger::SystemClock{}.now());
+        client::witness_cosign(dir, *key, request_bytes, ledger::SystemClock{}.now());
     if (!cosignature) {
         const Error& e = cosignature.error();
         if (e.code == Errc::invalid_argument) {
@@ -253,7 +253,7 @@ int cmd_witness_cosign(const Args& args) {
 }
 
 int cmd_witness_status(const Args& args) {
-    const auto states = app::witness_states(args.need("dir"));
+    const auto states = client::witness_states(args.need("dir"));
     if (args.json()) {
         Json out = Json::array();
         for (const WitnessState& s : states) {
@@ -278,7 +278,7 @@ int cmd_witness_remove_log(const Args& args) {
     const auto lock = unwrap(ledger::DirectoryLock::acquire(dir), "locking the witness directory");
     const std::string prefix = args.positional().front();
     std::optional<WitnessState> found;
-    for (const WitnessState& s : app::witness_states(dir)) {
+    for (const WitnessState& s : client::witness_states(dir)) {
         if (hex_id(s.log.ledger_id).starts_with(prefix) || s.name == prefix) {
             if (found) {
                 throw UsageError{"ambiguous ledger " + prefix};
@@ -309,17 +309,17 @@ crypto::PublicKey witness_key_argument(const std::string& value) {
     if (std::filesystem::is_regular_file(value)) {
         return load_public_key(value);
     }
-    return app::witness_key_from_hex(value);
+    return client::witness_key_from_hex(value);
 }
 
-Json used_witness_json(const ledger::Ledger& ledger, const app::UsedWitness& w) {
+Json used_witness_json(const ledger::Ledger& ledger, const client::UsedWitness& w) {
     Json last;
     if (const auto cosigned = ledger.last_cosigned(w.key); cosigned && *cosigned) {
         last = {{"tree_size", (*cosigned)->tree_size}, {"timestamp", (*cosigned)->timestamp}};
     }
     return {{"name", w.name},
             {"url", w.url},
-            {"key", app::witness_key_hex(w.key)},
+            {"key", client::witness_key_hex(w.key)},
             {"added", w.added},
             {"last_cosigned", last}};
 }
@@ -331,13 +331,13 @@ int cmd_witness_register(const Args& args) {
     session.require_primary();
     const std::string url = args.positional().front();
     const crypto::PublicKey key = witness_key_argument(args.need("witness-key"));
-    app::Registered registered;
+    client::Registered registered;
     try {
-        registered = app::register_witness(
+        registered = client::register_witness(
             session.ledger(), session.directory(), url, key, args.get("name"),
             [&](ByteView cosignature) { session.add_cosignature(cosignature, key); },
             ledger::SystemClock{}.now());
-    } catch (const app::WitnessRefused& e) {
+    } catch (const client::WitnessRefused& e) {
         if (args.json()) {
             print_json({{"registered", false}, {"error", e.message}, {"status", e.status}});
         } else {
@@ -360,10 +360,10 @@ int cmd_witness_register(const Args& args) {
 
 int cmd_witness_registered(const Args& args) {
     Session session(args);
-    const auto witnesses = app::load_used_witnesses(session.directory());
+    const auto witnesses = client::load_used_witnesses(session.directory());
     if (!args.positional().empty()) {
         const std::string& name = args.positional().front();
-        const auto it = std::ranges::find(witnesses, name, &app::UsedWitness::name);
+        const auto it = std::ranges::find(witnesses, name, &client::UsedWitness::name);
         if (it == witnesses.end()) {
             throw CommandError{"no registered witness named " + name + " (witness registered)"};
         }
@@ -384,7 +384,7 @@ int cmd_witness_registered(const Args& args) {
         return exit_ok;
     }
     Json list = Json::array();
-    for (const app::UsedWitness& w : witnesses) {
+    for (const client::UsedWitness& w : witnesses) {
         list.push_back(used_witness_json(session.ledger(), w));
     }
     if (args.json()) {
@@ -409,11 +409,12 @@ int cmd_witness_unregister(const Args& args) {
     Session session(args);
     const std::filesystem::path& dir = session.directory();
     const std::string& name = args.positional().front();
-    auto witnesses = app::load_used_witnesses(dir);
-    if (std::erase_if(witnesses, [&](const app::UsedWitness& w) { return w.name == name; }) == 0) {
+    auto witnesses = client::load_used_witnesses(dir);
+    if (std::erase_if(witnesses, [&](const client::UsedWitness& w) { return w.name == name; }) ==
+        0) {
         throw CommandError{"no registered witness named " + name + " (witness registered)"};
     }
-    app::save_used_witnesses(dir, witnesses);
+    client::save_used_witnesses(dir, witnesses);
     if (args.json()) {
         print_json({{"unregistered", name}});
     } else {

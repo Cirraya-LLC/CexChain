@@ -7,8 +7,8 @@
 
 namespace cexchain::cli {
 
-int report_submitted(const Args& args, const app::Session& session, const protocol::Id& statement,
-                     const Json& extra, const std::string& text) {
+int report_submitted(const Args& args, const client::Session& session,
+                     const protocol::Id& statement, const Json& extra, const std::string& text) {
     if (args.json()) {
         Json out{{"statement_id", id_json(statement)},
                  {"index", session.state().statement_index(statement).value_or(0)}};

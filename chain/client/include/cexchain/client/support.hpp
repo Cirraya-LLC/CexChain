@@ -13,7 +13,7 @@
 #include <utility>
 #include <vector>
 
-#include <cexchain/app/errors.hpp>
+#include <cexchain/client/errors.hpp>
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/error.hpp>
 #include <cexchain/core/protocol/state.hpp>
@@ -24,7 +24,7 @@
 #include <cexchain/verifier/report.hpp>
 
 /// Helpers every action uses: errors, files, ids, times, keys, and parsing.
-namespace cexchain::app {
+namespace cexchain::client {
 
 /// How actions verify evidence: signatures checked ahead on all cores, and
 /// remembered for the process (the MCP server verifies again and again).
@@ -97,4 +97,4 @@ void create_ledger(const std::filesystem::path& directory, const crypto::Signer&
                    const crypto::PublicKey& log_key, crypto::HashAlg hash,
                    const std::string& organization);
 
-} // namespace cexchain::app
+} // namespace cexchain::client

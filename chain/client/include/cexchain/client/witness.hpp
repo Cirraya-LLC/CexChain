@@ -22,7 +22,7 @@
 ///    ? 8: root key [alg, key], ? 9: index of the last key rotation followed}
 /// Without a root key (a log added by its log key alone) the witness cannot
 /// follow key rotations.
-namespace cexchain::app {
+namespace cexchain::client {
 
 struct WitnessState {
     protocol::WitnessedLog log;
@@ -61,4 +61,4 @@ void add_witnessed(const std::filesystem::path& dir, const WitnessState& state);
                                            const crypto::Signer& key, ByteView request,
                                            protocol::Timestamp now);
 
-} // namespace cexchain::app
+} // namespace cexchain::client

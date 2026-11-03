@@ -4,7 +4,7 @@
 // cexchain-console's commands: the table the registry dispatches, documents, and
 // completes from.
 
-#include "commands.hpp"
+#include "console_commands.hpp"
 #include "registry_options.hpp"
 
 namespace cexchain::cli {

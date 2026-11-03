@@ -14,7 +14,7 @@
 #include <variant>
 #include <vector>
 
-#include <cexchain/app/relay.hpp>
+#include <cexchain/client/relay.hpp>
 #include <cexchain/core/protocol/common.hpp>
 #include <cexchain/core/protocol/id_map.hpp>
 #include <cexchain/node/http.hpp>
@@ -35,7 +35,7 @@
 ///   DELETE /v1/relay/messages/ID?to=LEDGER    taken
 /// The last two need "Authorization: CexChain-Relay ..." by the mailbox's
 /// ledger (relay.hpp). Messages are kept 14 days at most.
-namespace cexchain::app {
+namespace cexchain::client {
 
 struct RelayLimits {
     std::size_t mailbox_messages = 1'000;
@@ -105,4 +105,4 @@ private:
     protocol::Timestamp pruned_ = 0;
 };
 
-} // namespace cexchain::app
+} // namespace cexchain::client

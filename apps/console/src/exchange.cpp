@@ -22,10 +22,10 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/app/contracts.hpp>
-#include <cexchain/app/errors.hpp>
-#include <cexchain/app/support.hpp>
 #include <cexchain/bo/source.hpp>
+#include <cexchain/client/contracts.hpp>
+#include <cexchain/client/errors.hpp>
+#include <cexchain/client/support.hpp>
 #include <cexchain/console/console.hpp>
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/cbor.hpp>
@@ -114,7 +114,7 @@ Console::uploaded_file(const Signed& who, const std::string& upload) const {
         }
         path = it->second.path;
     }
-    auto file = protocol::decode_exchange_file(app::read_file(path));
+    auto file = protocol::decode_exchange_file(client::read_file(path));
     if (!file) {
         return error(422, "invalid_argument",
                      "this is not a proposal or consent file: " + std::string(file.error().detail));
@@ -178,7 +178,7 @@ std::variant<std::string, http::Response> Console::take_opened(const Signed& who
         std::filesystem::file_size(path, ec) > protocol::max_exchange_file) {
         return error(404, "not_found", "that file is no longer here: open it again");
     }
-    const Bytes content = app::read_file(path);
+    const Bytes content = client::read_file(path);
     std::filesystem::remove(path, ec);
     return store_upload(who.user, "opened.cexchain", content);
 }
@@ -206,9 +206,9 @@ Console::read_exchange(const Signed& signer, const protocol::ExchangeFile& file,
     });
     out["ours"] = hex_of(ours);
     if (file.kind == protocol::ExchangeKind::proposal) {
-        std::optional<app::ProposalTerms> terms;
+        std::optional<client::ProposalTerms> terms;
         try {
-            terms = app::check_proposal(*services_.provider, file);
+            terms = client::check_proposal(*services_.provider, file);
         } catch (const std::exception& e) {
             return error(422, "verification_failed", e.what());
         }
@@ -438,7 +438,7 @@ void Console::exchange_consent_route(const http::Request& request, Respond respo
             respond(error(503, "unavailable", bundle.error().detail));
             return;
         }
-        const protocol::ExchangeFile answer = app::consent_file(proposal, std::move(*bundle));
+        const protocol::ExchangeFile answer = client::consent_file(proposal, std::move(*bundle));
         const auto encoded = protocol::encode_exchange_file(answer);
         if (!encoded) {
             respond(error(500, "internal", "the consent file could not be written"));
@@ -455,12 +455,12 @@ Console::consent_draft(const Signed& who, const nlohmann::json& intent) const {
         return std::move(*refused);
     }
     const protocol::ExchangeFile& file = std::get<protocol::ExchangeFile>(read);
-    std::optional<app::ProposalTerms> terms;
+    std::optional<client::ProposalTerms> terms;
     try {
-        terms = app::check_proposal(*services_.provider, file);
-    } catch (const app::ActionError& e) {
+        terms = client::check_proposal(*services_.provider, file);
+    } catch (const client::ActionError& e) {
         return error(422, "verification_failed", e.message);
-    } catch (const app::UsageError& e) {
+    } catch (const client::UsageError& e) {
         return error(422, "verification_failed", e.message);
     }
     bool asked = false;

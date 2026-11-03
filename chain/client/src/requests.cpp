@@ -5,9 +5,9 @@
 #include <format>
 #include <variant>
 
-#include <cexchain/app/requests.hpp>
+#include <cexchain/client/requests.hpp>
 
-namespace cexchain::app {
+namespace cexchain::client {
 
 namespace {
 
@@ -211,4 +211,4 @@ CallAttempt attempt_answer(Session& session, const crypto::Signer& signer,
     return attempt;
 }
 
-} // namespace cexchain::app
+} // namespace cexchain::client

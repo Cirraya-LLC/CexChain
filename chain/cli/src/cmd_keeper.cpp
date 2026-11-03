@@ -22,7 +22,7 @@
 #include <set>
 #include <thread>
 
-#include <cexchain/app/peers.hpp>
+#include <cexchain/client/peers.hpp>
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/node/client.hpp>
 #include <cexchain/node/keeper.hpp>

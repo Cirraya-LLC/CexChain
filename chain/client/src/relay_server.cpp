@@ -9,13 +9,13 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/app/errors.hpp>
-#include <cexchain/app/relay_server.hpp>
-#include <cexchain/app/support.hpp>
-#include <cexchain/app/witness.hpp>
+#include <cexchain/client/errors.hpp>
+#include <cexchain/client/relay_server.hpp>
+#include <cexchain/client/support.hpp>
+#include <cexchain/client/witness.hpp>
 #include <cexchain/core/cbor.hpp>
 
-namespace cexchain::app {
+namespace cexchain::client {
 
 namespace {
 
@@ -412,4 +412,4 @@ void Relay::stopping() {
     }
 }
 
-} // namespace cexchain::app
+} // namespace cexchain::client

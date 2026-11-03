@@ -10,9 +10,9 @@
 #include <filesystem>
 #include <print>
 
-#include <cexchain/app/public_witnesses.hpp>
-#include <cexchain/app/records.hpp>
-#include <cexchain/app/relay_client.hpp>
+#include <cexchain/client/public_witnesses.hpp>
+#include <cexchain/client/records.hpp>
+#include <cexchain/client/relay_client.hpp>
 
 #include "commands.hpp"
 #include "output.hpp"
@@ -32,7 +32,7 @@ int cmd_relay_key_init(const Args& args) {
     const std::optional<std::string> secret =
         encrypt ? std::optional(passphrase(args, out.string(), true)) : std::nullopt;
     const auto key = unwrap(crypto::openssl::HpkeKey::generate(), "generating the relay key");
-    app::save_hpke_key(out, key, secret);
+    client::save_hpke_key(out, key, secret);
     if (args.json()) {
         print_json({{"file", out.string()},
                     {"encrypted", encrypt},
@@ -51,13 +51,13 @@ int cmd_relay_use(const Args& args) {
     const std::string url = args.positional().front();
     const auto key = load_hpke_key(args.need("relay-key"), args);
     // The relay serves the ledgers its witness follows: this one must be.
-    const app::WitnessInfo info = app::fetch_witness_info(url);
-    const auto listed = app::load_used_witnesses(session.directory());
-    const auto registered = std::ranges::find(listed, url, &app::UsedWitness::url);
+    const client::WitnessInfo info = client::fetch_witness_info(url);
+    const auto listed = client::load_used_witnesses(session.directory());
+    const auto registered = std::ranges::find(listed, url, &client::UsedWitness::url);
     crypto::PublicKey witness;
     if (const auto given = args.get("witness-key")) {
         witness = std::filesystem::is_regular_file(*given) ? load_public_key(*given)
-                                                           : app::witness_key_from_hex(*given);
+                                                           : client::witness_key_from_hex(*given);
     } else if (registered != listed.end()) {
         witness = registered->key;
     } else {
@@ -69,14 +69,14 @@ int cmd_relay_use(const Args& args) {
                            " has another key than the one given: not used"};
     }
     if (registered == listed.end() || registered->key != witness) {
-        static_cast<void>(app::register_witness(
+        static_cast<void>(client::register_witness(
             session.ledger(), session.directory(), url, witness, std::nullopt,
             [&](ByteView cosignature) { session.add_cosignature(cosignature, witness); },
             ledger::SystemClock{}.now()));
     }
     const node::RelayRoute route{url, Bytes(key.public_key().begin(), key.public_key().end()),
                                  witness};
-    app::save_own_relay(session.directory(), route);
+    client::save_own_relay(session.directory(), route);
     if (args.json()) {
         print_json({{"url", url}, {"key", to_hex(route.key)}});
     } else {
@@ -89,7 +89,7 @@ int cmd_relay_use(const Args& args) {
 
 int cmd_relay_show(const Args& args) {
     Session session(args);
-    const auto route = app::load_own_relay(session.directory());
+    const auto route = client::load_own_relay(session.directory());
     if (!route) {
         if (args.json()) {
             print_json({{"relay", nullptr}});
@@ -101,7 +101,7 @@ int cmd_relay_show(const Args& args) {
     Json mailbox;
     if (const auto log_key = args.get("log-key")) {
         const auto signer = load_signer(*log_key, args);
-        const auto seen = app::look_at_mailbox(*route, session.ledger().id(), *signer);
+        const auto seen = client::look_at_mailbox(*route, session.ledger().id(), *signer);
         mailbox = {{"requests", seen.requests}, {"answers", seen.answers}};
     }
     if (args.json()) {
@@ -119,10 +119,10 @@ int cmd_relay_show(const Args& args) {
 
 int cmd_relay_stop(const Args& args) {
     Session session(args);
-    if (!app::load_own_relay(session.directory())) {
+    if (!client::load_own_relay(session.directory())) {
         throw CommandError{"this ledger is not reached through a relay"};
     }
-    app::save_own_relay(session.directory(), std::nullopt);
+    client::save_own_relay(session.directory(), std::nullopt);
     if (args.json()) {
         print_json({{"relay", nullptr}});
     } else {

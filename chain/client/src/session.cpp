@@ -10,8 +10,8 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/app/session.hpp>
-#include <cexchain/app/views.hpp>
+#include <cexchain/client/session.hpp>
+#include <cexchain/client/views.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/contract_evidence.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
@@ -21,7 +21,7 @@
 #include <cexchain/node/contracts.hpp>
 #include <cexchain/node/replica.hpp>
 
-namespace cexchain::app {
+namespace cexchain::client {
 
 namespace {
 
@@ -743,4 +743,4 @@ void Session::fetch_vault_public_key() const {
     remote_->vault_key_fetched = true;
 }
 
-} // namespace cexchain::app
+} // namespace cexchain::client

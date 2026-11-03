@@ -3,8 +3,8 @@
 
 #include <algorithm>
 
-#include <cexchain/app/support.hpp>
-#include <cexchain/app/witness.hpp>
+#include <cexchain/client/support.hpp>
+#include <cexchain/client/witness.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/keys.hpp>
 #include <cexchain/core/protocol/log.hpp>
@@ -18,7 +18,7 @@
     }                                                                                              \
     auto name = std::move(*name##_result)
 
-namespace cexchain::app {
+namespace cexchain::client {
 
 std::filesystem::path witness_state_path(const std::filesystem::path& dir,
                                          const protocol::Id& ledger) {
@@ -194,4 +194,4 @@ Result<Bytes> witness_cosign(const std::filesystem::path& dir, const crypto::Sig
     return cosigned.encoded;
 }
 
-} // namespace cexchain::app
+} // namespace cexchain::client

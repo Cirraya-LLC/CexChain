@@ -10,7 +10,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/app/support.hpp>
+#include <cexchain/client/support.hpp>
 #include <cexchain/console/users.hpp>
 #include <cexchain/core/bytes.hpp>
 
@@ -139,7 +139,7 @@ People load_people(const std::filesystem::path& directory) {
     if (!std::filesystem::exists(file)) {
         return people;
     }
-    const Bytes bytes = app::read_file(file);
+    const Bytes bytes = client::read_file(file);
     const auto j = nlohmann::json::parse(bytes.begin(), bytes.end(), nullptr, false);
     if (!j.is_object() || !j.contains("users") || !j["users"].is_array() ||
         !j.contains("invitations") || !j["invitations"].is_array()) {
@@ -204,7 +204,7 @@ void save_people(const std::filesystem::path& directory, const People& people) {
     const std::string text =
         nlohmann::json{{"users", users}, {"invitations", invitations}}.dump(2) + "\n";
     std::filesystem::create_directories(directory);
-    app::write_file(directory / people_file, as_bytes(text), true);
+    client::write_file(directory / people_file, as_bytes(text), true);
 }
 
 std::optional<std::string> invitation_hash(const crypto::Provider& provider,

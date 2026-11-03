@@ -40,31 +40,34 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 include(CexChainCompilerOptions)
 include(CexChainDependencies)
 
-add_subdirectory(core)
-add_subdirectory(crypto/openssl)
-add_subdirectory(verifier)
+# The chain: the protocol's implementation.
+add_subdirectory(chain/core)
+add_subdirectory(chain/crypto/openssl)
+add_subdirectory(chain/verifier)
 if(EMSCRIPTEN)
-    # The browser verifier needs no ledger node and no command line.
-    add_subdirectory(verifier/wasm)
+    # The browser verifier needs no ledger node and no command line; nor do
+    # the console's checks in the browser.
+    add_subdirectory(chain/verifier/wasm)
+    add_subdirectory(apps/console/wasm)
 elseif(NOT CEXCHAIN_CORE_ONLY)
-    add_subdirectory(crypto/pkcs11)
-    add_subdirectory(ledger)
-    # The search index: what the ledger holds in the clear, in SQLite.
-    add_subdirectory(search)
-    add_subdirectory(node)
-    # The Bo compiler: not in the browser (verifying a contract replays its
-    # code; rebuilding it from source is the bo program's job).
-    add_subdirectory(bo)
+    add_subdirectory(chain/crypto/pkcs11)
+    add_subdirectory(chain/ledger)
+    add_subdirectory(chain/node)
     # The chain's client library, shared by its command line and the console.
-    add_subdirectory(app)
-    # The web console's server side (cexchain-console).
-    add_subdirectory(console)
-    # The programs: cexchain, bo, cexchain-console, cexchain-index.
-    add_subdirectory(cli)
+    add_subdirectory(chain/client)
+    # The shared command line, and the cexchain program.
+    add_subdirectory(chain/cli)
+    # The Bo language: its compiler (not in the browser: verifying a contract
+    # replays its code; rebuilding it from source is the bo program's job).
+    add_subdirectory(bo)
+    add_subdirectory(bo/cli)
+    # The applications: the search index (cexchain-index) and the web
+    # console (cexchain-console).
+    add_subdirectory(apps/index)
+    add_subdirectory(apps/index/cli)
+    add_subdirectory(apps/console)
+    add_subdirectory(apps/console/cli)
     add_subdirectory(bench)
-    # The dependency direction (cmake/CexChainLayers.cmake).
-    include(CexChainLayers)
-    cexchain_check_layers()
 endif()
 
 if(CEXCHAIN_BUILD_TESTS)
@@ -74,4 +77,10 @@ endif()
 
 if(CEXCHAIN_BUILD_FUZZERS)
     add_subdirectory(fuzz)
+endif()
+
+# The dependency direction, the tests' included (cmake/CexChainLayers.cmake).
+if(NOT EMSCRIPTEN AND NOT CEXCHAIN_CORE_ONLY)
+    include(CexChainLayers)
+    cexchain_check_layers()
 endif()

@@ -8,12 +8,12 @@
 #include <variant>
 #include <vector>
 
-#include <cexchain/app/records.hpp>
+#include <cexchain/client/records.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/crypto/openssl.hpp>
 #include <cexchain/node/record_files.hpp>
 
-namespace cexchain::app {
+namespace cexchain::client {
 
 std::string media_type_of(const std::filesystem::path& path) {
     const std::string extension = path.extension().string();
@@ -566,4 +566,4 @@ Json vault_json(const protocol::Id& record, const Vault& vault) {
     return {{"record", id_json(record)}, {"fields", fields}, {"attachments", attachments}};
 }
 
-} // namespace cexchain::app
+} // namespace cexchain::client

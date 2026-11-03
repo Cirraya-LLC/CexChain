@@ -22,12 +22,12 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/app/access.hpp>
-#include <cexchain/app/errors.hpp>
-#include <cexchain/app/peers.hpp>
-#include <cexchain/app/records.hpp>
-#include <cexchain/app/relay_client.hpp>
-#include <cexchain/app/support.hpp>
+#include <cexchain/client/access.hpp>
+#include <cexchain/client/errors.hpp>
+#include <cexchain/client/peers.hpp>
+#include <cexchain/client/records.hpp>
+#include <cexchain/client/relay_client.hpp>
+#include <cexchain/client/support.hpp>
 #include <cexchain/console/console.hpp>
 #include <cexchain/console/kinds.hpp>
 #include <cexchain/core/bytes.hpp>
@@ -69,9 +69,9 @@ std::optional<std::string> attempt(F&& f) {
     try {
         f();
         return std::nullopt;
-    } catch (const app::ActionError& e) {
+    } catch (const client::ActionError& e) {
         return e.message;
-    } catch (const app::UsageError& e) {
+    } catch (const client::UsageError& e) {
         return e.message;
     } catch (const std::exception& e) {
         return std::string(e.what());
@@ -162,7 +162,7 @@ std::map<std::string, Acceptance> acceptances(const std::filesystem::path& dir,
         }
         const auto bytes = std::filesystem::exists(
                                node::access_path(dir, node::AccessBox::deliveries, receipt->grant))
-                               ? std::optional(app::read_file(node::access_path(
+                               ? std::optional(client::read_file(node::access_path(
                                      dir, node::AccessBox::deliveries, receipt->grant)))
                                : std::nullopt;
         const auto delivery =
@@ -225,7 +225,7 @@ struct DeliveryJob {
     protocol::Id own;
     protocol::Id grant_id;
     protocol::AccessGrant grant;
-    app::Vault vault;
+    client::Vault vault;
     protocol::DeliveryContents contents;
     std::filesystem::path dir;
     Console::Respond respond;
@@ -248,26 +248,26 @@ void deliver(const std::shared_ptr<DeliveryJob>& job) {
                          record_bundle = std::move(*record_bundle)] {
                 std::optional<Bytes> delivery;
                 const auto problem = attempt([&] {
-                    auto bundle = app::unwrap(protocol::decode_bundle(record_bundle),
-                                              "the record's evidence");
-                    const auto commitment = app::unwrap(
+                    auto bundle = client::unwrap(protocol::decode_bundle(record_bundle),
+                                                 "the record's evidence");
+                    const auto commitment = client::unwrap(
                         protocol::commit_fields(*job->provider, job->hash, job->vault.fields),
                         "the fields");
                     for (const std::string& name : job->grant.fields) {
-                        bundle.disclosures.push_back(app::unwrap(
+                        bundle.disclosures.push_back(client::unwrap(
                             protocol::disclose_field(*job->provider, job->hash, commitment, name),
                             "disclosing " + name));
                     }
-                    for (const app::VaultAttachment& a : job->vault.attachments) {
+                    for (const client::VaultAttachment& a : job->vault.attachments) {
                         if (std::ranges::contains(job->grant.attachments, a.name)) {
                             bundle.attachments.push_back({a.name, a.salt});
                         }
                     }
                     protocol::DeliveryContents contents = job->contents;
                     contents.record_bundle =
-                        app::unwrap(protocol::encode_bundle(bundle), "the record's evidence");
-                    delivery = app::seal_delivery(*job->provider, job->own, grant_bundle,
-                                                  job->grant, contents);
+                        client::unwrap(protocol::encode_bundle(bundle), "the record's evidence");
+                    delivery = client::seal_delivery(*job->provider, job->own, grant_bundle,
+                                                     job->grant, contents);
                 });
                 if (problem && problem->find("checkpoint") != std::string::npos &&
                     ++job->tries < 3) {
@@ -282,7 +282,7 @@ void deliver(const std::shared_ptr<DeliveryJob>& job) {
                     const auto path =
                         node::access_path(job->dir, node::AccessBox::outbox, job->grant.request);
                     std::filesystem::create_directories(path.parent_path());
-                    app::write_file(path, *delivery, true);
+                    client::write_file(path, *delivery, true);
                 });
                 job->respond(stored ? error(500, "internal", *stored)
                                     : json(200, {{"delivered", true}}));
@@ -379,7 +379,7 @@ Console::access_draft(const Signed& who, const nlohmann::json& intent) const {
         // A key made for this request: the delivery is sealed to it, and it
         // is kept sealed to the vault key once the request has its id.
         auto key = std::make_shared<crypto::openssl::HpkeKey>(
-            app::unwrap(crypto::openssl::HpkeKey::generate(), "making the request's key"));
+            client::unwrap(crypto::openssl::HpkeKey::generate(), "making the request's key"));
         request.recipient = Bytes(key->public_key().begin(), key->public_key().end());
         auto encoded = protocol::encode_access_request(request);
         if (!encoded) {
@@ -394,10 +394,10 @@ Console::access_draft(const Signed& who, const nlohmann::json& intent) const {
         if (!request_id) {
             return error(400, "invalid_argument", "name the request by its full id (hex)");
         }
-        std::optional<app::ReceivedRequest> received;
+        std::optional<client::ReceivedRequest> received;
         if (const auto problem = attempt([&] {
-                received =
-                    app::received_request(dir, *services_.provider, served->id(), *request_id, now);
+                received = client::received_request(dir, *services_.provider, served->id(),
+                                                    *request_id, now);
             })) {
             return error(404, "not_found", *problem);
         }
@@ -489,15 +489,15 @@ Console::access_draft(const Signed& who, const nlohmann::json& intent) const {
         if (!allowed) {
             return error(403, "forbidden", "you may not accept what this request brought");
         }
-        const Bytes delivery = app::read_file(file);
-        std::optional<app::OpenedDelivery> opened;
+        const Bytes delivery = client::read_file(file);
+        std::optional<client::OpenedDelivery> opened;
         std::string refusal;
         const auto problem = attempt([&] {
             try {
-                opened = app::open_delivery(
+                opened = client::open_delivery(
                     *served, dir, *services_.provider, delivery,
                     [&] { return services_.keys->open_vault_key(); }, now);
-            } catch (const app::NotAccepted& e) {
+            } catch (const client::NotAccepted& e) {
                 refusal = e.message;
             }
         });
@@ -508,7 +508,7 @@ Console::access_draft(const Signed& who, const nlohmann::json& intent) const {
             return error(409, "conflict", "the delivery answers another request");
         }
         auto encoded = protocol::encode_access_receipt(
-            app::receipt_for(*services_.provider, *opened, delivery));
+            client::receipt_for(*services_.provider, *opened, delivery));
         if (!encoded) {
             return error(500, "internal", "the receipt could not be made");
         }
@@ -563,11 +563,11 @@ void Console::poll_deliveries() const {
         }
         static_cast<void>(attempt([&] {
             const auto response =
-                app::peer_request(*peer, "GET", "/v1/access/deliveries/" + hex_of(r.id));
+                client::peer_request(*peer, "GET", "/v1/access/deliveries/" + hex_of(r.id));
             if (response.status == 200) {
                 const std::filesystem::path file = fetched_path(services_.directory, r.id);
                 std::filesystem::create_directories(file.parent_path());
-                app::write_file(file, response.body, true);
+                client::write_file(file, response.body, true);
             } else if (response.status == 410) {
                 const std::lock_guard lock(mutex_);
                 ended_.insert(hex_of(r.id));
@@ -617,8 +617,8 @@ http::Response Console::access_route(const http::Request& request) const {
     if (rest.empty()) {
         const auto peers = node::load_peers(dir).value_or(std::vector<node::Peer>{});
         nlohmann::json asked_of_us = nlohmann::json::array();
-        for (const app::ReceivedRequest& r :
-             app::received_requests(dir, *services_.provider, served->id(), now)) {
+        for (const client::ReceivedRequest& r :
+             client::received_requests(dir, *services_.provider, served->id(), now)) {
             nlohmann::json item{{"request", r.file.stem().string()}};
             if (!r.checked) {
                 item["problem"] = r.problem;
@@ -626,7 +626,7 @@ http::Response Console::access_route(const http::Request& request) const {
             } else {
                 const protocol::AccessRequest& asked = r.checked->value;
                 item.update({{"peer", r.peer->name},
-                             {"from", app::acted_by(r.checked->report)},
+                             {"from", client::acted_by(r.checked->report)},
                              {"record", hex_of(asked.record)},
                              {"purpose", asked.purpose},
                              {"until", asked.until},
@@ -714,9 +714,10 @@ http::Response Console::access_route(const http::Request& request) const {
         if (!id) {
             return error(400, "invalid_argument", "a request's id is 64 hex digits");
         }
-        std::optional<app::ReceivedRequest> received;
+        std::optional<client::ReceivedRequest> received;
         if (const auto problem = attempt([&] {
-                received = app::received_request(dir, *services_.provider, served->id(), *id, now);
+                received =
+                    client::received_request(dir, *services_.provider, served->id(), *id, now);
             })) {
             return error(404, "not_found", *problem);
         }
@@ -729,7 +730,7 @@ http::Response Console::access_route(const http::Request& request) const {
         const protocol::AccessRequest& asked = received->checked->value;
         nlohmann::json out{{"request", hex_of(*id)},
                            {"peer", received->peer->name},
-                           {"from", app::acted_by(received->checked->report)},
+                           {"from", client::acted_by(received->checked->report)},
                            {"organization", received->checked->report.organization},
                            {"record", hex_of(asked.record)},
                            {"purpose", asked.purpose},
@@ -824,15 +825,15 @@ http::Response Console::access_route(const http::Request& request) const {
         if (services_.keys == nullptr || !services_.keys->unlocked()) {
             return error(423, "locked", "the console is locked: unlock it first");
         }
-        const Bytes delivery = app::read_file(file);
-        std::optional<app::OpenedDelivery> opened;
+        const Bytes delivery = client::read_file(file);
+        std::optional<client::OpenedDelivery> opened;
         std::string refusal;
         const auto problem = attempt([&] {
             try {
-                opened = app::open_delivery(
+                opened = client::open_delivery(
                     *served, dir, *services_.provider, delivery,
                     [&] { return services_.keys->open_vault_key(); }, now);
-            } catch (const app::NotAccepted& e) {
+            } catch (const client::NotAccepted& e) {
                 refusal = e.message;
             }
         });
@@ -847,7 +848,7 @@ http::Response Console::access_route(const http::Request& request) const {
             }
             const std::string& name = record.attachments[*file_index].name;
             const auto content = opened->contents.attachments.find(name);
-            if (content == opened->contents.attachments.end() || !app::plain_file_name(name)) {
+            if (content == opened->contents.attachments.end() || !client::plain_file_name(name)) {
                 return error(404, "not_found", "no such file was delivered");
             }
             return download(content->second, name, "application/octet-stream");
@@ -857,7 +858,7 @@ http::Response Console::access_route(const http::Request& request) const {
             fields.push_back({{"name", f.name},
                               {"value", f.value.as_text() != nullptr
                                             ? nlohmann::json(*f.value.as_text())
-                                            : nlohmann::json(app::display_value(f.value))}});
+                                            : nlohmann::json(client::display_value(f.value))}});
         }
         nlohmann::json files = nlohmann::json::array();
         for (std::size_t i = 0; i < record.attachments.size(); ++i) {
@@ -869,7 +870,7 @@ http::Response Console::access_route(const http::Request& request) const {
         return json(200, {{"request", hex_of(*id)},
                           {"peer", opened->peer.name},
                           {"organization", record.organization},
-                          {"granted_by", app::acted_by(opened->grant.report)},
+                          {"granted_by", client::acted_by(opened->grant.report)},
                           {"grant", hex_of(opened->grant.report.record)},
                           {"record", hex_of(record.record)},
                           {"record_type", record.record_type},
@@ -953,15 +954,15 @@ void Console::access_send_route(const http::Request& request, Respond respond) c
         std::thread([peer = std::move(peer), path = std::move(path), requesting,
                      dir = std::move(dir), record, bundle = std::move(*bundle),
                      respond = std::move(respond), sender]() mutable {
-            const app::RelaySenderScope scope(sender);
+            const client::RelaySenderScope scope(sender);
             const auto problem = attempt([&] {
                 if (requesting) {
                     // Kept as the command line keeps it, to send again.
                     const auto kept = node::access_path(dir, node::AccessBox::requests, record);
                     std::filesystem::create_directories(kept.parent_path());
-                    app::write_file(kept, bundle, true);
+                    client::write_file(kept, bundle, true);
                 }
-                static_cast<void>(app::peer_call(peer, "POST", path, bundle));
+                static_cast<void>(client::peer_call(peer, "POST", path, bundle));
             });
             if (problem) {
                 respond(error(502, "unavailable", *problem));
@@ -995,7 +996,7 @@ void Console::access_deliver_route(const http::Request& request, Respond respond
     // The grant, the record's private data it discloses, and the kept files
     // it grants, taken now.
     std::optional<protocol::AccessGrant> grant;
-    std::optional<app::Vault> vault;
+    std::optional<client::Vault> vault;
     protocol::DeliveryContents contents;
     std::optional<http::Response> refused;
     const auto metadata = node::record_metadata(*services_.provider, *served, *grant_id);
@@ -1038,9 +1039,9 @@ void Console::access_deliver_route(const http::Request& request, Respond respond
                 return;
             }
             const auto problem = attempt([&] {
-                contents.attachments[name] =
-                    app::open_sealed_file(app::read_file(kept), state.ledger_id(), decoded->record,
-                                          name, services_.keys->open_vault_key());
+                contents.attachments[name] = client::open_sealed_file(
+                    client::read_file(kept), state.ledger_id(), decoded->record, name,
+                    services_.keys->open_vault_key());
             });
             if (problem) {
                 refused = error(409, "conflict", "the kept copy of " + name + " cannot be opened");

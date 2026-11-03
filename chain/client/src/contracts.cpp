@@ -5,15 +5,15 @@
 #include <format>
 #include <variant>
 
-#include <cexchain/app/contracts.hpp>
-#include <cexchain/app/peers.hpp>
-#include <cexchain/app/records.hpp>
-#include <cexchain/app/relay_client.hpp>
+#include <cexchain/client/contracts.hpp>
+#include <cexchain/client/peers.hpp>
+#include <cexchain/client/records.hpp>
+#include <cexchain/client/relay_client.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/vm.hpp>
 #include <cexchain/node/contracts.hpp>
 
-namespace cexchain::app {
+namespace cexchain::client {
 
 namespace {
 
@@ -498,4 +498,4 @@ protocol::ExchangeFile consent_file(const protocol::ExchangeFile& proposal, Byte
     return out;
 }
 
-} // namespace cexchain::app
+} // namespace cexchain::client

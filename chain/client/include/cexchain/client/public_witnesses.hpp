@@ -24,7 +24,7 @@
 ///     "added": ms}, ...]
 /// Each one was registered (public_witness.hpp): it follows this ledger
 /// from its genesis entry.
-namespace cexchain::app {
+namespace cexchain::client {
 
 inline constexpr std::string_view witnesses_file = "witnesses.json";
 
@@ -123,4 +123,4 @@ struct WitnessAsked {
 ask_used_witnesses(const ledger::Ledger& ledger, const std::filesystem::path& directory,
                    const std::function<int(Bytes body)>& keep);
 
-} // namespace cexchain::app
+} // namespace cexchain::client

@@ -12,9 +12,9 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/app/backups.hpp>
-#include <cexchain/app/errors.hpp>
-#include <cexchain/app/support.hpp>
+#include <cexchain/client/backups.hpp>
+#include <cexchain/client/errors.hpp>
+#include <cexchain/client/support.hpp>
 #include <cexchain/console/backups.hpp>
 #include <cexchain/console/console.hpp>
 #include <cexchain/console/keystore.hpp>
@@ -180,7 +180,7 @@ BackupStatus load_backup_status(const std::filesystem::path& console) {
     if (!std::filesystem::exists(file)) {
         return out;
     }
-    const Bytes bytes = app::read_file(file);
+    const Bytes bytes = client::read_file(file);
     const auto j = nlohmann::json::parse(bytes.begin(), bytes.end(), nullptr, false);
     if (!j.is_object()) {
         return out;
@@ -202,7 +202,7 @@ void save_backup_status(const std::filesystem::path& console, const BackupStatus
                                  .dump(2) +
                              "\n";
     std::filesystem::create_directories(console);
-    app::write_file(console / status_file, as_bytes(text), true);
+    client::write_file(console / status_file, as_bytes(text), true);
 }
 
 std::filesystem::path
@@ -215,7 +215,7 @@ write_sealed_backup(const ledger::Ledger& ledger, const crypto::Provider& provid
     if (!std::filesystem::exists(slot) || !std::filesystem::exists(node_public)) {
         throw std::runtime_error("the console's keys are not set up: nothing to seal backups to");
     }
-    const Bytes public_text = app::read_file(node_public);
+    const Bytes public_text = client::read_file(node_public);
     std::string text(public_text.begin(), public_text.end());
     text = text.substr(0, text.find('\n'));
     const auto public_key = from_base64url(text);
@@ -223,7 +223,7 @@ write_sealed_backup(const ledger::Ledger& ledger, const crypto::Provider& provid
         throw std::runtime_error("the console's node key is damaged");
     }
     // The plain backup, checked by restoring it in memory before it is sealed.
-    const std::vector<ledger::BackupFile> files = app::backup_files(ledger_dir, true, true);
+    const std::vector<ledger::BackupFile> files = client::backup_files(ledger_dir, true, true);
     std::ostringstream out;
     if (const auto written = ledger::write_backup(ledger, provider, files, now, out, &log_key);
         !written) {
@@ -236,7 +236,7 @@ write_sealed_backup(const ledger::Ledger& ledger, const crypto::Provider& provid
         ledger::SystemClock clock;
         const auto checked = ledger::restore_backup(
             in, fs, clock, provider, [](const ledger::BackupFile& f) -> Status {
-                if (!app::backup_path_allowed(f.path)) {
+                if (!client::backup_path_allowed(f.path)) {
                     return fail(Errc::rejected, "a file outside the ledger's");
                 }
                 return {};
@@ -247,12 +247,12 @@ write_sealed_backup(const ledger::Ledger& ledger, const crypto::Provider& provid
         }
     }
     const Bytes sealed = seal_backup(as_bytes(std::string_view(plain)), ledger.id(), now,
-                                     *public_key, app::read_file(slot));
+                                     *public_key, client::read_file(slot));
     std::filesystem::create_directories(folder);
     const std::filesystem::path target = folder / name_of_backup(ledger.id(), now);
-    app::write_file(target, sealed, true);
+    client::write_file(target, sealed, true);
     // Read back: it is whole, and names this ledger.
-    if (sealed_backup_info(app::read_file(target)).ledger != ledger.id()) {
+    if (sealed_backup_info(client::read_file(target)).ledger != ledger.id()) {
         throw std::runtime_error("the backup written does not read back");
     }
     static_cast<void>(prune_backups(folder, ledger.id()));
@@ -312,7 +312,7 @@ Result<ledger::BackupSummary> restore_sealed_backup(ByteView file, std::string_v
                                                     const std::filesystem::path& dir) {
     const Bytes plain = open_sealed_backup(file, recovery_code);
     std::istringstream in(std::string(plain.begin(), plain.end()));
-    auto restored = app::restore_into(in, dir);
+    auto restored = client::restore_into(in, dir);
     if (!restored) {
         return restored;
     }
@@ -362,7 +362,7 @@ BackupStatus Console::back_up_now(const std::string& by) const {
         }
     } catch (const std::exception& e) {
         problem = e.what();
-    } catch (const app::ActionError& e) {
+    } catch (const client::ActionError& e) {
         problem = e.message;
     }
     if (problem.empty()) {
@@ -381,7 +381,7 @@ BackupStatus Console::back_up_now(const std::string& by) const {
         save_backup_status(services_.directory, status);
     } catch (const std::exception&) {
         // Kept in memory for this answer; the next backup writes it.
-    } catch (const app::ActionError&) {
+    } catch (const client::ActionError&) {
     }
     return status;
 }

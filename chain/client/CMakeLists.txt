@@ -7,7 +7,7 @@
 # consents; requests and answers; peers; and the JSON views of ledger
 # objects. Nothing here parses a command line, prompts on a terminal, or
 # prints: secrets and approvals come in through callbacks.
-add_library(cexchain_app
+add_library(cexchain_client
     src/access.cpp
     src/backups.cpp
     src/contract_views.cpp
@@ -24,14 +24,14 @@ add_library(cexchain_app
     src/support.cpp
     src/views.cpp
     src/witness.cpp)
-add_library(cexchain::app ALIAS cexchain_app)
-target_include_directories(cexchain_app PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
-target_link_libraries(cexchain_app
+add_library(cexchain::client ALIAS cexchain_client)
+target_include_directories(cexchain_client PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+target_link_libraries(cexchain_client
     PUBLIC cexchain::ledger cexchain::node cexchain::verifier
            nlohmann_json::nlohmann_json)
 # The tool named in an agent's provenance, and the public witnesses offered
 # (none by default).
-target_compile_definitions(cexchain_app PRIVATE CEXCHAIN_VERSION="${PROJECT_VERSION}"
+target_compile_definitions(cexchain_client PRIVATE CEXCHAIN_VERSION="${PROJECT_VERSION}"
                                                CEXCHAIN_PUBLIC_WITNESSES="${CEXCHAIN_PUBLIC_WITNESSES}")
-target_compile_features(cexchain_app PUBLIC cxx_std_26)
-cexchain_target_defaults(cexchain_app)
+target_compile_features(cexchain_client PUBLIC cxx_std_26)
+cexchain_target_defaults(cexchain_client)

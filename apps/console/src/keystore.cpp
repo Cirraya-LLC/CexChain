@@ -10,7 +10,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/app/support.hpp>
+#include <cexchain/client/support.hpp>
 #include <cexchain/console/keystore.hpp>
 #include <cexchain/core/bytes.hpp>
 
@@ -148,9 +148,9 @@ std::string KeyStore::initialize(ledger::Entropy& entropy) {
         throw std::runtime_error("sealing the console's node key failed");
     }
     std::filesystem::create_directories(directory_ / "slots");
-    app::write_file(slot_file({SlotKind::recovery, {}}), *wrapped, true);
+    client::write_file(slot_file({SlotKind::recovery, {}}), *wrapped, true);
     const std::string public_key = to_base64url(node->public_key()) + "\n";
-    app::write_file(directory_ / node_public_file, as_bytes(public_key), true);
+    client::write_file(directory_ / node_public_file, as_bytes(public_key), true);
     node_.emplace(std::move(*node));
     return code;
 }
@@ -168,7 +168,7 @@ bool KeyStore::unlock(const Slot& slot, std::string_view secret) {
         }
         passphrase = *code;
     }
-    auto node = crypto::openssl::HpkeKey::from_encrypted_pkcs8(app::read_file(file), passphrase);
+    auto node = crypto::openssl::HpkeKey::from_encrypted_pkcs8(client::read_file(file), passphrase);
     if (!node) {
         return false;
     }
@@ -193,7 +193,7 @@ void KeyStore::add_slot(const Slot& slot, std::string_view secret) {
         throw std::runtime_error("sealing the console's node key failed");
     }
     std::filesystem::create_directories(directory_ / "slots");
-    app::write_file(slot_file(slot), *wrapped, true);
+    client::write_file(slot_file(slot), *wrapped, true);
 }
 
 bool KeyStore::remove_slot(const Slot& slot) {
@@ -228,7 +228,7 @@ void KeyStore::seal(std::string_view name, const crypto::openssl::KeyPair& key) 
         throw std::invalid_argument("a key's name is 1 to 64 lower-case letters, digits, '.', "
                                     "'_', or '-'");
     }
-    const auto public_text = app::read_file(directory_ / node_public_file);
+    const auto public_text = client::read_file(directory_ / node_public_file);
     std::string encoded = text_of(public_text);
     encoded = encoded.substr(0, encoded.find('\n'));
     const auto node_public = from_base64url(encoded);
@@ -248,7 +248,7 @@ void KeyStore::seal(std::string_view name, const crypto::openssl::KeyPair& key) 
                               {"ciphertext", to_base64url(sealed->ciphertext)}};
     std::filesystem::create_directories(directory_ / "keys");
     const std::string text = file.dump(2) + "\n";
-    app::write_file(directory_ / "keys" / (std::string(name) + ".sealed"), as_bytes(text), true);
+    client::write_file(directory_ / "keys" / (std::string(name) + ".sealed"), as_bytes(text), true);
 }
 
 std::vector<SealedKeyInfo> KeyStore::keys() const {
@@ -261,7 +261,7 @@ std::vector<SealedKeyInfo> KeyStore::keys() const {
         if (entry.path().extension() != ".sealed") {
             continue;
         }
-        const Bytes bytes = app::read_file(entry.path());
+        const Bytes bytes = client::read_file(entry.path());
         const auto j = nlohmann::json::parse(bytes.begin(), bytes.end(), nullptr, false);
         if (!j.is_object() || !j.contains("algorithm") || !j["algorithm"].is_number_integer()) {
             throw std::runtime_error("a sealed key of the console's is damaged");
@@ -291,7 +291,7 @@ crypto::openssl::KeyPair KeyStore::open(std::string_view name) const {
     if (!std::filesystem::exists(file)) {
         throw std::invalid_argument("the console holds no key named " + std::string(name));
     }
-    const Bytes bytes = app::read_file(file);
+    const Bytes bytes = client::read_file(file);
     const auto j = nlohmann::json::parse(bytes.begin(), bytes.end(), nullptr, false);
     if (!j.is_object()) {
         throw std::runtime_error("a sealed key of the console's is damaged");
@@ -315,7 +315,7 @@ crypto::openssl::KeyPair KeyStore::open(std::string_view name) const {
 }
 
 void KeyStore::seal_hpke_key(std::string_view name, const crypto::openssl::HpkeKey& key) const {
-    const auto public_text = app::read_file(directory_ / node_public_file);
+    const auto public_text = client::read_file(directory_ / node_public_file);
     std::string encoded = text_of(public_text);
     encoded = encoded.substr(0, encoded.find('\n'));
     const auto node_public = from_base64url(encoded);
@@ -338,7 +338,7 @@ void KeyStore::seal_hpke_key(std::string_view name, const crypto::openssl::HpkeK
                               {"enc", to_base64url(sealed->encapsulated_key)},
                               {"ciphertext", to_base64url(sealed->ciphertext)}};
     const std::string text = file.dump(2) + "\n";
-    app::write_file(directory_ / (std::string(name) + ".sealed"), as_bytes(text), true);
+    client::write_file(directory_ / (std::string(name) + ".sealed"), as_bytes(text), true);
 }
 
 std::optional<Bytes> KeyStore::hpke_public_key(std::string_view name) const {
@@ -346,7 +346,7 @@ std::optional<Bytes> KeyStore::hpke_public_key(std::string_view name) const {
     if (!std::filesystem::exists(file)) {
         return std::nullopt;
     }
-    const Bytes bytes = app::read_file(file);
+    const Bytes bytes = client::read_file(file);
     const auto j = nlohmann::json::parse(bytes.begin(), bytes.end(), nullptr, false);
     if (!j.is_object()) {
         throw std::runtime_error("the console's sealed " + std::string(name) + " key is damaged");
@@ -360,7 +360,7 @@ crypto::openssl::HpkeKey KeyStore::open_hpke_key(std::string_view name) const {
         throw std::invalid_argument("the console holds no " + std::string(name) + " key" +
                                     (name == "vault" ? " (console key import vault)" : ""));
     }
-    const Bytes bytes = app::read_file(file);
+    const Bytes bytes = client::read_file(file);
     const auto j = nlohmann::json::parse(bytes.begin(), bytes.end(), nullptr, false);
     if (!j.is_object()) {
         throw std::runtime_error("the console's sealed " + std::string(name) + " key is damaged");

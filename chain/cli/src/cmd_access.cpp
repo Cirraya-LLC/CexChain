@@ -12,9 +12,9 @@
 #include <algorithm>
 #include <print>
 
-#include <cexchain/app/access.hpp>
-#include <cexchain/app/peers.hpp>
-#include <cexchain/app/relay_client.hpp>
+#include <cexchain/client/access.hpp>
+#include <cexchain/client/peers.hpp>
+#include <cexchain/client/relay_client.hpp>
 #include <cexchain/core/protocol/access.hpp>
 #include <cexchain/core/protocol/witness.hpp>
 #include <cexchain/node/client.hpp>
@@ -31,13 +31,13 @@ namespace {
 
 constexpr protocol::Timestamp day_ms = 86'400'000;
 
-using app::acted_by;
-using app::peer_for_bundle;
+using client::acted_by;
+using client::peer_for_bundle;
 
 /// POSTs to the peer's API and returns the JSON answer.
 Json post_to(const node::Peer& peer, const std::string& path, ByteView body,
              std::string_view type) {
-    const auto response = app::peer_request(peer, "POST", path, body, type);
+    const auto response = client::peer_request(peer, "POST", path, body, type);
     const Json answer = Json::parse(response.body.begin(), response.body.end(), nullptr, false);
     if (response.status / 100 != 2) {
         std::string message = "status " + std::to_string(response.status);
@@ -164,7 +164,7 @@ int cmd_peer_invite(const Args& args) {
         unwrap(node::Url::parse(*invitation.url), "reading --url");
     }
     // A ledger reached through a relay says so (relay use).
-    invitation.relay = app::load_own_relay(dir);
+    invitation.relay = client::load_own_relay(dir);
     if (const auto witness = args.get("witness-key")) {
         invitation.witness = load_public_key(*witness);
     }
@@ -333,8 +333,8 @@ int cmd_access_request(const Args& args) {
 
     const protocol::Id id = issue_access_record(session, args, protocol::access_request_type,
                                                 metadata, request.purpose, *log_key);
-    store(app::request_key_path(session.directory(), id),
-          app::seal_request_key(vault_public, id, key));
+    store(client::request_key_path(session.directory(), id),
+          client::seal_request_key(vault_public, id, key));
     const Bytes bundle = evidence_of(session, *log_key, id, {}, {}, args);
     store(node::access_path(session.directory(), node::AccessBox::requests, id), bundle);
     if (const auto out = args.get("out")) {
@@ -370,7 +370,7 @@ int cmd_access_fetch(const Args& args) {
     const node::Peer peer = peer_named(session.directory(), args.need("peer"));
     const protocol::Id request = session.record_id(args.need("request"));
     const auto response =
-        app::peer_request(peer, "GET", "/v1/access/deliveries/" + hex_id(request));
+        client::peer_request(peer, "GET", "/v1/access/deliveries/" + hex_id(request));
     if (response.status == 404) {
         throw CommandError{"peer " + peer.name + " has not granted request " + short_id(request) +
                            " (yet)"};
@@ -399,12 +399,12 @@ int cmd_access_accept(const Args& args) {
     const RelayReach reach(args, session);
     session.require_primary();
     const Bytes delivery_bytes = read_file(args.positional().front());
-    std::optional<app::OpenedDelivery> opened;
+    std::optional<client::OpenedDelivery> opened;
     try {
-        opened = app::open_delivery(
+        opened = client::open_delivery(
             session.ledger(), session.directory(), shared_provider(), delivery_bytes,
             [&] { return load_vault_key(session, args); }, ledger::SystemClock{}.now());
-    } catch (const app::NotAccepted& refused) {
+    } catch (const client::NotAccepted& refused) {
         std::println("NOT ACCEPTED: {}", refused.message);
         return refused.unverified ? exit_not_verified : exit_failure;
     }
@@ -419,7 +419,7 @@ int cmd_access_accept(const Args& args) {
     if (const auto dir = args.get("save-dir")) {
         std::filesystem::create_directories(*dir);
         for (const auto& [name, content] : contents.attachments) {
-            if (!app::plain_file_name(name)) {
+            if (!client::plain_file_name(name)) {
                 throw CommandError{"the delivery names an attachment with a path: " + name};
             }
             write_file(std::filesystem::path(*dir) / name, content, true);
@@ -428,7 +428,7 @@ int cmd_access_accept(const Args& args) {
 
     // Acknowledge on this ledger, and hand the receipt back.
     const protocol::AccessReceipt receipt =
-        app::receipt_for(shared_provider(), *opened, delivery_bytes);
+        client::receipt_for(shared_provider(), *opened, delivery_bytes);
     const auto log_key = load_signer(args.need("log-key"), args);
     const protocol::Id receipt_id = issue_access_record(
         session, args, protocol::access_receipt_type,
@@ -510,9 +510,9 @@ Bytes request_bundle_for(const Session& session, const std::string& text) {
 int cmd_access_inbox(const Args& args) {
     Session session(args);
     Json list = Json::array();
-    for (const app::ReceivedRequest& r :
-         app::received_requests(session.directory(), shared_provider(), session.ledger().id(),
-                                ledger::SystemClock{}.now())) {
+    for (const client::ReceivedRequest& r :
+         client::received_requests(session.directory(), shared_provider(), session.ledger().id(),
+                                   ledger::SystemClock{}.now())) {
         Json item = {{"file", r.file.string()}};
         if (!r.checked) {
             item["error"] = r.problem;
@@ -641,14 +641,14 @@ int cmd_access_grant(const Args& args) {
             continue;
         }
         // A copy kept with the record serves, checked against its commitment.
-        const app::RecordFile file = app::record_file(session, request.record, name);
+        const client::RecordFile file = client::record_file(session, request.record, name);
         if (!file.kept) {
             throw CommandError{"attachment " + name +
                                " is granted: give its content with --attach " + name +
                                "=FILE, or leave it out with --attachments"};
         }
-        contents.attachments[name] = app::open_record_file(session, request.record, file, vault,
-                                                           load_vault_key(session, args));
+        contents.attachments[name] = client::open_record_file(session, request.record, file, vault,
+                                                              load_vault_key(session, args));
     }
     std::erase_if(contents.attachments, [&](const auto& item) {
         return !std::ranges::contains(attachments, item.first);
@@ -675,8 +675,8 @@ int cmd_access_grant(const Args& args) {
     const Bytes grant_bundle = evidence_of(session, *log_key, grant_id, {}, {}, args);
     contents.record_bundle =
         evidence_of(session, *log_key, request.record, fields, attachments, args);
-    const Bytes delivery =
-        app::seal_delivery(shared_provider(), session.ledger().id(), grant_bundle, grant, contents);
+    const Bytes delivery = client::seal_delivery(shared_provider(), session.ledger().id(),
+                                                 grant_bundle, grant, contents);
     store(node::access_path(session.directory(), node::AccessBox::outbox, request_id), delivery);
     if (const auto out = args.get("out")) {
         write_file(*out, delivery, false);

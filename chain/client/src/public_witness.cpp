@@ -7,15 +7,15 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/app/errors.hpp>
-#include <cexchain/app/public_witness.hpp>
-#include <cexchain/app/support.hpp>
-#include <cexchain/app/witness.hpp>
+#include <cexchain/client/errors.hpp>
+#include <cexchain/client/public_witness.hpp>
+#include <cexchain/client/support.hpp>
+#include <cexchain/client/witness.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/keys.hpp>
 #include <cexchain/core/protocol/witness.hpp>
 
-namespace cexchain::app {
+namespace cexchain::client {
 
 namespace {
 
@@ -245,4 +245,4 @@ Response PublicWitness::cosign_followed(const protocol::Id& ledger, ByteView req
     return r;
 }
 
-} // namespace cexchain::app
+} // namespace cexchain::client

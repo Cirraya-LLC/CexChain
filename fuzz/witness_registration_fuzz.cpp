@@ -14,7 +14,7 @@
 #include <stdexcept>
 #include <unistd.h>
 
-#include <cexchain/app/public_witness.hpp>
+#include <cexchain/client/public_witness.hpp>
 #include <cexchain/crypto/openssl.hpp>
 
 namespace {
@@ -30,7 +30,7 @@ std::size_t followed(const std::filesystem::path& dir) {
 struct World {
     std::filesystem::path dir = std::filesystem::temp_directory_path() /
                                 ("cexchain-witness-fuzz-" + std::to_string(::getpid()));
-    std::unique_ptr<cexchain::app::PublicWitness> witness;
+    std::unique_ptr<cexchain::client::PublicWitness> witness;
     cexchain::protocol::Timestamp now = 1'800'000'000'000;
 
     World() {
@@ -40,10 +40,10 @@ struct World {
             throw std::runtime_error("no key");
         }
         // No quota that would stop the fuzzer short of the checks.
-        cexchain::app::PublicWitnessLimits limits;
+        cexchain::client::PublicWitnessLimits limits;
         limits.registrations_per_day = SIZE_MAX;
         limits.cosign_interval = 0;
-        witness = std::make_unique<cexchain::app::PublicWitness>(
+        witness = std::make_unique<cexchain::client::PublicWitness>(
             dir, std::make_shared<cexchain::crypto::openssl::KeyPair>(std::move(*key)), "fuzz",
             limits);
     }
@@ -54,10 +54,10 @@ struct World {
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
     static World world;
     const cexchain::ByteView bytes(data, size);
-    if (const auto decoded = cexchain::app::decode_witness_registration(bytes)) {
-        const auto again = cexchain::app::encode_witness_registration(*decoded);
+    if (const auto decoded = cexchain::client::decode_witness_registration(bytes)) {
+        const auto again = cexchain::client::encode_witness_registration(*decoded);
         const auto decoded_again =
-            again ? cexchain::app::decode_witness_registration(*again) : decltype(decoded)();
+            again ? cexchain::client::decode_witness_registration(*again) : decltype(decoded)();
         if (!decoded_again || decoded_again->genesis != decoded->genesis ||
             decoded_again->cosign_request != decoded->cosign_request) {
             __builtin_trap();

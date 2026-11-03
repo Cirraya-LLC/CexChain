@@ -549,9 +549,11 @@ std::vector<Case> reader_limit_cases() {
     // The largest input that fits, and one byte more.
     for (const std::uint32_t total : {rt::layout::input_max, rt::layout::input_max + 1}) {
         const std::uint32_t n = total - 5;
-        Bytes input{0x5A, static_cast<std::uint8_t>(n >> 24U), static_cast<std::uint8_t>(n >> 16U),
-                    static_cast<std::uint8_t>(n >> 8U), static_cast<std::uint8_t>(n)};
-        input.resize(total, 0x61);
+        Bytes input(total, 0x61);
+        input[0] = 0x5A;
+        for (std::size_t i = 1; i < 5; ++i) {
+            input[i] = static_cast<std::uint8_t>(n >> (8U * (4 - i)));
+        }
         out.push_back({"read-only", std::move(input), "cbor-read", {}});
     }
     return out;

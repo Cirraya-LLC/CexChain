@@ -21,15 +21,15 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
-#include <cexchain/app/backups.hpp>
-#include <cexchain/app/peers.hpp>
-#include <cexchain/app/public_witness.hpp>
-#include <cexchain/app/records.hpp>
-#include <cexchain/app/relay.hpp>
-#include <cexchain/app/relay_server.hpp>
-#include <cexchain/app/session.hpp>
-#include <cexchain/app/support.hpp>
-#include <cexchain/app/witness.hpp>
+#include <cexchain/client/backups.hpp>
+#include <cexchain/client/peers.hpp>
+#include <cexchain/client/public_witness.hpp>
+#include <cexchain/client/records.hpp>
+#include <cexchain/client/relay.hpp>
+#include <cexchain/client/relay_server.hpp>
+#include <cexchain/client/session.hpp>
+#include <cexchain/client/support.hpp>
+#include <cexchain/client/witness.hpp>
 #include <cexchain/console/backups.hpp>
 #include <cexchain/console/console.hpp>
 #include <cexchain/console/keystore.hpp>
@@ -277,7 +277,7 @@ TEST_CASE("sessions end when idle, at their lifetime, on sign-out, and when revo
     CHECK_THROWS(console::request_revocation(dir.path, "not-an-id"));
 
     // What is published names sessions, never their tokens or hashes.
-    const auto text = cexchain::app::read_file(dir.path / "sessions.json");
+    const auto text = cexchain::client::read_file(dir.path / "sessions.json");
     const std::string published(text.begin(), text.end());
     CHECK(published.find(kept) == std::string::npos);
     CHECK(published.find("erin") != std::string::npos);
@@ -973,9 +973,9 @@ struct FirstRunWorld {
 
 /// The ledger the first run made, served to the console as the node would.
 struct Served {
-    cexchain::app::Session session;
+    cexchain::client::Session session;
 
-    explicit Served(FirstRunWorld& f) : session(cexchain::app::Location{f.w.dir.path}) {
+    explicit Served(FirstRunWorld& f) : session(cexchain::client::Location{f.w.dir.path}) {
         f.w.web.set_ledger(&session.ledger());
         // As LedgerApi::record_evidence: a checkpoint by the sealed log key
         // first, unless the latest covers the record, then the bundle.
@@ -1021,9 +1021,9 @@ struct Served {
             // bundles (key 3) the node keeps, which this stand-in drops.
             if (registered && parts && parts->find(2) != nullptr) {
                 const auto id = registered->statement_id;
-                cexchain::app::write_file(dir / "vault" / "records" /
-                                              (cexchain::to_hex(id.bytes()) + ".cbor"),
-                                          *parts->find(2)->as_bytes(), true);
+                cexchain::client::write_file(dir / "vault" / "records" /
+                                                 (cexchain::to_hex(id.bytes()) + ".cbor"),
+                                             *parts->find(2)->as_bytes(), true);
                 if (const auto* files = parts->find(4)) {
                     for (const auto& file : *cexchain::node::decode_sealed_files(*files)) {
                         REQUIRE(cexchain::node::store_record_file(dir, id, file));
@@ -1061,7 +1061,7 @@ TEST_CASE("the first run makes the ledger, its keys, and its owner", "[console][
 
     // The ledger: the owner acts in person, with the passkey, under a
     // delegation that requires presence.
-    cexchain::app::Session session(cexchain::app::Location{f.w.dir.path});
+    cexchain::client::Session session(cexchain::client::Location{f.w.dir.path});
     const auto& state = session.state();
     CHECK(state.organization() == "Alice");
     CHECK(cexchain::to_hex(state.ledger_id().bytes()) == f.made["ledger"].get<std::string>());
@@ -1117,8 +1117,8 @@ TEST_CASE("the first run makes the ledger, its keys, and its owner", "[console][
     }
     CHECK(machine_delegations == 1);
     // The vault: its public key on disk, its private key sealed in the console.
-    const auto vault_public = cexchain::app::decode_vault_public_key(
-        cexchain::app::read_file(f.w.dir.path / "vault" / "vault.pub"));
+    const auto vault_public = cexchain::client::decode_vault_public_key(
+        cexchain::client::read_file(f.w.dir.path / "vault" / "vault.pub"));
     REQUIRE(vault_public);
     CHECK(f.w.keys.vault_public_key() == vault_public);
     CHECK(std::ranges::equal(f.w.keys.open_vault_key().public_key(), *vault_public));
@@ -1289,7 +1289,7 @@ TEST_CASE("the console's settings: language and backup folder", "[console][setti
     CHECK_FALSE(console::load_settings(w.state).backup_folder);
 
     // A damaged file is refused, never half read.
-    cexchain::app::write_file(w.state / "settings.json", cexchain::as_bytes("[1]"), true);
+    cexchain::client::write_file(w.state / "settings.json", cexchain::as_bytes("[1]"), true);
     CHECK_THROWS(console::load_settings(w.state));
 }
 
@@ -1513,12 +1513,13 @@ TEST_CASE("the owner registers a document with fields and a file, kept with it",
     CHECK(record->record_type == "example.org.photo/1");
     CHECK(record->field_count == 2);
     const auto key = f.w.keys.open_vault_key();
-    const auto vault = cexchain::app::read_vault(served.session, id, key);
+    const auto vault = cexchain::client::read_vault(served.session, id, key);
     CHECK(vault.fields.size() == 2);
-    const auto files = cexchain::app::record_files(served.session, id);
+    const auto files = cexchain::client::record_files(served.session, id);
     REQUIRE(files.size() == 1);
     CHECK(files[0].kept);
-    const auto content = cexchain::app::open_record_file(served.session, id, files[0], vault, key);
+    const auto content =
+        cexchain::client::open_record_file(served.session, id, files[0], vault, key);
     CHECK(std::string(content.begin(), content.end()) == photo);
     // The upload is gone; a prepared registration is approved once.
     CHECK(prepare({{"place", "Again"}}, one).status == 400);
@@ -2105,7 +2106,7 @@ TEST_CASE("two consoles become parties with one code each way", "[console][parti
     REQUIRE(invited.status == 200);
     const std::string code = answer_of(invited)["code"].get<std::string>();
     CHECK(code.starts_with("cxp_"));
-    const auto read = cexchain::app::decode_invitation(code);
+    const auto read = cexchain::client::decode_invitation(code);
     REQUIRE(read);
     CHECK(read->ledger == alice.session.state().ledger_id());
     CHECK(read->url == std::optional<std::string>("http://localhost:7470"));
@@ -2181,7 +2182,7 @@ cexchain::Bytes evidence_of(FirstRunWorld& f, Served& s, const std::string& reco
 /// Writes a file as a node or a poll would, its folder made first.
 void put(const std::filesystem::path& path, const cexchain::Bytes& content) {
     std::filesystem::create_directories(path.parent_path());
-    cexchain::app::write_file(path, content, true);
+    cexchain::client::write_file(path, content, true);
 }
 
 /// What a step's approval registered: its statement id.
@@ -2290,7 +2291,7 @@ TEST_CASE("documents between two consoles: asked, granted, delivered, and accept
     CHECK(alices["asked_of_us"][0]["granted"] == true);
 
     // Bob's console fetches it (as its poll would), and reads it verified.
-    put(fb.w.state / "access" / (request + ".cbor"), cexchain::app::read_file(outbox));
+    put(fb.w.state / "access" / (request + ".cbor"), cexchain::client::read_file(outbox));
     CHECK(answer_of(fb.w.get("/console/api/access", b))["asked_by_us"][0]["status"] == "delivered");
     const auto opened = answer_of(fb.w.get("/console/api/access/deliveries/" + request, b));
     CHECK(opened["organization"] == "Alice");
@@ -2346,9 +2347,9 @@ TEST_CASE("a public witness follows a ledger only once it cosigns, within quotas
     TempDirectory dir;
     auto key = cexchain::crypto::openssl::KeyPair::generate(cexchain::crypto::SigAlg::ed25519);
     REQUIRE(key);
-    cexchain::app::PublicWitnessLimits limits;
+    cexchain::client::PublicWitnessLimits limits;
     limits.max_ledgers = 1;
-    cexchain::app::PublicWitness witness(
+    cexchain::client::PublicWitness witness(
         dir.path / "state", std::make_shared<cexchain::crypto::openssl::KeyPair>(std::move(*key)),
         "unit", limits);
     const cexchain::protocol::Timestamp t = 1'800'000'000'000;
@@ -2363,7 +2364,8 @@ TEST_CASE("a public witness follows a ledger only once it cosigns, within quotas
         return *answer;
     };
     auto registration = [](const cexchain::ledger::Ledger& ledger, cexchain::Bytes request) {
-        return *cexchain::app::encode_witness_registration({*ledger.entry(0), std::move(request)});
+        return *cexchain::client::encode_witness_registration(
+            {*ledger.entry(0), std::move(request)});
     };
     const auto bob_request =
         *cexchain::protocol::encode_cosign_request(*bob.session.ledger().cosign_request(0));
@@ -2419,7 +2421,7 @@ TEST_CASE("a public witness follows a ledger only once it cosigns, within quotas
 }
 
 TEST_CASE("a relay carries sealed requests and answers between witnessed ledgers", "[relay]") {
-    using cexchain::app::RelayId;
+    using cexchain::client::RelayId;
     FirstRunWorld fa;
     Served alice(fa);
     FirstRunWorld fb;
@@ -2437,7 +2439,7 @@ TEST_CASE("a relay carries sealed requests and answers between witnessed ledgers
     auto witness_key =
         cexchain::crypto::openssl::KeyPair::generate(cexchain::crypto::SigAlg::ed25519);
     REQUIRE(witness_key);
-    cexchain::app::PublicWitness witness(
+    cexchain::client::PublicWitness witness(
         dir.path / "state",
         std::make_shared<cexchain::crypto::openssl::KeyPair>(std::move(*witness_key)), "w", {});
     for (const cexchain::ledger::Ledger* ledger :
@@ -2445,14 +2447,14 @@ TEST_CASE("a relay carries sealed requests and answers between witnessed ledgers
         http::Request r;
         r.method = "POST";
         r.target = r.path = "/v1/witness/register";
-        r.body = *cexchain::app::encode_witness_registration(
+        r.body = *cexchain::client::encode_witness_registration(
             {*ledger->entry(0),
              *cexchain::protocol::encode_cosign_request(*ledger->cosign_request(0))});
         REQUIRE(witness.handle(r, "192.0.2.1", t)->status == 201);
     }
-    cexchain::app::RelayLimits limits;
+    cexchain::client::RelayLimits limits;
     limits.mailbox_messages = 3;
-    cexchain::app::Relay relay(dir.path / "relay", dir.path / "state", limits);
+    cexchain::client::Relay relay(dir.path / "relay", dir.path / "state", limits);
     std::optional<http::Response> got;
     auto call = [&](const std::string& method, const std::string& path, cexchain::Bytes body,
                     std::optional<std::string> authorization, cexchain::protocol::Timestamp now) {
@@ -2479,14 +2481,14 @@ TEST_CASE("a relay carries sealed requests and answers between witnessed ledgers
     };
     auto auth = [&](const cexchain::crypto::Signer& log, const cexchain::protocol::Id& ledger,
                     cexchain::protocol::Timestamp now) {
-        return *cexchain::app::relay_authorization(log, ledger, now);
+        return *cexchain::client::relay_authorization(log, ledger, now);
     };
     auto messages = [](const http::Response& r) {
-        std::vector<cexchain::app::RelayMessage> out;
+        std::vector<cexchain::client::RelayMessage> out;
         const auto list = cexchain::cbor::decode(r.body);
         REQUIRE(list);
         for (const auto& item : *list->as_array()) {
-            auto m = cexchain::app::parse_relay_message(*item.as_bytes());
+            auto m = cexchain::client::parse_relay_message(*item.as_bytes());
             REQUIRE(m);
             out.push_back(std::move(*m));
         }
@@ -2501,30 +2503,30 @@ TEST_CASE("a relay carries sealed requests and answers between witnessed ledgers
     REQUIRE(bob_relay_key);
     REQUIRE(answer_key);
     const RelayId id{1, 2, 3};
-    const cexchain::app::RelayRequest request{
+    const cexchain::client::RelayRequest request{
         "GET",
         "/v1/genesis",
         "",
         {},
         "cxt_peer-token",
         cexchain::Bytes(answer_key->public_key().begin(), answer_key->public_key().end())};
-    cexchain::app::RelayEnvelope envelope{
+    cexchain::client::RelayEnvelope envelope{
         b,
         a,
         id,
-        *cexchain::app::seal_relay_request(bob_relay_key->public_key(), b, a, id, request),
+        *cexchain::client::seal_relay_request(bob_relay_key->public_key(), b, a, id, request),
         std::nullopt,
         t + 60'000};
     // Signed by another ledger's key, it is refused.
-    CHECK(call("POST", "/v1/relay/messages", *cexchain::app::sign_relay_message(bob_log, envelope),
-               std::nullopt, t)
+    CHECK(call("POST", "/v1/relay/messages",
+               *cexchain::client::sign_relay_message(bob_log, envelope), std::nullopt, t)
               ->status == 422);
     REQUIRE(call("POST", "/v1/relay/messages",
-                 *cexchain::app::sign_relay_message(alice_log, envelope), std::nullopt, t)
+                 *cexchain::client::sign_relay_message(alice_log, envelope), std::nullopt, t)
                 ->status == 201);
     // Sent again: kept once.
     CHECK(call("POST", "/v1/relay/messages",
-               *cexchain::app::sign_relay_message(alice_log, envelope), std::nullopt, t)
+               *cexchain::client::sign_relay_message(alice_log, envelope), std::nullopt, t)
               ->status == 200);
     CHECK(relay.mailbox(b).first == 1);
 
@@ -2536,8 +2538,8 @@ TEST_CASE("a relay carries sealed requests and answers between witnessed ledgers
     REQUIRE(fetched->status == 200);
     const auto inbox = messages(*fetched);
     REQUIRE(inbox.size() == 1);
-    CHECK_FALSE(cexchain::app::open_relay_request(*answer_key, inbox[0].envelope));
-    const auto opened = cexchain::app::open_relay_request(*bob_relay_key, inbox[0].envelope);
+    CHECK_FALSE(cexchain::client::open_relay_request(*answer_key, inbox[0].envelope));
+    const auto opened = cexchain::client::open_relay_request(*bob_relay_key, inbox[0].envelope);
     REQUIRE(opened);
     CHECK(opened->path == "/v1/genesis");
     CHECK(opened->token == "cxt_peer-token");
@@ -2557,11 +2559,11 @@ TEST_CASE("a relay carries sealed requests and answers between witnessed ledgers
         CHECK_FALSE(woken);
     }
     const RelayId answer_id{9, 9};
-    const cexchain::app::RelayAnswer reply{200, "application/cbor", {0xa0}};
-    const cexchain::app::RelayEnvelope back{
-        a,  b,         answer_id, *cexchain::app::seal_relay_answer(*opened, b, a, id, reply),
+    const cexchain::client::RelayAnswer reply{200, "application/cbor", {0xa0}};
+    const cexchain::client::RelayEnvelope back{
+        a,  b,         answer_id, *cexchain::client::seal_relay_answer(*opened, b, a, id, reply),
         id, t + 60'000};
-    REQUIRE(call("POST", "/v1/relay/messages", *cexchain::app::sign_relay_message(bob_log, back),
+    REQUIRE(call("POST", "/v1/relay/messages", *cexchain::client::sign_relay_message(bob_log, back),
                  std::nullopt, t + 1'000)
                 ->status == 201);
     REQUIRE(woken);
@@ -2569,13 +2571,13 @@ TEST_CASE("a relay carries sealed requests and answers between witnessed ledgers
     REQUIRE(answers.size() == 1);
     CHECK(answers[0].envelope.answers == id);
     const auto read =
-        cexchain::app::open_relay_answer(*answer_key, b, a, id, answers[0].envelope.sealed);
+        cexchain::client::open_relay_answer(*answer_key, b, a, id, answers[0].envelope.sealed);
     REQUIRE(read);
     CHECK(read->status == 200);
     CHECK(read->body == cexchain::Bytes{0xa0});
     // Bound to its request: under another id it does not open.
-    CHECK_FALSE(
-        cexchain::app::open_relay_answer(*answer_key, b, a, answer_id, answers[0].envelope.sealed));
+    CHECK_FALSE(cexchain::client::open_relay_answer(*answer_key, b, a, answer_id,
+                                                    answers[0].envelope.sealed));
 
     // Taken: gone from the mailbox.
     const std::string taken = "/v1/relay/messages/" +
@@ -2605,11 +2607,11 @@ TEST_CASE("a relay carries sealed requests and answers between witnessed ledgers
     envelope.id = RelayId{7};
     envelope.until = t - 1;
     CHECK(call("POST", "/v1/relay/messages",
-               *cexchain::app::sign_relay_message(alice_log, envelope), std::nullopt, t)
+               *cexchain::client::sign_relay_message(alice_log, envelope), std::nullopt, t)
               ->status == 422);
     envelope.until = t + 30'000;
     REQUIRE(call("POST", "/v1/relay/messages",
-                 *cexchain::app::sign_relay_message(alice_log, envelope), std::nullopt, t)
+                 *cexchain::client::sign_relay_message(alice_log, envelope), std::nullopt, t)
                 ->status == 201);
     CHECK(relay.mailbox(b).first == 2);
     CHECK(messages(*call("GET", mailbox_b, {}, auth(bob_log, b, t + 31'000), t + 31'000)).size() ==
@@ -2625,7 +2627,7 @@ TEST_CASE("a relay carries sealed requests and answers between witnessed ledgers
     for (std::uint8_t n = 10; n < 13; ++n) {
         envelope.id = RelayId{n};
         CHECK(call("POST", "/v1/relay/messages",
-                   *cexchain::app::sign_relay_message(alice_log, envelope), std::nullopt, t)
+                   *cexchain::client::sign_relay_message(alice_log, envelope), std::nullopt, t)
                   ->status == (n < 12 ? 201 : 429));
     }
     // Kept 14 days at most.
@@ -2657,9 +2659,9 @@ TEST_CASE("a console witnesses its parties' ledgers, and refuses a fork", "[cons
         0, [&](cexchain::ByteView e) { genesis.assign(e.begin(), e.end()); }));
     const auto bob_id = bob.session.state().ledger_id();
     CHECK_THROWS(
-        cexchain::app::state_from_genesis(genesis, "bob", alice.session.state().ledger_id()));
-    cexchain::app::add_witnessed(fa.w.state / "witness",
-                                 cexchain::app::state_from_genesis(genesis, "bob", bob_id));
+        cexchain::client::state_from_genesis(genesis, "bob", alice.session.state().ledger_id()));
+    cexchain::client::add_witnessed(fa.w.state / "witness",
+                                    cexchain::client::state_from_genesis(genesis, "bob", bob_id));
 
     const auto root = fb.w.keys.open("root");
     const auto log = fb.w.keys.open("log");
@@ -2712,7 +2714,7 @@ TEST_CASE("a console witnesses its parties' ledgers, and refuses a fork", "[cons
     // The copy goes another way: the same size, another history. Refused,
     // and the Parties screen says so.
     {
-        cexchain::app::Session forked(cexchain::app::Location{fork.path / "ledger"});
+        cexchain::client::Session forked(cexchain::client::Location{fork.path / "ledger"});
         static_cast<void>(forked.submit(root, device("scanner"), std::nullopt));
         REQUIRE(forked.ledger().checkpoint(log));
         REQUIRE(forked.ledger().latest_checkpoint()->checkpoint.tree_size == cosigned);
@@ -2949,9 +2951,9 @@ TEST_CASE("automation: an executor and an AI agent added with two taps, keys han
     put(keep.path / "notifier.key", *cexchain::from_base64url(out["key"].get<std::string>()));
     const auto key = [&] {
         try {
-            return cexchain::app::load_key(keep.path / "notifier.key",
-                                           [] { return std::string("a long passphrase"); });
-        } catch (const cexchain::app::ActionError& e) {
+            return cexchain::client::load_key(keep.path / "notifier.key",
+                                              [] { return std::string("a long passphrase"); });
+        } catch (const cexchain::client::ActionError& e) {
             FAIL(e.message);
             throw;
         }
@@ -3015,7 +3017,7 @@ TEST_CASE("backups: a restore writes only the files a backup holds, by their nam
          {"vault/vault.pub", "witnesses.json", "console/users.json", "console/slots/recovery.p8",
           "console/slots/passkey-AbC_4-x.p8", "console/keys/witness.sealed"}) {
         INFO(path);
-        CHECK(cexchain::app::backup_path_allowed(path));
+        CHECK(cexchain::client::backup_path_allowed(path));
     }
     // A name with ".." in it, even inside one name (found by fuzzing), a
     // hidden one, another folder, or not a name a console writes.
@@ -3025,7 +3027,7 @@ TEST_CASE("backups: a restore writes only the files a backup holds, by their nam
           "vault\\vault.pub", "console/users.json/", "console/slots/a b.p8", "console/other.json",
           "vault/files/00/1.cbor"}) {
         INFO(path);
-        CHECK_FALSE(cexchain::app::backup_path_allowed(path));
+        CHECK_FALSE(cexchain::client::backup_path_allowed(path));
     }
 }
 
@@ -3051,7 +3053,7 @@ TEST_CASE("backups: sealed for the recovery code, written once a day, restored w
     }
     REQUIRE(files.size() == 1);
     CHECK(files[0].extension() == ".cexbackup");
-    const auto sealed = cexchain::app::read_file(files[0]);
+    const auto sealed = cexchain::client::read_file(files[0]);
     CHECK(console::sealed_backup_info(sealed).ledger == served.session.state().ledger_id());
     // Home shows it; a member may not back up.
     CHECK(answer_of(f.w.get("/console/api/home", owner))["backup"]["file"] ==
@@ -3073,7 +3075,7 @@ TEST_CASE("backups: sealed for the recovery code, written once a day, restored w
     REQUIRE(restored);
     CHECK(restored->is_signed);
     {
-        cexchain::app::Session session(cexchain::app::Location{elsewhere.path / "ledger"});
+        cexchain::client::Session session(cexchain::client::Location{elsewhere.path / "ledger"});
         CHECK(session.ledger().audit());
         CHECK(session.state().ledger_id() == served.session.state().ledger_id());
     }

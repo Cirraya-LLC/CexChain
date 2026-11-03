@@ -14,7 +14,7 @@
 #include <variant>
 #include <vector>
 
-#include <cexchain/app/support.hpp>
+#include <cexchain/client/support.hpp>
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/protocol/log.hpp>
 #include <cexchain/core/protocol/state.hpp>
@@ -26,7 +26,7 @@
 #include <cexchain/node/client.hpp>
 #include <cexchain/node/record_files.hpp>
 
-namespace cexchain::app {
+namespace cexchain::client {
 
 /// What a person's authenticator is asked to sign: a passkey assertion over
 /// the statement's presence challenge.
@@ -236,4 +236,4 @@ private:
     std::optional<ledger::Ledger> ledger_;
 };
 
-} // namespace cexchain::app
+} // namespace cexchain::client

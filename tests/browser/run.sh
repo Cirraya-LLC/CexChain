@@ -21,7 +21,7 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 "$HERE/make_evidence.sh" "$CEXCHAIN" "$WORK"
-node "$HERE/verifier_node.js" "$BUILD/cexchain-verifier.js" "$ROOT/verifier/wasm/verifier-api.js" "$WORK"
+node "$HERE/verifier_node.js" "$BUILD/cexchain-verifier.js" "$ROOT/chain/verifier/wasm/verifier-api.js" "$WORK"
 if [ -d "$HERE/node_modules/playwright" ]; then
     (cd "$HERE" && node page_test.js "$BUILD/cexchain-verify.html" "$WORK" "$CEXCHAIN")
     (cd "$HERE" && node presence_test.js "$CEXCHAIN" "$BUILD/cexchain-verify.html")

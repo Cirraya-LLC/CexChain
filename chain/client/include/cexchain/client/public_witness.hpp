@@ -28,7 +28,7 @@
 /// witness keeps the usual witness state, about 200 bytes per ledger and no
 /// name: never statements, records, or parties. Quotas bound what anyone
 /// can make it store and do.
-namespace cexchain::app {
+namespace cexchain::client {
 
 /// A registration: {1: genesis entry, 2: cosign request}, CBOR.
 struct WitnessRegistration {
@@ -85,4 +85,4 @@ private:
     std::map<protocol::IdKey, protocol::Timestamp> cosigned_;
 };
 
-} // namespace cexchain::app
+} // namespace cexchain::client

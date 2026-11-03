@@ -17,11 +17,11 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/app/errors.hpp>
-#include <cexchain/app/peers.hpp>
-#include <cexchain/app/public_witnesses.hpp>
-#include <cexchain/app/relay_client.hpp>
-#include <cexchain/app/support.hpp>
+#include <cexchain/client/errors.hpp>
+#include <cexchain/client/peers.hpp>
+#include <cexchain/client/public_witnesses.hpp>
+#include <cexchain/client/relay_client.hpp>
+#include <cexchain/client/support.hpp>
 #include <cexchain/console/console.hpp>
 #include <cexchain/node/client.hpp>
 
@@ -47,13 +47,13 @@ bool runs_relay(const std::string& url) {
     try {
         node::ClientOptions options;
         options.timeout = std::chrono::seconds(10);
-        node::Client client(app::unwrap(node::Url::parse(url), "the URL"), options);
+        node::Client client(client::unwrap(node::Url::parse(url), "the URL"), options);
         const auto response =
             client.request("GET", "/v1/relay/messages?to=" + std::string(64, '0'));
         return response && response->status == 401;
     } catch (const std::exception&) {
         return false;
-    } catch (const app::ActionError&) {
+    } catch (const client::ActionError&) {
         return false;
     }
 }
@@ -61,10 +61,10 @@ bool runs_relay(const std::string& url) {
 } // namespace
 
 Console::Console(Services services) : services_(std::move(services)) {
-    relay_sender_ = app::RelaySender{
+    relay_sender_ = client::RelaySender{
         [this] { return ledger(); }, [this] { return log_key_of(services_.keys); },
         [this](ByteView cosignature, const crypto::PublicKey& witness) {
-            static_cast<void>(keep_cosignature(app::cosignature_body(cosignature, witness)));
+            static_cast<void>(keep_cosignature(client::cosignature_body(cosignature, witness)));
         }};
 }
 
@@ -81,16 +81,16 @@ http::Response Console::relay_route(const http::Request& request) const {
     const std::filesystem::path dir = services_.directory.parent_path();
     const bool may_change = signer.role == Role::owner || signer.role == Role::admin;
     std::optional<node::RelayRoute> own;
-    std::vector<app::UsedWitness> witnesses;
+    std::vector<client::UsedWitness> witnesses;
     try {
-        own = app::load_own_relay(dir);
-        witnesses = app::load_used_witnesses(dir);
-    } catch (const app::ActionError& e) {
+        own = client::load_own_relay(dir);
+        witnesses = client::load_used_witnesses(dir);
+    } catch (const client::ActionError& e) {
         return error(500, "internal", e.message);
     }
     if (request.method == "GET") {
         nlohmann::json candidates = nlohmann::json::array();
-        for (const app::UsedWitness& w : witnesses) {
+        for (const client::UsedWitness& w : witnesses) {
             if (!own || own->url != w.url) {
                 candidates.push_back({{"name", w.name}, {"url", w.url}});
             }
@@ -117,12 +117,12 @@ http::Response Console::relay_route(const http::Request& request) const {
         return error(400, "invalid_argument", "the request's body is not a JSON object");
     }
     if (body.value("stop", false)) {
-        app::save_own_relay(dir, std::nullopt);
+        client::save_own_relay(dir, std::nullopt);
         log_activity(signer.user, "relay.stop", {});
         return json(200, {{"relay", nullptr}});
     }
     const std::string url = body.value("use", "");
-    const auto witness = std::ranges::find(witnesses, url, &app::UsedWitness::url);
+    const auto witness = std::ranges::find(witnesses, url, &client::UsedWitness::url);
     if (witness == witnesses.end()) {
         return error(400, "invalid_argument",
                      "a relay is the server of a public witness this ledger asks: add it first");
@@ -136,11 +136,12 @@ http::Response Console::relay_route(const http::Request& request) const {
     // A relay key of its own, made once and kept sealed.
     std::optional<Bytes> public_key = services_.keys->hpke_public_key("relay");
     if (!public_key) {
-        const auto key = app::unwrap(crypto::openssl::HpkeKey::generate(), "making the relay key");
+        const auto key =
+            client::unwrap(crypto::openssl::HpkeKey::generate(), "making the relay key");
         services_.keys->seal_hpke_key("relay", key);
         public_key = Bytes(key.public_key().begin(), key.public_key().end());
     }
-    app::save_own_relay(dir, node::RelayRoute{url, *public_key, witness->key});
+    client::save_own_relay(dir, node::RelayRoute{url, *public_key, witness->key});
     {
         const std::lock_guard lock(mutex_);
         relay_problem_.clear();
@@ -150,8 +151,8 @@ http::Response Console::relay_route(const http::Request& request) const {
 }
 
 void Console::relay_loop(const std::stop_token& stop) const {
-    const app::RelaySenderScope scope(&relay_sender_);
-    std::unique_ptr<app::RelayAgent> agent;
+    const client::RelaySenderScope scope(&relay_sender_);
+    std::unique_ptr<client::RelayAgent> agent;
     std::string route_key;
     auto pause = [&](std::chrono::milliseconds how_long) {
         for (auto waited = std::chrono::milliseconds(0);
@@ -173,8 +174,8 @@ void Console::relay_loop(const std::stop_token& stop) const {
         }
         std::optional<node::RelayRoute> own;
         try {
-            own = app::load_own_relay(services_.directory.parent_path());
-        } catch (const app::ActionError& e) {
+            own = client::load_own_relay(services_.directory.parent_path());
+        } catch (const client::ActionError& e) {
             say(e.message);
         }
         if (!own || served == nullptr || !api || services_.keys == nullptr ||
@@ -186,7 +187,7 @@ void Console::relay_loop(const std::stop_token& stop) const {
         const std::string key = own->url + "|" + to_hex(own->key);
         if (!agent || key != route_key) {
             try {
-                agent = std::make_unique<app::RelayAgent>(
+                agent = std::make_unique<client::RelayAgent>(
                     *own,
                     std::make_shared<const crypto::openssl::HpkeKey>(
                         services_.keys->open_hpke_key("relay")),
@@ -201,7 +202,7 @@ void Console::relay_loop(const std::stop_token& stop) const {
         try {
             static_cast<void>(agent->once(std::chrono::seconds(15)));
             say("");
-        } catch (const app::ActionError& e) {
+        } catch (const client::ActionError& e) {
             say(e.message);
             pause(std::chrono::seconds(5));
         } catch (const std::exception& e) {

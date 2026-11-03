@@ -30,7 +30,7 @@ target_compile_features(search_query_fuzz PRIVATE cxx_std_26)
 # inputs from bytes against the trees (tests/support).
 cexchain_add_fuzzer(cbor_validate_fuzz)
 target_include_directories(cbor_validate_fuzz PRIVATE
-    ${PROJECT_SOURCE_DIR}/tests ${PROJECT_SOURCE_DIR}/core/src)
+    ${PROJECT_SOURCE_DIR}/tests ${PROJECT_SOURCE_DIR}/chain/core/src)
 # The Bo compiler's front end: everything that reads untrusted source.
 if(TARGET cexchain_bo_front)
     cexchain_add_fuzzer(bo_pack_fuzz cexchain::bo_front)
@@ -66,14 +66,14 @@ cexchain_add_fuzzer(bo_runtime_fuzz cexchain::crypto_openssl)
 target_include_directories(bo_runtime_fuzz PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/bo_runtime
     ${PROJECT_SOURCE_DIR}/bo/include)
 # The interpreter's internals (core/src/vm/internal.hpp), for a lower fuel limit.
-target_include_directories(vm_fuzz PRIVATE ${PROJECT_SOURCE_DIR}/core/src)
+target_include_directories(vm_fuzz PRIVATE ${PROJECT_SOURCE_DIR}/chain/core/src)
 if(TARGET cexchain_crypto_pkcs11)
     cexchain_add_fuzzer(pkcs11_uri_fuzz cexchain::crypto_pkcs11)
 endif()
 if(TARGET cexchain_node)
     cexchain_add_fuzzer(http_parse_fuzz cexchain::node)
     # The requests and due routes' queries (node/src/request_query.hpp).
-    target_include_directories(http_parse_fuzz PRIVATE ${PROJECT_SOURCE_DIR}/node/src)
+    target_include_directories(http_parse_fuzz PRIVATE ${PROJECT_SOURCE_DIR}/chain/node/src)
     # The connector protocol's JSON lines (node/connector.hpp).
     cexchain_add_fuzzer(connector_line_fuzz cexchain::node)
     target_compile_features(connector_line_fuzz PRIVATE cxx_std_26)
@@ -87,17 +87,17 @@ if(TARGET cexchain_node)
     # Proposal and consent files (.cexchain) between ledgers.
     cexchain_add_fuzzer(exchange_file_fuzz cexchain::core)
     # Invitation codes between organizations (cxp_...).
-    cexchain_add_fuzzer(invitation_fuzz cexchain::app)
+    cexchain_add_fuzzer(invitation_fuzz cexchain::client)
     # A public witness's registrations and cosign requests, from anyone.
-    cexchain_add_fuzzer(witness_registration_fuzz cexchain::app cexchain::crypto_openssl)
+    cexchain_add_fuzzer(witness_registration_fuzz cexchain::client cexchain::crypto_openssl)
     # Relay messages and signed fetches, from anyone; what a mailbox holds.
-    cexchain_add_fuzzer(relay_message_fuzz cexchain::app cexchain::crypto_openssl)
+    cexchain_add_fuzzer(relay_message_fuzz cexchain::client cexchain::crypto_openssl)
     # The web console's Host, Origin, and session checks (C++26, like the console).
     if(TARGET cexchain_console)
         cexchain_add_fuzzer(console_request_fuzz cexchain::console cexchain::crypto_openssl)
         target_compile_features(console_request_fuzz PRIVATE cxx_std_26)
         # Sealed backups read from a folder, and the paths a restore writes.
-        cexchain_add_fuzzer(sealed_backup_fuzz cexchain::console cexchain::app)
+        cexchain_add_fuzzer(sealed_backup_fuzz cexchain::console cexchain::client)
         target_compile_features(sealed_backup_fuzz PRIVATE cxx_std_26)
         # Kind sheets from a person's page or a shared file.
         cexchain_add_fuzzer(kind_sheet_fuzz cexchain::console)
@@ -106,7 +106,7 @@ if(TARGET cexchain_node)
     # The cluster's internals (node/src/cluster_parts.hpp).
     cexchain_add_fuzzer(cluster_entry_fuzz cexchain::node cexchain::crypto_openssl cexchain_nuraft)
     target_include_directories(cluster_entry_fuzz PRIVATE
-        ${PROJECT_SOURCE_DIR}/node/src ${PROJECT_SOURCE_DIR}/ledger/src)
+        ${PROJECT_SOURCE_DIR}/chain/node/src ${PROJECT_SOURCE_DIR}/chain/ledger/src)
     target_compile_features(cluster_entry_fuzz PRIVATE cxx_std_26)
 endif()
 

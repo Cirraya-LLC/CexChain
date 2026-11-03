@@ -7,7 +7,7 @@
 #include <string>
 #include <string_view>
 
-#include <cexchain/app/requests.hpp>
+#include <cexchain/client/requests.hpp>
 
 #include "contracts.hpp"
 #include "output.hpp"
@@ -18,10 +18,10 @@
 namespace cexchain::cli {
 
 /// A request for people, as request_json shows it to programs.
-void print_request(const app::Session& session, const protocol::RequestState& request,
+void print_request(const client::Session& session, const protocol::RequestState& request,
                    protocol::Timestamp now);
 /// One line for a list.
-[[nodiscard]] std::string request_line(const app::Session& session,
+[[nodiscard]] std::string request_line(const client::Session& session,
                                        const protocol::RequestState& request,
                                        protocol::Timestamp now);
 /// A duration for people: "2 d 3 h", "45 min", "12 s".

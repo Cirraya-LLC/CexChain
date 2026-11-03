@@ -29,6 +29,6 @@ target_link_libraries(cexchain_node
     PUBLIC cexchain::ledger nlohmann_json::nlohmann_json
     PRIVATE cexchain_asio cexchain_nuraft OpenSSL::SSL)
 # The ledger's record checksum, for the Raft log.
-target_include_directories(cexchain_node PRIVATE "${PROJECT_SOURCE_DIR}/ledger/src")
+target_include_directories(cexchain_node PRIVATE "${PROJECT_SOURCE_DIR}/chain/ledger/src")
 target_compile_features(cexchain_node PUBLIC cxx_std_26)
 cexchain_target_defaults(cexchain_node)

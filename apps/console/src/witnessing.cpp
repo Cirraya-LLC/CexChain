@@ -20,12 +20,12 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/app/errors.hpp>
-#include <cexchain/app/peers.hpp>
-#include <cexchain/app/public_witnesses.hpp>
-#include <cexchain/app/relay_client.hpp>
-#include <cexchain/app/support.hpp>
-#include <cexchain/app/witness.hpp>
+#include <cexchain/client/errors.hpp>
+#include <cexchain/client/peers.hpp>
+#include <cexchain/client/public_witnesses.hpp>
+#include <cexchain/client/relay_client.hpp>
+#include <cexchain/client/support.hpp>
+#include <cexchain/client/witness.hpp>
 #include <cexchain/console/console.hpp>
 #include <cexchain/console/setup.hpp>
 #include <cexchain/core/bytes.hpp>
@@ -48,9 +48,9 @@ std::optional<std::string> attempt(F&& f) {
     try {
         f();
         return std::nullopt;
-    } catch (const app::ActionError& e) {
+    } catch (const client::ActionError& e) {
         return e.message;
-    } catch (const app::UsageError& e) {
+    } catch (const client::UsageError& e) {
         return e.message;
     } catch (const std::exception& e) {
         return std::string(e.what());
@@ -87,8 +87,8 @@ Result<Bytes> Console::witness_cosign(ByteView request) const {
     Result<Bytes> out = fail(Errc::unavailable, "this console has no witness key");
     if (const auto problem = attempt([&] {
             const auto key = services_.keys->open(witness_key_name);
-            out = app::witness_cosign(witness_dir(services_.directory), key, request,
-                                      services_.clock->now());
+            out = client::witness_cosign(witness_dir(services_.directory), key, request,
+                                         services_.clock->now());
         })) {
         return fail(Errc::unavailable, "this console has no witness key");
     }
@@ -119,14 +119,14 @@ void Console::poll_witnessing() const {
             continue;
         }
         // Follow its ledger from its genesis, which its ledger id pins.
-        if (!std::filesystem::exists(app::witness_state_path(dir, peer.ledger_id))) {
+        if (!std::filesystem::exists(client::witness_state_path(dir, peer.ledger_id))) {
             static_cast<void>(attempt([&] {
-                const auto response = app::peer_request(peer, "GET", "/v1/genesis");
+                const auto response = client::peer_request(peer, "GET", "/v1/genesis");
                 if (response.status != 200) {
-                    throw app::ActionError{answer_message(response)};
+                    throw client::ActionError{answer_message(response)};
                 }
-                app::add_witnessed(
-                    dir, app::state_from_genesis(response.body, peer.name, peer.ledger_id));
+                client::add_witnessed(
+                    dir, client::state_from_genesis(response.body, peer.name, peer.ledger_id));
             }));
         }
         // Ask it to cosign this ledger's latest checkpoint, if it has not.
@@ -144,20 +144,20 @@ void Console::poll_witnessing() const {
         }
         const auto problem = attempt([&] {
             const Bytes request =
-                app::unwrap(protocol::encode_cosign_request(app::unwrap(
-                                served->cosign_request(old), "making the cosign request")),
-                            "encoding the cosign request");
-            const auto response =
-                app::peer_request(peer, "POST", "/v1/witness/cosign", request, "application/cbor");
+                client::unwrap(protocol::encode_cosign_request(client::unwrap(
+                                   served->cosign_request(old), "making the cosign request")),
+                               "encoding the cosign request");
+            const auto response = client::peer_request(peer, "POST", "/v1/witness/cosign", request,
+                                                       "application/cbor");
             if (response.status != 200) {
-                throw app::ActionError{answer_message(response)};
+                throw client::ActionError{answer_message(response)};
             }
             // Kept with the ledger, through the node's writer.
             const int kept =
-                keep_cosignature(app::cosignature_body(response.body, *peer.witness_key));
+                keep_cosignature(client::cosignature_body(response.body, *peer.witness_key));
             if (kept / 100 != 2) {
-                throw app::ActionError{"the cosignature was not kept (status " +
-                                       std::to_string(kept) + ")"};
+                throw client::ActionError{"the cosignature was not kept (status " +
+                                          std::to_string(kept) + ")"};
             }
         });
         const std::lock_guard lock(mutex_);
@@ -169,13 +169,12 @@ void Console::poll_witnessing() const {
     }
     // The public witnesses it registered with, as serve asks them.
     if (keep) {
-        const auto asked =
-            app::ask_used_witnesses(*served, services_.directory.parent_path(), [this](Bytes body) {
-                return keep_cosignature(std::move(body));
-            });
+        const auto asked = client::ask_used_witnesses(
+            *served, services_.directory.parent_path(),
+            [this](Bytes body) { return keep_cosignature(std::move(body)); });
         const std::lock_guard lock(mutex_);
         public_not_cosigned_.clear();
-        for (const app::WitnessAsked& a : asked) {
+        for (const client::WitnessAsked& a : asked) {
             if (!a.problem.empty()) {
                 public_not_cosigned_[a.name] = a.problem;
             }
@@ -209,24 +208,24 @@ http::Response Console::witnesses_route(const http::Request& request) const {
     const bool may_change = signer.role == Role::owner || signer.role == Role::admin;
     auto fingerprint = [&](const crypto::PublicKey& key) {
         const Bytes encoded =
-            app::unwrap(cbor::encode(protocol::encode_public_key(key)), "the witness key");
-        return app::ledger_fingerprint(
-            app::unwrap(services_.provider->digest(crypto::HashAlg::sha256, encoded), "hashing"));
+            client::unwrap(cbor::encode(protocol::encode_public_key(key)), "the witness key");
+        return client::ledger_fingerprint(client::unwrap(
+            services_.provider->digest(crypto::HashAlg::sha256, encoded), "hashing"));
     };
     if (request.method == "GET") {
-        std::vector<app::UsedWitness> used;
-        if (const auto problem = attempt([&] { used = app::load_used_witnesses(dir); })) {
+        std::vector<client::UsedWitness> used;
+        if (const auto problem = attempt([&] { used = client::load_used_witnesses(dir); })) {
             return error(500, "internal", *problem);
         }
         nlohmann::json list = nlohmann::json::array();
-        for (const app::UsedWitness& w : used) {
+        for (const client::UsedWitness& w : used) {
             nlohmann::json last;
             if (const auto cosigned = served->last_cosigned(w.key); cosigned && *cosigned) {
                 last = {{"size", (*cosigned)->tree_size}, {"at", (*cosigned)->timestamp}};
             }
             nlohmann::json item{{"name", w.name},
                                 {"url", w.url},
-                                {"key", app::witness_key_hex(w.key)},
+                                {"key", client::witness_key_hex(w.key)},
                                 {"fingerprint", fingerprint(w.key)},
                                 {"added", w.added},
                                 {"cosigned", last}};
@@ -238,12 +237,12 @@ http::Response Console::witnesses_route(const http::Request& request) const {
             list.push_back(std::move(item));
         }
         nlohmann::json known = nlohmann::json::array();
-        for (const app::UsedWitness& w : app::built_in_public_witnesses()) {
-            if (std::ranges::none_of(used,
-                                     [&](const app::UsedWitness& u) { return u.key == w.key; })) {
+        for (const client::UsedWitness& w : client::built_in_public_witnesses()) {
+            if (std::ranges::none_of(
+                    used, [&](const client::UsedWitness& u) { return u.key == w.key; })) {
                 known.push_back({{"name", w.name},
                                  {"url", w.url},
-                                 {"key", app::witness_key_hex(w.key)},
+                                 {"key", client::witness_key_hex(w.key)},
                                  {"fingerprint", fingerprint(w.key)}});
             }
         }
@@ -263,12 +262,12 @@ http::Response Console::witnesses_route(const http::Request& request) const {
     if (body.contains("remove")) {
         const std::string name = body.value("remove", "");
         std::optional<std::string> problem = attempt([&] {
-            auto used = app::load_used_witnesses(dir);
-            if (std::erase_if(used, [&](const app::UsedWitness& w) { return w.name == name; }) ==
+            auto used = client::load_used_witnesses(dir);
+            if (std::erase_if(used, [&](const client::UsedWitness& w) { return w.name == name; }) ==
                 0) {
-                throw app::ActionError{"no witness named " + name};
+                throw client::ActionError{"no witness named " + name};
             }
-            app::save_used_witnesses(dir, used);
+            client::save_used_witnesses(dir, used);
         });
         if (problem) {
             return error(404, "not_found", *problem);
@@ -296,24 +295,24 @@ http::Response Console::witnesses_route(const http::Request& request) const {
             return error(503, "unavailable", "the ledger could not make a checkpoint; try again");
         }
     }
-    std::optional<app::Registered> registered;
+    std::optional<client::Registered> registered;
     std::optional<int> refused_status;
     std::optional<std::string> problem = attempt([&] {
-        const crypto::PublicKey key = app::witness_key_from_hex(key_hex);
+        const crypto::PublicKey key = client::witness_key_from_hex(key_hex);
         try {
-            registered = app::register_witness(
+            registered = client::register_witness(
                 *served, dir, url, key, std::nullopt,
                 [this, &key](ByteView cosignature) {
-                    const int kept = keep_cosignature(app::cosignature_body(cosignature, key));
+                    const int kept = keep_cosignature(client::cosignature_body(cosignature, key));
                     if (kept / 100 != 2) {
-                        throw app::ActionError{"the cosignature was not kept (status " +
-                                               std::to_string(kept) + ")"};
+                        throw client::ActionError{"the cosignature was not kept (status " +
+                                                  std::to_string(kept) + ")"};
                     }
                 },
                 services_.clock->now());
-        } catch (const app::WitnessRefused& e) {
+        } catch (const client::WitnessRefused& e) {
             refused_status = e.status;
-            throw app::ActionError{e.message};
+            throw client::ActionError{e.message};
         }
     });
     if (problem) {
@@ -342,11 +341,11 @@ nlohmann::json Console::witnessing_view(const node::Peer& peer) const {
     }
     nlohmann::json them;
     const std::filesystem::path state =
-        app::witness_state_path(witness_dir(services_.directory), peer.ledger_id);
+        client::witness_state_path(witness_dir(services_.directory), peer.ledger_id);
     if (std::filesystem::exists(state)) {
         // This console witnesses theirs: the size it last cosigned.
         static_cast<void>(attempt([&] {
-            const app::WitnessState s = app::decode_witness_state(state);
+            const client::WitnessState s = client::decode_witness_state(state);
             them = {{"size", s.log.size},
                     {"at", s.cosigned_at ? nlohmann::json(*s.cosigned_at) : nlohmann::json()}};
         }));

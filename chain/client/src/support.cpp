@@ -12,13 +12,13 @@
 #include <iterator>
 #include <unistd.h>
 
-#include <cexchain/app/support.hpp>
+#include <cexchain/client/support.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/ledger/environment.hpp>
 #include <cexchain/ledger/ledger.hpp>
 #include <cexchain/ledger/storage.hpp>
 
-namespace cexchain::app {
+namespace cexchain::client {
 
 Bytes read_file(const std::filesystem::path& path) {
     std::ifstream in(path, std::ios::binary);
@@ -280,4 +280,4 @@ void create_ledger(const std::filesystem::path& directory, const crypto::Signer&
                              "creating the ledger"));
 }
 
-} // namespace cexchain::app
+} // namespace cexchain::client

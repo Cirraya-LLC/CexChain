@@ -5,7 +5,7 @@
 
 #include <string>
 
-#include <cexchain/app/views.hpp>
+#include <cexchain/client/views.hpp>
 
 #include "json_output.hpp"
 #include "support.hpp"
@@ -15,7 +15,7 @@ namespace cexchain::cli {
 
 /// Prints the result of a statement just registered: its id and log index
 /// plus `extra` as JSON, or `text`.
-int report_submitted(const Args& args, const app::Session& session, const protocol::Id& statement,
-                     const Json& extra, const std::string& text);
+int report_submitted(const Args& args, const client::Session& session,
+                     const protocol::Id& statement, const Json& extra, const std::string& text);
 
 } // namespace cexchain::cli

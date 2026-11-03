@@ -9,14 +9,14 @@
 #include <string_view>
 #include <vector>
 
-#include <cexchain/app/session.hpp>
-#include <cexchain/app/views.hpp>
+#include <cexchain/client/session.hpp>
+#include <cexchain/client/views.hpp>
 #include <cexchain/ledger/environment.hpp>
 #include <cexchain/node/client.hpp>
 #include <cexchain/node/peers.hpp>
 
 /// Peers: other ledgers this one works with, their APIs, and their names.
-namespace cexchain::app {
+namespace cexchain::client {
 
 /// The peers of the ledger at `dir`.
 [[nodiscard]] std::vector<node::Peer> peers_of(const std::filesystem::path& dir);
@@ -109,4 +109,4 @@ node::Peer accept_invitation(const std::filesystem::path& dir,
                              const PeerInvitation& invitation,
                              const std::optional<protocol::Id>& own = std::nullopt);
 
-} // namespace cexchain::app
+} // namespace cexchain::client

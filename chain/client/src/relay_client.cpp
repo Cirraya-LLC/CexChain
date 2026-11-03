@@ -11,19 +11,19 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/app/errors.hpp>
-#include <cexchain/app/peers.hpp>
-#include <cexchain/app/public_witness.hpp>
-#include <cexchain/app/public_witnesses.hpp>
-#include <cexchain/app/relay.hpp>
-#include <cexchain/app/relay_client.hpp>
-#include <cexchain/app/support.hpp>
+#include <cexchain/client/errors.hpp>
+#include <cexchain/client/peers.hpp>
+#include <cexchain/client/public_witness.hpp>
+#include <cexchain/client/public_witnesses.hpp>
+#include <cexchain/client/relay.hpp>
+#include <cexchain/client/relay_client.hpp>
+#include <cexchain/client/support.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/id_map.hpp>
 #include <cexchain/ledger/environment.hpp>
 #include <cexchain/node/client.hpp>
 
-namespace cexchain::app {
+namespace cexchain::client {
 
 namespace {
 
@@ -408,4 +408,4 @@ void RelayAgent::run(const std::stop_token& stop,
     }
 }
 
-} // namespace cexchain::app
+} // namespace cexchain::client

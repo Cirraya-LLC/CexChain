@@ -19,7 +19,7 @@
 #include <set>
 #include <variant>
 
-#include <cexchain/app/peers.hpp>
+#include <cexchain/client/peers.hpp>
 #include <cexchain/core/protocol/contracts.hpp>
 #include <cexchain/node/client.hpp>
 #include <cexchain/node/executor.hpp>

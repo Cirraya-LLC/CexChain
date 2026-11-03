@@ -21,8 +21,8 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/app/records.hpp>
-#include <cexchain/app/support.hpp>
+#include <cexchain/client/records.hpp>
+#include <cexchain/client/support.hpp>
 #include <cexchain/console/console.hpp>
 #include <cexchain/console/kinds.hpp>
 #include <cexchain/core/bytes.hpp>
@@ -105,8 +105,8 @@ bool Console::may_read_private(const Signed& who, const protocol::LedgerState& s
         .has_value();
 }
 
-std::optional<app::Vault> Console::private_data(const protocol::LedgerState& state,
-                                                const protocol::Id& record) const {
+std::optional<client::Vault> Console::private_data(const protocol::LedgerState& state,
+                                                   const protocol::Id& record) const {
     const protocol::RecordState* r = state.record(record);
     const std::filesystem::path file = services_.directory.parent_path() / "vault" / "records" /
                                        (to_hex(record.bytes()) + ".cbor");
@@ -116,9 +116,9 @@ std::optional<app::Vault> Console::private_data(const protocol::LedgerState& sta
     }
     try {
         const auto key = services_.keys->open_vault_key();
-        app::Vault vault =
-            app::open_vault_file(app::read_file(file), state.ledger_id(), record, &key);
-        if (!app::matches_record(*services_.provider, state.hash(), *r, vault)) {
+        client::Vault vault =
+            client::open_vault_file(client::read_file(file), state.ledger_id(), record, &key);
+        if (!client::matches_record(*services_.provider, state.hash(), *r, vault)) {
             return std::nullopt;
         }
         return vault;
@@ -195,12 +195,12 @@ http::Response Console::record_route(const http::Request& request) const {
             } else {
                 const protocol::Attachment& a = body->attachments[*file_index];
                 try {
-                    Bytes content = app::open_sealed_file(
-                        app::read_file(node::record_file_path(services_.directory.parent_path(),
-                                                              *id, *file_index)),
+                    Bytes content = client::open_sealed_file(
+                        client::read_file(node::record_file_path(services_.directory.parent_path(),
+                                                                 *id, *file_index)),
                         state.ledger_id(), *id, a.name, services_.keys->open_vault_key());
-                    if (!app::matches_attachment(*services_.provider, state.hash(), a, *vault,
-                                                 content)) {
+                    if (!client::matches_attachment(*services_.provider, state.hash(), a, *vault,
+                                                    content)) {
                         answer = error(409, "conflict",
                                        "the kept copy is not the file the record committed to");
                     } else {
@@ -242,7 +242,7 @@ http::Response Console::record_route(const http::Request& request) const {
                 fields.push_back({{"name", f.name},
                                   {"value", f.value.as_text() != nullptr
                                                 ? nlohmann::json(*f.value.as_text())
-                                                : nlohmann::json(app::display_value(f.value))}});
+                                                : nlohmann::json(client::display_value(f.value))}});
             }
         }
         std::string kind_name;
@@ -355,7 +355,7 @@ void Console::proof_route(const http::Request& request, Respond respond) const {
     const bool with_files = body.value("files", false);
     // What is disclosed is taken from the private data now, before the
     // node builds the bundle.
-    std::optional<app::Vault> vault;
+    std::optional<client::Vault> vault;
     std::string problem;
     int status = 0;
     served->read_state([&](const protocol::LedgerState& state) {
@@ -416,7 +416,7 @@ void Console::proof_route(const http::Request& request, Respond respond) const {
                 bundle->disclosures.push_back(std::move(*disclosure));
             }
             if (with_files) {
-                for (const app::VaultAttachment& a : vault->attachments) {
+                for (const client::VaultAttachment& a : vault->attachments) {
                     bundle->attachments.push_back({a.name, a.salt});
                 }
             }

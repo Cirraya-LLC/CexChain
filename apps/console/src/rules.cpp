@@ -20,8 +20,8 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/app/support.hpp>
 #include <cexchain/bo/source.hpp>
+#include <cexchain/client/support.hpp>
 #include <cexchain/console/console.hpp>
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/protocol/contracts.hpp>
@@ -84,7 +84,7 @@ Console::run_compiler(const Signed& who, std::vector<std::string> args,
                           to_hex(services_.entropy->bytes<12>())};
     std::filesystem::create_directories(scratch.path);
     for (const auto& [name, content] : files) {
-        app::write_file(scratch.path / name, as_bytes(content), true);
+        client::write_file(scratch.path / name, as_bytes(content), true);
     }
     for (std::string& arg : args) {
         const bool given =
@@ -118,7 +118,7 @@ Console::run_compiler(const Signed& who, std::vector<std::string> args,
         const std::filesystem::path file = scratch.path / name;
         if (std::filesystem::is_regular_file(file) &&
             std::filesystem::file_size(file) <= bo::max_built_size) {
-            out.files.emplace(name, app::read_file(file));
+            out.files.emplace(name, client::read_file(file));
         }
     }
     return out;

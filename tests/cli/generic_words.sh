@@ -83,14 +83,14 @@ assert any("instructions" in r["result"] for r in responses), "the instructions 
 EOF
 
 # --- The browser verifier's page ---------------------------------------------
-for f in "$SOURCE"/verifier/wasm/page.html "$SOURCE"/verifier/wasm/verifier-api.js \
-    "$SOURCE"/verifier/wasm/verifier_wasm.cpp "$SOURCE"/verifier/src/*.cpp \
-    "$SOURCE"/verifier/include/cexchain/verifier/*.hpp; do
+for f in "$SOURCE"/chain/verifier/wasm/page.html "$SOURCE"/chain/verifier/wasm/verifier-api.js \
+    "$SOURCE"/chain/verifier/wasm/verifier_wasm.cpp "$SOURCE"/chain/verifier/src/*.cpp \
+    "$SOURCE"/chain/verifier/include/cexchain/verifier/*.hpp; do
     cp "$f" "texts/page-$(basename "$f")"
 done
 
 # --- The web console's page and its three catalogs --------------------------------
-for f in "$SOURCE"/console/web/*.html "$SOURCE"/console/web/*.js "$SOURCE"/console/web/i18n/*.json; do
+for f in "$SOURCE"/apps/console/web/*.html "$SOURCE"/apps/console/web/*.js "$SOURCE"/apps/console/web/i18n/*.json; do
     cp "$f" "texts/console-$(basename "$f")"
 done
 

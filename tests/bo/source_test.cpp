@@ -482,8 +482,10 @@ TEST_CASE("decoding refuses bundles of any other shape", "[bo][source]") {
     // Not deterministic CBOR: a longer head than needed.
     Bytes bytes = raw(base());
     CHECK(bytes[0] == 0xa4);
-    Bytes longer = {0xb8, 0x04};
-    longer.insert(longer.end(), bytes.begin() + 1, bytes.end());
+    Bytes longer(bytes.size() + 1);
+    longer[0] = 0xb8;
+    longer[1] = 0x04;
+    std::ranges::copy(bytes.begin() + 1, bytes.end(), longer.begin() + 2);
     CHECK(!decode_source_bundle(longer).has_value());
     // At most a deploy's source.
     CHECK(!decode_source_bundle(Bytes(max_bundle_size + 1)).has_value());

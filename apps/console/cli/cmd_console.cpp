@@ -23,8 +23,8 @@
 #include <thread>
 #include <unistd.h>
 
-#include <cexchain/app/peers.hpp>
-#include <cexchain/app/support.hpp>
+#include <cexchain/client/peers.hpp>
+#include <cexchain/client/support.hpp>
 #include <cexchain/console/activity.hpp>
 #include <cexchain/console/backups.hpp>
 #include <cexchain/console/deferred.hpp>
@@ -44,7 +44,7 @@
 #include <cexchain/node/server.hpp>
 #include <cexchain/search/served.hpp>
 
-#include "commands.hpp"
+#include "console_commands.hpp"
 #include "output.hpp"
 #include "records.hpp"
 #include "serve.hpp"
@@ -56,6 +56,15 @@ extern char** environ;
 namespace cexchain::cli {
 
 namespace {
+
+/// What the console runs its compiler as: the bo program beside this one
+/// (the packages install them together); else nothing, and its rules routes
+/// say so.
+std::string console_compiler() {
+    const std::filesystem::path bo = std::filesystem::path(self_path()).parent_path() / "bo";
+    std::error_code ec;
+    return std::filesystem::is_regular_file(bo, ec) ? bo.string() : std::string();
+}
 
 /// The console's people, changed under its lock; `change` may throw.
 template <class Change>
@@ -80,7 +89,7 @@ std::string invitation_link(const Args& args, const std::filesystem::path& state
     if (const auto url = args.get("url")) {
         base = *url;
     } else if (std::filesystem::exists(state / "url")) {
-        const Bytes bytes = app::read_file(state / "url");
+        const Bytes bytes = client::read_file(state / "url");
         base.assign(bytes.begin(), bytes.end());
         while (!base.empty() && (base.back() == '\n' || base.back() == '\r')) {
             base.pop_back();
@@ -388,7 +397,7 @@ std::optional<std::string> state_line(const std::filesystem::path& file) {
     if (!std::filesystem::exists(file)) {
         return std::nullopt;
     }
-    const Bytes bytes = app::read_file(file);
+    const Bytes bytes = client::read_file(file);
     std::string line(bytes.begin(), bytes.end());
     line = line.substr(0, line.find('\n'));
     return line;
@@ -560,8 +569,8 @@ int run_person_console(const Args& args, const std::filesystem::path& dir,
     const std::string url = public_origin ? public_origin->text() + "/console/"
                                           : std::format("http://localhost:{}/console/", got);
     std::filesystem::create_directories(state);
-    app::write_file(state / "port", as_bytes(std::to_string(got) + "\n"), true);
-    app::write_file(state / "url", as_bytes(url + "\n"), true);
+    client::write_file(state / "port", as_bytes(std::to_string(got) + "\n"), true);
+    client::write_file(state / "url", as_bytes(url + "\n"), true);
 
     // The first run: a setup link for whoever sets it up, in a private file
     // and a page that opens it, never on the command line or in a log.
@@ -576,16 +585,16 @@ int run_person_console(const Args& args, const std::filesystem::path& dir,
             people.invitations.push_back(invitation);
         });
         const std::string link = url + "#/enroll/" + code;
-        app::write_file(state / "setup-link", as_bytes(link + "\n"), true);
+        client::write_file(state / "setup-link", as_bytes(link + "\n"), true);
         const std::string page =
             "<!doctype html><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" "
             "content=\"0; url=" +
             link + "\"><title>CexChain</title>\n";
-        app::write_file(state / "setup.html", as_bytes(page), true);
+        client::write_file(state / "setup.html", as_bytes(page), true);
         opener = state / "setup.html";
     }
     // Running, as `console status` says, once everything above is written.
-    app::write_file(state / "pid", as_bytes(std::to_string(::getpid()) + "\n"), true);
+    client::write_file(state / "pid", as_bytes(std::to_string(::getpid()) + "\n"), true);
     const bool no_browser = args.has("no-browser") || std::getenv("CEXCHAIN_NO_BROWSER") != nullptr;
     if (args.json()) {
         print_json(
@@ -705,7 +714,7 @@ void serve_console_too(const Args& args, const std::filesystem::path& dir,
             "/console/";
         // For setup-link and user add.
         std::filesystem::create_directories(console::state_directory(dir));
-        app::write_file(console::state_directory(dir) / "url", as_bytes(url + "\n"), true);
+        client::write_file(console::state_directory(dir) / "url", as_bytes(url + "\n"), true);
         return std::pair<std::string, std::string>("console", url);
     };
 }
@@ -748,8 +757,8 @@ int cmd_console_run(const Args& args) {
     serve_console_too(args, dir, defaults);
     defaults.on_listening = [state](std::uint16_t got) {
         std::filesystem::create_directories(state);
-        app::write_file(state / "port", as_bytes(std::to_string(got) + "\n"), true);
-        app::write_file(state / "pid", as_bytes(std::to_string(::getpid()) + "\n"), true);
+        client::write_file(state / "port", as_bytes(std::to_string(got) + "\n"), true);
+        client::write_file(state / "pid", as_bytes(std::to_string(::getpid()) + "\n"), true);
     };
     const int code = serve(args, defaults);
     std::error_code ignored;
@@ -884,7 +893,7 @@ int cmd_console_open(const Args& args) {
         if (std::filesystem::file_size(name) > protocol::max_exchange_file) {
             throw CommandError{"not a proposal or consent file (too large): " + name};
         }
-        file = app::read_file(name);
+        file = client::read_file(name);
         if (const auto read = protocol::decode_exchange_file(*file); !read) {
             throw CommandError{"not a proposal or consent file: " + name + ": " +
                                std::string(read.error().detail)};
@@ -916,7 +925,7 @@ int cmd_console_open(const Args& args) {
         std::filesystem::create_directories(opened);
         std::filesystem::permissions(opened, std::filesystem::perms::owner_all,
                                      std::filesystem::perm_options::replace);
-        app::write_file(opened / id, *file, true);
+        client::write_file(opened / id, *file, true);
         *url += "#/exchange/opened/" + id;
     }
     if (args.json() || args.has("print")) {
@@ -939,7 +948,7 @@ namespace {
 
 /// The first line of an unlock file: a passphrase slot's secret.
 std::string unlock_secret(const std::string& file) {
-    const Bytes bytes = app::read_file(file);
+    const Bytes bytes = client::read_file(file);
     std::string text(bytes.begin(), bytes.end());
     text = text.substr(0, text.find('\n'));
     if (text.size() < 8) {
@@ -1071,7 +1080,7 @@ int cmd_console_key_import(const Args& args) {
     const auto key = load_key(args.positional()[1], args);
     store.seal(name, key);
     if (args.json()) {
-        print_json({{"imported", name}, {"public_key", app::public_key_json(key.public_key())}});
+        print_json({{"imported", name}, {"public_key", client::public_key_json(key.public_key())}});
     } else {
         std::println("sealed the key {} in the console ({}); the file itself is unchanged", name,
                      crypto::name(key.algorithm()));
@@ -1096,7 +1105,8 @@ int cmd_console_key_list(const Args& args) {
         }
         Json list = Json::array();
         for (const auto& k : keys) {
-            list.push_back({{"name", k.name}, {"public_key", app::public_key_json(k.public_key)}});
+            list.push_back(
+                {{"name", k.name}, {"public_key", client::public_key_json(k.public_key)}});
         }
         print_json({{"set_up", store.initialized()},
                     {"slots", slots},
@@ -1253,7 +1263,7 @@ int cmd_console_user_approve(const Args& args) {
         may.contracts = std::vector<protocol::Id>{};
         for (const std::string& c : split(*contracts, ',')) {
             if (!c.empty()) {
-                may.contracts->push_back(app::full_id(c, "a contract"));
+                may.contracts->push_back(client::full_id(c, "a contract"));
             }
         }
     }

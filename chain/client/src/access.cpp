@@ -3,12 +3,12 @@
 
 #include <algorithm>
 
-#include <cexchain/app/access.hpp>
-#include <cexchain/app/peers.hpp>
+#include <cexchain/client/access.hpp>
+#include <cexchain/client/peers.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 
-namespace cexchain::app {
+namespace cexchain::client {
 
 std::filesystem::path request_key_path(const std::filesystem::path& dir,
                                        const protocol::Id& request) {
@@ -228,4 +228,4 @@ bool plain_file_name(std::string_view name) {
            name.find('\\') == std::string_view::npos && name != ".." && name != ".";
 }
 
-} // namespace cexchain::app
+} // namespace cexchain::client

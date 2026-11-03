@@ -36,7 +36,7 @@ std::string duration_text(protocol::Timestamp ms) {
     return std::format("{} s", s);
 }
 
-std::string request_line(const app::Session& session, const protocol::RequestState& r,
+std::string request_line(const client::Session& session, const protocol::RequestState& r,
                          protocol::Timestamp now) {
     std::string out = std::format("{}  {:<16} {:<8} instance {}  due {}", short_id(r.id), r.kind,
                                   request_status(r), short_id(r.instance), format_time(r.deadline));
@@ -53,7 +53,7 @@ std::string request_line(const app::Session& session, const protocol::RequestSta
     return out;
 }
 
-void print_request(const app::Session& session, const protocol::RequestState& r,
+void print_request(const client::Session& session, const protocol::RequestState& r,
                    protocol::Timestamp now) {
     const protocol::InstanceState* i = session.state().instance(r.instance);
     const protocol::SignedStatement asked = session.statement(r.call);

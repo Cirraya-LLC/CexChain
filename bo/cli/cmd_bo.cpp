@@ -42,8 +42,8 @@
 #include <cexchain/crypto/openssl.hpp>
 #include <cexchain/verifier/report.hpp>
 
+#include "bo_commands.hpp"
 #include "bo_support.hpp"
-#include "commands.hpp"
 #include "json_output.hpp"
 #include "tool_support.hpp"
 

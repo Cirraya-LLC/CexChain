@@ -6,13 +6,13 @@
 #include <format>
 #include <variant>
 
-#include <cexchain/app/contracts.hpp>
-#include <cexchain/app/requests.hpp>
-#include <cexchain/app/views.hpp>
+#include <cexchain/client/contracts.hpp>
+#include <cexchain/client/requests.hpp>
+#include <cexchain/client/views.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/contracts.hpp>
 
-namespace cexchain::app {
+namespace cexchain::client {
 
 namespace {
 
@@ -234,4 +234,4 @@ Json instance_json_with(const Session& session, const protocol::InstanceState& i
             {"open_requests", std::move(open)}};
 }
 
-} // namespace cexchain::app
+} // namespace cexchain::client

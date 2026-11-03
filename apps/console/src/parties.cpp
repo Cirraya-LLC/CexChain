@@ -21,11 +21,11 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/app/contracts.hpp>
-#include <cexchain/app/errors.hpp>
-#include <cexchain/app/peers.hpp>
-#include <cexchain/app/relay_client.hpp>
-#include <cexchain/app/support.hpp>
+#include <cexchain/client/contracts.hpp>
+#include <cexchain/client/errors.hpp>
+#include <cexchain/client/peers.hpp>
+#include <cexchain/client/relay_client.hpp>
+#include <cexchain/client/support.hpp>
 #include <cexchain/console/console.hpp>
 #include <cexchain/console/setup.hpp>
 #include <cexchain/core/bytes.hpp>
@@ -55,9 +55,9 @@ std::optional<std::string> attempt(F&& f) {
     try {
         f();
         return std::nullopt;
-    } catch (const app::ActionError& e) {
+    } catch (const client::ActionError& e) {
         return e.message;
-    } catch (const app::UsageError& e) {
+    } catch (const client::UsageError& e) {
         return e.message;
     } catch (const std::exception& e) {
         return std::string(e.what());
@@ -91,7 +91,7 @@ http::Response Console::parties_route(const http::Request& request) const {
                 named.push_back(p.name);
                 nlohmann::json item{{"name", p.name},
                                     {"ledger", hex_of(p.ledger_id)},
-                                    {"fingerprint", app::ledger_fingerprint(p.ledger_id)},
+                                    {"fingerprint", client::ledger_fingerprint(p.ledger_id)},
                                     {"url", p.url ? nlohmann::json(*p.url) : nlohmann::json()},
                                     {"online", node::reachable(p)}};
                 item.update(witnessing_view(p));
@@ -110,7 +110,7 @@ http::Response Console::parties_route(const http::Request& request) const {
         }
         std::string fingerprint;
         served->read_state([&](const protocol::LedgerState& state) {
-            fingerprint = app::ledger_fingerprint(state.ledger_id());
+            fingerprint = client::ledger_fingerprint(state.ledger_id());
         });
         return json(200, {{"peers", peers},
                           {"waiting", waiting},
@@ -128,7 +128,7 @@ http::Response Console::parties_route(const http::Request& request) const {
     if (!body.is_object()) {
         return error(400, "invalid_argument", "the request's body is not a JSON object");
     }
-    app::PeerInvitation ours;
+    client::PeerInvitation ours;
     served->read_state([&](const protocol::LedgerState& state) {
         ours.ledger = state.ledger_id();
         ours.organization = state.organization();
@@ -136,8 +136,8 @@ http::Response Console::parties_route(const http::Request& request) const {
     const std::string url = api_url();
     std::optional<node::RelayRoute> relay;
     try {
-        relay = app::load_own_relay(dir);
-    } catch (const app::ActionError&) {
+        relay = client::load_own_relay(dir);
+    } catch (const client::ActionError&) {
     }
     // Reached through a relay, a console on this computer gives no address:
     // no party reaches its localhost.
@@ -152,10 +152,10 @@ http::Response Console::parties_route(const http::Request& request) const {
         ours.witness = witness_public_key(*services_.keys);
     }
     const auto invite = [&](const std::string& name) {
-        app::PeerInvitation code = ours;
-        code.token = app::issue_peer_token(dir, name, *services_.provider, *services_.entropy,
-                                           *services_.clock, false);
-        return app::encode_invitation(code);
+        client::PeerInvitation code = ours;
+        code.token = client::issue_peer_token(dir, name, *services_.provider, *services_.entropy,
+                                              *services_.clock, false);
+        return client::encode_invitation(code);
     };
     if (const auto name = body.find("invite"); name != body.end() && name->is_string()) {
         std::string code;
@@ -165,18 +165,18 @@ http::Response Console::parties_route(const http::Request& request) const {
         log_activity(signer.user, "parties.invite", {{"name", name->get<std::string>()}});
         return json(200, {{"name", name->get<std::string>()},
                           {"code", code},
-                          {"fingerprint", app::ledger_fingerprint(ours.ledger)}});
+                          {"fingerprint", client::ledger_fingerprint(ours.ledger)}});
     }
     if (const auto code = body.find("accept"); code != body.end() && code->is_string()) {
-        const auto invitation = app::decode_invitation(code->get<std::string>());
+        const auto invitation = client::decode_invitation(code->get<std::string>());
         if (!invitation) {
             return error(400, "invalid_argument", "that is not an invitation code");
         }
         const std::string name = body.value("name", "");
         std::optional<std::string> reply;
         const auto problem = attempt([&] {
-            static_cast<void>(app::accept_invitation(dir, services_.directory / "peer-tokens", name,
-                                                     *invitation, ours.ledger));
+            static_cast<void>(client::accept_invitation(dir, services_.directory / "peer-tokens",
+                                                        name, *invitation, ours.ledger));
             // Invite them back, unless an invitation to them is out already.
             const auto tokens = node::load_tokens(dir);
             const bool invited = tokens && std::ranges::any_of(*tokens, [&](const auto& t) {
@@ -194,13 +194,13 @@ http::Response Console::parties_route(const http::Request& request) const {
         return json(200, {{"name", name},
                           {"organization", invitation->organization},
                           {"ledger", hex_of(invitation->ledger)},
-                          {"fingerprint", app::ledger_fingerprint(invitation->ledger)},
+                          {"fingerprint", client::ledger_fingerprint(invitation->ledger)},
                           {"reply", reply ? nlohmann::json(*reply) : nlohmann::json()}});
     }
     if (const auto name = body.find("remove"); name != body.end() && name->is_string()) {
         const std::string party = name->get<std::string>();
         const auto problem = attempt([&] {
-            app::remove_peer(dir, party);
+            client::remove_peer(dir, party);
             if (auto tokens = node::load_tokens(dir)) {
                 std::erase_if(*tokens, [&](const node::ApiToken& t) { return t.name == party; });
                 static_cast<void>(node::save_tokens(dir, *tokens));
@@ -219,7 +219,7 @@ http::Response Console::parties_route(const http::Request& request) const {
 
 void Console::start_polling(std::chrono::seconds every) {
     poller_ = std::jthread([this, every](const std::stop_token& stop) {
-        const app::RelaySenderScope scope(&relay_sender_);
+        const client::RelaySenderScope scope(&relay_sender_);
         while (!stop.stop_requested()) {
             poll_peers();
             maybe_back_up();
@@ -256,7 +256,7 @@ void Console::poll_peers() const {
         box.ledger = peer.ledger_id;
         box.at = services_.clock->now();
         if (auto problem =
-                attempt([&] { box.calls = app::pending_at(peer, std::nullopt).dump(); })) {
+                attempt([&] { box.calls = client::pending_at(peer, std::nullopt).dump(); })) {
             box.problem = std::move(*problem);
         }
         fresh.emplace(peer.name, std::move(box));
@@ -350,23 +350,23 @@ http::Response Console::inbox_open_route(const http::Request& request) const {
     // read as a proposal file would be.
     protocol::ExchangeFile file;
     std::optional<std::string> problem = attempt([&] {
-        const node::Peer peer = app::peer_named(services_.directory.parent_path(), name);
-        const auto instance = app::full_id(held->value("instance", ""), "the instance");
-        auto [evidence, report] = app::fetch_instance(peer, instance);
+        const node::Peer peer = client::peer_named(services_.directory.parent_path(), name);
+        const auto instance = client::full_id(held->value("instance", ""), "the instance");
+        auto [evidence, report] = client::fetch_instance(peer, instance);
         const auto arguments = from_hex(held->value("arguments_cbor", ""));
         if (!arguments) {
-            throw app::ActionError{"the home's call does not read"};
+            throw client::ActionError{"the home's call does not read"};
         }
         file.kind = protocol::ExchangeKind::proposal;
         file.home = peer.ledger_id;
         file.instance = instance;
         file.head = held->value("head", std::uint64_t{0});
         file.function = held->value("function", "");
-        file.arguments = app::unwrap(cbor::decode(*arguments), "the call's arguments");
+        file.arguments = client::unwrap(cbor::decode(*arguments), "the call's arguments");
         file.hash = report.instance.hash;
         file.evidence = std::move(evidence);
         for (const auto& l : held->value("missing", nlohmann::json::array())) {
-            file.needs.push_back(app::full_id(l.get<std::string>(), "a ledger"));
+            file.needs.push_back(client::full_id(l.get<std::string>(), "a ledger"));
         }
     });
     if (problem) {
@@ -441,11 +441,11 @@ void Console::exchange_send_route(const http::Request& request, Respond respond)
         // To the home's registrar, off the ledger's writer.
         std::thread([home = std::move(home), bundle = std::move(*bundle),
                      respond = std::move(respond), sender]() mutable {
-            const app::RelaySenderScope scope(sender);
+            const client::RelaySenderScope scope(sender);
             nlohmann::json answer;
             const auto problem = attempt([&] {
                 answer = nlohmann::json::parse(
-                    app::peer_call(home, "POST", "/v1/contracts/consents", bundle).dump());
+                    client::peer_call(home, "POST", "/v1/contracts/consents", bundle).dump());
             });
             if (problem) {
                 respond(error(502, "unavailable", *problem));
