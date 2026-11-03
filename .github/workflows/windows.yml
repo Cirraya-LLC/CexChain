@@ -1,15 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
 
-# The Windows port, step by step: so far the core, its OpenSSL backend, the
-# verifier, and their tests (CEXCHAIN_CORE_ONLY), with MSYS2's UCRT64 GCC.
-# Runs by hand, and on pushes to the windows branch where the port goes on.
+# Windows: the core, its OpenSSL backend, the verifier, and their tests
+# (CEXCHAIN_CORE_ONLY), with MSYS2's UCRT64 GCC. Runs by hand.
 name: Windows
 
 on:
   workflow_dispatch:
-  push:
-    branches: [windows]
 
 permissions:
   contents: read
