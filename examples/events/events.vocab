@@ -6,13 +6,13 @@
 # The words of tickets for an event, in three languages, with the standard
 # terms of its two actions: a ticket is reserved for one guest, who then
 # checks in at the door. A source reads these words after `use events`,
-# given the file with --vocab (cexchain bo check tickets.bo --vocab
+# given the file with --vocab (bo check tickets.bo --vocab
 # events.vocab); a deploy embeds the whole file in the contract's source
 # bundle, so anyone rebuilds the contract without it.
 #
 # CBOR diagnostic notation (JSON with comments); the digest covers the
 # canonical CBOR. A change is a new version: deploys keep the version they
-# were built with. `cexchain bo vocab check events.vocab` checks it.
+# were built with. `bo vocab check events.vocab` checks it.
 
 {
   "format": 1,

@@ -31,8 +31,8 @@ the release build, and the Docker image have it):
 
 ```sh
 cmake --preset gcc-release && cmake --build --preset gcc-release --target cexchain
-examples/lending/lending.sh build/gcc-release/cli/cexchain                  # in a temporary directory
-examples/lending/lending.sh build/gcc-release/cli/cexchain ./lending-demo   # keep the ledgers
+examples/lending/lending.sh build/gcc-release/bin/cexchain                  # in a temporary directory
+examples/lending/lending.sh build/gcc-release/bin/cexchain ./lending-demo   # keep the ledgers
 ```
 
 The scripts are also tests: `ctest -R demo_` runs every one (`demo_lending`,

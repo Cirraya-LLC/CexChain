@@ -52,11 +52,16 @@ These are not negotiable; a change that breaks one will not be merged.
 - **Machine by default.** A person's action carries proof of presence (a passkey or a hardware
   key); anything without it is attributed to a machine.
 - **No home-made cryptography.** Cryptographic primitives come from OpenSSL through the crypto
-  interfaces in `core/`; algorithms are pluggable, and national (SM2, SM3), international, and
+  interfaces in `chain/core/`; algorithms are pluggable, and national (SM2, SM3), international, and
   post-quantum algorithms coexist.
-- **C++ standard by layer.** The core verification library (`core/`) is C++23 with no
+- **C++ standard by layer.** The core verification library (`chain/core/`) is C++23 with no
   dependencies, so it stays portable to WebAssembly and other compilers. The node and the Bo
   compiler may use C++26.
+- **One direction.** The chain (`chain/`) links neither the Bo language (`bo/`) nor an
+  application (`apps/`); the language links only the chain's verification layer; the
+  applications are built on both. `cmake/CexChainLayers.cmake` checks it when the build is
+  configured, so a change to the language or an application leaves the chain's tests as they
+  were.
 
 ## Definition of done
 
@@ -122,7 +127,7 @@ The browser verifier:
 ```sh
 tools/wasm/build.sh build/wasm
 (cd tests/browser && npm ci && npx playwright install chromium)
-tests/browser/run.sh build/gcc-debug/cli/cexchain build/wasm
+tests/browser/run.sh build/gcc-debug/bin/cexchain build/wasm
 ```
 
 Fuzzing:

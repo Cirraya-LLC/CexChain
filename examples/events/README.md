@@ -26,7 +26,7 @@ no one has reserved. Its tests run with `bo test`.
 7. anyone verifies the whole history offline.
 
 ```sh
-examples/events/events.sh build/gcc-release/cli/cexchain
+examples/events/events.sh build/gcc-release/bin/cexchain
 bo vocab check examples/events/events.vocab
 bo test examples/events/tickets.bo --vocab examples/events/events.vocab
 bo fmt examples/events/tickets.bo --vocab examples/events/events.vocab --language zh-Hant-HK
