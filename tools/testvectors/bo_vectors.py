@@ -5,11 +5,9 @@
 
 For each contract: its source (in each language it is written in), its name
 and interface, the bo-source bundle a deploy records (spec section 15), the
-code our compiler builds from it and the code's SHA-256, the hashes of the
-code codegens 1 to 3 built (informative: another compiler may build other
-code; codegen 2 differs from codegen 3 only where R31 asks a consent, and
-codegen 3 from codegen 4 only where a time rule's block does an action), each
-function's fuel and output bounds (informative), and calls with their outcomes
+code our compiler builds from it and the code's SHA-256 (informative: another
+compiler may build other code), each function's fuel and output bounds
+(informative), and calls with their outcomes
 (normative: any compiler's code must give the same outcomes, outputs, and
 refusals; fuel is our code's). Then sources that must not build, with the
 codes of their errors and their lines (normative). The C++ codegen tests
@@ -31,13 +29,11 @@ write them (tests/bo/codegen_test.cpp, the hidden case
     bo/vocab/history/*.vocab (each equal to the C++ reader's canonical CBOR,
     and the carried versions' terms the beginning of the current ones');
   - each contract's deploys with earlier releases of the official language
-    packs (its bundles as the vectors recorded them then: version 1, from
-    before vocabulary packs, with no key 6; version 2, from before
-    temperatures and field defaults; version 3, from before vocabulary pack
-    files, with version 1 of the vocabulary packs in key 6; all in
-    bo/packs/history/) are kept as
-    "earlier", oldest first, each with the code it deployed, which must be
-    the code built today with the codegen its compiler names.
+    packs (its bundles as the vectors recorded them then, the packs in
+    bo/packs/history/) are kept as "earlier", oldest first, each with the
+    code it deployed, which must be the code built today. Only deploys of
+    this codegen are kept: the compiler writes no other (the deploys before
+    the first release, built with codegens 1 to 3, were dropped).
 The C++ test "the conformance vectors" then rebuilds each source to the same
 code, bundle, interface, and bounds, rebuilds every earlier deploy to the same
 code, replays each run, and compiles each source that must not build to the
@@ -321,10 +317,11 @@ def main() -> int:
     current = max(read_pack(path.read_text(encoding="utf-8"))["version"]
                   for path in PACKS.glob("*.pack"))
     # What each contract's deploys recorded with earlier releases of the
-    # official language packs (version 1: no `use` lines, no key 6; version
-    # 2: before temperatures and field defaults; version 3: before
-    # vocabulary pack files), from the vectors as they were, oldest first:
-    # old deploys must still rebuild to the same code.
+    # official language packs, from the vectors as they were, oldest first:
+    # old deploys of this codegen must still rebuild to the same code.
+    def codegen_of(compiler: str) -> int:
+        return int(re.search(r"; codegen (\d+);", compiler).group(1))
+
     earlier = {}
     if pathlib.Path(args.out).exists():
         previous = json.loads(pathlib.Path(args.out).read_text(encoding="utf-8"))
@@ -337,6 +334,7 @@ def main() -> int:
                 if versions != {current} and all(e["bundle"] != c["bundle"] for e in kept):
                     kept.append({"compiler": c["compiler"], "bundle": c["bundle"],
                                  "code_sha256": c["code_sha256"]})
+            kept = [e for e in kept if codegen_of(e["compiler"]) == doc["codegen"]]
             if kept:
                 earlier[c["name"]] = kept
     contracts = {}
@@ -353,12 +351,8 @@ def main() -> int:
             check_bundle(old_bundle, cbor2.loads(old_bundle)[3], packs, version)
             if version == 1:
                 assert not uses(cbor2.loads(old_bundle)[3]), f"{name}: use lines before packs"
-            # The code of the codegen the deploy's compiler names (codegen
-            # 4 reads a time rule's block with the actions it does).
-            codegen = int(re.search(r"; codegen (\d+);", old["compiler"]).group(1))
-            built = (hashlib.sha256(code).hexdigest() if codegen == doc["codegen"]
-                     else deploy[f"codegen{codegen}_sha256"])
-            assert old["code_sha256"] == built, \
+            assert codegen_of(old["compiler"]) == doc["codegen"]
+            assert old["code_sha256"] == hashlib.sha256(code).hexdigest(), \
                 f"{name}: the code differs from the code deployed with packs version {version}"
         contracts[name] = {
             "name": name,
@@ -370,9 +364,6 @@ def main() -> int:
             "bundle_sha256": hashlib.sha256(bundle).hexdigest(),
             "code_sha256": hashlib.sha256(code).hexdigest(),
             "code": code_hex,
-            "codegen1_sha256": deploy["codegen1_sha256"],
-            "codegen2_sha256": deploy["codegen2_sha256"],
-            "codegen3_sha256": deploy["codegen3_sha256"],
             "bounds": deploy["bounds"],
             "runs": [],
             "_module": w.load(code),
@@ -412,14 +403,9 @@ def main() -> int:
                        "sources (in each language they are written in), name, interface, the "
                        "bo-source bundle a deploy records (official language packs version "
                        f"{current} and the vocabulary packs its use lines name, SHA-256 "
-                       "digests), the bundles its deploys recorded with earlier releases of "
-                       "the official packs, oldest first (earlier: language packs version 1, "
-                       "no use lines; version 2, before temperatures and field defaults; "
-                       "version 3, before vocabulary pack files, with version 1 of the "
-                       "vocabulary packs; version 4, before requests, and version 5, before "
-                       "a service's periods and bills, with version 2 of them; each rebuilds "
-                       "to the code its compiler's codegen wrote), "
-                       "and the code cexchain-bo builds, the hashes of its codegen 1 to 3 code, and its "
+                       "digests), the bundles its deploys of this codegen recorded with "
+                       "earlier releases of the official packs, oldest first (each rebuilds to "
+                       "the same code), and the code cexchain-bo builds and its "
                        "functions' fuel and output bounds (informative); calls with their "
                        "outcomes (normative; fuel is this code's); and sources that must not "
                        "build, with their errors' codes and lines (normative). Inputs are "

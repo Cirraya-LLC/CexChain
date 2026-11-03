@@ -110,7 +110,6 @@ enum class Routine : std::uint8_t {
     /// [p, depth] -> [end]: reads and indexes the item at p (internal).
     read_item,
     /// [p, end] -> []: aborts with bo:input unless [p, end) is UTF-8 (internal).
-    check_utf8,
     /// [item] -> [end]: the address just after an input item.
     item_end,
     /// [item] -> [i64]: the argument of an item's head: an unsigned integer's
@@ -262,16 +261,12 @@ enum class Var : std::uint8_t {
 /// the order of first use, so the same calls give the same module.
 class Runtime {
 public:
-    /// Writes routines as codegen version `codegen` did (the only routine
-    /// that differs is read_item: codegen 1 checks texts' UTF-8).
-    explicit Runtime(wasm::ModuleWriter& module, std::uint32_t codegen = wasm::codegen_version)
+    explicit Runtime(wasm::ModuleWriter& module)
         BO_PRE(module.plan().pages == layout::pages &&
                module.plan().static_base == layout::static_base &&
-               module.plan().static_end == layout::static_end &&
-               codegen >= wasm::oldest_codegen_version && codegen <= wasm::codegen_version);
+               module.plan().static_end == layout::static_end);
 
     [[nodiscard]] wasm::ModuleWriter& module() noexcept { return *module_; }
-    [[nodiscard]] std::uint32_t codegen() const noexcept { return codegen_; }
     /// The routine's function, emitting it (and what it calls) if needed.
     [[nodiscard]] wasm::Func get(Routine routine);
     [[nodiscard]] wasm::Func fail(Reason reason);
@@ -288,7 +283,6 @@ public:
 
 private:
     wasm::ModuleWriter* module_;
-    std::uint32_t codegen_;
     std::vector<std::optional<wasm::Func>> functions_;
     std::array<std::optional<wasm::Global>, 4> vars_;
     std::vector<Routine> emitted_;

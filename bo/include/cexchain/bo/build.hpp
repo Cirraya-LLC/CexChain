@@ -49,9 +49,6 @@ struct Compiled {
 };
 
 struct CompileOptions {
-    /// The codegen version to write: this compiler's, or an earlier one it
-    /// still writes (to rebuild a deploy made with it).
-    std::uint32_t codegen = wasm::codegen_version;
     /// Refuse code that a call could run out of fuel in (build.fuel: a
     /// function's bound beyond the 10,000,000 a call has), and warn when a
     /// call's output could exceed what the code has for it (build.output).
@@ -107,11 +104,9 @@ struct Rebuild {
 
 /// Rebuilds a deploy whose language is `bo` from its source, reading the
 /// bundle's pack digests with the home's hash, and compares the result with
-/// the deploy's code, interface, and name. A deploy that names a codegen
-/// version this compiler still writes (wasm::oldest_codegen_version on) is
-/// rebuilt as that version. "Differs" only when the deploy names such a
-/// codegen and this compiler's edition (and, for the official packs, its
-/// release): another version's output is reported as such, never as a
+/// the deploy's code, interface, and name. "Differs" only when the deploy
+/// names this compiler's codegen and edition (and, for the official packs,
+/// its release): another version's output is reported as such, never as a
 /// forgery.
 [[nodiscard]] Rebuild rebuild(const protocol::ContractDeployBody& deploy,
                               const crypto::Provider& provider, crypto::HashAlg home_hash);

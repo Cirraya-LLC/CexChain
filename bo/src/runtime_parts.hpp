@@ -27,7 +27,6 @@ inline void fail_if(Runtime& rt, FunctionBuilder& b, const Reason reason) {
 
 void define_read_input(Runtime& rt, FunctionBuilder& b);
 void define_read_item(Runtime& rt, FunctionBuilder& b);
-void define_check_utf8(Runtime& rt, FunctionBuilder& b);
 void define_item_end(Runtime& rt, FunctionBuilder& b);
 void define_head_arg(Runtime& rt, FunctionBuilder& b);
 void define_content(Runtime& rt, FunctionBuilder& b);

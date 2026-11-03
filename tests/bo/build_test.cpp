@@ -506,97 +506,46 @@ TEST_CASE("a deploy's use lines are its bundle's vocabulary packs", "[bo][build]
     CHECK(mentions(r, "use lines"));
 }
 
-TEST_CASE("a deploy built as codegen 1 still rebuilds", "[bo][build]") {
-    // Codegen 2 stopped checking texts' UTF-8 in the input and
-    // shares two locals where codegen 1 took new ones; the compiler still
-    // writes codegen 1, so that deploys made with it rebuild.
-    const Compiled first = compile(agreement(), official_set(), CompileOptions{1, false});
-    const Compiled second = compile(agreement(), official_set());
-    REQUIRE(first.build.has_value());
-    REQUIRE(second.build.has_value());
-    CHECK(first.build->code != second.build->code);
-    CHECK(first.build->interface == second.build->interface);
-    // Codegen 1 has no bounds.
-    CHECK(first.build->bounds.empty());
-    CHECK(second.build->bounds.size() == second.build->interface.size());
-
+TEST_CASE("a deploy that names an earlier codegen is another compiler's", "[bo][build]") {
+    // Codegens 1 to 3 came before the first release, and the compiler writes
+    // only its own: a deploy whose code its source does not build to here is
+    // another compiler's output when it names another codegen, and differs
+    // when it names this one.
+    const std::string other =
+        read_text(build_dir.parent_path() / "check-role-taking" / "source.bo");
     protocol::ContractDeployBody deploy = deploy_of(agreement());
-    CompilerId old = this_compiler();
-    old.codegen = 1;
-    deploy.compiler = format_compiler(old);
-    deploy.code = first.build->code;
-    Rebuild r = rebuilt(deploy);
-    CHECK(r.status == RebuildStatus::rebuilds);
-    REQUIRE(r.build.has_value());
-    CHECK(r.build->code == first.build->code);
-    // A deploy that names codegen 1 but holds codegen 2's code is not its
-    // source's: this compiler writes codegen 1, and it is other code.
-    deploy.code = second.build->code;
-    r = rebuilt(deploy);
+    deploy.code = deploy_of(other).code;
+    CompilerId named = this_compiler();
+    for (const std::uint64_t codegen : {0U, 1U, 3U}) {
+        named.codegen = codegen;
+        deploy.compiler = format_compiler(named);
+        INFO(deploy.compiler);
+        CHECK(rebuilt(deploy).status == RebuildStatus::other_compiler);
+    }
+    named.codegen = wasm::codegen_version;
+    deploy.compiler = format_compiler(named);
+    const Rebuild r = rebuilt(deploy);
     CHECK(r.status == RebuildStatus::differs);
     CHECK(mentions(r, "with the compiler the deploy names"));
-    // Codegen 0 was never written: code this compiler does not reproduce is
-    // another compiler's.
-    old.codegen = 0;
-    deploy.compiler = format_compiler(old);
-    deploy.code = first.build->code;
-    CHECK(rebuilt(deploy).status == RebuildStatus::other_compiler);
 }
 
-TEST_CASE("a deploy built as codegen 2 still rebuilds, without R31's consents", "[bo][build]") {
-    // Codegen 3 asks the consent of a counterparty that an action makes the
-    // holder, the pledgee, or the payee when its role was bound before (R31,
-    // decided before the first release); codegen 2 did not, and the compiler
-    // still writes it, so that a deploy made with it rebuilds.
+TEST_CASE("a counterparty an action makes the pledgee consents, though bound before",
+          "[bo][build]") {
+    // R31: the pledge to the bank, whose role was bound at creation, waits
+    // for the bank.
     const std::string source =
         read_text(build_dir.parent_path() / "check-role-taking" / "source.bo");
-    const Compiled second = compile(source, official_set(), CompileOptions{2, false});
-    const Compiled third = compile(source, official_set());
-    REQUIRE(second.build.has_value());
-    REQUIRE(third.build.has_value());
-    CHECK(second.build->code != third.build->code);
-    CHECK(second.build->interface == third.build->interface);
-    // Without such a consent, codegens 2 and 3 write the same bytes.
-    const Compiled plain = compile(agreement(), official_set(), CompileOptions{2, false});
-    REQUIRE(plain.build.has_value());
-    CHECK(plain.build->code == deploy_of(agreement()).code);
-    // Codegen 2's pledge to the bank, bound at creation, did not wait for
-    // the bank; codegen 3's does.
-    const TestResults before = run_tests(*second.model, *second.build, provider());
-    REQUIRE(before.tests.size() == 3);
-    CHECK(!before.tests.front().passed);
-    REQUIRE(before.tests.front().steps.size() >= 2);
-    CHECK(before.tests.front().steps[1].happened == Happened::accepted);
-    CHECK(run_tests(*third.model, *third.build, provider()).passed == 3);
-
-    protocol::ContractDeployBody deploy = deploy_of(source);
-    CompilerId old = this_compiler();
-    old.codegen = 2;
-    deploy.compiler = format_compiler(old);
-    deploy.code = second.build->code;
-    CHECK(rebuilt(deploy).status == RebuildStatus::rebuilds);
-    // Codegen 3's code under codegen 2's name is not its source's.
-    deploy.code = third.build->code;
-    CHECK(rebuilt(deploy).status == RebuildStatus::differs);
+    const Compiled compiled = compile(source, official_set());
+    REQUIRE(compiled.build.has_value());
+    CHECK(run_tests(*compiled.model, *compiled.build, provider()).passed == 3);
 }
 
-TEST_CASE("a deploy built as codegen 3 still rebuilds, with no final state", "[bo][build]") {
-    // Codegen 4 reads a time rule's block with the actions it does (spec/bo.md
-    // 6.10): `when overdue 3 days` then `suspend` on the next line applies
-    // only where suspend can start, as `when overdue 3 days suspend` does.
-    // Codegen 3 read such a block as able to apply in any state, so that no
-    // state was final; the compiler still writes it, so that its deploys
-    // rebuild.
+TEST_CASE("a time rule's block is read with the actions it does", "[bo][build]") {
+    // spec/bo.md 6.10: `when overdue 3 days` then `suspend` on the next line
+    // applies only where suspend can start, as `when overdue 3 days suspend`
+    // does, and both spellings build to the same code.
     const std::string source =
         read_text(build_dir.parent_path() / "test" / "rule-block" / "source.bo");
-    const Compiled third = compile(source, official_set(), CompileOptions{3, false});
-    const Compiled fourth = compile(source, official_set());
-    REQUIRE(third.build.has_value());
-    REQUIRE(fourth.build.has_value());
-    CHECK(third.build->code != fourth.build->code);
-    CHECK(third.build->interface == fourth.build->interface);
-    // With the actions on the rules' lines, codegens 3 and 4 agree, and
-    // codegen 4 writes the same code for both spellings.
     std::string lines = source;
     for (const std::string_view action : {"suspend", "terminate"}) {
         const std::string block = std::format(" days\n  {}\n", action);
@@ -604,36 +553,19 @@ TEST_CASE("a deploy built as codegen 3 still rebuilds, with no final state", "[b
         REQUIRE(at != std::string::npos);
         lines.replace(at, block.size(), std::format(" days {}\n", action));
     }
-    const Compiled on_line = compile(lines, official_set(), CompileOptions{3, false});
+    const Compiled block = compile(source, official_set());
+    const Compiled on_line = compile(lines, official_set());
+    REQUIRE(block.build.has_value());
     REQUIRE(on_line.build.has_value());
-    CHECK(on_line.build->code == compile(lines, official_set()).build->code);
-    CHECK(on_line.build->code == fourth.build->code);
-    // Codegen 3's terminated and settled instances took more calls.
-    const TestResults before = run_tests(*third.model, *third.build, provider());
-    const TestResults after = run_tests(*fourth.model, *fourth.build, provider());
-    REQUIRE(before.tests.size() == 2);
-    REQUIRE(after.tests.size() == 2);
-    CHECK(after.passed == 2);
-    REQUIRE(before.tests[0].steps.size() == 5);
-    REQUIRE(after.tests[0].steps.size() == 5);
-    CHECK(!before.tests[0].steps[3].final);
-    CHECK(after.tests[0].steps[3].final);
-    CHECK(!before.tests[1].steps[1].final);
-    CHECK(after.tests[1].steps[1].final);
-    // The contract text says what each codegen's code does.
-    CHECK(explain(*third.model, nullptr, model::Finality::rule_lines)
-              .text.find("No state is final") != std::string::npos);
-    CHECK(explain(*fourth.model, nullptr).text.find("No state is final") == std::string::npos);
-
-    protocol::ContractDeployBody deploy = deploy_of(source);
-    CompilerId old = this_compiler();
-    old.codegen = 3;
-    deploy.compiler = format_compiler(old);
-    deploy.code = third.build->code;
-    CHECK(rebuilt(deploy).status == RebuildStatus::rebuilds);
-    // Codegen 4's code under codegen 3's name is not its source's.
-    deploy.code = fourth.build->code;
-    CHECK(rebuilt(deploy).status == RebuildStatus::differs);
+    CHECK(on_line.build->code == block.build->code);
+    // Terminated and settled instances are final: they take no more calls.
+    const TestResults results = run_tests(*block.model, *block.build, provider());
+    REQUIRE(results.tests.size() == 2);
+    CHECK(results.passed == 2);
+    REQUIRE(results.tests[0].steps.size() == 5);
+    CHECK(results.tests[0].steps[3].final);
+    CHECK(results.tests[1].steps[1].final);
+    CHECK(explain(*block.model, nullptr).text.find("No state is final") == std::string::npos);
 }
 
 TEST_CASE("code a call could run out of fuel in does not build", "[bo][build]") {
@@ -655,7 +587,7 @@ TEST_CASE("code a call could run out of fuel in does not build", "[bo][build]") 
     CHECK(std::stoull(std::string(fuel->arg("bound"))) > vm::fuel_limit);
     // The same code builds when only bytes are compared (a rebuild).
     const Compiled bytes_only =
-        compile(nested, official_set(), CompileOptions{wasm::codegen_version, false});
+        compile(nested, official_set(), CompileOptions{.check_bounds = false});
     REQUIRE(bytes_only.build.has_value());
     CHECK(bytes_only.build->bounds.at("check").fuel > vm::fuel_limit);
     // Smaller bounds build: 100 by 100.

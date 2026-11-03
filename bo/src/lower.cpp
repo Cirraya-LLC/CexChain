@@ -400,9 +400,8 @@ struct Ctx {
 
 class Lowering {
 public:
-    Lowering(std::string_view source, const m::Model& model, const std::uint32_t codegen)
-        : source_(source), model_(model), codegen_(codegen), module_(rt::memory_plan()),
-          rt_(module_, codegen) {}
+    Lowering(std::string_view source, const m::Model& model)
+        : source_(source), model_(model), module_(rt::memory_plan()), rt_(module_) {}
 
     Lowered run();
 
@@ -546,16 +545,8 @@ private:
     void write_pending(FunctionBuilder& b);
     void write_event(FunctionBuilder& b);
     void write_rule_event(FunctionBuilder& b);
-    /// True if this codegen's code asks consent K: codegens 1 and 2 came
-    /// before R31 and never ask its consents, so that their deploys rebuild
-    /// to the same bytes.
-    [[nodiscard]] bool asks(const m::Consent& k) const noexcept {
-        return codegen_ >= 3 || k.rule != "R31";
-    }
-
     std::string_view source_;
     const m::Model& model_;
-    std::uint32_t codegen_;
     wasm::ModuleWriter module_;
     rt::Runtime rt_;
     std::vector<Diagnostic> diagnostics_;
@@ -1319,10 +1310,8 @@ void Lowering::plan_charges() {
 
 void Lowering::plan_finals() {
     // A state is final when no action can start from it and no time rule
-    // can apply in it; codegens 1 to 3 read a rule's block without the
-    // actions it does.
-    const std::vector<bool> finals =
-        m::final_states(model_, codegen_ >= 4 ? m::Finality::rule_blocks : m::Finality::rule_lines);
+    // can apply in it.
+    const std::vector<bool> finals = m::final_states(model_);
     for (std::size_t i = 0; i < model_.states.size(); ++i) {
         const m::State& s = model_.states[i];
         states_[state_index_.at(m::key(s.word, s.name))].final = finals[i];
@@ -1478,9 +1467,6 @@ wasm::Size Lowering::text_size(const Ctx& c, const m::Expr& x, const m::Expr& y)
 
 std::pair<Local, Local> Lowering::scratch(Ctx& c) {
     FunctionBuilder& b = *c.b;
-    if (codegen_ < 2) {
-        return {b.local(I32), b.local(I32)};
-    }
     if (!c.scratch) {
         c.scratch = std::pair{b.local(I32), b.local(I32)};
     }
@@ -3450,9 +3436,7 @@ void Lowering::emit_action(const ActionInfo& info) {
     }
     // R3, R8, R21, R31: the consents the action needs.
     for (const m::Consent& k : a.consents) {
-        if (asks(k)) {
-            consent_of(c, k.party);
-        }
+        consent_of(c, k.party);
     }
     statements(c, a.body);
     finish(b);
@@ -3541,9 +3525,7 @@ void Lowering::emit_core(const ActionInfo& info) {
     b.u32(intern(info.wire)).global_set(event_name_);
     b.u32(static_cast<std::uint32_t>(info.wire.size())).global_set(event_length_);
     for (const m::Consent& k : a.consents) {
-        if (asks(k)) {
-            consent_of(c, k.party);
-        }
+        consent_of(c, k.party);
     }
     statements(c, a.body);
     finish(b);
@@ -3860,9 +3842,7 @@ void Lowering::run_action(Ctx& c, const m::Do& d) {
     c.requires_count = 0;
     entry_check(c);
     for (const m::Consent& k : info->action->consents) {
-        if (asks(k)) {
-            consent_of(c, k.party);
-        }
+        consent_of(c, k.party);
     }
     statements(c, info->action->body);
     c.action = outer;
@@ -4912,9 +4892,7 @@ Lowered Lowering::run() {
     if (requests_used_) {
         build.interface.emplace(std::string(m::reply_function), protocol::FunctionKind::call);
     }
-    if (codegen_ >= 2) {
-        bounds(build);
-    }
+    bounds(build);
     out.build = std::move(build);
     return out;
 }
@@ -5138,9 +5116,8 @@ void Lowering::bounds(Build& build) {
 
 } // namespace
 
-Lowered lower(const std::string_view source, const model::Model& model,
-              const std::uint32_t codegen) {
-    return Lowering(source, model, codegen).run();
+Lowered lower(const std::string_view source, const model::Model& model) {
+    return Lowering(source, model).run();
 }
 
 } // namespace cexchain::bo

@@ -136,8 +136,8 @@ std::vector<std::pair<std::string, std::filesystem::path>> cases() {
         {"vps", golden_dir / "test/vps/source.bo"},
         {"vps-zh-hant", golden_dir / "test/vps-zh-hant/source.bo"},
         {"services", golden_dir / "check-services/source.bo"},
-        // A time rule's action on the next line of its block (codegen
-        // 4): the states it ends in are final.
+        // A time rule's action on the next line of its block: the states
+        // it ends in are final.
         {"rule-block", golden_dir / "test/rule-block/source.bo"},
     };
 }

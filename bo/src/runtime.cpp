@@ -79,7 +79,6 @@ const std::array<Spec, all_routines>& specs() {
         {fail_output, {}, define_fail<Reason::output>},
         {read_input, {{}, {I32}}, define_read_input},
         {read_item, {{I32, I32}, {I32}}, define_read_item},
-        {check_utf8, {{I32, I32}, {}}, define_check_utf8},
         {item_end, {{I32}, {I32}}, define_item_end},
         {head_arg, {{I32}, {I64}}, define_head_arg},
         {content, {{I32}, {I32}}, define_content},
@@ -167,8 +166,7 @@ wasm::FuncType type_of(const Routine routine) {
     return spec(routine).type;
 }
 
-Runtime::Runtime(wasm::ModuleWriter& module, const std::uint32_t codegen)
-    : module_(&module), codegen_(codegen), functions_(all_routines) {}
+Runtime::Runtime(wasm::ModuleWriter& module) : module_(&module), functions_(all_routines) {}
 
 wasm::Func Runtime::get(const Routine routine) {
     std::optional<wasm::Func>& slot = functions_[static_cast<std::size_t>(routine)];
@@ -185,12 +183,8 @@ wasm::Func Runtime::get(const Routine routine) {
     module_->define(std::move(b));
     if (routine == Routine::read_input) {
         // read_item recurses: read_input's bound is a formula (sizes: the
-        // input's items and keys at most). Codegen 1 checked each text's
-        // bytes, at up to 50 fuel a byte: it has no useful bound.
-        module_->set_bound(f, [codegen = codegen_](std::span<const std::uint64_t> sizes) {
-            if (codegen < 2) {
-                return wasm::Bound{wasm::unbounded, 0};
-            }
+        // input's items and keys at most).
+        module_->set_bound(f, [](std::span<const std::uint64_t> sizes) {
             return wasm::Bound{read_input_fuel(sizes[0], sizes[1]), 0};
         });
     }

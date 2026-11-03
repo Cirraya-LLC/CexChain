@@ -7,9 +7,9 @@
 // in a harness module that copies what it accepts back out item by item
 // (tests/bo/runtime_harness.hpp, cbor_copy_module). The reader must accept
 // what core's decoder accepts, and give it back unchanged; anything else must
-// abort the call with "bo:input", except that from codegen 2 on the reader
-// does not check texts' UTF-8 (the ledger's input holds valid UTF-8 only), so
-// an input core refuses for that alone it may accept. And reading alone
+// abort the call with "bo:input", except that the reader does not check
+// texts' UTF-8 (the ledger's input holds valid UTF-8 only), so an input core
+// refuses for that alone it may accept. And reading alone
 // (read_only_module) must cost no more than the bound the compiler counts
 // for the input's items and keys (read_bound.hpp).
 //

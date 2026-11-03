@@ -1082,9 +1082,9 @@ Bytes results_bytes(const std::vector<std::int64_t>& results) {
 // ---------------------------------------------------------------------------
 
 /// The reader agrees with core's decoder: what core accepts it accepts and
-/// writes back unchanged; what core refuses it refuses, except that from
-/// codegen 2 on it does not check texts' UTF-8 (the ledger's input holds
-/// valid UTF-8 only), so an input core refuses for that alone it may accept.
+/// writes back unchanged; what core refuses it refuses, except that it does
+/// not check texts' UTF-8 (the ledger's input holds valid UTF-8 only), so an
+/// input core refuses for that alone it may accept.
 void check_reader(const Case& c, const Run& r) {
     INFO("input " << cexchain::to_hex(c.input));
     if (c.input.size() > rt::layout::input_max) {

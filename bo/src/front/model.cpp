@@ -425,7 +425,7 @@ bool does_action(const Statement& s) {
 }
 
 /// The entry states of a block's top-level lines (6.10). With a model (a
-/// time rule's block, Finality::rule_blocks), a line that does an action
+/// time rule's block), a line that does an action
 /// counts with that action's entry states and ends the reading, as the
 /// action may change the state; a line that holds one ends it too.
 std::optional<std::set<std::string>> block_entry_states(const std::vector<Statement>& body,
@@ -511,8 +511,7 @@ namespace {
 
 /// The states a time rule can fire from (nullopt: any): the state a held
 /// trigger names, narrowed by what the rule does first.
-std::optional<std::set<std::string>> rule_entry_states(const Model& model, const TimeRule& rule,
-                                                       const Finality reading) {
+std::optional<std::set<std::string>> rule_entry_states(const Model& model, const TimeRule& rule) {
     std::optional<std::set<std::string>> allowed;
     if (const std::optional<Trigger> t = trigger_of(rule.event);
         t && t->kind == TriggerKind::held && t->state != nullptr) {
@@ -526,7 +525,7 @@ std::optional<std::set<std::string>> rule_entry_states(const Model& model, const
             first = entry_states(*a);
         }
     } else {
-        first = block_entry_states(rule.body, reading == Finality::rule_blocks ? &model : nullptr);
+        first = block_entry_states(rule.body, &model);
     }
     if (!first) {
         return allowed;
@@ -541,7 +540,7 @@ std::optional<std::set<std::string>> rule_entry_states(const Model& model, const
 
 } // namespace
 
-std::vector<bool> final_states(const Model& model, const Finality reading) {
+std::vector<bool> final_states(const Model& model) {
     std::set<std::string> open;
     bool any = false;
     for (const Action& a : model.actions) {
@@ -557,7 +556,7 @@ std::vector<bool> final_states(const Model& model, const Finality reading) {
         if (any || !rule_runs(r)) {
             continue;
         }
-        const auto allowed = rule_entry_states(model, r, reading);
+        const auto allowed = rule_entry_states(model, r);
         if (!allowed) {
             any = true;
             break;

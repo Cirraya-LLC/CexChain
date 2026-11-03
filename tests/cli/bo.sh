@@ -1085,21 +1085,13 @@ expect_exit 3 contract explain "$W" --ledger "$D"
 contains -F "MALFORMED" out.txt || fail "explain: malformed"
 d contract explain "$Z" | sed '1,/^$/d' > text.txt
 diff "$TEXTS/agreement/en.txt" text.txt > /dev/null || fail "explain: the same bytes, said to be another codegen's, rebuild"
-# Codegen 4 reads a time rule's action on the next line of its block, so
-# the states it ends in are final; a deploy built with codegen 3 (bo build
-# --codegen 3) still rebuilds, and its text says what its code does.
+# A time rule's action on the next line of its block: the states it ends
+# in are final, and the contract text says so.
 cp "$GOLDENS/test/rule-block/source.bo" rule-block.bo
-run bo build rule-block.bo --codegen 3 --out rule-block-3.boc > out.txt 2> /dev/null
-contains -F "compiler   $(sed 's/codegen 4/codegen 3/' <<< "$COMPILER")" out.txt || fail "build --codegen 3"
-run bo build rule-block.bo --out rule-block-4.boc > /dev/null 2>&1
-cmp -s rule-block-3.boc rule-block-4.boc && fail "codegens 3 and 4 write other code here"
-expect_exit 1 bo build rule-block.bo --codegen 5
-contains -F "a codegen version from 1 to 4, not 5" out.txt || fail "build --codegen 5"
-R3="$(d contract deploy --bo rule-block-3.boc --as d-root.key --json 2> /dev/null | json 'd["contract"]["id"]')"
-R4="$(d contract deploy --bo rule-block-4.boc --as d-root.key --json 2> /dev/null | json 'd["contract"]["id"]')"
-d contract show "$R3" | contains -F "rebuild:    rebuilds" || fail "a codegen 3 deploy rebuilds"
-d contract explain "$R3" | contains -F "No state is final" || fail "codegen 3: no final state"
-d contract explain "$R4" | contains -F "The state terminated is final" || fail "codegen 4: final states"
+run bo build rule-block.bo --out rule-block.boc > /dev/null 2>&1
+R4="$(d contract deploy --bo rule-block.boc --as d-root.key --json 2> /dev/null | json 'd["contract"]["id"]')"
+d contract show "$R4" | contains -F "rebuild:    rebuilds" || fail "the rule block's deploy rebuilds"
+d contract explain "$R4" | contains -F "The state terminated is final" || fail "rule block: final states"
 d contract deploy agreement.wasm --function create=create --language bo --compiler "$COMPILER" \
     --as d-root.key --json > nosource.json
 d contract show "$(json 'd["contract"]["id"]' < nosource.json)" | contains -F "MALFORMED: a Bo deploy carries its source" || fail "no source"

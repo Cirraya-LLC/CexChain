@@ -142,9 +142,6 @@ void define_read_item(Runtime& rt, FunctionBuilder& b) {
     b.op(i64_gt_u);
     fail_if(rt, b, Reason::input);
     b.get(q).get(arg).op(i32_wrap_i64).op(i32_add).set(end);
-    if (rt.codegen() < 2) {
-        b.get(q).get(end).call(rt.get(Routine::check_utf8), {layout::input_max});
-    }
     b.br(done);
 
     b.end(array);
@@ -221,83 +218,6 @@ void define_read_item(Runtime& rt, FunctionBuilder& b) {
 
     b.get(p).i32(2).op(i32_shl).get(end).store(i32_store, layout::ends_offset);
     b.get(end);
-}
-
-void define_check_utf8(Runtime& rt, FunctionBuilder& b) {
-    // Size 0: the bytes checked. Each pass takes one byte at least.
-    b.sizes({layout::input_max});
-    const Local p = b.param(0);
-    const Local end = b.param(1);
-    const Local c = b.local(I32);
-    const Local length = b.local(I32);
-    const Local point = b.local(I32);
-    const Local least = b.local(I32);
-    const Local k = b.local(I32);
-
-    const Label done = b.block();
-    const Label next = b.loop({b.size(0) + 1});
-    b.get(p).get(end).op(i32_ge_u).br_if(done);
-    // Eight ASCII bytes at a time.
-    b.get(end).get(p).op(i32_sub).i32(8).op(i32_ge_u);
-    {
-        const Label room = b.if_();
-        b.get(p).load(i64_load).i64(static_cast<std::int64_t>(0x8080'8080'8080'8080ULL));
-        b.op(i64_and).op(i64_eqz);
-        const Label ascii = b.if_();
-        b.get(p).i32(8).op(i32_add).set(p).br(next);
-        b.end(ascii);
-        b.end(room);
-    }
-    b.get(p).load(i32_load8_u).tee(c).u32(0x80).op(i32_lt_u);
-    {
-        const Label ascii = b.if_();
-        b.get(p).i32(1).op(i32_add).set(p).br(next);
-        b.end(ascii);
-    }
-    // A lead byte gives the length, its bits, and the least code point of
-    // that length (no overlong forms).
-    {
-        const Label lead = b.block();
-        const Label four = b.block();
-        const Label three = b.block();
-        const Label two = b.block();
-        b.get(c).u32(0xE0).op(i32_and).u32(0xC0).op(i32_eq).br_if(two);
-        b.get(c).u32(0xF0).op(i32_and).u32(0xE0).op(i32_eq).br_if(three);
-        b.get(c).u32(0xF8).op(i32_and).u32(0xF0).op(i32_eq).br_if(four);
-        b.call(rt.fail(Reason::input)).unreachable();
-        b.end(two);
-        b.i32(2).set(length).get(c).i32(0x1F).op(i32_and).set(point).u32(0x80).set(least);
-        b.br(lead);
-        b.end(three);
-        b.i32(3).set(length).get(c).i32(0x0F).op(i32_and).set(point).u32(0x800).set(least);
-        b.br(lead);
-        b.end(four);
-        b.i32(4).set(length).get(c).i32(0x07).op(i32_and).set(point).u32(0x1'0000).set(least);
-        b.end(lead);
-    }
-    b.get(end).get(p).op(i32_sub).get(length).op(i32_lt_u);
-    fail_if(rt, b, Reason::input);
-    b.i32(1).set(k);
-    {
-        // The continuation bytes: one to three.
-        const Label more = b.loop({3});
-        b.get(p).get(k).op(i32_add).load(i32_load8_u).tee(c);
-        b.u32(0xC0).op(i32_and).u32(0x80).op(i32_ne);
-        fail_if(rt, b, Reason::input);
-        b.get(point).i32(6).op(i32_shl).get(c).i32(0x3F).op(i32_and).op(i32_or).set(point);
-        b.get(k).i32(1).op(i32_add).tee(k).get(length).op(i32_lt_u).br_if(more);
-        b.end(more);
-    }
-    // Not overlong, not beyond U+10FFFF, not a surrogate.
-    b.get(point).get(least).op(i32_lt_u);
-    fail_if(rt, b, Reason::input);
-    b.get(point).u32(0x10'FFFF).op(i32_gt_u);
-    fail_if(rt, b, Reason::input);
-    b.get(point).u32(0xD800).op(i32_sub).u32(0x800).op(i32_lt_u);
-    fail_if(rt, b, Reason::input);
-    b.get(p).get(length).op(i32_add).set(p).br(next);
-    b.end(next);
-    b.end(done);
 }
 
 void define_item_end(Runtime&, FunctionBuilder& b) {

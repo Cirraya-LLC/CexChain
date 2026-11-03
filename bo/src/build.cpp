@@ -77,7 +77,7 @@ Compiled compile(std::string_view source, const PackSet& packs, const CompileOpt
         out.name = checked.model.name;
         if (!has_errors(out.diagnostics)) {
             out.model = checked.model;
-            Lowered lowered = lower(source, checked.model, options.codegen);
+            Lowered lowered = lower(source, checked.model);
             append(out.diagnostics, lowered.diagnostics);
             out.build = std::move(lowered.build);
             if (out.build && options.check_bounds) {
@@ -182,10 +182,9 @@ Rebuild rebuild(const protocol::ContractDeployBody& deploy, const crypto::Provid
     Rebuild r;
     const CompilerId& ours = this_compiler();
     r.deployed = parse_compiler(deploy.compiler);
-    // A codegen version this compiler still writes, and its edition.
-    const bool same_codegen = r.deployed && r.deployed->codegen >= wasm::oldest_codegen_version &&
-                              r.deployed->codegen <= ours.codegen &&
-                              r.deployed->edition == ours.edition;
+    // This compiler's codegen version, and its edition.
+    const bool same_codegen =
+        r.deployed && r.deployed->codegen == ours.codegen && r.deployed->edition == ours.edition;
     const bool same_release = same_codegen && r.deployed->release == ours.release;
     const auto result = [&](RebuildStatus status, std::string detail) {
         r.status = status;
@@ -243,10 +242,7 @@ Rebuild rebuild(const protocol::ContractDeployBody& deploy, const crypto::Provid
     }
 
     Compiled compiled =
-        compile(r.bundle->source, *opened.packs,
-                CompileOptions{same_codegen ? static_cast<std::uint32_t>(r.deployed->codegen)
-                                            : wasm::codegen_version,
-                               false});
+        compile(r.bundle->source, *opened.packs, CompileOptions{.check_bounds = false});
     if (compiled.edition != r.bundle->edition) {
         return result(RebuildStatus::malformed,
                       std::format("the bundle says the source is Bo edition {}, but it is "
