@@ -18,14 +18,14 @@ WORKDIR /src
 COPY . .
 # Parallel compile jobs (default: all cores); lower it on small machines.
 ARG BUILD_JOBS=
-# GCC 16's C++ library is newer than Debian's: link it in. The preset requires
-# the Bo compiler (CEXCHAIN_BO=ON), so the image always has the bo commands.
+# GCC 16's C++ library is newer than Debian's: link it in. A server's image:
+# the chain (cexchain) and the search index beside it (cexchain-index).
 RUN cmake --preset gcc-release -DCMAKE_CXX_COMPILER=g++ -DCEXCHAIN_BUILD_TESTS=OFF \
         -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc" \
- && cmake --build --preset gcc-release --target cexchain ${BUILD_JOBS:+-j $BUILD_JOBS} \
- && strip build/gcc-release/cli/cexchain \
- && build/gcc-release/cli/cexchain version \
- && build/gcc-release/cli/cexchain bo packs list > /dev/null
+ && cmake --build --preset gcc-release --target cexchain cexchain-index ${BUILD_JOBS:+-j $BUILD_JOBS} \
+ && strip build/gcc-release/bin/cexchain build/gcc-release/bin/cexchain-index \
+ && build/gcc-release/bin/cexchain version \
+ && build/gcc-release/bin/cexchain-index version > /dev/null
 
 FROM debian:trixie-slim
 RUN apt-get update \
@@ -33,7 +33,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --system --uid 10001 --home-dir /data --shell /usr/sbin/nologin cexchain \
  && mkdir -p /data && chown cexchain:cexchain /data && chmod 700 /data
-COPY --from=build /src/build/gcc-release/cli/cexchain /usr/local/bin/cexchain
+COPY --from=build /src/build/gcc-release/bin/cexchain /src/build/gcc-release/bin/cexchain-index /usr/local/bin/
 # The license, and the notices of the third-party code compiled into the binary.
 COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/doc/cexchain/
 USER cexchain

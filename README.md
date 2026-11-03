@@ -203,9 +203,10 @@ with its tests, is [`examples/lending/lending.bo`](examples/lending/lending.bo).
 register a camera (this needs a build with the Bo compiler, below):
 
 ```sh
-cexchain bo test lending.bo           # the tests the contract carries
-cexchain bo explain lending.bo        # the contract text the parties read, in English or Chinese
-cexchain contract deploy --bo lending.bo --as root.key
+bo test lending.bo           # the tests the contract carries
+bo explain lending.bo        # the contract text the parties read, in English or Chinese
+bo build lending.bo --out lending.boc
+cexchain contract deploy lending.boc --as root.key
 cexchain contract create <contract> create --as root.key \
     --args "{\"fields\": {\"name\": \"Camera X100\"}, \"parties\": {\"owner\": h'<ledger-id>'}}"
 cexchain contract call <camera> lend --args "{\"counterparty\": h'<friend-ledger-id>'}" \
@@ -239,11 +240,11 @@ The `cexchain` tool controls every part of a ledger:
 | Backups | `backup create`, `backup verify`, `backup restore` |
 | Relays | `relay key init`, `relay use`, `relay show`, `relay stop`; `serve --relay-dir`, `serve --relay-key` |
 | Other organizations | `peer invite`, `peer accept`, `peer add`, `peer list`, `peer show`, `peer remove`, `access request`, `access send`, `access inbox`, `access dismiss`, `access grant`, `access fetch`, `access accept`, `access receipt`, `access list` |
-| Contracts | `contract deploy`, `contract show`, `contract list`, `contract retire`, `contract create`, `contract call`, `contract instance`, `contract instances`, `contract evidence`, `contract proposal`, `contract file show`, `contract propose`, `contract pending`, `contract consent`, `contract withdraw`, `contract send`, `contract fetch`, `contract verify`, `contract explain` |
+| Contracts | `contract deploy`, `contract show`, `contract list`, `contract retire`, `contract create`, `contract call`, `contract instance`, `contract instances`, `contract evidence`, `contract proposal`, `contract file show`, `contract propose`, `contract pending`, `contract consent`, `contract withdraw`, `contract send`, `contract fetch`, `contract verify`, `contract export` |
 | Requests | `request list`, `request show`, `request answer`, `request cancel`, `request wait` |
 | Executors | `executor add`, `executor list`, `executor show`, `executor revoke`, `executor run`, `executor check`, `executor connector add\|list\|show\|remove`, `executor secret set\|list\|remove`, `executor journal list\|show`; `connector webhook`, `connector command` |
 | Keepers | `keeper add`, `keeper list`, `keeper show`, `keeper revoke`, `keeper due`, `keeper run`; `serve --keeper-key` |
-| Bo language | `bo check`, `bo build`, `bo explain`, `bo fmt`, `bo form`, `bo calls`, `bo args`, `bo test`, `bo stdlib list`, `bo stdlib show`, `bo vocab list`, `bo vocab show`, `bo vocab check`, `bo packs list`, `bo packs show`, `bo packs check` (in builds with the Bo compiler); `contract deploy --bo` |
+| Bo language | `bo check`, `bo build`, `bo explain`, `bo fmt`, `bo form`, `bo calls`, `bo args`, `bo test`, `bo stdlib list`, `bo stdlib show`, `bo vocab list`, `bo vocab show`, `bo vocab check`, `bo packs list`, `bo packs show`, `bo packs check`, `bo rebuild`, `bo reason` (the `bo` program, in builds with the Bo compiler) |
 
 - Every command takes `--help`, and `--json` for scripting.
 - `cexchain help --json` describes every command and option in machine-readable form.
@@ -257,11 +258,11 @@ A search index kept beside the ledger (`search.sqlite`, SQLite, rebuilt from the
 missing) finds records and things under contracts at scale, and counts them:
 
 ```sh
-cexchain search records --type example.school.application/1 --since 2026-11-01 --current
-cexchain search records --meta class=S5B --text 走讀 --limit 20
-cexchain search instances --contract-name DayStudent --status counsellor_approved --field-min fee=500
-cexchain report records --by type,state
-cexchain report instances --by month --sum total --utc-offset +08:00 --csv > totals.csv
+cexchain-index search records --type example.school.application/1 --since 2026-11-01 --current
+cexchain-index search records --meta class=S5B --text 走讀 --limit 20
+cexchain-index search instances --contract-name DayStudent --status counsellor_approved --field-min fee=500
+cexchain-index report records --by type,state
+cexchain-index report instances --by month --sum total --utc-offset +08:00 --csv > totals.csv
 ```
 
 It holds only what the ledger holds in the clear: types, states, registrants, times, versions,
@@ -479,10 +480,11 @@ stderr, automatic checkpoints (`--checkpoint-interval`), and graceful shutdown o
 
 ### The web console (in progress)
 
-`cexchain console run` serves a web console for the ledger on this computer, at
-`http://localhost:7470/console/` (or the next free port, remembered); `console status`,
-`console open`, and `console stop` manage it. A company serves it beside its API with
-`cexchain serve --console --public-url https://ledger.example.com`. It sets a ledger up for
+`cexchain-console run` serves a web console for the ledger on this computer, at
+`http://localhost:7470/console/` (or the next free port, remembered), beside the ledger's API;
+`cexchain-console status`, `open`, and `stop` manage it. A company serves it on its server with
+`cexchain-console run --listen 0.0.0.0:443 --tls-cert … --public-url https://ledger.example.com`
+(beyond this computer only over TLS, here or by a proxy in front). It sets a ledger up for
 one person or a team, signs people in, registers documents with their fields and files, shows a
 thing's page, shares and verifies proof, writes, tests, and deploys rules, creates things under
 them and acts on them, connects with other organizations (consents, documents, witnessing each
@@ -490,10 +492,10 @@ other, public witnesses, relays), runs machines and AI agents, backs itself up, 
 statement with a passkey. Not yet: Windows.
 
 ```sh
-cexchain console run --ledger ./ledger   # an empty directory: the browser opens the setup page
-cexchain console user add Bob --role member   # a link for Bob to register his own passkey
-cexchain console user list
-cexchain console settings show
+cexchain-console run --ledger ./ledger   # an empty directory: the browser opens the setup page
+cexchain-console user add Bob --role member   # a link for Bob to register his own passkey
+cexchain-console user list
+cexchain-console settings show
 ```
 
 - **The first run.** On a directory with no ledger, `console run` opens a one-time setup page
@@ -537,7 +539,7 @@ cexchain console settings show
   fields, actions with their conditions, consents, presence, what AI agents may do, the state
   change, fields set, and requests; time rules, rules for answers, and tests; vocabulary packs as
   boxes to tick) and the Bo text, with its keywords in any of the three languages. The form
-  writes Bo as `cexchain bo form` does, and a source opens in the form when it fits (`bo form
+  writes Bo as `bo form` does, and a source opens in the form when it fits (`bo form
   --from`); otherwise it stays text, and the page says where. Each problem the compiler finds
   shows on the form field it belongs to. "Read as a contract" shows the contract's text in
   English, Traditional Chinese, and Simplified Chinese side by side; "Run the tests" runs the
@@ -597,11 +599,11 @@ cexchain console settings show
   (its record revoked), after which its delivery is no longer handed out.
 - **Settings** show the ledger and its folder, the language new browsers start in, and the
   backup folder (`console settings show|set` from the command line).
-- **In the background.** `cexchain console open` starts the console if it is not running (in
+- **In the background.** `cexchain-console open` starts the console if it is not running (in
   the background, its log in the console's folder) and opens it in the browser;
   `console open FILE` opens a proposal or consent file there (the packages make this what a
   double-click on a `.cexchain` file does).
-  `cexchain console service install` runs it from each login: a LaunchAgent on macOS, a systemd
+  `cexchain-console service install` runs it from each login: a LaunchAgent on macOS, a systemd
   user unit elsewhere, restarted if it fails; `console service status|uninstall`. Without
   `--ledger`, the console's commands use this computer's place for a person's ledger
   (`~/Library/Application Support/CexChain/ledger` on macOS, `$XDG_DATA_HOME/cexchain/ledger`
@@ -612,7 +614,7 @@ cexchain console settings show
   restoring it in memory, then sealed so that the folder (an external disk, a synced folder)
   learns only the ledger's id and the time: only the recovery code opens it. The folder keeps the
   newest seven and one a week for four weeks; Home shows the last backup, and warns after two
-  days without one. `cexchain console restore FILE --ledger DIR` restores the ledger and its
+  days without one. `cexchain-console restore FILE --ledger DIR` restores the ledger and its
   console on any computer with the recovery code; `console backup now|list` do the rest from the
   command line.
 
@@ -657,7 +659,7 @@ cexchain console settings show
   within five minutes, with the person verified (a PIN or a biometric). A session is a bearer
   token that the node keeps only as a hash, in memory; it ends after 30 idle minutes, after 12
   hours at most, on signing out, when the console stops, or with
-  `cexchain console session revoke ID` (`console session list` shows them).
+  `cexchain-console session revoke ID` (`console session list` shows them).
 - **Sealed keys, unlocked by a passkey.** `console key init` makes the console's node key and
   prints its recovery code once; `console key import NAME FILE` seals a key in the console. The
   node key is stored only wrapped: under the recovery code, a passphrase or an unlock file
@@ -784,7 +786,8 @@ browser included, reaches the same result. A home and parties on other ledgers:
 
 ```sh
 # The home deploys a contract written in Bo and creates an instance, naming the parties.
-cexchain contract deploy --bo rules.bo --as root.key
+bo build rules.bo --out rules.boc
+cexchain contract deploy rules.boc --as root.key
 cexchain contract create <contract> create --args '{"fields": {...}, "parties": {...}}' --as clerk.key
 
 # Its registrar records calls that need other parties' consents: a device with a delegation
@@ -923,25 +926,25 @@ uses, one line each at its top (`use finance`; `使用 finance` in Chinese), and
 one's version and digest; a pack's word in a contract that does not use its pack is an error, never
 a name of the contract's own. Its reference is [`spec/bo.md`](spec/bo.md), with the conformance suite `testvectors/bo-v1.json`. The
 compiler reads every source through *language packs*, then lexes, parses, checks, and compiles it
-to contract code, which `contract deploy --bo` deploys with its source. Each pack maps Bo's
+to contract code, which deploys with its source (`bo build --out`, then `contract deploy`). Each pack maps Bo's
 concepts (`kw.can`, `act.transfer`, `unit.GB`) to one language's spellings, with its reading rules
 (words that attach without a space, as in `可轉讓` or `30日內`; full-width punctuation; `萬` and `億`;
 date forms), its messages, and the sentences of the contract text. A pack never changes what runs:
 the same contract compiles to the same code through any of them.
 
 ```sh
-cexchain bo vocab list                          # the core and the vocabulary packs, with digests
-cexchain bo vocab show finance                  # a pack's words, field types, and built-in actions
-cexchain bo vocab check events.vocab            # a vocabulary pack of your own
-cexchain bo check tickets.bo --vocab events.vocab   # a source that uses it
-cexchain bo packs list                          # the official language packs and their digests
-cexchain bo packs show zh-Hant-HK               # its reading rules, keywords, and words
-cexchain bo packs check company.pack            # a pack of your own, alone and with the official ones
-cexchain bo packs check company.pack --language zh-Hant-HK   # messages in Traditional Chinese
-cexchain bo check contract.bo                   # problems, as FILE:LINE:COLUMN: error: message (code)
-cexchain bo check contract.bo --stage lex       # its tokens: 可轉讓 is kw.can + act.transfer
-cexchain bo check contract.bo --stage parse     # its tree, the same in every language
-cexchain bo check contract.bo --stage model     # its checked model, with what each rule inferred
+bo vocab list                          # the core and the vocabulary packs, with digests
+bo vocab show finance                  # a pack's words, field types, and built-in actions
+bo vocab check events.vocab            # a vocabulary pack of your own
+bo check tickets.bo --vocab events.vocab   # a source that uses it
+bo packs list                          # the official language packs and their digests
+bo packs show zh-Hant-HK               # its reading rules, keywords, and words
+bo packs check company.pack            # a pack of your own, alone and with the official ones
+bo packs check company.pack --language zh-Hant-HK   # messages in Traditional Chinese
+bo check contract.bo                   # problems, as FILE:LINE:COLUMN: error: message (code)
+bo check contract.bo --stage lex       # its tokens: 可轉讓 is kw.can + act.transfer
+bo check contract.bo --stage parse     # its tree, the same in every language
+bo check contract.bo --stage model     # its checked model, with what each rule inferred
 ```
 
 The lexer reads a word only by the packs' fixed rules and never guesses: a run of characters
@@ -999,15 +1002,15 @@ Packs are files in CBOR diagnostic notation; `bo/packs/` holds the official lang
 standard terms of their actions). A pack's digest is the hash of its canonical CBOR, and a deploy
 records the packs its source was read with, so anyone can rebuild the contract from the source
 and compare. Anyone can write a vocabulary pack of their own, in the same format, for words they
-use in many contracts: `--vocab FILE` reads it on every `bo` command and on `contract deploy --bo`,
+use in many contracts: `--vocab FILE` reads it on every `bo` command,
 and the deploy embeds it whole, so whoever verifies the contract needs no copy
 ([`examples/events`](examples/events)). Bo never guesses: one spelling with
 two meanings, in one pack or across the packs a source is read with, is an error, and so is a
 word that an attaching rule could split into two others.
 
 The compiler uses C++26 static reflection and contracts, which GCC 16 builds and Clang does not
-yet. The `bo` commands therefore exist only in builds made with GCC 16 (the `gcc-*` presets, the
-release build, and the Docker image); `cexchain version` says whether a build has them. The
+yet. The `bo` program therefore exists only in builds made with GCC 16 (the `gcc-*` presets and
+the release build); `bo version` names it. The
 browser verifier never needs the compiler: verifying a contract replays its code.
 
 Compiled contracts are WebAssembly modules in the contract profile, written by the compiler's own
@@ -1046,27 +1049,26 @@ bounds, and outcomes, checked on both interpreters, and the errors of sources th
 build.
 
 ```sh
-cexchain bo build contract.bo                   # code, hash, compiler, and the source bundle
-cexchain bo build contract.bo --out contract.boc --hash sm3     # to deploy on an SM3 ledger
-cexchain contract deploy --bo contract.bo --as root.key         # build and deploy in one step
-cexchain contract show <contract>               # its source bundle, and whether it rebuilds
-cexchain contract verify evidence.cbor --ledger-id <home>       # ... and every instance's
+bo build contract.bo                            # code, hash, compiler, and the source bundle
+bo build contract.bo --out contract.boc         # a deploy file (--hash sm3 for an SM3 ledger)
+cexchain contract deploy contract.boc --as root.key
+cexchain contract export <contract> --out deployed.boc    # a deployed contract, as a file
+bo rebuild deployed.boc                         # its source rebuilt and compared with its code
+cexchain contract verify evidence.cbor --ledger-id <home> --deploy-out deployed.boc
 ```
 
 A Bo deploy records the code, its interface, the language `bo`, the compiler (`cexchain-bo
 RELEASE; codegen N; edition E`), the contract's name, and its source as a *bo-source bundle*
 (spec section 15): the source as written, comments included (`bo build` warns that they are
 published), its edition, and each language pack it was read with, by id, version, and digest
-under the home's hash, the packs that are not official embedded in full. `contract show` and
-`contract verify` rebuild the code from it and compare the bytes: "rebuilds"; "DOES NOT
-REBUILD" when the compiler the deploy names builds something else (the source is not the
-code's, and verification fails); "MALFORMED" when there is no usable bundle; or "not rebuilt"
-when another compiler, release, or codegen version built it (named, never called a forgery) or
-the build has no compiler. `contract verify --require-rebuild` accepts only "rebuilds".
-The compiler keeps writing earlier codegen versions (codegens 1 to 3 beside today's 4), so a
-deploy made with one still rebuilds. Codegen 4 (before the first release) reads a time rule
-whose action is on the next line of its block as the same rule with the action on its line, so
-the states it ends in are final; codegen 3 read such a contract as having no final state.
+under the home's hash, the packs that are not official embedded in full. The chain keeps it as
+given and hands the deploy on as a file (`contract export`, or `contract verify --deploy-out`
+from evidence alone); `bo rebuild` rebuilds the code from it and compares the bytes:
+"rebuilds"; "DOES NOT REBUILD" when the compiler the deploy names builds something else (the
+source is not the code's: exit 3); "MALFORMED" when there is no usable bundle; or "not rebuilt"
+when another compiler, release, or codegen version built it (named, never called a forgery;
+`--require` fails it too). Codegen 4 is the first released; from it on, the compiler keeps
+writing the released codegens before its own, so their deploys still rebuild.
 
 ### Fuel
 
@@ -1081,7 +1083,7 @@ exceed what the code has for it (192 KiB: a large state split into many parts) b
 warning (`build.output`). `bo build` shows the highest bound, `--fuel` each function's:
 
 ```
-$ cexchain bo build contract.bo --fuel
+$ bo build contract.bo --fuel
   ...
   fuel       at most 226,042 a call (amend), of 10,000,000; output at most 65,771 bytes (amend), of 196,608
   function               fuel       reading     output
@@ -1106,9 +1108,10 @@ name Bo read as a text (R18: `颜色 = 红色` reads as `颜色 is "红色"`). O
 written in; `tests/bo/golden/explain/` holds the text of each example in each language.
 
 ```sh
-cexchain bo explain contract.bo                          # before a deploy
-cexchain bo explain contract.bo --language zh-Hant-HK    # or set CEXCHAIN_LANGUAGE
-cexchain contract explain <contract or instance>         # from the deploy, only if it rebuilds
+bo explain contract.bo                          # before a deploy
+bo explain contract.bo --language zh-Hant-HK    # or set CEXCHAIN_LANGUAGE
+bo explain deployed.boc                         # from the deploy, only if it rebuilds
+bo explain deployed.boc --state state.cbor      # an instance's state (contract instance --state-out)
 ```
 
 ```
@@ -1124,12 +1127,13 @@ cexchain contract explain <contract or instance>         # from the deploy, only
   4.1.7 An AI agent may start it within its delegation. [R14]
 ```
 
-`contract explain` reads the source the deploy carries exactly as `contract verify` rebuilds it
-(with the language packs it names, at their versions) and writes the text only if that source
-rebuilds to the deployed code, so the text is the text of the code that runs; otherwise it says
-why. For an instance, it shows its state and fields in the same words first (`amount: HKD
+`bo explain` of a deploy file reads the source it carries exactly as `bo rebuild` does (with
+the language packs it names, at their versions) and writes the text only if that source rebuilds
+to the deployed code, so the text is the text of the code that runs; otherwise it says why. With
+`--state`, it shows an instance's state and fields in the same words first (`amount: HKD
 250,000.00`, `starts: 1 January 2030`). Messages follow `--language` or `CEXCHAIN_LANGUAGE`
-everywhere the compiler reports, refusals of compiled contracts included.
+everywhere the compiler reports; the chain shows a compiled contract's refusal as the contract
+gives it (`bo:state countersign`), and `bo reason` says it in words.
 
 ### A contract from a form
 
@@ -1144,8 +1148,8 @@ into a sheet when every construct fits the form (no choices, loops, refusals, or
 order), and writing that sheet again gives the same tree.
 
 ```sh
-cexchain bo form --from examples/lending/lending.bo --out lending.json
-cexchain bo form lending.json --language zh-Hant-HK      # the same contract, in Chinese
+bo form --from examples/lending/lending.bo --out lending.json
+bo form lending.json --language zh-Hant-HK      # the same contract, in Chinese
 ```
 
 `bo calls` lists what each call of a contract takes, for a form: the creation (the fields given at
@@ -1159,8 +1163,8 @@ plain number in a money field is in its currency). Each problem names its value 
 read a source or a built contract (`.boc`), and the console draws its forms from them.
 
 ```sh
-cexchain bo calls lending.bo --language zh-Hant-HK
-cexchain bo args lending.bo create --set "name=Camera X100" --set owner=$LEDGER_ID   # for contract create --args
+bo calls lending.bo --language zh-Hant-HK
+bo args lending.bo create --set "name=Camera X100" --set owner=$LEDGER_ID   # for contract create --args
 ```
 
 ### One contract, any language
@@ -1172,9 +1176,9 @@ so go to an English-speaking counterparty as English source: it parses to the sa
 to the same model, builds to the same code, and explains to the same text.
 
 ```sh
-cexchain bo fmt contract.bo --check                      # is it formatted? (exit 3 if not)
-cexchain bo fmt contract.bo --language en                # the English source, on stdout
-cexchain bo fmt contract.bo --language zh-Hant-HK --write
+bo fmt contract.bo --check                      # is it formatted? (exit 3 if not)
+bo fmt contract.bo --language en                # the English source, on stdout
+bo fmt contract.bo --language zh-Hant-HK --write
 ```
 
 ```
@@ -1220,8 +1224,8 @@ for a refusal the clause of the contract text it comes from; the results are the
 language the contract and its tests are written in. Exit status 3 if a test fails.
 
 ```sh
-cexchain bo test lending.bo
-cexchain bo test lending.bo --language zh-Hans-CN --json
+bo test lending.bo
+bo test lending.bo --language zh-Hans-CN --json
 ```
 
 ### Requests
@@ -1323,10 +1327,10 @@ was created (R31). The contract text states every standard term, marked R19. To 
 built-in action, copy it under a name of your own: it is then the contract's own action.
 
 ```sh
-cexchain bo stdlib list                                  # who starts each, its pack, its states
-cexchain bo stdlib list finance                          # one pack's (or core)
-cexchain bo stdlib show transfer                         # its source, to copy, and its text
-cexchain bo stdlib show 轉讓 --language zh-Hant-HK
+bo stdlib list                                  # who starts each, its pack, its states
+bo stdlib list finance                          # one pack's (or core)
+bo stdlib show transfer                         # its source, to copy, and its text
+bo stdlib show 轉讓 --language zh-Hant-HK
 ```
 
 ```

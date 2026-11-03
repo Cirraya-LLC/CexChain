@@ -7,10 +7,6 @@
 
 namespace cexchain::cli {
 
-void print_json(const Json& value) {
-    std::println("{}", value.dump(2));
-}
-
 int report_submitted(const Args& args, const app::Session& session, const protocol::Id& statement,
                      const Json& extra, const std::string& text) {
     if (args.json()) {

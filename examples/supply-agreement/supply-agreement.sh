@@ -52,7 +52,14 @@ unset CEXCHAIN_LEDGER CEXCHAIN_SERVER CEXCHAIN_TOKEN
 
 step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 say() { printf '   %s\n' "$*"; }
-run() { "$CEXCHAIN" "$@"; }
+# A command line as typed: bo, cexchain-console, and cexchain-index are the
+# programs beside cexchain.
+run() {
+    case "$1" in
+    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
+    *) "$CEXCHAIN" "$@" ;;
+    esac
+}
 field() { python3 -c "import json,sys; print(json.load(sys.stdin)$1)"; }
 indent() { sed 's/^/   /'; }
 
@@ -83,7 +90,7 @@ run peer add bank --ledger-id "$BANK_ID" --ledger "$SUP" > /dev/null
 run peer add supplier --ledger-id "$SUP_ID" --ledger "$BANK" > /dev/null
 
 step "2. The core enterprise builds the contract and deploys it on its ledger, the agreement's home"
-if [ "$(run version --json | field '["bo"] is not None')" != True ]; then
+if [ ! -x "$(dirname "$CEXCHAIN")/bo" ]; then
     echo "This demo needs a cexchain built with the Bo compiler (GCC 16)." >&2
     exit 1
 fi
@@ -99,7 +106,8 @@ run bo build supply-agreement.bo 2>&1 | indent
 # an instance of its own, exactly as the ledger runs calls: who must consent,
 # what is refused and why.
 run bo test supply-agreement.bo | indent
-CONTRACT="$(run contract deploy --bo supply-agreement.bo --as core-root.key --ledger "$CORE" --json \
+run bo build supply-agreement.bo --out supply-agreement.boc > /dev/null
+CONTRACT="$(run contract deploy supply-agreement.boc --as core-root.key --ledger "$CORE" --json \
     2> /dev/null | field '["contract"]["id"]')"
 run contract show "$CONTRACT" --ledger "$CORE" | indent
 say "The ledger runs the contract on every call and records the call only if the contract"
@@ -116,7 +124,9 @@ AGREEMENT="$(run contract create "$CONTRACT" create --args "$PROPOSE" --referenc
 run contract instance "$AGREEMENT" --ledger "$CORE" | sed -n '1,8p' | indent
 say "What the supplier and the bank confirm is the contract text, written from the source the"
 say "deploy carries (it rebuilds to the code that runs), here in Simplified Chinese:"
-run contract explain "$AGREEMENT" --language zh-Hans-CN --ledger "$CORE" | indent
+{ run contract instance "$AGREEMENT" --ledger "$CORE" --state-out agreement.state > /dev/null &&
+    run contract export "$CONTRACT" --ledger "$CORE" --out explained.boc > /dev/null &&
+    run bo explain explained.boc --state agreement.state --language zh-Hans-CN; } | indent
 say "Can the core enterprise sign it alone? A dry run asks the contract:"
 run contract call "$AGREEMENT" sign --dry-run --as core-root.key --ledger "$CORE" | indent
 
@@ -236,7 +246,7 @@ CALL="$(run contract propose "$AGREEMENT" close --reference "Goods received GRN-
 run contract consent --peer core --call "$CALL" --reference "Delivered in full" --as manager.key \
     --log-key supplier-log.key --send --ledger "$SUP" | indent
 run contract fetch --peer core --instance "$AGREEMENT" --out closed.cbor --ledger "$BANK" > /dev/null
-run contract verify closed.cbor --ledger-id "$CORE_ID" | grep -E 'Status|consent of|rebuilds' | indent
+{ run contract verify closed.cbor --ledger-id "$CORE_ID" --deploy-out contract.boc && run bo rebuild contract.boc; } | grep -E 'Status|consent of|rebuilds' | indent
 for d in "$CORE" "$SUP" "$BANK"; do run audit --ledger "$d" > /dev/null; done
 say "Every ledger audits clean."
 if [ "$KEEP" = 1 ]; then

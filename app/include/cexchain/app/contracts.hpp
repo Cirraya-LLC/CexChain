@@ -4,6 +4,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <span>
 #include <string>
@@ -13,7 +14,6 @@
 
 #include <cexchain/app/session.hpp>
 #include <cexchain/app/views.hpp>
-#include <cexchain/bo/pack.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/contract_evidence.hpp>
 #include <cexchain/core/protocol/contracts.hpp>
@@ -89,17 +89,21 @@ struct CallAttempt {
                                        protocol::ContractCallBody body,
                                        std::span<const Bytes> bundles, const CallOptions& options);
 
+/// A contract's reason for refusing, in words of the reader's language, if
+/// the application knows the contract's language (the console puts a Bo
+/// contract's own checks so); none leaves the reason as the contract gave it.
+using ReasonWords = std::function<std::optional<std::string>(std::string_view reason)>;
+
 /// Why the call is not recorded, for people: the contract's answer, or the
-/// ledger's. A compiled Bo contract's own checks are put in words of
-/// `language`, the reader's.
+/// ledger's.
 [[nodiscard]] std::string refusal(const Session& session, const CallAttempt& attempt,
-                                  const bo::Pack& language);
+                                  const ReasonWords& words = {});
 /// What a run decided, as JSON: "verdict" accept (with the status, parties,
 /// events, finality, state, and any children), needs (the ledgers whose
 /// consents it asks for), or refuse (the contract's answer, or the
 /// ledger's); with the "reason" unless it accepts.
 [[nodiscard]] Json run_json(const Session& session, const CallAttempt& attempt,
-                            const bo::Pack& language);
+                            const ReasonWords& words = {});
 
 /// The instances the recorded call `call` created (v0.7), in order: none
 /// unless its contract created children.

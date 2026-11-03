@@ -122,10 +122,10 @@ struct TempDirectory {
 
 constexpr cexchain::protocol::Timestamp minute = 60'000;
 
-/// The compiler the console runs: this build's cexchain, where it has one.
+/// The compiler the console runs: this build's bo, where it has one.
 std::string compiler() {
-#if defined(CEXCHAIN_CLI_PROGRAM)
-    return CEXCHAIN_CLI_PROGRAM;
+#if defined(BO_PROGRAM)
+    return BO_PROGRAM;
 #else
     return {};
 #endif
@@ -1661,7 +1661,7 @@ TEST_CASE("a proof discloses the fields and files chosen, and verifies", "[conso
     CHECK(proof(f.w, owner, {{"record", std::string(64, '0')}}).status == 404);
 }
 
-#if defined(CEXCHAIN_CLI_PROGRAM)
+#if defined(BO_PROGRAM)
 
 namespace {
 

@@ -134,8 +134,8 @@ clock runs ahead of its ledger's is refused (a statement from the future).
 ## Running it
 
 ```sh
-cexchain bo test examples/idc-hosting/hosting.bo                           # its six tests
-cexchain bo explain examples/idc-hosting/hosting.bo --language zh-Hans-CN   # the contract text
+bo test examples/idc-hosting/hosting.bo                           # its six tests
+bo explain examples/idc-hosting/hosting.bo --language zh-Hans-CN   # the contract text
 examples/idc-hosting/idc-hosting.sh [CEXCHAIN] [DIR]                       # CTest: demo_idc_hosting
 ```
 

@@ -35,7 +35,14 @@ cd "$WORK"
 export CEXCHAIN_PASSPHRASE="executor cluster test"
 unset CEXCHAIN_LEDGER CEXCHAIN_SERVER CEXCHAIN_TOKEN CEXCHAIN_CLOCK_OFFSET
 
-run() { "$CEXCHAIN" "$@"; }
+# A command line as typed: bo, cexchain-console, and cexchain-index are the
+# programs beside cexchain.
+run() {
+    case "$1" in
+    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
+    *) "$CEXCHAIN" "$@" ;;
+    esac
+}
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; dump_logs; exit 1; }
 contains() { grep "$@" > /dev/null; }
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }

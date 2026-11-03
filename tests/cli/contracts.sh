@@ -33,12 +33,19 @@ cd "$WORK"
 export CEXCHAIN_PASSPHRASE="contracts test"
 unset CEXCHAIN_LEDGER CEXCHAIN_TOKEN CEXCHAIN_SERVER
 
-run() { "$CEXCHAIN" "$@"; }
+# A command line as typed: bo, cexchain-console, and cexchain-index are the
+# programs beside cexchain.
+run() {
+    case "$1" in
+    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
+    *) "$CEXCHAIN" "$@" ;;
+    esac
+}
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; exit 1; }
 expect_exit() {
     local code="$1"; shift
     local actual=0
-    "$CEXCHAIN" "$@" > out.txt 2>&1 || actual=$?
+    run "$@" > out.txt 2>&1 || actual=$?
     [ "$actual" -eq "$code" ] || fail "expected exit $code, got $actual: $*"
 }
 contains() { grep "$@" > /dev/null; }
@@ -386,21 +393,24 @@ d contract list --active --json | json 'len(d)' | contains -x 1
 run contract pending "${SERVER[@]}" --json | json 'len(d)' | contains -x 1
 
 # --- A deploy that says it is Bo ----------------------------------------------------------
-# Its source is checked in every build (the front end reads bo-source
-# bundles) and rebuilt where the build has the Bo compiler (bo.sh tests that).
+# The chain keeps the source as given and hands the deploy to the language's
+# tools as a file (contract export, contract verify --deploy-out): Bo's check
+# it (bo rebuild, bo explain) where the build has them (bo.sh rebuilds).
 printf 'not a bundle' > junk.bundle
 BJ="$(d contract deploy counting.wasm --function propose=create --language bo \
-    --compiler "cexchain-bo 9.9.9; codegen 1; edition 1" --source junk.bundle --as d-root.key --json \
+    --compiler "cexchain-bo 9.9.9; codegen 4; edition 1" --source junk.bundle --as d-root.key --json \
     | json 'd["contract"]["id"]')"
-d contract show "$BJ" | contains "rebuild:    MALFORMED: the deploy's source is not a bo-source bundle"
-d contract show "$BJ" --json | json 'd["bo"]["status"], d["bo"]["failed"]' | contains -x "malformed True"
-# No contract text for a malformed source (exit 3), nor for a contract not
-# written in Bo.
-expect_exit 3 contract explain "$BJ" --ledger "$D"
-contains "no contract text: its source does not rebuild to its code" out.txt
-contains "rebuild:  MALFORMED" out.txt
-expect_exit 2 contract explain "$C" --ledger "$D"
-contains "is written in wasm, not Bo" out.txt
+d contract show "$BJ" | contains "source:     12 bytes"
+d contract show "$BJ" --source-out junk-again.bundle > /dev/null
+cmp -s junk.bundle junk-again.bundle || fail "the source as deployed"
+d contract export "$BJ" --out junk.boc | contains "wrote junk.boc: contract ${BJ:0:16}.* (bo, .* bytes), with its source"
+d contract export "$C" --out counting.boc --json | json 'd["language"], d["source"]' | contains -x "wasm True"
+# A deploy file deploys as it is: the same code, interface, and compiler.
+C2="$(d contract deploy counting.boc --as d-root.key --json | json 'd["contract"]["id"]')"
+d contract show "$C2" --json | json 'd["code_hash"] == "'"$(d contract show "$C" --json | json 'd["code_hash"]')"'"' \
+    | contains -x True
+expect_exit 1 contract deploy counting.boc --function propose=create --as d-root.key --ledger "$D"
+contains "a deploy file has its own --function" out.txt
 # A bundle in the right shape whose pack digests are not the packs': another
 # release's, as far as this build can tell.
 python3 - << 'EOF2'
@@ -417,23 +427,29 @@ EOF2
 BO="$(d contract deploy counting.wasm --function propose=create --language bo \
     --compiler "cexchain-bo 9.9.9; codegen 1; edition 1" --source other.bundle --as d-root.key --json \
     | json 'd["contract"]["id"]')"
-d contract show "$BO" > show-bo.txt
-contains "            Bo, edition 1: 11 bytes of source; packs en 1, zh-Hans-CN 1, zh-Hant-HK 1" show-bo.txt
-contains "rebuild:    not rebuilt: .*the official pack en version 1 has the digest" show-bo.txt
-# Not rebuilt here, so no text that could be confirmed as the code's (exit 2).
-expect_exit 2 contract explain "$BO" --ledger "$D"
-contains "no contract text: its source was not rebuilt to its code here" out.txt
-expect_exit 2 contract explain "$BO" --ledger "$D" --json
-json 'd["explained"], d["source"]["failed"]' < out.txt | contains -x "False False"
+d contract export "$BO" --out other.boc > /dev/null
 IB="$(d contract create "$BO" propose --args "$CREATE" --as d-root.key --json | json 'd["instance"]["id"]')"
 d contract evidence "$IB" --log-key d-log.key --out bo.cbor > /dev/null
-run contract verify bo.cbor --ledger-id "$D_ID" | contains "               not rebuilt: "
-run contract verify bo.cbor --ledger-id "$D_ID" --json | json 'd["verified"], d["source"]["status"]' \
-    | contains -Ex "True (other-compiler|not-rebuilt)"
-expect_exit 3 contract verify bo.cbor --ledger-id "$D_ID" --require-rebuild
-contains 'VERIFICATION FAILED: the contract.s source was not rebuilt to its code' out.txt
-expect_exit 3 contract verify e3.cbor --ledger-id "$D_ID" --require-rebuild
-contains 'not Bo: nothing rebuilds its code' out.txt
+run contract verify bo.cbor --ledger-id "$D_ID" --deploy-out evidence.boc --json | json 'd["verified"]' \
+    | contains -x True
+cmp -s other.boc evidence.boc || fail "the evidence carries the deploy as exported"
+if [ -x "$(dirname "$CEXCHAIN")/bo" ]; then
+    expect_exit 3 bo rebuild junk.boc
+    contains "rebuild:  MALFORMED: the deploy's source is not a bo-source bundle" out.txt
+    run bo rebuild junk.boc --json | json 'd["status"], d["failed"]' | contains -x "malformed True" || true
+    run bo rebuild other.boc > out.txt
+    contains "Bo, edition 1: 11 bytes of source; packs en 1, zh-Hans-CN 1, zh-Hant-HK 1" out.txt
+    contains "rebuild:  not rebuilt: .*the official pack en version 1 has the digest" out.txt
+    expect_exit 3 bo rebuild other.boc --require
+    # No contract text for a malformed source (exit 3), nor for one not
+    # rebuilt here (exit 2), nor for a contract not written in Bo.
+    expect_exit 3 bo explain junk.boc
+    contains "no contract text: its source does not rebuild to its code" out.txt
+    expect_exit 2 bo explain other.boc
+    contains "no contract text: its source was not rebuilt to its code here" out.txt
+    expect_exit 2 bo explain counting.boc
+    contains "is written in wasm, not Bo" out.txt
+fi
 
 # --- Parts: instances created by a call (v0.7) --------------------------------------------
 # The splitting test contract (testvectors/test-contracts.json): a receivable
@@ -596,7 +612,7 @@ run contract verify p3r.cbor --ledger-id "$D_ID" | contains 'consent of Bank (SM
 
 # --- Help, completion, audits ------------------------------------------------------------
 for cmd in deploy show list retire create call instance instances evidence propose pending \
-    consent withdraw send fetch verify explain; do
+    consent withdraw send fetch verify export; do
     run contract "$cmd" --help | contains 'Usage: cexchain contract'
 done
 run contract call --help | contains 'diagnostic notation'

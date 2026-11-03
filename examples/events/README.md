@@ -27,9 +27,9 @@ no one has reserved. Its tests run with `bo test`.
 
 ```sh
 examples/events/events.sh build/gcc-release/cli/cexchain
-cexchain bo vocab check examples/events/events.vocab
-cexchain bo test examples/events/tickets.bo --vocab examples/events/events.vocab
-cexchain bo fmt examples/events/tickets.bo --vocab examples/events/events.vocab --language zh-Hant-HK
+bo vocab check examples/events/events.vocab
+bo test examples/events/tickets.bo --vocab examples/events/events.vocab
+bo fmt examples/events/tickets.bo --vocab examples/events/events.vocab --language zh-Hant-HK
 ```
 
 A pack's words may not take the plain name of a core or official word of the same category

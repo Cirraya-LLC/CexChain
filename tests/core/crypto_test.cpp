@@ -99,8 +99,8 @@ TEST_CASE("ESP256 low-S boundary and canonicalization", "[core][crypto]") {
 TEST_CASE("Ed25519 signature scalar must be reduced", "[core][crypto]") {
     const auto order =
         *cexchain::from_hex("edd3f55c1a631258d69cf7a2def9de1400000000000000000000000000000010");
-    Bytes signature(32, 0x33);
-    signature.insert(signature.end(), order.begin(), order.end()); // S = L
+    Bytes signature(64, 0x33);
+    std::ranges::copy(order, signature.begin() + 32); // S = L
     CHECK_FALSE(crypto::is_canonical_signature(crypto::SigAlg::ed25519, signature));
     signature[32] = 0xec; // S = L - 1
     CHECK(crypto::is_canonical_signature(crypto::SigAlg::ed25519, signature));

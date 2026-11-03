@@ -3,21 +3,14 @@
 
 #pragma once
 
-#include <string>
+#include <cexchain/core/failure.hpp>
 
-/// The actions the command line and the console share. They throw these, with
-/// a message for people; the command line prints it, the console shows it.
+/// The actions the command line and the console share throw the core's
+/// failures for people, with a message; the command line prints it, the
+/// console shows it.
 namespace cexchain::app {
 
-/// A mistake in what was asked: a malformed value, an ambiguous id, options
-/// that exclude each other.
-struct UsageError {
-    std::string message;
-};
-
-/// Any other failure.
-struct ActionError {
-    std::string message;
-};
+using cexchain::ActionError;
+using cexchain::UsageError;
 
 } // namespace cexchain::app

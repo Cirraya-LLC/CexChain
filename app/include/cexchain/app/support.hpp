@@ -36,22 +36,7 @@ using verifier::format_time;
 using verifier::iso_time;
 using verifier::kind_label;
 
-/// Unwraps a result or throws an ActionError that names what failed.
-template <class T>
-T unwrap(Result<T> result, std::string_view what) {
-    if (!result) {
-        throw ActionError{std::string(what) + ": " + std::string(result.error().detail) + " (" +
-                          std::string(to_string(result.error().code)) + ")"};
-    }
-    return std::move(*result);
-}
-
-inline void unwrap(Status status, std::string_view what) {
-    if (!status) {
-        throw ActionError{std::string(what) + ": " + std::string(status.error().detail) + " (" +
-                          std::string(to_string(status.error().code)) + ")"};
-    }
-}
+using cexchain::unwrap;
 
 [[nodiscard]] Bytes read_file(const std::filesystem::path& path);
 /// Writes atomically (temporary file, fsync, rename). `private_file` sets

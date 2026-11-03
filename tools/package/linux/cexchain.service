@@ -4,7 +4,7 @@
 # A ledger server and its console, for a company (not enabled by default):
 #   set the ledger and its options in /etc/cexchain/serve.env, then
 #   systemctl enable --now cexchain
-# A person's console runs as their own user instead: cexchain console service install.
+# A person's console runs as their own user instead: cexchain-console service install.
 [Unit]
 Description=CexChain ledger server
 After=network-online.target

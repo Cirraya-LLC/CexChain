@@ -39,6 +39,21 @@ struct CommandSpec {
     bool alias = false;
 };
 
+/// One program's command line: each program (cexchain, bo, cexchain-console,
+/// cexchain-index) defines program() once.
+struct Program {
+    /// As typed, in help and completion: "cexchain".
+    std::string_view name;
+    /// What --help says above the list of commands.
+    std::string_view overview;
+    std::vector<CommandSpec> (*commands)();
+    /// Run before each command (the chain's programs: apply_clock_offset).
+    void (*before_run)() = nullptr;
+};
+
+[[nodiscard]] const Program& program();
+
+/// The running program's commands, with the options every command has.
 [[nodiscard]] const std::vector<CommandSpec>& registry();
 
 /// Parses, validates, and runs a command line. Returns the exit code.

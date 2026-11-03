@@ -21,6 +21,10 @@
 /// --server.
 namespace cexchain::cli {
 
+/// The chain's command lines are built on the actions of the app library,
+/// which they share with the console: their names are the command lines' too.
+using namespace app;
+
 /// A key passphrase, for the key file named `purpose`: read from the
 /// `file_option` file if given, else from the `env` variable, else asked for
 /// on the terminal (twice if `confirm`).
@@ -84,6 +88,12 @@ namespace cexchain::cli {
 /// Linux not dumpable, so that other processes of the user cannot read its
 /// memory either (except under the sanitizers, whose leak checker needs it).
 void keep_keys_out_of_dumps();
+
+/// $CEXCHAIN_CLOCK_OFFSET: a whole number of days, hours, minutes, or
+/// seconds (30d, 12h, 90m, 45s) by which this process's clock runs ahead,
+/// for demonstrations and tests; the chain's programs apply it before each
+/// command.
+void apply_clock_offset();
 
 class Session : public app::Session {
 public:

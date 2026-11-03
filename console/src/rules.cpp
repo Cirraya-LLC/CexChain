@@ -2,7 +2,7 @@
 // Copyright 2026 Cirraya
 
 // The rules editor's server side: the compiler on what the page sends (a
-// rules sheet, or a source), run as `cexchain bo ...` in a child process.
+// rules sheet, or a source), run as `bo ...` in a child process.
 // The compiler checks its own contracts and ends its process on a broken
 // one; in a child, that ends the child, never the node. Each run has its
 // time, memory, and output limited, one at a time per session and a few at
@@ -93,7 +93,6 @@ Console::run_compiler(const Signed& who, std::vector<std::string> args,
             arg = (scratch.path / arg).string();
         }
     }
-    args.insert(args.begin(), "bo");
     args.insert(args.end(), {"--json", "--max-memory", std::to_string(compiler_memory_mib)});
     auto child = node::ChildProcess::start(services_.compiler, args);
     if (!child) {

@@ -293,7 +293,7 @@
   "rules.retire_reason": "Reason (optional)",
   "rules.retire_reason_hint": "Kept on the ledger with the retirement.",
   "rules.read_only": "Only an owner or an admin writes rules.",
-  "rules.no_compiler": "This console was built without the Bo compiler, so it cannot write rules here. Use cexchain bo and cexchain contract deploy.",
+  "rules.no_compiler": "This console was built without the Bo compiler, so it cannot write rules here. Use bo build and cexchain contract deploy.",
   "rules.editor_title": "Write rules",
   "rules.editor_intro": "Fill in the form, or write the Bo text: they are two views of the same rules. Check them, read them as a contract in three languages, run their tests, then deploy them with your passkey.",
   "rules.view": "View",

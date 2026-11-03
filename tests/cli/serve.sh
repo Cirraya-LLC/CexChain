@@ -29,12 +29,19 @@ export CEXCHAIN_PASSPHRASE="service test"
 export CEXCHAIN_LEDGER="$WORK/primary"
 unset CEXCHAIN_TOKEN
 
-run() { "$CEXCHAIN" "$@"; }
+# A command line as typed: bo, cexchain-console, and cexchain-index are the
+# programs beside cexchain.
+run() {
+    case "$1" in
+    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
+    *) "$CEXCHAIN" "$@" ;;
+    esac
+}
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; dump_logs; exit 1; }
 expect_exit() {
     local code="$1"; shift
     local actual=0
-    "$CEXCHAIN" "$@" > out.txt 2>&1 || actual=$?
+    run "$@" > out.txt 2>&1 || actual=$?
     [ "$actual" -eq "$code" ] || fail "expected exit $code, got $actual: $*"
 }
 contains() { grep "$@" > /dev/null; }

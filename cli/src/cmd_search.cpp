@@ -14,9 +14,11 @@
 
 #include <cexchain/search/index.hpp>
 #include <cexchain/search/query.hpp>
+#include <cexchain/search/served.hpp>
 
 #include "commands.hpp"
 #include "output.hpp"
+#include "serve.hpp"
 
 namespace cexchain::cli {
 
@@ -306,6 +308,25 @@ int cmd_index_rebuild(const Args& args) {
     std::println("rebuilt the search index from {} log entries: {} records, {} instances", reached,
                  status.records, status.instances);
     return exit_ok;
+}
+
+int cmd_index_serve(const Args& args) {
+    // A read-only server of the ledger in the directory, with the index
+    // beside it: next to a primary that writes the same directory (it
+    // catches up with what the primary wrote before each read), or on a
+    // replica that replica sync --follow keeps.
+    ServeDefaults defaults;
+    defaults.listen = "127.0.0.1:8090";
+    auto served = std::make_shared<search::Served>();
+    defaults.before_open = [served, dir = args.ledger()](node::ApiOptions& options) {
+        options.read_only = true;
+        options.extensions.push_back(served->extension(dir));
+    };
+    defaults.on_address = [](std::uint16_t) {
+        return std::pair<std::string, std::string>("index",
+                                                   "/v1/records, /v1/instances, /v1/reports");
+    };
+    return serve(args, defaults);
 }
 
 } // namespace cexchain::cli

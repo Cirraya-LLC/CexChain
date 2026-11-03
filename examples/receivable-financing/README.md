@@ -24,6 +24,6 @@ What it shows:
   verify offline, with the contract's code rebuilt from its source.
 
 ```sh
-cexchain bo test examples/receivable-financing/receivable-financing.bo
+bo test examples/receivable-financing/receivable-financing.bo
 examples/receivable-financing/receivable-financing.sh [CEXCHAIN] [DIR]   # CTest: demo_receivable_financing
 ```

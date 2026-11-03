@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
 #
-# CexChain's macOS package: the cexchain tool in /usr/local/bin, in a .pkg;
-# and the tool alone in a tarball. Run on a Mac with Homebrew's gcc (16),
+# CexChain's macOS package: the programs (cexchain, bo, cexchain-console,
+# cexchain-index) in /usr/local/bin, in a .pkg; and the programs alone in a
+# tarball. Run on a Mac with Homebrew's gcc (16),
 # ninja, and openssl@3:
 #
 #   tools/package/macos.sh [OUT_DIR]
@@ -29,14 +30,17 @@ cmake -S "$ROOT" -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COM
     -DOPENSSL_ROOT_DIR="$OPENSSL" -DOPENSSL_USE_STATIC_LIBS=TRUE \
     -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc -liconv" \
     ${WASM_DIR:+-DCEXCHAIN_CONSOLE_WASM_DIR="$WASM_DIR"} > /dev/null
-cmake --build "$BUILD" --target cexchain
-strip "$BUILD/cli/cexchain"
-"$BUILD/cli/cexchain" version
-if otool -L "$BUILD/cli/cexchain" | grep -qE "openssl|homebrew|libstdc\+\+"; then
-    otool -L "$BUILD/cli/cexchain"
-    echo "the tool links a library other Macs do not have" >&2
-    exit 1
-fi
+PROGRAMS=(cexchain bo cexchain-console cexchain-index)
+cmake --build "$BUILD" --target "${PROGRAMS[@]}"
+for p in "${PROGRAMS[@]}"; do
+    strip "$BUILD/bin/$p"
+    "$BUILD/bin/$p" version > /dev/null
+    if otool -L "$BUILD/bin/$p" | grep -qE "openssl|homebrew|libstdc\+\+"; then
+        otool -L "$BUILD/bin/$p"
+        echo "$p links a library other Macs do not have" >&2
+        exit 1
+    fi
+done
 
 # The package: the tool in /usr/local/bin, its completions, notices, and the
 # standalone verifier page beside it. With CEXCHAIN_DEVELOPER_APP_ID (a
@@ -46,11 +50,13 @@ PAYLOAD="$BUILD/root"
 rm -rf "$PAYLOAD"
 install -d "$PAYLOAD/usr/local/bin" "$PAYLOAD/usr/local/share/doc/cexchain" \
     "$PAYLOAD/usr/local/share/zsh/site-functions"
-install -m755 "$BUILD/cli/cexchain" "$PAYLOAD/usr/local/bin/cexchain"
-codesign --force --options runtime --timestamp=none \
-    --sign "${CEXCHAIN_DEVELOPER_APP_ID:--}" "$PAYLOAD/usr/local/bin/cexchain"
-codesign --verify --strict "$PAYLOAD/usr/local/bin/cexchain"
-"$PAYLOAD/usr/local/bin/cexchain" completion zsh > "$PAYLOAD/usr/local/share/zsh/site-functions/_cexchain"
+for p in "${PROGRAMS[@]}"; do
+    install -m755 "$BUILD/bin/$p" "$PAYLOAD/usr/local/bin/$p"
+    codesign --force --options runtime --timestamp=none \
+        --sign "${CEXCHAIN_DEVELOPER_APP_ID:--}" "$PAYLOAD/usr/local/bin/$p"
+    codesign --verify --strict "$PAYLOAD/usr/local/bin/$p"
+    "$PAYLOAD/usr/local/bin/$p" completion zsh > "$PAYLOAD/usr/local/share/zsh/site-functions/_$p"
+done
 install -m644 "$ROOT/LICENSE" "$ROOT/THIRD_PARTY_NOTICES.md" "$PAYLOAD/usr/local/share/doc/cexchain/"
 if [ -n "${WASM_DIR:-}" ] && [ -f "$WASM_DIR/cexchain-verify.html" ]; then
     install -d "$PAYLOAD/usr/local/share/cexchain"
@@ -63,5 +69,5 @@ productbuild --package "$BUILD/component.pkg" \
     ${CEXCHAIN_DEVELOPER_ID:+--sign "$CEXCHAIN_DEVELOPER_ID"} \
     "$OUT/CexChain-$VERSION-macos-$ARCH.pkg" > /dev/null
 echo "wrote $OUT/CexChain-$VERSION-macos-$ARCH.pkg${CEXCHAIN_DEVELOPER_ID:+ (signed)}"
-tar -C "$PAYLOAD/usr/local/bin" -czf "$OUT/cexchain-$VERSION-macos-$ARCH.tar.gz" cexchain
+tar -C "$PAYLOAD/usr/local/bin" -czf "$OUT/cexchain-$VERSION-macos-$ARCH.tar.gz" "${PROGRAMS[@]}"
 echo "wrote $OUT/cexchain-$VERSION-macos-$ARCH.tar.gz"

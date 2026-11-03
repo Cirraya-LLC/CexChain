@@ -33,12 +33,19 @@ cd "$WORK"
 export CEXCHAIN_PASSPHRASE="requests test"
 unset CEXCHAIN_LEDGER CEXCHAIN_TOKEN CEXCHAIN_SERVER
 
-run() { "$CEXCHAIN" "$@"; }
+# A command line as typed: bo, cexchain-console, and cexchain-index are the
+# programs beside cexchain.
+run() {
+    case "$1" in
+    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
+    *) "$CEXCHAIN" "$@" ;;
+    esac
+}
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; exit 1; }
 expect_exit() {
     local code="$1"; shift
     local actual=0
-    "$CEXCHAIN" "$@" > out.txt 2>&1 || actual=$?
+    run "$@" > out.txt 2>&1 || actual=$?
     [ "$actual" -eq "$code" ] || fail "expected exit $code, got $actual: $*"
 }
 contains() { grep "$@" > /dev/null; }
@@ -172,7 +179,7 @@ CURSOR="$(json 'd["cursor"]' < wait.json)"
 run request wait "${WAIT[@]}" --kind notify --timeout 0 | contains 'notify .* open'
 run request wait "${WAIT[@]}" --instance "$I" --timeout 0 --json | json 'len(d["requests"])' | contains -x 2
 # A long poll: nothing new yet, until a call asks for another notice.
-run request wait "${WAIT[@]}" --kind notify --after "$CURSOR" --timeout 20 --json > polled.json &
+"$CEXCHAIN" request wait "${WAIT[@]}" --kind notify --after "$CURSOR" --timeout 20 --json > polled.json &
 POLL=$!
 sleep 1
 a contract call "$I" ask --args '[["notify", {"about": "reminder"}, 3600000]]' --as clerk.key > /dev/null

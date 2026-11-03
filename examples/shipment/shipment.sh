@@ -79,7 +79,14 @@ unset CEXCHAIN_LEDGER CEXCHAIN_SERVER CEXCHAIN_TOKEN
 
 step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 say() { printf '   %s\n' "$*"; }
-run() { "$CEXCHAIN" "$@"; }
+# A command line as typed: bo, cexchain-console, and cexchain-index are the
+# programs beside cexchain.
+run() {
+    case "$1" in
+    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
+    *) "$CEXCHAIN" "$@" ;;
+    esac
+}
 field() { python3 -c "import json,sys; print(json.load(sys.stdin)$1)"; }
 indent() { sed 's/^/   /'; }
 check() {
@@ -131,8 +138,8 @@ for org in carrier warehouse consignee insurer; do
 done
 
 step "2. The shipper writes the rules, tests them, and deploys them on its ledger"
-if [ "$(run version --json | field '["bo"] is not None')" != True ]; then
-    echo "This example needs a cexchain built with the Bo compiler (GCC 16)." >&2
+if [ ! -x "$(dirname "$CEXCHAIN")/bo" ]; then
+    echo "This example needs bo, the Bo compiler, beside cexchain (it is built with GCC 16)." >&2
     exit 1
 fi
 cp "$HERE/shipment.bo" .
@@ -140,11 +147,12 @@ cp "$HERE/shipment.bo" .
 # who may do what, when.
 sed '/^# Its tests/,$d' shipment.bo | grep -v '^#' | sed 's/^/   | /'
 run bo test shipment.bo | tail -n 1 | indent
-CONTRACT="$(run contract deploy --bo shipment.bo --as shipper-root.key --ledger "$(dir shipper)" \
+run bo build shipment.bo --out shipment.boc > /dev/null
+CONTRACT="$(run contract deploy shipment.boc --as shipper-root.key --ledger "$(dir shipper)" \
     --json 2> /dev/null | field '["contract"]["id"]')"
 say "Deployed: contract ${CONTRACT:0:16}... The shipper's ledger runs it on every call."
 say "Every party can read the same contract in its own language:"
-run contract explain "$CONTRACT" --language zh-Hans-CN --ledger "$(dir shipper)" > text-zh.txt
+{ run contract export "$CONTRACT" --ledger "$(dir shipper)" --out explained.boc > /dev/null && run bo explain explained.boc --language zh-Hans-CN; } > text-zh.txt
 check text-zh.txt '本人在场'
 grep -A4 '^4.2 pick_up' text-zh.txt | indent
 
@@ -345,7 +353,8 @@ grep -E 'Ledger|Record|product =|cartons =' packing.txt | sed 's/^ *//' | indent
 # source. The verifier page checks it too, from a file or a link naming the
 # instance (#l=LEDGER&r=INSTANCE&b=URL).
 evidence chain.cbor
-run contract verify chain.cbor --ledger-id "$SHIPPER_ID" > chain.txt
+run contract verify chain.cbor --ledger-id "$SHIPPER_ID" --deploy-out contract.boc > chain.txt
+run bo rebuild contract.boc >> chain.txt
 check chain.txt 'rebuilds'
 check chain.txt 'present: hardware key'
 say "The consignee verifies the chain of custody offline: shipper, driver in person,"
@@ -435,7 +444,8 @@ say "Compensated: HKD 120,000. The shipment is final and takes no more calls."
 
 step "11. Anyone verifies the whole history offline"
 evidence history.cbor
-run contract verify history.cbor --ledger-id "$SHIPPER_ID" > history.txt
+run contract verify history.cbor --ledger-id "$SHIPPER_ID" --deploy-out contract.boc > history.txt
+run bo rebuild contract.boc >> history.txt
 check history.txt 'rebuilds'
 # Who made each call, and who gave each consent: the data logger and the
 # keeper (devices), the driver present with his hardware key, and the

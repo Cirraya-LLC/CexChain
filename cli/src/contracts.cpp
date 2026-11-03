@@ -3,8 +3,6 @@
 
 #include "contracts.hpp"
 
-#include "bo_support.hpp"
-
 namespace cexchain::cli {
 
 cbor::Value contract_arguments_of(const Args& args) {
@@ -22,14 +20,6 @@ cbor::Value contract_arguments_of(const Args& args) {
     }
     check_contract_arguments(value);
     return value;
-}
-
-std::string refusal(const app::Session& session, const CallAttempt& attempt) {
-    return app::refusal(session, attempt, *environment_language());
-}
-
-Json run_json(const app::Session& session, const CallAttempt& attempt) {
-    return app::run_json(session, attempt, *environment_language());
 }
 
 GivenConsent give_consent(app::Session& session, const crypto::Signer& signer,

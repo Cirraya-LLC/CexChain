@@ -18,10 +18,6 @@ namespace cexchain::cli {
 /// file of CBOR, or null.
 [[nodiscard]] cbor::Value contract_arguments_of(const Args& args);
 
-/// app::refusal and app::run_json, in the reader's language.
-[[nodiscard]] std::string refusal(const app::Session& session, const CallAttempt& attempt);
-[[nodiscard]] Json run_json(const app::Session& session, const CallAttempt& attempt);
-
 /// app::give_consent, with the log key from --log-key (or the server's).
 [[nodiscard]] GivenConsent give_consent(app::Session& session, const crypto::Signer& signer,
                                         protocol::ContractConsent& consent,

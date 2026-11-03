@@ -25,12 +25,19 @@ export CEXCHAIN_PASSPHRASE="search test"
 unset CEXCHAIN_SERVER CEXCHAIN_TOKEN
 export CEXCHAIN_LEDGER="$WORK/ledger"
 
-run() { "$CEXCHAIN" "$@"; }
+# A command line as typed: bo, cexchain-console, and cexchain-index are the
+# programs beside cexchain.
+run() {
+    case "$1" in
+    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
+    *) "$CEXCHAIN" "$@" ;;
+    esac
+}
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; exit 1; }
 expect_exit() {
     local code="$1"; shift
     local actual=0
-    "$CEXCHAIN" "$@" > out.txt 2>&1 || actual=$?
+    run "$@" > out.txt 2>&1 || actual=$?
     [ "$actual" -eq "$code" ] || fail "expected exit $code, got $actual: $*"
 }
 contains() { grep "$@" > /dev/null; }
@@ -69,11 +76,11 @@ B2="$(run record issue --as root.key --type example.school.blank-form/1 --field 
 
 # --- Records ------------------------------------------------------------------------
 [ ! -e ledger/search.sqlite ] || fail "no index before the first search"
-run search records --type example.school.application/1 > out.txt
+run cexchain-index search records --type example.school.application/1 > out.txt
 [ "$(grep -c example.school.application/1 out.txt)" -eq 2 ] || fail "two applications, the revoked one left out"
 contains 'as of log entry' out.txt
 [ -e ledger/search.sqlite ] || fail "the index beside the ledger"
-ids() { run search records "$@" --json | json '[r["id"] for r in d["records"]]'; }
+ids() { run cexchain-index search records "$@" --json | json '[r["id"] for r in d["records"]]'; }
 [ "$(ids --meta class=S5B)" = "['$HO', '$LI']" ] || fail "--meta"
 [ "$(ids --meta-min year=2026)" = "['$HO']" ] || fail "--meta-min"
 [ "$(ids --meta-min year=2026 --revoked any)" = "['$HO', '$CHAN']" ] || fail "--revoked any"
@@ -81,38 +88,38 @@ ids() { run search records "$@" --json | json '[r["id"] for r in d["records"]]';
 [ "$(ids --text 走讀申請)" = "['$B2', '$B1']" ] || fail "--text, full text"
 [ "$(ids --text 李明)" = "['$LI']" ] || fail "--text, two characters"
 [ "$(ids --type example.school.blank-form/1 --current)" = "['$B2']" ] || fail "--current"
-run search records --type example.school.blank-form/1 | contains "${B1:0:12} .*\[superseded\]"
+run cexchain-index search records --type example.school.blank-form/1 | contains "${B1:0:12} .*\[superseded\]"
 [ "$(ids --registrant "$(run status --json | json 'd["ledger_id"]')" --limit 2)" = "['$B2', '$B1']" ] ||
     fail "--registrant, --limit"
 [ "$(ids --since 2000-01-01 --until 2000-01-02)" = "[]" ] || fail "--since --until"
 # A page at a time, both ways.
-PAGE="$(run search records --limit 2 --json)"
+PAGE="$(run cexchain-index search records --limit 2 --json)"
 NEXT="$(echo "$PAGE" | json 'd["next"]')"
 [ "$NEXT" != None ] || fail "a next page"
-[ "$(run search records --limit 2 --cursor "$NEXT" --json | json '[r["id"] for r in d["records"]]')" = "['$HO', '$LI']" ] ||
+[ "$(run cexchain-index search records --limit 2 --cursor "$NEXT" --json | json '[r["id"] for r in d["records"]]')" = "['$HO', '$LI']" ] ||
     fail "--cursor"
 [ "$(ids --oldest --limit 1)" = "['$LI']" ] || fail "--oldest"
-run search records --oldest --limit 1 | contains -- "--cursor p"
-expect_exit 1 search records --limit 0
+run cexchain-index search records --oldest --limit 1 | contains -- "--cursor p"
+expect_exit 1 cexchain-index search records --limit 0
 contains 'limit is 1 to 1,000' out.txt
-expect_exit 1 search records --revoked maybe
-expect_exit 1 search records --since yesterday
-expect_exit 1 search records --meta class
-expect_exit 1 search records --text "$(printf 'a\001bc')"
+expect_exit 1 cexchain-index search records --revoked maybe
+expect_exit 1 cexchain-index search records --since yesterday
+expect_exit 1 cexchain-index search records --meta class
+expect_exit 1 cexchain-index search records --text "$(printf 'a\001bc')"
 contains 'without control characters' out.txt
 
 # --- Reports ------------------------------------------------------------------------
-REPORT="$(run report records --by type,state --revoked any --json)"
+REPORT="$(run cexchain-index report records --by type,state --revoked any --json)"
 [ "$(echo "$REPORT" | json 'sorted((g["key"]["type"], g["count"]) for g in d["groups"])')" = \
     "[('example.school.application/1', 3), ('example.school.blank-form/1', 2)]" ] || fail "report by type"
-[ "$(run report records --json | json 'd["groups"][0]["count"]')" = 4 ] || fail "one count without --by"
-run report records --by day --utc-offset +08:00 --csv > days.csv
+[ "$(run cexchain-index report records --json | json 'd["groups"][0]["count"]')" = 4 ] || fail "one count without --by"
+run cexchain-index report records --by day --utc-offset +08:00 --csv > days.csv
 head -1 days.csv | contains -x $'day,count\r'
 [ "$(wc -l < days.csv)" -eq 2 ] || fail "one day"
-run report records --by type | contains -E '^example.school.application/1 +2'
-expect_exit 1 report records --by contract
+run cexchain-index report records --by type | contains -E '^example.school.application/1 +2'
+expect_exit 1 cexchain-index report records --by contract
 contains 'by names type, state, registrant' out.txt
-expect_exit 1 report records --by day --utc-offset +15:00
+expect_exit 1 cexchain-index report records --by day --utc-offset +15:00
 
 # --- Things under contracts -----------------------------------------------------------
 python3 -c "import json,sys; open('oracle.wasm','wb').write(bytes.fromhex(json.load(open(sys.argv[1]))['contract']))" \
@@ -128,39 +135,50 @@ A="$(make S5B 300 --reference APP-1)"
 B="$(make S4A 500)"
 D="$(make S5B 700)"
 run contract call "$A" approve --args "$(out approved S5B 300)" --as root.key > /dev/null
-things() { run search instances "$@" --json | json '[r["id"] for r in d["instances"]]'; }
+things() { run cexchain-index search instances "$@" --json | json '[r["id"] for r in d["instances"]]'; }
 [ "$(things --status submitted)" = "['$D', '$B']" ] || fail "--status"
 [ "$(things --field class=S5B)" = "['$D', '$A']" ] || fail "--field"
 [ "$(things --field-min fee=400 --field-max fee=600)" = "['$B']" ] || fail "--field-min --field-max"
 [ "$(things --contract-name 'Day student' --limit 1)" = "['$D']" ] || fail "--contract-name"
 [ "$(things --contract "${C:0:12}" --reference APP-1)" = "['$A']" ] || fail "--contract --reference"
 [ "$(things --final yes)" = "[]" ] || fail "--final"
-run search instances --status approved | contains "${A:0:12} .*Day student .*approved .*class=S5B, fee=300"
-REPORT="$(run report instances --by state --sum fee --json)"
+run cexchain-index search instances --status approved | contains "${A:0:12} .*Day student .*approved .*class=S5B, fee=300"
+REPORT="$(run cexchain-index report instances --by state --sum fee --json)"
 [ "$(echo "$REPORT" | json '[(g["key"]["state"], g["count"], g["sum"], g["min"], g["max"]) for g in d["groups"]]')" = \
     "[('submitted', 2, 1200, 500, 700), ('approved', 1, 300, 300, 300)]" ] || fail "report instances --sum"
-run report instances --by contract --csv | contains "^$C,3"
-expect_exit 1 search instances --final maybe
+run cexchain-index report instances --by contract --csv | contains "^$C,3"
+expect_exit 1 cexchain-index search instances --final maybe
 
 # --- The index: rebuilt when lost ------------------------------------------------------
 SIZE="$(run status --json | json 'd["entries"]')"
-[ "$(run index status --json | json 'd["indexed"]')" = "$SIZE" ] || fail "index status"
-run index status | contains "indexed:    $SIZE of $SIZE log entries"
+[ "$(run cexchain-index status --json | json 'd["indexed"]')" = "$SIZE" ] || fail "index status"
+run cexchain-index status | contains "indexed:    $SIZE of $SIZE log entries"
 rm -f ledger/search.sqlite ledger/search.sqlite-wal ledger/search.sqlite-shm
 [ "$(ids --meta class=S5B)" = "['$HO', '$LI']" ] || fail "rebuilt when lost"
-run index rebuild | contains "from $SIZE log entries: 5 records, 3 instances"
+run cexchain-index rebuild | contains "from $SIZE log entries: 5 records, 3 instances"
 
 # --- Through a server -------------------------------------------------------------------
 TOKEN="$(run token create reader --scope read --json | json 'd["token"]')"
 WRITER="$(run token create writer --scope read,submit --json | json 'd["token"]')"
-run serve --listen 127.0.0.1:0 --json > server.json 2> server.log &
+# The primary writes; the index serves beside it, read-only, on the same
+# directory, as an explorer beside a node.
+wait_for() {
+    for _ in $(seq 1 300); do
+        if [ -s "$1" ] && python3 -c "import json; json.load(open('$1'))" 2> /dev/null; then return; fi
+        sleep 0.1
+    done
+}
+"$CEXCHAIN" serve --listen 127.0.0.1:0 --json > server.json 2> server.log &
 SERVERS+=("$!")
-for _ in $(seq 1 300); do
-    if [ -s server.json ] && python3 -c "import json; json.load(open('server.json'))" 2> /dev/null; then break; fi
-    sleep 0.1
-done
+"$(dirname "$CEXCHAIN")/cexchain-index" serve --listen 127.0.0.1:0 --json > index.json 2> index.log &
+SERVERS+=("$!")
+wait_for server.json
+wait_for index.json
 URL="$(json 'd["url"]' < server.json)"
-get() { http "$URL$1" "$TOKEN"; }
+INDEX_URL="$(json 'd["url"]' < index.json)"
+[ "$(json 'd["read_only"]' < index.json)" = True ] || fail "the index serves read-only"
+[ "$(http "$URL/v1/records" "$TOKEN" | sed -n 1p)" = 404 ] || fail "the chain's server has no index"
+get() { http "$INDEX_URL$1" "$TOKEN"; }
 get "/v1/records?type=example.school.application/1&meta.class=S5B" > r.txt
 [ "$(sed -n 1p r.txt)" = 200 ] || fail "GET /v1/records"
 [ "$(sed -n '2,$p' r.txt | json '[r["id"] for r in d["records"]]')" = "['$HO', '$LI']" ] || fail "records over HTTP"
@@ -172,7 +190,7 @@ get "/v1/reports/instances?by=state&sum=fee" | sed -n '2,$p' | json 'd["groups"]
 get "/v1/reports/records?by=week" | sed -n '2,$p' | json 'd["by"]' | contains -xF "['week']"
 [ "$(get "/v1/records?limit=5000" | sed -n 1p)" = 400 ] || fail "a bad query is a 400"
 get "/v1/records?colour=blue" | contains 'unknown parameter colour'
-[ "$(http "$URL/v1/records" | sed -n 1p)" = 401 ] || fail "read scope"
+[ "$(http "$INDEX_URL/v1/records" | sed -n 1p)" = 401 ] || fail "read scope"
 [ "$(get "/v1/records/$(printf '0%.0s' $(seq 1 64))" | sed -n 1p)" = 404 ] || fail "no such record"
 # A record issued while it serves is found at once (the query catches up).
 LEDGER_ID="$(run status --json | json 'd["ledger_id"]')"
@@ -185,7 +203,7 @@ get "/v1/records?q=%E6%96%B0%E7%94%9F" | sed -n '2,$p' | json '[r["id"] for r in
     contains -xF "['$NEW']"
 
 # Help and completion name the commands.
-run search records --help | contains -- '--meta KEY=VALUE'
-run report instances --help | contains -- '--sum FIELD'
-run completion bash | contains 'rebuild'
+run cexchain-index search records --help | contains -- '--meta KEY=VALUE'
+run cexchain-index report instances --help | contains -- '--sum FIELD'
+run cexchain-index completion bash | contains 'rebuild'
 echo "search: all checks passed"

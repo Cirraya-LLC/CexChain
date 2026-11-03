@@ -91,9 +91,9 @@ job() {
         release)
             cmake --preset gcc-release -DCMAKE_CXX_COMPILER=g++ -DCEXCHAIN_BUILD_TESTS=OFF \
                 -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc" &&
-                cmake --build --preset gcc-release --target cexchain &&
-                build/gcc-release/cli/cexchain version &&
-                build/gcc-release/cli/cexchain bo packs list ;;
+                cmake --build --preset gcc-release --target cexchain bo cexchain-console cexchain-index &&
+                for p in cexchain bo cexchain-console cexchain-index; do build/gcc-release/bin/$p version || exit 1; done &&
+                build/gcc-release/bin/bo packs list ;;
         clang-asan)
             cmake --preset clang-asan -DCMAKE_CXX_COMPILER=clang++-23 &&
                 cmake --build --preset clang-asan && ctest --preset clang-asan ;;

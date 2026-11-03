@@ -17,13 +17,20 @@ cd "$WORK"
 export CEXCHAIN_PASSPHRASE="correct horse battery staple"
 unset CEXCHAIN_LEDGER
 
-run() { "$CEXCHAIN" "$@"; }
+# A command line as typed: bo, cexchain-console, and cexchain-index are the
+# programs beside cexchain.
+run() {
+    case "$1" in
+    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
+    *) "$CEXCHAIN" "$@" ;;
+    esac
+}
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; exit 1; }
 # expect_exit CODE COMMAND...: the command must exit with CODE.
 expect_exit() {
     local code="$1"; shift
     local actual=0
-    "$CEXCHAIN" "$@" > out.txt 2>&1 || actual=$?
+    run "$@" > out.txt 2>&1 || actual=$?
     [ "$actual" -eq "$code" ] || fail "expected exit $code, got $actual: $*"
 }
 # Readers in pipelines consume all input: with pipefail, a reader that exits

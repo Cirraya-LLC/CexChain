@@ -24,7 +24,14 @@ trap cleanup EXIT
 cd "$WORK"
 unset CEXCHAIN_LEDGER CEXCHAIN_TOKEN CEXCHAIN_SERVER
 
-run() { "$CEXCHAIN" "$@"; }
+# A command line as typed: bo, cexchain-console, and cexchain-index are the
+# programs beside cexchain.
+run() {
+    case "$1" in
+    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
+    *) "$CEXCHAIN" "$@" ;;
+    esac
+}
 # Readers in pipelines consume all input: with pipefail, a reader that exits
 # early (grep -q, head) can kill the writer with SIGPIPE and fail the test.
 contains() { grep "$@" > /dev/null; }

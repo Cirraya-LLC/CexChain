@@ -46,7 +46,14 @@ unset CEXCHAIN_LEDGER CEXCHAIN_SERVER CEXCHAIN_TOKEN CEXCHAIN_LANGUAGE
 
 step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 say() { printf '   %s\n' "$*"; }
-run() { "$CEXCHAIN" "$@"; }
+# A command line as typed: bo, cexchain-console, and cexchain-index are the
+# programs beside cexchain.
+run() {
+    case "$1" in
+    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
+    *) "$CEXCHAIN" "$@" ;;
+    esac
+}
 field() { python3 -c "import json,sys; print(json.load(sys.stdin)$1)"; }
 indent() { sed 's/^/   /'; }
 check() {
@@ -74,8 +81,8 @@ run peer add fan --ledger-id "$FAN_ID" --ledger "$ORG" > /dev/null
 run peer add organizer --ledger-id "$ORG_ID" --ledger "$FAN" > /dev/null
 
 step "2. The organizer's own words: a vocabulary pack"
-if [ "$(run version --json | field '["bo"] is not None')" != True ]; then
-    echo "This example needs a cexchain built with the Bo compiler (GCC 16)." >&2
+if [ ! -x "$(dirname "$CEXCHAIN")/bo" ]; then
+    echo "This example needs bo, the Bo compiler, beside cexchain (it is built with GCC 16)." >&2
     exit 1
 fi
 cp "$HERE/events.vocab" "$HERE/tickets.bo" .
@@ -96,7 +103,8 @@ if run bo check tickets.bo > nopack.txt 2>&1; then
 fi
 check nopack.txt 'use events names no vocabulary pack read here'
 say "Without --vocab, use events names no pack: Bo never guesses."
-run contract deploy --bo tickets.bo --vocab events.vocab --as org-root.key --ledger "$ORG" \
+run bo build tickets.bo --vocab events.vocab --out tickets.boc > /dev/null
+run contract deploy tickets.boc --as org-root.key --ledger "$ORG" \
     --json > deploy.json 2> /dev/null
 CONTRACT="$(field '["contract"]["id"]' < deploy.json)"
 say "Deployed: contract ${CONTRACT:0:16}... Its source bundle embeds events.vocab."
@@ -118,7 +126,7 @@ check dry.txt 'consent'
 # bundle carries the pack, so the contract rebuilds from its source.
 run contract evidence "$TICKET" --log-key org-log.key --out ticket.cbor --ledger "$ORG" > /dev/null
 mkdir -p fan-side
-(cd fan-side && run contract verify ../ticket.cbor --ledger-id "$ORG_ID" > ../verify1.txt)
+(cd fan-side && run contract verify ../ticket.cbor --ledger-id "$ORG_ID" --deploy-out contract.boc > ../verify1.txt && run bo rebuild contract.boc >> ../verify1.txt)
 check verify1.txt 'rebuilds'
 check verify1.txt 'vocabulary packs events 1 (1 embedded, not official)'
 say "The fan verifies the evidence offline: the contract rebuilds with the pack it carries."
@@ -149,7 +157,8 @@ indent < in.txt
 
 step "7. Anyone verifies the whole history offline"
 run contract evidence "$TICKET" --log-key org-log.key --out history.cbor --ledger "$ORG" > /dev/null
-run contract verify history.cbor --ledger-id "$ORG_ID" > verify2.txt
+run contract verify history.cbor --ledger-id "$ORG_ID" --deploy-out contract.boc > verify2.txt
+run bo rebuild contract.boc >> verify2.txt
 check verify2.txt 'rebuilds'
 check verify2.txt 'check_in'
 indent < verify2.txt

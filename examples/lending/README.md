@@ -41,7 +41,7 @@ Files: [`lending.bo`](lending.bo), the contract and its tests; [`lending.sh`](le
 the narrated run.
 
 ```sh
-cexchain bo test examples/lending/lending.bo        # its three tests
-cexchain bo explain examples/lending/lending.bo     # the contract text the parties read
+bo test examples/lending/lending.bo        # its three tests
+bo explain examples/lending/lending.bo     # the contract text the parties read
 examples/lending/lending.sh [CEXCHAIN] [DIR]        # the whole story (CTest: demo_lending)
 ```

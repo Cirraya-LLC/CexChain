@@ -58,7 +58,14 @@ unset CEXCHAIN_LEDGER CEXCHAIN_SERVER CEXCHAIN_TOKEN
 
 step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 say() { printf '   %s\n' "$*"; }
-run() { "$CEXCHAIN" "$@"; }
+# A command line as typed: bo, cexchain-console, and cexchain-index are the
+# programs beside cexchain.
+run() {
+    case "$1" in
+    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
+    *) "$CEXCHAIN" "$@" ;;
+    esac
+}
 field() { python3 -c "import json,sys; print(json.load(sys.stdin)$1)"; }
 indent() { sed 's/^/   /'; }
 check() {
@@ -71,7 +78,7 @@ check() {
 # refused FILE TEXT CMD...: the command must fail, saying TEXT.
 refused() {
     local out="$1" text="$2"; shift 2
-    if "$CEXCHAIN" "$@" > "$out" 2>&1; then
+    if run "$@" > "$out" 2>&1; then
         echo "expected a refusal: $*" >&2
         cat "$out" >&2
         exit 1
@@ -79,7 +86,7 @@ refused() {
     check "$out" "$text"
 }
 
-if [ "$(run version --json | field '["bo"] is not None')" != True ]; then
+if [ ! -x "$(dirname "$CEXCHAIN")/bo" ]; then
     echo "this cexchain was built without the Bo compiler (GCC 16 builds it)" >&2
     exit 2
 fi
@@ -96,7 +103,8 @@ say "Example School  ledger ${SCHOOL_ID:0:16}..."
 step "2. The form, as rules: tested, then deployed"
 cp "$HERE/day-student.bo" "$HERE/day-student-v2.bo" .
 run bo test day-student.bo | tail -n 1 | indent
-V1="$(run contract deploy --bo day-student.bo --as school-root.key --ledger "$SCHOOL" --json \
+run bo build day-student.bo --out day-student.boc > /dev/null
+V1="$(run contract deploy day-student.boc --as school-root.key --ledger "$SCHOOL" --json \
     2> /dev/null | field '["contract"]["id"]')"
 say "Form, version 1: rules ${V1:0:16}..."
 # The blank form as handed out, published as a record: its text committed,
@@ -164,7 +172,8 @@ say "Li Ming's form: record ${LI_FORM:0:12}... (its values sealed)"
 say "Li Ming's application: counsellor_approved, on form version 1"
 
 step "5. The school changes the form: new rules deployed, the old ones retired"
-V2="$(run contract deploy --bo day-student-v2.bo --as school-root.key --ledger "$SCHOOL" --json \
+run bo build day-student-v2.bo --out day-student-v2.boc > /dev/null
+V2="$(run contract deploy day-student-v2.boc --as school-root.key --ledger "$SCHOOL" --json \
     2> /dev/null | field '["contract"]["id"]')"
 run contract retire "$V1" --reason "replaced by the form of 8 November" --as school-root.key \
     --ledger "$SCHOOL" | indent
@@ -196,7 +205,7 @@ step "7. Chan Wing applies on the new form; it is sent back, fixed, and goes on"
 CHAN_FORM="$(form 2 "student=Chan Wing" student_number=2025-0077 class_name=S4A "address=Flat 3" \
     "guardian=Chan Mei" "guardian_phone=5555 0202" "reason=closer to the family shop")"
 CHAN="$(apply "$V2" "\"details\": \"record $CHAN_FORM\", \"guardian_agrees\": true, \"emergency_contact_given\": false")"
-refused contact.txt 'requirement' contract call "$CHAN" counsellor_approves --args "{}" \
+refused contact.txt 'bo:requires counsellor_approves' contract call "$CHAN" counsellor_approves --args "{}" \
     --as counsellor.key --ledger "$SCHOOL"
 say "The counsellor approving it without an emergency contact: refused."
 run contract call "$CHAN" withdraw --args "{}" --as desk.key --ledger "$SCHOOL" > /dev/null
@@ -239,7 +248,8 @@ run contract instances --ledger "$SCHOOL" | indent
 step "9. Anyone verifies Li Ming's application offline"
 run contract evidence "$LI" --log-key school-log.key --out li-ming.cbor --ledger "$SCHOOL" \
     > /dev/null
-run contract verify li-ming.cbor --ledger-id "$SCHOOL_ID" > verify.txt
+run contract verify li-ming.cbor --ledger-id "$SCHOOL_ID" --deploy-out contract.boc > verify.txt
+run bo rebuild contract.boc >> verify.txt
 check verify.txt 'rebuilds'
 check verify.txt 'security_registers'
 indent < verify.txt
@@ -267,7 +277,7 @@ grep -F -e 'Record' -e 'Superseded' -e 'superseded by' old-form.txt | indent
 say "The old form is genuine, and says a newer version replaced it: take that one."
 if [ "$KEEP" = 1 ]; then
     say ""
-    say "The ledger is in $SCHOOL: cexchain console run --ledger $SCHOOL"
+    say "The ledger is in $SCHOOL: cexchain-console run --ledger $SCHOOL"
 fi
 echo
 echo "day student: all steps done"

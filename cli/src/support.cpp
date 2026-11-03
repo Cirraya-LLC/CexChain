@@ -335,11 +335,11 @@ Bytes Session::receipt(const Args& args, std::uint64_t index) {
 }
 
 std::string console_compiler() {
-#if defined(CEXCHAIN_HAVE_BO)
-    return self_path();
-#else
-    return {};
-#endif
+    // The Bo compiler is its own program, beside this one (packages install
+    // them together); a console without it runs no compiler.
+    const std::filesystem::path bo = std::filesystem::path(self_path()).parent_path() / "bo";
+    std::error_code ec;
+    return std::filesystem::is_regular_file(bo, ec) ? bo.string() : std::string();
 }
 
 std::string self_path() {

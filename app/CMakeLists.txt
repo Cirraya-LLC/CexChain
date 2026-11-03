@@ -27,7 +27,7 @@ add_library(cexchain_app
 add_library(cexchain::app ALIAS cexchain_app)
 target_include_directories(cexchain_app PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 target_link_libraries(cexchain_app
-    PUBLIC cexchain::ledger cexchain::node cexchain::verifier cexchain::bo_front
+    PUBLIC cexchain::ledger cexchain::node cexchain::verifier
            nlohmann_json::nlohmann_json)
 # The tool named in an agent's provenance, and the public witnesses offered
 # (none by default).

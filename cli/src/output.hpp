@@ -7,12 +7,11 @@
 
 #include <cexchain/app/views.hpp>
 
+#include "json_output.hpp"
 #include "support.hpp"
 
 /// Printing: the app library's views, written to standard output.
 namespace cexchain::cli {
-
-void print_json(const Json& value);
 
 /// Prints the result of a statement just registered: its id and log index
 /// plus `extra` as JSON, or `text`.

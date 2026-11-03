@@ -22,6 +22,6 @@ What it shows:
   the bank, and each payee confirms.
 
 ```sh
-cexchain bo test examples/multi-tier-split/multi-tier-split.bo
+bo test examples/multi-tier-split/multi-tier-split.bo
 examples/multi-tier-split/multi-tier-split.sh [CEXCHAIN] [DIR]   # CTest: demo_multi_tier_split
 ```

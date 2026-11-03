@@ -23,6 +23,11 @@ const path = require("node:path");
 const { chromium } = require("playwright");
 
 const cexchain = path.resolve(process.argv[2]);
+// The programs beside cexchain: a command line's first word may name one.
+const programOf = (args) =>
+  ["bo", "cexchain-console", "cexchain-index"].includes(args[0])
+    ? [path.join(path.dirname(cexchain), args[0]), args.slice(1)]
+    : [cexchain, args];
 const work = fs.mkdtempSync(path.join(os.tmpdir(), "cexchain-people-"));
 const host = "ledger.example.test";
 
@@ -75,9 +80,9 @@ async function tap(page, what) {
     .digest("base64");
   const ledger = path.join(work, "ledger");
   const env = { ...process.env, CEXCHAIN_LEDGER: ledger, CEXCHAIN_NO_BROWSER: "1", HOME: work };
-  const run = (...args) => execFileSync(cexchain, args, { cwd: work, env, encoding: "utf8" });
-  const console_ = spawn(cexchain, ["console", "run", "--port", String(port), "--public-url", origin,
-                                    "--tls-cert", cert, "--tls-key", key, "--quiet"], { cwd: work, env });
+  const run = (...args) => execFileSync(...programOf(args), { cwd: work, env, encoding: "utf8" });
+  const console_ = spawn(...programOf(["cexchain-console", "run", "--port", String(port), "--public-url", origin,
+                                    "--tls-cert", cert, "--tls-key", key, "--quiet"]), { cwd: work, env });
   for (let i = 0; i < 300 && !fs.existsSync(path.join(ledger, "console", "setup-link")); i++) {
     await new Promise((r) => setTimeout(r, 100));
   }
@@ -101,13 +106,13 @@ async function tap(page, what) {
     await a.getByRole("button", { name: "Continue" }).click();
     await a.getByRole("button", { name: "Not now" }).click();
     await a.getByRole("heading", { name: "Home" }).waitFor();
-    const owner = JSON.parse(run("console", "user", "show", "Alice", "--json"));
+    const owner = JSON.parse(run("cexchain-console", "user", "show", "Alice", "--json"));
     assert.ok(JSON.stringify(owner.passkeys).includes(host), "the owner's passkey is for the host name");
     const sheet = path.join(work, "photo-kind.json");
     fs.writeFileSync(sheet, JSON.stringify({
       sheet: 1, kind: "document", type: "example.org.photo/1", name: "Photo",
       fields: [{ name: "place", required: true }], files: "optional" }));
-    run("console", "kind", "add", sheet);
+    run("cexchain-console", "kind", "add", sheet);
 
     // Bob is invited, and registers his passkey for the host name in his own browser.
     await a.getByRole("link", { name: "People" }).click();
@@ -203,7 +208,7 @@ async function tap(page, what) {
   } finally {
     await browser.close();
     try {
-      run("console", "stop");
+      run("cexchain-console", "stop");
     } catch {
       // Not running: nothing to stop.
     }

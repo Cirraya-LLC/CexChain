@@ -7,14 +7,9 @@
 
 #include <cexchain/core/protocol/common.hpp>
 #include <cexchain/crypto/openssl.hpp>
-#if defined(CEXCHAIN_HAVE_BO)
-#include <cexchain/bo/build.hpp>
-#include <cexchain/bo/concepts.hpp>
-#include <cexchain/bo/pack.hpp>
-#endif
 
 #include "commands.hpp"
-#include "output.hpp"
+#include "json_output.hpp"
 #include "registry.hpp"
 
 namespace cexchain::cli {
@@ -61,26 +56,16 @@ int cmd_version(const Args& args) {
             hashes.push_back(crypto::name(alg));
         }
     }
-    // The Bo compiler, if this build has it: its edition and official packs.
-    Json bo = nullptr;
-#if defined(CEXCHAIN_HAVE_BO)
-    Json packs = Json::array();
-    for (const bo::Pack& pack : bo::official_packs()) {
-        packs.push_back(pack.id + " " + std::to_string(pack.version));
-    }
-    bo = {{"edition", bo::edition}, {"packs", packs}, {"compiler", bo::compiler_string()}};
-#endif
     if (args.json()) {
         print_json({{"version", CEXCHAIN_VERSION},
                     {"protocol_version", protocol::protocol_version},
                     {"spec_revision", protocol::spec_revision},
                     {"crypto_library", crypto::openssl::library_version()},
                     {"signature_algorithms", algorithms},
-                    {"ledger_hashes", hashes},
-                    {"bo", bo}});
+                    {"ledger_hashes", hashes}});
         return exit_ok;
     }
-    std::println("cexchain {}", CEXCHAIN_VERSION);
+    std::println("{} {}", program().name, CEXCHAIN_VERSION);
     std::println("protocol:    CexChain spec {} (wire version {})", protocol::spec_revision,
                  protocol::protocol_version);
     std::println("crypto:      {}", crypto::openssl::library_version());
@@ -94,16 +79,6 @@ int cmd_version(const Args& args) {
         list += (list.empty() ? "" : ", ") + h.get<std::string>();
     }
     std::println("hashes:      {}", list);
-    if (bo.is_null()) {
-        std::println("bo:          not in this build (the compiler needs GCC 16)");
-    } else {
-        list.clear();
-        for (const auto& p : bo["packs"]) {
-            list += (list.empty() ? "" : ", ") + p.get<std::string>();
-        }
-        std::println("bo:          edition {}; packs {}", bo["edition"].get<std::uint64_t>(), list);
-        std::println("             compiler {}", bo["compiler"].get<std::string>());
-    }
     return exit_ok;
 }
 
@@ -120,8 +95,8 @@ int cmd_help(const Args& args) {
         }
     }
     if (matches.empty()) {
-        throw UsageError{"no command '" + join({words.begin(), words.end()}) +
-                         "'; run cexchain help"};
+        throw UsageError{"no command '" + join({words.begin(), words.end()}) + "'; run " +
+                         std::string(program().name) + " help"};
     }
     if (args.json()) {
         Json out = Json::array();
@@ -141,7 +116,7 @@ int cmd_help(const Args& args) {
             if (!spec->arguments.empty()) {
                 name += " " + std::string(spec->arguments);
             }
-            std::println("  cexchain {:<34} {}", name, spec->summary);
+            std::println("  {} {:<34} {}", program().name, name, spec->summary);
         }
     }
     return exit_ok;

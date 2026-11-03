@@ -9,7 +9,6 @@
 #include <cexchain/app/peers.hpp>
 #include <cexchain/app/records.hpp>
 #include <cexchain/app/relay_client.hpp>
-#include <cexchain/bo/messages.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/vm.hpp>
 #include <cexchain/node/contracts.hpp>
@@ -218,7 +217,7 @@ std::vector<protocol::Id> created_children(const Session& session, const protoco
     return out;
 }
 
-std::string refusal(const Session& session, const CallAttempt& attempt, const bo::Pack& language) {
+std::string refusal(const Session& session, const CallAttempt& attempt, const ReasonWords& words) {
     if (attempt.refused) {
         return *attempt.refused;
     }
@@ -226,10 +225,8 @@ std::string refusal(const Session& session, const CallAttempt& attempt, const bo
     if (run.outcome.trap) {
         if (*run.outcome.trap == vm::Trap::aborted) {
             const std::string reason = readable(run.outcome.abort_reason);
-            // A compiled Bo contract's own checks ("bo:state sign"), in words
-            // of the reader's language.
-            if (const auto words = bo::render_reason(reason, &language)) {
-                return "the contract refuses the call: " + *words + " (" + reason + ")";
+            if (const auto said = words ? words(reason) : std::nullopt) {
+                return "the contract refuses the call: " + *said + " (" + reason + ")";
             }
             return "the contract refuses the call: " + reason;
         }
@@ -250,7 +247,7 @@ std::string refusal(const Session& session, const CallAttempt& attempt, const bo
     return "the contract does not accept the call";
 }
 
-Json run_json(const Session& session, const CallAttempt& attempt, const bo::Pack& language) {
+Json run_json(const Session& session, const CallAttempt& attempt, const ReasonWords& words) {
     const protocol::ContractRun& run = attempt.run;
     Json out{{"fuel_used", run.outcome.fuel_used}};
     if (const protocol::ContractAccept* a = run.accepted(); a != nullptr && !attempt.refused) {
@@ -289,7 +286,7 @@ Json run_json(const Session& session, const CallAttempt& attempt, const bo::Pack
     } else {
         out["verdict"] = "refuse";
     }
-    out["reason"] = refusal(session, attempt, language);
+    out["reason"] = refusal(session, attempt, words);
     return out;
 }
 

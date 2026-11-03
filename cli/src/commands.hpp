@@ -25,6 +25,9 @@ inline constexpr int exit_not_verified = 3;
 int cmd_version(const Args& args);
 int cmd_help(const Args& args);
 int cmd_completion(const Args& args);
+int cmd_bo_version(const Args& args);
+int cmd_bo_rebuild(const Args& args);
+int cmd_bo_reason(const Args& args);
 
 // Keys
 int cmd_key_generate(const Args& args);
@@ -74,6 +77,7 @@ int cmd_report_records(const Args& args);
 int cmd_report_instances(const Args& args);
 int cmd_index_status(const Args& args);
 int cmd_index_rebuild(const Args& args);
+int cmd_index_serve(const Args& args);
 int cmd_record_fields(const Args& args);
 int cmd_record_file_list(const Args& args);
 int cmd_record_file_get(const Args& args);
@@ -129,17 +133,6 @@ int cmd_token_create(const Args& args);
 int cmd_token_list(const Args& args);
 int cmd_token_show(const Args& args);
 int cmd_token_revoke(const Args& args);
-/// What `serve` uses when its options leave it open: `console run` serves
-/// the console on localhost, trying the next ports when one is taken, and
-/// learns the port it got.
-struct ServeDefaults {
-    std::optional<std::string> listen;
-    bool console = false;
-    /// How many ports to try, from the one asked for (0 or 1: only it).
-    unsigned port_fallback = 0;
-    std::function<void(std::uint16_t port)> on_listening;
-};
-int serve(const Args& args, const ServeDefaults& defaults);
 int cmd_console_run(const Args& args);
 int cmd_console_key_init(const Args& args);
 int cmd_console_key_import(const Args& args);
@@ -217,7 +210,7 @@ int cmd_contract_withdraw(const Args& args);
 int cmd_contract_send(const Args& args);
 int cmd_contract_fetch(const Args& args);
 int cmd_contract_verify(const Args& args);
-int cmd_contract_explain(const Args& args);
+int cmd_contract_export(const Args& args);
 
 // Requests and executors (spec v0.8)
 int cmd_request_list(const Args& args);

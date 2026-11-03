@@ -47,6 +47,7 @@
 #include "commands.hpp"
 #include "output.hpp"
 #include "records.hpp"
+#include "serve.hpp"
 #include "support.hpp"
 
 // POSIX: the process's environment, for the browser it opens.
@@ -55,12 +56,6 @@ extern char** environ;
 namespace cexchain::cli {
 
 namespace {
-
-void require_ledger_directory(const std::filesystem::path& dir) {
-    if (!std::filesystem::exists(dir / "statements")) {
-        throw CommandError{"no ledger at " + dir.string()};
-    }
-}
 
 /// The console's people, changed under its lock; `change` may throw.
 template <class Change>
@@ -520,6 +515,19 @@ int run_person_console(const Args& args, const std::filesystem::path& dir,
     node::ServerOptions server_options;
     server_options.host = "127.0.0.1";
     server_options.port = port;
+    // Beyond this computer only over TLS: served here, or by an https proxy
+    // in front (--public-url https://...).
+    if (const auto listen = args.get("listen")) {
+        const auto [host, listen_port] = parse_listen(*listen);
+        const bool loopback = host == "127.0.0.1" || host == "::1" || host.starts_with("127.");
+        if (!loopback && !args.has("tls-cert") &&
+            (!public_origin || public_origin->scheme != "https")) {
+            throw UsageError{"the console listens beyond this computer only with TLS: --tls-cert "
+                             "and --tls-key, or an https --public-url for the proxy in front"};
+        }
+        server_options.host = host;
+        server_options.port = listen_port;
+    }
     if (const auto cert = args.get("tls-cert")) {
         server_options.tls_certificate = *cert;
         server_options.tls_private_key = *args.get("tls-key");
@@ -607,6 +615,101 @@ int run_person_console(const Args& args, const std::filesystem::path& dir,
 
 } // namespace
 
+/// The console beside a ledger's API (serve's hooks): it answers for the
+/// public URL, or for this computer's loopback names once the port is known;
+/// it keeps the search index beside the ledger.
+void serve_console_too(const Args& args, const std::filesystem::path& dir,
+                       ServeDefaults& defaults) {
+    std::optional<console::Origin> public_origin;
+    if (const auto url = args.get("public-url")) {
+        auto parsed = console::parse_origin(*url);
+        if (!parsed) {
+            throw UsageError{std::format("--public-url: {}", parsed.error().detail)};
+        }
+        public_origin = std::move(*parsed);
+    }
+    struct Parts {
+        ledger::SystemClock clock;
+        ledger::SystemEntropy entropy;
+        std::unique_ptr<console::Sessions> sessions;
+        std::unique_ptr<console::KeyStore> keys;
+        std::shared_ptr<console::Console> web;
+        std::shared_ptr<search::Served> served = std::make_shared<search::Served>();
+    };
+    auto parts = std::make_shared<Parts>();
+    parts->sessions = std::make_unique<console::Sessions>(
+        console::state_directory(dir), shared_provider(), parts->clock, parts->entropy);
+    parts->keys = std::make_unique<console::KeyStore>(console::state_directory(dir));
+    // A server that starts unattended unlocks its keys from a file.
+    if (const auto file = args.get("unlock-file")) {
+        const Bytes bytes = read_file(*file);
+        std::string secret(bytes.begin(), bytes.end());
+        secret = secret.substr(0, secret.find('\n'));
+        if (!parts->keys->initialized() ||
+            !parts->keys->unlock({console::SlotKind::passphrase, {}}, secret)) {
+            throw UsageError{"--unlock-file does not unlock the console's keys"};
+        }
+    }
+    parts->web = std::make_shared<console::Console>(console::Services{
+        console::state_directory(dir), &shared_provider(), &parts->clock, &parts->entropy,
+        parts->sessions.get(), parts->keys.get(), console_compiler()});
+    defaults.before_open = [parts, dir](node::ApiOptions& options) {
+        options.console = [web = parts->web](const node::http::Request& r, auto respond) {
+            web->handle(r, std::move(respond));
+        };
+        options.extensions.push_back(parts->served->extension(dir));
+    };
+    defaults.after_open = [parts](node::LedgerApi& api) {
+        console::Console& web = *parts->web;
+        web.set_ledger(&api.ledger());
+        web.set_search(parts->served->index());
+        web.set_evidence([api = &api](const protocol::Id& record, auto done) {
+            api->record_evidence(record, std::move(done));
+        });
+        web.set_instance_evidence([api = &api](const protocol::Id& instance, auto done) {
+            api->instance_evidence(instance, std::move(done));
+        });
+        web.set_registrar(
+            [api = &api](Bytes proposal, auto respond) {
+                api->propose_call(std::move(proposal), std::move(respond));
+            },
+            [api = &api] { return api->registrar_calls(); });
+        web.set_checkpointer(
+            [api = &api](auto respond) { api->checkpoint_now(std::move(respond)); });
+        web.set_node_api([api = &api](node::http::Request request, auto respond) {
+            api->handle(std::move(request), "relay", std::move(respond));
+        });
+        web.set_submitter([api = &api](Bytes body, bool submission, auto respond) {
+            if (submission) {
+                api->submit_submission(std::move(body), std::move(respond));
+            } else {
+                api->submit_statement(std::move(body), std::move(respond));
+            }
+        });
+    };
+    // Beyond this computer only over TLS: served here, or by an https
+    // proxy in front (--public-url https://...).
+    defaults.check_listen = [public_origin](bool loopback, bool tls) {
+        if (!loopback && !tls && (!public_origin || public_origin->scheme != "https")) {
+            throw UsageError{"the console listens beyond this computer only with TLS: --tls-cert "
+                             "and --tls-key, or an https --public-url for the proxy in front"};
+        }
+    };
+    // Its uploads: a file kept with a record, 16 MiB at most.
+    defaults.max_body = node::max_record_file + 64 * 1024;
+    defaults.on_address = [parts, public_origin, dir](std::uint16_t port) {
+        parts->web->set_origins(public_origin ? std::vector{*public_origin}
+                                              : console::loopback_origins(port));
+        const std::string url =
+            (public_origin ? public_origin->text() : std::format("http://localhost:{}", port)) +
+            "/console/";
+        // For setup-link and user add.
+        std::filesystem::create_directories(console::state_directory(dir));
+        app::write_file(console::state_directory(dir) / "url", as_bytes(url + "\n"), true);
+        return std::pair<std::string, std::string>("console", url);
+    };
+}
+
 int cmd_console_run(const Args& args) {
     const std::filesystem::path dir = args.console_ledger();
     const std::filesystem::path state = console::state_directory(dir);
@@ -617,7 +720,7 @@ int cmd_console_run(const Args& args) {
     }
     if (const auto pid = running_console(state)) {
         throw CommandError{
-            std::format("the console runs already (process {}): console open", *pid)};
+            std::format("the console runs already (process {}): cexchain-console open", *pid)};
     }
     std::uint64_t port = 7470;
     if (const auto asked = args.get("port")) {
@@ -636,12 +739,13 @@ int cmd_console_run(const Args& args) {
         return run_person_console(args, dir, state, static_cast<std::uint16_t>(port), first_run,
                                   keys);
     }
-    // A ledger whose keys are files (as the README's quick start makes it).
+    // A ledger whose keys are files (as the README's quick start makes it):
+    // the ledger's API, with the console beside it.
     ServeDefaults defaults;
     defaults.listen = std::format("127.0.0.1:{}", port);
-    defaults.console = true;
     // The next free port if this one is taken, unless one was asked for.
     defaults.port_fallback = args.has("port") ? 1 : 20;
+    serve_console_too(args, dir, defaults);
     defaults.on_listening = [state](std::uint16_t got) {
         std::filesystem::create_directories(state);
         app::write_file(state / "port", as_bytes(std::to_string(got) + "\n"), true);
@@ -679,7 +783,7 @@ int cmd_console_status(const Args& args) {
         std::println("the console runs (process {}) at {}", *pid, url.value_or("(unknown)"));
         std::println("{} session{}", sessions, sessions == 1 ? "" : "s");
     } else {
-        std::println("the console is not running (console run)");
+        std::println("the console is not running (cexchain-console run)");
     }
     std::println("{} user{}{}", people.users.size(), people.users.size() == 1 ? "" : "s",
                  people.has_owner() ? "" : " and no owner yet (console setup-link)");
@@ -713,13 +817,13 @@ int cmd_console_stop(const Args& args) {
 
 namespace {
 
-/// Starts `console run` for `dir` in the background, its own session, its
+/// Starts `cexchain-console run` for `dir` in the background, its own session, its
 /// output in the console's log, and waits until it answers (15 s at most).
 void start_console_process(const std::filesystem::path& dir, const std::filesystem::path& state) {
     std::filesystem::create_directories(state);
     const std::string program = self_path();
     const std::string log = (state / "console.log").string();
-    std::vector<std::string> words{program, "console", "run", "--ledger", dir.string(), "--quiet"};
+    std::vector<std::string> words{program, "run", "--ledger", dir.string(), "--quiet"};
     std::vector<char*> argv;
     for (std::string& w : words) {
         argv.push_back(w.data());
@@ -880,7 +984,7 @@ int cmd_console_key_init(const Args& args) {
     std::println("");
     std::println("It unlocks the console's keys if every passkey and passphrase is lost.");
     if (unlock) {
-        std::println("The unlock file opens them too (console run --unlock-file).");
+        std::println("The unlock file opens them too (cexchain-console run --unlock-file).");
     }
     return exit_ok;
 }
@@ -889,7 +993,7 @@ int cmd_console_setup(const Args& args) {
     const std::filesystem::path dir = args.console_ledger();
     const std::filesystem::path state = console::state_directory(dir);
     if (console::has_ledger(dir)) {
-        throw CommandError{"this directory holds a ledger already (console run opens it)"};
+        throw CommandError{"this directory holds a ledger already (cexchain-console run opens it)"};
     }
     if (const auto pid = running_console(state)) {
         throw CommandError{std::format(
@@ -930,7 +1034,8 @@ int cmd_console_setup(const Args& args) {
     std::println("");
     std::println("It unlocks the console's keys, and registers a new passkey, if every passkey is "
                  "lost.");
-    std::println("Start the console with: console run{}", unlock ? " --unlock-file FILE" : "");
+    std::println("Start the console with: cexchain-console run{}",
+                 unlock ? " --unlock-file FILE" : "");
     return exit_ok;
 }
 
@@ -1347,7 +1452,7 @@ int cmd_console_restore(const Args& args) {
     }
     std::println("restored ledger {} with its console to {}: {} entries, audit passed",
                  hex_id(session.ledger().id()), dir.string(), audit->entries);
-    std::println("start it with: cexchain console run --ledger {} (it starts locked: the recovery "
+    std::println("start it with: cexchain-console run --ledger {} (it starts locked: the recovery "
                  "code or the owner's passkey unlocks it)",
                  dir.string());
     return exit_ok;
@@ -1498,8 +1603,7 @@ std::string gui_domain() {
 int cmd_console_service_install(const Args& args) {
     const std::filesystem::path dir = std::filesystem::absolute(args.console_ledger());
     const ServicePlace place = service_place(args);
-    std::vector<std::string> command{self_path(), "console",    "run",
-                                     "--ledger",  dir.string(), "--quiet"};
+    std::vector<std::string> command{self_path(), "run", "--ledger", dir.string(), "--quiet"};
     if (const auto port = args.get("port")) {
         command.insert(command.end(), {"--port", *port});
     }
@@ -1532,8 +1636,9 @@ int cmd_console_service_install(const Args& args) {
         return exit_ok;
     }
     std::println("installed {} for {}", place.file.string(), dir.string());
-    std::println("{}", started ? "it runs now, and at each login (console open opens it)"
-                               : "it runs at the next login (or start it now: console run)");
+    std::println("{}", started
+                           ? "it runs now, and at each login (console open opens it)"
+                           : "it runs at the next login (or start it now: cexchain-console run)");
     return exit_ok;
 }
 

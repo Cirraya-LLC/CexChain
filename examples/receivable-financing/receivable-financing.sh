@@ -56,7 +56,14 @@ unset CEXCHAIN_LEDGER CEXCHAIN_SERVER CEXCHAIN_TOKEN
 
 step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 say() { printf '   %s\n' "$*"; }
-run() { "$CEXCHAIN" "$@"; }
+# A command line as typed: bo, cexchain-console, and cexchain-index are the
+# programs beside cexchain.
+run() {
+    case "$1" in
+    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
+    *) "$CEXCHAIN" "$@" ;;
+    esac
+}
 field() { python3 -c "import json,sys; print(json.load(sys.stdin)$1)"; }
 indent() { sed 's/^/   /'; }
 check() {
@@ -100,7 +107,7 @@ for org in "${ORGS[@]:1}"; do
 done
 
 step "2. The core enterprise builds the contract and deploys it on its ledger"
-if [ "$(run version --json | field '["bo"] is not None')" != True ]; then
+if [ ! -x "$(dirname "$CEXCHAIN")/bo" ]; then
     echo "This demo needs a cexchain built with the Bo compiler (GCC 16)." >&2
     exit 1
 fi
@@ -113,12 +120,12 @@ sed '/^# Its tests/,$d' receivable-financing.bo | sed 's/^/   | /'
 # comments are published with it.)
 run bo build receivable-financing.bo 2>&1 | indent
 run bo test receivable-financing.bo | tail -n 1 | indent
-CONTRACT="$(run contract deploy --bo receivable-financing.bo --as core-root.key --ledger "$(dir core)" \
+run bo build receivable-financing.bo --out receivable-financing.boc > /dev/null
+CONTRACT="$(run contract deploy receivable-financing.boc --as core-root.key --ledger "$(dir core)" \
     --json 2> /dev/null | field '["contract"]["id"]')"
 say "Deployed as ${CONTRACT:0:16}... What a pledge means, in the contract text every party"
 say "confirms (here in Simplified Chinese):"
-run contract explain "$CONTRACT" --language zh-Hans-CN --ledger "$(dir core)" \
-    | sed -n '/^4.1 /,/^4.2 /p' | sed '$d' | indent
+{ run contract export "$CONTRACT" --ledger "$(dir core)" --out explained.boc > /dev/null && run bo explain explained.boc --language zh-Hans-CN; } | sed -n '/^4.1 /,/^4.2 /p' | sed '$d' | indent
 
 step "3. The core enterprise confirms what it owes: a receivable, held by the supplier"
 # Money is in the smallest unit (fen); dates in milliseconds since 1970.
@@ -194,7 +201,7 @@ run contract pending --peer core --ledger "$(dir banka)" | indent
 say "and checks the receivable first, offline, from the evidence the supplier hands it:"
 run contract fetch --peer core --instance "$RECEIVABLE" --out receivable.cbor \
     --ledger "$(dir supplier)" > /dev/null
-run contract verify receivable.cbor --ledger-id "$CORE_ID" | grep -E 'Contract|Status|State|rebuilds' \
+{ run contract verify receivable.cbor --ledger-id "$CORE_ID" --deploy-out contract.boc && run bo rebuild contract.boc; } | grep -E 'Contract|Status|State|rebuilds' \
     | indent
 run contract verify receivable.cbor --ledger-id "$CORE_ID" --json \
     | check "the receivable verifies" 'd["verified"] and d["instance"]["status"] == "active"'

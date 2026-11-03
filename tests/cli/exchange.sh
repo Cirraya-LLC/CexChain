@@ -21,12 +21,19 @@ cd "$WORK"
 export CEXCHAIN_PASSPHRASE="exchange test"
 unset CEXCHAIN_LEDGER CEXCHAIN_TOKEN CEXCHAIN_SERVER
 
-run() { "$CEXCHAIN" "$@"; }
+# A command line as typed: bo, cexchain-console, and cexchain-index are the
+# programs beside cexchain.
+run() {
+    case "$1" in
+    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
+    *) "$CEXCHAIN" "$@" ;;
+    esac
+}
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; exit 1; }
 expect_exit() {
     local code="$1"; shift
     local actual=0
-    "$CEXCHAIN" "$@" > out.txt 2>&1 || actual=$?
+    run "$@" > out.txt 2>&1 || actual=$?
     [ "$actual" -eq "$code" ] || fail "expected exit $code, got $actual: $*"
 }
 contains() { grep "$@" > /dev/null; }
@@ -49,7 +56,8 @@ run init --name Alice --root-key alice-root.key --log-key alice-log.key --ledger
 run init --name Bob --root-key bob-root.key --log-key bob-log.key --ledger bob > /dev/null
 ALICE_ID=$(run status --ledger alice --json | json 'd["ledger_id"]')
 BOB_ID=$(run status --ledger bob --json | json 'd["ledger_id"]')
-CONTRACT=$(run contract deploy --bo "$SOURCE/examples/lending/lending.bo" --as alice-root.key \
+run bo build "$SOURCE/examples/lending/lending.bo" --out lending.boc > /dev/null
+CONTRACT=$(run contract deploy lending.boc --as alice-root.key \
     --ledger alice --json 2> /dev/null | json 'd["contract"]["id"]')
 make_camera() {
     run contract create "$CONTRACT" create \

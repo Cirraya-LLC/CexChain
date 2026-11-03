@@ -37,14 +37,19 @@
 #include <cexchain/bo/stdlib.hpp>
 #include <cexchain/bo/values.hpp>
 #include <cexchain/bo/vocab.hpp>
+#include <cexchain/core/protocol/deploy_file.hpp>
 #include <cexchain/core/vm.hpp>
 #include <cexchain/crypto/openssl.hpp>
+#include <cexchain/verifier/report.hpp>
 
 #include "bo_support.hpp"
 #include "commands.hpp"
-#include "output.hpp"
+#include "json_output.hpp"
+#include "tool_support.hpp"
 
 namespace cexchain::cli {
+
+using verifier::cbor_json;
 
 namespace {
 
@@ -931,8 +936,148 @@ int cmd_bo_check(const Args& args) {
     return ok ? exit_ok : exit_failure;
 }
 
+namespace {
+
+/// A deploy file (contract export's, or bo build --out's), if FILE is one.
+std::optional<protocol::DeployFile> deploy_file_of(const Bytes& bytes) {
+    if (bytes.empty() || (bytes.front() & 0xe0) != 0xa0) {
+        return std::nullopt; // not a CBOR map: a source
+    }
+    auto file = protocol::decode_deploy_file(bytes);
+    return file ? std::optional(std::move(*file)) : std::nullopt;
+}
+
+/// bo explain of a deploy: its contract text, written only if its source
+/// rebuilds to its code, and an instance's state (--state) in its words.
+int explain_deploy_file(const Args& args, const std::string& file,
+                        const protocol::DeployFile& deploy) {
+    if (deploy.body.language != "bo") {
+        throw CommandError{file + " is written in " + deploy.body.language +
+                           ", not Bo: only a contract written in Bo has a contract text"};
+    }
+    const DeployText text =
+        explain_deploy(deploy.body, provider(), deploy.hash, args.get("language"));
+    Json j = {{"file", file},
+              {"name", deploy.body.name ? Json(*deploy.body.name) : Json()},
+              {"source", source_check_json(text.check, deploy.body)},
+              {"explained", text.explained.has_value()}};
+    std::optional<bo::ExplainedState> values;
+    if (const auto state = args.get("state"); state && text.model && text.explained) {
+        const cbor::Value value = unwrap(cbor::decode(read_file(*state)), "--state " + *state);
+        values = bo::explain_state(
+            *text.model, value, bo::find_language(bo::official_packs(), text.explained->language),
+            [](ByteView ledger) { return to_hex(ledger); });
+        Json fields = Json::array();
+        for (const bo::ExplainedValue& v : values->fields) {
+            fields.push_back({{"field", v.field}, {"value", v.value}});
+        }
+        j["instance"] = {{"state_text", values->state}, {"fields", std::move(fields)}};
+    }
+    if (!text.explained) {
+        // The parties confirm the text of the code that runs: a source that
+        // does not rebuild to it has no text here.
+        const std::string why =
+            text.check.failed
+                ? "its source does not rebuild to its code, so a text of it would not be the "
+                  "text of the code that runs"
+                : "its source was not rebuilt to its code here, so a text of it could not be "
+                  "confirmed as the text of the code that runs";
+        if (args.json()) {
+            j["error"] = why;
+            print_json(j);
+        } else {
+            std::println("{}: no contract text: {}", file, why);
+            std::println("rebuild:  {}", source_check_text(text.check));
+        }
+        return text.check.failed ? exit_not_verified : exit_failure;
+    }
+    if (args.json()) {
+        j.update(explained_json(*text.explained));
+        print_json(j);
+        return exit_ok;
+    }
+    std::println("rebuild:   {}", source_check_text(text.check));
+    if (values) {
+        std::println("state:     {}", values->state);
+        for (std::size_t i = 0; i < values->fields.size(); ++i) {
+            std::println("{}{}: {}", i == 0 ? "fields:    " : "           ",
+                         values->fields[i].field, values->fields[i].value);
+        }
+    }
+    std::println("");
+    std::print("{}", text.explained->text);
+    return exit_ok;
+}
+
+} // namespace
+
+int cmd_bo_rebuild(const Args& args) {
+    const std::string file = args.positional().front();
+    const auto deploy = deploy_file_of(read_file(file));
+    if (!deploy) {
+        throw UsageError{file + " is not a deploy file (contract export, or bo build --out)"};
+    }
+    const SourceCheck check = check_bo_source(deploy->body, provider(), deploy->hash);
+    const bool rebuilt = check.status == "rebuilds";
+    if (args.json()) {
+        Json j = source_check_json(check, deploy->body);
+        j["file"] = file;
+        print_json(j);
+    } else {
+        std::println("{}: {}", file, bundle_text(check));
+        std::println("rebuild:  {}", source_check_text(check));
+    }
+    if (check.failed) {
+        return exit_not_verified;
+    }
+    return rebuilt || !args.has("require") ? exit_ok : exit_not_verified;
+}
+
+int cmd_bo_reason(const Args& args) {
+    const std::string reason = args.positional().front();
+    const bo::PackSet set = pack_set(args);
+    const bo::Pack* language = set_language(args, set);
+    const auto words = bo::render_reason(reason, language);
+    if (args.json()) {
+        print_json({{"reason", reason}, {"words", words ? Json(*words) : Json()}});
+    } else if (words) {
+        std::println("{}", *words);
+    } else {
+        std::println("{}: not a reason a compiled Bo contract gives", reason);
+    }
+    return words ? exit_ok : exit_failure;
+}
+
+int cmd_bo_version(const Args& args) {
+    Json packs = Json::array();
+    for (const bo::Pack& pack : bo::official_packs()) {
+        packs.push_back(pack.id + " " + std::to_string(pack.version));
+    }
+    if (args.json()) {
+        print_json({{"version", CEXCHAIN_VERSION},
+                    {"compiler", bo::compiler_string()},
+                    {"edition", bo::edition},
+                    {"packs", packs}});
+        return exit_ok;
+    }
+    std::string list;
+    for (const auto& p : packs) {
+        list += (list.empty() ? "" : ", ") + p.get<std::string>();
+    }
+    std::println("bo {}", CEXCHAIN_VERSION);
+    std::println("compiler:  {}", bo::compiler_string());
+    std::println("edition:   {}; packs {}", bo::edition, list);
+    return exit_ok;
+}
+
 int cmd_bo_explain(const Args& args) {
     const std::string file = args.positional().front();
+    if (const auto deploy = deploy_file_of(read_file(file))) {
+        return explain_deploy_file(args, file, *deploy);
+    }
+    if (args.has("state")) {
+        throw UsageError{"--state goes with a deploy file (contract export)"};
+    }
     const bo::PackSet set = pack_set(args);
     const bo::Pack* language = set_language(args, set);
     const std::string source = read_text_file(file);

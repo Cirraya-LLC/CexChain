@@ -21,6 +21,11 @@ const path = require("node:path");
 const { chromium } = require("playwright");
 
 const cexchain = path.resolve(process.argv[2]);
+// The programs beside cexchain: a command line's first word may name one.
+const programOf = (args) =>
+  ["bo", "cexchain-console", "cexchain-index"].includes(args[0])
+    ? [path.join(path.dirname(cexchain), args[0]), args.slice(1)]
+    : [cexchain, args];
 const source = path.resolve(process.argv[3] ?? path.join(__dirname, "..", ".."));
 const lending = path.join(source, "examples", "lending", "lending.bo");
 const work = fs.mkdtempSync(path.join(os.tmpdir(), "cexchain-consent-"));
@@ -41,13 +46,13 @@ async function person(browser, name) {
   fs.mkdirSync(path.dirname(ledger), { recursive: true });
   const env = { ...process.env, CEXCHAIN_LEDGER: ledger, CEXCHAIN_NO_BROWSER: "1",
                 HOME: path.dirname(ledger) };
-  const run = (...args) => execFileSync(cexchain, args, { cwd: work, env, encoding: "utf8" });
+  const run = (...args) => execFileSync(...programOf(args), { cwd: work, env, encoding: "utf8" });
   const port = await freePort();
-  const process_ = spawn(cexchain, ["console", "run", "--port", String(port), "--quiet"],
+  const process_ = spawn(...programOf(["cexchain-console", "run", "--port", String(port), "--quiet"]),
                          { cwd: work, env });
   for (let i = 0; i < 300; i++) {
     try {
-      if (JSON.parse(run("console", "status", "--json")).running) break;
+      if (JSON.parse(run("cexchain-console", "status", "--json")).running) break;
     } catch {
       // Not yet.
     }
@@ -154,7 +159,7 @@ async function tap(page, what) {
     // Alice opens the consent as a double-click does (console open FILE),
     // and records the loan with it.
     current = alice;
-    const opened = alice.run("console", "open", "--print", consent).trim();
+    const opened = alice.run("cexchain-console", "open", "--print", consent).trim();
     assert.match(opened, /#\/exchange\/opened\/[0-9a-f]{24}$/);
     await a.goto(opened);
     await a.getByRole("heading", { name: "A consent from Bob" }).waitFor();
@@ -205,7 +210,7 @@ async function tap(page, what) {
     await browser.close();
     for (const p of people) {
       try {
-        p.run("console", "stop");
+        p.run("cexchain-console", "stop");
       } catch {
         // Not running: nothing to stop.
       }

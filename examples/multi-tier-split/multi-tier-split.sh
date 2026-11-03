@@ -62,7 +62,14 @@ unset CEXCHAIN_LEDGER CEXCHAIN_SERVER CEXCHAIN_TOKEN
 
 step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 say() { printf '   %s\n' "$*"; }
-run() { "$CEXCHAIN" "$@"; }
+# A command line as typed: bo, cexchain-console, and cexchain-index are the
+# programs beside cexchain.
+run() {
+    case "$1" in
+    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
+    *) "$CEXCHAIN" "$@" ;;
+    esac
+}
 field() { python3 -c "import json,sys; print(json.load(sys.stdin)$1)"; }
 indent() { sed 's/^/   /'; }
 check() {
@@ -116,7 +123,7 @@ for org in "${ORGS[@]:1}"; do
 done
 
 step "2. The core enterprise builds the contract and deploys it on its ledger"
-if [ "$(run version --json | field '["bo"] is not None')" != True ]; then
+if [ ! -x "$(dirname "$CEXCHAIN")/bo" ]; then
     echo "This demo needs a cexchain built with the Bo compiler (GCC 16)." >&2
     exit 1
 fi
@@ -131,12 +138,12 @@ run bo build multi-tier-split.bo 2>&1 | indent
 # The contract's own tests: each runs on an instance of its own, parts
 # included, as the ledger would run the calls.
 run bo test multi-tier-split.bo | tail -n 1 | indent
-CONTRACT="$(run contract deploy --bo multi-tier-split.bo --as core-root.key --ledger "$(dir core)" \
+run bo build multi-tier-split.bo --out multi-tier-split.boc > /dev/null
+CONTRACT="$(run contract deploy multi-tier-split.boc --as core-root.key --ledger "$(dir core)" \
     --json 2> /dev/null | field '["contract"]["id"]')"
 say "Deployed as ${CONTRACT:0:16}... What splitting means, in the contract text every party"
 say "confirms (here in Simplified Chinese):"
-run contract explain "$CONTRACT" --language zh-Hans-CN --ledger "$(dir core)" \
-    | sed -n '/^4.1 /,/^4.2 /p' | sed '$d' | indent
+{ run contract export "$CONTRACT" --ledger "$(dir core)" --out explained.boc > /dev/null && run bo explain explained.boc --language zh-Hans-CN; } | sed -n '/^4.1 /,/^4.2 /p' | sed '$d' | indent
 
 step "3. The core enterprise issues the receivable to its tier-1 supplier"
 # Money is in the smallest unit (fen); dates in milliseconds since 1970.
@@ -273,7 +280,7 @@ run contract instances --contract "$CONTRACT" --ledger "$(dir core)" | indent
 
 step "9. Anyone verifies; every ledger audits clean"
 run contract fetch --peer core --instance "$FORGE_PART" --out settled.cbor --ledger "$(dir bank)" > /dev/null
-run contract verify settled.cbor --ledger-id "$CORE_ID" | grep -E 'Status|FINAL|rebuilds' | indent
+{ run contract verify settled.cbor --ledger-id "$CORE_ID" --deploy-out contract.boc && run bo rebuild contract.boc; } | grep -E 'Status|FINAL|rebuilds' | indent
 for org in "${ORGS[@]}"; do run audit --ledger "$(dir "$org")" > /dev/null; done
 say "Every ledger audits clean."
 say "What each holder sees: a part's evidence carries the history of the instances it came"

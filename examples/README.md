@@ -44,7 +44,7 @@ softhsm2`).
 ## Industry words
 
 Bo's core holds generic words only; words of particular fields live in official vocabulary
-packs, which a contract declares at its top (`cexchain bo vocab list` shows them). The finance
+packs, which a contract declares at its top (`bo vocab list` shows them). The finance
 examples use the `finance` pack (`use finance`: pledge, pay, split, with the standard terms of
 each), and the supply agreement its role words for a supplier and a bank and, from the
 `commerce` pack, its price (`use commerce`, `use finance`). The hosting example's server is a
@@ -54,7 +54,7 @@ always its own.
 
 Words you use in many contracts can go into a vocabulary pack of your own, a file like the
 official ones: your concepts, their spellings in each language, and the standard terms of
-your actions in Bo. The `events` example has one; `cexchain bo vocab check FILE` checks a
-pack, and `--vocab FILE` on every `bo` command (and on `contract deploy --bo`) reads it. A
+your actions in Bo. The `events` example has one; `bo vocab check FILE` checks a
+pack, and `--vocab FILE` on every `bo` command reads it. A
 deploy embeds the whole pack in the contract's source bundle, so whoever verifies the
 contract rebuilds it without the file.

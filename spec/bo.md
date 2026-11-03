@@ -137,13 +137,13 @@ A source may begin with `bo 1`, the edition it is written in; a source without i
 
 ### 1.5 Tools
 
-*This section is informative.* The `cexchain` command line reads Bo sources:
+*This section is informative.* The `bo` program reads Bo sources and deploys; `cexchain` deploys a built contract and hands a deployed one back as a file:
 
 | Command | What it does |
 |---|---|
 | `bo check FILE [--stage lex\|parse\|model]` | problems as `FILE:LINE:COLUMN: error: message (code)`; with a stage, the tokens, the tree, or the checked model |
 | `bo build FILE [--out FILE.boc]` | the code, its interface, the compiler string, and the `bo-source` bundle (section 16) |
-| `bo explain FILE [--language L]` | the contract text (section 14) |
+| `bo explain FILE [--language L] [--state STATE]` | the contract text (section 14) of a source, or of a deploy file whose source rebuilds; with `--state`, an instance's state in its words |
 | `bo fmt FILE [--language L] [--check\|--write]` | the source in canonical layout, in one language on request (section 15) |
 | `bo test FILE` | runs the source's `test` blocks (section 13) |
 | `bo form SHEET [--language L]`, `bo form --from FILE` | writes a source from a rules sheet (JSON: the parties, the kind and its fields, the actions with their requirements, consents, presence, state change, fields set, and requests, the time rules, the rules for answers, the tests; every other part a piece of Bo as written), each problem named by its place in the sheet; or reads a source back into a sheet when every construct fits the form |
@@ -151,11 +151,13 @@ A source may begin with `bo 1`, the edition it is written in; a source without i
 | `bo vocab list\|show PACK\|FILE` | the core and the vocabulary packs, yours given with `--vocab`: their words, field facts, actions, and digests (3.9) |
 | `bo vocab check FILE...` | checks vocabulary packs of your own, alone and with the official packs (3.9) |
 | `bo stdlib list [PACK]\|show ACTION` | the standard library's built-in actions, by pack (section 8) |
-| `contract deploy --bo FILE` | builds and deploys, recording the source bundle |
-| `contract explain CONTRACT\|INSTANCE` | the contract text of a deploy whose source rebuilds |
-| `contract verify EVIDENCE` | replays an instance's evidence and rebuilds its code from the source |
+| `bo rebuild DEPLOY [--require]` | rebuilds a deploy file's code from its source and compares them (16.4) |
+| `bo reason REASON` | a compiled contract's refusal (`bo:state countersign`) in words |
+| `cexchain contract deploy FILE.boc` | deploys a built contract, recording the source bundle |
+| `cexchain contract export CONTRACT --out FILE` | a deployed contract as a deploy file, for `bo rebuild` and `bo explain` |
+| `cexchain contract verify EVIDENCE [--deploy-out FILE]` | replays an instance's evidence, and writes the deploy it carries |
 
-Messages follow `--language`, or the environment variable `CEXCHAIN_LANGUAGE`, else English. Every command takes `--json`. Every `bo` command, and `contract deploy --bo`, reads vocabulary packs of your own with `--vocab FILE` (a `.vocab` file, or a directory's), language packs with `--pack FILE`.
+Messages follow `--language`, or the environment variable `CEXCHAIN_LANGUAGE`, else English. Every command takes `--json`. Every `bo` command reads vocabulary packs of your own with `--vocab FILE` (a `.vocab` file, or a directory's), language packs with `--pack FILE`.
 
 ## 2. Source text
 
@@ -439,7 +441,7 @@ A *vocabulary pack* says which concepts exist beyond Bo's core: their categories
 | `commerce` | 23: price, usage, overage, per, setup fee; the ten charge words; invoice, credit note, receipt; refund, credit, collect; customer location; customer | none yet |
 | `services` | 14: `service`, `resource`; subscribe, renew, upgrade, downgrade, allocate, reclaim; allocated, cooling; cooling period, paid until, billed until; traffic | allocate, reclaim, subscribe, renew, upgrade, downgrade, in [`../bo/vocab/services.vocab`](../bo/vocab/services.vocab) |
 
-Appendix B gives every word's pack; `cexchain bo vocab show PACK` lists them with their field facts.
+Appendix B gives every word's pack; `bo vocab show PACK` lists them with their field facts.
 
 **The pack format.** A vocabulary pack is a file in CBOR diagnostic notation, like a language pack (3.2), whose digest is the hash of its canonical CBOR under the ledger's hash (comments and layout do not count):
 
@@ -1169,7 +1171,7 @@ The other actions of the vocabulary (the core's `issue`, `create`, `approve`, `p
 
 ### 8.4 Changing a built-in action
 
-A built-in word always means its terms plus what the contract adds, never anything else. To change a built-in action, a contract copies its terms under a name of its own; it is then the contract's own action, checked, compiled, and explained like any other. `cexchain bo stdlib show ACTION [--language L]` prints the terms in any language, to copy:
+A built-in word always means its terms plus what the contract adds, never anything else. To change a built-in action, a contract copies its terms under a name of its own; it is then the contract's own action, checked, compiled, and explained like any other. `bo stdlib show ACTION [--language L]` prints the terms in any language, to copy:
 
 ```
 can lodge to counterparty by holder
@@ -1715,7 +1717,7 @@ The amount is HKD 1,500,000 in cents; the dates are local midnights at +08:00; `
 
 ## 13. Tests
 
-A contract carries its own tests: `test` blocks of steps, each a party, an action, and what should happen. Tests are part of the source (they are deployed with it, and checked with it) but not of the code. Their syntax and checks are normative; how they run (13.2 to 13.6) is the meaning of a test, which a tool that runs Bo tests SHOULD follow, as `cexchain bo test` does.
+A contract carries its own tests: `test` blocks of steps, each a party, an action, and what should happen. Tests are part of the source (they are deployed with it, and checked with it) but not of the code. Their syntax and checks are normative; how they run (13.2 to 13.6) is the meaning of a test, which a tool that runs Bo tests SHOULD follow, as `bo test` does.
 
 ### 13.1 Steps
 
@@ -1792,13 +1794,13 @@ test "a receipt pledged, released, and redeemed"
 
 ### 13.6 Results
 
-A test passes when every step does; it stops at its first failing step, and the steps after it are not run. `cexchain bo test` reports each step as written, what it expected when it failed, what happened (worded in the reader's language), and, for a refusal, the clause of the contract text it comes from (14.3); it exits with status 3 when a test fails and 2 when the source does not build.
+A test passes when every step does; it stops at its first failing step, and the steps after it are not run. `bo test` reports each step as written, what it expected when it failed, what happened (worded in the reader's language), and, for a refusal, the clause of the contract text it comes from (14.3); it exits with status 3 when a test fails and 2 when the source does not build.
 
 ## 14. The contract text
 
 ### 14.1 What it says
 
-What the parties read and confirm before they sign is the *contract text*, which Bo writes from the checked model in the language of a pack (`bo explain`, `contract explain`). It states what the compiled code does, and nothing else:
+What the parties read and confirm before they sign is the *contract text*, which Bo writes from the checked model in the language of a pack (`bo explain`). It states what the compiled code does, and nothing else:
 
 1. the title and an introduction, then, for a contract that uses vocabulary packs, a sentence naming each (its name in the reader's language and its version);
 2. **Parties**: each role, and when it is bound to a ledger (at creation, by the first call of an action, or by each, R23);
@@ -1824,7 +1826,7 @@ Clauses are numbered by section, item, and sub-item (`4.2.3`). A clause that sta
 
 ### 14.2 One text for one contract
 
-The text depends on the model and on the pack it is written with, never on the language the source was written in, its layout, or its comments: one contract gives the same text, byte for byte, through any spelling of it, and the same model and pack versions always give the same text. A party can therefore compute again, from the deploy's source, exactly the text it confirmed. The sentences are the pack's (a pack without one uses the English pack's); so are the words, else English. `contract explain` writes the text of a deploy only if its source rebuilds to its code (section 16), so that the text is that of the code that runs; for an instance, it writes the instance's state and fields first, in the same words.
+The text depends on the model and on the pack it is written with, never on the language the source was written in, its layout, or its comments: one contract gives the same text, byte for byte, through any spelling of it, and the same model and pack versions always give the same text. A party can therefore compute again, from the deploy's source, exactly the text it confirmed. The sentences are the pack's (a pack without one uses the English pack's); so are the words, else English. `bo explain` writes the text of a deploy only if its source rebuilds to its code (section 16), so that the text is that of the code that runs; with an instance's state, it writes the state and fields first, in the same words.
 
 ### 14.3 Conformance of the text
 
@@ -1982,7 +1984,7 @@ The bound holds for every call whose arguments are of the function's shape: a ma
 `bo build` refuses a contract any of whose functions has a bound above 10,000,000 (`build.fuel`), and shows the highest bound; `bo build --fuel` shows each function's, and `bo build --json` gives them all (`bounds`: for each function its `fuel`, the part reading the input takes, `input`, the items and keys that part counts, `input_items` and `input_keys`, and its `output`; with `fuel_limit` and `output_limit`). For the agreement of 12.11:
 
 ```
-$ cexchain bo build agreement.bo --fuel
+$ bo build agreement.bo --fuel
   ...
   fuel       at most 226,042 a call (amend), of 10,000,000; output at most 65,771 bytes (amend), of 196,608
   function               fuel       reading     output
@@ -2467,9 +2469,9 @@ Every problem the compiler reports has a code, a severity, and parameters, which
 | `check.permit` | error | {text}: the only line of this kind in edition 1 is AI agent can propose |
 | `check.subject` | error | {text}: inside an action only the contract acts; a party's duty belongs in a when rule (when due issuer pays) |
 | `check.threshold-amount` | error | {text} compares the amount of {action}, which has no one amount: give it one input of money (with amount HKD) or the instance an amount field, or compare a field instead (requires amount > HKD 100) |
-| `check.standard-by` | error | {action} is a built-in action, started by {party} under its standard terms; to have another party start it, copy it under a name of your own (cexchain bo stdlib show {action}) |
-| `check.standard-to` | error | {action} has no counterparty under its standard terms, so it takes no to; to give it one, copy it under a name of your own (cexchain bo stdlib show {action}) |
-| `check.standard-change` | error | {text}: the state changes of {action}, and the fields its standard terms change, are the standard terms'; to change them, copy it under a name of your own (cexchain bo stdlib show {action}) |
+| `check.standard-by` | error | {action} is a built-in action, started by {party} under its standard terms; to have another party start it, copy it under a name of your own (bo stdlib show {action}) |
+| `check.standard-to` | error | {action} has no counterparty under its standard terms, so it takes no to; to give it one, copy it under a name of your own (bo stdlib show {action}) |
+| `check.standard-change` | error | {text}: the state changes of {action}, and the fields its standard terms change, are the standard terms'; to change them, copy it under a name of your own (bo stdlib show {action}) |
 | `check.standard-field` | error | the standard terms of {action} use the field {field}, which each instance must hold and actions may change: declare it in the kind's block, with its type |
 | `check.standard-unreachable` | error | {action} can never start: under its standard terms it starts only from {states}, which no instance of this contract ever reaches |
 | `check.when-event` | error | {text} is not a time: a when rule fires at a date (when due, when due + 3 days), N before due, overdue or overdue N, or once the instance has been in a state for N (when suspended 30 days), with other conditions joined by and |

@@ -23,6 +23,11 @@ const path = require("node:path");
 const { chromium } = require("playwright");
 
 const cexchain = path.resolve(process.argv[2]);
+// The programs beside cexchain: a command line's first word may name one.
+const programOf = (args) =>
+  ["bo", "cexchain-console", "cexchain-index"].includes(args[0])
+    ? [path.join(path.dirname(cexchain), args[0]), args.slice(1)]
+    : [cexchain, args];
 const viaRelay = process.argv.includes("--relay");
 const source = path.resolve(process.argv[3] && process.argv[3] !== "--relay" ? process.argv[3]
                                                                              : path.join(__dirname, "..", ".."));
@@ -45,13 +50,13 @@ async function person(browser, name) {
   fs.mkdirSync(path.dirname(ledger), { recursive: true });
   const env = { ...process.env, CEXCHAIN_LEDGER: ledger, CEXCHAIN_NO_BROWSER: "1",
                 HOME: path.dirname(ledger) };
-  const run = (...args) => execFileSync(cexchain, args, { cwd: work, env, encoding: "utf8" });
+  const run = (...args) => execFileSync(...programOf(args), { cwd: work, env, encoding: "utf8" });
   const port = await freePort();
-  const process_ = spawn(cexchain, ["console", "run", "--port", String(port), "--quiet"],
+  const process_ = spawn(...programOf(["cexchain-console", "run", "--port", String(port), "--quiet"]),
                          { cwd: work, env });
   for (let i = 0; i < 300; i++) {
     try {
-      if (JSON.parse(run("console", "status", "--json")).running) break;
+      if (JSON.parse(run("cexchain-console", "status", "--json")).running) break;
     } catch {
       // Not yet.
     }
@@ -87,16 +92,16 @@ async function startWitness() {
   const witnessDir = path.join(work, "witness");
   fs.mkdirSync(witnessDir, { recursive: true });
   const witnessEnv = { ...process.env, CEXCHAIN_PASSPHRASE: "witness test" };
-  const w = (...args) => execFileSync(cexchain, args, { cwd: witnessDir, env: witnessEnv,
+  const w = (...args) => execFileSync(...programOf(args), { cwd: witnessDir, env: witnessEnv,
                                                         encoding: "utf8" });
   for (const k of ["root", "log", "witness"]) w("key", "generate", "--out", `${k}.key`);
   w("init", "--ledger", "ledger", "--org", "Witness", "--root-key", "root.key",
     "--log-key", "log.key");
   const port = await freePort();
-  const process_ = spawn(cexchain, ["serve", "--ledger", "ledger", "--listen", `127.0.0.1:${port}`,
+  const process_ = spawn(...programOf(["serve", "--ledger", "ledger", "--listen", `127.0.0.1:${port}`,
                                     "--witness-dir", "state", "--witness-key", "witness.key",
                                     "--witness-public", "--witness-name", "test-witness",
-                                    "--relay-dir", "mailboxes", "--quiet"],
+                                    "--relay-dir", "mailboxes", "--quiet"]),
                          { cwd: witnessDir, env: witnessEnv });
   const url = `http://127.0.0.1:${port}`;
   let info;
@@ -251,7 +256,7 @@ async function tap(page, what) {
     witness?.process.kill();
     for (const p of people) {
       try {
-        p.run("console", "stop");
+        p.run("cexchain-console", "stop");
       } catch {
         // Not running: nothing to stop.
       }

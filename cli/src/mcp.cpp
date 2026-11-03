@@ -28,9 +28,8 @@
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/record_types.hpp>
 #include <cexchain/node/contracts.hpp>
+#include <cexchain/node/http.hpp>
 #include <cexchain/node/peers.hpp>
-#include <cexchain/search/index.hpp>
-#include <cexchain/search/query.hpp>
 
 #include "commands.hpp"
 #include "contracts.hpp"
@@ -539,8 +538,15 @@ private:
              "Pages: limit (1 to 1000), cursor (the answer's next), order (new or old). Reports: "
              "by (comma-separated: type, state, registrant, contract, day, week, month), "
              "utc_offset (+08:00), sum (a number field, things only)."}};
-        auto search_params = [](const json& arguments) {
-            search::Params params;
+        // The search index is not the chain's: a server with it (cexchain-index
+        // serve, or the console) answers, through client mode.
+        auto search_on_server = [](Session& session, std::string path, const json& arguments) {
+            if (!session.remote()) {
+                throw ToolError{"searches and reports come from a server with the search index "
+                                "(cexchain-index serve, or the console): run cexchain mcp with "
+                                "--server"};
+            }
+            char separator = '?';
             if (arguments.contains("query")) {
                 if (!arguments["query"].is_object()) {
                     throw ToolError{"query is an object of strings"};
@@ -549,103 +555,56 @@ private:
                     if (!value.is_string()) {
                         throw ToolError{"query values are strings: " + name};
                     }
-                    params.emplace_back(name, value.get<std::string>());
+                    path += separator + node::http::percent_encode(name) + "=" +
+                            node::http::percent_encode(value.get<std::string>());
+                    separator = '&';
                 }
             }
-            return params;
-        };
-        auto open_index = [](Session& session) {
-            auto index =
-                search::Index::open(session.ledger(), search::Index::file_for(session.directory()));
-            if (!index) {
-                throw ToolError{std::string(index.error().detail)};
-            }
-            if (auto updated = (*index)->update(); !updated) {
-                throw ToolError{std::string(updated.error().detail)};
-            }
-            return std::move(*index);
-        };
-        auto refused = [](const std::string& problem) {
-            return ToolError{problem};
+            const Bytes body = session.request("GET", path);
+            return json::parse(std::string(body.begin(), body.end()));
         };
 
         add("cexchain_search_records",
             "Find records by what the ledger holds in the clear: type, state, who registered "
             "them, when, whether a newer version superseded them, and their public metadata "
             "(never private field values). Newest first, a page at a time. The search index is "
-            "a hint: verify a record's evidence before relying on it.",
+            "a hint: verify a record's evidence before relying on it. Needs a server with the "
+            "index (client mode).",
             {{"query", query_schema}}, json::array(), read_only,
-            [this, search_params, open_index, refused](const Tool&, const json& arguments) {
-                const auto q = search::parse_record_search(search_params(arguments));
-                if (const auto* problem = std::get_if<std::string>(&q)) {
-                    throw refused(*problem);
-                }
+            [this, search_on_server](const Tool&, const json& arguments) {
                 Session session(args_);
-                const auto& s = std::get<search::RecordSearch>(q);
-                auto page = open_index(session)->records(s.filter, s.page);
-                if (!page) {
-                    throw ToolError{std::string(page.error().detail)};
-                }
-                return search::to_json(*page);
+                return search_on_server(session, "/v1/records", arguments);
             });
 
         add("cexchain_search_instances",
             "Find things under contracts (contract instances) by contract or its name, state, a "
             "party's ledger, when they were created or last called, the creating call's "
-            "reference, and the fields of their state, exactly or as a number range.",
+            "reference, and the fields of their state, exactly or as a number range. Needs a "
+            "server with the index (client mode).",
             {{"query", query_schema}}, json::array(), read_only,
-            [this, search_params, open_index, refused](const Tool&, const json& arguments) {
-                const auto q = search::parse_instance_search(search_params(arguments));
-                if (const auto* problem = std::get_if<std::string>(&q)) {
-                    throw refused(*problem);
-                }
+            [this, search_on_server](const Tool&, const json& arguments) {
                 Session session(args_);
-                const auto& s = std::get<search::InstanceSearch>(q);
-                auto page = open_index(session)->instances(s.filter, s.page);
-                if (!page) {
-                    throw ToolError{std::string(page.error().detail)};
-                }
-                return search::to_json(*page);
+                return search_on_server(session, "/v1/instances", arguments);
             });
 
         add("cexchain_report",
             "Count records or things under contracts, grouped (by type, state, registrant, "
             "contract, day, week, or month), with the same filters as the searches; for things, "
-            "also the total, least, and greatest of a number field (sum).",
+            "also the total, least, and greatest of a number field (sum). Needs a server with "
+            "the index (client mode).",
             {{"of",
               {{"type", "string"},
                {"enum", json::array({"records", "instances"})},
                {"description", "What to count."}}},
              {"query", query_schema}},
             json::array({"of"}), read_only,
-            [this, search_params, open_index, refused](const Tool&, const json& arguments) {
+            [this, search_on_server](const Tool&, const json& arguments) {
                 const std::string of = text_arg(arguments, "of");
                 if (of != "records" && of != "instances") {
                     throw ToolError{"of is records or instances"};
                 }
                 Session session(args_);
-                const search::Params params = search_params(arguments);
-                Result<search::Report> report =
-                    std::unexpected(Error{Errc::unavailable, "no report"});
-                if (of == "records") {
-                    const auto q = search::parse_record_report(params);
-                    if (const auto* problem = std::get_if<std::string>(&q)) {
-                        throw refused(*problem);
-                    }
-                    const auto& s = std::get<search::RecordReport>(q);
-                    report = open_index(session)->report(s.filter, s.report);
-                } else {
-                    const auto q = search::parse_instance_report(params);
-                    if (const auto* problem = std::get_if<std::string>(&q)) {
-                        throw refused(*problem);
-                    }
-                    const auto& s = std::get<search::InstanceReport>(q);
-                    report = open_index(session)->report(s.filter, s.report);
-                }
-                if (!report) {
-                    throw ToolError{std::string(report.error().detail)};
-                }
-                return search::to_json(*report);
+                return search_on_server(session, "/v1/reports/" + of, arguments);
             });
 
         add("cexchain_get_record",

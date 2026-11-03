@@ -150,8 +150,8 @@ and `keeper due --at` ask what would happen at another time, recording nothing.)
 ## Running it
 
 ```sh
-cexchain bo test examples/shipment/shipment.bo                           # its ten tests
-cexchain bo explain examples/shipment/shipment.bo --language zh-Hant-HK   # the contract text
+bo test examples/shipment/shipment.bo                           # its ten tests
+bo explain examples/shipment/shipment.bo --language zh-Hant-HK   # the contract text
 examples/shipment/shipment.sh [CEXCHAIN] [DIR] [PKCS11_MODULE]           # CTest: demo_shipment
 ```
 

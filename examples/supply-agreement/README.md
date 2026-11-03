@@ -21,6 +21,6 @@ What it shows:
   code rebuilt from its source. The same file opens in the browser verifier.
 
 ```sh
-cexchain bo test examples/supply-agreement/supply-agreement.bo
+bo test examples/supply-agreement/supply-agreement.bo
 examples/supply-agreement/supply-agreement.sh [CEXCHAIN] [DIR]    # CTest: demo_supply_agreement
 ```

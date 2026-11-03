@@ -24,12 +24,19 @@ cd "$WORK"
 export CEXCHAIN_PASSPHRASE="parties test"
 unset CEXCHAIN_LEDGER CEXCHAIN_TOKEN CEXCHAIN_SERVER
 
-run() { "$CEXCHAIN" "$@"; }
+# A command line as typed: bo, cexchain-console, and cexchain-index are the
+# programs beside cexchain.
+run() {
+    case "$1" in
+    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
+    *) "$CEXCHAIN" "$@" ;;
+    esac
+}
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; exit 1; }
 expect_exit() {
     local code="$1"; shift
     local actual=0
-    "$CEXCHAIN" "$@" > out.txt 2>&1 || actual=$?
+    run "$@" > out.txt 2>&1 || actual=$?
     [ "$actual" -eq "$code" ] || fail "expected exit $code, got $actual: $*"
 }
 contains() { grep "$@" > /dev/null; }
@@ -85,7 +92,7 @@ run peer list --ledger alice --json | json '[p["name"] for p in d]' | contains -
     fail "Alice has Bob as a peer"
 
 echo "== Bob reaches Alice's API as her peer"
-run serve --listen "127.0.0.1:$ALICE_PORT" --json --quiet --ledger alice > alice.json 2> alice.log &
+"$CEXCHAIN" serve --listen "127.0.0.1:$ALICE_PORT" --json --quiet --ledger alice > alice.json 2> alice.log &
 SERVERS+=("$!")
 for _ in $(seq 1 300); do
     if [ -s alice.json ] && python3 -c "import json; json.load(open('alice.json'))" 2> /dev/null; then break; fi

@@ -30,17 +30,22 @@ cmake -S "$ROOT" -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COM
     -DCEXCHAIN_BUILD_TESTS=OFF -DCEXCHAIN_BO=ON \
     -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc" \
     ${WASM_DIR:+-DCEXCHAIN_CONSOLE_WASM_DIR="$WASM_DIR"} > /dev/null
-cmake --build "$BUILD" --target cexchain
-strip "$BUILD/cli/cexchain"
-"$BUILD/cli/cexchain" version
+cmake --build "$BUILD" --target cexchain bo cexchain-console cexchain-index
+PROGRAMS=(cexchain bo cexchain-console cexchain-index)
+for p in "${PROGRAMS[@]}"; do
+    strip "$BUILD/bin/$p"
+    "$BUILD/bin/$p" version > /dev/null
+done
 
 # What the packages install, staged under /usr.
 STAGE="$BUILD/stage"
 rm -rf "$STAGE"
-install -Dm755 "$BUILD/cli/cexchain" "$STAGE/usr/bin/cexchain"
 install -d "$STAGE/usr/share/bash-completion/completions" "$STAGE/usr/share/zsh/vendor-completions"
-"$BUILD/cli/cexchain" completion bash > "$STAGE/usr/share/bash-completion/completions/cexchain"
-"$BUILD/cli/cexchain" completion zsh > "$STAGE/usr/share/zsh/vendor-completions/_cexchain"
+for p in "${PROGRAMS[@]}"; do
+    install -Dm755 "$BUILD/bin/$p" "$STAGE/usr/bin/$p"
+    "$BUILD/bin/$p" completion bash > "$STAGE/usr/share/bash-completion/completions/$p"
+    "$BUILD/bin/$p" completion zsh > "$STAGE/usr/share/zsh/vendor-completions/_$p"
+done
 install -Dm644 "$ROOT/tools/package/linux/cexchain.desktop" \
     "$STAGE/usr/share/applications/cexchain.desktop"
 install -Dm644 "$ROOT/tools/package/linux/cexchain.service" \
@@ -77,8 +82,9 @@ Homepage: https://github.com/Cirraya-LLC/CexChain
 Description: Verifiable records between organizations, people, and AI agents
  CexChain keeps an organization's records, rules, and approvals on its own
  ledger, so that anyone can verify them without trusting a platform. This
- package installs the cexchain tool, its web console (cexchain console open),
- and a ledger server unit for companies (not enabled).
+ package installs the cexchain tool, the bo compiler, the web console
+ (cexchain-console open), the search index (cexchain-index), and a ledger
+ server unit for companies (not enabled).
 CONTROL
 echo "/etc/cexchain/serve.env" > "$DEB/DEBIAN/conffiles"
 cat > "$DEB/DEBIAN/postinst" << 'POSTINST'
@@ -124,8 +130,9 @@ AutoReqProv: no
 %description
 CexChain keeps an organization's records, rules, and approvals on its own
 ledger, so that anyone can verify them without trusting a platform. This
-package installs the cexchain tool, its web console (cexchain console open),
-and a ledger server unit for companies (not enabled).
+package installs the cexchain tool, the bo compiler, the web console
+(cexchain-console open), the search index (cexchain-index), and a ledger
+server unit for companies (not enabled).
 
 %install
 cp -a $STAGE/. %{buildroot}/
@@ -141,8 +148,11 @@ exit 0
 
 %files
 /usr/bin/cexchain
-/usr/share/bash-completion/completions/cexchain
-/usr/share/zsh/vendor-completions/_cexchain
+/usr/bin/bo
+/usr/bin/cexchain-console
+/usr/bin/cexchain-index
+/usr/share/bash-completion/completions/*
+/usr/share/zsh/vendor-completions/*
 /usr/share/applications/cexchain.desktop
 /usr/lib/systemd/system/cexchain.service
 /usr/lib/sysusers.d/cexchain.conf

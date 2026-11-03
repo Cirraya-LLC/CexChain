@@ -293,7 +293,7 @@
   "rules.retire_reason": "原因（选填）",
   "rules.retire_reason_hint": "会与停用一并记录在账本上。",
   "rules.read_only": "只有所有者或管理员可编写规则。",
-  "rules.no_compiler": "此控制台构建时未包含 Bo 编译器，因此不能在此编写规则。请改用 cexchain bo 和 cexchain contract deploy。",
+  "rules.no_compiler": "此控制台构建时未包含 Bo 编译器，因此不能在此编写规则。请改用 bo build 和 cexchain contract deploy。",
   "rules.editor_title": "编写规则",
   "rules.editor_intro": "填写表格，或直接编写 Bo 文本：两者是同一套规则的两种视图。先检查，再以三种语言阅读合约文本、运行测试，然后用通行密钥部署。",
   "rules.view": "视图",

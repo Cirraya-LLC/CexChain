@@ -15,7 +15,8 @@
 #include <cexchain/core/protocol/statement.hpp>
 
 #include "args.hpp"
-#include "output.hpp"
+#include "json_output.hpp"
+#include "tool_support.hpp"
 
 /// Contracts written in Bo, for the contract commands:
 /// building a deploy from a source or a .boc file, and checking a deploy's

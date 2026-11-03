@@ -49,7 +49,14 @@ unset CEXCHAIN_LEDGER CEXCHAIN_SERVER CEXCHAIN_TOKEN
 
 step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 say() { printf '   %s\n' "$*"; }
-run() { "$CEXCHAIN" "$@"; }
+# A command line as typed: bo, cexchain-console, and cexchain-index are the
+# programs beside cexchain.
+run() {
+    case "$1" in
+    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
+    *) "$CEXCHAIN" "$@" ;;
+    esac
+}
 field() { python3 -c "import json,sys; print(json.load(sys.stdin)$1)"; }
 indent() { sed 's/^/   /'; }
 check() {
@@ -78,14 +85,15 @@ run peer add bob --ledger-id "$BOB_ID" --ledger "$ALICE" > /dev/null
 run peer add alice --ledger-id "$ALICE_ID" --ledger "$BOB" > /dev/null
 
 step "2. Alice writes the rules, tests them, and deploys them on her ledger"
-if [ "$(run version --json | field '["bo"] is not None')" != True ]; then
-    echo "This example needs a cexchain built with the Bo compiler (GCC 16)." >&2
+if [ ! -x "$(dirname "$CEXCHAIN")/bo" ]; then
+    echo "This example needs bo, the Bo compiler, beside cexchain (it is built with GCC 16)." >&2
     exit 1
 fi
 cp "$HERE/lending.bo" .
 sed '/^# Its tests/,$d' lending.bo | sed 's/^/   | /'
 run bo test lending.bo | tail -n 1 | indent
-CONTRACT="$(run contract deploy --bo lending.bo --as alice-root.key --ledger "$ALICE" --json \
+run bo build lending.bo --out lending.boc > /dev/null
+CONTRACT="$(run contract deploy lending.boc --as alice-root.key --ledger "$ALICE" --json \
     2> /dev/null | field '["contract"]["id"]')"
 say "Deployed: contract ${CONTRACT:0:16}... Her ledger now runs it on every call."
 
@@ -159,7 +167,8 @@ indent < back.txt
 
 step "7. Anyone verifies the whole history offline"
 run contract evidence "$CAMERA" --log-key alice-log.key --out history.cbor --ledger "$ALICE" > /dev/null
-run contract verify history.cbor --ledger-id "$ALICE_ID" > verify2.txt
+run contract verify history.cbor --ledger-id "$ALICE_ID" --deploy-out contract.boc > verify2.txt
+run bo rebuild contract.boc >> verify2.txt
 check verify2.txt 'rebuilds'
 check verify2.txt 'bring_back'
 indent < verify2.txt

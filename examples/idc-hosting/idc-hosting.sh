@@ -64,7 +64,14 @@ unset CEXCHAIN_LEDGER CEXCHAIN_SERVER CEXCHAIN_TOKEN CEXCHAIN_CLOCK_OFFSET
 
 step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 say() { printf '   %s\n' "$*"; }
-run() { "$CEXCHAIN" "$@"; }
+# A command line as typed: bo, cexchain-console, and cexchain-index are the
+# programs beside cexchain.
+run() {
+    case "$1" in
+    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
+    *) "$CEXCHAIN" "$@" ;;
+    esac
+}
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 indent() { sed 's/^/   /'; }
 check() {
@@ -85,8 +92,8 @@ eventually() {
 }
 
 step "1. A hosting provider and a customer, each with a ledger of its own"
-if [ "$(run version --json | json 'd["bo"] is not None')" != True ]; then
-    echo "This example needs a cexchain built with the Bo compiler (GCC 16)." >&2
+if [ ! -x "$(dirname "$CEXCHAIN")/bo" ]; then
+    echo "This example needs bo, the Bo compiler, beside cexchain (it is built with GCC 16)." >&2
     exit 1
 fi
 run key generate --out provider-root.key > /dev/null
@@ -107,10 +114,11 @@ cp "$HERE/hosting.bo" .
 # The rules without their comments and tests.
 sed '/^# Its tests/,$d' hosting.bo | grep -v '^ *#' | grep -v '^$' | sed 's/^/   | /'
 run bo test hosting.bo | tail -n 1 | indent
-CONTRACT="$(run contract deploy --bo hosting.bo --as provider-root.key --ledger node1 --json \
+run bo build hosting.bo --out hosting.boc > /dev/null
+CONTRACT="$(run contract deploy hosting.boc --as provider-root.key --ledger node1 --json \
     2> /dev/null | json 'd["contract"]["id"]')"
 say "Deployed: contract ${CONTRACT:0:16}... Bo added the bills and the requests; its text says so:"
-run contract explain "$CONTRACT" --ledger node1 > text.txt
+{ run contract export "$CONTRACT" --ledger node1 --out explained.boc > /dev/null && run bo explain explained.boc; } > text.txt
 check text.txt 'It asks an executor for invoice for the customer'
 grep -E '^  4\.1\.(7|8|9) ' text.txt | indent
 
@@ -412,7 +420,8 @@ say "Paid until $(day paid_until): the unused days are not refunded in this vers
 
 step "13. Anyone verifies the whole history offline"
 prov contract evidence "$SERVICE" --out history.cbor > /dev/null
-run contract verify history.cbor --ledger-id "$PROVIDER_ID" > history.txt
+run contract verify history.cbor --ledger-id "$PROVIDER_ID" --deploy-out contract.boc > history.txt
+run bo rebuild contract.boc >> history.txt
 check history.txt 'rebuilds'
 # Who made each call: the customer's consents on its own ledger, the
 # executor's answers (a device), the keeper's time rules, the AI agent's

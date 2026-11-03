@@ -27,25 +27,37 @@ cd "$WORK"
 export CEXCHAIN_PASSPHRASE="generic words test"
 unset CEXCHAIN_LEDGER CEXCHAIN_SERVER CEXCHAIN_TOKEN
 
-run() { "$CEXCHAIN" "$@"; }
+# A command line as typed: bo, cexchain-console, and cexchain-index are the
+# programs beside cexchain.
+run() {
+    case "$1" in
+    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
+    *) "$CEXCHAIN" "$@" ;;
+    esac
+}
 id_from() { grep -oE '[0-9a-f]{64}' | sed -n 1p; }
 mkdir texts
 
-# --- The command line: every command's help, and the completion scripts ------
-run --help > texts/overview.txt
-run help --json > texts/help.json
-python3 -c 'import json, sys; [print(c["command"]) for c in json.load(open(sys.argv[1]))]' \
-    texts/help.json > commands.txt
+# --- The command lines: every program's commands' help, and completion --------
 count=0
-while IFS= read -r command; do
-    # The command's words, split on spaces (no command word has others).
-    read -r -a words <<< "$command"
-    run "${words[@]}" --help < /dev/null > "texts/help-$(printf '%s' "$command" | tr ' ' '-').txt"
-    count=$((count + 1))
-done < commands.txt
+for program in cexchain bo cexchain-console cexchain-index; do
+    [ "$program" = cexchain ] || [ -x "$(dirname "$CEXCHAIN")/$program" ] || continue
+    if [ "$program" = cexchain ]; then p=(); else p=("$program"); fi
+    run ${p[@]+"${p[@]}"} --help > "texts/$program-overview.txt"
+    run ${p[@]+"${p[@]}"} help --json > "texts/$program-help.json"
+    python3 -c 'import json, sys; [print(c["command"]) for c in json.load(open(sys.argv[1]))]' \
+        "texts/$program-help.json" > commands.txt
+    while IFS= read -r command; do
+        # The command's words, split on spaces (no command word has others).
+        read -r -a words <<< "$command"
+        run ${p[@]+"${p[@]}"} "${words[@]}" --help < /dev/null \
+            > "texts/$program-help-$(printf '%s' "$command" | tr ' ' '-').txt"
+        count=$((count + 1))
+    done < commands.txt
+    run ${p[@]+"${p[@]}"} completion bash > "texts/$program-completion.bash"
+    run ${p[@]+"${p[@]}"} completion zsh > "texts/$program-completion.zsh"
+done
 [ "$count" -gt 40 ] || { echo "FAIL: only $count commands"; exit 1; }
-run completion bash > texts/completion.bash
-run completion zsh > texts/completion.zsh
 
 # --- The MCP server: its instructions and its tools -----------------------------
 for k in root log person agent; do run key generate --out "$k.key" > /dev/null; done
@@ -83,7 +95,7 @@ for f in "$SOURCE"/console/web/*.html "$SOURCE"/console/web/*.js "$SOURCE"/conso
 done
 
 # --- The scan ------------------------------------------------------------------
-BO="$(run version --json | python3 -c 'import json, sys; print(json.load(sys.stdin)["bo"] is not None)')"
+BO="$([ -x "$(dirname "$CEXCHAIN")/bo" ] && echo True || echo False)"
 python3 - texts "$BO" << 'EOF'
 import json, os, re, sys
 

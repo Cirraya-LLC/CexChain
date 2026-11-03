@@ -21,6 +21,11 @@ const path = require("node:path");
 const { chromium } = require("playwright");
 
 const cexchain = path.resolve(process.argv[2]);
+// The programs beside cexchain: a command line's first word may name one.
+const programOf = (args) =>
+  ["bo", "cexchain-console", "cexchain-index"].includes(args[0])
+    ? [path.join(path.dirname(cexchain), args[0]), args.slice(1)]
+    : [cexchain, args];
 const work = fs.mkdtempSync(path.join(os.tmpdir(), "cexchain-automation-"));
 
 const visits = `contract Visits
@@ -74,8 +79,8 @@ async function tap(page, what) {
   const port = await freePort();
   const ledger = path.join(work, "ledger");
   const env = { ...process.env, CEXCHAIN_LEDGER: ledger, CEXCHAIN_NO_BROWSER: "1", HOME: work };
-  const run = (...args) => execFileSync(cexchain, args, { cwd: work, env, encoding: "utf8" });
-  const console_ = spawn(cexchain, ["console", "run", "--port", String(port), "--quiet"], { cwd: work, env });
+  const run = (...args) => execFileSync(...programOf(args), { cwd: work, env, encoding: "utf8" });
+  const console_ = spawn(...programOf(["cexchain-console", "run", "--port", String(port), "--quiet"]), { cwd: work, env });
   for (let i = 0; i < 300 && !fs.existsSync(path.join(ledger, "console", "setup-link")); i++) {
     await new Promise((r) => setTimeout(r, 100));
   }
@@ -228,7 +233,7 @@ async function tap(page, what) {
   } finally {
     await browser.close();
     try {
-      run("console", "stop");
+      run("cexchain-console", "stop");
     } catch {
       // Not running: nothing to stop.
     }

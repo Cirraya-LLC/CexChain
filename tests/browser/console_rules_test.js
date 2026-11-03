@@ -20,12 +20,17 @@ const path = require("node:path");
 const { chromium } = require("playwright");
 
 const cexchain = path.resolve(process.argv[2]);
+// The programs beside cexchain: a command line's first word may name one.
+const programOf = (args) =>
+  ["bo", "cexchain-console", "cexchain-index"].includes(args[0])
+    ? [path.join(path.dirname(cexchain), args[0]), args.slice(1)]
+    : [cexchain, args];
 const examples = path.resolve(process.argv[3] ?? path.join(__dirname, "..", "..", "examples"));
 const lending = path.join(examples, "lending", "lending.bo");
 const work = fs.mkdtempSync(path.join(os.tmpdir(), "cexchain-rules-"));
 const ledger = path.join(work, "ledger");
 const env = { ...process.env, CEXCHAIN_LEDGER: ledger, CEXCHAIN_NO_BROWSER: "1", HOME: work };
-const run = (...args) => execFileSync(cexchain, args, { cwd: work, env, encoding: "utf8" });
+const run = (...args) => execFileSync(...programOf(args), { cwd: work, env, encoding: "utf8" });
 const contracts = () => {
   const listed = JSON.parse(run("contract", "list", "--json"));
   return Array.isArray(listed) ? listed : listed.contracts;
@@ -43,7 +48,7 @@ function freePort() {
 
 async function waitRunning() {
   for (let i = 0; i < 300; i++) {
-    if (JSON.parse(run("console", "status", "--json")).running) return;
+    if (JSON.parse(run("cexchain-console", "status", "--json")).running) return;
     await new Promise((r) => setTimeout(r, 100));
   }
   throw new Error("the console did not start");
@@ -51,7 +56,7 @@ async function waitRunning() {
 
 (async () => {
   const port = await freePort();
-  const consoleProcess = spawn(cexchain, ["console", "run", "--port", String(port), "--quiet"],
+  const consoleProcess = spawn(...programOf(["cexchain-console", "run", "--port", String(port), "--quiet"]),
                                { cwd: work, env });
   let browser;
   const violations = [];
@@ -258,7 +263,7 @@ async function waitRunning() {
   } finally {
     if (browser) await browser.close();
     try {
-      run("console", "stop");
+      run("cexchain-console", "stop");
     } catch {
       // Not running: nothing to stop.
     }

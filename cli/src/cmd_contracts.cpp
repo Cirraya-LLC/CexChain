@@ -22,17 +22,15 @@
 #include <vector>
 
 #include <cexchain/app/peers.hpp>
-#include <cexchain/bo/explain.hpp>
-#include <cexchain/bo/pack.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/contract_evidence.hpp>
 #include <cexchain/core/protocol/contracts.hpp>
+#include <cexchain/core/protocol/deploy_file.hpp>
 #include <cexchain/core/protocol/exchange.hpp>
 #include <cexchain/core/vm.hpp>
 #include <cexchain/node/contracts.hpp>
 #include <cexchain/node/peers.hpp>
 
-#include "bo_support.hpp"
 #include "commands.hpp"
 #include "contracts.hpp"
 #include "output.hpp"
@@ -353,31 +351,31 @@ void print_answer(const Session* session, const std::string& who, const Json& an
 int cmd_contract_deploy(const Args& args) {
     Session session(args);
     protocol::ContractDeployBody body;
-    std::optional<Json> build;
-    if (const auto bo_file = args.get("bo")) {
-        // Bo: the build fills in everything the deploy records.
-        if (!args.positional().empty()) {
-            throw UsageError{"give a module (WASM) or --bo FILE, not both"};
-        }
+    const std::string path = args.positional().front();
+    const Bytes file = read_file(path);
+    // A deploy file (a compiler's output, such as bo build --out's FILE.boc,
+    // or contract export's) carries everything the deploy records: a CBOR
+    // map, where a module starts with \0asm.
+    const bool deploy_file = !file.empty() && (file.front() & 0xe0) == 0xa0;
+    if (deploy_file) {
         for (const char* option : {"function", "compiler", "language", "source", "name"}) {
             if (args.has(option)) {
-                throw UsageError{std::string("--bo fills in --") + option +
-                                 " from the contract's source"};
+                throw UsageError{std::string("a deploy file has its own --") + option +
+                                 "; give options with a module (WASM)"};
             }
         }
-        BoDeploy built = bo_deploy_body(args, *bo_file, session.provider(), session.state().hash());
-        body = std::move(built.body);
-        build = std::move(built.build);
+        protocol::DeployFile deploy =
+            unwrap(protocol::decode_deploy_file(file), path + " is not a deploy file or a module");
+        if (deploy.hash != session.state().hash()) {
+            throw CommandError{path + "'s digests are made with " +
+                               std::string(crypto::name(deploy.hash)) + ", this ledger's with " +
+                               std::string(crypto::name(session.state().hash())) +
+                               ": build it again for this ledger"};
+        }
+        body = std::move(deploy.body);
+        static_cast<void>(unwrap(vm::load(body.code), path + "'s code is not a contract module"));
     } else {
-        if (args.positional().empty()) {
-            throw UsageError{"give the module to deploy (WASM), or --bo FILE for Bo"};
-        }
-        if (args.has("pack") || args.has("vocab")) {
-            throw UsageError{std::string("--") + (args.has("pack") ? "pack" : "vocab") +
-                             " reads Bo source: use it with --bo"};
-        }
-        const std::string path = args.positional().front();
-        body.code = read_file(path);
+        body.code = file;
         if (body.code.size() > vm::max_module_size) {
             throw CommandError{path + " is larger than a contract may be (512 KiB)"};
         }
@@ -404,7 +402,7 @@ int cmd_contract_deploy(const Args& args) {
         }
         body.language = args.get("language").value_or("wasm");
         if (!args.has("compiler")) {
-            throw UsageError{"missing required option --compiler (or deploy Bo with --bo)"};
+            throw UsageError{"missing required option --compiler (or give a deploy file)"};
         }
         body.compiler = args.need("compiler");
         if (const auto source = args.get("source")) {
@@ -422,12 +420,10 @@ int cmd_contract_deploy(const Args& args) {
     Json extra = {{"contract", contract_json(session, c)}};
     std::string text = std::format("deployed contract {}{}\nfunctions: {}", hex_id(id),
                                    c.name ? " \"" + *c.name + "\"" : "", functions);
-    if (build) {
-        extra["build"] = *build;
-        text += std::format("\nbuilt from {}: {} bytes of code, with {}; the source (Bo "
-                            "edition {}) is recorded with it, so anyone can rebuild the code",
-                            *args.get("bo"), (*build)["code_size"].get<std::size_t>(), c.compiler,
-                            (*build)["edition"].get<std::uint64_t>());
+    if (body.source) {
+        text += std::format("\nwritten in {}, built with {}: its source is recorded with it, so "
+                            "anyone can rebuild the code",
+                            c.language, c.compiler);
     }
     return report_submitted(args, session, id, std::move(extra), text);
 }
@@ -437,12 +433,6 @@ int cmd_contract_show(const Args& args) {
     const protocol::ContractState& c =
         *session.state().contract(session.contract_id(args.positional().front()));
     const protocol::ContractDeployBody deploy = deploy_of(session, c);
-    // A Bo contract's source is checked against its code: rebuilt where this
-    // build has the compiler.
-    std::optional<SourceCheck> source_check;
-    if (c.language == "bo") {
-        source_check = check_bo_source(deploy, session.provider(), session.state().hash());
-    }
     if (const auto out = args.get("code-out")) {
         write_file(*out, deploy.code, false);
     }
@@ -450,23 +440,9 @@ int cmd_contract_show(const Args& args) {
         if (!deploy.source) {
             throw CommandError{"the contract was deployed without its source"};
         }
-        if (source_check && source_check->bundle) {
-            // The Bo source as written, from its bundle.
-            write_file(*out, as_bytes(source_check->bundle->source), false);
-        } else {
-            write_file(*out, *deploy.source, false);
-        }
-    }
-    if (const auto out = args.get("bundle-out")) {
-        if (c.language != "bo" || !deploy.source) {
-            throw CommandError{"only a contract written in Bo has a source bundle"};
-        }
         write_file(*out, *deploy.source, false);
     }
     Json j = contract_json(session, c);
-    if (source_check) {
-        j["bo"] = source_check_json(*source_check, deploy);
-    }
     if (args.json()) {
         print_json(j);
         return exit_ok;
@@ -484,12 +460,11 @@ int cmd_contract_show(const Args& args) {
     std::println("functions:  {}", functions);
     std::println("code:       {} bytes, {} {}", deploy.code.size(),
                  crypto::name(session.state().hash()), j["code_hash"].get<std::string>());
-    std::println("source:     {}", deploy.source ? std::format("{} bytes", deploy.source->size())
-                                                 : std::string("not deployed with it"));
-    if (source_check) {
-        std::println("            {}", bundle_text(*source_check));
-        std::println("rebuild:    {}", source_check_text(*source_check));
-    }
+    std::println("source:     {}",
+                 deploy.source ? std::format("{} bytes (contract export, then rebuild it with its "
+                                             "language's tools)",
+                                             deploy.source->size())
+                               : std::string("not deployed with it"));
     std::println("deployed:   #{} {} by \"{}\"", c.deployed_at_index,
                  format_time(session.log_entry(c.deployed_at_index).registered_at),
                  session.actor_name(c.deployer));
@@ -589,6 +564,11 @@ int cmd_contract_instance(const Args& args) {
     Session session(args);
     const protocol::InstanceState& i =
         *session.state().instance(session.instance_id(args.positional().front()));
+    // Its state as CBOR, for the contract's language's tools (bo explain).
+    if (const auto out = args.get("state-out")) {
+        const ByteView state = i.state.bytes();
+        write_file(*out, Bytes(state.begin(), state.end()), false);
+    }
     if (args.json()) {
         print_json(instance_json(session, i));
     } else {
@@ -1151,37 +1131,19 @@ int cmd_contract_verify(const Args& args) {
             }
         }
     }
-    // A contract written in Bo: its source, rebuilt and compared with its
-    // code (where this build has the compiler).
-    const protocol::InstanceReport& instance = *report->instance.instance;
-    std::optional<protocol::ContractDeployBody> deploy;
-    std::optional<SourceCheck> source_check;
-    if (instance.language == "bo") {
-        deploy = protocol::ContractDeployBody{instance.code,     instance.interface,
-                                              instance.language, instance.compiler,
-                                              instance.source,   instance.contract_name};
-        source_check = check_bo_source(*deploy, provider, report->instance.hash);
-        if (source_check->failed) {
-            problems.push_back(source_check->status == "differs"
-                                   ? "the contract's source does not rebuild to its code"
-                                   : "the contract's Bo source is malformed");
-        }
-    }
-    if (args.has("require-rebuild")) {
-        if (!source_check) {
-            problems.push_back("the contract is written in " + instance.language +
-                               ", not Bo: nothing rebuilds its code from a source");
-        } else if (source_check->status != "rebuilds" && !source_check->failed) {
-            problems.push_back("the contract's source was not rebuilt to its code");
-        }
+    // The deploy the evidence carries, as a file for its language's tools
+    // (bo rebuild compares a Bo contract's source with its code).
+    if (const auto out = args.get("deploy-out")) {
+        const protocol::InstanceReport& i = *report->instance.instance;
+        const protocol::DeployFile file{
+            {i.code, i.interface, i.language, i.compiler, i.source, i.contract_name},
+            report->instance.hash};
+        write_file(*out, unwrap(protocol::encode_deploy_file(file), "the deploy file"), false);
     }
     const bool verified = problems.empty();
     const bool checked = options.expected_ledger.has_value();
     if (args.json()) {
         Json out = verifier::contract_report_json(*report, checked);
-        if (source_check) {
-            out["source"] = source_check_json(*source_check, *deploy);
-        }
         out["verified"] = verified;
         if (!verified) {
             out["error"] = problems.front();
@@ -1189,10 +1151,6 @@ int cmd_contract_verify(const Args& args) {
         print_json(out);
     } else {
         std::print("{}", verifier::contract_report_text(*report, checked));
-        if (source_check) {
-            std::println("\n  Source       {}", bundle_text(*source_check));
-            std::println("               {}", source_check_text(*source_check));
-        }
         for (const std::string& p : problems) {
             std::println("\nVERIFICATION FAILED: {}", p);
         }
@@ -1200,98 +1158,27 @@ int cmd_contract_verify(const Args& args) {
     return verified ? exit_ok : exit_not_verified;
 }
 
-int cmd_contract_explain(const Args& args) {
+int cmd_contract_export(const Args& args) {
     Session session(args);
-    const std::string wanted = args.positional().front();
-    // CONTRACT, or an INSTANCE of one: its contract's text, with the
-    // instance's status, parties, and state.
-    const protocol::InstanceState* instance = nullptr;
-    protocol::Id contract_id;
-    try {
-        contract_id = session.contract_id(wanted);
-    } catch (const CommandError&) {
-        instance = session.state().instance(session.instance_id(wanted));
-        contract_id = instance->contract;
-    }
-    const protocol::ContractState& c = *session.state().contract(contract_id);
-    if (c.language != "bo") {
-        throw CommandError{"contract " + hex_id(c.id) + " is written in " + c.language +
-                           ", not Bo: only a contract written in Bo has a contract text"};
-    }
+    const protocol::ContractState& c =
+        *session.state().contract(session.contract_id(args.positional().front()));
+    // The deploy as a file, as a compiler writes one: another tool (bo
+    // rebuild, for Bo) rebuilds or explains it from there.
     const protocol::ContractDeployBody deploy = deploy_of(session, c);
-    const DeployText text =
-        explain_deploy(deploy, session.provider(), session.state().hash(), args.get("language"));
-    Json j = {{"contract", id_json(c.id)},
-              {"name", optional_text(c.name)},
-              {"source", source_check_json(text.check, deploy)},
-              {"explained", text.explained.has_value()}};
-    // An instance's state in the text's words: its state and fields, read
-    // by the contract's types, parties named as this ledger knows them.
-    std::optional<bo::ExplainedState> values;
-    if (instance != nullptr && text.model && text.explained) {
-        const bo::Pack* language =
-            bo::find_language(bo::official_packs(), text.explained->language);
-        values =
-            bo::explain_state(*text.model, instance->state.value(), language, [&](ByteView ledger) {
-                const auto id = protocol::Id::from_bytes(ledger);
-                return id ? ledger_label(session, *id) : to_hex(ledger);
-            });
-    }
-    if (instance != nullptr) {
-        j["instance"] = {{"id", id_json(instance->id)},
-                         {"status", optional_text(instance->status)},
-                         {"final", instance->final},
-                         {"parties", parties_json(instance->parties)},
-                         {"state", cbor::diagnostic(instance->state)}};
-        if (values) {
-            Json fields = Json::array();
-            for (const bo::ExplainedValue& v : values->fields) {
-                fields.push_back({{"field", v.field}, {"value", v.value}});
-            }
-            j["instance"]["state_text"] = values->state;
-            j["instance"]["fields"] = std::move(fields);
-        }
-    }
-    if (!text.explained) {
-        // The parties confirm the text of the code that runs: a source that
-        // does not rebuild to it has no text here.
-        const std::string why =
-            text.check.failed
-                ? "its source does not rebuild to its code, so a text of it would not be the "
-                  "text of the code that runs"
-                : "its source was not rebuilt to its code here, so a text of it could not be "
-                  "confirmed as the text of the code that runs";
-        if (args.json()) {
-            j["error"] = why;
-            print_json(j);
-        } else {
-            std::println("contract {}: no contract text: {}", hex_id(c.id), why);
-            std::println("rebuild:  {}", source_check_text(text.check));
-        }
-        return text.check.failed ? exit_not_verified : exit_failure;
-    }
+    const protocol::DeployFile file{deploy, session.state().hash()};
+    const Bytes encoded = unwrap(protocol::encode_deploy_file(file), "the deploy file");
+    const std::string out = args.need("out");
+    write_file(out, encoded, false);
     if (args.json()) {
-        j.update(explained_json(*text.explained));
-        print_json(j);
+        print_json({{"contract", id_json(c.id)},
+                    {"file", out},
+                    {"bytes", encoded.size()},
+                    {"language", c.language},
+                    {"source", deploy.source.has_value()}});
         return exit_ok;
     }
-    std::println("contract:  {}{}", hex_id(c.id), c.name ? " (" + *c.name + ")" : "");
-    std::println("rebuild:   {}", source_check_text(text.check));
-    if (instance != nullptr) {
-        std::println("instance:  {}", hex_id(instance->id));
-        std::println("status:    {}{}", instance->status.value_or("(none)"),
-                     instance->final ? " (final: it takes no more calls)" : "");
-        print_parties(session, instance->parties);
-        std::println("state:     {}", values && !values->state.empty()
-                                          ? values->state
-                                          : shortened(cbor::diagnostic(instance->state)));
-        for (std::size_t i = 0; values && i < values->fields.size(); ++i) {
-            std::println("{}{}: {}", i == 0 ? "fields:    " : "           ",
-                         values->fields[i].field, values->fields[i].value);
-        }
-    }
-    std::println("");
-    std::print("{}", text.explained->text);
+    std::println("wrote {}: contract {} ({}, {} bytes){}", out, hex_id(c.id), c.language,
+                 encoded.size(), deploy.source ? ", with its source" : "");
     return exit_ok;
 }
 

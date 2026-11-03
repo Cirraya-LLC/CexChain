@@ -92,8 +92,8 @@ struct Services {
     Sessions* sessions = nullptr;
     /// The console's sealed keys; without it, nothing is ever unlocked.
     KeyStore* keys = nullptr;
-    /// The `cexchain` program, which the rules routes run as `cexchain bo
-    /// ...` in a child process; empty for a console that runs no compiler.
+    /// The `bo` program, which the rules routes run as `bo ...` in a child
+    /// process; empty for a console that runs no compiler.
     std::string compiler{};
 };
 
