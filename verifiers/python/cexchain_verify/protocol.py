@@ -6,7 +6,7 @@ Each parser takes decoded CBOR and returns a small object, or raises
 VerifyError if the value does not match the CDDL: a missing or unknown map
 key, a wrong type, a size out of range. Maps with unknown keys are refused
 everywhere except where the CDDL allows any key (record metadata, section 2).
-Rules that need the ledger's state are in rules.py.
+Rules that need the ledger's state are in rules.py and contracts.py.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import re
 from dataclasses import dataclass, field
 
 from . import cbor, cose, crypto
-from .errors import Unsupported, VerifyError
+from .errors import VerifyError
 
 # Statement types (section 4). 20 is reserved and unknown, like every type
 # not listed here.
@@ -63,7 +63,15 @@ HASHES = (crypto.SHA256, crypto.SM3)
 VDS = {crypto.SHA256: 1, crypto.SM3: -65537}
 
 REQUEST_KIND = re.compile(r"[a-z][a-z0-9._-]{0,63}")
-CONTRACT_EVIDENCE_UNSUPPORTED = "contract evidence is not supported yet"
+CREATE, CALL = 1, 2  # function kinds (section 15)
+DONE, FAILED, EXPIRED = 1, 2, 3  # answer statuses (v0.8)
+ANSWER_STATUS_NAMES = {DONE: "done", FAILED: "failed", EXPIRED: "expired"}
+# Sizes of section 15.
+MAX_CODE = 524_288
+MAX_SOURCE = 262_144
+MAX_VALUE = 65_536  # arguments and states, encoded
+MAX_FUNCTIONS = 256
+MAX_CONSENTS = 16
 
 
 # ---------------------------------------------------------------------------
@@ -359,7 +367,87 @@ def _parse_body(kind: int, body) -> dict:
         m = _map(body, "a transition", {1, 2, 3})
         return {"record": _id(m[1], "the record"), "from": _tstr(m[2], "a from state"),
                 "to": _tstr(m[3], "a to state")}
+    if kind == CONTRACT_DEPLOY:
+        m = _map(body, "a contract deploy", {1, 2, 3, 4}, {5, 6})
+        return {"code": _bstr(m[1], "a contract's code", 0, MAX_CODE), "interface": _parse_interface(m[2]),
+                "language": _tstr(m[3], "a contract's language", 1, 32),
+                "compiler": _tstr(m[4], "a contract's compiler", 1, 128),
+                "source": _bstr(m[5], "a contract's source", 0, MAX_SOURCE) if 5 in m else None,
+                "name": _tstr(m[6], "a contract's name", 1, 256) if 6 in m else None}
+    if kind == CONTRACT_CALL:
+        return _parse_call(body)
+    if kind == CONTRACT_RETIRE:
+        m = _map(body, "a contract retire", {1}, {2})
+        return {"contract": _id(m[1], "the retired contract"),
+                "reason": _tstr(m[2], "a reason") if 2 in m else None}
     raise VerifyError(f"unknown statement type {kind}")
+
+
+def function_name(v, what: str) -> str:
+    return _tstr(v, what, 1, 64)
+
+
+def _parse_interface(value) -> dict:
+    """contract-interface: 1 to 256 function names of 1 to 64 bytes, each of
+    kind 1 (creates) or 2 (calls), at least one of kind 1."""
+    _check(isinstance(value, dict) and value and all(isinstance(k, str) for k in value),
+           "a contract's interface is not a non-empty map of function names")
+    _check(len(value) <= MAX_FUNCTIONS, "a contract's interface has more than 256 functions")
+    for name, kind in value.items():
+        function_name(name, "a function's name")
+        _check(_is_int(kind) and kind in (CREATE, CALL), f"the function {name!r} is of an unknown kind")
+    _check(CREATE in value.values(), "a contract's interface has no function that creates an instance")
+    return dict(value)
+
+
+@dataclass
+class ConsentRef:
+    """contract-consent-ref: [ledger, record, bundle hash, signer]."""
+    ledger: bytes
+    record: bytes
+    bundle: bytes
+    signer: dict  # {1: kind, ? 2: presence method, ? 3: model}
+
+
+def parse_signer(value, what: str) -> dict:
+    m = _map(value, what, {1}, {2, 3})
+    _check(_is_int(m[1]) and m[1] in (ORGANIZATION, PERSON, AGENT, DEVICE), f"{what}'s kind is unknown")
+    _check(2 not in m or (_is_int(m[2]) and m[2] in (1, 2)), f"{what}'s presence method is unknown")
+    if 3 in m:
+        _tstr(m[3], f"{what}'s model")
+    return dict(m)
+
+
+def _parse_call(body) -> dict:
+    m = _map(body, "a contract call", {3, 4}, {1, 2, 5, 6, 7, 8})
+    _check((1 in m) != (2 in m), "a contract call names exactly one of a contract and an instance")
+    _check((5 in m) == (2 in m), "a contract call has a head exactly when it names an instance")
+    _check(8 not in m or 2 in m, "an answer is a call on an instance")
+    _check(len(cbor.encode(m[4])) <= MAX_VALUE, "a call's arguments are more than 65,536 bytes encoded")
+    consents = []
+    if 6 in m:
+        refs = m[6]
+        _check(isinstance(refs, list) and 1 <= len(refs) <= MAX_CONSENTS, "a call cites 1 to 16 consents")
+        for ref in refs:
+            _check(isinstance(ref, list) and len(ref) == 4,
+                   "a consent citation is not [ledger, record, bundle, signer]")
+            consents.append(ConsentRef(ledger=_id(ref[0], "a consent's ledger"),
+                                       record=_id(ref[1], "a consent's record"),
+                                       bundle=_bstr(ref[2], "a consent's bundle hash", 32, 32),
+                                       signer=parse_signer(ref[3], "a consent's signer")))
+        _check(_strictly_ascending(consents, lambda c: c.ledger),
+               "a call's consents are not strictly ascending by ledger")
+    answer = None
+    if 8 in m:
+        a = m[8]
+        _check(isinstance(a, list) and len(a) == 2 and _is_int(a[1]) and a[1] in ANSWER_STATUS_NAMES,
+               "an answer is not [request, status]")
+        answer = (_id(a[0], "an answer's request"), a[1])
+    return {"contract": _id(m[1], "the called contract") if 1 in m else None,
+            "instance": _id(m[2], "the called instance") if 2 in m else None,
+            "function": _tstr(m[3], "a call's function"), "arguments": m[4],
+            "head": _uint(m[5], "a call's head") if 5 in m else None, "consents": consents,
+            "reference": _tstr(m[7], "a call's reference", 1, 1024) if 7 in m else None, "answer": answer}
 
 
 def parse_statement(signed: bytes) -> Statement:
@@ -371,8 +459,6 @@ def parse_statement(signed: bytes) -> Statement:
     kind = m[1]
     if not _is_int(kind) or kind not in STATEMENT_TYPE_NAMES:
         raise VerifyError(f"unknown statement type {kind}")
-    if kind in CONTRACT_STATEMENTS:
-        raise Unsupported(CONTRACT_EVIDENCE_UNSUPPORTED)
     if kind == GENESIS:
         _check(2 not in m and 3 not in m and 4 not in m, "a genesis names no ledger, actor, or delegation")
     else:
@@ -491,11 +577,8 @@ def _hashes(value, what: str) -> list:
 
 def parse_bundle(data: bytes) -> Bundle:
     value = cbor.decode(data)
-    # Contract evidence (section 15) wraps an instance's bundle: {0: 1, 1:
-    # bundle bytes, ? 2: consent bundles}.
-    if isinstance(value, dict) and set(value) <= {0, 1, 2} and isinstance(value.get(1), bytes) \
-            and len(value[1]) != 32:
-        raise Unsupported(CONTRACT_EVIDENCE_UNSUPPORTED)
+    _check(not is_contract_evidence(value), "this is an instance's contract evidence, not an evidence bundle: "
+           "verify it as contract evidence")
     m = _map(value, "an evidence bundle", {0, 1, 2, 3}, {4, 5, 6, 7, 8})
     _check(m[0] == 1 and _is_int(m[0]), "the bundle is not of format version 1")
     entries = []
@@ -551,3 +634,26 @@ def parse_field_leaf(leaf: bytes) -> tuple:
            and isinstance(value[1], bytes) and len(value[1]) == 16,
            "a disclosed field is not [name, salt, value]")
     return value[0], value[1], value[2]
+
+
+# ---------------------------------------------------------------------------
+# Contract evidence (section 15)
+# ---------------------------------------------------------------------------
+
+def is_contract_evidence(value) -> bool:
+    """contract-evidence {0: 1, 1: bundle, ? 2: consent bundles}, told apart
+    from an evidence bundle, which has key 3 and a 32-byte key 1."""
+    return (isinstance(value, dict) and 1 in value and 3 not in value and set(value) <= {0, 1, 2}
+            and isinstance(value[1], bytes) and len(value[1]) != 32)
+
+
+def parse_contract_evidence(data: bytes) -> tuple[bytes, list]:
+    """(the instance's evidence bundle, the consent bundles)."""
+    m = _map(cbor.decode(data), "contract evidence", {0, 1}, {2})
+    _check(m[0] == 1 and _is_int(m[0]), "the contract evidence is not of format version 1")
+    consents = []
+    if 2 in m:
+        consents = m[2]
+        _check(isinstance(consents, list) and 1 <= len(consents) <= 4096
+               and all(isinstance(b, bytes) for b in consents), "the consent bundles are not 1 to 4096 byte strings")
+    return _bstr(m[1], "the instance's evidence bundle"), list(consents)

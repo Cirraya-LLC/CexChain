@@ -1,19 +1,34 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
-"""An independent verifier of CexChain evidence bundles, written from the
-protocol specification (spec/README.md and spec/cexchain.cddl) only.
+"""An independent verifier of CexChain evidence, written from the protocol
+specification (spec/README.md and spec/cexchain.cddl) only.
 
-It verifies the evidence bundle of a record (spec section 11): deterministic
-CBOR, COSE_Sign1, the log and its receipts, checkpoints and the log key in
-effect, a replay of the ledger rules, proof of presence, disclosures and
+It verifies evidence bundles (spec section 11), a record's or an instance's:
+deterministic CBOR, COSE_Sign1, the log and its receipts, checkpoints and the
+log key in effect, a replay of the ledger rules (contracts included: every
+call's contract runs again, section 14), proof of presence, disclosures and
 attachments, state proofs (completeness), witness cosignatures, and RFC 3161
-time-stamp tokens. Contract evidence (sections 14 and 15) is not supported
-yet and is refused cleanly.
+time-stamp tokens. And it verifies an instance's contract evidence (section
+15): its bundle, every consent its calls cite, and the requests and answers
+the calls derive.
 
-Usage: python3 -m cexchain_verify BUNDLE [options]; see --help.
+Usage: python3 -m cexchain_verify BUNDLE [options], or
+python3 -m cexchain_verify contract FILE [options]; see --help.
 """
 
-__all__ = ["VerifyError", "verify_bundle"]
+__all__ = ["VerifyError", "verify_bundle", "verify_contract_evidence"]
 
 from .errors import VerifyError
-from .evidence import verify_bundle
+
+
+def __getattr__(name: str):
+    # The verifiers load on first use, so that the interpreter
+    # (cexchain_verify.wasm), which the vector tools share, needs only the
+    # standard library.
+    if name == "verify_bundle":
+        from .evidence import verify_bundle
+        return verify_bundle
+    if name == "verify_contract_evidence":
+        from .contract_evidence import verify_contract_evidence
+        return verify_contract_evidence
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

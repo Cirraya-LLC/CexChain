@@ -51,15 +51,15 @@ class Forge:
     receipts, and bundles holding every entry and every state proof."""
 
     def __init__(self, hash_alg: int = crypto.SHA256, root: str = "root", log: str = "log",
-                 genesis_log: str | None = None):
+                 genesis_log: str | None = None, name: str = "Probe Org", t0: int = T0):
         self.hash_alg = hash_alg
         self.h = crypto.hash_function(hash_alg)
         self.entries: list[bytes] = []
         self.leaves: dict[bytes, list] = {}
         self.log = log
         self.nonce = 0
-        self.time = T0
-        body = {1: hash_alg, 2: "Probe Org", 3: self.pub(root), 4: self.pub(genesis_log or log)}
+        self.time = t0
+        body = {1: hash_alg, 2: name, 3: self.pub(root), 4: self.pub(genesis_log or log)}
         self.ledger_id = None
         self.ledger_id = self.add(1, root, None, body, creates=1)
 

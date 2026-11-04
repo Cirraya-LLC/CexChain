@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
-"""Verifying a record's evidence bundle (spec section 11).
+"""Verifying an evidence bundle (spec section 11): a record's, or an
+instance's (section 15), whose calls the replay runs again.
 
 verify_bundle follows the verifier's steps of section 11 in order:
 
@@ -18,8 +19,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from . import cose, crypto, merkle, protocol, rules, statetree, timestamps
-from .errors import Unsupported, VerifyError
+from . import contracts, cose, crypto, merkle, protocol, rules, statetree, timestamps
+from .errors import VerifyError
 from .protocol import AGENT
 
 
@@ -35,7 +36,8 @@ class Report:
     id_checked: bool
     checkpoint: protocol.TreeHead
     log_key: crypto.PublicKey
-    record: rules.Record
+    record: rules.Record | None  # the subject: a record, or
+    instance: contracts.Instance | None  # an instance
     events: list  # [rules.Applied], in log order
     disclosed: list  # [(name, value)]
     attachments: list  # [(name, media type, size, status)]
@@ -57,8 +59,8 @@ def fail(message: str):
 
 def verify_bundle(data: bytes, *, ledger_id: bytes | None = None, witnesses: list | None = None,
                   tsa_roots_pem: bytes = b"", attachments: dict | None = None) -> Report:
-    """Verifies an evidence bundle. Raises VerifyError (or Unsupported) if it
-    does not verify; returns the report otherwise.
+    """Verifies an evidence bundle. Raises VerifyError if it does not
+    verify; returns the report otherwise.
 
     witnesses: trusted witness public keys (crypto.PublicKey);
     tsa_roots_pem: trusted time-stamp authority roots, PEM;
@@ -125,28 +127,33 @@ def verify_bundle(data: bytes, *, ledger_id: bytes | None = None, witnesses: lis
             fail("a receipt's signature does not verify")
 
     record = ledger.records.get(bundle.subject)
-    if record is None:
-        fail("the bundle does not hold the registration of its record")
+    instance = ledger.instances.get(bundle.subject) if record is None else None
+    if record is None and instance is None:
+        fail("the bundle does not hold the registration of its record, or the creation of its instance")
 
     # Step 5: disclosed fields and attachment contents.
-    disclosed = _check_disclosures(h, record, bundle.disclosures)
-    attachment_report = _check_attachments(h, record, bundle.openings, attachments or {})
+    if instance is not None and (bundle.disclosures or bundle.openings):
+        fail("an instance's bundle discloses no fields and opens no attachments")
+    disclosed = _check_disclosures(h, record, bundle.disclosures) if record is not None else []
+    attachment_report = (_check_attachments(h, record, bundle.openings, attachments or {})
+                         if record is not None else [])
 
     # Step 6: cosignatures, by witnesses it trusts, each witness once.
     trusted, untrusted = _count_cosignatures(h, checkpoint, bundle.cosignatures, witnesses or [])
 
     # Step 7: completeness.
     included = {index: entry for index, entry, _ in entries}
-    complete, commitment = _check_completeness(ledger, record, size, included, bundle.proofs)
+    subject = record if record is not None else instance
+    complete, commitment = _check_completeness(ledger, subject, size, included, bundle.proofs)
 
     # Step 8: anchors.
     tokens, authorities, existed_by = _check_anchors(ledger, checkpoint, included, bundle.anchors,
                                                      tsa_roots_pem)
 
-    events = [ledger.applied[i] for i in record.history]
+    events = [ledger.applied[i] for i in event_indices(ledger, subject)]
     return Report(
         ledger=ledger, id_checked=ledger_id is not None, checkpoint=checkpoint, log_key=log_key,
-        record=record, events=events, disclosed=disclosed, attachments=attachment_report,
+        record=record, instance=instance, events=events, disclosed=disclosed, attachments=attachment_report,
         witnesses_trusted=trusted, witnesses_untrusted=untrusted, tokens=tokens,
         trusted_authorities=authorities, existed_by=existed_by, complete=complete,
         commitment=commitment, commitment_index=size - 1 if commitment is not None else None,
@@ -215,12 +222,32 @@ def _count_cosignatures(h, checkpoint: protocol.TreeHead, cosignatures: list, wi
     return len(trusted), len(untrusted)
 
 
-def involved_objects(ledger: rules.Ledger, record: rules.Record) -> dict:
-    """Section 11, step 7: the record, and for each of its events the
-    signer, an agent signer's responsible person, and every delegation in
-    the chain with its grantor. Returns {id: state kind}."""
-    involved = {record.id: statetree.RECORD}
-    for index in record.history:
+def event_indices(ledger: rules.Ledger, subject) -> list:
+    """The log indices of a record's events, or of an instance's calls with,
+    for a child, its ancestors' calls up to each one that created the next
+    generation (section 15), in log order."""
+    if isinstance(subject, rules.Record):
+        return list(subject.history)
+    events = set(subject.history)
+    node = subject
+    while node.parent is not None:
+        parent = ledger.instances[node.parent]
+        events |= {i for i in parent.history if i <= node.created_by}
+        node = parent
+    return sorted(events)
+
+
+def involved_objects(ledger: rules.Ledger, subject) -> dict:
+    """Section 11, step 7: the record, or the instance and its contract, and
+    for each of its events the signer, an agent signer's responsible person,
+    and every delegation in the chain with its grantor. A child's ancestors
+    need no proof, but their included calls count as events. Returns {id:
+    state kind}."""
+    if isinstance(subject, rules.Record):
+        involved = {subject.id: statetree.RECORD}
+    else:
+        involved = {subject.id: statetree.INSTANCE, subject.contract: statetree.CONTRACT}
+    for index in event_indices(ledger, subject):
         applied = ledger.applied[index]
         signer = ledger.actors[applied.signer]
         involved[signer.id] = statetree.ACTOR
@@ -232,7 +259,7 @@ def involved_objects(ledger: rules.Ledger, record: rules.Record) -> dict:
     return involved
 
 
-def _check_completeness(ledger: rules.Ledger, record: rules.Record, size: int, included: dict, proofs: list):
+def _check_completeness(ledger: rules.Ledger, subject, size: int, included: dict, proofs: list):
     last = included.get(size - 1)
     commitment = ledger.commitments.get(size - 1) if last is not None and last.commitment is not None else None
     if commitment is None:
@@ -250,7 +277,7 @@ def _check_completeness(ledger: rules.Ledger, record: rules.Record, size: int, i
         if statetree.root_from_proof(h, proof.leaf, proof.siblings) != commitment.root:
             fail("a state proof does not lead to the state commitment")
         by_id[proof.id] = proof
-    for object_id, kind in involved_objects(ledger, record).items():
+    for object_id, kind in involved_objects(ledger, subject).items():
         proof = by_id.get(object_id)
         expected = ledger.leaf(object_id)
         if proof is None:
@@ -301,4 +328,4 @@ def _check_anchors(ledger: rules.Ledger, checkpoint: protocol.TreeHead, included
     return reports, len(authorities), existed_by
 
 
-__all__ = ["Report", "Unsupported", "VerifyError", "verify_bundle"]
+__all__ = ["Report", "VerifyError", "event_indices", "involved_objects", "verify_bundle"]

@@ -3,13 +3,16 @@
 # Copyright 2026 Cirraya
 #
 # The independent Python verifier (verifiers/python), written from the
-# specification only, against `cexchain verify`: both read the same evidence
-# bundles, made here with the command line, and must reach the same verdict
-# and report the same facts (the record, its events, who acted under whose
-# authority, presence, provenance, witnesses, time-stamps, completeness).
-# Damaged bundles must fail in both. Bundles packed from the independent
-# test vectors (testvectors/) must verify in both. Contract evidence is
-# refused by the Python verifier for now.
+# specification only, against `cexchain verify` and `cexchain contract
+# verify`: both read the same evidence, made here with the command line, and
+# must reach the same verdict and report the same facts (the record or the
+# instance, its events or calls with their outcomes, consents, requests and
+# answers, who acted under whose authority, presence, provenance, witnesses,
+# time-stamps, completeness). Damaged evidence must fail in both. Evidence
+# packed from the independent test vectors (testvectors/), and the contract
+# evidence the examples leave behind, must verify in both. Ledgers forged at
+# the specification's edges show where the two agree and where the text
+# leaves the outcome open.
 #
 # Usage: python_verifier.sh CEXCHAIN [PYTHON]
 #   PYTHON: a Python 3.11+ with the packages of
@@ -368,23 +371,323 @@ damage "c-c1: anchors left out" c-c1.cbor verified drop-anchors -- --tsa-root on
 SIZE="$(wc -c < c-c1.cbor)"
 damage "c-c1: a flipped byte in an anchor's token" c-c1.cbor failed flip "$((SIZE - 300))" -- --tsa-root one-root.pem
 
-# --- Contract evidence: refused cleanly for now -----------------------------------
-echo "Contract evidence (not supported yet by the Python verifier)"
-export CEXCHAIN_LEDGER="$WORK/g"
-key groot; key glog
-LEDGER_G="$(run init --name "Contract Org" --root-key groot.key --log-key glog.key --json | json 'd["ledger_id"]')"
-"$PYTHON" -c "import json; d=json.load(open('$REPO/testvectors/test-contracts.json')); open('split.wasm','wb').write(bytes.fromhex(d['split']))"
-CONTRACT="$(run contract deploy split.wasm --function issue=create --function split=call --function transfer=call \
-    --compiler "test 1" --as groot.key --json | json 'd["contract"]["id"]')"
-INSTANCE="$(run contract create "$CONTRACT" issue --args "[h'$LEDGER_G', 100]" --as groot.key --json | json 'd["instance"]["id"]')"
-run checkpoint create --log-key glog.key > /dev/null
-run contract evidence "$INSTANCE" --log-key glog.key --out g-instance.cbor > /dev/null
-run contract verify g-instance.cbor --ledger-id "$LEDGER_G" > /dev/null
-code=0
-pyverify g-instance.cbor --json > py.json || code=$?
-[ "$code" = 3 ] && [ "$(json 'd["error"]' < py.json)" = "contract evidence is not supported yet" ] ||
-    fail "contract evidence must be refused cleanly (exit $code)"
-echo "  refused: contract evidence"
+# --- Contract evidence (spec sections 14 and 15) -----------------------------------
+# Both verifiers replay every call, running the contract again, and check every
+# consent a call cites on the consenting party's own ledger; their reports must
+# agree field by field, as for records.
+CONTRACTS=0
+# ccompare NAME FILE EXPECT [contract verify options...]: both verifiers, one
+# piece of contract evidence. EXPECT is verified, failed, or any.
+ccompare() {
+    local name="$1" file="$2" expect="$3"
+    shift 3
+    local pe=0 be=0
+    pyverify contract "$file" --json "$@" > py.json 2> py.err || pe=$?
+    run contract verify "$file" --json "$@" > bb.json 2> bb.err || be=$?
+    local args=(py.json "$pe" bb.json "$be")
+    [ "$expect" = any ] || args+=(--expect "$expect")
+    if ! "$PYTHON" "$VERIFIER/tests/compare_reports.py" "${args[@]}" > cmp.txt; then
+        cat cmp.txt py.err bb.err
+        fail "$name"
+    fi
+    COMPARED=$((COMPARED + 1))
+    CONTRACTS=$((CONTRACTS + 1))
+    local verdict
+    verdict="$(json '("failed: " + d.get("error", "?")) if not d.get("verified") else "verified, %d calls, %d consents, %d requests" % (len(d["calls"]), sum(len(c["consents"]) for c in d["calls"]), len(d["instance"]["requests"]))' < py.json)"
+    echo "  agree: $name ($verdict)"
+    grep note: cmp.txt || true
+}
+# cdamage NAME FILE EXPECT OPERATION [ARGUMENT] [-- verify options...]
+cdamage() {
+    local name="$1" file="$2" expect="$3" op="$4"
+    shift 4
+    local arg=()
+    if [ $# -gt 0 ] && [ "$1" != "--" ]; then arg=("$1"); shift; fi
+    [ $# -gt 0 ] && [ "$1" = "--" ] && shift
+    mutate "$file" damaged.cbor "$op" ${arg[@]+"${arg[@]}"}
+    ccompare "$name" damaged.cbor "$expect" "$@"
+}
+now_ms() { "$PYTHON" -c 'import time; print(int(time.time() * 1000))'; }
+subject_of() { "$PYTHON" -c "import sys; sys.path.insert(0, '$VERIFIER'); from cexchain_verify import cbor
+print(cbor.decode(open(sys.argv[1], 'rb').read())[1].hex())" "$1"; }
+"$PYTHON" - "$REPO/testvectors" << 'PY'
+import json, sys
+contracts = json.load(open(sys.argv[1] + "/test-contracts.json"))
+open("split.wasm", "wb").write(bytes.fromhex(contracts["split"]))
+open("requesting.wasm", "wb").write(bytes.fromhex(contracts["request"]))
+open("oracle.wasm", "wb").write(bytes.fromhex(json.load(open(sys.argv[1] + "/protocol-v0.6.json"))["contract"]))
+PY
+
+echo "Contracts: a home, a SHA-256 party, an SM3 party; parts split across them, consents of every kind"
+G="$WORK/g"; P="$WORK/p"; Q="$WORK/q"
+g() { run "$@" --ledger "$G"; }
+p() { run "$@" --ledger "$P"; }
+q() { run "$@" --ledger "$Q"; }
+key groot; key glog; key gclerk; key gnotifier; key gagent; key gkeeper; key proot; key plog; key pperson; key pdevice
+key qroot sm2-sm3; key qlog sm2-sm3; key qofficer sm2-sm3; key qagent sm2-sm3; key gwit; key pwit esp256
+G_ID="$(run init --name "Contract Home" --root-key groot.key --log-key glog.key --ledger "$G" --json | json 'd["ledger_id"]')"
+P_ID="$(run init --name "Party One" --root-key proot.key --log-key plog.key --ledger "$P" --json | json 'd["ledger_id"]')"
+Q_ID="$(run init --name "Party Two" --hash sm3 --root-key qroot.key --log-key qlog.key --ledger "$Q" --json | json 'd["ledger_id"]')"
+PPERSON="$(p actor add --as proot.key --kind person --name "Party Clerk" --key pperson.pub --json | json 'd["actor"]["id"]')"
+PDEVICE="$(p actor add --as proot.key --kind device --name "Party Signer" --key pdevice.pub --json | json 'd["actor"]["id"]')"
+p delegation grant --as proot.key --to "$PPERSON" --allow record-register --record-types cexchain.contract-consent/1 > /dev/null
+p delegation grant --as proot.key --to "$PDEVICE" --allow record-register > /dev/null
+QOFFICER="$(q actor add --as qroot.key --kind person --name "Credit Officer" --key qofficer.pub --json | json 'd["actor"]["id"]')"
+q delegation grant --as qroot.key --to "$QOFFICER" --allow actor-register,delegation-grant,record-register --may-delegate > /dev/null
+QAGENT="$(q actor add --as qofficer.key --kind agent --name "Credit Agent" --key qagent.pub --responsible "$QOFFICER" \
+    --model credit-model-7 --json | json 'd["actor"]["id"]')"
+q delegation grant --as qofficer.key --to "$QAGENT" --allow record-register --record-types cexchain.contract-consent/1 > /dev/null
+SPLIT="$(g contract deploy split.wasm --function issue=create --function split=call --function transfer=call \
+    --compiler "test_contracts.py 1" --name "Receivable" --source "$REPO/tools/testvectors/test_contracts.py" \
+    --as groot.key --json | json 'd["contract"]["id"]')"
+head_of() { g contract instance "$1" --json | json 'd["head"]'; }
+# consent PARTY_FN INSTANCE FUNCTION ARGS OUT KEY LOG_KEY [options]: a consent file from a party's ledger
+consent() {
+    local party="$1" instance="$2" function="$3" args="$4" out="$5" as="$6" log="$7"
+    shift 7
+    "$party" contract consent --home "$G_ID" --hash sha256 --instance "$instance" --function "$function" \
+        --args "$args" --head "$(head_of "$instance")" --as "$as" --log-key "$log" --out "$out" "$@" > /dev/null
+}
+R1="$(g contract create "$SPLIT" issue --args "[h'$P_ID', 1000]" --reference INV-2026-1 --as groot.key --json \
+    | json 'd["instance"]["id"]')"
+# A time-stamp authority sees the receivable's creation, and nothing after it.
+g checkpoint create --log-key glog.key > /dev/null
+CEXCHAIN_LEDGER="$G" stamp one.cnf sha256
+PARTS="[[h'$Q_ID', 600], [h'$P_ID', 400]]"
+consent p "$R1" split "$PARTS" c-split1.cbor proot.key plog.key --reference "Split approved"
+read -r A B <<< "$(g contract call "$R1" split --args "$PARTS" --consent c-split1.cbor --as groot.key --json \
+    | json '" ".join(d["children"])')"
+PARTS="[[h'$Q_ID', 300], [h'$G_ID', 300]]"
+consent q "$A" split "$PARTS" c-split2.cbor qagent.key qlog.key --reference "CA-9"
+read -r A1 A2 <<< "$(g contract call "$A" split --args "$PARTS" --consent c-split2.cbor --as groot.key --json \
+    | json '" ".join(d["children"])')"
+g contract call "$A2" transfer --args "h'$P_ID'" --as groot.key > /dev/null
+consent p "$B" transfer "h'$Q_ID'" c-transfer-b.cbor pperson.key plog.key
+g contract call "$B" transfer --args "h'$Q_ID'" --consent c-transfer-b.cbor --as groot.key > /dev/null
+consent q "$A1" transfer "h'$P_ID'" c-transfer-a1.cbor qofficer.key qlog.key --days 1
+g contract call "$A1" transfer --args "h'$P_ID'" --consent c-transfer-a1.cbor --as groot.key > /dev/null
+g contract retire "$SPLIT" --reason "version 2" --as groot.key > /dev/null
+consent p "$A1" transfer "h'$Q_ID'" c-transfer-a1b.cbor pdevice.key plog.key
+g contract call "$A1" transfer --args "h'$Q_ID'" --consent c-transfer-a1b.cbor --as groot.key > /dev/null
+for i in R1 A B A1 A2; do g contract evidence "${!i}" --log-key glog.key --out "g-$i.cbor" > /dev/null; done
+ccompare "a receivable split in two, final" g-R1.cbor verified --ledger-id "$G_ID"
+ccompare "a tier-2 part split again, with an AI agent's consent from an SM3 ledger" g-A.cbor verified --ledger-id "$G_ID"
+ccompare "a part moved on with a person's consent" g-B.cbor verified --ledger-id "$G_ID"
+ccompare "a tier-3 part: ancestors, consents of an agent, a person, a device; then retired" g-A1.cbor verified \
+    --ledger-id "$G_ID"
+ccompare "a part the home held, which needed no consent" g-A2.cbor verified --ledger-id "$G_ID"
+ccompare "the same, without the expected ledger id" g-A1.cbor verified
+ccompare "the same, for another ledger id" g-A1.cbor failed --ledger-id "$P_ID"
+ccompare "a person's presence required for each consent" g-A1.cbor failed --ledger-id "$G_ID" --require-presence
+ccompare "a part of its own needing no consent, its ancestors' consents without presence" g-A2.cbor failed \
+    --require-presence
+ccompare "requests answered required, none made" g-A1.cbor verified --require-answered
+ccompare "a trusted witness required, none cosigned" g-A1.cbor failed --min-witnesses 1
+pyverify contract g-A1.cbor --deploy-out py.boc > /dev/null
+run contract verify g-A1.cbor --deploy-out bb.boc > /dev/null
+cmp -s py.boc bb.boc || fail "the deploy files differ"
+echo "  agree: the deploy file, byte for byte"
+
+echo "Contracts: witnesses and time-stamps on the home and on a party's consent"
+run ledger genesis --ledger "$G" --out ggenesis.cbor > /dev/null
+run witness add-log --dir gw --genesis ggenesis.cbor --ledger-id "$G_ID" --name home > /dev/null
+# The tier-3 part is the SM3 party's now: its consent, cosigned by the party's witness.
+run ledger genesis --ledger "$Q" --out qgenesis.cbor > /dev/null
+run witness add-log --dir pw --genesis qgenesis.cbor --ledger-id "$Q_ID" --name party > /dev/null
+consent q "$A1" transfer "h'$P_ID'" c-witnessed.cbor qroot.key qlog.key
+q checkpoint cosign-request --witness pwit.pub --out preq.cbor --from 0 > /dev/null
+run witness cosign preq.cbor --dir pw --key pwit.key --out pcosig.cbor > /dev/null
+q checkpoint add-cosignature pcosig.cbor --witness pwit.pub > /dev/null
+q export "$(subject_of c-witnessed.cbor)" --log-key qlog.key --out c-witnessed2.cbor > /dev/null
+g contract call "$A1" transfer --args "h'$P_ID'" --consent c-witnessed2.cbor --as groot.key > /dev/null
+g checkpoint create --log-key glog.key > /dev/null
+g checkpoint cosign-request --witness gwit.pub --out greq.cbor --from 0 > /dev/null
+run witness cosign greq.cbor --dir gw --key gwit.key --out gcosig.cbor > /dev/null
+g checkpoint add-cosignature gcosig.cbor --witness gwit.pub > /dev/null
+CEXCHAIN_LEDGER="$G" stamp one.cnf sha256
+g contract evidence "$A1" --log-key glog.key --out g-A1-witnessed.cbor > /dev/null
+ccompare "home and party witnesses, both trusted" g-A1-witnessed.cbor verified --witness gwit.pub --witness pwit.pub \
+    --min-witnesses 1
+ccompare "the party's witness only" g-A1-witnessed.cbor failed --witness pwit.pub --min-witnesses 1
+ccompare "a trusted time-stamp authority" g-A1-witnessed.cbor verified --tsa-root one-root.pem --min-timestamps 1
+ccompare "more trusted authorities required than stamped" g-A1-witnessed.cbor failed --tsa-root one-root.pem \
+    --min-timestamps 2
+mutate g-A1-witnessed.cbor g-A1-inner.cbor unwrap
+compare "the tier-3 part's bundle alone, as verify reports it" g-A1-inner.cbor verified --ledger-id "$G_ID" \
+    --tsa-root one-root.pem --witness gwit.pub
+mutate g-A1-witnessed.cbor g-consent.cbor consent 0
+compare "a consent's bundle alone" g-consent.cbor verified --witness pwit.pub
+
+echo "Contracts: requests and answers, by executors, an AI agent, a keeper, and a person; late, expired, overdue"
+GCLERK="$(g actor add --as groot.key --kind person --name "Service Clerk" --key gclerk.pub --json | json 'd["actor"]["id"]')"
+GNOTIFIER="$(g actor add --as groot.key --kind device --name "Notifier" --key gnotifier.pub --json | json 'd["actor"]["id"]')"
+GKEEPER="$(g actor add --as groot.key --kind device --name "Keeper" --key gkeeper.pub --json | json 'd["actor"]["id"]')"
+REQ="$(g contract deploy requesting.wasm --function open=create --function ask=call --function result=call \
+    --function when.due=call --compiler "test_contracts.py 1" --name "Requesting" --as groot.key --json \
+    | json 'd["contract"]["id"]')"
+g delegation grant --as groot.key --to "$GCLERK" --allow contract-call,actor-register,delegation-grant --contracts "$REQ" \
+    --may-delegate > /dev/null
+GAGENT="$(g actor add --as gclerk.key --kind agent --name "Notice Agent" --key gagent.pub --responsible "$GCLERK" \
+    --model notice-model-2 --json | json 'd["actor"]["id"]')"
+g delegation grant --as gclerk.key --to "$GAGENT" --allow contract-call --contracts "$REQ" --functions result \
+    --request-kinds notify > /dev/null
+g delegation grant --as groot.key --to "$GNOTIFIER" --allow contract-call --contracts "$REQ" --functions result \
+    --request-kinds invoice,notify > /dev/null
+g delegation grant --as groot.key --to "$GKEEPER" --allow contract-call --contracts "$REQ" --functions result,when.due \
+    > /dev/null
+NOW="$(now_ms)"
+OPEN="<<[1, {1: \"open\", 2: \"opened\", 3: {\"customer\": h'$P_ID'}, 4: [[\"opened\", {\"plan\": 1}]], 7: [{1: \"notify\", 2: {\"about\": \"welcome\"}, 3: $((NOW + 3600000)), 4: \"result\"}, {1: \"http.post\", 2: {\"n\": 1}, 3: $((NOW + 60000)), 4: \"result\"}, {1: \"invoice\", 2: {\"amount\": 100}, 3: $((NOW + 7200000)), 4: \"result\"}]}]>>"
+S1="$(g contract create "$REQ" open --args "$OPEN" --reference "SVC-1" --as gclerk.key --json | json 'd["instance"]["id"]')"
+rid() { g request list --instance "$1" --kind "$2" --open --json | json 'd[0]["id"]'; }
+g request answer "$(rid "$S1" notify)" --done --args '{"ref": "N-1"}' --as gagent.key > /dev/null
+CEXCHAIN_CLOCK_OFFSET=5m g request answer "$(rid "$S1" http.post)" --done --args '{"ref": "P-1"}' --as gclerk.key \
+    > /dev/null
+g contract call "$S1" ask --args '[["notify", {"about": "bill"}, 600000], ["suspend", null, 86400000]]' --as gclerk.key \
+    > /dev/null
+g request answer "$(rid "$S1" notify)" --failed --args '[["notify", {"retry": 1}, 60000]]' --as gnotifier.key > /dev/null
+CEXCHAIN_CLOCK_OFFSET=3h g request answer "$(rid "$S1" invoice)" --expired --as gkeeper.key > /dev/null
+CEXCHAIN_CLOCK_OFFSET=3h g request answer "$(rid "$S1" notify)" --expired --as gkeeper.key > /dev/null
+FINAL="<<[1, {1: \"closed\", 2: \"closed\", 5: true, 7: [{1: \"notify\", 2: null, 3: $((NOW + 36000000)), 4: \"result\"}]}]>>"
+S2="$(CEXCHAIN_CLOCK_OFFSET=3h g contract create "$REQ" open --args "$FINAL" --as gclerk.key --json | json 'd["instance"]["id"]')"
+CEXCHAIN_CLOCK_OFFSET=3h g request answer "$(rid "$S2" notify)" --done --as gnotifier.key > /dev/null
+CEXCHAIN_CLOCK_OFFSET=3h g checkpoint create --log-key glog.key > /dev/null
+for i in S1 S2; do g contract evidence "${!i}" --log-key glog.key --out "g-$i.cbor" > /dev/null; done
+ccompare "answers done, failed, expired, on time and late; one open request" g-S1.cbor verified --ledger-id "$G_ID"
+ccompare "the same, every request answered required (one is not yet due)" g-S1.cbor verified --require-answered
+ccompare "a final instance that took an answer" g-S2.cbor verified --ledger-id "$G_ID"
+CEXCHAIN_CLOCK_OFFSET=2d g contract call "$S1" ask --args '[["notify", {"about": "late"}, 1000]]' --as gclerk.key > /dev/null
+CEXCHAIN_CLOCK_OFFSET=2d g checkpoint create --log-key glog.key > /dev/null
+g contract evidence "$S1" --log-key glog.key --out g-S1-overdue.cbor > /dev/null
+ccompare "open requests overdue at the checkpoint" g-S1-overdue.cbor verified --ledger-id "$G_ID"
+ccompare "overdue requests, every request answered required" g-S1-overdue.cbor failed --require-answered
+ccompare "overdue, and presence required too" g-S1-overdue.cbor failed --require-answered --require-presence \
+    --min-timestamps 1 --tsa-root one-root.pem
+
+echo "Contracts: an SM3 home, children without parties, values of every CBOR kind, a retired contract"
+H="$WORK/h"
+h() { run "$@" --ledger "$H"; }
+key hroot sm2-sm3; key hlog ml-dsa-44; key hclerk
+H_ID="$(run init --name "SM3 Home" --hash sm3 --root-key hroot.key --log-key hlog.key --ledger "$H" --json | json 'd["ledger_id"]')"
+HCLERK="$(h actor add --as hroot.key --kind person --name "Oracle Clerk" --key hclerk.pub --json | json 'd["actor"]["id"]')"
+ORACLE="$(h contract deploy oracle.wasm --function open=create --function act=call --compiler "hand-assembled 1" \
+    --as hroot.key --json | json 'd["contract"]["id"]')"
+h delegation grant --as hroot.key --to "$HCLERK" --allow contract-call --contracts "$ORACLE" --functions act > /dev/null
+O="$(h contract create "$ORACLE" open --args "<<[1, {1: \"parent\", 2: \"open\", 3: {\"buyer\": h'$H_ID'}, 6: [{1: \"first\"}, {1: {\"second\": 2}, 2: \"draft\", 3: {\"bank\": h'$Q_ID', \"buyer\": h'$H_ID'}}]}]>>" \
+    --as hroot.key --json | json 'd["instance"]["id"]')"
+read -r O0 O1 <<< "$(h contract instances --parent "$O" --json | json '" ".join(i["id"] for i in d)')"
+h contract call "$O" act --args '{"note": "the state becomes the hash of the input"}' --as hclerk.key > /dev/null
+"$PYTHON" - "$VERIFIER" << 'PY'
+import sys
+sys.path.insert(0, sys.argv[1])
+from cexchain_verify import cbor
+T, M = cbor.Tag, cbor.Map
+values = [0, 23, 24, -1, -25, 2**64 - 1, -2**64, "", 'q"uote', "back\\slash", "nl\n\t\x01\x1f\x7f", "é中😀 ",
+          b"", b"\x00\xff", [], {}, [1, [2, []]], {1: "a", -1: "b", "k": 2, b"bk": 3}, M([([1], 2)]),
+          M([(True, 1), (None, 2), (False, 3)]), T(1, 1700000000), T(24, b"\x01"), T(2**40, 0), True, False, None,
+          {"b": 1, "a": 2, "aa": 3}, -2**63, 2**63]
+open("values.cbor", "wb").write(cbor.encode({"values": values}))
+PY
+h contract call "$O0" act --args-cbor values.cbor --as hclerk.key > /dev/null
+h contract retire "$ORACLE" --as hroot.key > /dev/null
+h contract call "$O" act --args '{"after": "the retire"}' --as hroot.key > /dev/null
+h contract call "$O1" act --args "<<[1, {1: \"done\", 4: [[\"done\", {\"by\": [1, 2]}]], 5: true}]>>" --as hroot.key > /dev/null
+for i in O O0 O1; do h contract evidence "${!i}" --log-key hlog.key --out "h-$i.cbor" > /dev/null; done
+ccompare "an SM3 home's parent, which carried on after the retire" h-O.cbor verified --ledger-id "$H_ID"
+ccompare "a child without parties, called with values of every CBOR kind" h-O0.cbor verified --ledger-id "$H_ID"
+ccompare "a child with parties, final" h-O1.cbor verified --ledger-id "$H_ID"
+
+if [ -n "${URI:-}" ]; then
+    echo "Contracts: a consent proven present with a hardware key (SoftHSM)"
+    key ppresent
+    PPRESENT="$(p actor add --as proot.key --kind person --name "Present Approver" --key ppresent.pub --json | json 'd["actor"]["id"]')"
+    p delegation grant --as proot.key --to "$PPRESENT" --allow record-register --record-types cexchain.contract-consent/1 \
+        --require-presence > /dev/null
+    run presence enroll --pkcs11 "$URI" --label "Approver UKey" --out pcred.json > /dev/null
+    p actor set-presence "$PPRESENT" --as proot.key --credential pcred.json > /dev/null
+    # The splitting contract is retired: a new deploy of it creates the instance.
+    SPLIT2="$(g contract deploy split.wasm --function issue=create --function split=call --function transfer=call \
+        --compiler "test_contracts.py 1" --as groot.key --json | json 'd["contract"]["id"]')"
+    R2="$(g contract create "$SPLIT2" issue --args "[h'$P_ID', 50]" --as groot.key --json | json 'd["instance"]["id"]')"
+    consent p "$R2" transfer "h'$Q_ID'" c-present.cbor ppresent.key plog.key --presence-key "$URI"
+    g contract call "$R2" transfer --args "h'$Q_ID'" --consent c-present.cbor --as groot.key > /dev/null
+    g contract evidence "$R2" --log-key glog.key --out g-R2.cbor > /dev/null
+    ccompare "a consent proven by a hardware key, presence required" g-R2.cbor verified --require-presence
+fi
+
+echo "Contracts: evidence the examples leave behind (Bo contracts, time rules, keepers, MCP, parts)"
+for ex in lending day-student supply-agreement multi-tier-split receivable-financing events shipment; do
+    if ! bash "$REPO/examples/$ex/$ex.sh" "$CEXCHAIN" "$WORK/ex-$ex" > "ex-$ex.log" 2>&1; then
+        tail -20 "ex-$ex.log"
+        fail "the example $ex"
+    fi
+    for f in "$WORK/ex-$ex"/*.cbor; do
+        if "$PYTHON" -c "import sys; sys.path.insert(0, '$VERIFIER'); from cexchain_verify import cbor, protocol
+sys.exit(0 if protocol.is_contract_evidence(cbor.decode(open(sys.argv[1], 'rb').read())) else 1)" "$f" 2> /dev/null; then
+            ccompare "$ex: $(basename "$f")" "$f" verified
+        fi
+    done
+done
+pyverify contract "$WORK/ex-supply-agreement/closed.cbor" --deploy-out py.boc > /dev/null
+run contract verify "$WORK/ex-supply-agreement/closed.cbor" --deploy-out bb.boc > /dev/null
+cmp -s py.boc bb.boc || fail "a Bo deploy file differs"
+echo "  agree: a Bo contract's deploy file, byte for byte"
+
+echo "Contracts: the vectors' signed contract evidence (protocol v0.6, v0.7, v0.8)"
+"$PYTHON" - "$REPO/testvectors" << 'PY'
+import json, sys
+out = []
+for version in ("v0.7", "v0.8"):
+    for lg in json.load(open(f"{sys.argv[1]}/protocol-{version}.json"))["ledgers"]:
+        for name, e in lg["evidence"].items():
+            path = f"cv-{version}-{lg['hash']}-{name.replace(' ', '-')}.cbor"
+            open(path, "wb").write(bytes.fromhex(e["contract_evidence"]))
+            out.append(f"{path} {lg['ledger_id']}")
+for lg in json.load(open(f"{sys.argv[1]}/protocol-v0.6.json"))["ledgers"]:
+    path = f"cv-v0.6-{lg['hash']}.cbor"
+    open(path, "wb").write(bytes.fromhex(lg["contract_evidence"]["encoded"]))
+    out.append(f"{path} {lg['ledger_id']} opaque")
+open("cv.txt", "w").write("\n".join(out) + "\n")
+PY
+while read -r file ledger opaque; do
+    if [ -n "$opaque" ]; then
+        ccompare "vectors: $file (its bundles are opaque bytes)" "$file" failed --ledger-id "$ledger"
+    else
+        ccompare "vectors: $file" "$file" verified --ledger-id "$ledger"
+        ccompare "vectors: $file, every request answered required" "$file" any --require-answered
+    fi
+done < cv.txt
+
+echo "Contracts: damaged contract evidence"
+mutate g-A1.cbor inner.cbor unwrap
+ENTRIES="$("$PYTHON" -c "import sys; sys.path.insert(0, '$VERIFIER'); from cexchain_verify import cbor; print(len(cbor.decode(open('inner.cbor','rb').read())[2]))")"
+for i in $(seq 1 $((ENTRIES - 2))); do
+    cdamage "g-A1: entry $i of its bundle left out" g-A1.cbor failed "inner:drop-entry" "$i"
+done
+PROOFS="$("$PYTHON" -c "import sys; sys.path.insert(0, '$VERIFIER'); from cexchain_verify import cbor; print(len(cbor.decode(open('inner.cbor','rb').read())[7]))")"
+for i in $(seq 0 $((PROOFS - 1))); do
+    cdamage "g-A1: state proof $i left out" g-A1.cbor failed "inner:drop-proof" "$i"
+done
+cdamage "g-A1: the state commitment and its proofs left out (not complete)" g-A1.cbor failed "inner:drop-last-entry"
+cdamage "g-A1: receipts swapped" g-A1.cbor failed "inner:swap-receipts" 3
+cdamage "g-A1: a consent left out" g-A1.cbor failed drop-consent 0
+cdamage "g-A1: every consent left out" g-A1.cbor failed drop-consents
+cdamage "g-A1: an empty list of consents" g-A1.cbor failed empty-consents
+cdamage "g-A1: a consent twice" g-A1.cbor failed duplicate-consent 1
+cdamage "g-A1: the consents in the other order" g-A1.cbor verified reverse-consents
+cdamage "g-A1: a consent no call cites" g-A1.cbor failed add-consent g-B.cbor
+cdamage "g-A1: another instance's bundle" g-A1.cbor failed bundle-of g-A.cbor
+cdamage "g-A2: a consent bundle where its bundle should be" g-A2.cbor failed bundle-of c-split1.cbor
+cdamage "g-S1: entry 3 of its bundle left out" g-S1.cbor failed "inner:drop-entry" 3
+cdamage "g-S1: a flipped byte" g-S1.cbor failed flip 300
+SIZE="$(wc -c < g-A1.cbor)"
+for i in $(seq 0 9); do
+    cdamage "g-A1: flipped byte $((SIZE * i / 10 + 11))" g-A1.cbor failed flip "$((SIZE * i / 10 + 11))"
+done
+ccompare "a record's bundle given as contract evidence" a-r1.cbor failed
+compare "contract evidence given as a bundle" g-A1.cbor failed
+
+echo "Probes of the contract rules' edges (home and party ledgers forged by the test)"
+"$PYTHON" "$VERIFIER/tests/contract_probes.py" "$CEXCHAIN"
 
 # --- Forged ledgers at the specification's edges -----------------------------------
 echo "Probes of the specification's edges (ledgers forged by the test)"
@@ -408,5 +711,24 @@ code=0; pyverify a-r1.cbor --ledger-id abcd > /dev/null 2>&1 || code=$?
 code=0; pyverify missing.cbor > /dev/null 2>&1 || code=$?
 [ "$code" = 2 ] || fail "an unreadable bundle exits 2"
 pyverify --help | grep -q -- "--tsa-root" || fail "--help"
+pyverify contract g-A1.cbor --ledger-id "$G_ID" > report.txt
+grep -q "Verified: the instance's complete history" report.txt || fail "the contract report"
+grep -q "consent of Party Two (SM3)" report.txt || fail "the contract report shows consents"
+code=0; pyverify contract bad.cbor > /dev/null || code=$?
+[ "$code" = 3 ] || fail "contract evidence that fails exits 3"
+code=0; pyverify contract > /dev/null 2>&1 || code=$?
+[ "$code" = 1 ] || fail "contract: a usage error exits 1"
+code=0; pyverify contract g-A1.cbor --attachment a=b > /dev/null 2>&1 || code=$?
+[ "$code" = 1 ] || fail "contract: --attachment is a usage error"
+code=0; pyverify contract g-A1.cbor --ledger-id "${G_ID:0:12}" > /dev/null 2>&1 || code=$?
+[ "$code" = 1 ] || fail "contract: a short ledger id is a usage error"
+code=0; pyverify contract missing.cbor > /dev/null 2>&1 || code=$?
+[ "$code" = 2 ] || fail "contract: an unreadable file exits 2"
+code=0; pyverify contract g-A1.cbor --deploy-out "$WORK/no/such/dir/x.boc" > /dev/null 2>&1 || code=$?
+[ "$code" = 2 ] || fail "contract: an unwritable --deploy-out exits 2"
+code=0; pyverify a-r1.cbor --require-answered > /dev/null 2>&1 || code=$?
+[ "$code" = 1 ] || fail "a contract option for a bundle is a usage error"
+pyverify contract --help | grep -q -- "--require-answered" || fail "contract --help"
 
-echo "python verifier against cexchain verify: $COMPARED comparisons agree; passed"
+echo "python verifier against cexchain verify and contract verify: $COMPARED comparisons agree" \
+    "($CONTRACTS of contract evidence); passed"

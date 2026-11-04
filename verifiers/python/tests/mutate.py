@@ -22,6 +22,18 @@ Operations (indices are positions in the bundle's lists, from 0):
   add-cosignatures-of B    add the cosignatures another bundle B carries (of its checkpoint)
   subject HEX              name another record as the bundle's subject
 
+On contract evidence (spec section 15):
+  drop-consent N           leave out the N-th consent bundle
+  drop-consents            leave out every consent bundle (key 2)
+  duplicate-consent N      list the N-th consent bundle twice
+  reverse-consents         list the consent bundles in the other order
+  add-consent FILE         add this consent bundle (or the first one of this contract evidence)
+  empty-consents           an empty list of consent bundles
+  bundle-of FILE           put another bundle (or the instance bundle of other contract evidence) in its place
+  inner:OP [ARGUMENT]      apply a bundle operation above to the instance's bundle
+  unwrap                   write the instance's bundle alone
+  consent N                write the N-th consent bundle alone
+
 python3 mutate.py IN --imprint prints the imprint a time-stamp token over the
 bundle's checkpoint must carry (the ledger's hash of its payload), and the
 hash's name for `openssl ts -query`.
@@ -46,7 +58,59 @@ def _flip_signature(cose_bytes: bytes) -> bytes:
     return cbor.encode(cbor.Tag(message.tag, body))
 
 
+def _inner(data: bytes) -> bytes:
+    """A bundle; or the instance's bundle of contract evidence."""
+    value = cbor.decode(data)
+    return value[1] if 3 not in value else data
+
+
+def _first_consent(data: bytes) -> bytes:
+    value = cbor.decode(data)
+    return value[2][0] if 3 not in value else data
+
+
+def mutate_contract(data: bytes, operation: str, argument: str | None) -> bytes:
+    """Operations on contract evidence {0: 1, 1: bundle, ? 2: consents}."""
+    evidence = cbor.decode(data)
+    consents = evidence.get(2, [])
+    n = int(argument) if argument is not None and argument.isdigit() else None
+    if operation == "unwrap":
+        return evidence[1]
+    if operation == "consent":
+        return consents[n]
+    if operation.startswith("inner:"):
+        evidence[1] = mutate(evidence[1], operation[len("inner:"):], argument)
+    elif operation == "drop-consent":
+        del consents[n]
+    elif operation == "drop-consents":
+        consents.clear()
+    elif operation == "duplicate-consent":
+        consents.append(consents[n])
+    elif operation == "reverse-consents":
+        consents.reverse()
+    elif operation == "add-consent":
+        consents.append(_first_consent(pathlib.Path(argument).read_bytes()))
+    elif operation == "bundle-of":
+        evidence[1] = _inner(pathlib.Path(argument).read_bytes())
+    elif operation == "empty-consents":
+        evidence[2] = []
+        return cbor.encode(evidence)
+    else:
+        raise SystemExit(f"unknown operation {operation}")
+    if consents:
+        evidence[2] = consents
+    else:
+        evidence.pop(2, None)
+    return cbor.encode(evidence)
+
+
+CONTRACT_OPERATIONS = ("unwrap", "consent", "drop-consent", "drop-consents", "duplicate-consent", "reverse-consents",
+                       "add-consent", "bundle-of", "empty-consents")
+
+
 def mutate(data: bytes, operation: str, argument: str | None) -> bytes:
+    if operation in CONTRACT_OPERATIONS or operation.startswith("inner:"):
+        return mutate_contract(data, operation, argument)
     if operation == "flip":
         out = bytearray(data)
         out[int(argument)] ^= 0x01

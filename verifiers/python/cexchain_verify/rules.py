@@ -2,7 +2,8 @@
 # Copyright 2026 Cirraya
 """Replaying statements under the ledger rules (spec section 5), with
 records' lifecycles (section 6), proof of presence (section 7), the log key
-in effect (section 8), and state histories (section 9).
+in effect (section 8), state histories (section 9), and contracts (section
+15, in contracts.py).
 
 A verifier holds only the statements a bundle includes, so the replayed
 state is partial: rules about objects the bundle does not hold (another
@@ -15,12 +16,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from . import cose, crypto, presence, protocol
+from . import contracts, cose, crypto, presence, protocol
 from .errors import VerifyError
 from .protocol import (ACTOR_REGISTER, ACTOR_REVOKE, ACTOR_ROTATE_KEY, ACTOR_SET_PRESENCE, AGENT,
-                       DELEGATION_GRANT, DELEGATION_REVOKE, GENESIS, LEDGER_ROTATE_LOG_KEY, ORGANIZATION,
-                       PERSON, RECORD_ENDORSE, RECORD_REGISTER, RECORD_REVOKE, RECORD_STATEMENTS,
-                       RECORD_TRANSITION)
+                       CONTRACT_CALL, CONTRACT_DEPLOY, CONTRACT_RETIRE, DELEGATION_GRANT, DELEGATION_REVOKE,
+                       GENESIS, LEDGER_ROTATE_LOG_KEY, ORGANIZATION, PERSON, RECORD_ENDORSE, RECORD_REGISTER,
+                       RECORD_REVOKE, RECORD_STATEMENTS, RECORD_TRANSITION)
 
 # `issued at` may be at most this far after the registration time.
 MAX_FUTURE_MS = 5 * 60 * 1000
@@ -99,7 +100,7 @@ def fail(message: str):
     raise VerifyError(message)
 
 
-class Ledger:
+class Ledger(contracts.ContractRules):
     """The state a replay of the included entries reaches."""
 
     def __init__(self, entry: protocol.LogEntry, index: int):
@@ -140,6 +141,7 @@ class Ledger:
             0: Applied(index=0, registered_at=entry.registered_at, statement=statement, id=sid, signer=sid,
                        chain=[], presence=None)}
         self.commitments: dict[int, protocol.TreeHead] = {}
+        self._init_contracts()
 
     # -- keys -------------------------------------------------------------
 
@@ -256,6 +258,9 @@ class Ledger:
             RECORD_ENDORSE: self._record_endorse,
             RECORD_TRANSITION: self._record_transition,
             RECORD_REVOKE: self._record_revoke,
+            CONTRACT_DEPLOY: self._contract_deploy,
+            CONTRACT_CALL: self._contract_call,
+            CONTRACT_RETIRE: self._contract_retire,
         }[statement.type]
         applied = Applied(index=index, registered_at=now, statement=statement, id=sid, signer=signer.id,
                           chain=[d.id for d in chain], presence=proven)
@@ -331,6 +336,7 @@ class Ledger:
             for t in record_types:
                 if t not in scope.record_types:
                     fail(f"the statement at {index} is not covered by its delegation's record types")
+        self.check_contract_scope(statement, scope, index)
         if any(d.scope.presence for d in chain) and proven is None:
             fail(f"the statement at {index} lacks the proof of presence its delegation requires")
         return chain
@@ -532,4 +538,8 @@ class Ledger:
             return [2, object_id, list(self.delegations[object_id].history)]
         if object_id in self.records:
             return [3, object_id, list(self.records[object_id].history)]
+        if object_id in self.contracts:
+            return [4, object_id, list(self.contracts[object_id].history)]
+        if object_id in self.instances:
+            return [5, object_id, list(self.instances[object_id].history)]
         return None

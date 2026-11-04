@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
-"""python3 -m cexchain_verify BUNDLE [options]"""
+"""python3 -m cexchain_verify BUNDLE [options], or contract FILE [options]"""
 
 import sys
 

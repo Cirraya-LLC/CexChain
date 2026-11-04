@@ -1,12 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
-"""Compares the Python verifier's JSON report with `cexchain verify --json`.
+"""Compares the Python verifier's JSON report with `cexchain verify --json`
+or `cexchain contract verify --json`.
 
 Usage: python3 compare_reports.py PYTHON_JSON PYTHON_EXIT BLACKBOX_JSON BLACKBOX_EXIT [--expect verified|failed]
 
 The verdicts (and exit codes) must agree. When both verified, every field
-must agree, except events[].summary, a sentence for people: a difference
-there is only reported.
+must agree, except a summary (events[].summary, calls[].summary), a sentence
+for people: a difference there is only reported.
 
 Exit status 0 if they agree, 1 otherwise.
 """
@@ -63,7 +64,7 @@ def compare(py, py_exit: int, bb, bb_exit: int, expect: str | None = None) -> tu
         problems.append("expected both to fail")
     # A full report also comes with a failure the verifier was asked to
     # check beside the bundle (an attachment, too few witnesses).
-    if (py_ok and bb_ok) or (py and bb and "record" in py and "record" in bb):
+    if (py_ok and bb_ok) or (py and bb and any(k in py and k in bb for k in ("record", "instance"))):
         _walk(py, bb, "", problems, soft)
     return problems, soft
 
