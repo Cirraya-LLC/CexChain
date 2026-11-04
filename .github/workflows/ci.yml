@@ -18,6 +18,11 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # The independent verifier's Python (.github/scripts/install-linux-tools.sh).
+  # Named here, its test fails, rather than being skipped, if it is missing.
+  CEXCHAIN_PYTHON: /opt/python-verifier/bin/python
+
 jobs:
   # Which parts the change touches (.github/scripts/changed-parts.sh): a
   # change to the chain runs everything; one to the language skips

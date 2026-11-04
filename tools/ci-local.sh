@@ -76,6 +76,8 @@ cat > "$work/run.sh" <<'EOF'
 set -u
 cp -a /mnt/src /src
 cd /src
+# As CI names it (.github/workflows/ci.yml).
+export CEXCHAIN_PYTHON=/opt/python-verifier/bin/python
 # A prebuilt image (CI_LOCAL_IMAGE) has the tools: installing again would
 # fetch whatever the mirrors have newer.
 if [ -z "${CI_LOCAL_PREBUILT:-}" ] &&

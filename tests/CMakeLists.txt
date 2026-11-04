@@ -277,6 +277,13 @@ add_test(NAME generic_words
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/generic_words.sh $<TARGET_FILE:cexchain>)
 add_test(NAME rotation_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/rotation.sh $<TARGET_FILE:cexchain>)
+# The independent verifier (verifiers/python, written from the specification
+# alone) against `cexchain verify`, bundle by bundle. It needs a Python with
+# verifiers/python/requirements.txt, CEXCHAIN_PYTHON or python3; without one
+# it is skipped.
+add_test(NAME verifier_python_end_to_end
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/verifiers/python_verifier.sh $<TARGET_FILE:cexchain>)
+set_tests_properties(verifier_python_end_to_end PROPERTIES SKIP_RETURN_CODE 77)
 # The applications' end-to-end tests (generic_words reads every program).
 set_tests_properties(console_end_to_end search_end_to_end generic_words PROPERTIES LABELS apps)
 # The Bo commands exist where the compiler does.

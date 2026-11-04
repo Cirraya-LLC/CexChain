@@ -1,0 +1,5 @@
+# The independent verifier's Python packages: pip install -r requirements.txt
+# (cryptography 46 or later, for ML-DSA). These are the versions CI tests.
+cryptography==50.0.2
+cffi==2.1.1
+pycparser==3.12

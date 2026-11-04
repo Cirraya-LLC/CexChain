@@ -34,7 +34,8 @@ Four parts, each a program, and each its own directory:
 The chain needs none of the others: it runs a contract's code and keeps its source, whatever
 the language. Bo uses only the chain's verification layer, and the applications are built on
 both. The build checks this direction. Shared by all four: the specification (`spec/`), the test
-vectors (`testvectors/`), the [examples](examples/), the tests, and the tools.
+vectors (`testvectors/`), the [examples](examples/), the tests, and the tools. Beside them,
+[a second verifier](verifiers/python/README.md), written in Python from the specification alone.
 
 ## Why
 
@@ -449,6 +450,17 @@ Scanning the code opens the verifier with the ledger id, the record id, and the 
 The page refuses evidence about another record or from another ledger, and shows who did what,
 person or AI agent, under whose authority.
 
+## An independent verifier
+
+[`verifiers/python`](verifiers/python/README.md) verifies a record's evidence again, in Python.
+It was written from the specification and the test vectors alone, without reading the C++ code.
+Every test run hands both verifiers the same bundles: valid ones, damaged ones, and ones forged
+at the specification's edges. They must agree.
+
+```sh
+PYTHONPATH=verifiers/python python3 -m cexchain_verify evidence.cbor --ledger-id <ledger-id>
+```
+
 ## Running a ledger as a service
 
 `cexchain serve` exposes a ledger over HTTP (API v1, described by `cexchain serve --help`). Signed
@@ -826,6 +838,7 @@ What the chain does not do yet, as of this version (the Bo language's own are in
   revocation (CRL, OCSP) is not checked. Tokens signed with SM2 verify where OpenSSL verifies
   them. The web console has no screen for them yet: `cexchain-console run --tsa URL` stamps, and the
   command line lists them.
+- **The independent verifier** checks a record's evidence; contract evidence it refuses for now.
 - **Kept files** (`record issue --keep-files`, `record file add`) are kept by a single server or
   ledger directory: a cluster refuses them for now (it would not replicate them), and a backup
   of a cluster's member does not hold them.
