@@ -5,6 +5,8 @@
 #include <array>
 #include <bit>
 #include <cstddef>
+#include <mutex>
+#include <optional>
 #include <vector>
 
 #include <cexchain/core/merkle.hpp>
@@ -190,6 +192,63 @@ Result<std::uint64_t> Tree::append_leaf_hash(const Digest& leaf) {
         levels_[h + 1].push_back(completed[h].bytes());
     }
     return index;
+}
+
+Status Tree::append_leaf_hashes(std::span<const Digest> leaves, const ForRanges& for_ranges) {
+    const std::size_t width = crypto::digest_size(alg_);
+    if (std::ranges::any_of(leaves, [width](const Digest& leaf) { return leaf.size() != width; })) {
+        return fail(Errc::invalid_argument,
+                    "leaf hash has the wrong size for the tree's algorithm");
+    }
+    // Level h gains the roots [old >> h, new >> h), each of two on the level
+    // below, stored already or new there. Every level is computed before any
+    // is stored, so a hashing failure leaves the tree unchanged.
+    const std::uint64_t old_size = size();
+    const std::uint64_t new_size = old_size + leaves.size();
+    std::vector<std::vector<Digest>> added; // added[h - 1]: level h's new roots
+    std::mutex failure_mutex;
+    std::optional<Error> failure;
+    for (std::size_t h = 1; (new_size >> h) > (old_size >> h); ++h) {
+        const std::uint64_t first = old_size >> h;
+        const std::uint64_t stored_below = old_size >> (h - 1);
+        const std::span<const Digest> new_below =
+            h == 1 ? leaves : std::span<const Digest>(added[h - 2]);
+        auto below = [&](std::uint64_t index) -> ByteView {
+            return index < stored_below
+                       ? levels_[h - 1][index]
+                       : new_below[static_cast<std::size_t>(index - stored_below)].bytes();
+        };
+        std::vector<Digest> level(static_cast<std::size_t>((new_size >> h) - first));
+        run_ranges(for_ranges, level.size(), [&](std::size_t begin, std::size_t end) {
+            for (std::size_t i = begin; i < end; ++i) {
+                const std::uint64_t index = first + i;
+                auto parent = node_hash(*provider_, alg_, below(2 * index), below(2 * index + 1));
+                if (!parent) {
+                    const std::lock_guard lock(failure_mutex);
+                    failure = failure.value_or(parent.error());
+                    return;
+                }
+                level[i] = *parent;
+            }
+        });
+        if (failure) {
+            return std::unexpected(*failure);
+        }
+        added.push_back(std::move(level));
+    }
+
+    for (const Digest& leaf : leaves) {
+        levels_.front().push_back(leaf.bytes());
+    }
+    for (std::size_t h = 1; h <= added.size(); ++h) {
+        if (levels_.size() <= h) {
+            levels_.emplace_back(width);
+        }
+        for (const Digest& root : added[h - 1]) {
+            levels_[h].push_back(root.bytes());
+        }
+    }
+    return {};
 }
 
 Result<Digest> Tree::leaf(std::uint64_t index) const {

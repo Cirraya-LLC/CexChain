@@ -331,6 +331,53 @@ TEST_CASE("edge cases for empty and equal trees", "[core][merkle]") {
     CHECK(*tree.leaf(2) == leaf);
 }
 
+TEST_CASE("leaf hashes appended in bulk give the tree appended one by one", "[core][merkle]") {
+    // Ranges of three, run last first, as a pool might.
+    const cexchain::ForRanges backwards = [](std::size_t count, const auto& work) {
+        for (std::size_t end = count; end > 0;) {
+            const std::size_t begin = end >= 3 ? end - 3 : 0;
+            work(begin, end);
+            end = begin;
+        }
+    };
+    std::mt19937_64 rng(11);
+    std::vector<Digest> leaves;
+    for (int i = 0; i < 300; ++i) {
+        Bytes entry(8);
+        for (auto& b : entry) {
+            b = static_cast<std::uint8_t>(rng());
+        }
+        leaves.push_back(*merkle::leaf_hash(provider(), HashAlg::sha256, entry));
+    }
+    merkle::Tree one_by_one(provider(), HashAlg::sha256);
+    merkle::Tree in_bulk(provider(), HashAlg::sha256);
+    merkle::Tree here(provider(), HashAlg::sha256);
+    std::size_t done = 0;
+    for (const std::size_t chunk : std::vector<std::size_t>{1, 2, 5, 64, 1, 100, 127}) {
+        const std::span<const Digest> part(leaves.data() + done, chunk);
+        for (const Digest& leaf : part) {
+            REQUIRE(one_by_one.append_leaf_hash(leaf));
+        }
+        REQUIRE(in_bulk.append_leaf_hashes(part, backwards));
+        REQUIRE(here.append_leaf_hashes(part));
+        done += chunk;
+        REQUIRE(in_bulk.size() == done);
+        for (std::uint64_t size = 1; size <= done; ++size) {
+            CHECK(*in_bulk.root(size) == *one_by_one.root(size));
+            CHECK(*here.root(size) == *one_by_one.root(size));
+        }
+        CHECK(*in_bulk.inclusion_proof(done / 3, done) ==
+              *one_by_one.inclusion_proof(done / 3, done));
+        CHECK(*in_bulk.consistency_proof(done / 2, done) ==
+              *one_by_one.consistency_proof(done / 2, done));
+    }
+    REQUIRE(in_bulk.append_leaf_hashes({}));
+    CHECK(in_bulk.size() == done);
+    const std::vector<Digest> wrong{leaves[0], *Digest::from_bytes(Bytes(20, 0))};
+    CHECK(in_bulk.append_leaf_hashes(wrong).error().code == Errc::invalid_argument);
+    CHECK(in_bulk.size() == done); // unchanged
+}
+
 TEST_CASE("historical roots are stable as the tree grows", "[core][merkle]") {
     merkle::Tree tree(provider(), HashAlg::sm3);
     std::vector<Digest> recorded;

@@ -1,8 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
+#include <atomic>
+#include <mutex>
+#include <optional>
 #include <utility>
+#include <vector>
 
+#include <cexchain/ledger/parallel.hpp>
 #include <cexchain/ledger/record_log.hpp>
 
 #include "crc32c.hpp"
@@ -92,19 +97,39 @@ Result<ScanResult> scan_record(const AppendFile& file, std::uint64_t offset) {
     return ScanResult{Scan::record, length};
 }
 
+/// Examines the framed record at the start of `rest`, bytes in memory.
+ScanResult scan_bytes(ByteView rest) {
+    if (rest.size() < header_size) {
+        return ScanResult{Scan::damaged};
+    }
+    const std::uint64_t length = get_be(rest.first(4));
+    const auto crc = static_cast<std::uint32_t>(get_be(rest.subspan(4, 4)));
+    if (length > max_record_size || length > rest.size() - header_size) {
+        return ScanResult{Scan::damaged};
+    }
+    if (detail::crc32c(rest.subspan(header_size, static_cast<std::size_t>(length))) != crc) {
+        return ScanResult{Scan::damaged};
+    }
+    return ScanResult{Scan::record, length};
+}
+
 /// The durable log size recorded by the last intact entry of the sync file.
 /// A damaged tail of the sync file is ignored (that sync was never
 /// acknowledged) and, with `recover`, cut off; damage before the tail is
-/// corruption.
+/// corruption. The file is read at once: one read however many syncs it
+/// records.
 Result<std::uint64_t> read_synced_size(AppendFile& file, bool recover = true) {
+    Bytes scratch;
+    auto all = bytes_at(file, 0, static_cast<std::size_t>(file.size()), scratch);
+    if (!all) {
+        return std::unexpected(all.error());
+    }
+    const ByteView data = *all;
     std::uint64_t offset = 0;
     std::uint64_t synced = 0;
-    while (offset < file.size()) {
-        auto scanned = scan_record(file, offset);
-        if (!scanned) {
-            return std::unexpected(scanned.error());
-        }
-        if (scanned->kind == Scan::damaged || scanned->payload_size != 8) {
+    while (offset < data.size()) {
+        const ScanResult scanned = scan_bytes(data.subspan(static_cast<std::size_t>(offset)));
+        if (scanned.kind == Scan::damaged || scanned.payload_size != 8) {
             // Only a damaged final entry is acceptable.
             const std::uint64_t entry = header_size + 8;
             if (file.size() - offset > entry) {
@@ -117,11 +142,8 @@ Result<std::uint64_t> read_synced_size(AppendFile& file, bool recover = true) {
             }
             break;
         }
-        auto payload = file.read(offset + header_size, 8);
-        if (!payload) {
-            return std::unexpected(payload.error());
-        }
-        const std::uint64_t size = get_be(*payload);
+        const std::uint64_t size =
+            get_be(data.subspan(static_cast<std::size_t>(offset) + header_size, 8));
         if (size < synced) {
             return fail(Errc::malformed, "the log's sync record file goes backwards");
         }
@@ -205,20 +227,60 @@ Result<RecordLog> RecordLog::open_as(FileSystem& fs, std::string_view name, Reco
 
     // Exactly the acknowledged records: anything after them, whole or not,
     // was never acknowledged (the writer died before recording the sync),
-    // and is cut off, as refresh(recover) does.
-    std::vector<std::uint64_t> offsets;
+    // and is cut off, as refresh(recover) does. Their bounds come from their
+    // headers, one after another; their checksums are checked on every core.
+    struct Bounds {
+        std::uint64_t offset;
+        std::uint64_t length;
+        std::uint32_t crc;
+    };
+    std::vector<Bounds> records;
     std::uint64_t offset = 0;
+    Bytes header_scratch;
     while (offset < *synced) {
-        auto scanned = scan_record(**log, offset);
-        if (!scanned) {
-            return std::unexpected(scanned.error());
-        }
-        const std::uint64_t next = offset + header_size + scanned->payload_size;
-        if (scanned->kind == Scan::damaged || next > *synced) {
+        if (*synced - offset < header_size) {
             return fail(Errc::malformed, "an acknowledged log record is corrupted");
         }
-        offsets.push_back(offset);
-        offset = next;
+        auto header = bytes_at(**log, offset, header_size, header_scratch);
+        if (!header) {
+            return std::unexpected(header.error());
+        }
+        const std::uint64_t length = get_be(header->first(4));
+        if (length > max_record_size || length > *synced - offset - header_size) {
+            return fail(Errc::malformed, "an acknowledged log record is corrupted");
+        }
+        records.push_back({offset, length, static_cast<std::uint32_t>(get_be(header->subspan(4)))});
+        offset += header_size + length;
+    }
+    std::atomic<bool> damaged{false};
+    std::mutex failure_mutex;
+    std::optional<Error> failure;
+    parallel_for(records.size(), [&](std::size_t begin, std::size_t end) {
+        Bytes scratch;
+        for (std::size_t i = begin; i < end; ++i) {
+            const Bounds& r = records[i];
+            auto payload = bytes_at(**log, r.offset + header_size,
+                                    static_cast<std::size_t>(r.length), scratch);
+            if (!payload) {
+                const std::lock_guard lock(failure_mutex);
+                failure = failure.value_or(payload.error());
+                return;
+            }
+            if (detail::crc32c(*payload) != r.crc) {
+                damaged.store(true, std::memory_order_relaxed);
+                return;
+            }
+        }
+    });
+    if (failure) {
+        return std::unexpected(*failure);
+    }
+    if (damaged.load()) {
+        return fail(Errc::malformed, "an acknowledged log record is corrupted");
+    }
+    std::vector<std::uint64_t> offsets(records.size());
+    for (std::size_t i = 0; i < records.size(); ++i) {
+        offsets[i] = records[i].offset;
     }
 
     const std::uint64_t truncated = cut_tail ? (*log)->size() - offset : 0;

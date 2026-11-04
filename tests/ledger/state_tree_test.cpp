@@ -253,6 +253,19 @@ void check_against(const protocol::StateTree& tree, const Reference& reference) 
     }
 }
 
+/// Two trees hold the same leaves with the same proofs.
+void check_same(const protocol::StateTree& tree, const protocol::StateTree& expected,
+                const Reference& reference) {
+    REQUIRE(tree.size() == expected.size());
+    CHECK(*tree.root() == *expected.root());
+    CHECK(*tree.root() ==
+          *protocol::state_root(provider(), crypto::HashAlg::sha256, reference.sorted()));
+    for (const auto& [key, leaf] : reference.leaves) {
+        CHECK(tree.leaf_hash(leaf.id) == expected.leaf_hash(leaf.id));
+        CHECK(*tree.siblings(leaf.id) == *expected.siblings(leaf.id));
+    }
+}
+
 } // namespace
 
 TEST_CASE("the incremental state tree matches the reference", "[state][tree]") {
@@ -308,6 +321,88 @@ TEST_CASE("the incremental state tree matches the reference", "[state][tree]") {
     absent.fill(0xa5);
     CHECK(tree->siblings(id_from(absent)).error().code == Errc::not_found);
     CHECK_FALSE(tree->leaf_hash(id_from(absent)));
+}
+
+TEST_CASE("a state tree made at once and committed in pieces is the one made leaf by leaf",
+          "[state][tree]") {
+    // Ranges of five, run last first, as a pool might.
+    const cexchain::ForRanges backwards = [](std::size_t count, const auto& work) {
+        for (std::size_t end = count; end > 0;) {
+            const std::size_t begin = end >= 5 ? end - 5 : 0;
+            work(begin, end);
+            end = begin;
+        }
+    };
+    std::mt19937_64 random(GENERATE(5U, 6U));
+    Reference reference;
+    std::vector<std::array<std::uint8_t, 32>> keys;
+    auto draw = [&] {
+        std::array<std::uint8_t, 32> key{};
+        if (keys.empty() || random() % 3 == 0) {
+            for (auto& b : key) {
+                b = static_cast<std::uint8_t>(random());
+            }
+        } else { // a neighbour: one late bit flipped
+            key = keys[random() % keys.size()];
+            const auto bit = 64 + random() % 192;
+            key[bit / 8] ^= static_cast<std::uint8_t>(0x80U >> (bit % 8));
+        }
+        keys.push_back(key);
+        const protocol::StateLeaf leaf{
+            static_cast<protocol::ObjectKind>(1 + random() % 3), id_from(key), {random() % 1000}};
+        reference.leaves[std::vector<std::uint8_t>(key.begin(), key.end())] = leaf;
+        return leaf;
+    };
+    for (int i = 0; i < 3000; ++i) {
+        draw();
+    }
+    auto one_by_one = protocol::StateTree::create(provider(), crypto::HashAlg::sha256);
+    auto at_once = protocol::StateTree::create(provider(), crypto::HashAlg::sha256);
+    REQUIRE(one_by_one);
+    REQUIRE(at_once);
+    std::vector<protocol::Id> ids;
+    std::vector<crypto::Digest> digests;
+    for (const auto& [key, leaf] : reference.leaves) {
+        REQUIRE(one_by_one->set(leaf));
+        ids.push_back(leaf.id);
+        digests.push_back(*protocol::state_leaf_hash(provider(), crypto::HashAlg::sha256, leaf));
+    }
+    std::ranges::reverse(ids); // in any order
+    std::ranges::reverse(digests);
+    REQUIRE(at_once->assign_hashed(ids, digests));
+    CHECK_FALSE(at_once->root());
+    REQUIRE(one_by_one->commit());
+    REQUIRE(at_once->commit(backwards));
+    check_same(*at_once, *one_by_one, reference);
+
+    // Changes after, committed in pieces too.
+    for (int i = 0; i < 300; ++i) {
+        const auto leaf = i % 2 == 0 ? draw() : [&] {
+            auto changed = reference.leaves.begin()->second;
+            changed.history.push_back(5000 + static_cast<std::uint64_t>(i));
+            reference.leaves.begin()->second = changed;
+            return changed;
+        }();
+        REQUIRE(one_by_one->set(leaf));
+        REQUIRE(at_once->set(leaf));
+    }
+    REQUIRE(one_by_one->commit());
+    REQUIRE(at_once->commit(backwards));
+    check_same(*at_once, *one_by_one, reference);
+
+    // Only into an empty tree, one hash for each id, no id twice.
+    CHECK(at_once->assign_hashed(ids, digests).error().code == Errc::invalid_argument);
+    auto fresh = protocol::StateTree::create(provider(), crypto::HashAlg::sha256);
+    REQUIRE(fresh);
+    CHECK(fresh->assign_hashed(ids, std::span(digests).first(1)).error().code ==
+          Errc::invalid_argument);
+    const std::vector<protocol::Id> twice{ids[0], ids[0]};
+    const std::vector<crypto::Digest> two{digests[0], digests[0]};
+    CHECK(fresh->assign_hashed(twice, two).error().code == Errc::invalid_argument);
+    CHECK(fresh->size() == 0);
+    REQUIRE(fresh->assign_hashed({}, {}));
+    REQUIRE(fresh->commit(backwards));
+    CHECK(*fresh->root() == *protocol::state_root(provider(), crypto::HashAlg::sha256, {}));
 }
 
 TEST_CASE("the incremental state tree at the edges of the key space", "[state][tree]") {

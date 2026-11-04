@@ -13,6 +13,7 @@
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/crypto.hpp>
 #include <cexchain/core/error.hpp>
+#include <cexchain/core/parallel.hpp>
 
 /// Merkle trees as defined by RFC 9162 §2.1 (the Certificate Transparency v2
 /// tree), parameterized by hash algorithm. With SHA-256 this is the COSE
@@ -106,6 +107,12 @@ public:
 
     /// Appends a precomputed leaf hash and returns its index.
     [[nodiscard]] Result<std::uint64_t> append_leaf_hash(const Digest& leaf);
+
+    /// Appends precomputed leaf hashes, as many `append_leaf_hash` calls
+    /// would, hashing each level's new subtree roots with `for_ranges`. On
+    /// failure the tree is unchanged.
+    [[nodiscard]] Status append_leaf_hashes(std::span<const Digest> leaves,
+                                            const ForRanges& for_ranges = {});
 
     /// The leaf hash at `index`.
     [[nodiscard]] Result<Digest> leaf(std::uint64_t index) const;

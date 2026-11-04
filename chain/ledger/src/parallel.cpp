@@ -153,4 +153,10 @@ void parallel_for(std::size_t count,
     job->finished.wait(lock, [&] { return job->done.load(std::memory_order_acquire) == count; });
 }
 
+ForRanges on_pool() {
+    return [](std::size_t count, const std::function<void(std::size_t, std::size_t)>& work) {
+        parallel_for(count, work);
+    };
+}
+
 } // namespace cexchain::ledger

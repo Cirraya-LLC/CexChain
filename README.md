@@ -833,9 +833,10 @@ What the chain does not do yet, as of this version (the Bo language's own are in
   other organizations' ledgers need their peers, which belong to a ledger directory.
 - **Connectors:** `webhook` and `command` ship with CexChain; a connector for another system is
   a program of its own, on the same protocol ([`spec/connectors.md`](spec/connectors.md)).
-- **Opening from a snapshot** still scans the log's file and rebuilds its two Merkle trees: about
-  six times faster than a full replay (9.4 s against 58 s for a million entries on an 8-core
-  server), not instant. A snapshot takes about 240 bytes of disk an entry, twice (two files).
+- **Opening from a snapshot** still reads the log's file, decodes the state, and rebuilds the two
+  Merkle trees, on every core: about eleven times faster than a full replay (3.9 s against 43 s
+  for a million entries on an 8-core server), not instant. A snapshot takes about 240 bytes of
+  disk an entry, twice (two files).
 - **Time-stamp authorities** are trusted through their certificate chains at the token's time;
   revocation (CRL, OCSP) is not checked. Tokens signed with SM2 verify where OpenSSL verifies
   them. The web console has no screen for them yet: `cexchain-console run --tsa URL` stamps, and the

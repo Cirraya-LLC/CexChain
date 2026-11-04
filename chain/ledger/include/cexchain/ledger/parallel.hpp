@@ -6,6 +6,8 @@
 #include <cstddef>
 #include <functional>
 
+#include <cexchain/core/parallel.hpp>
+
 /// Data parallelism for pure work (signature checks, decoding, hashing).
 /// The ledger's state transitions stay sequential and in log order; only
 /// work whose results do not depend on order runs here, each piece writing
@@ -21,6 +23,9 @@ namespace cexchain::ledger {
 void parallel_for(std::size_t count,
                   const std::function<void(std::size_t begin, std::size_t end)>& work,
                   std::size_t serial_below = 8);
+
+/// `parallel_for` as the core takes it (cexchain/core/parallel.hpp).
+[[nodiscard]] ForRanges on_pool();
 
 /// Threads the pool uses (workers plus the caller): $CEXCHAIN_THREADS if set,
 /// else the hardware's.

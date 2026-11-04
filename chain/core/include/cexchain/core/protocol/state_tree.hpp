@@ -11,6 +11,7 @@
 
 #include <cexchain/core/crypto.hpp>
 #include <cexchain/core/error.hpp>
+#include <cexchain/core/parallel.hpp>
 #include <cexchain/core/protocol/common.hpp>
 #include <cexchain/core/protocol/log.hpp>
 #include <cexchain/core/protocol/state.hpp>
@@ -108,8 +109,14 @@ public:
     /// The same, given the leaf's hash (`state_leaf_hash` of it): for many
     /// leaves hashed ahead, on other threads.
     [[nodiscard]] Status set_hashed(const Id& id, const crypto::Digest& digest);
-    /// Hashes every subtree changed since the last commit.
-    [[nodiscard]] Status commit();
+    /// Fills an empty tree with the leaves of `ids`, whose hashes are
+    /// `digests`, in any order and no id twice: the tree `set_hashed` would
+    /// build, made at once from the sorted keys (staged until `commit`).
+    [[nodiscard]] Status assign_hashed(std::span<const Id> ids,
+                                       std::span<const crypto::Digest> digests);
+    /// Hashes every subtree changed since the last commit, disjoint subtrees
+    /// with `for_ranges`.
+    [[nodiscard]] Status commit(const ForRanges& for_ranges = {});
 
     /// The root, as of the last commit.
     [[nodiscard]] Result<crypto::Digest> root() const;

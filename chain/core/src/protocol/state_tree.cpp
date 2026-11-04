@@ -3,6 +3,9 @@
 
 #include <algorithm>
 #include <bit>
+#include <mutex>
+#include <optional>
+#include <vector>
 
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/merkle.hpp>
@@ -413,6 +416,65 @@ Status StateTree::set_hashed(const Id& id, const crypto::Digest& digest) {
     return {};
 }
 
+Status StateTree::assign_hashed(std::span<const Id> ids, std::span<const crypto::Digest> digests) {
+    if (root_ != none) {
+        return fail(Errc::invalid_argument, "the state tree is not empty");
+    }
+    if (ids.size() != digests.size()) {
+        return fail(Errc::invalid_argument, "every object needs its leaf's hash");
+    }
+    if (ids.size() >= leaf_flag) {
+        return fail(Errc::limit_exceeded, "the state tree is full");
+    }
+    std::vector<Leaf> sorted;
+    sorted.reserve(ids.size());
+    for (std::size_t i = 0; i < ids.size(); ++i) {
+        if (digests[i].size() != std::tuple_size_v<Hash>) {
+            return fail(Errc::invalid_argument, "a state leaf's hash has the wrong size");
+        }
+        Leaf leaf{key_of(ids[i]), {}};
+        std::ranges::copy(digests[i].bytes(), leaf.hash.begin());
+        sorted.push_back(leaf);
+    }
+    std::ranges::sort(sorted, {}, &Leaf::key);
+    if (std::ranges::adjacent_find(sorted, {}, &Leaf::key) != sorted.end()) {
+        return fail(Errc::invalid_argument, "an object is given twice");
+    }
+    // The trie of sorted keys is the Cartesian tree of the bits at which
+    // neighbours first differ, the smallest at the root: `path` holds the
+    // inner nodes from the root down to the last leaf, their bits rising.
+    std::vector<std::uint32_t> path;
+    for (std::size_t i = 0; i < sorted.size(); ++i) {
+        const auto index = static_cast<std::uint32_t>(leaves_.size());
+        leaves_.push_back(sorted[i]);
+        if (i == 0) {
+            root_ = leaf_flag | index;
+            continue;
+        }
+        const auto crit = *first_difference(sorted[i - 1].key, sorted[i].key);
+        Ref below = leaf_flag | (index - 1);
+        while (!path.empty() && inners_[path.back()].crit > crit) {
+            below = path.back();
+            path.pop_back();
+        }
+        Inner node;
+        node.crit = static_cast<std::uint16_t>(crit);
+        node.any_leaf = index;
+        node.child[0] = below; // the keys before, with a 0 at `crit`
+        node.child[1] = leaf_flag | index;
+        const auto node_index = static_cast<std::uint32_t>(inners_.size());
+        inners_.push_back(node);
+        if (path.empty()) {
+            root_ = node_index;
+        } else {
+            inners_[path.back()].child[1] = node_index;
+        }
+        path.push_back(node_index);
+    }
+    dirty_ = dirty_ || !sorted.empty();
+    return {};
+}
+
 Status StateTree::refresh(std::uint32_t index) {
     for (const Ref child : inners_[index].child) {
         if ((child & leaf_flag) == 0 && inners_[child].dirty) {
@@ -439,9 +501,59 @@ Status StateTree::refresh(std::uint32_t index) {
     return {};
 }
 
-Status StateTree::commit() {
-    if (dirty_ && root_ != none && (root_ & leaf_flag) == 0 && inners_[root_].dirty) {
+Status StateTree::commit(const ForRanges& for_ranges) {
+    if (!dirty_ || root_ == none || (root_ & leaf_flag) != 0 || !inners_[root_].dirty) {
+        dirty_ = false;
+        return {};
+    }
+    if (!for_ranges) {
         if (auto s = refresh(root_); !s) {
+            return s;
+        }
+        dirty_ = false;
+        return {};
+    }
+    // Changed subtrees far enough down are disjoint: they are hashed at
+    // once, then the nodes above them, children before parents (`above` is
+    // in breadth-first order).
+    constexpr std::size_t pieces_wanted = 256;
+    std::vector<std::uint32_t> above;
+    std::vector<std::uint32_t> pieces{root_};
+    for (bool split = true; split && pieces.size() < pieces_wanted;) {
+        split = false;
+        std::vector<std::uint32_t> next;
+        for (const std::uint32_t index : pieces) {
+            const std::size_t before = next.size();
+            for (const Ref child : inners_[index].child) {
+                if ((child & leaf_flag) == 0 && inners_[child].dirty) {
+                    next.push_back(child);
+                }
+            }
+            if (next.size() > before) {
+                above.push_back(index);
+                split = true;
+            } else {
+                next.push_back(index);
+            }
+        }
+        pieces = std::move(next);
+    }
+    std::mutex failure_mutex;
+    std::optional<Error> failure;
+    run_ranges(for_ranges, pieces.size(), [&](std::size_t begin, std::size_t end) {
+        for (std::size_t i = begin; i < end; ++i) {
+            if (auto s = refresh(pieces[i]); !s) {
+                const std::lock_guard lock(failure_mutex);
+                failure = failure.value_or(s.error());
+                return;
+            }
+        }
+    });
+    if (failure) {
+        return std::unexpected(*failure);
+    }
+    for (auto it = above.rbegin(); it != above.rend(); ++it) {
+        if (auto s = refresh(*it); !s) {
             return s;
         }
     }

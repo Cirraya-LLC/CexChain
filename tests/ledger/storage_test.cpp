@@ -35,8 +35,33 @@ Bytes record_bytes(std::uint64_t n, ledger::SeededEntropy& entropy) {
 } // namespace
 
 TEST_CASE("CRC-32C matches the standard check value", "[ledger][storage]") {
-    CHECK(cexchain::ledger::detail::crc32c(as_bytes("123456789")) == 0xe3069283U);
-    CHECK(cexchain::ledger::detail::crc32c({}) == 0U);
+    using cexchain::ledger::detail::crc32c;
+    CHECK(crc32c(as_bytes("123456789")) == 0xe3069283U);
+    CHECK(crc32c({}) == 0U);
+    // RFC 3720, B.4.
+    Bytes zeros(32, 0x00);
+    Bytes ones(32, 0xff);
+    Bytes ascending(32);
+    for (std::size_t i = 0; i < ascending.size(); ++i) {
+        ascending[i] = static_cast<std::uint8_t>(i);
+    }
+    CHECK(crc32c(zeros) == 0x8a9136aaU);
+    CHECK(crc32c(ones) == 0x62a8ab43U);
+    CHECK(crc32c(ascending) == 0x46dd794eU);
+    // Eight bytes at a time, and the rest one by one, as a bit at a time.
+    ledger::SeededEntropy entropy(7);
+    Bytes data(200);
+    entropy.fill(data);
+    for (std::size_t length = 0; length <= data.size(); ++length) {
+        std::uint32_t expected = 0xffffffff;
+        for (std::size_t i = 0; i < length; ++i) {
+            expected ^= data[i];
+            for (int bit = 0; bit < 8; ++bit) {
+                expected = (expected & 1U) != 0 ? (expected >> 1) ^ 0x82f63b78U : expected >> 1;
+            }
+        }
+        CHECK(crc32c(ByteView(data).first(length)) == (expected ^ 0xffffffffU));
+    }
 }
 
 TEST_CASE("seeded entropy is reproducible and bounded", "[ledger][environment]") {

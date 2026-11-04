@@ -133,18 +133,31 @@ struct SnapshotFile {
     SnapshotInfo info;
     crypto::Digest root;
     crypto::Digest state_root;
-    Bytes bytes;
+    /// The file's bytes: a view of its mapping if it lends one (valid while
+    /// the file is open and unchanged), else a copy in `owned`.
+    ByteView bytes;
+    Bytes owned;
     /// The state's bytes, within `bytes`.
     std::size_t state_at = 0;
     std::size_t state_size = 0;
 
-    [[nodiscard]] ByteView state() const { return ByteView(bytes).subspan(state_at, state_size); }
+    [[nodiscard]] ByteView state() const { return bytes.subspan(state_at, state_size); }
     /// The log's leaf hash at `index`, below `info.size`.
     [[nodiscard]] crypto::Digest leaf(std::uint64_t index) const {
-        return *crypto::Digest::from_bytes(ByteView(bytes).subspan(
-            static_cast<std::size_t>(snapshot_header_size + index * 32), 32));
+        return *crypto::Digest::from_bytes(
+            bytes.subspan(static_cast<std::size_t>(snapshot_header_size + index * 32), 32));
     }
 };
+
+/// The log size a snapshot file's header claims, unchecked: to try the
+/// newest first.
+std::uint64_t claimed_snapshot_size(const AppendFile& file) {
+    if (file.size() < snapshot_header_size) {
+        return 0;
+    }
+    auto header = file.read(0, snapshot_header_size);
+    return header ? take_be(*header, 60, 8) : 0;
+}
 
 Result<SnapshotFile> read_snapshot(const crypto::Provider& provider, const AppendFile& file,
                                    const protocol::Id& ledger_id, crypto::HashAlg hash) {
@@ -152,11 +165,18 @@ Result<SnapshotFile> read_snapshot(const crypto::Provider& provider, const Appen
     if (file_size < snapshot_header_size + 8 + 32) {
         return fail(Errc::not_found, "no snapshot");
     }
-    auto bytes = file.read(0, static_cast<std::size_t>(file_size));
-    if (!bytes) {
-        return std::unexpected(bytes.error());
+    SnapshotFile out;
+    if (const auto view = file.view(0, static_cast<std::size_t>(file_size))) {
+        out.bytes = *view;
+    } else {
+        auto copy = file.read(0, static_cast<std::size_t>(file_size));
+        if (!copy) {
+            return std::unexpected(copy.error());
+        }
+        out.owned = std::move(*copy);
+        out.bytes = out.owned;
     }
-    const ByteView all = *bytes;
+    const ByteView all = out.bytes;
     const ByteView body = all.first(all.size() - 32);
     auto seal = snapshot_seal(provider, body);
     if (!seal || !std::ranges::equal(seal->bytes(), all.last(32))) {
@@ -169,7 +189,6 @@ Result<SnapshotFile> read_snapshot(const crypto::Provider& provider, const Appen
         static_cast<std::int32_t>(take_be(all, 56, 4)) != crypto::cose_id(hash)) {
         return fail(Errc::unsupported, "a snapshot of other rules, or of another ledger");
     }
-    SnapshotFile out;
     out.info.size = take_be(all, 60, 8);
     out.info.written_at = take_be(all, 132, 8);
     out.info.bytes = file_size;
@@ -188,8 +207,7 @@ Result<SnapshotFile> read_snapshot(const crypto::Provider& provider, const Appen
     if (out.state_at + out.state_size != body.size()) {
         return fail(Errc::malformed, "a snapshot is malformed");
     }
-    out.bytes = std::move(*bytes);
-    return out;
+    return out; // a copy in `owned` moves with its buffer, so `bytes` stays valid
 }
 
 // A stored cosignature: [cosignature (COSE_Sign1), witness public key].
@@ -463,16 +481,32 @@ struct Ledger::Impl {
         });
         const auto [first, last] = std::ranges::unique(changed);
         changed.erase(first, last);
-        for (const protocol::Id& id : changed) {
-            const auto leaf = protocol::state_leaf(state, id);
-            if (!leaf) {
-                return fail(Errc::malformed, "a changed object is missing from the state");
+        // Their leaves hashed, and then the tree's changed subtrees, on every
+        // core; the tree itself changes on this thread.
+        std::vector<crypto::Digest> hashes(changed.size());
+        std::atomic<bool> missing{false};
+        parallel_for(changed.size(), [&](std::size_t begin, std::size_t end) {
+            for (std::size_t i = begin; i < end; ++i) {
+                const auto leaf = protocol::state_leaf(state, changed[i]);
+                const Result<crypto::Digest> h =
+                    leaf ? protocol::state_leaf_hash(*provider, state.hash(), *leaf)
+                         : fail(Errc::malformed, "a changed object is missing from the state");
+                if (!h) {
+                    missing.store(true, std::memory_order_relaxed);
+                    return;
+                }
+                hashes[i] = *h;
             }
-            if (auto s = state_tree.set(*leaf); !s) {
+        });
+        if (missing.load()) {
+            return fail(Errc::malformed, "a changed object is missing from the state");
+        }
+        for (std::size_t i = 0; i < changed.size(); ++i) {
+            if (auto s = state_tree.set_hashed(changed[i], hashes[i]); !s) {
                 return std::unexpected(s.error());
             }
         }
-        if (auto s = state_tree.commit(); !s) {
+        if (auto s = state_tree.commit(on_pool()); !s) {
             return std::unexpected(s.error());
         }
         return state_tree.root();
@@ -950,16 +984,26 @@ struct Ledger::Impl {
     /// its roots. Returns the size to replay from, or nothing (the log is
     /// replayed from the start).
     std::optional<std::uint64_t> load_snapshot() {
+        // The newest first, by what the headers claim; the other only if it
+        // does not check.
+        std::array<std::size_t, 2> order{0, 1};
+        auto claimed = [&](std::size_t slot) {
+            return snapshot_slots[slot] ? claimed_snapshot_size(*snapshot_slots[slot]) : 0;
+        };
+        if (claimed(1) > claimed(0)) {
+            std::swap(order[0], order[1]);
+        }
         std::optional<SnapshotFile> best;
-        for (std::size_t slot = 0; slot < snapshot_slots.size(); ++slot) {
+        for (const std::size_t slot : order) {
             if (!snapshot_slots[slot]) {
                 continue;
             }
             auto read =
                 read_snapshot(*provider, *snapshot_slots[slot], state.ledger_id(), state.hash());
-            if (read && (!best || read->info.size > best->info.size)) {
+            if (read) {
                 best = std::move(*read);
                 snapshot_slot = slot;
+                break;
             }
         }
         if (!best) {
@@ -1029,17 +1073,23 @@ struct Ledger::Impl {
             decoded->hash() != state.hash() || !decoded->take_changes().empty()) {
             return false;
         }
-        merkle::Tree rebuilt(*provider, state.hash());
-        for (std::uint64_t i = 0; i < size; ++i) {
-            if (!rebuilt.append_leaf_hash(file.leaf(i))) {
-                return false;
+        // The log's tree from the leaf hashes, a level at a time on every core.
+        std::vector<crypto::Digest> leaves(static_cast<std::size_t>(size));
+        parallel_for(leaves.size(), [&](std::size_t begin, std::size_t end) {
+            for (std::size_t i = begin; i < end; ++i) {
+                leaves[i] = file.leaf(i);
             }
+        });
+        merkle::Tree rebuilt(*provider, state.hash());
+        if (!rebuilt.append_leaf_hashes(leaves, on_pool())) {
+            return false;
         }
         auto root = rebuilt.root(size);
         if (!root || *root != file.root) {
             return false;
         }
-        // The state tree, its leaves hashed on every core.
+        // The state tree, its leaves hashed and its subtrees committed on
+        // every core, made at once from the sorted ids.
         auto tree_of_state = protocol::StateTree::create(*provider, state.hash());
         if (!tree_of_state) {
             return false;
@@ -1055,22 +1105,25 @@ struct Ledger::Impl {
         collect(decoded->records());
         collect(decoded->contracts());
         collect(decoded->instances());
-        std::vector<std::optional<crypto::Digest>> hashes(ids.size());
+        std::vector<crypto::Digest> hashes(ids.size());
+        std::atomic<bool> missing{false};
         parallel_for(ids.size(), [&](std::size_t begin, std::size_t end) {
             for (std::size_t i = begin; i < end; ++i) {
-                if (const auto leaf = protocol::state_leaf(*decoded, ids[i])) {
-                    if (auto h = protocol::state_leaf_hash(*provider, state.hash(), *leaf)) {
-                        hashes[i] = *h;
-                    }
+                const auto leaf = protocol::state_leaf(*decoded, ids[i]);
+                const Result<crypto::Digest> h =
+                    leaf ? protocol::state_leaf_hash(*provider, state.hash(), *leaf)
+                         : fail(Errc::malformed, "a snapshot's object has no leaf");
+                if (!h) {
+                    missing.store(true, std::memory_order_relaxed);
+                    return;
                 }
+                hashes[i] = *h;
             }
         });
-        for (std::size_t i = 0; i < ids.size(); ++i) {
-            if (!hashes[i] || !tree_of_state->set_hashed(ids[i], *hashes[i])) {
-                return false;
-            }
+        if (missing.load() || !tree_of_state->assign_hashed(ids, hashes)) {
+            return false;
         }
-        if (!tree_of_state->commit()) {
+        if (!tree_of_state->commit(on_pool())) {
             return false;
         }
         auto state_root = tree_of_state->root();
