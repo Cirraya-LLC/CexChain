@@ -440,6 +440,9 @@ public:
     [[nodiscard]] std::size_t size() const noexcept { return size_; }
     [[nodiscard]] bool contains(std::uint32_t actor, const Nonce& nonce) const noexcept;
     void insert(std::uint32_t actor, const Nonce& nonce);
+    /// Every pair, by signer then nonce: the same for equal sets, however
+    /// their slots fell.
+    [[nodiscard]] std::vector<std::pair<std::uint32_t, Nonce>> sorted() const;
 
 private:
     struct Slot {

@@ -173,6 +173,9 @@ int serve(const Args& args, const ServeDefaults& defaults) {
     } else if (args.has("timestamp-interval")) {
         throw UsageError{"--timestamp-interval needs --tsa"};
     }
+    if (const auto every = args.get("snapshot-interval")) {
+        options.snapshot_interval = parse_number(*every, "--snapshot-interval");
+    }
     options.version = CEXCHAIN_VERSION;
     options.event_log = &std::cerr;
     if (args.has("witness-dir") != args.has("witness-key")) {

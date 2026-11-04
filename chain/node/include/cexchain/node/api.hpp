@@ -79,6 +79,11 @@ struct ApiOptions {
     /// (spec v0.11); in a cluster, only the leader asks. Empty: none.
     std::string timestamp_authority;
     std::chrono::seconds timestamp_interval{3600};
+    /// After a checkpoint, write a snapshot of the state once the log has
+    /// grown this many entries since the last (0: never); opens then start
+    /// from it. A server opened from one checks it against a full replay on
+    /// a thread of its own, and stops serving if they differ.
+    std::uint64_t snapshot_interval = ledger::Ledger::default_snapshot_interval;
     std::string version;
     /// Notable events (automatic checkpoints, failures), one JSON line each.
     std::ostream* event_log = nullptr;

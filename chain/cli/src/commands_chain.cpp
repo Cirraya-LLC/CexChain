@@ -115,7 +115,39 @@ std::vector<CommandSpec> chain_commands() {
          with({ledger_option}),
          cmd_audit,
          "Opening a ledger replays and re-validates every statement under the ledger rules;\n"
-         "audit also re-checks every stored checkpoint against the log."},
+         "audit also re-checks every stored checkpoint against the log. Opened from a\n"
+         "snapshot, it replays the whole log as well, and requires the same state."},
+        {{"ledger", "snapshot", "create"},
+         "Write a snapshot of the state, for opens to start from",
+         "Ledger",
+         "",
+         0,
+         0,
+         with({ledger_option}),
+         cmd_ledger_snapshot_create,
+         "Right after a checkpoint (cexchain checkpoint create), with nothing logged after it.\n"
+         "Opens then take the state from the newest snapshot that checks against the log, and\n"
+         "replay only what follows; a server opened from one replays the whole log in the\n"
+         "background and compares, and cexchain audit does too. A snapshot is a cache, kept\n"
+         "in two files beside the log (snapshot-a, snapshot-b), never sent anywhere. One is\n"
+         "written by itself after a checkpoint once the log has grown 100,000 entries since\n"
+         "the last (serve --snapshot-interval)."},
+        {{"ledger", "snapshot", "show"},
+         "Show the newest snapshot, and whether this open started from it",
+         "Ledger",
+         "",
+         0,
+         0,
+         with({ledger_option}),
+         cmd_ledger_snapshot_show},
+        {{"ledger", "snapshot", "remove"},
+         "Remove the snapshots: opens replay the whole log",
+         "Ledger",
+         "",
+         0,
+         0,
+         with({ledger_option}),
+         cmd_ledger_snapshot_remove},
         {{"log", "list"},
          "List log entries",
          "Ledger",
@@ -881,6 +913,9 @@ std::vector<CommandSpec> chain_commands() {
                 "Ask this time-stamp authority (RFC 3161) to stamp the latest checkpoint at start "
                 "and then every --timestamp-interval"},
                {"timestamp-interval", "SECONDS", "How often to ask (default: 3600)"},
+               {"snapshot-interval", "ENTRIES",
+                "Write a snapshot of the state after a checkpoint once the log grew this much "
+                "(default: 100000; 0: never)"},
                {"tls-cert", "FILE", "TLS certificate chain (PEM); without it, use a TLS proxy"},
                {"tls-key", "FILE", "TLS private key (PEM)"},
                {"read-only", "", "Refuse every write"},

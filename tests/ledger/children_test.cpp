@@ -27,6 +27,7 @@
 #include <cexchain/core/protocol/state.hpp>
 
 #include "support/ledger_world.hpp"
+#include "support/snapshots.hpp"
 #include "support/vectors.hpp"
 
 namespace {
@@ -366,6 +367,8 @@ TEST_CASE("a receivable splits across three ledgers, and a tier-3 part verifies 
         CHECK(after->position == before->position);
         CHECK(after->created_by == before->created_by);
     }
+    // A snapshot keeps every generation.
+    check_snapshot(c.home);
 }
 
 TEST_CASE("the home's evidence for a child is the independent encoder's, byte for byte",

@@ -29,6 +29,7 @@ add_library(cexchain_core
     src/protocol/record.cpp
     src/protocol/record_types.cpp
     src/protocol/state.cpp
+    src/protocol/state_snapshot.cpp
     src/protocol/state_tree.cpp
     src/protocol/statement.cpp
     src/protocol/witness.cpp

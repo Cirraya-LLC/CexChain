@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -67,6 +68,27 @@ struct StoredTimestamp {
     protocol::SignedCheckpoint checkpoint;
 };
 
+/// How to open a ledger.
+struct OpenOptions {
+    /// Start from the newest snapshot of the state that checks against the
+    /// log (see `Ledger::write_snapshot`), replaying only what follows it;
+    /// otherwise, or without one that checks, replay the whole log.
+    bool use_snapshot = true;
+};
+
+/// A snapshot of the state kept beside the log: a local cache, never sent
+/// anywhere (not part of the protocol).
+struct SnapshotInfo {
+    /// The log size it holds the state at; its last entry is a state
+    /// commitment.
+    std::uint64_t size = 0;
+    /// When it was written (the ledger's clock), and its file's size.
+    protocol::Timestamp written_at = 0;
+    std::uint64_t bytes = 0;
+
+    friend bool operator==(const SnapshotInfo&, const SnapshotInfo&) = default;
+};
+
 /// What a refresh picked up.
 struct RefreshReport {
     std::uint64_t entries = 0;
@@ -100,9 +122,40 @@ public:
     [[nodiscard]] static Result<Ledger> create(FileSystem& fs, Clock& clock,
                                                const crypto::Provider& provider, ByteView genesis);
 
-    /// Opens an existing ledger, replaying and re-validating its log.
+    /// Opens an existing ledger, replaying and re-validating its log, or
+    /// only what follows its newest snapshot (OpenOptions).
     [[nodiscard]] static Result<Ledger> open(FileSystem& fs, Clock& clock,
                                              const crypto::Provider& provider);
+    [[nodiscard]] static Result<Ledger> open(FileSystem& fs, Clock& clock,
+                                             const crypto::Provider& provider,
+                                             const OpenOptions& options);
+
+    /// Writes a snapshot of the state, for later opens to start from: the
+    /// state, written whole, the log's leaf hashes, and their roots, in the
+    /// older of two files (`snapshot-a`, `snapshot-b`), so the newer one
+    /// stays whole while it is written. Only right after a checkpoint whose
+    /// state commitment ends the log, so that the state is the committed one.
+    /// For the ledger's writer, under its lock. A snapshot is a cache: one
+    /// that fails its checks is ignored, and the log is replayed instead.
+    [[nodiscard]] Status write_snapshot();
+    /// The newest snapshot on disk that checks, and the one this ledger
+    /// opened from, if any.
+    [[nodiscard]] std::optional<SnapshotInfo> snapshot() const;
+    [[nodiscard]] std::optional<SnapshotInfo> opened_from_snapshot() const;
+    /// Empties both snapshot files: later opens replay the whole log.
+    [[nodiscard]] Status remove_snapshots();
+    /// The integrity check an open from a snapshot skipped: replays the log
+    /// afresh, from files opened in `fs` to read only, up to the snapshot's
+    /// size, and requires the same state and root. Nothing to do for a
+    /// ledger opened without one. Takes as long as an open without it, with
+    /// a second state in memory; safe beside the writer. Once `stop` turns
+    /// true it gives up (Errc::unavailable).
+    [[nodiscard]] Status verify_snapshot(FileSystem& fs,
+                                         const std::atomic<bool>* stop = nullptr) const;
+    /// After each checkpoint, a snapshot is written once the log has grown
+    /// this many entries since the last (0: never).
+    void set_snapshot_interval(std::uint64_t entries) noexcept;
+    static constexpr std::uint64_t default_snapshot_interval = 100'000;
 
     /// Creates a copy of another ledger (a replica, or a restore from a
     /// backup) from its first log entry, kept exactly as the original logged
@@ -373,6 +426,9 @@ public:
 
 private:
     explicit Ledger(std::unique_ptr<Impl> impl) noexcept;
+    /// What checkpoint() and store_checkpoint() do before a snapshot.
+    [[nodiscard]] Result<protocol::SignedCheckpoint> checkpoint_now(LogKeys log_keys);
+    [[nodiscard]] Status store_checkpoint_now(ByteView encoded);
     std::unique_ptr<Impl> impl_;
 };
 

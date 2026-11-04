@@ -148,9 +148,18 @@ int cmd_status(const Args& args) {
 }
 
 int cmd_audit(const Args& args) {
-    // Opening the session replays and re-validates every statement.
+    // Opening the session replays and re-validates every statement, or those
+    // after its snapshot: then the snapshot is checked against a replay of
+    // the whole log.
     Session session(args);
-    const auto report = session.ledger().audit();
+    auto report = session.ledger().audit();
+    if (report && session.ledger().opened_from_snapshot()) {
+        auto files = unwrap(ledger::PosixFileSystem::open_directory(session.directory()),
+                            "opening the ledger");
+        if (auto verified = session.ledger().verify_snapshot(files); !verified) {
+            report = std::unexpected(verified.error());
+        }
+    }
     if (!report) {
         if (args.json()) {
             print_json({{"ok", false}, {"error", report.error().detail}});
@@ -165,6 +174,9 @@ int cmd_audit(const Args& args) {
                     {"checkpoints", report->checkpoints},
                     {"cosignatures", report->cosignatures},
                     {"timestamps", report->timestamps},
+                    {"snapshot_checked", session.ledger().opened_from_snapshot()
+                                             ? Json(session.ledger().opened_from_snapshot()->size)
+                                             : Json(nullptr)},
                     {"actors", report->actors},
                     {"delegations", report->delegations},
                     {"records", report->records},
@@ -173,6 +185,9 @@ int cmd_audit(const Args& args) {
     }
     std::println("audit passed");
     std::println("  {} entries replayed and re-validated under the ledger rules", report->entries);
+    if (const auto from = session.ledger().opened_from_snapshot()) {
+        std::println("  the snapshot at log size {} matches a replay of the whole log", from->size);
+    }
     std::println("  {} checkpoints verified against the log", report->checkpoints);
     std::println("  {} witness cosignatures verified", report->cosignatures);
     if (report->timestamps > 0) {
@@ -456,6 +471,76 @@ int cmd_ledger_rotate_root_key(const Args& args) {
     return report_submitted(args, session, id, {{"root_key", public_key_json(key)}},
                             "rotated the organization's root key: sign as the organization with "
                             "the new key from now on; the old one no longer does");
+}
+
+// ---------------------------------------------------------------------------
+// Snapshots of the state (a local cache: opens start from the newest)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+Json snapshot_json(const std::optional<ledger::SnapshotInfo>& s) {
+    if (!s) {
+        return nullptr;
+    }
+    return {{"size", s->size}, {"written_at", format_time(s->written_at)}, {"bytes", s->bytes}};
+}
+
+void require_local(const Session& session) {
+    if (session.remote()) {
+        throw UsageError{"snapshots belong to the server's directory (serve --snapshot-interval)"};
+    }
+}
+
+} // namespace
+
+int cmd_ledger_snapshot_create(const Args& args) {
+    Session session(args);
+    require_local(session);
+    unwrap(session.ledger().write_snapshot(),
+           "writing a snapshot (right after a checkpoint: cexchain checkpoint create)");
+    const auto written = session.ledger().snapshot();
+    if (args.json()) {
+        print_json(snapshot_json(written));
+    } else {
+        std::println("wrote a snapshot of the state at log size {} ({} bytes); opens start from it",
+                     written->size, written->bytes);
+    }
+    return exit_ok;
+}
+
+int cmd_ledger_snapshot_show(const Args& args) {
+    Session session(args);
+    require_local(session);
+    const auto on_disk = session.ledger().snapshot();
+    const auto used = session.ledger().opened_from_snapshot();
+    if (args.json()) {
+        print_json({{"snapshot", snapshot_json(on_disk)},
+                    {"opened_from", snapshot_json(used)},
+                    {"log_size", session.ledger().size()}});
+        return exit_ok;
+    }
+    if (!on_disk) {
+        std::println("no snapshot: opens replay the whole log ({} entries)",
+                     session.ledger().size());
+        return exit_ok;
+    }
+    std::println("snapshot:   log size {} of {}, written {}, {} bytes", on_disk->size,
+                 session.ledger().size(), format_time(on_disk->written_at), on_disk->bytes);
+    std::println("this open:  {}", used ? "started from it" : "replayed the whole log");
+    return exit_ok;
+}
+
+int cmd_ledger_snapshot_remove(const Args& args) {
+    Session session(args);
+    require_local(session);
+    unwrap(session.ledger().remove_snapshots(), "removing the snapshots");
+    if (args.json()) {
+        print_json({{"removed", true}});
+    } else {
+        std::println("removed the snapshots: opens replay the whole log");
+    }
+    return exit_ok;
 }
 
 } // namespace cexchain::cli

@@ -59,6 +59,18 @@ bool NonceSet::contains(std::uint32_t actor, const Nonce& nonce) const noexcept 
     }
 }
 
+std::vector<std::pair<std::uint32_t, Nonce>> NonceSet::sorted() const {
+    std::vector<std::pair<std::uint32_t, Nonce>> out;
+    out.reserve(size_);
+    for (const Slot& slot : slots_) {
+        if (slot.actor != empty) {
+            out.emplace_back(slot.actor, slot.nonce);
+        }
+    }
+    std::ranges::sort(out);
+    return out;
+}
+
 void NonceSet::insert(std::uint32_t actor, const Nonce& nonce) {
     if (contains(actor, nonce)) {
         return;

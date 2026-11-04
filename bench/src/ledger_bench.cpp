@@ -161,7 +161,8 @@ int ledger_bench(const Options& options) {
 
     const double before_open = private_memory_mb();
     t = Clock::now();
-    auto reopened = must(ledger::Ledger::open(fs, clock, provider), "open");
+    auto reopened =
+        must(ledger::Ledger::open(fs, clock, provider, {.use_snapshot = false}), "open");
     const double open_ms = elapsed_ms(t);
     // What one more ledger costs: the reopened one, with every structure
     // rebuilt from the log (an upper bound: it includes allocator slack).
@@ -172,6 +173,25 @@ int ledger_bench(const Options& options) {
     results.add("open (full replay)", open_ms, "ms");
     results.add("open per entry", open_ms * 1000 / static_cast<double>(reopened.size()),
                 "us/entry");
+
+    // A snapshot of the state, after a last checkpoint, and an open from it:
+    // the state read back, the trees rebuilt, nothing replayed.
+    must(ledger.checkpoint(log), "checkpoint");
+    t = Clock::now();
+    must(ledger.write_snapshot(), "snapshot");
+    results.add("snapshot write", elapsed_ms(t), "ms");
+    results.add("snapshot size",
+                static_cast<double>(ledger.snapshot()->bytes) / static_cast<double>(ledger.size()),
+                "bytes/entry");
+    t = Clock::now();
+    auto from_snapshot = must(ledger::Ledger::open(fs, clock, provider), "open from a snapshot");
+    const double snapshot_open_ms = elapsed_ms(t);
+    if (!from_snapshot.opened_from_snapshot()) {
+        throw std::runtime_error("the open did not start from the snapshot");
+    }
+    results.add("open (from snapshot)", snapshot_open_ms, "ms");
+    results.add("open from snapshot per entry",
+                snapshot_open_ms * 1000 / static_cast<double>(from_snapshot.size()), "us/entry");
 
     {
         // Random reads of log entries, as the API's lookups do.

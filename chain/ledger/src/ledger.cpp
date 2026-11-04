@@ -14,6 +14,7 @@
 #if defined(__GLIBC__)
 #include <pthread.h>
 #endif
+#include <array>
 #include <utility>
 #include <variant>
 
@@ -72,6 +73,124 @@ constexpr std::uint64_t max_page = 1000;
 constexpr std::string_view checkpoints_file = "checkpoints";
 constexpr std::string_view cosignatures_file = "cosignatures";
 constexpr std::string_view timestamps_file = "timestamps";
+/// Two files a snapshot of the state alternates between: the older one is
+/// rewritten, so the newer one stays whole meanwhile.
+constexpr std::array<std::string_view, 2> snapshot_files{"snapshot-a", "snapshot-b"};
+
+// A snapshot file: a header, the log's leaf hashes, the state (as
+// LedgerState::encode writes it), and a seal: the SHA-256 of the SHA-256s of
+// its 4 MiB pieces, computed on every core. Not part of the protocol: it
+// never leaves its machine.
+//   magic (16) | format u32 | rules u32 | ledger id (32) | hash alg i32 |
+//   size u64 | root (32) | state root (32) | written at u64 |
+//   leaves (size x 32) | state length u64 | state | seal (32)
+constexpr std::string_view snapshot_magic("cexchain state\n\0", 16);
+constexpr std::uint32_t snapshot_format = 1;
+constexpr std::size_t snapshot_header_size = 16 + 4 + 4 + 32 + 4 + 8 + 32 + 32 + 8;
+constexpr std::size_t snapshot_seal_piece = std::size_t{4} << 20;
+
+void put_be(Bytes& out, std::uint64_t value, int bytes) {
+    for (int shift = (bytes - 1) * 8; shift >= 0; shift -= 8) {
+        out.push_back(static_cast<std::uint8_t>(value >> static_cast<unsigned>(shift)));
+    }
+}
+
+std::uint64_t take_be(ByteView in, std::size_t at, int bytes) {
+    std::uint64_t value = 0;
+    for (int i = 0; i < bytes; ++i) {
+        value = (value << 8U) | in[at + static_cast<std::size_t>(i)];
+    }
+    return value;
+}
+
+/// The SHA-256 of the SHA-256s of `data`'s 4 MiB pieces: the seal of a
+/// snapshot, and the digest of a state, on every core.
+Result<crypto::Digest> snapshot_seal(const crypto::Provider& provider, ByteView data) {
+    const std::size_t pieces = (data.size() + snapshot_seal_piece - 1) / snapshot_seal_piece;
+    Bytes digests(pieces * 32);
+    std::atomic<bool> failed{false};
+    parallel_for(pieces, [&](std::size_t begin, std::size_t end) {
+        for (std::size_t i = begin; i < end; ++i) {
+            const ByteView piece =
+                data.subspan(i * snapshot_seal_piece,
+                             std::min(snapshot_seal_piece, data.size() - i * snapshot_seal_piece));
+            auto d = provider.digest(crypto::HashAlg::sha256, piece);
+            if (!d) {
+                failed = true;
+                continue;
+            }
+            std::ranges::copy(d->bytes(), digests.begin() + static_cast<std::ptrdiff_t>(i * 32));
+        }
+    });
+    if (failed) {
+        return fail(Errc::crypto_failure, "sealing a snapshot failed");
+    }
+    return provider.digest(crypto::HashAlg::sha256, digests);
+}
+
+/// A snapshot read back, checked on its own (seal, format, rules, ledger).
+struct SnapshotFile {
+    SnapshotInfo info;
+    crypto::Digest root;
+    crypto::Digest state_root;
+    Bytes bytes;
+    /// The state's bytes, within `bytes`.
+    std::size_t state_at = 0;
+    std::size_t state_size = 0;
+
+    [[nodiscard]] ByteView state() const { return ByteView(bytes).subspan(state_at, state_size); }
+    /// The log's leaf hash at `index`, below `info.size`.
+    [[nodiscard]] crypto::Digest leaf(std::uint64_t index) const {
+        return *crypto::Digest::from_bytes(ByteView(bytes).subspan(
+            static_cast<std::size_t>(snapshot_header_size + index * 32), 32));
+    }
+};
+
+Result<SnapshotFile> read_snapshot(const crypto::Provider& provider, const AppendFile& file,
+                                   const protocol::Id& ledger_id, crypto::HashAlg hash) {
+    const std::uint64_t file_size = file.size();
+    if (file_size < snapshot_header_size + 8 + 32) {
+        return fail(Errc::not_found, "no snapshot");
+    }
+    auto bytes = file.read(0, static_cast<std::size_t>(file_size));
+    if (!bytes) {
+        return std::unexpected(bytes.error());
+    }
+    const ByteView all = *bytes;
+    const ByteView body = all.first(all.size() - 32);
+    auto seal = snapshot_seal(provider, body);
+    if (!seal || !std::ranges::equal(seal->bytes(), all.last(32))) {
+        return fail(Errc::verification_failed, "a snapshot is damaged");
+    }
+    if (!std::ranges::equal(all.first(snapshot_magic.size()), as_bytes(snapshot_magic)) ||
+        take_be(all, 16, 4) != snapshot_format ||
+        take_be(all, 20, 4) != protocol::state_rules_version ||
+        !std::ranges::equal(all.subspan(24, 32), ledger_id.bytes()) ||
+        static_cast<std::int32_t>(take_be(all, 56, 4)) != crypto::cose_id(hash)) {
+        return fail(Errc::unsupported, "a snapshot of other rules, or of another ledger");
+    }
+    SnapshotFile out;
+    out.info.size = take_be(all, 60, 8);
+    out.info.written_at = take_be(all, 132, 8);
+    out.info.bytes = file_size;
+    out.root = *crypto::Digest::from_bytes(all.subspan(68, 32));
+    out.state_root = *crypto::Digest::from_bytes(all.subspan(100, 32));
+    if (out.info.size < 2 || out.info.size > (body.size() - snapshot_header_size) / 32) {
+        return fail(Errc::malformed, "a snapshot is malformed");
+    }
+    const std::uint64_t leaves_end = snapshot_header_size + out.info.size * 32;
+    if (leaves_end + 8 > body.size()) {
+        return fail(Errc::malformed, "a snapshot is malformed");
+    }
+    out.state_size =
+        static_cast<std::size_t>(take_be(all, static_cast<std::size_t>(leaves_end), 8));
+    out.state_at = static_cast<std::size_t>(leaves_end + 8);
+    if (out.state_at + out.state_size != body.size()) {
+        return fail(Errc::malformed, "a snapshot is malformed");
+    }
+    out.bytes = std::move(*bytes);
+    return out;
+}
 
 // A stored cosignature: [cosignature (COSE_Sign1), witness public key].
 Result<Bytes> encode_stored_cosignature(ByteView cosignature, const crypto::PublicKey& witness) {
@@ -167,6 +286,16 @@ struct Ledger::Impl {
     };
     mutable std::mutex seal_mutex;
     mutable std::shared_ptr<const Seal> seal;
+    /// The snapshot files (none for a ledger opened only to read), the
+    /// newest that checks and its slot, the one this ledger opened from with
+    /// its state's SHA-256, and when to write the next.
+    std::array<std::unique_ptr<AppendFile>, 2> snapshot_slots;
+    std::optional<SnapshotInfo> snapshot_on_disk;
+    std::size_t snapshot_slot = 0;
+    std::optional<SnapshotInfo> opened_from;
+    Bytes opened_state_digest;
+    std::uint64_t snapshot_interval = Ledger::default_snapshot_interval;
+    std::uint64_t last_snapshot_size = 0;
     /// (witness, checkpoint) of every stored cosignature, built on first
     /// use: adding one need not read them all again. The writer's only.
     std::optional<std::set<Bytes>> cosigned;
@@ -750,6 +879,306 @@ struct Ledger::Impl {
         return checkpoint;
     }
 
+    /// A ledger's files opened, and its state at genesis, before any replay.
+    /// With `to_read`, the logs are opened to read only (a second reader
+    /// beside a writer).
+    static Result<std::unique_ptr<Impl>> start(FileSystem& fs, Clock& clock,
+                                               const crypto::Provider& provider, bool to_read) {
+        if (!fs.exists(statements_file)) {
+            return fail(Errc::not_found, "no ledger exists here");
+        }
+        auto open_log = [&](std::string_view name) {
+            return to_read ? RecordLog::open_to_read(fs, name) : RecordLog::open(fs, name);
+        };
+        auto log = open_log(statements_file);
+        if (!log) {
+            return std::unexpected(log.error());
+        }
+        if (log->count() == 0) {
+            return fail(Errc::malformed, "the ledger log is empty");
+        }
+        // Genesis defines the ledger's identity and hash.
+        auto first_bytes = log->read(0);
+        if (!first_bytes) {
+            return std::unexpected(first_bytes.error());
+        }
+        auto first = protocol::decode_log_entry(*first_bytes);
+        if (!first) {
+            return std::unexpected(first.error());
+        }
+        auto genesis = protocol::parse_statement(provider, first->statement);
+        if (!genesis) {
+            return std::unexpected(genesis.error());
+        }
+        if (genesis->id != first->statement_id) {
+            return fail(Errc::malformed, "log entry 0 has the wrong statement id");
+        }
+        auto state = protocol::LedgerState::from_genesis(provider, *genesis);
+        if (!state) {
+            return std::unexpected(state.error());
+        }
+        merkle::Tree tree(provider, state->hash());
+        if (auto s = tree.append(*first_bytes); !s) {
+            return std::unexpected(s.error());
+        }
+        auto checkpoints = open_log(checkpoints_file);
+        if (!checkpoints) {
+            return std::unexpected(checkpoints.error());
+        }
+        auto cosignatures = open_log(cosignatures_file);
+        if (!cosignatures) {
+            return std::unexpected(cosignatures.error());
+        }
+        auto timestamps = open_log(timestamps_file);
+        if (!timestamps) {
+            return std::unexpected(timestamps.error());
+        }
+        auto state_tree = protocol::StateTree::create(provider, state->hash());
+        if (!state_tree) {
+            return std::unexpected(state_tree.error());
+        }
+        auto impl = std::make_unique<Impl>(
+            clock, provider, std::move(*log), std::move(*checkpoints), std::move(*cosignatures),
+            std::move(*timestamps), std::move(*state), std::move(tree), std::move(*state_tree));
+        impl->last_registered_at = first->registered_at;
+        return impl;
+    }
+
+    /// Takes the state from the newest snapshot that checks against this
+    /// log, before any replay: its first and last leaves are the log's, its
+    /// last entry the state commitment, and the trees rebuilt from it have
+    /// its roots. Returns the size to replay from, or nothing (the log is
+    /// replayed from the start).
+    std::optional<std::uint64_t> load_snapshot() {
+        std::optional<SnapshotFile> best;
+        for (std::size_t slot = 0; slot < snapshot_slots.size(); ++slot) {
+            if (!snapshot_slots[slot]) {
+                continue;
+            }
+            auto read =
+                read_snapshot(*provider, *snapshot_slots[slot], state.ledger_id(), state.hash());
+            if (read && (!best || read->info.size > best->info.size)) {
+                best = std::move(*read);
+                snapshot_slot = slot;
+            }
+        }
+        if (!best) {
+            return std::nullopt;
+        }
+        snapshot_on_disk = best->info;
+        last_snapshot_size = best->info.size;
+        if (!take_snapshot(*best)) {
+            return std::nullopt;
+        }
+        return best->info.size;
+    }
+
+    bool take_snapshot(const SnapshotFile& file) {
+        const std::uint64_t size = file.info.size;
+        if (size > log.count()) {
+            return false;
+        }
+        auto entry_at = [&](std::uint64_t index) -> Result<Bytes> {
+            return log.read(index);
+        };
+        auto leaf_of = [&](std::uint64_t index) -> std::optional<crypto::Digest> {
+            auto bytes = entry_at(index);
+            if (!bytes) {
+                return std::nullopt;
+            }
+            auto leaf = merkle::leaf_hash(*provider, state.hash(), *bytes);
+            return leaf ? std::optional(*leaf) : std::nullopt;
+        };
+        if (leaf_of(0) != file.leaf(0) || leaf_of(size - 1) != file.leaf(size - 1)) {
+            return false;
+        }
+        auto last_bytes = entry_at(size - 1);
+        auto last = last_bytes ? protocol::decode_log_entry(*last_bytes)
+                               : Result<protocol::LogEntry>(std::unexpected(last_bytes.error()));
+        if (!last || !last->is_state_commitment()) {
+            return false;
+        }
+        auto commitment = protocol::parse_state_commitment(*provider, last->state_commitment);
+        if (!commitment || commitment->commitment.tree_size != size - 1 ||
+            commitment->commitment.state_root != file.state_root) {
+            return false;
+        }
+        // The state, its modules loaded again from the deploys in the log.
+        auto decoded =
+            protocol::LedgerState::decode(file.state(), [&](std::uint64_t index) -> Result<Bytes> {
+                auto bytes = entry_at(index);
+                if (!bytes) {
+                    return std::unexpected(bytes.error());
+                }
+                auto entry = protocol::decode_log_entry(*bytes);
+                if (!entry) {
+                    return std::unexpected(entry.error());
+                }
+                auto deploy = protocol::parse_statement(*provider, entry->statement, state.hash());
+                if (!deploy) {
+                    return std::unexpected(deploy.error());
+                }
+                const auto* body =
+                    std::get_if<protocol::ContractDeployBody>(&deploy->statement.body);
+                if (body == nullptr) {
+                    return fail(Errc::malformed, "a snapshot's contract names no deploy");
+                }
+                return body->code;
+            });
+        if (!decoded || decoded->ledger_id() != state.ledger_id() ||
+            decoded->hash() != state.hash() || !decoded->take_changes().empty()) {
+            return false;
+        }
+        merkle::Tree rebuilt(*provider, state.hash());
+        for (std::uint64_t i = 0; i < size; ++i) {
+            if (!rebuilt.append_leaf_hash(file.leaf(i))) {
+                return false;
+            }
+        }
+        auto root = rebuilt.root(size);
+        if (!root || *root != file.root) {
+            return false;
+        }
+        // The state tree, its leaves hashed on every core.
+        auto tree_of_state = protocol::StateTree::create(*provider, state.hash());
+        if (!tree_of_state) {
+            return false;
+        }
+        std::vector<protocol::Id> ids;
+        auto collect = [&](const auto& objects) {
+            for (const auto& [key, object] : objects) {
+                ids.push_back(object.id.id());
+            }
+        };
+        collect(decoded->actors());
+        collect(decoded->delegations());
+        collect(decoded->records());
+        collect(decoded->contracts());
+        collect(decoded->instances());
+        std::vector<std::optional<crypto::Digest>> hashes(ids.size());
+        parallel_for(ids.size(), [&](std::size_t begin, std::size_t end) {
+            for (std::size_t i = begin; i < end; ++i) {
+                if (const auto leaf = protocol::state_leaf(*decoded, ids[i])) {
+                    if (auto h = protocol::state_leaf_hash(*provider, state.hash(), *leaf)) {
+                        hashes[i] = *h;
+                    }
+                }
+            }
+        });
+        for (std::size_t i = 0; i < ids.size(); ++i) {
+            if (!hashes[i] || !tree_of_state->set_hashed(ids[i], *hashes[i])) {
+                return false;
+            }
+        }
+        if (!tree_of_state->commit()) {
+            return false;
+        }
+        auto state_root = tree_of_state->root();
+        if (!state_root || *state_root != file.state_root) {
+            return false;
+        }
+        // What the background check compares a replay with: the state as
+        // loaded.
+        auto state_digest = snapshot_seal(*provider, file.state());
+        if (!state_digest) {
+            return false;
+        }
+        state = std::move(*decoded);
+        tree = std::move(rebuilt);
+        state_tree = std::move(*tree_of_state);
+        tree_commitment = commitment->commitment;
+        tree_commitment_index = size - 1;
+        tree_ahead = false;
+        last_registered_at = last->registered_at;
+        opened_from = file.info;
+        opened_state_digest.assign(state_digest->bytes().begin(), state_digest->bytes().end());
+        return true;
+    }
+
+    /// Writes a snapshot of the state, if it is the committed one: the last
+    /// entry is the state commitment the state tree holds. The writer's.
+    Status write_snapshot() {
+        if (!snapshot_slots[0] || !snapshot_slots[1]) {
+            return fail(Errc::rejected, "this ledger was opened to read only");
+        }
+        Bytes bytes;
+        SnapshotInfo info;
+        {
+            const std::shared_lock state_lock(state_mutex);
+            const std::shared_lock log_lock(log_mutex);
+            const std::uint64_t size = tree.size();
+            if (!tree_commitment || tree_commitment_index + 1 != size || tree_ahead ||
+                log.count() != size) {
+                return fail(Errc::rejected, "a snapshot is taken right after a checkpoint, with "
+                                            "nothing logged after it");
+            }
+            auto encoded = state.encode();
+            if (!encoded) {
+                return std::unexpected(encoded.error());
+            }
+            auto root = tree.root(size);
+            if (!root) {
+                return std::unexpected(root.error());
+            }
+            info.size = size;
+            info.written_at = clock->now();
+            bytes.reserve(snapshot_header_size + static_cast<std::size_t>(size) * 32 + 8 +
+                          encoded->size() + 32);
+            bytes.insert(bytes.end(), snapshot_magic.begin(), snapshot_magic.end());
+            put_be(bytes, snapshot_format, 4);
+            put_be(bytes, protocol::state_rules_version, 4);
+            bytes.insert(bytes.end(), state.ledger_id().bytes().begin(),
+                         state.ledger_id().bytes().end());
+            put_be(bytes, static_cast<std::uint32_t>(crypto::cose_id(state.hash())), 4);
+            put_be(bytes, size, 8);
+            bytes.insert(bytes.end(), root->bytes().begin(), root->bytes().end());
+            bytes.insert(bytes.end(), tree_commitment->state_root.bytes().begin(),
+                         tree_commitment->state_root.bytes().end());
+            put_be(bytes, info.written_at, 8);
+            for (std::uint64_t i = 0; i < size; ++i) {
+                auto leaf = tree.leaf(i);
+                if (!leaf) {
+                    return std::unexpected(leaf.error());
+                }
+                bytes.insert(bytes.end(), leaf->bytes().begin(), leaf->bytes().end());
+            }
+            put_be(bytes, encoded->size(), 8);
+            bytes.insert(bytes.end(), encoded->begin(), encoded->end());
+        }
+        auto sealed = snapshot_seal(*provider, bytes);
+        if (!sealed) {
+            return std::unexpected(sealed.error());
+        }
+        bytes.insert(bytes.end(), sealed->bytes().begin(), sealed->bytes().end());
+        info.bytes = bytes.size();
+        // The older slot (the other one, after a first write).
+        const std::size_t slot = snapshot_on_disk ? 1 - snapshot_slot : 0;
+        AppendFile& file = *snapshot_slots[slot];
+        if (auto s = file.truncate(0); !s) {
+            return s;
+        }
+        if (auto s = file.append(bytes); !s) {
+            return s;
+        }
+        if (auto s = file.sync(); !s) {
+            return s;
+        }
+        snapshot_on_disk = info;
+        snapshot_slot = slot;
+        last_snapshot_size = info.size;
+        return {};
+    }
+
+    /// After a checkpoint: a snapshot, once the log has grown enough since
+    /// the last. A cache: failing to write one fails nothing.
+    void maybe_snapshot() {
+        if (snapshot_interval == 0 || !snapshot_slots[0] ||
+            tree.size() < last_snapshot_size + snapshot_interval) {
+            return;
+        }
+        static_cast<void>(write_snapshot());
+    }
+
     Status require_usable() const {
         if (failed.load()) {
             return fail(Errc::invalid_argument, "a write failed earlier; reopen the ledger");
@@ -819,51 +1248,28 @@ Result<Ledger> Ledger::create(FileSystem& fs, Clock& clock, const crypto::Provid
 }
 
 Result<Ledger> Ledger::open(FileSystem& fs, Clock& clock, const crypto::Provider& provider) {
-    if (!fs.exists(statements_file)) {
-        return fail(Errc::not_found, "no ledger exists here");
-    }
-    auto log = RecordLog::open(fs, statements_file);
-    if (!log) {
-        return std::unexpected(log.error());
-    }
-    if (log->count() == 0) {
-        return fail(Errc::malformed, "the ledger log is empty");
-    }
+    return open(fs, clock, provider, OpenOptions{});
+}
 
-    // Genesis defines the ledger's identity and hash.
-    auto first_bytes = log->read(0);
-    if (!first_bytes) {
-        return std::unexpected(first_bytes.error());
+Result<Ledger> Ledger::open(FileSystem& fs, Clock& clock, const crypto::Provider& provider,
+                            const OpenOptions& options) {
+    auto started = Impl::start(fs, clock, provider, false);
+    if (!started) {
+        return std::unexpected(started.error());
     }
-    auto first = protocol::decode_log_entry(*first_bytes);
-    if (!first) {
-        return std::unexpected(first.error());
-    }
-    auto genesis = protocol::parse_statement(provider, first->statement);
-    if (!genesis) {
-        return std::unexpected(genesis.error());
-    }
-    if (genesis->id != first->statement_id) {
-        return fail(Errc::malformed, "log entry 0 has the wrong statement id");
-    }
-    auto state = protocol::LedgerState::from_genesis(provider, *genesis);
-    if (!state) {
-        return std::unexpected(state.error());
-    }
-
-    merkle::Tree tree(provider, state->hash());
-    if (auto s = tree.append(*first_bytes); !s) {
-        return std::unexpected(s.error());
+    std::unique_ptr<Impl> impl = std::move(*started);
+    for (std::size_t slot = 0; slot < snapshot_files.size(); ++slot) {
+        auto file = fs.open(snapshot_files[slot]);
+        if (!file) {
+            return std::unexpected(file.error());
+        }
+        impl->snapshot_slots[slot] = std::move(*file);
     }
     // The latest signed checkpoint, whose state commitment is checked when
     // the replay reaches its size.
-    auto checkpoints = RecordLog::open(fs, checkpoints_file);
-    if (!checkpoints) {
-        return std::unexpected(checkpoints.error());
-    }
     std::optional<protocol::SignedCheckpoint> latest;
-    if (checkpoints->count() > 0) {
-        auto bytes = checkpoints->read(checkpoints->count() - 1);
+    if (impl->checkpoints.count() > 0) {
+        auto bytes = impl->checkpoints.read(impl->checkpoints.count() - 1);
         if (!bytes) {
             return std::unexpected(bytes.error());
         }
@@ -875,28 +1281,17 @@ Result<Ledger> Ledger::open(FileSystem& fs, Clock& clock, const crypto::Provider
         // key in effect at its size.
         latest = std::move(*checkpoint);
     }
-    auto cosignatures = RecordLog::open(fs, cosignatures_file);
-    if (!cosignatures) {
-        return std::unexpected(cosignatures.error());
-    }
-    auto timestamps = RecordLog::open(fs, timestamps_file);
-    if (!timestamps) {
-        return std::unexpected(timestamps.error());
-    }
-    auto state_tree = protocol::StateTree::create(provider, state->hash());
-    if (!state_tree) {
-        return std::unexpected(state_tree.error());
-    }
-    auto impl = std::make_unique<Impl>(clock, provider, std::move(*log), std::move(*checkpoints),
-                                       std::move(*cosignatures), std::move(*timestamps),
-                                       std::move(*state), std::move(tree), std::move(*state_tree));
-    impl->last_registered_at = first->registered_at;
 
-    // Replay: every later entry must pass validation against the state
-    // before it, at the time it was registered, and every state commitment
-    // must match the state (kept in an incremental tree).
-    // Signatures are checked on all cores; the state moves in log order.
-    if (const auto replayed = impl->replay_log(1, impl->log.count()); replayed.error) {
+    // From the newest snapshot that checks, if asked; then every later entry
+    // must pass validation against the state before it, at the time it was
+    // registered, and every state commitment must match the state (kept in
+    // an incremental tree). Signatures are checked on all cores; the state
+    // moves in log order.
+    std::uint64_t from = 1;
+    if (options.use_snapshot) {
+        from = impl->load_snapshot().value_or(1);
+    }
+    if (const auto replayed = impl->replay_log(from, impl->log.count()); replayed.error) {
         if (replayed.error->code == Errc::verification_failed) {
             return fail(Errc::malformed, replayed.error->detail);
         }
@@ -922,6 +1317,78 @@ Result<Ledger> Ledger::open(FileSystem& fs, Clock& clock, const crypto::Provider
         impl->adopt_checkpoint(std::move(*latest));
     }
     return Ledger(std::move(impl));
+}
+
+Status Ledger::write_snapshot() {
+    impl_->drain(); // pipelined batches first
+    if (auto s = impl_->require_usable(); !s) {
+        return s;
+    }
+    return impl_->write_snapshot();
+}
+
+std::optional<SnapshotInfo> Ledger::snapshot() const {
+    return impl_->snapshot_on_disk;
+}
+
+std::optional<SnapshotInfo> Ledger::opened_from_snapshot() const {
+    return impl_->opened_from;
+}
+
+Status Ledger::remove_snapshots() {
+    impl_->drain();
+    for (auto& file : impl_->snapshot_slots) {
+        if (file) {
+            if (auto s = file->truncate(0); !s) {
+                return s;
+            }
+        }
+    }
+    impl_->snapshot_on_disk.reset();
+    impl_->last_snapshot_size = 0;
+    return {};
+}
+
+void Ledger::set_snapshot_interval(std::uint64_t entries) noexcept {
+    impl_->snapshot_interval = entries;
+}
+
+Status Ledger::verify_snapshot(FileSystem& fs, const std::atomic<bool>* stop) const {
+    if (!impl_->opened_from) {
+        return {};
+    }
+    const std::uint64_t size = impl_->opened_from->size;
+    auto fresh = Impl::start(fs, *impl_->clock, *impl_->provider, true);
+    if (!fresh) {
+        return std::unexpected(fresh.error());
+    }
+    constexpr std::uint64_t chunk = 65'536;
+    for (std::uint64_t begin = 1; begin < size; begin += chunk) {
+        if (stop != nullptr && stop->load()) {
+            return fail(Errc::unavailable, "stopped");
+        }
+        if (const auto replayed = (*fresh)->replay_log(begin, std::min(size, begin + chunk));
+            replayed.error) {
+            return fail(Errc::verification_failed, replayed.error->detail);
+        }
+    }
+    auto fresh_root = (*fresh)->tree.root(size);
+    auto encoded = (*fresh)->state.encode();
+    if (!fresh_root || !encoded) {
+        return fail(Errc::verification_failed, "the log does not replay to the snapshot's size");
+    }
+    auto digest = snapshot_seal(*impl_->provider, *encoded);
+    Result<crypto::Digest> root = std::unexpected(Error{});
+    {
+        const std::shared_lock lock(impl_->log_mutex);
+        root = impl_->tree.root(size);
+    }
+    if (!digest || !root || *fresh_root != *root ||
+        !std::ranges::equal(digest->bytes(), impl_->opened_state_digest)) {
+        return fail(Errc::verification_failed,
+                    "the snapshot disagrees with a replay of the log (remove it, and reopen)");
+    }
+    return {};
 }
 
 Result<Ledger> Ledger::create_replica(FileSystem& fs, Clock& clock,
@@ -1251,6 +1718,14 @@ Status Ledger::append_entries(std::span<const Bytes> entries) {
 }
 
 Status Ledger::store_checkpoint(ByteView encoded) {
+    auto stored = store_checkpoint_now(encoded);
+    if (stored) {
+        impl_->maybe_snapshot();
+    }
+    return stored;
+}
+
+Status Ledger::store_checkpoint_now(ByteView encoded) {
     impl_->drain(); // pipelined batches first
     if (auto s = impl_->require_usable(); !s) {
         return s;
@@ -1851,6 +2326,14 @@ Result<protocol::SignedCheckpoint> Ledger::checkpoint(const crypto::Signer& log_
 }
 
 Result<protocol::SignedCheckpoint> Ledger::checkpoint(LogKeys log_keys) {
+    auto made = checkpoint_now(log_keys);
+    if (made) {
+        impl_->maybe_snapshot();
+    }
+    return made;
+}
+
+Result<protocol::SignedCheckpoint> Ledger::checkpoint_now(LogKeys log_keys) {
     impl_->drain(); // pipelined batches first
     if (auto s = impl_->require_usable(); !s) {
         return std::unexpected(s.error());

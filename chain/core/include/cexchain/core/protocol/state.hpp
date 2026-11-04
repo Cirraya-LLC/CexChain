@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <optional>
 #include <span>
@@ -31,6 +32,11 @@ inline constexpr Timestamp max_clock_skew_ms = 5 * 60 * 1000;
 /// A delegation chain (organization -> ... -> actor) has at most this many
 /// links.
 inline constexpr std::size_t max_delegation_depth = 16;
+
+/// The version of the rules a state is built by: raised whenever validation
+/// or application changes what a log replays to, so that a state written by
+/// earlier rules (a snapshot) is not taken for today's.
+inline constexpr std::uint32_t state_rules_version = 1;
 
 // Ids in state objects are CompactIds: millions of objects.
 struct ActorState {
@@ -184,6 +190,16 @@ public:
                                   const SignedStatement& statement, Timestamp now,
                                   const SignatureCheck* checked = nullptr,
                                   Validation* validation = nullptr) const;
+
+    /// The whole state, written deterministically: equal states give equal
+    /// bytes. For a ledger's own snapshot, never sent anywhere (not part of
+    /// the protocol). Contracts' modules are not written.
+    [[nodiscard]] Result<Bytes> encode() const;
+    /// A state `encode` wrote. `deploy_code(index)` gives the code of the
+    /// deploy statement at a log index: each contract's module is loaded from
+    /// it again.
+    [[nodiscard]] static Result<LedgerState>
+    decode(ByteView bytes, const std::function<Result<Bytes>(std::uint64_t)>& deploy_code);
 
     /// Applies a statement that `validate` accepted at `now`, its
     /// registration time. `index` is its log index. A contract call's run is

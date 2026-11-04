@@ -232,7 +232,7 @@ The `cexchain` tool controls every part of a ledger:
 | Area | Commands |
 |---|---|
 | Keys | `key generate`, `key show`, `key public`, `key passphrase` |
-| Ledger | `init`, `status`, `audit`, `log list`, `log show`, `log export`, `ledger keys`, `ledger genesis`, `ledger rotate-log-key`, `ledger rotate-root-key` |
+| Ledger | `init`, `status`, `audit`, `log list`, `log show`, `log export`, `ledger keys`, `ledger genesis`, `ledger rotate-log-key`, `ledger rotate-root-key`, `ledger snapshot create\|show\|remove` |
 | Actors | `actor add`, `actor list`, `actor show`, `actor revoke`, `actor rotate-key`, `actor set-presence`, `presence enroll` |
 | Delegations | `delegation grant`, `delegation list`, `delegation show`, `delegation revoke` |
 | Records | `record issue`, `record list`, `record show`, `record history`, `record versions`, `record fields`, `record file list\|get\|add\|remove`, `record endorse`, `record transition`, `record revoke`, `record types` |
@@ -483,6 +483,16 @@ cexchain backup create --ledger ./replica --out ledger.cxb --log-key log.key
 cexchain backup verify ledger.cxb
 cexchain backup restore ledger.cxb --ledger ./restored
 ```
+
+**Snapshots.** Opening a ledger replays and re-validates its whole log, which takes minutes for
+millions of entries. After a checkpoint, once the log has grown 100,000 entries since the last
+(`serve --snapshot-interval`), the ledger writes a snapshot of its state beside the log, and later
+opens start from the newest one that checks against the log (its leaves, roots, and state
+commitment), replaying only what follows. The integrity check is not dropped, only moved: a server
+opened from a snapshot replays the whole log on a thread of its own and stops serving if the state
+differs, and `cexchain audit` does the same. A snapshot never leaves its machine; replicas,
+restores, and cluster members validate every entry they take, and make their own (`ledger snapshot
+create|show|remove`).
 
 A replica copies only what the log key signed: each checkpoint is checked first, and the entries
 it covers must lead to its root before any is taken, so a replica trails its primary by the
@@ -809,6 +819,9 @@ What the chain does not do yet, as of this version (the Bo language's own are in
   other organizations' ledgers need their peers, which belong to a ledger directory.
 - **Connectors:** `webhook` and `command` ship with CexChain; a connector for another system is
   a program of its own, on the same protocol ([`spec/connectors.md`](spec/connectors.md)).
+- **Opening from a snapshot** still scans the log's file and rebuilds its two Merkle trees: about
+  six times faster than a full replay (9.4 s against 58 s for a million entries on an 8-core
+  server), not instant. A snapshot takes about 240 bytes of disk an entry, twice (two files).
 - **Time-stamp authorities** are trusted through their certificate chains at the token's time;
   revocation (CRL, OCSP) is not checked. Tokens signed with SM2 verify where OpenSSL verifies
   them. The web console has no screen for them yet: `cexchain-console run --tsa URL` stamps, and the

@@ -100,6 +100,11 @@ StateLeaf instance_leaf(const InstanceState& i) {
 
 } // namespace
 
+Result<crypto::Digest> state_leaf_hash(const crypto::Provider& provider, crypto::HashAlg hash,
+                                       const StateLeaf& leaf) {
+    return leaf_hash(provider, hash, leaf);
+}
+
 Result<Bytes> encode_state_leaf(const StateLeaf& leaf) {
     if (leaf.id.size() != id_size) {
         return fail(Errc::invalid_argument, "state leaf ids are 32 bytes");
@@ -346,9 +351,16 @@ Status StateTree::set(const StateLeaf& leaf) {
     if (!digest) {
         return std::unexpected(digest.error());
     }
+    return set_hashed(leaf.id, *digest);
+}
+
+Status StateTree::set_hashed(const Id& id, const crypto::Digest& digest) {
+    if (digest.size() != std::tuple_size_v<Hash>) {
+        return fail(Errc::invalid_argument, "a state leaf's hash has the wrong size");
+    }
     Hash h{};
-    std::ranges::copy(digest->bytes(), h.begin());
-    const IdKey key = key_of(leaf.id);
+    std::ranges::copy(digest.bytes(), h.begin());
+    const IdKey key = key_of(id);
     dirty_ = true;
     if (root_ == none) {
         leaves_.push_back({key, h});

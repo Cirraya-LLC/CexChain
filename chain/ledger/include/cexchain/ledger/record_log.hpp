@@ -43,6 +43,10 @@ class RecordLog {
 public:
     /// Opens or creates the log `name` in `fs`, recovering from a crash if
     /// needed. Fails with `Errc::malformed` if acknowledged data is damaged.
+    /// Opens the log to read only what is acknowledged, leaving the file as it
+    /// is: what follows may be a live writer's records, not yet synced (open
+    /// would cut them off). For a second reader beside a writer.
+    [[nodiscard]] static Result<RecordLog> open_to_read(FileSystem& fs, std::string_view name);
     [[nodiscard]] static Result<RecordLog> open(FileSystem& fs, std::string_view name,
                                                 RecoveryReport* report = nullptr);
 
@@ -92,6 +96,8 @@ public:
     [[nodiscard]] bool outdated() const;
 
 private:
+    [[nodiscard]] static Result<RecordLog> open_as(FileSystem& fs, std::string_view name,
+                                                   RecoveryReport* report, bool cut_tail);
     RecordLog(std::unique_ptr<AppendFile> log, std::unique_ptr<AppendFile> synced,
               std::vector<std::uint64_t> offsets, std::uint64_t end);
 

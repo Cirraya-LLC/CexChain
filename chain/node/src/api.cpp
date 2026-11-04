@@ -430,6 +430,9 @@ struct LedgerApi::State {
     std::thread stamper_thread;
     bool stamper_stopping = false;
     std::atomic<bool> stamper_stop{false};
+    /// The check of the snapshot the ledger opened from, on its own thread.
+    std::thread snapshot_thread;
+    std::atomic<bool> snapshot_stop{false};
     std::atomic<std::uint64_t> timestamps_kept{0};
     std::atomic<std::uint64_t> timestamp_failures{0};
     /// When the last whole scan ended (the epoch: none yet).
@@ -473,6 +476,39 @@ struct LedgerApi::State {
         if (!options.timestamp_authority.empty() && !replica && !options.read_only) {
             stamper_thread = std::thread([this] { run_stamper(); });
         }
+        if (ledger->opened_from_snapshot()) {
+            snapshot_thread = std::thread([this] { check_snapshot(); });
+        }
+    }
+
+    /// The integrity check opening from a snapshot skipped: a full replay of
+    /// the files, read only, compared with the state taken from it. If they
+    /// differ, nothing the server holds can be trusted: it stops serving
+    /// (503), and the snapshot is removed for the next start.
+    void check_snapshot() {
+        auto files = ledger::PosixFileSystem::open_directory(options.directory);
+        if (!files) {
+            event("snapshot-unchecked", files.error().detail);
+            return;
+        }
+        const std::uint64_t size = ledger->opened_from_snapshot()->size;
+        const auto verified = ledger->verify_snapshot(*files, &snapshot_stop);
+        if (verified) {
+            event("snapshot-verified", std::format("log size {}", size));
+            return;
+        }
+        if (verified.error().code == Errc::unavailable) {
+            return; // stopping
+        }
+        {
+            const std::lock_guard lock(failure_mutex);
+            if (!failed) {
+                failure_text = std::string(verified.error().detail);
+            }
+        }
+        failed.store(true, std::memory_order_release);
+        event("snapshot-failed", verified.error().detail);
+        static_cast<void>(on_writer([this] { static_cast<void>(ledger->remove_snapshots()); }));
     }
 
     /// The stamper's loop: a token over the latest checkpoint at once, then
@@ -557,6 +593,10 @@ struct LedgerApi::State {
         stamper_wake.notify_all();
         if (stamper_thread.joinable()) {
             stamper_thread.join();
+        }
+        snapshot_stop = true;
+        if (snapshot_thread.joinable()) {
+            snapshot_thread.join();
         }
         {
             const std::lock_guard lock(queue_mutex);
@@ -3871,6 +3911,7 @@ Result<std::unique_ptr<LedgerApi>> LedgerApi::open(ApiOptions options,
             return std::unexpected(opened.error());
         }
         state->ledger.emplace(std::move(*opened));
+        state->ledger->set_snapshot_interval(options.snapshot_interval);
     }
     for (const ApiOptions::Extension& extension : options.extensions) {
         if (extension.opened) {

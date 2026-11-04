@@ -58,6 +58,7 @@ add_executable(cexchain_tests
     ledger/state_tree_test.cpp
     ledger/storage_test.cpp
     ledger/verify_test.cpp
+    ledger/snapshot_test.cpp
     ledger/timestamp_test.cpp
     ledger/witness_test.cpp
     node/api_test.cpp
@@ -252,6 +253,9 @@ add_test(NAME files_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/files.sh $<TARGET_FILE:cexchain>)
 add_test(NAME versions_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/versions.sh $<TARGET_FILE:cexchain>)
+# Snapshots of the state: opens start from them, audit and a server check them.
+add_test(NAME snapshots_end_to_end
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/snapshots.sh $<TARGET_FILE:cexchain>)
 # Time-stamp authorities (RFC 3161) over checkpoints, with OpenSSL's responder.
 add_test(NAME timestamps_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/timestamps.sh $<TARGET_FILE:cexchain>)

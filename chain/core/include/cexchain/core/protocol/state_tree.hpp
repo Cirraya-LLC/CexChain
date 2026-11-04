@@ -57,6 +57,11 @@ struct StateLeaf {
 [[nodiscard]] std::optional<StateLeaf> state_leaf(const LedgerState& state, const Id& id);
 
 /// The root over `leaves`, which must be sorted by id with no duplicates.
+/// The hash of a state leaf: HASH(0x00 || state-leaf), the hash of the
+/// subtree that holds it alone.
+[[nodiscard]] Result<crypto::Digest> state_leaf_hash(const crypto::Provider& provider,
+                                                     crypto::HashAlg hash, const StateLeaf& leaf);
+
 [[nodiscard]] Result<crypto::Digest> state_root(const crypto::Provider& provider,
                                                 crypto::HashAlg hash,
                                                 std::span<const StateLeaf> leaves);
@@ -100,6 +105,9 @@ public:
 
     /// Inserts or replaces the leaf of `leaf.id` (staged until `commit`).
     [[nodiscard]] Status set(const StateLeaf& leaf);
+    /// The same, given the leaf's hash (`state_leaf_hash` of it): for many
+    /// leaves hashed ahead, on other threads.
+    [[nodiscard]] Status set_hashed(const Id& id, const crypto::Digest& digest);
     /// Hashes every subtree changed since the last commit.
     [[nodiscard]] Status commit();
 

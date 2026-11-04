@@ -30,6 +30,7 @@
 #include <cexchain/verifier/report.hpp>
 
 #include "support/ledger_world.hpp"
+#include "support/snapshots.hpp"
 #include "support/vectors.hpp"
 
 namespace {
@@ -396,6 +397,8 @@ TEST_CASE("a device and a person answer a service's requests, and its evidence s
     }
     CHECK(reopened->state().instance(service)->open_requests ==
           std::vector<protocol::CompactId>{reclaim});
+    // A snapshot keeps contracts, instances, and requests open and answered.
+    check_snapshot(home);
 }
 
 TEST_CASE("scope key 8 restricts creations too", "[contracts][requests]") {

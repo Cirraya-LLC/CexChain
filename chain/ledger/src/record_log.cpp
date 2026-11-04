@@ -177,7 +177,16 @@ RecordLog::RecordLog(RecordLog&&) noexcept = default;
 RecordLog& RecordLog::operator=(RecordLog&&) noexcept = default;
 RecordLog::~RecordLog() = default;
 
+Result<RecordLog> RecordLog::open_to_read(FileSystem& fs, std::string_view name) {
+    return open_as(fs, name, nullptr, false);
+}
+
 Result<RecordLog> RecordLog::open(FileSystem& fs, std::string_view name, RecoveryReport* report) {
+    return open_as(fs, name, report, true);
+}
+
+Result<RecordLog> RecordLog::open_as(FileSystem& fs, std::string_view name, RecoveryReport* report,
+                                     bool cut_tail) {
     auto log = fs.open(name);
     if (!log) {
         return std::unexpected(log.error());
@@ -212,7 +221,7 @@ Result<RecordLog> RecordLog::open(FileSystem& fs, std::string_view name, Recover
         offset = next;
     }
 
-    const std::uint64_t truncated = (*log)->size() - offset;
+    const std::uint64_t truncated = cut_tail ? (*log)->size() - offset : 0;
     if (truncated > 0) {
         if (auto s = (*log)->truncate(offset); !s) {
             return std::unexpected(s.error());
