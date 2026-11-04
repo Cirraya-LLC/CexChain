@@ -117,6 +117,13 @@ It also checks other inputs:
   where both must agree when the specification decides the outcome. Where it does not, they are
   printed but do not fail.
 
+[`testvectors/evidence-v1.json`](../../testvectors/evidence-v1.json) is a conformance suite that
+every verifier must pass: evidence bundles and contract evidence forged from the specification by
+[`tools/testvectors/evidence_suite.py`](../../tools/testvectors/evidence_suite.py), independently of
+both verifiers, each with the options to verify it with, the verdict the specification decides (a
+failure names the section and step that decide it), and facts its JSON report must show.
+`tests/test_conformance.py` runs this verifier's command line on every case.
+
 The verifier's own unit tests run against `testvectors/`: `tests/test_vectors.py` for records,
 and `tests/test_contracts.py` for the profile (`vm-v1.json`), contracts, parts, requests and
 answers (`protocol-v0.6.json` to `protocol-v0.8.json`: every statement, every refused one, every

@@ -284,6 +284,13 @@ add_test(NAME rotation_end_to_end
 add_test(NAME verifier_python_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/verifiers/python_verifier.sh $<TARGET_FILE:cexchain>)
 set_tests_properties(verifier_python_end_to_end PROPERTIES SKIP_RETURN_CODE 77)
+# The conformance suite (testvectors/evidence-v1.json), made apart from both
+# verifiers, through the command line; the Python verifier runs it too.
+if(Python3_Interpreter_FOUND)
+    add_test(NAME verifier_conformance
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/verifiers/conformance.py
+            $<TARGET_FILE:cexchain> ${PROJECT_SOURCE_DIR}/testvectors/evidence-v1.json)
+endif()
 # The applications' end-to-end tests (generic_words reads every program).
 set_tests_properties(console_end_to_end search_end_to_end generic_words PROPERTIES LABELS apps)
 # The Bo commands exist where the compiler does.

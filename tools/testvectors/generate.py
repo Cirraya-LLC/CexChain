@@ -4044,6 +4044,8 @@ def main() -> None:
     generate_protocol_v10()
     generate_protocol_v11(args.openssl)
     generate_vm_v1()
+    import evidence_suite
+    evidence_suite.generate(args.openssl)
 
 
 if __name__ == "__main__":
