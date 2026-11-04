@@ -478,6 +478,54 @@ TEST_CASE("a node far behind gets the ledger itself as a snapshot", "[node][clus
     CHECK(eventually([&] { return trio.agree(); }));
 }
 
+TEST_CASE("a node that catches up by snapshot drops the pending calls the leader no longer holds",
+          "[node][cluster]") {
+    // Every member holds a pending call; one stops, the call is withdrawn,
+    // and the log moves on so far that the member catches up by snapshot,
+    // which no longer carries the call: the member must not keep it (as a
+    // leader, its registrar would hold the call again).
+    node::ClusterTuning tuning;
+    tuning.snapshot_distance = 3;
+    tuning.reserved_log_items = 1;
+    Trio trio(3, tuning);
+    trio.write(2, t0 + 1000);
+    World party{crypto::HashAlg::sha256, "Party"};
+    const auto [call, pending] = trio.contract_call(party, t0 + 6000);
+    for (auto& n : trio.nodes) {
+        REQUIRE(eventually([&] {
+            return std::filesystem::exists(node::pending_calls_directory(n->dir) / pending);
+        }));
+    }
+    Node* away = nullptr;
+    REQUIRE(eventually([&] {
+        Node* leader = trio.leader();
+        for (auto& n : trio.nodes) {
+            if (leader != nullptr && n.get() != leader) {
+                away = n.get();
+                return true;
+            }
+        }
+        return false;
+    }));
+    away->stop();
+    const node::PendingChange removal{pending, std::nullopt};
+    REQUIRE(eventually([&] {
+        Node* now = trio.leader();
+        return now != nullptr && now->cluster->change_pending(std::span(&removal, 1)).has_value();
+    }));
+    for (int i = 0; i < 6; ++i) {
+        trio.write(2, t0 + 20000 + 1000 * static_cast<protocol::Timestamp>(i));
+    }
+    CHECK(std::filesystem::exists(node::pending_calls_directory(away->dir) / pending));
+    away->start();
+    CHECK(eventually([&] {
+        return trio.leader() != nullptr && away->ledger->size() == trio.leader()->ledger->size();
+    }));
+    CHECK(eventually([&] {
+        return !std::filesystem::exists(node::pending_calls_directory(away->dir) / pending);
+    }));
+}
+
 TEST_CASE("a node without the cluster's secret gets nothing", "[node][cluster][security]") {
     const Bytes right(node::cluster_secret_size, 0x5c);
     Trio trio(1, {}, {right, right, Bytes(node::cluster_secret_size, 0x77)});

@@ -20,6 +20,7 @@
 #include <map>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -522,6 +523,15 @@ public:
 
     ptr<buffer> commit(const ulong log_idx, buffer& data) override {
         const std::lock_guard guard(apply_mutex);
+        // An entry at or below what is applied was applied, or a snapshot
+        // installed meanwhile covers it: applying it again would bring back
+        // what came after it (a pending call withdrawn since, say).
+        if (log_idx <= applied_.load()) {
+            ptr<buffer> out = buffer::alloc(sizeof(ulong));
+            out->put(log_idx);
+            out->pos(0);
+            return out;
+        }
         if (data.size() > 0) {
             apply(log_idx, data);
         }
@@ -658,6 +668,7 @@ public:
             }
             install_size_ = *(*items)[1].as_uint64();
             install_chunks_ = *(*items)[2].as_uint64();
+            install_pending_.clear();
             // Ask only for what this ledger lacks.
             obj_id = ledger_->size() >= install_size_ ? install_chunks_ + 1
                                                       : 1 + ledger_->size() / snapshot_entries;
@@ -693,6 +704,7 @@ public:
                     if (const std::string* name = (*parts)[0].as_text()) {
                         const PendingChange change{*name, bytes};
                         static_cast<void>(keep_pending(std::span(&change, 1)));
+                        install_pending_.insert(*name);
                     }
                     continue;
                 }
@@ -718,6 +730,22 @@ public:
         if (ledger_->size() < install_size_) {
             return false;
         }
+        // The leader's pending calls are exactly the snapshot's: one this
+        // node holds that the snapshot does not was recorded or withdrawn
+        // while this node lagged (its removal is behind the snapshot).
+        std::vector<PendingChange> stale;
+        std::error_code ec;
+        for (const auto& file :
+             std::filesystem::directory_iterator(pending_calls_directory(directory_), ec)) {
+            const std::string name = file.path().filename().string();
+            if (parse_pending_call_name(name) && !install_pending_.contains(name)) {
+                stale.push_back(PendingChange{name, std::nullopt});
+            }
+        }
+        if (!stale.empty()) {
+            static_cast<void>(keep_pending(stale));
+        }
+        install_pending_.clear();
         {
             const std::lock_guard lock(snapshot_mutex_);
             ptr<buffer> b = s.serialize();
@@ -1038,6 +1066,8 @@ private:
     // A snapshot being installed here.
     std::uint64_t install_size_ = 0;
     std::uint64_t install_chunks_ = 0;
+    /// The pending calls the snapshot being installed carries, by name.
+    std::set<std::string> install_pending_;
 };
 
 } // namespace cexchain::node::cluster_detail
