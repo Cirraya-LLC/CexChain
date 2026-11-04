@@ -242,7 +242,9 @@ Result<PresenceCheck> verify_presence(const crypto::Provider& provider, crypto::
         if (auto s = provider.verify(credential->key, challenge, proof.signature); !s) {
             return fail(Errc::verification_failed, "the hardware key's signature does not verify");
         }
-        return PresenceCheck{false, {}, {}, credential->label, PresenceMethod::hardware_key};
+        // It counts as user-verified: the token signs only once its PIN is
+        // entered (spec section 7).
+        return PresenceCheck{true, {}, {}, credential->label, PresenceMethod::hardware_key};
     }
     CEXCHAIN_TRY(Bytes challenge, presence_challenge(provider, ledger_hash, statement, kid));
     return verify_webauthn(provider, *credential, proof, challenge);

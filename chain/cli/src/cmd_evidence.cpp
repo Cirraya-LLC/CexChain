@@ -554,7 +554,9 @@ int cmd_verify(const Args& args) {
     if (args.json()) {
         Json out = report_json(*report, options.expected_ledger.has_value());
         out["verified"] = verified;
-        if (too_few_witnesses) {
+        if (mismatch) {
+            out["error"] = "an attachment does not match its commitment";
+        } else if (too_few_witnesses) {
             out["error"] = std::format("{} trusted witness cosignatures, {} required",
                                        report->trusted_cosignatures, min_witnesses);
         } else if (too_few_timestamps) {

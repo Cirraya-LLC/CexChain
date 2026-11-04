@@ -534,7 +534,7 @@ TEST_CASE("a hardware key proves presence", "[presence][hardware]") {
                                                  f.w.ledger().state().actor(f.alice)->presence);
     REQUIRE(check);
     CHECK(check->method == protocol::PresenceMethod::hardware_key);
-    CHECK_FALSE(check->user_verified);
+    CHECK(check->user_verified); // its token signs only after its PIN
     CHECK(check->rp_id.empty());
     CHECK(check->label == "bank UKey");
     f.w.ok(f.alice_key, s);

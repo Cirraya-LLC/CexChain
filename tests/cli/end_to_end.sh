@@ -280,6 +280,8 @@ contains 'is a private key' out.txt
 # A tampered attachment, a wrong ledger, and a corrupted bundle are caught.
 printf 'forged' > forged.pdf
 expect_exit 3 verify bundle.cbor --attachment report.pdf=forged.pdf
+expect_exit 3 verify bundle.cbor --attachment report.pdf=forged.pdf --json
+[ "$(json 'd["error"]' < out.txt)" = "an attachment does not match its commitment" ] || fail "the JSON says why"
 expect_exit 3 verify bundle.cbor --ledger-id "$ALICE"
 cp bundle.cbor corrupted.cbor
 python3 -c 'import sys; p="corrupted.cbor"; d=bytearray(open(p,"rb").read()); d[300]^=1; open(p,"wb").write(d)'

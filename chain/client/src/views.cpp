@@ -11,8 +11,11 @@ namespace cexchain::client {
 
 namespace {
 
+// A hardware key's proof carries no WebAuthn data, and counts as
+// user-verified: its token signs only once its PIN is entered.
 bool presence_user_verified(const protocol::PresenceProof& proof) {
-    return proof.authenticator_data.size() > 32 && (proof.authenticator_data[32] & 0x04U) != 0;
+    return proof.authenticator_data.empty() ||
+           (proof.authenticator_data.size() > 32 && (proof.authenticator_data[32] & 0x04U) != 0);
 }
 
 template <class... Fs>

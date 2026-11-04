@@ -474,7 +474,7 @@ Status LedgerState::validate(const crypto::Provider& provider,
         const bool own =
             !statement.delegation_id && ((rotate != nullptr && rotate->actor == signer->id) ||
                                          (set != nullptr && set->actor == signer->id));
-        if (own && !check->user_verified && check->method != PresenceMethod::hardware_key) {
+        if (own && !check->user_verified) {
             return fail(Errc::rejected, "changing your own key or passkeys needs a passkey that "
                                         "verifies you (PIN or biometric), not only a touch");
         }
