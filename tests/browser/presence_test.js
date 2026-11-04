@@ -162,7 +162,7 @@ function withPasskey(page, ...args) {
                                   "--json"));
     assert.equal(native.verified, true);
     assert.equal(native.calls[1].consents[0].signer.name, "Alice Inspector");
-    assert.equal(native.calls[1].consents[0].presence, "a person, present: passkey");
+    assert.equal(native.calls[1].consents[0].presence, "a person, present: passkey, user verified");
 
     await viewer.fill("#ledger", homeId);
     await viewer.setInputFiles("#bundle-file", path.join(work, "contract.cbor"));
@@ -173,7 +173,7 @@ function withPasskey(page, ...args) {
     delete shown.text;
     assert.deepEqual(shown, native);
     assert.equal(await viewer.locator(".chip.present").count(), 1);
-    assert.match(await viewer.textContent("#events"), /given by "Alice Inspector" \(a person, present: passkey\)/);
+    assert.match(await viewer.textContent("#events"), /given by "Alice Inspector" \(a person, present: passkey, user verified\)/);
     console.log("passkey presence (browser): ok");
   } finally {
     await browser.close();

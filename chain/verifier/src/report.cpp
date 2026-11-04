@@ -453,7 +453,8 @@ std::string presence_text(const protocol::RecordEvent& e) {
     }
     return e.presence->method == protocol::PresenceMethod::hardware_key
                ? "a person, present: hardware key"
-               : "a person, present: passkey";
+               : (e.presence->user_verified ? "a person, present: passkey, user verified"
+                                            : "a person, present: passkey");
 }
 
 } // namespace
