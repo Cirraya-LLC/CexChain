@@ -20,6 +20,14 @@ cexchain_add_fuzzer(merkle_verify_fuzz cexchain::crypto_openssl)
 # Time-stamp authorities' tokens, answers, and certificate files (RFC 3161).
 cexchain_add_fuzzer(timestamp_fuzz cexchain::crypto_openssl)
 cexchain_add_fuzzer(protocol_parse_fuzz cexchain::crypto_openssl cexchain::ledger)
+# The state in a snapshot file, its contracts' code the v0.6 vectors' contract.
+cexchain_add_fuzzer(state_snapshot_fuzz)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    ${PROJECT_SOURCE_DIR}/testvectors/protocol-v0.6.json)
+file(READ ${PROJECT_SOURCE_DIR}/testvectors/protocol-v0.6.json protocol_v06_json)
+string(JSON fuzz_test_contract GET "${protocol_v06_json}" contract)
+target_compile_definitions(state_snapshot_fuzz PRIVATE
+    CEXCHAIN_FUZZ_TEST_CONTRACT="${fuzz_test_contract}")
 cexchain_add_fuzzer(access_parse_fuzz)
 cexchain_add_fuzzer(webauthn_registration_fuzz cexchain::crypto_openssl)
 cexchain_add_fuzzer(vm_fuzz cexchain::crypto_openssl)

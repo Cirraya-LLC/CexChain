@@ -855,6 +855,12 @@ void contract_seeds(const Seeds& seeds) {
     must(protocol::verify_contract_evidence(home.provider, evidence),
          "the seed evidence must verify");
     seeds.write("contract_parse_fuzz", "evidence", evidence);
+    // The home's state as a snapshot holds it: actors, records, a contract
+    // (the same code as the fuzzer's), and an instance with its calls.
+    seeds.write("state_snapshot_fuzz", "contract-home",
+                must(home.ledger->state().encode(), "state"));
+    seeds.write("state_snapshot_fuzz", "supplier",
+                must(supplier.ledger->state().encode(), "state"));
 
     // Diagnostic notation, as the command line takes contract arguments; and
     // CBOR, whose rendering must parse back.
