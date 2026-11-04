@@ -104,6 +104,19 @@ EMSCRIPTEN_KEEPALIVE int cexchain_add_witness(const std::uint8_t* data, std::siz
     return 0;
 }
 
+/// Trusts the time-stamp authorities under these root certificates (a PEM
+/// file of one or more, or one DER certificate; spec v0.11). Returns 0, or -1
+/// if there is none or one does not parse.
+EMSCRIPTEN_KEEPALIVE int cexchain_add_timestamp_root(const std::uint8_t* data, std::size_t size) {
+    auto roots = crypto::openssl::read_certificates(ByteView(data, size));
+    if (!roots) {
+        return -1;
+    }
+    options.trusted_timestamp_roots.insert(options.trusted_timestamp_roots.end(), roots->begin(),
+                                           roots->end());
+    return 0;
+}
+
 EMSCRIPTEN_KEEPALIVE void cexchain_add_attachment(const char* name, const std::uint8_t* data,
                                                   std::size_t size) {
     options.attachment_contents[name] = Bytes(data, data + size);

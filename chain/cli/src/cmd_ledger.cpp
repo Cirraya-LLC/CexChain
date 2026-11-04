@@ -164,6 +164,7 @@ int cmd_audit(const Args& args) {
                     {"entries", report->entries},
                     {"checkpoints", report->checkpoints},
                     {"cosignatures", report->cosignatures},
+                    {"timestamps", report->timestamps},
                     {"actors", report->actors},
                     {"delegations", report->delegations},
                     {"records", report->records},
@@ -174,6 +175,10 @@ int cmd_audit(const Args& args) {
     std::println("  {} entries replayed and re-validated under the ledger rules", report->entries);
     std::println("  {} checkpoints verified against the log", report->checkpoints);
     std::println("  {} witness cosignatures verified", report->cosignatures);
+    if (report->timestamps > 0) {
+        std::println("  {} time-stamp tokens verified against their checkpoints",
+                     report->timestamps);
+    }
     std::println("  {} actors, {} delegations, {} records", report->actors, report->delegations,
                  report->records);
     if (report->unchecked_entries > 0) {

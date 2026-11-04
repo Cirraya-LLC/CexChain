@@ -143,6 +143,30 @@ protected:
     Signer& operator=(Signer&&) = default;
 };
 
+/// An RFC 3161 time-stamp token, as a backend read and checked it.
+struct TimestampToken {
+    /// The authority's time (its genTime), as Unix time in milliseconds, and
+    /// the accuracy it states, in milliseconds (0 when it states none).
+    std::uint64_t time = 0;
+    std::uint64_t accuracy = 0;
+    /// The hash its message imprint names (nullopt for one not listed in
+    /// `HashAlg`), and the imprint.
+    std::optional<HashAlg> imprint_alg;
+    Bytes imprint;
+    /// Its signing certificate's subject (RFC 4514), and the SHA-256 of that
+    /// certificate's SubjectPublicKeyInfo: one authority, however many
+    /// certificates it holds for one key.
+    std::string authority;
+    Bytes authority_key;
+    /// The signing certificate chains to one of the trusted roots.
+    bool trusted = false;
+
+    friend bool operator==(const TimestampToken&, const TimestampToken&) = default;
+};
+
+/// Tokens larger than this are refused unread.
+inline constexpr std::size_t max_timestamp_token_size = 64 * 1024;
+
 /// Hashing and signature verification. Implementations must be safe to call
 /// concurrently from multiple threads.
 class Provider {
@@ -167,6 +191,21 @@ public:
     /// canonical form.
     [[nodiscard]] Status verify(const PublicKey& key, ByteView message, ByteView signature) const;
 
+    /// Reads an RFC 3161 TimeStampToken (DER, CMS SignedData) and checks it
+    /// as RFC 3161 and RFC 5816 require: its signature with the signing
+    /// certificate it carries, which its signing-certificate attribute names,
+    /// valid at the token's time and for time stamping (id-kp-timeStamping).
+    /// The token is trusted if that certificate also chains to one of
+    /// `trusted_roots` (DER certificates), at the token's time.
+    ///
+    /// Returns `Errc::malformed` for a token it cannot read (one without its
+    /// signing certificate among them), `Errc::verification_failed` if the
+    /// token does not verify with it, `Errc::limit_exceeded` for a token
+    /// larger than `max_timestamp_token_size`, and `Errc::unsupported` from
+    /// a backend without RFC 3161.
+    [[nodiscard]] Result<TimestampToken> read_timestamp(ByteView token,
+                                                        std::span<const Bytes> trusted_roots) const;
+
 protected:
     Provider() = default;
     Provider(const Provider&) = default;
@@ -183,6 +222,11 @@ private:
     /// sizes (and, for EC keys, point format prefix) have been checked.
     [[nodiscard]] virtual Status do_verify(const PublicKey& key, ByteView message,
                                            ByteView signature) const = 0;
+
+    /// Called with a token of at most `max_timestamp_token_size` bytes. By
+    /// default, `Errc::unsupported`.
+    [[nodiscard]] virtual Result<TimestampToken>
+    do_read_timestamp(ByteView token, std::span<const Bytes> trusted_roots) const;
 };
 
 } // namespace cexchain::crypto

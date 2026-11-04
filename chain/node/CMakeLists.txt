@@ -21,6 +21,7 @@ add_library(cexchain_node
     src/replica.cpp
     src/request_query.cpp
     src/server.cpp
+    src/timestamps.cpp
     src/responses.cpp
     src/tokens.cpp)
 add_library(cexchain::node ALIAS cexchain_node)

@@ -15,6 +15,7 @@
 //   make_seeds DIR    writes DIR/<target>/<name> for each target
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <filesystem>
 #include <format>
@@ -24,6 +25,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -49,6 +51,8 @@
 #include <cexchain/ledger/backup.hpp>
 #include <cexchain/ledger/ledger.hpp>
 
+#include "support/timestamp_authority.hpp"
+
 namespace {
 
 using namespace cexchain;
@@ -58,7 +62,9 @@ T must(Result<T> result, const char* what) {
     if (!result) {
         throw std::runtime_error(std::string(what) + ": " + std::string(result.error().detail));
     }
-    return std::move(*result);
+    if constexpr (!std::is_void_v<T>) {
+        return std::move(*result);
+    }
 }
 
 class Seeds {
@@ -173,6 +179,14 @@ void ledger_seeds(const Seeds& seeds) {
         seeds.write("protocol_parse_fuzz", "entry-" + std::to_string(i),
                     must(ledger.entry(i), "entry"));
     }
+
+    // A time-stamp authority's token over the checkpoint (v0.11): the
+    // evidence below carries it as an anchor.
+    const test::TimestampAuthority authority;
+    const auto stamped = must(provider.digest(hash, *latest.envelope.payload), "digest");
+    must(ledger.add_timestamp(authority.token(hash, stamped.bytes(), clock.now()),
+                              latest.checkpoint.tree_size),
+         "timestamp");
 
     // Evidence: plain, with a disclosure and an opening, and of the access
     // records (what check_access_* take).
@@ -1198,6 +1212,27 @@ void bo_seeds(const Seeds& seeds) {
 #endif
 }
 
+/// What a time-stamp authority answers, and the certificates a verifier
+/// trusts (timestamp_fuzz: the first byte chooses the reader).
+void timestamp_seeds(const Seeds& seeds) {
+    const test::TimestampAuthority authority;
+    const std::array<std::uint8_t, 32> imprint{};
+    const std::uint64_t at = 1'791'244'800'000;
+    auto choosing = [](std::uint8_t reader, ByteView bytes) {
+        Bytes out{reader};
+        out.insert(out.end(), bytes.begin(), bytes.end());
+        return out;
+    };
+    const Bytes request =
+        must(crypto::openssl::timestamp_request(crypto::HashAlg::sha256, imprint, 1), "request");
+    seeds.write("timestamp_fuzz", "token",
+                ByteView(choosing(0, authority.token(crypto::HashAlg::sha256, imprint, at))));
+    seeds.write("timestamp_fuzz", "response",
+                ByteView(choosing(1, authority.respond(request, at))));
+    seeds.write("timestamp_fuzz", "certificate",
+                ByteView(choosing(2, as_bytes(authority.root_pem()))));
+}
+
 int main(int argc, char** argv) {
     if (argc != 2) {
         std::println(stderr, "usage: make_seeds DIR");
@@ -1206,6 +1241,7 @@ int main(int argc, char** argv) {
     try {
         const Seeds seeds(argv[1]);
         ledger_seeds(seeds);
+        timestamp_seeds(seeds);
         webauthn_seed(seeds);
         cluster_seeds(seeds);
         pending_call_seeds(seeds);

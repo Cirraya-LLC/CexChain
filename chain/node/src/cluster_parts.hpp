@@ -63,6 +63,7 @@ constexpr std::uint64_t snapshot_pending_call = 4;
 constexpr std::uint64_t entry_checkpoint = 2;  // [2, commitment entry / null, checkpoint]
 constexpr std::uint64_t entry_cosignature = 3; // [3, cosignature, witness public key]
 constexpr std::uint64_t entry_pending = 4;     // [4, [* [name, file / null]]]
+constexpr std::uint64_t entry_timestamp = 5;   // [5, time-stamp token, checkpoint size]
 
 /// Entries and vault files per snapshot object.
 constexpr std::uint64_t snapshot_entries = 1000;
@@ -827,7 +828,8 @@ private:
     Result<Bytes> extras(std::uint64_t size) const {
         auto checkpoints = ledger_->checkpoints();
         auto cosignatures = ledger_->cosignatures();
-        if (!checkpoints || !cosignatures) {
+        auto timestamps = ledger_->timestamps();
+        if (!checkpoints || !cosignatures || !timestamps) {
             return fail(Errc::unavailable, "cannot read checkpoints");
         }
         cbor::Array kept;
@@ -843,12 +845,25 @@ private:
                     {cbor::Value::bytes(c.encoded), protocol::encode_public_key(c.witness)}));
             }
         }
-        return cbor::encode(cbor::Value::array(
-            {cbor::Value::array(std::move(kept)), cbor::Value::array(std::move(cosigned))}));
+        // Time-stamp tokens (v0.11), as [token, checkpoint size].
+        cbor::Array stamped;
+        for (const auto& t : *timestamps) {
+            if (t.checkpoint.checkpoint.tree_size <= size) {
+                stamped.push_back(cbor::Value::array(
+                    {cbor::Value::bytes(t.token),
+                     cbor::Value::unsigned_integer(t.checkpoint.checkpoint.tree_size)}));
+            }
+        }
+        return cbor::encode(cbor::Value::array({cbor::Value::array(std::move(kept)),
+                                                cbor::Value::array(std::move(cosigned)),
+                                                cbor::Value::array(std::move(stamped))}));
     }
 
     void apply_extras(const cbor::Array& items) {
-        if (items.size() != 2 || items[0].as_array() == nullptr || items[1].as_array() == nullptr) {
+        // Members from before time-stamp tokens send two lists.
+        if (items.size() < 2 || items.size() > 3 || items[0].as_array() == nullptr ||
+            items[1].as_array() == nullptr ||
+            (items.size() == 3 && items[2].as_array() == nullptr)) {
             failed("a snapshot object is malformed");
             return;
         }
@@ -862,6 +877,16 @@ private:
             if (parts != nullptr && parts->size() == 2 && (*parts)[0].as_bytes() != nullptr) {
                 if (auto key = protocol::decode_public_key((*parts)[1])) {
                     static_cast<void>(ledger_->add_cosignature(*(*parts)[0].as_bytes(), *key));
+                }
+            }
+        }
+        if (items.size() == 3) {
+            for (const cbor::Value& t : *items[2].as_array()) {
+                const cbor::Array* parts = t.as_array();
+                if (parts != nullptr && parts->size() == 2 && (*parts)[0].as_bytes() != nullptr &&
+                    (*parts)[1].as_uint64()) {
+                    static_cast<void>(
+                        ledger_->add_timestamp(*(*parts)[0].as_bytes(), *(*parts)[1].as_uint64()));
                 }
             }
         }
@@ -907,6 +932,9 @@ private:
             auto key = protocol::decode_public_key((*items)[2]);
             outcome = key ? ledger_->add_cosignature(*(*items)[1].as_bytes(), *key)
                           : Status(std::unexpected(key.error()));
+        } else if (type == entry_timestamp && items->size() == 3 &&
+                   (*items)[1].as_bytes() != nullptr && (*items)[2].as_uint64()) {
+            outcome = ledger_->add_timestamp(*(*items)[1].as_bytes(), *(*items)[2].as_uint64());
         } else if (type == entry_pending && items->size() == 2) {
             auto changes = decode_pending_changes((*items)[1]);
             outcome = changes ? keep_pending(*changes) : Status(std::unexpected(changes.error()));

@@ -122,6 +122,12 @@ details.license-text pre { font: 11px var(--mono); white-space: pre-wrap; overfl
         <input type="file" id="witness-files" multiple hidden>
         <div class="files" id="witness-names"></div>
       </div>
+      <div>
+        <label>Trusted time-stamp authorities <span class="hint">(optional: their root certificates)</span></label>
+        <button class="link" id="add-timestamp-roots">Choose certificate files&hellip;</button>
+        <input type="file" id="timestamp-root-files" multiple hidden>
+        <div class="files" id="timestamp-root-names"></div>
+      </div>
     </div>
   </section>
 
@@ -391,7 +397,7 @@ SOFTWARE.</pre>
 "use strict";
 (function () {
   const $ = (id) => document.getElementById(id);
-  const state = { verifier: null, bundle: null, attachments: {}, witnesses: [], expectedRecord: null };
+  const state = { verifier: null, bundle: null, attachments: {}, witnesses: [], timestampRoots: [], expectedRecord: null };
 
   function el(tag, text, className) {
     const node = document.createElement(tag);
@@ -534,6 +540,12 @@ SOFTWARE.</pre>
     fact("Home ledger ID", report.home.id, true);
     fact("Checkpoint", "log size " + report.checkpoint.tree_size + ", signed " + when(report.checkpoint.timestamp));
     fact("Witnesses", report.witnesses.trusted + " trusted, " + report.witnesses.untrusted + " other");
+    const stamps = report.timestamps;
+    if (stamps && stamps.tokens.length) {
+      fact("Time-stamps", stamps.trusted_authorities + " trusted authorit" + (stamps.trusted_authorities === 1 ? "y" : "ies") +
+        ", " + stamps.tokens.length + " token(s)");
+    }
+    if (stamps && stamps.existed_by) fact("Existed by", when(stamps.existed_by) + ", as a time-stamp authority you trust saw it");
     fact("History", report.complete ? "complete (proven against the state commitment)" : "may be incomplete");
     $("metadata-section").hidden = true;
     $("fields-section").hidden = true;
@@ -636,6 +648,12 @@ SOFTWARE.</pre>
     if (report.record.supersedes) fact("Replaces", report.record.supersedes, true);
     fact("Checkpoint", "log size " + report.checkpoint.tree_size + ", signed " + when(report.checkpoint.timestamp));
     fact("Witnesses", report.witnesses.trusted + " trusted, " + report.witnesses.untrusted + " other");
+    const stamps = report.timestamps;
+    if (stamps && stamps.tokens.length) {
+      fact("Time-stamps", stamps.trusted_authorities + " trusted authorit" + (stamps.trusted_authorities === 1 ? "y" : "ies") +
+        ", " + stamps.tokens.length + " token(s)");
+    }
+    if (stamps && stamps.existed_by) fact("Existed by", when(stamps.existed_by) + ", as a time-stamp authority you trust saw it");
     fact("History", report.complete ? "complete (proven against the state commitment)" : "may be incomplete (older checkpoint)");
 
     const metadata = report.record.metadata || {};
@@ -702,7 +720,8 @@ SOFTWARE.</pre>
     if (!state.verifier || !state.bundle) return;
     const ledgerId = $("ledger").value.trim();
     const report = state.verifier.verify(state.bundle, {
-      ledgerId: ledgerId || undefined, witnesses: state.witnesses, attachments: state.attachments,
+      ledgerId: ledgerId || undefined, witnesses: state.witnesses, timestampRoots: state.timestampRoots,
+      attachments: state.attachments,
     });
     window.lastReport = report;
     if (report.kind === "contract" && report.instance) {
@@ -785,6 +804,11 @@ SOFTWARE.</pre>
   wireFiles("add-witnesses", "witness-files", async (files) => {
     for (const f of files) state.witnesses.push(await readFile(f));
     $("witness-names").textContent = state.witnesses.length + " key(s)";
+    verify();
+  });
+  wireFiles("add-timestamp-roots", "timestamp-root-files", async (files) => {
+    for (const f of files) state.timestampRoots.push(await readFile(f));
+    $("timestamp-root-names").textContent = state.timestampRoots.length + " certificate file(s)";
     verify();
   });
   $("ledger").addEventListener("change", verify);

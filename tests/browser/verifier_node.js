@@ -62,6 +62,24 @@ const text = (name) => fs.readFileSync(path.join(dir, name), "utf8").trim();
   assert.equal(verifier.verify(lastByte, { ledgerId, attachments }).verified, false);
   assert.equal(verifier.verify(new Uint8Array(0)).verified, false);
 
+  // A time-stamp authority's token (v0.11): the same report as `cexchain
+  // verify --tsa-root`, and without the root, nothing relied on.
+  const stamped = read("stamped.cbor");
+  const stampedReport = verifier.verify(stamped, {
+    ledgerId, attachments: { "report.pdf": read("report.pdf") }, timestampRoots: [read("tsa-root.pem")] });
+  assert.equal(stampedReport.verified, true, stampedReport.error);
+  assert.match(stampedReport.text, /Time-stamps  1 trusted authority/);
+  delete stampedReport.text;
+  delete stampedReport.kind;
+  assert.deepEqual(stampedReport, JSON.parse(text("native-stamped-report.json")));
+  assert.equal(stampedReport.timestamps.trusted_authorities, 1);
+  assert.match(stampedReport.timestamps.existed_by, /^20\d\d-/);
+  const unrooted = verifier.verify(stamped, { ledgerId });
+  assert.equal(unrooted.verified, true);
+  assert.equal(unrooted.timestamps.trusted_authorities, 0);
+  assert.equal(unrooted.timestamps.existed_by, null);
+  assert.equal(verifier.verify(stamped, { timestampRoots: [read("witness.pub")] }).verified, false);
+
   // Witness keys: a public key file is accepted, anything else refused.
   assert.equal(verifier.verify(bundle, { witnesses: [read("witness.pub")] }).verified, true);
   assert.equal(verifier.verify(bundle, { witnesses: [read("witness.key")] }).verified, false);

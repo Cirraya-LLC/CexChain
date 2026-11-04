@@ -68,6 +68,7 @@ cexchain_program(cexchain
     src/cmd_relay.cpp
     src/cmd_requests.cpp
     src/cmd_vault.cpp
+    src/cmd_timestamps.cpp
     src/cmd_witness.cpp
     src/mcp.cpp)
 target_link_libraries(cexchain PRIVATE cexchain_cli_chain cexchain_qrcodegen)

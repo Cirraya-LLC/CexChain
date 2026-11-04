@@ -26,6 +26,7 @@
 /// Open:   GET /healthz, /v1/checkpoint[?size=N], /v1/consistency?old=&new=
 /// read:   GET /metrics, /v1/status, /v1/entries?start=&count=,
 ///         /v1/checkpoints?start=&count=, /v1/cosignatures?start=&count=,
+///         /v1/timestamps?start=&count=,
 ///         /v1/inclusion?index=&size=, /v1/statements/{id}, /v1/receipts/{index},
 ///         /v1/state/{id}, /v1/evidence/{record}, /v1/vault/public-key,
 ///         /v1/vault/records/{record}, /v1/contracts?start=&count=,
@@ -39,7 +40,8 @@
 ///         (what a keeper would do: the time rules due and the requests to expire)
 /// executor: GET /v1/requests, GET /v1/contracts/instances/{instance}, and
 ///         POST /v1/statements for answers to requests only
-/// admin:  POST /v1/checkpoint, POST /v1/cosignatures ([cosignature, witness key])
+/// admin:  POST /v1/checkpoint, POST /v1/cosignatures ([cosignature, witness key]),
+///         POST /v1/timestamps ([time-stamp token, checkpoint size])
 /// peer:   POST /v1/access/requests (a request's evidence), GET /v1/access/deliveries/{request},
 ///         POST /v1/access/receipts (a receipt's evidence), POST /v1/witness/cosign,
 ///         POST /v1/contracts/calls and
@@ -71,6 +73,12 @@ struct ApiOptions {
     /// Checkpoint this often when the log has grown (needs the log key);
     /// zero turns it off.
     std::chrono::seconds checkpoint_interval{0};
+    /// A time-stamp authority's URL (RFC 3161 over HTTP): the server asks it
+    /// for a token over the latest checkpoint when it starts and then every
+    /// `timestamp_interval`, unless a token covers it already, and keeps it
+    /// (spec v0.11); in a cluster, only the leader asks. Empty: none.
+    std::string timestamp_authority;
+    std::chrono::seconds timestamp_interval{3600};
     std::string version;
     /// Notable events (automatic checkpoints, failures), one JSON line each.
     std::ostream* event_log = nullptr;

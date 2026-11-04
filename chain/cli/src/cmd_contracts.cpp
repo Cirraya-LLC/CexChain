@@ -1088,6 +1088,7 @@ int cmd_contract_verify(const Args& args) {
     for (const std::string& path : args.all("witness")) {
         options.trusted_witnesses.push_back(load_public_key(path));
     }
+    options.trusted_timestamp_roots = client::load_certificates(args.all("tsa-root"));
     const auto report = ledger::verify_contract_evidence(
         provider, read_file(args.positional().front()), options, on_all_cores());
     if (!report) {
@@ -1104,6 +1105,14 @@ int cmd_contract_verify(const Args& args) {
     if (report->instance.trusted_cosignatures < min_witnesses) {
         problems.push_back(std::format("{} trusted witness cosignatures, {} required",
                                        report->instance.trusted_cosignatures, min_witnesses));
+    }
+    const std::uint64_t min_timestamps =
+        args.has("min-timestamps") ? parse_number(*args.get("min-timestamps"), "--min-timestamps")
+                                   : 0;
+    if (report->instance.trusted_timestamp_authorities < min_timestamps) {
+        problems.push_back(std::format("{} trusted time-stamp authorities, {} required",
+                                       report->instance.trusted_timestamp_authorities,
+                                       min_timestamps));
     }
     // Requests open past their deadline at the checkpoint's time (v0.8):
     // work nobody answered in time. Open ones not yet due are work in

@@ -258,4 +258,17 @@ Status Provider::verify(const PublicKey& key, ByteView message, ByteView signatu
     return do_verify(key, message, signature);
 }
 
+Result<TimestampToken> Provider::read_timestamp(ByteView token,
+                                                std::span<const Bytes> trusted_roots) const {
+    if (token.size() > max_timestamp_token_size) {
+        return fail(Errc::limit_exceeded, "the time-stamp token is too large");
+    }
+    return do_read_timestamp(token, trusted_roots);
+}
+
+Result<TimestampToken> Provider::do_read_timestamp(ByteView /*token*/,
+                                                   std::span<const Bytes> /*trusted_roots*/) const {
+    return fail(Errc::unsupported, "this provider does not read time-stamp tokens (RFC 3161)");
+}
+
 } // namespace cexchain::crypto

@@ -60,11 +60,19 @@ struct StoredCosignature {
     crypto::PublicKey witness;
 };
 
+/// A time-stamp authority's RFC 3161 token held by the ledger (v0.11), with
+/// the checkpoint it stamps.
+struct StoredTimestamp {
+    Bytes token;
+    protocol::SignedCheckpoint checkpoint;
+};
+
 /// What a refresh picked up.
 struct RefreshReport {
     std::uint64_t entries = 0;
     std::uint64_t checkpoints = 0;
     std::uint64_t cosignatures = 0;
+    std::uint64_t timestamps = 0;
 };
 
 /// The log keys an operator holds. Across a rotation an operator holds the
@@ -76,6 +84,7 @@ struct AuditReport {
     std::uint64_t entries = 0;
     std::uint64_t checkpoints = 0;
     std::uint64_t cosignatures = 0;
+    std::uint64_t timestamps = 0;
     std::uint64_t actors = 0;
     std::uint64_t delegations = 0;
     std::uint64_t records = 0;
@@ -289,15 +298,33 @@ public:
     [[nodiscard]] Result<std::vector<StoredCosignature>> cosignatures(std::uint64_t start,
                                                                       std::uint64_t count) const;
 
+    /// Stores a time-stamp authority's token (RFC 3161, DER) over the payload
+    /// of a stored checkpoint of tree size `size`, once it verifies with its
+    /// signing certificate and the ledger's clock agrees with it: neither
+    /// the checkpoint nor the last entry it covers is dated more than the
+    /// slack after the authority's time (spec v0.11). Which authorities to
+    /// trust is each verifier's choice; the ledger keeps any token that
+    /// verifies. Storing the same token again changes nothing.
+    [[nodiscard]] Status add_timestamp(ByteView token, std::uint64_t size);
+
+    /// Every stored time-stamp token, oldest first.
+    [[nodiscard]] Result<std::vector<StoredTimestamp>> timestamps() const;
+    [[nodiscard]] std::uint64_t timestamp_count() const;
+    /// Tokens [start, start + count), at most 1000.
+    [[nodiscard]] Result<std::vector<StoredTimestamp>> timestamps(std::uint64_t start,
+                                                                  std::uint64_t count) const;
+
     /// The newest checkpoint `witness` has cosigned, if any.
     [[nodiscard]] Result<std::optional<protocol::Checkpoint>>
     last_cosigned(const crypto::PublicKey& witness) const;
 
     /// Re-checks every stored checkpoint against the log: signed by the log
     /// key, for this ledger, sizes never decreasing, and each root equal to
-    /// the tree's root at that size; and every stored cosignature against its
-    /// witness's key and a stored checkpoint. (Opening the ledger has already
-    /// replayed and re-validated every statement.)
+    /// the tree's root at that size; every stored cosignature against its
+    /// witness's key and a stored checkpoint; and every stored time-stamp
+    /// token against its signing certificate and the checkpoint it stamps.
+    /// (Opening the ledger has already replayed and re-validated every
+    /// statement.)
     [[nodiscard]] Result<AuditReport> audit() const;
 
     /// The latest stored checkpoint, if any.
@@ -309,7 +336,9 @@ public:
     /// referenced actors, a contract's deploy), each with a receipt anchored
     /// to the latest checkpoint, which
     /// must cover them all, plus the stored witness cosignatures of that
-    /// checkpoint. The caller adds field disclosures and attachment openings,
+    /// checkpoint, and anchors (v0.11): the earliest time-stamped checkpoint
+    /// covering the record's first event, and the latest at or before the
+    /// bundle's. The caller adds field disclosures and attachment openings,
     /// since only it holds the record's private data.
     /// The receipts are signed with the log key in effect for the latest
     /// checkpoint, which `log_key` must be, or `log_keys` must hold. Every

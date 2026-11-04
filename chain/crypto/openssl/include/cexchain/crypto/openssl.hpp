@@ -7,6 +7,7 @@
 #include <memory>
 #include <span>
 #include <string_view>
+#include <vector>
 
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/crypto.hpp>
@@ -38,10 +39,34 @@ private:
                                            std::span<const ByteView> parts) const override;
     [[nodiscard]] Status do_verify(const PublicKey& key, ByteView message,
                                    ByteView signature) const override;
+    /// OpenSSL's RFC 3161 verification (TS_RESP_verify_token), at the
+    /// token's time: with its signing certificate as the only anchor, then
+    /// with the trusted roots.
+    [[nodiscard]] Result<TimestampToken>
+    do_read_timestamp(ByteView token, std::span<const Bytes> trusted_roots) const override;
 
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
+
+// ---------------------------------------------------------------------------
+// Time-stamp authorities (RFC 3161)
+// ---------------------------------------------------------------------------
+
+/// A TimeStampReq (DER) for `imprint`, the digest of the data under `alg`
+/// (SHA-256 or SM3, for example), with `nonce`, asking for the authority's
+/// certificate.
+[[nodiscard]] Result<Bytes> timestamp_request(HashAlg alg, ByteView imprint, std::uint64_t nonce);
+
+/// The token (DER) a TimeStampResp holds, once the response says it granted
+/// the request and its token answers it: the same imprint and nonce. Not a
+/// verification of the token (`Provider::read_timestamp` is).
+[[nodiscard]] Result<Bytes> timestamp_from_response(ByteView response, HashAlg alg,
+                                                    ByteView imprint, std::uint64_t nonce);
+
+/// The X.509 certificates in PEM text, or the one DER certificate `data` is,
+/// each as DER. Fails if there is none or one does not parse.
+[[nodiscard]] Result<std::vector<Bytes>> read_certificates(ByteView data);
 
 /// The loaded libcrypto's version, e.g. "OpenSSL 3.6.0 1 Oct 2025".
 [[nodiscard]] std::string_view library_version() noexcept;

@@ -616,7 +616,20 @@ evidence-bundle = {
   ? 6 => [+ attachment-opening],
   ? 7 => [+ state-proof],      ; required when the bundle includes the state
                                ; commitment its checkpoint ends with
+  ? 8 => [+ anchor],           ; v0.11: time-stamped checkpoints at or
+                               ; before the bundle's (spec section 10.1)
 }
+; A checkpoint with time-stamp authorities' tokens over its payload (v0.11).
+anchor = {
+  1 => bstr,                   ; the signed checkpoint (COSE_Sign1)
+  2 => [+ timestamp-token],
+  ? 3 => [+ bstr],             ; RFC 9162 consistency proof from its size to
+                               ; the bundle's checkpoint; absent when they
+                               ; are the same checkpoint
+}
+; An RFC 3161 TimeStampToken: DER-encoded CMS SignedData whose
+; messageImprint is the ledger's hash of the checkpoint's payload.
+timestamp-token = bstr
 evidence-entry = [
   entry: bstr,                 ; encoded log-entry
   receipt: bstr,               ; its RFC 9942 receipt

@@ -236,7 +236,7 @@ The `cexchain` tool controls every part of a ledger:
 | Actors | `actor add`, `actor list`, `actor show`, `actor revoke`, `actor rotate-key`, `actor set-presence`, `presence enroll` |
 | Delegations | `delegation grant`, `delegation list`, `delegation show`, `delegation revoke` |
 | Records | `record issue`, `record list`, `record show`, `record history`, `record versions`, `record fields`, `record file list\|get\|add\|remove`, `record endorse`, `record transition`, `record revoke`, `record types` |
-| Proofs | `checkpoint create`, `checkpoint list`, `checkpoint show`, `checkpoint cosign-request`, `checkpoint add-cosignature`, `proof inclusion`, `proof consistency`, `proof state`, `receipt` |
+| Proofs | `checkpoint create`, `checkpoint list`, `checkpoint show`, `checkpoint cosign-request`, `checkpoint add-cosignature`, `checkpoint timestamp`, `checkpoint add-timestamp`, `checkpoint timestamps`, `proof inclusion`, `proof consistency`, `proof state`, `receipt` |
 | Witnesses | `witness add-log`, `witness cosign`, `witness status`, `witness remove-log`; `witness register`, `witness registered`, `witness unregister` (public witnesses) |
 | Evidence | `export`, `verify`, `inspect`, `qr` |
 | Vault | `vault status`, `vault keygen`, `vault rekey` |
@@ -395,6 +395,31 @@ cexchain access fetch --peer factory --request ID --out d.cbor --log-key log.key
 Commands that reach a party take `--log-key` to reach it through its relay (what goes there is
 signed). In the console, Parties offers "Be reached through" each public witness whose server runs
 a relay; new invitation codes then carry it instead of a local address.
+
+## Time-stamp authorities
+
+A checkpoint's time is the ledger's own word, and witnesses prove only that the ledger did not fork
+or rewrite what they cosigned. A time-stamp authority (RFC 3161, such as a national time service or
+a commercial one) gives an outsider a bound on *when*: it signs, at its own time, a digest of a
+checkpoint, so whoever trusts it knows that everything the checkpoint covers existed by then.
+
+```sh
+cexchain checkpoint timestamp --tsa https://tsa.example.com/tsr   # the latest checkpoint, stamped
+cexchain checkpoint timestamps --tsa-root tsa-root.pem            # what is kept, and whom you trust
+cexchain serve --log-key log.key --tsa https://tsa.example.com/tsr   # stamps by itself, every hour
+
+# A verifier that trusts the authority's root: when the record existed by, from outside the ledger.
+cexchain verify evidence.cbor --ledger-id <ledger-id> --tsa-root tsa-root.pem --min-timestamps 1
+```
+
+Tokens are kept beside the checkpoints, never in the log, and replicas, clusters, and backups keep
+them too. An export carries, as anchors, the earliest stamped checkpoint covering the record and
+the latest, each with a consistency proof to the bundle's own checkpoint. A verifier that trusts the
+authority reports the time by which each event existed, and refuses evidence whose ledger dates such
+an event more than a minute after the authority saw it; one that does not counts the tokens and
+relies on nothing. A token got another way (from a court's or a notary's service) is kept with
+`checkpoint add-timestamp`: `checkpoint show --json` gives the digest to send (`timestamp_imprint`).
+The browser verifier takes the authority's root certificate as it takes witness keys.
 
 ## Browser verifier
 
@@ -784,6 +809,10 @@ What the chain does not do yet, as of this version (the Bo language's own are in
   other organizations' ledgers need their peers, which belong to a ledger directory.
 - **Connectors:** `webhook` and `command` ship with CexChain; a connector for another system is
   a program of its own, on the same protocol ([`spec/connectors.md`](spec/connectors.md)).
+- **Time-stamp authorities** are trusted through their certificate chains at the token's time;
+  revocation (CRL, OCSP) is not checked. Tokens signed with SM2 verify where OpenSSL verifies
+  them. The web console has no screen for them yet: `cexchain-console run --tsa URL` stamps, and the
+  command line lists them.
 - **Kept files** (`record issue --keep-files`, `record file add`) are kept by a single server or
   ledger directory: a cluster refuses them for now (it would not replicate them), and a backup
   of a cluster's member does not hold them.

@@ -479,6 +479,13 @@ int run_person_console(const Args& args, const std::filesystem::path& dir,
     node::ApiOptions base;
     base.directory = dir;
     base.checkpoint_interval = std::chrono::seconds(60);
+    if (const auto tsa = args.get("tsa")) {
+        base.timestamp_authority = *tsa;
+        if (const auto every = args.get("timestamp-interval")) {
+            base.timestamp_interval =
+                std::chrono::seconds(std::max<std::uint64_t>(1, parse_number(*every, "interval")));
+        }
+    }
     base.version = CEXCHAIN_VERSION;
     base.console = [web](const node::http::Request& r, auto respond) {
         web->handle(r, std::move(respond));

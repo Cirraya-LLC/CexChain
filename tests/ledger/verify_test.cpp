@@ -61,6 +61,10 @@ private:
         ++checks_;
         return inner_.verify(key, message, signature);
     }
+    [[nodiscard]] cexchain::Result<crypto::TimestampToken>
+    do_read_timestamp(ByteView token, std::span<const cexchain::Bytes> roots) const override {
+        return inner_.read_timestamp(token, roots);
+    }
     const crypto::Provider& inner_;
     mutable std::atomic<std::size_t> checks_{0};
 };

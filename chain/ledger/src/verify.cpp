@@ -113,6 +113,10 @@ private:
                                         Bytes(signature.begin(), signature.end()), *outcome});
         return *outcome;
     }
+    [[nodiscard]] Result<crypto::TimestampToken>
+    do_read_timestamp(ByteView token, std::span<const Bytes> trusted_roots) const override {
+        return inner_.read_timestamp(token, trusted_roots);
+    }
 
     const crypto::Provider& inner_;
     SignatureCache* cache_;

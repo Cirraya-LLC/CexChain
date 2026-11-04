@@ -5,7 +5,8 @@
 # OpenSSL backend's.
 if(CEXCHAIN_CORE_ONLY)
     file(GLOB core_tests CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/core/*_test.cpp)
-    add_executable(cexchain_core_tests ${core_tests} crypto/openssl_test.cpp)
+    add_executable(cexchain_core_tests ${core_tests} crypto/openssl_test.cpp
+        crypto/timestamp_test.cpp)
     target_link_libraries(cexchain_core_tests PRIVATE
         cexchain::core cexchain::crypto_openssl cexchain::verifier
         Catch2::Catch2WithMain nlohmann_json::nlohmann_json OpenSSL::Crypto)
@@ -37,9 +38,11 @@ add_executable(cexchain_tests
     core/protocol_v08_test.cpp
     core/protocol_v09_test.cpp
     core/protocol_v010_test.cpp
+    core/protocol_v011_test.cpp
     core/exchange_test.cpp
     core/vm_test.cpp
     crypto/openssl_test.cpp
+    crypto/timestamp_test.cpp
     ledger/access_test.cpp
     ledger/contracts_test.cpp
     ledger/backup_test.cpp
@@ -55,6 +58,7 @@ add_executable(cexchain_tests
     ledger/state_tree_test.cpp
     ledger/storage_test.cpp
     ledger/verify_test.cpp
+    ledger/timestamp_test.cpp
     ledger/witness_test.cpp
     node/api_test.cpp
     node/record_files_test.cpp
@@ -248,6 +252,9 @@ add_test(NAME files_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/files.sh $<TARGET_FILE:cexchain>)
 add_test(NAME versions_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/versions.sh $<TARGET_FILE:cexchain>)
+# Time-stamp authorities (RFC 3161) over checkpoints, with OpenSSL's responder.
+add_test(NAME timestamps_end_to_end
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/timestamps.sh $<TARGET_FILE:cexchain>)
 add_test(NAME search_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/search.sh $<TARGET_FILE:cexchain>)
 add_test(NAME client_end_to_end

@@ -44,6 +44,10 @@ std::vector<CommandSpec> console_commands() {
                {"log-key", "KEY",
                 "The log key (file or pkcs11: URI): checkpoints, receipts, and evidence", false,
                 true},
+               {"tsa", "URL",
+                "Ask this time-stamp authority (RFC 3161) to stamp the latest checkpoint at start "
+                "and then every --timestamp-interval"},
+               {"timestamp-interval", "SECONDS", "How often to ask (default: 3600)"},
                {"quiet", "", "No access log on stderr"},
                passphrase_file_option}),
          cmd_console_run,

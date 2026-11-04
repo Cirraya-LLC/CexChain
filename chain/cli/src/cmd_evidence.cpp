@@ -100,6 +100,7 @@ Json inspect_json(const crypto::Provider& provider, const Bytes& content) {
                  {"record", id_json(bundle->record)},
                  {"entries", bundle->entries.size()},
                  {"cosignatures", bundle->cosignatures.size()},
+                 {"anchors", bundle->anchors.size()},
                  {"disclosed_fields", bundle->disclosures.size()},
                  {"attachment_openings", bundle->attachments.size()},
                  {"state_proofs", bundle->state_proofs.size()}};
@@ -280,10 +281,26 @@ int cmd_checkpoint_show(const Args& args) {
                 {{"kid", id_json(c.cosignature.kid)}, {"key", public_key_json(c.witness)}});
         }
     }
+    // What a time-stamp authority stamps (v0.11): the ledger's hash of the
+    // payload, and the tokens kept over it.
+    const auto imprint = unwrap(
+        session.provider().digest(session.ledger().hash(), *chosen->envelope.payload), "hashing");
+    Json timestamps = Json::array();
+    for (const ledger::StoredTimestamp& t :
+         unwrap(session.ledger().timestamps(), "reading time-stamp tokens")) {
+        if (t.checkpoint.encoded == chosen->encoded) {
+            const auto read = unwrap(session.provider().read_timestamp(t.token, {}), "a token");
+            timestamps.push_back({{"authority", read.authority},
+                                  {"time", verifier::iso_time(read.time)},
+                                  {"accuracy_ms", read.accuracy}});
+        }
+    }
     if (args.json()) {
         Json out = checkpoint_json(chosen->checkpoint);
         out["kid"] = id_json(chosen->kid);
         out["witnesses"] = witnesses;
+        out["timestamps"] = timestamps;
+        out["timestamp_imprint"] = to_hex(imprint.bytes());
         out["signed_checkpoint"] = to_hex(chosen->encoded);
         print_json(out);
         return exit_ok;
@@ -293,6 +310,11 @@ int cmd_checkpoint_show(const Args& args) {
         std::println("witness:    {} key {}", w["key"]["algorithm"].get<std::string>(),
                      w["key"]["key"].get<std::string>());
     }
+    for (const auto& t : timestamps) {
+        std::println("stamped:    by {} at {}", t["authority"].get<std::string>(),
+                     t["time"].get<std::string>());
+    }
+    std::println("imprint:    {} (what a time-stamp authority stamps)", to_hex(imprint.bytes()));
     if (const auto out = args.get("out")) {
         std::println("written to: {}", *out);
     }
@@ -481,7 +503,8 @@ int cmd_export(const Args& args) {
                     {"checkpoint_size", checkpoint.checkpoint.tree_size},
                     {"disclosed_fields", disclose},
                     {"attachment_openings", bundle.attachments.size()},
-                    {"cosignatures", bundle.cosignatures.size()}});
+                    {"cosignatures", bundle.cosignatures.size()},
+                    {"anchors", bundle.anchors.size()}});
     } else {
         std::println(
             "wrote evidence for {} ({} entries, {} disclosed fields, {} cosignatures) to {}",
@@ -504,6 +527,7 @@ int cmd_verify(const Args& args) {
     for (const std::string& path : args.all("witness")) {
         options.trusted_witnesses.push_back(load_public_key(path));
     }
+    options.trusted_timestamp_roots = client::load_certificates(args.all("tsa-root"));
     for (const std::string& item : args.all("attachment")) {
         auto [name, path] = split_pair(item, "--attachment");
         options.attachment_contents[name] = read_file(path);
@@ -522,13 +546,20 @@ int cmd_verify(const Args& args) {
     const std::uint64_t min_witnesses =
         args.has("min-witnesses") ? parse_number(*args.get("min-witnesses"), "--min-witnesses") : 0;
     const bool too_few_witnesses = report->trusted_cosignatures < min_witnesses;
-    const bool verified = !mismatch && !too_few_witnesses;
+    const std::uint64_t min_timestamps =
+        args.has("min-timestamps") ? parse_number(*args.get("min-timestamps"), "--min-timestamps")
+                                   : 0;
+    const bool too_few_timestamps = report->trusted_timestamp_authorities < min_timestamps;
+    const bool verified = !mismatch && !too_few_witnesses && !too_few_timestamps;
     if (args.json()) {
         Json out = report_json(*report, options.expected_ledger.has_value());
         out["verified"] = verified;
         if (too_few_witnesses) {
             out["error"] = std::format("{} trusted witness cosignatures, {} required",
                                        report->trusted_cosignatures, min_witnesses);
+        } else if (too_few_timestamps) {
+            out["error"] = std::format("{} trusted time-stamp authorities, {} required",
+                                       report->trusted_timestamp_authorities, min_timestamps);
         }
         print_json(out);
     } else {
@@ -539,6 +570,10 @@ int cmd_verify(const Args& args) {
         if (too_few_witnesses) {
             std::println("\nVERIFICATION FAILED: {} trusted witness cosignatures, {} required",
                          report->trusted_cosignatures, min_witnesses);
+        }
+        if (too_few_timestamps) {
+            std::println("\nVERIFICATION FAILED: {} trusted time-stamp authorities, {} required",
+                         report->trusted_timestamp_authorities, min_timestamps);
         }
     }
     return verified ? exit_ok : exit_not_verified;

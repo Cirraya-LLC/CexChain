@@ -11,7 +11,10 @@
 # for a tier-3 part of a receivable (v0.7), part.cbor, part-id,
 # part-parent-id, part-root-id, and native-part-report.json and .txt; and for
 # an instance whose calls made requests (v0.8), requests.cbor, requests-id,
-# requests-ledger-id, and native-requests-report.json and .txt.
+# requests-ledger-id, and native-requests-report.json and .txt; and the
+# record's evidence again with a time-stamp authority's token over its
+# checkpoint (v0.11), stamped.cbor, tsa-root.pem, and
+# native-stamped-report.json (with that root trusted).
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
@@ -42,6 +45,27 @@ run record endorse "$(cat record-id)" --as alice.key --role inspector > /dev/nul
 run checkpoint create --log-key log.key > /dev/null
 run export "$(cat record-id)" --log-key log.key --disclose result,note --with-attachments --out bundle.cbor > /dev/null
 run verify bundle.cbor --ledger-id "$(cat ledger-id)" --attachment report.pdf=report.pdf --json > native-report.json
+
+# The same record, its checkpoint stamped by a time-stamp authority made
+# with OpenSSL's command line (v0.11).
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout tsa-root.key \
+    -out tsa-root.pem -days 3650 -subj "/CN=Test TSA Root" \
+    -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign" 2> /dev/null
+openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout tsa.key -out tsa.csr \
+    -subj "/CN=Test TSA" 2> /dev/null
+printf 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=critical,timeStamping\n' > tsa.ext
+openssl x509 -req -in tsa.csr -CA tsa-root.pem -CAkey tsa-root.key -CAcreateserial -out tsa.pem \
+    -days 3650 -extfile tsa.ext 2> /dev/null
+printf '[ tsa ]\ndefault_tsa = c\n[ c ]\nserial = %s/tsa.serial\nsigner_cert = %s/tsa.pem\ncerts = %s/tsa-root.pem\nsigner_key = %s/tsa.key\nsigner_digest = sha256\ndefault_policy = 1.2.3.4.1\ndigests = sha256\naccuracy = secs:1\ness_cert_id_alg = sha256\n' \
+    "$DIR" "$DIR" "$DIR" "$DIR" > tsa.cnf
+echo 01 > tsa.serial
+IMPRINT="$(run checkpoint show --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["timestamp_imprint"])')"
+openssl ts -query -digest "$IMPRINT" -sha256 -cert -out stamp.tsq 2> /dev/null
+openssl ts -reply -config tsa.cnf -queryfile stamp.tsq -token_out -out stamp.tst 2> /dev/null
+run checkpoint add-timestamp stamp.tst > /dev/null
+run export "$(cat record-id)" --log-key log.key --disclose result,note --with-attachments --out stamped.cbor > /dev/null
+run verify stamped.cbor --ledger-id "$(cat ledger-id)" --attachment report.pdf=report.pdf \
+    --tsa-root tsa-root.pem --json > native-stamped-report.json
 
 # Three organizations, each with its own ledger.
 for k in core-root core-log sup-root sup-log bank-root bank-log; do run key generate --out "$k.key" > /dev/null; done

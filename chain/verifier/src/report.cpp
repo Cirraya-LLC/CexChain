@@ -203,6 +203,55 @@ bool has_attachment_mismatch(const protocol::EvidenceReport& report) {
     });
 }
 
+namespace {
+
+/// The bundle's time-stamp tokens (v0.11), and when its subject existed by.
+Json timestamps_json(const protocol::EvidenceReport& r) {
+    Json tokens = Json::array();
+    for (const protocol::TimestampCheck& t : r.timestamps) {
+        tokens.push_back({{"checkpoint_size", t.size},
+                          {"time", iso_time(t.time)},
+                          {"accuracy_ms", t.accuracy},
+                          {"authority", t.authority},
+                          {"trusted", t.trusted}});
+    }
+    const std::optional<protocol::Timestamp> existed_by =
+        r.events.empty() ? std::nullopt : r.events.front().existed_by;
+    return {{"trusted_authorities", r.trusted_timestamp_authorities},
+            {"existed_by", existed_by ? Json(iso_time(*existed_by)) : Json(nullptr)},
+            {"tokens", std::move(tokens)}};
+}
+
+/// The report's time-stamp lines: the trusted authorities' tokens, then
+/// when the record or instance existed by. Nothing without tokens.
+std::string timestamps_text(const protocol::EvidenceReport& r) {
+    if (r.timestamps.empty()) {
+        return {};
+    }
+    const auto untrusted = static_cast<std::size_t>(std::ranges::count_if(
+        r.timestamps, [](const protocol::TimestampCheck& t) { return !t.trusted; }));
+    std::string out = std::format(
+        "  Time-stamps  {} trusted authorit{}{}\n", r.trusted_timestamp_authorities,
+        r.trusted_timestamp_authorities == 1 ? "y" : "ies",
+        untrusted == 0 ? std::string()
+                       : std::format(" ({} more token(s) from authorities you do not trust, not "
+                                     "relied on)",
+                                     untrusted));
+    for (const protocol::TimestampCheck& t : r.timestamps) {
+        if (t.trusted) {
+            out += std::format("               {} saw checkpoint size {} at {} (+/- {} ms)\n",
+                               t.authority, t.size, format_time(t.time), t.accuracy);
+        }
+    }
+    if (!r.events.empty() && r.events.front().existed_by) {
+        out += std::format("  Existed by   {}, as a time-stamp authority you trust saw it\n",
+                           format_time(*r.events.front().existed_by));
+    }
+    return out;
+}
+
+} // namespace
+
 Json report_json(const protocol::EvidenceReport& r, bool ledger_checked) {
     Json events = Json::array();
     for (const protocol::RecordEvent& e : r.events) {
@@ -230,7 +279,8 @@ Json report_json(const protocol::EvidenceReport& r, bool ledger_checked) {
                          {"label", e.presence->label ? Json(*e.presence->label) : Json(nullptr)}}
                   : Json(nullptr)},
              {"detail", e.detail},
-             {"new_version", e.new_version ? Json(hex_id(*e.new_version)) : Json(nullptr)}});
+             {"new_version", e.new_version ? Json(hex_id(*e.new_version)) : Json(nullptr)},
+             {"existed_by", e.existed_by ? Json(iso_time(*e.existed_by)) : Json(nullptr)}});
     }
     Json fields = Json::object();
     for (const protocol::RecordField& f : r.disclosed_fields) {
@@ -258,6 +308,7 @@ Json report_json(const protocol::EvidenceReport& r, bool ledger_checked) {
           {"root_key_rotations", r.root_key_rotations}}},
         {"witnesses",
          {{"trusted", r.trusted_cosignatures}, {"untrusted", r.untrusted_cosignatures}}},
+        {"timestamps", timestamps_json(r)},
         {"record",
          {{"id", hex_id(r.record)},
           {"type", r.record_type},
@@ -304,6 +355,7 @@ std::string report_text(const protocol::EvidenceReport& r, bool ledger_checked) 
                          ? std::string()
                          : std::format(" ({} more from witnesses you do not trust, not checked)",
                                        r.untrusted_cosignatures)));
+    out += timestamps_text(r);
     line(std::format("  Record       {} (id {})", r.record_type, short_id(r.record)));
     line(std::format("  State        {}{}", r.state, r.revoked ? " - REVOKED" : ""));
     if (r.superseded_by) {
@@ -717,6 +769,7 @@ Json contract_report_json(const protocol::ContractReport& r, bool ledger_checked
              {"checkpoint", checkpoint_json(e.checkpoint)},
              {"witnesses",
               {{"trusted", e.trusted_cosignatures}, {"untrusted", e.untrusted_cosignatures}}},
+             {"timestamps", timestamps_json(e)},
              {"calls", std::move(calls)},
              {"complete", e.complete},
              {"report", report_json(e, ledger_checked)}};
@@ -794,6 +847,7 @@ std::string contract_report_text(const protocol::ContractReport& r, bool ledger_
                          ? std::string()
                          : std::format(" ({} more from witnesses you do not trust, not checked)",
                                        e.untrusted_cosignatures)));
+    out += timestamps_text(e);
     auto call_lines = [&](const protocol::ContractStep& step) {
         const protocol::RecordEvent& event = e.events[step.event];
         const protocol::ContractCallBody& call = *event.contract_call;

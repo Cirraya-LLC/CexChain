@@ -454,6 +454,23 @@ Status Cluster::add_cosignature(ByteView cosignature, const crypto::PublicKey& w
     return {};
 }
 
+Status Cluster::add_timestamp(ByteView token, std::uint64_t size) {
+    auto entry = cbor::encode(
+        cbor::Value::array({cbor::Value::unsigned_integer(entry_timestamp),
+                            cbor::Value::bytes(token), cbor::Value::unsigned_integer(size)}));
+    if (!entry) {
+        return std::unexpected(entry.error());
+    }
+    auto outcome = impl_->replicate(*entry);
+    if (!outcome) {
+        return std::unexpected(outcome.error());
+    }
+    if (const auto* status = std::get_if<Status>(&*outcome)) {
+        return *status;
+    }
+    return {};
+}
+
 Status Cluster::change_pending(std::span<const PendingChange> changes) {
     if (changes.empty()) {
         return {};

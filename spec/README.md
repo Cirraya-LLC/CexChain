@@ -1,6 +1,6 @@
 # The CexChain protocol
 
-Revision v0.10 (draft). Wire protocol version 1.
+Revision v0.11 (draft). Wire protocol version 1.
 
 This document explains the protocol in prose. The normative definitions are:
 
@@ -12,6 +12,8 @@ Where this text and the CDDL disagree, the CDDL wins. The C++ code in this repos
 The key words MUST, MUST NOT, SHOULD, and MAY are used as in RFC 2119.
 
 Bo, the language contracts are written in, has its own reference: [`bo.md`](bo.md).
+
+**Changes in v0.11.** Time-stamp authorities: an RFC 3161 token over a checkpoint's payload bounds, for whoever trusts the authority, when everything the checkpoint covers existed, and a verifier refuses evidence whose ledger dates such an entry later than the authority's time allows (sections 10, 11, 16, and 17). Bundles carry such tokens as anchors (key 8 of `evidence-bundle`); tokens are kept beside checkpoints, like cosignatures, never in the log. Nothing else changes; the wire protocol stays version 1, and a bundle without key 8 verifies as before.
 
 **Changes in v0.10.** A record can supersede another: a registration may name the record it replaces (key 6 of `record-register-body`), so that its versions form a chain and a verifier holding an old version learns that a newer one replaced it, when, and by whom (sections 5, 6, 9, and 11). Nothing else changes; the wire protocol stays version 1, and a log without the key replays as before.
 
@@ -318,6 +320,16 @@ Once a witness has followed a log key rotation, it accepts only the new key. A l
 
 A **public witness** (informative) follows any ledger that asks. A ledger registers by sending its genesis entry with a cosign request; the witness learns the ledger id, hash, root key, and first log key from the genesis entry (the ledger id must be the checkpoint's), and follows the ledger only if it cosigns that request under the rules above. A registration therefore proves that the caller holds the log key in effect. The witness keeps only the state described above, and never the ledger's statements. Section 16 gives the routes and section 17 what a public witness learns.
 
+### 10.1 Time-stamp authorities (v0.11)
+
+A checkpoint's timestamp is the ledger's own word, and a witness proves only that a ledger did not fork or rewrite what it cosigned. A **time-stamp authority** (TSA) gives an outsider a bound on *when*: its **time-stamp token** is an RFC 3161 `TimeStampToken` (DER, CMS SignedData) whose `messageImprint` is the ledger's hash (SHA-256, or SM3 for SM3 ledgers) of a checkpoint's payload, the bytes witnesses cosign. The authority signs it at its own time (`genTime`, with its stated accuracy), so everything the checkpoint covers existed by then. A token is not a statement: the ledger keeps tokens beside its checkpoints, as it keeps cosignatures, and never in the log. Anyone may ask an authority for one (RFC 3161 over HTTP, `application/timestamp-query`), with the authority's certificate requested (`certReq`) so that verifiers can check it.
+
+A ledger SHOULD keep a token only if it verifies with its signing certificate, stamps one of its checkpoints, and agrees with the ledger's clock (below): a token that does not could only make the ledger's evidence fail.
+
+Which authorities to trust is each verifier's choice: it trusts the tokens whose signing certificate chains to one of the root certificates it holds, valid at the token's time and for time stamping (the critical `id-kp-timeStamping` usage, RFC 3161 section 2.3), with a signing-certificate attribute (RFC 5816) that names that certificate. Tokens of other authorities are counted, and relied on for nothing.
+
+**The clock rule.** A verifier that trusts a token over a checkpoint of size N, with time T and accuracy A, MUST refuse the evidence if the checkpoint, or an included entry with an index below N, is dated later than T + A + 60 seconds: the ledger dated what the authority had already seen. (The 60 seconds allow for two honest clocks that disagree.)
+
 ## 11. Evidence bundles and verification
 
 An evidence bundle (`evidence-bundle`) holds:
@@ -326,7 +338,8 @@ An evidence bundle (`evidence-bundle`) holds:
 - log entries with their receipts, in ascending order, starting with genesis: the record's statements (with the registration that supersedes it, if any; not the record it supersedes) and every statement they depend on (signers' registrations and key rotations, delegation chains, referenced actors), and every rotation of the organization's keys below the checkpoint's size. For an instance created by a call, also its ancestors' calls up to the one that created each next generation (section 15);
 - the signed checkpoint all receipts lead to, and witness cosignatures of it;
 - optional field disclosures and attachment openings (salts; the contents travel alongside);
-- state proofs for every involved object.
+- state proofs for every involved object;
+- optional anchors (v0.11): signed checkpoints at or before the bundle's checkpoint, each with one or more time-stamp tokens over its payload (section 10.1) and, for an earlier one, the RFC 9162 consistency proof from its size to the bundle's checkpoint.
 
 A verifier MUST:
 
@@ -342,6 +355,10 @@ A verifier MUST:
    - for the record and each involved object, require a proof whose leaf equals that object's leaf in the replayed state. The involved objects are each event's signer, an agent signer's responsible person, and every delegation in the chain with its grantor; for an instance, also its contract. For an instance created by a call, its ancestors' included calls count as events too, and the ancestors themselves need no proof (section 15).
 
    Only then is the report **complete**: nothing, such as a later revocation, was left out.
+8. For each anchor (v0.11):
+   - check that its checkpoint is of the ledger, no larger than the bundle's checkpoint, and signed by the log key in effect at its size; that it equals the bundle's checkpoint's size and root (with no proof) or its consistency proof leads from it to the bundle's checkpoint;
+   - check each token: it verifies with its signing certificate, and its imprint is the ledger's hash of the anchor's checkpoint's payload, under the ledger's hash algorithm;
+   - for the tokens it trusts (section 10.1), apply the clock rule to the anchor's checkpoint and to every included entry below its size. Each such entry then **existed by** the earliest trusted time plus its accuracy.
 
 A report states:
 - who did what, when, and under whose authority;
@@ -349,6 +366,7 @@ A report states:
 - for a record, the record it supersedes, and the registration that superseded it, if any (by whom and when);
 - the disclosed fields and attachment checks;
 - the witnesses;
+- the time-stamp tokens, and for each event the time by which a trusted authority saw it (v0.11);
 - whether it is complete.
 
 ## 12. Access across organizations
@@ -721,9 +739,9 @@ This section is informative. The reference implementation serves a ledger over H
 | Scope | Routes |
 |---|---|
 | none | `GET /healthz`, `GET /v1/checkpoint[?size=N]`, `GET /v1/consistency?old=&new=` |
-| read | `GET /metrics`, `/v1/status`, `/v1/entries?start=&count=`, `/v1/genesis`, `/v1/checkpoints`, `/v1/cosignatures`, `/v1/inclusion?index=&size=`, `/v1/statements/{id}`, `/v1/receipts/{index}`, `/v1/state/{id}`, `/v1/evidence/{record}`, `/v1/vault/public-key`, `/v1/vault/records/{record}`, `/v1/vault/files/{record}`, `/v1/vault/files/{record}/{index}`, `/v1/contracts?start=&count=`, `/v1/contracts/{contract}`, `/v1/contracts/instances/{instance}`, `/v1/contracts/calls`, `/v1/contracts/calls/{call}`, `/v1/requests` (v0.8), `/v1/contracts/due`, `/v1/records`, `/v1/records/{id}`, `/v1/records/{id}/versions`, `/v1/instances`, `/v1/reports/records`, `/v1/reports/instances` |
+| read | `GET /metrics`, `/v1/status`, `/v1/entries?start=&count=`, `/v1/genesis`, `/v1/checkpoints`, `/v1/cosignatures`, `/v1/timestamps` (v0.11), `/v1/inclusion?index=&size=`, `/v1/statements/{id}`, `/v1/receipts/{index}`, `/v1/state/{id}`, `/v1/evidence/{record}`, `/v1/vault/public-key`, `/v1/vault/records/{record}`, `/v1/vault/files/{record}`, `/v1/vault/files/{record}/{index}`, `/v1/contracts?start=&count=`, `/v1/contracts/{contract}`, `/v1/contracts/instances/{instance}`, `/v1/contracts/calls`, `/v1/contracts/calls/{call}`, `/v1/requests` (v0.8), `/v1/contracts/due`; on a server with the search index, `/v1/records`, `/v1/records/{id}`, `/v1/records/{id}/versions`, `/v1/instances`, `/v1/reports/records`, `/v1/reports/instances` |
 | submit | `POST /v1/statements`, `POST /v1/contracts/calls`, `PUT /v1/vault/files/{record}/{index}` |
-| admin | `POST /v1/checkpoint`, `POST /v1/cosignatures`, `DELETE /v1/vault/files/{record}/{index}` |
+| admin | `POST /v1/checkpoint`, `POST /v1/cosignatures`, `POST /v1/timestamps` (v0.11), `DELETE /v1/vault/files/{record}/{index}` |
 | peer | `POST /v1/access/requests`, `GET /v1/access/deliveries/{request}`, `POST /v1/access/receipts`, `POST /v1/witness/cosign`, `POST /v1/contracts/calls` and `GET /v1/contracts/instances/{instance}` (the instance's current parties), `GET /v1/contracts/calls`, `/v1/contracts/calls/{call}` (the calls that concern the peer), `POST /v1/contracts/consents`, `GET /v1/genesis` (the genesis entry, which the ledger id authenticates: a peer that witnesses the ledger follows its root and log keys from it) |
 | executor | `GET /v1/requests`, `GET /v1/contracts/instances/{instance}`, and `POST /v1/statements` for answers only (v0.8) |
 | none, on a public witness | `GET /v1/witness`, `POST /v1/witness/register`, `POST /v1/witness/cosign` (below) |
@@ -774,6 +792,7 @@ Only the calls the keeper's delegations cover are its to make. Each call moves i
 
 **Public witnesses.** A server can be a public witness (`serve --witness-public`) beside serving its own ledger. Three routes then take no token:
 - `GET /v1/witness` describes it as JSON: `name`, `key` (the hex of its COSE public key), `algorithm`, `ledgers` (how many it follows), and `limits`. This is a hint: a ledger pins the key its operator publishes, never the one a witness says it has.
+- `GET /v1/timestamps?start=&count=` (v0.11) pages through the time-stamp tokens the ledger keeps, oldest first, as CBOR `[checkpoint, token]` pairs (the signed checkpoint each stamps); `POST /v1/timestamps` takes CBOR `[token, checkpoint size]` and keeps the token as section 10.1 says.
 - `POST /v1/witness/register` takes CBOR `{1: genesis entry, 2: cosign request}` and answers the cosignature (201 for a new ledger, 200 for one it follows already, which is then a cosign request like any other). A refused registration leaves nothing behind.
 - `POST /v1/witness/cosign` takes a cosign request for a ledger it follows (404 for another: register first).
 
@@ -801,7 +820,12 @@ A server holds the log key to sign checkpoints, receipts, and evidence. Across a
 
   Presence shows that a person approved. Without it, an action is a machine's.
 - **What it does not prove alone.** A ledger's operator could show different histories to different parties. Witnesses detect this: verifiers SHOULD require cosignatures from witnesses they trust. The log key is the operator's single point of trust and SHOULD be kept in an HSM.
-- **Time.** Registration times come from the ledger's clock and are ordered. Issued-at times are claims by the signer, bounded only in the future direction. External time anchoring is future work.
+- **Time.** Registration times come from the ledger's clock and are ordered. Issued-at times are claims by the signer, bounded only in the future direction. A trusted time-stamp authority's token (v0.11) bounds them from outside: what a stamped checkpoint covers existed by the authority's time, and a ledger that dates such an entry later fails verification. Without one, nothing outside the ledger bounds its times.
+- **Time-stamp authorities** (v0.11).
+  - An authority is trusted for time only, never for content: it sees a digest, not the checkpoint, and signs whatever digest it is sent. Its token proves that the checkpoint existed by its time, not that the ledger is honest; witnesses do that.
+  - A token proves nothing about entries after its checkpoint: a ledger can still date them as it likes until a later checkpoint is stamped. Verifiers that rely on time SHOULD require a token on a checkpoint after the event (CexChain's tools take `--min-timestamps`).
+  - A verifier relies on an authority's certificate chain at the token's time. It does not check revocation (CRL or OCSP): a verifier that must, checks the authority's status by other means. An authority whose key leaked can backdate tokens; trusting two authorities, each once, bounds what one can do.
+  - The 60 seconds of the clock rule let an honest ledger whose clock runs a little ahead pass; a ledger whose clock runs further ahead gets tokens it should not keep (section 10.1).
   - CexChain's tools run their clock ahead when `CEXCHAIN_CLOCK_OFFSET` is set (informative; for demonstrations and tests, to try time rules without waiting). A home run ahead records later registration times, fires time rules and expires requests early, and keeps those times: registration times are ordered, so once the offset is gone its new entries carry the latest time it recorded until its real clock passes it. `serve` therefore refuses to start with an offset unless it is given `--allow-clock-offset`, and its status (`/v1/status`, `clock_offset_ms`) shows the offset to anyone who can read it. A client run ahead of its home is refused (a statement issued in the future); a command that writes a ledger directory itself (without `--server`) is that ledger's clock for its writes. The variable is trusted input, like the command line: whoever sets it controls the process. Verifiers cannot tell a clock run ahead from a correct one; witnesses' and parties' own clocks are the check (see above).
 - **Keys.**
   - Actor keys can be rotated, and revocation cascades through delegation chains.
@@ -862,6 +886,7 @@ A server holds the log key to sign checkpoints, receipts, and evidence. Across a
 | `protocol-v0.8.json` | requests and answers (section 15): a requesting contract; requests and their ids; answers done, failed, and expired, by a device, an AI agent, a keeper, and a person by hand, on time and late, some making new requests; answers the rules refuse (a second answer, expired too early, an unknown request or another instance's, a function that is not the reply, consents cited, outside scope keys 8 and 9, rejected by the contract, malformed); the limits (17 requests in a call, a 65th open request, 4,096 bytes of params, deadlines, replies) and malformed requests; scope keys 8 and 9 and their narrowing; a final instance that takes answers and refuses the rest; requests on a creation that also creates a child; the state, the log, and signed evidence showing answered, open, and overdue requests, with an outside response committed by salted digest |
 | `protocol-v0.9.json` | the generic core (v0.9): a record of a user's type endorsed in several roles, refused a transition and a repeated endorsement, and revoked; the four mechanism types through their lifecycles, refusing endorsements and transitions they do not define; statements of type 20 and a scope naming it, which do not parse; registrations of the six removed types, of an invented `cexchain.` type, and of a version the protocol does not define, refused; the state and the log under a checkpoint |
 | `protocol-v0.10.json` | versions (v0.10): a chain of three versions across two record types, a revoked version superseded, a version endorsed and revoked after it was superseded, and a version registered by the organization over a delegated one; refused: a record superseded twice, an unknown record, a mechanism type on either side, a scope that does not cover the old type; the state, whose leaves list the superseding registration in both histories, and the log under a checkpoint |
+| `protocol-v0.11.json` | time-stamp tokens (v0.11): RFC 3161 tokens by OpenSSL's responder over the checkpoints of `protocol-v0.10.json`, one per hash, each with its imprint, time, accuracy, and authority, under a root and authority certificate made by Python's `cryptography` |
 | `vm-v1.json` | contract execution (section 14): modules in and out of the profile, invocations with their outputs, traps, and fuel, and random integer programs, all from an independent reference interpreter (`tools/testvectors/wasm_ref.py`) |
 | `bo-v1.json` | the Bo language ([`bo.md`](bo.md), section 18): contracts' sources in each language, their interfaces and bo-source bundles, the code `cexchain-bo` builds and its bounds (informative), calls with their outcomes (normative; answers to requests among them, with input key 9, and accepts with key 7), and sources that must not build with their errors' codes |
 

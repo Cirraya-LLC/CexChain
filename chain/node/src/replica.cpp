@@ -470,6 +470,48 @@ Result<SyncReport> sync_replica(const Client& primary, ledger::Ledger& replica,
         }
     }
 
+    // Time-stamp tokens (v0.11), each checked as the primary kept it: over a
+    // checkpoint the replica holds, verifying with its signing certificate.
+    // One over a checkpoint not copied yet waits for the next sync; a primary
+    // from before tokens answers 404 and keeps none.
+    for (std::uint64_t start = replica.timestamp_count();;) {
+        auto tokens =
+            fetch_array(primary, std::format("/v1/timestamps?start={}&count={}", start, batch));
+        if (!tokens) {
+            if (tokens.error().code == Errc::not_found) {
+                break;
+            }
+            return std::unexpected(tokens.error());
+        }
+        bool waiting = false;
+        for (const cbor::Value& item : *tokens) {
+            const cbor::Array* parts = item.as_array();
+            if (parts == nullptr || parts->size() != 2 || (*parts)[0].as_bytes() == nullptr ||
+                (*parts)[1].as_bytes() == nullptr) {
+                return fail(Errc::verification_failed, "the primary sent a malformed token");
+            }
+            auto checkpoint = protocol::parse_checkpoint(*(*parts)[0].as_bytes());
+            if (!checkpoint) {
+                return fail(Errc::verification_failed, "the primary sent a malformed token");
+            }
+            auto s =
+                replica.add_timestamp(*(*parts)[1].as_bytes(), checkpoint->checkpoint.tree_size);
+            if (!s && s.error().code == Errc::not_found) {
+                waiting = true;
+                break;
+            }
+            if (!s) {
+                return fail(Errc::verification_failed,
+                            "the primary sent a time-stamp token that fails");
+            }
+            ++report.timestamps;
+        }
+        if (waiting || tokens->size() < batch) {
+            break;
+        }
+        start += tokens->size();
+    }
+
     // The entries past the last checkpoint, for a client's mirror.
     while (options.tail && replica.size() < report.primary_size) {
         const std::uint64_t at = replica.size();

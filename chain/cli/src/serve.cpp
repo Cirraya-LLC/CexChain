@@ -161,6 +161,18 @@ int serve(const Args& args, const ServeDefaults& defaults) {
         throw UsageError{"--checkpoint-interval needs --log-key"};
     }
     options.checkpoint_interval = std::chrono::seconds(interval);
+    if (const auto tsa = args.get("tsa")) {
+        options.timestamp_authority = *tsa;
+        if (const auto every = args.get("timestamp-interval")) {
+            options.timestamp_interval =
+                std::chrono::seconds(parse_number(*every, "--timestamp-interval"));
+            if (options.timestamp_interval.count() == 0) {
+                throw UsageError{"--timestamp-interval must be at least one second"};
+            }
+        }
+    } else if (args.has("timestamp-interval")) {
+        throw UsageError{"--timestamp-interval needs --tsa"};
+    }
     options.version = CEXCHAIN_VERSION;
     options.event_log = &std::cerr;
     if (args.has("witness-dir") != args.has("witness-key")) {
@@ -328,6 +340,9 @@ int serve(const Args& args, const ServeDefaults& defaults) {
                      {"read_only", options.read_only || api->is_replica()},
                      {"log_key", !options.log_keys.empty()},
                      {"checkpoint_interval", interval},
+                     {"timestamp_authority", options.timestamp_authority.empty()
+                                                 ? Json(nullptr)
+                                                 : Json(options.timestamp_authority)},
                      {"keeper", options.keeper != nullptr},
                      {"clock_offset_ms", ledger::SystemClock::offset()}};
         if (served_too) {

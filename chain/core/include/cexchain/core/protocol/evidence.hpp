@@ -44,6 +44,27 @@ struct AttachmentOpening {
     friend bool operator==(const AttachmentOpening&, const AttachmentOpening&) = default;
 };
 
+/// A checkpoint at or before the bundle's, with time-stamp tokens over its
+/// payload (v0.11): a time-stamp authority's word on when the entries below
+/// its size existed.
+struct Anchor {
+    /// The signed checkpoint.
+    Bytes checkpoint;
+    /// RFC 3161 TimeStampTokens (DER) whose message imprint is the ledger's
+    /// hash of the checkpoint's payload, the bytes witnesses cosign.
+    std::vector<Bytes> timestamps;
+    /// The RFC 9162 consistency proof from its size to the size of the
+    /// bundle's checkpoint; empty when the two are the same checkpoint.
+    std::vector<crypto::Digest> consistency;
+
+    friend bool operator==(const Anchor&, const Anchor&) = default;
+};
+
+/// How much later than a trusted time-stamp authority's time (plus the
+/// accuracy it states) the ledger may date what that authority saw: the
+/// ledger's clock and the authority's may disagree by this much (v0.11).
+inline constexpr Timestamp timestamp_clock_slack = 60'000;
+
 struct EvidenceBundle {
     /// The record this bundle is about.
     Id record;
@@ -58,6 +79,8 @@ struct EvidenceBundle {
     /// Proofs against the checkpoint's state root of the complete history of
     /// every object involved (see `involved_objects`).
     std::vector<StateProof> state_proofs;
+    /// Time-stamped checkpoints at or before `checkpoint` (v0.11).
+    std::vector<Anchor> anchors;
 
     friend bool operator==(const EvidenceBundle&, const EvidenceBundle&) = default;
 };
@@ -120,6 +143,8 @@ private:
                                                    std::span<const ByteView> parts) const override;
     [[nodiscard]] Status do_verify(const crypto::PublicKey& key, ByteView message,
                                    ByteView signature) const override;
+    [[nodiscard]] Result<crypto::TimestampToken>
+    do_read_timestamp(ByteView token, std::span<const Bytes> trusted_roots) const override;
 
     const crypto::Provider& provider_;
     SignatureChecks& checks_;
@@ -132,6 +157,10 @@ struct VerifyOptions {
     /// Witness keys the verifier trusts. Cosignatures by other keys are
     /// counted but not relied on.
     std::vector<crypto::PublicKey> trusted_witnesses;
+    /// Root certificates (DER) of the time-stamp authorities the verifier
+    /// trusts (v0.11). Tokens that chain to no such root are counted but not
+    /// relied on.
+    std::vector<Bytes> trusted_timestamp_roots;
     /// Attachment contents to check, by attachment name.
     std::map<std::string, Bytes> attachment_contents;
     /// Signatures checked ahead of time or remembered, asked before each
@@ -220,6 +249,10 @@ struct RecordEvent {
     /// For the registration of a new version that superseded the record
     /// (v0.10): that record's id (`detail` is its type).
     std::optional<Id> new_version;
+    /// The time by which a trusted time-stamp authority saw a checkpoint
+    /// covering this event (v0.11), the earliest if several did: its time
+    /// plus the accuracy it states.
+    std::optional<Timestamp> existed_by;
 
     friend bool operator==(const RecordEvent&, const RecordEvent&) = default;
 };
@@ -304,6 +337,21 @@ struct AttachmentCheck {
     friend bool operator==(const AttachmentCheck&, const AttachmentCheck&) = default;
 };
 
+/// A time-stamp token in the bundle, as checked (v0.11).
+struct TimestampCheck {
+    /// The tree size of the checkpoint it stamps.
+    std::uint64_t size = 0;
+    /// The authority's time and the accuracy it states (milliseconds).
+    Timestamp time = 0;
+    std::uint64_t accuracy = 0;
+    /// The authority, as its signing certificate names it.
+    std::string authority;
+    /// It chains to a root the verifier trusts.
+    bool trusted = false;
+
+    friend bool operator==(const TimestampCheck&, const TimestampCheck&) = default;
+};
+
 struct EvidenceReport {
     Id ledger_id;
     std::string organization;
@@ -316,6 +364,10 @@ struct EvidenceReport {
     std::size_t root_key_rotations = 0;
     std::size_t trusted_cosignatures = 0;
     std::size_t untrusted_cosignatures = 0;
+    /// The bundle's time-stamp tokens (v0.11), in its order, and how many
+    /// authorities it holds a trusted token of (each counted once).
+    std::vector<TimestampCheck> timestamps;
+    std::size_t trusted_timestamp_authorities = 0;
 
     /// The record, or the instance, the bundle is about.
     Id record;

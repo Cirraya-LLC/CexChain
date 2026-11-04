@@ -39,6 +39,7 @@ struct SyncReport {
     std::uint64_t entries = 0;
     std::uint64_t checkpoints = 0;
     std::uint64_t cosignatures = 0;
+    std::uint64_t timestamps = 0;
     std::uint64_t vault_files = 0;
     /// The replica's size afterwards, and the primary's when asked.
     std::uint64_t size = 0;
@@ -71,7 +72,8 @@ create_replica(const Client& primary, ledger::FileSystem& fs, ledger::Clock& clo
 /// each is re-validated as it is). Entries no checkpoint covers yet are not
 /// copied, so a replica holds only what the log key signed, and trails the
 /// primary by its checkpoint interval. Then witness cosignatures (from at
-/// most 64 witnesses) and the sealed vault data of records new since the
+/// most 64 witnesses), time-stamp tokens over the checkpoints it holds, and
+/// the sealed vault data of records new since the
 /// last sync (written under `directory`/vault, the key last; all of it again
 /// after the vault key changed). Everything taken so far stays if it
 /// fails. Fails with Errc::verification_failed if the primary's history is

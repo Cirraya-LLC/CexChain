@@ -176,12 +176,17 @@ Result<BackupSummary> write_backup(const Ledger& ledger, const crypto::Provider&
     if (!cosignatures) {
         return std::unexpected(cosignatures.error());
     }
+    auto timestamps = ledger.timestamps();
+    if (!timestamps) {
+        return std::unexpected(timestamps.error());
+    }
     BackupSummary summary;
     summary.ledger_id = ledger.id();
     summary.created = created;
     summary.entries = ledger.size();
     summary.checkpoints = checkpoints->size();
     summary.cosignatures = cosignatures->size();
+    summary.timestamps = timestamps->size();
     summary.files = files.size();
     summary.is_signed = log_key != nullptr;
     Writer writer(out, provider);
@@ -195,6 +200,7 @@ Result<BackupSummary> write_backup(const Ledger& ledger, const crypto::Provider&
             entry(7, cbor::Value::unsigned_integer(summary.checkpoints)),
             entry(8, cbor::Value::unsigned_integer(summary.cosignatures)),
             entry(9, cbor::Value::unsigned_integer(summary.files)),
+            entry(10, cbor::Value::unsigned_integer(summary.timestamps)),
         }));
         !s) {
         return std::unexpected(s.error());
@@ -224,6 +230,15 @@ Result<BackupSummary> write_backup(const Ledger& ledger, const crypto::Provider&
     for (const auto& c : *cosignatures) {
         if (auto s = writer.write(cbor::Value::array(
                 {cbor::Value::bytes(c.encoded), protocol::encode_public_key(c.witness)}));
+            !s) {
+            return std::unexpected(s.error());
+        }
+    }
+    // Time-stamp tokens (v0.11): [token, checkpoint size].
+    for (const auto& t : *timestamps) {
+        if (auto s = writer.write(cbor::Value::array(
+                {cbor::Value::bytes(t.token),
+                 cbor::Value::unsigned_integer(t.checkpoint.checkpoint.tree_size)}));
             !s) {
             return std::unexpected(s.error());
         }
@@ -276,6 +291,8 @@ Result<BackupSummary> restore_backup(std::istream& in, FileSystem& fs, Clock& cl
     const auto checkpoints = uint_at(*map, 7);
     const auto cosignatures = uint_at(*map, 8);
     const auto files = uint_at(*map, 9);
+    // Backups from before time-stamp tokens have no count: none.
+    const std::uint64_t timestamps = uint_at(*map, 10).value_or(0);
     if (!created || !entries || !checkpoints || !cosignatures || !files || *entries == 0 ||
         header_id == nullptr || header_id->as_bytes() == nullptr || header_hash == nullptr ||
         !header_hash->as_int64()) {
@@ -400,6 +417,18 @@ Result<BackupSummary> restore_backup(std::istream& in, FileSystem& fs, Clock& cl
             return fail(Errc::verification_failed, "a cosignature in the backup does not verify");
         }
     }
+    for (std::uint64_t i = 0; i < timestamps; ++i) {
+        auto item = reader.next();
+        const cbor::Array* parts = item ? item->as_array() : nullptr;
+        if (parts == nullptr || parts->size() != 2 || (*parts)[0].as_bytes() == nullptr ||
+            !(*parts)[1].as_uint64()) {
+            return fail(Errc::malformed, "the backup holds a malformed time-stamp token");
+        }
+        if (auto s = ledger->add_timestamp(*(*parts)[0].as_bytes(), *(*parts)[1].as_uint64()); !s) {
+            return fail(Errc::verification_failed,
+                        "a time-stamp token in the backup does not verify");
+        }
+    }
     std::vector<BackupFile> held;
     for (std::uint64_t i = 0; i < *files; ++i) {
         auto item = reader.next();
@@ -442,6 +471,7 @@ Result<BackupSummary> restore_backup(std::istream& in, FileSystem& fs, Clock& cl
     summary.created = *created;
     summary.checkpoints = *checkpoints;
     summary.cosignatures = *cosignatures;
+    summary.timestamps = timestamps;
     summary.is_signed = signature != nullptr;
     if (summary.is_signed) {
         for (std::size_t at = 0; at < tail.size(); at += restore_batch) {

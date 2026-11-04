@@ -4,6 +4,7 @@
 // Clusters, in one process: three nodes on loopback, each with its
 // own ledger directory and Raft port.
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -25,6 +26,7 @@
 #include "cluster_parts.hpp"
 #include "support/ledger_world.hpp"
 #include "support/ports.hpp"
+#include "support/timestamp_authority.hpp"
 #include "support/vectors.hpp"
 
 namespace {
@@ -346,6 +348,22 @@ TEST_CASE("a cluster replicates writes and survives its leader", "[node][cluster
         return true;
     }));
 
+    // A time-stamp token over it, kept on every node through Raft.
+    const TimestampAuthority authority;
+    const auto digest = provider().digest(crypto::HashAlg::sha256, *checkpoint->envelope.payload);
+    REQUIRE(digest);
+    const Bytes token =
+        authority.token(crypto::HashAlg::sha256, digest->bytes(), checkpoint->checkpoint.timestamp);
+    REQUIRE(eventually([&] {
+        Node* leader = trio.leader();
+        return leader != nullptr &&
+               leader->cluster->add_timestamp(token, checkpoint->checkpoint.tree_size).has_value();
+    }));
+    CHECK(eventually([&] {
+        return std::ranges::all_of(trio.nodes,
+                                   [](const auto& n) { return n->ledger->timestamp_count() == 1; });
+    }));
+
     // Followers do not take writes, and know where the leader is.
     CHECK(eventually([&] {
         Node* leader = trio.leader();
@@ -398,6 +416,19 @@ TEST_CASE("a node far behind gets the ledger itself as a snapshot", "[node][clus
     }));
     trio.write(2, t0 + 20000);
     REQUIRE(eventually([&] { return trio.agree(); }));
+    // A time-stamp token over the checkpoint: the snapshot carries it.
+    const TimestampAuthority authority;
+    const auto stamped = trio.leader()->ledger->latest_checkpoint();
+    REQUIRE(stamped);
+    const auto digest = provider().digest(crypto::HashAlg::sha256, *stamped->envelope.payload);
+    REQUIRE(digest);
+    const Bytes token =
+        authority.token(crypto::HashAlg::sha256, digest->bytes(), stamped->checkpoint.timestamp);
+    REQUIRE(eventually([&] {
+        Node* leader = trio.leader();
+        return leader != nullptr &&
+               leader->cluster->add_timestamp(token, stamped->checkpoint.tree_size).has_value();
+    }));
 
     // A contract call with its consent, kept on every node, and a call a
     // registrar holds.
@@ -415,8 +446,10 @@ TEST_CASE("a node far behind gets the ledger itself as a snapshot", "[node][clus
     auto& late = *trio.nodes[2];
     REQUIRE(eventually(
         [&] { return late.ledger->size() == trio.leader()->ledger->size() && trio.agree(); }));
-    // Checkpoints and private data come along (after the entries).
+    // Checkpoints, time-stamp tokens, and private data come along (after the
+    // entries).
     CHECK(eventually([&] { return late.ledger->latest_checkpoint().has_value(); }));
+    CHECK(eventually([&] { return late.ledger->timestamp_count() == 1; }));
     CHECK(eventually([&] {
         std::size_t files = 0;
         for (const auto& f : std::filesystem::directory_iterator(late.dir / "vault" / "records")) {

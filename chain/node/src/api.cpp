@@ -32,6 +32,7 @@
 #include <cexchain/node/peers.hpp>
 #include <cexchain/node/record_files.hpp>
 #include <cexchain/node/responses.hpp>
+#include <cexchain/node/timestamps.hpp>
 #include <cexchain/node/tokens.hpp>
 
 #include "files.hpp"
@@ -169,6 +170,9 @@ enum class Endpoint {
     checkpoints,
     cosignatures,
     add_cosignature,
+    /// GET and POST /v1/timestamps: time-stamp tokens over checkpoints (v0.11).
+    timestamps,
+    add_timestamp,
     inclusion,
     submit,
     statement,
@@ -418,6 +422,16 @@ struct LedgerApi::State {
     /// once a slice is done.
     std::condition_variable keeper_wake;
     std::thread keeper_thread;
+    /// The stamper (ApiOptions::timestamp_authority): asks the authority for a
+    /// token over the latest checkpoint every interval, on its own thread,
+    /// and keeps it through the writer.
+    std::mutex stamper_mutex;
+    std::condition_variable stamper_wake;
+    std::thread stamper_thread;
+    bool stamper_stopping = false;
+    std::atomic<bool> stamper_stop{false};
+    std::atomic<std::uint64_t> timestamps_kept{0};
+    std::atomic<std::uint64_t> timestamp_failures{0};
     /// When the last whole scan ended (the epoch: none yet).
     steady::time_point keeper_last{};
     /// Where the next slice starts (instances in log order), and whether it
@@ -456,6 +470,60 @@ struct LedgerApi::State {
         if (options.keeper && !replica && !options.read_only) {
             keeper_thread = std::thread([this] { run_keeper(); });
         }
+        if (!options.timestamp_authority.empty() && !replica && !options.read_only) {
+            stamper_thread = std::thread([this] { run_stamper(); });
+        }
+    }
+
+    /// The stamper's loop: a token over the latest checkpoint at once, then
+    /// every interval, unless one of this ledger's tokens covers it already.
+    void run_stamper() {
+        std::unique_lock lock(stamper_mutex);
+        while (!stamper_stopping) {
+            lock.unlock();
+            stamp_latest();
+            lock.lock();
+            stamper_wake.wait_for(lock, options.timestamp_interval,
+                                  [&] { return stamper_stopping; });
+        }
+    }
+
+    void stamp_latest() {
+        if (failed || (cluster && !cluster->leads())) {
+            return;
+        }
+        const auto latest = ledger->latest_checkpoint();
+        if (!latest) {
+            return;
+        }
+        auto stored = ledger->timestamps();
+        if (!stored || std::ranges::any_of(*stored, [&](const ledger::StoredTimestamp& t) {
+                return t.checkpoint.encoded == latest->encoded;
+            })) {
+            return;
+        }
+        ClientOptions client;
+        client.stop = &stamper_stop;
+        auto token = request_timestamp(*provider, options.timestamp_authority, ledger->hash(),
+                                       *latest, client);
+        if (!token) {
+            ++timestamp_failures;
+            event("timestamp-failed", token.error().detail);
+            return;
+        }
+        const std::uint64_t size = latest->checkpoint.tree_size;
+        Status kept = fail(Errc::unavailable, "the writer is busy or stopping");
+        on_writer([&] {
+            kept = cluster ? cluster->add_timestamp(*token, size)
+                           : ledger->add_timestamp(*token, size);
+        });
+        if (!kept) {
+            ++timestamp_failures;
+            event("timestamp-failed", kept.error().detail);
+            return;
+        }
+        ++timestamps_kept;
+        event("timestamp", std::format("checkpoint size {}", size));
     }
 
     /// Waits until everything queued so far is done: the keeper's slice
@@ -472,7 +540,7 @@ struct LedgerApi::State {
     }
 
     void stop() {
-        // The keeper first: its slice may wait for the writer.
+        // The keeper and the stamper first: they may wait for the writer.
         {
             const std::lock_guard lock(keeper_mutex);
             keeper_stopping = true;
@@ -480,6 +548,15 @@ struct LedgerApi::State {
         keeper_wake.notify_all();
         if (keeper_thread.joinable()) {
             keeper_thread.join();
+        }
+        {
+            const std::lock_guard lock(stamper_mutex);
+            stamper_stopping = true;
+        }
+        stamper_stop = true;
+        stamper_wake.notify_all();
+        if (stamper_thread.joinable()) {
+            stamper_thread.join();
         }
         {
             const std::lock_guard lock(queue_mutex);
@@ -1208,6 +1285,24 @@ struct LedgerApi::State {
         for (const auto& s : *page) {
             out.push_back(cbor::Value::array(
                 {cbor::Value::bytes(s.encoded), protocol::encode_public_key(s.witness)}));
+        }
+        return cbor_response(cbor::Value::array(std::move(out)));
+    }
+
+    /// Time-stamp tokens (v0.11), a page at a time: [checkpoint, token] each.
+    http::Response timestamps(const http::Request& r) const {
+        const auto span = range(r, ledger->timestamp_count());
+        if (!span) {
+            return error_response(400, "invalid_argument", "start <= count and 0 < count");
+        }
+        auto page = ledger->timestamps(span->first, span->second - span->first);
+        if (!page) {
+            return error_response(page.error());
+        }
+        cbor::Array out;
+        for (const auto& t : *page) {
+            out.push_back(cbor::Value::array(
+                {cbor::Value::bytes(t.checkpoint.encoded), cbor::Value::bytes(t.token)}));
         }
         return cbor_response(cbor::Value::array(std::move(out)));
     }
@@ -2805,6 +2900,32 @@ struct LedgerApi::State {
         });
     }
 
+    /// POST /v1/timestamps: [token, checkpoint size], kept as
+    /// Ledger::add_timestamp does.
+    void add_timestamp(const http::Request& r, std::string principal, Done& done) {
+        auto value = cbor::decode(r.body);
+        const cbor::Array* parts = value ? value->as_array() : nullptr;
+        if (parts == nullptr || parts->size() != 2 || (*parts)[0].as_bytes() == nullptr ||
+            !(*parts)[1].as_uint64()) {
+            finish(done, principal,
+                   error_response(400, "malformed", "send [time-stamp token, checkpoint size]"));
+            return;
+        }
+        queue_locked([this, token = Bytes(*(*parts)[0].as_bytes()), size = *(*parts)[1].as_uint64(),
+                      principal = std::move(principal),
+                      done = std::move(done)](const http::Response* refusal) mutable {
+            if (refusal != nullptr) {
+                finish(done, principal, *refusal);
+                return;
+            }
+            auto stored =
+                cluster ? cluster->add_timestamp(token, size) : ledger->add_timestamp(token, size);
+            finish(done, principal,
+                   stored ? json_response(200, {{"stored", true}})
+                          : error_response(stored.error()));
+        });
+    }
+
     /// From tick(): checkpoints when the interval has passed and the log has
     /// grown.
     void auto_checkpoint() {
@@ -3212,6 +3333,15 @@ struct LedgerApi::State {
                                keeper_refusals.load(std::memory_order_relaxed),
                                keeper_rules.load(std::memory_order_relaxed));
         }
+        if (!options.timestamp_authority.empty()) {
+            out += std::format(
+                "# HELP cexchain_timestamps_total Tokens asked of the time-stamp authority.\n"
+                "# TYPE cexchain_timestamps_total counter\n"
+                "cexchain_timestamps_total{{outcome=\"kept\"}} {}\n"
+                "cexchain_timestamps_total{{outcome=\"failed\"}} {}\n",
+                timestamps_kept.load(std::memory_order_relaxed),
+                timestamp_failures.load(std::memory_order_relaxed));
+        }
         out += std::format("# HELP cexchain_auto_checkpoints_total Automatic checkpoints.\n"
                            "# TYPE cexchain_auto_checkpoints_total counter\n"
                            "cexchain_auto_checkpoints_total {}\n",
@@ -3355,6 +3485,9 @@ struct LedgerApi::State {
         } else if (path == "/v1/cosignatures") {
             found = post ? Routed{Endpoint::add_cosignature, Access::admin}
                          : Routed{Endpoint::cosignatures, Access::read};
+        } else if (path == "/v1/timestamps") {
+            found = post ? Routed{Endpoint::add_timestamp, Access::admin}
+                         : Routed{Endpoint::timestamps, Access::read};
         } else {
             static constexpr std::array<std::pair<std::string_view, Endpoint>, 6> fixed{{
                 {"/metrics", Endpoint::metrics},
@@ -3396,6 +3529,7 @@ struct LedgerApi::State {
             found->endpoint != Endpoint::vault_file_delete) {
             const bool posts = found->endpoint == Endpoint::make_checkpoint ||
                                found->endpoint == Endpoint::add_cosignature ||
+                               found->endpoint == Endpoint::add_timestamp ||
                                found->endpoint == Endpoint::cluster_add ||
                                found->endpoint == Endpoint::cluster_remove ||
                                found->endpoint == Endpoint::cluster_step_down;
@@ -3433,6 +3567,8 @@ struct LedgerApi::State {
             return checkpoints(r);
         case Endpoint::cosignatures:
             return cosignatures(r);
+        case Endpoint::timestamps:
+            return timestamps(r);
         case Endpoint::inclusion:
             return inclusion(r);
         case Endpoint::statement:
@@ -3489,6 +3625,7 @@ struct LedgerApi::State {
         case Endpoint::contract_consent:
         case Endpoint::make_checkpoint:
         case Endpoint::add_cosignature:
+        case Endpoint::add_timestamp:
         case Endpoint::submit:
         case Endpoint::cluster_add:
         case Endpoint::cluster_remove:
@@ -3630,6 +3767,7 @@ struct LedgerApi::State {
         const bool writes = routed.endpoint == Endpoint::submit ||
                             routed.endpoint == Endpoint::make_checkpoint ||
                             routed.endpoint == Endpoint::add_cosignature ||
+                            routed.endpoint == Endpoint::add_timestamp ||
                             routed.endpoint == Endpoint::call_propose ||
                             routed.endpoint == Endpoint::contract_consent || cluster_write;
         if (writes && cluster_write && !cluster) {
@@ -3671,6 +3809,8 @@ struct LedgerApi::State {
                 submit(r, std::move(principal), scopes, done);
             } else if (routed.endpoint == Endpoint::make_checkpoint) {
                 make_checkpoint(std::move(principal), done);
+            } else if (routed.endpoint == Endpoint::add_timestamp) {
+                add_timestamp(r, std::move(principal), done);
             } else {
                 add_cosignature(r, std::move(principal), done);
             }

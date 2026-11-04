@@ -132,6 +132,18 @@ Bytes encode_public_key_file(const crypto::PublicKey& key) {
     return unwrap(cbor::encode(protocol::encode_public_key(key)), "encoding the public key");
 }
 
+std::vector<Bytes> load_certificates(std::span<const std::string> paths) {
+    std::vector<Bytes> out;
+    for (const std::string& path : paths) {
+        auto read = crypto::openssl::read_certificates(read_file(path));
+        if (!read) {
+            throw ActionError{path + ": " + std::string(read.error().detail)};
+        }
+        out.insert(out.end(), read->begin(), read->end());
+    }
+    return out;
+}
+
 crypto::PublicKey load_public_key(const std::filesystem::path& path) {
     const Bytes content = read_file(path);
     if (const auto value = cbor::decode(content)) {

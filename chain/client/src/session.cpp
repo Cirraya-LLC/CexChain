@@ -710,6 +710,20 @@ void Session::add_cosignature(ByteView cosignature, const crypto::PublicKey& wit
     sync();
 }
 
+void Session::add_timestamp(ByteView token, std::uint64_t size) {
+    if (!remote_) {
+        require_primary();
+        unwrap(ledger_->add_timestamp(token, size), "storing the time-stamp token");
+        return;
+    }
+    const Bytes body =
+        unwrap(cbor::encode(cbor::Value::array(
+                   {cbor::Value::bytes(token), cbor::Value::unsigned_integer(size)})),
+               "encoding the time-stamp token");
+    static_cast<void>(call("POST", "/v1/timestamps", body, "application/cbor"));
+    sync();
+}
+
 bool Session::fetch_vault(const protocol::Id& record) const {
     if (!remote_ || std::filesystem::exists(vault_path(record))) {
         return true;

@@ -8,6 +8,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -70,6 +71,10 @@ void save_key(const std::filesystem::path& path, const crypto::openssl::KeyPair&
 /// Loads a public key file. Private key files are refused, so that verifiers
 /// never need anyone's private key.
 [[nodiscard]] crypto::PublicKey load_public_key(const std::filesystem::path& path);
+/// The certificates in these files (each PEM, with one or more, or one DER
+/// certificate), as DER: the roots of the time-stamp authorities a verifier
+/// trusts (spec v0.11).
+[[nodiscard]] std::vector<Bytes> load_certificates(std::span<const std::string> paths);
 
 [[nodiscard]] Bytes hash_text(const crypto::Provider& provider, crypto::HashAlg hash,
                               std::string_view text);

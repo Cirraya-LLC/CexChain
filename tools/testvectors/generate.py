@@ -3495,6 +3495,94 @@ def generate_protocol_v10() -> None:
           f"{len(first['records'])} records")
 
 
+def generate_protocol_v11(openssl: str) -> None:
+    """Time-stamp tokens over checkpoints (spec v0.11): a time-stamp
+    authority's root and certificate made with `cryptography`, its tokens made
+    by OpenSSL's command-line responder over the payloads of the v0.10
+    vectors' checkpoints."""
+    import datetime
+    from cryptography import x509
+    from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
+
+    v10 = json.loads((OUT / "protocol-v0.10.json").read_text())
+    root_key = ec.derive_private_key(int.from_bytes(hashlib.sha256(b"CexChain test key: tsa_root").digest(), "big")
+                                     % (2**255), ec.SECP256R1())
+    tsa_key = ec.derive_private_key(int.from_bytes(hashlib.sha256(b"CexChain test key: tsa").digest(), "big")
+                                    % (2**255), ec.SECP256R1())
+    start = datetime.datetime(2020, 1, 1, tzinfo=datetime.timezone.utc)
+    end = datetime.datetime(2040, 1, 1, tzinfo=datetime.timezone.utc)
+    root_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Test TSA Root")])
+    tsa_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Test TSA")])
+    root = (x509.CertificateBuilder().subject_name(root_name).issuer_name(root_name)
+            .public_key(root_key.public_key()).serial_number(1).not_valid_before(start).not_valid_after(end)
+            .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+            .add_extension(x509.KeyUsage(False, False, False, False, False, True, True, False, False), critical=True)
+            .sign(root_key, hashes.SHA256()))
+    tsa = (x509.CertificateBuilder().subject_name(tsa_name).issuer_name(root_name)
+           .public_key(tsa_key.public_key()).serial_number(2).not_valid_before(start).not_valid_after(end)
+           .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+           .add_extension(x509.KeyUsage(True, False, False, False, False, False, False, False, False), critical=True)
+           .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.TIME_STAMPING]), critical=True)
+           .sign(root_key, hashes.SHA256()))
+    pem = serialization.Encoding.PEM
+    cases = []
+    with tempfile.TemporaryDirectory() as tmp:
+        d = pathlib.Path(tmp)
+        (d / "root.pem").write_bytes(root.public_bytes(pem))
+        (d / "tsa.pem").write_bytes(tsa.public_bytes(pem))
+        (d / "tsa.key").write_bytes(tsa_key.private_bytes(pem, serialization.PrivateFormat.PKCS8,
+                                                           serialization.NoEncryption()))
+        (d / "serial").write_text("01\n")
+        (d / "tsa.cnf").write_text(
+            "[ tsa ]\ndefault_tsa = c\n[ c ]\n"
+            f"serial = {d / 'serial'}\nsigner_cert = {d / 'tsa.pem'}\ncerts = {d / 'root.pem'}\n"
+            f"signer_key = {d / 'tsa.key'}\nsigner_digest = sha256\ndefault_policy = 1.2.3.4.1\n"
+            "digests = sha256, sm3\naccuracy = secs:1\nclock_precision_digits = 3\ness_cert_id_alg = sha256\n")
+        for lg in v10["ledgers"]:
+            checkpoint = bytes.fromhex(lg["checkpoint"])
+            sign1 = cbor2.loads(checkpoint)
+            sign1 = sign1.value if isinstance(sign1, cbor2.CBORTag) else sign1
+            payload = sign1[2]
+            name = HASHES[lg["hash"]]
+            imprint = hashlib.new(name, payload).digest()
+            subprocess.run([openssl, "ts", "-query", "-digest", imprint.hex(), f"-{name}", "-cert",
+                            "-out", str(d / "q")], check=True, capture_output=True)
+            subprocess.run([openssl, "ts", "-reply", "-config", str(d / "tsa.cnf"), "-queryfile", str(d / "q"),
+                            "-token_out", "-out", str(d / "token")], check=True, capture_output=True)
+            text = subprocess.run([openssl, "ts", "-reply", "-in", str(d / "token"), "-token_in", "-text"],
+                                  check=True, capture_output=True, text=True).stdout
+            stamped = re.search(r"Time stamp: (.+) GMT", text).group(1)
+            when = datetime.datetime.strptime(" ".join(stamped.split()), "%b %d %H:%M:%S.%f %Y")
+            time_ms = int(when.replace(tzinfo=datetime.timezone.utc).timestamp() * 1000)
+            cases.append({
+                "hash": lg["hash"],
+                "ledger_id": lg["ledger_id"],
+                "checkpoint": checkpoint.hex(),
+                "imprint": imprint.hex(),
+                "token": (d / "token").read_bytes().hex(),
+                "time": time_ms,
+                "accuracy": 1000,
+                "authority": "CN=Test TSA",
+            })
+    document = {
+        "description": "Time-stamp tokens of specification revision v0.11: RFC 3161 TimeStampTokens over the "
+                       "payloads of the signed checkpoints of protocol-v0.10.json, one per ledger (SHA-256 and "
+                       "SM3). `imprint` is the ledger's hash of the checkpoint's COSE payload, which the token's "
+                       "message imprint must equal; `time` (Unix milliseconds) and `accuracy` (milliseconds) are "
+                       "the token's genTime and accuracy; `authority` is its signing certificate's subject "
+                       "(RFC 4514). The authority's certificate (`certificate`, critical id-kp-timeStamping) is "
+                       "issued by `root`, which a verifier trusts; both are made by Python's `cryptography` on "
+                       "throwaway P-256 keys, valid 2020-2040, and the tokens by OpenSSL's `openssl ts -reply` "
+                       "(signer digest SHA-256, ESSCertIDv2). A token is valid only for its own checkpoint: the "
+                       "other ledger's token stamps another payload.",
+        "root": root.public_bytes(pem).decode(),
+        "certificate": tsa.public_bytes(pem).decode(),
+        "cases": cases,
+    }
+    (OUT / "protocol-v0.11.json").write_text(json.dumps(document, indent=1) + "\n")
+    print(f"wrote {len(cases)} time-stamp tokens to testvectors/protocol-v0.11.json")
+
+
 # ---------------------------------------------------------------------------
 # Contract execution (spec section 14): the deterministic WebAssembly profile,
 # from the independent reference interpreter in wasm_ref.py
@@ -3954,6 +4042,7 @@ def main() -> None:
     generate_protocol_v08()
     generate_protocol_v09()
     generate_protocol_v10()
+    generate_protocol_v11(args.openssl)
     generate_vm_v1()
 
 

@@ -145,6 +145,8 @@ public:
     /// replicates it; refused while an entry is still on its way.
     [[nodiscard]] Result<protocol::SignedCheckpoint> checkpoint(ledger::LogKeys log_keys);
     [[nodiscard]] Status add_cosignature(ByteView cosignature, const crypto::PublicKey& witness);
+    /// Keeps a time-stamp token over a checkpoint of `size` on every node.
+    [[nodiscard]] Status add_timestamp(ByteView token, std::uint64_t size);
     /// Writes or removes the registrar's pending calls on every node.
     [[nodiscard]] Status change_pending(std::span<const PendingChange> changes);
     [[nodiscard]] Status add_member(const ClusterMember& member);

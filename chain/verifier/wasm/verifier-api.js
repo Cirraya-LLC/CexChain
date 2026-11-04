@@ -8,6 +8,7 @@
 //   const report = verifier.verify(bundleBytes, {
 //     ledgerId: "<64 hex digits>",             // learned out of band
 //     witnesses: [publicKeyFileBytes],         // trusted witness keys
+//     timestampRoots: [certificateFileBytes],  // trusted time-stamp authorities' roots
 //     attachments: { "report.pdf": pdfBytes }, // contents to check
 //   });
 //   report.verified  // true or false; report.error explains a failure
@@ -47,6 +48,11 @@ async function createCexChainVerifier(factory) {
     for (const witness of options.witnesses || []) {
       if (withBytes(witness, (p, n) => module._cexchain_add_witness(p, n)) !== 0) {
         return { verified: false, error: "a witness key file is not a CexChain public key" };
+      }
+    }
+    for (const root of options.timestampRoots || []) {
+      if (withBytes(root, (p, n) => module._cexchain_add_timestamp_root(p, n)) !== 0) {
+        return { verified: false, error: "a time-stamp authority's root is not a certificate (PEM or DER)" };
       }
     }
     for (const [name, content] of Object.entries(options.attachments || {})) {

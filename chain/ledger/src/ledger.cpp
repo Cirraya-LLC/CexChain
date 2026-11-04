@@ -71,6 +71,7 @@ constexpr std::string_view statements_file = "statements";
 constexpr std::uint64_t max_page = 1000;
 constexpr std::string_view checkpoints_file = "checkpoints";
 constexpr std::string_view cosignatures_file = "cosignatures";
+constexpr std::string_view timestamps_file = "timestamps";
 
 // A stored cosignature: [cosignature (COSE_Sign1), witness public key].
 Result<Bytes> encode_stored_cosignature(ByteView cosignature, const crypto::PublicKey& witness) {
@@ -98,15 +99,36 @@ Result<StoredCosignature> decode_stored_cosignature(ByteView bytes) {
     return StoredCosignature{*(*parts)[0].as_bytes(), std::move(*cosignature), std::move(*witness)};
 }
 
+// A stored time-stamp token (v0.11): [the checkpoint it stamps, token].
+Result<Bytes> encode_stored_timestamp(ByteView checkpoint, ByteView token) {
+    return cbor::encode(
+        cbor::Value::array({cbor::Value::bytes(checkpoint), cbor::Value::bytes(token)}));
+}
+
+Result<StoredTimestamp> decode_stored_timestamp(ByteView bytes) {
+    auto value = cbor::decode(bytes);
+    const cbor::Array* parts = value ? value->as_array() : nullptr;
+    if (parts == nullptr || parts->size() != 2 || (*parts)[0].as_bytes() == nullptr ||
+        (*parts)[1].as_bytes() == nullptr) {
+        return fail(Errc::malformed, "a stored time-stamp token is malformed");
+    }
+    auto checkpoint = protocol::parse_checkpoint(*(*parts)[0].as_bytes());
+    if (!checkpoint) {
+        return std::unexpected(checkpoint.error());
+    }
+    return StoredTimestamp{*(*parts)[1].as_bytes(), std::move(*checkpoint)};
+}
+
 } // namespace
 
 struct Ledger::Impl {
     Impl(Clock& clock_, const crypto::Provider& provider_, RecordLog log_, RecordLog checkpoints_,
-         RecordLog cosignatures_, protocol::LedgerState state_, merkle::Tree tree_,
-         protocol::StateTree state_tree_)
+         RecordLog cosignatures_, RecordLog timestamps_, protocol::LedgerState state_,
+         merkle::Tree tree_, protocol::StateTree state_tree_)
         : clock(&clock_), provider(&provider_), log(std::move(log_)),
           checkpoints(std::move(checkpoints_)), cosignatures(std::move(cosignatures_)),
-          state(std::move(state_)), tree(std::move(tree_)), state_tree(std::move(state_tree_)) {}
+          timestamps(std::move(timestamps_)), state(std::move(state_)), tree(std::move(tree_)),
+          state_tree(std::move(state_tree_)) {}
 
     Clock* clock;
     const crypto::Provider* provider;
@@ -122,6 +144,7 @@ struct Ledger::Impl {
     RecordLog log;
     RecordLog checkpoints;
     RecordLog cosignatures;
+    RecordLog timestamps;
     protocol::LedgerState state;
     merkle::Tree tree;
     /// The state tree as of the latest state commitment in the log: what
@@ -856,13 +879,17 @@ Result<Ledger> Ledger::open(FileSystem& fs, Clock& clock, const crypto::Provider
     if (!cosignatures) {
         return std::unexpected(cosignatures.error());
     }
+    auto timestamps = RecordLog::open(fs, timestamps_file);
+    if (!timestamps) {
+        return std::unexpected(timestamps.error());
+    }
     auto state_tree = protocol::StateTree::create(provider, state->hash());
     if (!state_tree) {
         return std::unexpected(state_tree.error());
     }
     auto impl = std::make_unique<Impl>(clock, provider, std::move(*log), std::move(*checkpoints),
-                                       std::move(*cosignatures), std::move(*state), std::move(tree),
-                                       std::move(*state_tree));
+                                       std::move(*cosignatures), std::move(*timestamps),
+                                       std::move(*state), std::move(tree), std::move(*state_tree));
     impl->last_registered_at = first->registered_at;
 
     // Replay: every later entry must pass validation against the state
@@ -1269,6 +1296,11 @@ Result<RefreshReport> Ledger::refresh(FileSystem& fs, bool recover) {
     if (*cosignatures > 0) {
         impl_->cosigned.reset();
     }
+    auto timestamps = impl_->timestamps.refresh(fs, timestamps_file, recover);
+    if (!timestamps) {
+        return std::unexpected(timestamps.error());
+    }
+    report.timestamps = *timestamps;
     const std::uint64_t old_size = impl_->log.count();
     auto added = impl_->log.refresh(fs, statements_file, recover);
     if (!added) {
@@ -1317,7 +1349,8 @@ protocol::LedgerKeys Ledger::keys() const {
 bool Ledger::outdated() const {
     // A refresh swaps the logs' file handles under this lock.
     const std::shared_lock lock(impl_->log_mutex);
-    return impl_->log.outdated() || impl_->checkpoints.outdated() || impl_->cosignatures.outdated();
+    return impl_->log.outdated() || impl_->checkpoints.outdated() ||
+           impl_->cosignatures.outdated() || impl_->timestamps.outdated();
 }
 
 Result<Bytes> Ledger::entry(std::uint64_t index) const {
@@ -1395,6 +1428,55 @@ read_cosignatures(const RecordLog& log, std::uint64_t begin = 0,
         out.push_back(std::move(*stored));
     }
     return out;
+}
+
+Result<std::vector<StoredTimestamp>>
+read_timestamps(const RecordLog& log, std::uint64_t begin = 0,
+                std::uint64_t end = std::numeric_limits<std::uint64_t>::max()) {
+    std::vector<StoredTimestamp> out;
+    for (std::uint64_t i = begin; i < std::min(end, log.count()); ++i) {
+        auto bytes = log.read(i);
+        if (!bytes) {
+            return std::unexpected(bytes.error());
+        }
+        auto stored = decode_stored_timestamp(*bytes);
+        if (!stored) {
+            return std::unexpected(stored.error());
+        }
+        out.push_back(std::move(*stored));
+    }
+    return out;
+}
+
+/// Reads `token` and checks it against `checkpoint`: it verifies with its
+/// signing certificate, its imprint is the ledger's hash of the checkpoint's
+/// payload, and the ledger's clock agrees with the authority's (neither the
+/// checkpoint nor `last_registered_at`, the last entry it covers, is dated
+/// more than the slack after the authority's time).
+Result<crypto::TimestampToken> check_timestamp(const crypto::Provider& provider,
+                                               crypto::HashAlg hash, ByteView token,
+                                               const protocol::SignedCheckpoint& checkpoint,
+                                               protocol::Timestamp last_registered_at) {
+    auto read = provider.read_timestamp(token, {});
+    if (!read) {
+        return std::unexpected(read.error());
+    }
+    if (!checkpoint.envelope.payload) {
+        return fail(Errc::malformed, "the checkpoint has no payload");
+    }
+    auto digest = provider.digest(hash, *checkpoint.envelope.payload);
+    if (!digest) {
+        return std::unexpected(digest.error());
+    }
+    if (read->imprint_alg != hash || !std::ranges::equal(read->imprint, digest->bytes())) {
+        return fail(Errc::verification_failed, "the token does not stamp this checkpoint");
+    }
+    const protocol::Timestamp bound = read->time + read->accuracy + protocol::timestamp_clock_slack;
+    if (checkpoint.checkpoint.timestamp > bound || last_registered_at > bound) {
+        return fail(Errc::rejected, "the ledger dates the checkpoint after the authority's time "
+                                    "(its clock runs ahead): evidence with this token would fail");
+    }
+    return read;
 }
 
 } // namespace
@@ -1563,6 +1645,112 @@ Result<std::vector<StoredCosignature>> Ledger::cosignatures() const {
     return read_cosignatures(impl_->cosignatures);
 }
 
+namespace {
+
+/// The registration time of the last entry a tree of `size` entries holds.
+Result<protocol::Timestamp> last_registered_at(const RecordLog& log, std::uint64_t size) {
+    auto bytes = log.read(size - 1);
+    if (!bytes) {
+        return std::unexpected(bytes.error());
+    }
+    auto entry = protocol::decode_log_entry(*bytes);
+    if (!entry) {
+        return std::unexpected(entry.error());
+    }
+    return entry->registered_at;
+}
+
+} // namespace
+
+Status Ledger::add_timestamp(ByteView token, std::uint64_t size) {
+    impl_->drain(); // pipelined batches first
+    auto read = impl_->provider->read_timestamp(token, {});
+    if (!read) {
+        return std::unexpected(read.error());
+    }
+    if (read->imprint_alg != hash()) {
+        return fail(Errc::verification_failed,
+                    "the token's imprint is not under the ledger's hash");
+    }
+    // The checkpoint of that size it stamps. Only this thread changes the
+    // logs: reading them needs no lock.
+    auto first = first_checkpoint_at_least(impl_->checkpoints, size);
+    if (!first) {
+        return std::unexpected(first.error());
+    }
+    std::optional<protocol::SignedCheckpoint> stamped;
+    for (std::uint64_t i = *first; i < impl_->checkpoints.count() && !stamped; ++i) {
+        auto bytes = impl_->checkpoints.read(i);
+        auto checkpoint = bytes
+                              ? protocol::parse_checkpoint(*bytes)
+                              : Result<protocol::SignedCheckpoint>(std::unexpected(bytes.error()));
+        if (!checkpoint) {
+            return std::unexpected(checkpoint.error());
+        }
+        if (checkpoint->checkpoint.tree_size != size) {
+            break;
+        }
+        if (!checkpoint->envelope.payload) {
+            continue;
+        }
+        auto digest = impl_->provider->digest(hash(), *checkpoint->envelope.payload);
+        if (!digest) {
+            return std::unexpected(digest.error());
+        }
+        if (std::ranges::equal(digest->bytes(), read->imprint)) {
+            stamped = std::move(*checkpoint);
+        }
+    }
+    if (!stamped) {
+        return fail(Errc::not_found, "the token stamps no stored checkpoint of this size");
+    }
+    auto registered_at = last_registered_at(impl_->log, size);
+    if (!registered_at) {
+        return std::unexpected(registered_at.error());
+    }
+    if (auto checked = check_timestamp(*impl_->provider, hash(), token, *stamped, *registered_at);
+        !checked) {
+        return std::unexpected(checked.error());
+    }
+    auto stored = read_timestamps(impl_->timestamps);
+    if (!stored) {
+        return std::unexpected(stored.error());
+    }
+    if (std::ranges::any_of(*stored, [&](const StoredTimestamp& t) {
+            return std::ranges::equal(t.token, token);
+        })) {
+        return {};
+    }
+    auto record = encode_stored_timestamp(stamped->encoded, token);
+    if (!record) {
+        return std::unexpected(record.error());
+    }
+    const ByteView view = *record;
+    auto pending = impl_->timestamps.write(std::span(&view, 1));
+    if (!pending) {
+        return std::unexpected(pending.error());
+    }
+    const std::unique_lock lock(impl_->log_mutex);
+    impl_->timestamps.publish(*pending);
+    return {};
+}
+
+Result<std::vector<StoredTimestamp>> Ledger::timestamps() const {
+    const std::shared_lock lock(impl_->log_mutex);
+    return read_timestamps(impl_->timestamps);
+}
+
+std::uint64_t Ledger::timestamp_count() const {
+    const std::shared_lock lock(impl_->log_mutex);
+    return impl_->timestamps.count();
+}
+
+Result<std::vector<StoredTimestamp>> Ledger::timestamps(std::uint64_t start,
+                                                        std::uint64_t count) const {
+    const std::shared_lock lock(impl_->log_mutex);
+    return read_timestamps(impl_->timestamps, start, start + std::min(count, max_page));
+}
+
 Result<std::optional<protocol::Checkpoint>>
 Ledger::last_cosigned(const crypto::PublicKey& witness) const {
     auto stored = cosignatures();
@@ -1626,10 +1814,30 @@ Result<AuditReport> Ledger::audit() const {
                         "a stored cosignature is of an unknown checkpoint");
         }
     }
+    auto stamps = read_timestamps(impl_->timestamps);
+    if (!stamps) {
+        return std::unexpected(stamps.error());
+    }
+    for (const StoredTimestamp& t : *stamps) {
+        if (std::ranges::none_of(*all, [&](const protocol::SignedCheckpoint& c) {
+                return c.encoded == t.checkpoint.encoded;
+            })) {
+            return fail(Errc::verification_failed,
+                        "a stored time-stamp token is of an unknown checkpoint");
+        }
+        auto registered_at = last_registered_at(impl_->log, t.checkpoint.checkpoint.tree_size);
+        if (!registered_at) {
+            return std::unexpected(registered_at.error());
+        }
+        if (!check_timestamp(*impl_->provider, hash(), t.token, t.checkpoint, *registered_at)) {
+            return fail(Errc::verification_failed, "a stored time-stamp token does not verify");
+        }
+    }
     return AuditReport{
         .entries = size,
         .checkpoints = all->size(),
         .cosignatures = stored->size(),
+        .timestamps = stamps->size(),
         .actors = impl_->state.actors().size(),
         .delegations = impl_->state.delegations().size(),
         .records = impl_->state.records().size(),
@@ -2194,6 +2402,54 @@ Result<protocol::EvidenceBundle> Ledger::export_evidence(LogKeys log_keys,
         if (s.cosignature.checkpoint == checkpoint->checkpoint) {
             bundle.cosignatures.push_back(s.encoded);
         }
+    }
+
+    // Anchors (v0.11): the earliest time-stamped checkpoint that covers the
+    // record's first event bounds when it began; the latest at or before the
+    // bundle's bounds the most. Each with every token over it.
+    auto stamps = read_timestamps(impl_->timestamps);
+    if (!stamps) {
+        return std::unexpected(stamps.error());
+    }
+    const std::uint64_t size = checkpoint->checkpoint.tree_size;
+    const StoredTimestamp* earliest = nullptr;
+    const StoredTimestamp* latest = nullptr;
+    for (const StoredTimestamp& t : *stamps) {
+        const std::uint64_t stamped = t.checkpoint.checkpoint.tree_size;
+        if (stamped > size) {
+            continue;
+        }
+        if (stamped > history.front() &&
+            (earliest == nullptr || stamped < earliest->checkpoint.checkpoint.tree_size)) {
+            earliest = &t;
+        }
+        if (latest == nullptr || stamped >= latest->checkpoint.checkpoint.tree_size) {
+            latest = &t;
+        }
+    }
+    for (const StoredTimestamp* chosen : {earliest, latest}) {
+        if (chosen == nullptr ||
+            std::ranges::any_of(bundle.anchors, [&](const protocol::Anchor& a) {
+                return a.checkpoint == chosen->checkpoint.encoded;
+            })) {
+            continue;
+        }
+        protocol::Anchor anchor{
+            .checkpoint = chosen->checkpoint.encoded, .timestamps = {}, .consistency = {}};
+        for (const StoredTimestamp& t : *stamps) {
+            if (t.checkpoint.encoded == chosen->checkpoint.encoded) {
+                anchor.timestamps.push_back(t.token);
+            }
+        }
+        const std::uint64_t stamped = chosen->checkpoint.checkpoint.tree_size;
+        if (stamped < size) {
+            auto proof = impl_->tree.consistency_proof(stamped, size);
+            if (!proof) {
+                return std::unexpected(proof.error());
+            }
+            anchor.consistency = std::move(*proof);
+        }
+        bundle.anchors.push_back(std::move(anchor));
     }
     return bundle;
 }

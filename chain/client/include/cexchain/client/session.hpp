@@ -187,6 +187,9 @@ public:
     [[nodiscard]] Bytes contract_evidence(const LogKey& log_key, const protocol::Id& instance);
     [[nodiscard]] Bytes receipt(const LogKey& log_key, std::uint64_t index);
     void add_cosignature(ByteView cosignature, const crypto::PublicKey& witness);
+    /// Keeps a time-stamp token over a checkpoint of `size` (spec v0.11), on
+    /// the ledger or through its server (an admin token).
+    void add_timestamp(ByteView token, std::uint64_t size);
 
     /// Client mode: fetches a record's sealed private data into the mirror,
     /// unless it is there. False if the server holds none.

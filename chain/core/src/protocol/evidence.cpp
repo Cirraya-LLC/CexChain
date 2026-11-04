@@ -4,10 +4,12 @@
 #include <algorithm>
 #include <map>
 #include <set>
+#include <span>
 #include <utility>
 #include <variant>
 #include <vector>
 
+#include <cexchain/core/merkle.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/state.hpp>
 
@@ -221,6 +223,29 @@ Result<Bytes> encode_bundle(const EvidenceBundle& bundle) {
         }
         map.push_back(entry(7, cbor::Value::array(std::move(proofs))));
     }
+    if (!bundle.anchors.empty()) {
+        cbor::Array anchors;
+        for (const Anchor& a : bundle.anchors) {
+            if (a.timestamps.empty()) {
+                return fail(Errc::invalid_argument, "an anchor needs a time-stamp token");
+            }
+            cbor::Array tokens;
+            for (const Bytes& token : a.timestamps) {
+                tokens.push_back(cbor::Value::bytes(token));
+            }
+            cbor::Map anchor{entry(1, cbor::Value::bytes(a.checkpoint)),
+                             entry(2, cbor::Value::array(std::move(tokens)))};
+            if (!a.consistency.empty()) {
+                cbor::Array proof;
+                for (const crypto::Digest& node : a.consistency) {
+                    proof.push_back(cbor::Value::bytes(node.bytes()));
+                }
+                anchor.push_back(entry(3, cbor::Value::array(std::move(proof))));
+            }
+            anchors.push_back(cbor::Value::map(std::move(anchor)));
+        }
+        map.push_back(entry(8, cbor::Value::array(std::move(anchors))));
+    }
     return cbor::encode(cbor::Value::map(std::move(map)));
 }
 
@@ -359,6 +384,33 @@ Result<EvidenceBundle> decode_bundle(ByteView encoded) {
             bundle.state_proofs.push_back(std::move(p));
         }
     }
+    if (const cbor::Value* list_value = reader.get(8)) {
+        CEXCHAIN_TRY(const cbor::Array* list, non_empty_list(*list_value));
+        for (const cbor::Value& item : *list) {
+            CEXCHAIN_TRY(MapReader anchor_reader, MapReader::open(item));
+            Anchor a;
+            CEXCHAIN_TRY(a.checkpoint, anchor_reader.need_bytes(1));
+            CEXCHAIN_TRY(const cbor::Value* tokens_value, anchor_reader.need(2));
+            CEXCHAIN_TRY(const cbor::Array* tokens, non_empty_list(*tokens_value));
+            for (const cbor::Value& token : *tokens) {
+                CEXCHAIN_TRY(Bytes bytes, detail::as_bytes_value(token));
+                a.timestamps.push_back(std::move(bytes));
+            }
+            if (const cbor::Value* proof_value = anchor_reader.get(3)) {
+                CEXCHAIN_TRY(const cbor::Array* proof, non_empty_list(*proof_value));
+                if (proof->size() > merkle::max_consistency_proof_length) {
+                    return fail(Errc::malformed, "an anchor's consistency proof is too long");
+                }
+                for (const cbor::Value& node : *proof) {
+                    CEXCHAIN_TRY(Bytes bytes, detail::as_bytes_value(node));
+                    CEXCHAIN_TRY(crypto::Digest digest, crypto::Digest::from_bytes(bytes));
+                    a.consistency.push_back(digest);
+                }
+            }
+            CEXCHAIN_CHECK(anchor_reader.finish());
+            bundle.anchors.push_back(std::move(a));
+        }
+    }
     CEXCHAIN_CHECK(reader.finish());
     return bundle;
 }
@@ -402,6 +454,113 @@ Result<EvidenceReport> count_witnesses(const crypto::Provider& provider, const L
     return report;
 }
 
+/// Checks the bundle's anchors (v0.11) into `report`: each checkpoint signed
+/// by the log key in effect at its size and consistent with the bundle's,
+/// each token over its payload. A trusted token bounds when the entries below
+/// its checkpoint's size existed, and the ledger's clock must agree with it.
+Result<EvidenceReport> check_anchors(const crypto::Provider& provider, const LedgerState& state,
+                                     const SignedCheckpoint& checkpoint,
+                                     const EvidenceBundle& bundle,
+                                     std::span<const Included> included,
+                                     const VerifyOptions& options, EvidenceReport report) {
+    std::vector<Bytes> trusted_authorities;
+    for (const Anchor& anchor : bundle.anchors) {
+        auto stamped = parse_checkpoint(anchor.checkpoint);
+        if (!stamped || !stamped->envelope.payload) {
+            return verification_failure("an anchor's checkpoint is malformed");
+        }
+        const Checkpoint& at = stamped->checkpoint;
+        if (at.ledger_id != state.ledger_id() || at.tree_hash != state.hash()) {
+            return verification_failure("an anchor's checkpoint belongs to a different ledger");
+        }
+        if (at.tree_size > checkpoint.checkpoint.tree_size) {
+            return verification_failure("an anchor's checkpoint is later than the bundle's");
+        }
+        if (!verify_checkpoint(provider, *stamped, state.log_key_for(at.tree_size))) {
+            return verification_failure(
+                "an anchor's checkpoint is not signed by the ledger's log key");
+        }
+        if (at.tree_size == checkpoint.checkpoint.tree_size) {
+            if (at.root != checkpoint.checkpoint.root || !anchor.consistency.empty()) {
+                return verification_failure("an anchor's checkpoint disagrees with the bundle's");
+            }
+        } else if (!merkle::verify_consistency(provider, state.hash(), at.tree_size,
+                                               checkpoint.checkpoint.tree_size, at.root,
+                                               checkpoint.checkpoint.root, anchor.consistency)) {
+            return verification_failure(
+                "an anchor's checkpoint is not consistent with the bundle's");
+        }
+        CEXCHAIN_TRY(crypto::Digest stamped_digest,
+                     provider.digest(state.hash(), *stamped->envelope.payload));
+
+        // The earliest time a trusted authority vouches for, its accuracy
+        // added: everything below the checkpoint's size existed by then.
+        std::optional<Timestamp> existed_by;
+        for (const Bytes& encoded_token : anchor.timestamps) {
+            auto token = provider.read_timestamp(encoded_token, options.trusted_timestamp_roots);
+            if (!token) {
+                if (token.error().code == Errc::unsupported) {
+                    return std::unexpected(token.error());
+                }
+                return verification_failure("a time-stamp token does not verify");
+            }
+            if (token->imprint_alg != state.hash() ||
+                !std::ranges::equal(token->imprint, stamped_digest.bytes())) {
+                return verification_failure(
+                    "a time-stamp token stamps something other than its anchor's checkpoint");
+            }
+            report.timestamps.push_back(TimestampCheck{
+                .size = at.tree_size,
+                .time = token->time,
+                .accuracy = token->accuracy,
+                .authority = token->authority,
+                .trusted = token->trusted,
+            });
+            if (!token->trusted) {
+                continue;
+            }
+            if (!std::ranges::contains(trusted_authorities, token->authority_key)) {
+                trusted_authorities.push_back(token->authority_key);
+            }
+            const Timestamp latest = token->time + token->accuracy;
+            existed_by = existed_by ? std::min(*existed_by, latest) : latest;
+        }
+        if (!existed_by) {
+            continue;
+        }
+        // The ledger dated nothing it had by then later than the authority's
+        // time allows.
+        const Timestamp bound = *existed_by + timestamp_clock_slack;
+        const bool contradicted =
+            at.timestamp > bound || std::ranges::any_of(included, [&](const Included& i) {
+                return i.index < at.tree_size && i.log_entry.registered_at > bound;
+            });
+        if (contradicted) {
+            return verification_failure("the ledger's clock contradicts a time-stamp authority: "
+                                        "it dates an entry after the authority saw it");
+        }
+        for (RecordEvent& event : report.events) {
+            if (event.index < at.tree_size) {
+                event.existed_by =
+                    event.existed_by ? std::min(*event.existed_by, *existed_by) : *existed_by;
+            }
+        }
+    }
+    report.trusted_timestamp_authorities = trusted_authorities.size();
+    return report;
+}
+
+/// The last steps of a verification: witnesses, then anchors.
+Result<EvidenceReport> finish_report(const crypto::Provider& provider, const LedgerState& state,
+                                     const SignedCheckpoint& checkpoint,
+                                     const EvidenceBundle& bundle,
+                                     std::span<const Included> included,
+                                     const VerifyOptions& options, EvidenceReport report) {
+    CEXCHAIN_TRY(report,
+                 count_witnesses(provider, state, checkpoint, bundle, options, std::move(report)));
+    return check_anchors(provider, state, checkpoint, bundle, included, options, std::move(report));
+}
+
 } // namespace
 
 Result<crypto::Digest> CheckedProvider::do_digest(crypto::HashAlg alg,
@@ -417,6 +576,11 @@ Status CheckedProvider::do_verify(const crypto::PublicKey& key, ByteView message
     Status outcome = provider_.verify(key, message, signature);
     checks_.checked(key, message, signature, outcome);
     return outcome;
+}
+
+Result<crypto::TimestampToken>
+CheckedProvider::do_read_timestamp(ByteView token, std::span<const Bytes> trusted_roots) const {
+    return provider_.read_timestamp(token, trusted_roots);
 }
 
 Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView encoded,
@@ -735,6 +899,7 @@ Result<EvidenceReport> detail::verify_bundle_as_given(const crypto::Provider& pr
             .requests = std::move(requests),
             .answered = std::move(answered),
             .new_version = new_version,
+            .existed_by = std::nullopt,
         });
     }
 
@@ -787,7 +952,8 @@ Result<EvidenceReport> detail::verify_bundle_as_given(const crypto::Provider& pr
         if (!bundle.disclosures.empty() || !bundle.attachments.empty()) {
             return verification_failure("an instance has no fields or attachments to disclose");
         }
-        return count_witnesses(provider, *state, checkpoint, bundle, options, std::move(report));
+        return finish_report(provider, *state, checkpoint, bundle, included, options,
+                             std::move(report));
     }
 
     // Leaves are sorted by name, one per name: disclosures must agree (a
@@ -839,7 +1005,8 @@ Result<EvidenceReport> detail::verify_bundle_as_given(const crypto::Provider& pr
         report.attachments.push_back(std::move(check));
     }
 
-    return count_witnesses(provider, *state, checkpoint, bundle, options, std::move(report));
+    return finish_report(provider, *state, checkpoint, bundle, included, options,
+                         std::move(report));
 }
 
 } // namespace cexchain::protocol

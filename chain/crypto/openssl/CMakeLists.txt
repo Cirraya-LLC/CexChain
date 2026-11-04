@@ -4,7 +4,8 @@
 # Crypto provider backed by OpenSSL 3.5+. Implements the interfaces declared in
 # <cexchain/core/crypto.hpp>.
 add_library(cexchain_crypto_openssl
-    src/openssl.cpp)
+    src/openssl.cpp
+    src/timestamp.cpp)
 add_library(cexchain::crypto_openssl ALIAS cexchain_crypto_openssl)
 
 target_include_directories(cexchain_crypto_openssl PUBLIC

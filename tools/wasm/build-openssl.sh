@@ -35,13 +35,13 @@ fi
 tar xzf "$WORK/openssl.tar.gz" -C "$WORK"
 cd "$WORK/openssl-$VERSION"
 
-# A verifier needs digests and signature verification only: no TLS, no
-# threads, no assembly (WebAssembly has none), no files or sockets at runtime,
-# and none of the legacy algorithms.
+# A verifier needs digests, signature verification, and RFC 3161 time-stamp
+# tokens (CMS, TS): no TLS, no threads, no assembly (WebAssembly has none), no
+# files or sockets at runtime, and none of the legacy algorithms.
 emconfigure ./Configure linux-generic32 \
     no-asm no-threads no-shared no-dso no-engine no-module no-afalgeng no-async \
     no-sock no-ui-console no-autoload-config no-secure-memory no-tests no-apps no-docs \
-    no-legacy no-deprecated no-ssl no-tls no-dtls no-srp no-psk no-cms no-ts no-ocsp no-ct \
+    no-legacy no-deprecated no-ssl no-tls no-dtls no-srp no-psk no-ocsp no-ct \
     no-comp no-srtp no-nextprotoneg no-quic \
     no-idea no-rc2 no-rc4 no-rc5 no-md4 no-mdc2 no-whirlpool no-rmd160 no-des no-bf no-cast \
     no-seed no-camellia no-aria no-sm4 no-siphash no-ocb no-dsa no-dh no-gost \

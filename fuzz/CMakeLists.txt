@@ -17,6 +17,8 @@ cexchain_add_fuzzer(cbor_decode_fuzz)
 cexchain_add_fuzzer(diagnostic_fuzz)
 cexchain_add_fuzzer(cose_parse_fuzz)
 cexchain_add_fuzzer(merkle_verify_fuzz cexchain::crypto_openssl)
+# Time-stamp authorities' tokens, answers, and certificate files (RFC 3161).
+cexchain_add_fuzzer(timestamp_fuzz cexchain::crypto_openssl)
 cexchain_add_fuzzer(protocol_parse_fuzz cexchain::crypto_openssl cexchain::ledger)
 cexchain_add_fuzzer(access_parse_fuzz)
 cexchain_add_fuzzer(webauthn_registration_fuzz cexchain::crypto_openssl)
@@ -113,7 +115,9 @@ endif()
 # Valid inputs to start the corpora from (an ordinary program, not a fuzzer).
 add_executable(make_seeds make_seeds.cpp)
 target_link_libraries(make_seeds PRIVATE cexchain::ledger cexchain::crypto_openssl
-    nlohmann_json::nlohmann_json)
+    nlohmann_json::nlohmann_json OpenSSL::Crypto)
+# The test time-stamp authority (tests/support).
+target_include_directories(make_seeds PRIVATE ${PROJECT_SOURCE_DIR}/tests)
 if(TARGET cexchain_bo_front)
     target_link_libraries(make_seeds PRIVATE cexchain::bo_front)
     target_compile_definitions(make_seeds PRIVATE CEXCHAIN_HAVE_BO_FRONT=1
