@@ -560,15 +560,21 @@ TEST_CASE("the server closes stalled and idle connections, never busy ones", "[n
     }
     // A kept-alive connection in use for longer than the timeouts stays open,
     // then closes once idle.
+    // Every request is answered, however slow the machine: what counts is
+    // that the connection outlives both timeouts while in use.
     const Socket busy(server.port());
     const auto start = steady::now();
+    int sent = 0;
     int answered = 0;
     while (steady::now() - start < std::chrono::milliseconds(2500)) {
         busy.send("GET /healthz HTTP/1.1\r\nHost: x\r\n\r\n");
+        ++sent;
         answered += busy.read_until("ok\n") ? 1 : 0;
         std::this_thread::sleep_for(std::chrono::milliseconds(250));
     }
-    CHECK(answered >= 8);
+    CHECK(answered == sent);
+    CHECK(sent >= 3);
+    CHECK(steady::now() - start >= std::chrono::milliseconds(2500));
     const auto idle = steady::now();
     CHECK(busy.closed_by_server());
     CHECK(steady::now() - idle < std::chrono::seconds(4));
