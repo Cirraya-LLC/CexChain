@@ -202,6 +202,7 @@ TEST_CASE("a verifier refuses anchors that do not hold", "[timestamp]") {
         .checkpoint = later->encoded,
         .timestamps = {stamp(authority, *later, w.clock().now())},
         .consistency = {},
+        .network_cosignatures = {},
     };
     CHECK(failure(older) == Errc::verification_failed);
 }

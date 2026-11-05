@@ -2970,8 +2970,10 @@ Result<protocol::EvidenceBundle> Ledger::export_evidence(LogKeys log_keys,
             })) {
             continue;
         }
-        protocol::Anchor anchor{
-            .checkpoint = chosen->checkpoint.encoded, .timestamps = {}, .consistency = {}};
+        protocol::Anchor anchor{.checkpoint = chosen->checkpoint.encoded,
+                                .timestamps = {},
+                                .consistency = {},
+                                .network_cosignatures = {}};
         for (const StoredTimestamp& t : *stamps) {
             if (t.checkpoint.encoded == chosen->checkpoint.encoded) {
                 anchor.timestamps.push_back(t.token);

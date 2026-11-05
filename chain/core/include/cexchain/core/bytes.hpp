@@ -37,6 +37,14 @@ using ByteView = std::span<const std::uint8_t>;
 /// impossible length, or nonzero trailing bits.
 [[nodiscard]] Result<Bytes> from_base64url(std::string_view text);
 
+/// Encodes bytes as base64 with padding (RFC 4648 section 4), as C2SP's
+/// signed notes do.
+[[nodiscard]] std::string to_base64(ByteView bytes);
+
+/// Decodes padded base64, canonical only: a length that is a multiple of
+/// four, padding only at the end, and zero trailing bits.
+[[nodiscard]] Result<Bytes> from_base64(std::string_view text);
+
 /// Overwrites `bytes` with zeros in a way the compiler cannot optimize away.
 void secure_wipe(std::span<std::uint8_t> bytes) noexcept;
 

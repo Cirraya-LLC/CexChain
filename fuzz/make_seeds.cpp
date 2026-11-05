@@ -44,6 +44,7 @@
 #include <cexchain/core/protocol/contracts.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/exchange.hpp>
+#include <cexchain/core/protocol/network.hpp>
 #include <cexchain/core/protocol/presence.hpp>
 #include <cexchain/core/protocol/record.hpp>
 #include <cexchain/core/protocol/statement.hpp>
@@ -1218,6 +1219,31 @@ void bo_seeds(const Seeds& seeds) {
 #endif
 }
 
+/// Open-network witnesses' verifier keys and answers, from the v0.13
+/// vectors (network_parse_fuzz).
+void network_seeds(const Seeds& seeds) {
+    std::ifstream in(CEXCHAIN_TESTVECTORS_DIR "/protocol-v0.13.json");
+    if (!in) {
+        throw std::runtime_error("cannot read protocol-v0.13.json");
+    }
+    const auto doc = nlohmann::json::parse(in);
+    std::string answer;
+    std::size_t n = 0;
+    for (const auto& c : doc.at("cases")) {
+        seeds.write("network_parse_fuzz", std::format("vkey-{}", n++),
+                    as_bytes(c.at("vkey").get<std::string>()));
+        answer += protocol::network::signature_line(
+            {c.at("cosigner").get<std::string>(),
+             must(from_hex(c.at("bytes").get<std::string>()), "bytes")});
+    }
+    seeds.write("network_parse_fuzz", "note-vkey",
+                as_bytes(doc.at("note_vkey").get<std::string>()));
+    seeds.write("network_parse_fuzz", "answer", as_bytes(answer));
+    seeds.write("network_parse_fuzz", "size", as_bytes(std::string_view("15\n")));
+    seeds.write("network_parse_fuzz", "base64",
+                as_bytes(doc.at("c2sp_example").at("signature").get<std::string>()));
+}
+
 /// What a time-stamp authority answers, and the certificates a verifier
 /// trusts (timestamp_fuzz: the first byte chooses the reader).
 void timestamp_seeds(const Seeds& seeds) {
@@ -1248,6 +1274,7 @@ int main(int argc, char** argv) {
         const Seeds seeds(argv[1]);
         ledger_seeds(seeds);
         timestamp_seeds(seeds);
+        network_seeds(seeds);
         webauthn_seed(seeds);
         cluster_seeds(seeds);
         pending_call_seeds(seeds);

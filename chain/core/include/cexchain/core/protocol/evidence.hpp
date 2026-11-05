@@ -16,6 +16,7 @@
 #include <cexchain/core/protocol/common.hpp>
 #include <cexchain/core/protocol/contracts.hpp>
 #include <cexchain/core/protocol/log.hpp>
+#include <cexchain/core/protocol/network.hpp>
 #include <cexchain/core/protocol/presence.hpp>
 #include <cexchain/core/protocol/record.hpp>
 #include <cexchain/core/protocol/state_tree.hpp>
@@ -56,6 +57,9 @@ struct Anchor {
     /// The RFC 9162 consistency proof from its size to the size of the
     /// bundle's checkpoint; empty when the two are the same checkpoint.
     std::vector<crypto::Digest> consistency;
+    /// Open-network witnesses' cosignatures of the checkpoint's note (v0.13;
+    /// spec section 10.2). An anchor holds tokens, these, or both.
+    std::vector<network::NoteSignature> network_cosignatures;
 
     friend bool operator==(const Anchor&, const Anchor&) = default;
 };
@@ -161,6 +165,9 @@ struct VerifyOptions {
     /// trusts (v0.11). Tokens that chain to no such root are counted but not
     /// relied on.
     std::vector<Bytes> trusted_timestamp_roots;
+    /// Open-network witnesses the verifier trusts, by their verifier keys
+    /// (v0.13). Their cosignatures count as its own witnesses' do.
+    std::vector<network::VerifierKey> trusted_network_witnesses;
     /// Attachment contents to check, by attachment name.
     std::map<std::string, Bytes> attachment_contents;
     /// Signatures checked ahead of time or remembered, asked before each
@@ -352,6 +359,20 @@ struct TimestampCheck {
     friend bool operator==(const TimestampCheck&, const TimestampCheck&) = default;
 };
 
+/// An open-network witness's cosignature an anchor carries (v0.13).
+struct NetworkCosignatureCheck {
+    /// The witness, as its cosignature names it.
+    std::string witness;
+    /// The tree size it cosigned, and its time (POSIX seconds).
+    std::uint64_t size = 0;
+    std::uint64_t time = 0;
+    /// By a witness the verifier trusts, and verified.
+    bool trusted = false;
+
+    friend bool operator==(const NetworkCosignatureCheck&,
+                           const NetworkCosignatureCheck&) = default;
+};
+
 struct EvidenceReport {
     Id ledger_id;
     std::string organization;
@@ -362,8 +383,12 @@ struct EvidenceReport {
     crypto::PublicKey log_key;
     std::size_t log_key_rotations = 0;
     std::size_t root_key_rotations = 0;
+    /// Witnesses, each counted once: the ledger's own kind (COSE
+    /// cosignatures of the checkpoint) and open-network ones (v0.13).
     std::size_t trusted_cosignatures = 0;
     std::size_t untrusted_cosignatures = 0;
+    /// The anchors' open-network cosignatures, in the bundle's order.
+    std::vector<NetworkCosignatureCheck> network_cosignatures;
     /// The bundle's time-stamp tokens (v0.11), in its order, and how many
     /// authorities it holds a trusted token of (each counted once).
     std::vector<TimestampCheck> timestamps;

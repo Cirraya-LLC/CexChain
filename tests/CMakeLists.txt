@@ -39,6 +39,7 @@ add_executable(cexchain_tests
     core/protocol_v09_test.cpp
     core/protocol_v010_test.cpp
     core/protocol_v011_test.cpp
+    core/protocol_v013_test.cpp
     core/exchange_test.cpp
     core/vm_test.cpp
     crypto/openssl_test.cpp
@@ -59,6 +60,7 @@ add_executable(cexchain_tests
     ledger/storage_test.cpp
     ledger/verify_test.cpp
     ledger/snapshot_test.cpp
+    ledger/network_test.cpp
     ledger/timestamp_test.cpp
     ledger/witness_test.cpp
     node/api_test.cpp

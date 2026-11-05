@@ -226,21 +226,32 @@ Result<Bytes> encode_bundle(const EvidenceBundle& bundle) {
     if (!bundle.anchors.empty()) {
         cbor::Array anchors;
         for (const Anchor& a : bundle.anchors) {
-            if (a.timestamps.empty()) {
-                return fail(Errc::invalid_argument, "an anchor needs a time-stamp token");
+            if (a.timestamps.empty() && a.network_cosignatures.empty()) {
+                return fail(Errc::invalid_argument,
+                            "an anchor needs a time-stamp token or a network cosignature");
             }
-            cbor::Array tokens;
-            for (const Bytes& token : a.timestamps) {
-                tokens.push_back(cbor::Value::bytes(token));
+            cbor::Map anchor{entry(1, cbor::Value::bytes(a.checkpoint))};
+            if (!a.timestamps.empty()) {
+                cbor::Array tokens;
+                for (const Bytes& token : a.timestamps) {
+                    tokens.push_back(cbor::Value::bytes(token));
+                }
+                anchor.push_back(entry(2, cbor::Value::array(std::move(tokens))));
             }
-            cbor::Map anchor{entry(1, cbor::Value::bytes(a.checkpoint)),
-                             entry(2, cbor::Value::array(std::move(tokens)))};
             if (!a.consistency.empty()) {
                 cbor::Array proof;
                 for (const crypto::Digest& node : a.consistency) {
                     proof.push_back(cbor::Value::bytes(node.bytes()));
                 }
                 anchor.push_back(entry(3, cbor::Value::array(std::move(proof))));
+            }
+            if (!a.network_cosignatures.empty()) {
+                cbor::Array cosignatures;
+                for (const network::NoteSignature& s : a.network_cosignatures) {
+                    cosignatures.push_back(cbor::Value::array(
+                        {cbor::Value::text(s.name), cbor::Value::bytes(s.bytes)}));
+                }
+                anchor.push_back(entry(4, cbor::Value::array(std::move(cosignatures))));
             }
             anchors.push_back(cbor::Value::map(std::move(anchor)));
         }
@@ -390,11 +401,12 @@ Result<EvidenceBundle> decode_bundle(ByteView encoded) {
             CEXCHAIN_TRY(MapReader anchor_reader, MapReader::open(item));
             Anchor a;
             CEXCHAIN_TRY(a.checkpoint, anchor_reader.need_bytes(1));
-            CEXCHAIN_TRY(const cbor::Value* tokens_value, anchor_reader.need(2));
-            CEXCHAIN_TRY(const cbor::Array* tokens, non_empty_list(*tokens_value));
-            for (const cbor::Value& token : *tokens) {
-                CEXCHAIN_TRY(Bytes bytes, detail::as_bytes_value(token));
-                a.timestamps.push_back(std::move(bytes));
+            if (const cbor::Value* tokens_value = anchor_reader.get(2)) {
+                CEXCHAIN_TRY(const cbor::Array* tokens, non_empty_list(*tokens_value));
+                for (const cbor::Value& token : *tokens) {
+                    CEXCHAIN_TRY(Bytes bytes, detail::as_bytes_value(token));
+                    a.timestamps.push_back(std::move(bytes));
+                }
             }
             if (const cbor::Value* proof_value = anchor_reader.get(3)) {
                 CEXCHAIN_TRY(const cbor::Array* proof, non_empty_list(*proof_value));
@@ -406,6 +418,26 @@ Result<EvidenceBundle> decode_bundle(ByteView encoded) {
                     CEXCHAIN_TRY(crypto::Digest digest, crypto::Digest::from_bytes(bytes));
                     a.consistency.push_back(digest);
                 }
+            }
+            if (const cbor::Value* cosignatures_value = anchor_reader.get(4)) {
+                CEXCHAIN_TRY(const cbor::Array* cosignatures, non_empty_list(*cosignatures_value));
+                for (const cbor::Value& item_value : *cosignatures) {
+                    const cbor::Array* pair = item_value.as_array();
+                    const std::string* name =
+                        pair != nullptr && pair->size() == 2 ? (*pair)[0].as_text() : nullptr;
+                    const Bytes* bytes =
+                        pair != nullptr && pair->size() == 2 ? (*pair)[1].as_bytes() : nullptr;
+                    if (name == nullptr || bytes == nullptr || !network::valid_name(*name) ||
+                        bytes->size() < 12 || bytes->size() > 8192) {
+                        return fail(Errc::malformed,
+                                    "a network cosignature is not [name, 12 to 8,192 bytes]");
+                    }
+                    a.network_cosignatures.push_back({*name, *bytes});
+                }
+            }
+            if (a.timestamps.empty() && a.network_cosignatures.empty()) {
+                return fail(Errc::malformed,
+                            "an anchor holds no time-stamp token and no network cosignature");
             }
             CEXCHAIN_CHECK(anchor_reader.finish());
             bundle.anchors.push_back(std::move(a));
@@ -464,6 +496,9 @@ Result<EvidenceReport> check_anchors(const crypto::Provider& provider, const Led
                                      std::span<const Included> included,
                                      const VerifyOptions& options, EvidenceReport report) {
     std::vector<Bytes> trusted_authorities;
+    // Open-network witnesses, each counted once: (name, key ID).
+    std::set<std::pair<std::string, Bytes>> trusted_network;
+    std::set<std::pair<std::string, Bytes>> untrusted_network;
     for (const Anchor& anchor : bundle.anchors) {
         auto stamped = parse_checkpoint(anchor.checkpoint);
         if (!stamped || !stamped->envelope.payload) {
@@ -492,6 +527,37 @@ Result<EvidenceReport> check_anchors(const crypto::Provider& provider, const Led
         }
         CEXCHAIN_TRY(crypto::Digest stamped_digest,
                      provider.digest(state.hash(), *stamped->envelope.payload));
+
+        // Open-network witnesses' cosignatures of the checkpoint's note
+        // (v0.13): SHA-256 trees only.
+        if (!anchor.network_cosignatures.empty() && state.hash() != crypto::HashAlg::sha256) {
+            return verification_failure("an SM3 ledger's anchor carries network cosignatures");
+        }
+        const std::string origin = network::origin(state.ledger_id());
+        for (const network::NoteSignature& cosignature : anchor.network_cosignatures) {
+            auto time = network::cosignature_time(cosignature.bytes);
+            if (!time) {
+                return verification_failure("a network cosignature is malformed");
+            }
+            const Bytes id(cosignature.bytes.begin(), cosignature.bytes.begin() + 4);
+            const auto key = std::ranges::find_if(
+                options.trusted_network_witnesses, [&](const network::VerifierKey& k) {
+                    return k.name == cosignature.name && std::ranges::equal(k.id, id);
+                });
+            const bool trusted = key != options.trusted_network_witnesses.end();
+            if (trusted && !network::verify_cosignature(provider, *key, origin, at.tree_size,
+                                                        at.root, cosignature)) {
+                return verification_failure(
+                    "a trusted network witness's cosignature does not verify");
+            }
+            (trusted ? trusted_network : untrusted_network).emplace(cosignature.name, id);
+            report.network_cosignatures.push_back(NetworkCosignatureCheck{
+                .witness = cosignature.name,
+                .size = at.tree_size,
+                .time = *time,
+                .trusted = trusted,
+            });
+        }
 
         // The earliest time a trusted authority vouches for, its accuracy
         // added: everything below the checkpoint's size existed by then.
@@ -547,6 +613,12 @@ Result<EvidenceReport> check_anchors(const crypto::Provider& provider, const Led
         }
     }
     report.trusted_timestamp_authorities = trusted_authorities.size();
+    report.trusted_cosignatures += trusted_network.size();
+    for (const auto& witness : untrusted_network) {
+        if (!trusted_network.contains(witness)) {
+            ++report.untrusted_cosignatures;
+        }
+    }
     return report;
 }
 

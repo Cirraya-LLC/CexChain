@@ -131,4 +131,35 @@ Result<Bytes> from_base64url(std::string_view text) {
     return out;
 }
 
+std::string to_base64(ByteView bytes) {
+    std::string out = to_base64url(bytes);
+    for (char& c : out) {
+        c = c == '-' ? '+' : c == '_' ? '/' : c;
+    }
+    out.append((4 - out.size() % 4) % 4, '=');
+    return out;
+}
+
+Result<Bytes> from_base64(std::string_view text) {
+    if (text.size() % 4 != 0) {
+        return fail(Errc::malformed, "base64 text is not padded to a multiple of four");
+    }
+    std::size_t end = text.size();
+    for (int i = 0; i < 2 && end > 0 && text[end - 1] == '='; ++i) {
+        --end;
+    }
+    std::string url(text.substr(0, end));
+    for (char& c : url) {
+        if (c == '-' || c == '_' || c == '=') {
+            return fail(Errc::malformed, "invalid base64 character");
+        }
+        c = c == '+' ? '-' : c == '/' ? '_' : c;
+    }
+    auto out = from_base64url(url);
+    if (!out || to_base64(*out) != text) {
+        return fail(Errc::malformed, "base64 text is not canonical");
+    }
+    return out;
+}
+
 } // namespace cexchain
