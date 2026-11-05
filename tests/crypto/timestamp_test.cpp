@@ -87,12 +87,13 @@ TEST_CASE("a token that does not verify is refused", "[timestamp]") {
     CHECK(provider().read_timestamp(Bytes(crypto::max_timestamp_token_size + 1), {}).error().code ==
           Errc::limit_exceeded);
 
-    // A time its certificate was not valid at.
-    const std::uint64_t in_2045 = 2'366'841'600'000;
-    CHECK(provider()
-              .read_timestamp(authority.token(HashAlg::sha256, imprint, in_2045), {})
-              .error()
-              .code == Errc::verification_failed);
+    // A time its certificate was not valid at: before 2020. (After 2038 a
+    // time would not fit OpenSSL's time callback, a long, on Windows.)
+    const std::uint64_t in_2019 = 1'559'347'200'000;
+    const auto too_early =
+        provider().read_timestamp(authority.token(HashAlg::sha256, imprint, in_2019), {});
+    REQUIRE_FALSE(too_early);
+    CHECK(too_early.error().code == Errc::verification_failed);
 }
 
 TEST_CASE("an authority's answer must answer the request", "[timestamp]") {
