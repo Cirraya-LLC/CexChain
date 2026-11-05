@@ -73,7 +73,7 @@ ess_cert_id_alg = sha256
 EOF
 echo 01 > tsa.serial
 cat > tsa.py << 'EOF'
-import http.server, os, subprocess, sys, tempfile
+import http.server, os, socketserver, subprocess, sys, tempfile
 
 class Authority(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
@@ -95,13 +95,20 @@ class Authority(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
-server = http.server.HTTPServer(("127.0.0.1", 0), Authority)
+class Server(http.server.HTTPServer):
+    # No reverse lookup of 127.0.0.1 (getfqdn), which can take many seconds.
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = "127.0.0.1", self.server_address[1]
+
+server = Server(("127.0.0.1", 0), Authority)
 print(server.server_address[1], flush=True)
 server.serve_forever()
 EOF
-python3 tsa.py "$WORK/tsa.cnf" > tsa.port &
+python3 tsa.py "$WORK/tsa.cnf" > tsa.port 2> tsa.log &
 SERVERS+=("$!")
-for _ in $(seq 1 100); do [ -s tsa.port ] && break; sleep 0.1; done
+for _ in $(seq 1 300); do [ -s tsa.port ] && break; sleep 0.1; done
+[ -s tsa.port ] || { cat tsa.log; fail "the test time-stamp authority did not start"; }
 TSA="http://127.0.0.1:$(cat tsa.port)/tsa"
 
 # --- A ledger with a record, its checkpoint stamped ----------------------------

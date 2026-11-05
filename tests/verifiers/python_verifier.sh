@@ -631,7 +631,9 @@ fi
 # GCC build).
 if [ -x "$(dirname "$CEXCHAIN")/bo" ]; then
 echo "Contracts: evidence the examples leave behind (Bo contracts, time rules, keepers, MCP, parts)"
-for ex in lending day-student supply-agreement multi-tier-split receivable-financing events shipment; do
+EXAMPLES=(lending day-student supply-agreement multi-tier-split receivable-financing events)
+[ -n "$MODULE" ] && EXAMPLES+=(shipment) # its driver's hardware key is SoftHSM's
+for ex in "${EXAMPLES[@]}"; do
     if ! bash "$REPO/examples/$ex/$ex.sh" "$CEXCHAIN" "$WORK/ex-$ex" > "ex-$ex.log" 2>&1; then
         tail -20 "ex-$ex.log"
         fail "the example $ex"
