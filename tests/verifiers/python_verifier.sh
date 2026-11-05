@@ -292,6 +292,15 @@ mutate c-c1.cbor c-other.cbor add-anchor other.tst
 compare "a token over another checkpoint" c-other.cbor failed
 
 # --- Proof of presence with a hardware key (SoftHSM) -------------------------
+# SoftHSM leaks what it decodes for EdDSA keys (tests/cli/lsan-softhsm.supp):
+# not ours. Matching it needs full stacks, which slow ASan down, so only
+# around the token's commands.
+SAVED_LSAN_OPTIONS="${LSAN_OPTIONS-}" SAVED_ASAN_OPTIONS="${ASAN_OPTIONS-}"
+softhsm_on() {
+    export LSAN_OPTIONS="suppressions=$REPO/tests/cli/lsan-softhsm.supp${SAVED_LSAN_OPTIONS:+:$SAVED_LSAN_OPTIONS}"
+    export ASAN_OPTIONS="fast_unwind_on_malloc=0${SAVED_ASAN_OPTIONS:+:$SAVED_ASAN_OPTIONS}"
+}
+softhsm_off() { export LSAN_OPTIONS="$SAVED_LSAN_OPTIONS" ASAN_OPTIONS="$SAVED_ASAN_OPTIONS"; }
 MODULE=""
 for m in /usr/lib/softhsm/libsofthsm2.so /usr/lib/x86_64-linux-gnu/softhsm/libsofthsm2.so \
     /usr/lib/aarch64-linux-gnu/softhsm/libsofthsm2.so /usr/local/lib/softhsm/libsofthsm2.so; do
@@ -299,6 +308,7 @@ for m in /usr/lib/softhsm/libsofthsm2.so /usr/lib/x86_64-linux-gnu/softhsm/libso
 done
 if [ -n "$MODULE" ] && command -v softhsm2-util > /dev/null; then
     echo "Presence: a hardware key on a token (SoftHSM)"
+    softhsm_on
     mkdir tokens
     printf 'directories.tokendir = %s\nobjectstore.backend = file\n' "$WORK/tokens" > softhsm2.conf
     export SOFTHSM2_CONF="$WORK/softhsm2.conf" CEXCHAIN_PKCS11_PIN=1234
@@ -319,6 +329,7 @@ if [ -n "$MODULE" ] && command -v softhsm2-util > /dev/null; then
     run checkpoint create --log-key flog.key > /dev/null
     run export "$F1" --log-key flog.key --out f-f1.cbor > /dev/null
     compare "presence by hardware key, a self-rotation with presence" f-f1.cbor verified
+    softhsm_off
 else
     echo "Presence: SoftHSM not found, hardware-key presence skipped (the vectors cover passkeys)"
 fi
@@ -598,6 +609,7 @@ ccompare "a child with parties, final" h-O1.cbor verified --ledger-id "$H_ID"
 
 if [ -n "${URI:-}" ]; then
     echo "Contracts: a consent proven present with a hardware key (SoftHSM)"
+    softhsm_on
     key ppresent
     PPRESENT="$(p actor add --as proot.key --kind person --name "Present Approver" --key ppresent.pub --json | json 'd["actor"]["id"]')"
     p delegation grant --as proot.key --to "$PPRESENT" --allow record-register --record-types cexchain.contract-consent/1 \
@@ -612,8 +624,12 @@ if [ -n "${URI:-}" ]; then
     g contract call "$R2" transfer --args "h'$Q_ID'" --consent c-present.cbor --as groot.key > /dev/null
     g contract evidence "$R2" --log-key glog.key --out g-R2.cbor > /dev/null
     ccompare "a consent proven by a hardware key, presence required" g-R2.cbor verified --require-presence
+    softhsm_off
 fi
 
+# The examples' contracts are written in Bo: they need bo beside cexchain (a
+# GCC build).
+if [ -x "$(dirname "$CEXCHAIN")/bo" ]; then
 echo "Contracts: evidence the examples leave behind (Bo contracts, time rules, keepers, MCP, parts)"
 for ex in lending day-student supply-agreement multi-tier-split receivable-financing events shipment; do
     if ! bash "$REPO/examples/$ex/$ex.sh" "$CEXCHAIN" "$WORK/ex-$ex" > "ex-$ex.log" 2>&1; then
@@ -631,6 +647,9 @@ pyverify contract "$WORK/ex-supply-agreement/closed.cbor" --deploy-out py.boc > 
 run contract verify "$WORK/ex-supply-agreement/closed.cbor" --deploy-out bb.boc > /dev/null
 cmp -s py.boc bb.boc || fail "a Bo deploy file differs"
 echo "  agree: a Bo contract's deploy file, byte for byte"
+else
+    echo "Contracts: the examples skipped (no bo beside cexchain: it is built with GCC)"
+fi
 
 echo "Contracts: the vectors' signed contract evidence (protocol v0.6, v0.7, v0.8)"
 "$PYTHON" - "$REPO/testvectors" << 'PY'
