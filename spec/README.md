@@ -1,6 +1,6 @@
 # The CexChain protocol
 
-Revision v0.12 (draft). Wire protocol version 1.
+Revision v0.13 (draft). Wire protocol version 1.
 
 This document explains the protocol in prose. The normative definitions are:
 
@@ -12,6 +12,8 @@ Where this text and the CDDL disagree, the CDDL wins. The C++ code in this repos
 The key words MUST, MUST NOT, SHOULD, and MAY are used as in RFC 2119.
 
 Bo, the language contracts are written in, has its own reference: [`bo.md`](bo.md).
+
+**Changes in v0.13.** Open witness networks: the witnesses of transparency networks that follow C2SP's specifications can cosign a SHA-256 ledger's checkpoints, as text notes under a name derived from the ledger id, and a verifier that trusts them counts their cosignatures as it counts its own witnesses' (sections 10.2, 11, 16, and 17). Bundles carry such cosignatures in anchors (key 4 of `anchor`, whose key 2 becomes optional). Nothing else changes; the wire protocol stays version 1, and a bundle without them verifies as before.
 
 **Changes in v0.12.** Clarifications, and no new rule. A second verifier written from this text alone ([`verifiers/python`](../verifiers/python)), and a conformance suite made apart from both verifiers ([`evidence-v1.json`](../testvectors/evidence-v1.json), section 18), found places where the text left an outcome open. v0.12 states what both verifiers do: how nesting and data items are counted (section 2); the signatures' integers, ML-DSA's form, and weak keys (section 3); the exceptions, validity windows, and revoked objects of the ledger rules (section 5); the order of fields and disclosures, and attachment names (section 6); registration times and receipts (section 8); cosignatures (sections 10 and 11) and time-stamp tokens (section 10.1); attachment contents and state proofs in verification (section 11); and sizes and orders in the CDDL. Nothing that verified stops verifying, and nothing that failed verifies; the wire protocol stays version 1.
 
@@ -36,7 +38,7 @@ A record's type is now its registrant's choice, with one generic lifecycle, and 
 7. [Proof of presence](#7-proof-of-presence)
 8. [The log](#8-the-log)
 9. [State commitments](#9-state-commitments)
-10. [Witnesses](#10-witnesses)
+10. [Witnesses](#10-witnesses), [time-stamp authorities](#101-time-stamp-authorities-v011), [open witness networks](#102-open-witness-networks-v013)
 11. [Evidence bundles and verification](#11-evidence-bundles-and-verification)
 12. [Access across organizations](#12-access-across-organizations)
 13. [Relying on an instance's state](#13-relying-on-an-instances-state)
@@ -337,6 +339,20 @@ Which authorities to trust is each verifier's choice: it trusts the tokens whose
 
 **The clock rule.** A verifier that trusts a token over a checkpoint of size N, with time T and accuracy A, MUST refuse the evidence if the checkpoint, or an included entry with an index below N, is dated later than T + A + 60 seconds: the ledger dated what the authority had already seen. (The 60 seconds allow for two honest clocks that disagree.)
 
+### 10.2 Open witness networks (v0.13)
+
+A ledger can also be witnessed by the witnesses of open transparency networks that follow C2SP's specifications: [tlog-checkpoint](https://c2sp.org/tlog-checkpoint), [tlog-cosignature](https://c2sp.org/tlog-cosignature), [tlog-witness](https://c2sp.org/tlog-witness), and [signed-note](https://c2sp.org/signed-note). Such a witness knows nothing of this protocol. It cosigns a log's checkpoints as text notes, under the rule of section 10: each new tree extends the last one it cosigned, as an RFC 6962 consistency proof shows (RFC 9162 trees are RFC 6962 trees). Only SHA-256 ledgers can be witnessed so; an SM3 ledger's tree is not an RFC 6962 tree.
+
+- **The origin.** A ledger's name in such a network, its *origin*, is `cirraya.com/cexchain/` followed by the ledger id in 64 lowercase hexadecimal digits. It is derived, never chosen: every verifier knows it from the ledger id, and a ledger cannot show one witness two forks under two names. The domain is a name, not an address: nothing is ever fetched from it.
+- **The checkpoint note.** For a checkpoint the log key signed, the note text is three lines, each ending in a newline (U+000A): the origin, the tree size in decimal, and the root in base64 (RFC 4648 section 4, with padding). It has no extension lines.
+- **The note key.** A witness checks a note's signature with the log's verifier key, which it was configured with, and a network never updates a log's key. So the ledger signs notes with a **note key**, its operator's Ed25519 key (signature type 0x01, key name the origin), apart from the log key, which can rotate. The note key is no part of evidence: verifiers never need it. Whoever steals it can push a tree to a witness, which would block the real one, but cannot make evidence verify: a network cosignature counts only for the size and root of a checkpoint the log key signed (section 11). (Informative: a network lists a log by its verifier key, its origin, and how many checkpoints a day it sends; CexChain's tools print that entry.)
+- **Cosignatures.** A network witness answers `add-checkpoint` with note signature lines, `— <name> <base64 bytes>`. The bytes are a 4-byte key ID, then an 8-byte big-endian POSIX time T, then the signature. Two kinds are recognized:
+  - Ed25519 (signature type 0x04): over the text `cosignature/v1`, a newline, `time T` (T in decimal), a newline, then the note text;
+  - ML-DSA-44 (signature type 0x06; FIPS 204's pure form, empty context): over tlog-cosignature's `CosignedSubtree`: the 12 bytes `subtree/v1\n\0`, the witness's name with a one-byte length, T, the origin with a one-byte length, start 0 and end the tree size (8-byte big-endian each), and the 32-byte root.
+
+  A witness's key ID is the first four bytes of `SHA-256(name || 0x0A || type || public key)`. A verifier trusts network witnesses by their **verifier keys**, `<name>+<key ID in 8 hex digits>+<base64(type || public key)>`, whose key ID it checks.
+- **In evidence.** An anchor (section 11) may carry such cosignatures of its checkpoint's note: key 4, each `[name, bytes]`.
+
 ## 11. Evidence bundles and verification
 
 An evidence bundle (`evidence-bundle`) holds:
@@ -346,7 +362,7 @@ An evidence bundle (`evidence-bundle`) holds:
 - the signed checkpoint all receipts lead to, and witness cosignatures of it;
 - optional field disclosures and attachment openings (salts; the contents travel alongside);
 - state proofs for every involved object;
-- optional anchors (v0.11): signed checkpoints at or before the bundle's checkpoint, each with one or more time-stamp tokens over its payload (section 10.1) and, for an earlier one, the RFC 9162 consistency proof from its size to the bundle's checkpoint.
+- optional anchors (v0.11): signed checkpoints at or before the bundle's checkpoint, each with time-stamp tokens over its payload (section 10.1), open-network witnesses' cosignatures of its note (v0.13, section 10.2), or both, and, for an earlier one, the RFC 9162 consistency proof from its size to the bundle's checkpoint.
 
 A verifier MUST:
 
@@ -355,7 +371,7 @@ A verifier MUST:
 3. Replay the included statements under the ledger rules (section 5), at their registration times. This follows the organization's key rotations. A registration that supersedes a record the bundle does not hold (v0.10) is checked under every rule except those about that record: that record's own bundle shows the link.
 4. Verify the checkpoint and every receipt's signature with the log key in effect at the checkpoint's size, and each state commitment with the one in effect at its index. A bundle that leaves out a log key rotation fails here, since keys never repeat.
 5. Check disclosed fields against the record's field root and count, and the contents provided for opened attachments against their sizes and commitments: a content that does not match fails the evidence. A content given for an attachment the bundle does not open is reported as not provided (v0.12).
-6. Count cosignatures only by witnesses it trusts, each witness once. A cosignature over another checkpoint, and one by a trusted witness that does not verify, fail the evidence; one by a witness it does not trust is counted and relied on for nothing (v0.12).
+6. Count cosignatures only by witnesses it trusts, each witness once, network witnesses' among them (step 8). A cosignature over another checkpoint, and one by a trusted witness that does not verify, fail the evidence; one by a witness it does not trust is counted and relied on for nothing (v0.12).
 7. If the last entry the checkpoint covers is a state commitment (included with its receipt):
    - check it as replay would;
    - verify every state proof against its root;
@@ -365,14 +381,15 @@ A verifier MUST:
 8. For each anchor (v0.11):
    - check that its checkpoint is of the ledger, no larger than the bundle's checkpoint, and signed by the log key in effect at its size; that it equals the bundle's checkpoint's size and root (with no proof) or its consistency proof leads from it to the bundle's checkpoint;
    - check each token: it verifies with its signing certificate, and its imprint is the ledger's hash of the anchor's checkpoint's payload, under the ledger's hash algorithm;
-   - for the tokens it trusts (section 10.1), apply the clock rule to the anchor's checkpoint and to every included entry below its size. Each such entry then **existed by** the earliest trusted time plus its accuracy.
+   - for the tokens it trusts (section 10.1), apply the clock rule to the anchor's checkpoint and to every included entry below its size. Each such entry then **existed by** the earliest trusted time plus its accuracy;
+   - for each network cosignature (v0.13; section 10.2): an SM3 ledger's anchors carry none, and the bytes hold at least a key ID and a time. One whose name and key ID are a trusted network witness's MUST verify against the note of the anchor's checkpoint, or the evidence fails; it then counts in step 6 as that witness's, and shows that the witness saw that size by its time T. Others are counted and relied on for nothing. T is reported, and not put to the clock rule: a witness promises consistency, not time.
 
 A report states:
 - who did what, when, and under whose authority;
 - for each event, whether a person proved presence and how, and any AI provenance;
 - for a record, the record it supersedes, and the registration that superseded it, if any (by whom and when);
 - the disclosed fields and attachment checks;
-- the witnesses;
+- the witnesses, and for each network witness the size it cosigned and its time (v0.13);
 - the time-stamp tokens, and for each event the time by which a trusted authority saw it (v0.11);
 - whether it is complete.
 
@@ -746,9 +763,9 @@ This section is informative. The reference implementation serves a ledger over H
 | Scope | Routes |
 |---|---|
 | none | `GET /healthz`, `GET /v1/checkpoint[?size=N]`, `GET /v1/consistency?old=&new=` |
-| read | `GET /metrics`, `/v1/status`, `/v1/entries?start=&count=`, `/v1/genesis`, `/v1/checkpoints`, `/v1/cosignatures`, `/v1/timestamps` (v0.11), `/v1/inclusion?index=&size=`, `/v1/statements/{id}`, `/v1/receipts/{index}`, `/v1/state/{id}`, `/v1/evidence/{record}`, `/v1/vault/public-key`, `/v1/vault/records/{record}`, `/v1/vault/files/{record}`, `/v1/vault/files/{record}/{index}`, `/v1/contracts?start=&count=`, `/v1/contracts/{contract}`, `/v1/contracts/instances/{instance}`, `/v1/contracts/calls`, `/v1/contracts/calls/{call}`, `/v1/requests` (v0.8), `/v1/contracts/due`; on a server with the search index, `/v1/records`, `/v1/records/{id}`, `/v1/records/{id}/versions`, `/v1/instances`, `/v1/reports/records`, `/v1/reports/instances` |
+| read | `GET /metrics`, `/v1/status`, `/v1/entries?start=&count=`, `/v1/genesis`, `/v1/checkpoints`, `/v1/cosignatures`, `/v1/timestamps` (v0.11), `/v1/network-cosignatures` (v0.13), `/v1/inclusion?index=&size=`, `/v1/statements/{id}`, `/v1/receipts/{index}`, `/v1/state/{id}`, `/v1/evidence/{record}`, `/v1/vault/public-key`, `/v1/vault/records/{record}`, `/v1/vault/files/{record}`, `/v1/vault/files/{record}/{index}`, `/v1/contracts?start=&count=`, `/v1/contracts/{contract}`, `/v1/contracts/instances/{instance}`, `/v1/contracts/calls`, `/v1/contracts/calls/{call}`, `/v1/requests` (v0.8), `/v1/contracts/due`; on a server with the search index, `/v1/records`, `/v1/records/{id}`, `/v1/records/{id}/versions`, `/v1/instances`, `/v1/reports/records`, `/v1/reports/instances` |
 | submit | `POST /v1/statements`, `POST /v1/contracts/calls`, `PUT /v1/vault/files/{record}/{index}` |
-| admin | `POST /v1/checkpoint`, `POST /v1/cosignatures`, `POST /v1/timestamps` (v0.11), `DELETE /v1/vault/files/{record}/{index}` |
+| admin | `POST /v1/checkpoint`, `POST /v1/cosignatures`, `POST /v1/timestamps` (v0.11), `POST /v1/network-cosignatures` (v0.13), `DELETE /v1/vault/files/{record}/{index}` |
 | peer | `POST /v1/access/requests`, `GET /v1/access/deliveries/{request}`, `POST /v1/access/receipts`, `POST /v1/witness/cosign`, `POST /v1/contracts/calls` and `GET /v1/contracts/instances/{instance}` (the instance's current parties), `GET /v1/contracts/calls`, `/v1/contracts/calls/{call}` (the calls that concern the peer), `POST /v1/contracts/consents`, `GET /v1/genesis` (the genesis entry, which the ledger id authenticates: a peer that witnesses the ledger follows its root and log keys from it) |
 | executor | `GET /v1/requests`, `GET /v1/contracts/instances/{instance}`, and `POST /v1/statements` for answers only (v0.8) |
 | none, on a public witness | `GET /v1/witness`, `POST /v1/witness/register`, `POST /v1/witness/cosign` (below) |
@@ -800,6 +817,7 @@ Only the calls the keeper's delegations cover are its to make. Each call moves i
 **Public witnesses.** A server can be a public witness (`serve --witness-public`) beside serving its own ledger. Three routes then take no token:
 - `GET /v1/witness` describes it as JSON: `name`, `key` (the hex of its COSE public key), `algorithm`, `ledgers` (how many it follows), and `limits`. This is a hint: a ledger pins the key its operator publishes, never the one a witness says it has.
 - `GET /v1/timestamps?start=&count=` (v0.11) pages through the time-stamp tokens the ledger keeps, oldest first, as CBOR `[checkpoint, token]` pairs (the signed checkpoint each stamps); `POST /v1/timestamps` takes CBOR `[token, checkpoint size]` and keeps the token as section 10.1 says.
+- `GET /v1/network-cosignatures?start=&count=` (v0.13) pages through the open-network witnesses' cosignatures the ledger keeps, oldest first, as CBOR `[checkpoint, verifier key, bytes]` (the signed checkpoint whose note each cosigns, and the witness's verifier key); `POST /v1/network-cosignatures` takes CBOR `[checkpoint size, verifier key, bytes]`, and keeps a cosignature only if it verifies against that checkpoint's note.
 - `POST /v1/witness/register` takes CBOR `{1: genesis entry, 2: cosign request}` and answers the cosignature (201 for a new ledger, 200 for one it follows already, which is then a cosign request like any other). A refused registration leaves nothing behind.
 - `POST /v1/witness/cosign` takes a cosign request for a ledger it follows (404 for another: register first).
 
@@ -828,6 +846,11 @@ A server holds the log key to sign checkpoints, receipts, and evidence. Across a
   Presence shows that a person approved. Without it, an action is a machine's.
 - **What it does not prove alone.** A ledger's operator could show different histories to different parties. Witnesses detect this: verifiers SHOULD require cosignatures from witnesses they trust. The log key is the operator's single point of trust and SHOULD be kept in an HSM.
 - **Time.** Registration times come from the ledger's clock and are ordered. Issued-at times are claims by the signer, bounded only in the future direction. A trusted time-stamp authority's token (v0.11) bounds them from outside: what a stamped checkpoint covers existed by the authority's time, and a ledger that dates such an entry later fails verification. Without one, nothing outside the ledger bounds its times.
+- **Open witness networks** (v0.13).
+  - A network witness learns the ledger id (its origin names it), and each checkpoint's size, root, and time it is sent; never statements, records, or parties. Its list of logs is public.
+  - It is trusted for consistency only: that the ledger showed it one history. Its time is the witness's own clock, reported and relied on for nothing.
+  - The note key is a second key of the operator's, not the log key. Its theft can block a ledger's witnessing (a thief who pushes a tree first makes the witness refuse the real one), not forge evidence. Operators SHOULD keep it as they keep the log key, and back it up: networks do not update a log's key.
+  - A network may refuse or rate-limit a log that sends more checkpoints a day than its listing says.
 - **Time-stamp authorities** (v0.11).
   - An authority is trusted for time only, never for content: it sees a digest, not the checkpoint, and signs whatever digest it is sent. Its token proves that the checkpoint existed by its time, not that the ledger is honest; witnesses do that.
   - A token proves nothing about entries after its checkpoint: a ledger can still date them as it likes until a later checkpoint is stamped. Verifiers that rely on time SHOULD require a token on a checkpoint after the event (CexChain's tools take `--min-timestamps`).
@@ -894,6 +917,7 @@ A server holds the log key to sign checkpoints, receipts, and evidence. Across a
 | `protocol-v0.9.json` | the generic core (v0.9): a record of a user's type endorsed in several roles, refused a transition and a repeated endorsement, and revoked; the four mechanism types through their lifecycles, refusing endorsements and transitions they do not define; statements of type 20 and a scope naming it, which do not parse; registrations of the six removed types, of an invented `cexchain.` type, and of a version the protocol does not define, refused; the state and the log under a checkpoint |
 | `protocol-v0.10.json` | versions (v0.10): a chain of three versions across two record types, a revoked version superseded, a version endorsed and revoked after it was superseded, and a version registered by the organization over a delegated one; refused: a record superseded twice, an unknown record, a mechanism type on either side, a scope that does not cover the old type; the state, whose leaves list the superseding registration in both histories, and the log under a checkpoint |
 | `protocol-v0.11.json` | time-stamp tokens (v0.11): RFC 3161 tokens by OpenSSL's responder over the checkpoints of `protocol-v0.10.json`, one per hash, each with its imprint, time, accuracy, and authority, under a root and authority certificate made by Python's `cryptography` |
+| `protocol-v0.13.json` | open witness networks (v0.13, section 10.2): the SHA-256 checkpoint of `protocol-v0.10.json` as a checkpoint note under its origin, signed with a note key, an add-checkpoint body, network witnesses' cosignatures of the Ed25519 and ML-DSA-44 kinds (valid, and over another size or time), an anchor carrying them, and signed-note's own example, all from c2sp.org's texts with Python's `cryptography` |
 | `vm-v1.json` | contract execution (section 14): modules in and out of the profile, invocations with their outputs, traps, and fuel, and random integer programs, all from an independent reference interpreter (`tools/testvectors/wasm_ref.py`) |
 | `evidence-v1.json` | conformance (sections 11 and 15): record evidence and contract evidence forged from this specification independently of both verifiers, each with the options to verify it with, the verdict this specification decides (a failure names the section and step that decide it), and facts its report must show. A verifier passes it: `tests/verifiers/conformance.py` runs `cexchain verify` and `contract verify` on every case, and the Python verifier (`verifiers/python`) its own command line |
 | `bo-v1.json` | the Bo language ([`bo.md`](bo.md), section 18): contracts' sources in each language, their interfaces and bo-source bundles, the code `cexchain-bo` builds and its bounds (informative), calls with their outcomes (normative; answers to requests among them, with input key 9, and accepts with key 7), and sources that must not build with their errors' codes |

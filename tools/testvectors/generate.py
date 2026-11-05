@@ -3583,6 +3583,109 @@ def generate_protocol_v11(openssl: str) -> None:
     print(f"wrote {len(cases)} time-stamp tokens to testvectors/protocol-v0.11.json")
 
 
+def generate_protocol_v13() -> None:
+    """Open witness networks (spec v0.13): the SHA-256 checkpoint of
+    protocol-v0.10.json as a C2SP checkpoint note under the ledger's origin,
+    signed with a note key, and cosigned by two network witnesses (Ed25519,
+    signature type 0x04; ML-DSA-44, type 0x06), written from c2sp.org's
+    texts with Python's `cryptography`; and signed-note's own example."""
+    import base64
+    import struct
+
+    v10 = json.loads((OUT / "protocol-v0.10.json").read_text())
+    lg = next(entry for entry in v10["ledgers"] if entry["hash"] == -16)
+    checkpoint = bytes.fromhex(lg["checkpoint"])
+    sign1 = cbor2.loads(checkpoint)
+    sign1 = sign1.value if isinstance(sign1, cbor2.CBORTag) else sign1
+    payload = cbor2.loads(sign1[2])
+    size, root = payload[3], payload[4]
+    origin = "cirraya.com/cexchain/" + lg["ledger_id"]
+    note = f"{origin}\n{size}\n{base64.b64encode(root).decode()}\n"
+
+    def b64(data: bytes) -> str:
+        return base64.b64encode(data).decode()
+
+    def key_id(name: str, kind: int, public: bytes) -> bytes:
+        return hashlib.sha256(name.encode() + b"\n" + bytes([kind]) + public).digest()[:4]
+
+    def vkey(name: str, kind: int, public: bytes) -> str:
+        return f"{name}+{key_id(name, kind, public).hex()}+{b64(bytes([kind]) + public)}"
+
+    def seeded(name: str) -> ed25519.Ed25519PrivateKey:
+        return ed25519.Ed25519PrivateKey.from_private_bytes(hashlib.sha256(f"CexChain test key: {name}".encode()).digest())
+
+    raw = serialization.Encoding.Raw, serialization.PublicFormat.Raw
+    note_key = seeded("note")
+    note_public = note_key.public_key().public_bytes(*raw)
+    signed_note = note + "\n" + f"\u2014 {origin} {b64(key_id(origin, 1, note_public) + note_key.sign(note.encode()))}\n"
+
+    seen = 1_794_000_000  # the witnesses' time, POSIX seconds
+
+    def ed25519_cosignature(key, name: str, text: str, at: int) -> bytes:
+        public = key.public_key().public_bytes(*raw)
+        message = f"cosignature/v1\ntime {at}\n{text}".encode()
+        return key_id(name, 4, public) + struct.pack(">Q", at) + key.sign(message)
+
+    def subtree(name: str, at: int, tree_size: int, tree_root: bytes) -> bytes:
+        return (b"subtree/v1\n\0" + bytes([len(name)]) + name.encode() + struct.pack(">Q", at) +
+                bytes([len(origin)]) + origin.encode() + struct.pack(">QQ", 0, tree_size) + tree_root)
+
+    ed_name, ml_name = "witness.example/ed25519", "witness.example/ml-dsa-44"
+    ed_key = seeded("network witness ed25519")
+    ml_key = mldsa.MLDSA44PrivateKey.generate()
+    ed_public = ed_key.public_key().public_bytes(*raw)
+    ml_public = ml_key.public_key().public_bytes_raw()
+    ed_bytes = ed25519_cosignature(ed_key, ed_name, note, seen)
+    ml_bytes = key_id(ml_name, 6, ml_public) + struct.pack(">Q", seen) + ml_key.sign(subtree(ml_name, seen, size, root))
+    other_note = f"{origin}\n{size + 1}\n{b64(root)}\n"
+    cases = [
+        {"name": "ed25519", "description": "an Ed25519 cosignature of the note", "vkey": vkey(ed_name, 4, ed_public),
+         "cosigner": ed_name, "bytes": ed_bytes.hex(), "time": seen, "valid": True},
+        {"name": "ml-dsa-44", "description": "an ML-DSA-44 cosignature of the note (a CosignedSubtree from 0)",
+         "vkey": vkey(ml_name, 6, ml_public), "cosigner": ml_name, "bytes": ml_bytes.hex(), "time": seen,
+         "valid": True},
+        {"name": "another-size", "description": "an Ed25519 cosignature of a note of another size",
+         "vkey": vkey(ed_name, 4, ed_public), "cosigner": ed_name,
+         "bytes": ed25519_cosignature(ed_key, ed_name, other_note, seen).hex(), "time": seen, "valid": False},
+        {"name": "another-time", "description": "the Ed25519 cosignature with its time changed",
+         "vkey": vkey(ed_name, 4, ed_public), "cosigner": ed_name,
+         "bytes": (ed_bytes[:4] + struct.pack(">Q", seen + 1) + ed_bytes[12:]).hex(), "time": seen + 1,
+         "valid": False},
+    ]
+    anchor = cbor2.dumps({1: checkpoint, 4: [[ed_name, ed_bytes], [ml_name, ml_bytes]]}, canonical=True)
+    document = {
+        "description": "Open witness networks of specification revision v0.13 (section 10.2), written from "
+                       "c2sp.org's signed-note, tlog-checkpoint, tlog-cosignature, and tlog-witness with Python's "
+                       "`cryptography`. `note` is the checkpoint note of the SHA-256 ledger of protocol-v0.10.json "
+                       "(its signed checkpoint is `checkpoint`): the origin cirraya.com/cexchain/ followed by the "
+                       "ledger id in hex, the tree size, and the root in base64. `signed_note` adds the note key's "
+                       "log signature (Ed25519, type 0x01, key name the origin; its verifier key is `note_vkey`), "
+                       "and `add_checkpoint` is the body of a first add-checkpoint (old size 0, no proof). Each "
+                       "case is a witness's verifier key and the bytes of its note signature (key ID, 8-byte "
+                       "time, signature); `valid` says whether they verify against `note`. `anchor` is an "
+                       "evidence anchor (key 1 the checkpoint, key 4 the two valid cosignatures). `c2sp_example` "
+                       "is signed-note's own example: its verifier key verifies its note. Keys are throwaway: "
+                       "Ed25519 seed = SHA-256(\"CexChain test key: <name>\"); the ML-DSA-44 key is random, so "
+                       "its bytes change each time the vectors are made.",
+        "ledger_id": lg["ledger_id"],
+        "checkpoint": checkpoint.hex(),
+        "origin": origin,
+        "note": note,
+        "note_vkey": vkey(origin, 1, note_public),
+        "signed_note": signed_note,
+        "add_checkpoint": f"old 0\n\n{signed_note}",
+        "cases": cases,
+        "anchor": anchor.hex(),
+        "c2sp_example": {
+            "vkey": "example.com/foo+530d903a+AekyeRrm56hApGFkyQR4ZCbV54Id2LKaANYcrnKv3U2k",
+            "note": "This is an example message.\n",
+            "signature": "Uw2QOkn8srV1yJGh2VYRlL1Tnagv1YEq6TfXppzi2ONncAlTgK7Ztg1ERYNZXsYjOBH3mFXmRKuwHjG1Yu72IneyaQM=",
+        },
+    }
+    (OUT / "protocol-v0.13.json").write_text(json.dumps(document, indent=1, ensure_ascii=False) + "\n")
+    print(f"wrote {len(cases)} network cosignatures to testvectors/protocol-v0.13.json")
+
+
 # ---------------------------------------------------------------------------
 # Contract execution (spec section 14): the deterministic WebAssembly profile,
 # from the independent reference interpreter in wasm_ref.py
@@ -4043,6 +4146,7 @@ def main() -> None:
     generate_protocol_v09()
     generate_protocol_v10()
     generate_protocol_v11(args.openssl)
+    generate_protocol_v13()
     generate_vm_v1()
     import evidence_suite
     evidence_suite.generate(args.openssl)

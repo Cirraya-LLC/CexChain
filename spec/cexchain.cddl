@@ -1,7 +1,7 @@
 ; SPDX-License-Identifier: Apache-2.0
 ; Copyright 2026 Cirraya
 ;
-; The CexChain protocol (RFC 8610 CDDL). Specification revision v0.12 (draft); the
+; The CexChain protocol (RFC 8610 CDDL). Specification revision v0.13 (draft); the
 ; wire protocol version (statement key 0) is 1.
 ;
 ; Revision history:
@@ -54,6 +54,9 @@
 ;         bundle key 8). Earlier objects remain valid.
 ;   v0.12 clarifications, no new rule: sizes, non-empty values, orders, and
 ;         flags written down as both verifiers check them.
+;   v0.13 open witness networks (C2SP): their witnesses' cosignatures of a
+;         checkpoint's note in anchors (anchor key 4; key 2 becomes
+;         optional). Earlier objects remain valid.
 ;
 ; Every structure is encoded as deterministic CBOR (RFC 8949 section 4.2.1) in
 ; the CexChain profile: no floats, no indefinite lengths, no duplicate keys.
@@ -624,17 +627,29 @@ evidence-bundle = {
   ? 6 => [+ attachment-opening],
   ? 7 => [+ state-proof],      ; required when the bundle includes the state
                                ; commitment its checkpoint ends with
-  ? 8 => [+ anchor],           ; v0.11: time-stamped checkpoints at or
-                               ; before the bundle's (spec section 10.1)
+  ? 8 => [+ anchor],           ; v0.11: time-stamped or network-witnessed
+                               ; checkpoints at or before the bundle's
+                               ; (spec sections 10.1 and 10.2)
 }
-; A checkpoint with time-stamp authorities' tokens over its payload (v0.11).
+; A checkpoint with time-stamp authorities' tokens over its payload (v0.11),
+; open-network witnesses' cosignatures of its note (v0.13), or both: an
+; anchor has key 2, key 4, or both.
 anchor = {
   1 => bstr,                   ; the signed checkpoint (COSE_Sign1)
-  2 => [+ timestamp-token],
+  ? 2 => [+ timestamp-token],
   ? 3 => [+ bstr],             ; RFC 9162 consistency proof from its size to
                                ; the bundle's checkpoint; absent when they
                                ; are the same checkpoint
+  ? 4 => [+ note-cosignature], ; v0.13; never in an SM3 ledger's bundle
 }
+; A C2SP note signature on the checkpoint's note (spec section 10.2): the
+; cosigner's name, and the signature's bytes as the note line has them in
+; base64: a 4-byte key ID, an 8-byte big-endian time, and the signature
+; (Ed25519, type 0x04; ML-DSA-44, type 0x06).
+note-cosignature = [
+  name: tstr .size (1..255),
+  bytes: bstr .size (12..8192),
+]
 ; An RFC 3161 TimeStampToken: DER-encoded CMS SignedData whose
 ; messageImprint is the ledger's hash of the checkpoint's payload.
 timestamp-token = bstr
